@@ -40,13 +40,13 @@ export async function openRun(campaign: { id: string; hostClass: { requested: Ho
     blocks.push({ index, order, noisy, host: { loadPerCpu1m: loadPerCpu, foreignCpuPercent: snapshot.foreignCpuPercent } });
   }
   // Writes run.v2.json; a run whose sources changed is invalid, a run with a noisy block is flagged.
-  async function close<Cell extends { counts: Record<string, number> }>(fields: { lane: string; campaign: object; decisionIds: string[]; countUnit: 'attempt' | 'cell'; cells: Cell[]; binaryChanges: number | null }) {
+  async function close<Cell extends { counts: Record<string, number> }, Network = undefined>(fields: { lane: string; campaign: object; decisionIds: string[]; countUnit: 'attempt' | 'cell'; cells: Cell[]; binaryChanges: number | null; network?: Network }) {
     const postflight = options.hostSnapshot ?? await snapshotHost([process.pid]);
     const sourceChanges = provenance ? Object.entries(await sourceFingerprint()).filter(([path, hash]) => provenance.sourceHashes[path] !== hash).length : null;
     const totals = { verified: 0, failed: 0, timeout: 0, crashed: 0, aborted: 0, unsupported: 0, rejected: 0, unavailable: 0, skipped: 0 };
     for (const cell of fields.cells) for (const key of Object.keys(totals) as (keyof typeof totals)[]) totals[key] += cell.counts[key] ?? 0;
     const status = (sourceChanges ?? 0) > 0 || (fields.binaryChanges ?? 0) > 0 ? 'invalid-provenance' : blocks.some(block => block.noisy) ? 'noisy-host' : 'complete';
-    const run = {
+    const base = {
       schemaVersion: 2 as const, runId, lane: fields.lane,
       campaign: { id: campaign.id, source: options.source ?? null, sha256: createHash('sha256').update(JSON.stringify(fields.campaign)).digest('hex') },
       startedAt, decisionIds: fields.decisionIds,
@@ -56,6 +56,8 @@ export async function openRun(campaign: { id: string; hostClass: { requested: Ho
         preflight: { snapshot: preflight, gates: assessment.gates }, postflight: { snapshot: postflight } },
       status, countUnit: fields.countUnit, cells: fields.cells, totals, metricAvailability: availability, legacy: null, blocks
     };
+    // The network block exists only when a profile was applied, in memory as on disk.
+    const run = (fields.network === undefined ? base : { ...base, network: fields.network }) as typeof base & { network?: Network };
     await writeFile(join(directory, 'run.v2.json'), JSON.stringify(run, null, 1) + '\n');
     return run;
   }

@@ -9,14 +9,15 @@ export type Measure = { value: number | null; unit: string; source: string };
 // Sources that the harness or the adapter protocol provide on every platform.
 const builtin = new Set(['harness', 'adapter', 'ps']);
 // Probes that are planned but not implemented yet are reported as such, never approximated.
-const planned: Record<string, string> = { 'protocol-v2-usage': 'adapter protocol v2 usage reporting is not implemented yet', 'harness-pricing': 'pricing tables are not implemented yet', 'vm-hard-reset': 'requires the VM hard-reset harness' };
+const planned: Record<string, string> = { 'protocol-v2-usage': 'adapter protocol v2 usage reporting is not implemented yet', 'harness-pricing': 'pricing tables are not implemented yet', 'vm-hard-reset': 'requires the VM hard-reset harness',
+  'cgroup-v2-memory-peak': 'requires a per-run systemd scope on the reference host; the parser exists but the engine does not create the scope yet',
+  'cgroup-v2-cpu-stat': 'requires a per-run systemd scope on the reference host; the parser exists but the engine does not create the scope yet' };
 
 export function detectProbes(platform = process.platform): Record<string, boolean> {
   return {
     'proc_pid_rusage-v4': platform === 'darwin' && existsSync(join(labRoot, '.native/process-probe')),
     'smaps_rollup': platform === 'linux' && existsSync('/proc/self/smaps_rollup'),
-    'cgroup-v2-cpu-stat': platform === 'linux' && existsSync('/sys/fs/cgroup/cgroup.controllers'),
-    'cgroup-v2-memory-peak': platform === 'linux' && existsSync('/sys/fs/cgroup/cgroup.controllers')
+    'proc-stat': platform === 'linux' && existsSync('/proc/self/stat')
   };
 }
 

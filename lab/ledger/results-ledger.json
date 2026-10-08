@@ -1,6 +1,6 @@
 {
  "schemaVersion": 1,
- "classificationSha256": "fb4e73bcfdd5f686471edd04a2ee32a67873547b29e3b8a6dc5d6d71443e9d58",
+ "classificationSha256": "c18c277a715da218d474c7590df1406c0439703ba32d40899e6d252792f778ce",
  "entries": [
   {
    "runId": "smoke-2026-10-07T20-20-24-226Z-9ebb47",
@@ -3015,6 +3015,107 @@
     "hostClass": null
    },
    "imported": "results/runtime-faults-extended-2026-10-08T17-49-02-487Z-54a5e6/run.v2.json"
+  },
+  {
+   "runId": "extraction-quality-dev-2026-10-08T17-55-15-573Z-caa1d9",
+   "lane": "extraction",
+   "campaign": "extraction-quality-dev",
+   "startedAt": "2026-10-08T17:55:15.573Z",
+   "status": "complete",
+   "hostClass": "local-dev",
+   "role": "diagnostic",
+   "supersededBy": null,
+   "reason": "même campagne sur sources non commitées",
+   "validity": [
+    {
+     "scope": "all",
+     "class": "none",
+     "note": "sources non commitées"
+    }
+   ],
+   "decisionIds": [
+    "D-extraction"
+   ],
+   "citedIn": [],
+   "integrity": "uncatalogued",
+   "rerun": {
+    "required": false,
+    "priority": null,
+    "hostClass": null
+   },
+   "imported": "results/extraction-quality-dev-2026-10-08T17-55-15-573Z-caa1d9/run.v2.json"
+  },
+  {
+   "runId": "extraction-quality-dev-2026-10-08T17-58-37-038Z-ee347f",
+   "lane": "extraction",
+   "campaign": "extraction-quality-dev",
+   "startedAt": "2026-10-08T17:58:37.038Z",
+   "status": "complete",
+   "hostClass": "local-dev",
+   "role": "selected",
+   "supersededBy": null,
+   "reason": "qualité d'extraction WCXB, jeu de développement",
+   "validity": [
+    {
+     "scope": "quality",
+     "class": "A",
+     "note": "scores identiques à evaluate.py"
+    },
+    {
+     "scope": "timings",
+     "class": "C",
+     "note": "local-dev, machine en usage"
+    }
+   ],
+   "decisionIds": [
+    "D-extraction"
+   ],
+   "citedIn": [
+    "lab/reports/extraction-quality-2026-10-08.md"
+   ],
+   "integrity": "uncatalogued",
+   "rerun": {
+    "required": false,
+    "priority": null,
+    "hostClass": null
+   },
+   "imported": "results/extraction-quality-dev-2026-10-08T17-58-37-038Z-ee347f/run.v2.json"
+  },
+  {
+   "runId": "extraction-quality-test-2026-10-08T18-00-46-463Z-751a55",
+   "lane": "extraction",
+   "campaign": "extraction-quality-test",
+   "startedAt": "2026-10-08T18:00:46.463Z",
+   "status": "complete",
+   "hostClass": "local-dev",
+   "role": "selected",
+   "supersededBy": null,
+   "reason": "qualité d'extraction WCXB, jeu de test réservé",
+   "validity": [
+    {
+     "scope": "quality",
+     "class": "A",
+     "note": "scores identiques à evaluate.py"
+    },
+    {
+     "scope": "timings",
+     "class": "C",
+     "note": "local-dev, machine en usage"
+    }
+   ],
+   "decisionIds": [
+    "D-extraction"
+   ],
+   "citedIn": [
+    "lab/reports/extraction-quality-2026-10-08.md"
+   ],
+   "integrity": "uncatalogued",
+   "rerun": {
+    "required": false,
+    "priority": null,
+    "hostClass": null
+   },
+   "imported": "results/extraction-quality-test-2026-10-08T18-00-46-463Z-751a55/run.v2.json"
   }
  ]
 }

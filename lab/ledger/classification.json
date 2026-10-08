@@ -1278,6 +1278,158 @@
         "priority": null,
         "hostClass": null
       }
+    },
+    "browser-actionability-extended-2026-10-08T11-32-42-565Z-3212a3": {
+      "role": "diagnostic",
+      "reason": "matrice étendue, garde v1 ; sources modifiées pendant le run",
+      "supersededBy": null,
+      "decisionIds": [
+        "D-browser-driver"
+      ],
+      "validity": [
+        {
+          "scope": "all",
+          "class": "none",
+          "note": "provenance invalide"
+        }
+      ],
+      "noisyHost": false,
+      "rerun": {
+        "required": false,
+        "priority": null,
+        "hostClass": null
+      }
+    },
+    "browser-actionability-extended-2026-10-08T11-48-53-712Z-6d3e14": {
+      "role": "superseded",
+      "reason": "garde v2 avant le correctif d'échantillonnage : moving expire chez node-cdp",
+      "supersededBy": "browser-actionability-extended-2026-10-08T12-05-27-529Z-49432b",
+      "decisionIds": [
+        "D-browser-driver"
+      ],
+      "validity": [
+        {
+          "scope": "all",
+          "class": "none",
+          "note": "remplacé"
+        }
+      ],
+      "noisyHost": false,
+      "rerun": {
+        "required": false,
+        "priority": null,
+        "hostClass": null
+      }
+    },
+    "browser-actionability-extended-2026-10-08T12-05-27-529Z-49432b": {
+      "role": "selected",
+      "reason": "matrice d'actionnabilité étendue aux pilotes CDP, garde v2 avec échantillonnage par frame ou timer",
+      "supersededBy": null,
+      "decisionIds": [
+        "D-browser-driver"
+      ],
+      "validity": [
+        {
+          "scope": "guarded-conformance",
+          "class": "A",
+          "note": "tous les pilotes gardés 27/27 ; natifs sans garanties en échec comme attendu"
+        }
+      ],
+      "noisyHost": false,
+      "rerun": {
+        "required": false,
+        "priority": null,
+        "hostClass": null
+      }
+    },
+    "browser-driver-primitives-2026-10-08T11-42-40-378Z-c8b654": {
+      "role": "diagnostic",
+      "reason": "primitives avec la garde v1 : les pilotes gardés cliquent le leurre et le contrôle substitué",
+      "supersededBy": null,
+      "decisionIds": [
+        "D-browser-driver"
+      ],
+      "validity": [
+        {
+          "scope": "guard-gap",
+          "class": "A",
+          "note": "démontre le trou de la garde v1 sur moved et retarget"
+        },
+        {
+          "scope": "provenance",
+          "class": "none",
+          "note": "fichier de test ajouté pendant le run"
+        }
+      ],
+      "noisyHost": false,
+      "rerun": {
+        "required": false,
+        "priority": null,
+        "hostClass": null
+      }
+    },
+    "browser-driver-primitives-2026-10-08T11-58-10-523Z-81aec8": {
+      "role": "superseded",
+      "reason": "primitives, garde v2 avant le correctif d'échantillonnage",
+      "supersededBy": "browser-driver-primitives-2026-10-08T12-14-55-485Z-4b6074",
+      "decisionIds": [
+        "D-browser-driver"
+      ],
+      "validity": [
+        {
+          "scope": "all",
+          "class": "none",
+          "note": "remplacé"
+        }
+      ],
+      "noisyHost": false,
+      "rerun": {
+        "required": false,
+        "priority": null,
+        "hostClass": null
+      }
+    },
+    "browser-driver-primitives-2026-10-08T12-14-55-485Z-4b6074": {
+      "role": "selected",
+      "reason": "dix primitives, garde v2 : interception au moment du geste",
+      "supersededBy": null,
+      "decisionIds": [
+        "D-browser-driver"
+      ],
+      "validity": [
+        {
+          "scope": "primitives-conformance",
+          "class": "A",
+          "note": "pilotes gardés et Playwright natif 30/30 ; natifs sans interception échouent moved et retarget"
+        }
+      ],
+      "noisyHost": false,
+      "rerun": {
+        "required": false,
+        "priority": null,
+        "hostClass": null
+      }
+    },
+    "runtime-native-qualified-2026-10-08T12-18-18-121Z-34efb7": {
+      "role": "diagnostic",
+      "reason": "suite de qualification interrompue volontairement pour libérer la machine",
+      "supersededBy": null,
+      "decisionIds": [
+        "D-core-language"
+      ],
+      "validity": [
+        {
+          "scope": "all",
+          "class": "none",
+          "note": "suite interrompue"
+        }
+      ],
+      "noisyHost": false,
+      "rerun": {
+        "required": false,
+        "priority": null,
+        "hostClass": null
+      }
     }
   }
 }

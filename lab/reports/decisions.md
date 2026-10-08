@@ -6,8 +6,8 @@ Rapport généré par `pnpm lab report` depuis `decisions/` et `verdicts/`. Les 
 | --- | --- | --- | --- | --- | --- | --- |
 | D-agent-interface | open | pas encore calculé | | | requis local-controlled | oracle-exact |
 | D-ai-layer | open | pas encore calculé | | | requis local-controlled | false-success-count, oracle-exact |
-| D-browser-driver | open | rust-cdp-guarded / playwright-native : bloqué par un contrat |  | 0 | local-dev / requis local-controlled (non éligible) | actionability-conformance échec, false-success-count échec, oracle-exact échec |
-|  |  | node-cdp-guarded / playwright-native : bloqué par un contrat |  | 0 | local-dev / requis local-controlled (non éligible) | actionability-conformance échec, false-success-count échec, oracle-exact échec |
+| D-browser-driver | open | rust-cdp-guarded / playwright-native : bloqué par un contrat |  | 0 | local-dev / requis local-controlled (non éligible) | actionability-conformance ok, false-success-count ok, oracle-exact échec |
+|  |  | node-cdp-guarded / playwright-native : bloqué par un contrat |  | 0 | local-dev / requis local-controlled (non éligible) | actionability-conformance ok, false-success-count ok, oracle-exact échec |
 |  |  | puppeteer-guarded / playwright-native : bloqué par un contrat |  | 0 | local-dev / requis local-controlled (non éligible) | actionability-conformance ok, false-success-count ok, oracle-exact échec |
 | D-cloud-topology | deferred | pas encore calculé | | | requis reference | session-isolation, oracle-exact |
 | D-core-language | open | rust-tokio / node : blocs insuffisants | 0.511 [0.49 ; 0.536] (95% block bootstrap) | 3 sur 5 requis | local-dev / requis local-controlled (non éligible) | oracle-exact ok, recovery-exact ok |

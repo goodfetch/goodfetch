@@ -73,8 +73,31 @@
       "ref": "storage-shared-checkpoint-2026-10-07T22-24-20-072Z-de4c14"
     }
   ],
-  "verdictRef": null,
+  "verdictRef": "verdicts/D-core-language.json",
   "adr": "docs/adr/0001-runtime-language.md",
   "dependsOn": [],
-  "notes": "Débit attendu proche entre runtimes quand le travail attend le réseau ; le critère principal est donc le coût CPU par job vérifié, avec mémoire en métrique secondaire. Exiger un profil sans délai serveur pour ne pas masquer l'écart de calcul."
+  "notes": "Débit attendu proche entre runtimes quand le travail attend le réseau ; le critère principal est donc le coût CPU par job vérifié, avec mémoire en métrique secondaire. Exiger un profil sans délai serveur pour ne pas masquer l'écart de calcul.",
+  "analysis": {
+    "lane": "runtime",
+    "options": {
+      "rust-tokio": {
+        "runtime": "rust",
+        "backend": null,
+        "fault": null
+      },
+      "node": {
+        "runtime": "node",
+        "backend": null,
+        "fault": null
+      }
+    },
+    "pairBy": [
+      "concurrency",
+      "batchJobs"
+    ],
+    "stratum": {
+      "concurrency": 16,
+      "batchJobs": 1
+    }
+  }
 }

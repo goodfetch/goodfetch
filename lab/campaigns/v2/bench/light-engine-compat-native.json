@@ -1,0 +1,45 @@
+{
+  "schemaVersion": 2,
+  "id": "light-engine-compat-native",
+  "lane": "bench",
+  "decisionIds": [
+    "D-light-engine"
+  ],
+  "hostClass": {
+    "requested": "local-dev",
+    "allowDowngrade": true
+  },
+  "seed": 4141,
+  "blocks": 1,
+  "warmup": 0,
+  "iterations": 3,
+  "concurrency": 1,
+  "mode": "closed",
+  "timeoutMs": 10000,
+  "maxDurationMs": 600000,
+  "maxRestarts": 1,
+  "backends": [
+    "node-cdp",
+    "rust-cdp",
+    "puppeteer",
+    "playwright"
+  ],
+  "scenarios": [
+    "http-catalog",
+    "js-catalog",
+    "form",
+    "clicks",
+    "shadow"
+  ],
+  "fixtures": {
+    "pages": 2,
+    "actions": 3
+  },
+  "browserHost": "lightpanda",
+  "actionPolicies": {
+    "node-cdp": "native",
+    "rust-cdp": "native",
+    "puppeteer": "native",
+    "playwright": "native"
+  }
+}

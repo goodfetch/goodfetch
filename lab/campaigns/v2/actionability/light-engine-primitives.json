@@ -1,0 +1,42 @@
+{
+  "schemaVersion": 2,
+  "id": "light-engine-primitives",
+  "lane": "actionability",
+  "decisionIds": [
+    "D-light-engine"
+  ],
+  "hostClass": {
+    "requested": "local-dev",
+    "allowDowngrade": true
+  },
+  "config": {
+    "blocks": 2,
+    "seed": 4242,
+    "scenario": "primitives",
+    "browserEngine": "lightpanda",
+    "backends": [
+      "node-cdp",
+      "rust-cdp",
+      "puppeteer",
+      "playwright"
+    ],
+    "variants": [
+      "hover",
+      "dblclick",
+      "contextmenu",
+      "drag",
+      "wheel",
+      "keyboard",
+      "contenteditable",
+      "unicode",
+      "moved",
+      "retarget"
+    ],
+    "policies": [
+      "native",
+      "guarded"
+    ],
+    "timeoutMs": 1500,
+    "outerTimeoutMs": 15000
+  }
+}

@@ -1,0 +1,40 @@
+{
+  "schemaVersion": 2,
+  "id": "light-engine-actionability",
+  "lane": "actionability",
+  "decisionIds": [
+    "D-light-engine"
+  ],
+  "hostClass": {
+    "requested": "local-dev",
+    "allowDowngrade": true
+  },
+  "config": {
+    "blocks": 2,
+    "seed": 4242,
+    "browserEngine": "lightpanda",
+    "backends": [
+      "node-cdp",
+      "rust-cdp",
+      "puppeteer",
+      "playwright"
+    ],
+    "variants": [
+      "normal",
+      "overlay",
+      "delayed",
+      "hidden",
+      "moving",
+      "rerender",
+      "never-enabled",
+      "never-uncovered",
+      "ambiguous"
+    ],
+    "policies": [
+      "native",
+      "guarded"
+    ],
+    "timeoutMs": 800,
+    "outerTimeoutMs": 15000
+  }
+}

@@ -5,18 +5,21 @@ import {startFixtures,type RunSpec} from '../fixtures/server.ts';
 import {WorkerClient} from './worker-client.ts';
 import {commandFor,labRoot,type BackendName} from './registry.ts';
 import {environment,sourceFingerprint,copySourceSnapshot} from './environment.ts';
+import {launchLightpanda,lightpandaPath,type HostedBrowser} from './core/browser-host.ts';
 import {shuffle} from './statistics.ts';
 
 // The matrix lane runs one action per cell with a fresh adapter: the actionability variants, or the primitive actions.
-export type ActionabilityConfig={blocks:number;seed:number;backends:BackendName[];variants:NonNullable<RunSpec['variant']>[];policies:('native'|'guarded')[];timeoutMs:number;outerTimeoutMs:number;scenario?:'actionability'|'primitives'|'navigation'|'http-catalog';respectRobots?:boolean;insecureTls?:boolean};
+export type ActionabilityConfig={blocks:number;seed:number;backends:BackendName[];variants:NonNullable<RunSpec['variant']>[];policies:('native'|'guarded')[];timeoutMs:number;outerTimeoutMs:number;scenario?:'actionability'|'primitives'|'navigation'|'http-catalog';respectRobots?:boolean;insecureTls?:boolean;browserEngine?:'chromium'|'lightpanda'};
 export const defaultActionability=(blocks=3,policies:('native'|'guarded')[]=['native','guarded']):ActionabilityConfig=>({blocks,seed:4242,backends:['playwright','puppeteer','stagehand','stagehand-batch','crawlee-playwright','crawlee-stagehand'],variants:['normal','overlay','delayed','hidden','moving','rerender','never-enabled','never-uncovered','ambiguous'],policies,timeoutMs:800,outerTimeoutMs:8000});
 export type ActionabilityCell={backend:BackendName;variant:NonNullable<RunSpec['variant']>;policy:'native'|'guarded';scenario:'actionability'|'primitives'|'navigation'|'http-catalog'};
 export function actionabilityCombinations(config:ActionabilityConfig):ActionabilityCell[]{const scenario=config.scenario??'actionability';return config.backends.flatMap(backend=>config.variants.flatMap(variant=>config.policies.map(policy=>({backend,variant,policy,scenario}))))}
 // One actionability cell: fresh adapter and fixtures, one action, effect and refusal checked by the private oracle.
 export async function runActionabilityCell(config:ActionabilityConfig,cell:ActionabilityCell,block:number,executablePath:string):Promise<Record<string,unknown>>{
+  // With browserEngine lightpanda, every driver connects to a fresh Lightpanda server instead of launching Chromium.
+  const engine:HostedBrowser|undefined=config.browserEngine==='lightpanda'?await launchLightpanda(lightpandaPath(labRoot)):undefined;
   const fixtures=await startFixtures();const w=new WorkerClient(commandFor(cell.backend,config.outerTimeoutMs,executablePath));let startupMs=0;const started=performance.now();let info:unknown;
   try{
-    info=await w.call('hello',{});await w.call('prepare',{executablePath,headless:true,respectRobots:config.respectRobots??false,insecureTls:config.insecureTls??false},45000);startupMs=performance.now()-started;
+    info=await w.call('hello',{});await w.call('prepare',{executablePath,headless:true,respectRobots:config.respectRobots??false,insecureTls:config.insecureTls??false,...(engine?{cdpEndpoint:engine.wsEndpoint}:{})},45000);startupMs=performance.now()-started;
     // A catalog run spans three pages, so an incident on the second one is reached mid-crawl.
     const pages=cell.scenario==='http-catalog'?3:1;
     const fixture=await fixtures.createRun({scenario:cell.scenario,seed:config.seed+block,pages,variant:cell.variant});const began=performance.now();
@@ -26,7 +29,7 @@ export async function runActionabilityCell(config:ActionabilityConfig,cell:Actio
     catch(error){const verdict=fixtures.expectsRefusal(fixture.id)?await fixtures.verify(fixture.id,{error:String(error)}):{status:'failed',reasons:[String(error)]};row={...cell,block,...verdict,taskMs:performance.now()-began,...fixtures.snapshot(fixture.id)}}
     return {...row,startupMs,info};
   }catch(error){return {...cell,block,status:'startup-failed',reasons:[String(error)],startupMs:performance.now()-started,info}}
-  finally{await w.close();await fixtures.close()}
+  finally{await w.close();await fixtures.close();await engine?.close()}
 }
 export async function actionabilityCampaign(blocks=3,policies:('native'|'guarded')[]=['native','guarded'],config:ActionabilityConfig=defaultActionability(blocks,policies)){
   const id=`browser-actionability-${new Date().toISOString().replace(/[:.]/g,'-')}-${randomBytes(3).toString('hex')}`;const directory=join(labRoot,'results',id);await mkdir(directory,{recursive:true});

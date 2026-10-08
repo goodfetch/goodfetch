@@ -1,0 +1,39 @@
+{
+  "schemaVersion": 2,
+  "id": "light-engine-navigation",
+  "lane": "actionability",
+  "decisionIds": [
+    "D-light-engine"
+  ],
+  "hostClass": {
+    "requested": "local-dev",
+    "allowDowngrade": true
+  },
+  "config": {
+    "blocks": 2,
+    "seed": 4242,
+    "scenario": "navigation",
+    "browserEngine": "lightpanda",
+    "backends": [
+      "node-cdp",
+      "rust-cdp",
+      "puppeteer",
+      "playwright"
+    ],
+    "variants": [
+      "spa",
+      "history",
+      "popup",
+      "frame",
+      "cross-frame",
+      "upload",
+      "download"
+    ],
+    "policies": [
+      "native",
+      "guarded"
+    ],
+    "timeoutMs": 3000,
+    "outerTimeoutMs": 15000
+  }
+}

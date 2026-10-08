@@ -2426,6 +2426,95 @@
         "priority": null,
         "hostClass": null
       }
+    },
+    "ai-replay-repair-2026-10-08T18-32-22-360Z-37ef9d": {
+      "role": "diagnostic",
+      "reason": "version précédente du rejeu ou sources non commitées",
+      "supersededBy": null,
+      "decisionIds": [
+        "D-ai-layer"
+      ],
+      "validity": [
+        {
+          "scope": "all",
+          "class": "none",
+          "note": "rejeu validé étape par étape ou sources non commitées"
+        }
+      ],
+      "noisyHost": false,
+      "rerun": {
+        "required": false,
+        "priority": null,
+        "hostClass": null
+      }
+    },
+    "ai-replay-repair-2026-10-08T18-33-18-796Z-20040a": {
+      "role": "diagnostic",
+      "reason": "version précédente du rejeu ou sources non commitées",
+      "supersededBy": null,
+      "decisionIds": [
+        "D-ai-layer"
+      ],
+      "validity": [
+        {
+          "scope": "all",
+          "class": "none",
+          "note": "rejeu validé étape par étape ou sources non commitées"
+        }
+      ],
+      "noisyHost": false,
+      "rerun": {
+        "required": false,
+        "priority": null,
+        "hostClass": null
+      }
+    },
+    "ai-replay-repair-2026-10-08T18-34-35-116Z-9d2545": {
+      "role": "diagnostic",
+      "reason": "version précédente du rejeu ou sources non commitées",
+      "supersededBy": null,
+      "decisionIds": [
+        "D-ai-layer"
+      ],
+      "validity": [
+        {
+          "scope": "all",
+          "class": "none",
+          "note": "rejeu validé étape par étape ou sources non commitées"
+        }
+      ],
+      "noisyHost": false,
+      "rerun": {
+        "required": false,
+        "priority": null,
+        "hostClass": null
+      }
+    },
+    "ai-replay-repair-2026-10-08T18-36-20-202Z-8f0ce3": {
+      "role": "selected",
+      "reason": "couche IA : agent à chaque exécution contre rejeu compilé, dérive silencieuse, faux modèle",
+      "supersededBy": null,
+      "decisionIds": [
+        "D-ai-layer"
+      ],
+      "validity": [
+        {
+          "scope": "replay-contract",
+          "class": "A",
+          "note": "zéro faux succès, comptage de tokens identique côté modèle"
+        },
+        {
+          "scope": "cost",
+          "class": "B",
+          "note": "faux modèle, table de prix datée"
+        }
+      ],
+      "noisyHost": false,
+      "rerun": {
+        "required": false,
+        "priority": null,
+        "hostClass": null
+      }
     }
   }
 }

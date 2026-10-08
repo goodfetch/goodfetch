@@ -48,7 +48,13 @@
     "agentic-comparison",
     "silent-drift"
   ],
-  "evidence": [],
+  "evidence": [
+    {
+      "kind": "run",
+      "ref": "ai-replay-repair-2026-10-08T18-36-20-202Z-8f0ce3",
+      "note": "rejeu compilé et dérive silencieuse, faux modèle"
+    }
+  ],
   "verdictRef": null,
   "adr": null,
   "dependsOn": [

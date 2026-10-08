@@ -2216,6 +2216,216 @@
         "priority": null,
         "hostClass": null
       }
+    },
+    "light-engine-actionability-2026-10-08T18-05-49-043Z-f0bb5d": {
+      "role": "diagnostic",
+      "reason": "même campagne sur sources non commitées",
+      "supersededBy": null,
+      "decisionIds": [
+        "D-light-engine"
+      ],
+      "validity": [
+        {
+          "scope": "all",
+          "class": "none",
+          "note": "sources non commitées"
+        }
+      ],
+      "noisyHost": false,
+      "rerun": {
+        "required": false,
+        "priority": null,
+        "hostClass": null
+      }
+    },
+    "light-engine-actionability-2026-10-08T18-17-53-360Z-1d5ca3": {
+      "role": "selected",
+      "reason": "compatibilité de Lightpanda 1.0.0 avec les pilotes, scénarios et oracles du lab",
+      "supersededBy": null,
+      "decisionIds": [
+        "D-light-engine"
+      ],
+      "validity": [
+        {
+          "scope": "engine-compatibility",
+          "class": "A",
+          "note": "faux succès sous garde sur calque et cible ambiguë ; iframes, popups, téléchargement absents"
+        }
+      ],
+      "noisyHost": false,
+      "rerun": {
+        "required": false,
+        "priority": null,
+        "hostClass": null
+      }
+    },
+    "light-engine-compat-guarded-2026-10-08T18-04-38-930Z-569382": {
+      "role": "diagnostic",
+      "reason": "même campagne sur sources non commitées",
+      "supersededBy": null,
+      "decisionIds": [
+        "D-light-engine"
+      ],
+      "validity": [
+        {
+          "scope": "all",
+          "class": "none",
+          "note": "sources non commitées"
+        }
+      ],
+      "noisyHost": false,
+      "rerun": {
+        "required": false,
+        "priority": null,
+        "hostClass": null
+      }
+    },
+    "light-engine-compat-guarded-2026-10-08T18-17-15-329Z-6d44f1": {
+      "role": "selected",
+      "reason": "compatibilité de Lightpanda 1.0.0 avec les pilotes, scénarios et oracles du lab",
+      "supersededBy": null,
+      "decisionIds": [
+        "D-light-engine"
+      ],
+      "validity": [
+        {
+          "scope": "engine-compatibility",
+          "class": "A",
+          "note": "faux succès sous garde sur calque et cible ambiguë ; iframes, popups, téléchargement absents"
+        }
+      ],
+      "noisyHost": false,
+      "rerun": {
+        "required": false,
+        "priority": null,
+        "hostClass": null
+      }
+    },
+    "light-engine-compat-native-2026-10-08T18-04-04-641Z-9c880a": {
+      "role": "diagnostic",
+      "reason": "même campagne sur sources non commitées",
+      "supersededBy": null,
+      "decisionIds": [
+        "D-light-engine"
+      ],
+      "validity": [
+        {
+          "scope": "all",
+          "class": "none",
+          "note": "sources non commitées"
+        }
+      ],
+      "noisyHost": false,
+      "rerun": {
+        "required": false,
+        "priority": null,
+        "hostClass": null
+      }
+    },
+    "light-engine-compat-native-2026-10-08T18-16-40-008Z-f659d1": {
+      "role": "selected",
+      "reason": "compatibilité de Lightpanda 1.0.0 avec les pilotes, scénarios et oracles du lab",
+      "supersededBy": null,
+      "decisionIds": [
+        "D-light-engine"
+      ],
+      "validity": [
+        {
+          "scope": "engine-compatibility",
+          "class": "A",
+          "note": "faux succès sous garde sur calque et cible ambiguë ; iframes, popups, téléchargement absents"
+        }
+      ],
+      "noisyHost": false,
+      "rerun": {
+        "required": false,
+        "priority": null,
+        "hostClass": null
+      }
+    },
+    "light-engine-navigation-2026-10-08T18-09-44-266Z-9355b8": {
+      "role": "diagnostic",
+      "reason": "même campagne sur sources non commitées",
+      "supersededBy": null,
+      "decisionIds": [
+        "D-light-engine"
+      ],
+      "validity": [
+        {
+          "scope": "all",
+          "class": "none",
+          "note": "sources non commitées"
+        }
+      ],
+      "noisyHost": false,
+      "rerun": {
+        "required": false,
+        "priority": null,
+        "hostClass": null
+      }
+    },
+    "light-engine-navigation-2026-10-08T18-21-06-891Z-318afe": {
+      "role": "selected",
+      "reason": "compatibilité de Lightpanda 1.0.0 avec les pilotes, scénarios et oracles du lab",
+      "supersededBy": null,
+      "decisionIds": [
+        "D-light-engine"
+      ],
+      "validity": [
+        {
+          "scope": "engine-compatibility",
+          "class": "A",
+          "note": "faux succès sous garde sur calque et cible ambiguë ; iframes, popups, téléchargement absents"
+        }
+      ],
+      "noisyHost": false,
+      "rerun": {
+        "required": false,
+        "priority": null,
+        "hostClass": null
+      }
+    },
+    "light-engine-primitives-2026-10-08T18-07-32-791Z-e50594": {
+      "role": "diagnostic",
+      "reason": "même campagne sur sources non commitées",
+      "supersededBy": null,
+      "decisionIds": [
+        "D-light-engine"
+      ],
+      "validity": [
+        {
+          "scope": "all",
+          "class": "none",
+          "note": "sources non commitées"
+        }
+      ],
+      "noisyHost": false,
+      "rerun": {
+        "required": false,
+        "priority": null,
+        "hostClass": null
+      }
+    },
+    "light-engine-primitives-2026-10-08T18-19-11-980Z-d7f0e3": {
+      "role": "selected",
+      "reason": "compatibilité de Lightpanda 1.0.0 avec les pilotes, scénarios et oracles du lab",
+      "supersededBy": null,
+      "decisionIds": [
+        "D-light-engine"
+      ],
+      "validity": [
+        {
+          "scope": "engine-compatibility",
+          "class": "A",
+          "note": "faux succès sous garde sur calque et cible ambiguë ; iframes, popups, téléchargement absents"
+        }
+      ],
+      "noisyHost": false,
+      "rerun": {
+        "required": false,
+        "priority": null,
+        "hostClass": null
+      }
     }
   }
 }

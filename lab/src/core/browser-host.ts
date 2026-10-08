@@ -32,3 +32,20 @@ export async function launchBrowser(executablePath: string, timeoutMs = 30_000):
 
 // The same endpoint reached through another host and port, such as a latency proxy in front of the browser.
 export const throughProxy = (wsEndpoint: string, proxy: { host: string; port: number }) => { const url = new URL(wsEndpoint); url.hostname = proxy.host; url.port = String(proxy.port); return url.href; };
+
+// Lightpanda (AGPL-3.0, so always out of process): a CDP server without rendering, pinned under .toolchains.
+export const lightpandaPath = (root: string) => join(root, '.toolchains/lightpanda/1.0.0/lightpanda-aarch64-macos');
+export async function launchLightpanda(binary: string, timeoutMs = 15_000): Promise<HostedBrowser> {
+  const { createServer } = await import('node:net');
+  const port = await new Promise<number>(resolve => { const probe = createServer(); probe.listen(0, '127.0.0.1', () => { const free = (probe.address() as { port: number }).port; probe.close(() => resolve(free)); }); });
+  const child = spawn(binary, ['serve', '--host', '127.0.0.1', '--port', String(port), '--disable-metrics'], { stdio: ['ignore', 'ignore', 'ignore'] });
+  const exited = new Promise<void>(resolve => child.once('exit', () => resolve()));
+  const close = async () => { if (child.exitCode === null && child.signalCode === null) { child.kill('SIGTERM'); const timer = setTimeout(() => child.kill('SIGKILL'), 5000); await exited; clearTimeout(timer); } };
+  const deadline = performance.now() + timeoutMs;
+  while (performance.now() < deadline) {
+    try { const response = await fetch(`http://127.0.0.1:${port}/json/version`); if (response.ok) { const { webSocketDebuggerUrl } = await response.json() as { webSocketDebuggerUrl?: string }; return { pid: child.pid!, wsEndpoint: webSocketDebuggerUrl ?? `ws://127.0.0.1:${port}/`, port, close }; } } catch { /* not listening yet */ }
+    if (child.exitCode !== null) break;
+    await new Promise(resolve => setTimeout(resolve, 50));
+  }
+  await close(); throw new Error('Lightpanda did not expose a CDP endpoint in time');
+}

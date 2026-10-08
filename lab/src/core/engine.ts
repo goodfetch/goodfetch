@@ -15,7 +15,8 @@ import { startOracle, type Oracle } from './oracle.ts';
 import { detectProbes, type Measure } from './metrics/registry.ts';
 import { openRun, type RunOptions } from './run-context.ts';
 import { calibrate, startLatencyProxy, networkAvailability, type Calibration } from '../net/latency-proxy.ts';
-import { launchBrowser, throughProxy, type HostedBrowser } from './browser-host.ts';
+import { launchBrowser, launchLightpanda, lightpandaPath, throughProxy, type HostedBrowser } from './browser-host.ts';
+import { labRoot } from '../registry.ts';
 import { loadRegistry } from './decisions.ts';
 import type { Scenario } from '../../fixtures/server.ts';
 
@@ -78,7 +79,7 @@ export async function runEngine(campaign: BenchCampaign, options: EngineOptions 
   let network: { link: string; profile: { rttMs: number }; calibration: Calibration } | undefined;
   let proxy: Awaited<ReturnType<typeof startLatencyProxy>> | null = null;
   // A driver-browser profile needs a browser the harness launched, so the shaped link sits between driver and browser.
-  const harnessBrowser = campaign.browserHost === 'harness' || campaign.network?.link === 'driver-browser';
+  const harnessBrowser = campaign.browserHost === 'harness' || campaign.browserHost === 'lightpanda' || campaign.network?.link === 'driver-browser';
   if (campaign.network) {
     const calibration = await calibrate(campaign.network.rttMs);
     Object.assign(context.availability, networkAvailability(loadRegistry().metrics, calibration));
@@ -104,7 +105,7 @@ export async function runEngine(campaign: BenchCampaign, options: EngineOptions 
         // The harness browser is sampled with the adapter, so browser CPU and memory count for every driver alike.
         let hosted: HostedBrowser | undefined, driverProxy: Awaited<ReturnType<typeof startLatencyProxy>> | undefined, browserSampler: { stop(): unknown } | undefined, cdpEndpoint: string | undefined;
         if (harnessBrowser) {
-          try { hosted = await launchBrowser(executablePath ?? browserPath()); } catch (error) { throw new LabError('E_STARTUP', `harness browser: ${(error as Error).message}`, { cause: error }); }
+          try { hosted = campaign.browserHost === 'lightpanda' ? await launchLightpanda(lightpandaPath(labRoot)) : await launchBrowser(executablePath ?? browserPath()); } catch (error) { throw new LabError('E_STARTUP', `harness browser: ${(error as Error).message}`, { cause: error }); }
           browserSampler = sample(hosted.pid);
           if (campaign.network?.link === 'driver-browser') driverProxy = await startLatencyProxy({ host: '127.0.0.1', port: hosted.port, rttMs: campaign.network.rttMs });
           cdpEndpoint = driverProxy ? throughProxy(hosted.wsEndpoint, driverProxy) : hosted.wsEndpoint;
@@ -169,7 +170,7 @@ export async function runEngine(campaign: BenchCampaign, options: EngineOptions 
   await writes;
   // One cell per backend, scenario and block, so verdicts can pair blocks.
   const cells = Array.from({ length: campaign.blocks }, (_, block) => block).flatMap(block => campaign.backends.flatMap(backend => campaign.scenarios.map(scenario => summarizeCell(`${backend}:${scenario}`, block,
-    { backend, scenario, block, policy: policyOf(backend), rttMs: campaign.network?.rttMs ?? 0, browserHost: harnessBrowser ? 'harness' : 'adapter' },
+    { backend, scenario, block, policy: policyOf(backend), rttMs: campaign.network?.rttMs ?? 0, browserHost: campaign.browserHost === 'lightpanda' ? 'lightpanda' : harnessBrowser ? 'harness' : 'adapter' },
     attempts, windows, cellResources.get(`${backend}:${scenario}:b${block}`) ?? [], startups.get(`${backend}:b${block}`) ?? [], harnessBrowser, measureOf))));
   const run = await context.close({ lane: 'bench', campaign, decisionIds: campaign.decisionIds, countUnit: 'attempt', cells, binaryChanges: null, network });
   return { directory, run, attempts };

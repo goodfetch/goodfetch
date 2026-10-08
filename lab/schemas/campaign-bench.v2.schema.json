@@ -37,7 +37,7 @@
       }
     },
     "poolWake": { "enum": ["poll", "notify"] },
-    "browserHost": { "enum": ["adapter", "harness"] },
+    "browserHost": { "enum": ["adapter", "harness", "lightpanda"] },
     "actionPolicies": { "type": "object", "additionalProperties": { "enum": ["native", "guarded"] } }
   }
 }

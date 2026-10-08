@@ -41,7 +41,8 @@
     "access-policy",
     "identity-coherence",
     "policy-fixtures",
-    "session-isolation"
+    "session-isolation",
+    "tls-fingerprint"
   ],
   "evidence": [
     {
@@ -52,6 +53,11 @@
       "kind": "run",
       "ref": "access-policy-2026-10-08T17-27-03-497Z-f99eb0",
       "note": "robots.txt et challenge en 200"
+    },
+    {
+      "kind": "run",
+      "ref": "tls-fingerprint-2026-10-08T17-42-02-124Z-1dec60",
+      "note": "empreintes TLS et HTTP/2"
     }
   ],
   "verdictRef": null,

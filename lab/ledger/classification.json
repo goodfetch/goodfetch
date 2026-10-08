@@ -2037,6 +2037,70 @@
         "priority": null,
         "hostClass": null
       }
+    },
+    "tls-fingerprint-2026-10-08T17-35-35-196Z-050e48": {
+      "role": "diagnostic",
+      "reason": "mise au point de la fixture TLS ou sources non commitées",
+      "supersededBy": null,
+      "decisionIds": [
+        "D-identity"
+      ],
+      "validity": [
+        {
+          "scope": "all",
+          "class": "none",
+          "note": "fixture en cours de mise au point"
+        }
+      ],
+      "noisyHost": false,
+      "rerun": {
+        "required": false,
+        "priority": null,
+        "hostClass": null
+      }
+    },
+    "tls-fingerprint-2026-10-08T17-40-56-581Z-c17f5a": {
+      "role": "diagnostic",
+      "reason": "mise au point de la fixture TLS ou sources non commitées",
+      "supersededBy": null,
+      "decisionIds": [
+        "D-identity"
+      ],
+      "validity": [
+        {
+          "scope": "all",
+          "class": "none",
+          "note": "fixture en cours de mise au point"
+        }
+      ],
+      "noisyHost": false,
+      "rerun": {
+        "required": false,
+        "priority": null,
+        "hostClass": null
+      }
+    },
+    "tls-fingerprint-2026-10-08T17-42-02-124Z-1dec60": {
+      "role": "selected",
+      "reason": "empreintes TLS (JA4) et HTTP/2 de huit clients, cohérence de session",
+      "supersededBy": null,
+      "decisionIds": [
+        "D-identity",
+        "D-http-transport"
+      ],
+      "validity": [
+        {
+          "scope": "identity-coherence",
+          "class": "A",
+          "note": "Crawlee change d'empreinte en cours de session ; Chrome varie entre lancements"
+        }
+      ],
+      "noisyHost": false,
+      "rerun": {
+        "required": false,
+        "priority": null,
+        "hostClass": null
+      }
     }
   }
 }

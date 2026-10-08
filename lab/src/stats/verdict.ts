@@ -59,7 +59,7 @@ const gatePredicates: Record<string, (cells: Cell[]) => boolean> = {
   // A negative variant must be refused without effect; any other outcome is a false success.
   'false-success-count': cells => { const negatives = cells.filter(cell => negativeVariants.includes(String(cell.factors.variant))); return negatives.length > 0 && negatives.every(cell => cell.status === 'verified'); }
 };
-const negativeVariants = ['never-enabled', 'never-uncovered', 'ambiguous'];
+const negativeVariants = ['never-enabled', 'never-uncovered', 'ambiguous', 'retarget'];
 
 export async function evaluateDecision(decision: Decision, { registry, root = labRoot }: { registry: Registry; root?: string }) {
   const analysis = decision.analysis;

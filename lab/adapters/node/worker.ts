@@ -11,7 +11,7 @@ const require = createRequire(import.meta.url);
 let browser: Browser | undefined, puppeteerBrowser: PuppeteerBrowser | undefined;
 let stagehandBrowser: StagehandBrowser | undefined, stagehand: Stagehand | undefined;
 let crawlee: typeof import('crawlee') | undefined;
-let options: { executablePath?: string; headless?: boolean } = {};
+let options: { executablePath?: string; headless?: boolean } = {}; let connected = false;
 const capabilities = backend.includes('http') ? ['http-catalog'] : ['http-catalog', 'js-catalog', 'form', 'clicks','actionability', ...(backend === 'puppeteer' ? [] : ['shadow'])];
 function version(packageName: string) { return JSON.parse(readFileSync(require.resolve(`${packageName}/package.json`), 'utf8')).version as string; }
 function config() { return new crawlee!.Configuration({ persistStorage: false, storageClient: new crawlee!.MemoryStorage({ persistStorage: false }) }); }
@@ -23,6 +23,13 @@ const adapter: Adapter = {
     // Lab scheduler options belong to the adapter, not to native launch schemas.
     options = {executablePath:input.executablePath,headless:input.headless??true};
     if (backend.startsWith('crawlee')) { crawlee = await import('crawlee'); crawlee.log.setLevel(crawlee.log.LEVELS.ERROR); }
+    // A harness browser is shared by every driver of the campaign: connect to it instead of launching one.
+    if (input.cdpEndpoint) {
+      if (backend === 'playwright') { const {chromium}=await import('playwright'); browser = await chromium.connectOverCDP(input.cdpEndpoint); }
+      else if (backend === 'puppeteer') { const {default:puppeteer}=await import('puppeteer-core'); puppeteerBrowser = await puppeteer.connect({ browserWSEndpoint: input.cdpEndpoint, defaultViewport: null }); }
+      else throw new Error(`${backend} cannot drive a harness browser`);
+      connected = true; return;
+    }
     if (backend === 'playwright') { const {chromium}=await import('playwright'); browser = await chromium.launch(options); }
     if (backend === 'puppeteer') { const {default:puppeteer}=await import('puppeteer-core'); puppeteerBrowser = await puppeteer.launch(options); }
     if (backend.startsWith('stagehand')) {
@@ -114,7 +121,8 @@ const adapter: Adapter = {
     }
     throw new Error('adapter not prepared');
   },
-  async close() { await stagehand?.close(); await stagehandBrowser?.close(); await browser?.close(); await puppeteerBrowser?.close(); }
+  // Playwright's close on a CDP connection only disconnects; Puppeteer needs an explicit disconnect.
+  async close() { await stagehand?.close(); await stagehandBrowser?.close(); await browser?.close(); if (connected) await puppeteerBrowser?.disconnect(); else await puppeteerBrowser?.close(); }
 };
 function wrapPlaywright(page: import('playwright').Page): BrowserPage {
   return { goto: url => page.goto(url, { waitUntil: 'domcontentloaded' }), evaluate: async <T>(script: string) => await page.evaluate(script) as T,

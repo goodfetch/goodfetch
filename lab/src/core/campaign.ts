@@ -8,6 +8,8 @@ export type BenchCampaign = {
   timeoutMs: number; maxDurationMs: number; maxRestarts: number; backends: string[]; scenarios: string[];
   fixtures: { pages: number; actions: number; delayMs?: number; variants?: string[] }; poolWake?: 'poll' | 'notify';
   network?: { link: 'browser-origin' | 'driver-browser'; rttMs: number };
+  // 'harness' launches one Chromium per backend and block and hands drivers its DevTools endpoint.
+  browserHost?: 'adapter' | 'harness'; actionPolicies?: Record<string, 'native' | 'guarded'>;
 };
 
 export function toLegacyBench(campaign: BenchCampaign): Campaign {

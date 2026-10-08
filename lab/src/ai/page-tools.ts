@@ -4,7 +4,7 @@ import type { CdpPage } from '../../adapters/cdp-node/cdp.ts';
 import { observeScript } from './agent.ts';
 
 export const toolDefinitions = [
-  { name: 'observe', description: 'List the interactive elements of the page, each with a numeric ref, its tag, type, label, text and plan.', parameters: { type: 'object', properties: {}, additionalProperties: false } },
+  { name: 'observe', description: 'List the interactive elements of the page (numeric ref, tag, type, label, text, plan) and the status messages the page shows.', parameters: { type: 'object', properties: {}, additionalProperties: false } },
   { name: 'fill', description: 'Type a value into the text field with this ref.', parameters: { type: 'object', properties: { ref: { type: 'integer' }, value: { type: 'string' } }, required: ['ref', 'value'], additionalProperties: false } },
   { name: 'select', description: 'Choose an option value in the select element with this ref.', parameters: { type: 'object', properties: { ref: { type: 'integer' }, value: { type: 'string' } }, required: ['ref', 'value'], additionalProperties: false } },
   { name: 'click', description: 'Click the element with this ref (buttons, checkboxes).', parameters: { type: 'object', properties: { ref: { type: 'integer' } }, required: ['ref'], additionalProperties: false } },
@@ -23,7 +23,9 @@ export class PageTools {
     if (name === 'observe') {
       const elements = await this.page.evaluate<({ ref: number; selector: string } & Record<string, unknown>)[]>(observeScript);
       this.refs = new Map(elements.map(e => [e.ref, e.selector]));
-      return JSON.stringify(elements.map(({ selector: _selector, ...rest }) => rest));
+      // Status messages (output, role=status, aria-live) let an agent see the outcome of what it did.
+      const status = await this.page.evaluate<string[]>(`Array.from(document.querySelectorAll('output,[role=status],[aria-live]'),el=>el.textContent.trim()).filter(Boolean)`);
+      return JSON.stringify({ elements: elements.map(({ selector: _selector, ...rest }) => rest), status });
     }
     if (name === 'fill') { await this.page.fill(this.selector(args.ref), String(args.value ?? '')); return 'ok'; }
     if (name === 'select') { await this.page.select(this.selector(args.ref), String(args.value ?? '')); return 'ok'; }

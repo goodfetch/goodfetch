@@ -80,12 +80,15 @@ async function runInterfaceCell(config: AiConfig, cell: AiCell & { interface: In
         await page.goto(fixture.url); await page.evaluate(waitScript(condition('body-ready'), config.timeoutMs));
         const began = performance.now();
         const result = await runInterface(cell.interface, page, { wsEndpoint: browser.wsEndpoint, targetId: page.targetId }, task, endpoint);
-        const elapsed = performance.now() - began; await new Promise(resolve => setTimeout(resolve, 50));
+        const elapsed = performance.now() - began;
+        // A booking is judged once the page confirms it (or after 2 s): an agent may declare done the instant it clicks.
+        if (task.kind === 'book') await page.evaluate(waitScript(condition('done'), 2000)).catch(() => {});
+        await new Promise(resolve => setTimeout(resolve, 50));
         turns += result.turns; toolCalls += result.toolCalls; tokens += result.promptTokens + result.completionTokens; usd += result.costUsd;
         const output = result.finished ? { task: task.kind, ...(result.value !== undefined ? { value: result.value } : {}) } : { task: task.kind, error: result.error ?? 'the agent did not finish' };
         const verdict = await fixtures.verify(fixture.id, output);
         if (verdict.status === 'verified') { verified++; taskMs.push(elapsed); }
-        else if (result.finished) { falseSuccess++; reasons.push(`r${repeat}: ${verdict.reasons.join('; ')}`); }
+        else if (result.finished) { falseSuccess++; reasons.push(`r${repeat}: ${verdict.reasons.join('; ')} | ${result.trace.slice(-3).join(' | ')}`); }
         else { unfinished++; reasons.push(`r${repeat}: ${String(output.error).slice(0, 160)} | ${result.trace.slice(-4).join(' | ')}`); }
       } finally { await page.close(); }
     }

@@ -118,8 +118,9 @@ export async function runInterface(kind: Interface, page: CdpPage, browser: { ws
         const message = await chat(endpoint, messages, undefined, result);
         const code = (message.content ?? '').replace(/^```[a-z]*\n?|```\s*$/gm, '').trim();
         messages.push({ role: 'assistant', content: message.content ?? '' });
-        try { await runInNewContext(`(async () => {\n${code}\n})()`, { page: api }, { timeout: 2000 }); }
-        catch (error) { messages.push({ role: 'user', content: `The code failed: ${error instanceof Error ? error.message : String(error)}. Answer with corrected code only.` }); }
+        result.trace.push(`code: ${code.replace(/\s+/g, ' ').slice(0, 300)}`);
+        try { await runInNewContext(`(async () => {\n${code}\n})()`, { page: api }, { timeout: 2000 }); if (!tools.finished) messages.push({ role: 'user', content: 'The code ran but did not call page.done(). Answer with corrected code only.' }); }
+        catch (error) { result.trace.push(`error: ${error instanceof Error ? error.message : String(error)}`); messages.push({ role: 'user', content: `The code failed: ${error instanceof Error ? error.message : String(error)}. Answer with corrected code only.` }); }
       }
       result.toolCalls = tools.calls - 1; result.finished = tools.finished; result.value = tools.value;
     }

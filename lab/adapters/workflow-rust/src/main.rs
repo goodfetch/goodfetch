@@ -1,6 +1,11 @@
+mod admission;
 mod coordinator;
 mod ledger;
 fn main() {
+    if std::env::args().nth(1).as_deref() == Some("admission") {
+        admission::serve();
+        return;
+    }
     if std::env::args().nth(1).as_deref() == Some("sink") {
         ledger::serve();
         return;

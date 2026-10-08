@@ -16,6 +16,7 @@ import { actionabilityCombinations, runActionabilityCell, type ActionabilityConf
 import { readersMatrix, runReadersCell, type ReadersConfig } from '../sqlite-readers-campaign.ts';
 import { aiCombinations, runAiCell, type AiConfig, type AiCell } from '../ai-campaign.ts';
 import { identityCombinations, runIdentityCell, httpTiers, identityVariants, type IdentityConfig, type IdentityCell } from '../identity-campaign.ts';
+import { admissionCombinations, runAdmissionCell, admissionBinary, type AdmissionConfig, type AdmissionCell } from '../admission-campaign.ts';
 import { extractionCombinations, runExtractionCell, type ExtractionConfig, type ExtractionCell } from '../extraction-campaign.ts';
 import { isSharedEngine, sharedBuildMetadata } from '../storage-engines.ts';
 
@@ -74,6 +75,14 @@ export const drivers: Record<LaneName, LaneDriver> = {
     blocks: config => (config as IdentityConfig).blocks, seed: config => (config as IdentityConfig).seed,
     combinations: config => identityCombinations(config as IdentityConfig) as unknown as Json[], label: cell => `${cell.httpTier}/${cell.profile}/${cell.purpose}/${cell.variant}`,
     runCell: (config, cell, block) => runIdentityCell(config as IdentityConfig, cell as unknown as IdentityCell, block) as Promise<Json>
+  },
+  admission: {
+    validate: config => { const c = config as AdmissionConfig; if (!c || !Array.isArray(c.policies) || !c.policies.length || !c.policies.every(p => p === 'fifo-global' || p === 'fair-domain') || typeof c.scenario !== 'string' || !Array.isArray(c.domains) || !c.domains.length || !c.domains.every(d => /^[a-z0-9-]{1,40}$/.test(d.name) && d.ratePerSecond > 0 && d.ratePerSecond <= 2000) || !integer(c.durationMs, 100, 120_000) || !integer(c.serviceMs, 0, 10_000) || !integer(c.workers, 1, 512) || !integer(c.domainLimit, 1, 512) || !integer(c.capacity, 1, 100_000) || !integer(c.domainCapacity, 1, 100_000) || !integer(c.batchMax, 1, 4096) || !integer(c.blocks, 1, 20) || !integer(c.seed, 0, 2 ** 32 - 1) || !integer(c.timeoutMs, 100, 120_000)) throw new Error('invalid admission campaign'); },
+    blocks: config => (config as AdmissionConfig).blocks, seed: config => (config as AdmissionConfig).seed,
+    combinations: config => admissionCombinations(config as AdmissionConfig) as unknown as Json[], label: cell => `${cell.policy}/${cell.scenario}`,
+    prepare: () => hashFile(admissionBinary()),
+    runCell: (config, cell, block, directory) => runAdmissionCell(config as AdmissionConfig, cell as unknown as AdmissionCell, block, directory) as Promise<Json>,
+    binaryChanges: async (_config, before) => before !== await hashFile(admissionBinary()) ? 1 : 0
   },
   extraction: {
     validate: config => { const c = config as ExtractionConfig; if (!c || !['dev', 'test'].includes(c.split) || !Array.isArray(c.extractors) || !c.extractors.length || !c.extractors.every(e => (backendNames as readonly string[]).includes(e)) || !Array.isArray(c.pageTypes) || !c.pageTypes.length || !integer(c.blocks, 1, 5) || !integer(c.seed, 0, 2 ** 32 - 1)) throw new Error('invalid extraction campaign'); },

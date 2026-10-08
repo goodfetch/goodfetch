@@ -26,7 +26,7 @@ fn string(v: &Value, key: &str) -> Result<String, String> {
         .map(str::to_owned)
         .ok_or(format!("missing {key}"))
 }
-struct Database(*mut c_void);
+pub(crate) struct Database(*mut c_void);
 impl Drop for Database {
     fn drop(&mut self) {
         unsafe {
@@ -42,7 +42,7 @@ impl Database {
                 .into_owned()
         }
     }
-    fn exec(&self, sql: &str) -> Result<(), String> {
+    pub(crate) fn exec(&self, sql: &str) -> Result<(), String> {
         let sql = CString::new(sql).map_err(|e| e.to_string())?;
         if unsafe { lab_exec(self.0, sql.as_ptr()) } != 0 {
             Err(self.error())
@@ -50,7 +50,7 @@ impl Database {
             Ok(())
         }
     }
-    fn query(&self, sql: &str, params: Value) -> Result<Value, String> {
+    pub(crate) fn query(&self, sql: &str, params: Value) -> Result<Value, String> {
         let sql = CString::new(sql).map_err(|e| e.to_string())?;
         let params = CString::new(params.to_string()).map_err(|e| e.to_string())?;
         self.parse(unsafe { lab_query(self.0, sql.as_ptr(), params.as_ptr()) })
@@ -65,7 +65,7 @@ impl Database {
         unsafe { lab_free(p.cast()) };
         result
     }
-    fn tx<T>(&self, work: impl FnOnce() -> Result<T, String>) -> Result<T, String> {
+    pub(crate) fn tx<T>(&self, work: impl FnOnce() -> Result<T, String>) -> Result<T, String> {
         self.exec("BEGIN IMMEDIATE")?;
         match work() {
             Ok(v) => {
@@ -129,6 +129,13 @@ fn canonical(v: &Value) -> Result<(Value, String), String> {
     let normalized = json!(records);
     let digest = format!("{:x}", Sha256::digest(normalized.to_string().as_bytes()));
     Ok((normalized, digest))
+}
+// A journal connection for another runtime mode, opened like the sink's (WAL, full sync, 5 s busy timeout).
+pub(crate) fn open_journal(path: &str) -> Result<Database, String> {
+    let path = CString::new(path).map_err(|e| e.to_string())?;
+    let format = CString::new("sqlite-wal-full").unwrap();
+    let handle = unsafe { lab_open(path.as_ptr(), format.as_ptr(), 5000) };
+    if handle.is_null() { Err("database open failed".into()) } else { Ok(Database(handle)) }
 }
 static DB_PATH: std::sync::OnceLock<String> = std::sync::OnceLock::new();
 // Another connection holds the write lock from its own thread, so the sink's busy wait is real contention.

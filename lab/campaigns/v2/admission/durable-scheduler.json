@@ -1,0 +1,52 @@
+{
+  "schemaVersion": 2,
+  "lane": "admission",
+  "hostClass": {
+    "requested": "local-dev",
+    "allowDowngrade": true
+  },
+  "id": "durable-scheduler",
+  "decisionIds": [
+    "D-durable-runtime",
+    "D-scheduling"
+  ],
+  "config": {
+    "policies": [
+      "fifo-global",
+      "fair-domain"
+    ],
+    "durationMs": 4000,
+    "serviceMs": 20,
+    "workers": 8,
+    "domainLimit": 2,
+    "capacity": 64,
+    "domainCapacity": 16,
+    "batchMax": 256,
+    "blocks": 5,
+    "timeoutMs": 10000,
+    "scenario": "flood",
+    "seed": 4242,
+    "domains": [
+      {
+        "name": "heavy",
+        "ratePerSecond": 300,
+        "light": false
+      },
+      {
+        "name": "light-1",
+        "ratePerSecond": 15,
+        "light": true
+      },
+      {
+        "name": "light-2",
+        "ratePerSecond": 15,
+        "light": true
+      },
+      {
+        "name": "light-3",
+        "ratePerSecond": 15,
+        "light": true
+      }
+    ]
+  }
+}

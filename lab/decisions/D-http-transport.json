@@ -68,6 +68,7 @@
   },
   "networkProfiles": [],
   "campaigns": [
+    "access-policy",
     "http-capacity",
     "http-incidents",
     "http-transport-incidents"
@@ -94,6 +95,11 @@
       "kind": "run",
       "ref": "http-incidents-2026-10-08T17-07-35-305Z-73011e",
       "note": "incidents HTTP"
+    },
+    {
+      "kind": "run",
+      "ref": "access-policy-2026-10-08T17-15-34-616Z-cad714",
+      "note": "robots.txt et challenge en 200"
     }
   ],
   "verdictRef": null,

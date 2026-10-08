@@ -1,0 +1,35 @@
+{
+  "schemaVersion": 2,
+  "id": "access-policy",
+  "lane": "actionability",
+  "decisionIds": [
+    "D-identity",
+    "D-http-transport"
+  ],
+  "hostClass": {
+    "requested": "local-dev",
+    "allowDowngrade": true
+  },
+  "config": {
+    "blocks": 3,
+    "seed": 8181,
+    "scenario": "http-catalog",
+    "respectRobots": true,
+    "backends": [
+      "node-http",
+      "crawlee-http",
+      "crawlee-http-pooled",
+      "spider-http"
+    ],
+    "variants": [
+      "normal",
+      "robots-disallow",
+      "challenge-200"
+    ],
+    "policies": [
+      "native"
+    ],
+    "timeoutMs": 2000,
+    "outerTimeoutMs": 20000
+  }
+}

@@ -1,6 +1,6 @@
 {
  "schemaVersion": 1,
- "classificationSha256": "037fc215d3e24eaaffc6cb3c23fac078e58f68e22afdd857737d2b439da406e3",
+ "classificationSha256": "174d0da170bf1067d8ccc68a18b3e3610fc32c1ccdf54e555b8af159551df2d7",
  "entries": [
   {
    "runId": "smoke-2026-10-07T20-20-24-226Z-9ebb47",
@@ -2654,6 +2654,96 @@
     "hostClass": null
    },
    "imported": "results/http-incidents-2026-10-08T17-07-35-305Z-73011e/run.v2.json"
+  },
+  {
+   "runId": "access-policy-2026-10-08T17-12-08-988Z-a84605",
+   "lane": "actionability",
+   "campaign": "access-policy",
+   "startedAt": "2026-10-08T17:12:08.988Z",
+   "status": "complete",
+   "hostClass": "local-dev",
+   "role": "diagnostic",
+   "supersededBy": null,
+   "reason": "matrice d'accès avant correction de la fixture de challenge ou sur sources non commitées",
+   "validity": [
+    {
+     "scope": "all",
+     "class": "none",
+     "note": "fixture incomplète ou sources non commitées"
+    }
+   ],
+   "decisionIds": [
+    "D-identity"
+   ],
+   "citedIn": [],
+   "integrity": "uncatalogued",
+   "rerun": {
+    "required": false,
+    "priority": null,
+    "hostClass": null
+   },
+   "imported": "results/access-policy-2026-10-08T17-12-08-988Z-a84605/run.v2.json"
+  },
+  {
+   "runId": "access-policy-2026-10-08T17-13-44-790Z-ab211d",
+   "lane": "actionability",
+   "campaign": "access-policy",
+   "startedAt": "2026-10-08T17:13:44.790Z",
+   "status": "complete",
+   "hostClass": "local-dev",
+   "role": "diagnostic",
+   "supersededBy": null,
+   "reason": "matrice d'accès avant correction de la fixture de challenge ou sur sources non commitées",
+   "validity": [
+    {
+     "scope": "all",
+     "class": "none",
+     "note": "fixture incomplète ou sources non commitées"
+    }
+   ],
+   "decisionIds": [
+    "D-identity"
+   ],
+   "citedIn": [],
+   "integrity": "uncatalogued",
+   "rerun": {
+    "required": false,
+    "priority": null,
+    "hostClass": null
+   },
+   "imported": "results/access-policy-2026-10-08T17-13-44-790Z-ab211d/run.v2.json"
+  },
+  {
+   "runId": "access-policy-2026-10-08T17-15-34-616Z-cad714",
+   "lane": "actionability",
+   "campaign": "access-policy",
+   "startedAt": "2026-10-08T17:15:34.616Z",
+   "status": "complete",
+   "hostClass": "local-dev",
+   "role": "selected",
+   "supersededBy": null,
+   "reason": "robots.txt et page de challenge servie en 200 (ADR-002)",
+   "validity": [
+    {
+     "scope": "access-contract",
+     "class": "A",
+     "note": "aucun backend ne détecte le challenge ; node-http ignore robots.txt"
+    }
+   ],
+   "decisionIds": [
+    "D-identity",
+    "D-http-transport"
+   ],
+   "citedIn": [
+    "lab/reports/access-policy-2026-10-08.md"
+   ],
+   "integrity": "uncatalogued",
+   "rerun": {
+    "required": false,
+    "priority": null,
+    "hostClass": null
+   },
+   "imported": "results/access-policy-2026-10-08T17-15-34-616Z-cad714/run.v2.json"
   }
  ]
 }

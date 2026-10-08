@@ -26,7 +26,8 @@
         "workflow",
         "runtime",
         "actionability",
-        "sqlite-readers"
+        "sqlite-readers",
+        "extraction"
       ]
     },
     "decisionIds": {

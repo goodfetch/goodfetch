@@ -183,12 +183,18 @@ importers:
       '@browserbasehq/stagehand':
         specifier: 4.1.0
         version: 4.1.0
+      '@mozilla/readability':
+        specifier: 0.6.0
+        version: 0.6.0
       crawlee:
         specifier: 3.18.2
         version: 3.18.2(@types/node@26.6.4)(bufferutil@4.1.0)(idcac-playwright@0.2.0)(playwright@1.63.0)(supports-color@7.2.0)
       impit:
         specifier: 0.14.5
         version: 0.14.5
+      linkedom:
+        specifier: 0.18.13
+        version: 0.18.13
       playwright:
         specifier: 1.63.0
         version: 1.63.0
@@ -543,6 +549,10 @@ packages:
     peerDependenciesMeta:
       '@cfworker/json-schema':
         optional: true
+
+  '@mozilla/readability@0.6.0':
+    resolution: {integrity: sha512-juG5VWh4qAivzTAeMzvY9xs9HY5rAcr2E4I7tiSSCokRFi7XIZCAu92ZkSTsIj1OPceCifL3cpfteP3pDT9/QQ==}
+    engines: {node: '>=14.0.0'}
 
   '@opentelemetry/api@1.9.0':
     resolution: {integrity: sha512-3giAOQvZiH5F9bMlMiv8+GSPMeqg0dbaeo58/0SlA9sxSqZhnUtxzX9/2FzyhS9sWQf5S0GJE0AKBrFqjpeYcg==}
@@ -3101,6 +3111,8 @@ snapshots:
       zod-to-json-schema: 3.25.2(zod@3.25.76)
     transitivePeerDependencies:
       - supports-color
+
+  '@mozilla/readability@0.6.0': {}
 
   '@opentelemetry/api@1.9.0': {}
 

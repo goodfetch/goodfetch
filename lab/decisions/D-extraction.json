@@ -51,10 +51,23 @@
   },
   "networkProfiles": [],
   "campaigns": [
-    "parsing-representative",
-    "extraction-quality-t1"
+    "extraction-quality-dev",
+    "extraction-quality-t1",
+    "extraction-quality-test",
+    "parsing-representative"
   ],
-  "evidence": [],
+  "evidence": [
+    {
+      "kind": "run",
+      "ref": "extraction-quality-test-2026-10-08T18-00-46-463Z-751a55",
+      "note": "WCXB test réservé"
+    },
+    {
+      "kind": "run",
+      "ref": "extraction-quality-dev-2026-10-08T17-58-37-038Z-ee347f",
+      "note": "WCXB développement"
+    }
+  ],
   "verdictRef": null,
   "adr": null,
   "dependsOn": [],

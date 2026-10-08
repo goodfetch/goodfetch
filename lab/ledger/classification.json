@@ -2143,6 +2143,79 @@
         "priority": null,
         "hostClass": null
       }
+    },
+    "extraction-quality-dev-2026-10-08T17-55-15-573Z-caa1d9": {
+      "role": "diagnostic",
+      "reason": "même campagne sur sources non commitées",
+      "supersededBy": null,
+      "decisionIds": [
+        "D-extraction"
+      ],
+      "validity": [
+        {
+          "scope": "all",
+          "class": "none",
+          "note": "sources non commitées"
+        }
+      ],
+      "noisyHost": false,
+      "rerun": {
+        "required": false,
+        "priority": null,
+        "hostClass": null
+      }
+    },
+    "extraction-quality-dev-2026-10-08T17-58-37-038Z-ee347f": {
+      "role": "selected",
+      "reason": "qualité d'extraction WCXB, jeu de développement",
+      "supersededBy": null,
+      "decisionIds": [
+        "D-extraction"
+      ],
+      "validity": [
+        {
+          "scope": "quality",
+          "class": "A",
+          "note": "scores identiques à evaluate.py"
+        },
+        {
+          "scope": "timings",
+          "class": "C",
+          "note": "local-dev, machine en usage"
+        }
+      ],
+      "noisyHost": false,
+      "rerun": {
+        "required": false,
+        "priority": null,
+        "hostClass": null
+      }
+    },
+    "extraction-quality-test-2026-10-08T18-00-46-463Z-751a55": {
+      "role": "selected",
+      "reason": "qualité d'extraction WCXB, jeu de test réservé",
+      "supersededBy": null,
+      "decisionIds": [
+        "D-extraction"
+      ],
+      "validity": [
+        {
+          "scope": "quality",
+          "class": "A",
+          "note": "scores identiques à evaluate.py"
+        },
+        {
+          "scope": "timings",
+          "class": "C",
+          "note": "local-dev, machine en usage"
+        }
+      ],
+      "noisyHost": false,
+      "rerun": {
+        "required": false,
+        "priority": null,
+        "hostClass": null
+      }
     }
   }
 }

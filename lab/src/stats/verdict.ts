@@ -57,9 +57,15 @@ const gatePredicates: Record<string, (cells: Cell[]) => boolean> = {
   'recovery-exact': cells => cells.some(cell => typeof cell.factors.fault === 'string' && cell.factors.fault !== 'none') && cells.every(cell => cell.status === 'verified'),
   'admission-no-loss': cells => cells.length > 0 && cells.every(cell => cell.status === 'verified'),
   // A negative variant must be refused without effect; any other outcome is a false success.
-  'false-success-count': cells => { const negatives = cells.filter(cell => negativeVariants.includes(String(cell.factors.variant))); return negatives.length > 0 && negatives.every(cell => cell.status === 'verified'); }
+  'false-success-count': cells => { const negatives = cells.filter(cell => negativeVariants.includes(String(cell.factors.variant))); return negatives.length > 0 && negatives.every(cell => cell.status === 'verified'); },
+  // Identity gates read the variants that test them; each identity cell is judged on the contract of its variant.
+  'identity-coherence': cells => ofVariants(cells, ['coherent', 'key-rotation', 'key-revoked']),
+  'policy-compliance': cells => ofVariants(cells, policyVariants),
+  'session-isolation': cells => ofVariants(cells, ['isolation'])
 };
-const negativeVariants = ['never-enabled', 'never-uncovered', 'ambiguous', 'retarget'];
+const policyVariants = ['robots-path', 'robots-agent', 'crawl-delay', 'content-signal', 'tdmrep-file', 'tdmrep-header', 'noai-meta', 'paid-402', 'denied-403', 'challenge-page', 'retry-429'];
+const negativeVariants = ['never-enabled', 'never-uncovered', 'ambiguous', 'retarget', 'robots-path', 'robots-agent', 'content-signal', 'tdmrep-file', 'tdmrep-header', 'noai-meta', 'paid-402', 'denied-403', 'challenge-page'];
+const ofVariants = (cells: Cell[], variants: string[]) => { const own = cells.filter(cell => variants.includes(String(cell.factors.variant))); return own.length > 0 && own.every(cell => cell.status === 'verified'); };
 
 export async function evaluateDecision(decision: Decision, { registry, root = labRoot }: { registry: Registry; root?: string }) {
   const analysis = decision.analysis;

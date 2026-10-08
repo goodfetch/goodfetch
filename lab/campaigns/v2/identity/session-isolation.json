@@ -1,0 +1,33 @@
+{
+  "schemaVersion": 2,
+  "lane": "identity",
+  "decisionIds": [
+    "D-identity"
+  ],
+  "hostClass": {
+    "requested": "local-dev",
+    "allowDowngrade": true
+  },
+  "id": "session-isolation",
+  "config": {
+    "httpTiers": [
+      "node-https",
+      "impit-chrome",
+      "browser-fetch"
+    ],
+    "profiles": [
+      "identified",
+      "standard"
+    ],
+    "purposes": [
+      "search"
+    ],
+    "variants": [
+      "isolation"
+    ],
+    "repeats": 3,
+    "blocks": 3,
+    "seed": 3333,
+    "timeoutMs": 20000
+  }
+}

@@ -6,7 +6,7 @@ import { join } from 'node:path';
 import { pointScript, focusScript, selectScript, frameOffsetScript } from '../browser-scripts/scripts.ts';
 import type { BrowserPage } from '../node/browser-tasks.ts';
 
-type Message = { id?: number; method?: string; params?: Record<string, unknown>; sessionId?: string; result?: Record<string, unknown>; error?: { message: string } };
+export type Message = { id?: number; method?: string; params?: Record<string, unknown>; sessionId?: string; result?: Record<string, unknown>; error?: { message: string } };
 
 export class CdpConnection {
   private nextId = 1;
@@ -50,6 +50,8 @@ export class CdpConnection {
     });
     return { promise, cancel: () => { this.listeners.delete(listener); clearTimeout(timer); } };
   }
+  // A standing subscription, for events handled over the whole life of a page such as paused requests.
+  on(listener: (message: Message) => void) { this.listeners.add(listener); return () => { this.listeners.delete(listener); }; }
   close() { this.socket.close(); }
 }
 

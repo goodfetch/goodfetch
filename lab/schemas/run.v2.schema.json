@@ -38,6 +38,7 @@
         "sqlite-readers",
         "extraction",
         "ai",
+        "identity",
         "suite"
       ]
     },

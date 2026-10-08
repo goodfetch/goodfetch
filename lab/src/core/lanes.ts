@@ -15,6 +15,7 @@ import { runRuntimeCell, type RuntimeCampaign } from '../runtime-campaign.ts';
 import { actionabilityCombinations, runActionabilityCell, type ActionabilityConfig, type ActionabilityCell } from '../actionability-campaign.ts';
 import { readersMatrix, runReadersCell, type ReadersConfig } from '../sqlite-readers-campaign.ts';
 import { aiCombinations, runAiCell, type AiConfig, type AiCell } from '../ai-campaign.ts';
+import { identityCombinations, runIdentityCell, httpTiers, identityVariants, type IdentityConfig, type IdentityCell } from '../identity-campaign.ts';
 import { extractionCombinations, runExtractionCell, type ExtractionConfig, type ExtractionCell } from '../extraction-campaign.ts';
 import { isSharedEngine, sharedBuildMetadata } from '../storage-engines.ts';
 
@@ -67,6 +68,12 @@ export const drivers: Record<LaneName, LaneDriver> = {
     blocks: config => (config as AiConfig).blocks, seed: config => (config as AiConfig).seed,
     combinations: config => aiCombinations(config as AiConfig) as unknown as Json[], label: cell => `${cell.mode}/${cell.variant}`,
     runCell: (config, cell, block) => runAiCell(config as AiConfig, cell as unknown as AiCell, block) as Promise<Json>
+  },
+  identity: {
+    validate: config => { const c = config as IdentityConfig; if (!c || !Array.isArray(c.httpTiers) || !c.httpTiers.length || !c.httpTiers.every(t => httpTiers.includes(t)) || !Array.isArray(c.profiles) || !c.profiles.length || !c.profiles.every(p => p === 'identified' || p === 'standard') || !Array.isArray(c.purposes) || !c.purposes.length || !c.purposes.every(p => ['search', 'ai-input', 'ai-train', 'agent', 'data-collection', 'transact'].includes(p)) || !Array.isArray(c.variants) || !c.variants.length || !c.variants.every(v => (identityVariants as readonly string[]).includes(v)) || !integer(c.repeats, 1, 50) || !integer(c.blocks, 1, 20) || !integer(c.seed, 0, 2 ** 32 - 1) || !integer(c.timeoutMs, 1000, 120_000)) throw new Error('invalid identity campaign'); },
+    blocks: config => (config as IdentityConfig).blocks, seed: config => (config as IdentityConfig).seed,
+    combinations: config => identityCombinations(config as IdentityConfig) as unknown as Json[], label: cell => `${cell.httpTier}/${cell.profile}/${cell.purpose}/${cell.variant}`,
+    runCell: (config, cell, block) => runIdentityCell(config as IdentityConfig, cell as unknown as IdentityCell, block) as Promise<Json>
   },
   extraction: {
     validate: config => { const c = config as ExtractionConfig; if (!c || !['dev', 'test'].includes(c.split) || !Array.isArray(c.extractors) || !c.extractors.length || !c.extractors.every(e => (backendNames as readonly string[]).includes(e)) || !Array.isArray(c.pageTypes) || !c.pageTypes.length || !integer(c.blocks, 1, 5) || !integer(c.seed, 0, 2 ** 32 - 1)) throw new Error('invalid extraction campaign'); },

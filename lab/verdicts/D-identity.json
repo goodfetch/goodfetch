@@ -1,0 +1,233 @@
+{
+ "schemaVersion": 1,
+ "decisionId": "D-identity",
+ "metricId": "task-p50-ms-verified",
+ "direction": "lower",
+ "rule": {
+  "kind": "non-inferiority",
+  "alpha": 0.05,
+  "power": 0.8,
+  "noisyBlockPolicy": "exclude"
+ },
+ "delta": {
+  "kind": "ratio",
+  "value": 0.1
+ },
+ "option": "impit-chrome",
+ "baseline": "browser-fetch",
+ "stratum": {
+  "variant": "coherent",
+  "profile": "identified",
+  "purpose": "search"
+ },
+ "outcome": "blocked-by-contract",
+ "n": 0,
+ "margin": 0.09531017980432493,
+ "requiredN": null,
+ "estimate": null,
+ "gates": [
+  {
+   "id": "identity-coherence",
+   "ok": false,
+   "evaluated": true
+  },
+  {
+   "id": "policy-compliance",
+   "ok": true,
+   "evaluated": true
+  },
+  {
+   "id": "false-success-count",
+   "ok": true,
+   "evaluated": true
+  },
+  {
+   "id": "session-isolation",
+   "ok": true,
+   "evaluated": true
+  }
+ ],
+ "host": {
+  "required": "local-controlled",
+  "observed": "local-dev",
+  "eligible": false
+ },
+ "comparisons": [
+  {
+   "option": "impit-chrome",
+   "baseline": "browser-fetch",
+   "stratum": {
+    "variant": "coherent",
+    "profile": "identified",
+    "purpose": "search"
+   },
+   "outcome": "blocked-by-contract",
+   "n": 0,
+   "margin": 0.09531017980432493,
+   "requiredN": null,
+   "estimate": null,
+   "gates": [
+    {
+     "id": "identity-coherence",
+     "ok": false,
+     "evaluated": true
+    },
+    {
+     "id": "policy-compliance",
+     "ok": true,
+     "evaluated": true
+    },
+    {
+     "id": "false-success-count",
+     "ok": true,
+     "evaluated": true
+    },
+    {
+     "id": "session-isolation",
+     "ok": true,
+     "evaluated": true
+    }
+   ],
+   "host": {
+    "required": "local-controlled",
+    "observed": "local-dev",
+    "eligible": false
+   }
+  },
+  {
+   "option": "impit-chrome",
+   "baseline": "browser-fetch",
+   "stratum": {
+    "variant": "coherent",
+    "profile": "standard",
+    "purpose": "search"
+   },
+   "outcome": "blocked-by-contract",
+   "n": 0,
+   "margin": 0.09531017980432493,
+   "requiredN": null,
+   "estimate": null,
+   "gates": [
+    {
+     "id": "identity-coherence",
+     "ok": false,
+     "evaluated": true
+    },
+    {
+     "id": "policy-compliance",
+     "ok": true,
+     "evaluated": true
+    },
+    {
+     "id": "false-success-count",
+     "ok": true,
+     "evaluated": true
+    },
+    {
+     "id": "session-isolation",
+     "ok": true,
+     "evaluated": true
+    }
+   ],
+   "host": {
+    "required": "local-controlled",
+    "observed": "local-dev",
+    "eligible": false
+   }
+  },
+  {
+   "option": "node-https",
+   "baseline": "browser-fetch",
+   "stratum": {
+    "variant": "coherent",
+    "profile": "identified",
+    "purpose": "search"
+   },
+   "outcome": "blocked-by-contract",
+   "n": 0,
+   "margin": 0.09531017980432493,
+   "requiredN": null,
+   "estimate": null,
+   "gates": [
+    {
+     "id": "identity-coherence",
+     "ok": false,
+     "evaluated": true
+    },
+    {
+     "id": "policy-compliance",
+     "ok": true,
+     "evaluated": true
+    },
+    {
+     "id": "false-success-count",
+     "ok": true,
+     "evaluated": true
+    },
+    {
+     "id": "session-isolation",
+     "ok": true,
+     "evaluated": true
+    }
+   ],
+   "host": {
+    "required": "local-controlled",
+    "observed": "local-dev",
+    "eligible": false
+   }
+  },
+  {
+   "option": "node-https",
+   "baseline": "browser-fetch",
+   "stratum": {
+    "variant": "coherent",
+    "profile": "standard",
+    "purpose": "search"
+   },
+   "outcome": "blocked-by-contract",
+   "n": 0,
+   "margin": 0.09531017980432493,
+   "requiredN": null,
+   "estimate": null,
+   "gates": [
+    {
+     "id": "identity-coherence",
+     "ok": false,
+     "evaluated": true
+    },
+    {
+     "id": "policy-compliance",
+     "ok": true,
+     "evaluated": true
+    },
+    {
+     "id": "false-success-count",
+     "ok": true,
+     "evaluated": true
+    },
+    {
+     "id": "session-isolation",
+     "ok": true,
+     "evaluated": true
+    }
+   ],
+   "host": {
+    "required": "local-controlled",
+    "observed": "local-dev",
+    "eligible": false
+   }
+  }
+ ],
+ "inputs": {
+  "runs": [],
+  "considered": [
+   "access-policy-2026-10-08T17-27-03-497Z-f99eb0",
+   "tls-fingerprint-2026-10-08T17-42-02-124Z-1dec60",
+   "identity-coherence-2026-10-08T19-08-09-611Z-deb797",
+   "policy-fixtures-2026-10-08T19-11-08-127Z-31838d",
+   "session-isolation-2026-10-08T19-15-24-150Z-001cf2"
+  ],
+  "missing": [],
+  "ledgerSha256": "2c3e6fbf7517791802562c9a712419d52869d5cf98bf8ed1bdea3f79b227e0ab"
+ }
+}

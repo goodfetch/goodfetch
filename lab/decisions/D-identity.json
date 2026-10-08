@@ -1,16 +1,24 @@
 {
   "id": "D-identity",
   "title": "Identité réseau et profils d'accès",
-  "question": "Le moteur maintient-il une identité cohérente et des profils identified/standard/stealth conformes à l'ADR-002 ?",
+  "question": "Quel transport sert le tier HTTP d'une session qui garde un seul profil d'identité entre HTTP et navigateur, conformément à l'ADR-002 ?",
   "kind": "technical",
   "status": "open",
   "options": [
     {
-      "id": "session-identity-profile",
-      "description": "Profil d'identité porté par la session, conservé entre tiers"
+      "id": "browser-fetch",
+      "description": "Tier HTTP exécuté par le navigateur de la session (chargement de document sans script) : TLS, HTTP/2 et en-têtes du navigateur"
+    },
+    {
+      "id": "impit-chrome",
+      "description": "Tier HTTP par Impit en émulation Chrome, en-têtes recopiés du navigateur de la session"
+    },
+    {
+      "id": "node-https",
+      "description": "Tier HTTP par le client HTTPS de Node, en-têtes recopiés du navigateur de la session"
     }
   ],
-  "baseline": "session-identity-profile",
+  "baseline": "browser-fetch",
   "primaryMetric": {
     "metricId": "task-p50-ms-verified",
     "blockStatistic": "median"
@@ -58,10 +66,65 @@
       "kind": "run",
       "ref": "tls-fingerprint-2026-10-08T17-42-02-124Z-1dec60",
       "note": "empreintes TLS et HTTP/2"
+    },
+    {
+      "kind": "run",
+      "ref": "identity-coherence-2026-10-08T19-08-09-611Z-deb797",
+      "note": "cohérence entre tiers, rotation et révocation"
+    },
+    {
+      "kind": "run",
+      "ref": "policy-fixtures-2026-10-08T19-11-08-127Z-31838d",
+      "note": "préférences des sites et signaux d'arrêt"
+    },
+    {
+      "kind": "run",
+      "ref": "session-isolation-2026-10-08T19-15-24-150Z-001cf2",
+      "note": "isolation de deux sessions"
+    },
+    {
+      "kind": "research-doc",
+      "ref": "lab/reports/identity-2026-10-08.md"
     }
   ],
   "verdictRef": null,
   "adr": "docs/adr/0002-access-identity-stealth.md",
   "dependsOn": [],
-  "notes": "Décision de contrat avant tout : la métrique de performance sert seulement à vérifier que la signature et la cohérence n'ajoutent pas un coût excessif."
+  "notes": "Décision de contrat avant tout : la session porte un seul profil ; la mesure de durée dit ce que coûte la cohérence quand le tier HTTP passe par le navigateur. Une session qui ne s'escalade jamais vers le navigateur n'a pas de contrainte de cohérence entre tiers.",
+  "analysis": {
+    "lane": "identity",
+    "options": {
+      "browser-fetch": {
+        "httpTier": "browser-fetch"
+      },
+      "impit-chrome": {
+        "httpTier": "impit-chrome"
+      },
+      "node-https": {
+        "httpTier": "node-https"
+      }
+    },
+    "pairBy": [
+      "variant",
+      "profile",
+      "purpose"
+    ],
+    "stratum": {
+      "variant": "coherent",
+      "profile": "identified",
+      "purpose": "search"
+    },
+    "strata": [
+      {
+        "variant": "coherent",
+        "profile": "identified",
+        "purpose": "search"
+      },
+      {
+        "variant": "coherent",
+        "profile": "standard",
+        "purpose": "search"
+      }
+    ]
+  }
 }

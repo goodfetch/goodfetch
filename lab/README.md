@@ -85,6 +85,8 @@ La lane `extraction` (D-extraction) mesure la qualité d'extraction du contenu p
 
 `browserHost: "lightpanda"` (bench) et `config.browserEngine: "lightpanda"` (matrices) lancent Lightpanda 1.0.0, épinglé sous `.toolchains/` et toujours hors processus (AGPL-3.0), et lui connectent les mêmes pilotes : la compatibilité du moteur se lit avec les oracles de Chromium.
 
+La lane `identity` (D-identity) fait passer une session de HTTP au navigateur sur un site servi derrière le relais TLS. Le site relève l'empreinte, les en-têtes, le cookie et la signature Web Bot Auth de chaque requête ; il vérifie la signature avec la bibliothèque `web-bot-auth` de Cloudflare, contre l'annuaire de clés de l'agent, et juge les refus selon le profil et la finalité.
+
 La lane `ai` (D-ai-layer) oppose un agent qui planifie à chaque exécution à un plan compilé rejoué sans le modèle, sur des pages qui dérivent en silence ; le faux modèle (`fixtures/fake-llm.ts`) compte lui-même ses tokens, que le lab compare à ceux de l'agent.
 
 Avec `browserHost: "harness"`, le harnais lance un Chromium par pilote et par bloc, avec les mêmes flags (`src/core/browser-host.ts`). Il échantillonne ce navigateur avec l'adapter, donc le CPU et la mémoire du navigateur comptent pour tous les pilotes. Playwright et Puppeteer s'y connectent par CDP. Un profil `network: { link: "driver-browser" }` place le proxy de latence entre le pilote et le navigateur. `actionPolicies` fixe la politique de chaque pilote : `guarded` applique la garde avant chaque clic, saisie et sélection, `native` s'en remet aux garanties du pilote.

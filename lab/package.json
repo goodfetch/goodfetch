@@ -27,6 +27,8 @@
   "devDependencies": {
     "@types/node": "26.6.4",
     "ajv": "8.20.0",
-    "typescript": "7.0.2"
+    "http-message-sig": "0.3.0",
+    "typescript": "7.0.2",
+    "web-bot-auth": "0.2.0"
   }
 }

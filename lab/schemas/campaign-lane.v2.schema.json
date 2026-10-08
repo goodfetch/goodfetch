@@ -28,7 +28,8 @@
         "actionability",
         "sqlite-readers",
         "extraction",
-        "ai"
+        "ai",
+        "identity"
       ]
     },
     "decisionIds": {

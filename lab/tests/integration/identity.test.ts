@@ -30,6 +30,13 @@ test('preferences are applied per profile and purpose: the identified agent obey
   assert.equal(refused.status, 'verified', refused.reasons.join('\n')); assert.equal(refused.falseSuccess, 0);
 });
 
+test('when its proxy fails, a session moves to one healthy proxy within its budget and keeps its cookie and fingerprint', async () => {
+  const result = await cell('browser-fetch', 'identified', 'search', 'proxy-failover') as Awaited<ReturnType<typeof cell>> & { retries: number };
+  assert.equal(result.status, 'verified', result.reasons.join('\n'));
+  assert.deepEqual(Object.values(result.violations).filter(Boolean), []);
+  assert.equal(result.retries, 1);
+});
+
 test('a session keeps its profile, and with every key revoked it sends nothing rather than unsigned requests', async () => {
   const browser = await launchBrowser(browserPath()); const connection = await CdpConnection.connect(browser.wsEndpoint);
   await connection.send('Security.setIgnoreCertificateErrors', { ignore: true });

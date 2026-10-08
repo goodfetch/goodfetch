@@ -3,7 +3,7 @@
 import { createHash } from 'node:crypto';
 
 export type Purpose = 'search' | 'ai-input' | 'ai-train' | 'agent' | 'data-collection' | 'transact';
-export type StopCode = 'E_POLICY_ROBOTS' | 'E_POLICY_CONTENT_SIGNAL' | 'E_POLICY_TDM' | 'E_POLICY_NOAI' | 'E_ACCESS_DENIED' | 'E_PAYMENT_REQUIRED' | 'E_CHALLENGE' | 'E_RATE_LIMITED' | 'E_SERVER';
+export type StopCode = 'E_POLICY_ROBOTS' | 'E_POLICY_CONTENT_SIGNAL' | 'E_POLICY_TDM' | 'E_POLICY_NOAI' | 'E_ACCESS_DENIED' | 'E_PAYMENT_REQUIRED' | 'E_CHALLENGE' | 'E_RATE_LIMITED' | 'E_SERVER' | 'E_PROXY_EXHAUSTED';
 export class StopError extends Error { readonly code: StopCode; constructor(code: StopCode, message: string) { super(`${code}: ${message}`); this.code = code; } }
 
 // Which purposes each signal restricts. Content-Signal names its own purposes; a TDM reservation covers text and data mining.

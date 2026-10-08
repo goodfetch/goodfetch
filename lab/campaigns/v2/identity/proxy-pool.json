@@ -1,0 +1,33 @@
+{
+  "schemaVersion": 2,
+  "id": "proxy-pool",
+  "lane": "identity",
+  "decisionIds": [
+    "D-identity"
+  ],
+  "hostClass": {
+    "requested": "local-dev",
+    "allowDowngrade": true
+  },
+  "config": {
+    "httpTiers": [
+      "browser-fetch"
+    ],
+    "profiles": [
+      "identified",
+      "standard"
+    ],
+    "purposes": [
+      "search"
+    ],
+    "variants": [
+      "proxy-sticky",
+      "proxy-failover",
+      "proxy-exhausted"
+    ],
+    "repeats": 3,
+    "blocks": 3,
+    "seed": 3434,
+    "timeoutMs": 20000
+  }
+}

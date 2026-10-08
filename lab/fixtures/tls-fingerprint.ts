@@ -5,7 +5,7 @@ const grease = (value: number) => (value & 0x0f0f) === 0x0a0a;
 const hex4 = (value: number) => value.toString(16).padStart(4, '0');
 const sha12 = (text: string) => createHash('sha256').update(text).digest('hex').slice(0, 12);
 
-export type ClientHello = { ja4: string; sni: string | null; alpn: string[]; version: string; ciphers: number[]; extensions: number[]; signatureAlgorithms: number[] };
+export type ClientHello = { ja4: string; ja4Base: string; resumed: boolean; sni: string | null; alpn: string[]; version: string; ciphers: number[]; extensions: number[]; signatureAlgorithms: number[] };
 
 // Returns null until the whole first TLS record has arrived.
 export function parseClientHello(buffer: Buffer): ClientHello | null {
@@ -36,9 +36,15 @@ export function parseClientHello(buffer: Buffer): ClientHello | null {
   const realCiphers = ciphers.filter(c => !grease(c));
   const first = alpn[0] ?? ''; const alpnCode = first ? `${first[0]}${first.at(-1)}` : '00';
   const count = (n: number) => String(Math.min(n, 99)).padStart(2, '0');
-  const a = `t${version}${sni !== null ? 'd' : 'i'}${count(realCiphers.length)}${count(extensions.length)}${alpnCode}`;
   const b = sha12([...realCiphers].sort((x, y) => x - y).map(hex4).join(','));
-  const sortedExtensions = extensions.filter(e => e !== 0x0000 && e !== 0x0010).sort((x, y) => x - y).map(hex4).join(',');
-  const c = sha12(signatureAlgorithms.length ? `${sortedExtensions}_${signatureAlgorithms.map(hex4).join(',')}` : sortedExtensions);
-  return { ja4: `${a}_${b}_${c}`, sni, alpn, version, ciphers: realCiphers, extensions, signatureAlgorithms };
+  // GREASE is ignored everywhere, signature algorithms included: Chrome draws a new GREASE value for each connection.
+  signatureAlgorithms = signatureAlgorithms.filter(s => !grease(s));
+  const ja4Of = (exts: number[]) => {
+    const a = `t${version}${sni !== null ? 'd' : 'i'}${count(realCiphers.length)}${count(exts.length)}${alpnCode}`;
+    const sortedExtensions = exts.filter(e => e !== 0x0000 && e !== 0x0010).sort((x, y) => x - y).map(hex4).join(',');
+    return `${a}_${b}_${sha12(signatureAlgorithms.length ? `${sortedExtensions}_${signatureAlgorithms.map(hex4).join(',')}` : sortedExtensions)}`;
+  };
+  // A resumed handshake adds pre_shared_key (and possibly early_data); ja4Base leaves them out so one client compares with itself.
+  const resumed = extensions.includes(0x0029);
+  return { ja4: ja4Of(extensions), ja4Base: ja4Of(extensions.filter(e => e !== 0x0029 && e !== 0x002a)), resumed, sni, alpn, version, ciphers: realCiphers, extensions, signatureAlgorithms };
 }

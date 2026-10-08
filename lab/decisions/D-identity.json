@@ -28,7 +28,8 @@
     "identity-coherence",
     "policy-compliance",
     "false-success-count",
-    "session-isolation"
+    "session-isolation",
+    "proxy-continuity"
   ],
   "delta": {
     "kind": "ratio",
@@ -50,7 +51,8 @@
     "identity-coherence",
     "policy-fixtures",
     "session-isolation",
-    "tls-fingerprint"
+    "tls-fingerprint",
+    "proxy-pool"
   ],
   "evidence": [
     {

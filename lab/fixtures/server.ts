@@ -213,7 +213,8 @@ export async function startFixtures() {
         // One client presents one identity: every request of the run shows the same TLS and HTTP/2 fingerprints.
         if (run.variant === 'tls-fingerprint') {
           if (!run.fingerprints.length || run.fingerprints.some(f => f.ja4 === null)) reasons.push('request without a captured ClientHello');
-          if (new Set(run.fingerprints.map(f => f.ja4)).size > 1) reasons.push(`TLS fingerprint changed within the session: ${[...new Set(run.fingerprints.map(f => f.ja4))].join(' / ')}`);
+          // A resumed handshake is compared without its pre_shared_key extension: it is the same client.
+          if (new Set(run.fingerprints.map(f => f.ja4Base)).size > 1) reasons.push(`TLS fingerprint changed within the session: ${[...new Set(run.fingerprints.map(f => f.ja4Base))].join(' / ')}`);
           if (new Set(run.fingerprints.map(f => `${f.http}|${f.h2}`)).size > 1) reasons.push('HTTP version or HTTP/2 fingerprint changed within the session');
         }
         if (output.error !== undefined) reasons.push(`failed: ${String(output.error).slice(0, 120)}`);

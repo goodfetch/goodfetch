@@ -29,7 +29,7 @@ export function http2Signature(req: Http2ServerRequest) {
   return `${values}|${pseudo}`;
 }
 
-export type Fingerprint = { ja4: string | null; alpn: string[]; http: string; h2: string | null; headerOrder: string };
+export type Fingerprint = { ja4: string | null; ja4Base: string | null; resumed: boolean; alpn: string[]; http: string; h2: string | null; headerOrder: string };
 type AnyRequest = IncomingMessage | Http2ServerRequest;
 
 export async function startTlsRelay(handle: (req: Http2ServerRequest, res: Http2ServerResponse) => void) {
@@ -62,7 +62,7 @@ export async function startTlsRelay(handle: (req: Http2ServerRequest, res: Http2
       const socket = ('stream' in req ? req.stream.session?.socket : req.socket) as (Socket & { clientHello?: ClientHello }) | undefined;
       const hello = socket?.clientHello ?? helloByPort.get(socket?.remotePort ?? -1);
       if (!hello && !('stream' in req) && socket?.localPort !== securePort) return null;
-      return { ja4: hello?.ja4 ?? null, alpn: hello?.alpn ?? [], http: req.httpVersion, h2: 'stream' in req ? http2Signature(req) : null, headerOrder: req.rawHeaders.filter((_, i) => i % 2 === 0 && !req.rawHeaders[i]!.startsWith(':')).join(',').toLowerCase() };
+      return { ja4: hello?.ja4 ?? null, ja4Base: hello?.ja4Base ?? null, resumed: hello?.resumed ?? false, alpn: hello?.alpn ?? [], http: req.httpVersion, h2: 'stream' in req ? http2Signature(req) : null, headerOrder: req.rawHeaders.filter((_, i) => i % 2 === 0 && !req.rawHeaders[i]!.startsWith(':')).join(',').toLowerCase() };
     },
     async close() { for (const socket of sockets) socket.destroy(); await Promise.all([new Promise<void>(resolve => tcp.close(() => resolve())), new Promise<void>(resolve => secure.close(() => resolve()))]); }
   };

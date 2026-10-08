@@ -54,7 +54,7 @@ test('a new v2 run enters the ledger as unreviewed, while an unclassified legacy
   const entry = ledger.entries.find(e => e.runId === 'v2')!;
   assert.equal(entry.role, 'unreviewed');
   assert.deepEqual(entry.decisionIds, ['D-core-language']);
-  assert.equal(entry.imported, 'results/v2/run.v2.json');
+  assert.equal(entry.imported, 'ledger/runs/v2/run.v2.json');
 });
 
 test('decision ids in the classification must exist in the registry', () => {

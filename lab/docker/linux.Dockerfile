@@ -1,6 +1,7 @@
 # A Linux run of the lab on committed sources, for contract passes and Linux probes. It is a container in a VM on the
 # developer machine, so the host class is local-dev at best (the reference gate requires bare metal): its numbers are never
-# published. Build context: `git archive HEAD:lab`, so nothing uncommitted enters the image.
+# published. Build context: `git archive HEAD` (the whole repository, since decisions cite docs/ and research/), so nothing
+# uncommitted enters the image.
 FROM node:25.5.0-bookworm
 
 ARG RUST_VERSION=1.93.0
@@ -18,9 +19,10 @@ RUN arch=$(dpkg --print-architecture) && file=go${GO_VERSION}.linux-${arch}.tar.
   && echo "${sha}  ${file}" | sha256sum -c - && tar -C /usr/local -xzf ${file} && rm ${file}
 RUN npm install -g pnpm@${PNPM_VERSION}
 
-WORKDIR /lab
+WORKDIR /repo
 COPY . .
-ENV PLAYWRIGHT_BROWSERS_PATH=/lab/.browsers
+WORKDIR /repo/lab
+ENV PLAYWRIGHT_BROWSERS_PATH=/repo/lab/.browsers
 RUN pnpm install --frozen-lockfile
 RUN pnpm --filter @automan-lab/node-adapters exec playwright install --with-deps chromium
 CMD ["node", "tools/lab.ts", "ci"]

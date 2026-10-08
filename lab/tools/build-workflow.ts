@@ -5,7 +5,8 @@ import {spawn} from 'node:child_process';
 import {labRoot} from '../src/registry.ts';
 import {hashFile} from '../src/environment.ts';
 const native=join(labRoot,'.native');
-await new Promise<void>((resolve,reject)=>{const child=spawn('clang',['-O2','tools/process-probe.c','-o',join(native,'process-probe')],{cwd:labRoot,stdio:'inherit'});child.on('error',reject);child.on('exit',code=>code===0?resolve():reject(new Error(`resource probe build exited ${code}`)))});
+// The resource probe reads proc_pid_rusage, macOS only; Linux samples /proc instead.
+if(process.platform==='darwin')await new Promise<void>((resolve,reject)=>{const child=spawn('clang',['-O2','tools/process-probe.c','-o',join(native,'process-probe')],{cwd:labRoot,stdio:'inherit'});child.on('error',reject);child.on('exit',code=>code===0?resolve():reject(new Error(`resource probe build exited ${code}`)))});
 const build=JSON.parse(await readFile(join(native,'build.json'),'utf8'));
 if(await hashFile(join(native,sqliteLibrary))!==build.hashes[sqliteLibrary])throw new Error('shared SQLite artifact changed');
 await new Promise<void>((resolve,reject)=>{const child=spawn('cargo',['build','--release','--locked','--offline','--manifest-path','adapters/workflow-rust/Cargo.toml','--target-dir','adapters/rust/target/workflow'],{cwd:labRoot,stdio:'inherit'});child.on('error',reject);child.on('exit',code=>code===0?resolve():reject(new Error(`Rust build exited ${code}`)))});

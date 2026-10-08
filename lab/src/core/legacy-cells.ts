@@ -63,6 +63,7 @@ export function laneMetrics(lane: Lane, raw: Json): Record<string, Measure> {
     for (const [id, key, unit] of [['extraction-f1', 'meanF1', 'ratio'], ['extraction-precision', 'meanPrecision', 'ratio'], ['extraction-recall', 'meanRecall', 'ratio'], ['snippet-recall', 'snippetRecall', 'ratio'], ['boilerplate-leak', 'boilerplateLeak', 'ratio'], ['extract-ms-p50', 'extractMsP50', 'ms']] as const) metrics[id] = measure(raw[key], unit, source);
   }
   if (num(resources.peakRssBytes) !== null) metrics['rss-peak-bytes'] = measure(resources.peakRssBytes, 'B', `legacy-summary; ${str(resources.method) ?? 'sampled RSS'}`);
+  if (num(resources.peakPssBytes) !== null) metrics['pss-peak-bytes'] = measure(resources.peakPssBytes, 'B', `lane; ${str(resources.method) ?? 'Linux smaps_rollup'}`);
   if (num(resources.peakFootprintBytes) !== null) metrics['footprint-peak-bytes'] = measure(resources.peakFootprintBytes, 'B', 'legacy-summary; proc_pid_rusage V4');
   const cpu = num(resources.sampledUserCpuMs), system = num(resources.sampledSystemCpuMs), jobs = num(raw.verifiedJobs);
   if (lane === 'runtime' && cpu !== null && system !== null && jobs) metrics['cpu-ms-per-verified-job'] = measure((cpu + system) / jobs, 'ms/job', 'legacy-summary; sampled proc_pid_rusage V4 over the coordinator tree');

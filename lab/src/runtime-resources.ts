@@ -2,9 +2,19 @@ import {execFile} from 'node:child_process';
 import {promisify} from 'node:util';
 import {join} from 'node:path';
 import {labRoot} from './registry.ts';
+import {sampleLinuxResources} from './core/metrics/linux.ts';
 const exec=promisify(execFile);
 type Usage={pid:number;started:string;userNs:number;systemNs:number;timebaseNumer:number;timebaseDenom:number;rss:number;footprint:number;kernelPeakFootprint:number;diskReadBytes:number;diskWriteBytes:number};
+// On Linux the same sampler reads /proc: proportional memory (PSS) instead of RSS and footprint, CPU from stat.
+function sampleLinuxRuntime(rootPid:number,intervalMs:number){
+  const linux=sampleLinuxResources(rootPid,intervalMs);
+  return {async ready(){},async stop(){const r=await linux.stop();return {intervalMs,samples:r.samples,unavailable:r.unavailable,observedProcessCount:null as number|null,peakRssBytes:null as number|null,peakFootprintBytes:null as number|null,peakPssBytes:r.peakPssBytes,sampledUserCpuMs:r.sampledUserCpuMs,sampledSystemCpuMs:r.sampledSystemCpuMs,sampledDiskReadBytes:null as number|null,sampledDiskWriteBytes:null as number|null,perProcess:[] as unknown[],baselines:[] as unknown[],method:r.method}}};
+}
 export function sampleRuntimeResources(rootPid:number,intervalMs=100,options:{existingRoot?:boolean}={}){
+  if(process.platform==='linux')return sampleLinuxRuntime(rootPid,intervalMs) as unknown as ReturnType<typeof sampleDarwinRuntime>;
+  return sampleDarwinRuntime(rootPid,intervalMs,options);
+}
+function sampleDarwinRuntime(rootPid:number,intervalMs=100,options:{existingRoot?:boolean}={}){
   let pending:Promise<void>|undefined;let stopped=false;let samples=0;let peakRssBytes=0;let peakFootprintBytes=0;let unavailable=false;const lifetime=new Map<string,Usage>();const baselines=new Map<string,Usage>();
   async function sample(){
     try{

@@ -1,20 +1,27 @@
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import { randomBytes } from 'node:crypto';
 import {gzipSync} from 'node:zlib';
-import type { AddressInfo } from 'node:net';
+import { createServer as createTcpServer, connect as connectTcp, type AddressInfo, type Socket } from 'node:net';
+import { createSecureServer, type Http2ServerRequest } from 'node:http2';
+import { execFileSync } from 'node:child_process';
+import { mkdtempSync, readFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { parseClientHello, type ClientHello } from './tls-fingerprint.ts';
 
 export type RecordItem = { id: string; price: number };
 export type Verdict = { status: 'verified' | 'failed'; reasons: string[] };
 export type Scenario = 'http-catalog' | 'js-catalog' | 'form' | 'clicks' | 'shadow' | 'iframe' | 'download' | 'actionability' | 'primitives' | 'navigation';
-export type RunSpec = { scenario: Scenario; seed: number; pages?: number; actions?: number; delayMs?: number; variant?: 'normal' | 'overlay' | 'rerender' | 'delayed' | 'hidden' | 'moving' | 'never-enabled' | 'never-uncovered' | 'ambiguous' | 'hover' | 'dblclick' | 'contextmenu' | 'drag' | 'wheel' | 'keyboard' | 'contenteditable' | 'unicode' | 'moved' | 'retarget' | 'spa' | 'history' | 'popup' | 'frame' | 'cross-frame' | 'upload' | 'download' | 'http-429' | 'http-503-once' | 'http-truncated' | 'http-reset' | 'http-redirect-loop' | 'http-slow' | 'robots-disallow' | 'challenge-200' | 'http-redirect' | 'http-gzip' | 'http-chunked' | 'http-large' };
-type Run = RunSpec & { id: string; records: RecordItem[]; effects: unknown[]; requests: number; errors: number; incidents: { at: number; status: number }[] };
+export type RunSpec = { scenario: Scenario; seed: number; pages?: number; actions?: number; delayMs?: number; variant?: 'normal' | 'overlay' | 'rerender' | 'delayed' | 'hidden' | 'moving' | 'never-enabled' | 'never-uncovered' | 'ambiguous' | 'hover' | 'dblclick' | 'contextmenu' | 'drag' | 'wheel' | 'keyboard' | 'contenteditable' | 'unicode' | 'moved' | 'retarget' | 'spa' | 'history' | 'popup' | 'frame' | 'cross-frame' | 'upload' | 'download' | 'http-429' | 'http-503-once' | 'http-truncated' | 'http-reset' | 'http-redirect-loop' | 'http-slow' | 'robots-disallow' | 'challenge-200' | 'tls-fingerprint' | 'http-redirect' | 'http-gzip' | 'http-chunked' | 'http-large' };
+type Fingerprint = { ja4: string | null; alpn: string[]; http: string; h2: string | null; headerOrder: string };
+type Run = RunSpec & { id: string; records: RecordItem[]; effects: unknown[]; requests: number; errors: number; incidents: { at: number; status: number }[]; fingerprints: Fingerprint[] };
 // HTTP incidents that a client must surface as an explicit failure rather than a success.
 const httpRefusals = ['http-truncated', 'http-reset', 'http-redirect-loop', 'http-slow', 'challenge-200'];
 
-function send(res: ServerResponse, status: number, body: string, type = 'text/html') {
+function send(res: Pick<ServerResponse, "writeHead" | "end">, status: number, body: string, type = 'text/html') {
   res.writeHead(status, { 'content-type': `${type}; charset=utf-8`, 'cache-control': 'no-store' }); res.end(body);
 }
-async function body(req: IncomingMessage): Promise<unknown> {
+async function body(req: AsyncIterable<Buffer | string>): Promise<unknown> {
   let text = ''; for await (const chunk of req) { text += chunk; if (text.length > 1_000_000) throw new Error('body too large'); }
   return JSON.parse(text || '{}');
 }
@@ -131,9 +138,29 @@ const expectedPrimitive: Record<string, { kind: string; target: string }> = {
   wheel: { kind: 'scrolled', target: 'scroller' }, keyboard: { kind: 'enter', target: 'field' }, contenteditable: { kind: 'edited', target: 'editor' }, unicode: { kind: 'typed', target: 'field' }, moved: { kind: 'click', target: 'target' }
 };
 
+// A self-signed certificate for localhost, made once per process with the system openssl.
+let certificate: { key: Buffer; cert: Buffer } | undefined;
+function localCertificate() {
+  if (!certificate) {
+    const directory = mkdtempSync(join(tmpdir(), 'automan-tls-'));
+    execFileSync('openssl', ['req', '-x509', '-newkey', 'ec', '-pkeyopt', 'ec_paramgen_curve:prime256v1', '-nodes', '-days', '2', '-subj', '/CN=localhost', '-addext', 'subjectAltName=DNS:localhost', '-keyout', join(directory, 'key.pem'), '-out', join(directory, 'cert.pem')], { stdio: 'ignore' });
+    certificate = { key: readFileSync(join(directory, 'key.pem')), cert: readFileSync(join(directory, 'cert.pem')) };
+  }
+  return certificate;
+}
+// HTTP/2 settings in the Akamai fingerprint order, and the pseudo-header order of the request.
+function http2Signature(req: Http2ServerRequest) {
+  const settings = req.stream.session?.remoteSettings as Record<string, number | boolean> | undefined;
+  const ids: [string, number][] = [['headerTableSize', 1], ['enablePush', 2], ['maxConcurrentStreams', 3], ['initialWindowSize', 4], ['maxFrameSize', 5], ['maxHeaderListSize', 6]];
+  const values = ids.filter(([name]) => settings?.[name] !== undefined).map(([name, id]) => `${id}:${Number(settings![name])}`).join(';');
+  const pseudo = req.rawHeaders.filter((_, i) => i % 2 === 0 && req.rawHeaders[i]!.startsWith(':')).map(name => name[1]).join('');
+  return `${values}|${pseudo}`;
+}
+
 export async function startFixtures() {
   const runs = new Map<string, Run>();
-  const server = createServer(async (req, res) => {
+  const server = createServer((req, res) => handle(req, res));
+  async function handle(req: import('node:http').IncomingMessage | Http2ServerRequest, res: any) {
     try {
       const url = new URL(req.url ?? '/', 'http://fixture');
       // Pages under /private/ are disallowed for every crawler; a fetch there is recorded as a robots violation.
@@ -142,6 +169,9 @@ export async function startFixtures() {
       const [, , id, action] = (disallowed ? url.pathname.slice('/private'.length) : url.pathname).split('/'); const run = id ? runs.get(id) : undefined;
       if (!run) return send(res, 404, 'unknown fixture');
       run.requests++;
+      const socket = ('stream' in req ? req.stream.session?.socket : req.socket) as (Socket & { clientHello?: ClientHello }) | undefined;
+      const hello = socket?.clientHello ?? helloByPort.get(socket?.remotePort ?? -1);
+      if (hello || 'stream' in req || socket?.localPort === securePort) run.fingerprints.push({ ja4: hello?.ja4 ?? null, alpn: hello?.alpn ?? [], http: req.httpVersion, h2: 'stream' in req ? http2Signature(req) : null, headerOrder: req.rawHeaders.filter((_, i) => i % 2 === 0 && !req.rawHeaders[i]!.startsWith(':')).join(',').toLowerCase() });
       if (disallowed) run.incidents.push({ at: performance.now(), status: -1 });
       if (run.delayMs) await new Promise(resolve => setTimeout(resolve, run.delayMs));
       if (action === 'effect' && req.method === 'POST') { run.effects.push(await body(req)); return send(res, 200, '{}', 'application/json'); }
@@ -177,8 +207,33 @@ export async function startFixtures() {
       if (action === 'file') { res.setHeader('content-disposition', 'attachment; filename="catalog.txt"'); return send(res, 200, `automan-fixture:${run.seed}\n`, 'text/plain'); }
       return send(res, 404, 'unknown route');
     } catch { send(res, 500, 'fixture error'); }
-  });
+  }
   await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve));
+  // TLS behind a TCP relay: the relay reads the ClientHello, forwards every byte unchanged to the HTTP/2 (and HTTP/1.1) server,
+  // and indexes the fingerprint by its upstream port so the server can tie each request to the session's ClientHello.
+  const helloByPort = new Map<number, ClientHello>();
+  const secure = createSecureServer({ ...localCertificate(), allowHTTP1: true }, (req, res) => { void handle(req, res); });
+  secure.on('secureConnection', socket => { (socket as Socket & { clientHello?: ClientHello }).clientHello = helloByPort.get(socket.remotePort ?? -1); });
+  await new Promise<void>(resolve => secure.listen(0, '127.0.0.1', resolve));
+  const securePort = (secure.address() as AddressInfo).port;
+  const tlsSockets = new Set<Socket>();
+  const tcp = createTcpServer(client => {
+    const upstream = connectTcp(securePort, '127.0.0.1');
+    for (const socket of [client, upstream]) { tlsSockets.add(socket); socket.on('close', () => tlsSockets.delete(socket)); socket.on('error', () => { client.destroy(); upstream.destroy(); }); }
+    let buffered = Buffer.alloc(0), parsed = false;
+    client.on('data', (chunk: Buffer) => {
+      if (!parsed) {
+        buffered = Buffer.concat([buffered, chunk]);
+        try { const hello = parseClientHello(buffered); if (hello) { parsed = true; const register = () => { helloByPort.set(upstream.localPort!, hello); upstream.write(buffered); }; if (upstream.localPort) register(); else upstream.once('connect', register); } } catch { client.destroy(); upstream.destroy(); }
+        return;
+      }
+      upstream.write(chunk);
+    });
+    upstream.on('data', chunk => client.write(chunk));
+    client.on('end', () => upstream.end()); upstream.on('end', () => client.end());
+  });
+  await new Promise<void>(resolve => tcp.listen(0, '127.0.0.1', resolve));
+  const tlsOrigin = `https://localhost:${(tcp.address() as AddressInfo).port}`;
   const origin = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
   // The same server under another host name is another site, so Chromium isolates its frames in their own process.
   const crossOrigin = `http://localhost:${(server.address() as AddressInfo).port}`;
@@ -187,8 +242,8 @@ export async function startFixtures() {
     async createRun(spec: RunSpec) {
       const id = randomBytes(12).toString('hex');
       const records = Array.from({ length: (spec.pages ?? 3) * 2 }, (_, i) => ({ id: `P-${String(i + 1).padStart(3, '0')}`, price: 1201 + i * 37 + (spec.seed === 42 ? 0 : spec.seed % 97) }));
-      runs.set(id, { ...spec, id, records, effects: [], requests: 0, errors: 0, incidents: [] });
-      return { id, url: `${origin}/runs/${id}/${spec.scenario.endsWith('catalog') ? 'catalog?p=0' : 'ui'}` };
+      runs.set(id, { ...spec, id, records, effects: [], requests: 0, errors: 0, incidents: [], fingerprints: [] });
+      return { id, url: `${spec.variant === 'tls-fingerprint' ? tlsOrigin : origin}/runs/${id}/${spec.scenario.endsWith('catalog') ? 'catalog?p=0' : 'ui'}` };
     },
     async verify(id: string, output: { records?: RecordItem[]; file?: string; error?: string; [key: string]: unknown }): Promise<Verdict> {
       const run = runs.get(id); if (!run) throw new Error('unknown run'); const reasons: string[] = [];
@@ -202,6 +257,12 @@ export async function startFixtures() {
           reasons.push(missing ? `false success: ${missing} of ${run.records.length} records missing after ${run.variant}` : `complete data but the task deadline was ignored (${run.variant})`);
         }
       } else if (run.scenario.endsWith('catalog')) {
+        // One client presents one identity: every request of the run shows the same TLS and HTTP/2 fingerprints.
+        if (run.variant === 'tls-fingerprint') {
+          if (!run.fingerprints.length || run.fingerprints.some(f => f.ja4 === null)) reasons.push('request without a captured ClientHello');
+          if (new Set(run.fingerprints.map(f => f.ja4)).size > 1) reasons.push(`TLS fingerprint changed within the session: ${[...new Set(run.fingerprints.map(f => f.ja4))].join(' / ')}`);
+          if (new Set(run.fingerprints.map(f => `${f.http}|${f.h2}`)).size > 1) reasons.push('HTTP version or HTTP/2 fingerprint changed within the session');
+        }
         if (output.error !== undefined) reasons.push(`failed: ${String(output.error).slice(0, 120)}`);
         if (run.variant === 'http-429') { const [limited, retried] = run.incidents; if (!retried) reasons.push('page not retried after 429'); else if (retried.at - limited!.at < 950) reasons.push(`retried ${Math.round(retried.at - limited!.at)} ms after a 429 asking for 1 s`); }
         const received = output.records ?? []; const byId = new Map(received.map(r => [r.id, r.price]));
@@ -257,7 +318,7 @@ export async function startFixtures() {
     },
     // An adapter error is the expected outcome for these runs; the lane hands it to verify instead of failing the cell.
     expectsRefusal(id: string) { return httpRefusals.includes(runs.get(id)?.variant ?? ''); },
-    snapshot(id: string) { const run = runs.get(id); if (!run) throw new Error('unknown run'); return { requests: run.requests, effects: run.effects.length,...(run.scenario==='actionability'||run.scenario==='primitives'?{effectDetails:structuredClone(run.effects)}:{}) }; },
-    async close() { server.closeAllConnections(); await new Promise<void>((resolve, reject) => server.close(error => error ? reject(error) : resolve())); }
+    snapshot(id: string) { const run = runs.get(id); if (!run) throw new Error('unknown run'); return { requests: run.requests, effects: run.effects.length,...(run.scenario==='actionability'||run.scenario==='primitives'?{effectDetails:structuredClone(run.effects)}:{}),...(run.fingerprints.length?{fingerprints:structuredClone(run.fingerprints)}:{}) }; },
+    async close() { server.closeAllConnections(); for (const socket of tlsSockets) socket.destroy(); await Promise.all([new Promise<void>((resolve, reject) => server.close(error => error ? reject(error) : resolve())), new Promise<void>(resolve => tcp.close(() => resolve())), new Promise<void>(resolve => secure.close(() => resolve()))]); }
   };
 }

@@ -6,11 +6,11 @@ type Job = { records:{id:string;price:number}[]; pages:number; maxPages:number; 
 const jobs = new Map<string,Job>(); let crawler:CheerioCrawler|undefined, running:Promise<unknown>|undefined, fatal:Error|undefined;
 let poolWake:'poll'|'notify'='poll';
 let poolReady=false;
-const adapter:Adapter<Task,{concurrency?:number;poolWake?:'poll'|'notify';respectRobots?:boolean}> = {
+const adapter:Adapter<Task,{concurrency?:number;poolWake?:'poll'|'notify';respectRobots?:boolean;insecureTls?:boolean}> = {
   info(){return {backend:'crawlee-http-pooled',protocol:1,capabilities:['http-catalog'],versions:{crawlee:'3.18.2'},poolWake,lifecycle:'one keepAlive crawler and request queue per block; tasks share its bounded pool'}},
   async prepare(input){
     if(input.poolWake!==undefined&&!['poll','notify'].includes(input.poolWake))throw new Error('invalid pool wake mode');poolWake=input.poolWake??'poll';
-    crawler=new CheerioCrawler({keepAlive:true,respectRobotsTxtFile:input.respectRobots===true,minConcurrency:input.concurrency??1,maxConcurrency:input.concurrency??1,maxRequestRetries:0,
+    crawler=new CheerioCrawler({keepAlive:true,respectRobotsTxtFile:input.respectRobots===true,ignoreSslErrors:input.insecureTls===true,minConcurrency:input.concurrency??1,maxConcurrency:input.concurrency??1,maxRequestRetries:0,
       requestHandler:async({request,$,enqueueLinks})=>{
         // The pool object exists before crawler.run finishes initialization.
         // A completed start into a request handler proves it can accept notify.

@@ -70,7 +70,11 @@ async fn main() {
                             endpoint
                         }
                     };
-                    connection = Some(Connection::connect(&endpoint).await?);
+                    let connected = Connection::connect(&endpoint).await?;
+                    if params["insecureTls"].as_bool().unwrap_or(false) {
+                        connected.send("Security.setIgnoreCertificateErrors", json!({"ignore": true}), None).await?;
+                    }
+                    connection = Some(connected);
                     Ok(json!({"ready": true}))
                 }
                 .await;

@@ -11,8 +11,8 @@ const STACK: &str = "reqwest";
 const STACK: &str = "wreq";
 
 #[cfg(feature = "reqwest")]
-async fn fetch(url: &str, timeout: Duration) -> Result<String, String> {
-    let client = reqwest::Client::builder().timeout(timeout).build().map_err(|error| error.to_string())?;
+async fn fetch(url: &str, timeout: Duration, insecure: bool) -> Result<String, String> {
+    let client = reqwest::Client::builder().timeout(timeout).danger_accept_invalid_certs(insecure).build().map_err(|error| error.to_string())?;
     let response = client.get(url).send().await.map_err(|error| error.to_string())?;
     if !response.status().is_success() {
         return Err(format!("HTTP {}", response.status().as_u16()));
@@ -21,8 +21,8 @@ async fn fetch(url: &str, timeout: Duration) -> Result<String, String> {
 }
 
 #[cfg(feature = "wreq")]
-async fn fetch(url: &str, timeout: Duration) -> Result<String, String> {
-    let client = wreq::Client::builder().timeout(timeout).build().map_err(|error| error.to_string())?;
+async fn fetch(url: &str, timeout: Duration, insecure: bool) -> Result<String, String> {
+    let client = wreq::Client::builder().timeout(timeout).tls_cert_verification(!insecure).build().map_err(|error| error.to_string())?;
     let response = client.get(url).send().await.map_err(|error| error.to_string())?;
     if !response.status().is_success() {
         return Err(format!("HTTP {}", response.status().as_u16()));
@@ -64,7 +64,7 @@ async fn run(task: Value) -> Result<Value, String> {
             return Err("pagination exceeded contract".into());
         }
         visited += 1;
-        let html = fetch(&current, timeout).await?;
+        let html = fetch(&current, timeout, task["insecureTls"].as_bool().unwrap_or(false)).await?;
         all.extend(records(&html));
         url = next_link(&html, &current);
     }

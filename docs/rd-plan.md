@@ -79,3 +79,13 @@ Les runs superseded ou diagnostiques gardent leur raison. À relancer en priorit
 - PRD v2, puis tickets GitHub.
 
 Le détail des fichiers et des tâches de chaque phase est suivi dans les issues GitHub du dépôt, une par phase.
+
+## 7. Gates de promotion, sans chiffres inventés
+
+- **Comportement** : tous les invariants obligatoires de la suite conformance passent ; chaque capacité non couverte est affichée comme non qualifiée. Une suite parfaite n'établit pas la fiabilité de tous les sites réels.
+- **Backend** : remplacer/promouvoir un backend seulement à qualité comparable avec avantage utile mesuré, ou une raison de capacité/distribution clairement documentée. Les objectifs précédents de gain sont des objectifs de projet, pas des observations.
+- **IA/repair** : comparaison sur corpus séparé, coûts complets et erreurs silencieuses/refus inclus ; aucune promotion par simple confiance du même modèle.
+- **Publication** : contrats stables du périmètre annoncé, exemples/docs, compatibilité, issues connues, packaging et procédure de recovery vérifiés.
+- **Service** : capacité/isolation/quotas et usage réellement comptabilisés ; le SLA/prix vendu découle de mesures et du périmètre supporté.
+
+Les SLO de production — disponibilité, queue latency, capacité et recovery objectives — restent à fixer après mesure du premier système. Le dossier ne transforme pas « ultra performant » en un chiffre sans workload ni preuve.

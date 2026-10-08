@@ -12,7 +12,7 @@
 4. [Audit des benchmarks publics](./2026-10-07-benchmark-audit-followup.md) pour interpréter les chiffres existants.
 5. [Performance et protocole de preuve](./2026-10-07-benchmark-and-runtime.md) pour les comparaisons à exécuter ensuite.
 
-Les propositions produit actuelles se trouvent dans le [rapport consolidé](../docs/proposition-automan.md) et le [PRD](../issues/prd.md). Elles s'appuient sur ces recherches, sans transformer leurs conclusions en performances déjà démontrées.
+Les propositions produit actuelles se trouvent dans le [rapport consolidé](../docs/proposition-automan.md) et le [plan R&D](../docs/rd-plan.md). Elles s'appuient sur ces recherches, sans transformer leurs conclusions en performances déjà démontrées.
 
 ## 2. Marché et familles de concurrents
 
@@ -55,7 +55,6 @@ Les propositions produit actuelles se trouvent dans le [rapport consolidé](../d
 | [Stagehand, CDP et latence](./2026-10-07-stagehand-cdp-latency.md) | Parcours publié de 50 actions, batch Stagehand v4 versus Playwright, RTT et placement | Lecture du résultat des mainteneurs ; un run publié, non reproduit ; aucune généralisation à toutes les tâches |
 | [Performance, runtime et protocole de preuve](./2026-10-07-benchmark-and-runtime.md) | Benchmark Lightpanda ; publications sur mémoire/compilation/réparation ; BrowserGym/WebArena/WorkArena ; coût, fiabilité et métriques | Analyse de sources et proposition de protocole ; chiffres illustratifs explicitement identifiés ; aucun benchmark Automan exécuté |
 | [Moteurs de crawl](./2026-10-07-crawl-engines.md) | Arguments et microbenchmarks de transports/moteurs, notamment Impit et Spider | Chiffres et configurations des sources analysés ; aucune preuve d'un gain global Automan |
-| [Roadmap de qualification](../docs/roadmap-validation.md) | Suites HTTP, browser, agents, replay/dérive et incidents ; comparateurs et gates | Travail futur : définir et exécuter des essais équivalents, avec qualité, coûts complets et versions fixées |
 
 **Interprétation centrale :** les expériences ne rendent pas toutes le même service. Un crawl HTTP, une conversion Markdown et un agent multi-étape ne se classent pas à partir d'un seul tableau de pages par seconde. Le dossier cherche à identifier les asymétries et les preuves manquantes, plutôt qu'à déclarer un vainqueur universel.
 
@@ -63,14 +62,11 @@ Les propositions produit actuelles se trouvent dans le [rapport consolidé](../d
 
 | Document | Rôle |
 | --- | --- |
-| [Revue indépendante des spécifications](./2026-10-07-spec-review.md) | Cohérence des contrats proposés, quatre corrections intégrées ; aucune qualification du moteur |
-| [Vérification du dossier](./2026-10-07-dossier-validation.md) | Liens, exemples et maquette simulée contrôlés ; périmètre et limites des checks |
-| [Contexte de reprise](./handoff-framework.md) | Historique et questions de l'exploration |
 | [Usages de Stagehand](./stagehand-usage.md) | Note de contexte complémentaire sur les modes d'utilisation |
 
 ## 6. Actualité des conclusions
 
-Les premières notes de marché et de frameworks conservaient une hypothèse de petite équipe/sortie en 3–6 mois. Leur notice d'ouverture précise que cette contrainte a été retirée. Pour les choix Automan, privilégier le [dossier consolidé actuel](../docs/proposition-automan.md), l'[architecture](../docs/architecture.md) et le [PRD](../issues/prd.md). Les documents initiaux restent utiles pour les sources et le raisonnement historique.
+Les premières notes de marché et de frameworks conservaient une hypothèse de petite équipe/sortie en 3–6 mois. Leur notice d'ouverture précise que cette contrainte a été retirée. Pour les choix Automan, privilégier le [dossier consolidé actuel](../docs/proposition-automan.md), l'[architecture](../docs/architecture.md) et le [plan R&D](../docs/rd-plan.md). Les documents initiaux restent utiles pour les sources et le raisonnement historique.
 
 Les données de prix, versions et offres sont datées du relevé ; une décision ultérieure doit revalider les éléments susceptibles d'avoir changé. Les compteurs `sources_reviewed` désignent des résultats de recherche demandés, avec doublons/écartés, et ne sont pas un nombre de sources indépendantes expérimentalement validées.
 
@@ -80,7 +76,6 @@ La demande suivante privilégie un **lab de mesure avant la console** : installa
 
 | Document | Rôle |
 | --- | --- |
-| [Proposition du lab Automan](../docs/proposition-lab-automan.md) | Synthèse du dossier, périmètre d'installation, harness, oracles, primitives, stress, RTT, IA, métriques et expériences pour décider de l'architecture |
 | [Versions et preuves du trio](./2026-10-07-lab-engine-evidence.md) | Crawlee, Spider-rs et Stagehand revérifiés ; compatibilité v3/v4, features, placement et limites des chiffres publiés |
 | [Shortlist des concurrents](./2026-10-07-lab-competitor-shortlist.md) | Témoins Playwright/Puppeteer/CDP Rust/Go, crawlers, agents, navigateurs alternatifs et services ; local/cloud et licences distingués |
 | [Ingénierie des tests du lab](./2026-10-07-lab-testing-engineering.md) | 26 sources primaires : oracles, conformance, isolation, charge ouverte/fermée, statistiques, fautes, reproductibilité et CI |

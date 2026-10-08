@@ -1,6 +1,6 @@
 # Architecture proposée d'Automan
 
-**7 octobre 2026 — proposition de conception, aucune implémentation à ce stade.** Ce document développe l'[ADR langage/runtime](./adr/0001-runtime-language.md). Les APIs exemples et les objectifs de qualification sont décrits séparément dans [api.md](./api.md) et [roadmap-validation.md](./roadmap-validation.md).
+**7 octobre 2026 — proposition de conception, aucune implémentation à ce stade.** Ce document développe l'[ADR langage/runtime](./adr/0001-runtime-language.md). Les APIs exemples et les objectifs de qualification sont décrits séparément dans [api.md](./api.md) et dans les [gates du plan R&D](./rd-plan.md#7-gates-de-promotion-sans-chiffres-inventés).
 
 ## 1. Principes et décisions
 
@@ -341,4 +341,4 @@ Le dashboard affiche budget prévu, réservé et consommé, unités et estimatio
 | Multiplication de services/adapters avant preuves | Maintenance coûteuse | Modules dans un moteur ; adapters promus sur un besoin et un test qualifié |
 | Confusion OSS/cloud/licences | Dépendance propriétaire implicite | Inventaire des composants et fonctionnalités, providers remplaçables, distribution documentée |
 
-Les décisions sont **proposées**. Leur implémentation se construit par lots testables ; les gates et limites de mesure sont définis dans [roadmap-validation.md](./roadmap-validation.md). L'architecture promet des contrats à réaliser, pas une fiabilité ni une performance déjà observées.
+Les décisions sont **proposées**. Leur implémentation se construit par lots testables ; les gates et limites de mesure sont définis dans le [plan R&D](./rd-plan.md#7-gates-de-promotion-sans-chiffres-inventés). L'architecture promet des contrats à réaliser, pas une fiabilité ni une performance déjà observées.

@@ -1,6 +1,6 @@
 # Lab Automan — ingénierie des tests et des mesures
 
-**Recherche du 7 octobre 2026.** Sources primaires consultées : documentation des outils, travaux des auteurs, Google Testing/SRE, ACM et NIST. Les prescriptions « maintenant » sont notre adaptation au [lab proposé](../docs/proposition-lab-automan.md), pas une norme universelle ni une preuve de performances déjà obtenue.
+**Recherche du 7 octobre 2026.** Sources primaires consultées : documentation des outils, travaux des auteurs, Google Testing/SRE, ACM et NIST. Les prescriptions « maintenant » sont notre adaptation au [lab](../lab/README.md), pas une norme universelle ni une preuve de performances déjà obtenue.
 
 ## 1. La bonne cible : résultat correct sous contrat explicite
 

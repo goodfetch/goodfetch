@@ -78,7 +78,7 @@ L'API donne un usage court pour l'extraction ponctuelle et des contrôles préci
 
 La console permet de créer, tester, exécuter et diagnostiquer avant d'ouvrir les paramètres avancés. Son objet central est le **run avec sa chronologie, ses données et ses preuves**. Les pools et workers ont des vues dédiées à l'exploitation ; les éléments internes du driver ne sont pas montrés dans le parcours de création. [Contrats et exemples d'API](./api.md), [design des interfaces](./product-design.md), [maquette interactive](../design/automan-console.html).
 
-Le PRD formalise les utilisateurs, les comportements et les critères d'acceptation : [issues/prd.md](../issues/prd.md). Le [glossaire](../GLOSSARY.md) évite notamment de confondre workflow, run, agent, pool et session.
+Le PRD sera rédigé après les décisions du [plan R&D](./rd-plan.md). Le [glossaire](../GLOSSARY.md) évite notamment de confondre workflow, run, agent, pool et session.
 
 La **documentation complète est un livrable du développement**, à produire avec chaque capacité : quickstarts, concepts, guides, références exhaustives, exemples, exploitation, migration et diagnostic. Son [plan de couverture](./documentation-plan.md) décrit le travail futur ; les exemples du présent dossier restent des propositions d'API.
 
@@ -92,7 +92,7 @@ Les concurrents possèdent déjà plusieurs mécanismes recherchés : HTTP adapt
 - **Pilotage des ressources commun** : CPU, mémoire, HTTP, navigateurs, requêtes par domaine, tokens et budgets ne se concurrencent pas dans des schedulers cachés.
 - **Adoption agentique simple** : outils typés, CLI JSON, MCP standard, schémas et capacités négociés, résultats paginés/référencés.
 
-Ce sont des objectifs de conception, pas encore un avantage établi. La mesure principale sera le coût et la latence par résultat **réellement vérifié**, avec la couverture, la fraîcheur et les échecs publiés. [Protocole de preuve existant](../research/2026-10-07-benchmark-and-runtime.md), [qualification et développement](./roadmap-validation.md).
+Ce sont des objectifs de conception, pas encore un avantage établi. La mesure principale sera le coût et la latence par résultat **réellement vérifié**, avec la couverture, la fraîcheur et les échecs publiés. [Protocole de preuve existant](../research/2026-10-07-benchmark-and-runtime.md), [gates de promotion](./rd-plan.md#7-gates-de-promotion-sans-chiffres-inventés).
 
 ## 7. Framework ouvert et services monétisables
 
@@ -115,4 +115,4 @@ Ces lots peuvent se chevaucher lorsque leurs contrats sont stables. Le détail n
 
 ## 9. Vérification du dossier
 
-Les contrats ont fait l'objet d'une revue indépendante et de corrections ; les liens internes et l'exemple JSON ont été contrôlés. La maquette a été inspectée dans un navigateur sur desktop et mobile, avec interactions simulées. [Périmètre et résultats des vérifications](../research/2026-10-07-dossier-validation.md). Ces vérifications portent sur le dossier et le design ; la qualification du moteur reste à réaliser.
+Les contrats ont fait l'objet d'une revue indépendante et de corrections ; les liens internes et l'exemple JSON ont été contrôlés. La maquette a été inspectée dans un navigateur sur desktop et mobile, avec interactions simulées. Ces vérifications portent sur le dossier et le design ; la qualification du moteur reste à réaliser.

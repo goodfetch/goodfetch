@@ -6,7 +6,7 @@
 
 ## Contexte
 
-Proxies, empreintes navigateur cohérentes et options stealth font partie de l'offre standard des services de collecte et de navigateurs hébergés. Le dossier les prévoit déjà : configuration proxy/fingerprint cohérente ([PRD, story 34](../../issues/prd.md:62)), pool de proxies avec sticky sessions, santé, cooldown et rotation ([architecture §4.1](../architecture.md:144)), transports spécialisés en fingerprinting avec profil cohérent ([architecture §5.1](../architecture.md:177)).
+Proxies, empreintes navigateur cohérentes et options stealth font partie de l'offre standard des services de collecte et de navigateurs hébergés. Le dossier les prévoit déjà : configuration proxy/fingerprint cohérente, pool de proxies avec sticky sessions, santé, cooldown et rotation ([architecture §4.1](../architecture.md:144)), transports spécialisés en fingerprinting avec profil cohérent ([architecture §5.1](../architecture.md:177)).
 
 En parallèle, l'accès identifié devient une voie d'accès reconnue :
 
@@ -112,4 +112,4 @@ Le cloud vend ce qui exige une **maintenance continue** : pools de proxies manag
 - [ ] **Transitions** : changement de profil refusé dans une session active, nouvelle session explicite acceptée.
 - [ ] **Live** : campagne séparée, hors CI, sur sites autorisés ; ses résultats ne sont jamais agrégés aux scores hermétiques du lab.
 
-Les gates de promotion restent celles de la [roadmap](../roadmap-validation.md) : comportement conforme, limites visibles, aucun succès annoncé pour un effet ou un accès non vérifié.
+Les gates de promotion restent celles du [plan R&D](../rd-plan.md#7-gates-de-promotion-sans-chiffres-inventés) : comportement conforme, limites visibles, aucun succès annoncé pour un effet ou un accès non vérifié.

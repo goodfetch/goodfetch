@@ -79,6 +79,8 @@ La matrice `http-incidents` (`config.scenario: "http-catalog"`, décision D-http
 
 La matrice `access-policy` (décisions D-identity et D-http-transport) vérifie deux contrats de l'ADR-002 : aucune requête vers une page interdite par robots.txt quand la campagne demande de le respecter (`config.respectRobots`), et aucune réussite sur une page de challenge servie en 200.
 
+La matrice `tls-fingerprint` sert le catalogue en HTTPS (certificat local auto-signé, `config.insecureTls`) derrière un relais qui calcule le JA4 de chaque ClientHello ; le serveur HTTP/2 relève réglages, ordre des pseudo-en-têtes et ordre des en-têtes. Le contrat : une même identité TLS et HTTP/2 pendant toute la session.
+
 Avec `browserHost: "harness"`, le harnais lance un Chromium par pilote et par bloc, avec les mêmes flags (`src/core/browser-host.ts`). Il échantillonne ce navigateur avec l'adapter, donc le CPU et la mémoire du navigateur comptent pour tous les pilotes. Playwright et Puppeteer s'y connectent par CDP. Un profil `network: { link: "driver-browser" }` place le proxy de latence entre le pilote et le navigateur. `actionPolicies` fixe la politique de chaque pilote : `guarded` applique la garde avant chaque clic, saisie et sélection, `native` s'en remet aux garanties du pilote.
 
 Le bench produit une cellule par pilote, scénario et bloc, ce qui permet d'apparier les blocs. Les facteurs `policy`, `rttMs` et `browserHost` y figurent. Dans une décision, `analysis.gateLanes` indique la lane où chaque gate lit ses cellules : la conformité d'actionnabilité et l'absence de faux succès viennent de la matrice, pas du bench. Une gate ne passe que sur des cellules de l'option elle-même. Chaque option analysée est comparée à la baseline, avec ses propres gates.

@@ -6,12 +6,12 @@ import { runBrowserTask } from '../node/browser-tasks.ts';
 import { CdpConnection, CdpPage } from './cdp.ts';
 
 let connection: CdpConnection | undefined, browser: HostedBrowser | undefined;
-const adapter: Adapter<Task, { executablePath?: string; cdpEndpoint?: string }> = {
+const adapter: Adapter<Task, { executablePath?: string; cdpEndpoint?: string; insecureTls?: boolean }> = {
   info() { return { backend: 'node-cdp', protocol: 1, capabilities: ['http-catalog', 'js-catalog', 'form', 'clicks', 'actionability', 'shadow', 'primitives', 'navigation'], runtime: process.version, maxConcurrency: 16, lifecycle: 'harness or own browser per block; target per task', versions: { cdp: 'direct' } }; },
   async prepare(input) {
-    if (input.cdpEndpoint) { connection = await CdpConnection.connect(input.cdpEndpoint); return; }
-    if (!input.executablePath) throw new Error('executablePath or cdpEndpoint required');
-    browser = await launchBrowser(input.executablePath); connection = await CdpConnection.connect(browser.wsEndpoint);
+    if (input.cdpEndpoint) connection = await CdpConnection.connect(input.cdpEndpoint);
+    else { if (!input.executablePath) throw new Error('executablePath or cdpEndpoint required'); browser = await launchBrowser(input.executablePath); connection = await CdpConnection.connect(browser.wsEndpoint); }
+    if (input.insecureTls) await connection.send('Security.setIgnoreCertificateErrors', { ignore: true });
   },
   async run(task): Promise<AdapterOutput> {
     if (!connection) throw new Error('adapter not prepared');

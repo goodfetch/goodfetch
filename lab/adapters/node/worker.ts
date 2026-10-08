@@ -44,6 +44,8 @@ const adapter: Adapter = {
   async run(task): Promise<AdapterOutput> {
     if (!capabilities.includes(task.scenario)) return { status: 'unsupported', reason: `unsupported ${task.scenario}` };
     if (backend === 'node-http') {
+      // The lab's TLS fixture is self-signed; fetch has no per-request switch, so the process trusts it for this task.
+      if (task.insecureTls) process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0';
       const start = performance.now(); const records: { id: string; price: number }[] = []; let url: string | null = task.url; let visited = 0;
       while (url) {
         if (visited++ > task.pages) throw new Error('pagination exceeded contract');
@@ -58,7 +60,7 @@ const adapter: Adapter = {
       const {CheerioCrawler,PlaywrightCrawler}=crawlee!;
       const start = performance.now(); const records: { id: string; price: number }[] = []; const failures: string[] = []; const taskMetrics:Record<string,number>={};
       if (backend === 'crawlee-http') {
-        const crawler = new CheerioCrawler({ maxConcurrency: 1, maxRequestRetries: 0, maxRequestsPerCrawl: task.pages + 1, respectRobotsTxtFile: task.respectRobots === true,
+        const crawler = new CheerioCrawler({ maxConcurrency: 1, maxRequestRetries: 0, maxRequestsPerCrawl: task.pages + 1, respectRobotsTxtFile: task.respectRobots === true, ignoreSslErrors: task.insecureTls === true,
           requestHandler: async ({ $, enqueueLinks }) => { $('article[data-id]').each((_, el) => { records.push({ id: $(el).attr('data-id')!, price: Number($(el).attr('data-price')) }); }); await enqueueLinks({ selector: 'a.next' }); },
           failedRequestHandler: async ({ request }) => { failures.push(request.url); }
         }, config());

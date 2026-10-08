@@ -7,7 +7,7 @@ const adapter: Adapter = {
   async prepare() {},
   async run(task: Task): Promise<AdapterOutput> {
     if (task.scenario !== 'http-catalog') return { status: 'unsupported', reason: `unsupported ${task.scenario}` };
-    const impit = new Impit({ browser: 'chrome', timeout: task.timeoutMs });
+    const impit = new Impit({ browser: 'chrome', timeout: task.timeoutMs, ignoreTlsErrors: task.insecureTls === true });
     const start = performance.now(); const records: { id: string; price: number }[] = []; let url: string | null = task.url; let visited = 0;
     while (url) {
       if (visited++ > task.pages) throw new Error('pagination exceeded contract');

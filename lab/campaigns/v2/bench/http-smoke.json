@@ -1,0 +1,19 @@
+{
+  "schemaVersion": 2,
+  "id": "http-smoke",
+  "lane": "bench",
+  "decisionIds": ["D-http-transport"],
+  "hostClass": { "requested": "local-dev", "allowDowngrade": false },
+  "seed": 42,
+  "blocks": 2,
+  "warmup": 1,
+  "iterations": 8,
+  "concurrency": 2,
+  "mode": "closed",
+  "timeoutMs": 5000,
+  "maxDurationMs": 30000,
+  "maxRestarts": 2,
+  "backends": ["node-http", "spider-http"],
+  "scenarios": ["http-catalog"],
+  "fixtures": { "pages": 4, "actions": 1 }
+}

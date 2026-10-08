@@ -1,0 +1,13 @@
+{
+  "class": "local-controlled",
+  "description": "Developer machine prepared for internal performance decisions: quiet, on mains power, no throttling, clean sources.",
+  "gates": [
+    { "id": "git-clean", "equals": true },
+    { "id": "load-per-cpu-1m", "max": 0.25 },
+    { "id": "memory-free-percent", "min": 20 },
+    { "id": "thermal-warning", "equals": false },
+    { "id": "on-ac", "equals": true },
+    { "id": "low-power-mode", "equals": false },
+    { "id": "foreign-cpu-percent", "max": 50 }
+  ]
+}

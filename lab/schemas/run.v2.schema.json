@@ -4,115 +4,620 @@
   "title": "Automan lab run, schema version 2",
   "type": "object",
   "additionalProperties": false,
-  "required": ["schemaVersion", "runId", "lane", "campaign", "startedAt", "decisionIds", "provenance", "host", "status", "countUnit", "cells", "totals", "metricAvailability", "legacy"],
+  "required": [
+    "schemaVersion",
+    "runId",
+    "lane",
+    "campaign",
+    "startedAt",
+    "decisionIds",
+    "provenance",
+    "host",
+    "status",
+    "countUnit",
+    "cells",
+    "totals",
+    "metricAvailability",
+    "legacy"
+  ],
   "properties": {
-    "schemaVersion": { "const": 2 },
-    "runId": { "type": "string", "minLength": 1 },
-    "lane": { "enum": ["bench", "storage", "workflow", "runtime", "actionability", "sqlite-readers", "suite"] },
-    "campaign": {
-      "type": "object", "additionalProperties": false, "required": ["id", "source"],
-      "properties": { "id": { "type": "string" }, "source": { "type": ["string", "null"] } }
+    "schemaVersion": {
+      "const": 2
     },
-    "startedAt": { "type": "string" },
-    "decisionIds": { "type": "array", "items": { "type": "string", "pattern": "^D-[a-z0-9-]+$" } },
+    "runId": {
+      "type": "string",
+      "minLength": 1
+    },
+    "lane": {
+      "enum": [
+        "bench",
+        "storage",
+        "workflow",
+        "runtime",
+        "actionability",
+        "sqlite-readers",
+        "suite"
+      ]
+    },
+    "campaign": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "source"
+      ],
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "source": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "sha256": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      }
+    },
+    "startedAt": {
+      "type": "string"
+    },
+    "decisionIds": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "pattern": "^D-[a-z0-9-]+$"
+      }
+    },
     "provenance": {
-      "type": "object", "additionalProperties": false, "required": ["git", "sourceTreeSha256", "sourceChanges", "binaryChanges", "toolchains", "integrity"],
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "git",
+        "sourceTreeSha256",
+        "sourceChanges",
+        "binaryChanges",
+        "toolchains",
+        "integrity"
+      ],
       "properties": {
         "git": {
-          "type": "object", "additionalProperties": false, "required": ["available", "sha", "dirty"],
-          "properties": { "available": { "type": "boolean" }, "sha": { "type": ["string", "null"] }, "dirty": { "type": ["boolean", "null"] } }
-        },
-        "sourceTreeSha256": { "type": ["string", "null"] },
-        "sourceChanges": { "type": ["integer", "null"], "minimum": 0 },
-        "binaryChanges": { "type": ["integer", "null"], "minimum": 0 },
-        "toolchains": { "type": "object", "additionalProperties": { "type": ["string", "null"] } },
-        "integrity": {
-          "type": "object", "additionalProperties": false, "required": ["status", "checked", "mismatches"],
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "available",
+            "sha",
+            "dirty"
+          ],
           "properties": {
-            "status": { "enum": ["verified", "mismatch", "uncatalogued"] },
-            "checked": { "type": "integer", "minimum": 0 },
-            "mismatches": { "type": "array", "items": { "type": "string" } }
+            "available": {
+              "type": "boolean"
+            },
+            "sha": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "dirty": {
+              "type": [
+                "boolean",
+                "null"
+              ]
+            }
+          }
+        },
+        "sourceTreeSha256": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "sourceChanges": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "binaryChanges": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "toolchains": {
+          "type": "object",
+          "additionalProperties": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "integrity": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "status",
+            "checked",
+            "mismatches"
+          ],
+          "properties": {
+            "status": {
+              "enum": [
+                "verified",
+                "mismatch",
+                "uncatalogued"
+              ]
+            },
+            "checked": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "mismatches": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
           }
         }
       }
     },
     "host": {
-      "type": "object", "additionalProperties": false, "required": ["classRequested", "classGranted", "os", "arch", "cpu", "logicalCpus", "memoryBytes", "preflight", "postflight"],
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "classRequested",
+        "classGranted",
+        "os",
+        "arch",
+        "cpu",
+        "logicalCpus",
+        "memoryBytes",
+        "preflight",
+        "postflight"
+      ],
       "properties": {
-        "classRequested": { "enum": [null, "local-dev", "local-controlled", "reference"] },
-        "classGranted": { "enum": ["local-dev", "local-controlled", "reference"] },
-        "os": { "type": ["string", "null"] },
-        "arch": { "type": ["string", "null"] },
-        "cpu": { "type": ["string", "null"] },
-        "logicalCpus": { "type": ["integer", "null"] },
-        "memoryBytes": { "type": ["number", "null"] },
-        "preflight": { "type": ["object", "null"] },
-        "postflight": { "type": ["object", "null"] }
+        "classRequested": {
+          "enum": [
+            null,
+            "local-dev",
+            "local-controlled",
+            "reference"
+          ]
+        },
+        "classGranted": {
+          "enum": [
+            "local-dev",
+            "local-controlled",
+            "reference"
+          ]
+        },
+        "os": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "arch": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "cpu": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "logicalCpus": {
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "memoryBytes": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "preflight": {
+          "type": [
+            "object",
+            "null"
+          ]
+        },
+        "postflight": {
+          "type": [
+            "object",
+            "null"
+          ]
+        }
       }
     },
-    "status": { "enum": ["complete", "aborted", "invalid-provenance", "noisy-host", "interrupted"] },
-    "countUnit": { "enum": ["attempt", "cell", "step"] },
-    "cells": { "type": "array", "items": { "$ref": "#/$defs/cell" } },
-    "totals": { "$ref": "#/$defs/counts" },
+    "status": {
+      "enum": [
+        "complete",
+        "aborted",
+        "invalid-provenance",
+        "noisy-host",
+        "interrupted"
+      ]
+    },
+    "countUnit": {
+      "enum": [
+        "attempt",
+        "cell",
+        "step"
+      ]
+    },
+    "cells": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/cell"
+      }
+    },
+    "totals": {
+      "$ref": "#/$defs/counts"
+    },
     "metricAvailability": {
       "type": "object",
       "additionalProperties": {
-        "type": "object", "additionalProperties": false, "required": ["available"],
-        "properties": { "available": { "type": "boolean" }, "reason": { "type": "string" } }
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "available"
+        ],
+        "properties": {
+          "available": {
+            "type": "boolean"
+          },
+          "reason": {
+            "type": "string"
+          }
+        }
       }
     },
     "legacy": {
-      "type": ["object", "null"], "additionalProperties": false, "required": ["shape", "sourceDir", "errorCodeInferred", "note"],
+      "type": [
+        "object",
+        "null"
+      ],
+      "additionalProperties": false,
+      "required": [
+        "shape",
+        "sourceDir",
+        "errorCodeInferred",
+        "note"
+      ],
       "properties": {
-        "shape": { "enum": ["bench", "cells", "suite", "interrupted"] },
-        "sourceDir": { "type": "string" },
-        "errorCodeInferred": { "type": "boolean" },
-        "note": { "type": ["string", "null"] }
+        "shape": {
+          "enum": [
+            "bench",
+            "cells",
+            "suite",
+            "interrupted"
+          ]
+        },
+        "sourceDir": {
+          "type": "string"
+        },
+        "errorCodeInferred": {
+          "type": "boolean"
+        },
+        "note": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      }
+    },
+    "blocks": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "index",
+          "order",
+          "noisy",
+          "host"
+        ],
+        "properties": {
+          "index": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "order": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "noisy": {
+            "type": "boolean"
+          },
+          "host": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "loadPerCpu1m",
+              "foreignCpuPercent"
+            ],
+            "properties": {
+              "loadPerCpu1m": {
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "foreignCpuPercent": {
+                "type": [
+                  "number",
+                  "null"
+                ]
+              }
+            }
+          }
+        }
       }
     }
   },
   "$defs": {
-    "status": { "enum": ["verified", "failed", "mixed", "timeout", "crashed", "aborted", "unsupported", "rejected", "unavailable", "skipped-gate"] },
+    "status": {
+      "enum": [
+        "verified",
+        "failed",
+        "mixed",
+        "timeout",
+        "crashed",
+        "aborted",
+        "unsupported",
+        "rejected",
+        "unavailable",
+        "skipped-gate"
+      ]
+    },
     "counts": {
-      "type": "object", "additionalProperties": false,
-      "required": ["verified", "failed", "timeout", "crashed", "aborted", "unsupported", "rejected", "unavailable", "skipped"],
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "verified",
+        "failed",
+        "timeout",
+        "crashed",
+        "aborted",
+        "unsupported",
+        "rejected",
+        "unavailable",
+        "skipped"
+      ],
       "properties": {
-        "verified": { "type": "integer", "minimum": 0 }, "failed": { "type": "integer", "minimum": 0 },
-        "timeout": { "type": "integer", "minimum": 0 }, "crashed": { "type": "integer", "minimum": 0 },
-        "aborted": { "type": "integer", "minimum": 0 }, "unsupported": { "type": "integer", "minimum": 0 },
-        "rejected": { "type": "integer", "minimum": 0 }, "unavailable": { "type": "integer", "minimum": 0 },
-        "skipped": { "type": "integer", "minimum": 0 }
+        "verified": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "failed": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "timeout": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "crashed": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "aborted": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "unsupported": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "rejected": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "unavailable": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "skipped": {
+          "type": "integer",
+          "minimum": 0
+        }
       }
     },
     "measure": {
-      "type": "object", "additionalProperties": false, "required": ["value", "unit", "source"],
-      "properties": { "value": { "type": ["number", "null"] }, "unit": { "type": "string" }, "source": { "type": "string" } }
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "value",
+        "unit",
+        "source"
+      ],
+      "properties": {
+        "value": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "unit": {
+          "type": "string"
+        },
+        "source": {
+          "type": "string"
+        }
+      }
     },
     "cell": {
-      "type": "object", "additionalProperties": false, "required": ["cellId", "factors", "status", "errorCode", "counts", "metrics"],
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "cellId",
+        "factors",
+        "status",
+        "errorCode",
+        "counts",
+        "metrics"
+      ],
       "properties": {
-        "cellId": { "type": "string" },
-        "factors": { "type": "object", "additionalProperties": { "type": ["string", "number", "boolean", "null"] } },
-        "status": { "$ref": "#/$defs/status" },
-        "errorCode": { "type": ["string", "null"], "pattern": "^E_[A-Z_]+$" },
-        "counts": { "$ref": "#/$defs/counts" },
-        "metrics": { "type": "object", "additionalProperties": { "$ref": "#/$defs/measure" } }
+        "cellId": {
+          "type": "string"
+        },
+        "factors": {
+          "type": "object",
+          "additionalProperties": {
+            "type": [
+              "string",
+              "number",
+              "boolean",
+              "null"
+            ]
+          }
+        },
+        "status": {
+          "$ref": "#/$defs/status"
+        },
+        "errorCode": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "pattern": "^E_[A-Z_]+$"
+        },
+        "counts": {
+          "$ref": "#/$defs/counts"
+        },
+        "metrics": {
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/$defs/measure"
+          }
+        }
       }
     },
     "attempt": {
-      "type": "object", "additionalProperties": false,
-      "required": ["attemptId", "cellId", "block", "phase", "index", "seed", "status", "errorCode", "timing", "metrics"],
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "attemptId",
+        "cellId",
+        "block",
+        "phase",
+        "index",
+        "seed",
+        "status",
+        "errorCode",
+        "timing",
+        "metrics",
+        "workerGeneration",
+        "reasons"
+      ],
       "properties": {
-        "attemptId": { "type": "string" }, "cellId": { "type": "string" },
-        "block": { "type": "integer", "minimum": 0 }, "phase": { "enum": ["conformance", "warmup", "measure"] },
-        "index": { "type": "integer", "minimum": 0 }, "seed": { "type": "integer" },
-        "status": { "$ref": "#/$defs/status" },
-        "errorCode": { "type": ["string", "null"], "pattern": "^E_[A-Z_]+$" },
-        "timing": {
-          "type": "object", "additionalProperties": false, "required": ["queueMs", "taskMs", "oracleMs"],
-          "properties": { "queueMs": { "type": ["number", "null"] }, "taskMs": { "type": ["number", "null"] }, "oracleMs": { "type": ["number", "null"] } }
+        "attemptId": {
+          "type": "string"
         },
-        "metrics": { "type": "object", "additionalProperties": { "$ref": "#/$defs/measure" } }
+        "cellId": {
+          "type": "string"
+        },
+        "block": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "phase": {
+          "enum": [
+            "conformance",
+            "warmup",
+            "measure"
+          ]
+        },
+        "index": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "seed": {
+          "type": "integer"
+        },
+        "status": {
+          "$ref": "#/$defs/status"
+        },
+        "errorCode": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "pattern": "^E_[A-Z_]+$"
+        },
+        "timing": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "queueMs",
+            "taskMs",
+            "oracleMs"
+          ],
+          "properties": {
+            "queueMs": {
+              "type": [
+                "number",
+                "null"
+              ]
+            },
+            "taskMs": {
+              "type": [
+                "number",
+                "null"
+              ]
+            },
+            "oracleMs": {
+              "type": [
+                "number",
+                "null"
+              ]
+            }
+          }
+        },
+        "metrics": {
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/$defs/measure"
+          }
+        },
+        "workerGeneration": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "reasons": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "adapterMetrics": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "number"
+          }
+        },
+        "oracleSnapshot": {
+          "type": "object"
+        }
       }
     }
   }

@@ -21,6 +21,17 @@ pnpm lab import     # réexprime results/ en run.v2 sous ledger/imported et rég
 pnpm lab ledger     # rôle, statut, rerun et classes de validité de chaque run
 ```
 
+### Moteur v2 et classes d'hôte
+
+```sh
+pnpm lab preflight local-controlled          # vérifie l'hôte : charge, mémoire, thermique, secteur, processus étrangers, sources commitées
+pnpm lab run campaigns/v2/bench/http-smoke.json
+```
+
+`pnpm lab run` exécute une campagne v2 (`schemas/campaign-bench.v2.schema.json`) ; un ancien `campaigns/*.json` est converti et plafonné à `local-dev`. Le moteur enchaîne provenance (SHA git, état dirty, empreinte des sources), contrôle de l'hôte, gate de conformité, warmup, blocs mesurés et finalisation dans `results/<id>/run.v2.json` et `attempts.v2.jsonl`. Seuils des classes `local-controlled` et `reference` : `hosts/*.json`. Un hôte qui ne passe pas les gates est refusé, ou dégradé explicitement si la campagne l'autorise ; des sources non commitées plafonnent à `local-dev`.
+
+Méthode : le statut d'une tentative vient d'un code d'erreur typé (`src/core/errors.ts`), jamais du texte d'un message. Un timeout ne touche que la tentative bloquée : ses voisines en vol sont `aborted` (`E_SIBLING_ABORT`), hors taux d'échec, et le worker redémarre dans la limite de `maxRestarts`. Fixtures et oracle tournent dans un processus séparé (`fixtures/worker.ts`) ; `taskMs` ne couvre que l'appel `run`, et `oracleMs` est mesuré à part. Une métrique sans sonde sur l'hôte vaut `null`, avec sa raison dans `metricAvailability`, jamais 0. Les tentatives bloquées par un gate restent visibles en `skipped-gate`.
+
 `ledger/classification.json` porte le jugement humain sur chaque run (rôle, raison, validité A contrat / B relatif même hôte / C absolu, décisions, rerun). L'import y ajoute les faits mécaniques : comptes, provenance, intégrité recalculée contre les catalogues SHA de `reports/`. Il est idempotent et ne modifie jamais `results/`. Les runs importés restent plafonnés à la classe d'hôte `local-dev`.
 
 ## Démarrer

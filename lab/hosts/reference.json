@@ -1,0 +1,14 @@
+{
+  "class": "reference",
+  "description": "Dedicated Linux bare-metal host for published figures; see docs/reference-host.md once provisioned.",
+  "gates": [
+    { "id": "git-clean", "equals": true },
+    { "id": "os", "equals": "linux" },
+    { "id": "virtualized", "equals": false },
+    { "id": "cpu-governor", "equals": "performance" },
+    { "id": "load-per-cpu-1m", "max": 0.1 },
+    { "id": "memory-free-percent", "min": 30 },
+    { "id": "thermal-warning", "equals": false },
+    { "id": "foreign-cpu-percent", "max": 10 }
+  ]
+}

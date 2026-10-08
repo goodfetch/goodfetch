@@ -89,6 +89,7 @@ async fn run(params: &Value, mode: &str) -> Result<Value, String> {
     let start = std::time::Instant::now();
     let mut site = Website::new(url);
     site.configuration.with_concurrency_limit(Some(1));
+    site.configuration.with_respect_robots_txt(params["respectRobots"].as_bool().unwrap_or(false));
     site.configuration
         .with_request_timeout(Some(std::time::Duration::from_millis(
             params["timeoutMs"].as_u64().unwrap_or(15000),

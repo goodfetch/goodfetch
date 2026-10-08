@@ -58,7 +58,7 @@ const adapter: Adapter = {
       const {CheerioCrawler,PlaywrightCrawler}=crawlee!;
       const start = performance.now(); const records: { id: string; price: number }[] = []; const failures: string[] = []; const taskMetrics:Record<string,number>={};
       if (backend === 'crawlee-http') {
-        const crawler = new CheerioCrawler({ maxConcurrency: 1, maxRequestRetries: 0, maxRequestsPerCrawl: task.pages + 1,
+        const crawler = new CheerioCrawler({ maxConcurrency: 1, maxRequestRetries: 0, maxRequestsPerCrawl: task.pages + 1, respectRobotsTxtFile: task.respectRobots === true,
           requestHandler: async ({ $, enqueueLinks }) => { $('article[data-id]').each((_, el) => { records.push({ id: $(el).attr('data-id')!, price: Number($(el).attr('data-price')) }); }); await enqueueLinks({ selector: 'a.next' }); },
           failedRequestHandler: async ({ request }) => { failures.push(request.url); }
         }, config());

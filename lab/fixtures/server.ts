@@ -6,10 +6,10 @@ import type { AddressInfo } from 'node:net';
 export type RecordItem = { id: string; price: number };
 export type Verdict = { status: 'verified' | 'failed'; reasons: string[] };
 export type Scenario = 'http-catalog' | 'js-catalog' | 'form' | 'clicks' | 'shadow' | 'iframe' | 'download' | 'actionability' | 'primitives' | 'navigation';
-export type RunSpec = { scenario: Scenario; seed: number; pages?: number; actions?: number; delayMs?: number; variant?: 'normal' | 'overlay' | 'rerender' | 'delayed' | 'hidden' | 'moving' | 'never-enabled' | 'never-uncovered' | 'ambiguous' | 'hover' | 'dblclick' | 'contextmenu' | 'drag' | 'wheel' | 'keyboard' | 'contenteditable' | 'unicode' | 'moved' | 'retarget' | 'spa' | 'history' | 'popup' | 'frame' | 'cross-frame' | 'upload' | 'download' | 'http-429' | 'http-503-once' | 'http-truncated' | 'http-reset' | 'http-redirect-loop' | 'http-slow' | 'http-redirect' | 'http-gzip' | 'http-chunked' | 'http-large' };
+export type RunSpec = { scenario: Scenario; seed: number; pages?: number; actions?: number; delayMs?: number; variant?: 'normal' | 'overlay' | 'rerender' | 'delayed' | 'hidden' | 'moving' | 'never-enabled' | 'never-uncovered' | 'ambiguous' | 'hover' | 'dblclick' | 'contextmenu' | 'drag' | 'wheel' | 'keyboard' | 'contenteditable' | 'unicode' | 'moved' | 'retarget' | 'spa' | 'history' | 'popup' | 'frame' | 'cross-frame' | 'upload' | 'download' | 'http-429' | 'http-503-once' | 'http-truncated' | 'http-reset' | 'http-redirect-loop' | 'http-slow' | 'robots-disallow' | 'challenge-200' | 'http-redirect' | 'http-gzip' | 'http-chunked' | 'http-large' };
 type Run = RunSpec & { id: string; records: RecordItem[]; effects: unknown[]; requests: number; errors: number; incidents: { at: number; status: number }[] };
 // HTTP incidents that a client must surface as an explicit failure rather than a success.
-const httpRefusals = ['http-truncated', 'http-reset', 'http-redirect-loop', 'http-slow'];
+const httpRefusals = ['http-truncated', 'http-reset', 'http-redirect-loop', 'http-slow', 'challenge-200'];
 
 function send(res: ServerResponse, status: number, body: string, type = 'text/html') {
   res.writeHead(status, { 'content-type': `${type}; charset=utf-8`, 'cache-control': 'no-store' }); res.end(body);
@@ -21,7 +21,7 @@ async function body(req: IncomingMessage): Promise<unknown> {
 function pageHtml(run: Run, page: number) {
   const records = run.records.slice(page * 2, page * 2 + 2);
   const items = records.map(record => `<article data-id="${record.id}" data-price="${record.price}"><h2>${record.id}</h2><span>${record.price}</span></article>`).join('');
-  const next = page + 1 < (run.pages ?? 3) ? `<a class="next" href="/runs/${run.id}/catalog?p=${page + 1}">Next</a>` : '';
+  const next = page + 1 < (run.pages ?? 3) ? `<a class="next" href="${run.variant === 'robots-disallow' && page === 0 ? '/private' : ''}/runs/${run.id}/catalog?p=${page + 1}">Next</a>` : '';
   return `<main id="catalog" data-ready="true">${items}${next}</main>`;
 }
 function ui(run: Run, crossOrigin = '') {
@@ -136,10 +136,13 @@ export async function startFixtures() {
   const server = createServer(async (req, res) => {
     try {
       const url = new URL(req.url ?? '/', 'http://fixture');
-      if (url.pathname === '/robots.txt') return send(res, 200, 'User-agent: *\nAllow: /\n', 'text/plain');
-      const [, , id, action] = url.pathname.split('/'); const run = id ? runs.get(id) : undefined;
+      // Pages under /private/ are disallowed for every crawler; a fetch there is recorded as a robots violation.
+      if (url.pathname === '/robots.txt') return send(res, 200, 'User-agent: *\nDisallow: /private/\nAllow: /\n', 'text/plain');
+      const disallowed = url.pathname.startsWith('/private/');
+      const [, , id, action] = (disallowed ? url.pathname.slice('/private'.length) : url.pathname).split('/'); const run = id ? runs.get(id) : undefined;
       if (!run) return send(res, 404, 'unknown fixture');
       run.requests++;
+      if (disallowed) run.incidents.push({ at: performance.now(), status: -1 });
       if (run.delayMs) await new Promise(resolve => setTimeout(resolve, run.delayMs));
       if (action === 'effect' && req.method === 'POST') { run.effects.push(await body(req)); return send(res, 200, '{}', 'application/json'); }
       if (action === 'catalog'||action==='redirect') {
@@ -147,7 +150,7 @@ export async function startFixtures() {
         if (!Number.isInteger(p) || p < 0 || p >= (run.pages ?? 3)) return send(res, 404, 'bad page');
         if(run.variant==='http-redirect'&&action==='catalog'){res.writeHead(302,{location:`/runs/${id}/redirect?p=${p}`});res.end();return}
         // Incidents hit the second page only, so a client that mishandles them can still look plausible.
-        if (p === 1 && run.scenario === 'http-catalog' && run.variant?.startsWith('http-')) {
+        if (p === 1 && run.scenario === 'http-catalog' && (run.variant?.startsWith('http-') || run.variant === 'challenge-200')) {
           const first = !run.incidents.length; const at = performance.now();
           if (run.variant === 'http-429' && first) { run.incidents.push({ at, status: 429 }); res.writeHead(429, { 'retry-after': '1', 'content-type': 'text/plain' }); res.end('slow down'); return; }
           if (run.variant === 'http-503-once' && first) { run.incidents.push({ at, status: 503 }); return send(res, 503, 'unavailable', 'text/plain'); }
@@ -158,6 +161,7 @@ export async function startFixtures() {
             res.writeHead(200, { 'content-type': 'text/html; charset=utf-8', ...(run.variant === 'http-truncated' ? { 'content-length': String(Buffer.byteLength(page)) } : {}) });
             res.write(cut); await new Promise(resolve => setTimeout(resolve, 10)); res.socket?.destroy(); return;
           }
+          if (run.variant === 'challenge-200') { run.incidents.push({ at, status: 200 }); return send(res, 200, '<!doctype html><html><head><title>Just a moment...</title></head><body><div id="challenge">Checking your browser before accessing this site.</div></body></html>'); }
           if (!first) run.incidents.push({ at, status: 200 });
         }
         if (run.scenario === 'js-catalog') return send(res, 200, `<!doctype html><div id="loading">Loading</div><script>fetch('/runs/${id}/data?p=${p}').then(r=>r.text()).then(html=>{document.body.innerHTML=html})</script>`);
@@ -188,7 +192,10 @@ export async function startFixtures() {
     },
     async verify(id: string, output: { records?: RecordItem[]; file?: string; error?: string; [key: string]: unknown }): Promise<Verdict> {
       const run = runs.get(id); if (!run) throw new Error('unknown run'); const reasons: string[] = [];
-      if (httpRefusals.includes(run.variant ?? '')) {
+      if (run.variant === 'robots-disallow') {
+        const violations = run.incidents.filter(incident => incident.status === -1).length;
+        if (violations) reasons.push(`fetched ${violations} page(s) disallowed by robots.txt`);
+      } else if (httpRefusals.includes(run.variant ?? '')) {
         if (output.error === undefined) {
           // Complete data after the deadline breaks the time contract; incomplete data reported as success is a false success.
           const got = new Set((output.records ?? []).map(record => record.id)); const missing = run.records.filter(record => !got.has(record.id)).length;

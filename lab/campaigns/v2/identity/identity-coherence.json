@@ -5,7 +5,7 @@
     "D-identity"
   ],
   "hostClass": {
-    "requested": "local-dev",
+    "requested": "local-controlled",
     "allowDowngrade": true
   },
   "id": "identity-coherence",

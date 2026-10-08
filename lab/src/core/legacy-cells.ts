@@ -8,7 +8,7 @@ export type ImportedCell = { cellId: string; factors: Record<string, string | nu
 export type Lane = 'bench' | 'storage' | 'workflow' | 'runtime' | 'actionability' | 'sqlite-readers' | 'extraction' | 'ai' | 'identity' | 'admission' | 'suite';
 export type Json = Record<string, unknown>;
 
-const factorKeys = ['backend', 'extractor', 'pageType', 'split', 'mode', 'httpTier', 'profile', 'purpose', 'renderer', 'scenario', 'engine', 'format', 'batchSize', 'batchRows', 'writers', 'readerMode', 'payloadBytes', 'concurrency', 'batchJobs', 'fault', 'poolWake', 'runtime', 'variant', 'policy', 'jobs', 'pages', 'delayMs', 'leaseMs', 'block'];
+const factorKeys = ['backend', 'extractor', 'pageType', 'split', 'mode', 'httpTier', 'profile', 'purpose', 'renderer', 'model', 'scenario', 'engine', 'format', 'batchSize', 'batchRows', 'writers', 'readerMode', 'payloadBytes', 'concurrency', 'batchJobs', 'fault', 'poolWake', 'runtime', 'variant', 'policy', 'jobs', 'pages', 'delayMs', 'leaseMs', 'block'];
 
 export const zero = (): Counts => ({ verified: 0, failed: 0, timeout: 0, crashed: 0, aborted: 0, unsupported: 0, rejected: 0, unavailable: 0, skipped: 0 });
 export const add = (into: Counts, from: Partial<Counts>) => { for (const key of Object.keys(into) as (keyof Counts)[]) into[key] += Number(from[key] ?? 0); return into; };

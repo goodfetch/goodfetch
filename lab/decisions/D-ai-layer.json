@@ -46,7 +46,8 @@
   "campaigns": [
     "ai-replay-repair",
     "agentic-comparison",
-    "silent-drift"
+    "silent-drift",
+    "ai-real-models"
   ],
   "evidence": [
     {

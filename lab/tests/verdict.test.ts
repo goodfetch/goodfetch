@@ -39,22 +39,22 @@ test('non-inferiority accepts a slightly worse option within the margin', () => 
   assert.equal(decide({ ...base, rule: { ...superiority, kind: 'non-inferiority' }, logRatios: blocks(1.02, 12, 0.003) }).outcome, 'non-inferior');
 });
 
-test('on the imported runs, D-core-language is mechanically insufficient-n and not eligible at local-dev', async () => {
+test('on the recorded evidence, D-core-language is mechanically better for Rust and eligible at local-controlled', async () => {
   const registry = loadRegistry();
   const verdict = await evaluateDecision(registry.decisions.find(d => d.id === 'D-core-language')!, { registry });
-  assert.equal(verdict.outcome, 'insufficient-n');
-  assert.equal(verdict.host.observed, 'local-dev');
-  assert.equal(verdict.host.eligible, false);
-  assert.ok(verdict.n >= 1, 'paired blocks were found in the evidence runs');
+  assert.equal(verdict.outcome, 'better');
+  assert.equal(verdict.host.observed, 'local-controlled');
+  assert.equal(verdict.host.eligible, true);
+  assert.ok(verdict.n >= verdict.requiredN!, 'enough paired blocks for the declared margin');
 });
 
 // A synthetic lab root: one bench run (measurement) and one actionability run (gates) for a driver decision.
-async function driverFixture(actionabilityStatus: (backend: string, variant: string) => string) {
+async function driverFixture(actionabilityStatus: (backend: string, variant: string) => string, noisyBlocks: number[] = []) {
   const { mkdtemp, mkdir, writeFile } = await import('node:fs/promises'); const { tmpdir } = await import('node:os'); const { join } = await import('node:path');
   const root = await mkdtemp(join(tmpdir(), 'automan-verdict-')); await mkdir(join(root, 'ledger/imported'), { recursive: true });
   const ratio: Record<string, number> = { 'rust-cdp': 0.5, 'node-cdp': 0.9, playwright: 1 };
   const policy: Record<string, string> = { 'rust-cdp': 'guarded', 'node-cdp': 'guarded', playwright: 'native' };
-  const bench = { runId: 'bench-1', lane: 'bench', host: { classGranted: 'local-controlled' }, cells: Array.from({ length: 6 }, (_, block) => Object.keys(ratio).map(backend => ({
+  const bench = { runId: 'bench-1', lane: 'bench', host: { classGranted: 'local-controlled' }, blocks: Array.from({ length: 6 }, (_, index) => ({ index, noisy: noisyBlocks.includes(index) })), cells: Array.from({ length: 6 }, (_, block) => Object.keys(ratio).map(backend => ({
     factors: { backend, scenario: 'form', block, policy: policy[backend], rttMs: 0, browserHost: 'harness' }, status: 'verified',
     metrics: { 'task-p50-ms-verified': { value: 100 * ratio[backend]! * (1 + (block % 2 ? 0.01 : -0.01)) } } }))).flat() };
   const actionability = { runId: 'act-1', lane: 'actionability', host: { classGranted: 'local-controlled' }, cells: Object.keys(ratio).flatMap(backend => ['normal', 'never-enabled'].map(variant => ({
@@ -95,4 +95,19 @@ test('an option absent from the gate lane fails its gates even when the baseline
   assert.equal(verdict.option, 'rust-cdp-guarded');
   assert.equal(verdict.outcome, 'blocked-by-contract');
   assert.equal(verdict.gates.find(gate => gate.id === 'actionability-conformance')!.ok, false);
+});
+
+test('blocks flagged noisy are excluded from the paired estimate when the rule says so', async () => {
+  const { root, registry, decision } = await driverFixture(() => 'verified', [0, 3]);
+  const verdict = await evaluateDecision(decision, { registry, root });
+  assert.equal(decision.rule!.noisyBlockPolicy, 'exclude');
+  assert.equal(verdict.n, 4);
+});
+
+test('declared strata each get their own comparison, so opposite effects are not pooled', async () => {
+  const { root, registry, decision } = await driverFixture(() => 'verified');
+  const verdict = await evaluateDecision({ ...decision, analysis: { ...decision.analysis, strata: [{ scenario: 'form', rttMs: 0 }, { scenario: 'clicks', rttMs: 0 }] } }, { registry, root });
+  assert.deepEqual(verdict.comparisons.map(c => [c.option, JSON.stringify(c.stratum), c.n]), [
+    ['rust-cdp-guarded', '{"scenario":"form","rttMs":0}', 6], ['rust-cdp-guarded', '{"scenario":"clicks","rttMs":0}', 0],
+    ['node-cdp-guarded', '{"scenario":"form","rttMs":0}', 6], ['node-cdp-guarded', '{"scenario":"clicks","rttMs":0}', 0]]);
 });

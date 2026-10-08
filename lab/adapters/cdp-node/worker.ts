@@ -7,7 +7,7 @@ import { CdpConnection, CdpPage } from './cdp.ts';
 
 let connection: CdpConnection | undefined, browser: HostedBrowser | undefined;
 const adapter: Adapter<Task, { executablePath?: string; cdpEndpoint?: string }> = {
-  info() { return { backend: 'node-cdp', protocol: 1, capabilities: ['http-catalog', 'js-catalog', 'form', 'clicks', 'actionability', 'shadow'], runtime: process.version, maxConcurrency: 16, lifecycle: 'harness or own browser per block; target per task', versions: { cdp: 'direct' } }; },
+  info() { return { backend: 'node-cdp', protocol: 1, capabilities: ['http-catalog', 'js-catalog', 'form', 'clicks', 'actionability', 'shadow', 'primitives'], runtime: process.version, maxConcurrency: 16, lifecycle: 'harness or own browser per block; target per task', versions: { cdp: 'direct' } }; },
   async prepare(input) {
     if (input.cdpEndpoint) { connection = await CdpConnection.connect(input.cdpEndpoint); return; }
     if (!input.executablePath) throw new Error('executablePath or cdpEndpoint required');

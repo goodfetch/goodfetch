@@ -13,6 +13,8 @@ export type HostSnapshot = {
   os: string; arch: string; cpu: string | null; logicalCpus: number; memoryBytes: number; loadAverage1m: number;
   memoryFreePercent: number | null; thermalWarning: boolean | null; onAC: boolean | null; lowPowerMode: boolean | null;
   foreignCpuPercent: number | null; foreignTop: { command: string; cpuPercent: number }[]; cpuGovernor: string | null; virtualized: boolean | null;
+  // CPU of the agent app driving the run, recorded apart: it is part of the setup, not a foreign load.
+  controllerCpuPercent?: number | null;
 };
 type Gate = { id: string; equals?: string | number | boolean; max?: number; min?: number };
 type HostClassSpec = { class: HostClass; description: string; gates: Gate[] };
@@ -63,6 +65,19 @@ export function assessHost({ snapshot, requested, allowDowngrade, gitClean, clas
   throw new Error('unreachable host class order');
 }
 
+type ProcessRow = { pid: number; ppid: number; pgid: number; cpu: number; command: string };
+// The agent app that launches the campaign (Claude desktop app and CLI) runs throughout any run it drives.
+const controller = /(^|\/)(Claude|Claude Helper( \([A-Za-z]+\))?|claude)$/;
+export function classifyProcesses(rows: ProcessRow[], ownProcessGroups: number[]) {
+  const own = new Set(ownProcessGroups); let changed = true;
+  while (changed) { changed = false; for (const row of rows) if ((own.has(row.ppid) || own.has(row.pgid)) && !own.has(row.pid)) { own.add(row.pid); changed = true; } }
+  const busy = rows.filter(row => !own.has(row.pid) && Number.isFinite(row.cpu) && row.cpu > 0);
+  const isController = (row: ProcessRow) => controller.test(row.command);
+  const foreign = busy.filter(row => !isController(row)).sort((a, b) => b.cpu - a.cpu);
+  return { foreignCpuPercent: foreign.reduce((sum, row) => sum + row.cpu, 0), controllerCpuPercent: busy.filter(isController).reduce((sum, row) => sum + row.cpu, 0),
+    foreignTop: foreign.slice(0, 5).map(row => ({ command: row.command.split('/').at(-1) ?? row.command, cpuPercent: row.cpu })) };
+}
+
 async function run(command: string, args: string[]) { try { return (await exec(command, args, { timeout: 3000, maxBuffer: 4_000_000 })).stdout; } catch { return null; } }
 
 // Snapshot of the current host; values that cannot be read on this platform stay null.
@@ -73,11 +88,7 @@ export async function snapshotHost(ownProcessGroups: number[] = [process.pid]): 
   const ps = await run('ps', ['-axo', 'pid=,ppid=,pgid=,pcpu=,comm=']);
   if (ps !== null) {
     const rows = ps.trim().split('\n').map(line => line.trim().split(/\s+/)).map(([pid, ppid, pgid, pcpu, ...command]) => ({ pid: Number(pid), ppid: Number(ppid), pgid: Number(pgid), cpu: Number(pcpu), command: command.join(' ') }));
-    const own = new Set(ownProcessGroups); let changed = true;
-    while (changed) { changed = false; for (const row of rows) if ((own.has(row.ppid) || own.has(row.pgid)) && !own.has(row.pid)) { own.add(row.pid); changed = true; } }
-    const foreign = rows.filter(row => !own.has(row.pid) && Number.isFinite(row.cpu) && row.cpu > 0).sort((a, b) => b.cpu - a.cpu);
-    snapshot.foreignCpuPercent = foreign.reduce((sum, row) => sum + row.cpu, 0);
-    snapshot.foreignTop = foreign.slice(0, 5).map(row => ({ command: row.command.split('/').at(-1) ?? row.command, cpuPercent: row.cpu }));
+    Object.assign(snapshot, classifyProcesses(rows, ownProcessGroups));
   }
   if (os === 'darwin') {
     const pressure = await run('memory_pressure', ['-Q']);

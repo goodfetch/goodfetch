@@ -1,0 +1,1 @@
+(()=>{const guard=window.__automanGuard;if(!guard)return null;guard.disarm();delete window.__automanGuard;return guard.state.intercepted})()

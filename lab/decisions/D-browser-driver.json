@@ -113,12 +113,38 @@
     {
       "kind": "run",
       "ref": "browser-primitives-2026-10-07T21-33-08-604Z-f6b1a0"
+    },
+    {
+      "kind": "run",
+      "ref": "browser-actionability-extended-2026-10-08T12-05-27-529Z-49432b",
+      "note": "matrice étendue, garde v2"
+    },
+    {
+      "kind": "run",
+      "ref": "browser-driver-primitives-2026-10-08T12-14-55-485Z-4b6074",
+      "note": "primitives, garde v2"
+    },
+    {
+      "kind": "run",
+      "ref": "browser-driver-rtt-0-2026-10-08T12-39-53-109Z-63890b"
+    },
+    {
+      "kind": "run",
+      "ref": "browser-driver-rtt-20-2026-10-08T12-50-54-854Z-96969e"
+    },
+    {
+      "kind": "run",
+      "ref": "browser-driver-rtt-100-2026-10-08T13-14-24-301Z-331916"
+    },
+    {
+      "kind": "run",
+      "ref": "browser-driver-rtt-300-2026-10-08T14-00-36-292Z-657a67"
     }
   ],
   "verdictRef": "verdicts/D-browser-driver.json",
   "adr": null,
   "dependsOn": [],
-  "notes": "La référence CDP directe en Node sépare l'effet du langage de celui du protocole. Aucun verdict de vitesse tant que la matrice d'actionnabilité étendue n'est pas entièrement conforme.",
+  "notes": "La référence CDP directe en Node sépare l'effet du langage de celui du protocole. Aucun verdict de vitesse tant que la matrice d'actionnabilité étendue n'est pas entièrement conforme. Strate principale : le formulaire sans latence, la tâche la plus riche en actions ; chaque scénario à chaque RTT est comparé séparément, pour ne pas mélanger des effets de sens opposé.",
   "analysis": {
     "lane": "bench",
     "options": {
@@ -144,12 +170,75 @@
       "rttMs"
     ],
     "stratum": {
+      "scenario": "form",
       "rttMs": 0,
       "browserHost": "harness"
     },
     "gateLanes": {
       "actionability-conformance": "actionability",
       "false-success-count": "actionability"
-    }
+    },
+    "strata": [
+      {
+        "scenario": "form",
+        "rttMs": 0,
+        "browserHost": "harness"
+      },
+      {
+        "scenario": "clicks",
+        "rttMs": 0,
+        "browserHost": "harness"
+      },
+      {
+        "scenario": "js-catalog",
+        "rttMs": 0,
+        "browserHost": "harness"
+      },
+      {
+        "scenario": "form",
+        "rttMs": 20,
+        "browserHost": "harness"
+      },
+      {
+        "scenario": "clicks",
+        "rttMs": 20,
+        "browserHost": "harness"
+      },
+      {
+        "scenario": "js-catalog",
+        "rttMs": 20,
+        "browserHost": "harness"
+      },
+      {
+        "scenario": "form",
+        "rttMs": 100,
+        "browserHost": "harness"
+      },
+      {
+        "scenario": "clicks",
+        "rttMs": 100,
+        "browserHost": "harness"
+      },
+      {
+        "scenario": "js-catalog",
+        "rttMs": 100,
+        "browserHost": "harness"
+      },
+      {
+        "scenario": "form",
+        "rttMs": 300,
+        "browserHost": "harness"
+      },
+      {
+        "scenario": "clicks",
+        "rttMs": 300,
+        "browserHost": "harness"
+      },
+      {
+        "scenario": "js-catalog",
+        "rttMs": 300,
+        "browserHost": "harness"
+      }
+    ]
   }
 }

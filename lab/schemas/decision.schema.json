@@ -294,6 +294,11 @@
           },
           "description": "option id -> factor values; null means the factor is absent"
         },
+        "strata": {
+          "type": "array",
+          "items": { "type": "object", "additionalProperties": { "type": ["string", "number", "boolean", "null"] } },
+          "description": "strata compared separately, the first being the primary one; defaults to [stratum]"
+        },
         "gateLanes": {
           "type": "object",
           "additionalProperties": { "type": "string" },

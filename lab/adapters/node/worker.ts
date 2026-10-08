@@ -12,7 +12,7 @@ let browser: Browser | undefined, puppeteerBrowser: PuppeteerBrowser | undefined
 let stagehandBrowser: StagehandBrowser | undefined, stagehand: Stagehand | undefined;
 let crawlee: typeof import('crawlee') | undefined;
 let options: { executablePath?: string; headless?: boolean } = {}; let connected = false;
-const capabilities = backend.includes('http') ? ['http-catalog'] : ['http-catalog', 'js-catalog', 'form', 'clicks','actionability', ...(backend === 'puppeteer' ? [] : ['shadow'])];
+const capabilities = backend.includes('http') ? ['http-catalog'] : ['http-catalog', 'js-catalog', 'form', 'clicks','actionability', ...(backend === 'puppeteer' ? [] : ['shadow']), ...(['playwright', 'puppeteer'].includes(backend) ? ['primitives'] : [])];
 function version(packageName: string) { return JSON.parse(readFileSync(require.resolve(`${packageName}/package.json`), 'utf8')).version as string; }
 function config() { return new crawlee!.Configuration({ persistStorage: false, storageClient: new crawlee!.MemoryStorage({ persistStorage: false }) }); }
 const adapter: Adapter = {
@@ -81,7 +81,16 @@ const adapter: Adapter = {
       const page = await puppeteerBrowser.newPage(); await page.setViewport({ width: 1280, height: 720 }); page.setDefaultTimeout(task.timeoutMs);
       const wrapped: BrowserPage = { goto: url => page.goto(url, { waitUntil: 'domcontentloaded' }), evaluate: async <T>(script: string) => await page.evaluate(script) as T,
         click: async selector => { await page.locator(selector).click(); }, fill: async (selector, value) => { await page.locator(selector).fill(value); },
-        select: async (selector, value) => { await page.select(selector, value); }, close: () => page.close() };
+        select: async (selector, value) => { await page.select(selector, value); }, close: () => page.close(),
+        // Puppeteer's locator API for what it offers; drag and wheel fall back to its raw mouse, without actionability checks.
+        hover: async selector => { await page.locator(selector).hover(); }, dblclick: async selector => { await page.locator(selector).click({ count: 2 }); },
+        rightClick: async selector => { await page.locator(selector).click({ button: 'right' }); },
+        drag: async (from, to) => {
+          const center = async (selector: string) => { const box = await (await page.$(selector))!.boundingBox(); if (!box) throw new Error(`no box for ${selector}`); return { x: box.x + box.width / 2, y: box.y + box.height / 2 }; };
+          const start = await center(from), end = await center(to); await page.mouse.move(start.x, start.y); await page.mouse.down(); await page.mouse.move(end.x, end.y); await page.mouse.up();
+        },
+        wheel: async (selector, deltaY) => { await page.locator(selector).hover(); await page.mouse.wheel({ deltaY }); },
+        press: async (selector, key) => { const handle = await page.$(selector); if (!handle) throw new Error(`no element for ${selector}`); await handle.press(key); } };
       try { return await runBrowserTask(wrapped, task); } finally { await page.close(); }
     }
     if (stagehand && stagehandBrowser) {
@@ -127,6 +136,9 @@ const adapter: Adapter = {
 function wrapPlaywright(page: import('playwright').Page): BrowserPage {
   return { goto: url => page.goto(url, { waitUntil: 'domcontentloaded' }), evaluate: async <T>(script: string) => await page.evaluate(script) as T,
     click: selector => page.locator(selector).click(), fill: (selector, value) => page.locator(selector).fill(value),
-    select: async (selector, value) => { await page.locator(selector).selectOption(value); }, close: () => page.close() };
+    select: async (selector, value) => { await page.locator(selector).selectOption(value); }, close: () => page.close(),
+    hover: selector => page.locator(selector).hover(), dblclick: selector => page.locator(selector).dblclick(), rightClick: selector => page.locator(selector).click({ button: 'right' }),
+    drag: (from, to) => page.locator(from).dragTo(page.locator(to)), wheel: async (selector, deltaY) => { await page.locator(selector).hover(); await page.mouse.wheel(0, deltaY); },
+    press: (selector, key) => page.locator(selector).press(key) };
 }
 serve(adapter);

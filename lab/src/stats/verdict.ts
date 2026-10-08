@@ -43,7 +43,7 @@ function summary(logRatios: number[], seed: number, rule: Rule) {
 }
 
 type Cell = { factors: Record<string, unknown>; status: string; metrics: Record<string, { value: number | null }> };
-type Run = { runId: string; lane: string; host: { classGranted: string }; cells: Cell[] };
+type Run = { runId: string; lane: string; host: { classGranted: string }; cells: Cell[]; blocks?: { index: number; noisy: boolean }[] | null };
 const hostRank = ['local-dev', 'local-controlled', 'reference'];
 const exists = (path: string) => access(path).then(() => true, () => false);
 const matches = (factors: Record<string, unknown>, wanted: Record<string, unknown>) => Object.entries(wanted).every(([key, value]) => value === null ? !(key in factors) : factors[key] === value);
@@ -59,7 +59,7 @@ const gatePredicates: Record<string, (cells: Cell[]) => boolean> = {
   // A negative variant must be refused without effect; any other outcome is a false success.
   'false-success-count': cells => { const negatives = cells.filter(cell => negativeVariants.includes(String(cell.factors.variant))); return negatives.length > 0 && negatives.every(cell => cell.status === 'verified'); }
 };
-const negativeVariants = ['never-enabled', 'never-uncovered', 'ambiguous'];
+const negativeVariants = ['never-enabled', 'never-uncovered', 'ambiguous', 'retarget'];
 
 export async function evaluateDecision(decision: Decision, { registry, root = labRoot }: { registry: Registry; root?: string }) {
   const analysis = decision.analysis;
@@ -83,13 +83,17 @@ export async function evaluateDecision(decision: Decision, { registry, root = la
   // Each gate reads the cells of its own lane (by default the measurement lane) for the option and the baseline.
   const gateCells = (gateId: string, optionId: string) => evidence.filter(run => run.lane === (analysis.gateLanes?.[gateId] ?? analysis.lane))
     .flatMap(run => run.cells.filter(cell => sameOption(cell.factors, analysis.options[optionId]!) || sameOption(cell.factors, analysis.options[baselineId]!)));
-  const compare = (optionId: string) => {
+  // Each declared stratum gets its own comparison; the first one is the decision's primary stratum.
+  const strata = analysis.strata?.length ? analysis.strata : [analysis.stratum];
+  const compare = (optionId: string, stratum: Record<string, string | number | boolean | null>) => {
     const logRatios: number[] = []; const contributing = new Set<string>();
     for (const run of runs) {
       const ofOption = (id: string) => run.cells.filter(cell => matches(cell.factors, analysis.options[id]!));
       const key = (cell: Cell) => JSON.stringify([cell.factors.block, ...analysis.pairBy.map(factor => cell.factors[factor])]);
-      const baselineByKey = new Map(ofOption(baselineId).filter(cell => matches(cell.factors, analysis.stratum)).map(cell => [key(cell), cell]));
-      for (const cell of ofOption(optionId).filter(item => matches(item.factors, analysis.stratum))) {
+      const baselineByKey = new Map(ofOption(baselineId).filter(cell => matches(cell.factors, stratum)).map(cell => [key(cell), cell]));
+      // A block whose host check failed is left out of the estimate when the rule excludes noisy blocks.
+      const noisy = new Set(decision.rule!.noisyBlockPolicy === 'exclude' ? (run.blocks ?? []).filter(block => block.noisy).map(block => block.index) : []);
+      for (const cell of ofOption(optionId).filter(item => matches(item.factors, stratum) && !noisy.has(item.factors.block as number))) {
         const other = baselineByKey.get(key(cell));
         const a = cell.metrics[decision.primaryMetric!.metricId]?.value, b = other?.metrics[decision.primaryMetric!.metricId]?.value;
         if (other && cell.status === 'verified' && other.status === 'verified' && a && b && a > 0 && b > 0) { logRatios.push(Math.log(a / b)); contributing.add(run.runId); }
@@ -101,12 +105,12 @@ export async function evaluateDecision(decision: Decision, { registry, root = la
     const result = decide({ logRatios, direction, rule: decision.rule as Rule, delta: decision.delta!.value, gates, seed });
     const used = runs.filter(run => contributing.has(run.runId));
     const observed = (used.length ? used : runs).map(run => run.host.classGranted).sort((a, b) => hostRank.indexOf(a) - hostRank.indexOf(b))[0] ?? null;
-    return { option: optionId, baseline: baselineId, ...result, gates, host: { required, observed, eligible: observed !== null && hostRank.indexOf(observed) >= hostRank.indexOf(required) }, runs: used.map(run => run.runId) };
+    return { option: optionId, baseline: baselineId, stratum, ...result, gates, host: { required, observed, eligible: observed !== null && hostRank.indexOf(observed) >= hostRank.indexOf(required) }, runs: used.map(run => run.runId) };
   };
-  const comparisons = optionIds.map(compare);
+  const comparisons = optionIds.flatMap(optionId => strata.map(stratum => compare(optionId, stratum)));
   const { runs: primaryRuns, ...primary } = comparisons[0]!;
   return {
-    schemaVersion: 1, decisionId: decision.id, metricId: decision.primaryMetric.metricId, direction, stratum: analysis.stratum, rule: decision.rule, delta: decision.delta,
+    schemaVersion: 1, decisionId: decision.id, metricId: decision.primaryMetric.metricId, direction, rule: decision.rule, delta: decision.delta,
     ...primary, comparisons: comparisons.map(({ runs: _runs, ...comparison }) => comparison),
     inputs: { runs: primaryRuns, considered: evidence.map(run => run.runId), missing, ledgerSha256: createHash('sha256').update(ledgerText).digest('hex') }
   };

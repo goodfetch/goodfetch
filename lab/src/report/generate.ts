@@ -5,7 +5,7 @@ type VerdictLike = {
   decisionId: string; outcome: string; n: number; requiredN: number | null; option?: string; baseline?: string; metricId?: string;
   estimate: { ratio: number; ratioCi: number[]; interval: string; wilcoxon: { pValue: number } } | null;
   gates: { id: string; ok: boolean; evaluated?: boolean }[]; host: { required: string; observed: string | null; eligible: boolean }; inputs?: { runs: string[] };
-  comparisons?: Omit<VerdictLike, 'decisionId' | 'comparisons'>[];
+  stratum?: Record<string, unknown>; comparisons?: Omit<VerdictLike, 'decisionId' | 'comparisons'>[];
 };
 
 const outcomeLabel: Record<string, string> = {
@@ -28,7 +28,8 @@ export function renderDecisionsReport(registry: Registry, verdicts: VerdictLike[
       const blocks = row.requiredN === null ? `${row.n}` : `${row.n} sur ${row.requiredN} requis`;
       const host = `${row.host.observed ?? 'aucun'} / requis ${row.host.required}${row.host.eligible ? '' : ' (non éligible)'}`;
       const gates = row.gates.map(gate => `${gate.id} ${gate.evaluated === false ? 'non évaluée' : gate.ok ? 'ok' : 'échec'}`).join(', ');
-      const label = verdict.comparisons?.length ? `${row.option} / ${row.baseline} : ` : '';
+      const strataLabel = row.stratum && (verdict.comparisons?.length ?? 0) > 1 ? ` [${Object.entries(row.stratum).filter(([key]) => key !== 'browserHost').map(([key, value]) => `${key} ${value}`).join(', ')}]` : '';
+      const label = verdict.comparisons?.length ? `${row.option} / ${row.baseline}${strataLabel} : ` : '';
       lines.push(`| ${index === 0 ? decision.id : ''} | ${index === 0 ? decision.status : ''} | ${label}${outcomeLabel[row.outcome] ?? row.outcome} | ${estimate} | ${blocks} | ${host} | ${gates} |`);
     }
   }

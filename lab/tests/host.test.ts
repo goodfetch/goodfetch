@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { assessHost, loadHostClasses, type HostSnapshot } from '../src/core/host.ts';
+import { classifyProcesses, assessHost, loadHostClasses, type HostSnapshot } from '../src/core/host.ts';
 
 const quietMac: HostSnapshot = {
   os: 'darwin', arch: 'arm64', cpu: 'Apple M3 Max', logicalCpus: 14, memoryBytes: 36e9, loadAverage1m: 1.2, memoryFreePercent: 60,
@@ -41,4 +41,18 @@ test('an unmeasurable gate fails instead of passing silently', () => {
   const assessment = assessHost({ snapshot: { ...quietMac, memoryFreePercent: null }, requested: 'local-controlled', allowDowngrade: false, gitClean: true, classes });
   assert.equal(assessment.refused, true);
   assert.ok(assessment.gates.some(gate => gate.id === 'memory-free-percent' && !gate.ok && gate.value === null));
+});
+
+test('the agent app that drives the run is reported apart from foreign CPU', () => {
+  const rows = [
+    { pid: 10, ppid: 1, pgid: 10, cpu: 20, command: '/Applications/Claude.app/Contents/Frameworks/Claude Helper.app/Contents/MacOS/Claude Helper' },
+    { pid: 11, ppid: 1, pgid: 11, cpu: 7, command: 'Claude Helper (Renderer)' },
+    { pid: 12, ppid: 1, pgid: 12, cpu: 3, command: '/Users/x/.local/bin/claude' },
+    { pid: 13, ppid: 1, pgid: 13, cpu: 75, command: '/System/Library/Frameworks/CoreServices.framework/mds_stores' },
+    { pid: 14, ppid: 1, pgid: 14, cpu: 40, command: 'node' }, { pid: 15, ppid: 14, pgid: 14, cpu: 90, command: 'chrome' }
+  ];
+  const split = classifyProcesses(rows, [14]);
+  assert.equal(split.controllerCpuPercent, 30);
+  assert.equal(split.foreignCpuPercent, 75);
+  assert.deepEqual(split.foreignTop.map(row => row.command), ['mds_stores']);
 });

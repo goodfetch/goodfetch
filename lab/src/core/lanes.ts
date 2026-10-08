@@ -54,9 +54,9 @@ export const drivers: Record<LaneName, LaneDriver> = {
     binaryChanges: async (_config, before) => { const after = await nativeHashes(Object.keys(before as Record<string, string>)); return Object.entries(before as Record<string, string>).filter(([file, hash]) => after[file] !== hash).length; }
   },
   actionability: {
-    validate: config => { const c = config as ActionabilityConfig; if (!c || !integer(c.blocks, 1, 20) || !integer(c.seed, 0, 2 ** 32 - 1) || !Array.isArray(c.backends) || !c.backends.length || !c.backends.every(b => (backendNames as readonly string[]).includes(b)) || !Array.isArray(c.variants) || !c.variants.length || !Array.isArray(c.policies) || !c.policies.length || !c.policies.every(p => p === 'native' || p === 'guarded') || !integer(c.timeoutMs, 50, 120_000) || !integer(c.outerTimeoutMs, 50, 120_000)) throw new Error('invalid actionability campaign'); },
+    validate: config => { const c = config as ActionabilityConfig; if (!c || !integer(c.blocks, 1, 20) || !integer(c.seed, 0, 2 ** 32 - 1) || !Array.isArray(c.backends) || !c.backends.length || !c.backends.every(b => (backendNames as readonly string[]).includes(b)) || !Array.isArray(c.variants) || !c.variants.length || !Array.isArray(c.policies) || !c.policies.length || !c.policies.every(p => p === 'native' || p === 'guarded') || !integer(c.timeoutMs, 50, 120_000) || !integer(c.outerTimeoutMs, 50, 120_000) || (c.scenario !== undefined && c.scenario !== 'actionability' && c.scenario !== 'primitives')) throw new Error('invalid actionability campaign'); },
     blocks: config => (config as ActionabilityConfig).blocks, seed: config => (config as ActionabilityConfig).seed,
-    combinations: config => actionabilityCombinations(config as ActionabilityConfig) as unknown as Json[], label: cell => `${cell.backend}/${cell.policy}/${cell.variant}`,
+    combinations: config => actionabilityCombinations(config as ActionabilityConfig) as unknown as Json[], label: cell => `${cell.scenario}/${cell.backend}/${cell.policy}/${cell.variant}`,
     prepare: async () => browserPath(),
     runCell: (config, cell, block, _directory, executablePath) => runActionabilityCell(config as ActionabilityConfig, cell as unknown as ActionabilityCell, block, executablePath as string)
   },

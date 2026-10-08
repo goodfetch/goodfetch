@@ -140,6 +140,64 @@ impl Page {
         Ok(())
     }
 
+    async fn point(&mut self, selector: &str) -> Result<(Value, Value), String> {
+        let point = self.evaluate(&scripts::point(selector)).await?;
+        Ok((point["x"].clone(), point["y"].clone()))
+    }
+
+    async fn mouse(&mut self, kind: &str, x: &Value, y: &Value, extra: Value) -> Result<(), String> {
+        let mut params = json!({"type": kind, "x": x, "y": y});
+        if let (Some(target), Value::Object(fields)) = (params.as_object_mut(), extra) {
+            target.extend(fields);
+        }
+        self.send("Input.dispatchMouseEvent", params).await?;
+        Ok(())
+    }
+
+    pub async fn hover(&mut self, selector: &str) -> Result<(), String> {
+        let (x, y) = self.point(selector).await?;
+        self.mouse("mouseMoved", &x, &y, json!({})).await
+    }
+
+    pub async fn dblclick(&mut self, selector: &str) -> Result<(), String> {
+        let (x, y) = self.point(selector).await?;
+        self.mouse("mouseMoved", &x, &y, json!({})).await?;
+        for click_count in [1, 2] {
+            self.mouse("mousePressed", &x, &y, json!({"button": "left", "buttons": 1, "clickCount": click_count})).await?;
+            self.mouse("mouseReleased", &x, &y, json!({"button": "left", "buttons": 0, "clickCount": click_count})).await?;
+        }
+        Ok(())
+    }
+
+    pub async fn right_click(&mut self, selector: &str) -> Result<(), String> {
+        let (x, y) = self.point(selector).await?;
+        self.mouse("mouseMoved", &x, &y, json!({})).await?;
+        self.mouse("mousePressed", &x, &y, json!({"button": "right", "buttons": 2, "clickCount": 1})).await?;
+        self.mouse("mouseReleased", &x, &y, json!({"button": "right", "buttons": 0, "clickCount": 1})).await
+    }
+
+    pub async fn drag(&mut self, from: &str, to: &str) -> Result<(), String> {
+        let (sx, sy) = self.point(from).await?;
+        let (ex, ey) = self.point(to).await?;
+        self.mouse("mouseMoved", &sx, &sy, json!({})).await?;
+        self.mouse("mousePressed", &sx, &sy, json!({"button": "left", "buttons": 1, "clickCount": 1})).await?;
+        self.mouse("mouseMoved", &ex, &ey, json!({"buttons": 1})).await?;
+        self.mouse("mouseReleased", &ex, &ey, json!({"button": "left", "buttons": 0, "clickCount": 1})).await
+    }
+
+    pub async fn wheel(&mut self, selector: &str, delta_y: i64) -> Result<(), String> {
+        let (x, y) = self.point(selector).await?;
+        self.mouse("mouseMoved", &x, &y, json!({})).await?;
+        self.mouse("mouseWheel", &x, &y, json!({"deltaX": 0, "deltaY": delta_y})).await
+    }
+
+    pub async fn press_enter(&mut self, selector: &str) -> Result<(), String> {
+        self.evaluate(&scripts::focus(selector)).await?;
+        self.send("Input.dispatchKeyEvent", json!({"type": "keyDown", "key": "Enter", "code": "Enter", "windowsVirtualKeyCode": 13, "text": "\r"})).await?;
+        self.send("Input.dispatchKeyEvent", json!({"type": "keyUp", "key": "Enter", "code": "Enter", "windowsVirtualKeyCode": 13})).await?;
+        Ok(())
+    }
+
     pub async fn fill(&mut self, selector: &str, value: &str) -> Result<(), String> {
         self.evaluate(&scripts::focus(selector)).await?;
         self.send("Input.insertText", json!({"text": value})).await?;

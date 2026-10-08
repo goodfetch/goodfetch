@@ -5,8 +5,8 @@ import type { AddressInfo } from 'node:net';
 
 export type RecordItem = { id: string; price: number };
 export type Verdict = { status: 'verified' | 'failed'; reasons: string[] };
-export type Scenario = 'http-catalog' | 'js-catalog' | 'form' | 'clicks' | 'shadow' | 'iframe' | 'download' | 'actionability';
-export type RunSpec = { scenario: Scenario; seed: number; pages?: number; actions?: number; delayMs?: number; variant?: 'normal' | 'overlay' | 'rerender' | 'delayed' | 'hidden' | 'moving' | 'never-enabled' | 'never-uncovered' | 'ambiguous' | 'http-redirect' | 'http-gzip' | 'http-chunked' | 'http-large' };
+export type Scenario = 'http-catalog' | 'js-catalog' | 'form' | 'clicks' | 'shadow' | 'iframe' | 'download' | 'actionability' | 'primitives';
+export type RunSpec = { scenario: Scenario; seed: number; pages?: number; actions?: number; delayMs?: number; variant?: 'normal' | 'overlay' | 'rerender' | 'delayed' | 'hidden' | 'moving' | 'never-enabled' | 'never-uncovered' | 'ambiguous' | 'hover' | 'dblclick' | 'contextmenu' | 'drag' | 'wheel' | 'keyboard' | 'contenteditable' | 'unicode' | 'moved' | 'retarget' | 'http-redirect' | 'http-gzip' | 'http-chunked' | 'http-large' };
 type Run = RunSpec & { id: string; records: RecordItem[]; effects: unknown[]; requests: number; errors: number };
 
 function send(res: ServerResponse, status: number, body: string, type = 'text/html') {
@@ -24,6 +24,7 @@ function pageHtml(run: Run, page: number) {
 }
 function ui(run: Run) {
   if(run.scenario==='actionability')return actionUi(run);
+  if(run.scenario==='primitives')return primitivesUi(run);
   const nested = run.scenario === 'shadow' ? '<div id="shadow-host"></div>' : run.scenario === 'iframe' ? `<iframe src="/runs/${run.id}/frame"></iframe>` : '';
   const controls = `<label>Name <input id="name" name="name"></label><select id="region"><option value="us">US</option><option value="eu">EU</option></select><input type="checkbox" id="consent"><button id="submit">Save</button>`;
   return `<!doctype html><html><body>${nested || controls}<button id="counter">Increment</button><output id="count">0</output><output id="saved"></output><a id="download" href="/runs/${run.id}/file">Download</a>
@@ -59,6 +60,47 @@ function actionUi(run:Run){
     document.body.dataset.ready='true';
   </script></body></html>`;
 }
+
+// Expected text of the unicode variant; drivers carry their own copy so the oracle stays independent.
+export const unicodeText = 'Ünïcødé — 漢字 😀';
+const primitiveNegatives = ['retarget'];
+// One primitive per variant. Every effect is posted with its event kind, target and isTrusted; #done is set only by the expected effect.
+function primitivesUi(run: Run) {
+  const variant = run.variant ?? 'hover';
+  const box = (id: string, left: number, top: number, width: number, height: number, extra = '') => `<div id="${id}" style="position:absolute;left:${left}px;top:${top}px;width:${width}px;height:${height}px;${extra}"></div>`;
+  const button = (id: string, label: string, left = 100, top = 100, z = 2) => `<button id="${id}" style="position:absolute;left:${left}px;top:${top}px;width:160px;height:40px;z-index:${z}">${label}</button>`;
+  const markup: Record<string, string> = {
+    hover: button('target', 'Target'), dblclick: button('target', 'Target'), contextmenu: button('target', 'Target'),
+    drag: box('source', 100, 100, 80, 80, 'background:#68a;touch-action:none') + box('dropzone', 400, 100, 120, 120, 'border:2px dashed #333'),
+    wheel: `<div id="scroller" style="position:absolute;left:100px;top:100px;width:300px;height:200px;overflow:auto"><div style="height:2000px"></div></div>`,
+    keyboard: '<input id="field" style="position:absolute;left:100px;top:100px;width:200px">', unicode: '<input id="field" style="position:absolute;left:100px;top:100px;width:300px">',
+    contenteditable: '<div id="editor" contenteditable="true" style="position:absolute;left:100px;top:100px;width:300px;height:60px;border:1px solid #333"></div>',
+    moved: button('decoy', 'Decoy', 100, 100, 1) + button('target', 'Target'), retarget: button('target', 'Save')
+  };
+  const script: Record<string, string> = {
+    hover: "target.addEventListener('pointerenter',async e=>{await post({kind:'hover',target:'target',trusted:e.isTrusted});done()},{once:true});",
+    dblclick: "target.addEventListener('dblclick',async e=>{await post({kind:'dblclick',target:'target',trusted:e.isTrusted});done()});",
+    contextmenu: "target.addEventListener('contextmenu',async e=>{e.preventDefault();await post({kind:'contextmenu',target:'target',trusted:e.isTrusted});done()});",
+    drag: "let dragging=false,moves=0;source.addEventListener('pointerdown',()=>{dragging=true;moves=0});document.addEventListener('pointermove',()=>{if(dragging)moves++});document.addEventListener('pointerup',async e=>{if(!dragging)return;dragging=false;if(dropzone.contains(document.elementFromPoint(e.clientX,e.clientY))){await post({kind:'drop',target:'dropzone',trusted:e.isTrusted,moves});done()}});",
+    wheel: "let wheeled=false,sent=false;scroller.addEventListener('wheel',e=>{if(e.isTrusted)wheeled=true},{passive:true});scroller.addEventListener('scroll',async()=>{if(!sent&&wheeled&&scroller.scrollTop>=300){sent=true;await post({kind:'scrolled',target:'scroller',trusted:true,scrollTop:scroller.scrollTop});done()}});",
+    keyboard: "field.addEventListener('keydown',async e=>{if(e.key==='Enter'){await post({kind:'enter',target:'field',trusted:e.isTrusted});done()}});",
+    contenteditable: "let sent=false;editor.addEventListener('input',async e=>{if(!sent&&editor.textContent==='Automan'){sent=true;await post({kind:'edited',target:'editor',trusted:e.isTrusted,text:editor.textContent});done()}});",
+    unicode: `let sent=false;field.addEventListener('input',async e=>{if(!sent&&field.value===${JSON.stringify(unicodeText)}){sent=true;await post({kind:'typed',target:'field',trusted:e.isTrusted,value:field.value});done()}});`,
+    // The target slips away as the pointer arrives, uncovering a decoy at the point it was verified.
+    moved: "target.addEventListener('pointerover',()=>{target.style.left='500px'},{once:true});target.addEventListener('click',async e=>{await post({kind:'click',target:'target',trusted:e.isTrusted});done()});decoy.addEventListener('click',async e=>{await post({kind:'click',target:'decoy',trusted:e.isTrusted})});",
+    // The target is swapped for a destructive control at the same place as the pointer arrives.
+    retarget: "target.addEventListener('pointerover',()=>{const danger=document.createElement('button');danger.id='danger';danger.textContent='Delete';danger.style.cssText=target.style.cssText;danger.addEventListener('click',async e=>{await post({kind:'click',target:'danger',trusted:e.isTrusted})});target.replaceWith(danger)},{once:true});target.addEventListener('click',async e=>{await post({kind:'click',target:'target',trusted:e.isTrusted})});"
+  };
+  return `<!doctype html><html><body style="margin:0;font:16px sans-serif"><output id="done"></output>${markup[variant] ?? ''}<script>
+    const post=effect=>fetch('/runs/${run.id}/effect',{method:'POST',body:JSON.stringify(effect)});const done=()=>{document.querySelector('#done').textContent='done'};
+    ${script[variant] ?? ''}
+    document.body.dataset.ready='true';
+  </script></body></html>`;
+}
+const expectedPrimitive: Record<string, { kind: string; target: string }> = {
+  hover: { kind: 'hover', target: 'target' }, dblclick: { kind: 'dblclick', target: 'target' }, contextmenu: { kind: 'contextmenu', target: 'target' }, drag: { kind: 'drop', target: 'dropzone' },
+  wheel: { kind: 'scrolled', target: 'scroller' }, keyboard: { kind: 'enter', target: 'field' }, contenteditable: { kind: 'edited', target: 'editor' }, unicode: { kind: 'typed', target: 'field' }, moved: { kind: 'click', target: 'target' }
+};
 
 export async function startFixtures() {
   const runs = new Map<string, Run>();
@@ -113,6 +155,23 @@ export async function startFixtures() {
         const metrics=output.metrics as Record<string,number>|undefined;
         if(negative){if(run.effects.length)reasons.push('blocked or ambiguous target produced an effect');if(metrics?.nativeRejected!==1)reasons.push('operation reported success for a blocked or ambiguous target')}
         else {if(run.effects.length!==1)reasons.push('expected one target effect');const effect=run.effects[0] as {target?:string;phaseReady?:boolean;trusted?:boolean}|undefined;if(effect?.target!=='target'||effect.phaseReady!==true||effect.trusted!==true)reasons.push('wrong, premature or untrusted action effect');if(metrics?.nativeRejected!==0)reasons.push('actionable target was rejected')}
+      } else if (run.scenario === 'primitives') {
+        const variant = run.variant ?? 'hover'; const metrics = output.metrics as Record<string, number> | undefined;
+        const effects = run.effects as { kind?: string; target?: string; trusted?: boolean; text?: string; value?: string; moves?: number }[];
+        if (primitiveNegatives.includes(variant)) {
+          if (effects.length) reasons.push(`retargeted control received an effect: ${effects.map(e => e.target).join(', ')}`);
+          if (metrics?.nativeRejected !== 1) reasons.push('operation reported success after its target was replaced');
+        } else {
+          const expected = expectedPrimitive[variant]!;
+          if (effects.some(e => e.target === 'decoy')) reasons.push('a decoy under the verified point received the action');
+          const own = effects.filter(e => e.kind === expected.kind && e.target === expected.target);
+          if (own.length !== 1 || effects.length !== 1) reasons.push(`expected exactly one ${expected.kind} effect on ${expected.target}, got ${effects.length}`);
+          if (own[0] && own[0].trusted !== true) reasons.push('untrusted event');
+          if (variant === 'contenteditable' && own[0]?.text !== 'Automan') reasons.push('wrong edited text');
+          if (variant === 'unicode' && own[0]?.value !== unicodeText) reasons.push('wrong unicode value');
+          if (variant === 'drag' && !(Number(own[0]?.moves) >= 1)) reasons.push('drop without pointer movement');
+          if (metrics?.nativeRejected !== 0) reasons.push('actionable target was rejected');
+        }
       } else if (run.scenario === 'download') {
         if (output.file !== `automan-fixture:${run.seed}\n`) reasons.push('wrong downloaded bytes');
       } else {
@@ -123,7 +182,7 @@ export async function startFixtures() {
       }
       return { status: reasons.length ? 'failed' : 'verified', reasons };
     },
-    snapshot(id: string) { const run = runs.get(id); if (!run) throw new Error('unknown run'); return { requests: run.requests, effects: run.effects.length,...(run.scenario==='actionability'?{effectDetails:structuredClone(run.effects)}:{}) }; },
+    snapshot(id: string) { const run = runs.get(id); if (!run) throw new Error('unknown run'); return { requests: run.requests, effects: run.effects.length,...(run.scenario==='actionability'||run.scenario==='primitives'?{effectDetails:structuredClone(run.effects)}:{}) }; },
     async close() { server.closeAllConnections(); await new Promise<void>((resolve, reject) => server.close(error => error ? reject(error) : resolve())); }
   };
 }

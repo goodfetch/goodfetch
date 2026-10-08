@@ -3,10 +3,6 @@
  "decisionId": "D-core-language",
  "metricId": "cpu-ms-per-verified-job",
  "direction": "lower",
- "stratum": {
-  "concurrency": 16,
-  "batchJobs": 1
- },
  "rule": {
   "kind": "superiority",
   "alpha": 0.05,
@@ -19,26 +15,30 @@
  },
  "option": "rust-tokio",
  "baseline": "node",
- "outcome": "insufficient-n",
- "n": 3,
+ "stratum": {
+  "concurrency": 16,
+  "batchJobs": 1
+ },
+ "outcome": "better",
+ "n": 8,
  "margin": 0.09531017980432493,
  "requiredN": 5,
  "estimate": {
-  "meanLogRatio": -0.6720511363849138,
-  "ratio": 0.5106600693886381,
+  "meanLogRatio": -0.6662697790171432,
+  "ratio": 0.5136209283882227,
   "ci": [
-   -0.7132206919703941,
-   -0.623287320383687
+   -0.6891055827844095,
+   -0.6379375516493444
   ],
   "ratioCi": [
-   0.49006331008407844,
-   0.5361789453389137
+   0.5020248880229367,
+   0.5283810596748175
   ],
-  "hodgesLehmannRatio": 0.5096914677684884,
+  "hodgesLehmannRatio": 0.5099507154983709,
   "wilcoxon": {
-   "n": 3,
+   "n": 8,
    "wPlus": 0,
-   "pValue": 0.25,
+   "pValue": 0.0078125,
    "method": "exact"
   },
   "interval": "95% block bootstrap"
@@ -57,33 +57,37 @@
  ],
  "host": {
   "required": "local-controlled",
-  "observed": "local-dev",
-  "eligible": false
+  "observed": "local-controlled",
+  "eligible": true
  },
  "comparisons": [
   {
    "option": "rust-tokio",
    "baseline": "node",
-   "outcome": "insufficient-n",
-   "n": 3,
+   "stratum": {
+    "concurrency": 16,
+    "batchJobs": 1
+   },
+   "outcome": "better",
+   "n": 8,
    "margin": 0.09531017980432493,
    "requiredN": 5,
    "estimate": {
-    "meanLogRatio": -0.6720511363849138,
-    "ratio": 0.5106600693886381,
+    "meanLogRatio": -0.6662697790171432,
+    "ratio": 0.5136209283882227,
     "ci": [
-     -0.7132206919703941,
-     -0.623287320383687
+     -0.6891055827844095,
+     -0.6379375516493444
     ],
     "ratioCi": [
-     0.49006331008407844,
-     0.5361789453389137
+     0.5020248880229367,
+     0.5283810596748175
     ],
-    "hodgesLehmannRatio": 0.5096914677684884,
+    "hodgesLehmannRatio": 0.5099507154983709,
     "wilcoxon": {
-     "n": 3,
+     "n": 8,
      "wPlus": 0,
-     "pValue": 0.25,
+     "pValue": 0.0078125,
      "method": "exact"
     },
     "interval": "95% block bootstrap"
@@ -102,21 +106,21 @@
    ],
    "host": {
     "required": "local-controlled",
-    "observed": "local-dev",
-    "eligible": false
+    "observed": "local-controlled",
+    "eligible": true
    }
   }
  ],
  "inputs": {
   "runs": [
-   "runtime-native-qualified-2026-10-08T00-11-54-841Z-789d5e"
+   "runtime-native-capacity-2026-10-08T12-46-38-910Z-83d7e0"
   ],
   "considered": [
-   "runtime-native-qualified-2026-10-08T00-11-54-841Z-789d5e",
    "runtime-recovery-qualified-2026-10-08T00-20-09-515Z-ad3e70",
-   "storage-shared-checkpoint-2026-10-07T22-24-20-072Z-de4c14"
+   "storage-shared-checkpoint-2026-10-07T22-24-20-072Z-de4c14",
+   "runtime-native-capacity-2026-10-08T12-46-38-910Z-83d7e0"
   ],
   "missing": [],
-  "ledgerSha256": "808919b90277de3b9db7c17745c6de6866967de066ba5b97fb0e1a862f5176a3"
+  "ledgerSha256": "4d497560a60dfecd57228bbc605b960f80223a0c1dcf4896ff22d5cb514d0e39"
  }
 }

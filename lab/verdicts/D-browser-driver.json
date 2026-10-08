@@ -3,10 +3,6 @@
  "decisionId": "D-browser-driver",
  "metricId": "task-p50-ms-verified",
  "direction": "lower",
- "stratum": {
-  "rttMs": 0,
-  "browserHost": "harness"
- },
  "rule": {
   "kind": "superiority",
   "alpha": 0.05,
@@ -19,104 +15,1410 @@
  },
  "option": "rust-cdp-guarded",
  "baseline": "playwright-native",
- "outcome": "blocked-by-contract",
- "n": 0,
+ "stratum": {
+  "scenario": "form",
+  "rttMs": 0,
+  "browserHost": "harness"
+ },
+ "outcome": "worse",
+ "n": 7,
  "margin": 0.09531017980432493,
- "requiredN": null,
- "estimate": null,
+ "requiredN": 5,
+ "estimate": {
+  "meanLogRatio": 0.3567007582940808,
+  "ratio": 1.428608306697917,
+  "ci": [
+   0.3469862094539086,
+   0.36865775385345817
+  ],
+  "ratioCi": [
+   1.4147972144097003,
+   1.4457927020095154
+  ],
+  "hodgesLehmannRatio": 1.4252874303745364,
+  "wilcoxon": {
+   "n": 7,
+   "wPlus": 28,
+   "pValue": 0.015625,
+   "method": "exact"
+  },
+  "interval": "95% block bootstrap"
+ },
  "gates": [
   {
    "id": "actionability-conformance",
-   "ok": false,
+   "ok": true,
    "evaluated": true
   },
   {
    "id": "false-success-count",
-   "ok": false,
+   "ok": true,
    "evaluated": true
   },
   {
    "id": "oracle-exact",
-   "ok": false,
+   "ok": true,
    "evaluated": true
   }
  ],
  "host": {
   "required": "local-controlled",
-  "observed": "local-dev",
-  "eligible": false
+  "observed": "local-controlled",
+  "eligible": true
  },
  "comparisons": [
   {
    "option": "rust-cdp-guarded",
    "baseline": "playwright-native",
-   "outcome": "blocked-by-contract",
-   "n": 0,
+   "stratum": {
+    "scenario": "form",
+    "rttMs": 0,
+    "browserHost": "harness"
+   },
+   "outcome": "worse",
+   "n": 7,
    "margin": 0.09531017980432493,
-   "requiredN": null,
-   "estimate": null,
+   "requiredN": 5,
+   "estimate": {
+    "meanLogRatio": 0.3567007582940808,
+    "ratio": 1.428608306697917,
+    "ci": [
+     0.3469862094539086,
+     0.36865775385345817
+    ],
+    "ratioCi": [
+     1.4147972144097003,
+     1.4457927020095154
+    ],
+    "hodgesLehmannRatio": 1.4252874303745364,
+    "wilcoxon": {
+     "n": 7,
+     "wPlus": 28,
+     "pValue": 0.015625,
+     "method": "exact"
+    },
+    "interval": "95% block bootstrap"
+   },
    "gates": [
     {
      "id": "actionability-conformance",
-     "ok": false,
+     "ok": true,
      "evaluated": true
     },
     {
      "id": "false-success-count",
-     "ok": false,
+     "ok": true,
      "evaluated": true
     },
     {
      "id": "oracle-exact",
-     "ok": false,
+     "ok": true,
      "evaluated": true
     }
    ],
    "host": {
     "required": "local-controlled",
-    "observed": "local-dev",
-    "eligible": false
+    "observed": "local-controlled",
+    "eligible": true
+   }
+  },
+  {
+   "option": "rust-cdp-guarded",
+   "baseline": "playwright-native",
+   "stratum": {
+    "scenario": "clicks",
+    "rttMs": 0,
+    "browserHost": "harness"
+   },
+   "outcome": "worse",
+   "n": 7,
+   "margin": 0.09531017980432493,
+   "requiredN": 5,
+   "estimate": {
+    "meanLogRatio": 0.20597414238561598,
+    "ratio": 1.2287214317795685,
+    "ci": [
+     0.1922279448813858,
+     0.2204203818907009
+    ],
+    "ratioCi": [
+     1.2119467425380757,
+     1.2466006687986955
+    ],
+    "hodgesLehmannRatio": 1.2285334904496485,
+    "wilcoxon": {
+     "n": 7,
+     "wPlus": 28,
+     "pValue": 0.015625,
+     "method": "exact"
+    },
+    "interval": "95% block bootstrap"
+   },
+   "gates": [
+    {
+     "id": "actionability-conformance",
+     "ok": true,
+     "evaluated": true
+    },
+    {
+     "id": "false-success-count",
+     "ok": true,
+     "evaluated": true
+    },
+    {
+     "id": "oracle-exact",
+     "ok": true,
+     "evaluated": true
+    }
+   ],
+   "host": {
+    "required": "local-controlled",
+    "observed": "local-controlled",
+    "eligible": true
+   }
+  },
+  {
+   "option": "rust-cdp-guarded",
+   "baseline": "playwright-native",
+   "stratum": {
+    "scenario": "js-catalog",
+    "rttMs": 0,
+    "browserHost": "harness"
+   },
+   "outcome": "better",
+   "n": 7,
+   "margin": 0.09531017980432493,
+   "requiredN": 5,
+   "estimate": {
+    "meanLogRatio": -1.1498948288194992,
+    "ratio": 0.3166700721930962,
+    "ci": [
+     -1.172472454830263,
+     -1.1292383907595116
+    ],
+    "ratioCi": [
+     0.3096005208827173,
+     0.3232793752466179
+    ],
+    "hodgesLehmannRatio": 0.3176866175469775,
+    "wilcoxon": {
+     "n": 7,
+     "wPlus": 0,
+     "pValue": 0.015625,
+     "method": "exact"
+    },
+    "interval": "95% block bootstrap"
+   },
+   "gates": [
+    {
+     "id": "actionability-conformance",
+     "ok": true,
+     "evaluated": true
+    },
+    {
+     "id": "false-success-count",
+     "ok": true,
+     "evaluated": true
+    },
+    {
+     "id": "oracle-exact",
+     "ok": true,
+     "evaluated": true
+    }
+   ],
+   "host": {
+    "required": "local-controlled",
+    "observed": "local-controlled",
+    "eligible": true
+   }
+  },
+  {
+   "option": "rust-cdp-guarded",
+   "baseline": "playwright-native",
+   "stratum": {
+    "scenario": "form",
+    "rttMs": 20,
+    "browserHost": "harness"
+   },
+   "outcome": "better",
+   "n": 8,
+   "margin": 0.09531017980432493,
+   "requiredN": 5,
+   "estimate": {
+    "meanLogRatio": -0.21906556407541872,
+    "ratio": 0.8032690508344729,
+    "ci": [
+     -0.22487768993025892,
+     -0.21255709328279204
+    ],
+    "ratioCi": [
+     0.7986138913068291,
+     0.8085141542764422
+    ],
+    "hodgesLehmannRatio": 0.8042909453431604,
+    "wilcoxon": {
+     "n": 8,
+     "wPlus": 0,
+     "pValue": 0.0078125,
+     "method": "exact"
+    },
+    "interval": "95% block bootstrap"
+   },
+   "gates": [
+    {
+     "id": "actionability-conformance",
+     "ok": true,
+     "evaluated": true
+    },
+    {
+     "id": "false-success-count",
+     "ok": true,
+     "evaluated": true
+    },
+    {
+     "id": "oracle-exact",
+     "ok": true,
+     "evaluated": true
+    }
+   ],
+   "host": {
+    "required": "local-controlled",
+    "observed": "local-controlled",
+    "eligible": true
+   }
+  },
+  {
+   "option": "rust-cdp-guarded",
+   "baseline": "playwright-native",
+   "stratum": {
+    "scenario": "clicks",
+    "rttMs": 20,
+    "browserHost": "harness"
+   },
+   "outcome": "better",
+   "n": 8,
+   "margin": 0.09531017980432493,
+   "requiredN": 5,
+   "estimate": {
+    "meanLogRatio": -0.15680818264153154,
+    "ratio": 0.8548680216174727,
+    "ci": [
+     -0.16057318194368786,
+     -0.15310661467176986
+    ],
+    "ratioCi": [
+     0.8516554954868215,
+     0.8580382374696401
+    ],
+    "hodgesLehmannRatio": 0.8548810455242615,
+    "wilcoxon": {
+     "n": 8,
+     "wPlus": 0,
+     "pValue": 0.0078125,
+     "method": "exact"
+    },
+    "interval": "95% block bootstrap"
+   },
+   "gates": [
+    {
+     "id": "actionability-conformance",
+     "ok": true,
+     "evaluated": true
+    },
+    {
+     "id": "false-success-count",
+     "ok": true,
+     "evaluated": true
+    },
+    {
+     "id": "oracle-exact",
+     "ok": true,
+     "evaluated": true
+    }
+   ],
+   "host": {
+    "required": "local-controlled",
+    "observed": "local-controlled",
+    "eligible": true
+   }
+  },
+  {
+   "option": "rust-cdp-guarded",
+   "baseline": "playwright-native",
+   "stratum": {
+    "scenario": "js-catalog",
+    "rttMs": 20,
+    "browserHost": "harness"
+   },
+   "outcome": "better",
+   "n": 8,
+   "margin": 0.09531017980432493,
+   "requiredN": 5,
+   "estimate": {
+    "meanLogRatio": -0.28887752312751175,
+    "ratio": 0.7491039476930823,
+    "ci": [
+     -0.2952809747350545,
+     -0.28208070084855547
+    ],
+    "ratioCi": [
+     0.7443224222868229,
+     0.7542128164627895
+    ],
+    "hodgesLehmannRatio": 0.7487958359647673,
+    "wilcoxon": {
+     "n": 8,
+     "wPlus": 0,
+     "pValue": 0.0078125,
+     "method": "exact"
+    },
+    "interval": "95% block bootstrap"
+   },
+   "gates": [
+    {
+     "id": "actionability-conformance",
+     "ok": true,
+     "evaluated": true
+    },
+    {
+     "id": "false-success-count",
+     "ok": true,
+     "evaluated": true
+    },
+    {
+     "id": "oracle-exact",
+     "ok": true,
+     "evaluated": true
+    }
+   ],
+   "host": {
+    "required": "local-controlled",
+    "observed": "local-controlled",
+    "eligible": true
+   }
+  },
+  {
+   "option": "rust-cdp-guarded",
+   "baseline": "playwright-native",
+   "stratum": {
+    "scenario": "form",
+    "rttMs": 100,
+    "browserHost": "harness"
+   },
+   "outcome": "better",
+   "n": 6,
+   "margin": 0.09531017980432493,
+   "requiredN": 5,
+   "estimate": {
+    "meanLogRatio": -0.348599420183956,
+    "ratio": 0.7056757531230426,
+    "ci": [
+     -0.3519502806917208,
+     -0.3449601028926259
+    ],
+    "ratioCi": [
+     0.7033150894468041,
+     0.7082486099749594
+    ],
+    "hodgesLehmannRatio": 0.7058951519279587,
+    "wilcoxon": {
+     "n": 6,
+     "wPlus": 0,
+     "pValue": 0.03125,
+     "method": "exact"
+    },
+    "interval": "95% block bootstrap"
+   },
+   "gates": [
+    {
+     "id": "actionability-conformance",
+     "ok": true,
+     "evaluated": true
+    },
+    {
+     "id": "false-success-count",
+     "ok": true,
+     "evaluated": true
+    },
+    {
+     "id": "oracle-exact",
+     "ok": true,
+     "evaluated": true
+    }
+   ],
+   "host": {
+    "required": "local-controlled",
+    "observed": "local-controlled",
+    "eligible": true
+   }
+  },
+  {
+   "option": "rust-cdp-guarded",
+   "baseline": "playwright-native",
+   "stratum": {
+    "scenario": "clicks",
+    "rttMs": 100,
+    "browserHost": "harness"
+   },
+   "outcome": "better",
+   "n": 6,
+   "margin": 0.09531017980432493,
+   "requiredN": 5,
+   "estimate": {
+    "meanLogRatio": -0.30400303124412953,
+    "ratio": 0.7378586298175612,
+    "ci": [
+     -0.30898994365969706,
+     -0.30051509638029617
+    ],
+    "ratioCi": [
+     0.7341881532350546,
+     0.740436726159446
+    ],
+    "hodgesLehmannRatio": 0.7389580570575153,
+    "wilcoxon": {
+     "n": 6,
+     "wPlus": 0,
+     "pValue": 0.03125,
+     "method": "exact"
+    },
+    "interval": "95% block bootstrap"
+   },
+   "gates": [
+    {
+     "id": "actionability-conformance",
+     "ok": true,
+     "evaluated": true
+    },
+    {
+     "id": "false-success-count",
+     "ok": true,
+     "evaluated": true
+    },
+    {
+     "id": "oracle-exact",
+     "ok": true,
+     "evaluated": true
+    }
+   ],
+   "host": {
+    "required": "local-controlled",
+    "observed": "local-controlled",
+    "eligible": true
+   }
+  },
+  {
+   "option": "rust-cdp-guarded",
+   "baseline": "playwright-native",
+   "stratum": {
+    "scenario": "js-catalog",
+    "rttMs": 100,
+    "browserHost": "harness"
+   },
+   "outcome": "better",
+   "n": 6,
+   "margin": 0.09531017980432493,
+   "requiredN": 5,
+   "estimate": {
+    "meanLogRatio": -0.22783595632088294,
+    "ratio": 0.79625486970064,
+    "ci": [
+     -0.23345399445677975,
+     -0.22246384396870145
+    ],
+    "ratioCi": [
+     0.7917940218164324,
+     0.8005439507191141
+    ],
+    "hodgesLehmannRatio": 0.7961439667984449,
+    "wilcoxon": {
+     "n": 6,
+     "wPlus": 0,
+     "pValue": 0.03125,
+     "method": "exact"
+    },
+    "interval": "95% block bootstrap"
+   },
+   "gates": [
+    {
+     "id": "actionability-conformance",
+     "ok": true,
+     "evaluated": true
+    },
+    {
+     "id": "false-success-count",
+     "ok": true,
+     "evaluated": true
+    },
+    {
+     "id": "oracle-exact",
+     "ok": true,
+     "evaluated": true
+    }
+   ],
+   "host": {
+    "required": "local-controlled",
+    "observed": "local-controlled",
+    "eligible": true
+   }
+  },
+  {
+   "option": "rust-cdp-guarded",
+   "baseline": "playwright-native",
+   "stratum": {
+    "scenario": "form",
+    "rttMs": 300,
+    "browserHost": "harness"
+   },
+   "outcome": "insufficient-n",
+   "n": 2,
+   "margin": 0.09531017980432493,
+   "requiredN": 5,
+   "estimate": {
+    "meanLogRatio": -0.38104795549042725,
+    "ratio": 0.6831451282747034,
+    "ci": [
+     -0.3811718408662565,
+     -0.38092407011459795
+    ],
+    "ratioCi": [
+     0.6830605018258391,
+     0.6832297652081966
+    ],
+    "hodgesLehmannRatio": 0.6831451282747034,
+    "wilcoxon": {
+     "n": 2,
+     "wPlus": 0,
+     "pValue": 0.5,
+     "method": "exact"
+    },
+    "interval": "95% block bootstrap"
+   },
+   "gates": [
+    {
+     "id": "actionability-conformance",
+     "ok": true,
+     "evaluated": true
+    },
+    {
+     "id": "false-success-count",
+     "ok": true,
+     "evaluated": true
+    },
+    {
+     "id": "oracle-exact",
+     "ok": true,
+     "evaluated": true
+    }
+   ],
+   "host": {
+    "required": "local-controlled",
+    "observed": "local-controlled",
+    "eligible": true
+   }
+  },
+  {
+   "option": "rust-cdp-guarded",
+   "baseline": "playwright-native",
+   "stratum": {
+    "scenario": "clicks",
+    "rttMs": 300,
+    "browserHost": "harness"
+   },
+   "outcome": "insufficient-n",
+   "n": 2,
+   "margin": 0.09531017980432493,
+   "requiredN": 5,
+   "estimate": {
+    "meanLogRatio": -0.3260753198649909,
+    "ratio": 0.7217508232098273,
+    "ci": [
+     -0.3261355540755378,
+     -0.326015085654444
+    ],
+    "ratioCi": [
+     0.7217073504280672,
+     0.721794298610215
+    ],
+    "hodgesLehmannRatio": 0.7217508232098273,
+    "wilcoxon": {
+     "n": 2,
+     "wPlus": 0,
+     "pValue": 0.5,
+     "method": "exact"
+    },
+    "interval": "95% block bootstrap"
+   },
+   "gates": [
+    {
+     "id": "actionability-conformance",
+     "ok": true,
+     "evaluated": true
+    },
+    {
+     "id": "false-success-count",
+     "ok": true,
+     "evaluated": true
+    },
+    {
+     "id": "oracle-exact",
+     "ok": true,
+     "evaluated": true
+    }
+   ],
+   "host": {
+    "required": "local-controlled",
+    "observed": "local-controlled",
+    "eligible": true
+   }
+  },
+  {
+   "option": "rust-cdp-guarded",
+   "baseline": "playwright-native",
+   "stratum": {
+    "scenario": "js-catalog",
+    "rttMs": 300,
+    "browserHost": "harness"
+   },
+   "outcome": "insufficient-n",
+   "n": 2,
+   "margin": 0.09531017980432493,
+   "requiredN": 5,
+   "estimate": {
+    "meanLogRatio": -0.21811909666189827,
+    "ratio": 0.804029678713347,
+    "ci": [
+     -0.21829854416446826,
+     -0.2179396491593283
+    ],
+    "ratioCi": [
+     0.8038854105401785,
+     0.8041739727774017
+    ],
+    "hodgesLehmannRatio": 0.804029678713347,
+    "wilcoxon": {
+     "n": 2,
+     "wPlus": 0,
+     "pValue": 0.5,
+     "method": "exact"
+    },
+    "interval": "95% block bootstrap"
+   },
+   "gates": [
+    {
+     "id": "actionability-conformance",
+     "ok": true,
+     "evaluated": true
+    },
+    {
+     "id": "false-success-count",
+     "ok": true,
+     "evaluated": true
+    },
+    {
+     "id": "oracle-exact",
+     "ok": true,
+     "evaluated": true
+    }
+   ],
+   "host": {
+    "required": "local-controlled",
+    "observed": "local-controlled",
+    "eligible": true
    }
   },
   {
    "option": "node-cdp-guarded",
    "baseline": "playwright-native",
-   "outcome": "blocked-by-contract",
-   "n": 0,
+   "stratum": {
+    "scenario": "form",
+    "rttMs": 0,
+    "browserHost": "harness"
+   },
+   "outcome": "worse",
+   "n": 7,
    "margin": 0.09531017980432493,
-   "requiredN": null,
-   "estimate": null,
+   "requiredN": 5,
+   "estimate": {
+    "meanLogRatio": 0.35327048595470195,
+    "ratio": 1.4237161865888257,
+    "ci": [
+     0.33521111580993257,
+     0.3695623862528109
+    ],
+    "ratioCi": [
+     1.3982355436943443,
+     1.447101204698229
+    ],
+    "hodgesLehmannRatio": 1.4252677097928763,
+    "wilcoxon": {
+     "n": 7,
+     "wPlus": 28,
+     "pValue": 0.015625,
+     "method": "exact"
+    },
+    "interval": "95% block bootstrap"
+   },
    "gates": [
     {
      "id": "actionability-conformance",
-     "ok": false,
+     "ok": true,
      "evaluated": true
     },
     {
      "id": "false-success-count",
-     "ok": false,
+     "ok": true,
      "evaluated": true
     },
     {
      "id": "oracle-exact",
-     "ok": false,
+     "ok": true,
      "evaluated": true
     }
    ],
    "host": {
     "required": "local-controlled",
-    "observed": "local-dev",
-    "eligible": false
+    "observed": "local-controlled",
+    "eligible": true
+   }
+  },
+  {
+   "option": "node-cdp-guarded",
+   "baseline": "playwright-native",
+   "stratum": {
+    "scenario": "clicks",
+    "rttMs": 0,
+    "browserHost": "harness"
+   },
+   "outcome": "worse",
+   "n": 7,
+   "margin": 0.09531017980432493,
+   "requiredN": 5,
+   "estimate": {
+    "meanLogRatio": 0.21427738034553087,
+    "ratio": 1.2389662720275516,
+    "ci": [
+     0.20841363825979836,
+     0.22019634981333489
+    ],
+    "ratioCi": [
+     1.2317225517644845,
+     1.2463214215425582
+    ],
+    "hodgesLehmannRatio": 1.2390738600247522,
+    "wilcoxon": {
+     "n": 7,
+     "wPlus": 28,
+     "pValue": 0.015625,
+     "method": "exact"
+    },
+    "interval": "95% block bootstrap"
+   },
+   "gates": [
+    {
+     "id": "actionability-conformance",
+     "ok": true,
+     "evaluated": true
+    },
+    {
+     "id": "false-success-count",
+     "ok": true,
+     "evaluated": true
+    },
+    {
+     "id": "oracle-exact",
+     "ok": true,
+     "evaluated": true
+    }
+   ],
+   "host": {
+    "required": "local-controlled",
+    "observed": "local-controlled",
+    "eligible": true
+   }
+  },
+  {
+   "option": "node-cdp-guarded",
+   "baseline": "playwright-native",
+   "stratum": {
+    "scenario": "js-catalog",
+    "rttMs": 0,
+    "browserHost": "harness"
+   },
+   "outcome": "better",
+   "n": 7,
+   "margin": 0.09531017980432493,
+   "requiredN": 5,
+   "estimate": {
+    "meanLogRatio": -1.1182012863844577,
+    "ratio": 0.3268672066667501,
+    "ci": [
+     -1.133702588926248,
+     -1.106146665415281
+    ],
+    "ratioCi": [
+     0.3218394085919798,
+     0.33083131183986536
+    ],
+    "hodgesLehmannRatio": 0.32812826448211685,
+    "wilcoxon": {
+     "n": 7,
+     "wPlus": 0,
+     "pValue": 0.015625,
+     "method": "exact"
+    },
+    "interval": "95% block bootstrap"
+   },
+   "gates": [
+    {
+     "id": "actionability-conformance",
+     "ok": true,
+     "evaluated": true
+    },
+    {
+     "id": "false-success-count",
+     "ok": true,
+     "evaluated": true
+    },
+    {
+     "id": "oracle-exact",
+     "ok": true,
+     "evaluated": true
+    }
+   ],
+   "host": {
+    "required": "local-controlled",
+    "observed": "local-controlled",
+    "eligible": true
+   }
+  },
+  {
+   "option": "node-cdp-guarded",
+   "baseline": "playwright-native",
+   "stratum": {
+    "scenario": "form",
+    "rttMs": 20,
+    "browserHost": "harness"
+   },
+   "outcome": "better",
+   "n": 8,
+   "margin": 0.09531017980432493,
+   "requiredN": 5,
+   "estimate": {
+    "meanLogRatio": -0.19675130551372066,
+    "ratio": 0.8213948842923405,
+    "ci": [
+     -0.20484688360917636,
+     -0.18693449030874923
+    ],
+    "ratioCi": [
+     0.8147720618183372,
+     0.8294980747683103
+    ],
+    "hodgesLehmannRatio": 0.8216755837459637,
+    "wilcoxon": {
+     "n": 8,
+     "wPlus": 0,
+     "pValue": 0.0078125,
+     "method": "exact"
+    },
+    "interval": "95% block bootstrap"
+   },
+   "gates": [
+    {
+     "id": "actionability-conformance",
+     "ok": true,
+     "evaluated": true
+    },
+    {
+     "id": "false-success-count",
+     "ok": true,
+     "evaluated": true
+    },
+    {
+     "id": "oracle-exact",
+     "ok": true,
+     "evaluated": true
+    }
+   ],
+   "host": {
+    "required": "local-controlled",
+    "observed": "local-controlled",
+    "eligible": true
+   }
+  },
+  {
+   "option": "node-cdp-guarded",
+   "baseline": "playwright-native",
+   "stratum": {
+    "scenario": "clicks",
+    "rttMs": 20,
+    "browserHost": "harness"
+   },
+   "outcome": "better",
+   "n": 8,
+   "margin": 0.09531017980432493,
+   "requiredN": 5,
+   "estimate": {
+    "meanLogRatio": -0.1495021830423013,
+    "ratio": 0.8611365581201156,
+    "ci": [
+     -0.1541090329833233,
+     -0.14436069206205202
+    ],
+    "ratioCi": [
+     0.8571785551810087,
+     0.8655754855405433
+    ],
+    "hodgesLehmannRatio": 0.8606415212120776,
+    "wilcoxon": {
+     "n": 8,
+     "wPlus": 0,
+     "pValue": 0.0078125,
+     "method": "exact"
+    },
+    "interval": "95% block bootstrap"
+   },
+   "gates": [
+    {
+     "id": "actionability-conformance",
+     "ok": true,
+     "evaluated": true
+    },
+    {
+     "id": "false-success-count",
+     "ok": true,
+     "evaluated": true
+    },
+    {
+     "id": "oracle-exact",
+     "ok": true,
+     "evaluated": true
+    }
+   ],
+   "host": {
+    "required": "local-controlled",
+    "observed": "local-controlled",
+    "eligible": true
+   }
+  },
+  {
+   "option": "node-cdp-guarded",
+   "baseline": "playwright-native",
+   "stratum": {
+    "scenario": "js-catalog",
+    "rttMs": 20,
+    "browserHost": "harness"
+   },
+   "outcome": "better",
+   "n": 8,
+   "margin": 0.09531017980432493,
+   "requiredN": 5,
+   "estimate": {
+    "meanLogRatio": -0.2812729272629486,
+    "ratio": 0.7548222957813613,
+    "ci": [
+     -0.2853685498038217,
+     -0.2769565883985184
+    ],
+    "ratioCi": [
+     0.7517371506798647,
+     0.7580874061845508
+    ],
+    "hodgesLehmannRatio": 0.7546469947408504,
+    "wilcoxon": {
+     "n": 8,
+     "wPlus": 0,
+     "pValue": 0.0078125,
+     "method": "exact"
+    },
+    "interval": "95% block bootstrap"
+   },
+   "gates": [
+    {
+     "id": "actionability-conformance",
+     "ok": true,
+     "evaluated": true
+    },
+    {
+     "id": "false-success-count",
+     "ok": true,
+     "evaluated": true
+    },
+    {
+     "id": "oracle-exact",
+     "ok": true,
+     "evaluated": true
+    }
+   ],
+   "host": {
+    "required": "local-controlled",
+    "observed": "local-controlled",
+    "eligible": true
+   }
+  },
+  {
+   "option": "node-cdp-guarded",
+   "baseline": "playwright-native",
+   "stratum": {
+    "scenario": "form",
+    "rttMs": 100,
+    "browserHost": "harness"
+   },
+   "outcome": "better",
+   "n": 6,
+   "margin": 0.09531017980432493,
+   "requiredN": 5,
+   "estimate": {
+    "meanLogRatio": -0.34531799005007285,
+    "ratio": 0.7079951822451397,
+    "ci": [
+     -0.3480748130409144,
+     -0.3430233853540921
+    ],
+    "ratioCi": [
+     0.7060460527862338,
+     0.7096216166133942
+    ],
+    "hodgesLehmannRatio": 0.7081345001462966,
+    "wilcoxon": {
+     "n": 6,
+     "wPlus": 0,
+     "pValue": 0.03125,
+     "method": "exact"
+    },
+    "interval": "95% block bootstrap"
+   },
+   "gates": [
+    {
+     "id": "actionability-conformance",
+     "ok": true,
+     "evaluated": true
+    },
+    {
+     "id": "false-success-count",
+     "ok": true,
+     "evaluated": true
+    },
+    {
+     "id": "oracle-exact",
+     "ok": true,
+     "evaluated": true
+    }
+   ],
+   "host": {
+    "required": "local-controlled",
+    "observed": "local-controlled",
+    "eligible": true
+   }
+  },
+  {
+   "option": "node-cdp-guarded",
+   "baseline": "playwright-native",
+   "stratum": {
+    "scenario": "clicks",
+    "rttMs": 100,
+    "browserHost": "harness"
+   },
+   "outcome": "better",
+   "n": 6,
+   "margin": 0.09531017980432493,
+   "requiredN": 5,
+   "estimate": {
+    "meanLogRatio": -0.3013038786867359,
+    "ratio": 0.7398529130518077,
+    "ci": [
+     -0.30401169213368345,
+     -0.2987876784343367
+    ],
+    "ratioCi": [
+     0.7378522393331357,
+     0.7417168752059521
+    ],
+    "hodgesLehmannRatio": 0.7394281222285408,
+    "wilcoxon": {
+     "n": 6,
+     "wPlus": 0,
+     "pValue": 0.03125,
+     "method": "exact"
+    },
+    "interval": "95% block bootstrap"
+   },
+   "gates": [
+    {
+     "id": "actionability-conformance",
+     "ok": true,
+     "evaluated": true
+    },
+    {
+     "id": "false-success-count",
+     "ok": true,
+     "evaluated": true
+    },
+    {
+     "id": "oracle-exact",
+     "ok": true,
+     "evaluated": true
+    }
+   ],
+   "host": {
+    "required": "local-controlled",
+    "observed": "local-controlled",
+    "eligible": true
+   }
+  },
+  {
+   "option": "node-cdp-guarded",
+   "baseline": "playwright-native",
+   "stratum": {
+    "scenario": "js-catalog",
+    "rttMs": 100,
+    "browserHost": "harness"
+   },
+   "outcome": "better",
+   "n": 6,
+   "margin": 0.09531017980432493,
+   "requiredN": 5,
+   "estimate": {
+    "meanLogRatio": -0.2236400904705802,
+    "ratio": 0.7996028672790363,
+    "ci": [
+     -0.2298260995261042,
+     -0.21738357916826945
+    ],
+    "ratioCi": [
+     0.7946717842879262,
+     0.8046212741451616
+    ],
+    "hodgesLehmannRatio": 0.7992791680549204,
+    "wilcoxon": {
+     "n": 6,
+     "wPlus": 0,
+     "pValue": 0.03125,
+     "method": "exact"
+    },
+    "interval": "95% block bootstrap"
+   },
+   "gates": [
+    {
+     "id": "actionability-conformance",
+     "ok": true,
+     "evaluated": true
+    },
+    {
+     "id": "false-success-count",
+     "ok": true,
+     "evaluated": true
+    },
+    {
+     "id": "oracle-exact",
+     "ok": true,
+     "evaluated": true
+    }
+   ],
+   "host": {
+    "required": "local-controlled",
+    "observed": "local-controlled",
+    "eligible": true
+   }
+  },
+  {
+   "option": "node-cdp-guarded",
+   "baseline": "playwright-native",
+   "stratum": {
+    "scenario": "form",
+    "rttMs": 300,
+    "browserHost": "harness"
+   },
+   "outcome": "insufficient-n",
+   "n": 2,
+   "margin": 0.09531017980432493,
+   "requiredN": 5,
+   "estimate": {
+    "meanLogRatio": -0.38010947423659314,
+    "ratio": 0.683786548104403,
+    "ci": [
+     -0.38047085781050705,
+     -0.3797480906626792
+    ],
+    "ratioCi": [
+     0.6835394835230842,
+     0.684033701986938
+    ],
+    "hodgesLehmannRatio": 0.683786548104403,
+    "wilcoxon": {
+     "n": 2,
+     "wPlus": 0,
+     "pValue": 0.5,
+     "method": "exact"
+    },
+    "interval": "95% block bootstrap"
+   },
+   "gates": [
+    {
+     "id": "actionability-conformance",
+     "ok": true,
+     "evaluated": true
+    },
+    {
+     "id": "false-success-count",
+     "ok": true,
+     "evaluated": true
+    },
+    {
+     "id": "oracle-exact",
+     "ok": true,
+     "evaluated": true
+    }
+   ],
+   "host": {
+    "required": "local-controlled",
+    "observed": "local-controlled",
+    "eligible": true
+   }
+  },
+  {
+   "option": "node-cdp-guarded",
+   "baseline": "playwright-native",
+   "stratum": {
+    "scenario": "clicks",
+    "rttMs": 300,
+    "browserHost": "harness"
+   },
+   "outcome": "insufficient-n",
+   "n": 2,
+   "margin": 0.09531017980432493,
+   "requiredN": 5,
+   "estimate": {
+    "meanLogRatio": -0.3246206615643236,
+    "ratio": 0.7228014880297038,
+    "ci": [
+     -0.32486541047187784,
+     -0.3243759126567694
+    ],
+    "ratioCi": [
+     0.7226246048020013,
+     0.7229784145546813
+    ],
+    "hodgesLehmannRatio": 0.7228014880297038,
+    "wilcoxon": {
+     "n": 2,
+     "wPlus": 0,
+     "pValue": 0.5,
+     "method": "exact"
+    },
+    "interval": "95% block bootstrap"
+   },
+   "gates": [
+    {
+     "id": "actionability-conformance",
+     "ok": true,
+     "evaluated": true
+    },
+    {
+     "id": "false-success-count",
+     "ok": true,
+     "evaluated": true
+    },
+    {
+     "id": "oracle-exact",
+     "ok": true,
+     "evaluated": true
+    }
+   ],
+   "host": {
+    "required": "local-controlled",
+    "observed": "local-controlled",
+    "eligible": true
+   }
+  },
+  {
+   "option": "node-cdp-guarded",
+   "baseline": "playwright-native",
+   "stratum": {
+    "scenario": "js-catalog",
+    "rttMs": 300,
+    "browserHost": "harness"
+   },
+   "outcome": "insufficient-n",
+   "n": 2,
+   "margin": 0.09531017980432493,
+   "requiredN": 5,
+   "estimate": {
+    "meanLogRatio": -0.21823371187512863,
+    "ratio": 0.8039375299612029,
+    "ci": [
+     -0.21935229161875255,
+     -0.21711513213150474
+    ],
+    "ratioCi": [
+     0.8030387644891878,
+     0.8048373013365561
+    ],
+    "hodgesLehmannRatio": 0.8039375299612029,
+    "wilcoxon": {
+     "n": 2,
+     "wPlus": 0,
+     "pValue": 0.5,
+     "method": "exact"
+    },
+    "interval": "95% block bootstrap"
+   },
+   "gates": [
+    {
+     "id": "actionability-conformance",
+     "ok": true,
+     "evaluated": true
+    },
+    {
+     "id": "false-success-count",
+     "ok": true,
+     "evaluated": true
+    },
+    {
+     "id": "oracle-exact",
+     "ok": true,
+     "evaluated": true
+    }
+   ],
+   "host": {
+    "required": "local-controlled",
+    "observed": "local-controlled",
+    "eligible": true
    }
   },
   {
    "option": "puppeteer-guarded",
    "baseline": "playwright-native",
-   "outcome": "blocked-by-contract",
-   "n": 0,
+   "stratum": {
+    "scenario": "form",
+    "rttMs": 0,
+    "browserHost": "harness"
+   },
+   "outcome": "worse",
+   "n": 7,
    "margin": 0.09531017980432493,
-   "requiredN": null,
-   "estimate": null,
+   "requiredN": 5,
+   "estimate": {
+    "meanLogRatio": 0.6103737864394022,
+    "ratio": 1.8411194556663075,
+    "ci": [
+     0.5931659010813674,
+     0.6262441566210823
+    ],
+    "ratioCi": [
+     1.8097087144455641,
+     1.8705717945627862
+    ],
+    "hodgesLehmannRatio": 1.8440973139399353,
+    "wilcoxon": {
+     "n": 7,
+     "wPlus": 28,
+     "pValue": 0.015625,
+     "method": "exact"
+    },
+    "interval": "95% block bootstrap"
+   },
    "gates": [
     {
      "id": "actionability-conformance",
@@ -130,25 +1432,638 @@
     },
     {
      "id": "oracle-exact",
-     "ok": false,
+     "ok": true,
      "evaluated": true
     }
    ],
    "host": {
     "required": "local-controlled",
-    "observed": "local-dev",
-    "eligible": false
+    "observed": "local-controlled",
+    "eligible": true
+   }
+  },
+  {
+   "option": "puppeteer-guarded",
+   "baseline": "playwright-native",
+   "stratum": {
+    "scenario": "clicks",
+    "rttMs": 0,
+    "browserHost": "harness"
+   },
+   "outcome": "worse",
+   "n": 7,
+   "margin": 0.09531017980432493,
+   "requiredN": 5,
+   "estimate": {
+    "meanLogRatio": 0.504590511809516,
+    "ratio": 1.6563071433616037,
+    "ci": [
+     0.49505637985266543,
+     0.5128125224330772
+    ],
+    "ratioCi": [
+     1.6405907327134248,
+     1.6699814564303246
+    ],
+    "hodgesLehmannRatio": 1.658848353251111,
+    "wilcoxon": {
+     "n": 7,
+     "wPlus": 28,
+     "pValue": 0.015625,
+     "method": "exact"
+    },
+    "interval": "95% block bootstrap"
+   },
+   "gates": [
+    {
+     "id": "actionability-conformance",
+     "ok": true,
+     "evaluated": true
+    },
+    {
+     "id": "false-success-count",
+     "ok": true,
+     "evaluated": true
+    },
+    {
+     "id": "oracle-exact",
+     "ok": true,
+     "evaluated": true
+    }
+   ],
+   "host": {
+    "required": "local-controlled",
+    "observed": "local-controlled",
+    "eligible": true
+   }
+  },
+  {
+   "option": "puppeteer-guarded",
+   "baseline": "playwright-native",
+   "stratum": {
+    "scenario": "js-catalog",
+    "rttMs": 0,
+    "browserHost": "harness"
+   },
+   "outcome": "better",
+   "n": 7,
+   "margin": 0.09531017980432493,
+   "requiredN": 5,
+   "estimate": {
+    "meanLogRatio": -0.8722858669287408,
+    "ratio": 0.41799497547317016,
+    "ci": [
+     -0.890725916489065,
+     -0.8533121646908117
+    ],
+    "ratioCi": [
+     0.41035775914241646,
+     0.426001605180377
+    ],
+    "hodgesLehmannRatio": 0.4165417299875813,
+    "wilcoxon": {
+     "n": 7,
+     "wPlus": 0,
+     "pValue": 0.015625,
+     "method": "exact"
+    },
+    "interval": "95% block bootstrap"
+   },
+   "gates": [
+    {
+     "id": "actionability-conformance",
+     "ok": true,
+     "evaluated": true
+    },
+    {
+     "id": "false-success-count",
+     "ok": true,
+     "evaluated": true
+    },
+    {
+     "id": "oracle-exact",
+     "ok": true,
+     "evaluated": true
+    }
+   ],
+   "host": {
+    "required": "local-controlled",
+    "observed": "local-controlled",
+    "eligible": true
+   }
+  },
+  {
+   "option": "puppeteer-guarded",
+   "baseline": "playwright-native",
+   "stratum": {
+    "scenario": "form",
+    "rttMs": 20,
+    "browserHost": "harness"
+   },
+   "outcome": "worse",
+   "n": 8,
+   "margin": 0.09531017980432493,
+   "requiredN": 5,
+   "estimate": {
+    "meanLogRatio": 0.8183021451616943,
+    "ratio": 2.266648129144021,
+    "ci": [
+     0.8153635628820801,
+     0.8212395307571522
+    ],
+    "ratioCi": [
+     2.2599971740929883,
+     2.2733159368754485
+    ],
+    "hodgesLehmannRatio": 2.2660755849050522,
+    "wilcoxon": {
+     "n": 8,
+     "wPlus": 36,
+     "pValue": 0.0078125,
+     "method": "exact"
+    },
+    "interval": "95% block bootstrap"
+   },
+   "gates": [
+    {
+     "id": "actionability-conformance",
+     "ok": true,
+     "evaluated": true
+    },
+    {
+     "id": "false-success-count",
+     "ok": true,
+     "evaluated": true
+    },
+    {
+     "id": "oracle-exact",
+     "ok": true,
+     "evaluated": true
+    }
+   ],
+   "host": {
+    "required": "local-controlled",
+    "observed": "local-controlled",
+    "eligible": true
+   }
+  },
+  {
+   "option": "puppeteer-guarded",
+   "baseline": "playwright-native",
+   "stratum": {
+    "scenario": "clicks",
+    "rttMs": 20,
+    "browserHost": "harness"
+   },
+   "outcome": "worse",
+   "n": 8,
+   "margin": 0.09531017980432493,
+   "requiredN": 5,
+   "estimate": {
+    "meanLogRatio": 0.6251916348182516,
+    "ratio": 1.8686040127135577,
+    "ci": [
+     0.6222148708159955,
+     0.6284430899171743
+    ],
+    "ratioCi": [
+     1.8630498903111699,
+     1.8746895828762642
+    ],
+    "hodgesLehmannRatio": 1.867744377692042,
+    "wilcoxon": {
+     "n": 8,
+     "wPlus": 36,
+     "pValue": 0.0078125,
+     "method": "exact"
+    },
+    "interval": "95% block bootstrap"
+   },
+   "gates": [
+    {
+     "id": "actionability-conformance",
+     "ok": true,
+     "evaluated": true
+    },
+    {
+     "id": "false-success-count",
+     "ok": true,
+     "evaluated": true
+    },
+    {
+     "id": "oracle-exact",
+     "ok": true,
+     "evaluated": true
+    }
+   ],
+   "host": {
+    "required": "local-controlled",
+    "observed": "local-controlled",
+    "eligible": true
+   }
+  },
+  {
+   "option": "puppeteer-guarded",
+   "baseline": "playwright-native",
+   "stratum": {
+    "scenario": "js-catalog",
+    "rttMs": 20,
+    "browserHost": "harness"
+   },
+   "outcome": "better",
+   "n": 8,
+   "margin": 0.09531017980432493,
+   "requiredN": 5,
+   "estimate": {
+    "meanLogRatio": -0.1531575017801342,
+    "ratio": 0.8579945754957945,
+    "ci": [
+     -0.15722563800364767,
+     -0.1490369913732218
+    ],
+    "ratioCi": [
+     0.8545112268560715,
+     0.8615372448637345
+    ],
+    "hodgesLehmannRatio": 0.8577005141348075,
+    "wilcoxon": {
+     "n": 8,
+     "wPlus": 0,
+     "pValue": 0.0078125,
+     "method": "exact"
+    },
+    "interval": "95% block bootstrap"
+   },
+   "gates": [
+    {
+     "id": "actionability-conformance",
+     "ok": true,
+     "evaluated": true
+    },
+    {
+     "id": "false-success-count",
+     "ok": true,
+     "evaluated": true
+    },
+    {
+     "id": "oracle-exact",
+     "ok": true,
+     "evaluated": true
+    }
+   ],
+   "host": {
+    "required": "local-controlled",
+    "observed": "local-controlled",
+    "eligible": true
+   }
+  },
+  {
+   "option": "puppeteer-guarded",
+   "baseline": "playwright-native",
+   "stratum": {
+    "scenario": "form",
+    "rttMs": 100,
+    "browserHost": "harness"
+   },
+   "outcome": "worse",
+   "n": 6,
+   "margin": 0.09531017980432493,
+   "requiredN": 5,
+   "estimate": {
+    "meanLogRatio": 0.8392205636504335,
+    "ratio": 2.314562219598497,
+    "ci": [
+     0.8348373959303768,
+     0.843448594081211
+    ],
+    "ratioCi": [
+     2.3044393066111226,
+     2.324368976120397
+    ],
+    "hodgesLehmannRatio": 2.3130276259871945,
+    "wilcoxon": {
+     "n": 6,
+     "wPlus": 21,
+     "pValue": 0.03125,
+     "method": "exact"
+    },
+    "interval": "95% block bootstrap"
+   },
+   "gates": [
+    {
+     "id": "actionability-conformance",
+     "ok": true,
+     "evaluated": true
+    },
+    {
+     "id": "false-success-count",
+     "ok": true,
+     "evaluated": true
+    },
+    {
+     "id": "oracle-exact",
+     "ok": true,
+     "evaluated": true
+    }
+   ],
+   "host": {
+    "required": "local-controlled",
+    "observed": "local-controlled",
+    "eligible": true
+   }
+  },
+  {
+   "option": "puppeteer-guarded",
+   "baseline": "playwright-native",
+   "stratum": {
+    "scenario": "clicks",
+    "rttMs": 100,
+    "browserHost": "harness"
+   },
+   "outcome": "worse",
+   "n": 6,
+   "margin": 0.09531017980432493,
+   "requiredN": 5,
+   "estimate": {
+    "meanLogRatio": 0.610157620493734,
+    "ratio": 1.8407215113506394,
+    "ci": [
+     0.6065021926423765,
+     0.6134467931235411
+    ],
+    "ratioCi": [
+     1.8340051697013477,
+     1.8467859301576448
+    ],
+    "hodgesLehmannRatio": 1.8422731844774822,
+    "wilcoxon": {
+     "n": 6,
+     "wPlus": 21,
+     "pValue": 0.03125,
+     "method": "exact"
+    },
+    "interval": "95% block bootstrap"
+   },
+   "gates": [
+    {
+     "id": "actionability-conformance",
+     "ok": true,
+     "evaluated": true
+    },
+    {
+     "id": "false-success-count",
+     "ok": true,
+     "evaluated": true
+    },
+    {
+     "id": "oracle-exact",
+     "ok": true,
+     "evaluated": true
+    }
+   ],
+   "host": {
+    "required": "local-controlled",
+    "observed": "local-controlled",
+    "eligible": true
+   }
+  },
+  {
+   "option": "puppeteer-guarded",
+   "baseline": "playwright-native",
+   "stratum": {
+    "scenario": "js-catalog",
+    "rttMs": 100,
+    "browserHost": "harness"
+   },
+   "outcome": "inconclusive",
+   "n": 6,
+   "margin": 0.09531017980432493,
+   "requiredN": 5,
+   "estimate": {
+    "meanLogRatio": -0.09020444401450707,
+    "ratio": 0.9137443566093797,
+    "ci": [
+     -0.09675716034295961,
+     -0.08272592973107741
+    ],
+    "ratioCi": [
+     0.9077764234845008,
+     0.9206034226755684
+    ],
+    "hodgesLehmannRatio": 0.9133496796298531,
+    "wilcoxon": {
+     "n": 6,
+     "wPlus": 0,
+     "pValue": 0.03125,
+     "method": "exact"
+    },
+    "interval": "95% block bootstrap"
+   },
+   "gates": [
+    {
+     "id": "actionability-conformance",
+     "ok": true,
+     "evaluated": true
+    },
+    {
+     "id": "false-success-count",
+     "ok": true,
+     "evaluated": true
+    },
+    {
+     "id": "oracle-exact",
+     "ok": true,
+     "evaluated": true
+    }
+   ],
+   "host": {
+    "required": "local-controlled",
+    "observed": "local-controlled",
+    "eligible": true
+   }
+  },
+  {
+   "option": "puppeteer-guarded",
+   "baseline": "playwright-native",
+   "stratum": {
+    "scenario": "form",
+    "rttMs": 300,
+    "browserHost": "harness"
+   },
+   "outcome": "insufficient-n",
+   "n": 2,
+   "margin": 0.09531017980432493,
+   "requiredN": 5,
+   "estimate": {
+    "meanLogRatio": 0.8415768192514995,
+    "ratio": 2.3200223499976667,
+    "ci": [
+     0.8411461430946725,
+     0.8420074954083265
+    ],
+    "ratioCi": [
+     2.3190233868184693,
+     2.3210217434991454
+    ],
+    "hodgesLehmannRatio": 2.3200223499976667,
+    "wilcoxon": {
+     "n": 2,
+     "wPlus": 3,
+     "pValue": 0.5,
+     "method": "exact"
+    },
+    "interval": "95% block bootstrap"
+   },
+   "gates": [
+    {
+     "id": "actionability-conformance",
+     "ok": true,
+     "evaluated": true
+    },
+    {
+     "id": "false-success-count",
+     "ok": true,
+     "evaluated": true
+    },
+    {
+     "id": "oracle-exact",
+     "ok": true,
+     "evaluated": true
+    }
+   ],
+   "host": {
+    "required": "local-controlled",
+    "observed": "local-controlled",
+    "eligible": true
+   }
+  },
+  {
+   "option": "puppeteer-guarded",
+   "baseline": "playwright-native",
+   "stratum": {
+    "scenario": "clicks",
+    "rttMs": 300,
+    "browserHost": "harness"
+   },
+   "outcome": "insufficient-n",
+   "n": 2,
+   "margin": 0.09531017980432493,
+   "requiredN": 5,
+   "estimate": {
+    "meanLogRatio": 0.6067073920050371,
+    "ratio": 1.8343815450079526,
+    "ci": [
+     0.6066255399388466,
+     0.6067892440712276
+    ],
+    "ratioCi": [
+     1.834231403233103,
+     1.8345316990727196
+    ],
+    "hodgesLehmannRatio": 1.8343815450079526,
+    "wilcoxon": {
+     "n": 2,
+     "wPlus": 3,
+     "pValue": 0.5,
+     "method": "exact"
+    },
+    "interval": "95% block bootstrap"
+   },
+   "gates": [
+    {
+     "id": "actionability-conformance",
+     "ok": true,
+     "evaluated": true
+    },
+    {
+     "id": "false-success-count",
+     "ok": true,
+     "evaluated": true
+    },
+    {
+     "id": "oracle-exact",
+     "ok": true,
+     "evaluated": true
+    }
+   ],
+   "host": {
+    "required": "local-controlled",
+    "observed": "local-controlled",
+    "eligible": true
+   }
+  },
+  {
+   "option": "puppeteer-guarded",
+   "baseline": "playwright-native",
+   "stratum": {
+    "scenario": "js-catalog",
+    "rttMs": 300,
+    "browserHost": "harness"
+   },
+   "outcome": "insufficient-n",
+   "n": 2,
+   "margin": 0.09531017980432493,
+   "requiredN": 5,
+   "estimate": {
+    "meanLogRatio": -0.07461348571561183,
+    "ratio": 0.9281021417465231,
+    "ci": [
+     -0.07531002982034814,
+     -0.0739169416108755
+    ],
+    "ratioCi": [
+     0.9274559027642012,
+     0.9287488310196037
+    ],
+    "hodgesLehmannRatio": 0.9281021417465231,
+    "wilcoxon": {
+     "n": 2,
+     "wPlus": 0,
+     "pValue": 0.5,
+     "method": "exact"
+    },
+    "interval": "95% block bootstrap"
+   },
+   "gates": [
+    {
+     "id": "actionability-conformance",
+     "ok": true,
+     "evaluated": true
+    },
+    {
+     "id": "false-success-count",
+     "ok": true,
+     "evaluated": true
+    },
+    {
+     "id": "oracle-exact",
+     "ok": true,
+     "evaluated": true
+    }
+   ],
+   "host": {
+    "required": "local-controlled",
+    "observed": "local-controlled",
+    "eligible": true
    }
   }
  ],
  "inputs": {
-  "runs": [],
+  "runs": [
+   "browser-driver-rtt-0-2026-10-08T12-39-53-109Z-63890b"
+  ],
   "considered": [
    "browser-actionability-2026-10-07T23-38-33-163Z-ccad1f",
    "browser-actionability-2026-10-08T00-21-16-186Z-b21a28",
-   "browser-primitives-2026-10-07T21-33-08-604Z-f6b1a0"
+   "browser-primitives-2026-10-07T21-33-08-604Z-f6b1a0",
+   "browser-actionability-extended-2026-10-08T12-05-27-529Z-49432b",
+   "browser-driver-primitives-2026-10-08T12-14-55-485Z-4b6074",
+   "browser-driver-rtt-0-2026-10-08T12-39-53-109Z-63890b",
+   "browser-driver-rtt-20-2026-10-08T12-50-54-854Z-96969e",
+   "browser-driver-rtt-100-2026-10-08T13-14-24-301Z-331916",
+   "browser-driver-rtt-300-2026-10-08T14-00-36-292Z-657a67"
   ],
   "missing": [],
-  "ledgerSha256": "808919b90277de3b9db7c17745c6de6866967de066ba5b97fb0e1a862f5176a3"
+  "ledgerSha256": "4d497560a60dfecd57228bbc605b960f80223a0c1dcf4896ff22d5cb514d0e39"
  }
 }

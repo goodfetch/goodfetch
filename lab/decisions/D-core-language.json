@@ -61,16 +61,16 @@
   "evidence": [
     {
       "kind": "run",
-      "ref": "runtime-native-qualified-2026-10-08T00-11-54-841Z-789d5e",
-      "note": "pilote relatif, hôte partagé"
-    },
-    {
-      "kind": "run",
       "ref": "runtime-recovery-qualified-2026-10-08T00-20-09-515Z-ad3e70"
     },
     {
       "kind": "run",
       "ref": "storage-shared-checkpoint-2026-10-07T22-24-20-072Z-de4c14"
+    },
+    {
+      "kind": "run",
+      "ref": "runtime-native-capacity-2026-10-08T12-46-38-910Z-83d7e0",
+      "note": "remplace 789d5e (local-dev) comme mesure de la strate de décision"
     }
   ],
   "verdictRef": "verdicts/D-core-language.json",

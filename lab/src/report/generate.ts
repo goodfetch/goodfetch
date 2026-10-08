@@ -4,7 +4,8 @@ import type { Registry } from '../core/decisions.ts';
 type VerdictLike = {
   decisionId: string; outcome: string; n: number; requiredN: number | null; option?: string; baseline?: string; metricId?: string;
   estimate: { ratio: number; ratioCi: number[]; interval: string; wilcoxon: { pValue: number } } | null;
-  gates: { id: string; ok: boolean; evaluated?: boolean }[]; host: { required: string; observed: string | null; eligible: boolean }; inputs: { runs: string[] };
+  gates: { id: string; ok: boolean; evaluated?: boolean }[]; host: { required: string; observed: string | null; eligible: boolean }; inputs?: { runs: string[] };
+  comparisons?: Omit<VerdictLike, 'decisionId' | 'comparisons'>[];
 };
 
 const outcomeLabel: Record<string, string> = {
@@ -21,11 +22,15 @@ export function renderDecisionsReport(registry: Registry, verdicts: VerdictLike[
     const verdict = byId.get(decision.id);
     if (decision.kind === 'product') { lines.push(`| ${decision.id} | ${decision.status} | produit : ${decision.evidence.map(e => e.ref).join(', ') || 'aucune preuve'} | | | | |`); continue; }
     if (!verdict) { lines.push(`| ${decision.id} | ${decision.status} | pas encore calculé | | | requis ${decision.hostClass?.decision ?? '?'} | ${(decision.contractGates ?? []).join(', ')} |`); continue; }
-    const estimate = verdict.estimate ? `${figure(verdict.estimate.ratio)} [${verdict.estimate.ratioCi.map(figure).join(' ; ')}] (${verdict.estimate.interval})` : '';
-    const blocks = verdict.requiredN === null ? `${verdict.n}` : `${verdict.n} sur ${verdict.requiredN} requis`;
-    const host = `${verdict.host.observed ?? 'aucun'} / requis ${verdict.host.required}${verdict.host.eligible ? '' : ' (non éligible)'}`;
-    const gates = verdict.gates.map(gate => `${gate.id} ${gate.evaluated === false ? 'non évaluée' : gate.ok ? 'ok' : 'échec'}`).join(', ');
-    lines.push(`| ${decision.id} | ${decision.status} | ${outcomeLabel[verdict.outcome] ?? verdict.outcome} | ${estimate} | ${blocks} | ${host} | ${gates} |`);
+    // A decision with several options gets one row per option compared with the baseline.
+    for (const [index, row] of (verdict.comparisons?.length ? verdict.comparisons : [verdict]).entries()) {
+      const estimate = row.estimate ? `${figure(row.estimate.ratio)} [${row.estimate.ratioCi.map(figure).join(' ; ')}] (${row.estimate.interval})` : '';
+      const blocks = row.requiredN === null ? `${row.n}` : `${row.n} sur ${row.requiredN} requis`;
+      const host = `${row.host.observed ?? 'aucun'} / requis ${row.host.required}${row.host.eligible ? '' : ' (non éligible)'}`;
+      const gates = row.gates.map(gate => `${gate.id} ${gate.evaluated === false ? 'non évaluée' : gate.ok ? 'ok' : 'échec'}`).join(', ');
+      const label = verdict.comparisons?.length ? `${row.option} / ${row.baseline} : ` : '';
+      lines.push(`| ${index === 0 ? decision.id : ''} | ${index === 0 ? decision.status : ''} | ${label}${outcomeLabel[row.outcome] ?? row.outcome} | ${estimate} | ${blocks} | ${host} | ${gates} |`);
+    }
   }
   lines.push('', 'Un verdict ne sert une décision que si l\'hôte observé atteint la classe requise et que toutes les gates de contrat passent.', '');
   return lines.join('\n');

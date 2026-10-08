@@ -55,48 +55,59 @@ const gatePredicates: Record<string, (cells: Cell[]) => boolean> = {
   'oracle-exact': cells => cells.length > 0 && cells.every(cell => cell.status === 'verified'),
   'actionability-conformance': cells => cells.length > 0 && cells.every(cell => cell.status === 'verified'),
   'recovery-exact': cells => cells.some(cell => typeof cell.factors.fault === 'string' && cell.factors.fault !== 'none') && cells.every(cell => cell.status === 'verified'),
-  'admission-no-loss': cells => cells.length > 0 && cells.every(cell => cell.status === 'verified')
+  'admission-no-loss': cells => cells.length > 0 && cells.every(cell => cell.status === 'verified'),
+  // A negative variant must be refused without effect; any other outcome is a false success.
+  'false-success-count': cells => { const negatives = cells.filter(cell => negativeVariants.includes(String(cell.factors.variant))); return negatives.length > 0 && negatives.every(cell => cell.status === 'verified'); }
 };
+const negativeVariants = ['never-enabled', 'never-uncovered', 'ambiguous'];
 
 export async function evaluateDecision(decision: Decision, { registry, root = labRoot }: { registry: Registry; root?: string }) {
   const analysis = decision.analysis;
   if (decision.kind !== 'technical' || !analysis || !decision.primaryMetric || !decision.rule || !decision.delta) throw new Error(`${decision.id} has no mechanical analysis`);
   const ledgerText = await readFile(join(root, 'ledger/results-ledger.json'), 'utf8');
   const ledger = JSON.parse(ledgerText) as { entries: { runId: string; imported: string }[] };
-  const runs: Run[] = []; const missing: string[] = [];
-  for (const evidence of decision.evidence.filter(item => item.kind === 'run')) {
-    const entry = ledger.entries.find(item => item.runId === evidence.ref);
+  const evidence: Run[] = []; const missing: string[] = [];
+  for (const item of decision.evidence.filter(entry => entry.kind === 'run')) {
+    const entry = ledger.entries.find(row => row.runId === item.ref);
     const path = entry ? join(root, entry.imported) : null;
-    if (!path || !(await exists(path))) { missing.push(evidence.ref); continue; }
-    const run = JSON.parse(await readFile(path, 'utf8')) as Run;
-    if (run.lane === analysis.lane) runs.push(run);
+    if (!path || !(await exists(path))) { missing.push(item.ref); continue; }
+    evidence.push(JSON.parse(await readFile(path, 'utf8')) as Run);
   }
-  const [optionId, baselineId] = [decision.options.find(option => option.id !== decision.baseline && analysis.options[option.id])?.id, decision.baseline!];
-  if (!optionId) throw new Error(`${decision.id}: no analysed option besides the baseline`);
-  const compared: Cell[] = []; const logRatios: number[] = []; const contributing = new Set<string>();
-  for (const run of runs) {
-    const ofOption = (id: string) => run.cells.filter(cell => matches(cell.factors, analysis.options[id]!));
-    const option = ofOption(optionId), baseline = ofOption(baselineId);
-    compared.push(...run.cells.filter(cell => sameOption(cell.factors, analysis.options[optionId]!) || sameOption(cell.factors, analysis.options[baselineId]!)));
-    const key = (cell: Cell) => JSON.stringify([cell.factors.block, ...analysis.pairBy.map(factor => cell.factors[factor])]);
-    const baselineByKey = new Map(baseline.filter(cell => matches(cell.factors, analysis.stratum)).map(cell => [key(cell), cell]));
-    for (const cell of option.filter(item => matches(item.factors, analysis.stratum))) {
-      const other = baselineByKey.get(key(cell));
-      const a = cell.metrics[decision.primaryMetric.metricId]?.value, b = other?.metrics[decision.primaryMetric.metricId]?.value;
-      if (other && cell.status === 'verified' && other.status === 'verified' && a && b && a > 0 && b > 0) { logRatios.push(Math.log(a / b)); contributing.add(run.runId); }
-    }
-  }
-  const gates = (decision.contractGates ?? []).map(id => ({ id, ok: gatePredicates[id] ? gatePredicates[id]!(compared) : false, evaluated: Boolean(gatePredicates[id]) }));
+  const runs = evidence.filter(run => run.lane === analysis.lane);
+  const baselineId = decision.baseline!;
+  const optionIds = decision.options.map(option => option.id).filter(id => id !== baselineId && analysis.options[id]);
+  if (!optionIds.length) throw new Error(`${decision.id}: no analysed option besides the baseline`);
   const direction = registry.metrics.find(metric => metric.id === decision.primaryMetric!.metricId)?.direction === 'higher' ? 'higher' : 'lower';
   const seed = parseInt(createHash('sha256').update(decision.id).digest('hex').slice(0, 8), 16);
-  const result = decide({ logRatios, direction, rule: decision.rule as Rule, delta: decision.delta.value, gates, seed });
-  const used = runs.filter(run => contributing.has(run.runId));
-  const observed = (used.length ? used : runs).map(run => run.host.classGranted).sort((a, b) => hostRank.indexOf(a) - hostRank.indexOf(b))[0] ?? null;
   const required = decision.hostClass!.decision;
+  // Each gate reads the cells of its own lane (by default the measurement lane) for the option and the baseline.
+  const gateCells = (gateId: string, optionId: string) => evidence.filter(run => run.lane === (analysis.gateLanes?.[gateId] ?? analysis.lane))
+    .flatMap(run => run.cells.filter(cell => sameOption(cell.factors, analysis.options[optionId]!) || sameOption(cell.factors, analysis.options[baselineId]!)));
+  const compare = (optionId: string) => {
+    const logRatios: number[] = []; const contributing = new Set<string>();
+    for (const run of runs) {
+      const ofOption = (id: string) => run.cells.filter(cell => matches(cell.factors, analysis.options[id]!));
+      const key = (cell: Cell) => JSON.stringify([cell.factors.block, ...analysis.pairBy.map(factor => cell.factors[factor])]);
+      const baselineByKey = new Map(ofOption(baselineId).filter(cell => matches(cell.factors, analysis.stratum)).map(cell => [key(cell), cell]));
+      for (const cell of ofOption(optionId).filter(item => matches(item.factors, analysis.stratum))) {
+        const other = baselineByKey.get(key(cell));
+        const a = cell.metrics[decision.primaryMetric!.metricId]?.value, b = other?.metrics[decision.primaryMetric!.metricId]?.value;
+        if (other && cell.status === 'verified' && other.status === 'verified' && a && b && a > 0 && b > 0) { logRatios.push(Math.log(a / b)); contributing.add(run.runId); }
+      }
+    }
+    // A gate passes only on evidence about the option itself: baseline cells alone never qualify it.
+    const gateOk = (id: string) => { const cells = gateCells(id, optionId); return cells.some(cell => sameOption(cell.factors, analysis.options[optionId]!)) && gatePredicates[id]!(cells); };
+    const gates = (decision.contractGates ?? []).map(id => ({ id, ok: gatePredicates[id] ? gateOk(id) : false, evaluated: Boolean(gatePredicates[id]) }));
+    const result = decide({ logRatios, direction, rule: decision.rule as Rule, delta: decision.delta!.value, gates, seed });
+    const used = runs.filter(run => contributing.has(run.runId));
+    const observed = (used.length ? used : runs).map(run => run.host.classGranted).sort((a, b) => hostRank.indexOf(a) - hostRank.indexOf(b))[0] ?? null;
+    return { option: optionId, baseline: baselineId, ...result, gates, host: { required, observed, eligible: observed !== null && hostRank.indexOf(observed) >= hostRank.indexOf(required) }, runs: used.map(run => run.runId) };
+  };
+  const comparisons = optionIds.map(compare);
+  const { runs: primaryRuns, ...primary } = comparisons[0]!;
   return {
-    schemaVersion: 1, decisionId: decision.id, metricId: decision.primaryMetric.metricId, direction, option: optionId, baseline: baselineId, stratum: analysis.stratum,
-    rule: decision.rule, delta: decision.delta, ...result, gates,
-    host: { required, observed, eligible: observed !== null && hostRank.indexOf(observed) >= hostRank.indexOf(required) },
-    inputs: { runs: used.map(run => run.runId), considered: runs.map(run => run.runId), missing, ledgerSha256: createHash('sha256').update(ledgerText).digest('hex') }
+    schemaVersion: 1, decisionId: decision.id, metricId: decision.primaryMetric.metricId, direction, stratum: analysis.stratum, rule: decision.rule, delta: decision.delta,
+    ...primary, comparisons: comparisons.map(({ runs: _runs, ...comparison }) => comparison),
+    inputs: { runs: primaryRuns, considered: evidence.map(run => run.runId), missing, ledgerSha256: createHash('sha256').update(ledgerText).digest('hex') }
   };
 }

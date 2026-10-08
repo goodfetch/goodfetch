@@ -294,6 +294,11 @@
           },
           "description": "option id -> factor values; null means the factor is absent"
         },
+        "gateLanes": {
+          "type": "object",
+          "additionalProperties": { "type": "string" },
+          "description": "contract gate id -> lane whose cells the gate reads; defaults to the measurement lane"
+        },
         "pairBy": {
           "type": "array",
           "items": {

@@ -66,12 +66,12 @@
     },
     {
       "kind": "run",
-      "ref": "tls-fingerprint-2026-10-08T17-42-02-124Z-1dec60",
+      "ref": "tls-fingerprint-2026-10-08T19-32-26-736Z-f42991",
       "note": "empreintes TLS et HTTP/2"
     },
     {
       "kind": "run",
-      "ref": "identity-coherence-2026-10-08T19-08-09-611Z-deb797",
+      "ref": "identity-coherence-2026-10-08T19-32-36-456Z-419b62",
       "note": "cohérence entre tiers, rotation et révocation"
     },
     {
@@ -81,8 +81,13 @@
     },
     {
       "kind": "run",
-      "ref": "session-isolation-2026-10-08T19-15-24-150Z-001cf2",
+      "ref": "session-isolation-2026-10-08T19-34-55-558Z-f91765",
       "note": "isolation de deux sessions"
+    },
+    {
+      "kind": "run",
+      "ref": "proxy-pool-2026-10-08T19-35-52-648Z-de827b",
+      "note": "proxies collants et bascule sur panne"
     },
     {
       "kind": "research-doc",

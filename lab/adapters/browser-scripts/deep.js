@@ -1,0 +1,1 @@
+(selector)=>{const found=[];const visit=root=>{found.push(...root.querySelectorAll(selector));for(const el of root.querySelectorAll('*'))if(el.shadowRoot)visit(el.shadowRoot)};visit(document);return found}

@@ -91,9 +91,12 @@
     }
   ],
   "campaigns": [
-    "browser-driver-primitives",
-    "browser-driver-rtt",
+    "browser-driver-rtt-0",
+    "browser-driver-rtt-20",
+    "browser-driver-rtt-100",
+    "browser-driver-rtt-300",
     "browser-actionability-extended",
+    "browser-driver-primitives",
     "browser-navigation-frames-files"
   ],
   "evidence": [
@@ -112,8 +115,41 @@
       "ref": "browser-primitives-2026-10-07T21-33-08-604Z-f6b1a0"
     }
   ],
-  "verdictRef": null,
+  "verdictRef": "verdicts/D-browser-driver.json",
   "adr": null,
   "dependsOn": [],
-  "notes": "La référence CDP directe en Node sépare l'effet du langage de celui du protocole. Aucun verdict de vitesse tant que la matrice d'actionnabilité étendue n'est pas entièrement conforme."
+  "notes": "La référence CDP directe en Node sépare l'effet du langage de celui du protocole. Aucun verdict de vitesse tant que la matrice d'actionnabilité étendue n'est pas entièrement conforme.",
+  "analysis": {
+    "lane": "bench",
+    "options": {
+      "rust-cdp-guarded": {
+        "backend": "rust-cdp",
+        "policy": "guarded"
+      },
+      "node-cdp-guarded": {
+        "backend": "node-cdp",
+        "policy": "guarded"
+      },
+      "puppeteer-guarded": {
+        "backend": "puppeteer",
+        "policy": "guarded"
+      },
+      "playwright-native": {
+        "backend": "playwright",
+        "policy": "native"
+      }
+    },
+    "pairBy": [
+      "scenario",
+      "rttMs"
+    ],
+    "stratum": {
+      "rttMs": 0,
+      "browserHost": "harness"
+    },
+    "gateLanes": {
+      "actionability-conformance": "actionability",
+      "false-success-count": "actionability"
+    }
+  }
 }

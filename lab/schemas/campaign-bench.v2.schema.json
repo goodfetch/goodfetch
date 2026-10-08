@@ -36,6 +36,8 @@
         "variants": { "type": "array", "minItems": 1, "items": { "type": "string" } }
       }
     },
-    "poolWake": { "enum": ["poll", "notify"] }
+    "poolWake": { "enum": ["poll", "notify"] },
+    "browserHost": { "enum": ["adapter", "harness"] },
+    "actionPolicies": { "type": "object", "additionalProperties": { "enum": ["native", "guarded"] } }
   }
 }

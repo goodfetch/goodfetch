@@ -1,0 +1,1 @@
+(async()=>{const end=performance.now()+__TIMEOUT__;while(!(__CONDITION__)){if(performance.now()>end)throw new Error('postcondition timeout');await new Promise(resolve=>setTimeout(resolve,8))}return true})()

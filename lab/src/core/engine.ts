@@ -15,6 +15,7 @@ import { startOracle, type Oracle } from './oracle.ts';
 import { detectProbes, type Measure } from './metrics/registry.ts';
 import { openRun, type RunOptions } from './run-context.ts';
 import { calibrate, startLatencyProxy, networkAvailability, type Calibration } from '../net/latency-proxy.ts';
+import { launchBrowser, throughProxy, type HostedBrowser } from './browser-host.ts';
 import { loadRegistry } from './decisions.ts';
 import type { Scenario } from '../../fixtures/server.ts';
 
@@ -76,18 +77,22 @@ export async function runEngine(campaign: BenchCampaign, options: EngineOptions 
   // A declared network profile is calibrated first; the fixture origin is then served through the shaped link.
   let network: { link: string; profile: { rttMs: number }; calibration: Calibration } | undefined;
   let proxy: Awaited<ReturnType<typeof startLatencyProxy>> | null = null;
+  // A driver-browser profile needs a browser the harness launched, so the shaped link sits between driver and browser.
+  const harnessBrowser = campaign.browserHost === 'harness' || campaign.network?.link === 'driver-browser';
   if (campaign.network) {
-    if (campaign.network.link !== 'browser-origin') throw new LabError('E_CAPABILITY', `network link ${campaign.network.link} is not supported by the bench engine yet`);
     const calibration = await calibrate(campaign.network.rttMs);
     Object.assign(context.availability, networkAvailability(loadRegistry().metrics, calibration));
-    const origin = new URL(oracle.origin);
-    proxy = await startLatencyProxy({ host: origin.hostname, port: Number(origin.port), rttMs: campaign.network.rttMs });
+    if (campaign.network.link === 'browser-origin') {
+      const origin = new URL(oracle.origin);
+      proxy = await startLatencyProxy({ host: origin.hostname, port: Number(origin.port), rttMs: campaign.network.rttMs });
+    }
     network = { link: campaign.network.link, profile: { rttMs: campaign.network.rttMs }, calibration };
   }
   const shaped = (url: string) => proxy ? url.replace(oracle.origin, `http://${proxy.host}:${proxy.port}`) : url;
   const legacy = toLegacyBench(campaign);
   const executablePath = options.executablePath ?? (browserBackends(campaign.backends) ? browserPath() : undefined);
-  const attempts: AttemptV2[] = []; const windows: { cellId: string; durationMs: number }[] = []; const cellResources = new Map<string, unknown[]>();
+  const attempts: AttemptV2[] = []; const windows: { cellId: string; block: number; durationMs: number }[] = []; const cellResources = new Map<string, unknown[]>(); const startups = new Map<string, number[]>();
+  const policyOf = (backend: string) => campaign.actionPolicies?.[backend] ?? 'native';
   let writes = Promise.resolve();
   const record = (attempt: AttemptV2) => { attempts.push(attempt); writes = writes.then(() => appendFile(join(directory, 'attempts.v2.jsonl'), JSON.stringify(attempt) + '\n')); return writes; };
   const sample = (pid: number) => probes['proc_pid_rusage-v4'] ? sampleRuntimeResources(pid, 100) : probes['smaps_rollup'] ? sampleLinuxResources(pid, 100) : sampleProcessGroup(pid);
@@ -96,7 +101,15 @@ export async function runEngine(campaign: BenchCampaign, options: EngineOptions 
       const order = shuffle(campaign.backends, campaign.seed + block);
       for (const backend of order) {
         const spec = options.command?.(backend) ?? commandFor(backend as BackendName, campaign.timeoutMs, executablePath);
-        const slot = new WorkerSlot(spec, { executablePath, headless: true, concurrency: campaign.concurrency, poolWake: campaign.poolWake }, campaign.maxRestarts, campaign.concurrency, sample);
+        // The harness browser is sampled with the adapter, so browser CPU and memory count for every driver alike.
+        let hosted: HostedBrowser | undefined, driverProxy: Awaited<ReturnType<typeof startLatencyProxy>> | undefined, browserSampler: { stop(): unknown } | undefined, cdpEndpoint: string | undefined;
+        if (harnessBrowser) {
+          try { hosted = await launchBrowser(executablePath ?? browserPath()); } catch (error) { throw new LabError('E_STARTUP', `harness browser: ${(error as Error).message}`, { cause: error }); }
+          browserSampler = sample(hosted.pid);
+          if (campaign.network?.link === 'driver-browser') driverProxy = await startLatencyProxy({ host: '127.0.0.1', port: hosted.port, rttMs: campaign.network.rttMs });
+          cdpEndpoint = driverProxy ? throughProxy(hosted.wsEndpoint, driverProxy) : hosted.wsEndpoint;
+        }
+        const slot = new WorkerSlot(spec, { executablePath, headless: true, concurrency: campaign.concurrency, poolWake: campaign.poolWake, ...(cdpEndpoint ? { cdpEndpoint } : {}) }, campaign.maxRestarts, campaign.concurrency, sample);
         try {
           for (const scenario of campaign.scenarios) {
             const cellId = `${backend}:${scenario}`;
@@ -113,7 +126,7 @@ export async function runEngine(campaign: BenchCampaign, options: EngineOptions 
               const fixture = await oracle.createRun({ scenario: scenario as Scenario, seed: result.seed, pages: campaign.fixtures.pages, actions: campaign.fixtures.actions, delayMs: campaign.fixtures.delayMs, variant: variant as never });
               const client = slot.client!; const began = performance.now();
               try {
-                const out = checkedOutput(await client.call('run', { ...legacy, scenario, seed: result.seed, variant, url: shaped(fixture.url) }));
+                const out = checkedOutput(await client.call('run', { ...legacy, scenario, seed: result.seed, variant, actionPolicy: policyOf(backend), url: shaped(fixture.url) }));
                 result.timing.taskMs = performance.now() - began;
                 if (out.metrics) result.adapterMetrics = out.metrics;
                 if (out.status === 'unsupported') Object.assign(result, { status: 'unsupported', errorCode: 'E_CAPABILITY', reasons: [out.reason ?? 'unsupported'] });
@@ -140,30 +153,37 @@ export async function runEngine(campaign: BenchCampaign, options: EngineOptions 
             if (!qualified) { await skipRest('measure', campaign.warmup + 1, campaign.iterations); continue; }
             const window = await schedule(campaign, (index, queueMs) => attempt('measure', index + campaign.warmup + 1, queueMs).then(() => undefined),
               async (index, queueMs) => { await record(make('measure', index + campaign.warmup + 1, 'rejected', 'E_CAPACITY', ['arrival exceeds admission or campaign deadline'], queueMs)); });
-            windows.push({ cellId, durationMs: window.durationMs });
+            windows.push({ cellId, block, durationMs: window.durationMs });
           }
         } finally {
-          const resources = await slot.close();
-          for (const scenario of campaign.scenarios) { const key = `${backend}:${scenario}`; cellResources.set(key, [...(cellResources.get(key) ?? []), ...(resources as unknown[])]); }
+          const resources = [...await slot.close() as unknown[], ...(browserSampler ? [await browserSampler.stop()] : [])];
+          await driverProxy?.close(); await hosted?.close();
+          // One slot per backend and block: its samples and startups belong to that block's cells exactly.
+          startups.set(`${backend}:b${block}`, slot.startupMs);
+          for (const scenario of campaign.scenarios) cellResources.set(`${backend}:${scenario}:b${block}`, resources);
         }
       }
       await context.sampleBlock(block, order);
     }
   } finally { await proxy?.close(); if (ownsOracle) await oracle.close(); }
   await writes;
-  const cells = campaign.backends.flatMap(backend => campaign.scenarios.map(scenario => summarizeCell(`${backend}:${scenario}`, { backend, scenario }, attempts, windows, cellResources.get(`${backend}:${scenario}`) ?? [], measureOf)));
+  // One cell per backend, scenario and block, so verdicts can pair blocks.
+  const cells = Array.from({ length: campaign.blocks }, (_, block) => block).flatMap(block => campaign.backends.flatMap(backend => campaign.scenarios.map(scenario => summarizeCell(`${backend}:${scenario}`, block,
+    { backend, scenario, block, policy: policyOf(backend), rttMs: campaign.network?.rttMs ?? 0, browserHost: harnessBrowser ? 'harness' : 'adapter' },
+    attempts, windows, cellResources.get(`${backend}:${scenario}:b${block}`) ?? [], startups.get(`${backend}:b${block}`) ?? [], harnessBrowser, measureOf))));
   const run = await context.close({ lane: 'bench', campaign, decisionIds: campaign.decisionIds, countUnit: 'attempt', cells, binaryChanges: null, network });
   return { directory, run, attempts };
 }
 
 function zero(): Counts { return { verified: 0, failed: 0, timeout: 0, crashed: 0, aborted: 0, unsupported: 0, rejected: 0, unavailable: 0, skipped: 0 }; }
 
-function summarizeCell(cellId: string, factors: Record<string, string>, attempts: AttemptV2[], windows: { cellId: string; durationMs: number }[], resources: unknown[], measureOf: (id: string, value: number | null, source: string) => Measure) {
-  const own = attempts.filter(a => a.cellId === cellId);
+function summarizeCell(key: string, block: number, factors: Record<string, string | number>, attempts: AttemptV2[], windows: { cellId: string; block: number; durationMs: number }[], resources: unknown[], startupMs: number[], harnessBrowser: boolean, measureOf: (id: string, value: number | null, source: string) => Measure) {
+  const cellId = `${key}:b${block}`;
+  const own = attempts.filter(a => a.cellId === key && a.block === block);
   const counts = zero();
   for (const a of own) counts[a.status === 'skipped-gate' ? 'skipped' : a.status]++;
   const measured = own.filter(a => a.phase === 'measure' && a.status === 'verified');
-  const durationMs = windows.filter(w => w.cellId === cellId).reduce((sum, w) => sum + w.durationMs, 0);
+  const durationMs = windows.filter(w => w.cellId === key && w.block === block).reduce((sum, w) => sum + w.durationMs, 0);
   const latency = quantiles(measured.map(a => a.timing.taskMs!).filter(Number.isFinite));
   const failures = counts.failed + counts.timeout + counts.crashed;
   const status = failures ? (counts.verified ? 'mixed' : 'failed') : counts.verified ? 'verified' : counts.unsupported ? 'unsupported' : 'skipped-gate';
@@ -171,6 +191,8 @@ function summarizeCell(cellId: string, factors: Record<string, string>, attempts
   const peak = (key: 'peakFootprintBytes' | 'peakRssBytes' | 'peakPssBytes') => typed.some(r => typeof r[key] === 'number') ? Math.max(...typed.map(r => r[key] ?? 0)) : null;
   const cpu = typed.some(r => typeof r.sampledUserCpuMs === 'number') ? typed.reduce((sum, r) => sum + (r.sampledUserCpuMs ?? 0) + (r.sampledSystemCpuMs ?? 0), 0) : null;
   const verifiedAll = own.filter(a => a.status === 'verified').length;
+  const cdp = quantiles(measured.map(a => a.adapterMetrics?.cdpCommands).filter((v): v is number => typeof v === 'number'));
+  const startup = quantiles(startupMs);
   return { cellId, factors, status: status as AttemptStatus | 'mixed', errorCode: null, counts, metrics: {
     'verified-tasks-per-second': measureOf('verified-tasks-per-second', durationMs ? measured.length * 1000 / durationMs : null, 'engine; verified measured tasks over the measured window, rejections in the denominator window'),
     'task-p50-ms-verified': measureOf('task-p50-ms-verified', latency.p50, 'engine; run RPC only'),
@@ -178,6 +200,8 @@ function summarizeCell(cellId: string, factors: Record<string, string>, attempts
     'cpu-ms-per-verified-job': measureOf('cpu-ms-per-verified-job', cpu !== null && verifiedAll ? cpu / verifiedAll : null, 'engine; adapter process tree over all phases'),
     'footprint-peak-bytes': measureOf('footprint-peak-bytes', peak('peakFootprintBytes'), 'engine; adapter process tree'),
     'pss-peak-bytes': measureOf('pss-peak-bytes', peak('peakPssBytes'), 'engine; adapter process tree, Pss_Anon plus SwapPss'),
-    'rss-peak-bytes': measureOf('rss-peak-bytes', peak('peakRssBytes'), 'engine; adapter process tree, shared pages double-counted')
+    'rss-peak-bytes': measureOf('rss-peak-bytes', peak('peakRssBytes'), 'engine; adapter process tree, shared pages double-counted'),
+    'cdp-commands-per-task': measureOf('cdp-commands-per-task', cdp.p50, cdp.p50 === null ? 'adapter does not report CDP commands' : 'adapter; median over verified measured tasks, page open and close included'),
+    'startup-ms': measureOf('startup-ms', startup.p50, harnessBrowser ? 'engine; adapter start and connection to the harness browser, browser launch excluded' : 'engine; adapter start and prepare, browser launch included')
   } };
 }

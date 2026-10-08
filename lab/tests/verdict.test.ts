@@ -47,3 +47,52 @@ test('on the imported runs, D-core-language is mechanically insufficient-n and n
   assert.equal(verdict.host.eligible, false);
   assert.ok(verdict.n >= 1, 'paired blocks were found in the evidence runs');
 });
+
+// A synthetic lab root: one bench run (measurement) and one actionability run (gates) for a driver decision.
+async function driverFixture(actionabilityStatus: (backend: string, variant: string) => string) {
+  const { mkdtemp, mkdir, writeFile } = await import('node:fs/promises'); const { tmpdir } = await import('node:os'); const { join } = await import('node:path');
+  const root = await mkdtemp(join(tmpdir(), 'automan-verdict-')); await mkdir(join(root, 'ledger/imported'), { recursive: true });
+  const ratio: Record<string, number> = { 'rust-cdp': 0.5, 'node-cdp': 0.9, playwright: 1 };
+  const policy: Record<string, string> = { 'rust-cdp': 'guarded', 'node-cdp': 'guarded', playwright: 'native' };
+  const bench = { runId: 'bench-1', lane: 'bench', host: { classGranted: 'local-controlled' }, cells: Array.from({ length: 6 }, (_, block) => Object.keys(ratio).map(backend => ({
+    factors: { backend, scenario: 'form', block, policy: policy[backend], rttMs: 0, browserHost: 'harness' }, status: 'verified',
+    metrics: { 'task-p50-ms-verified': { value: 100 * ratio[backend]! * (1 + (block % 2 ? 0.01 : -0.01)) } } }))).flat() };
+  const actionability = { runId: 'act-1', lane: 'actionability', host: { classGranted: 'local-controlled' }, cells: Object.keys(ratio).flatMap(backend => ['normal', 'never-enabled'].map(variant => ({
+    factors: { backend, variant, policy: policy[backend], block: 0 }, status: actionabilityStatus(backend, variant), metrics: {} }))).filter(cell => cell.status !== 'absent') };
+  for (const run of [bench, actionability]) await writeFile(join(root, `ledger/imported/${run.runId}.json`), JSON.stringify(run));
+  await writeFile(join(root, 'ledger/results-ledger.json'), JSON.stringify({ entries: [bench, actionability].map(run => ({ runId: run.runId, imported: `ledger/imported/${run.runId}.json` })) }));
+  const registry = loadRegistry();
+  const decision = { ...registry.decisions.find(d => d.id === 'D-browser-driver')!, evidence: [{ kind: 'run' as const, ref: 'bench-1' }, { kind: 'run' as const, ref: 'act-1' }],
+    analysis: { lane: 'bench', options: { 'rust-cdp-guarded': { backend: 'rust-cdp', policy: 'guarded' }, 'node-cdp-guarded': { backend: 'node-cdp', policy: 'guarded' }, 'playwright-native': { backend: 'playwright', policy: 'native' } },
+      pairBy: ['scenario', 'rttMs'], stratum: { rttMs: 0 }, gateLanes: { 'actionability-conformance': 'actionability', 'false-success-count': 'actionability' } } };
+  return { root, registry, decision };
+}
+
+test('driver gates are read from the actionability matrix, not from the measurement lane', async () => {
+  const { root, registry, decision } = await driverFixture(() => 'verified');
+  const verdict = await evaluateDecision(decision, { registry, root });
+  assert.deepEqual(verdict.gates.map(gate => [gate.id, gate.ok, gate.evaluated]), [['actionability-conformance', true, true], ['false-success-count', true, true], ['oracle-exact', true, true]]);
+  assert.equal(verdict.option, 'rust-cdp-guarded');
+  assert.equal(verdict.outcome, 'better');
+});
+
+test('a false success on a negative variant blocks the option whatever its speed', async () => {
+  const { root, registry, decision } = await driverFixture((backend, variant) => backend === 'rust-cdp' && variant === 'never-enabled' ? 'failed' : 'verified');
+  const verdict = await evaluateDecision(decision, { registry, root });
+  assert.equal(verdict.outcome, 'blocked-by-contract');
+  assert.equal(verdict.gates.find(gate => gate.id === 'false-success-count')!.ok, false);
+});
+
+test('every analysed option is compared with the baseline on its own gates', async () => {
+  const { root, registry, decision } = await driverFixture((backend, variant) => backend === 'rust-cdp' && variant === 'never-enabled' ? 'failed' : 'verified');
+  const verdict = await evaluateDecision(decision, { registry, root });
+  assert.deepEqual(verdict.comparisons.map(c => [c.option, c.outcome]), [['rust-cdp-guarded', 'blocked-by-contract'], ['node-cdp-guarded', 'better']]);
+});
+
+test('an option absent from the gate lane fails its gates even when the baseline passes them', async () => {
+  const { root, registry, decision } = await driverFixture(backend => backend === 'rust-cdp' ? 'absent' : 'verified');
+  const verdict = await evaluateDecision(decision, { registry, root });
+  assert.equal(verdict.option, 'rust-cdp-guarded');
+  assert.equal(verdict.outcome, 'blocked-by-contract');
+  assert.equal(verdict.gates.find(gate => gate.id === 'actionability-conformance')!.ok, false);
+});

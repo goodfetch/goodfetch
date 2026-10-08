@@ -24,3 +24,12 @@ test('every figure of a decision comes from its verdict and changes with it', ()
   assert.match(second, /0\.734/);
   assert.equal(renderDecisionsReport(registry, [verdict(0.512)]), first, 'deterministic');
 });
+
+test('a decision with several options shows each comparison with its own outcome', () => {
+  const multi = { ...verdict(0.512), decisionId: 'D-browser-driver', option: 'rust-cdp-guarded', baseline: 'playwright-native', comparisons: [
+    { ...verdict(0.512), option: 'rust-cdp-guarded', baseline: 'playwright-native' },
+    { ...verdict(0.9), outcome: 'blocked-by-contract', estimate: null, option: 'puppeteer-guarded', baseline: 'playwright-native', gates: [{ id: 'false-success-count', ok: false, evaluated: true }] }] };
+  const report = renderDecisionsReport(registry, [multi]);
+  assert.match(report, /rust-cdp-guarded \/ playwright-native.*option meilleure.*0\.512/);
+  assert.match(report, /puppeteer-guarded \/ playwright-native.*bloqué par un contrat.*false-success-count échec/);
+});

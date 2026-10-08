@@ -1,0 +1,154 @@
+{
+ "schemaVersion": 1,
+ "decisionId": "D-browser-driver",
+ "metricId": "task-p50-ms-verified",
+ "direction": "lower",
+ "stratum": {
+  "rttMs": 0,
+  "browserHost": "harness"
+ },
+ "rule": {
+  "kind": "superiority",
+  "alpha": 0.05,
+  "power": 0.8,
+  "noisyBlockPolicy": "exclude"
+ },
+ "delta": {
+  "kind": "ratio",
+  "value": 0.1
+ },
+ "option": "rust-cdp-guarded",
+ "baseline": "playwright-native",
+ "outcome": "blocked-by-contract",
+ "n": 0,
+ "margin": 0.09531017980432493,
+ "requiredN": null,
+ "estimate": null,
+ "gates": [
+  {
+   "id": "actionability-conformance",
+   "ok": false,
+   "evaluated": true
+  },
+  {
+   "id": "false-success-count",
+   "ok": false,
+   "evaluated": true
+  },
+  {
+   "id": "oracle-exact",
+   "ok": false,
+   "evaluated": true
+  }
+ ],
+ "host": {
+  "required": "local-controlled",
+  "observed": "local-dev",
+  "eligible": false
+ },
+ "comparisons": [
+  {
+   "option": "rust-cdp-guarded",
+   "baseline": "playwright-native",
+   "outcome": "blocked-by-contract",
+   "n": 0,
+   "margin": 0.09531017980432493,
+   "requiredN": null,
+   "estimate": null,
+   "gates": [
+    {
+     "id": "actionability-conformance",
+     "ok": false,
+     "evaluated": true
+    },
+    {
+     "id": "false-success-count",
+     "ok": false,
+     "evaluated": true
+    },
+    {
+     "id": "oracle-exact",
+     "ok": false,
+     "evaluated": true
+    }
+   ],
+   "host": {
+    "required": "local-controlled",
+    "observed": "local-dev",
+    "eligible": false
+   }
+  },
+  {
+   "option": "node-cdp-guarded",
+   "baseline": "playwright-native",
+   "outcome": "blocked-by-contract",
+   "n": 0,
+   "margin": 0.09531017980432493,
+   "requiredN": null,
+   "estimate": null,
+   "gates": [
+    {
+     "id": "actionability-conformance",
+     "ok": false,
+     "evaluated": true
+    },
+    {
+     "id": "false-success-count",
+     "ok": false,
+     "evaluated": true
+    },
+    {
+     "id": "oracle-exact",
+     "ok": false,
+     "evaluated": true
+    }
+   ],
+   "host": {
+    "required": "local-controlled",
+    "observed": "local-dev",
+    "eligible": false
+   }
+  },
+  {
+   "option": "puppeteer-guarded",
+   "baseline": "playwright-native",
+   "outcome": "blocked-by-contract",
+   "n": 0,
+   "margin": 0.09531017980432493,
+   "requiredN": null,
+   "estimate": null,
+   "gates": [
+    {
+     "id": "actionability-conformance",
+     "ok": true,
+     "evaluated": true
+    },
+    {
+     "id": "false-success-count",
+     "ok": true,
+     "evaluated": true
+    },
+    {
+     "id": "oracle-exact",
+     "ok": false,
+     "evaluated": true
+    }
+   ],
+   "host": {
+    "required": "local-controlled",
+    "observed": "local-dev",
+    "eligible": false
+   }
+  }
+ ],
+ "inputs": {
+  "runs": [],
+  "considered": [
+   "browser-actionability-2026-10-07T23-38-33-163Z-ccad1f",
+   "browser-actionability-2026-10-08T00-21-16-186Z-b21a28",
+   "browser-primitives-2026-10-07T21-33-08-604Z-f6b1a0"
+  ],
+  "missing": [],
+  "ledgerSha256": "808919b90277de3b9db7c17745c6de6866967de066ba5b97fb0e1a862f5176a3"
+ }
+}

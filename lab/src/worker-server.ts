@@ -1,7 +1,7 @@
 import { createInterface } from 'node:readline';
 export type Task = { scenario: string; url: string; seed: number; pages: number; actions: number; timeoutMs: number; variant: string;actionPolicy?:'native'|'guarded' };
 export type AdapterOutput = { status: 'ok' | 'unsupported'; records?: { id: string; price: number }[]; file?: string; metrics?: Record<string, number>; reason?: string };
-export interface Adapter<RunTask = Task, PrepareOptions = { executablePath?: string; headless?: boolean }> {
+export interface Adapter<RunTask = Task, PrepareOptions = { executablePath?: string; headless?: boolean; cdpEndpoint?: string }> {
   info(): Record<string, unknown>;
   prepare(options: PrepareOptions): Promise<void>;
   run(task: RunTask): Promise<AdapterOutput | Record<string, unknown>>;

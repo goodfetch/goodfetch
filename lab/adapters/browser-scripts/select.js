@@ -1,0 +1,1 @@
+(()=>{const deepAll=__DEEP__;const el=deepAll(__SELECTOR__)[0];if(!el)throw new Error('no element for selector');if(![...el.options].some(option=>option.value===__VALUE__))throw new Error('no such option');el.value=__VALUE__;el.dispatchEvent(new Event('input',{bubbles:true}));el.dispatchEvent(new Event('change',{bubbles:true}));return true})()

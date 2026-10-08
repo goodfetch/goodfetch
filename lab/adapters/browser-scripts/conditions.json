@@ -1,0 +1,9 @@
+{
+  "catalog-ready": "document.querySelector('#catalog')?.getAttribute('data-ready')==='true'",
+  "body-ready": "document.body.dataset.ready==='true'",
+  "ui-ready": "document.body.dataset.ready==='true' && !document.querySelector('#overlay')",
+  "action-saved": "document.querySelector('#action-saved').textContent==='saved'",
+  "count": "document.querySelector('#count').textContent==='__N__'",
+  "submit-enabled": "!__ROOT__.querySelector('#submit').disabled",
+  "saved": "document.querySelector('#saved').textContent==='saved'"
+}

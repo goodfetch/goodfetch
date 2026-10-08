@@ -1,0 +1,1 @@
+(()=>{const deepAll=__DEEP__;const el=deepAll(__SELECTOR__)[0];if(!el)throw new Error('no element for selector');el.scrollIntoView({block:'nearest',inline:'nearest'});const box=el.getBoundingClientRect();return {x:box.x+box.width/2,y:box.y+box.height/2}})()

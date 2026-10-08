@@ -47,7 +47,22 @@
     "durable-admission",
     "durable-scheduler"
   ],
-  "evidence": [],
+  "evidence": [
+    {
+      "kind": "run",
+      "ref": "durable-admission-2026-10-08T19-22-31-770Z-5ab034",
+      "note": "sans surcharge"
+    },
+    {
+      "kind": "run",
+      "ref": "durable-scheduler-2026-10-08T19-23-13-402Z-a1f48f",
+      "note": "domaine lourd en surcharge"
+    },
+    {
+      "kind": "research-doc",
+      "ref": "lab/reports/admission-2026-10-08.md"
+    }
+  ],
   "verdictRef": null,
   "adr": null,
   "dependsOn": [

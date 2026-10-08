@@ -1,6 +1,6 @@
 {
  "schemaVersion": 1,
- "classificationSha256": "ef08a0998079bc33799c55a739a75cea6b05620fc875c2c7b68f575428013142",
+ "classificationSha256": "58cb8dd673762bf112011f3a21ab2334684e8b7368b74aa835e3591d3fe00e29",
  "entries": [
   {
    "runId": "smoke-2026-10-07T20-20-24-226Z-9ebb47",
@@ -3695,6 +3695,80 @@
     "hostClass": null
    },
    "imported": "results/session-isolation-2026-10-08T19-15-24-150Z-001cf2/run.v2.json"
+  },
+  {
+   "runId": "durable-admission-2026-10-08T19-22-31-770Z-5ab034",
+   "lane": "admission",
+   "campaign": "durable-admission",
+   "startedAt": "2026-10-08T19:22:31.770Z",
+   "status": "complete",
+   "hostClass": "local-dev",
+   "role": "selected",
+   "supersededBy": null,
+   "reason": "admission sous arrivées ouvertes sans surcharge, deux politiques de file",
+   "validity": [
+    {
+     "scope": "admission-contract",
+     "class": "A",
+     "note": "aucune perte, bornes et limites par domaine observées de l'extérieur"
+    },
+    {
+     "scope": "ack-latency",
+     "class": "B",
+     "note": "local-dev, Mac en usage"
+    }
+   ],
+   "decisionIds": [
+    "D-durable-runtime",
+    "D-scheduling"
+   ],
+   "citedIn": [
+    "lab/reports/admission-2026-10-08.md"
+   ],
+   "integrity": "uncatalogued",
+   "rerun": {
+    "required": true,
+    "priority": "P1",
+    "hostClass": "local-controlled"
+   },
+   "imported": "results/durable-admission-2026-10-08T19-22-31-770Z-5ab034/run.v2.json"
+  },
+  {
+   "runId": "durable-scheduler-2026-10-08T19-23-13-402Z-a1f48f",
+   "lane": "admission",
+   "campaign": "durable-scheduler",
+   "startedAt": "2026-10-08T19:23:13.402Z",
+   "status": "complete",
+   "hostClass": "local-dev",
+   "role": "selected",
+   "supersededBy": null,
+   "reason": "domaine lourd en surcharge à côté de trois petits domaines, file globale contre file par domaine",
+   "validity": [
+    {
+     "scope": "admission-contract",
+     "class": "A",
+     "note": "aucune perte, refus explicites jamais exécutés"
+    },
+    {
+     "scope": "fairness",
+     "class": "B",
+     "note": "local-dev ; le débit des petits domaines dépend du calendrier d'arrivées, pas de l'hôte"
+    }
+   ],
+   "decisionIds": [
+    "D-durable-runtime",
+    "D-scheduling"
+   ],
+   "citedIn": [
+    "lab/reports/admission-2026-10-08.md"
+   ],
+   "integrity": "uncatalogued",
+   "rerun": {
+    "required": true,
+    "priority": "P1",
+    "hostClass": "local-controlled"
+   },
+   "imported": "results/durable-scheduler-2026-10-08T19-23-13-402Z-a1f48f/run.v2.json"
   }
  ]
 }

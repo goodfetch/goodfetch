@@ -54,6 +54,7 @@ Rapport généré par `pnpm lab report` depuis `decisions/` et `verdicts/`. Les 
 |  |  | node-https / browser-fetch [variant coherent, profile standard, purpose search] : bloqué par un contrat |  | 0 | local-dev / requis local-controlled (non éligible) | identity-coherence échec, policy-compliance ok, false-success-count ok, session-isolation ok |
 | D-light-engine | open | pas encore calculé | | | requis local-controlled | oracle-exact, false-success-count |
 | D-pricing | open | produit : research/2026-10-07-commercial-landscape.md, research/market/README.md | | | | |
+| D-scheduling | open | fair-domain / fifo-global : option meilleure | 2.54 [2.4 ; 2.68] (95% block bootstrap) | 5 sur 5 requis | local-dev / requis local-controlled (non éligible) | admission-no-loss ok, oracle-exact ok |
 | D-segment | open | produit : research/2026-10-07-direction-automan.md, research/market/README.md | | | | |
 | D-sinks | deferred | pas encore calculé | | | requis local-controlled | oracle-exact, recovery-exact |
 | D-storage | decided | pas encore calculé | | | requis local-controlled | oracle-exact, recovery-exact |

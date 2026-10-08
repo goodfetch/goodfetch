@@ -2625,6 +2625,60 @@
         "priority": null,
         "hostClass": null
       }
+    },
+    "durable-admission-2026-10-08T19-22-31-770Z-5ab034": {
+      "role": "selected",
+      "reason": "admission sous arrivées ouvertes sans surcharge, deux politiques de file",
+      "supersededBy": null,
+      "decisionIds": [
+        "D-durable-runtime",
+        "D-scheduling"
+      ],
+      "validity": [
+        {
+          "scope": "admission-contract",
+          "class": "A",
+          "note": "aucune perte, bornes et limites par domaine observées de l'extérieur"
+        },
+        {
+          "scope": "ack-latency",
+          "class": "B",
+          "note": "local-dev, Mac en usage"
+        }
+      ],
+      "noisyHost": false,
+      "rerun": {
+        "required": true,
+        "priority": "P1",
+        "hostClass": "local-controlled"
+      }
+    },
+    "durable-scheduler-2026-10-08T19-23-13-402Z-a1f48f": {
+      "role": "selected",
+      "reason": "domaine lourd en surcharge à côté de trois petits domaines, file globale contre file par domaine",
+      "supersededBy": null,
+      "decisionIds": [
+        "D-durable-runtime",
+        "D-scheduling"
+      ],
+      "validity": [
+        {
+          "scope": "admission-contract",
+          "class": "A",
+          "note": "aucune perte, refus explicites jamais exécutés"
+        },
+        {
+          "scope": "fairness",
+          "class": "B",
+          "note": "local-dev ; le débit des petits domaines dépend du calendrier d'arrivées, pas de l'hôte"
+        }
+      ],
+      "noisyHost": false,
+      "rerun": {
+        "required": true,
+        "priority": "P1",
+        "hostClass": "local-controlled"
+      }
     }
   }
 }

@@ -1,0 +1,64 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://automan.local/lab/schemas/campaign-lane.v2.schema.json",
+  "title": "Automan lab lane campaign (storage, workflow, runtime, actionability, sqlite-readers), schema version 2",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "id",
+    "lane",
+    "decisionIds",
+    "hostClass",
+    "config"
+  ],
+  "properties": {
+    "schemaVersion": {
+      "const": 2
+    },
+    "id": {
+      "type": "string",
+      "pattern": "^[a-z0-9-]{1,80}$"
+    },
+    "lane": {
+      "enum": [
+        "storage",
+        "workflow",
+        "runtime",
+        "actionability",
+        "sqlite-readers"
+      ]
+    },
+    "decisionIds": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "pattern": "^D-[a-z0-9-]+$"
+      }
+    },
+    "hostClass": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "requested",
+        "allowDowngrade"
+      ],
+      "properties": {
+        "requested": {
+          "enum": [
+            "local-dev",
+            "local-controlled",
+            "reference"
+          ]
+        },
+        "allowDowngrade": {
+          "type": "boolean"
+        }
+      }
+    },
+    "config": {
+      "type": "object",
+      "description": "lane-specific configuration, validated by the lane driver"
+    }
+  }
+}

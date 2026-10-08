@@ -1,0 +1,35 @@
+{
+  "schemaVersion": 2,
+  "id": "arrival-stress",
+  "lane": "bench",
+  "decisionIds": [
+    "D-http-transport"
+  ],
+  "hostClass": {
+    "requested": "local-controlled",
+    "allowDowngrade": true
+  },
+  "seed": 155,
+  "blocks": 2,
+  "warmup": 1,
+  "iterations": 40,
+  "concurrency": 4,
+  "mode": "open",
+  "ratePerSecond": 20,
+  "timeoutMs": 15000,
+  "maxDurationMs": 30000,
+  "maxRestarts": 2,
+  "backends": [
+    "node-http",
+    "crawlee-http",
+    "spider-http"
+  ],
+  "scenarios": [
+    "http-catalog"
+  ],
+  "fixtures": {
+    "pages": 8,
+    "actions": 1,
+    "delayMs": 10
+  }
+}

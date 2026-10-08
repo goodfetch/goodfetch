@@ -1,0 +1,40 @@
+{
+  "schemaVersion": 2,
+  "id": "storage-process-crash",
+  "lane": "storage",
+  "decisionIds": [
+    "D-storage"
+  ],
+  "hostClass": {
+    "requested": "local-controlled",
+    "allowDowngrade": true
+  },
+  "config": {
+    "name": "storage-process-crash",
+    "engines": [
+      "node",
+      "rust"
+    ],
+    "formats": [
+      "jsonl-durable",
+      "json-snapshot-durable",
+      "sqlite-wal-full",
+      "sqlite-wal-normal"
+    ],
+    "blocks": 1,
+    "batches": 8,
+    "batchSizes": [
+      32
+    ],
+    "payloadBytes": 128,
+    "writers": [
+      1
+    ],
+    "producers": 4,
+    "timeoutMs": 10000,
+    "maxDurationMs": 20000,
+    "busyTimeoutMs": 5000,
+    "seed": 75,
+    "killAfterAck": true
+  }
+}

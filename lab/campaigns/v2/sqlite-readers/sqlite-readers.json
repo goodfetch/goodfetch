@@ -1,0 +1,36 @@
+{
+  "schemaVersion": 2,
+  "id": "sqlite-readers",
+  "lane": "sqlite-readers",
+  "decisionIds": [
+    "D-storage"
+  ],
+  "hostClass": {
+    "requested": "local-controlled",
+    "allowDowngrade": true
+  },
+  "config": {
+    "blocks": 3,
+    "seed": 8877,
+    "engines": [
+      "node-shared",
+      "rust-sync",
+      "go-sync"
+    ],
+    "writers": [
+      1,
+      4
+    ],
+    "readerModes": [
+      "none",
+      "short",
+      "held"
+    ],
+    "batchRows": [
+      100,
+      1000
+    ],
+    "totalRows": 32000,
+    "payloadBytes": 512
+  }
+}

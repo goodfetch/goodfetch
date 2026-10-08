@@ -10,7 +10,7 @@ test('a metric without a probe on this platform is unavailable with a reason', (
   assert.equal(availability['footprint-peak-bytes']!.available, true);
   assert.equal(availability['pss-peak-bytes']!.available, false);
   assert.match(availability['pss-peak-bytes']!.reason!, /darwin/);
-  assert.equal(availability['tokens-per-verified-task']!.available, false);
+  assert.equal(availability['usd-per-1k-verified']!.available, false);
 });
 
 test('a platform probe that is not installed makes its metrics unavailable', () => {

@@ -1,0 +1,79 @@
+{
+  "schemaVersion": 2,
+  "id": "runtime-faults-extended",
+  "lane": "runtime",
+  "decisionIds": [
+    "D-durable-runtime"
+  ],
+  "hostClass": {
+    "requested": "local-controlled",
+    "allowDowngrade": true
+  },
+  "config": {
+    "name": "runtime-faults-extended",
+    "blocks": 3,
+    "seed": 9911,
+    "cells": [
+      {
+        "runtime": "node",
+        "fault": "write-error",
+        "jobs": 24,
+        "pages": 4,
+        "delayMs": 2,
+        "concurrency": 4,
+        "batchJobs": 2,
+        "leaseMs": 1000
+      },
+      {
+        "runtime": "node",
+        "fault": "lock-held",
+        "jobs": 24,
+        "pages": 4,
+        "delayMs": 2,
+        "concurrency": 4,
+        "batchJobs": 2,
+        "leaseMs": 1000
+      },
+      {
+        "runtime": "node",
+        "fault": "lock-starved",
+        "jobs": 24,
+        "pages": 4,
+        "delayMs": 2,
+        "concurrency": 4,
+        "batchJobs": 2,
+        "leaseMs": 1000
+      },
+      {
+        "runtime": "rust",
+        "fault": "write-error",
+        "jobs": 24,
+        "pages": 4,
+        "delayMs": 2,
+        "concurrency": 4,
+        "batchJobs": 2,
+        "leaseMs": 1000
+      },
+      {
+        "runtime": "rust",
+        "fault": "lock-held",
+        "jobs": 24,
+        "pages": 4,
+        "delayMs": 2,
+        "concurrency": 4,
+        "batchJobs": 2,
+        "leaseMs": 1000
+      },
+      {
+        "runtime": "rust",
+        "fault": "lock-starved",
+        "jobs": 24,
+        "pages": 4,
+        "delayMs": 2,
+        "concurrency": 4,
+        "batchJobs": 2,
+        "leaseMs": 1000
+      }
+    ]
+  }
+}

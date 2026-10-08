@@ -51,6 +51,11 @@
     {
       "kind": "run",
       "ref": "workflow-recovery-2026-10-07T22-26-19-297Z-c40792"
+    },
+    {
+      "kind": "run",
+      "ref": "runtime-faults-extended-2026-10-08T17-49-02-487Z-54a5e6",
+      "note": "pannes étendues"
     }
   ],
   "verdictRef": null,

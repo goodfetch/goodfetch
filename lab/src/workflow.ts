@@ -5,7 +5,7 @@ import { commandFor, labRoot, type BackendName } from './registry.ts';
 import { sampleProcessGroup } from './resources.ts';
 import type { Task, AdapterOutput } from './worker-server.ts';
 
-export type WorkflowConfig={path:string;backend:BackendName;concurrency:number;batchJobs:number;maxBatchWaitMs:number;leaseMs:number;timeoutMs:number;fault?:'before-commit'|'after-commit'|'during-ack'|'after-ack';faults?:WorkflowConfig['fault'][];writerDelayMs?:number;restartLimit?:number;poolWake?:'poll'|'notify'};
+export type WorkflowConfig={path:string;backend:BackendName;concurrency:number;batchJobs:number;maxBatchWaitMs:number;leaseMs:number;timeoutMs:number;fault?:'before-commit'|'after-commit'|'during-ack'|'after-ack'|'write-error'|'lock-held'|'lock-starved';faults?:WorkflowConfig['fault'][];writerDelayMs?:number;restartLimit?:number;poolWake?:'poll'|'notify'};
 export type WorkflowJob={jobId:string;task:Task};
 export type PersistedJob=WorkflowJob&{state:string;token:string|null;expires:number;attempts:number;receipt:string|null;records:{id:string;price:number}[];error?:string};
 type Snapshot={jobs:PersistedJob[];integrity:unknown[];foreignKeys:unknown[]};
@@ -31,7 +31,7 @@ class CommitQueue{
   abort(error:Error){this.failed=error;if(this.timer){clearTimeout(this.timer);this.timer=undefined}for(const item of this.queue.splice(0))item.reject(error)}
   private async flush(){
     if(this.failed||this.busy||!this.queue.length)return;if(this.timer){clearTimeout(this.timer);this.timer=undefined}this.busy=true;const batch=this.queue.splice(0,this.config.batchJobs);this.inflight=batch.length;const began=performance.now();
-    try{if(this.config.writerDelayMs)await new Promise(resolve=>setTimeout(resolve,this.config.writerDelayMs));const fault=this.fault();const commit=await this.sink.call('run',{op:'commit',entries:batch.map(x=>x.entry),fault:fault==='before-commit'||fault==='after-commit'?fault:undefined}) as {receipts:Receipt[]};const commitMs=performance.now()-began;
+    try{if(this.config.writerDelayMs)await new Promise(resolve=>setTimeout(resolve,this.config.writerDelayMs));const fault=this.fault();const commit=await this.sink.call('run',{op:'commit',entries:batch.map(x=>x.entry),fault:fault==='before-commit'||fault==='after-commit'||fault==='write-error'||fault==='lock-held'||fault==='lock-starved'?fault:undefined}) as {receipts:Receipt[]};const commitMs=performance.now()-began;
       if(!Array.isArray(commit.receipts)||commit.receipts.length!==batch.length||new Set(commit.receipts.map(r=>r.jobId)).size!==batch.length||commit.receipts.some(r=>!batch.some(x=>x.entry.jobId===r.jobId)||typeof r.receipt!=='string'))throw new Error('invalid commit receipt');
       await this.event({type:'batch-committed',jobs:batch.length,commitMs});
       const ackBegan=performance.now();const ack=await this.sink.call('run',{op:'ack',receipts:commit.receipts,fault:fault==='during-ack'||fault==='after-ack'?fault:undefined}) as {acknowledged:number};if(ack.acknowledged!==batch.length)throw new Error('invalid workflow acknowledgement');
@@ -44,8 +44,8 @@ export async function executeWorkflow(config:WorkflowConfig,jobs:WorkflowJob[],v
   for(const [key,min,max]of [['concurrency',1,128],['batchJobs',1,128],['maxBatchWaitMs',1,1000],['leaseMs',10,120000],['timeoutMs',100,120000]]as const)if(!Number.isInteger(config[key])||config[key]<min||config[key]>max)throw new Error(`invalid workflow ${key}`);
   if(config.batchJobs>config.concurrency||!jobs.length||jobs.length>10000||jobs.length*Math.max(...jobs.map(j=>j.task.pages))*2>1000000)throw new Error('workflow queue/corpus budget exceeded');
   if(config.poolWake!==undefined&&(config.backend!=='crawlee-http-pooled'||!['poll','notify'].includes(config.poolWake)))throw new Error('invalid pool wake mode');
-  if(config.fault!==undefined&&!['before-commit','after-commit','during-ack','after-ack'].includes(config.fault))throw new Error('invalid workflow fault');
-  if(config.faults&&(!Array.isArray(config.faults)||config.faults.length>4||config.faults.some(f=>!['before-commit','after-commit','during-ack','after-ack'].includes(f!))))throw new Error('invalid workflow faults');
+  if(config.fault!==undefined&&!['before-commit','after-commit','during-ack','after-ack','write-error','lock-held','lock-starved'].includes(config.fault))throw new Error('invalid workflow fault');
+  if(config.faults&&(!Array.isArray(config.faults)||config.faults.length>4||config.faults.some(f=>!['before-commit','after-commit','during-ack','after-ack','write-error','lock-held','lock-starved'].includes(f!))))throw new Error('invalid workflow faults');
   if(config.writerDelayMs!==undefined&&(!Number.isInteger(config.writerDelayMs)||config.writerDelayMs<0||config.writerDelayMs>5000))throw new Error('invalid writer delay');
   if(config.restartLimit!==undefined&&(!Number.isInteger(config.restartLimit)||config.restartLimit<0||config.restartLimit>4))throw new Error('invalid restart budget');
   const events:Record<string,unknown>[]=[];const info:unknown[]=[];async function event(row:Record<string,unknown>){if(options.retainEvents!==false)events.push(row);await options.onEvent?.(row)}

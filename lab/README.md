@@ -85,6 +85,8 @@ La lane `extraction` (D-extraction) mesure la qualité d'extraction du contenu p
 
 `browserHost: "lightpanda"` (bench) et `config.browserEngine: "lightpanda"` (matrices) lancent Lightpanda 1.0.0, épinglé sous `.toolchains/` et toujours hors processus (AGPL-3.0), et lui connectent les mêmes pilotes : la compatibilité du moteur se lit avec les oracles de Chromium.
 
+La lane `extraction` peut aussi rendre chaque page dans Chrome ou Lightpanda avant d'extraire. Les pages réelles figées sont alors servies par un proxy d'archive (`fixtures/replay-proxy.ts`), qui refuse toute requête hors archive.
+
 La lane `admission` (D-durable-runtime, D-scheduling) envoie des arrivées de Poisson ouvertes sur plusieurs domaines au mode `admission` du runtime Rust. Un travail n'est accusé qu'une fois journalisé, et une file pleine le refuse explicitement. L'oracle vérifie de l'extérieur l'absence de perte, la borne de file et la limite de requêtes simultanées par domaine.
 
 La lane `identity` (D-identity) fait passer une session de HTTP au navigateur sur un site servi derrière le relais TLS. Le site relève l'empreinte, les en-têtes, le cookie et la signature Web Bot Auth de chaque requête ; il vérifie la signature avec la bibliothèque `web-bot-auth` de Cloudflare, contre l'annuaire de clés de l'agent, et juge les refus selon le profil et la finalité.

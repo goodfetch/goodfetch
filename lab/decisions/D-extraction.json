@@ -67,6 +67,15 @@
       "kind": "run",
       "ref": "extraction-quality-dev-2026-10-08T17-58-37-038Z-ee347f",
       "note": "WCXB développement"
+    },
+    {
+      "kind": "run",
+      "ref": "extraction-rendered-test-2026-10-08T20-14-39-618Z-9f5f67",
+      "note": "extraction après rendu identique au HTML brut sur pages figées"
+    },
+    {
+      "kind": "research-doc",
+      "ref": "lab/reports/frozen-pages-2026-10-08.md"
     }
   ],
   "verdictRef": null,

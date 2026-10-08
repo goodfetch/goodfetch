@@ -2886,6 +2886,99 @@
         "priority": null,
         "hostClass": null
       }
+    },
+    "extraction-rendered-test-2026-10-08T20-14-39-618Z-9f5f67": {
+      "role": "selected",
+      "reason": "pages réelles figées (WCXB test) rendues par Chrome et Lightpanda via le proxy d'archive, extraction rs-trafilatura",
+      "supersededBy": null,
+      "decisionIds": [
+        "D-light-engine",
+        "D-extraction"
+      ],
+      "validity": [
+        {
+          "scope": "render-contract",
+          "class": "A",
+          "note": "511 pages, aucune requête hors archive"
+        },
+        {
+          "scope": "render-time",
+          "class": "B",
+          "note": "local-dev, Mac en usage"
+        }
+      ],
+      "noisyHost": false,
+      "rerun": {
+        "required": true,
+        "priority": "P2",
+        "hostClass": "local-controlled"
+      }
+    },
+    "extraction-rendered-test-2026-10-08T19-58-30-657Z-5e2d46": {
+      "role": "diagnostic",
+      "reason": "une page sans URL faisait échouer la cellule article",
+      "supersededBy": "extraction-rendered-test-2026-10-08T20-14-39-618Z-9f5f67",
+      "decisionIds": [
+        "D-light-engine",
+        "D-extraction"
+      ],
+      "validity": [
+        {
+          "scope": "all",
+          "class": "none",
+          "note": "harnais corrigé ensuite"
+        }
+      ],
+      "noisyHost": false,
+      "rerun": {
+        "required": false,
+        "priority": null,
+        "hostClass": null
+      }
+    },
+    "extraction-rendered-test-2026-10-08T20-01-54-598Z-94e927": {
+      "role": "diagnostic",
+      "reason": "hôtes HSTS préchargés refusés : 47 pages non rendues par Chrome",
+      "supersededBy": "extraction-rendered-test-2026-10-08T20-14-39-618Z-9f5f67",
+      "decisionIds": [
+        "D-light-engine",
+        "D-extraction"
+      ],
+      "validity": [
+        {
+          "scope": "all",
+          "class": "none",
+          "note": "harnais corrigé ensuite"
+        }
+      ],
+      "noisyHost": false,
+      "rerun": {
+        "required": false,
+        "priority": null,
+        "hostClass": null
+      }
+    },
+    "extraction-rendered-test-2026-10-08T20-09-03-136Z-e2e504": {
+      "role": "diagnostic",
+      "reason": "fichiers de prédictions écrasés d'un moteur à l'autre",
+      "supersededBy": "extraction-rendered-test-2026-10-08T20-14-39-618Z-9f5f67",
+      "decisionIds": [
+        "D-light-engine",
+        "D-extraction"
+      ],
+      "validity": [
+        {
+          "scope": "all",
+          "class": "none",
+          "note": "harnais corrigé ensuite"
+        }
+      ],
+      "noisyHost": false,
+      "rerun": {
+        "required": false,
+        "priority": null,
+        "hostClass": null
+      }
     }
   }
 }

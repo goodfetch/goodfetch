@@ -14,7 +14,7 @@ import { validateWorkflowCampaign, workflowCombinations, runWorkflowCell, type W
 import { runRuntimeCell, type RuntimeCampaign } from '../runtime-campaign.ts';
 import { actionabilityCombinations, runActionabilityCell, type ActionabilityConfig, type ActionabilityCell } from '../actionability-campaign.ts';
 import { readersMatrix, runReadersCell, type ReadersConfig } from '../sqlite-readers-campaign.ts';
-import { aiCombinations, runAiCell, type AiConfig, type AiCell } from '../ai-campaign.ts';
+import { aiCombinations, runAiCell, priceSnapshot, type AiConfig, type AiCell } from '../ai-campaign.ts';
 import { identityCombinations, runIdentityCell, httpTiers, identityVariants, type IdentityConfig, type IdentityCell } from '../identity-campaign.ts';
 import { admissionCombinations, runAdmissionCell, admissionBinary, type AdmissionConfig, type AdmissionCell } from '../admission-campaign.ts';
 import { extractionCombinations, runExtractionCell, type ExtractionConfig, type ExtractionCell } from '../extraction-campaign.ts';
@@ -65,10 +65,11 @@ export const drivers: Record<LaneName, LaneDriver> = {
     runCell: (config, cell, block, _directory, executablePath) => runActionabilityCell(config as ActionabilityConfig, cell as unknown as ActionabilityCell, block, executablePath as string)
   },
   ai: {
-    validate: config => { const c = config as AiConfig; if (!c || !Array.isArray(c.modes) || !c.modes.length || !c.modes.every(m => m === 'agent-each-run' || m === 'compiled-replay') || !Array.isArray(c.variants) || !c.variants.length || !integer(c.warmRuns, 1, 50) || !integer(c.blocks, 1, 10) || !integer(c.timeoutMs, 100, 60_000)) throw new Error('invalid ai campaign'); },
+    validate: config => { const c = config as AiConfig; if (!c || !Array.isArray(c.modes) || !c.modes.length || !c.modes.every(m => m === 'agent-each-run' || m === 'compiled-replay') || !Array.isArray(c.variants) || !c.variants.length || !integer(c.warmRuns, 1, 50) || !integer(c.blocks, 1, 10) || !integer(c.timeoutMs, 100, 60_000) || (c.models !== undefined && (!Array.isArray(c.models) || !c.models.length || !c.models.every(m => /^[a-z0-9-]+\/[a-z0-9.-]+$/.test(m)) || typeof c.gateway !== 'string' || !/^https:\/\//.test(c.gateway) || !(typeof c.maxUsd === 'number' && c.maxUsd > 0 && c.maxUsd <= 20)))) throw new Error('invalid ai campaign'); },
     blocks: config => (config as AiConfig).blocks, seed: config => (config as AiConfig).seed,
-    combinations: config => aiCombinations(config as AiConfig) as unknown as Json[], label: cell => `${cell.mode}/${cell.variant}`,
-    runCell: (config, cell, block) => runAiCell(config as AiConfig, cell as unknown as AiCell, block) as Promise<Json>
+    combinations: config => aiCombinations(config as AiConfig) as unknown as Json[], label: cell => `${cell.model}/${cell.mode}/${cell.variant}`,
+    prepare: config => priceSnapshot(config as AiConfig),
+    runCell: (config, cell, block, directory, prices) => runAiCell(config as AiConfig, cell as unknown as AiCell, block, directory, prices as Awaited<ReturnType<typeof priceSnapshot>>) as Promise<Json>
   },
   identity: {
     validate: config => { const c = config as IdentityConfig; if (!c || !Array.isArray(c.httpTiers) || !c.httpTiers.length || !c.httpTiers.every(t => httpTiers.includes(t)) || !Array.isArray(c.profiles) || !c.profiles.length || !c.profiles.every(p => p === 'identified' || p === 'standard') || !Array.isArray(c.purposes) || !c.purposes.length || !c.purposes.every(p => ['search', 'ai-input', 'ai-train', 'agent', 'data-collection', 'transact'].includes(p)) || !Array.isArray(c.variants) || !c.variants.length || !c.variants.every(v => (identityVariants as readonly string[]).includes(v)) || !integer(c.repeats, 1, 50) || !integer(c.blocks, 1, 20) || !integer(c.seed, 0, 2 ** 32 - 1) || !integer(c.timeoutMs, 1000, 120_000)) throw new Error('invalid identity campaign'); },

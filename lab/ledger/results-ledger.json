@@ -1,6 +1,6 @@
 {
  "schemaVersion": 1,
- "classificationSha256": "9ffbf66deb7c26ee1512a0014c71f8c07a47527b51217bfb97b68cff5a5aedcd",
+ "classificationSha256": "5d0b8038d012c66693a0a84403d0e5fdbd243796d79c3e1baf30331004f4f05d",
  "entries": [
   {
    "runId": "smoke-2026-10-07T20-20-24-226Z-9ebb47",
@@ -4181,6 +4181,42 @@
     "hostClass": "local-controlled"
    },
    "imported": "results/extraction-rendered-test-2026-10-08T20-14-39-618Z-9f5f67/run.v2.json"
+  },
+  {
+   "runId": "ai-real-models-2026-10-08T22-15-04-120Z-d70ce2",
+   "lane": "ai",
+   "campaign": "ai-real-models",
+   "startedAt": "2026-10-08T22:15:04.120Z",
+   "status": "complete",
+   "hostClass": "local-dev",
+   "role": "selected",
+   "supersededBy": null,
+   "reason": "couche IA avec trois vrais modèles par la passerelle Vercel AI : agent à chaque exécution contre rejeu compilé, dérive silencieuse",
+   "validity": [
+    {
+     "scope": "replay-contract",
+     "class": "A",
+     "note": "zéro faux succès sur trois modèles"
+    },
+    {
+     "scope": "cost",
+     "class": "A",
+     "note": "coût de la passerelle recoupé avec un instantané daté des prix"
+    }
+   ],
+   "decisionIds": [
+    "D-ai-layer"
+   ],
+   "citedIn": [
+    "lab/reports/ai-real-models-2026-10-09.md"
+   ],
+   "integrity": "uncatalogued",
+   "rerun": {
+    "required": false,
+    "priority": null,
+    "hostClass": null
+   },
+   "imported": "results/ai-real-models-2026-10-08T22-15-04-120Z-d70ce2/run.v2.json"
   }
  ]
 }

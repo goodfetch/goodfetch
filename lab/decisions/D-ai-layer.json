@@ -46,13 +46,23 @@
   "campaigns": [
     "ai-replay-repair",
     "agentic-comparison",
-    "silent-drift"
+    "silent-drift",
+    "ai-real-models"
   ],
   "evidence": [
     {
       "kind": "run",
       "ref": "ai-replay-repair-2026-10-08T18-36-20-202Z-8f0ce3",
       "note": "rejeu compilé et dérive silencieuse, faux modèle"
+    },
+    {
+      "kind": "run",
+      "ref": "ai-real-models-2026-10-08T22-15-04-120Z-d70ce2",
+      "note": "trois vrais modèles, rejeu compilé et dérive silencieuse"
+    },
+    {
+      "kind": "research-doc",
+      "ref": "lab/reports/ai-real-models-2026-10-09.md"
     }
   ],
   "verdictRef": null,

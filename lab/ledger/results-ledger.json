@@ -1,6 +1,6 @@
 {
  "schemaVersion": 1,
- "classificationSha256": "a2753b3e93205aed076cc20d0c2045e1966aa2e1db19a8721cf3f13390e0b25f",
+ "classificationSha256": "d2202c5f75dc3ab2d38d16dadd96fe44a6a4c4fa7a5fe1cc607c1276e6a51fed",
  "entries": [
   {
    "runId": "smoke-2026-10-07T20-20-24-226Z-9ebb47",
@@ -2235,6 +2235,210 @@
     "hostClass": "reference"
    },
    "imported": "results/browser-driver-rtt-300-2026-10-08T14-00-36-292Z-657a67/run.v2.json"
+  },
+  {
+   "runId": "runtime-native-qualified-2026-10-08T15-45-51-341Z-b0577e",
+   "lane": "runtime",
+   "campaign": "runtime-native-qualified",
+   "startedAt": "2026-10-08T15:45:51.341Z",
+   "status": "complete",
+   "hostClass": "local-dev",
+   "role": "diagnostic",
+   "supersededBy": null,
+   "reason": "suite de qualification rejouée sur sources commitées : comptes publiés reproduits",
+   "validity": [
+    {
+     "scope": "contracts",
+     "class": "A",
+     "note": "comptes identiques aux runs publiés"
+    },
+    {
+     "scope": "timings",
+     "class": "C",
+     "note": "local-dev, machine en usage"
+    }
+   ],
+   "decisionIds": [
+    "D-core-language"
+   ],
+   "citedIn": [],
+   "integrity": "uncatalogued",
+   "rerun": {
+    "required": false,
+    "priority": null,
+    "hostClass": null
+   },
+   "imported": "results/runtime-native-qualified-2026-10-08T15-45-51-341Z-b0577e/run.v2.json"
+  },
+  {
+   "runId": "runtime-recovery-qualified-2026-10-08T15-53-42-532Z-e2e992",
+   "lane": "runtime",
+   "campaign": "runtime-recovery-qualified",
+   "startedAt": "2026-10-08T15:53:42.532Z",
+   "status": "complete",
+   "hostClass": "local-controlled",
+   "role": "diagnostic",
+   "supersededBy": null,
+   "reason": "suite de qualification rejouée sur sources commitées : comptes publiés reproduits",
+   "validity": [
+    {
+     "scope": "contracts",
+     "class": "A",
+     "note": "comptes identiques aux runs publiés"
+    },
+    {
+     "scope": "timings",
+     "class": "C",
+     "note": "local-dev, machine en usage"
+    }
+   ],
+   "decisionIds": [
+    "D-core-language"
+   ],
+   "citedIn": [],
+   "integrity": "uncatalogued",
+   "rerun": {
+    "required": false,
+    "priority": null,
+    "hostClass": null
+   },
+   "imported": "results/runtime-recovery-qualified-2026-10-08T15-53-42-532Z-e2e992/run.v2.json"
+  },
+  {
+   "runId": "browser-actionability-guarded-2026-10-08T15-54-48-293Z-238299",
+   "lane": "actionability",
+   "campaign": "browser-actionability-guarded",
+   "startedAt": "2026-10-08T15:54:48.293Z",
+   "status": "noisy-host",
+   "hostClass": "local-controlled",
+   "role": "diagnostic",
+   "supersededBy": null,
+   "reason": "suite de qualification rejouée sur sources commitées : comptes publiés reproduits",
+   "validity": [
+    {
+     "scope": "contracts",
+     "class": "A",
+     "note": "comptes identiques aux runs publiés"
+    },
+    {
+     "scope": "timings",
+     "class": "C",
+     "note": "local-dev, machine en usage"
+    }
+   ],
+   "decisionIds": [
+    "D-browser-driver"
+   ],
+   "citedIn": [],
+   "integrity": "uncatalogued",
+   "rerun": {
+    "required": false,
+    "priority": null,
+    "hostClass": null
+   },
+   "imported": "results/browser-actionability-guarded-2026-10-08T15-54-48-293Z-238299/run.v2.json"
+  },
+  {
+   "runId": "sqlite-readers-2026-10-08T15-58-38-640Z-eb0d28",
+   "lane": "sqlite-readers",
+   "campaign": "sqlite-readers",
+   "startedAt": "2026-10-08T15:58:38.640Z",
+   "status": "complete",
+   "hostClass": "local-dev",
+   "role": "diagnostic",
+   "supersededBy": null,
+   "reason": "suite de qualification rejouée sur sources commitées : comptes publiés reproduits",
+   "validity": [
+    {
+     "scope": "contracts",
+     "class": "A",
+     "note": "comptes identiques aux runs publiés"
+    },
+    {
+     "scope": "timings",
+     "class": "C",
+     "note": "local-dev, machine en usage"
+    }
+   ],
+   "decisionIds": [
+    "D-storage"
+   ],
+   "citedIn": [],
+   "integrity": "uncatalogued",
+   "rerun": {
+    "required": false,
+    "priority": null,
+    "hostClass": null
+   },
+   "imported": "results/sqlite-readers-2026-10-08T15-58-38-640Z-eb0d28/run.v2.json"
+  },
+  {
+   "runId": "spider-http-transport-supported-2026-10-08T15-59-17-154Z-3ca944",
+   "lane": "bench",
+   "campaign": "spider-http-transport-supported",
+   "startedAt": "2026-10-08T15:59:17.154Z",
+   "status": "complete",
+   "hostClass": "local-dev",
+   "role": "diagnostic",
+   "supersededBy": null,
+   "reason": "suite de qualification rejouée sur sources commitées : comptes publiés reproduits",
+   "validity": [
+    {
+     "scope": "contracts",
+     "class": "A",
+     "note": "comptes identiques aux runs publiés"
+    },
+    {
+     "scope": "timings",
+     "class": "C",
+     "note": "local-dev, machine en usage"
+    }
+   ],
+   "decisionIds": [
+    "D-http-transport"
+   ],
+   "citedIn": [],
+   "integrity": "uncatalogued",
+   "rerun": {
+    "required": false,
+    "priority": null,
+    "hostClass": null
+   },
+   "imported": "results/spider-http-transport-supported-2026-10-08T15-59-17-154Z-3ca944/run.v2.json"
+  },
+  {
+   "runId": "runtime-http-backends-2026-10-08T15-59-18-771Z-0e28ae",
+   "lane": "runtime",
+   "campaign": "runtime-http-backends",
+   "startedAt": "2026-10-08T15:59:18.771Z",
+   "status": "complete",
+   "hostClass": "local-dev",
+   "role": "diagnostic",
+   "supersededBy": null,
+   "reason": "suite de qualification rejouée sur sources commitées : comptes publiés reproduits",
+   "validity": [
+    {
+     "scope": "contracts",
+     "class": "A",
+     "note": "comptes identiques aux runs publiés"
+    },
+    {
+     "scope": "timings",
+     "class": "C",
+     "note": "local-dev, machine en usage"
+    }
+   ],
+   "decisionIds": [
+    "D-core-language"
+   ],
+   "citedIn": [],
+   "integrity": "uncatalogued",
+   "rerun": {
+    "required": false,
+    "priority": null,
+    "hostClass": null
+   },
+   "imported": "results/runtime-http-backends-2026-10-08T15-59-18-771Z-0e28ae/run.v2.json"
   }
  ]
 }

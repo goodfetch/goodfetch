@@ -1888,6 +1888,70 @@
         "priority": null,
         "hostClass": null
       }
+    },
+    "access-policy-2026-10-08T17-12-08-988Z-a84605": {
+      "role": "diagnostic",
+      "reason": "matrice d'accès avant correction de la fixture de challenge ou sur sources non commitées",
+      "supersededBy": null,
+      "decisionIds": [
+        "D-identity"
+      ],
+      "validity": [
+        {
+          "scope": "all",
+          "class": "none",
+          "note": "fixture incomplète ou sources non commitées"
+        }
+      ],
+      "noisyHost": false,
+      "rerun": {
+        "required": false,
+        "priority": null,
+        "hostClass": null
+      }
+    },
+    "access-policy-2026-10-08T17-13-44-790Z-ab211d": {
+      "role": "diagnostic",
+      "reason": "matrice d'accès avant correction de la fixture de challenge ou sur sources non commitées",
+      "supersededBy": null,
+      "decisionIds": [
+        "D-identity"
+      ],
+      "validity": [
+        {
+          "scope": "all",
+          "class": "none",
+          "note": "fixture incomplète ou sources non commitées"
+        }
+      ],
+      "noisyHost": false,
+      "rerun": {
+        "required": false,
+        "priority": null,
+        "hostClass": null
+      }
+    },
+    "access-policy-2026-10-08T17-15-34-616Z-cad714": {
+      "role": "selected",
+      "reason": "robots.txt et page de challenge servie en 200 (ADR-002)",
+      "supersededBy": null,
+      "decisionIds": [
+        "D-identity",
+        "D-http-transport"
+      ],
+      "validity": [
+        {
+          "scope": "access-contract",
+          "class": "A",
+          "note": "aucun backend ne détecte le challenge ; node-http ignore robots.txt"
+        }
+      ],
+      "noisyHost": false,
+      "rerun": {
+        "required": false,
+        "priority": null,
+        "hostClass": null
+      }
     }
   }
 }

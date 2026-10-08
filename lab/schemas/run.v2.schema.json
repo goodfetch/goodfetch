@@ -37,6 +37,7 @@
         "actionability",
         "sqlite-readers",
         "extraction",
+        "ai",
         "suite"
       ]
     },

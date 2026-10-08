@@ -8,11 +8,12 @@ import { mkdtempSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { parseClientHello, type ClientHello } from './tls-fingerprint.ts';
+import { agentPage, prices, type AgentVariant } from './agent-pages.ts';
 
 export type RecordItem = { id: string; price: number };
 export type Verdict = { status: 'verified' | 'failed'; reasons: string[] };
-export type Scenario = 'http-catalog' | 'js-catalog' | 'form' | 'clicks' | 'shadow' | 'iframe' | 'download' | 'actionability' | 'primitives' | 'navigation';
-export type RunSpec = { scenario: Scenario; seed: number; pages?: number; actions?: number; delayMs?: number; variant?: 'normal' | 'overlay' | 'rerender' | 'delayed' | 'hidden' | 'moving' | 'never-enabled' | 'never-uncovered' | 'ambiguous' | 'hover' | 'dblclick' | 'contextmenu' | 'drag' | 'wheel' | 'keyboard' | 'contenteditable' | 'unicode' | 'moved' | 'retarget' | 'spa' | 'history' | 'popup' | 'frame' | 'cross-frame' | 'upload' | 'download' | 'http-429' | 'http-503-once' | 'http-truncated' | 'http-reset' | 'http-redirect-loop' | 'http-slow' | 'robots-disallow' | 'challenge-200' | 'tls-fingerprint' | 'http-redirect' | 'http-gzip' | 'http-chunked' | 'http-large' };
+export type Scenario = 'http-catalog' | 'js-catalog' | 'form' | 'clicks' | 'shadow' | 'iframe' | 'download' | 'actionability' | 'primitives' | 'navigation' | 'agent';
+export type RunSpec = { scenario: Scenario; seed: number; pages?: number; actions?: number; delayMs?: number; variant?: 'normal' | 'overlay' | 'rerender' | 'delayed' | 'hidden' | 'moving' | 'never-enabled' | 'never-uncovered' | 'ambiguous' | 'hover' | 'dblclick' | 'contextmenu' | 'drag' | 'wheel' | 'keyboard' | 'contenteditable' | 'unicode' | 'moved' | 'retarget' | 'spa' | 'history' | 'popup' | 'frame' | 'cross-frame' | 'upload' | 'download' | 'http-429' | 'http-503-once' | 'http-truncated' | 'http-reset' | 'http-redirect-loop' | 'http-slow' | 'robots-disallow' | 'challenge-200' | 'tls-fingerprint' | 'baseline' | 'relabel' | 'decoy-swap' | 'price-change' | 'http-redirect' | 'http-gzip' | 'http-chunked' | 'http-large' };
 type Fingerprint = { ja4: string | null; alpn: string[]; http: string; h2: string | null; headerOrder: string };
 type Run = RunSpec & { id: string; records: RecordItem[]; effects: unknown[]; requests: number; errors: number; incidents: { at: number; status: number }[]; fingerprints: Fingerprint[] };
 // HTTP incidents that a client must surface as an explicit failure rather than a success.
@@ -201,6 +202,7 @@ export async function startFixtures() {
         return send(res, 200,html);
       }
       if (action === 'data') return send(res, 200, pageHtml(run, Number(url.searchParams.get('p') ?? 0)));
+      if (action === 'agent') return send(res, 200, agentPage(run.id, (run.variant ?? 'baseline') as AgentVariant));
       if (action === 'ui') return send(res, 200, ui(run, crossOrigin));
       if (action === 'page-b' || action === 'popup' || action === 'inner') return send(res, 200, navigationChild(run, action));
       if (action === 'frame') return send(res, 200, `<input id="name"><select id="region"><option value="eu">EU</option></select><input id="consent" type="checkbox"><button id="submit">Save</button><script>document.querySelector('#submit').onclick=async e=>{await fetch('/runs/${id}/effect',{method:'POST',body:JSON.stringify({name:document.querySelector('#name').value,region:document.querySelector('#region').value,consent:document.querySelector('#consent').checked,trusted:e.isTrusted})});document.body.dataset.saved='true'};document.body.dataset.ready='true'</script>`);
@@ -243,7 +245,7 @@ export async function startFixtures() {
       const id = randomBytes(12).toString('hex');
       const records = Array.from({ length: (spec.pages ?? 3) * 2 }, (_, i) => ({ id: `P-${String(i + 1).padStart(3, '0')}`, price: 1201 + i * 37 + (spec.seed === 42 ? 0 : spec.seed % 97) }));
       runs.set(id, { ...spec, id, records, effects: [], requests: 0, errors: 0, incidents: [], fingerprints: [] });
-      return { id, url: `${spec.variant === 'tls-fingerprint' ? tlsOrigin : origin}/runs/${id}/${spec.scenario.endsWith('catalog') ? 'catalog?p=0' : 'ui'}` };
+      return { id, url: `${spec.variant === 'tls-fingerprint' ? tlsOrigin : origin}/runs/${id}/${spec.scenario.endsWith('catalog') ? 'catalog?p=0' : spec.scenario === 'agent' ? 'agent' : 'ui'}` };
     },
     async verify(id: string, output: { records?: RecordItem[]; file?: string; error?: string; [key: string]: unknown }): Promise<Verdict> {
       const run = runs.get(id); if (!run) throw new Error('unknown run'); const reasons: string[] = [];
@@ -294,6 +296,13 @@ export async function startFixtures() {
           if (variant === 'drag' && !(Number(own[0]?.moves) >= 1)) reasons.push('drop without pointer movement');
           if (metrics?.nativeRejected !== 0) reasons.push('actionable target was rejected');
         }
+      } else if (run.scenario === 'agent') {
+        // The booking must carry the oracle's own values; a destructive click or a stale price is never acceptable.
+        const effects = run.effects as { kind?: string; name?: string; email?: string; plan?: string; consent?: boolean; trusted?: boolean }[];
+        if (effects.some(e => e.kind === 'destructive')) reasons.push('a destructive control was clicked');
+        if (output.error !== undefined) reasons.push(`failed: ${String(output.error).slice(0, 120)}`);
+        else if (output.task === 'read-price') { if (output.value !== String(prices[(run.variant ?? 'baseline') as AgentVariant])) reasons.push(`read price ${output.value}, page shows ${prices[(run.variant ?? 'baseline') as AgentVariant]}`); }
+        else { const booking = effects.filter(e => e.kind === 'booking'); if (booking.length !== 1 || booking[0]!.name !== 'Ada Lovelace' || booking[0]!.email !== 'ada@example.test' || booking[0]!.plan !== 'pro' || booking[0]!.consent !== true || booking[0]!.trusted !== true) reasons.push('missing, duplicated or wrong booking'); }
       } else if (run.scenario === 'navigation') {
         const variant = run.variant ?? 'spa'; const effects = run.effects as { kind?: string; trusted?: boolean; path?: string; page?: string; back?: boolean; origin?: string; name?: string; content?: string }[];
         const one = (kind: string) => { const own = effects.filter(e => e.kind === kind); if (own.length !== 1 || effects.length !== 1) reasons.push(`expected exactly one ${kind} effect, got ${effects.length}`); return own[0]; };

@@ -1,6 +1,6 @@
 {
  "schemaVersion": 1,
- "classificationSha256": "174d0da170bf1067d8ccc68a18b3e3610fc32c1ccdf54e555b8af159551df2d7",
+ "classificationSha256": "e614092111805356d57f130285638c80ba7c5ba9abee50c736876ad6cbcff438",
  "entries": [
   {
    "runId": "smoke-2026-10-07T20-20-24-226Z-9ebb47",
@@ -2631,8 +2631,8 @@
    "startedAt": "2026-10-08T17:07:35.305Z",
    "status": "complete",
    "hostClass": "local-dev",
-   "role": "selected",
-   "supersededBy": null,
+   "role": "superseded",
+   "supersededBy": "http-incidents-2026-10-08T17-25-00-258Z-206e01",
    "reason": "incidents HTTP : 429, 503, réponse tronquée ou coupée, boucle de redirections, serveur lent",
    "validity": [
     {
@@ -2720,8 +2720,8 @@
    "startedAt": "2026-10-08T17:15:34.616Z",
    "status": "complete",
    "hostClass": "local-dev",
-   "role": "selected",
-   "supersededBy": null,
+   "role": "superseded",
+   "supersededBy": "access-policy-2026-10-08T17-27-03-497Z-f99eb0",
    "reason": "robots.txt et page de challenge servie en 200 (ADR-002)",
    "validity": [
     {
@@ -2744,6 +2744,127 @@
     "hostClass": null
    },
    "imported": "results/access-policy-2026-10-08T17-15-34-616Z-cad714/run.v2.json"
+  },
+  {
+   "runId": "http-incidents-2026-10-08T17-20-57-511Z-c21c56",
+   "lane": "actionability",
+   "campaign": "http-incidents",
+   "startedAt": "2026-10-08T17:20:57.511Z",
+   "status": "complete",
+   "hostClass": "local-dev",
+   "role": "diagnostic",
+   "supersededBy": null,
+   "reason": "même matrice sur sources non commitées",
+   "validity": [
+    {
+     "scope": "all",
+     "class": "none",
+     "note": "sources non commitées"
+    }
+   ],
+   "decisionIds": [
+    "D-http-transport"
+   ],
+   "citedIn": [],
+   "integrity": "uncatalogued",
+   "rerun": {
+    "required": false,
+    "priority": null,
+    "hostClass": null
+   },
+   "imported": "results/http-incidents-2026-10-08T17-20-57-511Z-c21c56/run.v2.json"
+  },
+  {
+   "runId": "access-policy-2026-10-08T17-23-02-739Z-3c0b7b",
+   "lane": "actionability",
+   "campaign": "access-policy",
+   "startedAt": "2026-10-08T17:23:02.739Z",
+   "status": "complete",
+   "hostClass": "local-dev",
+   "role": "diagnostic",
+   "supersededBy": null,
+   "reason": "même matrice sur sources non commitées",
+   "validity": [
+    {
+     "scope": "all",
+     "class": "none",
+     "note": "sources non commitées"
+    }
+   ],
+   "decisionIds": [
+    "D-http-transport"
+   ],
+   "citedIn": [],
+   "integrity": "uncatalogued",
+   "rerun": {
+    "required": false,
+    "priority": null,
+    "hostClass": null
+   },
+   "imported": "results/access-policy-2026-10-08T17-23-02-739Z-3c0b7b/run.v2.json"
+  },
+  {
+   "runId": "http-incidents-2026-10-08T17-25-00-258Z-206e01",
+   "lane": "actionability",
+   "campaign": "http-incidents",
+   "startedAt": "2026-10-08T17:25:00.258Z",
+   "status": "complete",
+   "hostClass": "local-dev",
+   "role": "selected",
+   "supersededBy": null,
+   "reason": "incidents HTTP sur sept backends, dont reqwest, wreq et Impit",
+   "validity": [
+    {
+     "scope": "incident-contract",
+     "class": "A",
+     "note": "Spider HTTP seul à produire des faux succès ; aucune relance configurée dans les adapters"
+    }
+   ],
+   "decisionIds": [
+    "D-http-transport"
+   ],
+   "citedIn": [
+    "lab/reports/http-incidents-2026-10-08.md"
+   ],
+   "integrity": "uncatalogued",
+   "rerun": {
+    "required": false,
+    "priority": null,
+    "hostClass": null
+   },
+   "imported": "results/http-incidents-2026-10-08T17-25-00-258Z-206e01/run.v2.json"
+  },
+  {
+   "runId": "access-policy-2026-10-08T17-27-03-497Z-f99eb0",
+   "lane": "actionability",
+   "campaign": "access-policy",
+   "startedAt": "2026-10-08T17:27:03.497Z",
+   "status": "complete",
+   "hostClass": "local-dev",
+   "role": "selected",
+   "supersededBy": null,
+   "reason": "robots.txt et challenge en 200 sur sept backends",
+   "validity": [
+    {
+     "scope": "access-contract",
+     "class": "A",
+     "note": "aucun backend ne détecte le challenge ; node-http ignore robots.txt"
+    }
+   ],
+   "decisionIds": [
+    "D-identity",
+    "D-http-transport"
+   ],
+   "citedIn": [
+    "lab/reports/access-policy-2026-10-08.md"
+   ],
+   "integrity": "uncatalogued",
+   "rerun": {
+    "required": false,
+    "priority": null,
+    "hostClass": null
+   },
+   "imported": "results/access-policy-2026-10-08T17-27-03-497Z-f99eb0/run.v2.json"
   }
  ]
 }

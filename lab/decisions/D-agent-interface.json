@@ -58,5 +58,40 @@
   "dependsOn": [
     "D-ai-layer"
   ],
-  "notes": "Croiser les interfaces avec découverte, rejeu et réparation ; mêmes tâches, modèle et budget."
+  "notes": "Croiser les interfaces avec découverte, rejeu et réparation ; mêmes tâches, modèle et budget.",
+  "analysis": {
+    "lane": "ai",
+    "options": {
+      "mcp": {
+        "interface": "mcp"
+      },
+      "sdk": {
+        "interface": "sdk"
+      },
+      "cli": {
+        "interface": "cli"
+      },
+      "code-mode": {
+        "interface": "code-mode"
+      }
+    },
+    "pairBy": [
+      "model",
+      "variant"
+    ],
+    "stratum": {
+      "variant": "baseline"
+    },
+    "strata": [
+      {
+        "variant": "baseline"
+      },
+      {
+        "variant": "decoy-swap"
+      },
+      {
+        "variant": "price-change"
+      }
+    ]
+  }
 }

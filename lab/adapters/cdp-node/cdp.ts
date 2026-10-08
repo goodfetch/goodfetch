@@ -57,7 +57,7 @@ export class CdpConnection {
 
 export class CdpPage implements BrowserPage {
   commands = 0;
-  private connection: CdpConnection; private targetId: string; private sessionId: string; private timeoutMs: number;
+  private connection: CdpConnection; readonly targetId: string; private sessionId: string; private timeoutMs: number;
   constructor(connection: CdpConnection, targetId: string, sessionId: string, timeoutMs: number) { this.connection = connection; this.targetId = targetId; this.sessionId = sessionId; this.timeoutMs = timeoutMs; }
   static async open(connection: CdpConnection, timeoutMs: number) {
     const { targetId } = await connection.send('Target.createTarget', { url: 'about:blank' }) as { targetId: string };

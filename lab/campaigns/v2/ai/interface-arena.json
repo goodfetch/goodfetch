@@ -1,0 +1,39 @@
+{
+  "schemaVersion": 2,
+  "id": "interface-arena",
+  "lane": "ai",
+  "decisionIds": [
+    "D-agent-interface"
+  ],
+  "hostClass": {
+    "requested": "local-dev",
+    "allowDowngrade": true
+  },
+  "config": {
+    "modes": [
+      "agent-each-run"
+    ],
+    "interfaces": [
+      "mcp",
+      "sdk",
+      "cli",
+      "code-mode"
+    ],
+    "variants": [
+      "baseline",
+      "decoy-swap",
+      "price-change"
+    ],
+    "warmRuns": 3,
+    "blocks": 3,
+    "seed": 2929,
+    "timeoutMs": 20000,
+    "models": [
+      "anthropic/claude-haiku-5.5",
+      "openai/gpt-5.6-luna",
+      "google/gemini-3.1-flash-lite"
+    ],
+    "gateway": "https://ai-gateway.vercel.sh/v1",
+    "maxUsd": 3
+  }
+}

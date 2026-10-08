@@ -8,7 +8,7 @@ export type ImportedCell = { cellId: string; factors: Record<string, string | nu
 export type Lane = 'bench' | 'storage' | 'workflow' | 'runtime' | 'actionability' | 'sqlite-readers' | 'extraction' | 'ai' | 'identity' | 'admission' | 'suite';
 export type Json = Record<string, unknown>;
 
-const factorKeys = ['backend', 'extractor', 'pageType', 'split', 'mode', 'httpTier', 'profile', 'purpose', 'renderer', 'model', 'scenario', 'engine', 'format', 'batchSize', 'batchRows', 'writers', 'readerMode', 'payloadBytes', 'concurrency', 'batchJobs', 'fault', 'poolWake', 'runtime', 'variant', 'policy', 'jobs', 'pages', 'delayMs', 'leaseMs', 'block'];
+const factorKeys = ['backend', 'extractor', 'pageType', 'split', 'mode', 'httpTier', 'profile', 'purpose', 'renderer', 'model', 'interface', 'scenario', 'engine', 'format', 'batchSize', 'batchRows', 'writers', 'readerMode', 'payloadBytes', 'concurrency', 'batchJobs', 'fault', 'poolWake', 'runtime', 'variant', 'policy', 'jobs', 'pages', 'delayMs', 'leaseMs', 'block'];
 
 export const zero = (): Counts => ({ verified: 0, failed: 0, timeout: 0, crashed: 0, aborted: 0, unsupported: 0, rejected: 0, unavailable: 0, skipped: 0 });
 export const add = (into: Counts, from: Partial<Counts>) => { for (const key of Object.keys(into) as (keyof Counts)[]) into[key] += Number(from[key] ?? 0); return into; };
@@ -47,7 +47,8 @@ export function laneMetrics(lane: Lane, raw: Json): Record<string, Measure> {
   if (lane === 'actionability') metrics['task-ms'] = measure(raw.taskMs, 'ms', 'legacy-summary; startup separated');
   if (lane === 'ai') {
     const source = 'lane; fake model accounting over the session, dated price table';
-    for (const [id, key, unit] of [['llm-calls-per-verified-task', 'llmCallsPerVerifiedTask', 'call/task'], ['tokens-per-verified-task', 'tokensPerVerifiedTask', 'token/task'], ['model-usd-per-1k-verified', 'modelUsdPer1kVerified', 'USD/1k']] as const) metrics[id] = measure(raw[key], unit, source);
+    for (const [id, key, unit] of [['llm-calls-per-verified-task', 'llmCallsPerVerifiedTask', 'call/task'], ['tokens-per-verified-task', 'tokensPerVerifiedTask', 'token/task'], ['model-usd-per-1k-verified', 'modelUsdPer1kVerified', 'USD/1k']] as const) if (raw[key] !== undefined) metrics[id] = measure(raw[key], unit, source);
+    if (raw.interface !== undefined) { metrics['interface-turns-per-task'] = measure(raw.interfaceTurnsPerTask, 'turn/task', 'lane; model turns over verified tasks through one interface'); metrics['task-p50-ms-verified'] = measure(raw.taskP50MsVerified, 'ms', 'lane; whole task including model latency'); }
   }
   if (lane === 'identity') {
     metrics['task-p50-ms-verified'] = measure(raw.taskP50MsVerified, 'ms', 'lane; median over the verified repeats of the cell, session opening and oracle excluded');

@@ -41,7 +41,8 @@
   "campaigns": [
     "durable-admission",
     "durable-scheduler",
-    "fault-injection"
+    "fault-injection",
+    "durable-admission-recovery"
   ],
   "evidence": [
     {

@@ -33,7 +33,7 @@ export async function runAdmissionCell(config: AdmissionConfig, cell: AdmissionC
     return { client, recovered: ready.recovered };
   };
   const submissions: Submission[] = []; const reasons: string[] = [];
-  let restarting: Promise<void> | null = null; let crashedAt: number | null = null;
+  let restarting: Promise<void> | null = null; let crashedAt: number | null = null; let crashArmed = Boolean(config.crashAtMs); let start = 0;
   try {
     ({ client: worker } = await open());
     // A submission whose answer was lost in the crash is sent again with the same job id once the runtime is back.
@@ -41,17 +41,19 @@ export async function runAdmissionCell(config: AdmissionConfig, cell: AdmissionC
       for (;;) {
         if (restarting) await restarting;
         const used = worker; submission.attempts++;
+        // The first submission after crashAtMs carries the fault: the runtime dies after journaling it, before answering.
+        const fault = crashArmed && performance.now() - start >= config.crashAtMs! ? 'after-commit' : undefined; if (fault) crashArmed = false;
         try {
-          const r = await used.call('run', { op: 'submit', job: { jobId: submission.jobId, domain: submission.domain, url: site.url(submission.domain, submission.jobId) } }) as { admitted: boolean; code?: string; duplicate?: boolean };
+          const r = await used.call('run', { op: 'submit', job: { jobId: submission.jobId, domain: submission.domain, url: site.url(submission.domain, submission.jobId) }, ...(fault ? { fault } : {}) }) as { admitted: boolean; code?: string; duplicate?: boolean };
           submission.respondedAt = performance.now(); submission.admitted = r.admitted; submission.code = r.code ?? null; submission.duplicate = r.duplicate === true; delete submission.error; return;
-        } catch (error) { submission.error = String(error); if (crashedAt === null || submission.attempts > 3) return; }
+        } catch (error) {
+          submission.error = String(error);
+          if (config.crashAtMs && crashedAt === null && used.isClosed) { crashedAt = performance.now(); restarting = (async () => { await used.close().catch(() => {}); ({ client: worker, recovered } = await open()); })().finally(() => { restarting = null; }); }
+          if (crashedAt === null || submission.attempts > 3) return;
+        }
       }
     };
-    if (config.crashAtMs) setTimeout(() => {
-      crashedAt = performance.now(); const killed = worker;
-      restarting = (async () => { process.kill(killed.pid, 'SIGKILL'); await killed.close().catch(() => {}); ({ client: worker, recovered } = await open()); })().finally(() => { restarting = null; });
-    }, config.crashAtMs);
-    const schedule = arrivals(config, block); const pending: Promise<void>[] = []; const start = performance.now();
+    const schedule = arrivals(config, block); const pending: Promise<void>[] = []; start = performance.now();
     for (const [index, arrival] of schedule.entries()) {
       const wait = start + arrival.at - performance.now(); if (wait > 1) await sleep(wait);
       const submission: Submission = { jobId: `j${block}-${index}`, domain: arrival.domain, sentAt: performance.now(), respondedAt: null, admitted: null, code: null, attempts: 0 }; submissions.push(submission);

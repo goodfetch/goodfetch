@@ -159,6 +159,9 @@ pub fn serve() {
                                     { let mut s = state.lock().unwrap(); if s.known.contains(&job.id) { s.duplicates += 1; return Ok(json!({"admitted":true,"duplicate":true})); }
                                       if !admit_or_reject(&mut s, &config, &job.domain) { return Ok(json!({"admitted":false,"code":"E_CAPACITY","retryAfterMs":100})); } s.known.insert(job.id.clone()); }
                                     let committed = journal(&tx, Write_::Admit { id: job.id.clone(), domain: job.domain.clone(), url: job.url.clone() }).await;
+                                    // Injected fault: the process dies once the admission is durable and before it is acknowledged. A signal sent to
+                                    // oneself lands asynchronously in a threaded process, so the task blocks until it does and never answers.
+                                    if committed.is_ok() && p["fault"] == "after-commit" { unsafe { libc::kill(libc::getpid(), libc::SIGKILL); } loop { std::thread::sleep(Duration::from_secs(1)); } }
                                     let mut s = state.lock().unwrap(); s.reserved -= 1; *s.reserved_by.get_mut(&job.domain).unwrap() -= 1;
                                     if let Err(e) = committed { s.rejected += 1; s.known.remove(&job.id); return Ok(json!({"admitted":false,"code":"E_JOURNAL","error":e})); }
                                     s.admitted += 1; s.queued += 1; *s.queued_by.entry(job.domain.clone()).or_default() += 1; s.peak_queued = s.peak_queued.max(s.queued);

@@ -6,7 +6,7 @@ use serde_json::{Value, json};
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
-use std::time::Duration;
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tokio::sync::{broadcast, mpsc, oneshot};
 use tokio_tungstenite::tungstenite::Message;
 
@@ -77,6 +77,41 @@ impl Connection {
     }
 }
 
+// Waits on a subscription taken before the triggering command, so the event cannot be missed.
+async fn wait_event(mut events: broadcast::Receiver<Value>, timeout: Duration, label: &str, matches: impl Fn(&Value) -> bool) -> Result<Value, String> {
+    tokio::time::timeout(timeout, async move {
+        loop {
+            match events.recv().await {
+                Ok(event) if matches(&event) => return Ok(event),
+                Ok(_) | Err(broadcast::error::RecvError::Lagged(_)) => continue,
+                Err(broadcast::error::RecvError::Closed) => return Err("CDP connection closed".to_string()),
+            }
+        }
+    })
+    .await
+    .map_err(|_| format!("{label} timeout"))?
+}
+
+fn scratch_dir(prefix: &str) -> Result<std::path::PathBuf, String> {
+    let nanos = SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_nanos()).unwrap_or(0);
+    let directory = std::env::temp_dir().join(format!("{prefix}-{}-{nanos}", std::process::id()));
+    std::fs::create_dir_all(&directory).map_err(|error| error.to_string())?;
+    Ok(directory)
+}
+
+pub fn upload_file(text: &str) -> Result<String, String> {
+    let path = scratch_dir("automan-upload")?.join("upload.txt");
+    std::fs::write(&path, text).map_err(|error| error.to_string())?;
+    Ok(path.display().to_string())
+}
+
+// A frame of a page: scripts run in its own context, input goes through the page in page coordinates.
+pub struct Frame {
+    session_id: String,
+    context_id: Option<i64>,
+    offset: (f64, f64),
+}
+
 pub struct Page {
     connection: Arc<Connection>,
     target_id: String,
@@ -100,6 +135,108 @@ impl Page {
     async fn send(&mut self, method: &str, params: Value) -> Result<Value, String> {
         self.commands += 1;
         self.connection.send(method, params, Some(&self.session_id)).await
+    }
+
+    // Every command for this page counts, including those on its browser connection and on frame sessions.
+    async fn send_on(&mut self, method: &str, params: Value, session_id: Option<&str>) -> Result<Value, String> {
+        self.commands += 1;
+        self.connection.send(method, params, session_id).await
+    }
+
+    pub async fn go_back(&mut self) -> Result<(), String> {
+        let history = self.send("Page.getNavigationHistory", json!({})).await?;
+        let index = history["currentIndex"].as_u64().ok_or("missing currentIndex")? as usize;
+        let entry = index.checked_sub(1).and_then(|i| history["entries"].get(i)).ok_or("no previous history entry")?["id"].clone();
+        // A back-forward cache restore fires frameNavigated without DOMContentLoaded, so wait for the main frame commit.
+        let events = self.connection.subscribe();
+        self.send("Page.navigateToHistoryEntry", json!({"entryId": entry})).await?;
+        let session_id = self.session_id.clone();
+        wait_event(events, self.timeout, "Page.frameNavigated", |event| {
+            event["method"] == "Page.frameNavigated" && event["sessionId"] == session_id.as_str() && event["params"]["frame"].get("parentId").is_none()
+        })
+        .await?;
+        Ok(())
+    }
+
+    pub async fn open_popup(&mut self, trigger: &str) -> Result<Page, String> {
+        self.send_on("Target.setDiscoverTargets", json!({"discover": true}), None).await?;
+        let events = self.connection.subscribe();
+        self.click(trigger).await?;
+        let opener = self.target_id.clone();
+        let created = wait_event(events, self.timeout, "popup", |event| {
+            event["method"] == "Target.targetCreated" && event["params"]["targetInfo"]["openerId"] == opener.as_str() && event["params"]["targetInfo"]["type"] == "page"
+        })
+        .await?;
+        let target_id = created["params"]["targetInfo"]["targetId"].as_str().ok_or("missing popup targetId")?.to_string();
+        let attached = self.send_on("Target.attachToTarget", json!({"targetId": target_id, "flatten": true}), None).await?;
+        let session_id = attached["sessionId"].as_str().ok_or("missing popup sessionId")?.to_string();
+        Ok(Page { connection: self.connection.clone(), target_id, session_id, timeout: self.timeout, commands: 0 })
+    }
+
+    pub async fn close_popup(&mut self, popup: Page) -> Result<(), String> {
+        self.commands += popup.commands + 1;
+        self.connection.send("Target.closeTarget", json!({"targetId": popup.target_id}), None).await?;
+        Ok(())
+    }
+
+    pub async fn frame(&mut self, selector: &str) -> Result<Frame, String> {
+        let offset = self.evaluate(&scripts::frame_offset(selector)).await?;
+        let offset = (offset["x"].as_f64().unwrap_or(0.0), offset["y"].as_f64().unwrap_or(0.0));
+        let document = self.send("DOM.getDocument", json!({"depth": 0})).await?;
+        let node = self.send("DOM.querySelector", json!({"nodeId": document["root"]["nodeId"], "selector": selector})).await?;
+        let described = self.send("DOM.describeNode", json!({"nodeId": node["nodeId"]})).await?;
+        let frame_id = described["node"]["frameId"].as_str().ok_or_else(|| format!("no frame for {selector}"))?.to_string();
+        // An in-process frame gets an isolated world; an out-of-process frame is its own target, reached by auto-attach.
+        if let Ok(world) = self.send("Page.createIsolatedWorld", json!({"frameId": frame_id, "worldName": "automan"})).await {
+            return Ok(Frame { session_id: self.session_id.clone(), context_id: world["executionContextId"].as_i64(), offset });
+        }
+        let events = self.connection.subscribe();
+        self.send("Target.setAutoAttach", json!({"autoAttach": true, "waitForDebuggerOnStart": false, "flatten": true})).await?;
+        let attached = wait_event(events, self.timeout, "frame attach", |event| {
+            event["method"] == "Target.attachedToTarget" && event["params"]["targetInfo"]["targetId"] == frame_id.as_str()
+        })
+        .await?;
+        let session_id = attached["params"]["sessionId"].as_str().ok_or("missing frame sessionId")?.to_string();
+        Ok(Frame { session_id, context_id: None, offset })
+    }
+
+    pub async fn frame_evaluate(&mut self, frame: &Frame, expression: &str) -> Result<Value, String> {
+        let mut params = json!({"expression": expression, "awaitPromise": true, "returnByValue": true});
+        if let Some(context) = frame.context_id {
+            params["contextId"] = json!(context);
+        }
+        let result = self.send_on("Runtime.evaluate", params, Some(&frame.session_id.clone())).await?;
+        if let Some(details) = result.get("exceptionDetails") {
+            let message = details["exception"]["description"].as_str().or(details["text"].as_str()).unwrap_or("evaluation failed");
+            return Err(message.to_string());
+        }
+        Ok(result["result"].get("value").cloned().unwrap_or(Value::Null))
+    }
+
+    pub async fn frame_click(&mut self, frame: &Frame, selector: &str) -> Result<(), String> {
+        let point = self.frame_evaluate(frame, &scripts::point(selector)).await?;
+        let x = json!(point["x"].as_f64().unwrap_or(0.0) + frame.offset.0);
+        let y = json!(point["y"].as_f64().unwrap_or(0.0) + frame.offset.1);
+        self.mouse("mouseMoved", &x, &y, json!({})).await?;
+        self.mouse("mousePressed", &x, &y, json!({"button": "left", "buttons": 1, "clickCount": 1})).await?;
+        self.mouse("mouseReleased", &x, &y, json!({"button": "left", "buttons": 0, "clickCount": 1})).await
+    }
+
+    pub async fn upload(&mut self, selector: &str, path: &str) -> Result<(), String> {
+        let document = self.send("DOM.getDocument", json!({"depth": 0})).await?;
+        let node = self.send("DOM.querySelector", json!({"nodeId": document["root"]["nodeId"], "selector": selector})).await?;
+        self.send("DOM.setFileInputFiles", json!({"files": [path], "nodeId": node["nodeId"]})).await?;
+        Ok(())
+    }
+
+    pub async fn download(&mut self, selector: &str) -> Result<String, String> {
+        let directory = scratch_dir("automan-download")?;
+        self.send_on("Browser.setDownloadBehavior", json!({"behavior": "allowAndName", "downloadPath": directory.display().to_string(), "eventsEnabled": true}), None).await?;
+        let events = self.connection.subscribe();
+        self.click(selector).await?;
+        let done = wait_event(events, self.timeout, "download", |event| event["method"] == "Browser.downloadProgress" && event["params"]["state"] == "completed").await?;
+        let guid = done["params"]["guid"].as_str().ok_or("missing download guid")?;
+        std::fs::read_to_string(directory.join(guid)).map_err(|error| error.to_string())
     }
 
     pub async fn goto(&mut self, url: &str) -> Result<(), String> {

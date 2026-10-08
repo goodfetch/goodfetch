@@ -1,7 +1,10 @@
 import { readFileSync } from 'node:fs';
+import { mkdtemp, readFile, readdir } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { createRequire } from 'node:module';
 import type { Browser } from 'playwright';
-import type { Browser as PuppeteerBrowser } from 'puppeteer-core';
+import type { Browser as PuppeteerBrowser, Page as PuppeteerPage, Frame as PuppeteerFrame, ElementHandle } from 'puppeteer-core';
 import type { Stagehand, StagehandBrowser } from '@browserbasehq/stagehand';
 import { serve, type Adapter, type AdapterOutput, type Task } from '../../src/worker-server.ts';
 import { runBrowserTask, waitScript, actionReadinessScript,type BrowserPage } from './browser-tasks.ts';
@@ -12,7 +15,7 @@ let browser: Browser | undefined, puppeteerBrowser: PuppeteerBrowser | undefined
 let stagehandBrowser: StagehandBrowser | undefined, stagehand: Stagehand | undefined;
 let crawlee: typeof import('crawlee') | undefined;
 let options: { executablePath?: string; headless?: boolean } = {}; let connected = false;
-const capabilities = backend.includes('http') ? ['http-catalog'] : ['http-catalog', 'js-catalog', 'form', 'clicks','actionability', ...(backend === 'puppeteer' ? [] : ['shadow']), ...(['playwright', 'puppeteer'].includes(backend) ? ['primitives'] : [])];
+const capabilities = backend.includes('http') ? ['http-catalog'] : ['http-catalog', 'js-catalog', 'form', 'clicks','actionability', ...(backend === 'puppeteer' ? [] : ['shadow']), ...(['playwright', 'puppeteer'].includes(backend) ? ['primitives', 'navigation'] : [])];
 function version(packageName: string) { return JSON.parse(readFileSync(require.resolve(`${packageName}/package.json`), 'utf8')).version as string; }
 function config() { return new crawlee!.Configuration({ persistStorage: false, storageClient: new crawlee!.MemoryStorage({ persistStorage: false }) }); }
 const adapter: Adapter = {
@@ -79,18 +82,7 @@ const adapter: Adapter = {
     if (browser) { const page = await browser.newPage({ viewport: { width: 1280, height: 720 } }); page.setDefaultTimeout(task.timeoutMs); try { return await runBrowserTask(wrapPlaywright(page), task); } finally { await page.close(); } }
     if (puppeteerBrowser) {
       const page = await puppeteerBrowser.newPage(); await page.setViewport({ width: 1280, height: 720 }); page.setDefaultTimeout(task.timeoutMs);
-      const wrapped: BrowserPage = { goto: url => page.goto(url, { waitUntil: 'domcontentloaded' }), evaluate: async <T>(script: string) => await page.evaluate(script) as T,
-        click: async selector => { await page.locator(selector).click(); }, fill: async (selector, value) => { await page.locator(selector).fill(value); },
-        select: async (selector, value) => { await page.select(selector, value); }, close: () => page.close(),
-        // Puppeteer's locator API for what it offers; drag and wheel fall back to its raw mouse, without actionability checks.
-        hover: async selector => { await page.locator(selector).hover(); }, dblclick: async selector => { await page.locator(selector).click({ count: 2 }); },
-        rightClick: async selector => { await page.locator(selector).click({ button: 'right' }); },
-        drag: async (from, to) => {
-          const center = async (selector: string) => { const box = await (await page.$(selector))!.boundingBox(); if (!box) throw new Error(`no box for ${selector}`); return { x: box.x + box.width / 2, y: box.y + box.height / 2 }; };
-          const start = await center(from), end = await center(to); await page.mouse.move(start.x, start.y); await page.mouse.down(); await page.mouse.move(end.x, end.y); await page.mouse.up();
-        },
-        wheel: async (selector, deltaY) => { await page.locator(selector).hover(); await page.mouse.wheel({ deltaY }); },
-        press: async (selector, key) => { const handle = await page.$(selector); if (!handle) throw new Error(`no element for ${selector}`); await handle.press(key); } };
+      const wrapped = wrapPuppeteer(page);
       try { return await runBrowserTask(wrapped, task); } finally { await page.close(); }
     }
     if (stagehand && stagehandBrowser) {
@@ -139,6 +131,52 @@ function wrapPlaywright(page: import('playwright').Page): BrowserPage {
     select: async (selector, value) => { await page.locator(selector).selectOption(value); }, close: () => page.close(),
     hover: selector => page.locator(selector).hover(), dblclick: selector => page.locator(selector).dblclick(), rightClick: selector => page.locator(selector).click({ button: 'right' }),
     drag: (from, to) => page.locator(from).dragTo(page.locator(to)), wheel: async (selector, deltaY) => { await page.locator(selector).hover(); await page.mouse.wheel(0, deltaY); },
-    press: (selector, key) => page.locator(selector).press(key) };
+    press: (selector, key) => page.locator(selector).press(key),
+    goBack: async () => { await page.goBack({ waitUntil: 'domcontentloaded' }); },
+    withPopup: async (trigger, act) => {
+      const [popup] = await Promise.all([page.waitForEvent('popup'), page.locator(trigger).click()]);
+      try { await popup.waitForLoadState('domcontentloaded'); await act(wrapPlaywright(popup)); } finally { await popup.close(); }
+    },
+    withFrame: async (selector, act) => { const frame = await (await page.locator(selector).elementHandle())?.contentFrame(); if (!frame) throw new Error(`no frame for ${selector}`); await act(wrapPlaywrightFrame(frame)); },
+    upload: (selector, path) => page.locator(selector).setInputFiles(path),
+    download: async selector => { const [download] = await Promise.all([page.waitForEvent('download'), page.locator(selector).click()]); return readFile((await download.path())!, 'utf8'); } };
+}
+function wrapPlaywrightFrame(frame: import('playwright').Frame): BrowserPage {
+  return { goto: url => frame.goto(url), evaluate: async <T>(script: string) => await frame.evaluate(script) as T, click: selector => frame.locator(selector).click(),
+    fill: (selector, value) => frame.locator(selector).fill(value), select: async (selector, value) => { await frame.locator(selector).selectOption(value); }, close: async () => {} };
+}
+function wrapPuppeteer(page: PuppeteerPage): BrowserPage {
+  return { goto: url => page.goto(url, { waitUntil: 'domcontentloaded' }), evaluate: async <T>(script: string) => await page.evaluate(script) as T,
+    click: async selector => { await page.locator(selector).click(); }, fill: async (selector, value) => { await page.locator(selector).fill(value); },
+    select: async (selector, value) => { await page.select(selector, value); }, close: () => page.close(),
+    // Puppeteer's locator API for what it offers; drag and wheel fall back to its raw mouse, without actionability checks.
+    hover: async selector => { await page.locator(selector).hover(); }, dblclick: async selector => { await page.locator(selector).click({ count: 2 }); },
+    rightClick: async selector => { await page.locator(selector).click({ button: 'right' }); },
+    drag: async (from, to) => {
+      const center = async (selector: string) => { const box = await (await page.$(selector))!.boundingBox(); if (!box) throw new Error(`no box for ${selector}`); return { x: box.x + box.width / 2, y: box.y + box.height / 2 }; };
+      const start = await center(from), end = await center(to); await page.mouse.move(start.x, start.y); await page.mouse.down(); await page.mouse.move(end.x, end.y); await page.mouse.up();
+    },
+    wheel: async (selector, deltaY) => { await page.locator(selector).hover(); await page.mouse.wheel({ deltaY }); },
+    press: async (selector, key) => { const handle = await page.$(selector); if (!handle) throw new Error(`no element for ${selector}`); await handle.press(key); },
+    goBack: async () => { await page.goBack({ waitUntil: 'domcontentloaded' }); },
+    withPopup: async (trigger, act) => {
+      const opened = new Promise<PuppeteerPage | null>(resolve => page.once('popup', resolve)); await page.locator(trigger).click();
+      const popup = await opened; if (!popup) throw new Error('popup did not open');
+      try { await popup.waitForSelector('body'); await act(wrapPuppeteerFrame(popup.mainFrame())); } finally { await popup.close(); }
+    },
+    withFrame: async (selector, act) => { const frame = await (await page.$(selector))?.contentFrame(); if (!frame) throw new Error(`no frame for ${selector}`); await act(wrapPuppeteerFrame(frame)); },
+    upload: async (selector, path) => { const handle = await page.$(selector) as ElementHandle<HTMLInputElement> | null; if (!handle) throw new Error(`no element for ${selector}`); await handle.uploadFile(path); },
+    // Puppeteer has no download API: downloads go through the CDP Browser domain, as its users do.
+    download: async selector => {
+      const directory = await mkdtemp(join(tmpdir(), 'automan-download-')); const session = await page.createCDPSession();
+      await session.send('Browser.setDownloadBehavior', { behavior: 'allow', downloadPath: directory, eventsEnabled: true });
+      const completed = new Promise<void>((resolve, reject) => session.on('Browser.downloadProgress', event => { if (event.state === 'completed') resolve(); if (event.state === 'canceled') reject(new Error('download canceled')); }));
+      await page.locator(selector).click(); await completed;
+      const [name] = await readdir(directory); await session.detach(); return readFile(join(directory, name!), 'utf8');
+    } };
+}
+function wrapPuppeteerFrame(frame: PuppeteerFrame): BrowserPage {
+  return { goto: async url => { await frame.goto(url); }, evaluate: async <T>(script: string) => await frame.evaluate(script) as T, click: async selector => { await frame.locator(selector).click(); },
+    fill: async (selector, value) => { await frame.locator(selector).fill(value); }, select: async (selector, value) => { await frame.select(selector, value); }, close: async () => {} };
 }
 serve(adapter);

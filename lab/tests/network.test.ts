@@ -11,7 +11,8 @@ import type { HostSnapshot } from '../src/core/host.ts';
 import type { BenchCampaign } from '../src/core/campaign.ts';
 
 test('a latency profile is measured by calibration, not assumed', async () => {
-  for (const rttMs of [0, 40]) {
+  // 20 ms is the tightest case: its 10 % tolerance equals the 2 ms floor, so timer lateness on both directions shows.
+  for (const rttMs of [0, 20, 40]) {
     const calibration = await calibrate(rttMs, 20);
     assert.equal(calibration.withinTolerance, true, `rtt ${rttMs}: added ${calibration.addedMedianMs} over a direct ${calibration.baselineMedianMs}`);
   }

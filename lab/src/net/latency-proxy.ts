@@ -9,23 +9,28 @@ import type { Availability } from '../core/metrics/registry.ts';
 export type Calibration = { rttMs: number; medianMs: number; p95Ms: number; baselineMedianMs: number; addedMedianMs: number; samples: number; withinTolerance: boolean };
 
 // One FIFO queue per direction: chunks leave in arrival order, each no earlier than its due time.
-// Timers run on libuv's cached loop clock and may fire early, so the drain re-arms until the head is really due.
+// Node timers fire on libuv's cached millisecond clock, up to about a millisecond late and occasionally early, so the
+// drain wakes 2 ms before the head is due and finishes on setImmediate turns against performance.now().
 function pipeDelayed(source: Socket, target: Socket, delayMs: number) {
   const queue: { due: number; chunk: Buffer }[] = [];
-  let timer: NodeJS.Timeout | undefined, ended = false;
+  let timer: NodeJS.Timeout | undefined, immediate: NodeJS.Immediate | undefined, ended = false;
+  const arm = () => {
+    const remaining = queue[0]!.due - performance.now();
+    if (remaining > 2) timer = setTimeout(drain, remaining - 2); else immediate = setImmediate(drain);
+  };
   const drain = () => {
-    timer = undefined;
+    timer = undefined; immediate = undefined;
     while (queue.length && queue[0]!.due <= performance.now()) { const { chunk } = queue.shift()!; if (!target.destroyed) target.write(chunk); }
-    if (queue.length) timer = setTimeout(drain, queue[0]!.due - performance.now());
+    if (queue.length) arm();
     else if (ended) target.end();
   };
   source.on('data', (chunk: Buffer) => {
     if (delayMs === 0 && queue.length === 0) { if (!target.destroyed) target.write(chunk); return; }
     queue.push({ due: performance.now() + delayMs, chunk });
-    if (!timer) timer = setTimeout(drain, delayMs);
+    if (!timer && !immediate) arm();
   });
   source.on('end', () => { ended = true; if (!queue.length) target.end(); });
-  source.on('close', () => { if (timer) clearTimeout(timer); });
+  source.on('close', () => { clearTimeout(timer); clearImmediate(immediate); });
 }
 
 export async function startLatencyProxy({ host, port, rttMs }: { host: string; port: number; rttMs: number }) {

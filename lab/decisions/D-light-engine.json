@@ -43,9 +43,35 @@
   },
   "networkProfiles": [],
   "campaigns": [
-    "light-engine-corpus"
+    "light-engine-actionability",
+    "light-engine-compat-guarded",
+    "light-engine-compat-native",
+    "light-engine-corpus",
+    "light-engine-navigation",
+    "light-engine-primitives"
   ],
-  "evidence": [],
+  "evidence": [
+    {
+      "kind": "run",
+      "ref": "light-engine-actionability-2026-10-08T18-17-53-360Z-1d5ca3"
+    },
+    {
+      "kind": "run",
+      "ref": "light-engine-compat-guarded-2026-10-08T18-17-15-329Z-6d44f1"
+    },
+    {
+      "kind": "run",
+      "ref": "light-engine-compat-native-2026-10-08T18-16-40-008Z-f659d1"
+    },
+    {
+      "kind": "run",
+      "ref": "light-engine-navigation-2026-10-08T18-21-06-891Z-318afe"
+    },
+    {
+      "kind": "run",
+      "ref": "light-engine-primitives-2026-10-08T18-19-11-980Z-d7f0e3"
+    }
+  ],
   "verdictRef": null,
   "adr": null,
   "dependsOn": [

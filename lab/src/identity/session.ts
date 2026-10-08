@@ -10,12 +10,14 @@ import { CdpConnection, CdpPage, type Message } from '../../adapters/cdp-node/cd
 import { labRoot } from '../registry.ts';
 import { signRequest, SigningError, type KeyStore } from './signature.ts';
 import { SitePolicy, StopError, classifyResponse, type Purpose } from './policy.ts';
+import { startEgress, type ProxyPool } from './egress.ts';
+import { randomBytes } from 'node:crypto';
 
 export type Profile = 'identified' | 'standard';
 export type HttpTier = 'node-https' | 'impit-chrome' | 'browser-fetch';
 export const productToken = 'AutomanLab';
 export class ProfileLockedError extends Error { readonly code = 'E_PROFILE_LOCKED'; }
-export type SessionOptions = { profile: Profile; httpTier: HttpTier; purpose: Purpose; connection: CdpConnection; keys?: KeyStore; agentOrigin?: string; contactUrl?: string; timeoutMs: number; retryBudget?: number };
+export type SessionOptions = { profile: Profile; httpTier: HttpTier; purpose: Purpose; connection: CdpConnection; keys?: KeyStore; agentOrigin?: string; contactUrl?: string; timeoutMs: number; retryBudget?: number; proxyPool?: ProxyPool };
 export type SiteResponse = { status: number; headers: Headers; body: string; url: string };
 type ImpitClient = { fetch(url: string, init?: { headers?: [string, string][] }): Promise<{ status: number; headers: Headers; text(): Promise<string> }> };
 type Cookie = { name: string; value: string; domain: string; path: string; secure: boolean; httpOnly: boolean; sameSite?: string; hostOnly: boolean };
@@ -45,7 +47,11 @@ const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
 export class IdentitySession {
   readonly profile: Profile; readonly httpTier: HttpTier; readonly purpose: Purpose; readonly retryBudget: number;
-  userAgent = ''; retries = 0; signatures = 0;
+  userAgent = ''; signatures = 0; readonly stickyId = randomBytes(6).toString('hex');
+  // One retry budget for the session: waits on Retry-After and proxy rotations draw from it alike (architecture §3.4).
+  readonly budget = { retries: 0, limit: 2 };
+  get retries() { return this.budget.retries; }
+  egress?: Awaited<ReturnType<typeof startEgress>>;
   // The journal of the session: one line per request decision, with the site preferences in force.
   readonly journal: { url: string; tier: 'http' | 'browser'; status: number | null; decision: string; robotsSha256: string | null }[] = [];
   private options: SessionOptions; private contextId = ''; private probe: [string, string][] = []; private jar = new CookieJar();
@@ -54,14 +60,16 @@ export class IdentitySession {
   private fetcher?: { page: CdpPage; sessionId: string }; private browserCookiesNewer = false; private deadline: number;
 
   private constructor(options: SessionOptions) {
-    this.options = options; this.profile = options.profile; this.httpTier = options.httpTier; this.purpose = options.purpose; this.retryBudget = options.retryBudget ?? 2;
+    this.options = options; this.profile = options.profile; this.httpTier = options.httpTier; this.purpose = options.purpose; this.retryBudget = options.retryBudget ?? 2; this.budget.limit = this.retryBudget;
     this.deadline = performance.now() + options.timeoutMs;
     if (options.profile === 'identified' && (!options.keys || !options.agentOrigin)) throw new Error('the identified profile needs keys and an agent directory');
   }
 
   static async open(options: SessionOptions) {
     const session = new IdentitySession(options); const { connection } = options;
-    ({ browserContextId: session.contextId } = await connection.send('Target.createBrowserContext', { disposeOnDetach: true }) as { browserContextId: string });
+    // With a proxy pool, the context always goes through the session's own egress, which picks and changes the upstream.
+    if (options.proxyPool) { if (options.httpTier !== 'browser-fetch') throw new Error('proxies are wired for the in-browser HTTP tier only'); session.egress = await startEgress(options.proxyPool, session.stickyId, session.budget, options.timeoutMs); }
+    ({ browserContextId: session.contextId } = await connection.send('Target.createBrowserContext', { disposeOnDetach: true, ...(session.egress ? { proxyServer: session.egress.url, proxyBypassList: '<-loopback>;127.0.0.1' } : {}) }) as { browserContextId: string });
     const { userAgent } = await connection.send('Browser.getVersion') as { userAgent: string };
     session.userAgent = options.profile === 'identified' ? `${userAgent} ${productToken}/0.1 (+${options.contactUrl ?? 'https://automan.invalid/bot'})` : userAgent;
     session.unsubscribe = connection.on(message => { void session.onPaused(message); });
@@ -142,7 +150,7 @@ export class IdentitySession {
       const response = await this.transport(url);
       const stop = this.after(policy, url, 'http', response);
       if (!stop) return response;
-      if ((stop.code === 'E_RATE_LIMITED' || stop.code === 'E_SERVER') && stop.retryAfterMs !== null && this.retries < this.retryBudget && performance.now() + stop.retryAfterMs < this.deadline) { this.retries++; await sleep(stop.retryAfterMs); continue; }
+      if ((stop.code === 'E_RATE_LIMITED' || stop.code === 'E_SERVER') && stop.retryAfterMs !== null && this.budget.retries < this.budget.limit && performance.now() + stop.retryAfterMs < this.deadline) { this.budget.retries++; await sleep(stop.retryAfterMs); continue; }
       throw new StopError(stop.code, `HTTP ${response.status} at ${new URL(url).pathname}`);
     }
   }
@@ -153,7 +161,7 @@ export class IdentitySession {
     await this.pushCookies();
     const { page, sessionId } = await this.newPage();
     const document = this.options.connection.waitForEvent(m => m.method === 'Network.responseReceived' && m.sessionId === sessionId && (m.params as { type?: string }).type === 'Document', 'document response', this.options.timeoutMs);
-    try { await page.goto(url); } catch (error) { document.cancel(); await page.close(); throw error; }
+    try { await page.goto(url); } catch (error) { document.cancel(); await page.close(); throw this.navigationError(error); }
     const { response } = (await document.promise).params as { response: { status: number; headers: Record<string, string> } };
     const body = await page.evaluate<string>('document.documentElement.outerHTML');
     this.browserCookiesNewer = true;
@@ -201,14 +209,18 @@ export class IdentitySession {
     if (!this.fetcher) { this.fetcher = await this.newPage(); await this.fetcher.page.send('Emulation.setScriptExecutionDisabled', { value: true }); }
     const { page, sessionId } = this.fetcher;
     const document = this.options.connection.waitForEvent(m => m.method === 'Network.responseReceived' && m.sessionId === sessionId && (m.params as { type?: string }).type === 'Document', 'document response', this.options.timeoutMs);
-    try { await page.goto(url); } catch (error) { document.cancel(); throw error; }
+    try { await page.goto(url); } catch (error) { document.cancel(); throw this.navigationError(error); }
     const { requestId, response } = (await document.promise).params as { requestId: string; response: { status: number; headers: Record<string, string> } };
     const { body, base64Encoded } = await page.send('Network.getResponseBody', { requestId }) as { body: string; base64Encoded: boolean };
     return { status: response.status, headers: new Headers(response.headers), body: base64Encoded ? Buffer.from(body, 'base64').toString('utf8') : body, url };
   }
 
+  private navigationError(error: unknown) {
+    return this.egress?.state.exhausted ? new StopError('E_PROXY_EXHAUSTED', `no healthy proxy left within the retry budget (${this.budget.retries} rotation(s))`) : error;
+  }
+
   async close() {
-    this.unsubscribe(); this.agent.destroy();
+    this.unsubscribe(); this.agent.destroy(); await this.egress?.close();
     await this.options.connection.send('Target.disposeBrowserContext', { browserContextId: this.contextId }).catch(() => {});
   }
 }

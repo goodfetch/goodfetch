@@ -45,6 +45,11 @@
    "id": "session-isolation",
    "ok": true,
    "evaluated": true
+  },
+  {
+   "id": "proxy-continuity",
+   "ok": true,
+   "evaluated": true
   }
  ],
  "host": {
@@ -86,6 +91,11 @@
      "id": "session-isolation",
      "ok": true,
      "evaluated": true
+    },
+    {
+     "id": "proxy-continuity",
+     "ok": true,
+     "evaluated": true
     }
    ],
    "host": {
@@ -125,6 +135,11 @@
     },
     {
      "id": "session-isolation",
+     "ok": true,
+     "evaluated": true
+    },
+    {
+     "id": "proxy-continuity",
      "ok": true,
      "evaluated": true
     }
@@ -168,6 +183,11 @@
      "id": "session-isolation",
      "ok": true,
      "evaluated": true
+    },
+    {
+     "id": "proxy-continuity",
+     "ok": true,
+     "evaluated": true
     }
    ],
    "host": {
@@ -209,6 +229,11 @@
      "id": "session-isolation",
      "ok": true,
      "evaluated": true
+    },
+    {
+     "id": "proxy-continuity",
+     "ok": true,
+     "evaluated": true
     }
    ],
    "host": {
@@ -222,12 +247,13 @@
   "runs": [],
   "considered": [
    "access-policy-2026-10-08T17-27-03-497Z-f99eb0",
-   "tls-fingerprint-2026-10-08T17-42-02-124Z-1dec60",
-   "identity-coherence-2026-10-08T19-08-09-611Z-deb797",
+   "tls-fingerprint-2026-10-08T19-32-26-736Z-f42991",
+   "identity-coherence-2026-10-08T19-32-36-456Z-419b62",
    "policy-fixtures-2026-10-08T19-11-08-127Z-31838d",
-   "session-isolation-2026-10-08T19-15-24-150Z-001cf2"
+   "session-isolation-2026-10-08T19-34-55-558Z-f91765",
+   "proxy-pool-2026-10-08T19-35-52-648Z-de827b"
   ],
   "missing": [],
-  "ledgerSha256": "2c3e6fbf7517791802562c9a712419d52869d5cf98bf8ed1bdea3f79b227e0ab"
+  "ledgerSha256": "9134025ebd657e8300fe7ac858eb5b7a6f1f234d6650868e79a418575c69a652"
  }
 }

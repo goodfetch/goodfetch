@@ -61,10 +61,11 @@ const gatePredicates: Record<string, (cells: Cell[]) => boolean> = {
   // Identity gates read the variants that test them; each identity cell is judged on the contract of its variant.
   'identity-coherence': cells => ofVariants(cells, ['coherent', 'key-rotation', 'key-revoked']),
   'policy-compliance': cells => ofVariants(cells, policyVariants),
-  'session-isolation': cells => ofVariants(cells, ['isolation'])
+  'session-isolation': cells => ofVariants(cells, ['isolation']),
+  'proxy-continuity': cells => ofVariants(cells, ['proxy-sticky', 'proxy-failover', 'proxy-exhausted'])
 };
 const policyVariants = ['robots-path', 'robots-agent', 'crawl-delay', 'content-signal', 'tdmrep-file', 'tdmrep-header', 'noai-meta', 'paid-402', 'denied-403', 'challenge-page', 'retry-429'];
-const negativeVariants = ['never-enabled', 'never-uncovered', 'ambiguous', 'retarget', 'robots-path', 'robots-agent', 'content-signal', 'tdmrep-file', 'tdmrep-header', 'noai-meta', 'paid-402', 'denied-403', 'challenge-page'];
+const negativeVariants = ['never-enabled', 'never-uncovered', 'ambiguous', 'retarget', 'robots-path', 'robots-agent', 'content-signal', 'tdmrep-file', 'tdmrep-header', 'noai-meta', 'paid-402', 'denied-403', 'challenge-page', 'proxy-exhausted'];
 const ofVariants = (cells: Cell[], variants: string[]) => { const own = cells.filter(cell => variants.includes(String(cell.factors.variant))); return own.length > 0 && own.every(cell => cell.status === 'verified'); };
 
 export async function evaluateDecision(decision: Decision, { registry, root = labRoot }: { registry: Registry; root?: string }) {

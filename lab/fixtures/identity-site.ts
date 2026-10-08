@@ -8,7 +8,7 @@ import { verifierFromJWK } from 'web-bot-auth/crypto';
 import { verifySignature } from 'http-message-sig';
 import { startTlsRelay, type Fingerprint } from './tls-relay.ts';
 
-export const identityVariants = ['coherent', 'key-rotation', 'key-revoked', 'robots-path', 'robots-agent', 'crawl-delay', 'content-signal', 'tdmrep-file', 'tdmrep-header', 'noai-meta', 'paid-402', 'denied-403', 'challenge-page', 'retry-429', 'isolation'] as const;
+export const identityVariants = ['coherent', 'key-rotation', 'key-revoked', 'robots-path', 'robots-agent', 'crawl-delay', 'content-signal', 'tdmrep-file', 'tdmrep-header', 'noai-meta', 'paid-402', 'denied-403', 'challenge-page', 'retry-429', 'isolation', 'proxy-sticky', 'proxy-failover', 'proxy-exhausted'] as const;
 export type IdentityVariant = typeof identityVariants[number];
 // Variants the session must refuse for at least one purpose; reporting data instead is a false success.
 export const identityRefusals: IdentityVariant[] = ['robots-path', 'robots-agent', 'content-signal', 'tdmrep-file', 'tdmrep-header', 'noai-meta', 'paid-402', 'denied-403', 'challenge-page'];
@@ -32,6 +32,7 @@ function expectedOutcome(variant: IdentityVariant, { profile, purpose }: Expecta
   if (variant === 'paid-402') return refuse('E_PAYMENT_REQUIRED', true);
   if (variant === 'denied-403') return refuse('E_ACCESS_DENIED', true);
   if (variant === 'challenge-page') return refuse('E_CHALLENGE', true);
+  if (variant === 'proxy-exhausted') return refuse('E_PROXY_EXHAUSTED', true);
   return { refusal: null, catalogBeforeRefusal: true };
 }
 
@@ -144,7 +145,8 @@ export async function startIdentitySite({ variant, seed }: { variant: IdentityVa
         const tag = label ? `session ${label}: ` : '';
         // A favicon load is started by the browser itself, without client hints, as in any Chrome; it still shares the client's UA and connection.
         for (const header of ['user-agent', 'accept-language', 'sec-ch-ua', 'sec-ch-ua-mobile', 'sec-ch-ua-platform']) { const values = new Set(group.filter(s => header === 'user-agent' || !browserInitiated(s)).map(s => s.headers[header] ?? '∅')); if (values.size > 1) flag('coherence', `${tag}${header} changed within the session: ${[...values].map(v => v.slice(0, 50)).join(' / ')}`); }
-        const tls = new Set(group.map(s => s.fingerprint?.ja4 ?? '∅')); if (tls.size > 1) flag('coherence', `${tag}TLS fingerprint changed within the session: ${[...tls].join(' / ')}`);
+        // A resumed handshake is the same client: it is compared without its pre_shared_key extension.
+        const tls = new Set(group.map(s => s.fingerprint?.ja4Base ?? '∅')); if (tls.size > 1) flag('coherence', `${tag}TLS fingerprint changed within the session: ${[...tls].join(' / ')}`);
         const h2 = new Set(group.map(s => `${s.fingerprint?.http}|${s.fingerprint?.h2}`)); if (h2.size > 1) flag('coherence', `${tag}HTTP version or HTTP/2 fingerprint changed within the session: ${[...h2].join(' / ')}`);
         const ua = group[0]?.headers['user-agent'] ?? '';
         if (expectation.profile === 'identified' && !ua.includes(`${expectation.productToken}/`)) flag('signature', `${tag}identified profile without its product token in User-Agent`);

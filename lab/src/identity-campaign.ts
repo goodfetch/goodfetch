@@ -9,6 +9,8 @@ import { KeyStore, serveDirectory } from './identity/signature.ts';
 import { IdentitySession, productToken, type HttpTier, type Profile } from './identity/session.ts';
 import { StopError, type Purpose } from './identity/policy.ts';
 import { quantiles } from './statistics.ts';
+import { startProxyPool } from '../fixtures/proxy-pool.ts';
+import { ProxyPool } from './identity/egress.ts';
 
 export type IdentityConfig = { httpTiers: HttpTier[]; profiles: Profile[]; purposes: Purpose[]; variants: IdentityVariant[]; repeats: number; blocks: number; seed: number; timeoutMs: number };
 export type IdentityCell = { httpTier: HttpTier; profile: Profile; purpose: Purpose; variant: IdentityVariant };
@@ -17,11 +19,11 @@ export { identityVariants };
 
 // Key changes only exist for a signing profile.
 // Each variant judges the contract it tests; every violation is still recorded in the raw cell.
-const concernOf = (variant: IdentityVariant): (keyof IdentityVerdict['violations'])[] =>
-  variant === 'coherent' || variant.startsWith('key-') ? ['data', 'policy', 'coherence', 'signature', 'cookie', 'isolation'] : variant === 'isolation' ? ['data', 'cookie', 'isolation'] : ['data', 'policy'];
+const concernOf = (variant: IdentityVariant): (keyof IdentityVerdict['violations'] | 'proxy')[] =>
+  variant === 'coherent' || variant.startsWith('key-') ? ['data', 'policy', 'coherence', 'signature', 'cookie', 'isolation'] : variant === 'isolation' ? ['data', 'cookie', 'isolation'] : variant.startsWith('proxy-') ? ['data', 'policy', 'cookie', 'signature', 'proxy'] : ['data', 'policy'];
 
 export const identityCombinations = (config: IdentityConfig): IdentityCell[] => config.httpTiers.flatMap(httpTier => config.profiles.flatMap(profile => config.purposes.flatMap(purpose =>
-  config.variants.filter(variant => profile === 'identified' || !variant.startsWith('key-')).map(variant => ({ httpTier, profile, purpose, variant })))));
+  config.variants.filter(variant => (profile === 'identified' || !variant.startsWith('key-')) && (httpTier === 'browser-fetch' || !variant.startsWith('proxy-'))).map(variant => ({ httpTier, profile, purpose, variant })))));
 
 const parseRecords = (html: string) => [...html.matchAll(/<article data-id="([^"]+)" data-price="(\d+)"/g)].map(m => ({ id: m[1]!, price: Number(m[2]) }));
 
@@ -44,33 +46,40 @@ async function crawl(session: IdentitySession, start: string, afterPage: (page: 
 export async function runIdentityCell(config: IdentityConfig, cell: IdentityCell, block: number): Promise<Record<string, unknown>> {
   const browser = await launchBrowser(browserPath()); const connection = await CdpConnection.connect(browser.wsEndpoint);
   await connection.send('Security.setIgnoreCertificateErrors', { ignore: true });
-  const taskMs: number[] = []; const reasons: string[] = []; let verified = 0, falseSuccess = 0; const violations: Record<string, number> = {}; let signatures = 0, retries = 0, journaled = 0;
+  const taskMs: number[] = []; const reasons: string[] = []; let verified = 0, falseSuccess = 0; const violations: Record<string, number> = {}; let signatures = 0, retries = 0, journaled = 0, proxyBytes = 0;
   try {
     for (let repeat = 0; repeat < config.repeats; repeat++) {
       const site = await startIdentitySite({ variant: cell.variant, seed: config.seed + block * 100 + repeat });
       const keys = new KeyStore(); const directory = await serveDirectory(keys);
+      const proxies = cell.variant.startsWith('proxy-') ? await startProxyPool(3) : null; const downAt = new Map<number, number>();
+      const pool = proxies ? new ProxyPool(proxies.urls.map(url => ({ url, user: proxies.credentials.user, password: proxies.credentials.password }))) : undefined;
       try {
         const labels = cell.variant === 'isolation' ? ['A', 'B'] : [null];
-        const sessions = await Promise.all(labels.map(() => IdentitySession.open({ profile: cell.profile, httpTier: cell.httpTier, purpose: cell.purpose, connection, keys, agentOrigin: directory.origin, contactUrl: 'https://automan.invalid/bot', timeoutMs: config.timeoutMs })));
+        const sessions = await Promise.all(labels.map(() => IdentitySession.open({ profile: cell.profile, httpTier: cell.httpTier, purpose: cell.purpose, connection, keys, agentOrigin: directory.origin, contactUrl: 'https://automan.invalid/bot', timeoutMs: config.timeoutMs, proxyPool: pool })));
         const start = performance.now();
         const outputs = await Promise.all(sessions.map(async (session, index) => {
           const label = labels[index]!;
           // Mid-session key events, after the first page: a planned rotation, or a revocation followed by a new key.
-          const afterPage = (page: number) => { if (page !== 0 || index !== 0) return; if (cell.variant === 'key-rotation') keys.rotate(); if (cell.variant === 'key-revoked') { keys.revoke(keys.active()!.kid); keys.rotate(); } };
+          // Proxy events: the session's current upstream goes down, or every upstream does.
+          const afterPage = (page: number) => {
+            if (page !== 0 || index !== 0) return; if (cell.variant === 'key-rotation') keys.rotate(); if (cell.variant === 'key-revoked') { keys.revoke(keys.active()!.kid); keys.rotate(); }
+            if (proxies && cell.variant !== 'proxy-sticky') { const current = proxies.tunnels.filter(t => t.session === session.stickyId).at(-1)?.proxy; for (const target of cell.variant === 'proxy-exhausted' ? [0, 1, 2] : current === undefined ? [] : [current]) { downAt.set(target, performance.now()); proxies.takeDown(target); } }
+          };
           try { return { label, records: await crawl(session, site.startUrl(label ?? undefined), afterPage) }; }
           catch (error) { return { label, error: error instanceof StopError ? error.message : `E_TASK: ${error instanceof Error ? error.message : String(error)}` }; }
         }));
         const elapsed = performance.now() - start;
         for (const session of sessions) { signatures += session.signatures; retries += session.retries; journaled += session.journal.length; await session.close(); }
-        const verdict: IdentityVerdict = await site.verify(outputs, { profile: cell.profile, purpose: cell.purpose, productToken });
+        const verdict: IdentityVerdict & { violations: Record<string, number> } = await site.verify(outputs, { profile: cell.profile, purpose: cell.purpose, productToken });
+        if (proxies) { const proxyReasons = proxies.judge(cell.variant, sessions.map(s => s.stickyId), downAt); verdict.violations.proxy = proxyReasons.length; verdict.reasons.push(...proxyReasons); proxyBytes += proxies.tunnels.reduce((sum, t) => sum + t.bytes, 0); }
         for (const [kind, count] of Object.entries(verdict.violations)) violations[kind] = (violations[kind] ?? 0) + count;
         if (!verdict.violations.data && !verdict.violations.policy) taskMs.push(elapsed);
         if (concernOf(cell.variant).every(kind => !verdict.violations[kind])) verified++;
         if (outputs.some(output => output.error === undefined) && verdict.violations.data) falseSuccess++;
         reasons.push(...verdict.reasons.slice(0, 4).map(r => `r${repeat}: ${r}`));
-      } finally { await directory.close(); await site.close(); }
+      } finally { await directory.close(); await site.close(); await proxies?.close(); }
     }
   } finally { connection.close(); await browser.close(); }
-  return { ...cell, block, status: verified === config.repeats ? 'verified' : 'failed', repeats: config.repeats, verifiedRuns: verified, falseSuccess, violations, signatures, retries, journaled,
+  return { ...cell, block, status: verified === config.repeats ? 'verified' : 'failed', repeats: config.repeats, verifiedRuns: verified, falseSuccess, violations, signatures, retries, journaled, proxyBytes,
     concern: concernOf(cell.variant), taskP50MsVerified: quantiles(taskMs).p50, reasons: [...new Set(reasons)].slice(0, 12) };
 }

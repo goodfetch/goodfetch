@@ -1,6 +1,6 @@
 {
  "schemaVersion": 1,
- "classificationSha256": "58cb8dd673762bf112011f3a21ab2334684e8b7368b74aa835e3591d3fe00e29",
+ "classificationSha256": "725ccd49494b52a2334c6c66167fcb2f6a1d703b887c8805c0a89f2bec6c5118",
  "entries": [
   {
    "runId": "smoke-2026-10-07T20-20-24-226Z-9ebb47",
@@ -2931,9 +2931,9 @@
    "startedAt": "2026-10-08T17:42:02.124Z",
    "status": "complete",
    "hostClass": "local-dev",
-   "role": "selected",
-   "supersededBy": null,
-   "reason": "empreintes TLS (JA4) et HTTP/2 de huit clients, cohérence de session",
+   "role": "superseded",
+   "supersededBy": "tls-fingerprint-2026-10-08T19-32-26-736Z-f42991",
+   "reason": "empreintes TLS (JA4) et HTTP/2 de huit clients, cohérence de session ; JA4 comptait le GREASE des algorithmes de signature",
    "validity": [
     {
      "scope": "identity-coherence",
@@ -3605,9 +3605,9 @@
    "startedAt": "2026-10-08T19:08:09.611Z",
    "status": "complete",
    "hostClass": "local-dev",
-   "role": "selected",
-   "supersededBy": null,
-   "reason": "identité : cohérence entre tiers HTTP et navigateur, rotation et révocation de clé, trois tiers HTTP",
+   "role": "superseded",
+   "supersededBy": "identity-coherence-2026-10-08T19-32-36-456Z-419b62",
+   "reason": "identité : cohérence entre tiers HTTP et navigateur, rotation et révocation de clé, trois tiers HTTP ; JA4 comptait le GREASE des algorithmes de signature",
    "validity": [
     {
      "scope": "identity-contract",
@@ -3623,14 +3623,12 @@
    "decisionIds": [
     "D-identity"
    ],
-   "citedIn": [
-    "lab/reports/identity-2026-10-08.md"
-   ],
+   "citedIn": [],
    "integrity": "uncatalogued",
    "rerun": {
-    "required": true,
-    "priority": "P2",
-    "hostClass": "local-controlled"
+    "required": false,
+    "priority": null,
+    "hostClass": null
    },
    "imported": "results/identity-coherence-2026-10-08T19-08-09-611Z-deb797/run.v2.json"
   },
@@ -3672,9 +3670,9 @@
    "startedAt": "2026-10-08T19:15:24.150Z",
    "status": "complete",
    "hostClass": "local-dev",
-   "role": "selected",
-   "supersededBy": null,
-   "reason": "identité : deux sessions simultanées, cookies et stockage séparés",
+   "role": "superseded",
+   "supersededBy": "session-isolation-2026-10-08T19-34-55-558Z-f91765",
+   "reason": "identité : deux sessions simultanées, cookies et stockage séparés ; JA4 comptait le GREASE des algorithmes de signature",
    "validity": [
     {
      "scope": "isolation-contract",
@@ -3685,9 +3683,7 @@
    "decisionIds": [
     "D-identity"
    ],
-   "citedIn": [
-    "lab/reports/identity-2026-10-08.md"
-   ],
+   "citedIn": [],
    "integrity": "uncatalogued",
    "rerun": {
     "required": false,
@@ -3769,6 +3765,136 @@
     "hostClass": "local-controlled"
    },
    "imported": "results/durable-scheduler-2026-10-08T19-23-13-402Z-a1f48f/run.v2.json"
+  },
+  {
+   "runId": "tls-fingerprint-2026-10-08T19-32-26-736Z-f42991",
+   "lane": "actionability",
+   "campaign": "tls-fingerprint",
+   "startedAt": "2026-10-08T19:32:26.736Z",
+   "status": "complete",
+   "hostClass": "local-dev",
+   "role": "selected",
+   "supersededBy": null,
+   "reason": "empreintes TLS (JA4) et HTTP/2 de huit clients, cohérence de session",
+   "validity": [
+    {
+     "scope": "identity-coherence",
+     "class": "A",
+     "note": "Crawlee change de liste de chiffrements en cours de session ; Chrome garde un seul JA4"
+    }
+   ],
+   "decisionIds": [
+    "D-identity",
+    "D-http-transport"
+   ],
+   "citedIn": [
+    "lab/reports/tls-fingerprint-2026-10-08.md"
+   ],
+   "integrity": "uncatalogued",
+   "rerun": {
+    "required": false,
+    "priority": null,
+    "hostClass": null
+   },
+   "imported": "results/tls-fingerprint-2026-10-08T19-32-26-736Z-f42991/run.v2.json"
+  },
+  {
+   "runId": "identity-coherence-2026-10-08T19-32-36-456Z-419b62",
+   "lane": "identity",
+   "campaign": "identity-coherence",
+   "startedAt": "2026-10-08T19:32:36.456Z",
+   "status": "complete",
+   "hostClass": "local-dev",
+   "role": "selected",
+   "supersededBy": null,
+   "reason": "identité : cohérence entre tiers HTTP et navigateur, rotation et révocation de clé, trois tiers HTTP",
+   "validity": [
+    {
+     "scope": "identity-contract",
+     "class": "A",
+     "note": "oracle du site, signatures vérifiées par web-bot-auth"
+    },
+    {
+     "scope": "timing",
+     "class": "B",
+     "note": "local-dev, Mac en usage"
+    }
+   ],
+   "decisionIds": [
+    "D-identity"
+   ],
+   "citedIn": [
+    "lab/reports/identity-2026-10-08.md"
+   ],
+   "integrity": "uncatalogued",
+   "rerun": {
+    "required": true,
+    "priority": "P2",
+    "hostClass": "local-controlled"
+   },
+   "imported": "results/identity-coherence-2026-10-08T19-32-36-456Z-419b62/run.v2.json"
+  },
+  {
+   "runId": "session-isolation-2026-10-08T19-34-55-558Z-f91765",
+   "lane": "identity",
+   "campaign": "session-isolation",
+   "startedAt": "2026-10-08T19:34:55.558Z",
+   "status": "complete",
+   "hostClass": "local-dev",
+   "role": "selected",
+   "supersededBy": null,
+   "reason": "identité : deux sessions simultanées, cookies et stockage séparés",
+   "validity": [
+    {
+     "scope": "isolation-contract",
+     "class": "A",
+     "note": "témoins par session"
+    }
+   ],
+   "decisionIds": [
+    "D-identity"
+   ],
+   "citedIn": [
+    "lab/reports/identity-2026-10-08.md"
+   ],
+   "integrity": "uncatalogued",
+   "rerun": {
+    "required": false,
+    "priority": null,
+    "hostClass": null
+   },
+   "imported": "results/session-isolation-2026-10-08T19-34-55-558Z-f91765/run.v2.json"
+  },
+  {
+   "runId": "proxy-pool-2026-10-08T19-35-52-648Z-de827b",
+   "lane": "identity",
+   "campaign": "proxy-pool",
+   "startedAt": "2026-10-08T19:35:52.648Z",
+   "status": "complete",
+   "hostClass": "local-dev",
+   "role": "selected",
+   "supersededBy": null,
+   "reason": "identité : proxies amont collants, bascule sur panne dans le budget, arrêt explicite à l'épuisement",
+   "validity": [
+    {
+     "scope": "proxy-contract",
+     "class": "A",
+     "note": "juge sur les tunnels relevés par les proxies de la fixture"
+    }
+   ],
+   "decisionIds": [
+    "D-identity"
+   ],
+   "citedIn": [
+    "lab/reports/identity-2026-10-08.md"
+   ],
+   "integrity": "uncatalogued",
+   "rerun": {
+    "required": false,
+    "priority": null,
+    "hostClass": null
+   },
+   "imported": "results/proxy-pool-2026-10-08T19-35-52-648Z-de827b/run.v2.json"
   }
  ]
 }

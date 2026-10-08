@@ -2081,9 +2081,9 @@
       }
     },
     "tls-fingerprint-2026-10-08T17-42-02-124Z-1dec60": {
-      "role": "selected",
-      "reason": "empreintes TLS (JA4) et HTTP/2 de huit clients, cohérence de session",
-      "supersededBy": null,
+      "role": "superseded",
+      "reason": "empreintes TLS (JA4) et HTTP/2 de huit clients, cohérence de session ; JA4 comptait le GREASE des algorithmes de signature",
+      "supersededBy": "tls-fingerprint-2026-10-08T19-32-26-736Z-f42991",
       "decisionIds": [
         "D-identity",
         "D-http-transport"
@@ -2517,9 +2517,9 @@
       }
     },
     "identity-coherence-2026-10-08T19-08-09-611Z-deb797": {
-      "role": "selected",
-      "reason": "identité : cohérence entre tiers HTTP et navigateur, rotation et révocation de clé, trois tiers HTTP",
-      "supersededBy": null,
+      "role": "superseded",
+      "reason": "identité : cohérence entre tiers HTTP et navigateur, rotation et révocation de clé, trois tiers HTTP ; JA4 comptait le GREASE des algorithmes de signature",
+      "supersededBy": "identity-coherence-2026-10-08T19-32-36-456Z-419b62",
       "decisionIds": [
         "D-identity"
       ],
@@ -2537,9 +2537,9 @@
       ],
       "noisyHost": false,
       "rerun": {
-        "required": true,
-        "priority": "P2",
-        "hostClass": "local-controlled"
+        "required": false,
+        "priority": null,
+        "hostClass": null
       }
     },
     "policy-fixtures-2026-10-08T19-11-08-127Z-31838d": {
@@ -2564,9 +2564,9 @@
       }
     },
     "session-isolation-2026-10-08T19-15-24-150Z-001cf2": {
-      "role": "selected",
-      "reason": "identité : deux sessions simultanées, cookies et stockage séparés",
-      "supersededBy": null,
+      "role": "superseded",
+      "reason": "identité : deux sessions simultanées, cookies et stockage séparés ; JA4 comptait le GREASE des algorithmes de signature",
+      "supersededBy": "session-isolation-2026-10-08T19-34-55-558Z-f91765",
       "decisionIds": [
         "D-identity"
       ],
@@ -2678,6 +2678,96 @@
         "required": true,
         "priority": "P1",
         "hostClass": "local-controlled"
+      }
+    },
+    "tls-fingerprint-2026-10-08T19-32-26-736Z-f42991": {
+      "role": "selected",
+      "reason": "empreintes TLS (JA4) et HTTP/2 de huit clients, cohérence de session",
+      "supersededBy": null,
+      "decisionIds": [
+        "D-identity",
+        "D-http-transport"
+      ],
+      "validity": [
+        {
+          "scope": "identity-coherence",
+          "class": "A",
+          "note": "Crawlee change de liste de chiffrements en cours de session ; Chrome garde un seul JA4"
+        }
+      ],
+      "noisyHost": false,
+      "rerun": {
+        "required": false,
+        "priority": null,
+        "hostClass": null
+      }
+    },
+    "identity-coherence-2026-10-08T19-32-36-456Z-419b62": {
+      "role": "selected",
+      "reason": "identité : cohérence entre tiers HTTP et navigateur, rotation et révocation de clé, trois tiers HTTP",
+      "supersededBy": null,
+      "decisionIds": [
+        "D-identity"
+      ],
+      "validity": [
+        {
+          "scope": "identity-contract",
+          "class": "A",
+          "note": "oracle du site, signatures vérifiées par web-bot-auth"
+        },
+        {
+          "scope": "timing",
+          "class": "B",
+          "note": "local-dev, Mac en usage"
+        }
+      ],
+      "noisyHost": false,
+      "rerun": {
+        "required": true,
+        "priority": "P2",
+        "hostClass": "local-controlled"
+      }
+    },
+    "session-isolation-2026-10-08T19-34-55-558Z-f91765": {
+      "role": "selected",
+      "reason": "identité : deux sessions simultanées, cookies et stockage séparés",
+      "supersededBy": null,
+      "decisionIds": [
+        "D-identity"
+      ],
+      "validity": [
+        {
+          "scope": "isolation-contract",
+          "class": "A",
+          "note": "témoins par session"
+        }
+      ],
+      "noisyHost": false,
+      "rerun": {
+        "required": false,
+        "priority": null,
+        "hostClass": null
+      }
+    },
+    "proxy-pool-2026-10-08T19-35-52-648Z-de827b": {
+      "role": "selected",
+      "reason": "identité : proxies amont collants, bascule sur panne dans le budget, arrêt explicite à l'épuisement",
+      "supersededBy": null,
+      "decisionIds": [
+        "D-identity"
+      ],
+      "validity": [
+        {
+          "scope": "proxy-contract",
+          "class": "A",
+          "note": "juge sur les tunnels relevés par les proxies de la fixture"
+        }
+      ],
+      "noisyHost": false,
+      "rerun": {
+        "required": false,
+        "priority": null,
+        "hostClass": null
       }
     }
   }

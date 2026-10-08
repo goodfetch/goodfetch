@@ -2515,6 +2515,116 @@
         "priority": null,
         "hostClass": null
       }
+    },
+    "identity-coherence-2026-10-08T19-08-09-611Z-deb797": {
+      "role": "selected",
+      "reason": "identité : cohérence entre tiers HTTP et navigateur, rotation et révocation de clé, trois tiers HTTP",
+      "supersededBy": null,
+      "decisionIds": [
+        "D-identity"
+      ],
+      "validity": [
+        {
+          "scope": "identity-contract",
+          "class": "A",
+          "note": "oracle du site, signatures vérifiées par web-bot-auth"
+        },
+        {
+          "scope": "timing",
+          "class": "B",
+          "note": "local-dev, Mac en usage"
+        }
+      ],
+      "noisyHost": false,
+      "rerun": {
+        "required": true,
+        "priority": "P2",
+        "hostClass": "local-controlled"
+      }
+    },
+    "policy-fixtures-2026-10-08T19-11-08-127Z-31838d": {
+      "role": "selected",
+      "reason": "identité : préférences des sites par profil et finalité, signaux d'arrêt",
+      "supersededBy": null,
+      "decisionIds": [
+        "D-identity"
+      ],
+      "validity": [
+        {
+          "scope": "policy-contract",
+          "class": "A",
+          "note": "robots.txt, Content-Signal, TDMRep, noai, 402/403/challenge/429"
+        }
+      ],
+      "noisyHost": false,
+      "rerun": {
+        "required": false,
+        "priority": null,
+        "hostClass": null
+      }
+    },
+    "session-isolation-2026-10-08T19-15-24-150Z-001cf2": {
+      "role": "selected",
+      "reason": "identité : deux sessions simultanées, cookies et stockage séparés",
+      "supersededBy": null,
+      "decisionIds": [
+        "D-identity"
+      ],
+      "validity": [
+        {
+          "scope": "isolation-contract",
+          "class": "A",
+          "note": "témoins par session"
+        }
+      ],
+      "noisyHost": false,
+      "rerun": {
+        "required": false,
+        "priority": null,
+        "hostClass": null
+      }
+    },
+    "identity-coherence-2026-10-08T19-01-12-225Z-2b3452": {
+      "role": "diagnostic",
+      "reason": "oracle d'avant la correction des chargements de favicon, ou run interrompu",
+      "supersededBy": "identity-coherence-2026-10-08T19-08-09-611Z-deb797",
+      "decisionIds": [
+        "D-identity"
+      ],
+      "validity": [
+        {
+          "scope": "all",
+          "class": "none",
+          "note": "oracle corrigé ensuite"
+        }
+      ],
+      "noisyHost": false,
+      "rerun": {
+        "required": false,
+        "priority": null,
+        "hostClass": null
+      }
+    },
+    "policy-fixtures-2026-10-08T19-06-24-241Z-00a1ff": {
+      "role": "diagnostic",
+      "reason": "oracle d'avant la correction des chargements de favicon, ou run interrompu",
+      "supersededBy": "policy-fixtures-2026-10-08T19-11-08-127Z-31838d",
+      "decisionIds": [
+        "D-identity"
+      ],
+      "validity": [
+        {
+          "scope": "all",
+          "class": "none",
+          "note": "oracle corrigé ensuite"
+        }
+      ],
+      "noisyHost": false,
+      "rerun": {
+        "required": false,
+        "priority": null,
+        "hostClass": null
+      }
     }
   }
 }

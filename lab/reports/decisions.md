@@ -48,7 +48,10 @@ Rapport généré par `pnpm lab report` depuis `decisions/` et `verdicts/`. Les 
 | D-extraction | open | pas encore calculé | | | requis local-controlled | oracle-exact |
 | D-feature-priority | open | produit : research/market/README.md | | | | |
 | D-http-transport | open | pas encore calculé | | | requis local-controlled | oracle-exact, policy-compliance |
-| D-identity | open | pas encore calculé | | | requis local-controlled | identity-coherence, policy-compliance, false-success-count, session-isolation |
+| D-identity | open | impit-chrome / browser-fetch [variant coherent, profile identified, purpose search] : bloqué par un contrat |  | 0 | local-dev / requis local-controlled (non éligible) | identity-coherence échec, policy-compliance ok, false-success-count ok, session-isolation ok |
+|  |  | impit-chrome / browser-fetch [variant coherent, profile standard, purpose search] : bloqué par un contrat |  | 0 | local-dev / requis local-controlled (non éligible) | identity-coherence échec, policy-compliance ok, false-success-count ok, session-isolation ok |
+|  |  | node-https / browser-fetch [variant coherent, profile identified, purpose search] : bloqué par un contrat |  | 0 | local-dev / requis local-controlled (non éligible) | identity-coherence échec, policy-compliance ok, false-success-count ok, session-isolation ok |
+|  |  | node-https / browser-fetch [variant coherent, profile standard, purpose search] : bloqué par un contrat |  | 0 | local-dev / requis local-controlled (non éligible) | identity-coherence échec, policy-compliance ok, false-success-count ok, session-isolation ok |
 | D-light-engine | open | pas encore calculé | | | requis local-controlled | oracle-exact, false-success-count |
 | D-pricing | open | produit : research/2026-10-07-commercial-landscape.md, research/market/README.md | | | | |
 | D-segment | open | produit : research/2026-10-07-direction-automan.md, research/market/README.md | | | | |

@@ -1,6 +1,6 @@
 {
  "schemaVersion": 1,
- "classificationSha256": "d56c1ac63f2883da707b32a1584959059bc6638894c743ccf9a2cf95724b9da7",
+ "classificationSha256": "ef08a0998079bc33799c55a739a75cea6b05620fc875c2c7b68f575428013142",
  "entries": [
   {
    "runId": "smoke-2026-10-07T20-20-24-226Z-9ebb47",
@@ -3539,6 +3539,162 @@
     "hostClass": null
    },
    "imported": "results/ai-replay-repair-2026-10-08T18-36-20-202Z-8f0ce3/run.v2.json"
+  },
+  {
+   "runId": "identity-coherence-2026-10-08T19-01-12-225Z-2b3452",
+   "lane": "identity",
+   "campaign": "identity-coherence",
+   "startedAt": "2026-10-08T19:01:12.225Z",
+   "status": "invalid-provenance",
+   "hostClass": "local-dev",
+   "role": "diagnostic",
+   "supersededBy": "identity-coherence-2026-10-08T19-08-09-611Z-deb797",
+   "reason": "oracle d'avant la correction des chargements de favicon, ou run interrompu",
+   "validity": [
+    {
+     "scope": "all",
+     "class": "none",
+     "note": "oracle corrigé ensuite"
+    }
+   ],
+   "decisionIds": [
+    "D-identity"
+   ],
+   "citedIn": [],
+   "integrity": "uncatalogued",
+   "rerun": {
+    "required": false,
+    "priority": null,
+    "hostClass": null
+   },
+   "imported": "results/identity-coherence-2026-10-08T19-01-12-225Z-2b3452/run.v2.json"
+  },
+  {
+   "runId": "policy-fixtures-2026-10-08T19-06-24-241Z-00a1ff",
+   "lane": "bench",
+   "campaign": "policy-fixtures",
+   "startedAt": "2026-10-08T19:06:24.241Z",
+   "status": "interrupted",
+   "hostClass": "local-dev",
+   "role": "diagnostic",
+   "supersededBy": "policy-fixtures-2026-10-08T19-11-08-127Z-31838d",
+   "reason": "oracle d'avant la correction des chargements de favicon, ou run interrompu",
+   "validity": [
+    {
+     "scope": "all",
+     "class": "none",
+     "note": "oracle corrigé ensuite"
+    }
+   ],
+   "decisionIds": [
+    "D-identity"
+   ],
+   "citedIn": [],
+   "integrity": "uncatalogued",
+   "rerun": {
+    "required": false,
+    "priority": null,
+    "hostClass": null
+   },
+   "imported": "ledger/imported/policy-fixtures-2026-10-08T19-06-24-241Z-00a1ff/run.v2.json"
+  },
+  {
+   "runId": "identity-coherence-2026-10-08T19-08-09-611Z-deb797",
+   "lane": "identity",
+   "campaign": "identity-coherence",
+   "startedAt": "2026-10-08T19:08:09.611Z",
+   "status": "complete",
+   "hostClass": "local-dev",
+   "role": "selected",
+   "supersededBy": null,
+   "reason": "identité : cohérence entre tiers HTTP et navigateur, rotation et révocation de clé, trois tiers HTTP",
+   "validity": [
+    {
+     "scope": "identity-contract",
+     "class": "A",
+     "note": "oracle du site, signatures vérifiées par web-bot-auth"
+    },
+    {
+     "scope": "timing",
+     "class": "B",
+     "note": "local-dev, Mac en usage"
+    }
+   ],
+   "decisionIds": [
+    "D-identity"
+   ],
+   "citedIn": [
+    "lab/reports/identity-2026-10-08.md"
+   ],
+   "integrity": "uncatalogued",
+   "rerun": {
+    "required": true,
+    "priority": "P2",
+    "hostClass": "local-controlled"
+   },
+   "imported": "results/identity-coherence-2026-10-08T19-08-09-611Z-deb797/run.v2.json"
+  },
+  {
+   "runId": "policy-fixtures-2026-10-08T19-11-08-127Z-31838d",
+   "lane": "identity",
+   "campaign": "policy-fixtures",
+   "startedAt": "2026-10-08T19:11:08.127Z",
+   "status": "complete",
+   "hostClass": "local-dev",
+   "role": "selected",
+   "supersededBy": null,
+   "reason": "identité : préférences des sites par profil et finalité, signaux d'arrêt",
+   "validity": [
+    {
+     "scope": "policy-contract",
+     "class": "A",
+     "note": "robots.txt, Content-Signal, TDMRep, noai, 402/403/challenge/429"
+    }
+   ],
+   "decisionIds": [
+    "D-identity"
+   ],
+   "citedIn": [
+    "lab/reports/identity-2026-10-08.md"
+   ],
+   "integrity": "uncatalogued",
+   "rerun": {
+    "required": false,
+    "priority": null,
+    "hostClass": null
+   },
+   "imported": "results/policy-fixtures-2026-10-08T19-11-08-127Z-31838d/run.v2.json"
+  },
+  {
+   "runId": "session-isolation-2026-10-08T19-15-24-150Z-001cf2",
+   "lane": "identity",
+   "campaign": "session-isolation",
+   "startedAt": "2026-10-08T19:15:24.150Z",
+   "status": "complete",
+   "hostClass": "local-dev",
+   "role": "selected",
+   "supersededBy": null,
+   "reason": "identité : deux sessions simultanées, cookies et stockage séparés",
+   "validity": [
+    {
+     "scope": "isolation-contract",
+     "class": "A",
+     "note": "témoins par session"
+    }
+   ],
+   "decisionIds": [
+    "D-identity"
+   ],
+   "citedIn": [
+    "lab/reports/identity-2026-10-08.md"
+   ],
+   "integrity": "uncatalogued",
+   "rerun": {
+    "required": false,
+    "priority": null,
+    "hostClass": null
+   },
+   "imported": "results/session-isolation-2026-10-08T19-15-24-150Z-001cf2/run.v2.json"
   }
  ]
 }

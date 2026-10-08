@@ -3,7 +3,9 @@
   "private": true,
   "type": "module",
   "packageManager": "pnpm@12.9.1",
-  "engines": { "node": ">=24.0.0" },
+  "engines": {
+    "node": ">=24.0.0"
+  },
   "scripts": {
     "test": "node --test tests/*.test.ts",
     "integration": "node --test tests/integration/*.test.ts",
@@ -19,7 +21,12 @@
     "runtime": "node src/runtime-campaign.ts",
     "actionability": "node src/actionability-campaign.ts",
     "sqlite-readers": "node src/sqlite-readers-campaign.ts",
-    "report": "node src/cli.ts report"
+    "report": "node src/cli.ts report",
+    "lab": "node tools/lab.ts"
   },
-  "devDependencies": { "typescript": "7.0.2", "@types/node": "26.6.4" }
+  "devDependencies": {
+    "@types/node": "26.6.4",
+    "ajv": "8.20.0",
+    "typescript": "7.0.2"
+  }
 }

@@ -1,0 +1,353 @@
+{
+ "schemaVersion": 2,
+ "runId": "storage-shared-checkpoint-2026-10-07T22-24-20-072Z-de4c14",
+ "lane": "storage",
+ "campaign": {
+  "id": "storage-shared-checkpoint",
+  "source": "campaigns/storage-shared-checkpoint.json"
+ },
+ "startedAt": "2026-10-07T22:24:20.072Z",
+ "decisionIds": [
+  "D-storage",
+  "D-core-language"
+ ],
+ "provenance": {
+  "git": {
+   "available": false,
+   "sha": null,
+   "dirty": null
+  },
+  "sourceTreeSha256": "ecf51249b46e4b173f2250e9e58c91d4926eacf45723cee592e839a0e85ab09d",
+  "sourceChanges": 0,
+  "binaryChanges": null,
+  "toolchains": {
+   "node": "v25.5.0",
+   "browser": null
+  },
+  "integrity": {
+   "status": "verified",
+   "checked": 62,
+   "mismatches": []
+  }
+ },
+ "host": {
+  "classRequested": null,
+  "classGranted": "local-dev",
+  "os": "27.0.0",
+  "arch": "arm64",
+  "cpu": "Apple M3 Max",
+  "logicalCpus": null,
+  "memoryBytes": 38654705664,
+  "preflight": null,
+  "postflight": null
+ },
+ "status": "complete",
+ "countUnit": "cell",
+ "cells": [
+  {
+   "cellId": "a1de290ad568-0",
+   "factors": {
+    "engine": "node-shared",
+    "format": "sqlite-wal-full",
+    "batchSize": 1000,
+    "writers": 1,
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-rows-per-second": {
+     "value": 173932.92098620924,
+     "unit": "row/s",
+     "source": "legacy-summary"
+    }
+   }
+  },
+  {
+   "cellId": "291595d8261f-1",
+   "factors": {
+    "engine": "go-sync",
+    "format": "sqlite-wal-full",
+    "batchSize": 1000,
+    "writers": 1,
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-rows-per-second": {
+     "value": 258242.52158844276,
+     "unit": "row/s",
+     "source": "legacy-summary"
+    }
+   }
+  },
+  {
+   "cellId": "2001df062962-2",
+   "factors": {
+    "engine": "rust-sync",
+    "format": "sqlite-wal-full",
+    "batchSize": 1000,
+    "writers": 1,
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-rows-per-second": {
+     "value": 254538.4402759357,
+     "unit": "row/s",
+     "source": "legacy-summary"
+    }
+   }
+  },
+  {
+   "cellId": "f9538722cc4e-3",
+   "factors": {
+    "engine": "go-sync",
+    "format": "sqlite-wal-full",
+    "batchSize": 1000,
+    "writers": 1,
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-rows-per-second": {
+     "value": 243409.9704385183,
+     "unit": "row/s",
+     "source": "legacy-summary"
+    }
+   }
+  },
+  {
+   "cellId": "cfa9dfbea033-4",
+   "factors": {
+    "engine": "rust-sync",
+    "format": "sqlite-wal-full",
+    "batchSize": 1000,
+    "writers": 1,
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-rows-per-second": {
+     "value": 289134.3457436702,
+     "unit": "row/s",
+     "source": "legacy-summary"
+    }
+   }
+  },
+  {
+   "cellId": "3ec70ce48aa5-5",
+   "factors": {
+    "engine": "node-shared",
+    "format": "sqlite-wal-full",
+    "batchSize": 1000,
+    "writers": 1,
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-rows-per-second": {
+     "value": 220256.273864595,
+     "unit": "row/s",
+     "source": "legacy-summary"
+    }
+   }
+  },
+  {
+   "cellId": "2b637c38f5ca-6",
+   "factors": {
+    "engine": "go-sync",
+    "format": "sqlite-wal-full",
+    "batchSize": 1000,
+    "writers": 1,
+    "block": 2
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-rows-per-second": {
+     "value": 241904.39232860718,
+     "unit": "row/s",
+     "source": "legacy-summary"
+    }
+   }
+  },
+  {
+   "cellId": "c0e72d2678f0-7",
+   "factors": {
+    "engine": "node-shared",
+    "format": "sqlite-wal-full",
+    "batchSize": 1000,
+    "writers": 1,
+    "block": 2
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-rows-per-second": {
+     "value": 230155.57514744272,
+     "unit": "row/s",
+     "source": "legacy-summary"
+    }
+   }
+  },
+  {
+   "cellId": "c62ea8b66851-8",
+   "factors": {
+    "engine": "rust-sync",
+    "format": "sqlite-wal-full",
+    "batchSize": 1000,
+    "writers": 1,
+    "block": 2
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-rows-per-second": {
+     "value": 273406.7117075744,
+     "unit": "row/s",
+     "source": "legacy-summary"
+    }
+   }
+  }
+ ],
+ "totals": {
+  "verified": 9,
+  "failed": 0,
+  "timeout": 0,
+  "crashed": 0,
+  "aborted": 0,
+  "unsupported": 0,
+  "rejected": 0,
+  "unavailable": 0,
+  "skipped": 0
+ },
+ "metricAvailability": {
+  "pss-peak-bytes": {
+   "available": false,
+   "reason": "linux-only probe; legacy run on 27.0.0"
+  },
+  "cgroup-memory-peak-bytes": {
+   "available": false,
+   "reason": "linux-only probe; legacy run on 27.0.0"
+  },
+  "cpu-ms-per-verified-job": {
+   "available": false,
+   "reason": "CPU was not instrumented in this legacy lane"
+  },
+  "footprint-peak-bytes": {
+   "available": false,
+   "reason": "footprint was not instrumented in this legacy lane"
+  }
+ },
+ "legacy": {
+  "shape": "cells",
+  "sourceDir": "results/storage-shared-checkpoint-2026-10-07T22-24-20-072Z-de4c14",
+  "errorCodeInferred": false,
+  "note": null
+ }
+}

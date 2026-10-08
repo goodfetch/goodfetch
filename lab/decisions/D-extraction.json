@@ -1,0 +1,62 @@
+{
+  "id": "D-extraction",
+  "title": "Parsing et extraction",
+  "question": "Quelle combinaison de parser, conversion Markdown et extraction de contenu principal adopter ?",
+  "kind": "technical",
+  "status": "open",
+  "options": [
+    {
+      "id": "html5ever-scraper",
+      "description": "html5ever et scraper pour les sélecteurs"
+    },
+    {
+      "id": "lol-html-streaming",
+      "description": "lol_html en streaming"
+    },
+    {
+      "id": "htmd",
+      "description": "htmd pour HTML vers Markdown"
+    },
+    {
+      "id": "trafilatura-class",
+      "description": "extracteur de contenu principal de type trafilatura"
+    }
+  ],
+  "baseline": "html5ever-scraper",
+  "primaryMetric": {
+    "metricId": "extraction-f1",
+    "blockStatistic": "median"
+  },
+  "secondaryMetrics": [
+    "cpu-ms-per-verified-job",
+    "field-precision",
+    "field-recall"
+  ],
+  "contractGates": [
+    "oracle-exact"
+  ],
+  "delta": {
+    "kind": "ratio",
+    "value": 0.05
+  },
+  "rule": {
+    "kind": "non-inferiority",
+    "alpha": 0.05,
+    "power": 0.8,
+    "noisyBlockPolicy": "exclude"
+  },
+  "hostClass": {
+    "decision": "local-controlled",
+    "publication": "reference"
+  },
+  "networkProfiles": [],
+  "campaigns": [
+    "parsing-representative",
+    "extraction-quality-t1"
+  ],
+  "evidence": [],
+  "verdictRef": null,
+  "adr": null,
+  "dependsOn": [],
+  "notes": "La qualité se mesure sur pages réelles figées et par type de page ; la vitesse est secondaire tant que la qualité n'est pas équivalente."
+}

@@ -1,0 +1,119 @@
+{
+  "id": "D-browser-driver",
+  "title": "Pilote navigateur par défaut",
+  "question": "Quel pilote Chromium sert de backend par défaut, à garanties d'actionnabilité égales ?",
+  "kind": "technical",
+  "status": "open",
+  "options": [
+    {
+      "id": "rust-cdp-guarded",
+      "description": "Pilote CDP Rust avec garde Automan",
+      "adapters": [
+        "rust-cdp"
+      ]
+    },
+    {
+      "id": "node-cdp-guarded",
+      "description": "Référence CDP directe Node avec la même garde",
+      "adapters": [
+        "node-cdp"
+      ]
+    },
+    {
+      "id": "puppeteer-guarded",
+      "description": "Puppeteer avec garde",
+      "adapters": [
+        "puppeteer"
+      ]
+    },
+    {
+      "id": "playwright-native",
+      "description": "Playwright, garanties natives",
+      "adapters": [
+        "playwright"
+      ]
+    },
+    {
+      "id": "stagehand-v4",
+      "description": "Stagehand v4 primitives et batch",
+      "adapters": [
+        "stagehand",
+        "stagehand-batch"
+      ]
+    }
+  ],
+  "baseline": "playwright-native",
+  "primaryMetric": {
+    "metricId": "task-p50-ms-verified",
+    "blockStatistic": "median"
+  },
+  "secondaryMetrics": [
+    "cpu-ms-per-verified-job",
+    "footprint-peak-bytes",
+    "cdp-commands-per-task",
+    "startup-ms"
+  ],
+  "contractGates": [
+    "actionability-conformance",
+    "false-success-count",
+    "oracle-exact"
+  ],
+  "delta": {
+    "kind": "ratio",
+    "value": 0.1
+  },
+  "rule": {
+    "kind": "superiority",
+    "alpha": 0.05,
+    "power": 0.8,
+    "noisyBlockPolicy": "exclude"
+  },
+  "hostClass": {
+    "decision": "local-controlled",
+    "publication": "reference"
+  },
+  "networkProfiles": [
+    {
+      "link": "driver-browser",
+      "rttMs": 0
+    },
+    {
+      "link": "driver-browser",
+      "rttMs": 20
+    },
+    {
+      "link": "driver-browser",
+      "rttMs": 100
+    },
+    {
+      "link": "driver-browser",
+      "rttMs": 300
+    }
+  ],
+  "campaigns": [
+    "browser-driver-primitives",
+    "browser-driver-rtt",
+    "browser-actionability-extended",
+    "browser-navigation-frames-files"
+  ],
+  "evidence": [
+    {
+      "kind": "run",
+      "ref": "browser-actionability-2026-10-07T23-38-33-163Z-ccad1f",
+      "note": "matrice native"
+    },
+    {
+      "kind": "run",
+      "ref": "browser-actionability-2026-10-08T00-21-16-186Z-b21a28",
+      "note": "garde corrigée"
+    },
+    {
+      "kind": "run",
+      "ref": "browser-primitives-2026-10-07T21-33-08-604Z-f6b1a0"
+    }
+  ],
+  "verdictRef": null,
+  "adr": null,
+  "dependsOn": [],
+  "notes": "La référence CDP directe en Node sépare l'effet du langage de celui du protocole. Aucun verdict de vitesse tant que la matrice d'actionnabilité étendue n'est pas entièrement conforme."
+}

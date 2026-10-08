@@ -1,0 +1,4509 @@
+{
+ "schemaVersion": 2,
+ "runId": "sqlite-readers-2026-10-08T00-25-35-434Z-92d4f3",
+ "lane": "sqlite-readers",
+ "campaign": {
+  "id": "sqlite-readers",
+  "source": null
+ },
+ "startedAt": "2026-10-08T00:25:35.434Z",
+ "decisionIds": [
+  "D-storage"
+ ],
+ "provenance": {
+  "git": {
+   "available": false,
+   "sha": null,
+   "dirty": null
+  },
+  "sourceTreeSha256": "f413479d6b60f7b74fd732e4fbcfa8d256dcb2e97b90513630afc57045dc57c3",
+  "sourceChanges": 0,
+  "binaryChanges": 0,
+  "toolchains": {
+   "node": "v25.5.0",
+   "browser": "Google Chrome for Testing 153.0.8010.12"
+  },
+  "integrity": {
+   "status": "verified",
+   "checked": 413,
+   "mismatches": []
+  }
+ },
+ "host": {
+  "classRequested": null,
+  "classGranted": "local-dev",
+  "os": "darwin",
+  "arch": "arm64",
+  "cpu": "Apple M3 Max",
+  "logicalCpus": 14,
+  "memoryBytes": 38654705664,
+  "preflight": null,
+  "postflight": null
+ },
+ "status": "complete",
+ "countUnit": "cell",
+ "cells": [
+  {
+   "cellId": "9bee2fea9d55-0",
+   "factors": {
+    "engine": "rust-sync",
+    "batchRows": 100,
+    "writers": 4,
+    "readerMode": "held",
+    "payloadBytes": 512,
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-rows-per-second": {
+     "value": 187113.71251137956,
+     "unit": "row/s",
+     "source": "legacy-summary"
+    },
+    "rss-peak-bytes": {
+     "value": 161464320,
+     "unit": "B",
+     "source": "legacy-summary; macOS proc_pid_rusage V4 with mach_timebase_info conversion; sampled root and descendants; existing coordinator counters subtract the initial baseline; new process counters use their observed lifetime; CPU/I/O can miss exited process tails; RSS sums double-count shared pages; disk counters are kernel-attributed I/O, not file bytes or a durability proof"
+    },
+    "footprint-peak-bytes": {
+     "value": 165851624,
+     "unit": "B",
+     "source": "legacy-summary; proc_pid_rusage V4"
+    }
+   }
+  },
+  {
+   "cellId": "fe6818ef768a-1",
+   "factors": {
+    "engine": "node-shared",
+    "batchRows": 100,
+    "writers": 1,
+    "readerMode": "short",
+    "payloadBytes": 512,
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-rows-per-second": {
+     "value": 194691.26564842416,
+     "unit": "row/s",
+     "source": "legacy-summary"
+    },
+    "rss-peak-bytes": {
+     "value": 303300608,
+     "unit": "B",
+     "source": "legacy-summary; macOS proc_pid_rusage V4 with mach_timebase_info conversion; sampled root and descendants; existing coordinator counters subtract the initial baseline; new process counters use their observed lifetime; CPU/I/O can miss exited process tails; RSS sums double-count shared pages; disk counters are kernel-attributed I/O, not file bytes or a durability proof"
+    },
+    "footprint-peak-bytes": {
+     "value": 277746456,
+     "unit": "B",
+     "source": "legacy-summary; proc_pid_rusage V4"
+    }
+   }
+  },
+  {
+   "cellId": "7cbd9cd351b4-2",
+   "factors": {
+    "engine": "go-sync",
+    "batchRows": 1000,
+    "writers": 1,
+    "readerMode": "none",
+    "payloadBytes": 512,
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-rows-per-second": {
+     "value": 248302.21806517994,
+     "unit": "row/s",
+     "source": "legacy-summary"
+    },
+    "rss-peak-bytes": {
+     "value": 287932416,
+     "unit": "B",
+     "source": "legacy-summary; macOS proc_pid_rusage V4 with mach_timebase_info conversion; sampled root and descendants; existing coordinator counters subtract the initial baseline; new process counters use their observed lifetime; CPU/I/O can miss exited process tails; RSS sums double-count shared pages; disk counters are kernel-attributed I/O, not file bytes or a durability proof"
+    },
+    "footprint-peak-bytes": {
+     "value": 297474472,
+     "unit": "B",
+     "source": "legacy-summary; proc_pid_rusage V4"
+    }
+   }
+  },
+  {
+   "cellId": "b4d272d1777f-3",
+   "factors": {
+    "engine": "go-sync",
+    "batchRows": 1000,
+    "writers": 1,
+    "readerMode": "short",
+    "payloadBytes": 512,
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-rows-per-second": {
+     "value": 222492.80592101344,
+     "unit": "row/s",
+     "source": "legacy-summary"
+    },
+    "rss-peak-bytes": {
+     "value": 354058240,
+     "unit": "B",
+     "source": "legacy-summary; macOS proc_pid_rusage V4 with mach_timebase_info conversion; sampled root and descendants; existing coordinator counters subtract the initial baseline; new process counters use their observed lifetime; CPU/I/O can miss exited process tails; RSS sums double-count shared pages; disk counters are kernel-attributed I/O, not file bytes or a durability proof"
+    },
+    "footprint-peak-bytes": {
+     "value": 366276816,
+     "unit": "B",
+     "source": "legacy-summary; proc_pid_rusage V4"
+    }
+   }
+  },
+  {
+   "cellId": "ff94f8bfd2fa-4",
+   "factors": {
+    "engine": "rust-sync",
+    "batchRows": 100,
+    "writers": 4,
+    "readerMode": "short",
+    "payloadBytes": 512,
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-rows-per-second": {
+     "value": 183501.88985451538,
+     "unit": "row/s",
+     "source": "legacy-summary"
+    },
+    "rss-peak-bytes": {
+     "value": 425000960,
+     "unit": "B",
+     "source": "legacy-summary; macOS proc_pid_rusage V4 with mach_timebase_info conversion; sampled root and descendants; existing coordinator counters subtract the initial baseline; new process counters use their observed lifetime; CPU/I/O can miss exited process tails; RSS sums double-count shared pages; disk counters are kernel-attributed I/O, not file bytes or a durability proof"
+    },
+    "footprint-peak-bytes": {
+     "value": 436440064,
+     "unit": "B",
+     "source": "legacy-summary; proc_pid_rusage V4"
+    }
+   }
+  },
+  {
+   "cellId": "c219b88eddbf-5",
+   "factors": {
+    "engine": "go-sync",
+    "batchRows": 100,
+    "writers": 4,
+    "readerMode": "held",
+    "payloadBytes": 512,
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-rows-per-second": {
+     "value": 167086.19486500393,
+     "unit": "row/s",
+     "source": "legacy-summary"
+    },
+    "rss-peak-bytes": {
+     "value": 476315648,
+     "unit": "B",
+     "source": "legacy-summary; macOS proc_pid_rusage V4 with mach_timebase_info conversion; sampled root and descendants; existing coordinator counters subtract the initial baseline; new process counters use their observed lifetime; CPU/I/O can miss exited process tails; RSS sums double-count shared pages; disk counters are kernel-attributed I/O, not file bytes or a durability proof"
+    },
+    "footprint-peak-bytes": {
+     "value": 480596816,
+     "unit": "B",
+     "source": "legacy-summary; proc_pid_rusage V4"
+    }
+   }
+  },
+  {
+   "cellId": "2f24494d69a7-6",
+   "factors": {
+    "engine": "node-shared",
+    "batchRows": 1000,
+    "writers": 4,
+    "readerMode": "none",
+    "payloadBytes": 512,
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-rows-per-second": {
+     "value": 227016.90276332578,
+     "unit": "row/s",
+     "source": "legacy-summary"
+    },
+    "rss-peak-bytes": {
+     "value": 781271040,
+     "unit": "B",
+     "source": "legacy-summary; macOS proc_pid_rusage V4 with mach_timebase_info conversion; sampled root and descendants; existing coordinator counters subtract the initial baseline; new process counters use their observed lifetime; CPU/I/O can miss exited process tails; RSS sums double-count shared pages; disk counters are kernel-attributed I/O, not file bytes or a durability proof"
+    },
+    "footprint-peak-bytes": {
+     "value": 658049288,
+     "unit": "B",
+     "source": "legacy-summary; proc_pid_rusage V4"
+    }
+   }
+  },
+  {
+   "cellId": "c547261275e6-7",
+   "factors": {
+    "engine": "node-shared",
+    "batchRows": 100,
+    "writers": 1,
+    "readerMode": "none",
+    "payloadBytes": 512,
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-rows-per-second": {
+     "value": 196136.96960491547,
+     "unit": "row/s",
+     "source": "legacy-summary"
+    },
+    "rss-peak-bytes": {
+     "value": 581517312,
+     "unit": "B",
+     "source": "legacy-summary; macOS proc_pid_rusage V4 with mach_timebase_info conversion; sampled root and descendants; existing coordinator counters subtract the initial baseline; new process counters use their observed lifetime; CPU/I/O can miss exited process tails; RSS sums double-count shared pages; disk counters are kernel-attributed I/O, not file bytes or a durability proof"
+    },
+    "footprint-peak-bytes": {
+     "value": 569439096,
+     "unit": "B",
+     "source": "legacy-summary; proc_pid_rusage V4"
+    }
+   }
+  },
+  {
+   "cellId": "3b14581f5edc-8",
+   "factors": {
+    "engine": "rust-sync",
+    "batchRows": 100,
+    "writers": 1,
+    "readerMode": "held",
+    "payloadBytes": 512,
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-rows-per-second": {
+     "value": 228455.4335887875,
+     "unit": "row/s",
+     "source": "legacy-summary"
+    },
+    "rss-peak-bytes": {
+     "value": 506707968,
+     "unit": "B",
+     "source": "legacy-summary; macOS proc_pid_rusage V4 with mach_timebase_info conversion; sampled root and descendants; existing coordinator counters subtract the initial baseline; new process counters use their observed lifetime; CPU/I/O can miss exited process tails; RSS sums double-count shared pages; disk counters are kernel-attributed I/O, not file bytes or a durability proof"
+    },
+    "footprint-peak-bytes": {
+     "value": 532769304,
+     "unit": "B",
+     "source": "legacy-summary; proc_pid_rusage V4"
+    }
+   }
+  },
+  {
+   "cellId": "158aa7e3caad-9",
+   "factors": {
+    "engine": "node-shared",
+    "batchRows": 1000,
+    "writers": 1,
+    "readerMode": "none",
+    "payloadBytes": 512,
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-rows-per-second": {
+     "value": 199306.73394792632,
+     "unit": "row/s",
+     "source": "legacy-summary"
+    },
+    "rss-peak-bytes": {
+     "value": 484376576,
+     "unit": "B",
+     "source": "legacy-summary; macOS proc_pid_rusage V4 with mach_timebase_info conversion; sampled root and descendants; existing coordinator counters subtract the initial baseline; new process counters use their observed lifetime; CPU/I/O can miss exited process tails; RSS sums double-count shared pages; disk counters are kernel-attributed I/O, not file bytes or a durability proof"
+    },
+    "footprint-peak-bytes": {
+     "value": 629639600,
+     "unit": "B",
+     "source": "legacy-summary; proc_pid_rusage V4"
+    }
+   }
+  },
+  {
+   "cellId": "d838c0309af2-10",
+   "factors": {
+    "engine": "node-shared",
+    "batchRows": 1000,
+    "writers": 4,
+    "readerMode": "held",
+    "payloadBytes": 512,
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-rows-per-second": {
+     "value": 133559.08491557615,
+     "unit": "row/s",
+     "source": "legacy-summary"
+    },
+    "rss-peak-bytes": {
+     "value": 679886848,
+     "unit": "B",
+     "source": "legacy-summary; macOS proc_pid_rusage V4 with mach_timebase_info conversion; sampled root and descendants; existing coordinator counters subtract the initial baseline; new process counters use their observed lifetime; CPU/I/O can miss exited process tails; RSS sums double-count shared pages; disk counters are kernel-attributed I/O, not file bytes or a durability proof"
+    },
+    "footprint-peak-bytes": {
+     "value": 769060488,
+     "unit": "B",
+     "source": "legacy-summary; proc_pid_rusage V4"
+    }
+   }
+  },
+  {
+   "cellId": "2f5fdad93995-11",
+   "factors": {
+    "engine": "go-sync",
+    "batchRows": 1000,
+    "writers": 1,
+    "readerMode": "held",
+    "payloadBytes": 512,
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-rows-per-second": {
+     "value": 258036.5108437841,
+     "unit": "row/s",
+     "source": "legacy-summary"
+    },
+    "rss-peak-bytes": {
+     "value": 336838656,
+     "unit": "B",
+     "source": "legacy-summary; macOS proc_pid_rusage V4 with mach_timebase_info conversion; sampled root and descendants; existing coordinator counters subtract the initial baseline; new process counters use their observed lifetime; CPU/I/O can miss exited process tails; RSS sums double-count shared pages; disk counters are kernel-attributed I/O, not file bytes or a durability proof"
+    },
+    "footprint-peak-bytes": {
+     "value": 600260016,
+     "unit": "B",
+     "source": "legacy-summary; proc_pid_rusage V4"
+    }
+   }
+  },
+  {
+   "cellId": "081a351ab4a2-12",
+   "factors": {
+    "engine": "node-shared",
+    "batchRows": 100,
+    "writers": 1,
+    "readerMode": "held",
+    "payloadBytes": 512,
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-rows-per-second": {
+     "value": 188796.17534829376,
+     "unit": "row/s",
+     "source": "legacy-summary"
+    },
+    "rss-peak-bytes": {
+     "value": 434274304,
+     "unit": "B",
+     "source": "legacy-summary; macOS proc_pid_rusage V4 with mach_timebase_info conversion; sampled root and descendants; existing coordinator counters subtract the initial baseline; new process counters use their observed lifetime; CPU/I/O can miss exited process tails; RSS sums double-count shared pages; disk counters are kernel-attributed I/O, not file bytes or a durability proof"
+    },
+    "footprint-peak-bytes": {
+     "value": 639175016,
+     "unit": "B",
+     "source": "legacy-summary; proc_pid_rusage V4"
+    }
+   }
+  },
+  {
+   "cellId": "027d923422b5-13",
+   "factors": {
+    "engine": "rust-sync",
+    "batchRows": 1000,
+    "writers": 4,
+    "readerMode": "none",
+    "payloadBytes": 512,
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-rows-per-second": {
+     "value": 269706.10614441516,
+     "unit": "row/s",
+     "source": "legacy-summary"
+    },
+    "rss-peak-bytes": {
+     "value": 424476672,
+     "unit": "B",
+     "source": "legacy-summary; macOS proc_pid_rusage V4 with mach_timebase_info conversion; sampled root and descendants; existing coordinator counters subtract the initial baseline; new process counters use their observed lifetime; CPU/I/O can miss exited process tails; RSS sums double-count shared pages; disk counters are kernel-attributed I/O, not file bytes or a durability proof"
+    },
+    "footprint-peak-bytes": {
+     "value": 616497616,
+     "unit": "B",
+     "source": "legacy-summary; proc_pid_rusage V4"
+    }
+   }
+  },
+  {
+   "cellId": "a62ec474e561-14",
+   "factors": {
+    "engine": "rust-sync",
+    "batchRows": 1000,
+    "writers": 1,
+    "readerMode": "short",
+    "payloadBytes": 512,
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-rows-per-second": {
+     "value": 266359.6139626589,
+     "unit": "row/s",
+     "source": "legacy-summary"
+    },
+    "rss-peak-bytes": {
+     "value": 405897216,
+     "unit": "B",
+     "source": "legacy-summary; macOS proc_pid_rusage V4 with mach_timebase_info conversion; sampled root and descendants; existing coordinator counters subtract the initial baseline; new process counters use their observed lifetime; CPU/I/O can miss exited process tails; RSS sums double-count shared pages; disk counters are kernel-attributed I/O, not file bytes or a durability proof"
+    },
+    "footprint-peak-bytes": {
+     "value": 597343544,
+     "unit": "B",
+     "source": "legacy-summary; proc_pid_rusage V4"
+    }
+   }
+  },
+  {
+   "cellId": "3d1609d68aff-15",
+   "factors": {
+    "engine": "go-sync",
+    "batchRows": 100,
+    "writers": 1,
+    "readerMode": "held",
+    "payloadBytes": 512,
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-rows-per-second": {
+     "value": 244968.49636252943,
+     "unit": "row/s",
+     "source": "legacy-summary"
+    },
+    "rss-peak-bytes": {
+     "value": 442449920,
+     "unit": "B",
+     "source": "legacy-summary; macOS proc_pid_rusage V4 with mach_timebase_info conversion; sampled root and descendants; existing coordinator counters subtract the initial baseline; new process counters use their observed lifetime; CPU/I/O can miss exited process tails; RSS sums double-count shared pages; disk counters are kernel-attributed I/O, not file bytes or a durability proof"
+    },
+    "footprint-peak-bytes": {
+     "value": 600800664,
+     "unit": "B",
+     "source": "legacy-summary; proc_pid_rusage V4"
+    }
+   }
+  },
+  {
+   "cellId": "54dc8d71e0fd-16",
+   "factors": {
+    "engine": "node-shared",
+    "batchRows": 100,
+    "writers": 4,
+    "readerMode": "held",
+    "payloadBytes": 512,
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-rows-per-second": {
+     "value": 206886.35187027592,
+     "unit": "row/s",
+     "source": "legacy-summary"
+    },
+    "rss-peak-bytes": {
+     "value": 752746496,
+     "unit": "B",
+     "source": "legacy-summary; macOS proc_pid_rusage V4 with mach_timebase_info conversion; sampled root and descendants; existing coordinator counters subtract the initial baseline; new process counters use their observed lifetime; CPU/I/O can miss exited process tails; RSS sums double-count shared pages; disk counters are kernel-attributed I/O, not file bytes or a durability proof"
+    },
+    "footprint-peak-bytes": {
+     "value": 761259256,
+     "unit": "B",
+     "source": "legacy-summary; proc_pid_rusage V4"
+    }
+   }
+  },
+  {
+   "cellId": "79777ec60f69-17",
+   "factors": {
+    "engine": "rust-sync",
+    "batchRows": 1000,
+    "writers": 4,
+    "readerMode": "held",
+    "payloadBytes": 512,
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-rows-per-second": {
+     "value": 236223.66994691224,
+     "unit": "row/s",
+     "source": "legacy-summary"
+    },
+    "rss-peak-bytes": {
+     "value": 460718080,
+     "unit": "B",
+     "source": "legacy-summary; macOS proc_pid_rusage V4 with mach_timebase_info conversion; sampled root and descendants; existing coordinator counters subtract the initial baseline; new process counters use their observed lifetime; CPU/I/O can miss exited process tails; RSS sums double-count shared pages; disk counters are kernel-attributed I/O, not file bytes or a durability proof"
+    },
+    "footprint-peak-bytes": {
+     "value": 615023032,
+     "unit": "B",
+     "source": "legacy-summary; proc_pid_rusage V4"
+    }
+   }
+  },
+  {
+   "cellId": "af17598b4f3b-18",
+   "factors": {
+    "engine": "rust-sync",
+    "batchRows": 1000,
+    "writers": 4,
+    "readerMode": "short",
+    "payloadBytes": 512,
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-rows-per-second": {
+     "value": 232352.0587940332,
+     "unit": "row/s",
+     "source": "legacy-summary"
+    },
+    "rss-peak-bytes": {
+     "value": 465240064,
+     "unit": "B",
+     "source": "legacy-summary; macOS proc_pid_rusage V4 with mach_timebase_info conversion; sampled root and descendants; existing coordinator counters subtract the initial baseline; new process counters use their observed lifetime; CPU/I/O can miss exited process tails; RSS sums double-count shared pages; disk counters are kernel-attributed I/O, not file bytes or a durability proof"
+    },
+    "footprint-peak-bytes": {
+     "value": 619135464,
+     "unit": "B",
+     "source": "legacy-summary; proc_pid_rusage V4"
+    }
+   }
+  },
+  {
+   "cellId": "caefcf6d46af-19",
+   "factors": {
+    "engine": "node-shared",
+    "batchRows": 100,
+    "writers": 4,
+    "readerMode": "none",
+    "payloadBytes": 512,
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-rows-per-second": {
+     "value": 197646.97203321106,
+     "unit": "row/s",
+     "source": "legacy-summary"
+    },
+    "rss-peak-bytes": {
+     "value": 748093440,
+     "unit": "B",
+     "source": "legacy-summary; macOS proc_pid_rusage V4 with mach_timebase_info conversion; sampled root and descendants; existing coordinator counters subtract the initial baseline; new process counters use their observed lifetime; CPU/I/O can miss exited process tails; RSS sums double-count shared pages; disk counters are kernel-attributed I/O, not file bytes or a durability proof"
+    },
+    "footprint-peak-bytes": {
+     "value": 758375672,
+     "unit": "B",
+     "source": "legacy-summary; proc_pid_rusage V4"
+    }
+   }
+  },
+  {
+   "cellId": "498b4b235167-20",
+   "factors": {
+    "engine": "rust-sync",
+    "batchRows": 100,
+    "writers": 1,
+    "readerMode": "short",
+    "payloadBytes": 512,
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-rows-per-second": {
+     "value": 228380.83823658654,
+     "unit": "row/s",
+     "source": "legacy-summary"
+    },
+    "rss-peak-bytes": {
+     "value": 437141504,
+     "unit": "B",
+     "source": "legacy-summary; macOS proc_pid_rusage V4 with mach_timebase_info conversion; sampled root and descendants; existing coordinator counters subtract the initial baseline; new process counters use their observed lifetime; CPU/I/O can miss exited process tails; RSS sums double-count shared pages; disk counters are kernel-attributed I/O, not file bytes or a durability proof"
+    },
+    "footprint-peak-bytes": {
+     "value": 561905000,
+     "unit": "B",
+     "source": "legacy-summary; proc_pid_rusage V4"
+    }
+   }
+  },
+  {
+   "cellId": "6e2dcd4e7e9c-21",
+   "factors": {
+    "engine": "rust-sync",
+    "batchRows": 1000,
+    "writers": 1,
+    "readerMode": "held",
+    "payloadBytes": 512,
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-rows-per-second": {
+     "value": 346422.0421849994,
+     "unit": "row/s",
+     "source": "legacy-summary"
+    },
+    "rss-peak-bytes": {
+     "value": 452116480,
+     "unit": "B",
+     "source": "legacy-summary; macOS proc_pid_rusage V4 with mach_timebase_info conversion; sampled root and descendants; existing coordinator counters subtract the initial baseline; new process counters use their observed lifetime; CPU/I/O can miss exited process tails; RSS sums double-count shared pages; disk counters are kernel-attributed I/O, not file bytes or a durability proof"
+    },
+    "footprint-peak-bytes": {
+     "value": 554925224,
+     "unit": "B",
+     "source": "legacy-summary; proc_pid_rusage V4"
+    }
+   }
+  },
+  {
+   "cellId": "df20fd7ec1eb-22",
+   "factors": {
+    "engine": "go-sync",
+    "batchRows": 100,
+    "writers": 1,
+    "readerMode": "none",
+    "payloadBytes": 512,
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-rows-per-second": {
+     "value": 214915.53000314347,
+     "unit": "row/s",
+     "source": "legacy-summary"
+    },
+    "rss-peak-bytes": {
+     "value": 466812928,
+     "unit": "B",
+     "source": "legacy-summary; macOS proc_pid_rusage V4 with mach_timebase_info conversion; sampled root and descendants; existing coordinator counters subtract the initial baseline; new process counters use their observed lifetime; CPU/I/O can miss exited process tails; RSS sums double-count shared pages; disk counters are kernel-attributed I/O, not file bytes or a durability proof"
+    },
+    "footprint-peak-bytes": {
+     "value": 566607256,
+     "unit": "B",
+     "source": "legacy-summary; proc_pid_rusage V4"
+    }
+   }
+  },
+  {
+   "cellId": "f59d1793ac42-23",
+   "factors": {
+    "engine": "go-sync",
+    "batchRows": 1000,
+    "writers": 4,
+    "readerMode": "none",
+    "payloadBytes": 512,
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-rows-per-second": {
+     "value": 236639.49670565056,
+     "unit": "row/s",
+     "source": "legacy-summary"
+    },
+    "rss-peak-bytes": {
+     "value": 510656512,
+     "unit": "B",
+     "source": "legacy-summary; macOS proc_pid_rusage V4 with mach_timebase_info conversion; sampled root and descendants; existing coordinator counters subtract the initial baseline; new process counters use their observed lifetime; CPU/I/O can miss exited process tails; RSS sums double-count shared pages; disk counters are kernel-attributed I/O, not file bytes or a durability proof"
+    },
+    "footprint-peak-bytes": {
+     "value": 599164184,
+     "unit": "B",
+     "source": "legacy-summary; proc_pid_rusage V4"
+    }
+   }
+  },
+  {
+   "cellId": "c6bef8230054-24",
+   "factors": {
+    "engine": "node-shared",
+    "batchRows": 1000,
+    "writers": 1,
+    "readerMode": "short",
+    "payloadBytes": 512,
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-rows-per-second": {
+     "value": 217807.39934202016,
+     "unit": "row/s",
+     "source": "legacy-summary"
+    },
+    "rss-peak-bytes": {
+     "value": 563593216,
+     "unit": "B",
+     "source": "legacy-summary; macOS proc_pid_rusage V4 with mach_timebase_info conversion; sampled root and descendants; existing coordinator counters subtract the initial baseline; new process counters use their observed lifetime; CPU/I/O can miss exited process tails; RSS sums double-count shared pages; disk counters are kernel-attributed I/O, not file bytes or a durability proof"
+    },
+    "footprint-peak-bytes": {
+     "value": 631527072,
+     "unit": "B",
+     "source": "legacy-summary; proc_pid_rusage V4"
+    }
+   }
+  },
+  {
+   "cellId": "446447aafda7-25",
+   "factors": {
+    "engine": "rust-sync",
+    "batchRows": 100,
+    "writers": 1,
+    "readerMode": "none",
+    "payloadBytes": 512,
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-rows-per-second": {
+     "value": 224850.09367219443,
+     "unit": "row/s",
+     "source": "legacy-summary"
+    },
+    "rss-peak-bytes": {
+     "value": 462831616,
+     "unit": "B",
+     "source": "legacy-summary; macOS proc_pid_rusage V4 with mach_timebase_info conversion; sampled root and descendants; existing coordinator counters subtract the initial baseline; new process counters use their observed lifetime; CPU/I/O can miss exited process tails; RSS sums double-count shared pages; disk counters are kernel-attributed I/O, not file bytes or a durability proof"
+    },
+    "footprint-peak-bytes": {
+     "value": 563805472,
+     "unit": "B",
+     "source": "legacy-summary; proc_pid_rusage V4"
+    }
+   }
+  },
+  {
+   "cellId": "8770ce3be6c3-26",
+   "factors": {
+    "engine": "go-sync",
+    "batchRows": 1000,
+    "writers": 4,
+    "readerMode": "short",
+    "payloadBytes": 512,
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-rows-per-second": {
+     "value": 234955.86412844106,
+     "unit": "row/s",
+     "source": "legacy-summary"
+    },
+    "rss-peak-bytes": {
+     "value": 522256384,
+     "unit": "B",
+     "source": "legacy-summary; macOS proc_pid_rusage V4 with mach_timebase_info conversion; sampled root and descendants; existing coordinator counters subtract the initial baseline; new process counters use their observed lifetime; CPU/I/O can miss exited process tails; RSS sums double-count shared pages; disk counters are kernel-attributed I/O, not file bytes or a durability proof"
+    },
+    "footprint-peak-bytes": {
+     "value": 611009984,
+     "unit": "B",
+     "source": "legacy-summary; proc_pid_rusage V4"
+    }
+   }
+  },
+  {
+   "cellId": "8a036d36560f-27",
+   "factors": {
+    "engine": "go-sync",
+    "batchRows": 100,
+    "writers": 1,
+    "readerMode": "short",
+    "payloadBytes": 512,
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-rows-per-second": {
+     "value": 224865.2998881448,
+     "unit": "row/s",
+     "source": "legacy-summary"
+    },
+    "rss-peak-bytes": {
+     "value": 471007232,
+     "unit": "B",
+     "source": "legacy-summary; macOS proc_pid_rusage V4 with mach_timebase_info conversion; sampled root and descendants; existing coordinator counters subtract the initial baseline; new process counters use their observed lifetime; CPU/I/O can miss exited process tails; RSS sums double-count shared pages; disk counters are kernel-attributed I/O, not file bytes or a durability proof"
+    },
+    "footprint-peak-bytes": {
+     "value": 569621888,
+     "unit": "B",
+     "source": "legacy-summary; proc_pid_rusage V4"
+    }
+   }
+  },
+  {
+   "cellId": "847ac9b26451-28",
+   "factors": {
+    "engine": "node-shared",
+    "batchRows": 1000,
+    "writers": 1,
+    "readerMode": "held",
+    "payloadBytes": 512,
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-rows-per-second": {
+     "value": 274460.0936824965,
+     "unit": "row/s",
+     "source": "legacy-summary"
+    },
+    "rss-peak-bytes": {
+     "value": 544686080,
+     "unit": "B",
+     "source": "legacy-summary; macOS proc_pid_rusage V4 with mach_timebase_info conversion; sampled root and descendants; existing coordinator counters subtract the initial baseline; new process counters use their observed lifetime; CPU/I/O can miss exited process tails; RSS sums double-count shared pages; disk counters are kernel-attributed I/O, not file bytes or a durability proof"
+    },
+    "footprint-peak-bytes": {
+     "value": 609962656,
+     "unit": "B",
+     "source": "legacy-summary; proc_pid_rusage V4"
+    }
+   }
+  },
+  {
+   "cellId": "e23354982e9a-29",
+   "factors": {
+    "engine": "node-shared",
+    "batchRows": 100,
+    "writers": 4,
+    "readerMode": "short",
+    "payloadBytes": 512,
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-rows-per-second": {
+     "value": 174095.45767107685,
+     "unit": "row/s",
+     "source": "legacy-summary"
+    },
+    "rss-peak-bytes": {
+     "value": 776519680,
+     "unit": "B",
+     "source": "legacy-summary; macOS proc_pid_rusage V4 with mach_timebase_info conversion; sampled root and descendants; existing coordinator counters subtract the initial baseline; new process counters use their observed lifetime; CPU/I/O can miss exited process tails; RSS sums double-count shared pages; disk counters are kernel-attributed I/O, not file bytes or a durability proof"
+    },
+    "footprint-peak-bytes": {
+     "value": 728442128,
+     "unit": "B",
+     "source": "legacy-summary; proc_pid_rusage V4"
+    }
+   }
+  },
+  {
+   "cellId": "9be890be4404-30",
+   "factors": {
+    "engine": "go-sync",
+    "batchRows": 100,
+    "writers": 4,
+    "readerMode": "none",
+    "payloadBytes": 512,
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-rows-per-second": {
+     "value": 206133.54618161253,
+     "unit": "row/s",
+     "source": "legacy-summary"
+    },
+    "rss-peak-bytes": {
+     "value": 514146304,
+     "unit": "B",
+     "source": "legacy-summary; macOS proc_pid_rusage V4 with mach_timebase_info conversion; sampled root and descendants; existing coordinator counters subtract the initial baseline; new process counters use their observed lifetime; CPU/I/O can miss exited process tails; RSS sums double-count shared pages; disk counters are kernel-attributed I/O, not file bytes or a durability proof"
+    },
+    "footprint-peak-bytes": {
+     "value": 602457344,
+     "unit": "B",
+     "source": "legacy-summary; proc_pid_rusage V4"
+    }
+   }
+  },
+  {
+   "cellId": "b4778e8956ee-31",
+   "factors": {
+    "engine": "rust-sync",
+    "batchRows": 100,
+    "writers": 4,
+    "readerMode": "none",
+    "payloadBytes": 512,
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-rows-per-second": {
+     "value": 211825.1958378445,
+     "unit": "row/s",
+     "source": "legacy-summary"
+    },
+    "rss-peak-bytes": {
+     "value": 478363648,
+     "unit": "B",
+     "source": "legacy-summary; macOS proc_pid_rusage V4 with mach_timebase_info conversion; sampled root and descendants; existing coordinator counters subtract the initial baseline; new process counters use their observed lifetime; CPU/I/O can miss exited process tails; RSS sums double-count shared pages; disk counters are kernel-attributed I/O, not file bytes or a durability proof"
+    },
+    "footprint-peak-bytes": {
+     "value": 573047272,
+     "unit": "B",
+     "source": "legacy-summary; proc_pid_rusage V4"
+    }
+   }
+  },
+  {
+   "cellId": "1c54e9901678-32",
+   "factors": {
+    "engine": "rust-sync",
+    "batchRows": 1000,
+    "writers": 1,
+    "readerMode": "none",
+    "payloadBytes": 512,
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-rows-per-second": {
+     "value": 283963.4961021539,
+     "unit": "row/s",
+     "source": "legacy-summary"
+    },
+    "rss-peak-bytes": {
+     "value": 467681280,
+     "unit": "B",
+     "source": "legacy-summary; macOS proc_pid_rusage V4 with mach_timebase_info conversion; sampled root and descendants; existing coordinator counters subtract the initial baseline; new process counters use their observed lifetime; CPU/I/O can miss exited process tails; RSS sums double-count shared pages; disk counters are kernel-attributed I/O, not file bytes or a durability proof"
+    },
+    "footprint-peak-bytes": {
+     "value": 567590272,
+     "unit": "B",
+     "source": "legacy-summary; proc_pid_rusage V4"
+    }
+   }
+  },
+  {
+   "cellId": "80e606bc732e-33",
+   "factors": {
+    "engine": "go-sync",
+    "batchRows": 100,
+    "writers": 4,
+    "readerMode": "short",
+    "payloadBytes": 512,
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-rows-per-second": {
+     "value": 188609.6009654485,
+     "unit": "row/s",
+     "source": "legacy-summary"
+    },
+    "rss-peak-bytes": {
+     "value": 514703360,
+     "unit": "B",
+     "source": "legacy-summary; macOS proc_pid_rusage V4 with mach_timebase_info conversion; sampled root and descendants; existing coordinator counters subtract the initial baseline; new process counters use their observed lifetime; CPU/I/O can miss exited process tails; RSS sums double-count shared pages; disk counters are kernel-attributed I/O, not file bytes or a durability proof"
+    },
+    "footprint-peak-bytes": {
+     "value": 601834776,
+     "unit": "B",
+     "source": "legacy-summary; proc_pid_rusage V4"
+    }
+   }
+  },
+  {
+   "cellId": "872fffbf911a-34",
+   "factors": {
+    "engine": "node-shared",
+    "batchRows": 1000,
+    "writers": 4,
+    "readerMode": "short",
+    "payloadBytes": 512,
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-rows-per-second": {
+     "value": 190183.79308283565,
+     "unit": "row/s",
+     "source": "legacy-summary"
+    },
+    "rss-peak-bytes": {
+     "value": 797343744,
+     "unit": "B",
+     "source": "legacy-summary; macOS proc_pid_rusage V4 with mach_timebase_info conversion; sampled root and descendants; existing coordinator counters subtract the initial baseline; new process counters use their observed lifetime; CPU/I/O can miss exited process tails; RSS sums double-count shared pages; disk counters are kernel-attributed I/O, not file bytes or a durability proof"
+    },
+    "footprint-peak-bytes": {
+     "value": 749646408,
+     "unit": "B",
+     "source": "legacy-summary; proc_pid_rusage V4"
+    }
+   }
+  },
+  {
+   "cellId": "f52dff7b0c81-35",
+   "factors": {
+    "engine": "go-sync",
+    "batchRows": 1000,
+    "writers": 4,
+    "readerMode": "held",
+    "payloadBytes": 512,
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-rows-per-second": {
+     "value": 290450.20071549236,
+     "unit": "row/s",
+     "source": "legacy-summary"
+    },
+    "rss-peak-bytes": {
+     "value": 522305536,
+     "unit": "B",
+     "source": "legacy-summary; macOS proc_pid_rusage V4 with mach_timebase_info conversion; sampled root and descendants; existing coordinator counters subtract the initial baseline; new process counters use their observed lifetime; CPU/I/O can miss exited process tails; RSS sums double-count shared pages; disk counters are kernel-attributed I/O, not file bytes or a durability proof"
+    },
+    "footprint-peak-bytes": {
+     "value": 609125728,
+     "unit": "B",
+     "source": "legacy-summary; proc_pid_rusage V4"
+    }
+   }
+  },
+  {
+   "cellId": "7e2b898439d6-36",
+   "factors": {
+    "engine": "go-sync",
+    "batchRows": 100,
+    "writers": 4,
+    "readerMode": "held",
+    "payloadBytes": 512,
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-rows-per-second": {
+     "value": 190796.88255775598,
+     "unit": "row/s",
+     "source": "legacy-summary"
+    },
+    "rss-peak-bytes": {
+     "value": 506626048,
+     "unit": "B",
+     "source": "legacy-summary; macOS proc_pid_rusage V4 with mach_timebase_info conversion; sampled root and descendants; existing coordinator counters subtract the initial baseline; new process counters use their observed lifetime; CPU/I/O can miss exited process tails; RSS sums double-count shared pages; disk counters are kernel-attributed I/O, not file bytes or a durability proof"
+    },
+    "footprint-peak-bytes": {
+     "value": 592872752,
+     "unit": "B",
+     "source": "legacy-summary; proc_pid_rusage V4"
+    }
+   }
+  },
+  {
+   "cellId": "34a41968f6c7-37",
+   "factors": {
+    "engine": "go-sync",
+    "batchRows": 1000,
+    "writers": 4,
+    "readerMode": "held",
+    "payloadBytes": 512,
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-rows-per-second": {
+     "value": 283994.4709826501,
+     "unit": "row/s",
+     "source": "legacy-summary"
+    },
+    "rss-peak-bytes": {
+     "value": 521240576,
+     "unit": "B",
+     "source": "legacy-summary; macOS proc_pid_rusage V4 with mach_timebase_info conversion; sampled root and descendants; existing coordinator counters subtract the initial baseline; new process counters use their observed lifetime; CPU/I/O can miss exited process tails; RSS sums double-count shared pages; disk counters are kernel-attributed I/O, not file bytes or a durability proof"
+    },
+    "footprint-peak-bytes": {
+     "value": 607028528,
+     "unit": "B",
+     "source": "legacy-summary; proc_pid_rusage V4"
+    }
+   }
+  },
+  {
+   "cellId": "70f72cdd9ea2-38",
+   "factors": {
+    "engine": "rust-sync",
+    "batchRows": 1000,
+    "writers": 4,
+    "readerMode": "held",
+    "payloadBytes": 512,
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-rows-per-second": {
+     "value": 273780.2955223237,
+     "unit": "row/s",
+     "source": "legacy-summary"
+    },
+    "rss-peak-bytes": {
+     "value": 496189440,
+     "unit": "B",
+     "source": "legacy-summary; macOS proc_pid_rusage V4 with mach_timebase_info conversion; sampled root and descendants; existing coordinator counters subtract the initial baseline; new process counters use their observed lifetime; CPU/I/O can miss exited process tails; RSS sums double-count shared pages; disk counters are kernel-attributed I/O, not file bytes or a durability proof"
+    },
+    "footprint-peak-bytes": {
+     "value": 589627952,
+     "unit": "B",
+     "source": "legacy-summary; proc_pid_rusage V4"
+    }
+   }
+  },
+  {
+   "cellId": "871b2e069de2-39",
+   "factors": {
+    "engine": "rust-sync",
+    "batchRows": 100,
+    "writers": 1,
+    "readerMode": "held",
+    "payloadBytes": 512,
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-rows-per-second": {
+     "value": 203303.03906278743,
+     "unit": "row/s",
+     "source": "legacy-summary"
+    },
+    "rss-peak-bytes": {
+     "value": 464273408,
+     "unit": "B",
+     "source": "legacy-summary; macOS proc_pid_rusage V4 with mach_timebase_info conversion; sampled root and descendants; existing coordinator counters subtract the initial baseline; new process counters use their observed lifetime; CPU/I/O can miss exited process tails; RSS sums double-count shared pages; disk counters are kernel-attributed I/O, not file bytes or a durability proof"
+    },
+    "footprint-peak-bytes": {
+     "value": 562642160,
+     "unit": "B",
+     "source": "legacy-summary; proc_pid_rusage V4"
+    }
+   }
+  },
+  {
+   "cellId": "ef3c63a133a9-40",
+   "factors": {
+    "engine": "rust-sync",
+    "batchRows": 100,
+    "writers": 4,
+    "readerMode": "none",
+    "payloadBytes": 512,
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-rows-per-second": {
+     "value": 147559.1636967704,
+     "unit": "row/s",
+     "source": "legacy-summary"
+    },
+    "rss-peak-bytes": {
+     "value": 480362496,
+     "unit": "B",
+     "source": "legacy-summary; macOS proc_pid_rusage V4 with mach_timebase_info conversion; sampled root and descendants; existing coordinator counters subtract the initial baseline; new process counters use their observed lifetime; CPU/I/O can miss exited process tails; RSS sums double-count shared pages; disk counters are kernel-attributed I/O, not file bytes or a durability proof"
+    },
+    "footprint-peak-bytes": {
+     "value": 573587896,
+     "unit": "B",
+     "source": "legacy-summary; proc_pid_rusage V4"
+    }
+   }
+  },
+  {
+   "cellId": "b987e8c68c09-41",
+   "factors": {
+    "engine": "rust-sync",
+    "batchRows": 100,
+    "writers": 4,
+    "readerMode": "short",
+    "payloadBytes": 512,
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-rows-per-second": {
+     "value": 107014.34450037127,
+     "unit": "row/s",
+     "source": "legacy-summary"
+    },
+    "rss-peak-bytes": {
+     "value": 480788480,
+     "unit": "B",
+     "source": "legacy-summary; macOS proc_pid_rusage V4 with mach_timebase_info conversion; sampled root and descendants; existing coordinator counters subtract the initial baseline; new process counters use their observed lifetime; CPU/I/O can miss exited process tails; RSS sums double-count shared pages; disk counters are kernel-attributed I/O, not file bytes or a durability proof"
+    },
+    "footprint-peak-bytes": {
+     "value": 574652976,
+     "unit": "B",
+     "source": "legacy-summary; proc_pid_rusage V4"
+    }
+   }
+  },
+  {
+   "cellId": "21a7b6095b41-42",
+   "factors": {
+    "engine": "go-sync",
+    "batchRows": 1000,
+    "writers": 1,
+    "readerMode": "short",
+    "payloadBytes": 512,
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-rows-per-second": {
+     "value": 227758.48046604218,
+     "unit": "row/s",
+     "source": "legacy-summary"
+    },
+    "rss-peak-bytes": {
+     "value": 475119616,
+     "unit": "B",
+     "source": "legacy-summary; macOS proc_pid_rusage V4 with mach_timebase_info conversion; sampled root and descendants; existing coordinator counters subtract the initial baseline; new process counters use their observed lifetime; CPU/I/O can miss exited process tails; RSS sums double-count shared pages; disk counters are kernel-attributed I/O, not file bytes or a durability proof"
+    },
+    "footprint-peak-bytes": {
+     "value": 570850760,
+     "unit": "B",
+     "source": "legacy-summary; proc_pid_rusage V4"
+    }
+   }
+  },
+  {
+   "cellId": "3d227f7af095-43",
+   "factors": {
+    "engine": "node-shared",
+    "batchRows": 100,
+    "writers": 1,
+    "readerMode": "none",
+    "payloadBytes": 512,
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-rows-per-second": {
+     "value": 128210.88536701749,
+     "unit": "row/s",
+     "source": "legacy-summary"
+    },
+    "rss-peak-bytes": {
+     "value": 547880960,
+     "unit": "B",
+     "source": "legacy-summary; macOS proc_pid_rusage V4 with mach_timebase_info conversion; sampled root and descendants; existing coordinator counters subtract the initial baseline; new process counters use their observed lifetime; CPU/I/O can miss exited process tails; RSS sums double-count shared pages; disk counters are kernel-attributed I/O, not file bytes or a durability proof"
+    },
+    "footprint-peak-bytes": {
+     "value": 608913864,
+     "unit": "B",
+     "source": "legacy-summary; proc_pid_rusage V4"
+    }
+   }
+  },
+  {
+   "cellId": "aa423ee85385-44",
+   "factors": {
+    "engine": "rust-sync",
+    "batchRows": 1000,
+    "writers": 1,
+    "readerMode": "none",
+    "payloadBytes": 512,
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-rows-per-second": {
+     "value": 244535.36625972684,
+     "unit": "row/s",
+     "source": "legacy-summary"
+    },
+    "rss-peak-bytes": {
+     "value": 469352448,
+     "unit": "B",
+     "source": "legacy-summary; macOS proc_pid_rusage V4 with mach_timebase_info conversion; sampled root and descendants; existing coordinator counters subtract the initial baseline; new process counters use their observed lifetime; CPU/I/O can miss exited process tails; RSS sums double-count shared pages; disk counters are kernel-attributed I/O, not file bytes or a durability proof"
+    },
+    "footprint-peak-bytes": {
+     "value": 568393064,
+     "unit": "B",
+     "source": "legacy-summary; proc_pid_rusage V4"
+    }
+   }
+  },
+  {
+   "cellId": "eb30ede0b8b1-45",
+   "factors": {
+    "engine": "rust-sync",
+    "batchRows": 100,
+    "writers": 1,
+    "readerMode": "none",
+    "payloadBytes": 512,
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-rows-per-second": {
+     "value": 162931.1310475438,
+     "unit": "row/s",
+     "source": "legacy-summary"
+    },
+    "rss-peak-bytes": {
+     "value": 463847424,
+     "unit": "B",
+     "source": "legacy-summary; macOS proc_pid_rusage V4 with mach_timebase_info conversion; sampled root and descendants; existing coordinator counters subtract the initial baseline; new process counters use their observed lifetime; CPU/I/O can miss exited process tails; RSS sums double-count shared pages; disk counters are kernel-attributed I/O, not file bytes or a durability proof"
+    },
+    "footprint-peak-bytes": {
+     "value": 562806000,
+     "unit": "B",
+     "source": "legacy-summary; proc_pid_rusage V4"
+    }
+   }
+  },
+  {
+   "cellId": "010a4ffcec49-46",
+   "factors": {
+    "engine": "node-shared",
+    "batchRows": 1000,
+    "writers": 4,
+    "readerMode": "short",
+    "payloadBytes": 512,
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-rows-per-second": {
+     "value": 183325.01448337367,
+     "unit": "row/s",
+     "source": "legacy-summary"
+    },
+    "rss-peak-bytes": {
+     "value": 796852224,
+     "unit": "B",
+     "source": "legacy-summary; macOS proc_pid_rusage V4 with mach_timebase_info conversion; sampled root and descendants; existing coordinator counters subtract the initial baseline; new process counters use their observed lifetime; CPU/I/O can miss exited process tails; RSS sums double-count shared pages; disk counters are kernel-attributed I/O, not file bytes or a durability proof"
+    },
+    "footprint-peak-bytes": {
+     "value": 749088392,
+     "unit": "B",
+     "source": "legacy-summary; proc_pid_rusage V4"
+    }
+   }
+  },
+  {
+   "cellId": "536df12d9d5e-47",
+   "factors": {
+    "engine": "node-shared",
+    "batchRows": 1000,
+    "writers": 4,
+    "readerMode": "held",
+    "payloadBytes": 512,
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-rows-per-second": {
+     "value": 268784.2768723556,
+     "unit": "row/s",
+     "source": "legacy-summary"
+    },
+    "rss-peak-bytes": {
+     "value": 812023808,
+     "unit": "B",
+     "source": "legacy-summary; macOS proc_pid_rusage V4 with mach_timebase_info conversion; sampled root and descendants; existing coordinator counters subtract the initial baseline; new process counters use their observed lifetime; CPU/I/O can miss exited process tails; RSS sums double-count shared pages; disk counters are kernel-attributed I/O, not file bytes or a durability proof"
+    },
+    "footprint-peak-bytes": {
+     "value": 743090312,
+     "unit": "B",
+     "source": "legacy-summary; proc_pid_rusage V4"
+    }
+   }
+  },
+  {
+   "cellId": "0fcb7417da04-48",
+   "factors": {
+    "engine": "go-sync",
+    "batchRows": 1000,
+    "writers": 1,
+    "readerMode": "held",
+    "payloadBytes": 512,
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-rows-per-second": {
+     "value": 312497.32973493304,
+     "unit": "row/s",
+     "source": "legacy-summary"
+    },
+    "rss-peak-bytes": {
+     "value": 476872704,
+     "unit": "B",
+     "source": "legacy-summary; macOS proc_pid_rusage V4 with mach_timebase_info conversion; sampled root and descendants; existing coordinator counters subtract the initial baseline; new process counters use their observed lifetime; CPU/I/O can miss exited process tails; RSS sums double-count shared pages; disk counters are kernel-attributed I/O, not file bytes or a durability proof"
+    },
+    "footprint-peak-bytes": {
+     "value": 573931048,
+     "unit": "B",
+     "source": "legacy-summary; proc_pid_rusage V4"
+    }
+   }
+  },
+  {
+   "cellId": "49be58cafe72-49",
+   "factors": {
+    "engine": "go-sync",
+    "batchRows": 100,
+    "writers": 4,
+    "readerMode": "short",
+    "payloadBytes": 512,
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-rows-per-second": {
+     "value": 154257.07392567562,
+     "unit": "row/s",
+     "source": "legacy-summary"
+    },
+    "rss-peak-bytes": {
+     "value": 519176192,
+     "unit": "B",
+     "source": "legacy-summary; macOS proc_pid_rusage V4 with mach_timebase_info conversion; sampled root and descendants; existing coordinator counters subtract the initial baseline; new process counters use their observed lifetime; CPU/I/O can miss exited process tails; RSS sums double-count shared pages; disk counters are kernel-attributed I/O, not file bytes or a durability proof"
+    },
+    "footprint-peak-bytes": {
+     "value": 605717808,
+     "unit": "B",
+     "source": "legacy-summary; proc_pid_rusage V4"
+    }
+   }
+  },
+  {
+   "cellId": "53c2f39dde45-50",
+   "factors": {
+    "engine": "node-shared",
+    "batchRows": 100,
+    "writers": 4,
+    "readerMode": "none",
+    "payloadBytes": 512,
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-rows-per-second": {
+     "value": 173995.9042994652,
+     "unit": "row/s",
+     "source": "legacy-summary"
+    },
+    "rss-peak-bytes": {
+     "value": 786219008,
+     "unit": "B",
+     "source": "legacy-summary; macOS proc_pid_rusage V4 with mach_timebase_info conversion; sampled root and descendants; existing coordinator counters subtract the initial baseline; new process counters use their observed lifetime; CPU/I/O can miss exited process tails; RSS sums double-count shared pages; disk counters are kernel-attributed I/O, not file bytes or a durability proof"
+    },
+    "footprint-peak-bytes": {
+     "value": 737240456,
+     "unit": "B",
+     "source": "legacy-summary; proc_pid_rusage V4"
+    }
+   }
+  },
+  {
+   "cellId": "9248fbd78696-51",
+   "factors": {
+    "engine": "go-sync",
+    "batchRows": 1000,
+    "writers": 1,
+    "readerMode": "none",
+    "payloadBytes": 512,
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-rows-per-second": {
+     "value": 236870.78883536425,
+     "unit": "row/s",
+     "source": "legacy-summary"
+    },
+    "rss-peak-bytes": {
+     "value": 474185728,
+     "unit": "B",
+     "source": "legacy-summary; macOS proc_pid_rusage V4 with mach_timebase_info conversion; sampled root and descendants; existing coordinator counters subtract the initial baseline; new process counters use their observed lifetime; CPU/I/O can miss exited process tails; RSS sums double-count shared pages; disk counters are kernel-attributed I/O, not file bytes or a durability proof"
+    },
+    "footprint-peak-bytes": {
+     "value": 571080160,
+     "unit": "B",
+     "source": "legacy-summary; proc_pid_rusage V4"
+    }
+   }
+  },
+  {
+   "cellId": "c827b95df561-52",
+   "factors": {
+    "engine": "go-sync",
+    "batchRows": 100,
+    "writers": 4,
+    "readerMode": "none",
+    "payloadBytes": 512,
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-rows-per-second": {
+     "value": 192958.91007557567,
+     "unit": "row/s",
+     "source": "legacy-summary"
+    },
+    "rss-peak-bytes": {
+     "value": 516980736,
+     "unit": "B",
+     "source": "legacy-summary; macOS proc_pid_rusage V4 with mach_timebase_info conversion; sampled root and descendants; existing coordinator counters subtract the initial baseline; new process counters use their observed lifetime; CPU/I/O can miss exited process tails; RSS sums double-count shared pages; disk counters are kernel-attributed I/O, not file bytes or a durability proof"
+    },
+    "footprint-peak-bytes": {
+     "value": 604505320,
+     "unit": "B",
+     "source": "legacy-summary; proc_pid_rusage V4"
+    }
+   }
+  },
+  {
+   "cellId": "dda48bb9a62c-53",
+   "factors": {
+    "engine": "node-shared",
+    "batchRows": 100,
+    "writers": 4,
+    "readerMode": "held",
+    "payloadBytes": 512,
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-rows-per-second": {
+     "value": 176444.72221740594,
+     "unit": "row/s",
+     "source": "legacy-summary"
+    },
+    "rss-peak-bytes": {
+     "value": 783187968,
+     "unit": "B",
+     "source": "legacy-summary; macOS proc_pid_rusage V4 with mach_timebase_info conversion; sampled root and descendants; existing coordinator counters subtract the initial baseline; new process counters use their observed lifetime; CPU/I/O can miss exited process tails; RSS sums double-count shared pages; disk counters are kernel-attributed I/O, not file bytes or a durability proof"
+    },
+    "footprint-peak-bytes": {
+     "value": 733865112,
+     "unit": "B",
+     "source": "legacy-summary; proc_pid_rusage V4"
+    }
+   }
+  },
+  {
+   "cellId": "b9d067bcaea1-54",
+   "factors": {
+    "engine": "rust-sync",
+    "batchRows": 100,
+    "writers": 4,
+    "readerMode": "held",
+    "payloadBytes": 512,
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-rows-per-second": {
+     "value": 214133.12053851679,
+     "unit": "row/s",
+     "source": "legacy-summary"
+    },
+    "rss-peak-bytes": {
+     "value": 481247232,
+     "unit": "B",
+     "source": "legacy-summary; macOS proc_pid_rusage V4 with mach_timebase_info conversion; sampled root and descendants; existing coordinator counters subtract the initial baseline; new process counters use their observed lifetime; CPU/I/O can miss exited process tails; RSS sums double-count shared pages; disk counters are kernel-attributed I/O, not file bytes or a durability proof"
+    },
+    "footprint-peak-bytes": {
+     "value": 575324600,
+     "unit": "B",
+     "source": "legacy-summary; proc_pid_rusage V4"
+    }
+   }
+  },
+  {
+   "cellId": "2afec5c97d35-55",
+   "factors": {
+    "engine": "go-sync",
+    "batchRows": 1000,
+    "writers": 4,
+    "readerMode": "short",
+    "payloadBytes": 512,
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-rows-per-second": {
+     "value": 279452.6939946716,
+     "unit": "row/s",
+     "source": "legacy-summary"
+    },
+    "rss-peak-bytes": {
+     "value": 523616256,
+     "unit": "B",
+     "source": "legacy-summary; macOS proc_pid_rusage V4 with mach_timebase_info conversion; sampled root and descendants; existing coordinator counters subtract the initial baseline; new process counters use their observed lifetime; CPU/I/O can miss exited process tails; RSS sums double-count shared pages; disk counters are kernel-attributed I/O, not file bytes or a durability proof"
+    },
+    "footprint-peak-bytes": {
+     "value": 611272152,
+     "unit": "B",
+     "source": "legacy-summary; proc_pid_rusage V4"
+    }
+   }
+  },
+  {
+   "cellId": "c7322ce67b60-56",
+   "factors": {
+    "engine": "rust-sync",
+    "batchRows": 1000,
+    "writers": 1,
+    "readerMode": "short",
+    "payloadBytes": 512,
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-rows-per-second": {
+     "value": 268193.22473690263,
+     "unit": "row/s",
+     "source": "legacy-summary"
+    },
+    "rss-peak-bytes": {
+     "value": 470122496,
+     "unit": "B",
+     "source": "legacy-summary; macOS proc_pid_rusage V4 with mach_timebase_info conversion; sampled root and descendants; existing coordinator counters subtract the initial baseline; new process counters use their observed lifetime; CPU/I/O can miss exited process tails; RSS sums double-count shared pages; disk counters are kernel-attributed I/O, not file bytes or a durability proof"
+    },
+    "footprint-peak-bytes": {
+     "value": 569572712,
+     "unit": "B",
+     "source": "legacy-summary; proc_pid_rusage V4"
+    }
+   }
+  },
+  {
+   "cellId": "4c97e595ec55-57",
+   "factors": {
+    "engine": "rust-sync",
+    "batchRows": 100,
+    "writers": 1,
+    "readerMode": "short",
+    "payloadBytes": 512,
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-rows-per-second": {
+     "value": 207516.810077416,
+     "unit": "row/s",
+     "source": "legacy-summary"
+    },
+    "rss-peak-bytes": {
+     "value": 464093184,
+     "unit": "B",
+     "source": "legacy-summary; macOS proc_pid_rusage V4 with mach_timebase_info conversion; sampled root and descendants; existing coordinator counters subtract the initial baseline; new process counters use their observed lifetime; CPU/I/O can miss exited process tails; RSS sums double-count shared pages; disk counters are kernel-attributed I/O, not file bytes or a durability proof"
+    },
+    "footprint-peak-bytes": {
+     "value": 563461360,
+     "unit": "B",
+     "source": "legacy-summary; proc_pid_rusage V4"
+    }
+   }
+  },
+  {
+   "cellId": "f044841ad72e-58",
+   "factors": {
+    "engine": "go-sync",
+    "batchRows": 100,
+    "writers": 1,
+    "readerMode": "short",
+    "payloadBytes": 512,
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-rows-per-second": {
+     "value": 225190.35622306558,
+     "unit": "row/s",
+     "source": "legacy-summary"
+    },
+    "rss-peak-bytes": {
+     "value": 474644480,
+     "unit": "B",
+     "source": "legacy-summary; macOS proc_pid_rusage V4 with mach_timebase_info conversion; sampled root and descendants; existing coordinator counters subtract the initial baseline; new process counters use their observed lifetime; CPU/I/O can miss exited process tails; RSS sums double-count shared pages; disk counters are kernel-attributed I/O, not file bytes or a durability proof"
+    },
+    "footprint-peak-bytes": {
+     "value": 572308984,
+     "unit": "B",
+     "source": "legacy-summary; proc_pid_rusage V4"
+    }
+   }
+  },
+  {
+   "cellId": "8888ddd644a1-59",
+   "factors": {
+    "engine": "rust-sync",
+    "batchRows": 1000,
+    "writers": 1,
+    "readerMode": "held",
+    "payloadBytes": 512,
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-rows-per-second": {
+     "value": 340612.74572442134,
+     "unit": "row/s",
+     "source": "legacy-summary"
+    },
+    "rss-peak-bytes": {
+     "value": 460914688,
+     "unit": "B",
+     "source": "legacy-summary; macOS proc_pid_rusage V4 with mach_timebase_info conversion; sampled root and descendants; existing coordinator counters subtract the initial baseline; new process counters use their observed lifetime; CPU/I/O can miss exited process tails; RSS sums double-count shared pages; disk counters are kernel-attributed I/O, not file bytes or a durability proof"
+    },
+    "footprint-peak-bytes": {
+     "value": 561462560,
+     "unit": "B",
+     "source": "legacy-summary; proc_pid_rusage V4"
+    }
+   }
+  },
+  {
+   "cellId": "418d58298a0a-60",
+   "factors": {
+    "engine": "node-shared",
+    "batchRows": 1000,
+    "writers": 1,
+    "readerMode": "short",
+    "payloadBytes": 512,
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-rows-per-second": {
+     "value": 216384.47415167288,
+     "unit": "row/s",
+     "source": "legacy-summary"
+    },
+    "rss-peak-bytes": {
+     "value": 563855360,
+     "unit": "B",
+     "source": "legacy-summary; macOS proc_pid_rusage V4 with mach_timebase_info conversion; sampled root and descendants; existing coordinator counters subtract the initial baseline; new process counters use their observed lifetime; CPU/I/O can miss exited process tails; RSS sums double-count shared pages; disk counters are kernel-attributed I/O, not file bytes or a durability proof"
+    },
+    "footprint-peak-bytes": {
+     "value": 630035744,
+     "unit": "B",
+     "source": "legacy-summary; proc_pid_rusage V4"
+    }
+   }
+  },
+  {
+   "cellId": "9a2233bc6138-61",
+   "factors": {
+    "engine": "node-shared",
+    "batchRows": 100,
+    "writers": 4,
+    "readerMode": "short",
+    "payloadBytes": 512,
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-rows-per-second": {
+     "value": 188381.3361943724,
+     "unit": "row/s",
+     "source": "legacy-summary"
+    },
+    "rss-peak-bytes": {
+     "value": 781238272,
+     "unit": "B",
+     "source": "legacy-summary; macOS proc_pid_rusage V4 with mach_timebase_info conversion; sampled root and descendants; existing coordinator counters subtract the initial baseline; new process counters use their observed lifetime; CPU/I/O can miss exited process tails; RSS sums double-count shared pages; disk counters are kernel-attributed I/O, not file bytes or a durability proof"
+    },
+    "footprint-peak-bytes": {
+     "value": 732702112,
+     "unit": "B",
+     "source": "legacy-summary; proc_pid_rusage V4"
+    }
+   }
+  },
+  {
+   "cellId": "526536706e7c-62",
+   "factors": {
+    "engine": "node-shared",
+    "batchRows": 1000,
+    "writers": 4,
+    "readerMode": "none",
+    "payloadBytes": 512,
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-rows-per-second": {
+     "value": 207166.1691173063,
+     "unit": "row/s",
+     "source": "legacy-summary"
+    },
+    "rss-peak-bytes": {
+     "value": 806912000,
+     "unit": "B",
+     "source": "legacy-summary; macOS proc_pid_rusage V4 with mach_timebase_info conversion; sampled root and descendants; existing coordinator counters subtract the initial baseline; new process counters use their observed lifetime; CPU/I/O can miss exited process tails; RSS sums double-count shared pages; disk counters are kernel-attributed I/O, not file bytes or a durability proof"
+    },
+    "footprint-peak-bytes": {
+     "value": 760312680,
+     "unit": "B",
+     "source": "legacy-summary; proc_pid_rusage V4"
+    }
+   }
+  },
+  {
+   "cellId": "88ba9aa503ab-63",
+   "factors": {
+    "engine": "rust-sync",
+    "batchRows": 1000,
+    "writers": 4,
+    "readerMode": "short",
+    "payloadBytes": 512,
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-rows-per-second": {
+     "value": 221544.25526154766,
+     "unit": "row/s",
+     "source": "legacy-summary"
+    },
+    "rss-peak-bytes": {
+     "value": 492863488,
+     "unit": "B",
+     "source": "legacy-summary; macOS proc_pid_rusage V4 with mach_timebase_info conversion; sampled root and descendants; existing coordinator counters subtract the initial baseline; new process counters use their observed lifetime; CPU/I/O can miss exited process tails; RSS sums double-count shared pages; disk counters are kernel-attributed I/O, not file bytes or a durability proof"
+    },
+    "footprint-peak-bytes": {
+     "value": 587383200,
+     "unit": "B",
+     "source": "legacy-summary; proc_pid_rusage V4"
+    }
+   }
+  },
+  {
+   "cellId": "3a6a557e4652-64",
+   "factors": {
+    "engine": "node-shared",
+    "batchRows": 1000,
+    "writers": 1,
+    "readerMode": "none",
+    "payloadBytes": 512,
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-rows-per-second": {
+     "value": 197828.57422077292,
+     "unit": "row/s",
+     "source": "legacy-summary"
+    },
+    "rss-peak-bytes": {
+     "value": 542375936,
+     "unit": "B",
+     "source": "legacy-summary; macOS proc_pid_rusage V4 with mach_timebase_info conversion; sampled root and descendants; existing coordinator counters subtract the initial baseline; new process counters use their observed lifetime; CPU/I/O can miss exited process tails; RSS sums double-count shared pages; disk counters are kernel-attributed I/O, not file bytes or a durability proof"
+    },
+    "footprint-peak-bytes": {
+     "value": 611732704,
+     "unit": "B",
+     "source": "legacy-summary; proc_pid_rusage V4"
+    }
+   }
+  },
+  {
+   "cellId": "2845c868a040-65",
+   "factors": {
+    "engine": "node-shared",
+    "batchRows": 1000,
+    "writers": 1,
+    "readerMode": "held",
+    "payloadBytes": 512,
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-rows-per-second": {
+     "value": 223119.02279382275,
+     "unit": "row/s",
+     "source": "legacy-summary"
+    },
+    "rss-peak-bytes": {
+     "value": 559595520,
+     "unit": "B",
+     "source": "legacy-summary; macOS proc_pid_rusage V4 with mach_timebase_info conversion; sampled root and descendants; existing coordinator counters subtract the initial baseline; new process counters use their observed lifetime; CPU/I/O can miss exited process tails; RSS sums double-count shared pages; disk counters are kernel-attributed I/O, not file bytes or a durability proof"
+    },
+    "footprint-peak-bytes": {
+     "value": 630576656,
+     "unit": "B",
+     "source": "legacy-summary; proc_pid_rusage V4"
+    }
+   }
+  },
+  {
+   "cellId": "0f1f3310d65c-66",
+   "factors": {
+    "engine": "node-shared",
+    "batchRows": 100,
+    "writers": 1,
+    "readerMode": "short",
+    "payloadBytes": 512,
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-rows-per-second": {
+     "value": 192263.3042105926,
+     "unit": "row/s",
+     "source": "legacy-summary"
+    },
+    "rss-peak-bytes": {
+     "value": 543801344,
+     "unit": "B",
+     "source": "legacy-summary; macOS proc_pid_rusage V4 with mach_timebase_info conversion; sampled root and descendants; existing coordinator counters subtract the initial baseline; new process counters use their observed lifetime; CPU/I/O can miss exited process tails; RSS sums double-count shared pages; disk counters are kernel-attributed I/O, not file bytes or a durability proof"
+    },
+    "footprint-peak-bytes": {
+     "value": 609896760,
+     "unit": "B",
+     "source": "legacy-summary; proc_pid_rusage V4"
+    }
+   }
+  },
+  {
+   "cellId": "1f3196b43d1d-67",
+   "factors": {
+    "engine": "go-sync",
+    "batchRows": 1000,
+    "writers": 4,
+    "readerMode": "none",
+    "payloadBytes": 512,
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-rows-per-second": {
+     "value": 239130.46126247765,
+     "unit": "row/s",
+     "source": "legacy-summary"
+    },
+    "rss-peak-bytes": {
+     "value": 516177920,
+     "unit": "B",
+     "source": "legacy-summary; macOS proc_pid_rusage V4 with mach_timebase_info conversion; sampled root and descendants; existing coordinator counters subtract the initial baseline; new process counters use their observed lifetime; CPU/I/O can miss exited process tails; RSS sums double-count shared pages; disk counters are kernel-attributed I/O, not file bytes or a durability proof"
+    },
+    "footprint-peak-bytes": {
+     "value": 607602016,
+     "unit": "B",
+     "source": "legacy-summary; proc_pid_rusage V4"
+    }
+   }
+  },
+  {
+   "cellId": "a4f99c0dcee1-68",
+   "factors": {
+    "engine": "rust-sync",
+    "batchRows": 1000,
+    "writers": 4,
+    "readerMode": "none",
+    "payloadBytes": 512,
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-rows-per-second": {
+     "value": 307377.17220201326,
+     "unit": "row/s",
+     "source": "legacy-summary"
+    },
+    "rss-peak-bytes": {
+     "value": 488144896,
+     "unit": "B",
+     "source": "legacy-summary; macOS proc_pid_rusage V4 with mach_timebase_info conversion; sampled root and descendants; existing coordinator counters subtract the initial baseline; new process counters use their observed lifetime; CPU/I/O can miss exited process tails; RSS sums double-count shared pages; disk counters are kernel-attributed I/O, not file bytes or a durability proof"
+    },
+    "footprint-peak-bytes": {
+     "value": 586875368,
+     "unit": "B",
+     "source": "legacy-summary; proc_pid_rusage V4"
+    }
+   }
+  },
+  {
+   "cellId": "24e0ea0b61b3-69",
+   "factors": {
+    "engine": "go-sync",
+    "batchRows": 100,
+    "writers": 1,
+    "readerMode": "held",
+    "payloadBytes": 512,
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-rows-per-second": {
+     "value": 238365.55598647284,
+     "unit": "row/s",
+     "source": "legacy-summary"
+    },
+    "rss-peak-bytes": {
+     "value": 474660864,
+     "unit": "B",
+     "source": "legacy-summary; macOS proc_pid_rusage V4 with mach_timebase_info conversion; sampled root and descendants; existing coordinator counters subtract the initial baseline; new process counters use their observed lifetime; CPU/I/O can miss exited process tails; RSS sums double-count shared pages; disk counters are kernel-attributed I/O, not file bytes or a durability proof"
+    },
+    "footprint-peak-bytes": {
+     "value": 576093712,
+     "unit": "B",
+     "source": "legacy-summary; proc_pid_rusage V4"
+    }
+   }
+  },
+  {
+   "cellId": "804e78e632fd-70",
+   "factors": {
+    "engine": "go-sync",
+    "batchRows": 100,
+    "writers": 1,
+    "readerMode": "none",
+    "payloadBytes": 512,
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-rows-per-second": {
+     "value": 207672.18944890588,
+     "unit": "row/s",
+     "source": "legacy-summary"
+    },
+    "rss-peak-bytes": {
+     "value": 474628096,
+     "unit": "B",
+     "source": "legacy-summary; macOS proc_pid_rusage V4 with mach_timebase_info conversion; sampled root and descendants; existing coordinator counters subtract the initial baseline; new process counters use their observed lifetime; CPU/I/O can miss exited process tails; RSS sums double-count shared pages; disk counters are kernel-attributed I/O, not file bytes or a durability proof"
+    },
+    "footprint-peak-bytes": {
+     "value": 576257648,
+     "unit": "B",
+     "source": "legacy-summary; proc_pid_rusage V4"
+    }
+   }
+  },
+  {
+   "cellId": "0cf40483c47a-71",
+   "factors": {
+    "engine": "node-shared",
+    "batchRows": 100,
+    "writers": 1,
+    "readerMode": "held",
+    "payloadBytes": 512,
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-rows-per-second": {
+     "value": 223895.2828329851,
+     "unit": "row/s",
+     "source": "legacy-summary"
+    },
+    "rss-peak-bytes": {
+     "value": 548847616,
+     "unit": "B",
+     "source": "legacy-summary; macOS proc_pid_rusage V4 with mach_timebase_info conversion; sampled root and descendants; existing coordinator counters subtract the initial baseline; new process counters use their observed lifetime; CPU/I/O can miss exited process tails; RSS sums double-count shared pages; disk counters are kernel-attributed I/O, not file bytes or a durability proof"
+    },
+    "footprint-peak-bytes": {
+     "value": 614156888,
+     "unit": "B",
+     "source": "legacy-summary; proc_pid_rusage V4"
+    }
+   }
+  },
+  {
+   "cellId": "f2a41b81833d-72",
+   "factors": {
+    "engine": "rust-sync",
+    "batchRows": 1000,
+    "writers": 4,
+    "readerMode": "none",
+    "payloadBytes": 512,
+    "block": 2
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-rows-per-second": {
+     "value": 240097.91553140464,
+     "unit": "row/s",
+     "source": "legacy-summary"
+    },
+    "rss-peak-bytes": {
+     "value": 491487232,
+     "unit": "B",
+     "source": "legacy-summary; macOS proc_pid_rusage V4 with mach_timebase_info conversion; sampled root and descendants; existing coordinator counters subtract the initial baseline; new process counters use their observed lifetime; CPU/I/O can miss exited process tails; RSS sums double-count shared pages; disk counters are kernel-attributed I/O, not file bytes or a durability proof"
+    },
+    "footprint-peak-bytes": {
+     "value": 589496736,
+     "unit": "B",
+     "source": "legacy-summary; proc_pid_rusage V4"
+    }
+   }
+  },
+  {
+   "cellId": "5ba4e7e9f107-73",
+   "factors": {
+    "engine": "node-shared",
+    "batchRows": 100,
+    "writers": 4,
+    "readerMode": "short",
+    "payloadBytes": 512,
+    "block": 2
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-rows-per-second": {
+     "value": 178066.6414405748,
+     "unit": "row/s",
+     "source": "legacy-summary"
+    },
+    "rss-peak-bytes": {
+     "value": 780353536,
+     "unit": "B",
+     "source": "legacy-summary; macOS proc_pid_rusage V4 with mach_timebase_info conversion; sampled root and descendants; existing coordinator counters subtract the initial baseline; new process counters use their observed lifetime; CPU/I/O can miss exited process tails; RSS sums double-count shared pages; disk counters are kernel-attributed I/O, not file bytes or a durability proof"
+    },
+    "footprint-peak-bytes": {
+     "value": 734897304,
+     "unit": "B",
+     "source": "legacy-summary; proc_pid_rusage V4"
+    }
+   }
+  },
+  {
+   "cellId": "1151f4833a83-74",
+   "factors": {
+    "engine": "rust-sync",
+    "batchRows": 100,
+    "writers": 1,
+    "readerMode": "none",
+    "payloadBytes": 512,
+    "block": 2
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-rows-per-second": {
+     "value": 216819.55030991315,
+     "unit": "row/s",
+     "source": "legacy-summary"
+    },
+    "rss-peak-bytes": {
+     "value": 464338944,
+     "unit": "B",
+     "source": "legacy-summary; macOS proc_pid_rusage V4 with mach_timebase_info conversion; sampled root and descendants; existing coordinator counters subtract the initial baseline; new process counters use their observed lifetime; CPU/I/O can miss exited process tails; RSS sums double-count shared pages; disk counters are kernel-attributed I/O, not file bytes or a durability proof"
+    },
+    "footprint-peak-bytes": {
+     "value": 567475512,
+     "unit": "B",
+     "source": "legacy-summary; proc_pid_rusage V4"
+    }
+   }
+  },
+  {
+   "cellId": "2faeb83db3b3-75",
+   "factors": {
+    "engine": "rust-sync",
+    "batchRows": 100,
+    "writers": 1,
+    "readerMode": "held",
+    "payloadBytes": 512,
+    "block": 2
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-rows-per-second": {
+     "value": 215531.45530728923,
+     "unit": "row/s",
+     "source": "legacy-summary"
+    },
+    "rss-peak-bytes": {
+     "value": 463749120,
+     "unit": "B",
+     "source": "legacy-summary; macOS proc_pid_rusage V4 with mach_timebase_info conversion; sampled root and descendants; existing coordinator counters subtract the initial baseline; new process counters use their observed lifetime; CPU/I/O can miss exited process tails; RSS sums double-count shared pages; disk counters are kernel-attributed I/O, not file bytes or a durability proof"
+    },
+    "footprint-peak-bytes": {
+     "value": 566820104,
+     "unit": "B",
+     "source": "legacy-summary; proc_pid_rusage V4"
+    }
+   }
+  },
+  {
+   "cellId": "b177c856e3dd-76",
+   "factors": {
+    "engine": "node-shared",
+    "batchRows": 100,
+    "writers": 1,
+    "readerMode": "held",
+    "payloadBytes": 512,
+    "block": 2
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-rows-per-second": {
+     "value": 214821.26850323807,
+     "unit": "row/s",
+     "source": "legacy-summary"
+    },
+    "rss-peak-bytes": {
+     "value": 547356672,
+     "unit": "B",
+     "source": "legacy-summary; macOS proc_pid_rusage V4 with mach_timebase_info conversion; sampled root and descendants; existing coordinator counters subtract the initial baseline; new process counters use their observed lifetime; CPU/I/O can miss exited process tails; RSS sums double-count shared pages; disk counters are kernel-attributed I/O, not file bytes or a durability proof"
+    },
+    "footprint-peak-bytes": {
+     "value": 612501984,
+     "unit": "B",
+     "source": "legacy-summary; proc_pid_rusage V4"
+    }
+   }
+  },
+  {
+   "cellId": "1508615c7251-77",
+   "factors": {
+    "engine": "rust-sync",
+    "batchRows": 100,
+    "writers": 4,
+    "readerMode": "short",
+    "payloadBytes": 512,
+    "block": 2
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-rows-per-second": {
+     "value": 210349.87099644545,
+     "unit": "row/s",
+     "source": "legacy-summary"
+    },
+    "rss-peak-bytes": {
+     "value": 478740480,
+     "unit": "B",
+     "source": "legacy-summary; macOS proc_pid_rusage V4 with mach_timebase_info conversion; sampled root and descendants; existing coordinator counters subtract the initial baseline; new process counters use their observed lifetime; CPU/I/O can miss exited process tails; RSS sums double-count shared pages; disk counters are kernel-attributed I/O, not file bytes or a durability proof"
+    },
+    "footprint-peak-bytes": {
+     "value": 576651632,
+     "unit": "B",
+     "source": "legacy-summary; proc_pid_rusage V4"
+    }
+   }
+  },
+  {
+   "cellId": "c525443e132d-78",
+   "factors": {
+    "engine": "go-sync",
+    "batchRows": 100,
+    "writers": 4,
+    "readerMode": "short",
+    "payloadBytes": 512,
+    "block": 2
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-rows-per-second": {
+     "value": 178839.97095936246,
+     "unit": "row/s",
+     "source": "legacy-summary"
+    },
+    "rss-peak-bytes": {
+     "value": 513851392,
+     "unit": "B",
+     "source": "legacy-summary; macOS proc_pid_rusage V4 with mach_timebase_info conversion; sampled root and descendants; existing coordinator counters subtract the initial baseline; new process counters use their observed lifetime; CPU/I/O can miss exited process tails; RSS sums double-count shared pages; disk counters are kernel-attributed I/O, not file bytes or a durability proof"
+    },
+    "footprint-peak-bytes": {
+     "value": 605242648,
+     "unit": "B",
+     "source": "legacy-summary; proc_pid_rusage V4"
+    }
+   }
+  },
+  {
+   "cellId": "8fa29073edfe-79",
+   "factors": {
+    "engine": "rust-sync",
+    "batchRows": 1000,
+    "writers": 1,
+    "readerMode": "held",
+    "payloadBytes": 512,
+    "block": 2
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-rows-per-second": {
+     "value": 324948.42179994483,
+     "unit": "row/s",
+     "source": "legacy-summary"
+    },
+    "rss-peak-bytes": {
+     "value": 467795968,
+     "unit": "B",
+     "source": "legacy-summary; macOS proc_pid_rusage V4 with mach_timebase_info conversion; sampled root and descendants; existing coordinator counters subtract the initial baseline; new process counters use their observed lifetime; CPU/I/O can miss exited process tails; RSS sums double-count shared pages; disk counters are kernel-attributed I/O, not file bytes or a durability proof"
+    },
+    "footprint-peak-bytes": {
+     "value": 570801464,
+     "unit": "B",
+     "source": "legacy-summary; proc_pid_rusage V4"
+    }
+   }
+  },
+  {
+   "cellId": "77888b94e24c-80",
+   "factors": {
+    "engine": "rust-sync",
+    "batchRows": 1000,
+    "writers": 4,
+    "readerMode": "held",
+    "payloadBytes": 512,
+    "block": 2
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-rows-per-second": {
+     "value": 272854.5927262978,
+     "unit": "row/s",
+     "source": "legacy-summary"
+    },
+    "rss-peak-bytes": {
+     "value": 491798528,
+     "unit": "B",
+     "source": "legacy-summary; macOS proc_pid_rusage V4 with mach_timebase_info conversion; sampled root and descendants; existing coordinator counters subtract the initial baseline; new process counters use their observed lifetime; CPU/I/O can miss exited process tails; RSS sums double-count shared pages; disk counters are kernel-attributed I/O, not file bytes or a durability proof"
+    },
+    "footprint-peak-bytes": {
+     "value": 589578680,
+     "unit": "B",
+     "source": "legacy-summary; proc_pid_rusage V4"
+    }
+   }
+  },
+  {
+   "cellId": "d7739d24717d-81",
+   "factors": {
+    "engine": "go-sync",
+    "batchRows": 1000,
+    "writers": 1,
+    "readerMode": "none",
+    "payloadBytes": 512,
+    "block": 2
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-rows-per-second": {
+     "value": 249034.50489806602,
+     "unit": "row/s",
+     "source": "legacy-summary"
+    },
+    "rss-peak-bytes": {
+     "value": 475234304,
+     "unit": "B",
+     "source": "legacy-summary; macOS proc_pid_rusage V4 with mach_timebase_info conversion; sampled root and descendants; existing coordinator counters subtract the initial baseline; new process counters use their observed lifetime; CPU/I/O can miss exited process tails; RSS sums double-count shared pages; disk counters are kernel-attributed I/O, not file bytes or a durability proof"
+    },
+    "footprint-peak-bytes": {
+     "value": 575634960,
+     "unit": "B",
+     "source": "legacy-summary; proc_pid_rusage V4"
+    }
+   }
+  },
+  {
+   "cellId": "e03e764c4edb-82",
+   "factors": {
+    "engine": "rust-sync",
+    "batchRows": 1000,
+    "writers": 1,
+    "readerMode": "none",
+    "payloadBytes": 512,
+    "block": 2
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-rows-per-second": {
+     "value": 282217.4353049741,
+     "unit": "row/s",
+     "source": "legacy-summary"
+    },
+    "rss-peak-bytes": {
+     "value": 468402176,
+     "unit": "B",
+     "source": "legacy-summary; macOS proc_pid_rusage V4 with mach_timebase_info conversion; sampled root and descendants; existing coordinator counters subtract the initial baseline; new process counters use their observed lifetime; CPU/I/O can miss exited process tails; RSS sums double-count shared pages; disk counters are kernel-attributed I/O, not file bytes or a durability proof"
+    },
+    "footprint-peak-bytes": {
+     "value": 571473256,
+     "unit": "B",
+     "source": "legacy-summary; proc_pid_rusage V4"
+    }
+   }
+  },
+  {
+   "cellId": "a488b5bc1ea7-83",
+   "factors": {
+    "engine": "rust-sync",
+    "batchRows": 1000,
+    "writers": 4,
+    "readerMode": "short",
+    "payloadBytes": 512,
+    "block": 2
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-rows-per-second": {
+     "value": 227355.75249107895,
+     "unit": "row/s",
+     "source": "legacy-summary"
+    },
+    "rss-peak-bytes": {
+     "value": 493010944,
+     "unit": "B",
+     "source": "legacy-summary; macOS proc_pid_rusage V4 with mach_timebase_info conversion; sampled root and descendants; existing coordinator counters subtract the initial baseline; new process counters use their observed lifetime; CPU/I/O can miss exited process tails; RSS sums double-count shared pages; disk counters are kernel-attributed I/O, not file bytes or a durability proof"
+    },
+    "footprint-peak-bytes": {
+     "value": 590807432,
+     "unit": "B",
+     "source": "legacy-summary; proc_pid_rusage V4"
+    }
+   }
+  },
+  {
+   "cellId": "6ed51323a80e-84",
+   "factors": {
+    "engine": "rust-sync",
+    "batchRows": 100,
+    "writers": 4,
+    "readerMode": "held",
+    "payloadBytes": 512,
+    "block": 2
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-rows-per-second": {
+     "value": 186431.7044590606,
+     "unit": "row/s",
+     "source": "legacy-summary"
+    },
+    "rss-peak-bytes": {
+     "value": 479117312,
+     "unit": "B",
+     "source": "legacy-summary; macOS proc_pid_rusage V4 with mach_timebase_info conversion; sampled root and descendants; existing coordinator counters subtract the initial baseline; new process counters use their observed lifetime; CPU/I/O can miss exited process tails; RSS sums double-count shared pages; disk counters are kernel-attributed I/O, not file bytes or a durability proof"
+    },
+    "footprint-peak-bytes": {
+     "value": 576733648,
+     "unit": "B",
+     "source": "legacy-summary; proc_pid_rusage V4"
+    }
+   }
+  },
+  {
+   "cellId": "376c12f8e897-85",
+   "factors": {
+    "engine": "node-shared",
+    "batchRows": 100,
+    "writers": 1,
+    "readerMode": "short",
+    "payloadBytes": 512,
+    "block": 2
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-rows-per-second": {
+     "value": 181537.4527139101,
+     "unit": "row/s",
+     "source": "legacy-summary"
+    },
+    "rss-peak-bytes": {
+     "value": 547602432,
+     "unit": "B",
+     "source": "legacy-summary; macOS proc_pid_rusage V4 with mach_timebase_info conversion; sampled root and descendants; existing coordinator counters subtract the initial baseline; new process counters use their observed lifetime; CPU/I/O can miss exited process tails; RSS sums double-count shared pages; disk counters are kernel-attributed I/O, not file bytes or a durability proof"
+    },
+    "footprint-peak-bytes": {
+     "value": 612551160,
+     "unit": "B",
+     "source": "legacy-summary; proc_pid_rusage V4"
+    }
+   }
+  },
+  {
+   "cellId": "f8b507af7464-86",
+   "factors": {
+    "engine": "go-sync",
+    "batchRows": 1000,
+    "writers": 1,
+    "readerMode": "held",
+    "payloadBytes": 512,
+    "block": 2
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-rows-per-second": {
+     "value": 306997.0125931125,
+     "unit": "row/s",
+     "source": "legacy-summary"
+    },
+    "rss-peak-bytes": {
+     "value": 475332608,
+     "unit": "B",
+     "source": "legacy-summary; macOS proc_pid_rusage V4 with mach_timebase_info conversion; sampled root and descendants; existing coordinator counters subtract the initial baseline; new process counters use their observed lifetime; CPU/I/O can miss exited process tails; RSS sums double-count shared pages; disk counters are kernel-attributed I/O, not file bytes or a durability proof"
+    },
+    "footprint-peak-bytes": {
+     "value": 576355880,
+     "unit": "B",
+     "source": "legacy-summary; proc_pid_rusage V4"
+    }
+   }
+  },
+  {
+   "cellId": "6d66df1cd095-87",
+   "factors": {
+    "engine": "node-shared",
+    "batchRows": 1000,
+    "writers": 4,
+    "readerMode": "short",
+    "payloadBytes": 512,
+    "block": 2
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-rows-per-second": {
+     "value": 221704.71875990156,
+     "unit": "row/s",
+     "source": "legacy-summary"
+    },
+    "rss-peak-bytes": {
+     "value": 809336832,
+     "unit": "B",
+     "source": "legacy-summary; macOS proc_pid_rusage V4 with mach_timebase_info conversion; sampled root and descendants; existing coordinator counters subtract the initial baseline; new process counters use their observed lifetime; CPU/I/O can miss exited process tails; RSS sums double-count shared pages; disk counters are kernel-attributed I/O, not file bytes or a durability proof"
+    },
+    "footprint-peak-bytes": {
+     "value": 765571608,
+     "unit": "B",
+     "source": "legacy-summary; proc_pid_rusage V4"
+    }
+   }
+  },
+  {
+   "cellId": "1a20b7517aa1-88",
+   "factors": {
+    "engine": "go-sync",
+    "batchRows": 100,
+    "writers": 4,
+    "readerMode": "none",
+    "payloadBytes": 512,
+    "block": 2
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-rows-per-second": {
+     "value": 191482.04107882292,
+     "unit": "row/s",
+     "source": "legacy-summary"
+    },
+    "rss-peak-bytes": {
+     "value": 514850816,
+     "unit": "B",
+     "source": "legacy-summary; macOS proc_pid_rusage V4 with mach_timebase_info conversion; sampled root and descendants; existing coordinator counters subtract the initial baseline; new process counters use their observed lifetime; CPU/I/O can miss exited process tails; RSS sums double-count shared pages; disk counters are kernel-attributed I/O, not file bytes or a durability proof"
+    },
+    "footprint-peak-bytes": {
+     "value": 604964096,
+     "unit": "B",
+     "source": "legacy-summary; proc_pid_rusage V4"
+    }
+   }
+  },
+  {
+   "cellId": "0dbefd910098-89",
+   "factors": {
+    "engine": "go-sync",
+    "batchRows": 100,
+    "writers": 1,
+    "readerMode": "held",
+    "payloadBytes": 512,
+    "block": 2
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-rows-per-second": {
+     "value": 216781.8498638056,
+     "unit": "row/s",
+     "source": "legacy-summary"
+    },
+    "rss-peak-bytes": {
+     "value": 472940544,
+     "unit": "B",
+     "source": "legacy-summary; macOS proc_pid_rusage V4 with mach_timebase_info conversion; sampled root and descendants; existing coordinator counters subtract the initial baseline; new process counters use their observed lifetime; CPU/I/O can miss exited process tails; RSS sums double-count shared pages; disk counters are kernel-attributed I/O, not file bytes or a durability proof"
+    },
+    "footprint-peak-bytes": {
+     "value": 573881800,
+     "unit": "B",
+     "source": "legacy-summary; proc_pid_rusage V4"
+    }
+   }
+  },
+  {
+   "cellId": "52521a5bd0d9-90",
+   "factors": {
+    "engine": "rust-sync",
+    "batchRows": 1000,
+    "writers": 1,
+    "readerMode": "short",
+    "payloadBytes": 512,
+    "block": 2
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-rows-per-second": {
+     "value": 257129.57020193734,
+     "unit": "row/s",
+     "source": "legacy-summary"
+    },
+    "rss-peak-bytes": {
+     "value": 467353600,
+     "unit": "B",
+     "source": "legacy-summary; macOS proc_pid_rusage V4 with mach_timebase_info conversion; sampled root and descendants; existing coordinator counters subtract the initial baseline; new process counters use their observed lifetime; CPU/I/O can miss exited process tails; RSS sums double-count shared pages; disk counters are kernel-attributed I/O, not file bytes or a durability proof"
+    },
+    "footprint-peak-bytes": {
+     "value": 570064160,
+     "unit": "B",
+     "source": "legacy-summary; proc_pid_rusage V4"
+    }
+   }
+  },
+  {
+   "cellId": "e89e1933cb7a-91",
+   "factors": {
+    "engine": "go-sync",
+    "batchRows": 100,
+    "writers": 1,
+    "readerMode": "none",
+    "payloadBytes": 512,
+    "block": 2
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-rows-per-second": {
+     "value": 204463.64454626042,
+     "unit": "row/s",
+     "source": "legacy-summary"
+    },
+    "rss-peak-bytes": {
+     "value": 475381760,
+     "unit": "B",
+     "source": "legacy-summary; macOS proc_pid_rusage V4 with mach_timebase_info conversion; sampled root and descendants; existing coordinator counters subtract the initial baseline; new process counters use their observed lifetime; CPU/I/O can miss exited process tails; RSS sums double-count shared pages; disk counters are kernel-attributed I/O, not file bytes or a durability proof"
+    },
+    "footprint-peak-bytes": {
+     "value": 576290368,
+     "unit": "B",
+     "source": "legacy-summary; proc_pid_rusage V4"
+    }
+   }
+  },
+  {
+   "cellId": "168d4869eaec-92",
+   "factors": {
+    "engine": "go-sync",
+    "batchRows": 1000,
+    "writers": 4,
+    "readerMode": "short",
+    "payloadBytes": 512,
+    "block": 2
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-rows-per-second": {
+     "value": 225488.08040069725,
+     "unit": "row/s",
+     "source": "legacy-summary"
+    },
+    "rss-peak-bytes": {
+     "value": 522551296,
+     "unit": "B",
+     "source": "legacy-summary; macOS proc_pid_rusage V4 with mach_timebase_info conversion; sampled root and descendants; existing coordinator counters subtract the initial baseline; new process counters use their observed lifetime; CPU/I/O can miss exited process tails; RSS sums double-count shared pages; disk counters are kernel-attributed I/O, not file bytes or a durability proof"
+    },
+    "footprint-peak-bytes": {
+     "value": 613418408,
+     "unit": "B",
+     "source": "legacy-summary; proc_pid_rusage V4"
+    }
+   }
+  },
+  {
+   "cellId": "7c13f0a1afbd-93",
+   "factors": {
+    "engine": "node-shared",
+    "batchRows": 1000,
+    "writers": 4,
+    "readerMode": "held",
+    "payloadBytes": 512,
+    "block": 2
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-rows-per-second": {
+     "value": 239038.54216380906,
+     "unit": "row/s",
+     "source": "legacy-summary"
+    },
+    "rss-peak-bytes": {
+     "value": 812253184,
+     "unit": "B",
+     "source": "legacy-summary; macOS proc_pid_rusage V4 with mach_timebase_info conversion; sampled root and descendants; existing coordinator counters subtract the initial baseline; new process counters use their observed lifetime; CPU/I/O can miss exited process tails; RSS sums double-count shared pages; disk counters are kernel-attributed I/O, not file bytes or a durability proof"
+    },
+    "footprint-peak-bytes": {
+     "value": 768307712,
+     "unit": "B",
+     "source": "legacy-summary; proc_pid_rusage V4"
+    }
+   }
+  },
+  {
+   "cellId": "1a6e4dd8a58e-94",
+   "factors": {
+    "engine": "node-shared",
+    "batchRows": 100,
+    "writers": 4,
+    "readerMode": "none",
+    "payloadBytes": 512,
+    "block": 2
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-rows-per-second": {
+     "value": 197556.6770504409,
+     "unit": "row/s",
+     "source": "legacy-summary"
+    },
+    "rss-peak-bytes": {
+     "value": 775733248,
+     "unit": "B",
+     "source": "legacy-summary; macOS proc_pid_rusage V4 with mach_timebase_info conversion; sampled root and descendants; existing coordinator counters subtract the initial baseline; new process counters use their observed lifetime; CPU/I/O can miss exited process tails; RSS sums double-count shared pages; disk counters are kernel-attributed I/O, not file bytes or a durability proof"
+    },
+    "footprint-peak-bytes": {
+     "value": 729933024,
+     "unit": "B",
+     "source": "legacy-summary; proc_pid_rusage V4"
+    }
+   }
+  },
+  {
+   "cellId": "8e5f0c82b61d-95",
+   "factors": {
+    "engine": "rust-sync",
+    "batchRows": 100,
+    "writers": 4,
+    "readerMode": "none",
+    "payloadBytes": 512,
+    "block": 2
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-rows-per-second": {
+     "value": 186864.49574823637,
+     "unit": "row/s",
+     "source": "legacy-summary"
+    },
+    "rss-peak-bytes": {
+     "value": 479051776,
+     "unit": "B",
+     "source": "legacy-summary; macOS proc_pid_rusage V4 with mach_timebase_info conversion; sampled root and descendants; existing coordinator counters subtract the initial baseline; new process counters use their observed lifetime; CPU/I/O can miss exited process tails; RSS sums double-count shared pages; disk counters are kernel-attributed I/O, not file bytes or a durability proof"
+    },
+    "footprint-peak-bytes": {
+     "value": 576586216,
+     "unit": "B",
+     "source": "legacy-summary; proc_pid_rusage V4"
+    }
+   }
+  },
+  {
+   "cellId": "79866c4ed89d-96",
+   "factors": {
+    "engine": "node-shared",
+    "batchRows": 1000,
+    "writers": 1,
+    "readerMode": "none",
+    "payloadBytes": 512,
+    "block": 2
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-rows-per-second": {
+     "value": 229453.04617705455,
+     "unit": "row/s",
+     "source": "legacy-summary"
+    },
+    "rss-peak-bytes": {
+     "value": 545046528,
+     "unit": "B",
+     "source": "legacy-summary; macOS proc_pid_rusage V4 with mach_timebase_info conversion; sampled root and descendants; existing coordinator counters subtract the initial baseline; new process counters use their observed lifetime; CPU/I/O can miss exited process tails; RSS sums double-count shared pages; disk counters are kernel-attributed I/O, not file bytes or a durability proof"
+    },
+    "footprint-peak-bytes": {
+     "value": 612518416,
+     "unit": "B",
+     "source": "legacy-summary; proc_pid_rusage V4"
+    }
+   }
+  },
+  {
+   "cellId": "641002342bfc-97",
+   "factors": {
+    "engine": "go-sync",
+    "batchRows": 1000,
+    "writers": 4,
+    "readerMode": "held",
+    "payloadBytes": 512,
+    "block": 2
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-rows-per-second": {
+     "value": 287418.91081713495,
+     "unit": "row/s",
+     "source": "legacy-summary"
+    },
+    "rss-peak-bytes": {
+     "value": 517537792,
+     "unit": "B",
+     "source": "legacy-summary; macOS proc_pid_rusage V4 with mach_timebase_info conversion; sampled root and descendants; existing coordinator counters subtract the initial baseline; new process counters use their observed lifetime; CPU/I/O can miss exited process tails; RSS sums double-count shared pages; disk counters are kernel-attributed I/O, not file bytes or a durability proof"
+    },
+    "footprint-peak-bytes": {
+     "value": 607225160,
+     "unit": "B",
+     "source": "legacy-summary; proc_pid_rusage V4"
+    }
+   }
+  },
+  {
+   "cellId": "ecf05543786a-98",
+   "factors": {
+    "engine": "node-shared",
+    "batchRows": 1000,
+    "writers": 1,
+    "readerMode": "held",
+    "payloadBytes": 512,
+    "block": 2
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-rows-per-second": {
+     "value": 269052.0756429323,
+     "unit": "row/s",
+     "source": "legacy-summary"
+    },
+    "rss-peak-bytes": {
+     "value": 560529408,
+     "unit": "B",
+     "source": "legacy-summary; macOS proc_pid_rusage V4 with mach_timebase_info conversion; sampled root and descendants; existing coordinator counters subtract the initial baseline; new process counters use their observed lifetime; CPU/I/O can miss exited process tails; RSS sums double-count shared pages; disk counters are kernel-attributed I/O, not file bytes or a durability proof"
+    },
+    "footprint-peak-bytes": {
+     "value": 630052440,
+     "unit": "B",
+     "source": "legacy-summary; proc_pid_rusage V4"
+    }
+   }
+  },
+  {
+   "cellId": "77c69901b3c4-99",
+   "factors": {
+    "engine": "node-shared",
+    "batchRows": 1000,
+    "writers": 1,
+    "readerMode": "short",
+    "payloadBytes": 512,
+    "block": 2
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-rows-per-second": {
+     "value": 222097.099810917,
+     "unit": "row/s",
+     "source": "legacy-summary"
+    },
+    "rss-peak-bytes": {
+     "value": 555663360,
+     "unit": "B",
+     "source": "legacy-summary; macOS proc_pid_rusage V4 with mach_timebase_info conversion; sampled root and descendants; existing coordinator counters subtract the initial baseline; new process counters use their observed lifetime; CPU/I/O can miss exited process tails; RSS sums double-count shared pages; disk counters are kernel-attributed I/O, not file bytes or a durability proof"
+    },
+    "footprint-peak-bytes": {
+     "value": 625005832,
+     "unit": "B",
+     "source": "legacy-summary; proc_pid_rusage V4"
+    }
+   }
+  },
+  {
+   "cellId": "aafe65b5aa49-100",
+   "factors": {
+    "engine": "go-sync",
+    "batchRows": 1000,
+    "writers": 1,
+    "readerMode": "short",
+    "payloadBytes": 512,
+    "block": 2
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-rows-per-second": {
+     "value": 251532.69482503732,
+     "unit": "row/s",
+     "source": "legacy-summary"
+    },
+    "rss-peak-bytes": {
+     "value": 473923584,
+     "unit": "B",
+     "source": "legacy-summary; macOS proc_pid_rusage V4 with mach_timebase_info conversion; sampled root and descendants; existing coordinator counters subtract the initial baseline; new process counters use their observed lifetime; CPU/I/O can miss exited process tails; RSS sums double-count shared pages; disk counters are kernel-attributed I/O, not file bytes or a durability proof"
+    },
+    "footprint-peak-bytes": {
+     "value": 574307784,
+     "unit": "B",
+     "source": "legacy-summary; proc_pid_rusage V4"
+    }
+   }
+  },
+  {
+   "cellId": "3458fe94c683-101",
+   "factors": {
+    "engine": "node-shared",
+    "batchRows": 100,
+    "writers": 1,
+    "readerMode": "none",
+    "payloadBytes": 512,
+    "block": 2
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-rows-per-second": {
+     "value": 193529.17074256178,
+     "unit": "row/s",
+     "source": "legacy-summary"
+    },
+    "rss-peak-bytes": {
+     "value": 546717696,
+     "unit": "B",
+     "source": "legacy-summary; macOS proc_pid_rusage V4 with mach_timebase_info conversion; sampled root and descendants; existing coordinator counters subtract the initial baseline; new process counters use their observed lifetime; CPU/I/O can miss exited process tails; RSS sums double-count shared pages; disk counters are kernel-attributed I/O, not file bytes or a durability proof"
+    },
+    "footprint-peak-bytes": {
+     "value": 611420568,
+     "unit": "B",
+     "source": "legacy-summary; proc_pid_rusage V4"
+    }
+   }
+  },
+  {
+   "cellId": "8fa79ea5ca8a-102",
+   "factors": {
+    "engine": "node-shared",
+    "batchRows": 1000,
+    "writers": 4,
+    "readerMode": "none",
+    "payloadBytes": 512,
+    "block": 2
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-rows-per-second": {
+     "value": 140745.5152716929,
+     "unit": "row/s",
+     "source": "legacy-summary"
+    },
+    "rss-peak-bytes": {
+     "value": 802881536,
+     "unit": "B",
+     "source": "legacy-summary; macOS proc_pid_rusage V4 with mach_timebase_info conversion; sampled root and descendants; existing coordinator counters subtract the initial baseline; new process counters use their observed lifetime; CPU/I/O can miss exited process tails; RSS sums double-count shared pages; disk counters are kernel-attributed I/O, not file bytes or a durability proof"
+    },
+    "footprint-peak-bytes": {
+     "value": 758919128,
+     "unit": "B",
+     "source": "legacy-summary; proc_pid_rusage V4"
+    }
+   }
+  },
+  {
+   "cellId": "1bc1a679c95f-103",
+   "factors": {
+    "engine": "go-sync",
+    "batchRows": 100,
+    "writers": 4,
+    "readerMode": "held",
+    "payloadBytes": 512,
+    "block": 2
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-rows-per-second": {
+     "value": 196559.39245359646,
+     "unit": "row/s",
+     "source": "legacy-summary"
+    },
+    "rss-peak-bytes": {
+     "value": 510918656,
+     "unit": "B",
+     "source": "legacy-summary; macOS proc_pid_rusage V4 with mach_timebase_info conversion; sampled root and descendants; existing coordinator counters subtract the initial baseline; new process counters use their observed lifetime; CPU/I/O can miss exited process tails; RSS sums double-count shared pages; disk counters are kernel-attributed I/O, not file bytes or a durability proof"
+    },
+    "footprint-peak-bytes": {
+     "value": 602162480,
+     "unit": "B",
+     "source": "legacy-summary; proc_pid_rusage V4"
+    }
+   }
+  },
+  {
+   "cellId": "6c8544a4be5f-104",
+   "factors": {
+    "engine": "go-sync",
+    "batchRows": 1000,
+    "writers": 4,
+    "readerMode": "none",
+    "payloadBytes": 512,
+    "block": 2
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-rows-per-second": {
+     "value": 251648.2468670297,
+     "unit": "row/s",
+     "source": "legacy-summary"
+    },
+    "rss-peak-bytes": {
+     "value": 520404992,
+     "unit": "B",
+     "source": "legacy-summary; macOS proc_pid_rusage V4 with mach_timebase_info conversion; sampled root and descendants; existing coordinator counters subtract the initial baseline; new process counters use their observed lifetime; CPU/I/O can miss exited process tails; RSS sums double-count shared pages; disk counters are kernel-attributed I/O, not file bytes or a durability proof"
+    },
+    "footprint-peak-bytes": {
+     "value": 610862576,
+     "unit": "B",
+     "source": "legacy-summary; proc_pid_rusage V4"
+    }
+   }
+  },
+  {
+   "cellId": "a4a9271998ea-105",
+   "factors": {
+    "engine": "node-shared",
+    "batchRows": 100,
+    "writers": 4,
+    "readerMode": "held",
+    "payloadBytes": 512,
+    "block": 2
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-rows-per-second": {
+     "value": 172437.75600542547,
+     "unit": "row/s",
+     "source": "legacy-summary"
+    },
+    "rss-peak-bytes": {
+     "value": 775127040,
+     "unit": "B",
+     "source": "legacy-summary; macOS proc_pid_rusage V4 with mach_timebase_info conversion; sampled root and descendants; existing coordinator counters subtract the initial baseline; new process counters use their observed lifetime; CPU/I/O can miss exited process tails; RSS sums double-count shared pages; disk counters are kernel-attributed I/O, not file bytes or a durability proof"
+    },
+    "footprint-peak-bytes": {
+     "value": 729195384,
+     "unit": "B",
+     "source": "legacy-summary; proc_pid_rusage V4"
+    }
+   }
+  },
+  {
+   "cellId": "008b61f14276-106",
+   "factors": {
+    "engine": "rust-sync",
+    "batchRows": 100,
+    "writers": 1,
+    "readerMode": "short",
+    "payloadBytes": 512,
+    "block": 2
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-rows-per-second": {
+     "value": 114048.16499208953,
+     "unit": "row/s",
+     "source": "legacy-summary"
+    },
+    "rss-peak-bytes": {
+     "value": 463667200,
+     "unit": "B",
+     "source": "legacy-summary; macOS proc_pid_rusage V4 with mach_timebase_info conversion; sampled root and descendants; existing coordinator counters subtract the initial baseline; new process counters use their observed lifetime; CPU/I/O can miss exited process tails; RSS sums double-count shared pages; disk counters are kernel-attributed I/O, not file bytes or a durability proof"
+    },
+    "footprint-peak-bytes": {
+     "value": 566557936,
+     "unit": "B",
+     "source": "legacy-summary; proc_pid_rusage V4"
+    }
+   }
+  },
+  {
+   "cellId": "3b3fa0e90b53-107",
+   "factors": {
+    "engine": "go-sync",
+    "batchRows": 100,
+    "writers": 1,
+    "readerMode": "short",
+    "payloadBytes": 512,
+    "block": 2
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-rows-per-second": {
+     "value": 120443.24982809323,
+     "unit": "row/s",
+     "source": "legacy-summary"
+    },
+    "rss-peak-bytes": {
+     "value": 473088000,
+     "unit": "B",
+     "source": "legacy-summary; macOS proc_pid_rusage V4 with mach_timebase_info conversion; sampled root and descendants; existing coordinator counters subtract the initial baseline; new process counters use their observed lifetime; CPU/I/O can miss exited process tails; RSS sums double-count shared pages; disk counters are kernel-attributed I/O, not file bytes or a durability proof"
+    },
+    "footprint-peak-bytes": {
+     "value": 574701024,
+     "unit": "B",
+     "source": "legacy-summary; proc_pid_rusage V4"
+    }
+   }
+  }
+ ],
+ "totals": {
+  "verified": 108,
+  "failed": 0,
+  "timeout": 0,
+  "crashed": 0,
+  "aborted": 0,
+  "unsupported": 0,
+  "rejected": 0,
+  "unavailable": 0,
+  "skipped": 0
+ },
+ "metricAvailability": {
+  "pss-peak-bytes": {
+   "available": false,
+   "reason": "linux-only probe; legacy run on darwin"
+  },
+  "cgroup-memory-peak-bytes": {
+   "available": false,
+   "reason": "linux-only probe; legacy run on darwin"
+  },
+  "cpu-ms-per-verified-job": {
+   "available": false,
+   "reason": "CPU was not instrumented in this legacy lane"
+  },
+  "footprint-peak-bytes": {
+   "available": true
+  }
+ },
+ "legacy": {
+  "shape": "cells",
+  "sourceDir": "results/sqlite-readers-2026-10-08T00-25-35-434Z-92d4f3",
+  "errorCodeInferred": false,
+  "note": null
+ }
+}

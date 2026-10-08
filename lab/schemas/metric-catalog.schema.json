@@ -1,0 +1,32 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://automan.local/lab/schemas/metric-catalog.schema.json",
+  "title": "Automan lab metric catalog",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "metrics"],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "metrics": {
+      "type": "array", "minItems": 1,
+      "items": {
+        "type": "object", "additionalProperties": false,
+        "required": ["id", "kind", "unit", "direction", "description", "platforms"],
+        "properties": {
+          "id": { "type": "string", "pattern": "^[a-z0-9-]+$" },
+          "kind": { "enum": ["performance", "resource", "quality", "cost", "contract"] },
+          "unit": { "type": "string" },
+          "direction": { "enum": ["lower", "higher", "zero", "one"] },
+          "description": { "type": "string" },
+          "platforms": {
+            "type": "object", "additionalProperties": false, "required": ["darwin", "linux"],
+            "properties": {
+              "darwin": { "type": ["string", "null"], "description": "probe or source id; null means unavailable on this platform" },
+              "linux": { "type": ["string", "null"] }
+            }
+          }
+        }
+      }
+    }
+  }
+}

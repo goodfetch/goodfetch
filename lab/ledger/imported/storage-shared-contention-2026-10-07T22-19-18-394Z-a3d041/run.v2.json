@@ -1,0 +1,2243 @@
+{
+ "schemaVersion": 2,
+ "runId": "storage-shared-contention-2026-10-07T22-19-18-394Z-a3d041",
+ "lane": "storage",
+ "campaign": {
+  "id": "storage-shared-contention",
+  "source": "campaigns/storage-shared-contention.json"
+ },
+ "startedAt": "2026-10-07T22:19:18.394Z",
+ "decisionIds": [
+  "D-storage",
+  "D-core-language"
+ ],
+ "provenance": {
+  "git": {
+   "available": false,
+   "sha": null,
+   "dirty": null
+  },
+  "sourceTreeSha256": "759165f48d410e263e7a7fa8fa18f81cd48626ce5e5997630e9f9b616e27f547",
+  "sourceChanges": 0,
+  "binaryChanges": null,
+  "toolchains": {
+   "node": "v25.5.0",
+   "browser": null
+  },
+  "integrity": {
+   "status": "uncatalogued",
+   "checked": 0,
+   "mismatches": []
+  }
+ },
+ "host": {
+  "classRequested": null,
+  "classGranted": "local-dev",
+  "os": "27.0.0",
+  "arch": "arm64",
+  "cpu": "Apple M3 Max",
+  "logicalCpus": null,
+  "memoryBytes": 38654705664,
+  "preflight": null,
+  "postflight": null
+ },
+ "status": "complete",
+ "countUnit": "cell",
+ "cells": [
+  {
+   "cellId": "7b02463a81a9-0",
+   "factors": {
+    "engine": "node-shared",
+    "format": "sqlite-wal-full",
+    "batchSize": 100,
+    "writers": 1,
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-rows-per-second": {
+     "value": 15454.928324051047,
+     "unit": "row/s",
+     "source": "legacy-summary"
+    }
+   }
+  },
+  {
+   "cellId": "ecc283efea18-1",
+   "factors": {
+    "engine": "rust-sync",
+    "format": "sqlite-delete-full",
+    "batchSize": 1,
+    "writers": 4,
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-rows-per-second": {
+     "value": 268.03619462492264,
+     "unit": "row/s",
+     "source": "legacy-summary"
+    }
+   }
+  },
+  {
+   "cellId": "078c38aad135-2",
+   "factors": {
+    "engine": "rust-sync",
+    "format": "sqlite-wal-normal",
+    "batchSize": 1,
+    "writers": 1,
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-rows-per-second": {
+     "value": 338.62473756847425,
+     "unit": "row/s",
+     "source": "legacy-summary"
+    }
+   }
+  },
+  {
+   "cellId": "544c882f4c34-3",
+   "factors": {
+    "engine": "go-sync",
+    "format": "sqlite-wal-full",
+    "batchSize": 100,
+    "writers": 1,
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-rows-per-second": {
+     "value": 34721.64654214503,
+     "unit": "row/s",
+     "source": "legacy-summary"
+    }
+   }
+  },
+  {
+   "cellId": "477bf533c319-4",
+   "factors": {
+    "engine": "rust-sync",
+    "format": "sqlite-wal-full",
+    "batchSize": 1,
+    "writers": 1,
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-rows-per-second": {
+     "value": 600.436569924536,
+     "unit": "row/s",
+     "source": "legacy-summary"
+    }
+   }
+  },
+  {
+   "cellId": "8012b04b366e-5",
+   "factors": {
+    "engine": "go-sync",
+    "format": "sqlite-wal-full",
+    "batchSize": 1,
+    "writers": 4,
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-rows-per-second": {
+     "value": 432.6575312831674,
+     "unit": "row/s",
+     "source": "legacy-summary"
+    }
+   }
+  },
+  {
+   "cellId": "37381b3e831b-6",
+   "factors": {
+    "engine": "go-sync",
+    "format": "sqlite-wal-normal",
+    "batchSize": 100,
+    "writers": 4,
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-rows-per-second": {
+     "value": 77448.91908980795,
+     "unit": "row/s",
+     "source": "legacy-summary"
+    }
+   }
+  },
+  {
+   "cellId": "3470aec735d8-7",
+   "factors": {
+    "engine": "rust-sync",
+    "format": "sqlite-wal-full",
+    "batchSize": 100,
+    "writers": 1,
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-rows-per-second": {
+     "value": 31802.655617151977,
+     "unit": "row/s",
+     "source": "legacy-summary"
+    }
+   }
+  },
+  {
+   "cellId": "2da4f528f53e-8",
+   "factors": {
+    "engine": "node-shared",
+    "format": "sqlite-wal-normal",
+    "batchSize": 1,
+    "writers": 1,
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-rows-per-second": {
+     "value": 635.2129673222101,
+     "unit": "row/s",
+     "source": "legacy-summary"
+    }
+   }
+  },
+  {
+   "cellId": "067b9d6286ce-9",
+   "factors": {
+    "engine": "go-sync",
+    "format": "sqlite-delete-full",
+    "batchSize": 100,
+    "writers": 1,
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-rows-per-second": {
+     "value": 46344.03091633468,
+     "unit": "row/s",
+     "source": "legacy-summary"
+    }
+   }
+  },
+  {
+   "cellId": "0e10f52242e8-10",
+   "factors": {
+    "engine": "go-sync",
+    "format": "sqlite-wal-normal",
+    "batchSize": 1,
+    "writers": 1,
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-rows-per-second": {
+     "value": 377.1972476388337,
+     "unit": "row/s",
+     "source": "legacy-summary"
+    }
+   }
+  },
+  {
+   "cellId": "447d62571650-11",
+   "factors": {
+    "engine": "go-sync",
+    "format": "sqlite-delete-full",
+    "batchSize": 100,
+    "writers": 4,
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-rows-per-second": {
+     "value": 10604.868750034962,
+     "unit": "row/s",
+     "source": "legacy-summary"
+    }
+   }
+  },
+  {
+   "cellId": "d8b84060c6f3-12",
+   "factors": {
+    "engine": "node-shared",
+    "format": "sqlite-wal-full",
+    "batchSize": 1,
+    "writers": 4,
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-rows-per-second": {
+     "value": 683.4438656655797,
+     "unit": "row/s",
+     "source": "legacy-summary"
+    }
+   }
+  },
+  {
+   "cellId": "a77180272ad7-13",
+   "factors": {
+    "engine": "rust-sync",
+    "format": "sqlite-wal-normal",
+    "batchSize": 1,
+    "writers": 4,
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-rows-per-second": {
+     "value": 462.17320755533365,
+     "unit": "row/s",
+     "source": "legacy-summary"
+    }
+   }
+  },
+  {
+   "cellId": "68c72332e796-14",
+   "factors": {
+    "engine": "rust-sync",
+    "format": "sqlite-delete-full",
+    "batchSize": 100,
+    "writers": 4,
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-rows-per-second": {
+     "value": 16235.134371087426,
+     "unit": "row/s",
+     "source": "legacy-summary"
+    }
+   }
+  },
+  {
+   "cellId": "f93c6b126612-15",
+   "factors": {
+    "engine": "node-shared",
+    "format": "sqlite-wal-normal",
+    "batchSize": 1,
+    "writers": 4,
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-rows-per-second": {
+     "value": 216.67901819829774,
+     "unit": "row/s",
+     "source": "legacy-summary"
+    }
+   }
+  },
+  {
+   "cellId": "1460c98d7492-16",
+   "factors": {
+    "engine": "rust-sync",
+    "format": "sqlite-wal-normal",
+    "batchSize": 100,
+    "writers": 4,
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-rows-per-second": {
+     "value": 21208.513408340306,
+     "unit": "row/s",
+     "source": "legacy-summary"
+    }
+   }
+  },
+  {
+   "cellId": "3ea0cff204cf-17",
+   "factors": {
+    "engine": "node-shared",
+    "format": "sqlite-wal-full",
+    "batchSize": 100,
+    "writers": 4,
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-rows-per-second": {
+     "value": 36728.767615939505,
+     "unit": "row/s",
+     "source": "legacy-summary"
+    }
+   }
+  },
+  {
+   "cellId": "2c36a745ec12-18",
+   "factors": {
+    "engine": "go-sync",
+    "format": "sqlite-delete-full",
+    "batchSize": 1,
+    "writers": 4,
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-rows-per-second": {
+     "value": 484.7477013945699,
+     "unit": "row/s",
+     "source": "legacy-summary"
+    }
+   }
+  },
+  {
+   "cellId": "00a7dbee504c-19",
+   "factors": {
+    "engine": "rust-sync",
+    "format": "sqlite-wal-normal",
+    "batchSize": 100,
+    "writers": 1,
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-rows-per-second": {
+     "value": 116030.43072091069,
+     "unit": "row/s",
+     "source": "legacy-summary"
+    }
+   }
+  },
+  {
+   "cellId": "e7663f6cfc21-20",
+   "factors": {
+    "engine": "node-shared",
+    "format": "sqlite-delete-full",
+    "batchSize": 1,
+    "writers": 1,
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-rows-per-second": {
+     "value": 1227.1768436229343,
+     "unit": "row/s",
+     "source": "legacy-summary"
+    }
+   }
+  },
+  {
+   "cellId": "538899e19ea7-21",
+   "factors": {
+    "engine": "node-shared",
+    "format": "sqlite-delete-full",
+    "batchSize": 100,
+    "writers": 1,
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-rows-per-second": {
+     "value": 77396.98835741388,
+     "unit": "row/s",
+     "source": "legacy-summary"
+    }
+   }
+  },
+  {
+   "cellId": "072c10916cdd-22",
+   "factors": {
+    "engine": "node-shared",
+    "format": "sqlite-wal-normal",
+    "batchSize": 100,
+    "writers": 4,
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-rows-per-second": {
+     "value": 26730.32448893167,
+     "unit": "row/s",
+     "source": "legacy-summary"
+    }
+   }
+  },
+  {
+   "cellId": "ea4ecd9140c5-23",
+   "factors": {
+    "engine": "node-shared",
+    "format": "sqlite-delete-full",
+    "batchSize": 1,
+    "writers": 4,
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-rows-per-second": {
+     "value": 468.704228102725,
+     "unit": "row/s",
+     "source": "legacy-summary"
+    }
+   }
+  },
+  {
+   "cellId": "952c3bd611e3-24",
+   "factors": {
+    "engine": "node-shared",
+    "format": "sqlite-wal-full",
+    "batchSize": 1,
+    "writers": 1,
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-rows-per-second": {
+     "value": 2124.7203779452775,
+     "unit": "row/s",
+     "source": "legacy-summary"
+    }
+   }
+  },
+  {
+   "cellId": "19cc1afc9b21-25",
+   "factors": {
+    "engine": "rust-sync",
+    "format": "sqlite-delete-full",
+    "batchSize": 1,
+    "writers": 1,
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-rows-per-second": {
+     "value": 301.5161399893705,
+     "unit": "row/s",
+     "source": "legacy-summary"
+    }
+   }
+  },
+  {
+   "cellId": "3fbf92ec8a40-26",
+   "factors": {
+    "engine": "rust-sync",
+    "format": "sqlite-wal-full",
+    "batchSize": 1,
+    "writers": 4,
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-rows-per-second": {
+     "value": 1153.1889193247644,
+     "unit": "row/s",
+     "source": "legacy-summary"
+    }
+   }
+  },
+  {
+   "cellId": "5f20c661e245-27",
+   "factors": {
+    "engine": "node-shared",
+    "format": "sqlite-delete-full",
+    "batchSize": 100,
+    "writers": 4,
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-rows-per-second": {
+     "value": 14853.610703883152,
+     "unit": "row/s",
+     "source": "legacy-summary"
+    }
+   }
+  },
+  {
+   "cellId": "051a71b2dc80-28",
+   "factors": {
+    "engine": "go-sync",
+    "format": "sqlite-wal-normal",
+    "batchSize": 1,
+    "writers": 4,
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-rows-per-second": {
+     "value": 657.1876476105017,
+     "unit": "row/s",
+     "source": "legacy-summary"
+    }
+   }
+  },
+  {
+   "cellId": "504a322f8d8b-29",
+   "factors": {
+    "engine": "go-sync",
+    "format": "sqlite-delete-full",
+    "batchSize": 1,
+    "writers": 1,
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-rows-per-second": {
+     "value": 773.5826800897692,
+     "unit": "row/s",
+     "source": "legacy-summary"
+    }
+   }
+  },
+  {
+   "cellId": "0d50b892ecc7-30",
+   "factors": {
+    "engine": "rust-sync",
+    "format": "sqlite-wal-full",
+    "batchSize": 100,
+    "writers": 4,
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-rows-per-second": {
+     "value": 36971.94615710738,
+     "unit": "row/s",
+     "source": "legacy-summary"
+    }
+   }
+  },
+  {
+   "cellId": "ffa9b4b291b1-31",
+   "factors": {
+    "engine": "go-sync",
+    "format": "sqlite-wal-normal",
+    "batchSize": 100,
+    "writers": 1,
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-rows-per-second": {
+     "value": 98782.36941326011,
+     "unit": "row/s",
+     "source": "legacy-summary"
+    }
+   }
+  },
+  {
+   "cellId": "450159a609c3-32",
+   "factors": {
+    "engine": "node-shared",
+    "format": "sqlite-wal-normal",
+    "batchSize": 100,
+    "writers": 1,
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-rows-per-second": {
+     "value": 28155.836690281627,
+     "unit": "row/s",
+     "source": "legacy-summary"
+    }
+   }
+  },
+  {
+   "cellId": "40fa92b255d4-33",
+   "factors": {
+    "engine": "go-sync",
+    "format": "sqlite-wal-full",
+    "batchSize": 100,
+    "writers": 4,
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-rows-per-second": {
+     "value": 17326.612051741547,
+     "unit": "row/s",
+     "source": "legacy-summary"
+    }
+   }
+  },
+  {
+   "cellId": "992c6c98638a-34",
+   "factors": {
+    "engine": "go-sync",
+    "format": "sqlite-wal-full",
+    "batchSize": 1,
+    "writers": 1,
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-rows-per-second": {
+     "value": 818.2004043478306,
+     "unit": "row/s",
+     "source": "legacy-summary"
+    }
+   }
+  },
+  {
+   "cellId": "ceca60599ffe-35",
+   "factors": {
+    "engine": "rust-sync",
+    "format": "sqlite-delete-full",
+    "batchSize": 100,
+    "writers": 1,
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-rows-per-second": {
+     "value": 43464.10432732425,
+     "unit": "row/s",
+     "source": "legacy-summary"
+    }
+   }
+  },
+  {
+   "cellId": "277015d5c659-36",
+   "factors": {
+    "engine": "node-shared",
+    "format": "sqlite-wal-full",
+    "batchSize": 100,
+    "writers": 1,
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-rows-per-second": {
+     "value": 13890.710959490514,
+     "unit": "row/s",
+     "source": "legacy-summary"
+    }
+   }
+  },
+  {
+   "cellId": "aac1bce38a25-37",
+   "factors": {
+    "engine": "go-sync",
+    "format": "sqlite-wal-normal",
+    "batchSize": 1,
+    "writers": 4,
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-rows-per-second": {
+     "value": 839.6672818395834,
+     "unit": "row/s",
+     "source": "legacy-summary"
+    }
+   }
+  },
+  {
+   "cellId": "f74f89a2b683-38",
+   "factors": {
+    "engine": "rust-sync",
+    "format": "sqlite-delete-full",
+    "batchSize": 1,
+    "writers": 1,
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-rows-per-second": {
+     "value": 565.7850341018138,
+     "unit": "row/s",
+     "source": "legacy-summary"
+    }
+   }
+  },
+  {
+   "cellId": "5a6d65a5276f-39",
+   "factors": {
+    "engine": "rust-sync",
+    "format": "sqlite-wal-normal",
+    "batchSize": 1,
+    "writers": 4,
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-rows-per-second": {
+     "value": 805.9539850646688,
+     "unit": "row/s",
+     "source": "legacy-summary"
+    }
+   }
+  },
+  {
+   "cellId": "40c1e5ac220a-40",
+   "factors": {
+    "engine": "rust-sync",
+    "format": "sqlite-wal-normal",
+    "batchSize": 100,
+    "writers": 1,
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-rows-per-second": {
+     "value": 9568.815231161627,
+     "unit": "row/s",
+     "source": "legacy-summary"
+    }
+   }
+  },
+  {
+   "cellId": "5042c35d02c4-41",
+   "factors": {
+    "engine": "go-sync",
+    "format": "sqlite-wal-full",
+    "batchSize": 1,
+    "writers": 4,
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-rows-per-second": {
+     "value": 620.9161423644231,
+     "unit": "row/s",
+     "source": "legacy-summary"
+    }
+   }
+  },
+  {
+   "cellId": "342dc535865f-42",
+   "factors": {
+    "engine": "go-sync",
+    "format": "sqlite-wal-normal",
+    "batchSize": 100,
+    "writers": 1,
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-rows-per-second": {
+     "value": 57995.2085808539,
+     "unit": "row/s",
+     "source": "legacy-summary"
+    }
+   }
+  },
+  {
+   "cellId": "800167f1dde6-43",
+   "factors": {
+    "engine": "go-sync",
+    "format": "sqlite-wal-full",
+    "batchSize": 1,
+    "writers": 1,
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-rows-per-second": {
+     "value": 331.9048746799843,
+     "unit": "row/s",
+     "source": "legacy-summary"
+    }
+   }
+  },
+  {
+   "cellId": "ab23e06f450d-44",
+   "factors": {
+    "engine": "node-shared",
+    "format": "sqlite-wal-full",
+    "batchSize": 1,
+    "writers": 4,
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-rows-per-second": {
+     "value": 784.8411207694586,
+     "unit": "row/s",
+     "source": "legacy-summary"
+    }
+   }
+  },
+  {
+   "cellId": "cedddb267a63-45",
+   "factors": {
+    "engine": "node-shared",
+    "format": "sqlite-delete-full",
+    "batchSize": 1,
+    "writers": 4,
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-rows-per-second": {
+     "value": 343.2486105421386,
+     "unit": "row/s",
+     "source": "legacy-summary"
+    }
+   }
+  },
+  {
+   "cellId": "7e21c0db4d48-46",
+   "factors": {
+    "engine": "go-sync",
+    "format": "sqlite-delete-full",
+    "batchSize": 1,
+    "writers": 1,
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-rows-per-second": {
+     "value": 1103.3320328573682,
+     "unit": "row/s",
+     "source": "legacy-summary"
+    }
+   }
+  },
+  {
+   "cellId": "82ea04101d63-47",
+   "factors": {
+    "engine": "node-shared",
+    "format": "sqlite-delete-full",
+    "batchSize": 1,
+    "writers": 1,
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-rows-per-second": {
+     "value": 956.3396101421398,
+     "unit": "row/s",
+     "source": "legacy-summary"
+    }
+   }
+  },
+  {
+   "cellId": "688c6e132de9-48",
+   "factors": {
+    "engine": "node-shared",
+    "format": "sqlite-delete-full",
+    "batchSize": 100,
+    "writers": 4,
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-rows-per-second": {
+     "value": 39160.04413891809,
+     "unit": "row/s",
+     "source": "legacy-summary"
+    }
+   }
+  },
+  {
+   "cellId": "bf4ff60ab48e-49",
+   "factors": {
+    "engine": "go-sync",
+    "format": "sqlite-wal-normal",
+    "batchSize": 1,
+    "writers": 1,
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-rows-per-second": {
+     "value": 11282.614689539185,
+     "unit": "row/s",
+     "source": "legacy-summary"
+    }
+   }
+  },
+  {
+   "cellId": "76bda50f4d52-50",
+   "factors": {
+    "engine": "node-shared",
+    "format": "sqlite-wal-normal",
+    "batchSize": 1,
+    "writers": 1,
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-rows-per-second": {
+     "value": 6341.098801450505,
+     "unit": "row/s",
+     "source": "legacy-summary"
+    }
+   }
+  },
+  {
+   "cellId": "2c5e374070f8-51",
+   "factors": {
+    "engine": "rust-sync",
+    "format": "sqlite-wal-normal",
+    "batchSize": 1,
+    "writers": 1,
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-rows-per-second": {
+     "value": 4692.7321213505,
+     "unit": "row/s",
+     "source": "legacy-summary"
+    }
+   }
+  },
+  {
+   "cellId": "aab2346f00b4-52",
+   "factors": {
+    "engine": "node-shared",
+    "format": "sqlite-wal-normal",
+    "batchSize": 1,
+    "writers": 4,
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-rows-per-second": {
+     "value": 3377.2295783673276,
+     "unit": "row/s",
+     "source": "legacy-summary"
+    }
+   }
+  },
+  {
+   "cellId": "55e67e6fc8f0-53",
+   "factors": {
+    "engine": "go-sync",
+    "format": "sqlite-delete-full",
+    "batchSize": 100,
+    "writers": 4,
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-rows-per-second": {
+     "value": 52309.13956075122,
+     "unit": "row/s",
+     "source": "legacy-summary"
+    }
+   }
+  },
+  {
+   "cellId": "1f1d1c4fa586-54",
+   "factors": {
+    "engine": "node-shared",
+    "format": "sqlite-delete-full",
+    "batchSize": 100,
+    "writers": 1,
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-rows-per-second": {
+     "value": 76388.82401585417,
+     "unit": "row/s",
+     "source": "legacy-summary"
+    }
+   }
+  },
+  {
+   "cellId": "c1f2e323589a-55",
+   "factors": {
+    "engine": "go-sync",
+    "format": "sqlite-delete-full",
+    "batchSize": 1,
+    "writers": 4,
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-rows-per-second": {
+     "value": 563.5671452095477,
+     "unit": "row/s",
+     "source": "legacy-summary"
+    }
+   }
+  },
+  {
+   "cellId": "d17da82df902-56",
+   "factors": {
+    "engine": "go-sync",
+    "format": "sqlite-wal-full",
+    "batchSize": 100,
+    "writers": 1,
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-rows-per-second": {
+     "value": 146774.2146570518,
+     "unit": "row/s",
+     "source": "legacy-summary"
+    }
+   }
+  },
+  {
+   "cellId": "386fd3ef90fb-57",
+   "factors": {
+    "engine": "go-sync",
+    "format": "sqlite-wal-full",
+    "batchSize": 100,
+    "writers": 4,
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-rows-per-second": {
+     "value": 84373.97053868348,
+     "unit": "row/s",
+     "source": "legacy-summary"
+    }
+   }
+  },
+  {
+   "cellId": "7a5e2201a1da-58",
+   "factors": {
+    "engine": "rust-sync",
+    "format": "sqlite-wal-normal",
+    "batchSize": 100,
+    "writers": 4,
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-rows-per-second": {
+     "value": 104593.10829471893,
+     "unit": "row/s",
+     "source": "legacy-summary"
+    }
+   }
+  },
+  {
+   "cellId": "a936def2c7f9-59",
+   "factors": {
+    "engine": "node-shared",
+    "format": "sqlite-wal-normal",
+    "batchSize": 100,
+    "writers": 1,
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-rows-per-second": {
+     "value": 134325.69424975754,
+     "unit": "row/s",
+     "source": "legacy-summary"
+    }
+   }
+  },
+  {
+   "cellId": "77132619bdf0-60",
+   "factors": {
+    "engine": "rust-sync",
+    "format": "sqlite-delete-full",
+    "batchSize": 1,
+    "writers": 4,
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-rows-per-second": {
+     "value": 961.228757945841,
+     "unit": "row/s",
+     "source": "legacy-summary"
+    }
+   }
+  },
+  {
+   "cellId": "7b1557344943-61",
+   "factors": {
+    "engine": "rust-sync",
+    "format": "sqlite-wal-full",
+    "batchSize": 1,
+    "writers": 1,
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-rows-per-second": {
+     "value": 8475.2002398461,
+     "unit": "row/s",
+     "source": "legacy-summary"
+    }
+   }
+  },
+  {
+   "cellId": "6a87153606ba-62",
+   "factors": {
+    "engine": "rust-sync",
+    "format": "sqlite-delete-full",
+    "batchSize": 100,
+    "writers": 4,
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-rows-per-second": {
+     "value": 38091.333128968035,
+     "unit": "row/s",
+     "source": "legacy-summary"
+    }
+   }
+  },
+  {
+   "cellId": "3dc055aed2ed-63",
+   "factors": {
+    "engine": "rust-sync",
+    "format": "sqlite-wal-full",
+    "batchSize": 100,
+    "writers": 4,
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-rows-per-second": {
+     "value": 110716.74677292221,
+     "unit": "row/s",
+     "source": "legacy-summary"
+    }
+   }
+  },
+  {
+   "cellId": "be0b0c8a728f-64",
+   "factors": {
+    "engine": "go-sync",
+    "format": "sqlite-wal-normal",
+    "batchSize": 100,
+    "writers": 4,
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-rows-per-second": {
+     "value": 121595.8174281415,
+     "unit": "row/s",
+     "source": "legacy-summary"
+    }
+   }
+  },
+  {
+   "cellId": "833fd99c1ee8-65",
+   "factors": {
+    "engine": "rust-sync",
+    "format": "sqlite-wal-full",
+    "batchSize": 100,
+    "writers": 1,
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-rows-per-second": {
+     "value": 201600.90438165373,
+     "unit": "row/s",
+     "source": "legacy-summary"
+    }
+   }
+  },
+  {
+   "cellId": "d131fd8c07b3-66",
+   "factors": {
+    "engine": "node-shared",
+    "format": "sqlite-wal-normal",
+    "batchSize": 100,
+    "writers": 4,
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-rows-per-second": {
+     "value": 106075.68836271125,
+     "unit": "row/s",
+     "source": "legacy-summary"
+    }
+   }
+  },
+  {
+   "cellId": "e5b5f283631b-67",
+   "factors": {
+    "engine": "node-shared",
+    "format": "sqlite-wal-full",
+    "batchSize": 1,
+    "writers": 1,
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-rows-per-second": {
+     "value": 6235.419024704316,
+     "unit": "row/s",
+     "source": "legacy-summary"
+    }
+   }
+  },
+  {
+   "cellId": "2a0bf52adaec-68",
+   "factors": {
+    "engine": "node-shared",
+    "format": "sqlite-wal-full",
+    "batchSize": 100,
+    "writers": 4,
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-rows-per-second": {
+     "value": 82742.27481060602,
+     "unit": "row/s",
+     "source": "legacy-summary"
+    }
+   }
+  },
+  {
+   "cellId": "a7f6e4845c0e-69",
+   "factors": {
+    "engine": "rust-sync",
+    "format": "sqlite-wal-full",
+    "batchSize": 1,
+    "writers": 4,
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-rows-per-second": {
+     "value": 2465.099202525051,
+     "unit": "row/s",
+     "source": "legacy-summary"
+    }
+   }
+  },
+  {
+   "cellId": "4a88633058c4-70",
+   "factors": {
+    "engine": "go-sync",
+    "format": "sqlite-delete-full",
+    "batchSize": 100,
+    "writers": 1,
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-rows-per-second": {
+     "value": 119612.62852189323,
+     "unit": "row/s",
+     "source": "legacy-summary"
+    }
+   }
+  },
+  {
+   "cellId": "ceab91578208-71",
+   "factors": {
+    "engine": "rust-sync",
+    "format": "sqlite-delete-full",
+    "batchSize": 100,
+    "writers": 1,
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-rows-per-second": {
+     "value": 148406.18252737462,
+     "unit": "row/s",
+     "source": "legacy-summary"
+    }
+   }
+  }
+ ],
+ "totals": {
+  "verified": 72,
+  "failed": 0,
+  "timeout": 0,
+  "crashed": 0,
+  "aborted": 0,
+  "unsupported": 0,
+  "rejected": 0,
+  "unavailable": 0,
+  "skipped": 0
+ },
+ "metricAvailability": {
+  "pss-peak-bytes": {
+   "available": false,
+   "reason": "linux-only probe; legacy run on 27.0.0"
+  },
+  "cgroup-memory-peak-bytes": {
+   "available": false,
+   "reason": "linux-only probe; legacy run on 27.0.0"
+  },
+  "cpu-ms-per-verified-job": {
+   "available": false,
+   "reason": "CPU was not instrumented in this legacy lane"
+  },
+  "footprint-peak-bytes": {
+   "available": false,
+   "reason": "footprint was not instrumented in this legacy lane"
+  }
+ },
+ "legacy": {
+  "shape": "cells",
+  "sourceDir": "results/storage-shared-contention-2026-10-07T22-19-18-394Z-a3d041",
+  "errorCodeInferred": false,
+  "note": null
+ }
+}

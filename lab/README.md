@@ -11,6 +11,18 @@ transports HTTP. Ces campagnes ne sont pas encore un choix final de noyau.
 
 Les [résultats exécutés et décisions à tester](reports/qualification-2026-10-07.md) incluent HTTP, primitives navigateur et écritures concurrentes. L'[index HTML](reports/index.html) donne accès aux manifests, données brutes et rapports retenus.
 
+## Décisions, claims et ledger
+
+Le lab est piloté par le [plan de R&D](../docs/rd-plan.md). Chaque campagne sert une décision de `decisions/` : options, baseline, métrique principale du [catalogue](metrics/catalog.json), gates de contrat, effet minimal Δ, règle et classe d'hôte. Les affirmations publiques candidates sont dans `claims/`, déclarées avant mesure. Les notes éditoriales ne portent aucun chiffre mesuré : les chiffres viennent des verdicts.
+
+```sh
+pnpm lab validate   # schémas et références du registre, des claims et du ledger
+pnpm lab import     # réexprime results/ en run.v2 sous ledger/imported et régénère le ledger
+pnpm lab ledger     # rôle, statut, rerun et classes de validité de chaque run
+```
+
+`ledger/classification.json` porte le jugement humain sur chaque run (rôle, raison, validité A contrat / B relatif même hôte / C absolu, décisions, rerun). L'import y ajoute les faits mécaniques : comptes, provenance, intégrité recalculée contre les catalogues SHA de `reports/`. Il est idempotent et ne modifie jamais `results/`. Les runs importés restent plafonnés à la classe d'hôte `local-dev`.
+
 ## Démarrer
 
 Prérequis : Node >=24, pnpm **12.9.1**, Rust/Cargo et outils de compilation C/C++. La version Node exécutée **25.5.0** est indiquée dans `.node-version` ; d'autres versions demandent une requalification, notamment pour SQLite. L'environnement exécuté est consigné dans chaque manifest. Le lab utilise le stripping TypeScript natif de Node, sans serveur de développement.

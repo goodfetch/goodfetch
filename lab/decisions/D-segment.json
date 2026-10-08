@@ -1,0 +1,33 @@
+{
+  "id": "D-segment",
+  "title": "Segment de lancement",
+  "question": "Quel segment client viser en premier ?",
+  "kind": "product",
+  "status": "open",
+  "options": [
+    {
+      "id": "agent-developers",
+      "description": "Développeurs d'agents LLM"
+    },
+    {
+      "id": "b2b-portals",
+      "description": "Intégrateurs de portails B2B authentifiés"
+    },
+    {
+      "id": "data-teams",
+      "description": "Équipes data et collecte à volume"
+    },
+    {
+      "id": "ecommerce-pricing",
+      "description": "Veille prix e-commerce"
+    }
+  ],
+  "evidence": [
+    {
+      "kind": "research-doc",
+      "ref": "research/2026-10-07-direction-automan.md"
+    }
+  ],
+  "dependsOn": [],
+  "notes": "Alimentée par la piste marché et les entretiens."
+}

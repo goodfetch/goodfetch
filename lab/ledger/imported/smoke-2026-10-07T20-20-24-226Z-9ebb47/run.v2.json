@@ -1,0 +1,1560 @@
+{
+ "schemaVersion": 2,
+ "runId": "smoke-2026-10-07T20-20-24-226Z-9ebb47",
+ "lane": "bench",
+ "campaign": {
+  "id": "smoke",
+  "source": "campaigns/smoke.json"
+ },
+ "startedAt": "2026-10-07T20:20:24.226Z",
+ "decisionIds": [],
+ "provenance": {
+  "git": {
+   "available": false,
+   "sha": null,
+   "dirty": null
+  },
+  "sourceTreeSha256": null,
+  "sourceChanges": null,
+  "binaryChanges": null,
+  "toolchains": {
+   "node": "v25.5.0",
+   "browser": "Google Chrome for Testing 153.0.8010.12"
+  },
+  "integrity": {
+   "status": "uncatalogued",
+   "checked": 0,
+   "mismatches": []
+  }
+ },
+ "host": {
+  "classRequested": null,
+  "classGranted": "local-dev",
+  "os": "darwin",
+  "arch": "arm64",
+  "cpu": "Apple M3 Max",
+  "logicalCpus": 14,
+  "memoryBytes": 38654705664,
+  "preflight": null,
+  "postflight": null
+ },
+ "status": "complete",
+ "countUnit": "attempt",
+ "cells": [
+  {
+   "cellId": "d61a93aebffc-0",
+   "factors": {
+    "backend": "node-http",
+    "scenario": "http-catalog"
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 3,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-tasks-per-second": {
+     "value": null,
+     "unit": "task/s",
+     "source": "legacy-summary; duration includes run RPC and in-process oracle"
+    },
+    "task-p50-ms-verified": {
+     "value": 1.4404579999973066,
+     "unit": "ms",
+     "source": "legacy-summary; duration includes run RPC and in-process oracle"
+    },
+    "task-p95-ms-verified": {
+     "value": 1.7689580000005662,
+     "unit": "ms",
+     "source": "legacy-summary; duration includes run RPC and in-process oracle"
+    }
+   }
+  },
+  {
+   "cellId": "21cb951afa04-1",
+   "factors": {
+    "backend": "node-http",
+    "scenario": "js-catalog"
+   },
+   "status": "unsupported",
+   "errorCode": null,
+   "counts": {
+    "verified": 0,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 1,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-tasks-per-second": {
+     "value": null,
+     "unit": "task/s",
+     "source": "legacy-summary; duration includes run RPC and in-process oracle"
+    },
+    "task-p50-ms-verified": {
+     "value": null,
+     "unit": "ms",
+     "source": "legacy-summary; duration includes run RPC and in-process oracle"
+    },
+    "task-p95-ms-verified": {
+     "value": null,
+     "unit": "ms",
+     "source": "legacy-summary; duration includes run RPC and in-process oracle"
+    }
+   }
+  },
+  {
+   "cellId": "1d36724570fd-2",
+   "factors": {
+    "backend": "node-http",
+    "scenario": "form"
+   },
+   "status": "unsupported",
+   "errorCode": null,
+   "counts": {
+    "verified": 0,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 1,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-tasks-per-second": {
+     "value": null,
+     "unit": "task/s",
+     "source": "legacy-summary; duration includes run RPC and in-process oracle"
+    },
+    "task-p50-ms-verified": {
+     "value": null,
+     "unit": "ms",
+     "source": "legacy-summary; duration includes run RPC and in-process oracle"
+    },
+    "task-p95-ms-verified": {
+     "value": null,
+     "unit": "ms",
+     "source": "legacy-summary; duration includes run RPC and in-process oracle"
+    }
+   }
+  },
+  {
+   "cellId": "881f63be0d6c-3",
+   "factors": {
+    "backend": "node-http",
+    "scenario": "clicks"
+   },
+   "status": "unsupported",
+   "errorCode": null,
+   "counts": {
+    "verified": 0,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 1,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-tasks-per-second": {
+     "value": null,
+     "unit": "task/s",
+     "source": "legacy-summary; duration includes run RPC and in-process oracle"
+    },
+    "task-p50-ms-verified": {
+     "value": null,
+     "unit": "ms",
+     "source": "legacy-summary; duration includes run RPC and in-process oracle"
+    },
+    "task-p95-ms-verified": {
+     "value": null,
+     "unit": "ms",
+     "source": "legacy-summary; duration includes run RPC and in-process oracle"
+    }
+   }
+  },
+  {
+   "cellId": "3d6fdb2f1d2f-4",
+   "factors": {
+    "backend": "node-http",
+    "scenario": "shadow"
+   },
+   "status": "unsupported",
+   "errorCode": null,
+   "counts": {
+    "verified": 0,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 1,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-tasks-per-second": {
+     "value": null,
+     "unit": "task/s",
+     "source": "legacy-summary; duration includes run RPC and in-process oracle"
+    },
+    "task-p50-ms-verified": {
+     "value": null,
+     "unit": "ms",
+     "source": "legacy-summary; duration includes run RPC and in-process oracle"
+    },
+    "task-p95-ms-verified": {
+     "value": null,
+     "unit": "ms",
+     "source": "legacy-summary; duration includes run RPC and in-process oracle"
+    }
+   }
+  },
+  {
+   "cellId": "876445a09694-5",
+   "factors": {
+    "backend": "crawlee-http",
+    "scenario": "http-catalog"
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 3,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-tasks-per-second": {
+     "value": null,
+     "unit": "task/s",
+     "source": "legacy-summary; duration includes run RPC and in-process oracle"
+    },
+    "task-p50-ms-verified": {
+     "value": 98.57079199999862,
+     "unit": "ms",
+     "source": "legacy-summary; duration includes run RPC and in-process oracle"
+    },
+    "task-p95-ms-verified": {
+     "value": 100.97937500000262,
+     "unit": "ms",
+     "source": "legacy-summary; duration includes run RPC and in-process oracle"
+    }
+   }
+  },
+  {
+   "cellId": "7ff38a3ea69b-6",
+   "factors": {
+    "backend": "crawlee-http",
+    "scenario": "js-catalog"
+   },
+   "status": "unsupported",
+   "errorCode": null,
+   "counts": {
+    "verified": 0,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 1,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-tasks-per-second": {
+     "value": null,
+     "unit": "task/s",
+     "source": "legacy-summary; duration includes run RPC and in-process oracle"
+    },
+    "task-p50-ms-verified": {
+     "value": null,
+     "unit": "ms",
+     "source": "legacy-summary; duration includes run RPC and in-process oracle"
+    },
+    "task-p95-ms-verified": {
+     "value": null,
+     "unit": "ms",
+     "source": "legacy-summary; duration includes run RPC and in-process oracle"
+    }
+   }
+  },
+  {
+   "cellId": "6212c5dee69c-7",
+   "factors": {
+    "backend": "crawlee-http",
+    "scenario": "form"
+   },
+   "status": "unsupported",
+   "errorCode": null,
+   "counts": {
+    "verified": 0,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 1,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-tasks-per-second": {
+     "value": null,
+     "unit": "task/s",
+     "source": "legacy-summary; duration includes run RPC and in-process oracle"
+    },
+    "task-p50-ms-verified": {
+     "value": null,
+     "unit": "ms",
+     "source": "legacy-summary; duration includes run RPC and in-process oracle"
+    },
+    "task-p95-ms-verified": {
+     "value": null,
+     "unit": "ms",
+     "source": "legacy-summary; duration includes run RPC and in-process oracle"
+    }
+   }
+  },
+  {
+   "cellId": "e30d6b2f17be-8",
+   "factors": {
+    "backend": "crawlee-http",
+    "scenario": "clicks"
+   },
+   "status": "unsupported",
+   "errorCode": null,
+   "counts": {
+    "verified": 0,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 1,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-tasks-per-second": {
+     "value": null,
+     "unit": "task/s",
+     "source": "legacy-summary; duration includes run RPC and in-process oracle"
+    },
+    "task-p50-ms-verified": {
+     "value": null,
+     "unit": "ms",
+     "source": "legacy-summary; duration includes run RPC and in-process oracle"
+    },
+    "task-p95-ms-verified": {
+     "value": null,
+     "unit": "ms",
+     "source": "legacy-summary; duration includes run RPC and in-process oracle"
+    }
+   }
+  },
+  {
+   "cellId": "af44817ba6ed-9",
+   "factors": {
+    "backend": "crawlee-http",
+    "scenario": "shadow"
+   },
+   "status": "unsupported",
+   "errorCode": null,
+   "counts": {
+    "verified": 0,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 1,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-tasks-per-second": {
+     "value": null,
+     "unit": "task/s",
+     "source": "legacy-summary; duration includes run RPC and in-process oracle"
+    },
+    "task-p50-ms-verified": {
+     "value": null,
+     "unit": "ms",
+     "source": "legacy-summary; duration includes run RPC and in-process oracle"
+    },
+    "task-p95-ms-verified": {
+     "value": null,
+     "unit": "ms",
+     "source": "legacy-summary; duration includes run RPC and in-process oracle"
+    }
+   }
+  },
+  {
+   "cellId": "1a997e15a4cb-10",
+   "factors": {
+    "backend": "spider-http",
+    "scenario": "http-catalog"
+   },
+   "status": "failed",
+   "errorCode": null,
+   "counts": {
+    "verified": 0,
+    "failed": 1,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-tasks-per-second": {
+     "value": null,
+     "unit": "task/s",
+     "source": "legacy-summary; duration includes run RPC and in-process oracle"
+    },
+    "task-p50-ms-verified": {
+     "value": null,
+     "unit": "ms",
+     "source": "legacy-summary; duration includes run RPC and in-process oracle"
+    },
+    "task-p95-ms-verified": {
+     "value": null,
+     "unit": "ms",
+     "source": "legacy-summary; duration includes run RPC and in-process oracle"
+    }
+   }
+  },
+  {
+   "cellId": "06ec705258a1-11",
+   "factors": {
+    "backend": "spider-http",
+    "scenario": "js-catalog"
+   },
+   "status": "unsupported",
+   "errorCode": null,
+   "counts": {
+    "verified": 0,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 1,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-tasks-per-second": {
+     "value": null,
+     "unit": "task/s",
+     "source": "legacy-summary; duration includes run RPC and in-process oracle"
+    },
+    "task-p50-ms-verified": {
+     "value": null,
+     "unit": "ms",
+     "source": "legacy-summary; duration includes run RPC and in-process oracle"
+    },
+    "task-p95-ms-verified": {
+     "value": null,
+     "unit": "ms",
+     "source": "legacy-summary; duration includes run RPC and in-process oracle"
+    }
+   }
+  },
+  {
+   "cellId": "be5c3b342228-12",
+   "factors": {
+    "backend": "spider-http",
+    "scenario": "form"
+   },
+   "status": "unsupported",
+   "errorCode": null,
+   "counts": {
+    "verified": 0,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 1,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-tasks-per-second": {
+     "value": null,
+     "unit": "task/s",
+     "source": "legacy-summary; duration includes run RPC and in-process oracle"
+    },
+    "task-p50-ms-verified": {
+     "value": null,
+     "unit": "ms",
+     "source": "legacy-summary; duration includes run RPC and in-process oracle"
+    },
+    "task-p95-ms-verified": {
+     "value": null,
+     "unit": "ms",
+     "source": "legacy-summary; duration includes run RPC and in-process oracle"
+    }
+   }
+  },
+  {
+   "cellId": "fa3c6b9c5ff4-13",
+   "factors": {
+    "backend": "spider-http",
+    "scenario": "clicks"
+   },
+   "status": "unsupported",
+   "errorCode": null,
+   "counts": {
+    "verified": 0,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 1,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-tasks-per-second": {
+     "value": null,
+     "unit": "task/s",
+     "source": "legacy-summary; duration includes run RPC and in-process oracle"
+    },
+    "task-p50-ms-verified": {
+     "value": null,
+     "unit": "ms",
+     "source": "legacy-summary; duration includes run RPC and in-process oracle"
+    },
+    "task-p95-ms-verified": {
+     "value": null,
+     "unit": "ms",
+     "source": "legacy-summary; duration includes run RPC and in-process oracle"
+    }
+   }
+  },
+  {
+   "cellId": "b8cebbed2e26-14",
+   "factors": {
+    "backend": "spider-http",
+    "scenario": "shadow"
+   },
+   "status": "unsupported",
+   "errorCode": null,
+   "counts": {
+    "verified": 0,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 1,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-tasks-per-second": {
+     "value": null,
+     "unit": "task/s",
+     "source": "legacy-summary; duration includes run RPC and in-process oracle"
+    },
+    "task-p50-ms-verified": {
+     "value": null,
+     "unit": "ms",
+     "source": "legacy-summary; duration includes run RPC and in-process oracle"
+    },
+    "task-p95-ms-verified": {
+     "value": null,
+     "unit": "ms",
+     "source": "legacy-summary; duration includes run RPC and in-process oracle"
+    }
+   }
+  },
+  {
+   "cellId": "acc4d871a012-15",
+   "factors": {
+    "backend": "playwright",
+    "scenario": "http-catalog"
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 3,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-tasks-per-second": {
+     "value": null,
+     "unit": "task/s",
+     "source": "legacy-summary; duration includes run RPC and in-process oracle"
+    },
+    "task-p50-ms-verified": {
+     "value": 253.7302500000078,
+     "unit": "ms",
+     "source": "legacy-summary; duration includes run RPC and in-process oracle"
+    },
+    "task-p95-ms-verified": {
+     "value": 525.8449160000018,
+     "unit": "ms",
+     "source": "legacy-summary; duration includes run RPC and in-process oracle"
+    }
+   }
+  },
+  {
+   "cellId": "bc1964da6309-16",
+   "factors": {
+    "backend": "playwright",
+    "scenario": "js-catalog"
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 3,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-tasks-per-second": {
+     "value": null,
+     "unit": "task/s",
+     "source": "legacy-summary; duration includes run RPC and in-process oracle"
+    },
+    "task-p50-ms-verified": {
+     "value": 342.3555000000051,
+     "unit": "ms",
+     "source": "legacy-summary; duration includes run RPC and in-process oracle"
+    },
+    "task-p95-ms-verified": {
+     "value": 366.8469580000092,
+     "unit": "ms",
+     "source": "legacy-summary; duration includes run RPC and in-process oracle"
+    }
+   }
+  },
+  {
+   "cellId": "28abf26c5efb-17",
+   "factors": {
+    "backend": "playwright",
+    "scenario": "form"
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 3,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-tasks-per-second": {
+     "value": null,
+     "unit": "task/s",
+     "source": "legacy-summary; duration includes run RPC and in-process oracle"
+    },
+    "task-p50-ms-verified": {
+     "value": 333.6383329999953,
+     "unit": "ms",
+     "source": "legacy-summary; duration includes run RPC and in-process oracle"
+    },
+    "task-p95-ms-verified": {
+     "value": 415.0574170000036,
+     "unit": "ms",
+     "source": "legacy-summary; duration includes run RPC and in-process oracle"
+    }
+   }
+  },
+  {
+   "cellId": "dd9c7827c235-18",
+   "factors": {
+    "backend": "playwright",
+    "scenario": "clicks"
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 3,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-tasks-per-second": {
+     "value": null,
+     "unit": "task/s",
+     "source": "legacy-summary; duration includes run RPC and in-process oracle"
+    },
+    "task-p50-ms-verified": {
+     "value": 413.0944579999923,
+     "unit": "ms",
+     "source": "legacy-summary; duration includes run RPC and in-process oracle"
+    },
+    "task-p95-ms-verified": {
+     "value": 618.445458000002,
+     "unit": "ms",
+     "source": "legacy-summary; duration includes run RPC and in-process oracle"
+    }
+   }
+  },
+  {
+   "cellId": "aceb6ba4d1c1-19",
+   "factors": {
+    "backend": "playwright",
+    "scenario": "shadow"
+   },
+   "status": "mixed",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 2,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-tasks-per-second": {
+     "value": null,
+     "unit": "task/s",
+     "source": "legacy-summary; duration includes run RPC and in-process oracle"
+    },
+    "task-p50-ms-verified": {
+     "value": null,
+     "unit": "ms",
+     "source": "legacy-summary; duration includes run RPC and in-process oracle"
+    },
+    "task-p95-ms-verified": {
+     "value": null,
+     "unit": "ms",
+     "source": "legacy-summary; duration includes run RPC and in-process oracle"
+    }
+   }
+  },
+  {
+   "cellId": "bba75d8124f8-20",
+   "factors": {
+    "backend": "puppeteer",
+    "scenario": "http-catalog"
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 3,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-tasks-per-second": {
+     "value": null,
+     "unit": "task/s",
+     "source": "legacy-summary; duration includes run RPC and in-process oracle"
+    },
+    "task-p50-ms-verified": {
+     "value": 124.11379199998919,
+     "unit": "ms",
+     "source": "legacy-summary; duration includes run RPC and in-process oracle"
+    },
+    "task-p95-ms-verified": {
+     "value": 125.04562499999884,
+     "unit": "ms",
+     "source": "legacy-summary; duration includes run RPC and in-process oracle"
+    }
+   }
+  },
+  {
+   "cellId": "8bab40eb3a4f-21",
+   "factors": {
+    "backend": "puppeteer",
+    "scenario": "js-catalog"
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 3,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-tasks-per-second": {
+     "value": null,
+     "unit": "task/s",
+     "source": "legacy-summary; duration includes run RPC and in-process oracle"
+    },
+    "task-p50-ms-verified": {
+     "value": 118.33649999997579,
+     "unit": "ms",
+     "source": "legacy-summary; duration includes run RPC and in-process oracle"
+    },
+    "task-p95-ms-verified": {
+     "value": 174.51283300001523,
+     "unit": "ms",
+     "source": "legacy-summary; duration includes run RPC and in-process oracle"
+    }
+   }
+  },
+  {
+   "cellId": "46ac62a2412a-22",
+   "factors": {
+    "backend": "puppeteer",
+    "scenario": "form"
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 3,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-tasks-per-second": {
+     "value": null,
+     "unit": "task/s",
+     "source": "legacy-summary; duration includes run RPC and in-process oracle"
+    },
+    "task-p50-ms-verified": {
+     "value": 182.42312500000116,
+     "unit": "ms",
+     "source": "legacy-summary; duration includes run RPC and in-process oracle"
+    },
+    "task-p95-ms-verified": {
+     "value": 329.2713750000112,
+     "unit": "ms",
+     "source": "legacy-summary; duration includes run RPC and in-process oracle"
+    }
+   }
+  },
+  {
+   "cellId": "0be3160b7adc-23",
+   "factors": {
+    "backend": "puppeteer",
+    "scenario": "clicks"
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 3,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-tasks-per-second": {
+     "value": null,
+     "unit": "task/s",
+     "source": "legacy-summary; duration includes run RPC and in-process oracle"
+    },
+    "task-p50-ms-verified": {
+     "value": 409.9177079999936,
+     "unit": "ms",
+     "source": "legacy-summary; duration includes run RPC and in-process oracle"
+    },
+    "task-p95-ms-verified": {
+     "value": 488.20858299999963,
+     "unit": "ms",
+     "source": "legacy-summary; duration includes run RPC and in-process oracle"
+    }
+   }
+  },
+  {
+   "cellId": "3086a77e5d34-24",
+   "factors": {
+    "backend": "puppeteer",
+    "scenario": "shadow"
+   },
+   "status": "unsupported",
+   "errorCode": null,
+   "counts": {
+    "verified": 0,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 1,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-tasks-per-second": {
+     "value": null,
+     "unit": "task/s",
+     "source": "legacy-summary; duration includes run RPC and in-process oracle"
+    },
+    "task-p50-ms-verified": {
+     "value": null,
+     "unit": "ms",
+     "source": "legacy-summary; duration includes run RPC and in-process oracle"
+    },
+    "task-p95-ms-verified": {
+     "value": null,
+     "unit": "ms",
+     "source": "legacy-summary; duration includes run RPC and in-process oracle"
+    }
+   }
+  },
+  {
+   "cellId": "9055db7fb7fb-25",
+   "factors": {
+    "backend": "stagehand",
+    "scenario": "http-catalog"
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 3,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-tasks-per-second": {
+     "value": null,
+     "unit": "task/s",
+     "source": "legacy-summary; duration includes run RPC and in-process oracle"
+    },
+    "task-p50-ms-verified": {
+     "value": 312.065333999999,
+     "unit": "ms",
+     "source": "legacy-summary; duration includes run RPC and in-process oracle"
+    },
+    "task-p95-ms-verified": {
+     "value": 550.326166999992,
+     "unit": "ms",
+     "source": "legacy-summary; duration includes run RPC and in-process oracle"
+    }
+   }
+  },
+  {
+   "cellId": "06d5f0312469-26",
+   "factors": {
+    "backend": "stagehand",
+    "scenario": "js-catalog"
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 3,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-tasks-per-second": {
+     "value": null,
+     "unit": "task/s",
+     "source": "legacy-summary; duration includes run RPC and in-process oracle"
+    },
+    "task-p50-ms-verified": {
+     "value": 167.25183300000208,
+     "unit": "ms",
+     "source": "legacy-summary; duration includes run RPC and in-process oracle"
+    },
+    "task-p95-ms-verified": {
+     "value": 174.2312499999971,
+     "unit": "ms",
+     "source": "legacy-summary; duration includes run RPC and in-process oracle"
+    }
+   }
+  },
+  {
+   "cellId": "666e3f096029-27",
+   "factors": {
+    "backend": "stagehand",
+    "scenario": "form"
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 3,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-tasks-per-second": {
+     "value": null,
+     "unit": "task/s",
+     "source": "legacy-summary; duration includes run RPC and in-process oracle"
+    },
+    "task-p50-ms-verified": {
+     "value": 170.7403340000019,
+     "unit": "ms",
+     "source": "legacy-summary; duration includes run RPC and in-process oracle"
+    },
+    "task-p95-ms-verified": {
+     "value": 318.9372089999961,
+     "unit": "ms",
+     "source": "legacy-summary; duration includes run RPC and in-process oracle"
+    }
+   }
+  },
+  {
+   "cellId": "202c688760a3-28",
+   "factors": {
+    "backend": "stagehand",
+    "scenario": "clicks"
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 3,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-tasks-per-second": {
+     "value": null,
+     "unit": "task/s",
+     "source": "legacy-summary; duration includes run RPC and in-process oracle"
+    },
+    "task-p50-ms-verified": {
+     "value": 316.84516700000677,
+     "unit": "ms",
+     "source": "legacy-summary; duration includes run RPC and in-process oracle"
+    },
+    "task-p95-ms-verified": {
+     "value": 397.02624999999534,
+     "unit": "ms",
+     "source": "legacy-summary; duration includes run RPC and in-process oracle"
+    }
+   }
+  },
+  {
+   "cellId": "12e34a43124d-29",
+   "factors": {
+    "backend": "stagehand",
+    "scenario": "shadow"
+   },
+   "status": "mixed",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 2,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-tasks-per-second": {
+     "value": null,
+     "unit": "task/s",
+     "source": "legacy-summary; duration includes run RPC and in-process oracle"
+    },
+    "task-p50-ms-verified": {
+     "value": null,
+     "unit": "ms",
+     "source": "legacy-summary; duration includes run RPC and in-process oracle"
+    },
+    "task-p95-ms-verified": {
+     "value": null,
+     "unit": "ms",
+     "source": "legacy-summary; duration includes run RPC and in-process oracle"
+    }
+   }
+  },
+  {
+   "cellId": "1c7db47b24bb-30",
+   "factors": {
+    "backend": "stagehand-batch",
+    "scenario": "http-catalog"
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 3,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-tasks-per-second": {
+     "value": null,
+     "unit": "task/s",
+     "source": "legacy-summary; duration includes run RPC and in-process oracle"
+    },
+    "task-p50-ms-verified": {
+     "value": 395.60333299999184,
+     "unit": "ms",
+     "source": "legacy-summary; duration includes run RPC and in-process oracle"
+    },
+    "task-p95-ms-verified": {
+     "value": 710.273915999991,
+     "unit": "ms",
+     "source": "legacy-summary; duration includes run RPC and in-process oracle"
+    }
+   }
+  },
+  {
+   "cellId": "4df5b94daa8e-31",
+   "factors": {
+    "backend": "stagehand-batch",
+    "scenario": "js-catalog"
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 3,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-tasks-per-second": {
+     "value": null,
+     "unit": "task/s",
+     "source": "legacy-summary; duration includes run RPC and in-process oracle"
+    },
+    "task-p50-ms-verified": {
+     "value": 256.145583000005,
+     "unit": "ms",
+     "source": "legacy-summary; duration includes run RPC and in-process oracle"
+    },
+    "task-p95-ms-verified": {
+     "value": 355.5157079999917,
+     "unit": "ms",
+     "source": "legacy-summary; duration includes run RPC and in-process oracle"
+    }
+   }
+  },
+  {
+   "cellId": "81dc67076c09-32",
+   "factors": {
+    "backend": "stagehand-batch",
+    "scenario": "form"
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 3,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-tasks-per-second": {
+     "value": null,
+     "unit": "task/s",
+     "source": "legacy-summary; duration includes run RPC and in-process oracle"
+    },
+    "task-p50-ms-verified": {
+     "value": 139.49804099999892,
+     "unit": "ms",
+     "source": "legacy-summary; duration includes run RPC and in-process oracle"
+    },
+    "task-p95-ms-verified": {
+     "value": 291.2777090000018,
+     "unit": "ms",
+     "source": "legacy-summary; duration includes run RPC and in-process oracle"
+    }
+   }
+  },
+  {
+   "cellId": "8a2a0ac54b99-33",
+   "factors": {
+    "backend": "stagehand-batch",
+    "scenario": "clicks"
+   },
+   "status": "mixed",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 1,
+    "crashed": 1,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-tasks-per-second": {
+     "value": null,
+     "unit": "task/s",
+     "source": "legacy-summary; duration includes run RPC and in-process oracle"
+    },
+    "task-p50-ms-verified": {
+     "value": null,
+     "unit": "ms",
+     "source": "legacy-summary; duration includes run RPC and in-process oracle"
+    },
+    "task-p95-ms-verified": {
+     "value": null,
+     "unit": "ms",
+     "source": "legacy-summary; duration includes run RPC and in-process oracle"
+    }
+   }
+  },
+  {
+   "cellId": "c9b79370c83d-34",
+   "factors": {
+    "backend": "stagehand-batch",
+    "scenario": "shadow"
+   },
+   "status": "failed",
+   "errorCode": null,
+   "counts": {
+    "verified": 0,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 1,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-tasks-per-second": {
+     "value": null,
+     "unit": "task/s",
+     "source": "legacy-summary; duration includes run RPC and in-process oracle"
+    },
+    "task-p50-ms-verified": {
+     "value": null,
+     "unit": "ms",
+     "source": "legacy-summary; duration includes run RPC and in-process oracle"
+    },
+    "task-p95-ms-verified": {
+     "value": null,
+     "unit": "ms",
+     "source": "legacy-summary; duration includes run RPC and in-process oracle"
+    }
+   }
+  },
+  {
+   "cellId": "f40ee444c117-35",
+   "factors": {
+    "backend": "crawlee-playwright",
+    "scenario": "http-catalog"
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 3,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-tasks-per-second": {
+     "value": null,
+     "unit": "task/s",
+     "source": "legacy-summary; duration includes run RPC and in-process oracle"
+    },
+    "task-p50-ms-verified": {
+     "value": 1456.8619590000017,
+     "unit": "ms",
+     "source": "legacy-summary; duration includes run RPC and in-process oracle"
+    },
+    "task-p95-ms-verified": {
+     "value": 2326.5660829999997,
+     "unit": "ms",
+     "source": "legacy-summary; duration includes run RPC and in-process oracle"
+    }
+   }
+  },
+  {
+   "cellId": "2633b07acdd3-36",
+   "factors": {
+    "backend": "crawlee-playwright",
+    "scenario": "js-catalog"
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 3,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-tasks-per-second": {
+     "value": null,
+     "unit": "task/s",
+     "source": "legacy-summary; duration includes run RPC and in-process oracle"
+    },
+    "task-p50-ms-verified": {
+     "value": 1415.507916999999,
+     "unit": "ms",
+     "source": "legacy-summary; duration includes run RPC and in-process oracle"
+    },
+    "task-p95-ms-verified": {
+     "value": 1592.304916000001,
+     "unit": "ms",
+     "source": "legacy-summary; duration includes run RPC and in-process oracle"
+    }
+   }
+  },
+  {
+   "cellId": "172c13070c0f-37",
+   "factors": {
+    "backend": "crawlee-playwright",
+    "scenario": "form"
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 3,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-tasks-per-second": {
+     "value": null,
+     "unit": "task/s",
+     "source": "legacy-summary; duration includes run RPC and in-process oracle"
+    },
+    "task-p50-ms-verified": {
+     "value": 1506.0795840000028,
+     "unit": "ms",
+     "source": "legacy-summary; duration includes run RPC and in-process oracle"
+    },
+    "task-p95-ms-verified": {
+     "value": 1628.2406249999985,
+     "unit": "ms",
+     "source": "legacy-summary; duration includes run RPC and in-process oracle"
+    }
+   }
+  },
+  {
+   "cellId": "94743d8fa113-38",
+   "factors": {
+    "backend": "crawlee-playwright",
+    "scenario": "clicks"
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 3,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-tasks-per-second": {
+     "value": null,
+     "unit": "task/s",
+     "source": "legacy-summary; duration includes run RPC and in-process oracle"
+    },
+    "task-p50-ms-verified": {
+     "value": 2011.385083000001,
+     "unit": "ms",
+     "source": "legacy-summary; duration includes run RPC and in-process oracle"
+    },
+    "task-p95-ms-verified": {
+     "value": 4942.416208999995,
+     "unit": "ms",
+     "source": "legacy-summary; duration includes run RPC and in-process oracle"
+    }
+   }
+  },
+  {
+   "cellId": "5161b4e4a6d4-39",
+   "factors": {
+    "backend": "crawlee-playwright",
+    "scenario": "shadow"
+   },
+   "status": "mixed",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 2,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-tasks-per-second": {
+     "value": null,
+     "unit": "task/s",
+     "source": "legacy-summary; duration includes run RPC and in-process oracle"
+    },
+    "task-p50-ms-verified": {
+     "value": null,
+     "unit": "ms",
+     "source": "legacy-summary; duration includes run RPC and in-process oracle"
+    },
+    "task-p95-ms-verified": {
+     "value": null,
+     "unit": "ms",
+     "source": "legacy-summary; duration includes run RPC and in-process oracle"
+    }
+   }
+  }
+ ],
+ "totals": {
+  "verified": 67,
+  "failed": 1,
+  "timeout": 1,
+  "crashed": 8,
+  "aborted": 0,
+  "unsupported": 13,
+  "rejected": 0,
+  "unavailable": 0,
+  "skipped": 0
+ },
+ "metricAvailability": {
+  "pss-peak-bytes": {
+   "available": false,
+   "reason": "linux-only probe; legacy run on darwin"
+  },
+  "cgroup-memory-peak-bytes": {
+   "available": false,
+   "reason": "linux-only probe; legacy run on darwin"
+  },
+  "cpu-ms-per-verified-job": {
+   "available": false,
+   "reason": "CPU was not instrumented in this legacy lane"
+  },
+  "footprint-peak-bytes": {
+   "available": false,
+   "reason": "footprint was not instrumented in this legacy lane"
+  }
+ },
+ "legacy": {
+  "shape": "bench",
+  "sourceDir": "results/smoke-2026-10-07T20-20-24-226Z-9ebb47",
+  "errorCodeInferred": false,
+  "note": null
+ }
+}

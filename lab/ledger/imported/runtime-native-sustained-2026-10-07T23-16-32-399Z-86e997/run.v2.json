@@ -1,0 +1,315 @@
+{
+ "schemaVersion": 2,
+ "runId": "runtime-native-sustained-2026-10-07T23-16-32-399Z-86e997",
+ "lane": "runtime",
+ "campaign": {
+  "id": "runtime-native-sustained",
+  "source": null
+ },
+ "startedAt": "2026-10-07T23:16:32.399Z",
+ "decisionIds": [
+  "D-core-language"
+ ],
+ "provenance": {
+  "git": {
+   "available": false,
+   "sha": null,
+   "dirty": null
+  },
+  "sourceTreeSha256": "ac5813cdab5c8f5f6a577c8e77da45b3d0e5bd981780ec0ecccac2c190bd498e",
+  "sourceChanges": null,
+  "binaryChanges": null,
+  "toolchains": {
+   "node": "v25.5.0",
+   "browser": "Google Chrome for Testing 153.0.8010.12"
+  },
+  "integrity": {
+   "status": "uncatalogued",
+   "checked": 0,
+   "mismatches": []
+  }
+ },
+ "host": {
+  "classRequested": null,
+  "classGranted": "local-dev",
+  "os": "darwin",
+  "arch": "arm64",
+  "cpu": "Apple M3 Max",
+  "logicalCpus": 14,
+  "memoryBytes": 38654705664,
+  "preflight": null,
+  "postflight": null
+ },
+ "status": "complete",
+ "countUnit": "cell",
+ "cells": [
+  {
+   "cellId": "77f6dd322f62-0",
+   "factors": {
+    "concurrency": 4,
+    "batchJobs": 1,
+    "runtime": "node",
+    "jobs": 768,
+    "pages": 16,
+    "delayMs": 4,
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-jobs-per-second": {
+     "value": 48.46558017956903,
+     "unit": "job/s",
+     "source": "legacy-summary; work plus finalization"
+    },
+    "rss-peak-bytes": {
+     "value": 348913664,
+     "unit": "B",
+     "source": "legacy-summary; macOS proc_pid_rusage V4; sampled root and descendants; CPU/I/O are last observed lifetime counters and can miss process tails; RSS sums double-count shared pages; disk counters are kernel-attributed I/O, not file bytes or a durability proof"
+    },
+    "footprint-peak-bytes": {
+     "value": 289343064,
+     "unit": "B",
+     "source": "legacy-summary; proc_pid_rusage V4"
+    },
+    "cpu-ms-per-verified-job": {
+     "value": 0.09724023307291667,
+     "unit": "ms/job",
+     "source": "legacy-summary; sampled proc_pid_rusage V4 over the coordinator tree"
+    }
+   }
+  },
+  {
+   "cellId": "cd95fc8a24a2-1",
+   "factors": {
+    "concurrency": 4,
+    "batchJobs": 4,
+    "runtime": "rust",
+    "jobs": 768,
+    "pages": 16,
+    "delayMs": 4,
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-jobs-per-second": {
+     "value": 46.995323451244055,
+     "unit": "job/s",
+     "source": "legacy-summary; work plus finalization"
+    },
+    "rss-peak-bytes": {
+     "value": 47661056,
+     "unit": "B",
+     "source": "legacy-summary; macOS proc_pid_rusage V4; sampled root and descendants; CPU/I/O are last observed lifetime counters and can miss process tails; RSS sums double-count shared pages; disk counters are kernel-attributed I/O, not file bytes or a durability proof"
+    },
+    "footprint-peak-bytes": {
+     "value": 30392776,
+     "unit": "B",
+     "source": "legacy-summary; proc_pid_rusage V4"
+    },
+    "cpu-ms-per-verified-job": {
+     "value": 0.032491884114583335,
+     "unit": "ms/job",
+     "source": "legacy-summary; sampled proc_pid_rusage V4 over the coordinator tree"
+    }
+   }
+  },
+  {
+   "cellId": "6520f2fca732-2",
+   "factors": {
+    "concurrency": 16,
+    "batchJobs": 1,
+    "runtime": "rust",
+    "jobs": 3072,
+    "pages": 16,
+    "delayMs": 4,
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-jobs-per-second": {
+     "value": 196.64042469090037,
+     "unit": "job/s",
+     "source": "legacy-summary; work plus finalization"
+    },
+    "rss-peak-bytes": {
+     "value": 274350080,
+     "unit": "B",
+     "source": "legacy-summary; macOS proc_pid_rusage V4; sampled root and descendants; CPU/I/O are last observed lifetime counters and can miss process tails; RSS sums double-count shared pages; disk counters are kernel-attributed I/O, not file bytes or a durability proof"
+    },
+    "footprint-peak-bytes": {
+     "value": 217908232,
+     "unit": "B",
+     "source": "legacy-summary; proc_pid_rusage V4"
+    },
+    "cpu-ms-per-verified-job": {
+     "value": 0.031484431640625005,
+     "unit": "ms/job",
+     "source": "legacy-summary; sampled proc_pid_rusage V4 over the coordinator tree"
+    }
+   }
+  },
+  {
+   "cellId": "6173ab5cdf6e-3",
+   "factors": {
+    "concurrency": 1,
+    "batchJobs": 1,
+    "runtime": "node",
+    "jobs": 192,
+    "pages": 16,
+    "delayMs": 4,
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-jobs-per-second": {
+     "value": 11.616737481545082,
+     "unit": "job/s",
+     "source": "legacy-summary; work plus finalization"
+    },
+    "rss-peak-bytes": {
+     "value": 233996288,
+     "unit": "B",
+     "source": "legacy-summary; macOS proc_pid_rusage V4; sampled root and descendants; CPU/I/O are last observed lifetime counters and can miss process tails; RSS sums double-count shared pages; disk counters are kernel-attributed I/O, not file bytes or a durability proof"
+    },
+    "footprint-peak-bytes": {
+     "value": 156663528,
+     "unit": "B",
+     "source": "legacy-summary; proc_pid_rusage V4"
+    },
+    "cpu-ms-per-verified-job": {
+     "value": 0.18026965104166667,
+     "unit": "ms/job",
+     "source": "legacy-summary; sampled proc_pid_rusage V4 over the coordinator tree"
+    }
+   }
+  },
+  {
+   "cellId": "56461768f844-4",
+   "factors": {
+    "concurrency": 16,
+    "batchJobs": 4,
+    "runtime": "rust",
+    "jobs": 3072,
+    "pages": 16,
+    "delayMs": 4,
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-jobs-per-second": {
+     "value": 196.5556218578873,
+     "unit": "job/s",
+     "source": "legacy-summary; work plus finalization"
+    },
+    "rss-peak-bytes": {
+     "value": 266698752,
+     "unit": "B",
+     "source": "legacy-summary; macOS proc_pid_rusage V4; sampled root and descendants; CPU/I/O are last observed lifetime counters and can miss process tails; RSS sums double-count shared pages; disk counters are kernel-attributed I/O, not file bytes or a durability proof"
+    },
+    "footprint-peak-bytes": {
+     "value": 168018976,
+     "unit": "B",
+     "source": "legacy-summary; proc_pid_rusage V4"
+    },
+    "cpu-ms-per-verified-job": {
+     "value": 0.027980353515625,
+     "unit": "ms/job",
+     "source": "legacy-summary; sampled proc_pid_rusage V4 over the coordinator tree"
+    }
+   }
+  }
+ ],
+ "totals": {
+  "verified": 5,
+  "failed": 0,
+  "timeout": 0,
+  "crashed": 0,
+  "aborted": 0,
+  "unsupported": 0,
+  "rejected": 0,
+  "unavailable": 0,
+  "skipped": 0
+ },
+ "metricAvailability": {
+  "pss-peak-bytes": {
+   "available": false,
+   "reason": "linux-only probe; legacy run on darwin"
+  },
+  "cgroup-memory-peak-bytes": {
+   "available": false,
+   "reason": "linux-only probe; legacy run on darwin"
+  },
+  "cpu-ms-per-verified-job": {
+   "available": true
+  },
+  "footprint-peak-bytes": {
+   "available": true
+  }
+ },
+ "legacy": {
+  "shape": "cells",
+  "sourceDir": "results/runtime-native-sustained-2026-10-07T23-16-32-399Z-86e997",
+  "errorCodeInferred": false,
+  "note": null
+ }
+}

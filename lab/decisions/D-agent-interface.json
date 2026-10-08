@@ -1,0 +1,62 @@
+{
+  "id": "D-agent-interface",
+  "title": "Interface pour agents",
+  "question": "Quelle interface les agents utilisent-ils le plus efficacement : MCP, CLI, SDK ou code mode ?",
+  "kind": "technical",
+  "status": "open",
+  "options": [
+    {
+      "id": "mcp",
+      "description": "Serveur MCP, profil réduit"
+    },
+    {
+      "id": "cli",
+      "description": "CLI JSON/NDJSON"
+    },
+    {
+      "id": "sdk",
+      "description": "SDK typé et code généré"
+    },
+    {
+      "id": "code-mode",
+      "description": "Code mode : recherche d'API et exécution"
+    }
+  ],
+  "baseline": "mcp",
+  "primaryMetric": {
+    "metricId": "interface-turns-per-task",
+    "blockStatistic": "median"
+  },
+  "secondaryMetrics": [
+    "tokens-per-verified-task",
+    "task-p50-ms-verified"
+  ],
+  "contractGates": [
+    "oracle-exact"
+  ],
+  "delta": {
+    "kind": "ratio",
+    "value": 0.15
+  },
+  "rule": {
+    "kind": "superiority",
+    "alpha": 0.05,
+    "power": 0.8,
+    "noisyBlockPolicy": "exclude"
+  },
+  "hostClass": {
+    "decision": "local-controlled",
+    "publication": "reference"
+  },
+  "networkProfiles": [],
+  "campaigns": [
+    "interface-arena"
+  ],
+  "evidence": [],
+  "verdictRef": null,
+  "adr": null,
+  "dependsOn": [
+    "D-ai-layer"
+  ],
+  "notes": "Croiser les interfaces avec découverte, rejeu et réparation ; mêmes tâches, modèle et budget."
+}

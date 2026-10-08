@@ -1,0 +1,31 @@
+{
+  "id": "D-pricing",
+  "title": "Unité et niveau de prix",
+  "question": "Quelle unité de facturation et quels paliers ?",
+  "kind": "product",
+  "status": "open",
+  "options": [
+    {
+      "id": "verified-result",
+      "description": "Par résultat vérifié pour un connecteur qualifié"
+    },
+    {
+      "id": "compute-units",
+      "description": "Ressources consommées détaillées"
+    },
+    {
+      "id": "subscription-tiers",
+      "description": "Abonnement avec plafonds"
+    }
+  ],
+  "evidence": [
+    {
+      "kind": "research-doc",
+      "ref": "research/2026-10-07-commercial-landscape.md"
+    }
+  ],
+  "dependsOn": [
+    "D-segment"
+  ],
+  "notes": "La volonté de payer se mesure en entretiens, pas en recherche documentaire."
+}

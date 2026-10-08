@@ -1,0 +1,180 @@
+{
+ "schemaVersion": 2,
+ "runId": "qualification-current-2026-10-08T00-11-54-553Z-21d1f2",
+ "lane": "suite",
+ "campaign": {
+  "id": "qualification-current",
+  "source": null
+ },
+ "startedAt": "2026-10-08T00:11:54.553Z",
+ "decisionIds": [],
+ "provenance": {
+  "git": {
+   "available": false,
+   "sha": null,
+   "dirty": null
+  },
+  "sourceTreeSha256": "f413479d6b60f7b74fd732e4fbcfa8d256dcb2e97b90513630afc57045dc57c3",
+  "sourceChanges": 0,
+  "binaryChanges": null,
+  "toolchains": {
+   "node": "v25.5.0",
+   "browser": "Google Chrome for Testing 153.0.8010.12"
+  },
+  "integrity": {
+   "status": "verified",
+   "checked": 89,
+   "mismatches": []
+  }
+ },
+ "host": {
+  "classRequested": null,
+  "classGranted": "local-dev",
+  "os": "darwin",
+  "arch": "arm64",
+  "cpu": "Apple M3 Max",
+  "logicalCpus": 14,
+  "memoryBytes": 38654705664,
+  "preflight": null,
+  "postflight": null
+ },
+ "status": "complete",
+ "countUnit": "step",
+ "cells": [
+  {
+   "cellId": "70f375516245-0",
+   "factors": {
+    "step": "runtime-native-qualified"
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {}
+  },
+  {
+   "cellId": "aa82141cd6c9-1",
+   "factors": {
+    "step": "runtime-recovery-qualified"
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {}
+  },
+  {
+   "cellId": "a88c6bafc982-2",
+   "factors": {
+    "step": "browser-actionability-guarded"
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {}
+  },
+  {
+   "cellId": "67926d6c496a-3",
+   "factors": {
+    "step": "sqlite-readers-qualified"
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {}
+  },
+  {
+   "cellId": "21e4e65bae7b-4",
+   "factors": {
+    "step": "spider-http-transport-supported"
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {}
+  }
+ ],
+ "totals": {
+  "verified": 5,
+  "failed": 0,
+  "timeout": 0,
+  "crashed": 0,
+  "aborted": 0,
+  "unsupported": 0,
+  "rejected": 0,
+  "unavailable": 0,
+  "skipped": 0
+ },
+ "metricAvailability": {
+  "pss-peak-bytes": {
+   "available": false,
+   "reason": "linux-only probe; legacy run on darwin"
+  },
+  "cgroup-memory-peak-bytes": {
+   "available": false,
+   "reason": "linux-only probe; legacy run on darwin"
+  },
+  "cpu-ms-per-verified-job": {
+   "available": false,
+   "reason": "CPU was not instrumented in this legacy lane"
+  },
+  "footprint-peak-bytes": {
+   "available": false,
+   "reason": "footprint was not instrumented in this legacy lane"
+  }
+ },
+ "legacy": {
+  "shape": "suite",
+  "sourceDir": "results/qualification-current-2026-10-08T00-11-54-553Z-21d1f2",
+  "errorCodeInferred": false,
+  "note": null
+ }
+}

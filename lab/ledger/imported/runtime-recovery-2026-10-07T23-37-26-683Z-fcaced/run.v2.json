@@ -1,0 +1,2120 @@
+{
+ "schemaVersion": 2,
+ "runId": "runtime-recovery-2026-10-07T23-37-26-683Z-fcaced",
+ "lane": "runtime",
+ "campaign": {
+  "id": "runtime-recovery",
+  "source": null
+ },
+ "startedAt": "2026-10-07T23:37:26.683Z",
+ "decisionIds": [
+  "D-durable-runtime"
+ ],
+ "provenance": {
+  "git": {
+   "available": false,
+   "sha": null,
+   "dirty": null
+  },
+  "sourceTreeSha256": "280a94b538866dda07d9b37a7acb6ae306edbf944769c6de0b2a84f73312c05f",
+  "sourceChanges": 0,
+  "binaryChanges": 0,
+  "toolchains": {
+   "node": "v25.5.0",
+   "browser": "Google Chrome for Testing 153.0.8010.12"
+  },
+  "integrity": {
+   "status": "verified",
+   "checked": 304,
+   "mismatches": []
+  }
+ },
+ "host": {
+  "classRequested": null,
+  "classGranted": "local-dev",
+  "os": "darwin",
+  "arch": "arm64",
+  "cpu": "Apple M3 Max",
+  "logicalCpus": 14,
+  "memoryBytes": 38654705664,
+  "preflight": null,
+  "postflight": null
+ },
+ "status": "complete",
+ "countUnit": "cell",
+ "cells": [
+  {
+   "cellId": "3f40c02cae49-0",
+   "factors": {
+    "concurrency": 4,
+    "batchJobs": 2,
+    "fault": "before-commit",
+    "runtime": "rust",
+    "jobs": 24,
+    "pages": 4,
+    "delayMs": 2,
+    "leaseMs": 1000,
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-jobs-per-second": {
+     "value": 22.159955496752307,
+     "unit": "job/s",
+     "source": "legacy-summary; work plus finalization"
+    },
+    "rss-peak-bytes": {
+     "value": 12812288,
+     "unit": "B",
+     "source": "legacy-summary; macOS proc_pid_rusage V4 with mach_timebase_info conversion; sampled root and descendants; existing coordinator counters subtract the initial baseline; new process counters use their observed lifetime; CPU/I/O can miss exited process tails; RSS sums double-count shared pages; disk counters are kernel-attributed I/O, not file bytes or a durability proof"
+    },
+    "footprint-peak-bytes": {
+     "value": 7832416,
+     "unit": "B",
+     "source": "legacy-summary; proc_pid_rusage V4"
+    },
+    "cpu-ms-per-verified-job": {
+     "value": 0.9471752499999999,
+     "unit": "ms/job",
+     "source": "legacy-summary; sampled proc_pid_rusage V4 over the coordinator tree"
+    }
+   }
+  },
+  {
+   "cellId": "56f14b9f3162-1",
+   "factors": {
+    "concurrency": 4,
+    "batchJobs": 2,
+    "fault": "after-ack",
+    "runtime": "rust",
+    "jobs": 24,
+    "pages": 4,
+    "delayMs": 2,
+    "leaseMs": 1000,
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-jobs-per-second": {
+     "value": 22.093936744828955,
+     "unit": "job/s",
+     "source": "legacy-summary; work plus finalization"
+    },
+    "rss-peak-bytes": {
+     "value": 12943360,
+     "unit": "B",
+     "source": "legacy-summary; macOS proc_pid_rusage V4 with mach_timebase_info conversion; sampled root and descendants; existing coordinator counters subtract the initial baseline; new process counters use their observed lifetime; CPU/I/O can miss exited process tails; RSS sums double-count shared pages; disk counters are kernel-attributed I/O, not file bytes or a durability proof"
+    },
+    "footprint-peak-bytes": {
+     "value": 7963488,
+     "unit": "B",
+     "source": "legacy-summary; proc_pid_rusage V4"
+    },
+    "cpu-ms-per-verified-job": {
+     "value": 0.9386562083333333,
+     "unit": "ms/job",
+     "source": "legacy-summary; sampled proc_pid_rusage V4 over the coordinator tree"
+    }
+   }
+  },
+  {
+   "cellId": "68cc8d71b3bb-2",
+   "factors": {
+    "concurrency": 4,
+    "batchJobs": 2,
+    "runtime": "node",
+    "jobs": 24,
+    "pages": 4,
+    "delayMs": 2,
+    "leaseMs": 1000,
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-jobs-per-second": {
+     "value": 7.3692586997841145,
+     "unit": "job/s",
+     "source": "legacy-summary; work plus finalization"
+    },
+    "rss-peak-bytes": {
+     "value": 203325440,
+     "unit": "B",
+     "source": "legacy-summary; macOS proc_pid_rusage V4 with mach_timebase_info conversion; sampled root and descendants; existing coordinator counters subtract the initial baseline; new process counters use their observed lifetime; CPU/I/O can miss exited process tails; RSS sums double-count shared pages; disk counters are kernel-attributed I/O, not file bytes or a durability proof"
+    },
+    "footprint-peak-bytes": {
+     "value": 120723216,
+     "unit": "B",
+     "source": "legacy-summary; proc_pid_rusage V4"
+    },
+    "cpu-ms-per-verified-job": {
+     "value": 36.501190791666666,
+     "unit": "ms/job",
+     "source": "legacy-summary; sampled proc_pid_rusage V4 over the coordinator tree"
+    }
+   }
+  },
+  {
+   "cellId": "68cc8d71b3bb-3",
+   "factors": {
+    "concurrency": 4,
+    "batchJobs": 2,
+    "runtime": "node",
+    "jobs": 24,
+    "pages": 4,
+    "delayMs": 2,
+    "leaseMs": 1000,
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-jobs-per-second": {
+     "value": 27.60967642265665,
+     "unit": "job/s",
+     "source": "legacy-summary; work plus finalization"
+    },
+    "rss-peak-bytes": {
+     "value": 203276288,
+     "unit": "B",
+     "source": "legacy-summary; macOS proc_pid_rusage V4 with mach_timebase_info conversion; sampled root and descendants; existing coordinator counters subtract the initial baseline; new process counters use their observed lifetime; CPU/I/O can miss exited process tails; RSS sums double-count shared pages; disk counters are kernel-attributed I/O, not file bytes or a durability proof"
+    },
+    "footprint-peak-bytes": {
+     "value": 120674280,
+     "unit": "B",
+     "source": "legacy-summary; proc_pid_rusage V4"
+    },
+    "cpu-ms-per-verified-job": {
+     "value": 22.478255125,
+     "unit": "ms/job",
+     "source": "legacy-summary; sampled proc_pid_rusage V4 over the coordinator tree"
+    }
+   }
+  },
+  {
+   "cellId": "3c0cf58385ec-4",
+   "factors": {
+    "concurrency": 4,
+    "batchJobs": 2,
+    "fault": "after-ack",
+    "runtime": "node",
+    "jobs": 24,
+    "pages": 4,
+    "delayMs": 2,
+    "leaseMs": 1000,
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-jobs-per-second": {
+     "value": 21.74994876867536,
+     "unit": "job/s",
+     "source": "legacy-summary; work plus finalization"
+    },
+    "rss-peak-bytes": {
+     "value": 200474624,
+     "unit": "B",
+     "source": "legacy-summary; macOS proc_pid_rusage V4 with mach_timebase_info conversion; sampled root and descendants; existing coordinator counters subtract the initial baseline; new process counters use their observed lifetime; CPU/I/O can miss exited process tails; RSS sums double-count shared pages; disk counters are kernel-attributed I/O, not file bytes or a durability proof"
+    },
+    "footprint-peak-bytes": {
+     "value": 117708344,
+     "unit": "B",
+     "source": "legacy-summary; proc_pid_rusage V4"
+    },
+    "cpu-ms-per-verified-job": {
+     "value": 21.52160754166667,
+     "unit": "ms/job",
+     "source": "legacy-summary; sampled proc_pid_rusage V4 over the coordinator tree"
+    }
+   }
+  },
+  {
+   "cellId": "5176ef0ba3c4-5",
+   "factors": {
+    "concurrency": 4,
+    "batchJobs": 2,
+    "runtime": "rust",
+    "jobs": 24,
+    "pages": 4,
+    "delayMs": 2,
+    "leaseMs": 1000,
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-jobs-per-second": {
+     "value": 7.341512984641732,
+     "unit": "job/s",
+     "source": "legacy-summary; work plus finalization"
+    },
+    "rss-peak-bytes": {
+     "value": 13123584,
+     "unit": "B",
+     "source": "legacy-summary; macOS proc_pid_rusage V4 with mach_timebase_info conversion; sampled root and descendants; existing coordinator counters subtract the initial baseline; new process counters use their observed lifetime; CPU/I/O can miss exited process tails; RSS sums double-count shared pages; disk counters are kernel-attributed I/O, not file bytes or a durability proof"
+    },
+    "footprint-peak-bytes": {
+     "value": 7816032,
+     "unit": "B",
+     "source": "legacy-summary; proc_pid_rusage V4"
+    },
+    "cpu-ms-per-verified-job": {
+     "value": 1.7593002083333333,
+     "unit": "ms/job",
+     "source": "legacy-summary; sampled proc_pid_rusage V4 over the coordinator tree"
+    }
+   }
+  },
+  {
+   "cellId": "5176ef0ba3c4-6",
+   "factors": {
+    "concurrency": 4,
+    "batchJobs": 2,
+    "runtime": "rust",
+    "jobs": 24,
+    "pages": 4,
+    "delayMs": 2,
+    "leaseMs": 1000,
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-jobs-per-second": {
+     "value": 23.908596431680632,
+     "unit": "job/s",
+     "source": "legacy-summary; work plus finalization"
+    },
+    "rss-peak-bytes": {
+     "value": 12189696,
+     "unit": "B",
+     "source": "legacy-summary; macOS proc_pid_rusage V4 with mach_timebase_info conversion; sampled root and descendants; existing coordinator counters subtract the initial baseline; new process counters use their observed lifetime; CPU/I/O can miss exited process tails; RSS sums double-count shared pages; disk counters are kernel-attributed I/O, not file bytes or a durability proof"
+    },
+    "footprint-peak-bytes": {
+     "value": 7226160,
+     "unit": "B",
+     "source": "legacy-summary; proc_pid_rusage V4"
+    },
+    "cpu-ms-per-verified-job": {
+     "value": 0.452907875,
+     "unit": "ms/job",
+     "source": "legacy-summary; sampled proc_pid_rusage V4 over the coordinator tree"
+    }
+   }
+  },
+  {
+   "cellId": "2be26623c5b3-7",
+   "factors": {
+    "concurrency": 4,
+    "batchJobs": 2,
+    "fault": "after-commit",
+    "runtime": "node",
+    "jobs": 24,
+    "pages": 4,
+    "delayMs": 2,
+    "leaseMs": 1000,
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-jobs-per-second": {
+     "value": 21.829350329000913,
+     "unit": "job/s",
+     "source": "legacy-summary; work plus finalization"
+    },
+    "rss-peak-bytes": {
+     "value": 200589312,
+     "unit": "B",
+     "source": "legacy-summary; macOS proc_pid_rusage V4 with mach_timebase_info conversion; sampled root and descendants; existing coordinator counters subtract the initial baseline; new process counters use their observed lifetime; CPU/I/O can miss exited process tails; RSS sums double-count shared pages; disk counters are kernel-attributed I/O, not file bytes or a durability proof"
+    },
+    "footprint-peak-bytes": {
+     "value": 117856064,
+     "unit": "B",
+     "source": "legacy-summary; proc_pid_rusage V4"
+    },
+    "cpu-ms-per-verified-job": {
+     "value": 21.669074625000004,
+     "unit": "ms/job",
+     "source": "legacy-summary; sampled proc_pid_rusage V4 over the coordinator tree"
+    }
+   }
+  },
+  {
+   "cellId": "185f304d78f6-8",
+   "factors": {
+    "concurrency": 4,
+    "batchJobs": 2,
+    "fault": "during-ack",
+    "runtime": "rust",
+    "jobs": 24,
+    "pages": 4,
+    "delayMs": 2,
+    "leaseMs": 1000,
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-jobs-per-second": {
+     "value": 22.297824917696154,
+     "unit": "job/s",
+     "source": "legacy-summary; work plus finalization"
+    },
+    "rss-peak-bytes": {
+     "value": 12779520,
+     "unit": "B",
+     "source": "legacy-summary; macOS proc_pid_rusage V4 with mach_timebase_info conversion; sampled root and descendants; existing coordinator counters subtract the initial baseline; new process counters use their observed lifetime; CPU/I/O can miss exited process tails; RSS sums double-count shared pages; disk counters are kernel-attributed I/O, not file bytes or a durability proof"
+    },
+    "footprint-peak-bytes": {
+     "value": 7783240,
+     "unit": "B",
+     "source": "legacy-summary; proc_pid_rusage V4"
+    },
+    "cpu-ms-per-verified-job": {
+     "value": 0.7121145416666667,
+     "unit": "ms/job",
+     "source": "legacy-summary; sampled proc_pid_rusage V4 over the coordinator tree"
+    }
+   }
+  },
+  {
+   "cellId": "f234bad13b00-9",
+   "factors": {
+    "concurrency": 4,
+    "batchJobs": 2,
+    "fault": "during-ack",
+    "runtime": "node",
+    "jobs": 24,
+    "pages": 4,
+    "delayMs": 2,
+    "leaseMs": 1000,
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-jobs-per-second": {
+     "value": 21.753770052074593,
+     "unit": "job/s",
+     "source": "legacy-summary; work plus finalization"
+    },
+    "rss-peak-bytes": {
+     "value": 202293248,
+     "unit": "B",
+     "source": "legacy-summary; macOS proc_pid_rusage V4 with mach_timebase_info conversion; sampled root and descendants; existing coordinator counters subtract the initial baseline; new process counters use their observed lifetime; CPU/I/O can miss exited process tails; RSS sums double-count shared pages; disk counters are kernel-attributed I/O, not file bytes or a durability proof"
+    },
+    "footprint-peak-bytes": {
+     "value": 119625608,
+     "unit": "B",
+     "source": "legacy-summary; proc_pid_rusage V4"
+    },
+    "cpu-ms-per-verified-job": {
+     "value": 21.746847125000002,
+     "unit": "ms/job",
+     "source": "legacy-summary; sampled proc_pid_rusage V4 over the coordinator tree"
+    }
+   }
+  },
+  {
+   "cellId": "f4af32a9f723-10",
+   "factors": {
+    "concurrency": 4,
+    "batchJobs": 2,
+    "fault": "before-commit",
+    "runtime": "node",
+    "jobs": 24,
+    "pages": 4,
+    "delayMs": 2,
+    "leaseMs": 1000,
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-jobs-per-second": {
+     "value": 21.682643123231156,
+     "unit": "job/s",
+     "source": "legacy-summary; work plus finalization"
+    },
+    "rss-peak-bytes": {
+     "value": 201392128,
+     "unit": "B",
+     "source": "legacy-summary; macOS proc_pid_rusage V4 with mach_timebase_info conversion; sampled root and descendants; existing coordinator counters subtract the initial baseline; new process counters use their observed lifetime; CPU/I/O can miss exited process tails; RSS sums double-count shared pages; disk counters are kernel-attributed I/O, not file bytes or a durability proof"
+    },
+    "footprint-peak-bytes": {
+     "value": 118642208,
+     "unit": "B",
+     "source": "legacy-summary; proc_pid_rusage V4"
+    },
+    "cpu-ms-per-verified-job": {
+     "value": 21.82478641666667,
+     "unit": "ms/job",
+     "source": "legacy-summary; sampled proc_pid_rusage V4 over the coordinator tree"
+    }
+   }
+  },
+  {
+   "cellId": "5176ef0ba3c4-11",
+   "factors": {
+    "concurrency": 4,
+    "batchJobs": 2,
+    "runtime": "rust",
+    "jobs": 24,
+    "pages": 4,
+    "delayMs": 2,
+    "leaseMs": 1000,
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-jobs-per-second": {
+     "value": 23.627617896868735,
+     "unit": "job/s",
+     "source": "legacy-summary; work plus finalization"
+    },
+    "rss-peak-bytes": {
+     "value": 12025856,
+     "unit": "B",
+     "source": "legacy-summary; macOS proc_pid_rusage V4 with mach_timebase_info conversion; sampled root and descendants; existing coordinator counters subtract the initial baseline; new process counters use their observed lifetime; CPU/I/O can miss exited process tails; RSS sums double-count shared pages; disk counters are kernel-attributed I/O, not file bytes or a durability proof"
+    },
+    "footprint-peak-bytes": {
+     "value": 7062320,
+     "unit": "B",
+     "source": "legacy-summary; proc_pid_rusage V4"
+    },
+    "cpu-ms-per-verified-job": {
+     "value": 0.4327551666666667,
+     "unit": "ms/job",
+     "source": "legacy-summary; sampled proc_pid_rusage V4 over the coordinator tree"
+    }
+   }
+  },
+  {
+   "cellId": "3d9e41e9417e-12",
+   "factors": {
+    "concurrency": 4,
+    "batchJobs": 2,
+    "fault": "after-commit",
+    "runtime": "rust",
+    "jobs": 24,
+    "pages": 4,
+    "delayMs": 2,
+    "leaseMs": 1000,
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-jobs-per-second": {
+     "value": 22.198320488945754,
+     "unit": "job/s",
+     "source": "legacy-summary; work plus finalization"
+    },
+    "rss-peak-bytes": {
+     "value": 12812288,
+     "unit": "B",
+     "source": "legacy-summary; macOS proc_pid_rusage V4 with mach_timebase_info conversion; sampled root and descendants; existing coordinator counters subtract the initial baseline; new process counters use their observed lifetime; CPU/I/O can miss exited process tails; RSS sums double-count shared pages; disk counters are kernel-attributed I/O, not file bytes or a durability proof"
+    },
+    "footprint-peak-bytes": {
+     "value": 7799600,
+     "unit": "B",
+     "source": "legacy-summary; proc_pid_rusage V4"
+    },
+    "cpu-ms-per-verified-job": {
+     "value": 0.8806700833333334,
+     "unit": "ms/job",
+     "source": "legacy-summary; sampled proc_pid_rusage V4 over the coordinator tree"
+    }
+   }
+  },
+  {
+   "cellId": "68cc8d71b3bb-13",
+   "factors": {
+    "concurrency": 4,
+    "batchJobs": 2,
+    "runtime": "node",
+    "jobs": 24,
+    "pages": 4,
+    "delayMs": 2,
+    "leaseMs": 1000,
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-jobs-per-second": {
+     "value": 30.00914344840587,
+     "unit": "job/s",
+     "source": "legacy-summary; work plus finalization"
+    },
+    "rss-peak-bytes": {
+     "value": 198770688,
+     "unit": "B",
+     "source": "legacy-summary; macOS proc_pid_rusage V4 with mach_timebase_info conversion; sampled root and descendants; existing coordinator counters subtract the initial baseline; new process counters use their observed lifetime; CPU/I/O can miss exited process tails; RSS sums double-count shared pages; disk counters are kernel-attributed I/O, not file bytes or a durability proof"
+    },
+    "footprint-peak-bytes": {
+     "value": 116103024,
+     "unit": "B",
+     "source": "legacy-summary; proc_pid_rusage V4"
+    },
+    "cpu-ms-per-verified-job": {
+     "value": 27.386011999999997,
+     "unit": "ms/job",
+     "source": "legacy-summary; sampled proc_pid_rusage V4 over the coordinator tree"
+    }
+   }
+  },
+  {
+   "cellId": "5cc6df75e3e9-14",
+   "factors": {
+    "concurrency": 4,
+    "batchJobs": 2,
+    "fault": "before-commit",
+    "runtime": "node",
+    "jobs": 24,
+    "pages": 4,
+    "delayMs": 2,
+    "leaseMs": 1000,
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-jobs-per-second": {
+     "value": 20.43244056647658,
+     "unit": "job/s",
+     "source": "legacy-summary; work plus finalization"
+    },
+    "rss-peak-bytes": {
+     "value": 205373440,
+     "unit": "B",
+     "source": "legacy-summary; macOS proc_pid_rusage V4 with mach_timebase_info conversion; sampled root and descendants; existing coordinator counters subtract the initial baseline; new process counters use their observed lifetime; CPU/I/O can miss exited process tails; RSS sums double-count shared pages; disk counters are kernel-attributed I/O, not file bytes or a durability proof"
+    },
+    "footprint-peak-bytes": {
+     "value": 122722208,
+     "unit": "B",
+     "source": "legacy-summary; proc_pid_rusage V4"
+    },
+    "cpu-ms-per-verified-job": {
+     "value": 21.596904374999998,
+     "unit": "ms/job",
+     "source": "legacy-summary; sampled proc_pid_rusage V4 over the coordinator tree"
+    }
+   }
+  },
+  {
+   "cellId": "fcd40b40fddd-15",
+   "factors": {
+    "concurrency": 4,
+    "batchJobs": 2,
+    "fault": "after-commit",
+    "runtime": "rust",
+    "jobs": 24,
+    "pages": 4,
+    "delayMs": 2,
+    "leaseMs": 1000,
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-jobs-per-second": {
+     "value": 22.166841877541145,
+     "unit": "job/s",
+     "source": "legacy-summary; work plus finalization"
+    },
+    "rss-peak-bytes": {
+     "value": 12828672,
+     "unit": "B",
+     "source": "legacy-summary; macOS proc_pid_rusage V4 with mach_timebase_info conversion; sampled root and descendants; existing coordinator counters subtract the initial baseline; new process counters use their observed lifetime; CPU/I/O can miss exited process tails; RSS sums double-count shared pages; disk counters are kernel-attributed I/O, not file bytes or a durability proof"
+    },
+    "footprint-peak-bytes": {
+     "value": 7832392,
+     "unit": "B",
+     "source": "legacy-summary; proc_pid_rusage V4"
+    },
+    "cpu-ms-per-verified-job": {
+     "value": 0.8870311666666666,
+     "unit": "ms/job",
+     "source": "legacy-summary; sampled proc_pid_rusage V4 over the coordinator tree"
+    }
+   }
+  },
+  {
+   "cellId": "8e0d752d64e7-16",
+   "factors": {
+    "concurrency": 4,
+    "batchJobs": 2,
+    "runtime": "rust",
+    "jobs": 24,
+    "pages": 4,
+    "delayMs": 2,
+    "leaseMs": 1000,
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-jobs-per-second": {
+     "value": 23.77966850648674,
+     "unit": "job/s",
+     "source": "legacy-summary; work plus finalization"
+    },
+    "rss-peak-bytes": {
+     "value": 11616256,
+     "unit": "B",
+     "source": "legacy-summary; macOS proc_pid_rusage V4 with mach_timebase_info conversion; sampled root and descendants; existing coordinator counters subtract the initial baseline; new process counters use their observed lifetime; CPU/I/O can miss exited process tails; RSS sums double-count shared pages; disk counters are kernel-attributed I/O, not file bytes or a durability proof"
+    },
+    "footprint-peak-bytes": {
+     "value": 6652720,
+     "unit": "B",
+     "source": "legacy-summary; proc_pid_rusage V4"
+    },
+    "cpu-ms-per-verified-job": {
+     "value": 0.4189235833333333,
+     "unit": "ms/job",
+     "source": "legacy-summary; sampled proc_pid_rusage V4 over the coordinator tree"
+    }
+   }
+  },
+  {
+   "cellId": "15fc50348a29-17",
+   "factors": {
+    "concurrency": 4,
+    "batchJobs": 2,
+    "runtime": "node",
+    "jobs": 24,
+    "pages": 4,
+    "delayMs": 2,
+    "leaseMs": 1000,
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-jobs-per-second": {
+     "value": 30.346567281658814,
+     "unit": "job/s",
+     "source": "legacy-summary; work plus finalization"
+    },
+    "rss-peak-bytes": {
+     "value": 202784768,
+     "unit": "B",
+     "source": "legacy-summary; macOS proc_pid_rusage V4 with mach_timebase_info conversion; sampled root and descendants; existing coordinator counters subtract the initial baseline; new process counters use their observed lifetime; CPU/I/O can miss exited process tails; RSS sums double-count shared pages; disk counters are kernel-attributed I/O, not file bytes or a durability proof"
+    },
+    "footprint-peak-bytes": {
+     "value": 119887392,
+     "unit": "B",
+     "source": "legacy-summary; proc_pid_rusage V4"
+    },
+    "cpu-ms-per-verified-job": {
+     "value": 27.57818041666667,
+     "unit": "ms/job",
+     "source": "legacy-summary; sampled proc_pid_rusage V4 over the coordinator tree"
+    }
+   }
+  },
+  {
+   "cellId": "bd747aff4b57-18",
+   "factors": {
+    "concurrency": 4,
+    "batchJobs": 2,
+    "fault": "after-ack",
+    "runtime": "node",
+    "jobs": 24,
+    "pages": 4,
+    "delayMs": 2,
+    "leaseMs": 1000,
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-jobs-per-second": {
+     "value": 21.770747160104907,
+     "unit": "job/s",
+     "source": "legacy-summary; work plus finalization"
+    },
+    "rss-peak-bytes": {
+     "value": 199098368,
+     "unit": "B",
+     "source": "legacy-summary; macOS proc_pid_rusage V4 with mach_timebase_info conversion; sampled root and descendants; existing coordinator counters subtract the initial baseline; new process counters use their observed lifetime; CPU/I/O can miss exited process tails; RSS sums double-count shared pages; disk counters are kernel-attributed I/O, not file bytes or a durability proof"
+    },
+    "footprint-peak-bytes": {
+     "value": 116217400,
+     "unit": "B",
+     "source": "legacy-summary; proc_pid_rusage V4"
+    },
+    "cpu-ms-per-verified-job": {
+     "value": 21.348933875,
+     "unit": "ms/job",
+     "source": "legacy-summary; sampled proc_pid_rusage V4 over the coordinator tree"
+    }
+   }
+  },
+  {
+   "cellId": "8e0d752d64e7-19",
+   "factors": {
+    "concurrency": 4,
+    "batchJobs": 2,
+    "runtime": "rust",
+    "jobs": 24,
+    "pages": 4,
+    "delayMs": 2,
+    "leaseMs": 1000,
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-jobs-per-second": {
+     "value": 23.79015201740608,
+     "unit": "job/s",
+     "source": "legacy-summary; work plus finalization"
+    },
+    "rss-peak-bytes": {
+     "value": 11337728,
+     "unit": "B",
+     "source": "legacy-summary; macOS proc_pid_rusage V4 with mach_timebase_info conversion; sampled root and descendants; existing coordinator counters subtract the initial baseline; new process counters use their observed lifetime; CPU/I/O can miss exited process tails; RSS sums double-count shared pages; disk counters are kernel-attributed I/O, not file bytes or a durability proof"
+    },
+    "footprint-peak-bytes": {
+     "value": 6423344,
+     "unit": "B",
+     "source": "legacy-summary; proc_pid_rusage V4"
+    },
+    "cpu-ms-per-verified-job": {
+     "value": 0.40004337500000003,
+     "unit": "ms/job",
+     "source": "legacy-summary; sampled proc_pid_rusage V4 over the coordinator tree"
+    }
+   }
+  },
+  {
+   "cellId": "44b2346ccfc2-20",
+   "factors": {
+    "concurrency": 4,
+    "batchJobs": 2,
+    "fault": "after-ack",
+    "runtime": "rust",
+    "jobs": 24,
+    "pages": 4,
+    "delayMs": 2,
+    "leaseMs": 1000,
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-jobs-per-second": {
+     "value": 22.1786751738791,
+     "unit": "job/s",
+     "source": "legacy-summary; work plus finalization"
+    },
+    "rss-peak-bytes": {
+     "value": 13008896,
+     "unit": "B",
+     "source": "legacy-summary; macOS proc_pid_rusage V4 with mach_timebase_info conversion; sampled root and descendants; existing coordinator counters subtract the initial baseline; new process counters use their observed lifetime; CPU/I/O can miss exited process tails; RSS sums double-count shared pages; disk counters are kernel-attributed I/O, not file bytes or a durability proof"
+    },
+    "footprint-peak-bytes": {
+     "value": 8012616,
+     "unit": "B",
+     "source": "legacy-summary; proc_pid_rusage V4"
+    },
+    "cpu-ms-per-verified-job": {
+     "value": 0.7973193749999999,
+     "unit": "ms/job",
+     "source": "legacy-summary; sampled proc_pid_rusage V4 over the coordinator tree"
+    }
+   }
+  },
+  {
+   "cellId": "f173d947db10-21",
+   "factors": {
+    "concurrency": 4,
+    "batchJobs": 2,
+    "fault": "during-ack",
+    "runtime": "node",
+    "jobs": 24,
+    "pages": 4,
+    "delayMs": 2,
+    "leaseMs": 1000,
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-jobs-per-second": {
+     "value": 21.65066716192568,
+     "unit": "job/s",
+     "source": "legacy-summary; work plus finalization"
+    },
+    "rss-peak-bytes": {
+     "value": 201834496,
+     "unit": "B",
+     "source": "legacy-summary; macOS proc_pid_rusage V4 with mach_timebase_info conversion; sampled root and descendants; existing coordinator counters subtract the initial baseline; new process counters use their observed lifetime; CPU/I/O can miss exited process tails; RSS sums double-count shared pages; disk counters are kernel-attributed I/O, not file bytes or a durability proof"
+    },
+    "footprint-peak-bytes": {
+     "value": 119002800,
+     "unit": "B",
+     "source": "legacy-summary; proc_pid_rusage V4"
+    },
+    "cpu-ms-per-verified-job": {
+     "value": 23.424525958333334,
+     "unit": "ms/job",
+     "source": "legacy-summary; sampled proc_pid_rusage V4 over the coordinator tree"
+    }
+   }
+  },
+  {
+   "cellId": "4063107a92c8-22",
+   "factors": {
+    "concurrency": 4,
+    "batchJobs": 2,
+    "fault": "during-ack",
+    "runtime": "rust",
+    "jobs": 24,
+    "pages": 4,
+    "delayMs": 2,
+    "leaseMs": 1000,
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-jobs-per-second": {
+     "value": 22.086698363766036,
+     "unit": "job/s",
+     "source": "legacy-summary; work plus finalization"
+    },
+    "rss-peak-bytes": {
+     "value": 12926976,
+     "unit": "B",
+     "source": "legacy-summary; macOS proc_pid_rusage V4 with mach_timebase_info conversion; sampled root and descendants; existing coordinator counters subtract the initial baseline; new process counters use their observed lifetime; CPU/I/O can miss exited process tails; RSS sums double-count shared pages; disk counters are kernel-attributed I/O, not file bytes or a durability proof"
+    },
+    "footprint-peak-bytes": {
+     "value": 7914288,
+     "unit": "B",
+     "source": "legacy-summary; proc_pid_rusage V4"
+    },
+    "cpu-ms-per-verified-job": {
+     "value": 0.9942777083333333,
+     "unit": "ms/job",
+     "source": "legacy-summary; sampled proc_pid_rusage V4 over the coordinator tree"
+    }
+   }
+  },
+  {
+   "cellId": "c3e034d2e27d-23",
+   "factors": {
+    "concurrency": 4,
+    "batchJobs": 2,
+    "fault": "after-commit",
+    "runtime": "node",
+    "jobs": 24,
+    "pages": 4,
+    "delayMs": 2,
+    "leaseMs": 1000,
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-jobs-per-second": {
+     "value": 21.827614820359297,
+     "unit": "job/s",
+     "source": "legacy-summary; work plus finalization"
+    },
+    "rss-peak-bytes": {
+     "value": 201080832,
+     "unit": "B",
+     "source": "legacy-summary; macOS proc_pid_rusage V4 with mach_timebase_info conversion; sampled root and descendants; existing coordinator counters subtract the initial baseline; new process counters use their observed lifetime; CPU/I/O can miss exited process tails; RSS sums double-count shared pages; disk counters are kernel-attributed I/O, not file bytes or a durability proof"
+    },
+    "footprint-peak-bytes": {
+     "value": 118331176,
+     "unit": "B",
+     "source": "legacy-summary; proc_pid_rusage V4"
+    },
+    "cpu-ms-per-verified-job": {
+     "value": 22.538595416666666,
+     "unit": "ms/job",
+     "source": "legacy-summary; sampled proc_pid_rusage V4 over the coordinator tree"
+    }
+   }
+  },
+  {
+   "cellId": "5fa737b1fbed-24",
+   "factors": {
+    "concurrency": 4,
+    "batchJobs": 2,
+    "fault": "before-commit",
+    "runtime": "rust",
+    "jobs": 24,
+    "pages": 4,
+    "delayMs": 2,
+    "leaseMs": 1000,
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-jobs-per-second": {
+     "value": 22.17284231692278,
+     "unit": "job/s",
+     "source": "legacy-summary; work plus finalization"
+    },
+    "rss-peak-bytes": {
+     "value": 12697600,
+     "unit": "B",
+     "source": "legacy-summary; macOS proc_pid_rusage V4 with mach_timebase_info conversion; sampled root and descendants; existing coordinator counters subtract the initial baseline; new process counters use their observed lifetime; CPU/I/O can miss exited process tails; RSS sums double-count shared pages; disk counters are kernel-attributed I/O, not file bytes or a durability proof"
+    },
+    "footprint-peak-bytes": {
+     "value": 7684912,
+     "unit": "B",
+     "source": "legacy-summary; proc_pid_rusage V4"
+    },
+    "cpu-ms-per-verified-job": {
+     "value": 0.8752204166666666,
+     "unit": "ms/job",
+     "source": "legacy-summary; sampled proc_pid_rusage V4 over the coordinator tree"
+    }
+   }
+  },
+  {
+   "cellId": "8e0d752d64e7-25",
+   "factors": {
+    "concurrency": 4,
+    "batchJobs": 2,
+    "runtime": "rust",
+    "jobs": 24,
+    "pages": 4,
+    "delayMs": 2,
+    "leaseMs": 1000,
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-jobs-per-second": {
+     "value": 7.357638510198303,
+     "unit": "job/s",
+     "source": "legacy-summary; work plus finalization"
+    },
+    "rss-peak-bytes": {
+     "value": 12910592,
+     "unit": "B",
+     "source": "legacy-summary; macOS proc_pid_rusage V4 with mach_timebase_info conversion; sampled root and descendants; existing coordinator counters subtract the initial baseline; new process counters use their observed lifetime; CPU/I/O can miss exited process tails; RSS sums double-count shared pages; disk counters are kernel-attributed I/O, not file bytes or a durability proof"
+    },
+    "footprint-peak-bytes": {
+     "value": 7603040,
+     "unit": "B",
+     "source": "legacy-summary; proc_pid_rusage V4"
+    },
+    "cpu-ms-per-verified-job": {
+     "value": 1.6878245416666668,
+     "unit": "ms/job",
+     "source": "legacy-summary; sampled proc_pid_rusage V4 over the coordinator tree"
+    }
+   }
+  },
+  {
+   "cellId": "15fc50348a29-26",
+   "factors": {
+    "concurrency": 4,
+    "batchJobs": 2,
+    "runtime": "node",
+    "jobs": 24,
+    "pages": 4,
+    "delayMs": 2,
+    "leaseMs": 1000,
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-jobs-per-second": {
+     "value": 7.351997589025121,
+     "unit": "job/s",
+     "source": "legacy-summary; work plus finalization"
+    },
+    "rss-peak-bytes": {
+     "value": 202571776,
+     "unit": "B",
+     "source": "legacy-summary; macOS proc_pid_rusage V4 with mach_timebase_info conversion; sampled root and descendants; existing coordinator counters subtract the initial baseline; new process counters use their observed lifetime; CPU/I/O can miss exited process tails; RSS sums double-count shared pages; disk counters are kernel-attributed I/O, not file bytes or a durability proof"
+    },
+    "footprint-peak-bytes": {
+     "value": 120051616,
+     "unit": "B",
+     "source": "legacy-summary; proc_pid_rusage V4"
+    },
+    "cpu-ms-per-verified-job": {
+     "value": 36.066463416666664,
+     "unit": "ms/job",
+     "source": "legacy-summary; sampled proc_pid_rusage V4 over the coordinator tree"
+    }
+   }
+  },
+  {
+   "cellId": "15fc50348a29-27",
+   "factors": {
+    "concurrency": 4,
+    "batchJobs": 2,
+    "runtime": "node",
+    "jobs": 24,
+    "pages": 4,
+    "delayMs": 2,
+    "leaseMs": 1000,
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-jobs-per-second": {
+     "value": 26.81123133652034,
+     "unit": "job/s",
+     "source": "legacy-summary; work plus finalization"
+    },
+    "rss-peak-bytes": {
+     "value": 202440704,
+     "unit": "B",
+     "source": "legacy-summary; macOS proc_pid_rusage V4 with mach_timebase_info conversion; sampled root and descendants; existing coordinator counters subtract the initial baseline; new process counters use their observed lifetime; CPU/I/O can miss exited process tails; RSS sums double-count shared pages; disk counters are kernel-attributed I/O, not file bytes or a durability proof"
+    },
+    "footprint-peak-bytes": {
+     "value": 119871512,
+     "unit": "B",
+     "source": "legacy-summary; proc_pid_rusage V4"
+    },
+    "cpu-ms-per-verified-job": {
+     "value": 21.958253374999998,
+     "unit": "ms/job",
+     "source": "legacy-summary; sampled proc_pid_rusage V4 over the coordinator tree"
+    }
+   }
+  },
+  {
+   "cellId": "8dc13321a48a-28",
+   "factors": {
+    "concurrency": 4,
+    "batchJobs": 2,
+    "fault": "during-ack",
+    "runtime": "rust",
+    "jobs": 24,
+    "pages": 4,
+    "delayMs": 2,
+    "leaseMs": 1000,
+    "block": 2
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-jobs-per-second": {
+     "value": 22.05464605916929,
+     "unit": "job/s",
+     "source": "legacy-summary; work plus finalization"
+    },
+    "rss-peak-bytes": {
+     "value": 12894208,
+     "unit": "B",
+     "source": "legacy-summary; macOS proc_pid_rusage V4 with mach_timebase_info conversion; sampled root and descendants; existing coordinator counters subtract the initial baseline; new process counters use their observed lifetime; CPU/I/O can miss exited process tails; RSS sums double-count shared pages; disk counters are kernel-attributed I/O, not file bytes or a durability proof"
+    },
+    "footprint-peak-bytes": {
+     "value": 7881520,
+     "unit": "B",
+     "source": "legacy-summary; proc_pid_rusage V4"
+    },
+    "cpu-ms-per-verified-job": {
+     "value": 0.9158454166666666,
+     "unit": "ms/job",
+     "source": "legacy-summary; sampled proc_pid_rusage V4 over the coordinator tree"
+    }
+   }
+  },
+  {
+   "cellId": "00433fa4cdba-29",
+   "factors": {
+    "concurrency": 4,
+    "batchJobs": 2,
+    "fault": "after-commit",
+    "runtime": "node",
+    "jobs": 24,
+    "pages": 4,
+    "delayMs": 2,
+    "leaseMs": 1000,
+    "block": 2
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-jobs-per-second": {
+     "value": 21.67933960164459,
+     "unit": "job/s",
+     "source": "legacy-summary; work plus finalization"
+    },
+    "rss-peak-bytes": {
+     "value": 202244096,
+     "unit": "B",
+     "source": "legacy-summary; macOS proc_pid_rusage V4 with mach_timebase_info conversion; sampled root and descendants; existing coordinator counters subtract the initial baseline; new process counters use their observed lifetime; CPU/I/O can miss exited process tails; RSS sums double-count shared pages; disk counters are kernel-attributed I/O, not file bytes or a durability proof"
+    },
+    "footprint-peak-bytes": {
+     "value": 119527256,
+     "unit": "B",
+     "source": "legacy-summary; proc_pid_rusage V4"
+    },
+    "cpu-ms-per-verified-job": {
+     "value": 21.920501666666667,
+     "unit": "ms/job",
+     "source": "legacy-summary; sampled proc_pid_rusage V4 over the coordinator tree"
+    }
+   }
+  },
+  {
+   "cellId": "a061feea23d6-30",
+   "factors": {
+    "concurrency": 4,
+    "batchJobs": 2,
+    "runtime": "rust",
+    "jobs": 24,
+    "pages": 4,
+    "delayMs": 2,
+    "leaseMs": 1000,
+    "block": 2
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-jobs-per-second": {
+     "value": 23.811110437355897,
+     "unit": "job/s",
+     "source": "legacy-summary; work plus finalization"
+    },
+    "rss-peak-bytes": {
+     "value": 12075008,
+     "unit": "B",
+     "source": "legacy-summary; macOS proc_pid_rusage V4 with mach_timebase_info conversion; sampled root and descendants; existing coordinator counters subtract the initial baseline; new process counters use their observed lifetime; CPU/I/O can miss exited process tails; RSS sums double-count shared pages; disk counters are kernel-attributed I/O, not file bytes or a durability proof"
+    },
+    "footprint-peak-bytes": {
+     "value": 7127880,
+     "unit": "B",
+     "source": "legacy-summary; proc_pid_rusage V4"
+    },
+    "cpu-ms-per-verified-job": {
+     "value": 0.42496520833333334,
+     "unit": "ms/job",
+     "source": "legacy-summary; sampled proc_pid_rusage V4 over the coordinator tree"
+    }
+   }
+  },
+  {
+   "cellId": "a1ffe6222aae-31",
+   "factors": {
+    "concurrency": 4,
+    "batchJobs": 2,
+    "runtime": "node",
+    "jobs": 24,
+    "pages": 4,
+    "delayMs": 2,
+    "leaseMs": 1000,
+    "block": 2
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-jobs-per-second": {
+     "value": 31.2241408414519,
+     "unit": "job/s",
+     "source": "legacy-summary; work plus finalization"
+    },
+    "rss-peak-bytes": {
+     "value": 204062720,
+     "unit": "B",
+     "source": "legacy-summary; macOS proc_pid_rusage V4 with mach_timebase_info conversion; sampled root and descendants; existing coordinator counters subtract the initial baseline; new process counters use their observed lifetime; CPU/I/O can miss exited process tails; RSS sums double-count shared pages; disk counters are kernel-attributed I/O, not file bytes or a durability proof"
+    },
+    "footprint-peak-bytes": {
+     "value": 121641200,
+     "unit": "B",
+     "source": "legacy-summary; proc_pid_rusage V4"
+    },
+    "cpu-ms-per-verified-job": {
+     "value": 30.449953041666664,
+     "unit": "ms/job",
+     "source": "legacy-summary; sampled proc_pid_rusage V4 over the coordinator tree"
+    }
+   }
+  },
+  {
+   "cellId": "72ad5f85e84e-32",
+   "factors": {
+    "concurrency": 4,
+    "batchJobs": 2,
+    "fault": "during-ack",
+    "runtime": "node",
+    "jobs": 24,
+    "pages": 4,
+    "delayMs": 2,
+    "leaseMs": 1000,
+    "block": 2
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-jobs-per-second": {
+     "value": 21.788225464295643,
+     "unit": "job/s",
+     "source": "legacy-summary; work plus finalization"
+    },
+    "rss-peak-bytes": {
+     "value": 203685888,
+     "unit": "B",
+     "source": "legacy-summary; macOS proc_pid_rusage V4 with mach_timebase_info conversion; sampled root and descendants; existing coordinator counters subtract the initial baseline; new process counters use their observed lifetime; CPU/I/O can miss exited process tails; RSS sums double-count shared pages; disk counters are kernel-attributed I/O, not file bytes or a durability proof"
+    },
+    "footprint-peak-bytes": {
+     "value": 122312464,
+     "unit": "B",
+     "source": "legacy-summary; proc_pid_rusage V4"
+    },
+    "cpu-ms-per-verified-job": {
+     "value": 21.984222125000002,
+     "unit": "ms/job",
+     "source": "legacy-summary; sampled proc_pid_rusage V4 over the coordinator tree"
+    }
+   }
+  },
+  {
+   "cellId": "b553d3796110-33",
+   "factors": {
+    "concurrency": 4,
+    "batchJobs": 2,
+    "fault": "after-commit",
+    "runtime": "rust",
+    "jobs": 24,
+    "pages": 4,
+    "delayMs": 2,
+    "leaseMs": 1000,
+    "block": 2
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-jobs-per-second": {
+     "value": 22.046743089484664,
+     "unit": "job/s",
+     "source": "legacy-summary; work plus finalization"
+    },
+    "rss-peak-bytes": {
+     "value": 12795904,
+     "unit": "B",
+     "source": "legacy-summary; macOS proc_pid_rusage V4 with mach_timebase_info conversion; sampled root and descendants; existing coordinator counters subtract the initial baseline; new process counters use their observed lifetime; CPU/I/O can miss exited process tails; RSS sums double-count shared pages; disk counters are kernel-attributed I/O, not file bytes or a durability proof"
+    },
+    "footprint-peak-bytes": {
+     "value": 7799624,
+     "unit": "B",
+     "source": "legacy-summary; proc_pid_rusage V4"
+    },
+    "cpu-ms-per-verified-job": {
+     "value": 0.7025138333333333,
+     "unit": "ms/job",
+     "source": "legacy-summary; sampled proc_pid_rusage V4 over the coordinator tree"
+    }
+   }
+  },
+  {
+   "cellId": "a061feea23d6-34",
+   "factors": {
+    "concurrency": 4,
+    "batchJobs": 2,
+    "runtime": "rust",
+    "jobs": 24,
+    "pages": 4,
+    "delayMs": 2,
+    "leaseMs": 1000,
+    "block": 2
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-jobs-per-second": {
+     "value": 7.3467005684898945,
+     "unit": "job/s",
+     "source": "legacy-summary; work plus finalization"
+    },
+    "rss-peak-bytes": {
+     "value": 12615680,
+     "unit": "B",
+     "source": "legacy-summary; macOS proc_pid_rusage V4 with mach_timebase_info conversion; sampled root and descendants; existing coordinator counters subtract the initial baseline; new process counters use their observed lifetime; CPU/I/O can miss exited process tails; RSS sums double-count shared pages; disk counters are kernel-attributed I/O, not file bytes or a durability proof"
+    },
+    "footprint-peak-bytes": {
+     "value": 7734088,
+     "unit": "B",
+     "source": "legacy-summary; proc_pid_rusage V4"
+    },
+    "cpu-ms-per-verified-job": {
+     "value": 1.6141943333333335,
+     "unit": "ms/job",
+     "source": "legacy-summary; sampled proc_pid_rusage V4 over the coordinator tree"
+    }
+   }
+  },
+  {
+   "cellId": "cb8b24c3e3a4-35",
+   "factors": {
+    "concurrency": 4,
+    "batchJobs": 2,
+    "fault": "after-ack",
+    "runtime": "rust",
+    "jobs": 24,
+    "pages": 4,
+    "delayMs": 2,
+    "leaseMs": 1000,
+    "block": 2
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-jobs-per-second": {
+     "value": 22.108644180486678,
+     "unit": "job/s",
+     "source": "legacy-summary; work plus finalization"
+    },
+    "rss-peak-bytes": {
+     "value": 13025280,
+     "unit": "B",
+     "source": "legacy-summary; macOS proc_pid_rusage V4 with mach_timebase_info conversion; sampled root and descendants; existing coordinator counters subtract the initial baseline; new process counters use their observed lifetime; CPU/I/O can miss exited process tails; RSS sums double-count shared pages; disk counters are kernel-attributed I/O, not file bytes or a durability proof"
+    },
+    "footprint-peak-bytes": {
+     "value": 8045408,
+     "unit": "B",
+     "source": "legacy-summary; proc_pid_rusage V4"
+    },
+    "cpu-ms-per-verified-job": {
+     "value": 0.8891284583333334,
+     "unit": "ms/job",
+     "source": "legacy-summary; sampled proc_pid_rusage V4 over the coordinator tree"
+    }
+   }
+  },
+  {
+   "cellId": "55fdc59f1c4b-36",
+   "factors": {
+    "concurrency": 4,
+    "batchJobs": 2,
+    "fault": "before-commit",
+    "runtime": "rust",
+    "jobs": 24,
+    "pages": 4,
+    "delayMs": 2,
+    "leaseMs": 1000,
+    "block": 2
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-jobs-per-second": {
+     "value": 22.08405206225833,
+     "unit": "job/s",
+     "source": "legacy-summary; work plus finalization"
+    },
+    "rss-peak-bytes": {
+     "value": 12763136,
+     "unit": "B",
+     "source": "legacy-summary; macOS proc_pid_rusage V4 with mach_timebase_info conversion; sampled root and descendants; existing coordinator counters subtract the initial baseline; new process counters use their observed lifetime; CPU/I/O can miss exited process tails; RSS sums double-count shared pages; disk counters are kernel-attributed I/O, not file bytes or a durability proof"
+    },
+    "footprint-peak-bytes": {
+     "value": 7750448,
+     "unit": "B",
+     "source": "legacy-summary; proc_pid_rusage V4"
+    },
+    "cpu-ms-per-verified-job": {
+     "value": 0.763574625,
+     "unit": "ms/job",
+     "source": "legacy-summary; sampled proc_pid_rusage V4 over the coordinator tree"
+    }
+   }
+  },
+  {
+   "cellId": "a1ffe6222aae-37",
+   "factors": {
+    "concurrency": 4,
+    "batchJobs": 2,
+    "runtime": "node",
+    "jobs": 24,
+    "pages": 4,
+    "delayMs": 2,
+    "leaseMs": 1000,
+    "block": 2
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-jobs-per-second": {
+     "value": 27.345103765115088,
+     "unit": "job/s",
+     "source": "legacy-summary; work plus finalization"
+    },
+    "rss-peak-bytes": {
+     "value": 204587008,
+     "unit": "B",
+     "source": "legacy-summary; macOS proc_pid_rusage V4 with mach_timebase_info conversion; sampled root and descendants; existing coordinator counters subtract the initial baseline; new process counters use their observed lifetime; CPU/I/O can miss exited process tails; RSS sums double-count shared pages; disk counters are kernel-attributed I/O, not file bytes or a durability proof"
+    },
+    "footprint-peak-bytes": {
+     "value": 122017792,
+     "unit": "B",
+     "source": "legacy-summary; proc_pid_rusage V4"
+    },
+    "cpu-ms-per-verified-job": {
+     "value": 22.293933999999997,
+     "unit": "ms/job",
+     "source": "legacy-summary; sampled proc_pid_rusage V4 over the coordinator tree"
+    }
+   }
+  },
+  {
+   "cellId": "494098857019-38",
+   "factors": {
+    "concurrency": 4,
+    "batchJobs": 2,
+    "fault": "before-commit",
+    "runtime": "node",
+    "jobs": 24,
+    "pages": 4,
+    "delayMs": 2,
+    "leaseMs": 1000,
+    "block": 2
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-jobs-per-second": {
+     "value": 21.740101098789275,
+     "unit": "job/s",
+     "source": "legacy-summary; work plus finalization"
+    },
+    "rss-peak-bytes": {
+     "value": 198557696,
+     "unit": "B",
+     "source": "legacy-summary; macOS proc_pid_rusage V4 with mach_timebase_info conversion; sampled root and descendants; existing coordinator counters subtract the initial baseline; new process counters use their observed lifetime; CPU/I/O can miss exited process tails; RSS sums double-count shared pages; disk counters are kernel-attributed I/O, not file bytes or a durability proof"
+    },
+    "footprint-peak-bytes": {
+     "value": 115857240,
+     "unit": "B",
+     "source": "legacy-summary; proc_pid_rusage V4"
+    },
+    "cpu-ms-per-verified-job": {
+     "value": 20.9377395,
+     "unit": "ms/job",
+     "source": "legacy-summary; sampled proc_pid_rusage V4 over the coordinator tree"
+    }
+   }
+  },
+  {
+   "cellId": "a1ffe6222aae-39",
+   "factors": {
+    "concurrency": 4,
+    "batchJobs": 2,
+    "runtime": "node",
+    "jobs": 24,
+    "pages": 4,
+    "delayMs": 2,
+    "leaseMs": 1000,
+    "block": 2
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-jobs-per-second": {
+     "value": 7.35531060054333,
+     "unit": "job/s",
+     "source": "legacy-summary; work plus finalization"
+    },
+    "rss-peak-bytes": {
+     "value": 199278592,
+     "unit": "B",
+     "source": "legacy-summary; macOS proc_pid_rusage V4 with mach_timebase_info conversion; sampled root and descendants; existing coordinator counters subtract the initial baseline; new process counters use their observed lifetime; CPU/I/O can miss exited process tails; RSS sums double-count shared pages; disk counters are kernel-attributed I/O, not file bytes or a durability proof"
+    },
+    "footprint-peak-bytes": {
+     "value": 116610760,
+     "unit": "B",
+     "source": "legacy-summary; proc_pid_rusage V4"
+    },
+    "cpu-ms-per-verified-job": {
+     "value": 35.5015815,
+     "unit": "ms/job",
+     "source": "legacy-summary; sampled proc_pid_rusage V4 over the coordinator tree"
+    }
+   }
+  },
+  {
+   "cellId": "66f9c53af4b8-40",
+   "factors": {
+    "concurrency": 4,
+    "batchJobs": 2,
+    "fault": "after-ack",
+    "runtime": "node",
+    "jobs": 24,
+    "pages": 4,
+    "delayMs": 2,
+    "leaseMs": 1000,
+    "block": 2
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-jobs-per-second": {
+     "value": 21.927514558654522,
+     "unit": "job/s",
+     "source": "legacy-summary; work plus finalization"
+    },
+    "rss-peak-bytes": {
+     "value": 202326016,
+     "unit": "B",
+     "source": "legacy-summary; macOS proc_pid_rusage V4 with mach_timebase_info conversion; sampled root and descendants; existing coordinator counters subtract the initial baseline; new process counters use their observed lifetime; CPU/I/O can miss exited process tails; RSS sums double-count shared pages; disk counters are kernel-attributed I/O, not file bytes or a durability proof"
+    },
+    "footprint-peak-bytes": {
+     "value": 119658400,
+     "unit": "B",
+     "source": "legacy-summary; proc_pid_rusage V4"
+    },
+    "cpu-ms-per-verified-job": {
+     "value": 21.682359333333334,
+     "unit": "ms/job",
+     "source": "legacy-summary; sampled proc_pid_rusage V4 over the coordinator tree"
+    }
+   }
+  },
+  {
+   "cellId": "a061feea23d6-41",
+   "factors": {
+    "concurrency": 4,
+    "batchJobs": 2,
+    "runtime": "rust",
+    "jobs": 24,
+    "pages": 4,
+    "delayMs": 2,
+    "leaseMs": 1000,
+    "block": 2
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-jobs-per-second": {
+     "value": 23.666536535886824,
+     "unit": "job/s",
+     "source": "legacy-summary; work plus finalization"
+    },
+    "rss-peak-bytes": {
+     "value": 11649024,
+     "unit": "B",
+     "source": "legacy-summary; macOS proc_pid_rusage V4 with mach_timebase_info conversion; sampled root and descendants; existing coordinator counters subtract the initial baseline; new process counters use their observed lifetime; CPU/I/O can miss exited process tails; RSS sums double-count shared pages; disk counters are kernel-attributed I/O, not file bytes or a durability proof"
+    },
+    "footprint-peak-bytes": {
+     "value": 6701896,
+     "unit": "B",
+     "source": "legacy-summary; proc_pid_rusage V4"
+    },
+    "cpu-ms-per-verified-job": {
+     "value": 0.38507633333333335,
+     "unit": "ms/job",
+     "source": "legacy-summary; sampled proc_pid_rusage V4 over the coordinator tree"
+    }
+   }
+  }
+ ],
+ "totals": {
+  "verified": 42,
+  "failed": 0,
+  "timeout": 0,
+  "crashed": 0,
+  "aborted": 0,
+  "unsupported": 0,
+  "rejected": 0,
+  "unavailable": 0,
+  "skipped": 0
+ },
+ "metricAvailability": {
+  "pss-peak-bytes": {
+   "available": false,
+   "reason": "linux-only probe; legacy run on darwin"
+  },
+  "cgroup-memory-peak-bytes": {
+   "available": false,
+   "reason": "linux-only probe; legacy run on darwin"
+  },
+  "cpu-ms-per-verified-job": {
+   "available": true
+  },
+  "footprint-peak-bytes": {
+   "available": true
+  }
+ },
+ "legacy": {
+  "shape": "cells",
+  "sourceDir": "results/runtime-recovery-2026-10-07T23-37-26-683Z-fcaced",
+  "errorCodeInferred": false,
+  "note": null
+ }
+}

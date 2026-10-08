@@ -1,0 +1,56 @@
+{
+  "id": "D-light-engine",
+  "title": "Moteur de rendu léger",
+  "question": "Un moteur léger hors processus apporte-t-il un gain suffisant sur un corpus compatible ?",
+  "kind": "technical",
+  "status": "open",
+  "options": [
+    {
+      "id": "lightpanda",
+      "description": "Lightpanda hors processus (AGPL, jamais lié)"
+    },
+    {
+      "id": "chrome-headless-shell",
+      "description": "chrome-headless-shell"
+    }
+  ],
+  "baseline": "chrome-headless-shell",
+  "primaryMetric": {
+    "metricId": "cpu-ms-per-verified-job",
+    "blockStatistic": "ratio-of-sums"
+  },
+  "secondaryMetrics": [
+    "pss-peak-bytes",
+    "footprint-peak-bytes"
+  ],
+  "contractGates": [
+    "oracle-exact",
+    "false-success-count"
+  ],
+  "delta": {
+    "kind": "ratio",
+    "value": 0.2
+  },
+  "rule": {
+    "kind": "superiority",
+    "alpha": 0.05,
+    "power": 0.8,
+    "noisyBlockPolicy": "exclude"
+  },
+  "hostClass": {
+    "decision": "local-controlled",
+    "publication": "reference"
+  },
+  "networkProfiles": [],
+  "campaigns": [
+    "light-engine-corpus"
+  ],
+  "evidence": [],
+  "verdictRef": null,
+  "adr": null,
+  "dependsOn": [
+    "D-browser-driver",
+    "D-extraction"
+  ],
+  "notes": "Priorité basse : chaque tier supplémentaire multiplie la matrice d'actionnabilité."
+}

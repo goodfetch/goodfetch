@@ -1,0 +1,230 @@
+{
+ "schemaVersion": 2,
+ "runId": "http-transport-2026-10-07T23-52-40-042Z-be9fbc",
+ "lane": "bench",
+ "campaign": {
+  "id": "http-transport",
+  "source": null
+ },
+ "startedAt": "2026-10-07T23:52:40.042Z",
+ "decisionIds": [
+  "D-http-transport"
+ ],
+ "provenance": {
+  "git": {
+   "available": false,
+   "sha": null,
+   "dirty": null
+  },
+  "sourceTreeSha256": "280a94b538866dda07d9b37a7acb6ae306edbf944769c6de0b2a84f73312c05f",
+  "sourceChanges": 0,
+  "binaryChanges": null,
+  "toolchains": {
+   "node": "v25.5.0",
+   "browser": "Google Chrome for Testing 153.0.8010.12"
+  },
+  "integrity": {
+   "status": "verified",
+   "checked": 5,
+   "mismatches": []
+  }
+ },
+ "host": {
+  "classRequested": null,
+  "classGranted": "local-dev",
+  "os": "darwin",
+  "arch": "arm64",
+  "cpu": "Apple M3 Max",
+  "logicalCpus": 14,
+  "memoryBytes": 38654705664,
+  "preflight": null,
+  "postflight": null
+ },
+ "status": "complete",
+ "countUnit": "attempt",
+ "cells": [
+  {
+   "cellId": "d61a93aebffc-0",
+   "factors": {
+    "backend": "node-http",
+    "scenario": "http-catalog"
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 63,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-tasks-per-second": {
+     "value": 124.8128241017085,
+     "unit": "task/s",
+     "source": "legacy-summary; duration includes run RPC and in-process oracle"
+    },
+    "task-p50-ms-verified": {
+     "value": 14.41558299981989,
+     "unit": "ms",
+     "source": "legacy-summary; duration includes run RPC and in-process oracle"
+    },
+    "task-p95-ms-verified": {
+     "value": 61.272417000029236,
+     "unit": "ms",
+     "source": "legacy-summary; duration includes run RPC and in-process oracle"
+    }
+   }
+  },
+  {
+   "cellId": "1a997e15a4cb-1",
+   "factors": {
+    "backend": "spider-http",
+    "scenario": "http-catalog"
+   },
+   "status": "mixed",
+   "errorCode": null,
+   "counts": {
+    "verified": 3,
+    "failed": 3,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-tasks-per-second": {
+     "value": null,
+     "unit": "task/s",
+     "source": "legacy-summary; duration includes run RPC and in-process oracle"
+    },
+    "task-p50-ms-verified": {
+     "value": null,
+     "unit": "ms",
+     "source": "legacy-summary; duration includes run RPC and in-process oracle"
+    },
+    "task-p95-ms-verified": {
+     "value": null,
+     "unit": "ms",
+     "source": "legacy-summary; duration includes run RPC and in-process oracle"
+    }
+   }
+  },
+  {
+   "cellId": "876445a09694-2",
+   "factors": {
+    "backend": "crawlee-http",
+    "scenario": "http-catalog"
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 63,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-tasks-per-second": {
+     "value": 23.9901768094787,
+     "unit": "task/s",
+     "source": "legacy-summary; duration includes run RPC and in-process oracle"
+    },
+    "task-p50-ms-verified": {
+     "value": 153.3222080001142,
+     "unit": "ms",
+     "source": "legacy-summary; duration includes run RPC and in-process oracle"
+    },
+    "task-p95-ms-verified": {
+     "value": 212.62475000019185,
+     "unit": "ms",
+     "source": "legacy-summary; duration includes run RPC and in-process oracle"
+    }
+   }
+  },
+  {
+   "cellId": "86bd6a672804-3",
+   "factors": {
+    "backend": "crawlee-http-pooled",
+    "scenario": "http-catalog"
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 63,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-tasks-per-second": {
+     "value": 105.86676362432738,
+     "unit": "task/s",
+     "source": "legacy-summary; duration includes run RPC and in-process oracle"
+    },
+    "task-p50-ms-verified": {
+     "value": 25.530667000217363,
+     "unit": "ms",
+     "source": "legacy-summary; duration includes run RPC and in-process oracle"
+    },
+    "task-p95-ms-verified": {
+     "value": 70.63112500007264,
+     "unit": "ms",
+     "source": "legacy-summary; duration includes run RPC and in-process oracle"
+    }
+   }
+  }
+ ],
+ "totals": {
+  "verified": 192,
+  "failed": 3,
+  "timeout": 0,
+  "crashed": 0,
+  "aborted": 0,
+  "unsupported": 0,
+  "rejected": 0,
+  "unavailable": 0,
+  "skipped": 0
+ },
+ "metricAvailability": {
+  "pss-peak-bytes": {
+   "available": false,
+   "reason": "linux-only probe; legacy run on darwin"
+  },
+  "cgroup-memory-peak-bytes": {
+   "available": false,
+   "reason": "linux-only probe; legacy run on darwin"
+  },
+  "cpu-ms-per-verified-job": {
+   "available": false,
+   "reason": "CPU was not instrumented in this legacy lane"
+  },
+  "footprint-peak-bytes": {
+   "available": false,
+   "reason": "footprint was not instrumented in this legacy lane"
+  }
+ },
+ "legacy": {
+  "shape": "bench",
+  "sourceDir": "results/http-transport-2026-10-07T23-52-40-042Z-be9fbc",
+  "errorCodeInferred": false,
+  "note": null
+ }
+}

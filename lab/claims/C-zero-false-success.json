@@ -1,0 +1,18 @@
+{
+  "id": "C-zero-false-success",
+  "statement": "Le pilote Automan ne produit aucun faux succès sur la matrice d'actionnabilité, là où des primitives natives concurrentes en produisent.",
+  "decisionId": "D-browser-driver",
+  "metricId": "false-success-count",
+  "comparator": {
+    "option": "rust-cdp-guarded",
+    "against": [
+      "stagehand-v4",
+      "puppeteer-guarded"
+    ]
+  },
+  "direction": "zero",
+  "publicationHostClass": "local-controlled",
+  "status": "candidate",
+  "evidence": [],
+  "notes": "Comparer aussi les primitives natives non gardées des concurrents, déclarées comme telles."
+}

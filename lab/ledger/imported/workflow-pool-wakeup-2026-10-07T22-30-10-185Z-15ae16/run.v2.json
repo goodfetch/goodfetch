@@ -1,0 +1,247 @@
+{
+ "schemaVersion": 2,
+ "runId": "workflow-pool-wakeup-2026-10-07T22-30-10-185Z-15ae16",
+ "lane": "workflow",
+ "campaign": {
+  "id": "workflow-pool-wakeup",
+  "source": "campaigns/workflow-pool-wakeup.json"
+ },
+ "startedAt": "2026-10-07T22:30:10.185Z",
+ "decisionIds": [
+  "D-http-transport"
+ ],
+ "provenance": {
+  "git": {
+   "available": false,
+   "sha": null,
+   "dirty": null
+  },
+  "sourceTreeSha256": "46dde6b4874ec9181a602dcb04bb7fac80abb61bfcbf2652f6c56387e97f6201",
+  "sourceChanges": null,
+  "binaryChanges": null,
+  "toolchains": {
+   "node": "v25.5.0",
+   "browser": null
+  },
+  "integrity": {
+   "status": "uncatalogued",
+   "checked": 0,
+   "mismatches": []
+  }
+ },
+ "host": {
+  "classRequested": null,
+  "classGranted": "local-dev",
+  "os": "27.0.0",
+  "arch": "arm64",
+  "cpu": "Apple M3 Max",
+  "logicalCpus": null,
+  "memoryBytes": 38654705664,
+  "preflight": null,
+  "postflight": null
+ },
+ "status": "complete",
+ "countUnit": "cell",
+ "cells": [
+  {
+   "cellId": "75481c2a1459-0",
+   "factors": {
+    "backend": "crawlee-http-pooled",
+    "concurrency": 4,
+    "batchJobs": 1,
+    "fault": "none",
+    "poolWake": "notify",
+    "block": 0
+   },
+   "status": "failed",
+   "errorCode": null,
+   "counts": {
+    "verified": 0,
+    "failed": 1,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-jobs-per-second": {
+     "value": null,
+     "unit": "job/s",
+     "source": "legacy-summary; work plus finalization"
+    }
+   }
+  },
+  {
+   "cellId": "7e1ef39423fe-1",
+   "factors": {
+    "backend": "crawlee-http-pooled",
+    "concurrency": 1,
+    "batchJobs": 1,
+    "fault": "none",
+    "poolWake": "poll",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-jobs-per-second": {
+     "value": 1.8767934494510956,
+     "unit": "job/s",
+     "source": "legacy-summary; work plus finalization"
+    },
+    "rss-peak-bytes": {
+     "value": 453509120,
+     "unit": "B",
+     "source": "legacy-summary; sampled sum RSS of process group and descendants; shared pages double-counted; short peaks may be missed"
+    }
+   }
+  },
+  {
+   "cellId": "a3bcfdca711e-2",
+   "factors": {
+    "backend": "crawlee-http-pooled",
+    "concurrency": 1,
+    "batchJobs": 1,
+    "fault": "none",
+    "poolWake": "notify",
+    "block": 0
+   },
+   "status": "failed",
+   "errorCode": null,
+   "counts": {
+    "verified": 0,
+    "failed": 1,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-jobs-per-second": {
+     "value": null,
+     "unit": "job/s",
+     "source": "legacy-summary; work plus finalization"
+    }
+   }
+  },
+  {
+   "cellId": "52e7bf5aa55c-3",
+   "factors": {
+    "backend": "crawlee-http-pooled",
+    "concurrency": 8,
+    "batchJobs": 4,
+    "fault": "none",
+    "poolWake": "poll",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-jobs-per-second": {
+     "value": 9.708701212945035,
+     "unit": "job/s",
+     "source": "legacy-summary; work plus finalization"
+    },
+    "rss-peak-bytes": {
+     "value": 451936256,
+     "unit": "B",
+     "source": "legacy-summary; sampled sum RSS of process group and descendants; shared pages double-counted; short peaks may be missed"
+    }
+   }
+  },
+  {
+   "cellId": "c8e8ace135df-4",
+   "factors": {
+    "backend": "crawlee-http-pooled",
+    "concurrency": 8,
+    "batchJobs": 1,
+    "fault": "none",
+    "poolWake": "notify",
+    "block": 0
+   },
+   "status": "failed",
+   "errorCode": null,
+   "counts": {
+    "verified": 0,
+    "failed": 1,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-jobs-per-second": {
+     "value": null,
+     "unit": "job/s",
+     "source": "legacy-summary; work plus finalization"
+    }
+   }
+  }
+ ],
+ "totals": {
+  "verified": 2,
+  "failed": 3,
+  "timeout": 0,
+  "crashed": 0,
+  "aborted": 0,
+  "unsupported": 0,
+  "rejected": 0,
+  "unavailable": 0,
+  "skipped": 0
+ },
+ "metricAvailability": {
+  "pss-peak-bytes": {
+   "available": false,
+   "reason": "linux-only probe; legacy run on 27.0.0"
+  },
+  "cgroup-memory-peak-bytes": {
+   "available": false,
+   "reason": "linux-only probe; legacy run on 27.0.0"
+  },
+  "cpu-ms-per-verified-job": {
+   "available": false,
+   "reason": "CPU was not instrumented in this legacy lane"
+  },
+  "footprint-peak-bytes": {
+   "available": false,
+   "reason": "footprint was not instrumented in this legacy lane"
+  }
+ },
+ "legacy": {
+  "shape": "cells",
+  "sourceDir": "results/workflow-pool-wakeup-2026-10-07T22-30-10-185Z-15ae16",
+  "errorCodeInferred": false,
+  "note": null
+ }
+}

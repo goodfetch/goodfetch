@@ -1,0 +1,1420 @@
+{
+ "schemaVersion": 1,
+ "classificationSha256": "7ed0881600740cb5939bb9d9fbb70e54ca564ccfc8dcfd376d84bd2679349147",
+ "entries": [
+  {
+   "runId": "smoke-2026-10-07T20-20-24-226Z-9ebb47",
+   "lane": "bench",
+   "campaign": "smoke",
+   "startedAt": "2026-10-07T20:20:24.226Z",
+   "status": "complete",
+   "hostClass": "local-dev",
+   "role": "smoke",
+   "supersededBy": null,
+   "reason": "première mise en route des adapters, avant hashes de sources et viewport commun",
+   "validity": [
+    {
+     "scope": "all",
+     "class": "none",
+     "note": "build initial"
+    }
+   ],
+   "decisionIds": [],
+   "citedIn": [],
+   "integrity": "uncatalogued",
+   "rerun": {
+    "required": false,
+    "priority": null,
+    "hostClass": null
+   },
+   "imported": "ledger/imported/smoke-2026-10-07T20-20-24-226Z-9ebb47/run.v2.json"
+  },
+  {
+   "runId": "smoke-2026-10-07T20-25-09-459Z-c13e18",
+   "lane": "bench",
+   "campaign": "smoke",
+   "startedAt": "2026-10-07T20:25:09.459Z",
+   "status": "complete",
+   "hostClass": "local-dev",
+   "role": "smoke",
+   "supersededBy": null,
+   "reason": "mise en route des backends Stagehand, build initial",
+   "validity": [
+    {
+     "scope": "all",
+     "class": "none",
+     "note": "build initial"
+    }
+   ],
+   "decisionIds": [],
+   "citedIn": [],
+   "integrity": "uncatalogued",
+   "rerun": {
+    "required": false,
+    "priority": null,
+    "hostClass": null
+   },
+   "imported": "ledger/imported/smoke-2026-10-07T20-25-09-459Z-c13e18/run.v2.json"
+  },
+  {
+   "runId": "smoke-2026-10-07T20-39-24-868Z-382250",
+   "lane": "bench",
+   "campaign": "smoke",
+   "startedAt": "2026-10-07T20:39:24.868Z",
+   "status": "complete",
+   "hostClass": "local-dev",
+   "role": "smoke",
+   "supersededBy": null,
+   "reason": "mise en route complète des backends, build initial",
+   "validity": [
+    {
+     "scope": "all",
+     "class": "none",
+     "note": "build initial"
+    }
+   ],
+   "decisionIds": [],
+   "citedIn": [],
+   "integrity": "uncatalogued",
+   "rerun": {
+    "required": false,
+    "priority": null,
+    "hostClass": null
+   },
+   "imported": "ledger/imported/smoke-2026-10-07T20-39-24-868Z-382250/run.v2.json"
+  },
+  {
+   "runId": "storage-smoke-2026-10-07T20-45-36-630Z-ebdd52",
+   "lane": "storage",
+   "campaign": "storage-smoke",
+   "startedAt": "2026-10-07T20:45:36.630Z",
+   "status": "complete",
+   "hostClass": "local-dev",
+   "role": "superseded",
+   "supersededBy": "storage-smoke-2026-10-07T21-30-06-119Z-3b617d",
+   "reason": "premier smoke stockage sans provenance, 47 cellules au lieu de 48",
+   "validity": [
+    {
+     "scope": "all",
+     "class": "none",
+     "note": "sans provenance"
+    }
+   ],
+   "decisionIds": [
+    "D-storage"
+   ],
+   "citedIn": [],
+   "integrity": "uncatalogued",
+   "rerun": {
+    "required": false,
+    "priority": null,
+    "hostClass": null
+   },
+   "imported": "ledger/imported/storage-smoke-2026-10-07T20-45-36-630Z-ebdd52/run.v2.json"
+  },
+  {
+   "runId": "http-stress-2026-10-07T20-46-30-909Z-244931",
+   "lane": "bench",
+   "campaign": "http-stress",
+   "startedAt": "2026-10-07T20:46:30.909Z",
+   "status": "complete",
+   "hostClass": "local-dev",
+   "role": "superseded",
+   "supersededBy": "http-lifecycle-2026-10-07T21-29-31-257Z-2b0754",
+   "reason": "stress HTTP sans backend pooled, remplacé par http-lifecycle",
+   "validity": [
+    {
+     "scope": "all",
+     "class": "none",
+     "note": "remplacé"
+    }
+   ],
+   "decisionIds": [
+    "D-http-transport"
+   ],
+   "citedIn": [],
+   "integrity": "uncatalogued",
+   "rerun": {
+    "required": false,
+    "priority": null,
+    "hostClass": null
+   },
+   "imported": "ledger/imported/http-stress-2026-10-07T20-46-30-909Z-244931/run.v2.json"
+  },
+  {
+   "runId": "arrival-stress-2026-10-07T20-47-12-378Z-92d66f",
+   "lane": "bench",
+   "campaign": "arrival-stress",
+   "startedAt": "2026-10-07T20:47:12.378Z",
+   "status": "complete",
+   "hostClass": "local-dev",
+   "role": "superseded",
+   "supersededBy": "arrival-stress-2026-10-07T21-31-09-975Z-ba6970",
+   "reason": "arrivées ouvertes, build initial",
+   "validity": [
+    {
+     "scope": "all",
+     "class": "none",
+     "note": "remplacé"
+    }
+   ],
+   "decisionIds": [
+    "D-http-transport"
+   ],
+   "citedIn": [],
+   "integrity": "uncatalogued",
+   "rerun": {
+    "required": false,
+    "priority": null,
+    "hostClass": null
+   },
+   "imported": "ledger/imported/arrival-stress-2026-10-07T20-47-12-378Z-92d66f/run.v2.json"
+  },
+  {
+   "runId": "storage-process-crash-2026-10-07T20-47-45-408Z-c9c332",
+   "lane": "storage",
+   "campaign": "storage-process-crash",
+   "startedAt": "2026-10-07T20:47:45.408Z",
+   "status": "complete",
+   "hostClass": "local-dev",
+   "role": "superseded",
+   "supersededBy": "storage-process-crash-2026-10-07T21-30-54-410Z-718212",
+   "reason": "crash après acquittement sans provenance",
+   "validity": [
+    {
+     "scope": "all",
+     "class": "none",
+     "note": "sans provenance"
+    }
+   ],
+   "decisionIds": [
+    "D-storage"
+   ],
+   "citedIn": [],
+   "integrity": "uncatalogued",
+   "rerun": {
+    "required": false,
+    "priority": null,
+    "hostClass": null
+   },
+   "imported": "ledger/imported/storage-process-crash-2026-10-07T20-47-45-408Z-c9c332/run.v2.json"
+  },
+  {
+   "runId": "storage-contention-2026-10-07T20-48-05-930Z-a43b95",
+   "lane": "storage",
+   "campaign": "storage-contention",
+   "startedAt": "2026-10-07T20:48:05.930Z",
+   "status": "complete",
+   "hostClass": "local-dev",
+   "role": "superseded",
+   "supersededBy": "storage-contention-2026-10-07T21-30-24-424Z-6bec59",
+   "reason": "contention stockage sans provenance",
+   "validity": [
+    {
+     "scope": "all",
+     "class": "none",
+     "note": "sans provenance"
+    }
+   ],
+   "decisionIds": [
+    "D-storage"
+   ],
+   "citedIn": [],
+   "integrity": "uncatalogued",
+   "rerun": {
+    "required": false,
+    "priority": null,
+    "hostClass": null
+   },
+   "imported": "ledger/imported/storage-contention-2026-10-07T20-48-05-930Z-a43b95/run.v2.json"
+  },
+  {
+   "runId": "browser-primitives-2026-10-07T20-49-14-368Z-51f1c1",
+   "lane": "bench",
+   "campaign": "browser-primitives",
+   "startedAt": "2026-10-07T20:49:14.368Z",
+   "status": "complete",
+   "hostClass": "local-dev",
+   "role": "superseded",
+   "supersededBy": "browser-primitives-2026-10-07T21-33-08-604Z-f6b1a0",
+   "reason": "primitives navigateur sans provenance",
+   "validity": [
+    {
+     "scope": "all",
+     "class": "none",
+     "note": "sans provenance"
+    }
+   ],
+   "decisionIds": [
+    "D-browser-driver"
+   ],
+   "citedIn": [],
+   "integrity": "uncatalogued",
+   "rerun": {
+    "required": false,
+    "priority": null,
+    "hostClass": null
+   },
+   "imported": "ledger/imported/browser-primitives-2026-10-07T20-49-14-368Z-51f1c1/run.v2.json"
+  },
+  {
+   "runId": "qualification-2026-10-07T21-12-54-304Z-def392",
+   "lane": "bench",
+   "campaign": "qualification",
+   "startedAt": "2026-10-07T21:12:54.304Z",
+   "status": "complete",
+   "hostClass": "local-dev",
+   "role": "superseded",
+   "supersededBy": "qualification-2026-10-07T21-25-08-753Z-61ffef",
+   "reason": "qualification commune avant changements des workers",
+   "validity": [
+    {
+     "scope": "all",
+     "class": "none",
+     "note": "sources modifiées ensuite"
+    }
+   ],
+   "decisionIds": [
+    "D-browser-driver",
+    "D-http-transport"
+   ],
+   "citedIn": [],
+   "integrity": "uncatalogued",
+   "rerun": {
+    "required": false,
+    "priority": null,
+    "hostClass": null
+   },
+   "imported": "ledger/imported/qualification-2026-10-07T21-12-54-304Z-def392/run.v2.json"
+  },
+  {
+   "runId": "qualification-2026-10-07T21-18-33-050Z-09a59f",
+   "lane": "bench",
+   "campaign": "qualification",
+   "startedAt": "2026-10-07T21:18:33.050Z",
+   "status": "complete",
+   "hostClass": "local-dev",
+   "role": "superseded",
+   "supersededBy": "qualification-2026-10-07T21-25-08-753Z-61ffef",
+   "reason": "qualification commune avant changements des workers",
+   "validity": [
+    {
+     "scope": "all",
+     "class": "none",
+     "note": "sources modifiées ensuite"
+    }
+   ],
+   "decisionIds": [
+    "D-browser-driver",
+    "D-http-transport"
+   ],
+   "citedIn": [],
+   "integrity": "uncatalogued",
+   "rerun": {
+    "required": false,
+    "priority": null,
+    "hostClass": null
+   },
+   "imported": "ledger/imported/qualification-2026-10-07T21-18-33-050Z-09a59f/run.v2.json"
+  },
+  {
+   "runId": "qualification-2026-10-07T21-25-08-753Z-61ffef",
+   "lane": "bench",
+   "campaign": "qualification",
+   "startedAt": "2026-10-07T21:25:08.753Z",
+   "status": "complete",
+   "hostClass": "local-dev",
+   "role": "selected",
+   "supersededBy": null,
+   "reason": "gates de capacité des moteurs ; échecs Spider Chrome/Smart sur catalogue JS",
+   "validity": [
+    {
+     "scope": "capability-gates",
+     "class": "A",
+     "note": "conformité et échecs explicites, versions de l'époque"
+    },
+    {
+     "scope": "timings",
+     "class": "C",
+     "note": "Mac partagé non contrôlé ; chiffres absolus non publiables"
+    }
+   ],
+   "decisionIds": [
+    "D-browser-driver",
+    "D-http-transport"
+   ],
+   "citedIn": [
+    "lab/reports/index.html"
+   ],
+   "integrity": "verified",
+   "rerun": {
+    "required": false,
+    "priority": null,
+    "hostClass": null
+   },
+   "imported": "ledger/imported/qualification-2026-10-07T21-25-08-753Z-61ffef/run.v2.json"
+  },
+  {
+   "runId": "http-lifecycle-2026-10-07T21-29-31-257Z-2b0754",
+   "lane": "bench",
+   "campaign": "http-lifecycle",
+   "startedAt": "2026-10-07T21:29:31.257Z",
+   "status": "complete",
+   "hostClass": "local-dev",
+   "role": "selected",
+   "supersededBy": null,
+   "reason": "cycle de vie HTTP neuf ou poolé",
+   "validity": [
+    {
+     "scope": "ordering",
+     "class": "B",
+     "note": "écart d'orchestration Crawlee, même hôte"
+    },
+    {
+     "scope": "absolute",
+     "class": "C",
+     "note": "Mac partagé non contrôlé ; chiffres absolus non publiables"
+    }
+   ],
+   "decisionIds": [
+    "D-http-transport"
+   ],
+   "citedIn": [
+    "lab/reports/index.html",
+    "lab/reports/qualification-2026-10-07.md"
+   ],
+   "integrity": "verified",
+   "rerun": {
+    "required": true,
+    "priority": "P1",
+    "hostClass": "reference"
+   },
+   "imported": "ledger/imported/http-lifecycle-2026-10-07T21-29-31-257Z-2b0754/run.v2.json"
+  },
+  {
+   "runId": "storage-smoke-2026-10-07T21-30-06-119Z-3b617d",
+   "lane": "storage",
+   "campaign": "storage-smoke",
+   "startedAt": "2026-10-07T21:30:06.119Z",
+   "status": "complete",
+   "hostClass": "local-dev",
+   "role": "selected",
+   "supersededBy": null,
+   "reason": "six contrats d'écriture, snapshot multi-writers non supporté",
+   "validity": [
+    {
+     "scope": "contracts",
+     "class": "A",
+     "note": "oracles de relecture"
+    }
+   ],
+   "decisionIds": [
+    "D-storage"
+   ],
+   "citedIn": [
+    "lab/reports/index.html"
+   ],
+   "integrity": "verified",
+   "rerun": {
+    "required": false,
+    "priority": null,
+    "hostClass": null
+   },
+   "imported": "ledger/imported/storage-smoke-2026-10-07T21-30-06-119Z-3b617d/run.v2.json"
+  },
+  {
+   "runId": "storage-contention-2026-10-07T21-30-24-424Z-6bec59",
+   "lane": "storage",
+   "campaign": "storage-contention",
+   "startedAt": "2026-10-07T21:30:24.424Z",
+   "status": "complete",
+   "hostClass": "local-dev",
+   "role": "selected",
+   "supersededBy": null,
+   "reason": "batching et writers multiples, SQLite Node 3.53.4 contre Rust SQLx 3.46.0",
+   "validity": [
+    {
+     "scope": "batching",
+     "class": "B",
+     "note": "effet du batching ; builds SQLite différents"
+    },
+    {
+     "scope": "absolute",
+     "class": "C",
+     "note": "Mac partagé non contrôlé ; chiffres absolus non publiables"
+    }
+   ],
+   "decisionIds": [
+    "D-storage"
+   ],
+   "citedIn": [
+    "lab/reports/index.html",
+    "lab/reports/qualification-2026-10-07.md"
+   ],
+   "integrity": "verified",
+   "rerun": {
+    "required": false,
+    "priority": null,
+    "hostClass": null
+   },
+   "imported": "ledger/imported/storage-contention-2026-10-07T21-30-24-424Z-6bec59/run.v2.json"
+  },
+  {
+   "runId": "storage-process-crash-2026-10-07T21-30-54-410Z-718212",
+   "lane": "storage",
+   "campaign": "storage-process-crash",
+   "startedAt": "2026-10-07T21:30:54.410Z",
+   "status": "complete",
+   "hostClass": "local-dev",
+   "role": "selected",
+   "supersededBy": null,
+   "reason": "SIGKILL après acquittement, crash de processus seulement",
+   "validity": [
+    {
+     "scope": "process-crash",
+     "class": "A",
+     "note": "ne prouve pas la coupure électrique"
+    }
+   ],
+   "decisionIds": [
+    "D-storage",
+    "D-durable-runtime"
+   ],
+   "citedIn": [
+    "lab/reports/index.html"
+   ],
+   "integrity": "verified",
+   "rerun": {
+    "required": false,
+    "priority": null,
+    "hostClass": null
+   },
+   "imported": "ledger/imported/storage-process-crash-2026-10-07T21-30-54-410Z-718212/run.v2.json"
+  },
+  {
+   "runId": "arrival-stress-2026-10-07T21-31-09-975Z-ba6970",
+   "lane": "bench",
+   "campaign": "arrival-stress",
+   "startedAt": "2026-10-07T21:31:09.975Z",
+   "status": "complete",
+   "hostClass": "local-dev",
+   "role": "selected",
+   "supersededBy": null,
+   "reason": "arrivées ouvertes à débit fixe",
+   "validity": [
+    {
+     "scope": "rejections-in-denominator",
+     "class": "A",
+     "note": "contrat de comptage"
+    },
+    {
+     "scope": "throughput",
+     "class": "B",
+     "note": "Mac partagé non contrôlé ; chiffres absolus non publiables"
+    }
+   ],
+   "decisionIds": [
+    "D-http-transport"
+   ],
+   "citedIn": [
+    "lab/reports/index.html",
+    "lab/reports/qualification-2026-10-07.md"
+   ],
+   "integrity": "verified",
+   "rerun": {
+    "required": false,
+    "priority": null,
+    "hostClass": null
+   },
+   "imported": "ledger/imported/arrival-stress-2026-10-07T21-31-09-975Z-ba6970/run.v2.json"
+  },
+  {
+   "runId": "browser-primitives-2026-10-07T21-33-08-604Z-f6b1a0",
+   "lane": "bench",
+   "campaign": "browser-primitives",
+   "startedAt": "2026-10-07T21:33:08.604Z",
+   "status": "complete",
+   "hostClass": "local-dev",
+   "role": "selected",
+   "supersededBy": null,
+   "reason": "primitives navigateur à disponibilité commune",
+   "validity": [
+    {
+     "scope": "timings",
+     "class": "B",
+     "note": "conditions communes, sans garanties natives ; à relire avec la matrice d'actionnabilité"
+    }
+   ],
+   "decisionIds": [
+    "D-browser-driver"
+   ],
+   "citedIn": [
+    "lab/reports/index.html",
+    "lab/reports/qualification-2026-10-07.md"
+   ],
+   "integrity": "verified",
+   "rerun": {
+    "required": false,
+    "priority": null,
+    "hostClass": null
+   },
+   "imported": "ledger/imported/browser-primitives-2026-10-07T21-33-08-604Z-f6b1a0/run.v2.json"
+  },
+  {
+   "runId": "storage-shared-contention-2026-10-07T22-19-18-394Z-a3d041",
+   "lane": "storage",
+   "campaign": "storage-shared-contention",
+   "startedAt": "2026-10-07T22:19:18.394Z",
+   "status": "complete",
+   "hostClass": "local-dev",
+   "role": "diagnostic",
+   "supersededBy": null,
+   "reason": "SQLite commun 3.46.0 sans le correctif WAL-reset, exclu de la sélection",
+   "validity": [
+    {
+     "scope": "all",
+     "class": "none",
+     "note": "build SQLite exclu"
+    }
+   ],
+   "decisionIds": [
+    "D-storage",
+    "D-core-language"
+   ],
+   "citedIn": [],
+   "integrity": "uncatalogued",
+   "rerun": {
+    "required": false,
+    "priority": null,
+    "hostClass": null
+   },
+   "imported": "ledger/imported/storage-shared-contention-2026-10-07T22-19-18-394Z-a3d041/run.v2.json"
+  },
+  {
+   "runId": "storage-shared-contention-2026-10-07T22-23-31-093Z-8d9875",
+   "lane": "storage",
+   "campaign": "storage-shared-contention",
+   "startedAt": "2026-10-07T22:23:31.093Z",
+   "status": "complete",
+   "hostClass": "local-dev",
+   "role": "selected",
+   "supersededBy": null,
+   "reason": "SQLite commun 3.53.4 : Node, Rust sync et Go sur le même artefact",
+   "validity": [
+    {
+     "scope": "single-writer",
+     "class": "B",
+     "note": "plusieurs writers moins bons, même hôte"
+    },
+    {
+     "scope": "absolute",
+     "class": "C",
+     "note": "Mac partagé non contrôlé ; chiffres absolus non publiables"
+    }
+   ],
+   "decisionIds": [
+    "D-storage",
+    "D-core-language"
+   ],
+   "citedIn": [
+    "lab/reports/index.html",
+    "lab/reports/selection-2026-10-08.json",
+    "lab/reports/verification-2026-10-08.json",
+    "lab/reports/workflow-2026-10-08.md"
+   ],
+   "integrity": "verified",
+   "rerun": {
+    "required": true,
+    "priority": "P2",
+    "hostClass": "reference"
+   },
+   "imported": "ledger/imported/storage-shared-contention-2026-10-07T22-23-31-093Z-8d9875/run.v2.json"
+  },
+  {
+   "runId": "storage-shared-checkpoint-2026-10-07T22-24-20-072Z-de4c14",
+   "lane": "storage",
+   "campaign": "storage-shared-checkpoint",
+   "startedAt": "2026-10-07T22:24:20.072Z",
+   "status": "complete",
+   "hostClass": "local-dev",
+   "role": "selected",
+   "supersededBy": null,
+   "reason": "gros batches sur SQLite commun",
+   "validity": [
+    {
+     "scope": "relative",
+     "class": "B",
+     "note": "Rust et Go devant Node sur ce workload"
+    },
+    {
+     "scope": "absolute",
+     "class": "C",
+     "note": "Mac partagé non contrôlé ; chiffres absolus non publiables"
+    }
+   ],
+   "decisionIds": [
+    "D-storage",
+    "D-core-language"
+   ],
+   "citedIn": [
+    "lab/reports/index.html",
+    "lab/reports/selection-2026-10-08.json",
+    "lab/reports/verification-2026-10-08.json",
+    "lab/reports/workflow-2026-10-08.md"
+   ],
+   "integrity": "verified",
+   "rerun": {
+    "required": true,
+    "priority": "P2",
+    "hostClass": "reference"
+   },
+   "imported": "ledger/imported/storage-shared-checkpoint-2026-10-07T22-24-20-072Z-de4c14/run.v2.json"
+  },
+  {
+   "runId": "workflow-throughput-2026-10-07T22-24-52-832Z-024c4f",
+   "lane": "workflow",
+   "campaign": "workflow-throughput",
+   "startedAt": "2026-10-07T22:24:52.832Z",
+   "status": "complete",
+   "hostClass": "local-dev",
+   "role": "selected",
+   "supersededBy": null,
+   "reason": "workflow HTTP durable complet, backends Node",
+   "validity": [
+    {
+     "scope": "pipeline-contract",
+     "class": "A",
+     "note": "acquittement après commit vérifié"
+    },
+    {
+     "scope": "throughput",
+     "class": "B",
+     "note": "Mac partagé non contrôlé ; chiffres absolus non publiables"
+    }
+   ],
+   "decisionIds": [
+    "D-http-transport",
+    "D-durable-runtime"
+   ],
+   "citedIn": [
+    "lab/reports/index.html",
+    "lab/reports/selection-2026-10-08.json",
+    "lab/reports/verification-2026-10-08.json",
+    "lab/reports/workflow-2026-10-08.md"
+   ],
+   "integrity": "verified",
+   "rerun": {
+    "required": true,
+    "priority": "P1",
+    "hostClass": "reference"
+   },
+   "imported": "ledger/imported/workflow-throughput-2026-10-07T22-24-52-832Z-024c4f/run.v2.json"
+  },
+  {
+   "runId": "workflow-recovery-2026-10-07T22-26-19-297Z-c40792",
+   "lane": "workflow",
+   "campaign": "workflow-recovery",
+   "startedAt": "2026-10-07T22:26:19.297Z",
+   "status": "complete",
+   "hostClass": "local-dev",
+   "role": "selected",
+   "supersededBy": null,
+   "reason": "crash du writer avant et après commit",
+   "validity": [
+    {
+     "scope": "recovery",
+     "class": "A",
+     "note": "reprise exacte, crash de processus"
+    }
+   ],
+   "decisionIds": [
+    "D-durable-runtime",
+    "D-storage"
+   ],
+   "citedIn": [
+    "lab/reports/index.html",
+    "lab/reports/selection-2026-10-08.json",
+    "lab/reports/verification-2026-10-08.json",
+    "lab/reports/workflow-2026-10-08.md"
+   ],
+   "integrity": "verified",
+   "rerun": {
+    "required": false,
+    "priority": null,
+    "hostClass": null
+   },
+   "imported": "ledger/imported/workflow-recovery-2026-10-07T22-26-19-297Z-c40792/run.v2.json"
+  },
+  {
+   "runId": "workflow-pool-wakeup-2026-10-07T22-30-10-185Z-15ae16",
+   "lane": "workflow",
+   "campaign": "workflow-pool-wakeup",
+   "startedAt": "2026-10-07T22:30:10.185Z",
+   "status": "complete",
+   "hostClass": "local-dev",
+   "role": "diagnostic",
+   "supersededBy": null,
+   "reason": "notify appelé avant initialisation, campagne interrompue et exclue",
+   "validity": [
+    {
+     "scope": "all",
+     "class": "none",
+     "note": "bug d'intégration du lab"
+    }
+   ],
+   "decisionIds": [
+    "D-http-transport"
+   ],
+   "citedIn": [],
+   "integrity": "uncatalogued",
+   "rerun": {
+    "required": false,
+    "priority": null,
+    "hostClass": null
+   },
+   "imported": "ledger/imported/workflow-pool-wakeup-2026-10-07T22-30-10-185Z-15ae16/run.v2.json"
+  },
+  {
+   "runId": "workflow-pool-wakeup-2026-10-07T22-32-40-342Z-21e558",
+   "lane": "workflow",
+   "campaign": "workflow-pool-wakeup",
+   "startedAt": "2026-10-07T22:32:40.342Z",
+   "status": "complete",
+   "hostClass": "local-dev",
+   "role": "selected",
+   "supersededBy": null,
+   "reason": "réveil du pool Crawlee, poll contre notify",
+   "validity": [
+    {
+     "scope": "functional",
+     "class": "A",
+     "note": "notify après premier handler"
+    },
+    {
+     "scope": "throughput",
+     "class": "B",
+     "note": "Mac partagé non contrôlé ; chiffres absolus non publiables"
+    }
+   ],
+   "decisionIds": [
+    "D-http-transport"
+   ],
+   "citedIn": [
+    "lab/reports/index.html",
+    "lab/reports/selection-2026-10-08.json",
+    "lab/reports/verification-2026-10-08.json",
+    "lab/reports/workflow-2026-10-08.md"
+   ],
+   "integrity": "verified",
+   "rerun": {
+    "required": false,
+    "priority": null,
+    "hostClass": null
+   },
+   "imported": "ledger/imported/workflow-pool-wakeup-2026-10-07T22-32-40-342Z-21e558/run.v2.json"
+  },
+  {
+   "runId": "qualification-integrated-2026-10-07T23-16-32-138Z-d5bec9",
+   "lane": "suite",
+   "campaign": "qualification-integrated",
+   "startedAt": "2026-10-07T23:16:32.138Z",
+   "status": "interrupted",
+   "hostClass": "local-dev",
+   "role": "diagnostic",
+   "supersededBy": null,
+   "reason": "suite interrompue : unité CPU erronée dans la première sonde",
+   "validity": [
+    {
+     "scope": "all",
+     "class": "none",
+     "note": "métriques CPU invalides"
+    }
+   ],
+   "decisionIds": [
+    "D-core-language"
+   ],
+   "citedIn": [
+    "lab/docs/runtime-workflow.md"
+   ],
+   "integrity": "uncatalogued",
+   "rerun": {
+    "required": false,
+    "priority": null,
+    "hostClass": null
+   },
+   "imported": "ledger/imported/qualification-integrated-2026-10-07T23-16-32-138Z-d5bec9/run.v2.json"
+  },
+  {
+   "runId": "runtime-native-sustained-2026-10-07T23-16-32-399Z-86e997",
+   "lane": "runtime",
+   "campaign": "runtime-native-sustained",
+   "startedAt": "2026-10-07T23:16:32.399Z",
+   "status": "complete",
+   "hostClass": "local-dev",
+   "role": "diagnostic",
+   "supersededBy": null,
+   "reason": "série native démarrée dans la suite interrompue",
+   "validity": [
+    {
+     "scope": "all",
+     "class": "none",
+     "note": "suite interrompue"
+    }
+   ],
+   "decisionIds": [
+    "D-core-language"
+   ],
+   "citedIn": [],
+   "integrity": "uncatalogued",
+   "rerun": {
+    "required": false,
+    "priority": null,
+    "hostClass": null
+   },
+   "imported": "ledger/imported/runtime-native-sustained-2026-10-07T23-16-32-399Z-86e997/run.v2.json"
+  },
+  {
+   "runId": "qualification-integrated-2026-10-07T23-21-58-974Z-6b64b0",
+   "lane": "suite",
+   "campaign": "qualification-integrated",
+   "startedAt": "2026-10-07T23:21:58.974Z",
+   "status": "complete",
+   "hostClass": "local-dev",
+   "role": "orchestrator",
+   "supersededBy": null,
+   "reason": "première suite intégrée complète",
+   "validity": [
+    {
+     "scope": "orchestration",
+     "class": "none",
+     "note": "agrège les campagnes"
+    }
+   ],
+   "decisionIds": [],
+   "citedIn": [
+    "lab/docs/qualification-next.md",
+    "lab/reports/integrated-2026-10-08.md",
+    "lab/reports/qualification-reproduce.md"
+   ],
+   "integrity": "verified",
+   "rerun": {
+    "required": false,
+    "priority": null,
+    "hostClass": null
+   },
+   "imported": "ledger/imported/qualification-integrated-2026-10-07T23-21-58-974Z-6b64b0/run.v2.json"
+  },
+  {
+   "runId": "runtime-native-sustained-2026-10-07T23-21-59-298Z-bf6ecb",
+   "lane": "runtime",
+   "campaign": "runtime-native-sustained",
+   "startedAt": "2026-10-07T23:21:59.298Z",
+   "status": "complete",
+   "hostClass": "local-dev",
+   "role": "diagnostic",
+   "supersededBy": null,
+   "reason": "première série native Node/Rust avant le partage Arc de la configuration",
+   "validity": [
+    {
+     "scope": "relative",
+     "class": "B",
+     "note": "série initiale, non causale pour l'effet Arc"
+    }
+   ],
+   "decisionIds": [
+    "D-core-language"
+   ],
+   "citedIn": [
+    "lab/docs/qualification-next.md",
+    "lab/reports/index.html",
+    "lab/reports/integrated-2026-10-08.md"
+   ],
+   "integrity": "verified",
+   "rerun": {
+    "required": false,
+    "priority": null,
+    "hostClass": null
+   },
+   "imported": "ledger/imported/runtime-native-sustained-2026-10-07T23-21-59-298Z-bf6ecb/run.v2.json"
+  },
+  {
+   "runId": "runtime-http-backends-2026-10-07T23-29-49-072Z-2b2b75",
+   "lane": "runtime",
+   "campaign": "runtime-http-backends",
+   "startedAt": "2026-10-07T23:29:49.072Z",
+   "status": "noisy-host",
+   "hostClass": "local-dev",
+   "role": "selected",
+   "supersededBy": null,
+   "reason": "backends HTTP dans le workflow durable, hôte chargé pendant le bloc 2",
+   "validity": [
+    {
+     "scope": "pipeline-contract",
+     "class": "A",
+     "note": "comptes exacts"
+    },
+    {
+     "scope": "throughput",
+     "class": "none",
+     "note": "hôte bruité"
+    }
+   ],
+   "decisionIds": [
+    "D-http-transport",
+    "D-core-language"
+   ],
+   "citedIn": [
+    "lab/reports/index.html",
+    "lab/reports/integrated-2026-10-08.md"
+   ],
+   "integrity": "verified",
+   "rerun": {
+    "required": true,
+    "priority": "P0",
+    "hostClass": "reference"
+   },
+   "imported": "ledger/imported/runtime-http-backends-2026-10-07T23-29-49-072Z-2b2b75/run.v2.json"
+  },
+  {
+   "runId": "runtime-recovery-2026-10-07T23-37-26-683Z-fcaced",
+   "lane": "runtime",
+   "campaign": "runtime-recovery",
+   "startedAt": "2026-10-07T23:37:26.683Z",
+   "status": "complete",
+   "hostClass": "local-dev",
+   "role": "superseded",
+   "supersededBy": "runtime-recovery-qualified-2026-10-08T00-20-09-515Z-ad3e70",
+   "reason": "série initiale de reprise, requalifiée ensuite",
+   "validity": [
+    {
+     "scope": "recovery",
+     "class": "A",
+     "note": "mêmes invariants"
+    }
+   ],
+   "decisionIds": [
+    "D-durable-runtime"
+   ],
+   "citedIn": [
+    "lab/docs/qualification-next.md",
+    "lab/reports/index.html"
+   ],
+   "integrity": "verified",
+   "rerun": {
+    "required": false,
+    "priority": null,
+    "hostClass": null
+   },
+   "imported": "ledger/imported/runtime-recovery-2026-10-07T23-37-26-683Z-fcaced/run.v2.json"
+  },
+  {
+   "runId": "browser-actionability-2026-10-07T23-38-33-163Z-ccad1f",
+   "lane": "actionability",
+   "campaign": "browser-actionability",
+   "startedAt": "2026-10-07T23:38:33.163Z",
+   "status": "complete",
+   "hostClass": "local-dev",
+   "role": "selected",
+   "supersededBy": null,
+   "reason": "matrice d'actionnabilité : colonne native retenue, colonne gardée remplacée par b21a28",
+   "validity": [
+    {
+     "scope": "native-matrix",
+     "class": "A",
+     "note": "Playwright 27/27, Puppeteer et Stagehand non conformes sur plusieurs variantes"
+    },
+    {
+     "scope": "guarded",
+     "class": "none",
+     "note": "garde initiale avec faux succès"
+    }
+   ],
+   "decisionIds": [
+    "D-browser-driver"
+   ],
+   "citedIn": [
+    "lab/reports/index.html",
+    "lab/reports/integrated-2026-10-08.md"
+   ],
+   "integrity": "verified",
+   "rerun": {
+    "required": false,
+    "priority": null,
+    "hostClass": null
+   },
+   "imported": "ledger/imported/browser-actionability-2026-10-07T23-38-33-163Z-ccad1f/run.v2.json"
+  },
+  {
+   "runId": "sqlite-readers-2026-10-07T23-52-02-741Z-c5571c",
+   "lane": "sqlite-readers",
+   "campaign": "sqlite-readers",
+   "startedAt": "2026-10-07T23:52:02.741Z",
+   "status": "complete",
+   "hostClass": "local-dev",
+   "role": "diagnostic",
+   "supersededBy": null,
+   "reason": "course d'initialisation schéma/WAL avec quatre writers",
+   "validity": [
+    {
+     "scope": "all",
+     "class": "none",
+     "note": "bug du lab corrigé"
+    }
+   ],
+   "decisionIds": [
+    "D-storage"
+   ],
+   "citedIn": [
+    "lab/reports/index.html",
+    "lab/reports/sqlite-initialization-diagnostics.json"
+   ],
+   "integrity": "verified",
+   "rerun": {
+    "required": false,
+    "priority": null,
+    "hostClass": null
+   },
+   "imported": "ledger/imported/sqlite-readers-2026-10-07T23-52-02-741Z-c5571c/run.v2.json"
+  },
+  {
+   "runId": "http-transport-2026-10-07T23-52-40-042Z-be9fbc",
+   "lane": "bench",
+   "campaign": "http-transport",
+   "startedAt": "2026-10-07T23:52:40.042Z",
+   "status": "complete",
+   "hostClass": "local-dev",
+   "role": "selected",
+   "supersededBy": null,
+   "reason": "transports HTTP : redirect, gzip, chunked, grandes réponses ; refus SSRF loopback de Spider",
+   "validity": [
+    {
+     "scope": "contracts",
+     "class": "A",
+     "note": "refus par politique, non contourné"
+    },
+    {
+     "scope": "timings",
+     "class": "C",
+     "note": "Mac partagé non contrôlé ; chiffres absolus non publiables"
+    }
+   ],
+   "decisionIds": [
+    "D-http-transport"
+   ],
+   "citedIn": [
+    "lab/reports/index.html",
+    "lab/reports/integrated-2026-10-08.md"
+   ],
+   "integrity": "verified",
+   "rerun": {
+    "required": true,
+    "priority": "P1",
+    "hostClass": "reference"
+   },
+   "imported": "ledger/imported/http-transport-2026-10-07T23-52-40-042Z-be9fbc/run.v2.json"
+  },
+  {
+   "runId": "http-open-20-2026-10-07T23-52-50-976Z-19b9fb",
+   "lane": "bench",
+   "campaign": "http-open-20",
+   "startedAt": "2026-10-07T23:52:50.976Z",
+   "status": "complete",
+   "hostClass": "local-dev",
+   "role": "selected",
+   "supersededBy": null,
+   "reason": "arrivées ouvertes à 20 tâches/s",
+   "validity": [
+    {
+     "scope": "capacity",
+     "class": "B",
+     "note": "Mac partagé non contrôlé ; chiffres absolus non publiables"
+    }
+   ],
+   "decisionIds": [
+    "D-http-transport"
+   ],
+   "citedIn": [
+    "lab/reports/index.html",
+    "lab/reports/integrated-2026-10-08.md"
+   ],
+   "integrity": "verified",
+   "rerun": {
+    "required": true,
+    "priority": "P1",
+    "hostClass": "reference"
+   },
+   "imported": "ledger/imported/http-open-20-2026-10-07T23-52-50-976Z-19b9fb/run.v2.json"
+  },
+  {
+   "runId": "http-open-100-2026-10-07T23-55-27-645Z-9f6596",
+   "lane": "bench",
+   "campaign": "http-open-100",
+   "startedAt": "2026-10-07T23:55:27.645Z",
+   "status": "complete",
+   "hostClass": "local-dev",
+   "role": "selected",
+   "supersededBy": null,
+   "reason": "arrivées ouvertes à 100 tâches/s",
+   "validity": [
+    {
+     "scope": "capacity",
+     "class": "B",
+     "note": "Mac partagé non contrôlé ; chiffres absolus non publiables"
+    }
+   ],
+   "decisionIds": [
+    "D-http-transport"
+   ],
+   "citedIn": [
+    "lab/reports/index.html",
+    "lab/reports/integrated-2026-10-08.md"
+   ],
+   "integrity": "verified",
+   "rerun": {
+    "required": true,
+    "priority": "P1",
+    "hostClass": "reference"
+   },
+   "imported": "ledger/imported/http-open-100-2026-10-07T23-55-27-645Z-9f6596/run.v2.json"
+  },
+  {
+   "runId": "http-open-250-2026-10-07T23-58-01-322Z-66a668",
+   "lane": "bench",
+   "campaign": "http-open-250",
+   "startedAt": "2026-10-07T23:58:01.322Z",
+   "status": "complete",
+   "hostClass": "local-dev",
+   "role": "selected",
+   "supersededBy": null,
+   "reason": "arrivées ouvertes à 250 tâches/s",
+   "validity": [
+    {
+     "scope": "capacity",
+     "class": "B",
+     "note": "Mac partagé non contrôlé ; chiffres absolus non publiables"
+    }
+   ],
+   "decisionIds": [
+    "D-http-transport"
+   ],
+   "citedIn": [
+    "lab/reports/index.html",
+    "lab/reports/integrated-2026-10-08.md"
+   ],
+   "integrity": "verified",
+   "rerun": {
+    "required": true,
+    "priority": "P1",
+    "hostClass": "reference"
+   },
+   "imported": "ledger/imported/http-open-250-2026-10-07T23-58-01-322Z-66a668/run.v2.json"
+  },
+  {
+   "runId": "qualification-current-2026-10-08T00-11-54-553Z-21d1f2",
+   "lane": "suite",
+   "campaign": "qualification-current",
+   "startedAt": "2026-10-08T00:11:54.553Z",
+   "status": "complete",
+   "hostClass": "local-dev",
+   "role": "orchestrator",
+   "supersededBy": null,
+   "reason": "requalification après corrections",
+   "validity": [
+    {
+     "scope": "orchestration",
+     "class": "none",
+     "note": "agrège les campagnes"
+    }
+   ],
+   "decisionIds": [],
+   "citedIn": [
+    "lab/docs/qualification-next.md",
+    "lab/reports/integrated-2026-10-08.md",
+    "lab/reports/qualification-reproduce.md"
+   ],
+   "integrity": "verified",
+   "rerun": {
+    "required": false,
+    "priority": null,
+    "hostClass": null
+   },
+   "imported": "ledger/imported/qualification-current-2026-10-08T00-11-54-553Z-21d1f2/run.v2.json"
+  },
+  {
+   "runId": "runtime-native-qualified-2026-10-08T00-11-54-841Z-789d5e",
+   "lane": "runtime",
+   "campaign": "runtime-native-qualified",
+   "startedAt": "2026-10-08T00:11:54.841Z",
+   "status": "complete",
+   "hostClass": "local-dev",
+   "role": "selected",
+   "supersededBy": null,
+   "reason": "workflow natif Node contre Rust, configuration partagée par Arc",
+   "validity": [
+    {
+     "scope": "relative",
+     "class": "B",
+     "note": "CPU et footprint moindres pour Rust, débit proche"
+    },
+    {
+     "scope": "absolute",
+     "class": "C",
+     "note": "Mac partagé non contrôlé ; chiffres absolus non publiables"
+    }
+   ],
+   "decisionIds": [
+    "D-core-language"
+   ],
+   "citedIn": [
+    "lab/reports/index.html",
+    "lab/reports/integrated-2026-10-08.md"
+   ],
+   "integrity": "verified",
+   "rerun": {
+    "required": true,
+    "priority": "P0",
+    "hostClass": "reference"
+   },
+   "imported": "ledger/imported/runtime-native-qualified-2026-10-08T00-11-54-841Z-789d5e/run.v2.json"
+  },
+  {
+   "runId": "runtime-recovery-qualified-2026-10-08T00-20-09-515Z-ad3e70",
+   "lane": "runtime",
+   "campaign": "runtime-recovery-qualified",
+   "startedAt": "2026-10-08T00:20:09.515Z",
+   "status": "complete",
+   "hostClass": "local-dev",
+   "role": "selected",
+   "supersededBy": null,
+   "reason": "reprise Node et Rust : crashes avant/après commit et ACK, nouveau coordinateur",
+   "validity": [
+    {
+     "scope": "recovery",
+     "class": "A",
+     "note": "crash de processus, darwin seulement"
+    }
+   ],
+   "decisionIds": [
+    "D-core-language",
+    "D-durable-runtime"
+   ],
+   "citedIn": [
+    "lab/reports/index.html",
+    "lab/reports/integrated-2026-10-08.md"
+   ],
+   "integrity": "verified",
+   "rerun": {
+    "required": true,
+    "priority": "P1",
+    "hostClass": "reference"
+   },
+   "imported": "ledger/imported/runtime-recovery-qualified-2026-10-08T00-20-09-515Z-ad3e70/run.v2.json"
+  },
+  {
+   "runId": "browser-actionability-2026-10-08T00-21-16-186Z-b21a28",
+   "lane": "actionability",
+   "campaign": "browser-actionability",
+   "startedAt": "2026-10-08T00:21:16.186Z",
+   "status": "complete",
+   "hostClass": "local-dev",
+   "role": "selected",
+   "supersededBy": null,
+   "reason": "garde d'actionnabilité corrigée, 162 cellules",
+   "validity": [
+    {
+     "scope": "guarded-conformance",
+     "class": "A",
+     "note": "sur ce corpus"
+    },
+    {
+     "scope": "timings",
+     "class": "B",
+     "note": "garde commune ; RTT nul"
+    }
+   ],
+   "decisionIds": [
+    "D-browser-driver"
+   ],
+   "citedIn": [
+    "lab/reports/index.html",
+    "lab/reports/integrated-2026-10-08.md"
+   ],
+   "integrity": "verified",
+   "rerun": {
+    "required": true,
+    "priority": "P0",
+    "hostClass": "local-controlled"
+   },
+   "imported": "ledger/imported/browser-actionability-2026-10-08T00-21-16-186Z-b21a28/run.v2.json"
+  },
+  {
+   "runId": "sqlite-readers-2026-10-08T00-25-35-434Z-92d4f3",
+   "lane": "sqlite-readers",
+   "campaign": "sqlite-readers",
+   "startedAt": "2026-10-08T00:25:35.434Z",
+   "status": "complete",
+   "hostClass": "local-dev",
+   "role": "selected",
+   "supersededBy": null,
+   "reason": "lecteurs longs et courts, checkpoints PASSIVE et TRUNCATE",
+   "validity": [
+    {
+     "scope": "invariants",
+     "class": "A",
+     "note": "snapshot long, WAL tronqué après libération"
+    },
+    {
+     "scope": "throughput",
+     "class": "C",
+     "note": "Mac partagé non contrôlé ; chiffres absolus non publiables"
+    }
+   ],
+   "decisionIds": [
+    "D-storage"
+   ],
+   "citedIn": [
+    "lab/reports/index.html",
+    "lab/reports/integrated-2026-10-08.md"
+   ],
+   "integrity": "verified",
+   "rerun": {
+    "required": false,
+    "priority": null,
+    "hostClass": null
+   },
+   "imported": "ledger/imported/sqlite-readers-2026-10-08T00-25-35-434Z-92d4f3/run.v2.json"
+  },
+  {
+   "runId": "spider-http-transport-supported-2026-10-08T00-26-16-511Z-7ce401",
+   "lane": "bench",
+   "campaign": "spider-http-transport-supported",
+   "startedAt": "2026-10-08T00:26:16.511Z",
+   "status": "complete",
+   "hostClass": "local-dev",
+   "role": "selected",
+   "supersededBy": null,
+   "reason": "Spider sur les variantes HTTP supportées",
+   "validity": [
+    {
+     "scope": "contracts",
+     "class": "A",
+     "note": "60 lignes vérifiées"
+    }
+   ],
+   "decisionIds": [
+    "D-http-transport"
+   ],
+   "citedIn": [
+    "lab/reports/index.html",
+    "lab/reports/integrated-2026-10-08.md"
+   ],
+   "integrity": "verified",
+   "rerun": {
+    "required": false,
+    "priority": null,
+    "hostClass": null
+   },
+   "imported": "ledger/imported/spider-http-transport-supported-2026-10-08T00-26-16-511Z-7ce401/run.v2.json"
+  }
+ ]
+}

@@ -1,0 +1,1483 @@
+{
+ "schemaVersion": 2,
+ "runId": "workflow-throughput-2026-10-07T22-24-52-832Z-024c4f",
+ "lane": "workflow",
+ "campaign": {
+  "id": "workflow-throughput",
+  "source": "campaigns/workflow-throughput.json"
+ },
+ "startedAt": "2026-10-07T22:24:52.832Z",
+ "decisionIds": [
+  "D-http-transport",
+  "D-durable-runtime"
+ ],
+ "provenance": {
+  "git": {
+   "available": false,
+   "sha": null,
+   "dirty": null
+  },
+  "sourceTreeSha256": "ecf51249b46e4b173f2250e9e58c91d4926eacf45723cee592e839a0e85ab09d",
+  "sourceChanges": 0,
+  "binaryChanges": 0,
+  "toolchains": {
+   "node": "v25.5.0",
+   "browser": null
+  },
+  "integrity": {
+   "status": "verified",
+   "checked": 173,
+   "mismatches": []
+  }
+ },
+ "host": {
+  "classRequested": null,
+  "classGranted": "local-dev",
+  "os": "27.0.0",
+  "arch": "arm64",
+  "cpu": "Apple M3 Max",
+  "logicalCpus": null,
+  "memoryBytes": 38654705664,
+  "preflight": null,
+  "postflight": null
+ },
+ "status": "complete",
+ "countUnit": "cell",
+ "cells": [
+  {
+   "cellId": "a112c9c6e0f8-0",
+   "factors": {
+    "backend": "node-http",
+    "concurrency": 4,
+    "batchJobs": 1,
+    "fault": "none",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-jobs-per-second": {
+     "value": 77.62978991693637,
+     "unit": "job/s",
+     "source": "legacy-summary; work plus finalization"
+    },
+    "rss-peak-bytes": {
+     "value": 226213888,
+     "unit": "B",
+     "source": "legacy-summary; sampled sum RSS of process group and descendants; shared pages double-counted; short peaks may be missed"
+    }
+   }
+  },
+  {
+   "cellId": "ab0afc5c7669-1",
+   "factors": {
+    "backend": "crawlee-http-pooled",
+    "concurrency": 1,
+    "batchJobs": 1,
+    "fault": "none",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-jobs-per-second": {
+     "value": 1.9198834438761223,
+     "unit": "job/s",
+     "source": "legacy-summary; work plus finalization"
+    },
+    "rss-peak-bytes": {
+     "value": 383844352,
+     "unit": "B",
+     "source": "legacy-summary; sampled sum RSS of process group and descendants; shared pages double-counted; short peaks may be missed"
+    }
+   }
+  },
+  {
+   "cellId": "696e78bfcbcc-2",
+   "factors": {
+    "backend": "crawlee-http",
+    "concurrency": 4,
+    "batchJobs": 4,
+    "fault": "none",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-jobs-per-second": {
+     "value": 21.88545222696441,
+     "unit": "job/s",
+     "source": "legacy-summary; work plus finalization"
+    },
+    "rss-peak-bytes": {
+     "value": 755679232,
+     "unit": "B",
+     "source": "legacy-summary; sampled sum RSS of process group and descendants; shared pages double-counted; short peaks may be missed"
+    }
+   }
+  },
+  {
+   "cellId": "89d87a808c30-3",
+   "factors": {
+    "backend": "node-http",
+    "concurrency": 8,
+    "batchJobs": 4,
+    "fault": "none",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-jobs-per-second": {
+     "value": 192.30043789694267,
+     "unit": "job/s",
+     "source": "legacy-summary; work plus finalization"
+    },
+    "rss-peak-bytes": {
+     "value": 80986112,
+     "unit": "B",
+     "source": "legacy-summary; sampled sum RSS of process group and descendants; shared pages double-counted; short peaks may be missed"
+    }
+   }
+  },
+  {
+   "cellId": "787b8a1af884-4",
+   "factors": {
+    "backend": "spider-http",
+    "concurrency": 4,
+    "batchJobs": 4,
+    "fault": "none",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-jobs-per-second": {
+     "value": 133.5636066374377,
+     "unit": "job/s",
+     "source": "legacy-summary; work plus finalization"
+    },
+    "rss-peak-bytes": {
+     "value": 80560128,
+     "unit": "B",
+     "source": "legacy-summary; sampled sum RSS of process group and descendants; shared pages double-counted; short peaks may be missed"
+    }
+   }
+  },
+  {
+   "cellId": "0be5a239055e-5",
+   "factors": {
+    "backend": "crawlee-http",
+    "concurrency": 8,
+    "batchJobs": 4,
+    "fault": "none",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-jobs-per-second": {
+     "value": 24.95739691754575,
+     "unit": "job/s",
+     "source": "legacy-summary; work plus finalization"
+    },
+    "rss-peak-bytes": {
+     "value": 933314560,
+     "unit": "B",
+     "source": "legacy-summary; sampled sum RSS of process group and descendants; shared pages double-counted; short peaks may be missed"
+    }
+   }
+  },
+  {
+   "cellId": "d7ff3d236e4e-6",
+   "factors": {
+    "backend": "spider-http",
+    "concurrency": 8,
+    "batchJobs": 4,
+    "fault": "none",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-jobs-per-second": {
+     "value": 256.78633591118006,
+     "unit": "job/s",
+     "source": "legacy-summary; work plus finalization"
+    },
+    "rss-peak-bytes": {
+     "value": 80936960,
+     "unit": "B",
+     "source": "legacy-summary; sampled sum RSS of process group and descendants; shared pages double-counted; short peaks may be missed"
+    }
+   }
+  },
+  {
+   "cellId": "1f19290c1396-7",
+   "factors": {
+    "backend": "crawlee-http-pooled",
+    "concurrency": 8,
+    "batchJobs": 4,
+    "fault": "none",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-jobs-per-second": {
+     "value": 20.053404723454133,
+     "unit": "job/s",
+     "source": "legacy-summary; work plus finalization"
+    },
+    "rss-peak-bytes": {
+     "value": 415727616,
+     "unit": "B",
+     "source": "legacy-summary; sampled sum RSS of process group and descendants; shared pages double-counted; short peaks may be missed"
+    }
+   }
+  },
+  {
+   "cellId": "b99b5551e85d-8",
+   "factors": {
+    "backend": "node-http",
+    "concurrency": 8,
+    "batchJobs": 1,
+    "fault": "none",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-jobs-per-second": {
+     "value": 196.29747465671056,
+     "unit": "job/s",
+     "source": "legacy-summary; work plus finalization"
+    },
+    "rss-peak-bytes": {
+     "value": 80003072,
+     "unit": "B",
+     "source": "legacy-summary; sampled sum RSS of process group and descendants; shared pages double-counted; short peaks may be missed"
+    }
+   }
+  },
+  {
+   "cellId": "1de150c9a163-9",
+   "factors": {
+    "backend": "node-http",
+    "concurrency": 1,
+    "batchJobs": 1,
+    "fault": "none",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-jobs-per-second": {
+     "value": 37.68779362353894,
+     "unit": "job/s",
+     "source": "legacy-summary; work plus finalization"
+    },
+    "rss-peak-bytes": {
+     "value": 280576000,
+     "unit": "B",
+     "source": "legacy-summary; sampled sum RSS of process group and descendants; shared pages double-counted; short peaks may be missed"
+    }
+   }
+  },
+  {
+   "cellId": "989463e5798f-10",
+   "factors": {
+    "backend": "crawlee-http",
+    "concurrency": 4,
+    "batchJobs": 1,
+    "fault": "none",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-jobs-per-second": {
+     "value": 16.303660203711697,
+     "unit": "job/s",
+     "source": "legacy-summary; work plus finalization"
+    },
+    "rss-peak-bytes": {
+     "value": 824737792,
+     "unit": "B",
+     "source": "legacy-summary; sampled sum RSS of process group and descendants; shared pages double-counted; short peaks may be missed"
+    }
+   }
+  },
+  {
+   "cellId": "78a805a85498-11",
+   "factors": {
+    "backend": "spider-http",
+    "concurrency": 1,
+    "batchJobs": 1,
+    "fault": "none",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-jobs-per-second": {
+     "value": 38.104708808919725,
+     "unit": "job/s",
+     "source": "legacy-summary; work plus finalization"
+    },
+    "rss-peak-bytes": {
+     "value": 174735360,
+     "unit": "B",
+     "source": "legacy-summary; sampled sum RSS of process group and descendants; shared pages double-counted; short peaks may be missed"
+    }
+   }
+  },
+  {
+   "cellId": "bc01adc9d1e7-12",
+   "factors": {
+    "backend": "crawlee-http",
+    "concurrency": 8,
+    "batchJobs": 1,
+    "fault": "none",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-jobs-per-second": {
+     "value": 25.577942700823506,
+     "unit": "job/s",
+     "source": "legacy-summary; work plus finalization"
+    },
+    "rss-peak-bytes": {
+     "value": 939556864,
+     "unit": "B",
+     "source": "legacy-summary; sampled sum RSS of process group and descendants; shared pages double-counted; short peaks may be missed"
+    }
+   }
+  },
+  {
+   "cellId": "86c0966a8260-13",
+   "factors": {
+    "backend": "crawlee-http-pooled",
+    "concurrency": 4,
+    "batchJobs": 4,
+    "fault": "none",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-jobs-per-second": {
+     "value": 7.42498502821379,
+     "unit": "job/s",
+     "source": "legacy-summary; work plus finalization"
+    },
+    "rss-peak-bytes": {
+     "value": 422576128,
+     "unit": "B",
+     "source": "legacy-summary; sampled sum RSS of process group and descendants; shared pages double-counted; short peaks may be missed"
+    }
+   }
+  },
+  {
+   "cellId": "92f9a7b3fd1b-14",
+   "factors": {
+    "backend": "crawlee-http-pooled",
+    "concurrency": 4,
+    "batchJobs": 1,
+    "fault": "none",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-jobs-per-second": {
+     "value": 14.033668628161081,
+     "unit": "job/s",
+     "source": "legacy-summary; work plus finalization"
+    },
+    "rss-peak-bytes": {
+     "value": 480477184,
+     "unit": "B",
+     "source": "legacy-summary; sampled sum RSS of process group and descendants; shared pages double-counted; short peaks may be missed"
+    }
+   }
+  },
+  {
+   "cellId": "b0068508ae23-15",
+   "factors": {
+    "backend": "crawlee-http",
+    "concurrency": 1,
+    "batchJobs": 1,
+    "fault": "none",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-jobs-per-second": {
+     "value": 8.474794847277686,
+     "unit": "job/s",
+     "source": "legacy-summary; work plus finalization"
+    },
+    "rss-peak-bytes": {
+     "value": 809910272,
+     "unit": "B",
+     "source": "legacy-summary; sampled sum RSS of process group and descendants; shared pages double-counted; short peaks may be missed"
+    }
+   }
+  },
+  {
+   "cellId": "df7a131bf17b-16",
+   "factors": {
+    "backend": "spider-http",
+    "concurrency": 4,
+    "batchJobs": 1,
+    "fault": "none",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-jobs-per-second": {
+     "value": 140.09369711626553,
+     "unit": "job/s",
+     "source": "legacy-summary; work plus finalization"
+    },
+    "rss-peak-bytes": {
+     "value": 90292224,
+     "unit": "B",
+     "source": "legacy-summary; sampled sum RSS of process group and descendants; shared pages double-counted; short peaks may be missed"
+    }
+   }
+  },
+  {
+   "cellId": "9150ca8f7e60-17",
+   "factors": {
+    "backend": "node-http",
+    "concurrency": 4,
+    "batchJobs": 4,
+    "fault": "none",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-jobs-per-second": {
+     "value": 114.71784054907737,
+     "unit": "job/s",
+     "source": "legacy-summary; work plus finalization"
+    },
+    "rss-peak-bytes": {
+     "value": 299401216,
+     "unit": "B",
+     "source": "legacy-summary; sampled sum RSS of process group and descendants; shared pages double-counted; short peaks may be missed"
+    }
+   }
+  },
+  {
+   "cellId": "33b16685ba27-18",
+   "factors": {
+    "backend": "crawlee-http-pooled",
+    "concurrency": 8,
+    "batchJobs": 1,
+    "fault": "none",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-jobs-per-second": {
+     "value": 34.457705393458696,
+     "unit": "job/s",
+     "source": "legacy-summary; work plus finalization"
+    },
+    "rss-peak-bytes": {
+     "value": 492863488,
+     "unit": "B",
+     "source": "legacy-summary; sampled sum RSS of process group and descendants; shared pages double-counted; short peaks may be missed"
+    }
+   }
+  },
+  {
+   "cellId": "e143120c7fc8-19",
+   "factors": {
+    "backend": "spider-http",
+    "concurrency": 8,
+    "batchJobs": 1,
+    "fault": "none",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-jobs-per-second": {
+     "value": 222.95603245726656,
+     "unit": "job/s",
+     "source": "legacy-summary; work plus finalization"
+    },
+    "rss-peak-bytes": {
+     "value": 97484800,
+     "unit": "B",
+     "source": "legacy-summary; sampled sum RSS of process group and descendants; shared pages double-counted; short peaks may be missed"
+    }
+   }
+  },
+  {
+   "cellId": "4e6e5f62a737-20",
+   "factors": {
+    "backend": "crawlee-http-pooled",
+    "concurrency": 4,
+    "batchJobs": 1,
+    "fault": "none",
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-jobs-per-second": {
+     "value": 19.79737115113403,
+     "unit": "job/s",
+     "source": "legacy-summary; work plus finalization"
+    },
+    "rss-peak-bytes": {
+     "value": 503742464,
+     "unit": "B",
+     "source": "legacy-summary; sampled sum RSS of process group and descendants; shared pages double-counted; short peaks may be missed"
+    }
+   }
+  },
+  {
+   "cellId": "150367bd714b-21",
+   "factors": {
+    "backend": "crawlee-http",
+    "concurrency": 8,
+    "batchJobs": 4,
+    "fault": "none",
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-jobs-per-second": {
+     "value": 25.88941371021434,
+     "unit": "job/s",
+     "source": "legacy-summary; work plus finalization"
+    },
+    "rss-peak-bytes": {
+     "value": 907526144,
+     "unit": "B",
+     "source": "legacy-summary; sampled sum RSS of process group and descendants; shared pages double-counted; short peaks may be missed"
+    }
+   }
+  },
+  {
+   "cellId": "3102d85ebc6c-22",
+   "factors": {
+    "backend": "crawlee-http",
+    "concurrency": 4,
+    "batchJobs": 1,
+    "fault": "none",
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-jobs-per-second": {
+     "value": 21.924876238641225,
+     "unit": "job/s",
+     "source": "legacy-summary; work plus finalization"
+    },
+    "rss-peak-bytes": {
+     "value": 848887808,
+     "unit": "B",
+     "source": "legacy-summary; sampled sum RSS of process group and descendants; shared pages double-counted; short peaks may be missed"
+    }
+   }
+  },
+  {
+   "cellId": "9b019cb4bc21-23",
+   "factors": {
+    "backend": "spider-http",
+    "concurrency": 8,
+    "batchJobs": 1,
+    "fault": "none",
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-jobs-per-second": {
+     "value": 261.4989163648569,
+     "unit": "job/s",
+     "source": "legacy-summary; work plus finalization"
+    },
+    "rss-peak-bytes": {
+     "value": 99614720,
+     "unit": "B",
+     "source": "legacy-summary; sampled sum RSS of process group and descendants; shared pages double-counted; short peaks may be missed"
+    }
+   }
+  },
+  {
+   "cellId": "b7675ce84c36-24",
+   "factors": {
+    "backend": "node-http",
+    "concurrency": 4,
+    "batchJobs": 1,
+    "fault": "none",
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-jobs-per-second": {
+     "value": 123.92840080018614,
+     "unit": "job/s",
+     "source": "legacy-summary; work plus finalization"
+    },
+    "rss-peak-bytes": {
+     "value": 300351488,
+     "unit": "B",
+     "source": "legacy-summary; sampled sum RSS of process group and descendants; shared pages double-counted; short peaks may be missed"
+    }
+   }
+  },
+  {
+   "cellId": "142791f78ee1-25",
+   "factors": {
+    "backend": "crawlee-http",
+    "concurrency": 8,
+    "batchJobs": 1,
+    "fault": "none",
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-jobs-per-second": {
+     "value": 24.120801993510298,
+     "unit": "job/s",
+     "source": "legacy-summary; work plus finalization"
+    },
+    "rss-peak-bytes": {
+     "value": 963592192,
+     "unit": "B",
+     "source": "legacy-summary; sampled sum RSS of process group and descendants; shared pages double-counted; short peaks may be missed"
+    }
+   }
+  },
+  {
+   "cellId": "eb2d83d2c7c9-26",
+   "factors": {
+    "backend": "crawlee-http-pooled",
+    "concurrency": 8,
+    "batchJobs": 4,
+    "fault": "none",
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-jobs-per-second": {
+     "value": 14.04074405356763,
+     "unit": "job/s",
+     "source": "legacy-summary; work plus finalization"
+    },
+    "rss-peak-bytes": {
+     "value": 504561664,
+     "unit": "B",
+     "source": "legacy-summary; sampled sum RSS of process group and descendants; shared pages double-counted; short peaks may be missed"
+    }
+   }
+  },
+  {
+   "cellId": "08f8c50b9db2-27",
+   "factors": {
+    "backend": "crawlee-http",
+    "concurrency": 4,
+    "batchJobs": 4,
+    "fault": "none",
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-jobs-per-second": {
+     "value": 22.29328290780987,
+     "unit": "job/s",
+     "source": "legacy-summary; work plus finalization"
+    },
+    "rss-peak-bytes": {
+     "value": 852017152,
+     "unit": "B",
+     "source": "legacy-summary; sampled sum RSS of process group and descendants; shared pages double-counted; short peaks may be missed"
+    }
+   }
+  },
+  {
+   "cellId": "2b48b38b9188-28",
+   "factors": {
+    "backend": "spider-http",
+    "concurrency": 4,
+    "batchJobs": 1,
+    "fault": "none",
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-jobs-per-second": {
+     "value": 154.07768223099674,
+     "unit": "job/s",
+     "source": "legacy-summary; work plus finalization"
+    },
+    "rss-peak-bytes": {
+     "value": 99418112,
+     "unit": "B",
+     "source": "legacy-summary; sampled sum RSS of process group and descendants; shared pages double-counted; short peaks may be missed"
+    }
+   }
+  },
+  {
+   "cellId": "7692a6a555ae-29",
+   "factors": {
+    "backend": "node-http",
+    "concurrency": 8,
+    "batchJobs": 4,
+    "fault": "none",
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-jobs-per-second": {
+     "value": 198.86117507997076,
+     "unit": "job/s",
+     "source": "legacy-summary; work plus finalization"
+    },
+    "rss-peak-bytes": {
+     "value": 100925440,
+     "unit": "B",
+     "source": "legacy-summary; sampled sum RSS of process group and descendants; shared pages double-counted; short peaks may be missed"
+    }
+   }
+  },
+  {
+   "cellId": "a4c6db821274-30",
+   "factors": {
+    "backend": "crawlee-http-pooled",
+    "concurrency": 1,
+    "batchJobs": 1,
+    "fault": "none",
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-jobs-per-second": {
+     "value": 1.9367649342935147,
+     "unit": "job/s",
+     "source": "legacy-summary; work plus finalization"
+    },
+    "rss-peak-bytes": {
+     "value": 438222848,
+     "unit": "B",
+     "source": "legacy-summary; sampled sum RSS of process group and descendants; shared pages double-counted; short peaks may be missed"
+    }
+   }
+  },
+  {
+   "cellId": "998cf341ac41-31",
+   "factors": {
+    "backend": "crawlee-http-pooled",
+    "concurrency": 8,
+    "batchJobs": 1,
+    "fault": "none",
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-jobs-per-second": {
+     "value": 31.724488678075467,
+     "unit": "job/s",
+     "source": "legacy-summary; work plus finalization"
+    },
+    "rss-peak-bytes": {
+     "value": 441319424,
+     "unit": "B",
+     "source": "legacy-summary; sampled sum RSS of process group and descendants; shared pages double-counted; short peaks may be missed"
+    }
+   }
+  },
+  {
+   "cellId": "011de5c5f74b-32",
+   "factors": {
+    "backend": "spider-http",
+    "concurrency": 8,
+    "batchJobs": 4,
+    "fault": "none",
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-jobs-per-second": {
+     "value": 205.40646944792334,
+     "unit": "job/s",
+     "source": "legacy-summary; work plus finalization"
+    },
+    "rss-peak-bytes": {
+     "value": 90800128,
+     "unit": "B",
+     "source": "legacy-summary; sampled sum RSS of process group and descendants; shared pages double-counted; short peaks may be missed"
+    }
+   }
+  },
+  {
+   "cellId": "4b4741bc8a07-33",
+   "factors": {
+    "backend": "node-http",
+    "concurrency": 4,
+    "batchJobs": 4,
+    "fault": "none",
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-jobs-per-second": {
+     "value": 121.4170124205817,
+     "unit": "job/s",
+     "source": "legacy-summary; work plus finalization"
+    },
+    "rss-peak-bytes": {
+     "value": 295747584,
+     "unit": "B",
+     "source": "legacy-summary; sampled sum RSS of process group and descendants; shared pages double-counted; short peaks may be missed"
+    }
+   }
+  },
+  {
+   "cellId": "a56e67219bc0-34",
+   "factors": {
+    "backend": "crawlee-http-pooled",
+    "concurrency": 4,
+    "batchJobs": 4,
+    "fault": "none",
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-jobs-per-second": {
+     "value": 7.394240314798045,
+     "unit": "job/s",
+     "source": "legacy-summary; work plus finalization"
+    },
+    "rss-peak-bytes": {
+     "value": 506789888,
+     "unit": "B",
+     "source": "legacy-summary; sampled sum RSS of process group and descendants; shared pages double-counted; short peaks may be missed"
+    }
+   }
+  },
+  {
+   "cellId": "a54467640a8d-35",
+   "factors": {
+    "backend": "node-http",
+    "concurrency": 8,
+    "batchJobs": 1,
+    "fault": "none",
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-jobs-per-second": {
+     "value": 197.1222209103292,
+     "unit": "job/s",
+     "source": "legacy-summary; work plus finalization"
+    },
+    "rss-peak-bytes": {
+     "value": 91635712,
+     "unit": "B",
+     "source": "legacy-summary; sampled sum RSS of process group and descendants; shared pages double-counted; short peaks may be missed"
+    }
+   }
+  },
+  {
+   "cellId": "6c3d1934937d-36",
+   "factors": {
+    "backend": "spider-http",
+    "concurrency": 4,
+    "batchJobs": 4,
+    "fault": "none",
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-jobs-per-second": {
+     "value": 146.15268227258076,
+     "unit": "job/s",
+     "source": "legacy-summary; work plus finalization"
+    },
+    "rss-peak-bytes": {
+     "value": 94437376,
+     "unit": "B",
+     "source": "legacy-summary; sampled sum RSS of process group and descendants; shared pages double-counted; short peaks may be missed"
+    }
+   }
+  },
+  {
+   "cellId": "c0e3ff127fd5-37",
+   "factors": {
+    "backend": "spider-http",
+    "concurrency": 1,
+    "batchJobs": 1,
+    "fault": "none",
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-jobs-per-second": {
+     "value": 38.28238628029309,
+     "unit": "job/s",
+     "source": "legacy-summary; work plus finalization"
+    },
+    "rss-peak-bytes": {
+     "value": 199688192,
+     "unit": "B",
+     "source": "legacy-summary; sampled sum RSS of process group and descendants; shared pages double-counted; short peaks may be missed"
+    }
+   }
+  },
+  {
+   "cellId": "7b685e3c135c-38",
+   "factors": {
+    "backend": "node-http",
+    "concurrency": 1,
+    "batchJobs": 1,
+    "fault": "none",
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-jobs-per-second": {
+     "value": 35.499361433789396,
+     "unit": "job/s",
+     "source": "legacy-summary; work plus finalization"
+    },
+    "rss-peak-bytes": {
+     "value": 294977536,
+     "unit": "B",
+     "source": "legacy-summary; sampled sum RSS of process group and descendants; shared pages double-counted; short peaks may be missed"
+    }
+   }
+  },
+  {
+   "cellId": "a4dd16ac5d85-39",
+   "factors": {
+    "backend": "crawlee-http",
+    "concurrency": 1,
+    "batchJobs": 1,
+    "fault": "none",
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-jobs-per-second": {
+     "value": 7.870908144096074,
+     "unit": "job/s",
+     "source": "legacy-summary; work plus finalization"
+    },
+    "rss-peak-bytes": {
+     "value": 867713024,
+     "unit": "B",
+     "source": "legacy-summary; sampled sum RSS of process group and descendants; shared pages double-counted; short peaks may be missed"
+    }
+   }
+  }
+ ],
+ "totals": {
+  "verified": 40,
+  "failed": 0,
+  "timeout": 0,
+  "crashed": 0,
+  "aborted": 0,
+  "unsupported": 0,
+  "rejected": 0,
+  "unavailable": 0,
+  "skipped": 0
+ },
+ "metricAvailability": {
+  "pss-peak-bytes": {
+   "available": false,
+   "reason": "linux-only probe; legacy run on 27.0.0"
+  },
+  "cgroup-memory-peak-bytes": {
+   "available": false,
+   "reason": "linux-only probe; legacy run on 27.0.0"
+  },
+  "cpu-ms-per-verified-job": {
+   "available": false,
+   "reason": "CPU was not instrumented in this legacy lane"
+  },
+  "footprint-peak-bytes": {
+   "available": false,
+   "reason": "footprint was not instrumented in this legacy lane"
+  }
+ },
+ "legacy": {
+  "shape": "cells",
+  "sourceDir": "results/workflow-throughput-2026-10-07T22-24-52-832Z-024c4f",
+  "errorCodeInferred": false,
+  "note": null
+ }
+}

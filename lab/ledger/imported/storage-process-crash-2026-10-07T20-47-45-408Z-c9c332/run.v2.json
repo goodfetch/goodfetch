@@ -1,0 +1,322 @@
+{
+ "schemaVersion": 2,
+ "runId": "storage-process-crash-2026-10-07T20-47-45-408Z-c9c332",
+ "lane": "storage",
+ "campaign": {
+  "id": "storage-process-crash",
+  "source": "campaigns/storage-process-crash.json"
+ },
+ "startedAt": "2026-10-07T20:47:45.408Z",
+ "decisionIds": [
+  "D-storage"
+ ],
+ "provenance": {
+  "git": {
+   "available": false,
+   "sha": null,
+   "dirty": null
+  },
+  "sourceTreeSha256": null,
+  "sourceChanges": null,
+  "binaryChanges": null,
+  "toolchains": {
+   "node": "v25.5.0",
+   "browser": null
+  },
+  "integrity": {
+   "status": "uncatalogued",
+   "checked": 0,
+   "mismatches": []
+  }
+ },
+ "host": {
+  "classRequested": null,
+  "classGranted": "local-dev",
+  "os": "27.0.0",
+  "arch": "arm64",
+  "cpu": "Apple M3 Max",
+  "logicalCpus": null,
+  "memoryBytes": 38654705664,
+  "preflight": null,
+  "postflight": null
+ },
+ "status": "complete",
+ "countUnit": "cell",
+ "cells": [
+  {
+   "cellId": "574dcf4f0eb3-0",
+   "factors": {
+    "engine": "rust",
+    "format": "jsonl-durable",
+    "batchSize": 32,
+    "writers": 1,
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-rows-per-second": {
+     "value": 7455.595883404383,
+     "unit": "row/s",
+     "source": "legacy-summary"
+    }
+   }
+  },
+  {
+   "cellId": "12eea33dac54-1",
+   "factors": {
+    "engine": "node",
+    "format": "sqlite-wal-full",
+    "batchSize": 32,
+    "writers": 1,
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-rows-per-second": {
+     "value": 85170.09065956899,
+     "unit": "row/s",
+     "source": "legacy-summary"
+    }
+   }
+  },
+  {
+   "cellId": "9475f3fa1037-2",
+   "factors": {
+    "engine": "node",
+    "format": "sqlite-wal-normal",
+    "batchSize": 32,
+    "writers": 1,
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-rows-per-second": {
+     "value": 88546.84595097101,
+     "unit": "row/s",
+     "source": "legacy-summary"
+    }
+   }
+  },
+  {
+   "cellId": "4f046f1a4096-3",
+   "factors": {
+    "engine": "rust",
+    "format": "sqlite-wal-normal",
+    "batchSize": 32,
+    "writers": 1,
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-rows-per-second": {
+     "value": 71383.7574067618,
+     "unit": "row/s",
+     "source": "legacy-summary"
+    }
+   }
+  },
+  {
+   "cellId": "18edf1d408c9-4",
+   "factors": {
+    "engine": "rust",
+    "format": "sqlite-wal-full",
+    "batchSize": 32,
+    "writers": 1,
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-rows-per-second": {
+     "value": 55272.678909133494,
+     "unit": "row/s",
+     "source": "legacy-summary"
+    }
+   }
+  },
+  {
+   "cellId": "ed7131bc06db-5",
+   "factors": {
+    "engine": "rust",
+    "format": "json-snapshot-durable",
+    "batchSize": 32,
+    "writers": 1,
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-rows-per-second": {
+     "value": 3510.5161212910753,
+     "unit": "row/s",
+     "source": "legacy-summary"
+    }
+   }
+  },
+  {
+   "cellId": "3e25d3b1aef8-6",
+   "factors": {
+    "engine": "node",
+    "format": "jsonl-durable",
+    "batchSize": 32,
+    "writers": 1,
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-rows-per-second": {
+     "value": 6244.016658841326,
+     "unit": "row/s",
+     "source": "legacy-summary"
+    }
+   }
+  },
+  {
+   "cellId": "306bce1bd3dc-7",
+   "factors": {
+    "engine": "node",
+    "format": "json-snapshot-durable",
+    "batchSize": 32,
+    "writers": 1,
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-rows-per-second": {
+     "value": 3753.4822528394593,
+     "unit": "row/s",
+     "source": "legacy-summary"
+    }
+   }
+  }
+ ],
+ "totals": {
+  "verified": 8,
+  "failed": 0,
+  "timeout": 0,
+  "crashed": 0,
+  "aborted": 0,
+  "unsupported": 0,
+  "rejected": 0,
+  "unavailable": 0,
+  "skipped": 0
+ },
+ "metricAvailability": {
+  "pss-peak-bytes": {
+   "available": false,
+   "reason": "linux-only probe; legacy run on 27.0.0"
+  },
+  "cgroup-memory-peak-bytes": {
+   "available": false,
+   "reason": "linux-only probe; legacy run on 27.0.0"
+  },
+  "cpu-ms-per-verified-job": {
+   "available": false,
+   "reason": "CPU was not instrumented in this legacy lane"
+  },
+  "footprint-peak-bytes": {
+   "available": false,
+   "reason": "footprint was not instrumented in this legacy lane"
+  }
+ },
+ "legacy": {
+  "shape": "cells",
+  "sourceDir": "results/storage-process-crash-2026-10-07T20-47-45-408Z-c9c332",
+  "errorCodeInferred": false,
+  "note": null
+ }
+}

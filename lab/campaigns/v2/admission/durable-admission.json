@@ -2,7 +2,7 @@
   "schemaVersion": 2,
   "lane": "admission",
   "hostClass": {
-    "requested": "local-dev",
+    "requested": "local-controlled",
     "allowDowngrade": true
   },
   "id": "durable-admission",

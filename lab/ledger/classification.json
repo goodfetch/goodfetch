@@ -2627,9 +2627,9 @@
       }
     },
     "durable-admission-2026-10-08T19-22-31-770Z-5ab034": {
-      "role": "selected",
-      "reason": "admission sous arrivées ouvertes sans surcharge, deux politiques de file",
-      "supersededBy": null,
+      "role": "superseded",
+      "reason": "admission sous arrivées ouvertes sans surcharge, deux politiques de file ; avant la journalisation du départ des travaux",
+      "supersededBy": "durable-admission-2026-10-08T19-43-14-860Z-b8ad5b",
       "decisionIds": [
         "D-durable-runtime",
         "D-scheduling"
@@ -2648,15 +2648,15 @@
       ],
       "noisyHost": false,
       "rerun": {
-        "required": true,
-        "priority": "P1",
-        "hostClass": "local-controlled"
+        "required": false,
+        "priority": null,
+        "hostClass": null
       }
     },
     "durable-scheduler-2026-10-08T19-23-13-402Z-a1f48f": {
-      "role": "selected",
-      "reason": "domaine lourd en surcharge à côté de trois petits domaines, file globale contre file par domaine",
-      "supersededBy": null,
+      "role": "superseded",
+      "reason": "domaine lourd en surcharge à côté de trois petits domaines, file globale contre file par domaine ; avant la journalisation du départ des travaux",
+      "supersededBy": "durable-scheduler-2026-10-08T19-43-56-509Z-dfabee",
       "decisionIds": [
         "D-durable-runtime",
         "D-scheduling"
@@ -2675,9 +2675,9 @@
       ],
       "noisyHost": false,
       "rerun": {
-        "required": true,
-        "priority": "P1",
-        "hostClass": "local-controlled"
+        "required": false,
+        "priority": null,
+        "hostClass": null
       }
     },
     "tls-fingerprint-2026-10-08T19-32-26-736Z-f42991": {
@@ -2761,6 +2761,123 @@
           "scope": "proxy-contract",
           "class": "A",
           "note": "juge sur les tunnels relevés par les proxies de la fixture"
+        }
+      ],
+      "noisyHost": false,
+      "rerun": {
+        "required": false,
+        "priority": null,
+        "hostClass": null
+      }
+    },
+    "durable-admission-2026-10-08T19-43-14-860Z-b8ad5b": {
+      "role": "selected",
+      "reason": "admission sous arrivées ouvertes sans surcharge, deux politiques de file",
+      "supersededBy": null,
+      "decisionIds": [
+        "D-durable-runtime",
+        "D-scheduling"
+      ],
+      "validity": [
+        {
+          "scope": "admission-contract",
+          "class": "A",
+          "note": "aucune perte, bornes et limites par domaine observées de l'extérieur"
+        },
+        {
+          "scope": "ack-latency",
+          "class": "B",
+          "note": "local-dev, Mac en usage"
+        }
+      ],
+      "noisyHost": false,
+      "rerun": {
+        "required": true,
+        "priority": "P1",
+        "hostClass": "local-controlled"
+      }
+    },
+    "durable-scheduler-2026-10-08T19-43-56-509Z-dfabee": {
+      "role": "selected",
+      "reason": "domaine lourd en surcharge à côté de trois petits domaines, file globale contre file par domaine",
+      "supersededBy": null,
+      "decisionIds": [
+        "D-durable-runtime",
+        "D-scheduling"
+      ],
+      "validity": [
+        {
+          "scope": "admission-contract",
+          "class": "A",
+          "note": "aucune perte, refus explicites jamais exécutés"
+        },
+        {
+          "scope": "fairness",
+          "class": "B",
+          "note": "local-dev ; le débit des petits domaines dépend du calendrier d'arrivées, pas de l'hôte"
+        }
+      ],
+      "noisyHost": false,
+      "rerun": {
+        "required": true,
+        "priority": "P1",
+        "hostClass": "local-controlled"
+      }
+    },
+    "durable-admission-recovery-2026-10-08T19-50-26-865Z-f4c814": {
+      "role": "selected",
+      "reason": "admission : crash après commit et avant l'accusé, reprise du journal, renvoi idempotent",
+      "supersededBy": null,
+      "decisionIds": [
+        "D-durable-runtime"
+      ],
+      "validity": [
+        {
+          "scope": "recovery-contract",
+          "class": "A",
+          "note": "aucune perte, accusé dupliqué sans double entrée, limite par domaine tenue après la reprise"
+        }
+      ],
+      "noisyHost": false,
+      "rerun": {
+        "required": false,
+        "priority": null,
+        "hostClass": null
+      }
+    },
+    "durable-admission-recovery-2026-10-08T19-44-42-896Z-88a50f": {
+      "role": "diagnostic",
+      "reason": "crash par minuterie : aucune soumission en vol, chemin idempotent non exercé",
+      "supersededBy": "durable-admission-recovery-2026-10-08T19-50-26-865Z-f4c814",
+      "decisionIds": [
+        "D-durable-runtime"
+      ],
+      "validity": [
+        {
+          "scope": "all",
+          "class": "none",
+          "note": "harnais corrigé ensuite"
+        }
+      ],
+      "noisyHost": false,
+      "rerun": {
+        "required": false,
+        "priority": null,
+        "hostClass": null
+      }
+    },
+    "durable-admission-recovery-2026-10-08T19-49-28-380Z-2249bb": {
+      "role": "diagnostic",
+      "reason": "faute portée par une soumission refusée : un bloc sans crash",
+      "supersededBy": "durable-admission-recovery-2026-10-08T19-50-26-865Z-f4c814",
+      "decisionIds": [
+        "D-durable-runtime"
+      ],
+      "validity": [
+        {
+          "scope": "all",
+          "class": "none",
+          "note": "harnais corrigé ensuite"
         }
       ],
       "noisyHost": false,

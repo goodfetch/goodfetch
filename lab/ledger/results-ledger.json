@@ -1,6 +1,6 @@
 {
  "schemaVersion": 1,
- "classificationSha256": "725ccd49494b52a2334c6c66167fcb2f6a1d703b887c8805c0a89f2bec6c5118",
+ "classificationSha256": "f3ecb89df5dcc7fa804d63d2c680d36bf614affdc48517bb8f5968a48394e5d1",
  "entries": [
   {
    "runId": "smoke-2026-10-07T20-20-24-226Z-9ebb47",
@@ -3699,9 +3699,9 @@
    "startedAt": "2026-10-08T19:22:31.770Z",
    "status": "complete",
    "hostClass": "local-dev",
-   "role": "selected",
-   "supersededBy": null,
-   "reason": "admission sous arrivées ouvertes sans surcharge, deux politiques de file",
+   "role": "superseded",
+   "supersededBy": "durable-admission-2026-10-08T19-43-14-860Z-b8ad5b",
+   "reason": "admission sous arrivées ouvertes sans surcharge, deux politiques de file ; avant la journalisation du départ des travaux",
    "validity": [
     {
      "scope": "admission-contract",
@@ -3718,14 +3718,12 @@
     "D-durable-runtime",
     "D-scheduling"
    ],
-   "citedIn": [
-    "lab/reports/admission-2026-10-08.md"
-   ],
+   "citedIn": [],
    "integrity": "uncatalogued",
    "rerun": {
-    "required": true,
-    "priority": "P1",
-    "hostClass": "local-controlled"
+    "required": false,
+    "priority": null,
+    "hostClass": null
    },
    "imported": "results/durable-admission-2026-10-08T19-22-31-770Z-5ab034/run.v2.json"
   },
@@ -3736,9 +3734,9 @@
    "startedAt": "2026-10-08T19:23:13.402Z",
    "status": "complete",
    "hostClass": "local-dev",
-   "role": "selected",
-   "supersededBy": null,
-   "reason": "domaine lourd en surcharge à côté de trois petits domaines, file globale contre file par domaine",
+   "role": "superseded",
+   "supersededBy": "durable-scheduler-2026-10-08T19-43-56-509Z-dfabee",
+   "reason": "domaine lourd en surcharge à côté de trois petits domaines, file globale contre file par domaine ; avant la journalisation du départ des travaux",
    "validity": [
     {
      "scope": "admission-contract",
@@ -3755,14 +3753,12 @@
     "D-durable-runtime",
     "D-scheduling"
    ],
-   "citedIn": [
-    "lab/reports/admission-2026-10-08.md"
-   ],
+   "citedIn": [],
    "integrity": "uncatalogued",
    "rerun": {
-    "required": true,
-    "priority": "P1",
-    "hostClass": "local-controlled"
+    "required": false,
+    "priority": null,
+    "hostClass": null
    },
    "imported": "results/durable-scheduler-2026-10-08T19-23-13-402Z-a1f48f/run.v2.json"
   },
@@ -3895,6 +3891,169 @@
     "hostClass": null
    },
    "imported": "results/proxy-pool-2026-10-08T19-35-52-648Z-de827b/run.v2.json"
+  },
+  {
+   "runId": "durable-admission-2026-10-08T19-43-14-860Z-b8ad5b",
+   "lane": "admission",
+   "campaign": "durable-admission",
+   "startedAt": "2026-10-08T19:43:14.860Z",
+   "status": "complete",
+   "hostClass": "local-dev",
+   "role": "selected",
+   "supersededBy": null,
+   "reason": "admission sous arrivées ouvertes sans surcharge, deux politiques de file",
+   "validity": [
+    {
+     "scope": "admission-contract",
+     "class": "A",
+     "note": "aucune perte, bornes et limites par domaine observées de l'extérieur"
+    },
+    {
+     "scope": "ack-latency",
+     "class": "B",
+     "note": "local-dev, Mac en usage"
+    }
+   ],
+   "decisionIds": [
+    "D-durable-runtime",
+    "D-scheduling"
+   ],
+   "citedIn": [
+    "lab/reports/admission-2026-10-08.md"
+   ],
+   "integrity": "uncatalogued",
+   "rerun": {
+    "required": true,
+    "priority": "P1",
+    "hostClass": "local-controlled"
+   },
+   "imported": "results/durable-admission-2026-10-08T19-43-14-860Z-b8ad5b/run.v2.json"
+  },
+  {
+   "runId": "durable-scheduler-2026-10-08T19-43-56-509Z-dfabee",
+   "lane": "admission",
+   "campaign": "durable-scheduler",
+   "startedAt": "2026-10-08T19:43:56.509Z",
+   "status": "complete",
+   "hostClass": "local-dev",
+   "role": "selected",
+   "supersededBy": null,
+   "reason": "domaine lourd en surcharge à côté de trois petits domaines, file globale contre file par domaine",
+   "validity": [
+    {
+     "scope": "admission-contract",
+     "class": "A",
+     "note": "aucune perte, refus explicites jamais exécutés"
+    },
+    {
+     "scope": "fairness",
+     "class": "B",
+     "note": "local-dev ; le débit des petits domaines dépend du calendrier d'arrivées, pas de l'hôte"
+    }
+   ],
+   "decisionIds": [
+    "D-durable-runtime",
+    "D-scheduling"
+   ],
+   "citedIn": [
+    "lab/reports/admission-2026-10-08.md"
+   ],
+   "integrity": "uncatalogued",
+   "rerun": {
+    "required": true,
+    "priority": "P1",
+    "hostClass": "local-controlled"
+   },
+   "imported": "results/durable-scheduler-2026-10-08T19-43-56-509Z-dfabee/run.v2.json"
+  },
+  {
+   "runId": "durable-admission-recovery-2026-10-08T19-44-42-896Z-88a50f",
+   "lane": "admission",
+   "campaign": "durable-admission-recovery",
+   "startedAt": "2026-10-08T19:44:42.896Z",
+   "status": "complete",
+   "hostClass": "local-dev",
+   "role": "diagnostic",
+   "supersededBy": "durable-admission-recovery-2026-10-08T19-50-26-865Z-f4c814",
+   "reason": "crash par minuterie : aucune soumission en vol, chemin idempotent non exercé",
+   "validity": [
+    {
+     "scope": "all",
+     "class": "none",
+     "note": "harnais corrigé ensuite"
+    }
+   ],
+   "decisionIds": [
+    "D-durable-runtime"
+   ],
+   "citedIn": [],
+   "integrity": "uncatalogued",
+   "rerun": {
+    "required": false,
+    "priority": null,
+    "hostClass": null
+   },
+   "imported": "results/durable-admission-recovery-2026-10-08T19-44-42-896Z-88a50f/run.v2.json"
+  },
+  {
+   "runId": "durable-admission-recovery-2026-10-08T19-49-28-380Z-2249bb",
+   "lane": "admission",
+   "campaign": "durable-admission-recovery",
+   "startedAt": "2026-10-08T19:49:28.380Z",
+   "status": "complete",
+   "hostClass": "local-dev",
+   "role": "diagnostic",
+   "supersededBy": "durable-admission-recovery-2026-10-08T19-50-26-865Z-f4c814",
+   "reason": "faute portée par une soumission refusée : un bloc sans crash",
+   "validity": [
+    {
+     "scope": "all",
+     "class": "none",
+     "note": "harnais corrigé ensuite"
+    }
+   ],
+   "decisionIds": [
+    "D-durable-runtime"
+   ],
+   "citedIn": [],
+   "integrity": "uncatalogued",
+   "rerun": {
+    "required": false,
+    "priority": null,
+    "hostClass": null
+   },
+   "imported": "results/durable-admission-recovery-2026-10-08T19-49-28-380Z-2249bb/run.v2.json"
+  },
+  {
+   "runId": "durable-admission-recovery-2026-10-08T19-50-26-865Z-f4c814",
+   "lane": "admission",
+   "campaign": "durable-admission-recovery",
+   "startedAt": "2026-10-08T19:50:26.865Z",
+   "status": "complete",
+   "hostClass": "local-dev",
+   "role": "selected",
+   "supersededBy": null,
+   "reason": "admission : crash après commit et avant l'accusé, reprise du journal, renvoi idempotent",
+   "validity": [
+    {
+     "scope": "recovery-contract",
+     "class": "A",
+     "note": "aucune perte, accusé dupliqué sans double entrée, limite par domaine tenue après la reprise"
+    }
+   ],
+   "decisionIds": [
+    "D-durable-runtime"
+   ],
+   "citedIn": [
+    "lab/reports/admission-2026-10-08.md"
+   ],
+   "integrity": "uncatalogued",
+   "rerun": {
+    "required": false,
+    "priority": null,
+    "hostClass": null
+   },
+   "imported": "results/durable-admission-recovery-2026-10-08T19-50-26-865Z-f4c814/run.v2.json"
   }
  ]
 }

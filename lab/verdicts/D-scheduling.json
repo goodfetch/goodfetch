@@ -23,17 +23,17 @@
  "margin": 0.09531017980432493,
  "requiredN": 5,
  "estimate": {
-  "meanLogRatio": 0.9306266145585361,
-  "ratio": 2.5360978356534387,
+  "meanLogRatio": 1.0434855800094576,
+  "ratio": 2.8390956830627427,
   "ci": [
-   0.8748600269697533,
-   0.9840176347942439
+   0.9954391835358167,
+   1.0961319870054176
   ],
   "ratioCi": [
-   2.3985395396218423,
-   2.675182586874895
+   2.7059124725638166,
+   2.9925683152318796
   ],
-  "hodgesLehmannRatio": 2.515883608132604,
+  "hodgesLehmannRatio": 2.8336317901990853,
   "wilcoxon": {
    "n": 5,
    "wPlus": 15,
@@ -71,17 +71,17 @@
    "margin": 0.09531017980432493,
    "requiredN": 5,
    "estimate": {
-    "meanLogRatio": 0.9306266145585361,
-    "ratio": 2.5360978356534387,
+    "meanLogRatio": 1.0434855800094576,
+    "ratio": 2.8390956830627427,
     "ci": [
-     0.8748600269697533,
-     0.9840176347942439
+     0.9954391835358167,
+     1.0961319870054176
     ],
     "ratioCi": [
-     2.3985395396218423,
-     2.675182586874895
+     2.7059124725638166,
+     2.9925683152318796
     ],
-    "hodgesLehmannRatio": 2.515883608132604,
+    "hodgesLehmannRatio": 2.8336317901990853,
     "wilcoxon": {
      "n": 5,
      "wPlus": 15,
@@ -111,13 +111,13 @@
  ],
  "inputs": {
   "runs": [
-   "durable-scheduler-2026-10-08T19-23-13-402Z-a1f48f"
+   "durable-scheduler-2026-10-08T19-43-56-509Z-dfabee"
   ],
   "considered": [
-   "durable-admission-2026-10-08T19-22-31-770Z-5ab034",
-   "durable-scheduler-2026-10-08T19-23-13-402Z-a1f48f"
+   "durable-admission-2026-10-08T19-43-14-860Z-b8ad5b",
+   "durable-scheduler-2026-10-08T19-43-56-509Z-dfabee"
   ],
   "missing": [],
-  "ledgerSha256": "9134025ebd657e8300fe7ac858eb5b7a6f1f234d6650868e79a418575c69a652"
+  "ledgerSha256": "aa0ff7a3c498936c6b1a880cb77ccbb4966f8a099470fafcc6d82a871bc8e909"
  }
 }

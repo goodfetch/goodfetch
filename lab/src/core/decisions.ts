@@ -11,7 +11,7 @@ export type Decision = {
   delta?: { kind: string; value: number }; rule?: { kind: string; alpha: number; power: number; noisyBlockPolicy: string };
   hostClass?: { decision: string; publication: string }; networkProfiles?: unknown[]; campaigns?: string[];
   evidence: { kind: 'run' | 'research-doc'; ref: string; note?: string }[]; verdictRef?: string | null;
-  analysis?: { lane: string; options: Record<string, Record<string, string | number | boolean | null>>; pairBy: string[]; stratum: Record<string, string | number | boolean | null>; gateLanes?: Record<string, string> }; adr?: string | null; dependsOn: string[]; notes: string;
+  analysis?: { lane: string; options: Record<string, Record<string, string | number | boolean | null>>; pairBy: string[]; stratum: Record<string, string | number | boolean | null>; strata?: Record<string, string | number | boolean | null>[]; gateLanes?: Record<string, string> }; adr?: string | null; dependsOn: string[]; notes: string;
 };
 export type Claim = { id: string; statement: string; decisionId: string; metricId: string; comparator: { option: string; against: string[] }; direction: string; publicationHostClass: string; status: string; evidence: string[]; notes: string };
 export type Registry = { root: string; decisions: Decision[]; claims: Claim[]; metrics: Metric[]; ledgerRunIds: string[] | null };

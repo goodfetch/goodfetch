@@ -1,0 +1,123 @@
+{
+ "schemaVersion": 1,
+ "decisionId": "D-scheduling",
+ "metricId": "light-domain-goodput",
+ "direction": "higher",
+ "rule": {
+  "kind": "superiority",
+  "alpha": 0.05,
+  "power": 0.8,
+  "noisyBlockPolicy": "exclude"
+ },
+ "delta": {
+  "kind": "ratio",
+  "value": 0.1
+ },
+ "option": "fair-domain",
+ "baseline": "fifo-global",
+ "stratum": {
+  "scenario": "flood"
+ },
+ "outcome": "better",
+ "n": 5,
+ "margin": 0.09531017980432493,
+ "requiredN": 5,
+ "estimate": {
+  "meanLogRatio": 0.9306266145585361,
+  "ratio": 2.5360978356534387,
+  "ci": [
+   0.8748600269697533,
+   0.9840176347942439
+  ],
+  "ratioCi": [
+   2.3985395396218423,
+   2.675182586874895
+  ],
+  "hodgesLehmannRatio": 2.515883608132604,
+  "wilcoxon": {
+   "n": 5,
+   "wPlus": 15,
+   "pValue": 0.0625,
+   "method": "exact"
+  },
+  "interval": "95% block bootstrap"
+ },
+ "gates": [
+  {
+   "id": "admission-no-loss",
+   "ok": true,
+   "evaluated": true
+  },
+  {
+   "id": "oracle-exact",
+   "ok": true,
+   "evaluated": true
+  }
+ ],
+ "host": {
+  "required": "local-controlled",
+  "observed": "local-dev",
+  "eligible": false
+ },
+ "comparisons": [
+  {
+   "option": "fair-domain",
+   "baseline": "fifo-global",
+   "stratum": {
+    "scenario": "flood"
+   },
+   "outcome": "better",
+   "n": 5,
+   "margin": 0.09531017980432493,
+   "requiredN": 5,
+   "estimate": {
+    "meanLogRatio": 0.9306266145585361,
+    "ratio": 2.5360978356534387,
+    "ci": [
+     0.8748600269697533,
+     0.9840176347942439
+    ],
+    "ratioCi": [
+     2.3985395396218423,
+     2.675182586874895
+    ],
+    "hodgesLehmannRatio": 2.515883608132604,
+    "wilcoxon": {
+     "n": 5,
+     "wPlus": 15,
+     "pValue": 0.0625,
+     "method": "exact"
+    },
+    "interval": "95% block bootstrap"
+   },
+   "gates": [
+    {
+     "id": "admission-no-loss",
+     "ok": true,
+     "evaluated": true
+    },
+    {
+     "id": "oracle-exact",
+     "ok": true,
+     "evaluated": true
+    }
+   ],
+   "host": {
+    "required": "local-controlled",
+    "observed": "local-dev",
+    "eligible": false
+   }
+  }
+ ],
+ "inputs": {
+  "runs": [
+   "durable-scheduler-2026-10-08T19-23-13-402Z-a1f48f"
+  ],
+  "considered": [
+   "durable-admission-2026-10-08T19-22-31-770Z-5ab034",
+   "durable-scheduler-2026-10-08T19-23-13-402Z-a1f48f"
+  ],
+  "missing": [],
+  "ledgerSha256": "f77ccaa5170c791acb8814a7c4a6e349105eee7953121c7b92b5677625ef36ed"
+ }
+}

@@ -56,6 +56,20 @@
       "kind": "run",
       "ref": "runtime-faults-extended-2026-10-08T17-49-02-487Z-54a5e6",
       "note": "pannes étendues"
+    },
+    {
+      "kind": "run",
+      "ref": "durable-admission-2026-10-08T19-22-31-770Z-5ab034",
+      "note": "admission ouverte, accusé après journalisation"
+    },
+    {
+      "kind": "run",
+      "ref": "durable-scheduler-2026-10-08T19-23-13-402Z-a1f48f",
+      "note": "surcharge : refus explicites, aucune perte"
+    },
+    {
+      "kind": "research-doc",
+      "ref": "lab/reports/admission-2026-10-08.md"
     }
   ],
   "verdictRef": null,

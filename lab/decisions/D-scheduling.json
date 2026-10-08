@@ -1,0 +1,89 @@
+{
+  "id": "D-scheduling",
+  "title": "Admission et ordonnancement multi-domaines",
+  "question": "Sous arrivées continues, une file bornée par domaine avec tour de rôle protège-t-elle les petits domaines quand un domaine en surcharge, mieux qu'une file globale ?",
+  "kind": "technical",
+  "status": "open",
+  "options": [
+    {
+      "id": "fifo-global",
+      "description": "Une file globale bornée ; le répartiteur prend le plus ancien travail dont le domaine a une place libre"
+    },
+    {
+      "id": "fair-domain",
+      "description": "Une file bornée par domaine sous un plafond global ; le répartiteur sert les domaines à tour de rôle"
+    }
+  ],
+  "baseline": "fifo-global",
+  "primaryMetric": {
+    "metricId": "light-domain-goodput",
+    "blockStatistic": "median"
+  },
+  "secondaryMetrics": [
+    "light-domain-acceptance",
+    "light-domain-p95-ms",
+    "ack-latency-p95-ms"
+  ],
+  "contractGates": [
+    "admission-no-loss",
+    "oracle-exact"
+  ],
+  "delta": {
+    "kind": "ratio",
+    "value": 0.1
+  },
+  "rule": {
+    "kind": "superiority",
+    "alpha": 0.05,
+    "power": 0.8,
+    "noisyBlockPolicy": "exclude"
+  },
+  "hostClass": {
+    "decision": "local-controlled",
+    "publication": "reference"
+  },
+  "networkProfiles": [],
+  "campaigns": [
+    "durable-admission",
+    "durable-scheduler"
+  ],
+  "evidence": [
+    {
+      "kind": "run",
+      "ref": "durable-admission-2026-10-08T19-22-31-770Z-5ab034",
+      "note": "sans surcharge"
+    },
+    {
+      "kind": "run",
+      "ref": "durable-scheduler-2026-10-08T19-23-13-402Z-a1f48f",
+      "note": "domaine lourd en surcharge"
+    },
+    {
+      "kind": "research-doc",
+      "ref": "lab/reports/admission-2026-10-08.md"
+    }
+  ],
+  "verdictRef": null,
+  "adr": null,
+  "dependsOn": [
+    "D-durable-runtime"
+  ],
+  "analysis": {
+    "lane": "admission",
+    "options": {
+      "fifo-global": {
+        "policy": "fifo-global"
+      },
+      "fair-domain": {
+        "policy": "fair-domain"
+      }
+    },
+    "pairBy": [
+      "scenario"
+    ],
+    "stratum": {
+      "scenario": "flood"
+    }
+  },
+  "notes": "Les deux politiques respectent la même limite de requêtes simultanées par domaine ; seule la répartition de la file d'attente change."
+}

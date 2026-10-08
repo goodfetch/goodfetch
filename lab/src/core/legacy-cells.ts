@@ -5,7 +5,7 @@ export type Counts = { verified: number; failed: number; timeout: number; crashe
 export type CellStatus = 'verified' | 'failed' | 'mixed' | 'timeout' | 'crashed' | 'aborted' | 'unsupported' | 'rejected' | 'unavailable' | 'skipped-gate';
 export type Measure = { value: number | null; unit: string; source: string };
 export type ImportedCell = { cellId: string; factors: Record<string, string | number | boolean | null>; status: CellStatus; errorCode: string | null; counts: Counts; metrics: Record<string, Measure> };
-export type Lane = 'bench' | 'storage' | 'workflow' | 'runtime' | 'actionability' | 'sqlite-readers' | 'extraction' | 'ai' | 'identity' | 'suite';
+export type Lane = 'bench' | 'storage' | 'workflow' | 'runtime' | 'actionability' | 'sqlite-readers' | 'extraction' | 'ai' | 'identity' | 'admission' | 'suite';
 export type Json = Record<string, unknown>;
 
 const factorKeys = ['backend', 'extractor', 'pageType', 'split', 'mode', 'httpTier', 'profile', 'purpose', 'scenario', 'engine', 'format', 'batchSize', 'batchRows', 'writers', 'readerMode', 'payloadBytes', 'concurrency', 'batchJobs', 'fault', 'poolWake', 'runtime', 'variant', 'policy', 'jobs', 'pages', 'delayMs', 'leaseMs', 'block'];
@@ -52,6 +52,10 @@ export function laneMetrics(lane: Lane, raw: Json): Record<string, Measure> {
   if (lane === 'identity') {
     metrics['task-p50-ms-verified'] = measure(raw.taskP50MsVerified, 'ms', 'lane; median over the verified repeats of the cell, session opening and oracle excluded');
     metrics['false-success-count'] = measure(raw.falseSuccess, 'count', 'lane; repeats that reported data the site oracle refutes');
+  }
+  if (lane === 'admission') {
+    const source = 'lane; open Poisson arrivals, acknowledgement once journaled, completions observed at the site';
+    for (const [id, key, unit] of [['ack-latency-p95-ms', 'ackP95Ms', 'ms'], ['verified-jobs-per-second', 'verifiedJobsPerSecond', 'job/s'], ['light-domain-goodput', 'lightGoodput', 'job/s'], ['light-domain-p95-ms', 'lightP95Ms', 'ms'], ['light-domain-acceptance', 'lightAcceptance', 'ratio']] as const) metrics[id] = measure(raw[key], unit, source);
   }
   if (lane === 'extraction') {
     const source = 'lane; mean over the pages of the cell, WCXB evaluate.py definitions';

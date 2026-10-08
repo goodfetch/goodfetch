@@ -29,7 +29,8 @@
         "sqlite-readers",
         "extraction",
         "ai",
-        "identity"
+        "identity",
+        "admission"
       ]
     },
     "decisionIds": {

@@ -37,6 +37,9 @@
     { "id": "identity-coherence", "kind": "contract", "unit": "ratio", "direction": "one", "description": "Within one session, TLS, HTTP/2, header and client-hint fingerprints stay consistent across HTTP and browser tiers", "platforms": { "darwin": "harness", "linux": "harness" } },
     { "id": "policy-compliance", "kind": "contract", "unit": "ratio", "direction": "one", "description": "Requests refused or allowed exactly as robots.txt, Content-Signal and TDMRep fixtures require, decisions journaled", "platforms": { "darwin": "harness", "linux": "harness" } },
     { "id": "session-isolation", "kind": "contract", "unit": "ratio", "direction": "one", "description": "No cookie, storage or data leak between tenants and sessions carrying distinct witness data", "platforms": { "darwin": "harness", "linux": "harness" } },
-    { "id": "admission-no-loss", "kind": "contract", "unit": "ratio", "direction": "one", "description": "Under continuous arrivals every accepted job is acknowledged or explicitly rejected; queues stay bounded", "platforms": { "darwin": "harness", "linux": "harness" } }
+    { "id": "admission-no-loss", "kind": "contract", "unit": "ratio", "direction": "one", "description": "Under continuous arrivals every accepted job is acknowledged or explicitly rejected; queues stay bounded", "platforms": { "darwin": "harness", "linux": "harness" } },
+    { "id": "light-domain-goodput", "kind": "performance", "unit": "job/s", "direction": "higher", "description": "Verified jobs of the light domains per second of arrivals, while a heavy domain overloads the runtime", "platforms": { "darwin": "harness", "linux": "harness" } },
+    { "id": "light-domain-p95-ms", "kind": "performance", "unit": "ms", "direction": "lower", "description": "95th percentile from submission to completion of admitted light-domain jobs", "platforms": { "darwin": "harness", "linux": "harness" } },
+    { "id": "light-domain-acceptance", "kind": "performance", "unit": "ratio", "direction": "higher", "description": "Share of light-domain submissions admitted while a heavy domain overloads the runtime", "platforms": { "darwin": "harness", "linux": "harness" } }
   ]
 }

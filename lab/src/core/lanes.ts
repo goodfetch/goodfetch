@@ -14,6 +14,7 @@ import { validateWorkflowCampaign, workflowCombinations, runWorkflowCell, type W
 import { runRuntimeCell, type RuntimeCampaign } from '../runtime-campaign.ts';
 import { actionabilityCombinations, runActionabilityCell, type ActionabilityConfig, type ActionabilityCell } from '../actionability-campaign.ts';
 import { readersMatrix, runReadersCell, type ReadersConfig } from '../sqlite-readers-campaign.ts';
+import { aiCombinations, runAiCell, type AiConfig, type AiCell } from '../ai-campaign.ts';
 import { extractionCombinations, runExtractionCell, type ExtractionConfig, type ExtractionCell } from '../extraction-campaign.ts';
 import { isSharedEngine, sharedBuildMetadata } from '../storage-engines.ts';
 
@@ -60,6 +61,12 @@ export const drivers: Record<LaneName, LaneDriver> = {
     combinations: config => actionabilityCombinations(config as ActionabilityConfig) as unknown as Json[], label: cell => `${cell.scenario}/${cell.backend}/${cell.policy}/${cell.variant}`,
     prepare: async () => browserPath(),
     runCell: (config, cell, block, _directory, executablePath) => runActionabilityCell(config as ActionabilityConfig, cell as unknown as ActionabilityCell, block, executablePath as string)
+  },
+  ai: {
+    validate: config => { const c = config as AiConfig; if (!c || !Array.isArray(c.modes) || !c.modes.length || !c.modes.every(m => m === 'agent-each-run' || m === 'compiled-replay') || !Array.isArray(c.variants) || !c.variants.length || !integer(c.warmRuns, 1, 50) || !integer(c.blocks, 1, 10) || !integer(c.timeoutMs, 100, 60_000)) throw new Error('invalid ai campaign'); },
+    blocks: config => (config as AiConfig).blocks, seed: config => (config as AiConfig).seed,
+    combinations: config => aiCombinations(config as AiConfig) as unknown as Json[], label: cell => `${cell.mode}/${cell.variant}`,
+    runCell: (config, cell, block) => runAiCell(config as AiConfig, cell as unknown as AiCell, block) as Promise<Json>
   },
   extraction: {
     validate: config => { const c = config as ExtractionConfig; if (!c || !['dev', 'test'].includes(c.split) || !Array.isArray(c.extractors) || !c.extractors.length || !c.extractors.every(e => (backendNames as readonly string[]).includes(e)) || !Array.isArray(c.pageTypes) || !c.pageTypes.length || !integer(c.blocks, 1, 5) || !integer(c.seed, 0, 2 ** 32 - 1)) throw new Error('invalid extraction campaign'); },

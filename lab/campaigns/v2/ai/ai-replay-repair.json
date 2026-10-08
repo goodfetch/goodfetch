@@ -1,0 +1,28 @@
+{
+  "schemaVersion": 2,
+  "id": "ai-replay-repair",
+  "lane": "ai",
+  "decisionIds": [
+    "D-ai-layer"
+  ],
+  "hostClass": {
+    "requested": "local-dev",
+    "allowDowngrade": true
+  },
+  "config": {
+    "modes": [
+      "agent-each-run",
+      "compiled-replay"
+    ],
+    "variants": [
+      "baseline",
+      "relabel",
+      "decoy-swap",
+      "price-change"
+    ],
+    "warmRuns": 5,
+    "blocks": 3,
+    "seed": 2626,
+    "timeoutMs": 5000
+  }
+}

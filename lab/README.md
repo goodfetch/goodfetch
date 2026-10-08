@@ -85,6 +85,8 @@ La lane `extraction` (D-extraction) mesure la qualité d'extraction du contenu p
 
 `browserHost: "lightpanda"` (bench) et `config.browserEngine: "lightpanda"` (matrices) lancent Lightpanda 1.0.0, épinglé sous `.toolchains/` et toujours hors processus (AGPL-3.0), et lui connectent les mêmes pilotes : la compatibilité du moteur se lit avec les oracles de Chromium.
 
+La lane `ai` (D-ai-layer) oppose un agent qui planifie à chaque exécution à un plan compilé rejoué sans le modèle, sur des pages qui dérivent en silence ; le faux modèle (`fixtures/fake-llm.ts`) compte lui-même ses tokens, que le lab compare à ceux de l'agent.
+
 Avec `browserHost: "harness"`, le harnais lance un Chromium par pilote et par bloc, avec les mêmes flags (`src/core/browser-host.ts`). Il échantillonne ce navigateur avec l'adapter, donc le CPU et la mémoire du navigateur comptent pour tous les pilotes. Playwright et Puppeteer s'y connectent par CDP. Un profil `network: { link: "driver-browser" }` place le proxy de latence entre le pilote et le navigateur. `actionPolicies` fixe la politique de chaque pilote : `guarded` applique la garde avant chaque clic, saisie et sélection, `native` s'en remet aux garanties du pilote.
 
 Le bench produit une cellule par pilote, scénario et bloc, ce qui permet d'apparier les blocs. Les facteurs `policy`, `rttMs` et `browserHost` y figurent. Dans une décision, `analysis.gateLanes` indique la lane où chaque gate lit ses cellules : la conformité d'actionnabilité et l'absence de faux succès viennent de la matrice, pas du bench. Une gate ne passe que sur des cellules de l'option elle-même. Chaque option analysée est comparée à la baseline, avec ses propres gates.

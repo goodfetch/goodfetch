@@ -1,6 +1,6 @@
 {
  "schemaVersion": 1,
- "classificationSha256": "9e7f144d187bd1dc4cf23919b7dcada5b84bdb32a427cb5da1503fc8a07baf49",
+ "classificationSha256": "d56c1ac63f2883da707b32a1584959059bc6638894c743ccf9a2cf95724b9da7",
  "entries": [
   {
    "runId": "smoke-2026-10-07T20-20-24-226Z-9ebb47",
@@ -3416,6 +3416,129 @@
     "hostClass": null
    },
    "imported": "results/light-engine-navigation-2026-10-08T18-21-06-891Z-318afe/run.v2.json"
+  },
+  {
+   "runId": "ai-replay-repair-2026-10-08T18-32-22-360Z-37ef9d",
+   "lane": "ai",
+   "campaign": "ai-replay-repair",
+   "startedAt": "2026-10-08T18:32:22.360Z",
+   "status": "complete",
+   "hostClass": "local-dev",
+   "role": "diagnostic",
+   "supersededBy": null,
+   "reason": "version précédente du rejeu ou sources non commitées",
+   "validity": [
+    {
+     "scope": "all",
+     "class": "none",
+     "note": "rejeu validé étape par étape ou sources non commitées"
+    }
+   ],
+   "decisionIds": [
+    "D-ai-layer"
+   ],
+   "citedIn": [],
+   "integrity": "uncatalogued",
+   "rerun": {
+    "required": false,
+    "priority": null,
+    "hostClass": null
+   },
+   "imported": "results/ai-replay-repair-2026-10-08T18-32-22-360Z-37ef9d/run.v2.json"
+  },
+  {
+   "runId": "ai-replay-repair-2026-10-08T18-33-18-796Z-20040a",
+   "lane": "ai",
+   "campaign": "ai-replay-repair",
+   "startedAt": "2026-10-08T18:33:18.796Z",
+   "status": "complete",
+   "hostClass": "local-dev",
+   "role": "diagnostic",
+   "supersededBy": null,
+   "reason": "version précédente du rejeu ou sources non commitées",
+   "validity": [
+    {
+     "scope": "all",
+     "class": "none",
+     "note": "rejeu validé étape par étape ou sources non commitées"
+    }
+   ],
+   "decisionIds": [
+    "D-ai-layer"
+   ],
+   "citedIn": [],
+   "integrity": "uncatalogued",
+   "rerun": {
+    "required": false,
+    "priority": null,
+    "hostClass": null
+   },
+   "imported": "results/ai-replay-repair-2026-10-08T18-33-18-796Z-20040a/run.v2.json"
+  },
+  {
+   "runId": "ai-replay-repair-2026-10-08T18-34-35-116Z-9d2545",
+   "lane": "ai",
+   "campaign": "ai-replay-repair",
+   "startedAt": "2026-10-08T18:34:35.116Z",
+   "status": "complete",
+   "hostClass": "local-dev",
+   "role": "diagnostic",
+   "supersededBy": null,
+   "reason": "version précédente du rejeu ou sources non commitées",
+   "validity": [
+    {
+     "scope": "all",
+     "class": "none",
+     "note": "rejeu validé étape par étape ou sources non commitées"
+    }
+   ],
+   "decisionIds": [
+    "D-ai-layer"
+   ],
+   "citedIn": [],
+   "integrity": "uncatalogued",
+   "rerun": {
+    "required": false,
+    "priority": null,
+    "hostClass": null
+   },
+   "imported": "results/ai-replay-repair-2026-10-08T18-34-35-116Z-9d2545/run.v2.json"
+  },
+  {
+   "runId": "ai-replay-repair-2026-10-08T18-36-20-202Z-8f0ce3",
+   "lane": "ai",
+   "campaign": "ai-replay-repair",
+   "startedAt": "2026-10-08T18:36:20.202Z",
+   "status": "complete",
+   "hostClass": "local-dev",
+   "role": "selected",
+   "supersededBy": null,
+   "reason": "couche IA : agent à chaque exécution contre rejeu compilé, dérive silencieuse, faux modèle",
+   "validity": [
+    {
+     "scope": "replay-contract",
+     "class": "A",
+     "note": "zéro faux succès, comptage de tokens identique côté modèle"
+    },
+    {
+     "scope": "cost",
+     "class": "B",
+     "note": "faux modèle, table de prix datée"
+    }
+   ],
+   "decisionIds": [
+    "D-ai-layer"
+   ],
+   "citedIn": [
+    "lab/reports/ai-layer-2026-10-08.md"
+   ],
+   "integrity": "uncatalogued",
+   "rerun": {
+    "required": false,
+    "priority": null,
+    "hostClass": null
+   },
+   "imported": "results/ai-replay-repair-2026-10-08T18-36-20-202Z-8f0ce3/run.v2.json"
   }
  ]
 }

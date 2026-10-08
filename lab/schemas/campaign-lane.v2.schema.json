@@ -27,7 +27,8 @@
         "runtime",
         "actionability",
         "sqlite-readers",
-        "extraction"
+        "extraction",
+        "ai"
       ]
     },
     "decisionIds": {

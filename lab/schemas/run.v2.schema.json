@@ -36,6 +36,7 @@
         "runtime",
         "actionability",
         "sqlite-readers",
+        "extraction",
         "suite"
       ]
     },

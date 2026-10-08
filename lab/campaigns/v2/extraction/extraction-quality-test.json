@@ -1,0 +1,33 @@
+{
+  "schemaVersion": 2,
+  "id": "extraction-quality-test",
+  "lane": "extraction",
+  "decisionIds": [
+    "D-extraction"
+  ],
+  "hostClass": {
+    "requested": "local-dev",
+    "allowDowngrade": true
+  },
+  "config": {
+    "split": "test",
+    "extractors": [
+      "rs-trafilatura",
+      "dom-smoothie",
+      "readability",
+      "htmd",
+      "scraper-text"
+    ],
+    "pageTypes": [
+      "article",
+      "collection",
+      "documentation",
+      "forum",
+      "listing",
+      "product",
+      "service"
+    ],
+    "blocks": 1,
+    "seed": 1212
+  }
+}

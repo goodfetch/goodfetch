@@ -4,8 +4,10 @@
   "type": "module",
   "dependencies": {
     "@browserbasehq/stagehand": "4.1.0",
+    "@mozilla/readability": "0.6.0",
     "crawlee": "3.18.2",
     "impit": "0.14.5",
+    "linkedom": "0.18.13",
     "playwright": "1.63.0",
     "puppeteer-core": "25.12.0"
   }

@@ -14,6 +14,7 @@ import { validateWorkflowCampaign, workflowCombinations, runWorkflowCell, type W
 import { runRuntimeCell, type RuntimeCampaign } from '../runtime-campaign.ts';
 import { actionabilityCombinations, runActionabilityCell, type ActionabilityConfig, type ActionabilityCell } from '../actionability-campaign.ts';
 import { readersMatrix, runReadersCell, type ReadersConfig } from '../sqlite-readers-campaign.ts';
+import { extractionCombinations, runExtractionCell, type ExtractionConfig, type ExtractionCell } from '../extraction-campaign.ts';
 import { isSharedEngine, sharedBuildMetadata } from '../storage-engines.ts';
 
 export type LaneName = Exclude<Lane, 'bench' | 'suite'>;
@@ -59,6 +60,12 @@ export const drivers: Record<LaneName, LaneDriver> = {
     combinations: config => actionabilityCombinations(config as ActionabilityConfig) as unknown as Json[], label: cell => `${cell.scenario}/${cell.backend}/${cell.policy}/${cell.variant}`,
     prepare: async () => browserPath(),
     runCell: (config, cell, block, _directory, executablePath) => runActionabilityCell(config as ActionabilityConfig, cell as unknown as ActionabilityCell, block, executablePath as string)
+  },
+  extraction: {
+    validate: config => { const c = config as ExtractionConfig; if (!c || !['dev', 'test'].includes(c.split) || !Array.isArray(c.extractors) || !c.extractors.length || !c.extractors.every(e => (backendNames as readonly string[]).includes(e)) || !Array.isArray(c.pageTypes) || !c.pageTypes.length || !integer(c.blocks, 1, 5) || !integer(c.seed, 0, 2 ** 32 - 1)) throw new Error('invalid extraction campaign'); },
+    blocks: config => (config as ExtractionConfig).blocks, seed: config => (config as ExtractionConfig).seed,
+    combinations: config => extractionCombinations(config as ExtractionConfig) as unknown as Json[], label: cell => `${cell.extractor}/${cell.pageType}`,
+    runCell: (config, cell, block, directory) => runExtractionCell(config as ExtractionConfig, cell as unknown as ExtractionCell, block, directory) as Promise<Json>
   },
   'sqlite-readers': {
     validate: config => { const c = config as ReadersConfig; if (!c || !integer(c.blocks, 1, 20) || !integer(c.seed, 0, 2 ** 32 - 1) || !Array.isArray(c.engines) || !c.engines.length || !Array.isArray(c.writers) || !Array.isArray(c.readerModes) || !Array.isArray(c.batchRows) || !c.batchRows.every(b => Number.isInteger(c.totalRows / b))) throw new Error('invalid readers campaign'); },

@@ -5,10 +5,10 @@ export type Counts = { verified: number; failed: number; timeout: number; crashe
 export type CellStatus = 'verified' | 'failed' | 'mixed' | 'timeout' | 'crashed' | 'aborted' | 'unsupported' | 'rejected' | 'unavailable' | 'skipped-gate';
 export type Measure = { value: number | null; unit: string; source: string };
 export type ImportedCell = { cellId: string; factors: Record<string, string | number | boolean | null>; status: CellStatus; errorCode: string | null; counts: Counts; metrics: Record<string, Measure> };
-export type Lane = 'bench' | 'storage' | 'workflow' | 'runtime' | 'actionability' | 'sqlite-readers' | 'suite';
+export type Lane = 'bench' | 'storage' | 'workflow' | 'runtime' | 'actionability' | 'sqlite-readers' | 'extraction' | 'suite';
 export type Json = Record<string, unknown>;
 
-const factorKeys = ['backend', 'scenario', 'engine', 'format', 'batchSize', 'batchRows', 'writers', 'readerMode', 'payloadBytes', 'concurrency', 'batchJobs', 'fault', 'poolWake', 'runtime', 'variant', 'policy', 'jobs', 'pages', 'delayMs', 'leaseMs', 'block'];
+const factorKeys = ['backend', 'extractor', 'pageType', 'split', 'scenario', 'engine', 'format', 'batchSize', 'batchRows', 'writers', 'readerMode', 'payloadBytes', 'concurrency', 'batchJobs', 'fault', 'poolWake', 'runtime', 'variant', 'policy', 'jobs', 'pages', 'delayMs', 'leaseMs', 'block'];
 
 export const zero = (): Counts => ({ verified: 0, failed: 0, timeout: 0, crashed: 0, aborted: 0, unsupported: 0, rejected: 0, unavailable: 0, skipped: 0 });
 export const add = (into: Counts, from: Partial<Counts>) => { for (const key of Object.keys(into) as (keyof Counts)[]) into[key] += Number(from[key] ?? 0); return into; };
@@ -45,6 +45,10 @@ export function laneMetrics(lane: Lane, raw: Json): Record<string, Measure> {
   if (lane === 'storage' || lane === 'sqlite-readers') metrics['verified-rows-per-second'] = measure(raw.verifiedRowsPerSecond, 'row/s', 'legacy-summary');
   if (lane === 'workflow' || lane === 'runtime') metrics['verified-jobs-per-second'] = measure(raw.verifiedJobsPerSecond, 'job/s', 'legacy-summary; work plus finalization');
   if (lane === 'actionability') metrics['task-ms'] = measure(raw.taskMs, 'ms', 'legacy-summary; startup separated');
+  if (lane === 'extraction') {
+    const source = 'lane; mean over the pages of the cell, WCXB evaluate.py definitions';
+    for (const [id, key, unit] of [['extraction-f1', 'meanF1', 'ratio'], ['extraction-precision', 'meanPrecision', 'ratio'], ['extraction-recall', 'meanRecall', 'ratio'], ['snippet-recall', 'snippetRecall', 'ratio'], ['boilerplate-leak', 'boilerplateLeak', 'ratio'], ['extract-ms-p50', 'extractMsP50', 'ms']] as const) metrics[id] = measure(raw[key], unit, source);
+  }
   if (num(resources.peakRssBytes) !== null) metrics['rss-peak-bytes'] = measure(resources.peakRssBytes, 'B', `legacy-summary; ${str(resources.method) ?? 'sampled RSS'}`);
   if (num(resources.peakFootprintBytes) !== null) metrics['footprint-peak-bytes'] = measure(resources.peakFootprintBytes, 'B', 'legacy-summary; proc_pid_rusage V4');
   const cpu = num(resources.sampledUserCpuMs), system = num(resources.sampledSystemCpuMs), jobs = num(raw.verifiedJobs);

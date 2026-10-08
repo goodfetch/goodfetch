@@ -1,6 +1,6 @@
 {
  "schemaVersion": 1,
- "classificationSha256": "f3ecb89df5dcc7fa804d63d2c680d36bf614affdc48517bb8f5968a48394e5d1",
+ "classificationSha256": "9ffbf66deb7c26ee1512a0014c71f8c07a47527b51217bfb97b68cff5a5aedcd",
  "entries": [
   {
    "runId": "smoke-2026-10-07T20-20-24-226Z-9ebb47",
@@ -4054,6 +4054,133 @@
     "hostClass": null
    },
    "imported": "results/durable-admission-recovery-2026-10-08T19-50-26-865Z-f4c814/run.v2.json"
+  },
+  {
+   "runId": "extraction-rendered-test-2026-10-08T19-58-30-657Z-5e2d46",
+   "lane": "extraction",
+   "campaign": "extraction-rendered-test",
+   "startedAt": "2026-10-08T19:58:30.657Z",
+   "status": "complete",
+   "hostClass": "local-dev",
+   "role": "diagnostic",
+   "supersededBy": "extraction-rendered-test-2026-10-08T20-14-39-618Z-9f5f67",
+   "reason": "une page sans URL faisait échouer la cellule article",
+   "validity": [
+    {
+     "scope": "all",
+     "class": "none",
+     "note": "harnais corrigé ensuite"
+    }
+   ],
+   "decisionIds": [
+    "D-light-engine",
+    "D-extraction"
+   ],
+   "citedIn": [],
+   "integrity": "uncatalogued",
+   "rerun": {
+    "required": false,
+    "priority": null,
+    "hostClass": null
+   },
+   "imported": "results/extraction-rendered-test-2026-10-08T19-58-30-657Z-5e2d46/run.v2.json"
+  },
+  {
+   "runId": "extraction-rendered-test-2026-10-08T20-01-54-598Z-94e927",
+   "lane": "extraction",
+   "campaign": "extraction-rendered-test",
+   "startedAt": "2026-10-08T20:01:54.598Z",
+   "status": "complete",
+   "hostClass": "local-dev",
+   "role": "diagnostic",
+   "supersededBy": "extraction-rendered-test-2026-10-08T20-14-39-618Z-9f5f67",
+   "reason": "hôtes HSTS préchargés refusés : 47 pages non rendues par Chrome",
+   "validity": [
+    {
+     "scope": "all",
+     "class": "none",
+     "note": "harnais corrigé ensuite"
+    }
+   ],
+   "decisionIds": [
+    "D-light-engine",
+    "D-extraction"
+   ],
+   "citedIn": [],
+   "integrity": "uncatalogued",
+   "rerun": {
+    "required": false,
+    "priority": null,
+    "hostClass": null
+   },
+   "imported": "results/extraction-rendered-test-2026-10-08T20-01-54-598Z-94e927/run.v2.json"
+  },
+  {
+   "runId": "extraction-rendered-test-2026-10-08T20-09-03-136Z-e2e504",
+   "lane": "extraction",
+   "campaign": "extraction-rendered-test",
+   "startedAt": "2026-10-08T20:09:03.136Z",
+   "status": "complete",
+   "hostClass": "local-dev",
+   "role": "diagnostic",
+   "supersededBy": "extraction-rendered-test-2026-10-08T20-14-39-618Z-9f5f67",
+   "reason": "fichiers de prédictions écrasés d'un moteur à l'autre",
+   "validity": [
+    {
+     "scope": "all",
+     "class": "none",
+     "note": "harnais corrigé ensuite"
+    }
+   ],
+   "decisionIds": [
+    "D-light-engine",
+    "D-extraction"
+   ],
+   "citedIn": [],
+   "integrity": "uncatalogued",
+   "rerun": {
+    "required": false,
+    "priority": null,
+    "hostClass": null
+   },
+   "imported": "results/extraction-rendered-test-2026-10-08T20-09-03-136Z-e2e504/run.v2.json"
+  },
+  {
+   "runId": "extraction-rendered-test-2026-10-08T20-14-39-618Z-9f5f67",
+   "lane": "extraction",
+   "campaign": "extraction-rendered-test",
+   "startedAt": "2026-10-08T20:14:39.618Z",
+   "status": "complete",
+   "hostClass": "local-dev",
+   "role": "selected",
+   "supersededBy": null,
+   "reason": "pages réelles figées (WCXB test) rendues par Chrome et Lightpanda via le proxy d'archive, extraction rs-trafilatura",
+   "validity": [
+    {
+     "scope": "render-contract",
+     "class": "A",
+     "note": "511 pages, aucune requête hors archive"
+    },
+    {
+     "scope": "render-time",
+     "class": "B",
+     "note": "local-dev, Mac en usage"
+    }
+   ],
+   "decisionIds": [
+    "D-light-engine",
+    "D-extraction"
+   ],
+   "citedIn": [
+    "lab/reports/frozen-pages-2026-10-08.md"
+   ],
+   "integrity": "uncatalogued",
+   "rerun": {
+    "required": true,
+    "priority": "P2",
+    "hostClass": "local-controlled"
+   },
+   "imported": "results/extraction-rendered-test-2026-10-08T20-14-39-618Z-9f5f67/run.v2.json"
   }
  ]
 }

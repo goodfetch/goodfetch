@@ -11,9 +11,9 @@ export const browserFlags = ['--headless', '--remote-debugging-port=0', '--no-fi
 
 export type HostedBrowser = { pid: number; wsEndpoint: string; port: number; close(): Promise<void> };
 
-export async function launchBrowser(executablePath: string, timeoutMs = 30_000): Promise<HostedBrowser> {
+export async function launchBrowser(executablePath: string, timeoutMs = 30_000, extraFlags: string[] = []): Promise<HostedBrowser> {
   const profile = await mkdtemp(join(tmpdir(), 'automan-chrome-'));
-  const child = spawn(executablePath, [...browserFlags, `--user-data-dir=${profile}`, 'about:blank'], { stdio: ['ignore', 'ignore', 'pipe'] });
+  const child = spawn(executablePath, [...browserFlags, ...extraFlags, `--user-data-dir=${profile}`, 'about:blank'], { stdio: ['ignore', 'ignore', 'pipe'] });
   const exited = new Promise<void>(resolve => child.once('exit', () => resolve()));
   const close = async () => { if (child.exitCode === null && child.signalCode === null) { child.kill('SIGTERM'); const timer = setTimeout(() => child.kill('SIGKILL'), 5000); await exited; clearTimeout(timer); } await rm(profile, { recursive: true, force: true }); };
   try {
@@ -35,10 +35,10 @@ export const throughProxy = (wsEndpoint: string, proxy: { host: string; port: nu
 
 // Lightpanda (AGPL-3.0, so always out of process): a CDP server without rendering, pinned under .toolchains.
 export const lightpandaPath = (root: string) => join(root, '.toolchains/lightpanda/1.0.0/lightpanda-aarch64-macos');
-export async function launchLightpanda(binary: string, timeoutMs = 15_000): Promise<HostedBrowser> {
+export async function launchLightpanda(binary: string, timeoutMs = 15_000, extraArgs: string[] = []): Promise<HostedBrowser> {
   const { createServer } = await import('node:net');
   const port = await new Promise<number>(resolve => { const probe = createServer(); probe.listen(0, '127.0.0.1', () => { const free = (probe.address() as { port: number }).port; probe.close(() => resolve(free)); }); });
-  const child = spawn(binary, ['serve', '--host', '127.0.0.1', '--port', String(port), '--disable-metrics'], { stdio: ['ignore', 'ignore', 'ignore'] });
+  const child = spawn(binary, ['serve', '--host', '127.0.0.1', '--port', String(port), '--disable-metrics', ...extraArgs], { stdio: ['ignore', 'ignore', 'ignore'] });
   const exited = new Promise<void>(resolve => child.once('exit', () => resolve()));
   const close = async () => { if (child.exitCode === null && child.signalCode === null) { child.kill('SIGTERM'); const timer = setTimeout(() => child.kill('SIGKILL'), 5000); await exited; clearTimeout(timer); } };
   const deadline = performance.now() + timeoutMs;

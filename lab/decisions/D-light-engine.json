@@ -48,7 +48,8 @@
     "light-engine-compat-native",
     "light-engine-corpus",
     "light-engine-navigation",
-    "light-engine-primitives"
+    "light-engine-primitives",
+    "extraction-rendered-test"
   ],
   "evidence": [
     {
@@ -70,6 +71,15 @@
     {
       "kind": "run",
       "ref": "light-engine-primitives-2026-10-08T18-19-11-980Z-d7f0e3"
+    },
+    {
+      "kind": "run",
+      "ref": "extraction-rendered-test-2026-10-08T20-14-39-618Z-9f5f67",
+      "note": "pages réelles figées : Lightpanda rend les 511 pages"
+    },
+    {
+      "kind": "research-doc",
+      "ref": "lab/reports/frozen-pages-2026-10-08.md"
     }
   ],
   "verdictRef": null,

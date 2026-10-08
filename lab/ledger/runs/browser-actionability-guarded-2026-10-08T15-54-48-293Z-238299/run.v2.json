@@ -1,0 +1,5339 @@
+{
+ "schemaVersion": 2,
+ "runId": "browser-actionability-guarded-2026-10-08T15-54-48-293Z-238299",
+ "lane": "actionability",
+ "campaign": {
+  "id": "browser-actionability-guarded",
+  "source": "/Users/jb/Dev/automan/lab/campaigns/v2/actionability/browser-actionability-guarded.json",
+  "sha256": "eff22738c946932986ffd1776d586f9cb09472cc248935f59e13d5dbd14b95b1"
+ },
+ "startedAt": "2026-10-08T15:54:48.293Z",
+ "decisionIds": [
+  "D-browser-driver"
+ ],
+ "provenance": {
+  "git": {
+   "available": true,
+   "sha": "8228e6b264f6038e7c4b0d35ecdd93d17c828d31",
+   "dirty": false
+  },
+  "sourceTreeSha256": "19c41bdff9254ff416d7398b3e94730c9d9b3132477d1e161add2a68c72d36ab",
+  "sourceChanges": 0,
+  "binaryChanges": null,
+  "toolchains": {
+   "node": "v25.5.0",
+   "rustc": "rustc 1.93.0 (254b59607 2026-01-19)",
+   "go": "go version go1.27.1 darwin/arm64",
+   "pnpm": "12.9.1"
+  },
+  "integrity": {
+   "status": "uncatalogued",
+   "checked": 0,
+   "mismatches": []
+  }
+ },
+ "host": {
+  "classRequested": "local-controlled",
+  "classGranted": "local-controlled",
+  "os": "darwin",
+  "arch": "arm64",
+  "cpu": "Apple M3 Max",
+  "logicalCpus": 14,
+  "memoryBytes": 38654705664,
+  "preflight": {
+   "snapshot": {
+    "os": "darwin",
+    "arch": "arm64",
+    "cpu": "Apple M3 Max",
+    "logicalCpus": 14,
+    "memoryBytes": 38654705664,
+    "loadAverage1m": 3.43310546875,
+    "memoryFreePercent": 55,
+    "thermalWarning": false,
+    "onAC": true,
+    "lowPowerMode": false,
+    "foreignCpuPercent": 107.29999999999994,
+    "foreignTop": [
+     {
+      "command": "WindowServer",
+      "cpuPercent": 46
+     },
+     {
+      "command": "Google Chrome Helper",
+      "cpuPercent": 11.8
+     },
+     {
+      "command": "corespeechd",
+      "cpuPercent": 6
+     },
+     {
+      "command": "coreaudiod",
+      "cpuPercent": 5.5
+     },
+     {
+      "command": "Google Chrome Helper (Renderer)",
+      "cpuPercent": 5.3
+     }
+    ],
+    "cpuGovernor": null,
+    "virtualized": false,
+    "controllerCpuPercent": 28.100000000000005
+   },
+   "gates": [
+    {
+     "class": "local-controlled",
+     "id": "git-clean",
+     "ok": true,
+     "value": true,
+     "limit": "= true"
+    },
+    {
+     "class": "local-controlled",
+     "id": "load-per-cpu-1m",
+     "ok": true,
+     "value": 0.24522181919642858,
+     "limit": "<= 0.35"
+    },
+    {
+     "class": "local-controlled",
+     "id": "memory-free-percent",
+     "ok": true,
+     "value": 55,
+     "limit": ">= 20"
+    },
+    {
+     "class": "local-controlled",
+     "id": "thermal-warning",
+     "ok": true,
+     "value": false,
+     "limit": "= false"
+    },
+    {
+     "class": "local-controlled",
+     "id": "low-power-mode",
+     "ok": true,
+     "value": false,
+     "limit": "= false"
+    },
+    {
+     "class": "local-controlled",
+     "id": "foreign-cpu-percent",
+     "ok": true,
+     "value": 107.29999999999994,
+     "limit": "<= 150"
+    }
+   ]
+  },
+  "postflight": {
+   "snapshot": {
+    "os": "darwin",
+    "arch": "arm64",
+    "cpu": "Apple M3 Max",
+    "logicalCpus": 14,
+    "memoryBytes": 38654705664,
+    "loadAverage1m": 7.22607421875,
+    "memoryFreePercent": 55,
+    "thermalWarning": false,
+    "onAC": true,
+    "lowPowerMode": false,
+    "foreignCpuPercent": 474.30000000000024,
+    "foreignTop": [
+     {
+      "command": "mcp@latest",
+      "cpuPercent": 95.8
+     },
+     {
+      "command": "npm exec chrome-devtools-mcp@latest",
+      "cpuPercent": 93.5
+     },
+     {
+      "command": "WindowServer",
+      "cpuPercent": 53.3
+     },
+     {
+      "command": "node",
+      "cpuPercent": 27.9
+     },
+     {
+      "command": "chrome-devtools-mcp",
+      "cpuPercent": 25.7
+     }
+    ],
+    "cpuGovernor": null,
+    "virtualized": false,
+    "controllerCpuPercent": 64.3
+   }
+  }
+ },
+ "status": "noisy-host",
+ "countUnit": "cell",
+ "cells": [
+  {
+   "cellId": "5054e2cceee7-0",
+   "factors": {
+    "backend": "puppeteer",
+    "scenario": "actionability",
+    "variant": "overlay",
+    "policy": "guarded",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 307.9757089999039,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "1c868426c3ba-1",
+   "factors": {
+    "backend": "crawlee-playwright",
+    "scenario": "actionability",
+    "variant": "rerender",
+    "policy": "guarded",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 1154.4441660000011,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "873553e67921-2",
+   "factors": {
+    "backend": "stagehand",
+    "scenario": "actionability",
+    "variant": "hidden",
+    "policy": "guarded",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 360.2774999999674,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "f776b953cce1-3",
+   "factors": {
+    "backend": "crawlee-playwright",
+    "scenario": "actionability",
+    "variant": "delayed",
+    "policy": "guarded",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 1163.6747500000056,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "0c50199ca670-4",
+   "factors": {
+    "backend": "stagehand",
+    "scenario": "actionability",
+    "variant": "delayed",
+    "policy": "guarded",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 329.5672079999931,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "3adbe71628e9-5",
+   "factors": {
+    "backend": "puppeteer",
+    "scenario": "actionability",
+    "variant": "normal",
+    "policy": "guarded",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 176.6957499999553,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "cf69bea6e4ef-6",
+   "factors": {
+    "backend": "stagehand-batch",
+    "scenario": "actionability",
+    "variant": "ambiguous",
+    "policy": "guarded",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 117.59187500004191,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "d2dfe2f784a7-7",
+   "factors": {
+    "backend": "crawlee-playwright",
+    "scenario": "actionability",
+    "variant": "ambiguous",
+    "policy": "guarded",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 835.9317499999888,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "6587a5ed7051-8",
+   "factors": {
+    "backend": "playwright",
+    "scenario": "actionability",
+    "variant": "moving",
+    "policy": "guarded",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 453.02512499992736,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "e15335a7d362-9",
+   "factors": {
+    "backend": "crawlee-playwright",
+    "scenario": "actionability",
+    "variant": "overlay",
+    "policy": "guarded",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 1113.9006250000093,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "d8d3315314ff-10",
+   "factors": {
+    "backend": "stagehand-batch",
+    "scenario": "actionability",
+    "variant": "hidden",
+    "policy": "guarded",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 346.05916600010823,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "f8acaa225a27-11",
+   "factors": {
+    "backend": "puppeteer",
+    "scenario": "actionability",
+    "variant": "never-uncovered",
+    "policy": "guarded",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 875.7175829999615,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "3a0e4bd32ead-12",
+   "factors": {
+    "backend": "stagehand",
+    "scenario": "actionability",
+    "variant": "overlay",
+    "policy": "guarded",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 319.44812500011176,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "2af76f2127fb-13",
+   "factors": {
+    "backend": "crawlee-stagehand",
+    "scenario": "actionability",
+    "variant": "normal",
+    "policy": "guarded",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 753.4754170000087,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "ab117a35c291-14",
+   "factors": {
+    "backend": "playwright",
+    "scenario": "actionability",
+    "variant": "normal",
+    "policy": "guarded",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 328.8816250000382,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "3a1fc2a7c6fe-15",
+   "factors": {
+    "backend": "crawlee-playwright",
+    "scenario": "actionability",
+    "variant": "hidden",
+    "policy": "guarded",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 1160.43758300005,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "918f9c9be65c-16",
+   "factors": {
+    "backend": "stagehand-batch",
+    "scenario": "actionability",
+    "variant": "overlay",
+    "policy": "guarded",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 317.68116600008216,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "9fb5ccc7c09d-17",
+   "factors": {
+    "backend": "crawlee-stagehand",
+    "scenario": "actionability",
+    "variant": "overlay",
+    "policy": "guarded",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 864.1759590000147,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "10ce57095c25-18",
+   "factors": {
+    "backend": "stagehand",
+    "scenario": "actionability",
+    "variant": "never-enabled",
+    "policy": "guarded",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 939.4233339999337,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "0c2149715922-19",
+   "factors": {
+    "backend": "playwright",
+    "scenario": "actionability",
+    "variant": "overlay",
+    "policy": "guarded",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 435.1780409999192,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "fcc57f666e1c-20",
+   "factors": {
+    "backend": "puppeteer",
+    "scenario": "actionability",
+    "variant": "ambiguous",
+    "policy": "guarded",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 66.71900000004098,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "f730ca4cdd2b-21",
+   "factors": {
+    "backend": "playwright",
+    "scenario": "actionability",
+    "variant": "delayed",
+    "policy": "guarded",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 438.170792000019,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "9d9f35f4a832-22",
+   "factors": {
+    "backend": "playwright",
+    "scenario": "actionability",
+    "variant": "ambiguous",
+    "policy": "guarded",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 212.96825000003446,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "fbcb5bf1e234-23",
+   "factors": {
+    "backend": "stagehand",
+    "scenario": "actionability",
+    "variant": "moving",
+    "policy": "guarded",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 351.0052080000751,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "7be781aa1f59-24",
+   "factors": {
+    "backend": "stagehand-batch",
+    "scenario": "actionability",
+    "variant": "normal",
+    "policy": "guarded",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 182.47395799995866,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "8a79934449b5-25",
+   "factors": {
+    "backend": "crawlee-stagehand",
+    "scenario": "actionability",
+    "variant": "never-enabled",
+    "policy": "guarded",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 1416.4225840000436,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "e8ffda93027d-26",
+   "factors": {
+    "backend": "puppeteer",
+    "scenario": "actionability",
+    "variant": "delayed",
+    "policy": "guarded",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 305.36029199999757,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "9df49f87147f-27",
+   "factors": {
+    "backend": "crawlee-stagehand",
+    "scenario": "actionability",
+    "variant": "delayed",
+    "policy": "guarded",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 805.0739590000594,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "bf5cd5064bb0-28",
+   "factors": {
+    "backend": "playwright",
+    "scenario": "actionability",
+    "variant": "rerender",
+    "policy": "guarded",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 433.0683339999523,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "20cfb88dbf31-29",
+   "factors": {
+    "backend": "stagehand-batch",
+    "scenario": "actionability",
+    "variant": "moving",
+    "policy": "guarded",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 369.72387500002515,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "a7391722769b-30",
+   "factors": {
+    "backend": "crawlee-stagehand",
+    "scenario": "actionability",
+    "variant": "moving",
+    "policy": "guarded",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 841.7442500001052,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "6aceb7dce030-31",
+   "factors": {
+    "backend": "stagehand-batch",
+    "scenario": "actionability",
+    "variant": "never-uncovered",
+    "policy": "guarded",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 951.8033339999383,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "cb909fa3e35a-32",
+   "factors": {
+    "backend": "crawlee-playwright",
+    "scenario": "actionability",
+    "variant": "normal",
+    "policy": "guarded",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 976.4774159999797,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "92364f89a6ba-33",
+   "factors": {
+    "backend": "playwright",
+    "scenario": "actionability",
+    "variant": "never-enabled",
+    "policy": "guarded",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 1025.2284170000348,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "d4959a3dfd65-34",
+   "factors": {
+    "backend": "playwright",
+    "scenario": "actionability",
+    "variant": "hidden",
+    "policy": "guarded",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 476.6304170000367,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "8f82890ad627-35",
+   "factors": {
+    "backend": "stagehand",
+    "scenario": "actionability",
+    "variant": "rerender",
+    "policy": "guarded",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 321.7280000000028,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "8e9a853edd6e-36",
+   "factors": {
+    "backend": "playwright",
+    "scenario": "actionability",
+    "variant": "never-uncovered",
+    "policy": "guarded",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 1006.6316250000382,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "0387f26a83d7-37",
+   "factors": {
+    "backend": "crawlee-playwright",
+    "scenario": "actionability",
+    "variant": "never-enabled",
+    "policy": "guarded",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 1654.3861669999314,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "46aa42321e27-38",
+   "factors": {
+    "backend": "crawlee-stagehand",
+    "scenario": "actionability",
+    "variant": "ambiguous",
+    "policy": "guarded",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 567.2366659999825,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "e302fb7f2791-39",
+   "factors": {
+    "backend": "puppeteer",
+    "scenario": "actionability",
+    "variant": "moving",
+    "policy": "guarded",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 338.91991599998437,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "45aa0562db60-40",
+   "factors": {
+    "backend": "crawlee-playwright",
+    "scenario": "actionability",
+    "variant": "moving",
+    "policy": "guarded",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 1147.653667000006,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "a49b23c836cb-41",
+   "factors": {
+    "backend": "crawlee-stagehand",
+    "scenario": "actionability",
+    "variant": "rerender",
+    "policy": "guarded",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 841.9207500000484,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "4d7323f6f0fd-42",
+   "factors": {
+    "backend": "crawlee-playwright",
+    "scenario": "actionability",
+    "variant": "never-uncovered",
+    "policy": "guarded",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 1651.2165409999434,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "5a1a109f25a3-43",
+   "factors": {
+    "backend": "stagehand-batch",
+    "scenario": "actionability",
+    "variant": "rerender",
+    "policy": "guarded",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 320.44095800002106,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "632d2c88e321-44",
+   "factors": {
+    "backend": "stagehand",
+    "scenario": "actionability",
+    "variant": "ambiguous",
+    "policy": "guarded",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 113.03495900006965,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "21a86284d35e-45",
+   "factors": {
+    "backend": "puppeteer",
+    "scenario": "actionability",
+    "variant": "never-enabled",
+    "policy": "guarded",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 873.033250000095,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "4052996c6801-46",
+   "factors": {
+    "backend": "stagehand",
+    "scenario": "actionability",
+    "variant": "normal",
+    "policy": "guarded",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 177.23737500002608,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "8a003ab135ce-47",
+   "factors": {
+    "backend": "puppeteer",
+    "scenario": "actionability",
+    "variant": "hidden",
+    "policy": "guarded",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 336.93366599990986,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "220ed00c7d49-48",
+   "factors": {
+    "backend": "crawlee-stagehand",
+    "scenario": "actionability",
+    "variant": "never-uncovered",
+    "policy": "guarded",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 1423.0714580001077,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "9989647e1f15-49",
+   "factors": {
+    "backend": "stagehand-batch",
+    "scenario": "actionability",
+    "variant": "never-enabled",
+    "policy": "guarded",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 933.8148339999607,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "2e7de847b04a-50",
+   "factors": {
+    "backend": "stagehand",
+    "scenario": "actionability",
+    "variant": "never-uncovered",
+    "policy": "guarded",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 944.1313340000343,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "cc699f9a49a2-51",
+   "factors": {
+    "backend": "crawlee-stagehand",
+    "scenario": "actionability",
+    "variant": "hidden",
+    "policy": "guarded",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 876.3499580000062,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "f619812f63f5-52",
+   "factors": {
+    "backend": "puppeteer",
+    "scenario": "actionability",
+    "variant": "rerender",
+    "policy": "guarded",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 305.4087499999441,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "a2a7b44d758e-53",
+   "factors": {
+    "backend": "stagehand-batch",
+    "scenario": "actionability",
+    "variant": "delayed",
+    "policy": "guarded",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 323.3260419999715,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "596a1f51f8c2-54",
+   "factors": {
+    "backend": "stagehand",
+    "scenario": "actionability",
+    "variant": "moving",
+    "policy": "guarded",
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 339.3891250001034,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "8d01d14d4e98-55",
+   "factors": {
+    "backend": "playwright",
+    "scenario": "actionability",
+    "variant": "delayed",
+    "policy": "guarded",
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 455.37783400004264,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "f504c5d12ce1-56",
+   "factors": {
+    "backend": "stagehand-batch",
+    "scenario": "actionability",
+    "variant": "delayed",
+    "policy": "guarded",
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 315.45383300003596,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "595659c3cbcc-57",
+   "factors": {
+    "backend": "playwright",
+    "scenario": "actionability",
+    "variant": "moving",
+    "policy": "guarded",
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 453.2870000000112,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "80ea1b6f468f-58",
+   "factors": {
+    "backend": "stagehand",
+    "scenario": "actionability",
+    "variant": "ambiguous",
+    "policy": "guarded",
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 107.40170800010674,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "332484258873-59",
+   "factors": {
+    "backend": "stagehand",
+    "scenario": "actionability",
+    "variant": "delayed",
+    "policy": "guarded",
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 330.92116600007284,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "64f45d5d8012-60",
+   "factors": {
+    "backend": "stagehand-batch",
+    "scenario": "actionability",
+    "variant": "never-uncovered",
+    "policy": "guarded",
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 937.8974170000292,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "3dbf37a332a9-61",
+   "factors": {
+    "backend": "playwright",
+    "scenario": "actionability",
+    "variant": "rerender",
+    "policy": "guarded",
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 426.53483300004154,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "1765a9e53fdc-62",
+   "factors": {
+    "backend": "stagehand-batch",
+    "scenario": "actionability",
+    "variant": "overlay",
+    "policy": "guarded",
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 323.43654100003187,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "6f0951989ac1-63",
+   "factors": {
+    "backend": "puppeteer",
+    "scenario": "actionability",
+    "variant": "never-uncovered",
+    "policy": "guarded",
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 878.1524999999674,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "4b39675e1f3e-64",
+   "factors": {
+    "backend": "stagehand-batch",
+    "scenario": "actionability",
+    "variant": "moving",
+    "policy": "guarded",
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 372.5134170000674,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "2d7c30df271d-65",
+   "factors": {
+    "backend": "crawlee-playwright",
+    "scenario": "actionability",
+    "variant": "ambiguous",
+    "policy": "guarded",
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 807.7282910000067,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "8f02104d91b6-66",
+   "factors": {
+    "backend": "puppeteer",
+    "scenario": "actionability",
+    "variant": "hidden",
+    "policy": "guarded",
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 341.1693329999689,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "218fd576a5ff-67",
+   "factors": {
+    "backend": "stagehand",
+    "scenario": "actionability",
+    "variant": "rerender",
+    "policy": "guarded",
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 318.32829199999105,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "a1eaad496133-68",
+   "factors": {
+    "backend": "crawlee-stagehand",
+    "scenario": "actionability",
+    "variant": "hidden",
+    "policy": "guarded",
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 879.2635000000009,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "e22db5c6dcbd-69",
+   "factors": {
+    "backend": "puppeteer",
+    "scenario": "actionability",
+    "variant": "overlay",
+    "policy": "guarded",
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 307.5408339999849,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "5bfc66758d2b-70",
+   "factors": {
+    "backend": "crawlee-stagehand",
+    "scenario": "actionability",
+    "variant": "ambiguous",
+    "policy": "guarded",
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 597.9649170000339,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "113999c72003-71",
+   "factors": {
+    "backend": "crawlee-stagehand",
+    "scenario": "actionability",
+    "variant": "delayed",
+    "policy": "guarded",
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 811.048833000008,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "dba57fd8b0b1-72",
+   "factors": {
+    "backend": "puppeteer",
+    "scenario": "actionability",
+    "variant": "normal",
+    "policy": "guarded",
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 169.11658300005365,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "e3be3b51de5c-73",
+   "factors": {
+    "backend": "playwright",
+    "scenario": "actionability",
+    "variant": "hidden",
+    "policy": "guarded",
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 476.23683299997356,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "c10c34334196-74",
+   "factors": {
+    "backend": "stagehand-batch",
+    "scenario": "actionability",
+    "variant": "ambiguous",
+    "policy": "guarded",
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 115.38549999997485,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "05005c0fcf6e-75",
+   "factors": {
+    "backend": "stagehand-batch",
+    "scenario": "actionability",
+    "variant": "normal",
+    "policy": "guarded",
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 164.7946659999434,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "2e3dc9b86343-76",
+   "factors": {
+    "backend": "crawlee-playwright",
+    "scenario": "actionability",
+    "variant": "hidden",
+    "policy": "guarded",
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 1201.8217919999734,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "f9c4c648e236-77",
+   "factors": {
+    "backend": "stagehand-batch",
+    "scenario": "actionability",
+    "variant": "hidden",
+    "policy": "guarded",
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 356.8374589999439,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "e240bfbc08a7-78",
+   "factors": {
+    "backend": "crawlee-playwright",
+    "scenario": "actionability",
+    "variant": "delayed",
+    "policy": "guarded",
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 1134.0032920000376,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "e23f6869a6b4-79",
+   "factors": {
+    "backend": "puppeteer",
+    "scenario": "actionability",
+    "variant": "ambiguous",
+    "policy": "guarded",
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 60.09112500003539,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "c2ed321490fc-80",
+   "factors": {
+    "backend": "crawlee-stagehand",
+    "scenario": "actionability",
+    "variant": "never-uncovered",
+    "policy": "guarded",
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 1438.8949590000557,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "b355f3498344-81",
+   "factors": {
+    "backend": "stagehand-batch",
+    "scenario": "actionability",
+    "variant": "never-enabled",
+    "policy": "guarded",
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 939.2080409999471,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "5d59dda964e8-82",
+   "factors": {
+    "backend": "stagehand",
+    "scenario": "actionability",
+    "variant": "normal",
+    "policy": "guarded",
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 163.39470800000709,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "9f97731b674d-83",
+   "factors": {
+    "backend": "stagehand",
+    "scenario": "actionability",
+    "variant": "overlay",
+    "policy": "guarded",
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 309.5293749999255,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "6aa797fa904c-84",
+   "factors": {
+    "backend": "crawlee-stagehand",
+    "scenario": "actionability",
+    "variant": "never-enabled",
+    "policy": "guarded",
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 1420.4661250000354,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "8cae133d3cc6-85",
+   "factors": {
+    "backend": "stagehand",
+    "scenario": "actionability",
+    "variant": "never-enabled",
+    "policy": "guarded",
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 926.3464580000145,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "24b4d3c64a79-86",
+   "factors": {
+    "backend": "playwright",
+    "scenario": "actionability",
+    "variant": "never-uncovered",
+    "policy": "guarded",
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 993.3457499999786,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "825487f36e3e-87",
+   "factors": {
+    "backend": "puppeteer",
+    "scenario": "actionability",
+    "variant": "never-enabled",
+    "policy": "guarded",
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 880.1905000000261,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "63d640663a24-88",
+   "factors": {
+    "backend": "crawlee-playwright",
+    "scenario": "actionability",
+    "variant": "rerender",
+    "policy": "guarded",
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 1071.8651669999817,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "67c579175758-89",
+   "factors": {
+    "backend": "playwright",
+    "scenario": "actionability",
+    "variant": "ambiguous",
+    "policy": "guarded",
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 214.37404200003948,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "c93e63c3e05c-90",
+   "factors": {
+    "backend": "crawlee-playwright",
+    "scenario": "actionability",
+    "variant": "never-uncovered",
+    "policy": "guarded",
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 1669.6515000000363,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "7ec54164ae64-91",
+   "factors": {
+    "backend": "crawlee-playwright",
+    "scenario": "actionability",
+    "variant": "moving",
+    "policy": "guarded",
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 1138.5114169999724,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "055afffe8a83-92",
+   "factors": {
+    "backend": "crawlee-stagehand",
+    "scenario": "actionability",
+    "variant": "moving",
+    "policy": "guarded",
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 897.5383750000037,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "4b7168dafa5d-93",
+   "factors": {
+    "backend": "stagehand-batch",
+    "scenario": "actionability",
+    "variant": "rerender",
+    "policy": "guarded",
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 328.2368749999441,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "19e61a923614-94",
+   "factors": {
+    "backend": "stagehand",
+    "scenario": "actionability",
+    "variant": "hidden",
+    "policy": "guarded",
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 343.25962499994785,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "5e38cc71dcc4-95",
+   "factors": {
+    "backend": "playwright",
+    "scenario": "actionability",
+    "variant": "overlay",
+    "policy": "guarded",
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 441.0040419999277,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "4677e6a60962-96",
+   "factors": {
+    "backend": "crawlee-stagehand",
+    "scenario": "actionability",
+    "variant": "normal",
+    "policy": "guarded",
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 679.0401249999413,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "90a1c2bc7a79-97",
+   "factors": {
+    "backend": "puppeteer",
+    "scenario": "actionability",
+    "variant": "delayed",
+    "policy": "guarded",
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 302.06575000006706,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "963fcb0a46bf-98",
+   "factors": {
+    "backend": "stagehand",
+    "scenario": "actionability",
+    "variant": "never-uncovered",
+    "policy": "guarded",
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 947.6533749999944,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "a547638475fd-99",
+   "factors": {
+    "backend": "crawlee-stagehand",
+    "scenario": "actionability",
+    "variant": "overlay",
+    "policy": "guarded",
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 817.2729579999577,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "eb868dc8d75c-100",
+   "factors": {
+    "backend": "crawlee-playwright",
+    "scenario": "actionability",
+    "variant": "normal",
+    "policy": "guarded",
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 945.4814580000238,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "934da435e068-101",
+   "factors": {
+    "backend": "crawlee-playwright",
+    "scenario": "actionability",
+    "variant": "overlay",
+    "policy": "guarded",
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 1155.0307500000345,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "d0960f2a2811-102",
+   "factors": {
+    "backend": "crawlee-stagehand",
+    "scenario": "actionability",
+    "variant": "rerender",
+    "policy": "guarded",
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 844.2104580000741,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "10ae928db084-103",
+   "factors": {
+    "backend": "puppeteer",
+    "scenario": "actionability",
+    "variant": "moving",
+    "policy": "guarded",
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 336.8705000000773,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "35f6c2c9ed99-104",
+   "factors": {
+    "backend": "crawlee-playwright",
+    "scenario": "actionability",
+    "variant": "never-enabled",
+    "policy": "guarded",
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 1718.9727920000441,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "a6ad01e5c110-105",
+   "factors": {
+    "backend": "playwright",
+    "scenario": "actionability",
+    "variant": "never-enabled",
+    "policy": "guarded",
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 1017.2720830000471,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "0387e977f625-106",
+   "factors": {
+    "backend": "puppeteer",
+    "scenario": "actionability",
+    "variant": "rerender",
+    "policy": "guarded",
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 318.7012920000125,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "d2aa92698b01-107",
+   "factors": {
+    "backend": "playwright",
+    "scenario": "actionability",
+    "variant": "normal",
+    "policy": "guarded",
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 321.24399999994785,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "8fb26e52c46d-108",
+   "factors": {
+    "backend": "puppeteer",
+    "scenario": "actionability",
+    "variant": "rerender",
+    "policy": "guarded",
+    "block": 2
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 306.8748749999795,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "27c62dc76b29-109",
+   "factors": {
+    "backend": "crawlee-stagehand",
+    "scenario": "actionability",
+    "variant": "ambiguous",
+    "policy": "guarded",
+    "block": 2
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 663.7640420000535,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "b65afaebec87-110",
+   "factors": {
+    "backend": "puppeteer",
+    "scenario": "actionability",
+    "variant": "hidden",
+    "policy": "guarded",
+    "block": 2
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 336.8254170001019,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "277e69148e65-111",
+   "factors": {
+    "backend": "stagehand-batch",
+    "scenario": "actionability",
+    "variant": "normal",
+    "policy": "guarded",
+    "block": 2
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 175.6774999999907,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "81952e016f63-112",
+   "factors": {
+    "backend": "stagehand",
+    "scenario": "actionability",
+    "variant": "normal",
+    "policy": "guarded",
+    "block": 2
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 178.64387500006706,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "046cebeb0c94-113",
+   "factors": {
+    "backend": "stagehand",
+    "scenario": "actionability",
+    "variant": "overlay",
+    "policy": "guarded",
+    "block": 2
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 303.61195799999405,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "590d75a71caf-114",
+   "factors": {
+    "backend": "stagehand",
+    "scenario": "actionability",
+    "variant": "delayed",
+    "policy": "guarded",
+    "block": 2
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 316.73300000000745,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "4c750b512397-115",
+   "factors": {
+    "backend": "puppeteer",
+    "scenario": "actionability",
+    "variant": "delayed",
+    "policy": "guarded",
+    "block": 2
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 318.6950409999117,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "233d554ae0e3-116",
+   "factors": {
+    "backend": "crawlee-stagehand",
+    "scenario": "actionability",
+    "variant": "rerender",
+    "policy": "guarded",
+    "block": 2
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 897.0259170000209,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "af0b181fd100-117",
+   "factors": {
+    "backend": "crawlee-playwright",
+    "scenario": "actionability",
+    "variant": "ambiguous",
+    "policy": "guarded",
+    "block": 2
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 983.5549579999642,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "2b740c7956f5-118",
+   "factors": {
+    "backend": "crawlee-stagehand",
+    "scenario": "actionability",
+    "variant": "delayed",
+    "policy": "guarded",
+    "block": 2
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 925.8013749999227,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "50efa50f2468-119",
+   "factors": {
+    "backend": "stagehand-batch",
+    "scenario": "actionability",
+    "variant": "ambiguous",
+    "policy": "guarded",
+    "block": 2
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 126.10966700001154,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "6255aa95aa9d-120",
+   "factors": {
+    "backend": "stagehand",
+    "scenario": "actionability",
+    "variant": "never-enabled",
+    "policy": "guarded",
+    "block": 2
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 933.7845419999212,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "4394ca0b2a25-121",
+   "factors": {
+    "backend": "puppeteer",
+    "scenario": "actionability",
+    "variant": "ambiguous",
+    "policy": "guarded",
+    "block": 2
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 66.29683299991302,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "de22573b61ab-122",
+   "factors": {
+    "backend": "crawlee-stagehand",
+    "scenario": "actionability",
+    "variant": "overlay",
+    "policy": "guarded",
+    "block": 2
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 880.0088749999413,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "389524979b76-123",
+   "factors": {
+    "backend": "stagehand",
+    "scenario": "actionability",
+    "variant": "rerender",
+    "policy": "guarded",
+    "block": 2
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 331.93470899993554,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "014a5669fa18-124",
+   "factors": {
+    "backend": "crawlee-stagehand",
+    "scenario": "actionability",
+    "variant": "never-enabled",
+    "policy": "guarded",
+    "block": 2
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 1476.175500000012,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "2feca058d1f3-125",
+   "factors": {
+    "backend": "stagehand-batch",
+    "scenario": "actionability",
+    "variant": "delayed",
+    "policy": "guarded",
+    "block": 2
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 306.90200000000186,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "b9ade05417ab-126",
+   "factors": {
+    "backend": "stagehand-batch",
+    "scenario": "actionability",
+    "variant": "rerender",
+    "policy": "guarded",
+    "block": 2
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 308.9152499999618,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "cdc50f4c84a2-127",
+   "factors": {
+    "backend": "playwright",
+    "scenario": "actionability",
+    "variant": "never-enabled",
+    "policy": "guarded",
+    "block": 2
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 1031.6584169999696,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "39519adab43b-128",
+   "factors": {
+    "backend": "puppeteer",
+    "scenario": "actionability",
+    "variant": "moving",
+    "policy": "guarded",
+    "block": 2
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 349.7012920000125,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "c69ea5d93b09-129",
+   "factors": {
+    "backend": "puppeteer",
+    "scenario": "actionability",
+    "variant": "overlay",
+    "policy": "guarded",
+    "block": 2
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 303.88816700002644,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "30092a20ce58-130",
+   "factors": {
+    "backend": "playwright",
+    "scenario": "actionability",
+    "variant": "overlay",
+    "policy": "guarded",
+    "block": 2
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 451.59041699999943,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "cba8033cfe9a-131",
+   "factors": {
+    "backend": "stagehand-batch",
+    "scenario": "actionability",
+    "variant": "moving",
+    "policy": "guarded",
+    "block": 2
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 355.3200840000063,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "5106fde9c340-132",
+   "factors": {
+    "backend": "crawlee-stagehand",
+    "scenario": "actionability",
+    "variant": "normal",
+    "policy": "guarded",
+    "block": 2
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 756.79604200006,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "2a1f0dc1e927-133",
+   "factors": {
+    "backend": "stagehand-batch",
+    "scenario": "actionability",
+    "variant": "never-uncovered",
+    "policy": "guarded",
+    "block": 2
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 937.4075419999426,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "b7b7a8cf61e1-134",
+   "factors": {
+    "backend": "puppeteer",
+    "scenario": "actionability",
+    "variant": "never-uncovered",
+    "policy": "guarded",
+    "block": 2
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 869.5163750000065,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "9875dfabf255-135",
+   "factors": {
+    "backend": "crawlee-playwright",
+    "scenario": "actionability",
+    "variant": "normal",
+    "policy": "guarded",
+    "block": 2
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 1027.4425000000047,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "05c743780159-136",
+   "factors": {
+    "backend": "stagehand",
+    "scenario": "actionability",
+    "variant": "ambiguous",
+    "policy": "guarded",
+    "block": 2
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 115.01262499997392,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "ca5bcc10adc7-137",
+   "factors": {
+    "backend": "crawlee-playwright",
+    "scenario": "actionability",
+    "variant": "moving",
+    "policy": "guarded",
+    "block": 2
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 1259.5532499999972,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "5e98602471e5-138",
+   "factors": {
+    "backend": "puppeteer",
+    "scenario": "actionability",
+    "variant": "normal",
+    "policy": "guarded",
+    "block": 2
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 184.22233300004154,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "035c345b1f33-139",
+   "factors": {
+    "backend": "crawlee-stagehand",
+    "scenario": "actionability",
+    "variant": "never-uncovered",
+    "policy": "guarded",
+    "block": 2
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 1453.0602080000099,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "e5ad635ff51b-140",
+   "factors": {
+    "backend": "crawlee-playwright",
+    "scenario": "actionability",
+    "variant": "hidden",
+    "policy": "guarded",
+    "block": 2
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 1250.838584000012,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "001ae5f073ac-141",
+   "factors": {
+    "backend": "crawlee-playwright",
+    "scenario": "actionability",
+    "variant": "overlay",
+    "policy": "guarded",
+    "block": 2
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 1203.1346669999184,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "12a5b59ec536-142",
+   "factors": {
+    "backend": "playwright",
+    "scenario": "actionability",
+    "variant": "delayed",
+    "policy": "guarded",
+    "block": 2
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 465.00466700003017,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "d70d79b083c1-143",
+   "factors": {
+    "backend": "crawlee-playwright",
+    "scenario": "actionability",
+    "variant": "delayed",
+    "policy": "guarded",
+    "block": 2
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 1174.816125000012,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "0246529b3e5b-144",
+   "factors": {
+    "backend": "puppeteer",
+    "scenario": "actionability",
+    "variant": "never-enabled",
+    "policy": "guarded",
+    "block": 2
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 867.1707500000484,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "47494102f03c-145",
+   "factors": {
+    "backend": "stagehand-batch",
+    "scenario": "actionability",
+    "variant": "hidden",
+    "policy": "guarded",
+    "block": 2
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 356.5372920000227,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "737b2313d6aa-146",
+   "factors": {
+    "backend": "stagehand",
+    "scenario": "actionability",
+    "variant": "never-uncovered",
+    "policy": "guarded",
+    "block": 2
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 941.8382500000298,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "39d3019305fd-147",
+   "factors": {
+    "backend": "playwright",
+    "scenario": "actionability",
+    "variant": "never-uncovered",
+    "policy": "guarded",
+    "block": 2
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 1072.579792000004,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "49193753b47d-148",
+   "factors": {
+    "backend": "stagehand-batch",
+    "scenario": "actionability",
+    "variant": "never-enabled",
+    "policy": "guarded",
+    "block": 2
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 944.717874999973,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "cb212e50d8be-149",
+   "factors": {
+    "backend": "crawlee-playwright",
+    "scenario": "actionability",
+    "variant": "never-uncovered",
+    "policy": "guarded",
+    "block": 2
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 1746.1066669999855,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "8dae5ae7a226-150",
+   "factors": {
+    "backend": "playwright",
+    "scenario": "actionability",
+    "variant": "rerender",
+    "policy": "guarded",
+    "block": 2
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 446.04462499998044,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "fd77bc556333-151",
+   "factors": {
+    "backend": "stagehand",
+    "scenario": "actionability",
+    "variant": "moving",
+    "policy": "guarded",
+    "block": 2
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 349.19491700001527,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "b875f4872b8b-152",
+   "factors": {
+    "backend": "playwright",
+    "scenario": "actionability",
+    "variant": "hidden",
+    "policy": "guarded",
+    "block": 2
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 481.13804200000595,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "f2aeceb3ba8f-153",
+   "factors": {
+    "backend": "crawlee-playwright",
+    "scenario": "actionability",
+    "variant": "rerender",
+    "policy": "guarded",
+    "block": 2
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 1189.6074159999844,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "c64c79a56947-154",
+   "factors": {
+    "backend": "stagehand-batch",
+    "scenario": "actionability",
+    "variant": "overlay",
+    "policy": "guarded",
+    "block": 2
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 312.32279199990444,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "88c8ac83418d-155",
+   "factors": {
+    "backend": "playwright",
+    "scenario": "actionability",
+    "variant": "ambiguous",
+    "policy": "guarded",
+    "block": 2
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 245.6799999999348,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "94d483bf32ff-156",
+   "factors": {
+    "backend": "playwright",
+    "scenario": "actionability",
+    "variant": "moving",
+    "policy": "guarded",
+    "block": 2
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 497.60604199999943,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "aaaa1fa5af45-157",
+   "factors": {
+    "backend": "stagehand",
+    "scenario": "actionability",
+    "variant": "hidden",
+    "policy": "guarded",
+    "block": 2
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 355.07562499993946,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "6584f03b1824-158",
+   "factors": {
+    "backend": "crawlee-stagehand",
+    "scenario": "actionability",
+    "variant": "moving",
+    "policy": "guarded",
+    "block": 2
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 1035.4378750000615,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "2a6ef42f8241-159",
+   "factors": {
+    "backend": "playwright",
+    "scenario": "actionability",
+    "variant": "normal",
+    "policy": "guarded",
+    "block": 2
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 361.6401659999974,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "01c71635fc1a-160",
+   "factors": {
+    "backend": "crawlee-stagehand",
+    "scenario": "actionability",
+    "variant": "hidden",
+    "policy": "guarded",
+    "block": 2
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 1177.0210420000367,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "9b68e8b12e63-161",
+   "factors": {
+    "backend": "crawlee-playwright",
+    "scenario": "actionability",
+    "variant": "never-enabled",
+    "policy": "guarded",
+    "block": 2
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 1854.2275830000872,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  }
+ ],
+ "totals": {
+  "verified": 162,
+  "failed": 0,
+  "timeout": 0,
+  "crashed": 0,
+  "aborted": 0,
+  "unsupported": 0,
+  "rejected": 0,
+  "unavailable": 0,
+  "skipped": 0
+ },
+ "metricAvailability": {
+  "verified-jobs-per-second": {
+   "available": true
+  },
+  "verified-tasks-per-second": {
+   "available": true
+  },
+  "verified-rows-per-second": {
+   "available": true
+  },
+  "task-p50-ms-verified": {
+   "available": true
+  },
+  "task-p95-ms-verified": {
+   "available": true
+  },
+  "task-ms": {
+   "available": true
+  },
+  "ack-latency-p95-ms": {
+   "available": true
+  },
+  "startup-ms": {
+   "available": true
+  },
+  "cpu-ms-per-verified-job": {
+   "available": true
+  },
+  "footprint-peak-bytes": {
+   "available": true
+  },
+  "pss-peak-bytes": {
+   "available": false,
+   "reason": "no probe on darwin"
+  },
+  "cgroup-memory-peak-bytes": {
+   "available": false,
+   "reason": "no probe on darwin"
+  },
+  "rss-peak-bytes": {
+   "available": true
+  },
+  "cdp-commands-per-task": {
+   "available": true
+  },
+  "extraction-f1": {
+   "available": true
+  },
+  "field-precision": {
+   "available": true
+  },
+  "field-recall": {
+   "available": true
+  },
+  "pass-k": {
+   "available": true
+  },
+  "llm-calls-per-verified-task": {
+   "available": false,
+   "reason": "adapter protocol v2 usage reporting is not implemented yet"
+  },
+  "tokens-per-verified-task": {
+   "available": false,
+   "reason": "adapter protocol v2 usage reporting is not implemented yet"
+  },
+  "usd-per-1k-verified": {
+   "available": false,
+   "reason": "pricing tables are not implemented yet"
+  },
+  "interface-turns-per-task": {
+   "available": true
+  },
+  "oracle-exact": {
+   "available": true
+  },
+  "false-success-count": {
+   "available": true
+  },
+  "actionability-conformance": {
+   "available": true
+  },
+  "recovery-exact": {
+   "available": true
+  },
+  "durability-power-loss": {
+   "available": false,
+   "reason": "no probe on darwin"
+  },
+  "identity-coherence": {
+   "available": true
+  },
+  "policy-compliance": {
+   "available": true
+  },
+  "session-isolation": {
+   "available": true
+  },
+  "admission-no-loss": {
+   "available": true
+  }
+ },
+ "legacy": null,
+ "blocks": [
+  {
+   "index": 0,
+   "order": [
+    "actionability/puppeteer/guarded/overlay",
+    "actionability/crawlee-playwright/guarded/rerender",
+    "actionability/stagehand/guarded/hidden",
+    "actionability/crawlee-playwright/guarded/delayed",
+    "actionability/stagehand/guarded/delayed",
+    "actionability/puppeteer/guarded/normal",
+    "actionability/stagehand-batch/guarded/ambiguous",
+    "actionability/crawlee-playwright/guarded/ambiguous",
+    "actionability/playwright/guarded/moving",
+    "actionability/crawlee-playwright/guarded/overlay",
+    "actionability/stagehand-batch/guarded/hidden",
+    "actionability/puppeteer/guarded/never-uncovered",
+    "actionability/stagehand/guarded/overlay",
+    "actionability/crawlee-stagehand/guarded/normal",
+    "actionability/playwright/guarded/normal",
+    "actionability/crawlee-playwright/guarded/hidden",
+    "actionability/stagehand-batch/guarded/overlay",
+    "actionability/crawlee-stagehand/guarded/overlay",
+    "actionability/stagehand/guarded/never-enabled",
+    "actionability/playwright/guarded/overlay",
+    "actionability/puppeteer/guarded/ambiguous",
+    "actionability/playwright/guarded/delayed",
+    "actionability/playwright/guarded/ambiguous",
+    "actionability/stagehand/guarded/moving",
+    "actionability/stagehand-batch/guarded/normal",
+    "actionability/crawlee-stagehand/guarded/never-enabled",
+    "actionability/puppeteer/guarded/delayed",
+    "actionability/crawlee-stagehand/guarded/delayed",
+    "actionability/playwright/guarded/rerender",
+    "actionability/stagehand-batch/guarded/moving",
+    "actionability/crawlee-stagehand/guarded/moving",
+    "actionability/stagehand-batch/guarded/never-uncovered",
+    "actionability/crawlee-playwright/guarded/normal",
+    "actionability/playwright/guarded/never-enabled",
+    "actionability/playwright/guarded/hidden",
+    "actionability/stagehand/guarded/rerender",
+    "actionability/playwright/guarded/never-uncovered",
+    "actionability/crawlee-playwright/guarded/never-enabled",
+    "actionability/crawlee-stagehand/guarded/ambiguous",
+    "actionability/puppeteer/guarded/moving",
+    "actionability/crawlee-playwright/guarded/moving",
+    "actionability/crawlee-stagehand/guarded/rerender",
+    "actionability/crawlee-playwright/guarded/never-uncovered",
+    "actionability/stagehand-batch/guarded/rerender",
+    "actionability/stagehand/guarded/ambiguous",
+    "actionability/puppeteer/guarded/never-enabled",
+    "actionability/stagehand/guarded/normal",
+    "actionability/puppeteer/guarded/hidden",
+    "actionability/crawlee-stagehand/guarded/never-uncovered",
+    "actionability/stagehand-batch/guarded/never-enabled",
+    "actionability/stagehand/guarded/never-uncovered",
+    "actionability/crawlee-stagehand/guarded/hidden",
+    "actionability/puppeteer/guarded/rerender",
+    "actionability/stagehand-batch/guarded/delayed"
+   ],
+   "noisy": true,
+   "host": {
+    "loadPerCpu1m": 0.36572265625,
+    "foreignCpuPercent": 120.19999999999993
+   }
+  },
+  {
+   "index": 1,
+   "order": [
+    "actionability/stagehand/guarded/moving",
+    "actionability/playwright/guarded/delayed",
+    "actionability/stagehand-batch/guarded/delayed",
+    "actionability/playwright/guarded/moving",
+    "actionability/stagehand/guarded/ambiguous",
+    "actionability/stagehand/guarded/delayed",
+    "actionability/stagehand-batch/guarded/never-uncovered",
+    "actionability/playwright/guarded/rerender",
+    "actionability/stagehand-batch/guarded/overlay",
+    "actionability/puppeteer/guarded/never-uncovered",
+    "actionability/stagehand-batch/guarded/moving",
+    "actionability/crawlee-playwright/guarded/ambiguous",
+    "actionability/puppeteer/guarded/hidden",
+    "actionability/stagehand/guarded/rerender",
+    "actionability/crawlee-stagehand/guarded/hidden",
+    "actionability/puppeteer/guarded/overlay",
+    "actionability/crawlee-stagehand/guarded/ambiguous",
+    "actionability/crawlee-stagehand/guarded/delayed",
+    "actionability/puppeteer/guarded/normal",
+    "actionability/playwright/guarded/hidden",
+    "actionability/stagehand-batch/guarded/ambiguous",
+    "actionability/stagehand-batch/guarded/normal",
+    "actionability/crawlee-playwright/guarded/hidden",
+    "actionability/stagehand-batch/guarded/hidden",
+    "actionability/crawlee-playwright/guarded/delayed",
+    "actionability/puppeteer/guarded/ambiguous",
+    "actionability/crawlee-stagehand/guarded/never-uncovered",
+    "actionability/stagehand-batch/guarded/never-enabled",
+    "actionability/stagehand/guarded/normal",
+    "actionability/stagehand/guarded/overlay",
+    "actionability/crawlee-stagehand/guarded/never-enabled",
+    "actionability/stagehand/guarded/never-enabled",
+    "actionability/playwright/guarded/never-uncovered",
+    "actionability/puppeteer/guarded/never-enabled",
+    "actionability/crawlee-playwright/guarded/rerender",
+    "actionability/playwright/guarded/ambiguous",
+    "actionability/crawlee-playwright/guarded/never-uncovered",
+    "actionability/crawlee-playwright/guarded/moving",
+    "actionability/crawlee-stagehand/guarded/moving",
+    "actionability/stagehand-batch/guarded/rerender",
+    "actionability/stagehand/guarded/hidden",
+    "actionability/playwright/guarded/overlay",
+    "actionability/crawlee-stagehand/guarded/normal",
+    "actionability/puppeteer/guarded/delayed",
+    "actionability/stagehand/guarded/never-uncovered",
+    "actionability/crawlee-stagehand/guarded/overlay",
+    "actionability/crawlee-playwright/guarded/normal",
+    "actionability/crawlee-playwright/guarded/overlay",
+    "actionability/crawlee-stagehand/guarded/rerender",
+    "actionability/puppeteer/guarded/moving",
+    "actionability/crawlee-playwright/guarded/never-enabled",
+    "actionability/playwright/guarded/never-enabled",
+    "actionability/puppeteer/guarded/rerender",
+    "actionability/playwright/guarded/normal"
+   ],
+   "noisy": true,
+   "host": {
+    "loadPerCpu1m": 0.38413783482142855,
+    "foreignCpuPercent": 346.20000000000044
+   }
+  },
+  {
+   "index": 2,
+   "order": [
+    "actionability/puppeteer/guarded/rerender",
+    "actionability/crawlee-stagehand/guarded/ambiguous",
+    "actionability/puppeteer/guarded/hidden",
+    "actionability/stagehand-batch/guarded/normal",
+    "actionability/stagehand/guarded/normal",
+    "actionability/stagehand/guarded/overlay",
+    "actionability/stagehand/guarded/delayed",
+    "actionability/puppeteer/guarded/delayed",
+    "actionability/crawlee-stagehand/guarded/rerender",
+    "actionability/crawlee-playwright/guarded/ambiguous",
+    "actionability/crawlee-stagehand/guarded/delayed",
+    "actionability/stagehand-batch/guarded/ambiguous",
+    "actionability/stagehand/guarded/never-enabled",
+    "actionability/puppeteer/guarded/ambiguous",
+    "actionability/crawlee-stagehand/guarded/overlay",
+    "actionability/stagehand/guarded/rerender",
+    "actionability/crawlee-stagehand/guarded/never-enabled",
+    "actionability/stagehand-batch/guarded/delayed",
+    "actionability/stagehand-batch/guarded/rerender",
+    "actionability/playwright/guarded/never-enabled",
+    "actionability/puppeteer/guarded/moving",
+    "actionability/puppeteer/guarded/overlay",
+    "actionability/playwright/guarded/overlay",
+    "actionability/stagehand-batch/guarded/moving",
+    "actionability/crawlee-stagehand/guarded/normal",
+    "actionability/stagehand-batch/guarded/never-uncovered",
+    "actionability/puppeteer/guarded/never-uncovered",
+    "actionability/crawlee-playwright/guarded/normal",
+    "actionability/stagehand/guarded/ambiguous",
+    "actionability/crawlee-playwright/guarded/moving",
+    "actionability/puppeteer/guarded/normal",
+    "actionability/crawlee-stagehand/guarded/never-uncovered",
+    "actionability/crawlee-playwright/guarded/hidden",
+    "actionability/crawlee-playwright/guarded/overlay",
+    "actionability/playwright/guarded/delayed",
+    "actionability/crawlee-playwright/guarded/delayed",
+    "actionability/puppeteer/guarded/never-enabled",
+    "actionability/stagehand-batch/guarded/hidden",
+    "actionability/stagehand/guarded/never-uncovered",
+    "actionability/playwright/guarded/never-uncovered",
+    "actionability/stagehand-batch/guarded/never-enabled",
+    "actionability/crawlee-playwright/guarded/never-uncovered",
+    "actionability/playwright/guarded/rerender",
+    "actionability/stagehand/guarded/moving",
+    "actionability/playwright/guarded/hidden",
+    "actionability/crawlee-playwright/guarded/rerender",
+    "actionability/stagehand-batch/guarded/overlay",
+    "actionability/playwright/guarded/ambiguous",
+    "actionability/playwright/guarded/moving",
+    "actionability/stagehand/guarded/hidden",
+    "actionability/crawlee-stagehand/guarded/moving",
+    "actionability/playwright/guarded/normal",
+    "actionability/crawlee-stagehand/guarded/hidden",
+    "actionability/crawlee-playwright/guarded/never-enabled"
+   ],
+   "noisy": true,
+   "host": {
+    "loadPerCpu1m": 0.5161481584821429,
+    "foreignCpuPercent": 721.3000000000005
+   }
+  }
+ ]
+}

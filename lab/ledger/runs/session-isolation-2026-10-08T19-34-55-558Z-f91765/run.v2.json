@@ -1,0 +1,950 @@
+{
+ "schemaVersion": 2,
+ "runId": "session-isolation-2026-10-08T19-34-55-558Z-f91765",
+ "lane": "identity",
+ "campaign": {
+  "id": "session-isolation",
+  "source": "campaigns/v2/identity/session-isolation.json",
+  "sha256": "fd69cad381c1aec8868f0e29ee3f660bca7714060bcbaafb9a49bead92f3f669"
+ },
+ "startedAt": "2026-10-08T19:34:55.558Z",
+ "decisionIds": [
+  "D-identity"
+ ],
+ "provenance": {
+  "git": {
+   "available": true,
+   "sha": "da94d5ce45b9eb31f1bcd6affb40824097b75028",
+   "dirty": false
+  },
+  "sourceTreeSha256": "c7c2edaee10b9c1409024490ee702e662ae90927b0c6f106e8b165ed709b89e9",
+  "sourceChanges": 0,
+  "binaryChanges": null,
+  "toolchains": {
+   "node": "v25.5.0",
+   "rustc": "rustc 1.93.0 (254b59607 2026-01-19)",
+   "go": "go version go1.27.1 darwin/arm64",
+   "pnpm": "12.9.1"
+  },
+  "integrity": {
+   "status": "uncatalogued",
+   "checked": 0,
+   "mismatches": []
+  }
+ },
+ "host": {
+  "classRequested": "local-dev",
+  "classGranted": "local-dev",
+  "os": "darwin",
+  "arch": "arm64",
+  "cpu": "Apple M3 Max",
+  "logicalCpus": 14,
+  "memoryBytes": 38654705664,
+  "preflight": {
+   "snapshot": {
+    "os": "darwin",
+    "arch": "arm64",
+    "cpu": "Apple M3 Max",
+    "logicalCpus": 14,
+    "memoryBytes": 38654705664,
+    "loadAverage1m": 12.43115234375,
+    "memoryFreePercent": 42,
+    "thermalWarning": false,
+    "onAC": true,
+    "lowPowerMode": false,
+    "foreignCpuPercent": 445.8000000000005,
+    "foreignTop": [
+     {
+      "command": "ffmpeg",
+      "cpuPercent": 90
+     },
+     {
+      "command": "ffmpeg",
+      "cpuPercent": 78.4
+     },
+     {
+      "command": "Google Chrome Helper (Renderer)",
+      "cpuPercent": 46.9
+     },
+     {
+      "command": "WindowServer",
+      "cpuPercent": 39.3
+     },
+     {
+      "command": "Google Chrome",
+      "cpuPercent": 25
+     }
+    ],
+    "cpuGovernor": null,
+    "virtualized": false,
+    "controllerCpuPercent": 70
+   },
+   "gates": []
+  },
+  "postflight": {
+   "snapshot": {
+    "os": "darwin",
+    "arch": "arm64",
+    "cpu": "Apple M3 Max",
+    "logicalCpus": 14,
+    "memoryBytes": 38654705664,
+    "loadAverage1m": 11.94970703125,
+    "memoryFreePercent": 45,
+    "thermalWarning": false,
+    "onAC": true,
+    "lowPowerMode": false,
+    "foreignCpuPercent": 382.80000000000047,
+    "foreignTop": [
+     {
+      "command": "ffmpeg",
+      "cpuPercent": 71.5
+     },
+     {
+      "command": "com.apple.Virtualization.VirtualMachine",
+      "cpuPercent": 66.3
+     },
+     {
+      "command": "ffmpeg",
+      "cpuPercent": 61.9
+     },
+     {
+      "command": "WindowServer",
+      "cpuPercent": 44.2
+     },
+     {
+      "command": "Google Chrome Helper",
+      "cpuPercent": 15.6
+     }
+    ],
+    "cpuGovernor": null,
+    "virtualized": false,
+    "controllerCpuPercent": 51.80000000000001
+   }
+  }
+ },
+ "status": "complete",
+ "countUnit": "cell",
+ "cells": [
+  {
+   "cellId": "3318160d0915-0",
+   "factors": {
+    "httpTier": "browser-fetch",
+    "profile": "identified",
+    "purpose": "search",
+    "variant": "isolation",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-p50-ms-verified": {
+     "value": 554.8287909999999,
+     "unit": "ms",
+     "source": "lane; median over the verified repeats of the cell, session opening and oracle excluded"
+    },
+    "false-success-count": {
+     "value": 0,
+     "unit": "count",
+     "source": "lane; repeats that reported data the site oracle refutes"
+    }
+   }
+  },
+  {
+   "cellId": "b11aee00a009-1",
+   "factors": {
+    "httpTier": "node-https",
+    "profile": "identified",
+    "purpose": "search",
+    "variant": "isolation",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-p50-ms-verified": {
+     "value": 333.1458339999999,
+     "unit": "ms",
+     "source": "lane; median over the verified repeats of the cell, session opening and oracle excluded"
+    },
+    "false-success-count": {
+     "value": 0,
+     "unit": "count",
+     "source": "lane; repeats that reported data the site oracle refutes"
+    }
+   }
+  },
+  {
+   "cellId": "c7096a0113da-2",
+   "factors": {
+    "httpTier": "impit-chrome",
+    "profile": "standard",
+    "purpose": "search",
+    "variant": "isolation",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-p50-ms-verified": {
+     "value": 300.33633400000053,
+     "unit": "ms",
+     "source": "lane; median over the verified repeats of the cell, session opening and oracle excluded"
+    },
+    "false-success-count": {
+     "value": 0,
+     "unit": "count",
+     "source": "lane; repeats that reported data the site oracle refutes"
+    }
+   }
+  },
+  {
+   "cellId": "545908cec884-3",
+   "factors": {
+    "httpTier": "impit-chrome",
+    "profile": "identified",
+    "purpose": "search",
+    "variant": "isolation",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-p50-ms-verified": {
+     "value": 303.7024170000004,
+     "unit": "ms",
+     "source": "lane; median over the verified repeats of the cell, session opening and oracle excluded"
+    },
+    "false-success-count": {
+     "value": 0,
+     "unit": "count",
+     "source": "lane; repeats that reported data the site oracle refutes"
+    }
+   }
+  },
+  {
+   "cellId": "005adc51038a-4",
+   "factors": {
+    "httpTier": "browser-fetch",
+    "profile": "standard",
+    "purpose": "search",
+    "variant": "isolation",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-p50-ms-verified": {
+     "value": 548.3343330000007,
+     "unit": "ms",
+     "source": "lane; median over the verified repeats of the cell, session opening and oracle excluded"
+    },
+    "false-success-count": {
+     "value": 0,
+     "unit": "count",
+     "source": "lane; repeats that reported data the site oracle refutes"
+    }
+   }
+  },
+  {
+   "cellId": "020ee2ca65e3-5",
+   "factors": {
+    "httpTier": "node-https",
+    "profile": "standard",
+    "purpose": "search",
+    "variant": "isolation",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-p50-ms-verified": {
+     "value": 386.0686249999999,
+     "unit": "ms",
+     "source": "lane; median over the verified repeats of the cell, session opening and oracle excluded"
+    },
+    "false-success-count": {
+     "value": 0,
+     "unit": "count",
+     "source": "lane; repeats that reported data the site oracle refutes"
+    }
+   }
+  },
+  {
+   "cellId": "8bbb3945dbaa-6",
+   "factors": {
+    "httpTier": "browser-fetch",
+    "profile": "identified",
+    "purpose": "search",
+    "variant": "isolation",
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-p50-ms-verified": {
+     "value": 590.9409589999996,
+     "unit": "ms",
+     "source": "lane; median over the verified repeats of the cell, session opening and oracle excluded"
+    },
+    "false-success-count": {
+     "value": 0,
+     "unit": "count",
+     "source": "lane; repeats that reported data the site oracle refutes"
+    }
+   }
+  },
+  {
+   "cellId": "149af752ff43-7",
+   "factors": {
+    "httpTier": "browser-fetch",
+    "profile": "standard",
+    "purpose": "search",
+    "variant": "isolation",
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-p50-ms-verified": {
+     "value": 656.4489169999979,
+     "unit": "ms",
+     "source": "lane; median over the verified repeats of the cell, session opening and oracle excluded"
+    },
+    "false-success-count": {
+     "value": 0,
+     "unit": "count",
+     "source": "lane; repeats that reported data the site oracle refutes"
+    }
+   }
+  },
+  {
+   "cellId": "06b7c6cfdf61-8",
+   "factors": {
+    "httpTier": "node-https",
+    "profile": "standard",
+    "purpose": "search",
+    "variant": "isolation",
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-p50-ms-verified": {
+     "value": 389.07704199999716,
+     "unit": "ms",
+     "source": "lane; median over the verified repeats of the cell, session opening and oracle excluded"
+    },
+    "false-success-count": {
+     "value": 0,
+     "unit": "count",
+     "source": "lane; repeats that reported data the site oracle refutes"
+    }
+   }
+  },
+  {
+   "cellId": "c5ad52712281-9",
+   "factors": {
+    "httpTier": "node-https",
+    "profile": "identified",
+    "purpose": "search",
+    "variant": "isolation",
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-p50-ms-verified": {
+     "value": 462.1672499999986,
+     "unit": "ms",
+     "source": "lane; median over the verified repeats of the cell, session opening and oracle excluded"
+    },
+    "false-success-count": {
+     "value": 0,
+     "unit": "count",
+     "source": "lane; repeats that reported data the site oracle refutes"
+    }
+   }
+  },
+  {
+   "cellId": "9c3469027785-10",
+   "factors": {
+    "httpTier": "impit-chrome",
+    "profile": "standard",
+    "purpose": "search",
+    "variant": "isolation",
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-p50-ms-verified": {
+     "value": 364.26783299999806,
+     "unit": "ms",
+     "source": "lane; median over the verified repeats of the cell, session opening and oracle excluded"
+    },
+    "false-success-count": {
+     "value": 0,
+     "unit": "count",
+     "source": "lane; repeats that reported data the site oracle refutes"
+    }
+   }
+  },
+  {
+   "cellId": "28ca8ca0b212-11",
+   "factors": {
+    "httpTier": "impit-chrome",
+    "profile": "identified",
+    "purpose": "search",
+    "variant": "isolation",
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-p50-ms-verified": {
+     "value": 377.99004100000457,
+     "unit": "ms",
+     "source": "lane; median over the verified repeats of the cell, session opening and oracle excluded"
+    },
+    "false-success-count": {
+     "value": 0,
+     "unit": "count",
+     "source": "lane; repeats that reported data the site oracle refutes"
+    }
+   }
+  },
+  {
+   "cellId": "0cae3613ffeb-12",
+   "factors": {
+    "httpTier": "browser-fetch",
+    "profile": "identified",
+    "purpose": "search",
+    "variant": "isolation",
+    "block": 2
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-p50-ms-verified": {
+     "value": 659.0857499999984,
+     "unit": "ms",
+     "source": "lane; median over the verified repeats of the cell, session opening and oracle excluded"
+    },
+    "false-success-count": {
+     "value": 0,
+     "unit": "count",
+     "source": "lane; repeats that reported data the site oracle refutes"
+    }
+   }
+  },
+  {
+   "cellId": "11c345984362-13",
+   "factors": {
+    "httpTier": "node-https",
+    "profile": "identified",
+    "purpose": "search",
+    "variant": "isolation",
+    "block": 2
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-p50-ms-verified": {
+     "value": 577.7956669999985,
+     "unit": "ms",
+     "source": "lane; median over the verified repeats of the cell, session opening and oracle excluded"
+    },
+    "false-success-count": {
+     "value": 0,
+     "unit": "count",
+     "source": "lane; repeats that reported data the site oracle refutes"
+    }
+   }
+  },
+  {
+   "cellId": "f6249ec4de53-14",
+   "factors": {
+    "httpTier": "impit-chrome",
+    "profile": "standard",
+    "purpose": "search",
+    "variant": "isolation",
+    "block": 2
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-p50-ms-verified": {
+     "value": 392.39616699999897,
+     "unit": "ms",
+     "source": "lane; median over the verified repeats of the cell, session opening and oracle excluded"
+    },
+    "false-success-count": {
+     "value": 0,
+     "unit": "count",
+     "source": "lane; repeats that reported data the site oracle refutes"
+    }
+   }
+  },
+  {
+   "cellId": "e57bac1401d9-15",
+   "factors": {
+    "httpTier": "node-https",
+    "profile": "standard",
+    "purpose": "search",
+    "variant": "isolation",
+    "block": 2
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-p50-ms-verified": {
+     "value": 567.6869169999991,
+     "unit": "ms",
+     "source": "lane; median over the verified repeats of the cell, session opening and oracle excluded"
+    },
+    "false-success-count": {
+     "value": 0,
+     "unit": "count",
+     "source": "lane; repeats that reported data the site oracle refutes"
+    }
+   }
+  },
+  {
+   "cellId": "248309460bcc-16",
+   "factors": {
+    "httpTier": "impit-chrome",
+    "profile": "identified",
+    "purpose": "search",
+    "variant": "isolation",
+    "block": 2
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-p50-ms-verified": {
+     "value": 410.1296250000014,
+     "unit": "ms",
+     "source": "lane; median over the verified repeats of the cell, session opening and oracle excluded"
+    },
+    "false-success-count": {
+     "value": 0,
+     "unit": "count",
+     "source": "lane; repeats that reported data the site oracle refutes"
+    }
+   }
+  },
+  {
+   "cellId": "5ca1acca3bc6-17",
+   "factors": {
+    "httpTier": "browser-fetch",
+    "profile": "standard",
+    "purpose": "search",
+    "variant": "isolation",
+    "block": 2
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-p50-ms-verified": {
+     "value": 673.1960830000025,
+     "unit": "ms",
+     "source": "lane; median over the verified repeats of the cell, session opening and oracle excluded"
+    },
+    "false-success-count": {
+     "value": 0,
+     "unit": "count",
+     "source": "lane; repeats that reported data the site oracle refutes"
+    }
+   }
+  }
+ ],
+ "totals": {
+  "verified": 18,
+  "failed": 0,
+  "timeout": 0,
+  "crashed": 0,
+  "aborted": 0,
+  "unsupported": 0,
+  "rejected": 0,
+  "unavailable": 0,
+  "skipped": 0
+ },
+ "metricAvailability": {
+  "verified-jobs-per-second": {
+   "available": true
+  },
+  "verified-tasks-per-second": {
+   "available": true
+  },
+  "verified-rows-per-second": {
+   "available": true
+  },
+  "task-p50-ms-verified": {
+   "available": true
+  },
+  "task-p95-ms-verified": {
+   "available": true
+  },
+  "task-ms": {
+   "available": true
+  },
+  "ack-latency-p95-ms": {
+   "available": true
+  },
+  "extraction-precision": {
+   "available": true
+  },
+  "extraction-recall": {
+   "available": true
+  },
+  "snippet-recall": {
+   "available": true
+  },
+  "boilerplate-leak": {
+   "available": true
+  },
+  "extract-ms-p50": {
+   "available": true
+  },
+  "startup-ms": {
+   "available": true
+  },
+  "cpu-ms-per-verified-job": {
+   "available": true
+  },
+  "footprint-peak-bytes": {
+   "available": true
+  },
+  "pss-peak-bytes": {
+   "available": false,
+   "reason": "no probe on darwin"
+  },
+  "cgroup-memory-peak-bytes": {
+   "available": false,
+   "reason": "no probe on darwin"
+  },
+  "rss-peak-bytes": {
+   "available": true
+  },
+  "cdp-commands-per-task": {
+   "available": true
+  },
+  "extraction-f1": {
+   "available": true
+  },
+  "field-precision": {
+   "available": true
+  },
+  "field-recall": {
+   "available": true
+  },
+  "pass-k": {
+   "available": true
+  },
+  "llm-calls-per-verified-task": {
+   "available": true
+  },
+  "tokens-per-verified-task": {
+   "available": true
+  },
+  "usd-per-1k-verified": {
+   "available": false,
+   "reason": "pricing tables are not implemented yet"
+  },
+  "model-usd-per-1k-verified": {
+   "available": true
+  },
+  "interface-turns-per-task": {
+   "available": true
+  },
+  "oracle-exact": {
+   "available": true
+  },
+  "false-success-count": {
+   "available": true
+  },
+  "actionability-conformance": {
+   "available": true
+  },
+  "recovery-exact": {
+   "available": true
+  },
+  "durability-power-loss": {
+   "available": false,
+   "reason": "no probe on darwin"
+  },
+  "identity-coherence": {
+   "available": true
+  },
+  "policy-compliance": {
+   "available": true
+  },
+  "session-isolation": {
+   "available": true
+  },
+  "admission-no-loss": {
+   "available": true
+  },
+  "proxy-continuity": {
+   "available": true
+  },
+  "light-domain-goodput": {
+   "available": true
+  },
+  "light-domain-p95-ms": {
+   "available": true
+  },
+  "light-domain-acceptance": {
+   "available": true
+  }
+ },
+ "legacy": null,
+ "blocks": [
+  {
+   "index": 0,
+   "order": [
+    "browser-fetch/identified/search/isolation",
+    "node-https/identified/search/isolation",
+    "impit-chrome/standard/search/isolation",
+    "impit-chrome/identified/search/isolation",
+    "browser-fetch/standard/search/isolation",
+    "node-https/standard/search/isolation"
+   ],
+   "noisy": false,
+   "host": {
+    "loadPerCpu1m": 0.8926827566964286,
+    "foreignCpuPercent": 399.7000000000003
+   }
+  },
+  {
+   "index": 1,
+   "order": [
+    "browser-fetch/identified/search/isolation",
+    "browser-fetch/standard/search/isolation",
+    "node-https/standard/search/isolation",
+    "node-https/identified/search/isolation",
+    "impit-chrome/standard/search/isolation",
+    "impit-chrome/identified/search/isolation"
+   ],
+   "noisy": false,
+   "host": {
+    "loadPerCpu1m": 0.8698381696428571,
+    "foreignCpuPercent": 362.8000000000003
+   }
+  },
+  {
+   "index": 2,
+   "order": [
+    "browser-fetch/identified/search/isolation",
+    "node-https/identified/search/isolation",
+    "impit-chrome/standard/search/isolation",
+    "node-https/standard/search/isolation",
+    "impit-chrome/identified/search/isolation",
+    "browser-fetch/standard/search/isolation"
+   ],
+   "noisy": false,
+   "host": {
+    "loadPerCpu1m": 0.8535505022321429,
+    "foreignCpuPercent": 396.0000000000004
+   }
+  }
+ ]
+}

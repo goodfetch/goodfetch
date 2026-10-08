@@ -1,0 +1,5022 @@
+{
+ "schemaVersion": 2,
+ "runId": "policy-fixtures-2026-10-08T19-11-08-127Z-31838d",
+ "lane": "identity",
+ "campaign": {
+  "id": "policy-fixtures",
+  "source": "campaigns/v2/identity/policy-fixtures.json",
+  "sha256": "a3528d2c10d73a585ebe5c7800ade373ccde7ef786badedf600d96d853601f5d"
+ },
+ "startedAt": "2026-10-08T19:11:08.127Z",
+ "decisionIds": [
+  "D-identity"
+ ],
+ "provenance": {
+  "git": {
+   "available": true,
+   "sha": "c67eaaa89e790253906d865e8f531d10f82ef7e9",
+   "dirty": false
+  },
+  "sourceTreeSha256": "0d3eb36ee375acf7839918dbec06482ec6d3a5b2b2bf59cb36c14bed046188b6",
+  "sourceChanges": 0,
+  "binaryChanges": null,
+  "toolchains": {
+   "node": "v25.5.0",
+   "rustc": "rustc 1.93.0 (254b59607 2026-01-19)",
+   "go": "go version go1.27.1 darwin/arm64",
+   "pnpm": "12.9.1"
+  },
+  "integrity": {
+   "status": "uncatalogued",
+   "checked": 0,
+   "mismatches": []
+  }
+ },
+ "host": {
+  "classRequested": "local-dev",
+  "classGranted": "local-dev",
+  "os": "darwin",
+  "arch": "arm64",
+  "cpu": "Apple M3 Max",
+  "logicalCpus": 14,
+  "memoryBytes": 38654705664,
+  "preflight": {
+   "snapshot": {
+    "os": "darwin",
+    "arch": "arm64",
+    "cpu": "Apple M3 Max",
+    "logicalCpus": 14,
+    "memoryBytes": 38654705664,
+    "loadAverage1m": 12.07666015625,
+    "memoryFreePercent": 49,
+    "thermalWarning": false,
+    "onAC": true,
+    "lowPowerMode": false,
+    "foreignCpuPercent": 318.40000000000015,
+    "foreignTop": [
+     {
+      "command": "ffmpeg",
+      "cpuPercent": 99.1
+     },
+     {
+      "command": "ffmpeg",
+      "cpuPercent": 97.6
+     },
+     {
+      "command": "WindowServer",
+      "cpuPercent": 46
+     },
+     {
+      "command": "com.apple.Virtualization.VirtualMachine",
+      "cpuPercent": 16.4
+     },
+     {
+      "command": "Google Chrome Helper",
+      "cpuPercent": 12.4
+     }
+    ],
+    "cpuGovernor": null,
+    "virtualized": false,
+    "controllerCpuPercent": 16.8
+   },
+   "gates": []
+  },
+  "postflight": {
+   "snapshot": {
+    "os": "darwin",
+    "arch": "arm64",
+    "cpu": "Apple M3 Max",
+    "logicalCpus": 14,
+    "memoryBytes": 38654705664,
+    "loadAverage1m": 13.63525390625,
+    "memoryFreePercent": 46,
+    "thermalWarning": false,
+    "onAC": true,
+    "lowPowerMode": false,
+    "foreignCpuPercent": 698.7000000000007,
+    "foreignTop": [
+     {
+      "command": "node",
+      "cpuPercent": 225.5
+     },
+     {
+      "command": "Docker Desktop Helper (Renderer)",
+      "cpuPercent": 64.4
+     },
+     {
+      "command": "WindowServer",
+      "cpuPercent": 59.8
+     },
+     {
+      "command": "ffmpeg",
+      "cpuPercent": 51.1
+     },
+     {
+      "command": "ffmpeg",
+      "cpuPercent": 48.6
+     }
+    ],
+    "cpuGovernor": null,
+    "virtualized": false,
+    "controllerCpuPercent": 60.300000000000004
+   }
+  }
+ },
+ "status": "complete",
+ "countUnit": "cell",
+ "cells": [
+  {
+   "cellId": "a58ee058c510-0",
+   "factors": {
+    "httpTier": "browser-fetch",
+    "profile": "standard",
+    "purpose": "ai-train",
+    "variant": "noai-meta",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-p50-ms-verified": {
+     "value": 275.580375,
+     "unit": "ms",
+     "source": "lane; median over the verified repeats of the cell, session opening and oracle excluded"
+    },
+    "false-success-count": {
+     "value": 0,
+     "unit": "count",
+     "source": "lane; repeats that reported data the site oracle refutes"
+    }
+   }
+  },
+  {
+   "cellId": "c4008d37aa6c-1",
+   "factors": {
+    "httpTier": "node-https",
+    "profile": "standard",
+    "purpose": "ai-train",
+    "variant": "robots-path",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-p50-ms-verified": {
+     "value": 51.180917000000136,
+     "unit": "ms",
+     "source": "lane; median over the verified repeats of the cell, session opening and oracle excluded"
+    },
+    "false-success-count": {
+     "value": 0,
+     "unit": "count",
+     "source": "lane; repeats that reported data the site oracle refutes"
+    }
+   }
+  },
+  {
+   "cellId": "5b280ed87d33-2",
+   "factors": {
+    "httpTier": "node-https",
+    "profile": "standard",
+    "purpose": "search",
+    "variant": "robots-path",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-p50-ms-verified": {
+     "value": 47.325832999999875,
+     "unit": "ms",
+     "source": "lane; median over the verified repeats of the cell, session opening and oracle excluded"
+    },
+    "false-success-count": {
+     "value": 0,
+     "unit": "count",
+     "source": "lane; repeats that reported data the site oracle refutes"
+    }
+   }
+  },
+  {
+   "cellId": "b6cb53eaa6b4-3",
+   "factors": {
+    "httpTier": "impit-chrome",
+    "profile": "identified",
+    "purpose": "ai-train",
+    "variant": "paid-402",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-p50-ms-verified": {
+     "value": 55.40308400000049,
+     "unit": "ms",
+     "source": "lane; median over the verified repeats of the cell, session opening and oracle excluded"
+    },
+    "false-success-count": {
+     "value": 0,
+     "unit": "count",
+     "source": "lane; repeats that reported data the site oracle refutes"
+    }
+   }
+  },
+  {
+   "cellId": "2496e3165030-4",
+   "factors": {
+    "httpTier": "browser-fetch",
+    "profile": "identified",
+    "purpose": "ai-train",
+    "variant": "retry-429",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-p50-ms-verified": {
+     "value": 1631.219833,
+     "unit": "ms",
+     "source": "lane; median over the verified repeats of the cell, session opening and oracle excluded"
+    },
+    "false-success-count": {
+     "value": 0,
+     "unit": "count",
+     "source": "lane; repeats that reported data the site oracle refutes"
+    }
+   }
+  },
+  {
+   "cellId": "cfe10f2089b0-5",
+   "factors": {
+    "httpTier": "impit-chrome",
+    "profile": "identified",
+    "purpose": "ai-train",
+    "variant": "crawl-delay",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-p50-ms-verified": {
+     "value": 3214.4272920000003,
+     "unit": "ms",
+     "source": "lane; median over the verified repeats of the cell, session opening and oracle excluded"
+    },
+    "false-success-count": {
+     "value": 0,
+     "unit": "count",
+     "source": "lane; repeats that reported data the site oracle refutes"
+    }
+   }
+  },
+  {
+   "cellId": "07afc391cf23-6",
+   "factors": {
+    "httpTier": "browser-fetch",
+    "profile": "identified",
+    "purpose": "ai-train",
+    "variant": "challenge-page",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-p50-ms-verified": {
+     "value": 507.47241700000086,
+     "unit": "ms",
+     "source": "lane; median over the verified repeats of the cell, session opening and oracle excluded"
+    },
+    "false-success-count": {
+     "value": 0,
+     "unit": "count",
+     "source": "lane; repeats that reported data the site oracle refutes"
+    }
+   }
+  },
+  {
+   "cellId": "e56249ced572-7",
+   "factors": {
+    "httpTier": "browser-fetch",
+    "profile": "identified",
+    "purpose": "search",
+    "variant": "robots-agent",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-p50-ms-verified": {
+     "value": 390.51237500000025,
+     "unit": "ms",
+     "source": "lane; median over the verified repeats of the cell, session opening and oracle excluded"
+    },
+    "false-success-count": {
+     "value": 0,
+     "unit": "count",
+     "source": "lane; repeats that reported data the site oracle refutes"
+    }
+   }
+  },
+  {
+   "cellId": "e4b4c2b2c4e7-8",
+   "factors": {
+    "httpTier": "node-https",
+    "profile": "identified",
+    "purpose": "ai-train",
+    "variant": "crawl-delay",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-p50-ms-verified": {
+     "value": 3171.4231249999975,
+     "unit": "ms",
+     "source": "lane; median over the verified repeats of the cell, session opening and oracle excluded"
+    },
+    "false-success-count": {
+     "value": 0,
+     "unit": "count",
+     "source": "lane; repeats that reported data the site oracle refutes"
+    }
+   }
+  },
+  {
+   "cellId": "38921c2b65c5-9",
+   "factors": {
+    "httpTier": "node-https",
+    "profile": "standard",
+    "purpose": "search",
+    "variant": "challenge-page",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-p50-ms-verified": {
+     "value": 9.132958999998664,
+     "unit": "ms",
+     "source": "lane; median over the verified repeats of the cell, session opening and oracle excluded"
+    },
+    "false-success-count": {
+     "value": 0,
+     "unit": "count",
+     "source": "lane; repeats that reported data the site oracle refutes"
+    }
+   }
+  },
+  {
+   "cellId": "25277ac6b36c-10",
+   "factors": {
+    "httpTier": "node-https",
+    "profile": "standard",
+    "purpose": "search",
+    "variant": "content-signal",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-p50-ms-verified": {
+     "value": 350.3737080000028,
+     "unit": "ms",
+     "source": "lane; median over the verified repeats of the cell, session opening and oracle excluded"
+    },
+    "false-success-count": {
+     "value": 0,
+     "unit": "count",
+     "source": "lane; repeats that reported data the site oracle refutes"
+    }
+   }
+  },
+  {
+   "cellId": "98f6b725dcf4-11",
+   "factors": {
+    "httpTier": "browser-fetch",
+    "profile": "standard",
+    "purpose": "search",
+    "variant": "challenge-page",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-p50-ms-verified": {
+     "value": 457.53687499999796,
+     "unit": "ms",
+     "source": "lane; median over the verified repeats of the cell, session opening and oracle excluded"
+    },
+    "false-success-count": {
+     "value": 0,
+     "unit": "count",
+     "source": "lane; repeats that reported data the site oracle refutes"
+    }
+   }
+  },
+  {
+   "cellId": "c47f85f25657-12",
+   "factors": {
+    "httpTier": "browser-fetch",
+    "profile": "standard",
+    "purpose": "search",
+    "variant": "tdmrep-file",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-p50-ms-verified": {
+     "value": 311.4335420000025,
+     "unit": "ms",
+     "source": "lane; median over the verified repeats of the cell, session opening and oracle excluded"
+    },
+    "false-success-count": {
+     "value": 0,
+     "unit": "count",
+     "source": "lane; repeats that reported data the site oracle refutes"
+    }
+   }
+  },
+  {
+   "cellId": "60d7e5f779ee-13",
+   "factors": {
+    "httpTier": "browser-fetch",
+    "profile": "standard",
+    "purpose": "search",
+    "variant": "content-signal",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-p50-ms-verified": {
+     "value": 545.7729169999984,
+     "unit": "ms",
+     "source": "lane; median over the verified repeats of the cell, session opening and oracle excluded"
+    },
+    "false-success-count": {
+     "value": 0,
+     "unit": "count",
+     "source": "lane; repeats that reported data the site oracle refutes"
+    }
+   }
+  },
+  {
+   "cellId": "fcd2387b8167-14",
+   "factors": {
+    "httpTier": "node-https",
+    "profile": "identified",
+    "purpose": "search",
+    "variant": "crawl-delay",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-p50-ms-verified": {
+     "value": 3173.449625000001,
+     "unit": "ms",
+     "source": "lane; median over the verified repeats of the cell, session opening and oracle excluded"
+    },
+    "false-success-count": {
+     "value": 0,
+     "unit": "count",
+     "source": "lane; repeats that reported data the site oracle refutes"
+    }
+   }
+  },
+  {
+   "cellId": "fa7ab90feb06-15",
+   "factors": {
+    "httpTier": "browser-fetch",
+    "profile": "standard",
+    "purpose": "search",
+    "variant": "paid-402",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-p50-ms-verified": {
+     "value": 359.2049169999955,
+     "unit": "ms",
+     "source": "lane; median over the verified repeats of the cell, session opening and oracle excluded"
+    },
+    "false-success-count": {
+     "value": 0,
+     "unit": "count",
+     "source": "lane; repeats that reported data the site oracle refutes"
+    }
+   }
+  },
+  {
+   "cellId": "0fd2b21a5069-16",
+   "factors": {
+    "httpTier": "node-https",
+    "profile": "identified",
+    "purpose": "ai-train",
+    "variant": "noai-meta",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-p50-ms-verified": {
+     "value": 36.15212499999325,
+     "unit": "ms",
+     "source": "lane; median over the verified repeats of the cell, session opening and oracle excluded"
+    },
+    "false-success-count": {
+     "value": 0,
+     "unit": "count",
+     "source": "lane; repeats that reported data the site oracle refutes"
+    }
+   }
+  },
+  {
+   "cellId": "b96090a3fba2-17",
+   "factors": {
+    "httpTier": "impit-chrome",
+    "profile": "identified",
+    "purpose": "ai-train",
+    "variant": "challenge-page",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-p50-ms-verified": {
+     "value": 36.32274999999936,
+     "unit": "ms",
+     "source": "lane; median over the verified repeats of the cell, session opening and oracle excluded"
+    },
+    "false-success-count": {
+     "value": 0,
+     "unit": "count",
+     "source": "lane; repeats that reported data the site oracle refutes"
+    }
+   }
+  },
+  {
+   "cellId": "985b60c7e4b5-18",
+   "factors": {
+    "httpTier": "node-https",
+    "profile": "identified",
+    "purpose": "search",
+    "variant": "content-signal",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-p50-ms-verified": {
+     "value": 343.65445900000486,
+     "unit": "ms",
+     "source": "lane; median over the verified repeats of the cell, session opening and oracle excluded"
+    },
+    "false-success-count": {
+     "value": 0,
+     "unit": "count",
+     "source": "lane; repeats that reported data the site oracle refutes"
+    }
+   }
+  },
+  {
+   "cellId": "0b741fa3d64d-19",
+   "factors": {
+    "httpTier": "browser-fetch",
+    "profile": "standard",
+    "purpose": "ai-train",
+    "variant": "paid-402",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-p50-ms-verified": {
+     "value": 554.3237079999963,
+     "unit": "ms",
+     "source": "lane; median over the verified repeats of the cell, session opening and oracle excluded"
+    },
+    "false-success-count": {
+     "value": 0,
+     "unit": "count",
+     "source": "lane; repeats that reported data the site oracle refutes"
+    }
+   }
+  },
+  {
+   "cellId": "339d7c1e780c-20",
+   "factors": {
+    "httpTier": "node-https",
+    "profile": "identified",
+    "purpose": "ai-train",
+    "variant": "denied-403",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-p50-ms-verified": {
+     "value": 17.66679199999635,
+     "unit": "ms",
+     "source": "lane; median over the verified repeats of the cell, session opening and oracle excluded"
+    },
+    "false-success-count": {
+     "value": 0,
+     "unit": "count",
+     "source": "lane; repeats that reported data the site oracle refutes"
+    }
+   }
+  },
+  {
+   "cellId": "68b319f52c56-21",
+   "factors": {
+    "httpTier": "node-https",
+    "profile": "identified",
+    "purpose": "ai-train",
+    "variant": "tdmrep-header",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-p50-ms-verified": {
+     "value": 25.41824999999517,
+     "unit": "ms",
+     "source": "lane; median over the verified repeats of the cell, session opening and oracle excluded"
+    },
+    "false-success-count": {
+     "value": 0,
+     "unit": "count",
+     "source": "lane; repeats that reported data the site oracle refutes"
+    }
+   }
+  },
+  {
+   "cellId": "a20f42b46ece-22",
+   "factors": {
+    "httpTier": "browser-fetch",
+    "profile": "identified",
+    "purpose": "search",
+    "variant": "retry-429",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-p50-ms-verified": {
+     "value": 1398.9309160000048,
+     "unit": "ms",
+     "source": "lane; median over the verified repeats of the cell, session opening and oracle excluded"
+    },
+    "false-success-count": {
+     "value": 0,
+     "unit": "count",
+     "source": "lane; repeats that reported data the site oracle refutes"
+    }
+   }
+  },
+  {
+   "cellId": "7789a70f64c5-23",
+   "factors": {
+    "httpTier": "node-https",
+    "profile": "standard",
+    "purpose": "ai-train",
+    "variant": "denied-403",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-p50-ms-verified": {
+     "value": 51.99870899999951,
+     "unit": "ms",
+     "source": "lane; median over the verified repeats of the cell, session opening and oracle excluded"
+    },
+    "false-success-count": {
+     "value": 0,
+     "unit": "count",
+     "source": "lane; repeats that reported data the site oracle refutes"
+    }
+   }
+  },
+  {
+   "cellId": "d2f914b2ed26-24",
+   "factors": {
+    "httpTier": "impit-chrome",
+    "profile": "standard",
+    "purpose": "ai-train",
+    "variant": "tdmrep-file",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-p50-ms-verified": {
+     "value": 10.654999999998836,
+     "unit": "ms",
+     "source": "lane; median over the verified repeats of the cell, session opening and oracle excluded"
+    },
+    "false-success-count": {
+     "value": 0,
+     "unit": "count",
+     "source": "lane; repeats that reported data the site oracle refutes"
+    }
+   }
+  },
+  {
+   "cellId": "4378b0e12541-25",
+   "factors": {
+    "httpTier": "node-https",
+    "profile": "standard",
+    "purpose": "search",
+    "variant": "denied-403",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-p50-ms-verified": {
+     "value": 31.881709000001138,
+     "unit": "ms",
+     "source": "lane; median over the verified repeats of the cell, session opening and oracle excluded"
+    },
+    "false-success-count": {
+     "value": 0,
+     "unit": "count",
+     "source": "lane; repeats that reported data the site oracle refutes"
+    }
+   }
+  },
+  {
+   "cellId": "eb0e0b5d1e01-26",
+   "factors": {
+    "httpTier": "browser-fetch",
+    "profile": "standard",
+    "purpose": "search",
+    "variant": "tdmrep-header",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-p50-ms-verified": {
+     "value": 536.8053749999963,
+     "unit": "ms",
+     "source": "lane; median over the verified repeats of the cell, session opening and oracle excluded"
+    },
+    "false-success-count": {
+     "value": 0,
+     "unit": "count",
+     "source": "lane; repeats that reported data the site oracle refutes"
+    }
+   }
+  },
+  {
+   "cellId": "fece0e8d4a35-27",
+   "factors": {
+    "httpTier": "node-https",
+    "profile": "identified",
+    "purpose": "search",
+    "variant": "robots-agent",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-p50-ms-verified": {
+     "value": 17.086875000000873,
+     "unit": "ms",
+     "source": "lane; median over the verified repeats of the cell, session opening and oracle excluded"
+    },
+    "false-success-count": {
+     "value": 0,
+     "unit": "count",
+     "source": "lane; repeats that reported data the site oracle refutes"
+    }
+   }
+  },
+  {
+   "cellId": "9cd6c42ebe4b-28",
+   "factors": {
+    "httpTier": "impit-chrome",
+    "profile": "standard",
+    "purpose": "search",
+    "variant": "content-signal",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-p50-ms-verified": {
+     "value": 341.89366699999664,
+     "unit": "ms",
+     "source": "lane; median over the verified repeats of the cell, session opening and oracle excluded"
+    },
+    "false-success-count": {
+     "value": 0,
+     "unit": "count",
+     "source": "lane; repeats that reported data the site oracle refutes"
+    }
+   }
+  },
+  {
+   "cellId": "11cc092e5fc5-29",
+   "factors": {
+    "httpTier": "node-https",
+    "profile": "identified",
+    "purpose": "ai-train",
+    "variant": "tdmrep-file",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-p50-ms-verified": {
+     "value": 74.62741700000333,
+     "unit": "ms",
+     "source": "lane; median over the verified repeats of the cell, session opening and oracle excluded"
+    },
+    "false-success-count": {
+     "value": 0,
+     "unit": "count",
+     "source": "lane; repeats that reported data the site oracle refutes"
+    }
+   }
+  },
+  {
+   "cellId": "18258daf444d-30",
+   "factors": {
+    "httpTier": "node-https",
+    "profile": "identified",
+    "purpose": "search",
+    "variant": "robots-path",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-p50-ms-verified": {
+     "value": 48.27133299999696,
+     "unit": "ms",
+     "source": "lane; median over the verified repeats of the cell, session opening and oracle excluded"
+    },
+    "false-success-count": {
+     "value": 0,
+     "unit": "count",
+     "source": "lane; repeats that reported data the site oracle refutes"
+    }
+   }
+  },
+  {
+   "cellId": "1546ac81fa64-31",
+   "factors": {
+    "httpTier": "impit-chrome",
+    "profile": "identified",
+    "purpose": "search",
+    "variant": "paid-402",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-p50-ms-verified": {
+     "value": 63.391624999996566,
+     "unit": "ms",
+     "source": "lane; median over the verified repeats of the cell, session opening and oracle excluded"
+    },
+    "false-success-count": {
+     "value": 0,
+     "unit": "count",
+     "source": "lane; repeats that reported data the site oracle refutes"
+    }
+   }
+  },
+  {
+   "cellId": "025739632670-32",
+   "factors": {
+    "httpTier": "impit-chrome",
+    "profile": "identified",
+    "purpose": "search",
+    "variant": "tdmrep-header",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-p50-ms-verified": {
+     "value": 319.1425840000011,
+     "unit": "ms",
+     "source": "lane; median over the verified repeats of the cell, session opening and oracle excluded"
+    },
+    "false-success-count": {
+     "value": 0,
+     "unit": "count",
+     "source": "lane; repeats that reported data the site oracle refutes"
+    }
+   }
+  },
+  {
+   "cellId": "3e98036308a9-33",
+   "factors": {
+    "httpTier": "node-https",
+    "profile": "standard",
+    "purpose": "ai-train",
+    "variant": "tdmrep-file",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-p50-ms-verified": {
+     "value": 10.38212499999645,
+     "unit": "ms",
+     "source": "lane; median over the verified repeats of the cell, session opening and oracle excluded"
+    },
+    "false-success-count": {
+     "value": 0,
+     "unit": "count",
+     "source": "lane; repeats that reported data the site oracle refutes"
+    }
+   }
+  },
+  {
+   "cellId": "4e3103fb26eb-34",
+   "factors": {
+    "httpTier": "impit-chrome",
+    "profile": "standard",
+    "purpose": "search",
+    "variant": "retry-429",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-p50-ms-verified": {
+     "value": 1266.8223750000034,
+     "unit": "ms",
+     "source": "lane; median over the verified repeats of the cell, session opening and oracle excluded"
+    },
+    "false-success-count": {
+     "value": 0,
+     "unit": "count",
+     "source": "lane; repeats that reported data the site oracle refutes"
+    }
+   }
+  },
+  {
+   "cellId": "4e882b5045f2-35",
+   "factors": {
+    "httpTier": "browser-fetch",
+    "profile": "identified",
+    "purpose": "ai-train",
+    "variant": "content-signal",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-p50-ms-verified": {
+     "value": 371.86912499999744,
+     "unit": "ms",
+     "source": "lane; median over the verified repeats of the cell, session opening and oracle excluded"
+    },
+    "false-success-count": {
+     "value": 0,
+     "unit": "count",
+     "source": "lane; repeats that reported data the site oracle refutes"
+    }
+   }
+  },
+  {
+   "cellId": "41387fcc2d46-36",
+   "factors": {
+    "httpTier": "impit-chrome",
+    "profile": "standard",
+    "purpose": "search",
+    "variant": "challenge-page",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-p50-ms-verified": {
+     "value": 377.8776249999937,
+     "unit": "ms",
+     "source": "lane; median over the verified repeats of the cell, session opening and oracle excluded"
+    },
+    "false-success-count": {
+     "value": 0,
+     "unit": "count",
+     "source": "lane; repeats that reported data the site oracle refutes"
+    }
+   }
+  },
+  {
+   "cellId": "9603281c0f25-37",
+   "factors": {
+    "httpTier": "browser-fetch",
+    "profile": "identified",
+    "purpose": "ai-train",
+    "variant": "noai-meta",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-p50-ms-verified": {
+     "value": 445.45104199998605,
+     "unit": "ms",
+     "source": "lane; median over the verified repeats of the cell, session opening and oracle excluded"
+    },
+    "false-success-count": {
+     "value": 0,
+     "unit": "count",
+     "source": "lane; repeats that reported data the site oracle refutes"
+    }
+   }
+  },
+  {
+   "cellId": "b08252ade499-38",
+   "factors": {
+    "httpTier": "browser-fetch",
+    "profile": "identified",
+    "purpose": "ai-train",
+    "variant": "crawl-delay",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-p50-ms-verified": {
+     "value": 3408.506792,
+     "unit": "ms",
+     "source": "lane; median over the verified repeats of the cell, session opening and oracle excluded"
+    },
+    "false-success-count": {
+     "value": 0,
+     "unit": "count",
+     "source": "lane; repeats that reported data the site oracle refutes"
+    }
+   }
+  },
+  {
+   "cellId": "486b336612ef-39",
+   "factors": {
+    "httpTier": "impit-chrome",
+    "profile": "standard",
+    "purpose": "ai-train",
+    "variant": "content-signal",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-p50-ms-verified": {
+     "value": 4.3514999999897555,
+     "unit": "ms",
+     "source": "lane; median over the verified repeats of the cell, session opening and oracle excluded"
+    },
+    "false-success-count": {
+     "value": 0,
+     "unit": "count",
+     "source": "lane; repeats that reported data the site oracle refutes"
+    }
+   }
+  },
+  {
+   "cellId": "93b9151ab6f4-40",
+   "factors": {
+    "httpTier": "browser-fetch",
+    "profile": "identified",
+    "purpose": "search",
+    "variant": "tdmrep-file",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-p50-ms-verified": {
+     "value": 295.53787499999453,
+     "unit": "ms",
+     "source": "lane; median over the verified repeats of the cell, session opening and oracle excluded"
+    },
+    "false-success-count": {
+     "value": 0,
+     "unit": "count",
+     "source": "lane; repeats that reported data the site oracle refutes"
+    }
+   }
+  },
+  {
+   "cellId": "6ea5c5b590f0-41",
+   "factors": {
+    "httpTier": "node-https",
+    "profile": "standard",
+    "purpose": "ai-train",
+    "variant": "noai-meta",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-p50-ms-verified": {
+     "value": 9.2309580000001,
+     "unit": "ms",
+     "source": "lane; median over the verified repeats of the cell, session opening and oracle excluded"
+    },
+    "false-success-count": {
+     "value": 0,
+     "unit": "count",
+     "source": "lane; repeats that reported data the site oracle refutes"
+    }
+   }
+  },
+  {
+   "cellId": "1da8cfe9917b-42",
+   "factors": {
+    "httpTier": "browser-fetch",
+    "profile": "identified",
+    "purpose": "search",
+    "variant": "tdmrep-header",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-p50-ms-verified": {
+     "value": 645.661791999999,
+     "unit": "ms",
+     "source": "lane; median over the verified repeats of the cell, session opening and oracle excluded"
+    },
+    "false-success-count": {
+     "value": 0,
+     "unit": "count",
+     "source": "lane; repeats that reported data the site oracle refutes"
+    }
+   }
+  },
+  {
+   "cellId": "82d021da9929-43",
+   "factors": {
+    "httpTier": "impit-chrome",
+    "profile": "standard",
+    "purpose": "search",
+    "variant": "robots-agent",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-p50-ms-verified": {
+     "value": 290.26808300000266,
+     "unit": "ms",
+     "source": "lane; median over the verified repeats of the cell, session opening and oracle excluded"
+    },
+    "false-success-count": {
+     "value": 0,
+     "unit": "count",
+     "source": "lane; repeats that reported data the site oracle refutes"
+    }
+   }
+  },
+  {
+   "cellId": "966238ec4942-44",
+   "factors": {
+    "httpTier": "impit-chrome",
+    "profile": "identified",
+    "purpose": "search",
+    "variant": "crawl-delay",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-p50-ms-verified": {
+     "value": 3164.1929590000072,
+     "unit": "ms",
+     "source": "lane; median over the verified repeats of the cell, session opening and oracle excluded"
+    },
+    "false-success-count": {
+     "value": 0,
+     "unit": "count",
+     "source": "lane; repeats that reported data the site oracle refutes"
+    }
+   }
+  },
+  {
+   "cellId": "0dfa5948d675-45",
+   "factors": {
+    "httpTier": "impit-chrome",
+    "profile": "standard",
+    "purpose": "ai-train",
+    "variant": "robots-agent",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-p50-ms-verified": {
+     "value": 157.1898749999964,
+     "unit": "ms",
+     "source": "lane; median over the verified repeats of the cell, session opening and oracle excluded"
+    },
+    "false-success-count": {
+     "value": 0,
+     "unit": "count",
+     "source": "lane; repeats that reported data the site oracle refutes"
+    }
+   }
+  },
+  {
+   "cellId": "1d7c378c5ce4-46",
+   "factors": {
+    "httpTier": "impit-chrome",
+    "profile": "identified",
+    "purpose": "ai-train",
+    "variant": "content-signal",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-p50-ms-verified": {
+     "value": 199.2424170000013,
+     "unit": "ms",
+     "source": "lane; median over the verified repeats of the cell, session opening and oracle excluded"
+    },
+    "false-success-count": {
+     "value": 0,
+     "unit": "count",
+     "source": "lane; repeats that reported data the site oracle refutes"
+    }
+   }
+  },
+  {
+   "cellId": "0360e3e4afae-47",
+   "factors": {
+    "httpTier": "browser-fetch",
+    "profile": "standard",
+    "purpose": "ai-train",
+    "variant": "challenge-page",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-p50-ms-verified": {
+     "value": 359.88291699999536,
+     "unit": "ms",
+     "source": "lane; median over the verified repeats of the cell, session opening and oracle excluded"
+    },
+    "false-success-count": {
+     "value": 0,
+     "unit": "count",
+     "source": "lane; repeats that reported data the site oracle refutes"
+    }
+   }
+  },
+  {
+   "cellId": "e775b51c8a34-48",
+   "factors": {
+    "httpTier": "impit-chrome",
+    "profile": "standard",
+    "purpose": "search",
+    "variant": "denied-403",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-p50-ms-verified": {
+     "value": 8.032250000003842,
+     "unit": "ms",
+     "source": "lane; median over the verified repeats of the cell, session opening and oracle excluded"
+    },
+    "false-success-count": {
+     "value": 0,
+     "unit": "count",
+     "source": "lane; repeats that reported data the site oracle refutes"
+    }
+   }
+  },
+  {
+   "cellId": "7726d5cd0ee2-49",
+   "factors": {
+    "httpTier": "node-https",
+    "profile": "identified",
+    "purpose": "ai-train",
+    "variant": "retry-429",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-p50-ms-verified": {
+     "value": 1187.813541999989,
+     "unit": "ms",
+     "source": "lane; median over the verified repeats of the cell, session opening and oracle excluded"
+    },
+    "false-success-count": {
+     "value": 0,
+     "unit": "count",
+     "source": "lane; repeats that reported data the site oracle refutes"
+    }
+   }
+  },
+  {
+   "cellId": "09336eca6291-50",
+   "factors": {
+    "httpTier": "browser-fetch",
+    "profile": "standard",
+    "purpose": "ai-train",
+    "variant": "robots-path",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-p50-ms-verified": {
+     "value": 372.22970900000655,
+     "unit": "ms",
+     "source": "lane; median over the verified repeats of the cell, session opening and oracle excluded"
+    },
+    "false-success-count": {
+     "value": 0,
+     "unit": "count",
+     "source": "lane; repeats that reported data the site oracle refutes"
+    }
+   }
+  },
+  {
+   "cellId": "a9c376cc88e4-51",
+   "factors": {
+    "httpTier": "impit-chrome",
+    "profile": "standard",
+    "purpose": "ai-train",
+    "variant": "retry-429",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-p50-ms-verified": {
+     "value": 1154.813540999996,
+     "unit": "ms",
+     "source": "lane; median over the verified repeats of the cell, session opening and oracle excluded"
+    },
+    "false-success-count": {
+     "value": 0,
+     "unit": "count",
+     "source": "lane; repeats that reported data the site oracle refutes"
+    }
+   }
+  },
+  {
+   "cellId": "bddf8dbad633-52",
+   "factors": {
+    "httpTier": "browser-fetch",
+    "profile": "standard",
+    "purpose": "search",
+    "variant": "robots-agent",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-p50-ms-verified": {
+     "value": 465.0931249999994,
+     "unit": "ms",
+     "source": "lane; median over the verified repeats of the cell, session opening and oracle excluded"
+    },
+    "false-success-count": {
+     "value": 0,
+     "unit": "count",
+     "source": "lane; repeats that reported data the site oracle refutes"
+    }
+   }
+  },
+  {
+   "cellId": "f616c301860f-53",
+   "factors": {
+    "httpTier": "impit-chrome",
+    "profile": "standard",
+    "purpose": "search",
+    "variant": "tdmrep-file",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-p50-ms-verified": {
+     "value": 355.3457500000077,
+     "unit": "ms",
+     "source": "lane; median over the verified repeats of the cell, session opening and oracle excluded"
+    },
+    "false-success-count": {
+     "value": 0,
+     "unit": "count",
+     "source": "lane; repeats that reported data the site oracle refutes"
+    }
+   }
+  },
+  {
+   "cellId": "3677968fb7b8-54",
+   "factors": {
+    "httpTier": "impit-chrome",
+    "profile": "identified",
+    "purpose": "search",
+    "variant": "denied-403",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-p50-ms-verified": {
+     "value": 16.704209000003175,
+     "unit": "ms",
+     "source": "lane; median over the verified repeats of the cell, session opening and oracle excluded"
+    },
+    "false-success-count": {
+     "value": 0,
+     "unit": "count",
+     "source": "lane; repeats that reported data the site oracle refutes"
+    }
+   }
+  },
+  {
+   "cellId": "fc6a4bc31d6b-55",
+   "factors": {
+    "httpTier": "node-https",
+    "profile": "identified",
+    "purpose": "ai-train",
+    "variant": "content-signal",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-p50-ms-verified": {
+     "value": 17.51745800000208,
+     "unit": "ms",
+     "source": "lane; median over the verified repeats of the cell, session opening and oracle excluded"
+    },
+    "false-success-count": {
+     "value": 0,
+     "unit": "count",
+     "source": "lane; repeats that reported data the site oracle refutes"
+    }
+   }
+  },
+  {
+   "cellId": "18dba5db98bb-56",
+   "factors": {
+    "httpTier": "impit-chrome",
+    "profile": "identified",
+    "purpose": "search",
+    "variant": "challenge-page",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-p50-ms-verified": {
+     "value": 29.77270899999712,
+     "unit": "ms",
+     "source": "lane; median over the verified repeats of the cell, session opening and oracle excluded"
+    },
+    "false-success-count": {
+     "value": 0,
+     "unit": "count",
+     "source": "lane; repeats that reported data the site oracle refutes"
+    }
+   }
+  },
+  {
+   "cellId": "e0bbdac78954-57",
+   "factors": {
+    "httpTier": "node-https",
+    "profile": "standard",
+    "purpose": "search",
+    "variant": "retry-429",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-p50-ms-verified": {
+     "value": 1182.0911250000063,
+     "unit": "ms",
+     "source": "lane; median over the verified repeats of the cell, session opening and oracle excluded"
+    },
+    "false-success-count": {
+     "value": 0,
+     "unit": "count",
+     "source": "lane; repeats that reported data the site oracle refutes"
+    }
+   }
+  },
+  {
+   "cellId": "ebd28b7d3353-58",
+   "factors": {
+    "httpTier": "impit-chrome",
+    "profile": "identified",
+    "purpose": "search",
+    "variant": "robots-path",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-p50-ms-verified": {
+     "value": 62.15995900001144,
+     "unit": "ms",
+     "source": "lane; median over the verified repeats of the cell, session opening and oracle excluded"
+    },
+    "false-success-count": {
+     "value": 0,
+     "unit": "count",
+     "source": "lane; repeats that reported data the site oracle refutes"
+    }
+   }
+  },
+  {
+   "cellId": "1f907e275541-59",
+   "factors": {
+    "httpTier": "browser-fetch",
+    "profile": "identified",
+    "purpose": "search",
+    "variant": "robots-path",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-p50-ms-verified": {
+     "value": 984.7055419999961,
+     "unit": "ms",
+     "source": "lane; median over the verified repeats of the cell, session opening and oracle excluded"
+    },
+    "false-success-count": {
+     "value": 0,
+     "unit": "count",
+     "source": "lane; repeats that reported data the site oracle refutes"
+    }
+   }
+  },
+  {
+   "cellId": "2a303829903e-60",
+   "factors": {
+    "httpTier": "browser-fetch",
+    "profile": "identified",
+    "purpose": "ai-train",
+    "variant": "robots-path",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-p50-ms-verified": {
+     "value": 451.06829200001084,
+     "unit": "ms",
+     "source": "lane; median over the verified repeats of the cell, session opening and oracle excluded"
+    },
+    "false-success-count": {
+     "value": 0,
+     "unit": "count",
+     "source": "lane; repeats that reported data the site oracle refutes"
+    }
+   }
+  },
+  {
+   "cellId": "9856f3f86d9c-61",
+   "factors": {
+    "httpTier": "node-https",
+    "profile": "standard",
+    "purpose": "search",
+    "variant": "noai-meta",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-p50-ms-verified": {
+     "value": 690.5444159999897,
+     "unit": "ms",
+     "source": "lane; median over the verified repeats of the cell, session opening and oracle excluded"
+    },
+    "false-success-count": {
+     "value": 0,
+     "unit": "count",
+     "source": "lane; repeats that reported data the site oracle refutes"
+    }
+   }
+  },
+  {
+   "cellId": "ff76b09cad1d-62",
+   "factors": {
+    "httpTier": "browser-fetch",
+    "profile": "standard",
+    "purpose": "search",
+    "variant": "crawl-delay",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-p50-ms-verified": {
+     "value": 3493.879000000001,
+     "unit": "ms",
+     "source": "lane; median over the verified repeats of the cell, session opening and oracle excluded"
+    },
+    "false-success-count": {
+     "value": 0,
+     "unit": "count",
+     "source": "lane; repeats that reported data the site oracle refutes"
+    }
+   }
+  },
+  {
+   "cellId": "579b7c53720f-63",
+   "factors": {
+    "httpTier": "node-https",
+    "profile": "identified",
+    "purpose": "search",
+    "variant": "tdmrep-header",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-p50-ms-verified": {
+     "value": 263.2477920000092,
+     "unit": "ms",
+     "source": "lane; median over the verified repeats of the cell, session opening and oracle excluded"
+    },
+    "false-success-count": {
+     "value": 0,
+     "unit": "count",
+     "source": "lane; repeats that reported data the site oracle refutes"
+    }
+   }
+  },
+  {
+   "cellId": "8cd68cf538e8-64",
+   "factors": {
+    "httpTier": "node-https",
+    "profile": "identified",
+    "purpose": "ai-train",
+    "variant": "robots-agent",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-p50-ms-verified": {
+     "value": 13.856208999990486,
+     "unit": "ms",
+     "source": "lane; median over the verified repeats of the cell, session opening and oracle excluded"
+    },
+    "false-success-count": {
+     "value": 0,
+     "unit": "count",
+     "source": "lane; repeats that reported data the site oracle refutes"
+    }
+   }
+  },
+  {
+   "cellId": "10ccaa5a3218-65",
+   "factors": {
+    "httpTier": "impit-chrome",
+    "profile": "standard",
+    "purpose": "search",
+    "variant": "noai-meta",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-p50-ms-verified": {
+     "value": 360.32137499999953,
+     "unit": "ms",
+     "source": "lane; median over the verified repeats of the cell, session opening and oracle excluded"
+    },
+    "false-success-count": {
+     "value": 0,
+     "unit": "count",
+     "source": "lane; repeats that reported data the site oracle refutes"
+    }
+   }
+  },
+  {
+   "cellId": "6a9d213cbd7f-66",
+   "factors": {
+    "httpTier": "node-https",
+    "profile": "standard",
+    "purpose": "ai-train",
+    "variant": "crawl-delay",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-p50-ms-verified": {
+     "value": 3151.966042,
+     "unit": "ms",
+     "source": "lane; median over the verified repeats of the cell, session opening and oracle excluded"
+    },
+    "false-success-count": {
+     "value": 0,
+     "unit": "count",
+     "source": "lane; repeats that reported data the site oracle refutes"
+    }
+   }
+  },
+  {
+   "cellId": "12e6329ba28b-67",
+   "factors": {
+    "httpTier": "node-https",
+    "profile": "standard",
+    "purpose": "search",
+    "variant": "robots-agent",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-p50-ms-verified": {
+     "value": 142.49308300000848,
+     "unit": "ms",
+     "source": "lane; median over the verified repeats of the cell, session opening and oracle excluded"
+    },
+    "false-success-count": {
+     "value": 0,
+     "unit": "count",
+     "source": "lane; repeats that reported data the site oracle refutes"
+    }
+   }
+  },
+  {
+   "cellId": "2499d2f6c49c-68",
+   "factors": {
+    "httpTier": "browser-fetch",
+    "profile": "identified",
+    "purpose": "ai-train",
+    "variant": "tdmrep-header",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-p50-ms-verified": {
+     "value": 283.67258399998536,
+     "unit": "ms",
+     "source": "lane; median over the verified repeats of the cell, session opening and oracle excluded"
+    },
+    "false-success-count": {
+     "value": 0,
+     "unit": "count",
+     "source": "lane; repeats that reported data the site oracle refutes"
+    }
+   }
+  },
+  {
+   "cellId": "2966eaf466e1-69",
+   "factors": {
+    "httpTier": "browser-fetch",
+    "profile": "standard",
+    "purpose": "search",
+    "variant": "retry-429",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-p50-ms-verified": {
+     "value": 1399.4177910000144,
+     "unit": "ms",
+     "source": "lane; median over the verified repeats of the cell, session opening and oracle excluded"
+    },
+    "false-success-count": {
+     "value": 0,
+     "unit": "count",
+     "source": "lane; repeats that reported data the site oracle refutes"
+    }
+   }
+  },
+  {
+   "cellId": "f4c9ec0a3bb5-70",
+   "factors": {
+    "httpTier": "browser-fetch",
+    "profile": "standard",
+    "purpose": "ai-train",
+    "variant": "tdmrep-header",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-p50-ms-verified": {
+     "value": 286.20054099999834,
+     "unit": "ms",
+     "source": "lane; median over the verified repeats of the cell, session opening and oracle excluded"
+    },
+    "false-success-count": {
+     "value": 0,
+     "unit": "count",
+     "source": "lane; repeats that reported data the site oracle refutes"
+    }
+   }
+  },
+  {
+   "cellId": "8fa07b9b11fc-71",
+   "factors": {
+    "httpTier": "impit-chrome",
+    "profile": "identified",
+    "purpose": "ai-train",
+    "variant": "retry-429",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-p50-ms-verified": {
+     "value": 1193.368374999991,
+     "unit": "ms",
+     "source": "lane; median over the verified repeats of the cell, session opening and oracle excluded"
+    },
+    "false-success-count": {
+     "value": 0,
+     "unit": "count",
+     "source": "lane; repeats that reported data the site oracle refutes"
+    }
+   }
+  },
+  {
+   "cellId": "ae59ffc11afb-72",
+   "factors": {
+    "httpTier": "node-https",
+    "profile": "identified",
+    "purpose": "search",
+    "variant": "paid-402",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-p50-ms-verified": {
+     "value": 38.855083000002196,
+     "unit": "ms",
+     "source": "lane; median over the verified repeats of the cell, session opening and oracle excluded"
+    },
+    "false-success-count": {
+     "value": 0,
+     "unit": "count",
+     "source": "lane; repeats that reported data the site oracle refutes"
+    }
+   }
+  },
+  {
+   "cellId": "0feef658fbf7-73",
+   "factors": {
+    "httpTier": "impit-chrome",
+    "profile": "standard",
+    "purpose": "ai-train",
+    "variant": "challenge-page",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-p50-ms-verified": {
+     "value": 12.326249999983702,
+     "unit": "ms",
+     "source": "lane; median over the verified repeats of the cell, session opening and oracle excluded"
+    },
+    "false-success-count": {
+     "value": 0,
+     "unit": "count",
+     "source": "lane; repeats that reported data the site oracle refutes"
+    }
+   }
+  },
+  {
+   "cellId": "285da1e41dd1-74",
+   "factors": {
+    "httpTier": "browser-fetch",
+    "profile": "standard",
+    "purpose": "ai-train",
+    "variant": "retry-429",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-p50-ms-verified": {
+     "value": 1560.1741659999825,
+     "unit": "ms",
+     "source": "lane; median over the verified repeats of the cell, session opening and oracle excluded"
+    },
+    "false-success-count": {
+     "value": 0,
+     "unit": "count",
+     "source": "lane; repeats that reported data the site oracle refutes"
+    }
+   }
+  },
+  {
+   "cellId": "f0ce01a1f020-75",
+   "factors": {
+    "httpTier": "impit-chrome",
+    "profile": "standard",
+    "purpose": "search",
+    "variant": "robots-path",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-p50-ms-verified": {
+     "value": 34.43691699998453,
+     "unit": "ms",
+     "source": "lane; median over the verified repeats of the cell, session opening and oracle excluded"
+    },
+    "false-success-count": {
+     "value": 0,
+     "unit": "count",
+     "source": "lane; repeats that reported data the site oracle refutes"
+    }
+   }
+  },
+  {
+   "cellId": "70428427334a-76",
+   "factors": {
+    "httpTier": "browser-fetch",
+    "profile": "standard",
+    "purpose": "ai-train",
+    "variant": "content-signal",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-p50-ms-verified": {
+     "value": 440.4294579999987,
+     "unit": "ms",
+     "source": "lane; median over the verified repeats of the cell, session opening and oracle excluded"
+    },
+    "false-success-count": {
+     "value": 0,
+     "unit": "count",
+     "source": "lane; repeats that reported data the site oracle refutes"
+    }
+   }
+  },
+  {
+   "cellId": "032f6ca3bafc-77",
+   "factors": {
+    "httpTier": "browser-fetch",
+    "profile": "standard",
+    "purpose": "ai-train",
+    "variant": "denied-403",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-p50-ms-verified": {
+     "value": 410.4642080000194,
+     "unit": "ms",
+     "source": "lane; median over the verified repeats of the cell, session opening and oracle excluded"
+    },
+    "false-success-count": {
+     "value": 0,
+     "unit": "count",
+     "source": "lane; repeats that reported data the site oracle refutes"
+    }
+   }
+  },
+  {
+   "cellId": "f2b56c4b584f-78",
+   "factors": {
+    "httpTier": "node-https",
+    "profile": "standard",
+    "purpose": "search",
+    "variant": "crawl-delay",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-p50-ms-verified": {
+     "value": 3230.582290999999,
+     "unit": "ms",
+     "source": "lane; median over the verified repeats of the cell, session opening and oracle excluded"
+    },
+    "false-success-count": {
+     "value": 0,
+     "unit": "count",
+     "source": "lane; repeats that reported data the site oracle refutes"
+    }
+   }
+  },
+  {
+   "cellId": "1dbfe20ba11e-79",
+   "factors": {
+    "httpTier": "impit-chrome",
+    "profile": "identified",
+    "purpose": "search",
+    "variant": "noai-meta",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-p50-ms-verified": {
+     "value": 365.7970839999907,
+     "unit": "ms",
+     "source": "lane; median over the verified repeats of the cell, session opening and oracle excluded"
+    },
+    "false-success-count": {
+     "value": 0,
+     "unit": "count",
+     "source": "lane; repeats that reported data the site oracle refutes"
+    }
+   }
+  },
+  {
+   "cellId": "ef35e4ae140e-80",
+   "factors": {
+    "httpTier": "browser-fetch",
+    "profile": "identified",
+    "purpose": "ai-train",
+    "variant": "denied-403",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-p50-ms-verified": {
+     "value": 537.2059159999772,
+     "unit": "ms",
+     "source": "lane; median over the verified repeats of the cell, session opening and oracle excluded"
+    },
+    "false-success-count": {
+     "value": 0,
+     "unit": "count",
+     "source": "lane; repeats that reported data the site oracle refutes"
+    }
+   }
+  },
+  {
+   "cellId": "8f686de05d9b-81",
+   "factors": {
+    "httpTier": "impit-chrome",
+    "profile": "standard",
+    "purpose": "ai-train",
+    "variant": "noai-meta",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-p50-ms-verified": {
+     "value": 10.221749999996973,
+     "unit": "ms",
+     "source": "lane; median over the verified repeats of the cell, session opening and oracle excluded"
+    },
+    "false-success-count": {
+     "value": 0,
+     "unit": "count",
+     "source": "lane; repeats that reported data the site oracle refutes"
+    }
+   }
+  },
+  {
+   "cellId": "60a3d54cb2e6-82",
+   "factors": {
+    "httpTier": "impit-chrome",
+    "profile": "identified",
+    "purpose": "ai-train",
+    "variant": "robots-agent",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-p50-ms-verified": {
+     "value": 46.39370799998869,
+     "unit": "ms",
+     "source": "lane; median over the verified repeats of the cell, session opening and oracle excluded"
+    },
+    "false-success-count": {
+     "value": 0,
+     "unit": "count",
+     "source": "lane; repeats that reported data the site oracle refutes"
+    }
+   }
+  },
+  {
+   "cellId": "2c2981083e92-83",
+   "factors": {
+    "httpTier": "impit-chrome",
+    "profile": "identified",
+    "purpose": "ai-train",
+    "variant": "robots-path",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-p50-ms-verified": {
+     "value": 32.723832999996375,
+     "unit": "ms",
+     "source": "lane; median over the verified repeats of the cell, session opening and oracle excluded"
+    },
+    "false-success-count": {
+     "value": 0,
+     "unit": "count",
+     "source": "lane; repeats that reported data the site oracle refutes"
+    }
+   }
+  },
+  {
+   "cellId": "58e9a19e120b-84",
+   "factors": {
+    "httpTier": "impit-chrome",
+    "profile": "standard",
+    "purpose": "ai-train",
+    "variant": "denied-403",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-p50-ms-verified": {
+     "value": 86.80495799999335,
+     "unit": "ms",
+     "source": "lane; median over the verified repeats of the cell, session opening and oracle excluded"
+    },
+    "false-success-count": {
+     "value": 0,
+     "unit": "count",
+     "source": "lane; repeats that reported data the site oracle refutes"
+    }
+   }
+  },
+  {
+   "cellId": "30a91d4057cf-85",
+   "factors": {
+    "httpTier": "node-https",
+    "profile": "identified",
+    "purpose": "ai-train",
+    "variant": "robots-path",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-p50-ms-verified": {
+     "value": 34.891124999994645,
+     "unit": "ms",
+     "source": "lane; median over the verified repeats of the cell, session opening and oracle excluded"
+    },
+    "false-success-count": {
+     "value": 0,
+     "unit": "count",
+     "source": "lane; repeats that reported data the site oracle refutes"
+    }
+   }
+  },
+  {
+   "cellId": "da245f6e445c-86",
+   "factors": {
+    "httpTier": "impit-chrome",
+    "profile": "identified",
+    "purpose": "ai-train",
+    "variant": "noai-meta",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-p50-ms-verified": {
+     "value": 47.690042000001995,
+     "unit": "ms",
+     "source": "lane; median over the verified repeats of the cell, session opening and oracle excluded"
+    },
+    "false-success-count": {
+     "value": 0,
+     "unit": "count",
+     "source": "lane; repeats that reported data the site oracle refutes"
+    }
+   }
+  },
+  {
+   "cellId": "cc9779572468-87",
+   "factors": {
+    "httpTier": "node-https",
+    "profile": "identified",
+    "purpose": "search",
+    "variant": "noai-meta",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-p50-ms-verified": {
+     "value": 610.3833749999758,
+     "unit": "ms",
+     "source": "lane; median over the verified repeats of the cell, session opening and oracle excluded"
+    },
+    "false-success-count": {
+     "value": 0,
+     "unit": "count",
+     "source": "lane; repeats that reported data the site oracle refutes"
+    }
+   }
+  },
+  {
+   "cellId": "53e4d2899392-88",
+   "factors": {
+    "httpTier": "node-https",
+    "profile": "identified",
+    "purpose": "search",
+    "variant": "challenge-page",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-p50-ms-verified": {
+     "value": 86.31454200000735,
+     "unit": "ms",
+     "source": "lane; median over the verified repeats of the cell, session opening and oracle excluded"
+    },
+    "false-success-count": {
+     "value": 0,
+     "unit": "count",
+     "source": "lane; repeats that reported data the site oracle refutes"
+    }
+   }
+  },
+  {
+   "cellId": "99621693d20c-89",
+   "factors": {
+    "httpTier": "impit-chrome",
+    "profile": "standard",
+    "purpose": "search",
+    "variant": "tdmrep-header",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-p50-ms-verified": {
+     "value": 255.02812499998254,
+     "unit": "ms",
+     "source": "lane; median over the verified repeats of the cell, session opening and oracle excluded"
+    },
+    "false-success-count": {
+     "value": 0,
+     "unit": "count",
+     "source": "lane; repeats that reported data the site oracle refutes"
+    }
+   }
+  },
+  {
+   "cellId": "298c3110d946-90",
+   "factors": {
+    "httpTier": "node-https",
+    "profile": "standard",
+    "purpose": "search",
+    "variant": "tdmrep-header",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-p50-ms-verified": {
+     "value": 242.21279200000572,
+     "unit": "ms",
+     "source": "lane; median over the verified repeats of the cell, session opening and oracle excluded"
+    },
+    "false-success-count": {
+     "value": 0,
+     "unit": "count",
+     "source": "lane; repeats that reported data the site oracle refutes"
+    }
+   }
+  },
+  {
+   "cellId": "bfeafa57c31d-91",
+   "factors": {
+    "httpTier": "node-https",
+    "profile": "standard",
+    "purpose": "ai-train",
+    "variant": "retry-429",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-p50-ms-verified": {
+     "value": 1194.7993750000023,
+     "unit": "ms",
+     "source": "lane; median over the verified repeats of the cell, session opening and oracle excluded"
+    },
+    "false-success-count": {
+     "value": 0,
+     "unit": "count",
+     "source": "lane; repeats that reported data the site oracle refutes"
+    }
+   }
+  },
+  {
+   "cellId": "0cffa16cdcf9-92",
+   "factors": {
+    "httpTier": "impit-chrome",
+    "profile": "identified",
+    "purpose": "search",
+    "variant": "content-signal",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-p50-ms-verified": {
+     "value": 290.08612500000163,
+     "unit": "ms",
+     "source": "lane; median over the verified repeats of the cell, session opening and oracle excluded"
+    },
+    "false-success-count": {
+     "value": 0,
+     "unit": "count",
+     "source": "lane; repeats that reported data the site oracle refutes"
+    }
+   }
+  },
+  {
+   "cellId": "e76337741ab0-93",
+   "factors": {
+    "httpTier": "node-https",
+    "profile": "standard",
+    "purpose": "ai-train",
+    "variant": "challenge-page",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-p50-ms-verified": {
+     "value": 29.518582999997307,
+     "unit": "ms",
+     "source": "lane; median over the verified repeats of the cell, session opening and oracle excluded"
+    },
+    "false-success-count": {
+     "value": 0,
+     "unit": "count",
+     "source": "lane; repeats that reported data the site oracle refutes"
+    }
+   }
+  },
+  {
+   "cellId": "7d9bf2fcbbba-94",
+   "factors": {
+    "httpTier": "browser-fetch",
+    "profile": "standard",
+    "purpose": "ai-train",
+    "variant": "tdmrep-file",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-p50-ms-verified": {
+     "value": 398.67545799998334,
+     "unit": "ms",
+     "source": "lane; median over the verified repeats of the cell, session opening and oracle excluded"
+    },
+    "false-success-count": {
+     "value": 0,
+     "unit": "count",
+     "source": "lane; repeats that reported data the site oracle refutes"
+    }
+   }
+  },
+  {
+   "cellId": "18aa8b0b6cbd-95",
+   "factors": {
+    "httpTier": "impit-chrome",
+    "profile": "identified",
+    "purpose": "search",
+    "variant": "robots-agent",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-p50-ms-verified": {
+     "value": 75.46212500002002,
+     "unit": "ms",
+     "source": "lane; median over the verified repeats of the cell, session opening and oracle excluded"
+    },
+    "false-success-count": {
+     "value": 0,
+     "unit": "count",
+     "source": "lane; repeats that reported data the site oracle refutes"
+    }
+   }
+  },
+  {
+   "cellId": "b1529268cadb-96",
+   "factors": {
+    "httpTier": "impit-chrome",
+    "profile": "identified",
+    "purpose": "ai-train",
+    "variant": "tdmrep-header",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-p50-ms-verified": {
+     "value": 384.3129170000029,
+     "unit": "ms",
+     "source": "lane; median over the verified repeats of the cell, session opening and oracle excluded"
+    },
+    "false-success-count": {
+     "value": 0,
+     "unit": "count",
+     "source": "lane; repeats that reported data the site oracle refutes"
+    }
+   }
+  },
+  {
+   "cellId": "42d2edc6e505-97",
+   "factors": {
+    "httpTier": "impit-chrome",
+    "profile": "identified",
+    "purpose": "search",
+    "variant": "retry-429",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-p50-ms-verified": {
+     "value": 1218.6447909999988,
+     "unit": "ms",
+     "source": "lane; median over the verified repeats of the cell, session opening and oracle excluded"
+    },
+    "false-success-count": {
+     "value": 0,
+     "unit": "count",
+     "source": "lane; repeats that reported data the site oracle refutes"
+    }
+   }
+  },
+  {
+   "cellId": "745619f7262a-98",
+   "factors": {
+    "httpTier": "node-https",
+    "profile": "identified",
+    "purpose": "ai-train",
+    "variant": "challenge-page",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-p50-ms-verified": {
+     "value": 22.447042000014335,
+     "unit": "ms",
+     "source": "lane; median over the verified repeats of the cell, session opening and oracle excluded"
+    },
+    "false-success-count": {
+     "value": 0,
+     "unit": "count",
+     "source": "lane; repeats that reported data the site oracle refutes"
+    }
+   }
+  },
+  {
+   "cellId": "94b47f78083f-99",
+   "factors": {
+    "httpTier": "browser-fetch",
+    "profile": "identified",
+    "purpose": "ai-train",
+    "variant": "robots-agent",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-p50-ms-verified": {
+     "value": 364.95416699998896,
+     "unit": "ms",
+     "source": "lane; median over the verified repeats of the cell, session opening and oracle excluded"
+    },
+    "false-success-count": {
+     "value": 0,
+     "unit": "count",
+     "source": "lane; repeats that reported data the site oracle refutes"
+    }
+   }
+  },
+  {
+   "cellId": "3c02f2e6ccbc-100",
+   "factors": {
+    "httpTier": "impit-chrome",
+    "profile": "standard",
+    "purpose": "search",
+    "variant": "crawl-delay",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-p50-ms-verified": {
+     "value": 3159.8582910000114,
+     "unit": "ms",
+     "source": "lane; median over the verified repeats of the cell, session opening and oracle excluded"
+    },
+    "false-success-count": {
+     "value": 0,
+     "unit": "count",
+     "source": "lane; repeats that reported data the site oracle refutes"
+    }
+   }
+  },
+  {
+   "cellId": "c8a8a1e30fc3-101",
+   "factors": {
+    "httpTier": "impit-chrome",
+    "profile": "identified",
+    "purpose": "ai-train",
+    "variant": "tdmrep-file",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-p50-ms-verified": {
+     "value": 15.163334000011673,
+     "unit": "ms",
+     "source": "lane; median over the verified repeats of the cell, session opening and oracle excluded"
+    },
+    "false-success-count": {
+     "value": 0,
+     "unit": "count",
+     "source": "lane; repeats that reported data the site oracle refutes"
+    }
+   }
+  },
+  {
+   "cellId": "88048caf2ddb-102",
+   "factors": {
+    "httpTier": "node-https",
+    "profile": "standard",
+    "purpose": "ai-train",
+    "variant": "paid-402",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-p50-ms-verified": {
+     "value": 10.85274999999092,
+     "unit": "ms",
+     "source": "lane; median over the verified repeats of the cell, session opening and oracle excluded"
+    },
+    "false-success-count": {
+     "value": 0,
+     "unit": "count",
+     "source": "lane; repeats that reported data the site oracle refutes"
+    }
+   }
+  },
+  {
+   "cellId": "3c7a6deefabd-103",
+   "factors": {
+    "httpTier": "node-https",
+    "profile": "identified",
+    "purpose": "search",
+    "variant": "denied-403",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-p50-ms-verified": {
+     "value": 15.087457999994513,
+     "unit": "ms",
+     "source": "lane; median over the verified repeats of the cell, session opening and oracle excluded"
+    },
+    "false-success-count": {
+     "value": 0,
+     "unit": "count",
+     "source": "lane; repeats that reported data the site oracle refutes"
+    }
+   }
+  },
+  {
+   "cellId": "f45053c231a6-104",
+   "factors": {
+    "httpTier": "node-https",
+    "profile": "identified",
+    "purpose": "ai-train",
+    "variant": "paid-402",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-p50-ms-verified": {
+     "value": 16.451249999983702,
+     "unit": "ms",
+     "source": "lane; median over the verified repeats of the cell, session opening and oracle excluded"
+    },
+    "false-success-count": {
+     "value": 0,
+     "unit": "count",
+     "source": "lane; repeats that reported data the site oracle refutes"
+    }
+   }
+  },
+  {
+   "cellId": "01dad7b3def3-105",
+   "factors": {
+    "httpTier": "browser-fetch",
+    "profile": "identified",
+    "purpose": "search",
+    "variant": "denied-403",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-p50-ms-verified": {
+     "value": 583.7038339999854,
+     "unit": "ms",
+     "source": "lane; median over the verified repeats of the cell, session opening and oracle excluded"
+    },
+    "false-success-count": {
+     "value": 0,
+     "unit": "count",
+     "source": "lane; repeats that reported data the site oracle refutes"
+    }
+   }
+  },
+  {
+   "cellId": "56b8f3fd9fa8-106",
+   "factors": {
+    "httpTier": "browser-fetch",
+    "profile": "identified",
+    "purpose": "ai-train",
+    "variant": "paid-402",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-p50-ms-verified": {
+     "value": 594.0679999999993,
+     "unit": "ms",
+     "source": "lane; median over the verified repeats of the cell, session opening and oracle excluded"
+    },
+    "false-success-count": {
+     "value": 0,
+     "unit": "count",
+     "source": "lane; repeats that reported data the site oracle refutes"
+    }
+   }
+  },
+  {
+   "cellId": "888a5660d71d-107",
+   "factors": {
+    "httpTier": "browser-fetch",
+    "profile": "identified",
+    "purpose": "search",
+    "variant": "paid-402",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-p50-ms-verified": {
+     "value": 659.9243330000027,
+     "unit": "ms",
+     "source": "lane; median over the verified repeats of the cell, session opening and oracle excluded"
+    },
+    "false-success-count": {
+     "value": 0,
+     "unit": "count",
+     "source": "lane; repeats that reported data the site oracle refutes"
+    }
+   }
+  },
+  {
+   "cellId": "ed95b933a067-108",
+   "factors": {
+    "httpTier": "browser-fetch",
+    "profile": "standard",
+    "purpose": "ai-train",
+    "variant": "robots-agent",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-p50-ms-verified": {
+     "value": 695.778083000012,
+     "unit": "ms",
+     "source": "lane; median over the verified repeats of the cell, session opening and oracle excluded"
+    },
+    "false-success-count": {
+     "value": 0,
+     "unit": "count",
+     "source": "lane; repeats that reported data the site oracle refutes"
+    }
+   }
+  },
+  {
+   "cellId": "cfd0f791e5f5-109",
+   "factors": {
+    "httpTier": "node-https",
+    "profile": "standard",
+    "purpose": "search",
+    "variant": "paid-402",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-p50-ms-verified": {
+     "value": 20.20549999998184,
+     "unit": "ms",
+     "source": "lane; median over the verified repeats of the cell, session opening and oracle excluded"
+    },
+    "false-success-count": {
+     "value": 0,
+     "unit": "count",
+     "source": "lane; repeats that reported data the site oracle refutes"
+    }
+   }
+  },
+  {
+   "cellId": "d5fcc706f13a-110",
+   "factors": {
+    "httpTier": "browser-fetch",
+    "profile": "standard",
+    "purpose": "search",
+    "variant": "denied-403",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-p50-ms-verified": {
+     "value": 657.6533329999947,
+     "unit": "ms",
+     "source": "lane; median over the verified repeats of the cell, session opening and oracle excluded"
+    },
+    "false-success-count": {
+     "value": 0,
+     "unit": "count",
+     "source": "lane; repeats that reported data the site oracle refutes"
+    }
+   }
+  },
+  {
+   "cellId": "95d6239177d3-111",
+   "factors": {
+    "httpTier": "node-https",
+    "profile": "standard",
+    "purpose": "search",
+    "variant": "tdmrep-file",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-p50-ms-verified": {
+     "value": 296.82687499999884,
+     "unit": "ms",
+     "source": "lane; median over the verified repeats of the cell, session opening and oracle excluded"
+    },
+    "false-success-count": {
+     "value": 0,
+     "unit": "count",
+     "source": "lane; repeats that reported data the site oracle refutes"
+    }
+   }
+  },
+  {
+   "cellId": "7727d6f01d9e-112",
+   "factors": {
+    "httpTier": "node-https",
+    "profile": "identified",
+    "purpose": "search",
+    "variant": "retry-429",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-p50-ms-verified": {
+     "value": 1207.8512080000073,
+     "unit": "ms",
+     "source": "lane; median over the verified repeats of the cell, session opening and oracle excluded"
+    },
+    "false-success-count": {
+     "value": 0,
+     "unit": "count",
+     "source": "lane; repeats that reported data the site oracle refutes"
+    }
+   }
+  },
+  {
+   "cellId": "3137c7d1a31c-113",
+   "factors": {
+    "httpTier": "impit-chrome",
+    "profile": "standard",
+    "purpose": "ai-train",
+    "variant": "crawl-delay",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-p50-ms-verified": {
+     "value": 3164.0342079999973,
+     "unit": "ms",
+     "source": "lane; median over the verified repeats of the cell, session opening and oracle excluded"
+    },
+    "false-success-count": {
+     "value": 0,
+     "unit": "count",
+     "source": "lane; repeats that reported data the site oracle refutes"
+    }
+   }
+  },
+  {
+   "cellId": "24ba0440ee2c-114",
+   "factors": {
+    "httpTier": "browser-fetch",
+    "profile": "identified",
+    "purpose": "search",
+    "variant": "content-signal",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-p50-ms-verified": {
+     "value": 234.57662500001607,
+     "unit": "ms",
+     "source": "lane; median over the verified repeats of the cell, session opening and oracle excluded"
+    },
+    "false-success-count": {
+     "value": 0,
+     "unit": "count",
+     "source": "lane; repeats that reported data the site oracle refutes"
+    }
+   }
+  },
+  {
+   "cellId": "cc73fa5154cb-115",
+   "factors": {
+    "httpTier": "node-https",
+    "profile": "standard",
+    "purpose": "ai-train",
+    "variant": "robots-agent",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-p50-ms-verified": {
+     "value": 308.72091699999874,
+     "unit": "ms",
+     "source": "lane; median over the verified repeats of the cell, session opening and oracle excluded"
+    },
+    "false-success-count": {
+     "value": 0,
+     "unit": "count",
+     "source": "lane; repeats that reported data the site oracle refutes"
+    }
+   }
+  },
+  {
+   "cellId": "a35c7b4fc9f8-116",
+   "factors": {
+    "httpTier": "impit-chrome",
+    "profile": "standard",
+    "purpose": "ai-train",
+    "variant": "paid-402",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-p50-ms-verified": {
+     "value": 15.02225000000908,
+     "unit": "ms",
+     "source": "lane; median over the verified repeats of the cell, session opening and oracle excluded"
+    },
+    "false-success-count": {
+     "value": 0,
+     "unit": "count",
+     "source": "lane; repeats that reported data the site oracle refutes"
+    }
+   }
+  },
+  {
+   "cellId": "777a05d9ad12-117",
+   "factors": {
+    "httpTier": "browser-fetch",
+    "profile": "standard",
+    "purpose": "search",
+    "variant": "robots-path",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-p50-ms-verified": {
+     "value": 426.22750000000815,
+     "unit": "ms",
+     "source": "lane; median over the verified repeats of the cell, session opening and oracle excluded"
+    },
+    "false-success-count": {
+     "value": 0,
+     "unit": "count",
+     "source": "lane; repeats that reported data the site oracle refutes"
+    }
+   }
+  },
+  {
+   "cellId": "41b7256f3243-118",
+   "factors": {
+    "httpTier": "browser-fetch",
+    "profile": "identified",
+    "purpose": "search",
+    "variant": "noai-meta",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-p50-ms-verified": {
+     "value": 902.8772079999908,
+     "unit": "ms",
+     "source": "lane; median over the verified repeats of the cell, session opening and oracle excluded"
+    },
+    "false-success-count": {
+     "value": 0,
+     "unit": "count",
+     "source": "lane; repeats that reported data the site oracle refutes"
+    }
+   }
+  },
+  {
+   "cellId": "dca20e664926-119",
+   "factors": {
+    "httpTier": "impit-chrome",
+    "profile": "standard",
+    "purpose": "ai-train",
+    "variant": "tdmrep-header",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-p50-ms-verified": {
+     "value": 41.637458999990486,
+     "unit": "ms",
+     "source": "lane; median over the verified repeats of the cell, session opening and oracle excluded"
+    },
+    "false-success-count": {
+     "value": 0,
+     "unit": "count",
+     "source": "lane; repeats that reported data the site oracle refutes"
+    }
+   }
+  },
+  {
+   "cellId": "1ea608afe77e-120",
+   "factors": {
+    "httpTier": "node-https",
+    "profile": "standard",
+    "purpose": "ai-train",
+    "variant": "tdmrep-header",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-p50-ms-verified": {
+     "value": 31.698833999980707,
+     "unit": "ms",
+     "source": "lane; median over the verified repeats of the cell, session opening and oracle excluded"
+    },
+    "false-success-count": {
+     "value": 0,
+     "unit": "count",
+     "source": "lane; repeats that reported data the site oracle refutes"
+    }
+   }
+  },
+  {
+   "cellId": "220356978258-121",
+   "factors": {
+    "httpTier": "impit-chrome",
+    "profile": "standard",
+    "purpose": "search",
+    "variant": "paid-402",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-p50-ms-verified": {
+     "value": 52.712916999997105,
+     "unit": "ms",
+     "source": "lane; median over the verified repeats of the cell, session opening and oracle excluded"
+    },
+    "false-success-count": {
+     "value": 0,
+     "unit": "count",
+     "source": "lane; repeats that reported data the site oracle refutes"
+    }
+   }
+  },
+  {
+   "cellId": "4e304b241b8b-122",
+   "factors": {
+    "httpTier": "impit-chrome",
+    "profile": "identified",
+    "purpose": "ai-train",
+    "variant": "denied-403",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-p50-ms-verified": {
+     "value": 48.21083299999009,
+     "unit": "ms",
+     "source": "lane; median over the verified repeats of the cell, session opening and oracle excluded"
+    },
+    "false-success-count": {
+     "value": 0,
+     "unit": "count",
+     "source": "lane; repeats that reported data the site oracle refutes"
+    }
+   }
+  },
+  {
+   "cellId": "ca96d9adaf5c-123",
+   "factors": {
+    "httpTier": "browser-fetch",
+    "profile": "standard",
+    "purpose": "ai-train",
+    "variant": "crawl-delay",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-p50-ms-verified": {
+     "value": 3875.22445899999,
+     "unit": "ms",
+     "source": "lane; median over the verified repeats of the cell, session opening and oracle excluded"
+    },
+    "false-success-count": {
+     "value": 0,
+     "unit": "count",
+     "source": "lane; repeats that reported data the site oracle refutes"
+    }
+   }
+  },
+  {
+   "cellId": "e1e994d225ef-124",
+   "factors": {
+    "httpTier": "node-https",
+    "profile": "identified",
+    "purpose": "search",
+    "variant": "tdmrep-file",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-p50-ms-verified": {
+     "value": 656.1698329999927,
+     "unit": "ms",
+     "source": "lane; median over the verified repeats of the cell, session opening and oracle excluded"
+    },
+    "false-success-count": {
+     "value": 0,
+     "unit": "count",
+     "source": "lane; repeats that reported data the site oracle refutes"
+    }
+   }
+  },
+  {
+   "cellId": "36b6c7f57b3a-125",
+   "factors": {
+    "httpTier": "node-https",
+    "profile": "standard",
+    "purpose": "ai-train",
+    "variant": "content-signal",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-p50-ms-verified": {
+     "value": 30.123541000008117,
+     "unit": "ms",
+     "source": "lane; median over the verified repeats of the cell, session opening and oracle excluded"
+    },
+    "false-success-count": {
+     "value": 0,
+     "unit": "count",
+     "source": "lane; repeats that reported data the site oracle refutes"
+    }
+   }
+  },
+  {
+   "cellId": "cc187a0d2f9e-126",
+   "factors": {
+    "httpTier": "impit-chrome",
+    "profile": "standard",
+    "purpose": "ai-train",
+    "variant": "robots-path",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-p50-ms-verified": {
+     "value": 65.49150000000373,
+     "unit": "ms",
+     "source": "lane; median over the verified repeats of the cell, session opening and oracle excluded"
+    },
+    "false-success-count": {
+     "value": 0,
+     "unit": "count",
+     "source": "lane; repeats that reported data the site oracle refutes"
+    }
+   }
+  },
+  {
+   "cellId": "06c81d2180b9-127",
+   "factors": {
+    "httpTier": "browser-fetch",
+    "profile": "identified",
+    "purpose": "ai-train",
+    "variant": "tdmrep-file",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-p50-ms-verified": {
+     "value": 479.08841699999175,
+     "unit": "ms",
+     "source": "lane; median over the verified repeats of the cell, session opening and oracle excluded"
+    },
+    "false-success-count": {
+     "value": 0,
+     "unit": "count",
+     "source": "lane; repeats that reported data the site oracle refutes"
+    }
+   }
+  },
+  {
+   "cellId": "d657cb361f13-128",
+   "factors": {
+    "httpTier": "browser-fetch",
+    "profile": "identified",
+    "purpose": "search",
+    "variant": "challenge-page",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-p50-ms-verified": {
+     "value": 497.3310840000049,
+     "unit": "ms",
+     "source": "lane; median over the verified repeats of the cell, session opening and oracle excluded"
+    },
+    "false-success-count": {
+     "value": 0,
+     "unit": "count",
+     "source": "lane; repeats that reported data the site oracle refutes"
+    }
+   }
+  },
+  {
+   "cellId": "4c27f9e5f184-129",
+   "factors": {
+    "httpTier": "browser-fetch",
+    "profile": "standard",
+    "purpose": "search",
+    "variant": "noai-meta",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-p50-ms-verified": {
+     "value": 484.88341700000456,
+     "unit": "ms",
+     "source": "lane; median over the verified repeats of the cell, session opening and oracle excluded"
+    },
+    "false-success-count": {
+     "value": 0,
+     "unit": "count",
+     "source": "lane; repeats that reported data the site oracle refutes"
+    }
+   }
+  },
+  {
+   "cellId": "a9ada1e25094-130",
+   "factors": {
+    "httpTier": "browser-fetch",
+    "profile": "identified",
+    "purpose": "search",
+    "variant": "crawl-delay",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-p50-ms-verified": {
+     "value": 3539.515333999996,
+     "unit": "ms",
+     "source": "lane; median over the verified repeats of the cell, session opening and oracle excluded"
+    },
+    "false-success-count": {
+     "value": 0,
+     "unit": "count",
+     "source": "lane; repeats that reported data the site oracle refutes"
+    }
+   }
+  },
+  {
+   "cellId": "a40f6e6d8ce8-131",
+   "factors": {
+    "httpTier": "impit-chrome",
+    "profile": "identified",
+    "purpose": "search",
+    "variant": "tdmrep-file",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-p50-ms-verified": {
+     "value": 385.3416670000006,
+     "unit": "ms",
+     "source": "lane; median over the verified repeats of the cell, session opening and oracle excluded"
+    },
+    "false-success-count": {
+     "value": 0,
+     "unit": "count",
+     "source": "lane; repeats that reported data the site oracle refutes"
+    }
+   }
+  }
+ ],
+ "totals": {
+  "verified": 132,
+  "failed": 0,
+  "timeout": 0,
+  "crashed": 0,
+  "aborted": 0,
+  "unsupported": 0,
+  "rejected": 0,
+  "unavailable": 0,
+  "skipped": 0
+ },
+ "metricAvailability": {
+  "verified-jobs-per-second": {
+   "available": true
+  },
+  "verified-tasks-per-second": {
+   "available": true
+  },
+  "verified-rows-per-second": {
+   "available": true
+  },
+  "task-p50-ms-verified": {
+   "available": true
+  },
+  "task-p95-ms-verified": {
+   "available": true
+  },
+  "task-ms": {
+   "available": true
+  },
+  "ack-latency-p95-ms": {
+   "available": true
+  },
+  "extraction-precision": {
+   "available": true
+  },
+  "extraction-recall": {
+   "available": true
+  },
+  "snippet-recall": {
+   "available": true
+  },
+  "boilerplate-leak": {
+   "available": true
+  },
+  "extract-ms-p50": {
+   "available": true
+  },
+  "startup-ms": {
+   "available": true
+  },
+  "cpu-ms-per-verified-job": {
+   "available": true
+  },
+  "footprint-peak-bytes": {
+   "available": true
+  },
+  "pss-peak-bytes": {
+   "available": false,
+   "reason": "no probe on darwin"
+  },
+  "cgroup-memory-peak-bytes": {
+   "available": false,
+   "reason": "no probe on darwin"
+  },
+  "rss-peak-bytes": {
+   "available": true
+  },
+  "cdp-commands-per-task": {
+   "available": true
+  },
+  "extraction-f1": {
+   "available": true
+  },
+  "field-precision": {
+   "available": true
+  },
+  "field-recall": {
+   "available": true
+  },
+  "pass-k": {
+   "available": true
+  },
+  "llm-calls-per-verified-task": {
+   "available": true
+  },
+  "tokens-per-verified-task": {
+   "available": true
+  },
+  "usd-per-1k-verified": {
+   "available": false,
+   "reason": "pricing tables are not implemented yet"
+  },
+  "model-usd-per-1k-verified": {
+   "available": true
+  },
+  "interface-turns-per-task": {
+   "available": true
+  },
+  "oracle-exact": {
+   "available": true
+  },
+  "false-success-count": {
+   "available": true
+  },
+  "actionability-conformance": {
+   "available": true
+  },
+  "recovery-exact": {
+   "available": true
+  },
+  "durability-power-loss": {
+   "available": false,
+   "reason": "no probe on darwin"
+  },
+  "identity-coherence": {
+   "available": true
+  },
+  "policy-compliance": {
+   "available": true
+  },
+  "session-isolation": {
+   "available": true
+  },
+  "admission-no-loss": {
+   "available": true
+  }
+ },
+ "legacy": null,
+ "blocks": [
+  {
+   "index": 0,
+   "order": [
+    "browser-fetch/standard/ai-train/noai-meta",
+    "node-https/standard/ai-train/robots-path",
+    "node-https/standard/search/robots-path",
+    "impit-chrome/identified/ai-train/paid-402",
+    "browser-fetch/identified/ai-train/retry-429",
+    "impit-chrome/identified/ai-train/crawl-delay",
+    "browser-fetch/identified/ai-train/challenge-page",
+    "browser-fetch/identified/search/robots-agent",
+    "node-https/identified/ai-train/crawl-delay",
+    "node-https/standard/search/challenge-page",
+    "node-https/standard/search/content-signal",
+    "browser-fetch/standard/search/challenge-page",
+    "browser-fetch/standard/search/tdmrep-file",
+    "browser-fetch/standard/search/content-signal",
+    "node-https/identified/search/crawl-delay",
+    "browser-fetch/standard/search/paid-402",
+    "node-https/identified/ai-train/noai-meta",
+    "impit-chrome/identified/ai-train/challenge-page",
+    "node-https/identified/search/content-signal",
+    "browser-fetch/standard/ai-train/paid-402",
+    "node-https/identified/ai-train/denied-403",
+    "node-https/identified/ai-train/tdmrep-header",
+    "browser-fetch/identified/search/retry-429",
+    "node-https/standard/ai-train/denied-403",
+    "impit-chrome/standard/ai-train/tdmrep-file",
+    "node-https/standard/search/denied-403",
+    "browser-fetch/standard/search/tdmrep-header",
+    "node-https/identified/search/robots-agent",
+    "impit-chrome/standard/search/content-signal",
+    "node-https/identified/ai-train/tdmrep-file",
+    "node-https/identified/search/robots-path",
+    "impit-chrome/identified/search/paid-402",
+    "impit-chrome/identified/search/tdmrep-header",
+    "node-https/standard/ai-train/tdmrep-file",
+    "impit-chrome/standard/search/retry-429",
+    "browser-fetch/identified/ai-train/content-signal",
+    "impit-chrome/standard/search/challenge-page",
+    "browser-fetch/identified/ai-train/noai-meta",
+    "browser-fetch/identified/ai-train/crawl-delay",
+    "impit-chrome/standard/ai-train/content-signal",
+    "browser-fetch/identified/search/tdmrep-file",
+    "node-https/standard/ai-train/noai-meta",
+    "browser-fetch/identified/search/tdmrep-header",
+    "impit-chrome/standard/search/robots-agent",
+    "impit-chrome/identified/search/crawl-delay",
+    "impit-chrome/standard/ai-train/robots-agent",
+    "impit-chrome/identified/ai-train/content-signal",
+    "browser-fetch/standard/ai-train/challenge-page",
+    "impit-chrome/standard/search/denied-403",
+    "node-https/identified/ai-train/retry-429",
+    "browser-fetch/standard/ai-train/robots-path",
+    "impit-chrome/standard/ai-train/retry-429",
+    "browser-fetch/standard/search/robots-agent",
+    "impit-chrome/standard/search/tdmrep-file",
+    "impit-chrome/identified/search/denied-403",
+    "node-https/identified/ai-train/content-signal",
+    "impit-chrome/identified/search/challenge-page",
+    "node-https/standard/search/retry-429",
+    "impit-chrome/identified/search/robots-path",
+    "browser-fetch/identified/search/robots-path",
+    "browser-fetch/identified/ai-train/robots-path",
+    "node-https/standard/search/noai-meta",
+    "browser-fetch/standard/search/crawl-delay",
+    "node-https/identified/search/tdmrep-header",
+    "node-https/identified/ai-train/robots-agent",
+    "impit-chrome/standard/search/noai-meta",
+    "node-https/standard/ai-train/crawl-delay",
+    "node-https/standard/search/robots-agent",
+    "browser-fetch/identified/ai-train/tdmrep-header",
+    "browser-fetch/standard/search/retry-429",
+    "browser-fetch/standard/ai-train/tdmrep-header",
+    "impit-chrome/identified/ai-train/retry-429",
+    "node-https/identified/search/paid-402",
+    "impit-chrome/standard/ai-train/challenge-page",
+    "browser-fetch/standard/ai-train/retry-429",
+    "impit-chrome/standard/search/robots-path",
+    "browser-fetch/standard/ai-train/content-signal",
+    "browser-fetch/standard/ai-train/denied-403",
+    "node-https/standard/search/crawl-delay",
+    "impit-chrome/identified/search/noai-meta",
+    "browser-fetch/identified/ai-train/denied-403",
+    "impit-chrome/standard/ai-train/noai-meta",
+    "impit-chrome/identified/ai-train/robots-agent",
+    "impit-chrome/identified/ai-train/robots-path",
+    "impit-chrome/standard/ai-train/denied-403",
+    "node-https/identified/ai-train/robots-path",
+    "impit-chrome/identified/ai-train/noai-meta",
+    "node-https/identified/search/noai-meta",
+    "node-https/identified/search/challenge-page",
+    "impit-chrome/standard/search/tdmrep-header",
+    "node-https/standard/search/tdmrep-header",
+    "node-https/standard/ai-train/retry-429",
+    "impit-chrome/identified/search/content-signal",
+    "node-https/standard/ai-train/challenge-page",
+    "browser-fetch/standard/ai-train/tdmrep-file",
+    "impit-chrome/identified/search/robots-agent",
+    "impit-chrome/identified/ai-train/tdmrep-header",
+    "impit-chrome/identified/search/retry-429",
+    "node-https/identified/ai-train/challenge-page",
+    "browser-fetch/identified/ai-train/robots-agent",
+    "impit-chrome/standard/search/crawl-delay",
+    "impit-chrome/identified/ai-train/tdmrep-file",
+    "node-https/standard/ai-train/paid-402",
+    "node-https/identified/search/denied-403",
+    "node-https/identified/ai-train/paid-402",
+    "browser-fetch/identified/search/denied-403",
+    "browser-fetch/identified/ai-train/paid-402",
+    "browser-fetch/identified/search/paid-402",
+    "browser-fetch/standard/ai-train/robots-agent",
+    "node-https/standard/search/paid-402",
+    "browser-fetch/standard/search/denied-403",
+    "node-https/standard/search/tdmrep-file",
+    "node-https/identified/search/retry-429",
+    "impit-chrome/standard/ai-train/crawl-delay",
+    "browser-fetch/identified/search/content-signal",
+    "node-https/standard/ai-train/robots-agent",
+    "impit-chrome/standard/ai-train/paid-402",
+    "browser-fetch/standard/search/robots-path",
+    "browser-fetch/identified/search/noai-meta",
+    "impit-chrome/standard/ai-train/tdmrep-header",
+    "node-https/standard/ai-train/tdmrep-header",
+    "impit-chrome/standard/search/paid-402",
+    "impit-chrome/identified/ai-train/denied-403",
+    "browser-fetch/standard/ai-train/crawl-delay",
+    "node-https/identified/search/tdmrep-file",
+    "node-https/standard/ai-train/content-signal",
+    "impit-chrome/standard/ai-train/robots-path",
+    "browser-fetch/identified/ai-train/tdmrep-file",
+    "browser-fetch/identified/search/challenge-page",
+    "browser-fetch/standard/search/noai-meta",
+    "browser-fetch/identified/search/crawl-delay",
+    "impit-chrome/identified/search/tdmrep-file"
+   ],
+   "noisy": false,
+   "host": {
+    "loadPerCpu1m": 0.9739467075892857,
+    "foreignCpuPercent": 705.5000000000007
+   }
+  }
+ ]
+}

@@ -1,0 +1,3182 @@
+{
+ "schemaVersion": 2,
+ "runId": "ai-real-models-2026-10-08T22-15-04-120Z-d70ce2",
+ "lane": "ai",
+ "campaign": {
+  "id": "ai-real-models",
+  "source": "campaigns/v2/ai/ai-real-models.json",
+  "sha256": "7b436a27eef57a0daddddf8385974b9d075309eeb5d9714da08213e7b4c44848"
+ },
+ "startedAt": "2026-10-08T22:15:04.120Z",
+ "decisionIds": [
+  "D-ai-layer"
+ ],
+ "provenance": {
+  "git": {
+   "available": true,
+   "sha": "5cc992612d076c6acfb3c47c4288409e1b210882",
+   "dirty": false
+  },
+  "sourceTreeSha256": "9c3fc4df80efadb157dba89d954bb0fdf79eef7dfc91d91368e4c22b23ea8eb2",
+  "sourceChanges": 0,
+  "binaryChanges": null,
+  "toolchains": {
+   "node": "v25.5.0",
+   "rustc": "rustc 1.93.0 (254b59607 2026-01-19)",
+   "go": "go version go1.27.1 darwin/arm64",
+   "pnpm": "12.9.1"
+  },
+  "integrity": {
+   "status": "uncatalogued",
+   "checked": 0,
+   "mismatches": []
+  }
+ },
+ "host": {
+  "classRequested": "local-dev",
+  "classGranted": "local-dev",
+  "os": "darwin",
+  "arch": "arm64",
+  "cpu": "Apple M3 Max",
+  "logicalCpus": 14,
+  "memoryBytes": 38654705664,
+  "preflight": {
+   "snapshot": {
+    "os": "darwin",
+    "arch": "arm64",
+    "cpu": "Apple M3 Max",
+    "logicalCpus": 14,
+    "memoryBytes": 38654705664,
+    "loadAverage1m": 7.04736328125,
+    "memoryFreePercent": 57,
+    "thermalWarning": false,
+    "onAC": false,
+    "lowPowerMode": false,
+    "foreignCpuPercent": 406.50000000000057,
+    "foreignTop": [
+     {
+      "command": "ffprobe",
+      "cpuPercent": 77.8
+     },
+     {
+      "command": "WindowServer",
+      "cpuPercent": 42.3
+     },
+     {
+      "command": "Docker Desktop Helper (Renderer)",
+      "cpuPercent": 36.2
+     },
+     {
+      "command": "sysmond",
+      "cpuPercent": 35.6
+     },
+     {
+      "command": "Google Chrome Helper",
+      "cpuPercent": 27.4
+     }
+    ],
+    "cpuGovernor": null,
+    "virtualized": false,
+    "controllerCpuPercent": 17.400000000000002
+   },
+   "gates": []
+  },
+  "postflight": {
+   "snapshot": {
+    "os": "darwin",
+    "arch": "arm64",
+    "cpu": "Apple M3 Max",
+    "logicalCpus": 14,
+    "memoryBytes": 38654705664,
+    "loadAverage1m": 8.70654296875,
+    "memoryFreePercent": 51,
+    "thermalWarning": false,
+    "onAC": false,
+    "lowPowerMode": false,
+    "foreignCpuPercent": 307.1000000000003,
+    "foreignTop": [
+     {
+      "command": "ffmpeg",
+      "cpuPercent": 85.5
+     },
+     {
+      "command": "WindowServer",
+      "cpuPercent": 46.7
+     },
+     {
+      "command": "Google Chrome Helper",
+      "cpuPercent": 30.4
+     },
+     {
+      "command": "Google Chrome Helper (Renderer)",
+      "cpuPercent": 26.1
+     },
+     {
+      "command": "com.apple.Virtualization.VirtualMachine",
+      "cpuPercent": 18.4
+     }
+    ],
+    "cpuGovernor": null,
+    "virtualized": false,
+    "controllerCpuPercent": 34.5
+   }
+  }
+ },
+ "status": "complete",
+ "countUnit": "cell",
+ "cells": [
+  {
+   "cellId": "77debec6f84c-0",
+   "factors": {
+    "mode": "agent-each-run",
+    "model": "google/gemini-3.1-flash-lite",
+    "variant": "relabel",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "llm-calls-per-verified-task": {
+     "value": 1,
+     "unit": "call/task",
+     "source": "lane; fake model accounting over the session, dated price table"
+    },
+    "tokens-per-verified-task": {
+     "value": 406,
+     "unit": "token/task",
+     "source": "lane; fake model accounting over the session, dated price table"
+    },
+    "model-usd-per-1k-verified": {
+     "value": 0.17775,
+     "unit": "USD/1k",
+     "source": "lane; fake model accounting over the session, dated price table"
+    }
+   }
+  },
+  {
+   "cellId": "1df7831bd09d-1",
+   "factors": {
+    "mode": "agent-each-run",
+    "model": "google/gemini-3.1-flash-lite",
+    "variant": "price-change",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "llm-calls-per-verified-task": {
+     "value": 1,
+     "unit": "call/task",
+     "source": "lane; fake model accounting over the session, dated price table"
+    },
+    "tokens-per-verified-task": {
+     "value": 338,
+     "unit": "token/task",
+     "source": "lane; fake model accounting over the session, dated price table"
+    },
+    "model-usd-per-1k-verified": {
+     "value": 0.09075,
+     "unit": "USD/1k",
+     "source": "lane; fake model accounting over the session, dated price table"
+    }
+   }
+  },
+  {
+   "cellId": "910543d30cc8-2",
+   "factors": {
+    "mode": "compiled-replay",
+    "model": "anthropic/claude-haiku-5.5",
+    "variant": "decoy-swap",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "llm-calls-per-verified-task": {
+     "value": 0.3333333333333333,
+     "unit": "call/task",
+     "source": "lane; fake model accounting over the session, dated price table"
+    },
+    "tokens-per-verified-task": {
+     "value": 233.33333333333334,
+     "unit": "token/task",
+     "source": "lane; fake model accounting over the session, dated price table"
+    },
+    "model-usd-per-1k-verified": {
+     "value": 0.042600000000000006,
+     "unit": "USD/1k",
+     "source": "lane; fake model accounting over the session, dated price table"
+    }
+   }
+  },
+  {
+   "cellId": "03f13d6c82ff-3",
+   "factors": {
+    "mode": "agent-each-run",
+    "model": "anthropic/claude-haiku-5.5",
+    "variant": "price-change",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "llm-calls-per-verified-task": {
+     "value": 1,
+     "unit": "call/task",
+     "source": "lane; fake model accounting over the session, dated price table"
+    },
+    "tokens-per-verified-task": {
+     "value": 609.1666666666666,
+     "unit": "token/task",
+     "source": "lane; fake model accounting over the session, dated price table"
+    },
+    "model-usd-per-1k-verified": {
+     "value": 0.09778333333333333,
+     "unit": "USD/1k",
+     "source": "lane; fake model accounting over the session, dated price table"
+    }
+   }
+  },
+  {
+   "cellId": "2c284963f424-4",
+   "factors": {
+    "mode": "compiled-replay",
+    "model": "google/gemini-3.1-flash-lite",
+    "variant": "price-change",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "llm-calls-per-verified-task": {
+     "value": 0.16666666666666666,
+     "unit": "call/task",
+     "source": "lane; fake model accounting over the session, dated price table"
+    },
+    "tokens-per-verified-task": {
+     "value": 56.333333333333336,
+     "unit": "token/task",
+     "source": "lane; fake model accounting over the session, dated price table"
+    },
+    "model-usd-per-1k-verified": {
+     "value": 0.015125,
+     "unit": "USD/1k",
+     "source": "lane; fake model accounting over the session, dated price table"
+    }
+   }
+  },
+  {
+   "cellId": "4480fb49189c-5",
+   "factors": {
+    "mode": "compiled-replay",
+    "model": "openai/gpt-5.6-luna",
+    "variant": "baseline",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "llm-calls-per-verified-task": {
+     "value": 0.2,
+     "unit": "call/task",
+     "source": "lane; fake model accounting over the session, dated price table"
+    },
+    "tokens-per-verified-task": {
+     "value": 89.8,
+     "unit": "token/task",
+     "source": "lane; fake model accounting over the session, dated price table"
+    },
+    "model-usd-per-1k-verified": {
+     "value": 0.03716,
+     "unit": "USD/1k",
+     "source": "lane; fake model accounting over the session, dated price table"
+    }
+   }
+  },
+  {
+   "cellId": "861aae15b937-6",
+   "factors": {
+    "mode": "agent-each-run",
+    "model": "openai/gpt-5.6-luna",
+    "variant": "relabel",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "llm-calls-per-verified-task": {
+     "value": 1,
+     "unit": "call/task",
+     "source": "lane; fake model accounting over the session, dated price table"
+    },
+    "tokens-per-verified-task": {
+     "value": 438.5,
+     "unit": "token/task",
+     "source": "lane; fake model accounting over the session, dated price table"
+    },
+    "model-usd-per-1k-verified": {
+     "value": 0.17320000000000002,
+     "unit": "USD/1k",
+     "source": "lane; fake model accounting over the session, dated price table"
+    }
+   }
+  },
+  {
+   "cellId": "7e24632592ab-7",
+   "factors": {
+    "mode": "agent-each-run",
+    "model": "openai/gpt-5.6-luna",
+    "variant": "decoy-swap",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "llm-calls-per-verified-task": {
+     "value": 1,
+     "unit": "call/task",
+     "source": "lane; fake model accounting over the session, dated price table"
+    },
+    "tokens-per-verified-task": {
+     "value": 445.6666666666667,
+     "unit": "token/task",
+     "source": "lane; fake model accounting over the session, dated price table"
+    },
+    "model-usd-per-1k-verified": {
+     "value": 0.17779999999999999,
+     "unit": "USD/1k",
+     "source": "lane; fake model accounting over the session, dated price table"
+    }
+   }
+  },
+  {
+   "cellId": "dd226f2cb311-8",
+   "factors": {
+    "mode": "agent-each-run",
+    "model": "google/gemini-3.1-flash-lite",
+    "variant": "baseline",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "llm-calls-per-verified-task": {
+     "value": 1,
+     "unit": "call/task",
+     "source": "lane; fake model accounting over the session, dated price table"
+    },
+    "tokens-per-verified-task": {
+     "value": 406,
+     "unit": "token/task",
+     "source": "lane; fake model accounting over the session, dated price table"
+    },
+    "model-usd-per-1k-verified": {
+     "value": 0.17775000000000002,
+     "unit": "USD/1k",
+     "source": "lane; fake model accounting over the session, dated price table"
+    }
+   }
+  },
+  {
+   "cellId": "ec3523c1cb40-9",
+   "factors": {
+    "mode": "compiled-replay",
+    "model": "openai/gpt-5.6-luna",
+    "variant": "decoy-swap",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "llm-calls-per-verified-task": {
+     "value": 0.3333333333333333,
+     "unit": "call/task",
+     "source": "lane; fake model accounting over the session, dated price table"
+    },
+    "tokens-per-verified-task": {
+     "value": 152.5,
+     "unit": "token/task",
+     "source": "lane; fake model accounting over the session, dated price table"
+    },
+    "model-usd-per-1k-verified": {
+     "value": 0.06133333333333334,
+     "unit": "USD/1k",
+     "source": "lane; fake model accounting over the session, dated price table"
+    }
+   }
+  },
+  {
+   "cellId": "388bb979d0b4-10",
+   "factors": {
+    "mode": "compiled-replay",
+    "model": "anthropic/claude-haiku-5.5",
+    "variant": "baseline",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "llm-calls-per-verified-task": {
+     "value": 0.2,
+     "unit": "call/task",
+     "source": "lane; fake model accounting over the session, dated price table"
+    },
+    "tokens-per-verified-task": {
+     "value": 128.6,
+     "unit": "token/task",
+     "source": "lane; fake model accounting over the session, dated price table"
+    },
+    "model-usd-per-1k-verified": {
+     "value": 0.02134,
+     "unit": "USD/1k",
+     "source": "lane; fake model accounting over the session, dated price table"
+    }
+   }
+  },
+  {
+   "cellId": "763cf22426d1-11",
+   "factors": {
+    "mode": "compiled-replay",
+    "model": "google/gemini-3.1-flash-lite",
+    "variant": "relabel",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "llm-calls-per-verified-task": {
+     "value": 0.3333333333333333,
+     "unit": "call/task",
+     "source": "lane; fake model accounting over the session, dated price table"
+    },
+    "tokens-per-verified-task": {
+     "value": 135.33333333333334,
+     "unit": "token/task",
+     "source": "lane; fake model accounting over the session, dated price table"
+    },
+    "model-usd-per-1k-verified": {
+     "value": 0.059250000000000004,
+     "unit": "USD/1k",
+     "source": "lane; fake model accounting over the session, dated price table"
+    }
+   }
+  },
+  {
+   "cellId": "b5f33aa3159f-12",
+   "factors": {
+    "mode": "compiled-replay",
+    "model": "google/gemini-3.1-flash-lite",
+    "variant": "baseline",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "llm-calls-per-verified-task": {
+     "value": 0.2,
+     "unit": "call/task",
+     "source": "lane; fake model accounting over the session, dated price table"
+    },
+    "tokens-per-verified-task": {
+     "value": 81.2,
+     "unit": "token/task",
+     "source": "lane; fake model accounting over the session, dated price table"
+    },
+    "model-usd-per-1k-verified": {
+     "value": 0.035550000000000005,
+     "unit": "USD/1k",
+     "source": "lane; fake model accounting over the session, dated price table"
+    }
+   }
+  },
+  {
+   "cellId": "0ea76e38a874-13",
+   "factors": {
+    "mode": "agent-each-run",
+    "model": "google/gemini-3.1-flash-lite",
+    "variant": "decoy-swap",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "llm-calls-per-verified-task": {
+     "value": 1,
+     "unit": "call/task",
+     "source": "lane; fake model accounting over the session, dated price table"
+    },
+    "tokens-per-verified-task": {
+     "value": 410,
+     "unit": "token/task",
+     "source": "lane; fake model accounting over the session, dated price table"
+    },
+    "model-usd-per-1k-verified": {
+     "value": 0.17875000000000002,
+     "unit": "USD/1k",
+     "source": "lane; fake model accounting over the session, dated price table"
+    }
+   }
+  },
+  {
+   "cellId": "9f9cec656248-14",
+   "factors": {
+    "mode": "compiled-replay",
+    "model": "openai/gpt-5.6-luna",
+    "variant": "relabel",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "llm-calls-per-verified-task": {
+     "value": 0.3333333333333333,
+     "unit": "call/task",
+     "source": "lane; fake model accounting over the session, dated price table"
+    },
+    "tokens-per-verified-task": {
+     "value": 144.33333333333334,
+     "unit": "token/task",
+     "source": "lane; fake model accounting over the session, dated price table"
+    },
+    "model-usd-per-1k-verified": {
+     "value": 0.05553333333333334,
+     "unit": "USD/1k",
+     "source": "lane; fake model accounting over the session, dated price table"
+    }
+   }
+  },
+  {
+   "cellId": "99fa2665a881-15",
+   "factors": {
+    "mode": "agent-each-run",
+    "model": "anthropic/claude-haiku-5.5",
+    "variant": "decoy-swap",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "llm-calls-per-verified-task": {
+     "value": 1,
+     "unit": "call/task",
+     "source": "lane; fake model accounting over the session, dated price table"
+    },
+    "tokens-per-verified-task": {
+     "value": 649.1666666666666,
+     "unit": "token/task",
+     "source": "lane; fake model accounting over the session, dated price table"
+    },
+    "model-usd-per-1k-verified": {
+     "value": 0.10731666666666667,
+     "unit": "USD/1k",
+     "source": "lane; fake model accounting over the session, dated price table"
+    }
+   }
+  },
+  {
+   "cellId": "a9f842a82112-16",
+   "factors": {
+    "mode": "agent-each-run",
+    "model": "openai/gpt-5.6-luna",
+    "variant": "baseline",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "llm-calls-per-verified-task": {
+     "value": 1,
+     "unit": "call/task",
+     "source": "lane; fake model accounting over the session, dated price table"
+    },
+    "tokens-per-verified-task": {
+     "value": 434.6,
+     "unit": "token/task",
+     "source": "lane; fake model accounting over the session, dated price table"
+    },
+    "model-usd-per-1k-verified": {
+     "value": 0.16852,
+     "unit": "USD/1k",
+     "source": "lane; fake model accounting over the session, dated price table"
+    }
+   }
+  },
+  {
+   "cellId": "c38e8eab3a52-17",
+   "factors": {
+    "mode": "compiled-replay",
+    "model": "google/gemini-3.1-flash-lite",
+    "variant": "decoy-swap",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "llm-calls-per-verified-task": {
+     "value": 0.3333333333333333,
+     "unit": "call/task",
+     "source": "lane; fake model accounting over the session, dated price table"
+    },
+    "tokens-per-verified-task": {
+     "value": 139.33333333333334,
+     "unit": "token/task",
+     "source": "lane; fake model accounting over the session, dated price table"
+    },
+    "model-usd-per-1k-verified": {
+     "value": 0.06025,
+     "unit": "USD/1k",
+     "source": "lane; fake model accounting over the session, dated price table"
+    }
+   }
+  },
+  {
+   "cellId": "bc14a9b038a8-18",
+   "factors": {
+    "mode": "compiled-replay",
+    "model": "anthropic/claude-haiku-5.5",
+    "variant": "price-change",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "llm-calls-per-verified-task": {
+     "value": 0.16666666666666666,
+     "unit": "call/task",
+     "source": "lane; fake model accounting over the session, dated price table"
+    },
+    "tokens-per-verified-task": {
+     "value": 103.66666666666667,
+     "unit": "token/task",
+     "source": "lane; fake model accounting over the session, dated price table"
+    },
+    "model-usd-per-1k-verified": {
+     "value": 0.01736666666666667,
+     "unit": "USD/1k",
+     "source": "lane; fake model accounting over the session, dated price table"
+    }
+   }
+  },
+  {
+   "cellId": "c2cbdb3265d5-19",
+   "factors": {
+    "mode": "compiled-replay",
+    "model": "openai/gpt-5.6-luna",
+    "variant": "price-change",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "llm-calls-per-verified-task": {
+     "value": 0.16666666666666666,
+     "unit": "call/task",
+     "source": "lane; fake model accounting over the session, dated price table"
+    },
+    "tokens-per-verified-task": {
+     "value": 58.333333333333336,
+     "unit": "token/task",
+     "source": "lane; fake model accounting over the session, dated price table"
+    },
+    "model-usd-per-1k-verified": {
+     "value": 0.013166666666666665,
+     "unit": "USD/1k",
+     "source": "lane; fake model accounting over the session, dated price table"
+    }
+   }
+  },
+  {
+   "cellId": "619372a0ee14-20",
+   "factors": {
+    "mode": "agent-each-run",
+    "model": "anthropic/claude-haiku-5.5",
+    "variant": "baseline",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "llm-calls-per-verified-task": {
+     "value": 1,
+     "unit": "call/task",
+     "source": "lane; fake model accounting over the session, dated price table"
+    },
+    "tokens-per-verified-task": {
+     "value": 654,
+     "unit": "token/task",
+     "source": "lane; fake model accounting over the session, dated price table"
+    },
+    "model-usd-per-1k-verified": {
+     "value": 0.1122,
+     "unit": "USD/1k",
+     "source": "lane; fake model accounting over the session, dated price table"
+    }
+   }
+  },
+  {
+   "cellId": "83f38b8b2d59-21",
+   "factors": {
+    "mode": "agent-each-run",
+    "model": "anthropic/claude-haiku-5.5",
+    "variant": "relabel",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "llm-calls-per-verified-task": {
+     "value": 1,
+     "unit": "call/task",
+     "source": "lane; fake model accounting over the session, dated price table"
+    },
+    "tokens-per-verified-task": {
+     "value": 643,
+     "unit": "token/task",
+     "source": "lane; fake model accounting over the session, dated price table"
+    },
+    "model-usd-per-1k-verified": {
+     "value": 0.1067,
+     "unit": "USD/1k",
+     "source": "lane; fake model accounting over the session, dated price table"
+    }
+   }
+  },
+  {
+   "cellId": "f08dfe3d715c-22",
+   "factors": {
+    "mode": "compiled-replay",
+    "model": "anthropic/claude-haiku-5.5",
+    "variant": "relabel",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "llm-calls-per-verified-task": {
+     "value": 0.3333333333333333,
+     "unit": "call/task",
+     "source": "lane; fake model accounting over the session, dated price table"
+    },
+    "tokens-per-verified-task": {
+     "value": 214.33333333333334,
+     "unit": "token/task",
+     "source": "lane; fake model accounting over the session, dated price table"
+    },
+    "model-usd-per-1k-verified": {
+     "value": 0.03556666666666666,
+     "unit": "USD/1k",
+     "source": "lane; fake model accounting over the session, dated price table"
+    }
+   }
+  },
+  {
+   "cellId": "669da2da2c3a-23",
+   "factors": {
+    "mode": "agent-each-run",
+    "model": "openai/gpt-5.6-luna",
+    "variant": "price-change",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "llm-calls-per-verified-task": {
+     "value": 1,
+     "unit": "call/task",
+     "source": "lane; fake model accounting over the session, dated price table"
+    },
+    "tokens-per-verified-task": {
+     "value": 350,
+     "unit": "token/task",
+     "source": "lane; fake model accounting over the session, dated price table"
+    },
+    "model-usd-per-1k-verified": {
+     "value": 0.07899999999999999,
+     "unit": "USD/1k",
+     "source": "lane; fake model accounting over the session, dated price table"
+    }
+   }
+  },
+  {
+   "cellId": "ec9b61f31187-24",
+   "factors": {
+    "mode": "compiled-replay",
+    "model": "openai/gpt-5.6-luna",
+    "variant": "baseline",
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "llm-calls-per-verified-task": {
+     "value": 0.2,
+     "unit": "call/task",
+     "source": "lane; fake model accounting over the session, dated price table"
+    },
+    "tokens-per-verified-task": {
+     "value": 88.6,
+     "unit": "token/task",
+     "source": "lane; fake model accounting over the session, dated price table"
+    },
+    "model-usd-per-1k-verified": {
+     "value": 0.03572,
+     "unit": "USD/1k",
+     "source": "lane; fake model accounting over the session, dated price table"
+    }
+   }
+  },
+  {
+   "cellId": "d1f73553b6b8-25",
+   "factors": {
+    "mode": "compiled-replay",
+    "model": "openai/gpt-5.6-luna",
+    "variant": "price-change",
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "llm-calls-per-verified-task": {
+     "value": 0.16666666666666666,
+     "unit": "call/task",
+     "source": "lane; fake model accounting over the session, dated price table"
+    },
+    "tokens-per-verified-task": {
+     "value": 58.333333333333336,
+     "unit": "token/task",
+     "source": "lane; fake model accounting over the session, dated price table"
+    },
+    "model-usd-per-1k-verified": {
+     "value": 0.013166666666666665,
+     "unit": "USD/1k",
+     "source": "lane; fake model accounting over the session, dated price table"
+    }
+   }
+  },
+  {
+   "cellId": "97a4a180e756-26",
+   "factors": {
+    "mode": "compiled-replay",
+    "model": "google/gemini-3.1-flash-lite",
+    "variant": "baseline",
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "llm-calls-per-verified-task": {
+     "value": 0.2,
+     "unit": "call/task",
+     "source": "lane; fake model accounting over the session, dated price table"
+    },
+    "tokens-per-verified-task": {
+     "value": 81.2,
+     "unit": "token/task",
+     "source": "lane; fake model accounting over the session, dated price table"
+    },
+    "model-usd-per-1k-verified": {
+     "value": 0.035550000000000005,
+     "unit": "USD/1k",
+     "source": "lane; fake model accounting over the session, dated price table"
+    }
+   }
+  },
+  {
+   "cellId": "65851d05c355-27",
+   "factors": {
+    "mode": "compiled-replay",
+    "model": "openai/gpt-5.6-luna",
+    "variant": "decoy-swap",
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "llm-calls-per-verified-task": {
+     "value": 0.3333333333333333,
+     "unit": "call/task",
+     "source": "lane; fake model accounting over the session, dated price table"
+    },
+    "tokens-per-verified-task": {
+     "value": 151.66666666666666,
+     "unit": "token/task",
+     "source": "lane; fake model accounting over the session, dated price table"
+    },
+    "model-usd-per-1k-verified": {
+     "value": 0.060333333333333336,
+     "unit": "USD/1k",
+     "source": "lane; fake model accounting over the session, dated price table"
+    }
+   }
+  },
+  {
+   "cellId": "fb37443161ac-28",
+   "factors": {
+    "mode": "agent-each-run",
+    "model": "anthropic/claude-haiku-5.5",
+    "variant": "decoy-swap",
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "llm-calls-per-verified-task": {
+     "value": 1,
+     "unit": "call/task",
+     "source": "lane; fake model accounting over the session, dated price table"
+    },
+    "tokens-per-verified-task": {
+     "value": 649.1666666666666,
+     "unit": "token/task",
+     "source": "lane; fake model accounting over the session, dated price table"
+    },
+    "model-usd-per-1k-verified": {
+     "value": 0.10731666666666667,
+     "unit": "USD/1k",
+     "source": "lane; fake model accounting over the session, dated price table"
+    }
+   }
+  },
+  {
+   "cellId": "754fbd03366e-29",
+   "factors": {
+    "mode": "agent-each-run",
+    "model": "google/gemini-3.1-flash-lite",
+    "variant": "decoy-swap",
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "llm-calls-per-verified-task": {
+     "value": 1,
+     "unit": "call/task",
+     "source": "lane; fake model accounting over the session, dated price table"
+    },
+    "tokens-per-verified-task": {
+     "value": 410,
+     "unit": "token/task",
+     "source": "lane; fake model accounting over the session, dated price table"
+    },
+    "model-usd-per-1k-verified": {
+     "value": 0.17875000000000002,
+     "unit": "USD/1k",
+     "source": "lane; fake model accounting over the session, dated price table"
+    }
+   }
+  },
+  {
+   "cellId": "80a73c6eb4b7-30",
+   "factors": {
+    "mode": "agent-each-run",
+    "model": "google/gemini-3.1-flash-lite",
+    "variant": "relabel",
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "llm-calls-per-verified-task": {
+     "value": 1,
+     "unit": "call/task",
+     "source": "lane; fake model accounting over the session, dated price table"
+    },
+    "tokens-per-verified-task": {
+     "value": 406,
+     "unit": "token/task",
+     "source": "lane; fake model accounting over the session, dated price table"
+    },
+    "model-usd-per-1k-verified": {
+     "value": 0.17775,
+     "unit": "USD/1k",
+     "source": "lane; fake model accounting over the session, dated price table"
+    }
+   }
+  },
+  {
+   "cellId": "300f3c6ff0d6-31",
+   "factors": {
+    "mode": "agent-each-run",
+    "model": "openai/gpt-5.6-luna",
+    "variant": "decoy-swap",
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "llm-calls-per-verified-task": {
+     "value": 1,
+     "unit": "call/task",
+     "source": "lane; fake model accounting over the session, dated price table"
+    },
+    "tokens-per-verified-task": {
+     "value": 446.5,
+     "unit": "token/task",
+     "source": "lane; fake model accounting over the session, dated price table"
+    },
+    "model-usd-per-1k-verified": {
+     "value": 0.1788,
+     "unit": "USD/1k",
+     "source": "lane; fake model accounting over the session, dated price table"
+    }
+   }
+  },
+  {
+   "cellId": "3925f6ecbe2b-32",
+   "factors": {
+    "mode": "agent-each-run",
+    "model": "openai/gpt-5.6-luna",
+    "variant": "relabel",
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "llm-calls-per-verified-task": {
+     "value": 1,
+     "unit": "call/task",
+     "source": "lane; fake model accounting over the session, dated price table"
+    },
+    "tokens-per-verified-task": {
+     "value": 435.6666666666667,
+     "unit": "token/task",
+     "source": "lane; fake model accounting over the session, dated price table"
+    },
+    "model-usd-per-1k-verified": {
+     "value": 0.1698,
+     "unit": "USD/1k",
+     "source": "lane; fake model accounting over the session, dated price table"
+    }
+   }
+  },
+  {
+   "cellId": "97933f74c5dd-33",
+   "factors": {
+    "mode": "agent-each-run",
+    "model": "google/gemini-3.1-flash-lite",
+    "variant": "baseline",
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "llm-calls-per-verified-task": {
+     "value": 1,
+     "unit": "call/task",
+     "source": "lane; fake model accounting over the session, dated price table"
+    },
+    "tokens-per-verified-task": {
+     "value": 406,
+     "unit": "token/task",
+     "source": "lane; fake model accounting over the session, dated price table"
+    },
+    "model-usd-per-1k-verified": {
+     "value": 0.17775000000000002,
+     "unit": "USD/1k",
+     "source": "lane; fake model accounting over the session, dated price table"
+    }
+   }
+  },
+  {
+   "cellId": "c024cb3733a9-34",
+   "factors": {
+    "mode": "compiled-replay",
+    "model": "anthropic/claude-haiku-5.5",
+    "variant": "decoy-swap",
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "llm-calls-per-verified-task": {
+     "value": 0.3333333333333333,
+     "unit": "call/task",
+     "source": "lane; fake model accounting over the session, dated price table"
+    },
+    "tokens-per-verified-task": {
+     "value": 220.5,
+     "unit": "token/task",
+     "source": "lane; fake model accounting over the session, dated price table"
+    },
+    "model-usd-per-1k-verified": {
+     "value": 0.03618333333333334,
+     "unit": "USD/1k",
+     "source": "lane; fake model accounting over the session, dated price table"
+    }
+   }
+  },
+  {
+   "cellId": "9eaa0a8040ad-35",
+   "factors": {
+    "mode": "agent-each-run",
+    "model": "anthropic/claude-haiku-5.5",
+    "variant": "relabel",
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "llm-calls-per-verified-task": {
+     "value": 1,
+     "unit": "call/task",
+     "source": "lane; fake model accounting over the session, dated price table"
+    },
+    "tokens-per-verified-task": {
+     "value": 643,
+     "unit": "token/task",
+     "source": "lane; fake model accounting over the session, dated price table"
+    },
+    "model-usd-per-1k-verified": {
+     "value": 0.1067,
+     "unit": "USD/1k",
+     "source": "lane; fake model accounting over the session, dated price table"
+    }
+   }
+  },
+  {
+   "cellId": "26ba4e360a8a-36",
+   "factors": {
+    "mode": "agent-each-run",
+    "model": "openai/gpt-5.6-luna",
+    "variant": "baseline",
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "llm-calls-per-verified-task": {
+     "value": 1,
+     "unit": "call/task",
+     "source": "lane; fake model accounting over the session, dated price table"
+    },
+    "tokens-per-verified-task": {
+     "value": 433.6,
+     "unit": "token/task",
+     "source": "lane; fake model accounting over the session, dated price table"
+    },
+    "model-usd-per-1k-verified": {
+     "value": 0.16732000000000002,
+     "unit": "USD/1k",
+     "source": "lane; fake model accounting over the session, dated price table"
+    }
+   }
+  },
+  {
+   "cellId": "2fc736e850a4-37",
+   "factors": {
+    "mode": "compiled-replay",
+    "model": "google/gemini-3.1-flash-lite",
+    "variant": "price-change",
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "llm-calls-per-verified-task": {
+     "value": 0.16666666666666666,
+     "unit": "call/task",
+     "source": "lane; fake model accounting over the session, dated price table"
+    },
+    "tokens-per-verified-task": {
+     "value": 56.333333333333336,
+     "unit": "token/task",
+     "source": "lane; fake model accounting over the session, dated price table"
+    },
+    "model-usd-per-1k-verified": {
+     "value": 0.015125,
+     "unit": "USD/1k",
+     "source": "lane; fake model accounting over the session, dated price table"
+    }
+   }
+  },
+  {
+   "cellId": "5b679fa4274e-38",
+   "factors": {
+    "mode": "agent-each-run",
+    "model": "google/gemini-3.1-flash-lite",
+    "variant": "price-change",
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "llm-calls-per-verified-task": {
+     "value": 1,
+     "unit": "call/task",
+     "source": "lane; fake model accounting over the session, dated price table"
+    },
+    "tokens-per-verified-task": {
+     "value": 338,
+     "unit": "token/task",
+     "source": "lane; fake model accounting over the session, dated price table"
+    },
+    "model-usd-per-1k-verified": {
+     "value": 0.09075,
+     "unit": "USD/1k",
+     "source": "lane; fake model accounting over the session, dated price table"
+    }
+   }
+  },
+  {
+   "cellId": "5f3869f99a2d-39",
+   "factors": {
+    "mode": "compiled-replay",
+    "model": "openai/gpt-5.6-luna",
+    "variant": "relabel",
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "llm-calls-per-verified-task": {
+     "value": 0.3333333333333333,
+     "unit": "call/task",
+     "source": "lane; fake model accounting over the session, dated price table"
+    },
+    "tokens-per-verified-task": {
+     "value": 147.83333333333334,
+     "unit": "token/task",
+     "source": "lane; fake model accounting over the session, dated price table"
+    },
+    "model-usd-per-1k-verified": {
+     "value": 0.05973333333333334,
+     "unit": "USD/1k",
+     "source": "lane; fake model accounting over the session, dated price table"
+    }
+   }
+  },
+  {
+   "cellId": "6b64d4b4b4b9-40",
+   "factors": {
+    "mode": "compiled-replay",
+    "model": "anthropic/claude-haiku-5.5",
+    "variant": "price-change",
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "llm-calls-per-verified-task": {
+     "value": 0.16666666666666666,
+     "unit": "call/task",
+     "source": "lane; fake model accounting over the session, dated price table"
+    },
+    "tokens-per-verified-task": {
+     "value": 100.83333333333333,
+     "unit": "token/task",
+     "source": "lane; fake model accounting over the session, dated price table"
+    },
+    "model-usd-per-1k-verified": {
+     "value": 0.01595,
+     "unit": "USD/1k",
+     "source": "lane; fake model accounting over the session, dated price table"
+    }
+   }
+  },
+  {
+   "cellId": "962a0d966098-41",
+   "factors": {
+    "mode": "agent-each-run",
+    "model": "openai/gpt-5.6-luna",
+    "variant": "price-change",
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "llm-calls-per-verified-task": {
+     "value": 1,
+     "unit": "call/task",
+     "source": "lane; fake model accounting over the session, dated price table"
+    },
+    "tokens-per-verified-task": {
+     "value": 350,
+     "unit": "token/task",
+     "source": "lane; fake model accounting over the session, dated price table"
+    },
+    "model-usd-per-1k-verified": {
+     "value": 0.07899999999999999,
+     "unit": "USD/1k",
+     "source": "lane; fake model accounting over the session, dated price table"
+    }
+   }
+  },
+  {
+   "cellId": "ac44bb870158-42",
+   "factors": {
+    "mode": "agent-each-run",
+    "model": "anthropic/claude-haiku-5.5",
+    "variant": "baseline",
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "llm-calls-per-verified-task": {
+     "value": 1,
+     "unit": "call/task",
+     "source": "lane; fake model accounting over the session, dated price table"
+    },
+    "tokens-per-verified-task": {
+     "value": 643,
+     "unit": "token/task",
+     "source": "lane; fake model accounting over the session, dated price table"
+    },
+    "model-usd-per-1k-verified": {
+     "value": 0.1067,
+     "unit": "USD/1k",
+     "source": "lane; fake model accounting over the session, dated price table"
+    }
+   }
+  },
+  {
+   "cellId": "c37d6078d019-43",
+   "factors": {
+    "mode": "compiled-replay",
+    "model": "google/gemini-3.1-flash-lite",
+    "variant": "relabel",
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "llm-calls-per-verified-task": {
+     "value": 0.3333333333333333,
+     "unit": "call/task",
+     "source": "lane; fake model accounting over the session, dated price table"
+    },
+    "tokens-per-verified-task": {
+     "value": 135.33333333333334,
+     "unit": "token/task",
+     "source": "lane; fake model accounting over the session, dated price table"
+    },
+    "model-usd-per-1k-verified": {
+     "value": 0.059250000000000004,
+     "unit": "USD/1k",
+     "source": "lane; fake model accounting over the session, dated price table"
+    }
+   }
+  },
+  {
+   "cellId": "e339940342b0-44",
+   "factors": {
+    "mode": "compiled-replay",
+    "model": "anthropic/claude-haiku-5.5",
+    "variant": "baseline",
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "llm-calls-per-verified-task": {
+     "value": 0.2,
+     "unit": "call/task",
+     "source": "lane; fake model accounting over the session, dated price table"
+    },
+    "tokens-per-verified-task": {
+     "value": 128.6,
+     "unit": "token/task",
+     "source": "lane; fake model accounting over the session, dated price table"
+    },
+    "model-usd-per-1k-verified": {
+     "value": 0.02134,
+     "unit": "USD/1k",
+     "source": "lane; fake model accounting over the session, dated price table"
+    }
+   }
+  },
+  {
+   "cellId": "e6ddc67ea376-45",
+   "factors": {
+    "mode": "compiled-replay",
+    "model": "anthropic/claude-haiku-5.5",
+    "variant": "relabel",
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "llm-calls-per-verified-task": {
+     "value": 0.3333333333333333,
+     "unit": "call/task",
+     "source": "lane; fake model accounting over the session, dated price table"
+    },
+    "tokens-per-verified-task": {
+     "value": 214.33333333333334,
+     "unit": "token/task",
+     "source": "lane; fake model accounting over the session, dated price table"
+    },
+    "model-usd-per-1k-verified": {
+     "value": 0.03556666666666666,
+     "unit": "USD/1k",
+     "source": "lane; fake model accounting over the session, dated price table"
+    }
+   }
+  },
+  {
+   "cellId": "0090fb330e65-46",
+   "factors": {
+    "mode": "agent-each-run",
+    "model": "anthropic/claude-haiku-5.5",
+    "variant": "price-change",
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "llm-calls-per-verified-task": {
+     "value": 1,
+     "unit": "call/task",
+     "source": "lane; fake model accounting over the session, dated price table"
+    },
+    "tokens-per-verified-task": {
+     "value": 609.5,
+     "unit": "token/task",
+     "source": "lane; fake model accounting over the session, dated price table"
+    },
+    "model-usd-per-1k-verified": {
+     "value": 0.09795000000000001,
+     "unit": "USD/1k",
+     "source": "lane; fake model accounting over the session, dated price table"
+    }
+   }
+  },
+  {
+   "cellId": "416418ccb0d3-47",
+   "factors": {
+    "mode": "compiled-replay",
+    "model": "google/gemini-3.1-flash-lite",
+    "variant": "decoy-swap",
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "llm-calls-per-verified-task": {
+     "value": 0.3333333333333333,
+     "unit": "call/task",
+     "source": "lane; fake model accounting over the session, dated price table"
+    },
+    "tokens-per-verified-task": {
+     "value": 139.33333333333334,
+     "unit": "token/task",
+     "source": "lane; fake model accounting over the session, dated price table"
+    },
+    "model-usd-per-1k-verified": {
+     "value": 0.06025,
+     "unit": "USD/1k",
+     "source": "lane; fake model accounting over the session, dated price table"
+    }
+   }
+  },
+  {
+   "cellId": "97470dec9b10-48",
+   "factors": {
+    "mode": "compiled-replay",
+    "model": "openai/gpt-5.6-luna",
+    "variant": "decoy-swap",
+    "block": 2
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "llm-calls-per-verified-task": {
+     "value": 0.3333333333333333,
+     "unit": "call/task",
+     "source": "lane; fake model accounting over the session, dated price table"
+    },
+    "tokens-per-verified-task": {
+     "value": 148.33333333333334,
+     "unit": "token/task",
+     "source": "lane; fake model accounting over the session, dated price table"
+    },
+    "model-usd-per-1k-verified": {
+     "value": 0.05633333333333333,
+     "unit": "USD/1k",
+     "source": "lane; fake model accounting over the session, dated price table"
+    }
+   }
+  },
+  {
+   "cellId": "ea8d910f3f4b-49",
+   "factors": {
+    "mode": "compiled-replay",
+    "model": "anthropic/claude-haiku-5.5",
+    "variant": "baseline",
+    "block": 2
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "llm-calls-per-verified-task": {
+     "value": 0.2,
+     "unit": "call/task",
+     "source": "lane; fake model accounting over the session, dated price table"
+    },
+    "tokens-per-verified-task": {
+     "value": 128.6,
+     "unit": "token/task",
+     "source": "lane; fake model accounting over the session, dated price table"
+    },
+    "model-usd-per-1k-verified": {
+     "value": 0.02134,
+     "unit": "USD/1k",
+     "source": "lane; fake model accounting over the session, dated price table"
+    }
+   }
+  },
+  {
+   "cellId": "70943e2af245-50",
+   "factors": {
+    "mode": "agent-each-run",
+    "model": "openai/gpt-5.6-luna",
+    "variant": "baseline",
+    "block": 2
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "llm-calls-per-verified-task": {
+     "value": 1,
+     "unit": "call/task",
+     "source": "lane; fake model accounting over the session, dated price table"
+    },
+    "tokens-per-verified-task": {
+     "value": 441,
+     "unit": "token/task",
+     "source": "lane; fake model accounting over the session, dated price table"
+    },
+    "model-usd-per-1k-verified": {
+     "value": 0.1762,
+     "unit": "USD/1k",
+     "source": "lane; fake model accounting over the session, dated price table"
+    }
+   }
+  },
+  {
+   "cellId": "8ebe5a11cd94-51",
+   "factors": {
+    "mode": "compiled-replay",
+    "model": "openai/gpt-5.6-luna",
+    "variant": "price-change",
+    "block": 2
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "llm-calls-per-verified-task": {
+     "value": 0.16666666666666666,
+     "unit": "call/task",
+     "source": "lane; fake model accounting over the session, dated price table"
+    },
+    "tokens-per-verified-task": {
+     "value": 58.333333333333336,
+     "unit": "token/task",
+     "source": "lane; fake model accounting over the session, dated price table"
+    },
+    "model-usd-per-1k-verified": {
+     "value": 0.013166666666666665,
+     "unit": "USD/1k",
+     "source": "lane; fake model accounting over the session, dated price table"
+    }
+   }
+  },
+  {
+   "cellId": "dbd50aad2415-52",
+   "factors": {
+    "mode": "agent-each-run",
+    "model": "openai/gpt-5.6-luna",
+    "variant": "decoy-swap",
+    "block": 2
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "llm-calls-per-verified-task": {
+     "value": 1,
+     "unit": "call/task",
+     "source": "lane; fake model accounting over the session, dated price table"
+    },
+    "tokens-per-verified-task": {
+     "value": 435.5,
+     "unit": "token/task",
+     "source": "lane; fake model accounting over the session, dated price table"
+    },
+    "model-usd-per-1k-verified": {
+     "value": 0.16560000000000002,
+     "unit": "USD/1k",
+     "source": "lane; fake model accounting over the session, dated price table"
+    }
+   }
+  },
+  {
+   "cellId": "44ebac9bd299-53",
+   "factors": {
+    "mode": "agent-each-run",
+    "model": "anthropic/claude-haiku-5.5",
+    "variant": "baseline",
+    "block": 2
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "llm-calls-per-verified-task": {
+     "value": 1,
+     "unit": "call/task",
+     "source": "lane; fake model accounting over the session, dated price table"
+    },
+    "tokens-per-verified-task": {
+     "value": 652.4,
+     "unit": "token/task",
+     "source": "lane; fake model accounting over the session, dated price table"
+    },
+    "model-usd-per-1k-verified": {
+     "value": 0.1114,
+     "unit": "USD/1k",
+     "source": "lane; fake model accounting over the session, dated price table"
+    }
+   }
+  },
+  {
+   "cellId": "d38c5ec298db-54",
+   "factors": {
+    "mode": "compiled-replay",
+    "model": "openai/gpt-5.6-luna",
+    "variant": "baseline",
+    "block": 2
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "llm-calls-per-verified-task": {
+     "value": 0.2,
+     "unit": "call/task",
+     "source": "lane; fake model accounting over the session, dated price table"
+    },
+    "tokens-per-verified-task": {
+     "value": 88.2,
+     "unit": "token/task",
+     "source": "lane; fake model accounting over the session, dated price table"
+    },
+    "model-usd-per-1k-verified": {
+     "value": 0.03524,
+     "unit": "USD/1k",
+     "source": "lane; fake model accounting over the session, dated price table"
+    }
+   }
+  },
+  {
+   "cellId": "d4bb6413341e-55",
+   "factors": {
+    "mode": "agent-each-run",
+    "model": "google/gemini-3.1-flash-lite",
+    "variant": "baseline",
+    "block": 2
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "llm-calls-per-verified-task": {
+     "value": 1,
+     "unit": "call/task",
+     "source": "lane; fake model accounting over the session, dated price table"
+    },
+    "tokens-per-verified-task": {
+     "value": 406,
+     "unit": "token/task",
+     "source": "lane; fake model accounting over the session, dated price table"
+    },
+    "model-usd-per-1k-verified": {
+     "value": 0.17775000000000002,
+     "unit": "USD/1k",
+     "source": "lane; fake model accounting over the session, dated price table"
+    }
+   }
+  },
+  {
+   "cellId": "9e5cfb0d7342-56",
+   "factors": {
+    "mode": "compiled-replay",
+    "model": "google/gemini-3.1-flash-lite",
+    "variant": "decoy-swap",
+    "block": 2
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "llm-calls-per-verified-task": {
+     "value": 0.3333333333333333,
+     "unit": "call/task",
+     "source": "lane; fake model accounting over the session, dated price table"
+    },
+    "tokens-per-verified-task": {
+     "value": 139.33333333333334,
+     "unit": "token/task",
+     "source": "lane; fake model accounting over the session, dated price table"
+    },
+    "model-usd-per-1k-verified": {
+     "value": 0.06025,
+     "unit": "USD/1k",
+     "source": "lane; fake model accounting over the session, dated price table"
+    }
+   }
+  },
+  {
+   "cellId": "c68711af13cf-57",
+   "factors": {
+    "mode": "agent-each-run",
+    "model": "openai/gpt-5.6-luna",
+    "variant": "relabel",
+    "block": 2
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "llm-calls-per-verified-task": {
+     "value": 1,
+     "unit": "call/task",
+     "source": "lane; fake model accounting over the session, dated price table"
+    },
+    "tokens-per-verified-task": {
+     "value": 449.1666666666667,
+     "unit": "token/task",
+     "source": "lane; fake model accounting over the session, dated price table"
+    },
+    "model-usd-per-1k-verified": {
+     "value": 0.186,
+     "unit": "USD/1k",
+     "source": "lane; fake model accounting over the session, dated price table"
+    }
+   }
+  },
+  {
+   "cellId": "025b28c09d79-58",
+   "factors": {
+    "mode": "compiled-replay",
+    "model": "anthropic/claude-haiku-5.5",
+    "variant": "price-change",
+    "block": 2
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "llm-calls-per-verified-task": {
+     "value": 0.16666666666666666,
+     "unit": "call/task",
+     "source": "lane; fake model accounting over the session, dated price table"
+    },
+    "tokens-per-verified-task": {
+     "value": 102.66666666666667,
+     "unit": "token/task",
+     "source": "lane; fake model accounting over the session, dated price table"
+    },
+    "model-usd-per-1k-verified": {
+     "value": 0.016866666666666665,
+     "unit": "USD/1k",
+     "source": "lane; fake model accounting over the session, dated price table"
+    }
+   }
+  },
+  {
+   "cellId": "b89708dc1a8c-59",
+   "factors": {
+    "mode": "compiled-replay",
+    "model": "google/gemini-3.1-flash-lite",
+    "variant": "price-change",
+    "block": 2
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "llm-calls-per-verified-task": {
+     "value": 0.16666666666666666,
+     "unit": "call/task",
+     "source": "lane; fake model accounting over the session, dated price table"
+    },
+    "tokens-per-verified-task": {
+     "value": 56.333333333333336,
+     "unit": "token/task",
+     "source": "lane; fake model accounting over the session, dated price table"
+    },
+    "model-usd-per-1k-verified": {
+     "value": 0.015125,
+     "unit": "USD/1k",
+     "source": "lane; fake model accounting over the session, dated price table"
+    }
+   }
+  },
+  {
+   "cellId": "4be4cbc38db1-60",
+   "factors": {
+    "mode": "agent-each-run",
+    "model": "google/gemini-3.1-flash-lite",
+    "variant": "price-change",
+    "block": 2
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "llm-calls-per-verified-task": {
+     "value": 1,
+     "unit": "call/task",
+     "source": "lane; fake model accounting over the session, dated price table"
+    },
+    "tokens-per-verified-task": {
+     "value": 338,
+     "unit": "token/task",
+     "source": "lane; fake model accounting over the session, dated price table"
+    },
+    "model-usd-per-1k-verified": {
+     "value": 0.09075,
+     "unit": "USD/1k",
+     "source": "lane; fake model accounting over the session, dated price table"
+    }
+   }
+  },
+  {
+   "cellId": "dbaf225a8faa-61",
+   "factors": {
+    "mode": "agent-each-run",
+    "model": "anthropic/claude-haiku-5.5",
+    "variant": "decoy-swap",
+    "block": 2
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "llm-calls-per-verified-task": {
+     "value": 1,
+     "unit": "call/task",
+     "source": "lane; fake model accounting over the session, dated price table"
+    },
+    "tokens-per-verified-task": {
+     "value": 649.1666666666666,
+     "unit": "token/task",
+     "source": "lane; fake model accounting over the session, dated price table"
+    },
+    "model-usd-per-1k-verified": {
+     "value": 0.10731666666666667,
+     "unit": "USD/1k",
+     "source": "lane; fake model accounting over the session, dated price table"
+    }
+   }
+  },
+  {
+   "cellId": "4524111b2e14-62",
+   "factors": {
+    "mode": "compiled-replay",
+    "model": "google/gemini-3.1-flash-lite",
+    "variant": "baseline",
+    "block": 2
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "llm-calls-per-verified-task": {
+     "value": 0.2,
+     "unit": "call/task",
+     "source": "lane; fake model accounting over the session, dated price table"
+    },
+    "tokens-per-verified-task": {
+     "value": 81.2,
+     "unit": "token/task",
+     "source": "lane; fake model accounting over the session, dated price table"
+    },
+    "model-usd-per-1k-verified": {
+     "value": 0.035550000000000005,
+     "unit": "USD/1k",
+     "source": "lane; fake model accounting over the session, dated price table"
+    }
+   }
+  },
+  {
+   "cellId": "6671147d3b6b-63",
+   "factors": {
+    "mode": "agent-each-run",
+    "model": "anthropic/claude-haiku-5.5",
+    "variant": "price-change",
+    "block": 2
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "llm-calls-per-verified-task": {
+     "value": 1,
+     "unit": "call/task",
+     "source": "lane; fake model accounting over the session, dated price table"
+    },
+    "tokens-per-verified-task": {
+     "value": 614,
+     "unit": "token/task",
+     "source": "lane; fake model accounting over the session, dated price table"
+    },
+    "model-usd-per-1k-verified": {
+     "value": 0.1002,
+     "unit": "USD/1k",
+     "source": "lane; fake model accounting over the session, dated price table"
+    }
+   }
+  },
+  {
+   "cellId": "3ae343eb6715-64",
+   "factors": {
+    "mode": "compiled-replay",
+    "model": "anthropic/claude-haiku-5.5",
+    "variant": "relabel",
+    "block": 2
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "llm-calls-per-verified-task": {
+     "value": 0.3333333333333333,
+     "unit": "call/task",
+     "source": "lane; fake model accounting over the session, dated price table"
+    },
+    "tokens-per-verified-task": {
+     "value": 214.33333333333334,
+     "unit": "token/task",
+     "source": "lane; fake model accounting over the session, dated price table"
+    },
+    "model-usd-per-1k-verified": {
+     "value": 0.03556666666666666,
+     "unit": "USD/1k",
+     "source": "lane; fake model accounting over the session, dated price table"
+    }
+   }
+  },
+  {
+   "cellId": "51ef79d89b30-65",
+   "factors": {
+    "mode": "agent-each-run",
+    "model": "anthropic/claude-haiku-5.5",
+    "variant": "relabel",
+    "block": 2
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "llm-calls-per-verified-task": {
+     "value": 1,
+     "unit": "call/task",
+     "source": "lane; fake model accounting over the session, dated price table"
+    },
+    "tokens-per-verified-task": {
+     "value": 643,
+     "unit": "token/task",
+     "source": "lane; fake model accounting over the session, dated price table"
+    },
+    "model-usd-per-1k-verified": {
+     "value": 0.1067,
+     "unit": "USD/1k",
+     "source": "lane; fake model accounting over the session, dated price table"
+    }
+   }
+  },
+  {
+   "cellId": "6b325cfabb1f-66",
+   "factors": {
+    "mode": "agent-each-run",
+    "model": "google/gemini-3.1-flash-lite",
+    "variant": "decoy-swap",
+    "block": 2
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "llm-calls-per-verified-task": {
+     "value": 1,
+     "unit": "call/task",
+     "source": "lane; fake model accounting over the session, dated price table"
+    },
+    "tokens-per-verified-task": {
+     "value": 410,
+     "unit": "token/task",
+     "source": "lane; fake model accounting over the session, dated price table"
+    },
+    "model-usd-per-1k-verified": {
+     "value": 0.17875000000000002,
+     "unit": "USD/1k",
+     "source": "lane; fake model accounting over the session, dated price table"
+    }
+   }
+  },
+  {
+   "cellId": "bdf47865ba11-67",
+   "factors": {
+    "mode": "agent-each-run",
+    "model": "google/gemini-3.1-flash-lite",
+    "variant": "relabel",
+    "block": 2
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "llm-calls-per-verified-task": {
+     "value": 1,
+     "unit": "call/task",
+     "source": "lane; fake model accounting over the session, dated price table"
+    },
+    "tokens-per-verified-task": {
+     "value": 406,
+     "unit": "token/task",
+     "source": "lane; fake model accounting over the session, dated price table"
+    },
+    "model-usd-per-1k-verified": {
+     "value": 0.17775,
+     "unit": "USD/1k",
+     "source": "lane; fake model accounting over the session, dated price table"
+    }
+   }
+  },
+  {
+   "cellId": "7266a9e20cc8-68",
+   "factors": {
+    "mode": "compiled-replay",
+    "model": "anthropic/claude-haiku-5.5",
+    "variant": "decoy-swap",
+    "block": 2
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "llm-calls-per-verified-task": {
+     "value": 0.3333333333333333,
+     "unit": "call/task",
+     "source": "lane; fake model accounting over the session, dated price table"
+    },
+    "tokens-per-verified-task": {
+     "value": 220.5,
+     "unit": "token/task",
+     "source": "lane; fake model accounting over the session, dated price table"
+    },
+    "model-usd-per-1k-verified": {
+     "value": 0.03618333333333334,
+     "unit": "USD/1k",
+     "source": "lane; fake model accounting over the session, dated price table"
+    }
+   }
+  },
+  {
+   "cellId": "931d75e9b5c8-69",
+   "factors": {
+    "mode": "agent-each-run",
+    "model": "openai/gpt-5.6-luna",
+    "variant": "price-change",
+    "block": 2
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "llm-calls-per-verified-task": {
+     "value": 1,
+     "unit": "call/task",
+     "source": "lane; fake model accounting over the session, dated price table"
+    },
+    "tokens-per-verified-task": {
+     "value": 350,
+     "unit": "token/task",
+     "source": "lane; fake model accounting over the session, dated price table"
+    },
+    "model-usd-per-1k-verified": {
+     "value": 0.07899999999999999,
+     "unit": "USD/1k",
+     "source": "lane; fake model accounting over the session, dated price table"
+    }
+   }
+  },
+  {
+   "cellId": "59f1d9f46451-70",
+   "factors": {
+    "mode": "compiled-replay",
+    "model": "google/gemini-3.1-flash-lite",
+    "variant": "relabel",
+    "block": 2
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "llm-calls-per-verified-task": {
+     "value": 0.3333333333333333,
+     "unit": "call/task",
+     "source": "lane; fake model accounting over the session, dated price table"
+    },
+    "tokens-per-verified-task": {
+     "value": 135.33333333333334,
+     "unit": "token/task",
+     "source": "lane; fake model accounting over the session, dated price table"
+    },
+    "model-usd-per-1k-verified": {
+     "value": 0.059250000000000004,
+     "unit": "USD/1k",
+     "source": "lane; fake model accounting over the session, dated price table"
+    }
+   }
+  },
+  {
+   "cellId": "ead562bbfc29-71",
+   "factors": {
+    "mode": "compiled-replay",
+    "model": "openai/gpt-5.6-luna",
+    "variant": "relabel",
+    "block": 2
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "llm-calls-per-verified-task": {
+     "value": 0.3333333333333333,
+     "unit": "call/task",
+     "source": "lane; fake model accounting over the session, dated price table"
+    },
+    "tokens-per-verified-task": {
+     "value": 147.33333333333334,
+     "unit": "token/task",
+     "source": "lane; fake model accounting over the session, dated price table"
+    },
+    "model-usd-per-1k-verified": {
+     "value": 0.05913333333333333,
+     "unit": "USD/1k",
+     "source": "lane; fake model accounting over the session, dated price table"
+    }
+   }
+  }
+ ],
+ "totals": {
+  "verified": 72,
+  "failed": 0,
+  "timeout": 0,
+  "crashed": 0,
+  "aborted": 0,
+  "unsupported": 0,
+  "rejected": 0,
+  "unavailable": 0,
+  "skipped": 0
+ },
+ "metricAvailability": {
+  "verified-jobs-per-second": {
+   "available": true
+  },
+  "verified-tasks-per-second": {
+   "available": true
+  },
+  "verified-rows-per-second": {
+   "available": true
+  },
+  "task-p50-ms-verified": {
+   "available": true
+  },
+  "task-p95-ms-verified": {
+   "available": true
+  },
+  "task-ms": {
+   "available": true
+  },
+  "ack-latency-p95-ms": {
+   "available": true
+  },
+  "extraction-precision": {
+   "available": true
+  },
+  "extraction-recall": {
+   "available": true
+  },
+  "snippet-recall": {
+   "available": true
+  },
+  "boilerplate-leak": {
+   "available": true
+  },
+  "extract-ms-p50": {
+   "available": true
+  },
+  "startup-ms": {
+   "available": true
+  },
+  "cpu-ms-per-verified-job": {
+   "available": true
+  },
+  "footprint-peak-bytes": {
+   "available": true
+  },
+  "pss-peak-bytes": {
+   "available": false,
+   "reason": "no probe on darwin"
+  },
+  "cgroup-memory-peak-bytes": {
+   "available": false,
+   "reason": "no probe on darwin"
+  },
+  "rss-peak-bytes": {
+   "available": true
+  },
+  "cdp-commands-per-task": {
+   "available": true
+  },
+  "extraction-f1": {
+   "available": true
+  },
+  "field-precision": {
+   "available": true
+  },
+  "field-recall": {
+   "available": true
+  },
+  "pass-k": {
+   "available": true
+  },
+  "llm-calls-per-verified-task": {
+   "available": true
+  },
+  "tokens-per-verified-task": {
+   "available": true
+  },
+  "usd-per-1k-verified": {
+   "available": false,
+   "reason": "pricing tables are not implemented yet"
+  },
+  "model-usd-per-1k-verified": {
+   "available": true
+  },
+  "interface-turns-per-task": {
+   "available": true
+  },
+  "oracle-exact": {
+   "available": true
+  },
+  "false-success-count": {
+   "available": true
+  },
+  "actionability-conformance": {
+   "available": true
+  },
+  "recovery-exact": {
+   "available": true
+  },
+  "durability-power-loss": {
+   "available": false,
+   "reason": "no probe on darwin"
+  },
+  "identity-coherence": {
+   "available": true
+  },
+  "policy-compliance": {
+   "available": true
+  },
+  "session-isolation": {
+   "available": true
+  },
+  "admission-no-loss": {
+   "available": true
+  },
+  "proxy-continuity": {
+   "available": true
+  },
+  "light-domain-goodput": {
+   "available": true
+  },
+  "light-domain-p95-ms": {
+   "available": true
+  },
+  "light-domain-acceptance": {
+   "available": true
+  }
+ },
+ "legacy": null,
+ "blocks": [
+  {
+   "index": 0,
+   "order": [
+    "google/gemini-3.1-flash-lite/agent-each-run/relabel",
+    "google/gemini-3.1-flash-lite/agent-each-run/price-change",
+    "anthropic/claude-haiku-5.5/compiled-replay/decoy-swap",
+    "anthropic/claude-haiku-5.5/agent-each-run/price-change",
+    "google/gemini-3.1-flash-lite/compiled-replay/price-change",
+    "openai/gpt-5.6-luna/compiled-replay/baseline",
+    "openai/gpt-5.6-luna/agent-each-run/relabel",
+    "openai/gpt-5.6-luna/agent-each-run/decoy-swap",
+    "google/gemini-3.1-flash-lite/agent-each-run/baseline",
+    "openai/gpt-5.6-luna/compiled-replay/decoy-swap",
+    "anthropic/claude-haiku-5.5/compiled-replay/baseline",
+    "google/gemini-3.1-flash-lite/compiled-replay/relabel",
+    "google/gemini-3.1-flash-lite/compiled-replay/baseline",
+    "google/gemini-3.1-flash-lite/agent-each-run/decoy-swap",
+    "openai/gpt-5.6-luna/compiled-replay/relabel",
+    "anthropic/claude-haiku-5.5/agent-each-run/decoy-swap",
+    "openai/gpt-5.6-luna/agent-each-run/baseline",
+    "google/gemini-3.1-flash-lite/compiled-replay/decoy-swap",
+    "anthropic/claude-haiku-5.5/compiled-replay/price-change",
+    "openai/gpt-5.6-luna/compiled-replay/price-change",
+    "anthropic/claude-haiku-5.5/agent-each-run/baseline",
+    "anthropic/claude-haiku-5.5/agent-each-run/relabel",
+    "anthropic/claude-haiku-5.5/compiled-replay/relabel",
+    "openai/gpt-5.6-luna/agent-each-run/price-change"
+   ],
+   "noisy": false,
+   "host": {
+    "loadPerCpu1m": 0.4796665736607143,
+    "foreignCpuPercent": 321.6000000000005
+   }
+  },
+  {
+   "index": 1,
+   "order": [
+    "openai/gpt-5.6-luna/compiled-replay/baseline",
+    "openai/gpt-5.6-luna/compiled-replay/price-change",
+    "google/gemini-3.1-flash-lite/compiled-replay/baseline",
+    "openai/gpt-5.6-luna/compiled-replay/decoy-swap",
+    "anthropic/claude-haiku-5.5/agent-each-run/decoy-swap",
+    "google/gemini-3.1-flash-lite/agent-each-run/decoy-swap",
+    "google/gemini-3.1-flash-lite/agent-each-run/relabel",
+    "openai/gpt-5.6-luna/agent-each-run/decoy-swap",
+    "openai/gpt-5.6-luna/agent-each-run/relabel",
+    "google/gemini-3.1-flash-lite/agent-each-run/baseline",
+    "anthropic/claude-haiku-5.5/compiled-replay/decoy-swap",
+    "anthropic/claude-haiku-5.5/agent-each-run/relabel",
+    "openai/gpt-5.6-luna/agent-each-run/baseline",
+    "google/gemini-3.1-flash-lite/compiled-replay/price-change",
+    "google/gemini-3.1-flash-lite/agent-each-run/price-change",
+    "openai/gpt-5.6-luna/compiled-replay/relabel",
+    "anthropic/claude-haiku-5.5/compiled-replay/price-change",
+    "openai/gpt-5.6-luna/agent-each-run/price-change",
+    "anthropic/claude-haiku-5.5/agent-each-run/baseline",
+    "google/gemini-3.1-flash-lite/compiled-replay/relabel",
+    "anthropic/claude-haiku-5.5/compiled-replay/baseline",
+    "anthropic/claude-haiku-5.5/compiled-replay/relabel",
+    "anthropic/claude-haiku-5.5/agent-each-run/price-change",
+    "google/gemini-3.1-flash-lite/compiled-replay/decoy-swap"
+   ],
+   "noisy": false,
+   "host": {
+    "loadPerCpu1m": 0.584716796875,
+    "foreignCpuPercent": 547.4000000000004
+   }
+  },
+  {
+   "index": 2,
+   "order": [
+    "openai/gpt-5.6-luna/compiled-replay/decoy-swap",
+    "anthropic/claude-haiku-5.5/compiled-replay/baseline",
+    "openai/gpt-5.6-luna/agent-each-run/baseline",
+    "openai/gpt-5.6-luna/compiled-replay/price-change",
+    "openai/gpt-5.6-luna/agent-each-run/decoy-swap",
+    "anthropic/claude-haiku-5.5/agent-each-run/baseline",
+    "openai/gpt-5.6-luna/compiled-replay/baseline",
+    "google/gemini-3.1-flash-lite/agent-each-run/baseline",
+    "google/gemini-3.1-flash-lite/compiled-replay/decoy-swap",
+    "openai/gpt-5.6-luna/agent-each-run/relabel",
+    "anthropic/claude-haiku-5.5/compiled-replay/price-change",
+    "google/gemini-3.1-flash-lite/compiled-replay/price-change",
+    "google/gemini-3.1-flash-lite/agent-each-run/price-change",
+    "anthropic/claude-haiku-5.5/agent-each-run/decoy-swap",
+    "google/gemini-3.1-flash-lite/compiled-replay/baseline",
+    "anthropic/claude-haiku-5.5/agent-each-run/price-change",
+    "anthropic/claude-haiku-5.5/compiled-replay/relabel",
+    "anthropic/claude-haiku-5.5/agent-each-run/relabel",
+    "google/gemini-3.1-flash-lite/agent-each-run/decoy-swap",
+    "google/gemini-3.1-flash-lite/agent-each-run/relabel",
+    "anthropic/claude-haiku-5.5/compiled-replay/decoy-swap",
+    "openai/gpt-5.6-luna/agent-each-run/price-change",
+    "google/gemini-3.1-flash-lite/compiled-replay/relabel",
+    "openai/gpt-5.6-luna/compiled-replay/relabel"
+   ],
+   "noisy": false,
+   "host": {
+    "loadPerCpu1m": 0.6218959263392857,
+    "foreignCpuPercent": 307.1000000000003
+   }
+  }
+ ]
+}

@@ -52,7 +52,17 @@
   "campaigns": [
     "interface-arena"
   ],
-  "evidence": [],
+  "evidence": [
+    {
+      "kind": "run",
+      "ref": "interface-arena-2026-10-08T23-05-03-060Z-3c8d7c",
+      "note": "MCP, outils de fonction, CLI et code avec trois vrais modèles"
+    },
+    {
+      "kind": "research-doc",
+      "ref": "lab/reports/interface-arena-2026-10-09.md"
+    }
+  ],
   "verdictRef": null,
   "adr": null,
   "dependsOn": [

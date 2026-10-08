@@ -1,0 +1,1123 @@
+{
+ "schemaVersion": 2,
+ "runId": "browser-driver-smoke-2026-10-08T10-56-57-786Z-5a5a6c",
+ "lane": "bench",
+ "campaign": {
+  "id": "browser-driver-smoke",
+  "source": "/private/tmp/claude-501/-Users-jb-Dev-automan/efbaa265-5bc4-4e44-964b-5222d445914a/scratchpad/driver-smoke.json",
+  "sha256": "9587d10bccb118fd6cc779fdb83db5238d00088e05cab6dde2af5829d7bef7cb"
+ },
+ "startedAt": "2026-10-08T10:56:57.786Z",
+ "decisionIds": [
+  "D-browser-driver"
+ ],
+ "provenance": {
+  "git": {
+   "available": true,
+   "sha": "fda9acd00a8f5f44c7b3a28b47a7ce379d3c8617",
+   "dirty": true
+  },
+  "sourceTreeSha256": "221f3dde0ef31c94a3874e73153dfad76abbaa2de1d6149d3189e30cd32362a3",
+  "sourceChanges": 0,
+  "binaryChanges": null,
+  "toolchains": {
+   "node": "v25.5.0",
+   "rustc": "rustc 1.93.0 (254b59607 2026-01-19)",
+   "go": "go version go1.27.1 darwin/arm64",
+   "pnpm": "12.9.1"
+  },
+  "integrity": {
+   "status": "uncatalogued",
+   "checked": 0,
+   "mismatches": []
+  }
+ },
+ "host": {
+  "classRequested": "local-dev",
+  "classGranted": "local-dev",
+  "os": "darwin",
+  "arch": "arm64",
+  "cpu": "Apple M3 Max",
+  "logicalCpus": 14,
+  "memoryBytes": 38654705664,
+  "preflight": {
+   "snapshot": {
+    "os": "darwin",
+    "arch": "arm64",
+    "cpu": "Apple M3 Max",
+    "logicalCpus": 14,
+    "memoryBytes": 38654705664,
+    "loadAverage1m": 7.3125,
+    "memoryFreePercent": 47,
+    "thermalWarning": false,
+    "onAC": false,
+    "lowPowerMode": false,
+    "foreignCpuPercent": 329.7000000000002,
+    "foreignTop": [
+     {
+      "command": "ffmpeg",
+      "cpuPercent": 91.7
+     },
+     {
+      "command": "WindowServer",
+      "cpuPercent": 46
+     },
+     {
+      "command": "Docker Desktop Helper (Renderer)",
+      "cpuPercent": 33.3
+     },
+     {
+      "command": "ChatGPT",
+      "cpuPercent": 25.3
+     },
+     {
+      "command": "claude",
+      "cpuPercent": 18.3
+     }
+    ],
+    "cpuGovernor": null,
+    "virtualized": false
+   },
+   "gates": []
+  },
+  "postflight": {
+   "snapshot": {
+    "os": "darwin",
+    "arch": "arm64",
+    "cpu": "Apple M3 Max",
+    "logicalCpus": 14,
+    "memoryBytes": 38654705664,
+    "loadAverage1m": 7.53857421875,
+    "memoryFreePercent": 46,
+    "thermalWarning": false,
+    "onAC": false,
+    "lowPowerMode": false,
+    "foreignCpuPercent": 282.30000000000064,
+    "foreignTop": [
+     {
+      "command": "ffprobe",
+      "cpuPercent": 69.2
+     },
+     {
+      "command": "WindowServer",
+      "cpuPercent": 43.8
+     },
+     {
+      "command": "com.apple.Virtualization.VirtualMachine",
+      "cpuPercent": 16.9
+     },
+     {
+      "command": "Claude Helper (Renderer)",
+      "cpuPercent": 16.2
+     },
+     {
+      "command": "Claude Helper",
+      "cpuPercent": 15.1
+     }
+    ],
+    "cpuGovernor": null,
+    "virtualized": false
+   }
+  }
+ },
+ "status": "complete",
+ "countUnit": "attempt",
+ "cells": [
+  {
+   "cellId": "rust-cdp:js-catalog",
+   "factors": {
+    "backend": "rust-cdp",
+    "scenario": "js-catalog",
+    "policy": "guarded",
+    "rttMs": 20,
+    "browserHost": "harness"
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 5,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-tasks-per-second": {
+     "value": null,
+     "unit": "task/s",
+     "source": "unavailable: network calibration out of tolerance: declared 20 ms, measured added median 22.7 ms"
+    },
+    "task-p50-ms-verified": {
+     "value": null,
+     "unit": "ms",
+     "source": "unavailable: network calibration out of tolerance: declared 20 ms, measured added median 22.7 ms"
+    },
+    "task-p95-ms-verified": {
+     "value": null,
+     "unit": "ms",
+     "source": "unavailable: network calibration out of tolerance: declared 20 ms, measured added median 22.7 ms"
+    },
+    "cpu-ms-per-verified-job": {
+     "value": null,
+     "unit": "ms/job",
+     "source": "unavailable: network calibration out of tolerance: declared 20 ms, measured added median 22.7 ms"
+    },
+    "footprint-peak-bytes": {
+     "value": null,
+     "unit": "B",
+     "source": "unavailable: network calibration out of tolerance: declared 20 ms, measured added median 22.7 ms"
+    },
+    "pss-peak-bytes": {
+     "value": null,
+     "unit": "B",
+     "source": "unavailable: network calibration out of tolerance: declared 20 ms, measured added median 22.7 ms"
+    },
+    "rss-peak-bytes": {
+     "value": null,
+     "unit": "B",
+     "source": "unavailable: network calibration out of tolerance: declared 20 ms, measured added median 22.7 ms"
+    },
+    "cdp-commands-per-task": {
+     "value": null,
+     "unit": "command/task",
+     "source": "unavailable: network calibration out of tolerance: declared 20 ms, measured added median 22.7 ms"
+    },
+    "startup-ms": {
+     "value": null,
+     "unit": "ms",
+     "source": "unavailable: network calibration out of tolerance: declared 20 ms, measured added median 22.7 ms"
+    }
+   }
+  },
+  {
+   "cellId": "rust-cdp:form",
+   "factors": {
+    "backend": "rust-cdp",
+    "scenario": "form",
+    "policy": "guarded",
+    "rttMs": 20,
+    "browserHost": "harness"
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 5,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-tasks-per-second": {
+     "value": null,
+     "unit": "task/s",
+     "source": "unavailable: network calibration out of tolerance: declared 20 ms, measured added median 22.7 ms"
+    },
+    "task-p50-ms-verified": {
+     "value": null,
+     "unit": "ms",
+     "source": "unavailable: network calibration out of tolerance: declared 20 ms, measured added median 22.7 ms"
+    },
+    "task-p95-ms-verified": {
+     "value": null,
+     "unit": "ms",
+     "source": "unavailable: network calibration out of tolerance: declared 20 ms, measured added median 22.7 ms"
+    },
+    "cpu-ms-per-verified-job": {
+     "value": null,
+     "unit": "ms/job",
+     "source": "unavailable: network calibration out of tolerance: declared 20 ms, measured added median 22.7 ms"
+    },
+    "footprint-peak-bytes": {
+     "value": null,
+     "unit": "B",
+     "source": "unavailable: network calibration out of tolerance: declared 20 ms, measured added median 22.7 ms"
+    },
+    "pss-peak-bytes": {
+     "value": null,
+     "unit": "B",
+     "source": "unavailable: network calibration out of tolerance: declared 20 ms, measured added median 22.7 ms"
+    },
+    "rss-peak-bytes": {
+     "value": null,
+     "unit": "B",
+     "source": "unavailable: network calibration out of tolerance: declared 20 ms, measured added median 22.7 ms"
+    },
+    "cdp-commands-per-task": {
+     "value": null,
+     "unit": "command/task",
+     "source": "unavailable: network calibration out of tolerance: declared 20 ms, measured added median 22.7 ms"
+    },
+    "startup-ms": {
+     "value": null,
+     "unit": "ms",
+     "source": "unavailable: network calibration out of tolerance: declared 20 ms, measured added median 22.7 ms"
+    }
+   }
+  },
+  {
+   "cellId": "rust-cdp:clicks",
+   "factors": {
+    "backend": "rust-cdp",
+    "scenario": "clicks",
+    "policy": "guarded",
+    "rttMs": 20,
+    "browserHost": "harness"
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 5,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-tasks-per-second": {
+     "value": null,
+     "unit": "task/s",
+     "source": "unavailable: network calibration out of tolerance: declared 20 ms, measured added median 22.7 ms"
+    },
+    "task-p50-ms-verified": {
+     "value": null,
+     "unit": "ms",
+     "source": "unavailable: network calibration out of tolerance: declared 20 ms, measured added median 22.7 ms"
+    },
+    "task-p95-ms-verified": {
+     "value": null,
+     "unit": "ms",
+     "source": "unavailable: network calibration out of tolerance: declared 20 ms, measured added median 22.7 ms"
+    },
+    "cpu-ms-per-verified-job": {
+     "value": null,
+     "unit": "ms/job",
+     "source": "unavailable: network calibration out of tolerance: declared 20 ms, measured added median 22.7 ms"
+    },
+    "footprint-peak-bytes": {
+     "value": null,
+     "unit": "B",
+     "source": "unavailable: network calibration out of tolerance: declared 20 ms, measured added median 22.7 ms"
+    },
+    "pss-peak-bytes": {
+     "value": null,
+     "unit": "B",
+     "source": "unavailable: network calibration out of tolerance: declared 20 ms, measured added median 22.7 ms"
+    },
+    "rss-peak-bytes": {
+     "value": null,
+     "unit": "B",
+     "source": "unavailable: network calibration out of tolerance: declared 20 ms, measured added median 22.7 ms"
+    },
+    "cdp-commands-per-task": {
+     "value": null,
+     "unit": "command/task",
+     "source": "unavailable: network calibration out of tolerance: declared 20 ms, measured added median 22.7 ms"
+    },
+    "startup-ms": {
+     "value": null,
+     "unit": "ms",
+     "source": "unavailable: network calibration out of tolerance: declared 20 ms, measured added median 22.7 ms"
+    }
+   }
+  },
+  {
+   "cellId": "node-cdp:js-catalog",
+   "factors": {
+    "backend": "node-cdp",
+    "scenario": "js-catalog",
+    "policy": "guarded",
+    "rttMs": 20,
+    "browserHost": "harness"
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 5,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-tasks-per-second": {
+     "value": null,
+     "unit": "task/s",
+     "source": "unavailable: network calibration out of tolerance: declared 20 ms, measured added median 22.7 ms"
+    },
+    "task-p50-ms-verified": {
+     "value": null,
+     "unit": "ms",
+     "source": "unavailable: network calibration out of tolerance: declared 20 ms, measured added median 22.7 ms"
+    },
+    "task-p95-ms-verified": {
+     "value": null,
+     "unit": "ms",
+     "source": "unavailable: network calibration out of tolerance: declared 20 ms, measured added median 22.7 ms"
+    },
+    "cpu-ms-per-verified-job": {
+     "value": null,
+     "unit": "ms/job",
+     "source": "unavailable: network calibration out of tolerance: declared 20 ms, measured added median 22.7 ms"
+    },
+    "footprint-peak-bytes": {
+     "value": null,
+     "unit": "B",
+     "source": "unavailable: network calibration out of tolerance: declared 20 ms, measured added median 22.7 ms"
+    },
+    "pss-peak-bytes": {
+     "value": null,
+     "unit": "B",
+     "source": "unavailable: network calibration out of tolerance: declared 20 ms, measured added median 22.7 ms"
+    },
+    "rss-peak-bytes": {
+     "value": null,
+     "unit": "B",
+     "source": "unavailable: network calibration out of tolerance: declared 20 ms, measured added median 22.7 ms"
+    },
+    "cdp-commands-per-task": {
+     "value": null,
+     "unit": "command/task",
+     "source": "unavailable: network calibration out of tolerance: declared 20 ms, measured added median 22.7 ms"
+    },
+    "startup-ms": {
+     "value": null,
+     "unit": "ms",
+     "source": "unavailable: network calibration out of tolerance: declared 20 ms, measured added median 22.7 ms"
+    }
+   }
+  },
+  {
+   "cellId": "node-cdp:form",
+   "factors": {
+    "backend": "node-cdp",
+    "scenario": "form",
+    "policy": "guarded",
+    "rttMs": 20,
+    "browserHost": "harness"
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 5,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-tasks-per-second": {
+     "value": null,
+     "unit": "task/s",
+     "source": "unavailable: network calibration out of tolerance: declared 20 ms, measured added median 22.7 ms"
+    },
+    "task-p50-ms-verified": {
+     "value": null,
+     "unit": "ms",
+     "source": "unavailable: network calibration out of tolerance: declared 20 ms, measured added median 22.7 ms"
+    },
+    "task-p95-ms-verified": {
+     "value": null,
+     "unit": "ms",
+     "source": "unavailable: network calibration out of tolerance: declared 20 ms, measured added median 22.7 ms"
+    },
+    "cpu-ms-per-verified-job": {
+     "value": null,
+     "unit": "ms/job",
+     "source": "unavailable: network calibration out of tolerance: declared 20 ms, measured added median 22.7 ms"
+    },
+    "footprint-peak-bytes": {
+     "value": null,
+     "unit": "B",
+     "source": "unavailable: network calibration out of tolerance: declared 20 ms, measured added median 22.7 ms"
+    },
+    "pss-peak-bytes": {
+     "value": null,
+     "unit": "B",
+     "source": "unavailable: network calibration out of tolerance: declared 20 ms, measured added median 22.7 ms"
+    },
+    "rss-peak-bytes": {
+     "value": null,
+     "unit": "B",
+     "source": "unavailable: network calibration out of tolerance: declared 20 ms, measured added median 22.7 ms"
+    },
+    "cdp-commands-per-task": {
+     "value": null,
+     "unit": "command/task",
+     "source": "unavailable: network calibration out of tolerance: declared 20 ms, measured added median 22.7 ms"
+    },
+    "startup-ms": {
+     "value": null,
+     "unit": "ms",
+     "source": "unavailable: network calibration out of tolerance: declared 20 ms, measured added median 22.7 ms"
+    }
+   }
+  },
+  {
+   "cellId": "node-cdp:clicks",
+   "factors": {
+    "backend": "node-cdp",
+    "scenario": "clicks",
+    "policy": "guarded",
+    "rttMs": 20,
+    "browserHost": "harness"
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 5,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-tasks-per-second": {
+     "value": null,
+     "unit": "task/s",
+     "source": "unavailable: network calibration out of tolerance: declared 20 ms, measured added median 22.7 ms"
+    },
+    "task-p50-ms-verified": {
+     "value": null,
+     "unit": "ms",
+     "source": "unavailable: network calibration out of tolerance: declared 20 ms, measured added median 22.7 ms"
+    },
+    "task-p95-ms-verified": {
+     "value": null,
+     "unit": "ms",
+     "source": "unavailable: network calibration out of tolerance: declared 20 ms, measured added median 22.7 ms"
+    },
+    "cpu-ms-per-verified-job": {
+     "value": null,
+     "unit": "ms/job",
+     "source": "unavailable: network calibration out of tolerance: declared 20 ms, measured added median 22.7 ms"
+    },
+    "footprint-peak-bytes": {
+     "value": null,
+     "unit": "B",
+     "source": "unavailable: network calibration out of tolerance: declared 20 ms, measured added median 22.7 ms"
+    },
+    "pss-peak-bytes": {
+     "value": null,
+     "unit": "B",
+     "source": "unavailable: network calibration out of tolerance: declared 20 ms, measured added median 22.7 ms"
+    },
+    "rss-peak-bytes": {
+     "value": null,
+     "unit": "B",
+     "source": "unavailable: network calibration out of tolerance: declared 20 ms, measured added median 22.7 ms"
+    },
+    "cdp-commands-per-task": {
+     "value": null,
+     "unit": "command/task",
+     "source": "unavailable: network calibration out of tolerance: declared 20 ms, measured added median 22.7 ms"
+    },
+    "startup-ms": {
+     "value": null,
+     "unit": "ms",
+     "source": "unavailable: network calibration out of tolerance: declared 20 ms, measured added median 22.7 ms"
+    }
+   }
+  },
+  {
+   "cellId": "puppeteer:js-catalog",
+   "factors": {
+    "backend": "puppeteer",
+    "scenario": "js-catalog",
+    "policy": "guarded",
+    "rttMs": 20,
+    "browserHost": "harness"
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 5,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-tasks-per-second": {
+     "value": null,
+     "unit": "task/s",
+     "source": "unavailable: network calibration out of tolerance: declared 20 ms, measured added median 22.7 ms"
+    },
+    "task-p50-ms-verified": {
+     "value": null,
+     "unit": "ms",
+     "source": "unavailable: network calibration out of tolerance: declared 20 ms, measured added median 22.7 ms"
+    },
+    "task-p95-ms-verified": {
+     "value": null,
+     "unit": "ms",
+     "source": "unavailable: network calibration out of tolerance: declared 20 ms, measured added median 22.7 ms"
+    },
+    "cpu-ms-per-verified-job": {
+     "value": null,
+     "unit": "ms/job",
+     "source": "unavailable: network calibration out of tolerance: declared 20 ms, measured added median 22.7 ms"
+    },
+    "footprint-peak-bytes": {
+     "value": null,
+     "unit": "B",
+     "source": "unavailable: network calibration out of tolerance: declared 20 ms, measured added median 22.7 ms"
+    },
+    "pss-peak-bytes": {
+     "value": null,
+     "unit": "B",
+     "source": "unavailable: network calibration out of tolerance: declared 20 ms, measured added median 22.7 ms"
+    },
+    "rss-peak-bytes": {
+     "value": null,
+     "unit": "B",
+     "source": "unavailable: network calibration out of tolerance: declared 20 ms, measured added median 22.7 ms"
+    },
+    "cdp-commands-per-task": {
+     "value": null,
+     "unit": "command/task",
+     "source": "unavailable: network calibration out of tolerance: declared 20 ms, measured added median 22.7 ms"
+    },
+    "startup-ms": {
+     "value": null,
+     "unit": "ms",
+     "source": "unavailable: network calibration out of tolerance: declared 20 ms, measured added median 22.7 ms"
+    }
+   }
+  },
+  {
+   "cellId": "puppeteer:form",
+   "factors": {
+    "backend": "puppeteer",
+    "scenario": "form",
+    "policy": "guarded",
+    "rttMs": 20,
+    "browserHost": "harness"
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 5,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-tasks-per-second": {
+     "value": null,
+     "unit": "task/s",
+     "source": "unavailable: network calibration out of tolerance: declared 20 ms, measured added median 22.7 ms"
+    },
+    "task-p50-ms-verified": {
+     "value": null,
+     "unit": "ms",
+     "source": "unavailable: network calibration out of tolerance: declared 20 ms, measured added median 22.7 ms"
+    },
+    "task-p95-ms-verified": {
+     "value": null,
+     "unit": "ms",
+     "source": "unavailable: network calibration out of tolerance: declared 20 ms, measured added median 22.7 ms"
+    },
+    "cpu-ms-per-verified-job": {
+     "value": null,
+     "unit": "ms/job",
+     "source": "unavailable: network calibration out of tolerance: declared 20 ms, measured added median 22.7 ms"
+    },
+    "footprint-peak-bytes": {
+     "value": null,
+     "unit": "B",
+     "source": "unavailable: network calibration out of tolerance: declared 20 ms, measured added median 22.7 ms"
+    },
+    "pss-peak-bytes": {
+     "value": null,
+     "unit": "B",
+     "source": "unavailable: network calibration out of tolerance: declared 20 ms, measured added median 22.7 ms"
+    },
+    "rss-peak-bytes": {
+     "value": null,
+     "unit": "B",
+     "source": "unavailable: network calibration out of tolerance: declared 20 ms, measured added median 22.7 ms"
+    },
+    "cdp-commands-per-task": {
+     "value": null,
+     "unit": "command/task",
+     "source": "unavailable: network calibration out of tolerance: declared 20 ms, measured added median 22.7 ms"
+    },
+    "startup-ms": {
+     "value": null,
+     "unit": "ms",
+     "source": "unavailable: network calibration out of tolerance: declared 20 ms, measured added median 22.7 ms"
+    }
+   }
+  },
+  {
+   "cellId": "puppeteer:clicks",
+   "factors": {
+    "backend": "puppeteer",
+    "scenario": "clicks",
+    "policy": "guarded",
+    "rttMs": 20,
+    "browserHost": "harness"
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 5,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-tasks-per-second": {
+     "value": null,
+     "unit": "task/s",
+     "source": "unavailable: network calibration out of tolerance: declared 20 ms, measured added median 22.7 ms"
+    },
+    "task-p50-ms-verified": {
+     "value": null,
+     "unit": "ms",
+     "source": "unavailable: network calibration out of tolerance: declared 20 ms, measured added median 22.7 ms"
+    },
+    "task-p95-ms-verified": {
+     "value": null,
+     "unit": "ms",
+     "source": "unavailable: network calibration out of tolerance: declared 20 ms, measured added median 22.7 ms"
+    },
+    "cpu-ms-per-verified-job": {
+     "value": null,
+     "unit": "ms/job",
+     "source": "unavailable: network calibration out of tolerance: declared 20 ms, measured added median 22.7 ms"
+    },
+    "footprint-peak-bytes": {
+     "value": null,
+     "unit": "B",
+     "source": "unavailable: network calibration out of tolerance: declared 20 ms, measured added median 22.7 ms"
+    },
+    "pss-peak-bytes": {
+     "value": null,
+     "unit": "B",
+     "source": "unavailable: network calibration out of tolerance: declared 20 ms, measured added median 22.7 ms"
+    },
+    "rss-peak-bytes": {
+     "value": null,
+     "unit": "B",
+     "source": "unavailable: network calibration out of tolerance: declared 20 ms, measured added median 22.7 ms"
+    },
+    "cdp-commands-per-task": {
+     "value": null,
+     "unit": "command/task",
+     "source": "unavailable: network calibration out of tolerance: declared 20 ms, measured added median 22.7 ms"
+    },
+    "startup-ms": {
+     "value": null,
+     "unit": "ms",
+     "source": "unavailable: network calibration out of tolerance: declared 20 ms, measured added median 22.7 ms"
+    }
+   }
+  },
+  {
+   "cellId": "playwright:js-catalog",
+   "factors": {
+    "backend": "playwright",
+    "scenario": "js-catalog",
+    "policy": "native",
+    "rttMs": 20,
+    "browserHost": "harness"
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 5,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-tasks-per-second": {
+     "value": null,
+     "unit": "task/s",
+     "source": "unavailable: network calibration out of tolerance: declared 20 ms, measured added median 22.7 ms"
+    },
+    "task-p50-ms-verified": {
+     "value": null,
+     "unit": "ms",
+     "source": "unavailable: network calibration out of tolerance: declared 20 ms, measured added median 22.7 ms"
+    },
+    "task-p95-ms-verified": {
+     "value": null,
+     "unit": "ms",
+     "source": "unavailable: network calibration out of tolerance: declared 20 ms, measured added median 22.7 ms"
+    },
+    "cpu-ms-per-verified-job": {
+     "value": null,
+     "unit": "ms/job",
+     "source": "unavailable: network calibration out of tolerance: declared 20 ms, measured added median 22.7 ms"
+    },
+    "footprint-peak-bytes": {
+     "value": null,
+     "unit": "B",
+     "source": "unavailable: network calibration out of tolerance: declared 20 ms, measured added median 22.7 ms"
+    },
+    "pss-peak-bytes": {
+     "value": null,
+     "unit": "B",
+     "source": "unavailable: network calibration out of tolerance: declared 20 ms, measured added median 22.7 ms"
+    },
+    "rss-peak-bytes": {
+     "value": null,
+     "unit": "B",
+     "source": "unavailable: network calibration out of tolerance: declared 20 ms, measured added median 22.7 ms"
+    },
+    "cdp-commands-per-task": {
+     "value": null,
+     "unit": "command/task",
+     "source": "unavailable: network calibration out of tolerance: declared 20 ms, measured added median 22.7 ms"
+    },
+    "startup-ms": {
+     "value": null,
+     "unit": "ms",
+     "source": "unavailable: network calibration out of tolerance: declared 20 ms, measured added median 22.7 ms"
+    }
+   }
+  },
+  {
+   "cellId": "playwright:form",
+   "factors": {
+    "backend": "playwright",
+    "scenario": "form",
+    "policy": "native",
+    "rttMs": 20,
+    "browserHost": "harness"
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 5,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-tasks-per-second": {
+     "value": null,
+     "unit": "task/s",
+     "source": "unavailable: network calibration out of tolerance: declared 20 ms, measured added median 22.7 ms"
+    },
+    "task-p50-ms-verified": {
+     "value": null,
+     "unit": "ms",
+     "source": "unavailable: network calibration out of tolerance: declared 20 ms, measured added median 22.7 ms"
+    },
+    "task-p95-ms-verified": {
+     "value": null,
+     "unit": "ms",
+     "source": "unavailable: network calibration out of tolerance: declared 20 ms, measured added median 22.7 ms"
+    },
+    "cpu-ms-per-verified-job": {
+     "value": null,
+     "unit": "ms/job",
+     "source": "unavailable: network calibration out of tolerance: declared 20 ms, measured added median 22.7 ms"
+    },
+    "footprint-peak-bytes": {
+     "value": null,
+     "unit": "B",
+     "source": "unavailable: network calibration out of tolerance: declared 20 ms, measured added median 22.7 ms"
+    },
+    "pss-peak-bytes": {
+     "value": null,
+     "unit": "B",
+     "source": "unavailable: network calibration out of tolerance: declared 20 ms, measured added median 22.7 ms"
+    },
+    "rss-peak-bytes": {
+     "value": null,
+     "unit": "B",
+     "source": "unavailable: network calibration out of tolerance: declared 20 ms, measured added median 22.7 ms"
+    },
+    "cdp-commands-per-task": {
+     "value": null,
+     "unit": "command/task",
+     "source": "unavailable: network calibration out of tolerance: declared 20 ms, measured added median 22.7 ms"
+    },
+    "startup-ms": {
+     "value": null,
+     "unit": "ms",
+     "source": "unavailable: network calibration out of tolerance: declared 20 ms, measured added median 22.7 ms"
+    }
+   }
+  },
+  {
+   "cellId": "playwright:clicks",
+   "factors": {
+    "backend": "playwright",
+    "scenario": "clicks",
+    "policy": "native",
+    "rttMs": 20,
+    "browserHost": "harness"
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 5,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-tasks-per-second": {
+     "value": null,
+     "unit": "task/s",
+     "source": "unavailable: network calibration out of tolerance: declared 20 ms, measured added median 22.7 ms"
+    },
+    "task-p50-ms-verified": {
+     "value": null,
+     "unit": "ms",
+     "source": "unavailable: network calibration out of tolerance: declared 20 ms, measured added median 22.7 ms"
+    },
+    "task-p95-ms-verified": {
+     "value": null,
+     "unit": "ms",
+     "source": "unavailable: network calibration out of tolerance: declared 20 ms, measured added median 22.7 ms"
+    },
+    "cpu-ms-per-verified-job": {
+     "value": null,
+     "unit": "ms/job",
+     "source": "unavailable: network calibration out of tolerance: declared 20 ms, measured added median 22.7 ms"
+    },
+    "footprint-peak-bytes": {
+     "value": null,
+     "unit": "B",
+     "source": "unavailable: network calibration out of tolerance: declared 20 ms, measured added median 22.7 ms"
+    },
+    "pss-peak-bytes": {
+     "value": null,
+     "unit": "B",
+     "source": "unavailable: network calibration out of tolerance: declared 20 ms, measured added median 22.7 ms"
+    },
+    "rss-peak-bytes": {
+     "value": null,
+     "unit": "B",
+     "source": "unavailable: network calibration out of tolerance: declared 20 ms, measured added median 22.7 ms"
+    },
+    "cdp-commands-per-task": {
+     "value": null,
+     "unit": "command/task",
+     "source": "unavailable: network calibration out of tolerance: declared 20 ms, measured added median 22.7 ms"
+    },
+    "startup-ms": {
+     "value": null,
+     "unit": "ms",
+     "source": "unavailable: network calibration out of tolerance: declared 20 ms, measured added median 22.7 ms"
+    }
+   }
+  }
+ ],
+ "totals": {
+  "verified": 60,
+  "failed": 0,
+  "timeout": 0,
+  "crashed": 0,
+  "aborted": 0,
+  "unsupported": 0,
+  "rejected": 0,
+  "unavailable": 0,
+  "skipped": 0
+ },
+ "metricAvailability": {
+  "verified-jobs-per-second": {
+   "available": false,
+   "reason": "network calibration out of tolerance: declared 20 ms, measured added median 22.7 ms"
+  },
+  "verified-tasks-per-second": {
+   "available": false,
+   "reason": "network calibration out of tolerance: declared 20 ms, measured added median 22.7 ms"
+  },
+  "verified-rows-per-second": {
+   "available": false,
+   "reason": "network calibration out of tolerance: declared 20 ms, measured added median 22.7 ms"
+  },
+  "task-p50-ms-verified": {
+   "available": false,
+   "reason": "network calibration out of tolerance: declared 20 ms, measured added median 22.7 ms"
+  },
+  "task-p95-ms-verified": {
+   "available": false,
+   "reason": "network calibration out of tolerance: declared 20 ms, measured added median 22.7 ms"
+  },
+  "task-ms": {
+   "available": false,
+   "reason": "network calibration out of tolerance: declared 20 ms, measured added median 22.7 ms"
+  },
+  "ack-latency-p95-ms": {
+   "available": false,
+   "reason": "network calibration out of tolerance: declared 20 ms, measured added median 22.7 ms"
+  },
+  "startup-ms": {
+   "available": false,
+   "reason": "network calibration out of tolerance: declared 20 ms, measured added median 22.7 ms"
+  },
+  "cpu-ms-per-verified-job": {
+   "available": false,
+   "reason": "network calibration out of tolerance: declared 20 ms, measured added median 22.7 ms"
+  },
+  "footprint-peak-bytes": {
+   "available": false,
+   "reason": "network calibration out of tolerance: declared 20 ms, measured added median 22.7 ms"
+  },
+  "pss-peak-bytes": {
+   "available": false,
+   "reason": "network calibration out of tolerance: declared 20 ms, measured added median 22.7 ms"
+  },
+  "cgroup-memory-peak-bytes": {
+   "available": false,
+   "reason": "network calibration out of tolerance: declared 20 ms, measured added median 22.7 ms"
+  },
+  "rss-peak-bytes": {
+   "available": false,
+   "reason": "network calibration out of tolerance: declared 20 ms, measured added median 22.7 ms"
+  },
+  "cdp-commands-per-task": {
+   "available": false,
+   "reason": "network calibration out of tolerance: declared 20 ms, measured added median 22.7 ms"
+  },
+  "extraction-f1": {
+   "available": true
+  },
+  "field-precision": {
+   "available": true
+  },
+  "field-recall": {
+   "available": true
+  },
+  "pass-k": {
+   "available": true
+  },
+  "llm-calls-per-verified-task": {
+   "available": false,
+   "reason": "adapter protocol v2 usage reporting is not implemented yet"
+  },
+  "tokens-per-verified-task": {
+   "available": false,
+   "reason": "adapter protocol v2 usage reporting is not implemented yet"
+  },
+  "usd-per-1k-verified": {
+   "available": false,
+   "reason": "pricing tables are not implemented yet"
+  },
+  "interface-turns-per-task": {
+   "available": true
+  },
+  "oracle-exact": {
+   "available": true
+  },
+  "false-success-count": {
+   "available": true
+  },
+  "actionability-conformance": {
+   "available": true
+  },
+  "recovery-exact": {
+   "available": true
+  },
+  "durability-power-loss": {
+   "available": false,
+   "reason": "no probe on darwin"
+  },
+  "identity-coherence": {
+   "available": true
+  },
+  "policy-compliance": {
+   "available": true
+  },
+  "session-isolation": {
+   "available": true
+  },
+  "admission-no-loss": {
+   "available": true
+  }
+ },
+ "legacy": null,
+ "blocks": [
+  {
+   "index": 0,
+   "order": [
+    "rust-cdp",
+    "node-cdp",
+    "playwright",
+    "puppeteer"
+   ],
+   "noisy": false,
+   "host": {
+    "loadPerCpu1m": 0.5384695870535714,
+    "foreignCpuPercent": 303.0000000000002
+   }
+  }
+ ],
+ "network": {
+  "link": "driver-browser",
+  "profile": {
+   "rttMs": 20
+  },
+  "calibration": {
+   "rttMs": 20,
+   "medianMs": 22.82520800000009,
+   "p95Ms": 25.582332999999835,
+   "baselineMedianMs": 0.21045799999978954,
+   "addedMedianMs": 22.655123999999887,
+   "samples": 50,
+   "withinTolerance": false
+  }
+ }
+}

@@ -1825,6 +1825,69 @@
         "priority": null,
         "hostClass": null
       }
+    },
+    "http-incidents-2026-10-08T17-03-09-936Z-726cb0": {
+      "role": "superseded",
+      "reason": "même matrice sur sources non commitées",
+      "supersededBy": "http-incidents-2026-10-08T17-07-35-305Z-73011e",
+      "decisionIds": [
+        "D-http-transport"
+      ],
+      "validity": [
+        {
+          "scope": "all",
+          "class": "none",
+          "note": "sources non commitées"
+        }
+      ],
+      "noisyHost": false,
+      "rerun": {
+        "required": false,
+        "priority": null,
+        "hostClass": null
+      }
+    },
+    "http-incidents-2026-10-08T17-05-19-221Z-4848df": {
+      "role": "diagnostic",
+      "reason": "même matrice sur sources non commitées",
+      "supersededBy": null,
+      "decisionIds": [
+        "D-http-transport"
+      ],
+      "validity": [
+        {
+          "scope": "all",
+          "class": "none",
+          "note": "sources non commitées"
+        }
+      ],
+      "noisyHost": false,
+      "rerun": {
+        "required": false,
+        "priority": null,
+        "hostClass": null
+      }
+    },
+    "http-incidents-2026-10-08T17-07-35-305Z-73011e": {
+      "role": "selected",
+      "reason": "incidents HTTP : 429, 503, réponse tronquée ou coupée, boucle de redirections, serveur lent",
+      "supersededBy": null,
+      "decisionIds": [
+        "D-http-transport"
+      ],
+      "validity": [
+        {
+          "scope": "incident-contract",
+          "class": "A",
+          "note": "Spider HTTP seul à produire des faux succès ; aucune relance configurée dans les adapters"
+        }
+      ],
+      "noisyHost": false,
+      "rerun": {
+        "required": false,
+        "priority": null,
+        "hostClass": null
+      }
     }
   }
 }

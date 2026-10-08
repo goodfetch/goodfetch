@@ -52,7 +52,7 @@ async function renderingEngine(renderer: Exclude<Renderer, 'none'>, proxy: strin
 }
 type Rendered = { path: string | null; status: 'ok' | 'timeout' | 'error'; loadMs: number; misses: number; error?: string };
 async function renderPages(renderer: Exclude<Renderer, 'none'>, pages: Truth[], config: ExtractionConfig, scratch: string): Promise<{ rendered: Map<string, Rendered>; hits: number; misses: number; tunnels: number; renderedBytes: number }> {
-  const proxy = await startReplayProxy(pages.map(page => ({ url: page.url, path: join(corpusRoot(config), config.split, 'html', `${page.fileId}.html.gz`) })));
+  const proxy = await startReplayProxy(pages.map(page => ({ url: page.url, fileId: page.fileId, path: join(corpusRoot(config), config.split, 'html', `${page.fileId}.html.gz`) })));
   const rendered = new Map<string, Rendered>(); const timeoutMs = config.renderTimeoutMs ?? 10_000; let renderedBytes = 0;
   let engine = await renderingEngine(renderer, proxy.url); let connection = await CdpConnection.connect(engine.wsEndpoint);
   try {
@@ -60,7 +60,7 @@ async function renderPages(renderer: Exclude<Renderer, 'none'>, pages: Truth[], 
       proxy.loading(page.url); const began = performance.now(); let tab: CdpPage | null = null;
       try {
         tab = await CdpPage.open(connection, timeoutMs);
-        await tab.goto(replayUrl(page.url));
+        await tab.goto(replayUrl(page.url, page.fileId));
         // Inline scripts have run by DOMContentLoaded; external ones are refused at once, so a short settle is enough.
         await new Promise(resolve => setTimeout(resolve, 200));
         const html = await Promise.race([tab.evaluate<string>('document.documentElement.outerHTML'), new Promise<never>((_, reject) => setTimeout(() => reject(new Error('timeout')), timeoutMs))]);

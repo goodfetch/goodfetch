@@ -7,10 +7,11 @@ import { readFileSync } from 'node:fs';
 import type { AddressInfo } from 'node:net';
 
 // The URL a page is replayed at: its original host and path, scheme set to http.
-export const replayUrl = (original: string) => { const url = new URL(original); url.protocol = 'http:'; url.hash = ''; return url.href; };
+// A page archived without its URL is served on a reserved host named after its file.
+export const replayUrl = (original: string, fileId = 'page') => { if (!URL.canParse(original)) return `http://${fileId}.wcxb.invalid/`; const url = new URL(original); url.protocol = 'http:'; url.hash = ''; return url.href; };
 
-export async function startReplayProxy(pages: { url: string; path: string }[]) {
-  const archive = new Map(pages.map(page => [replayUrl(page.url), page.path]));
+export async function startReplayProxy(pages: { url: string; path: string; fileId?: string }[]) {
+  const archive = new Map(pages.map(page => [replayUrl(page.url, page.fileId), page.path]));
   const stats = { hits: 0, misses: 0, tunnels: 0, missesByPage: new Map<string, number>() };
   let current = '';
   const server = createServer((req, res) => {

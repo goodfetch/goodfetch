@@ -2101,6 +2101,48 @@
         "priority": null,
         "hostClass": null
       }
+    },
+    "runtime-faults-extended-2026-10-08T17-47-19-287Z-f1fb41": {
+      "role": "diagnostic",
+      "reason": "même matrice sur sources non commitées",
+      "supersededBy": null,
+      "decisionIds": [
+        "D-durable-runtime"
+      ],
+      "validity": [
+        {
+          "scope": "all",
+          "class": "none",
+          "note": "sources non commitées"
+        }
+      ],
+      "noisyHost": false,
+      "rerun": {
+        "required": false,
+        "priority": null,
+        "hostClass": null
+      }
+    },
+    "runtime-faults-extended-2026-10-08T17-49-02-487Z-54a5e6": {
+      "role": "selected",
+      "reason": "erreur d'écriture, verrou tenu et verrou affamé dans les runtimes Node et Rust",
+      "supersededBy": null,
+      "decisionIds": [
+        "D-durable-runtime"
+      ],
+      "validity": [
+        {
+          "scope": "recovery",
+          "class": "A",
+          "note": "reprise exacte sur les trois pannes, dans les deux runtimes"
+        }
+      ],
+      "noisyHost": false,
+      "rerun": {
+        "required": false,
+        "priority": null,
+        "hostClass": null
+      }
     }
   }
 }

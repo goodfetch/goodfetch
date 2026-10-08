@@ -2,7 +2,8 @@
   const deepAll=__DEEP__;
   const end=performance.now()+__TIMEOUT__;let previous=null,previousAt=0,stable=0;
   while(performance.now()<end){
-    await new Promise(resolve=>requestAnimationFrame(resolve));
+    // A frame or 20 ms, whichever comes first: headless Chromium can pause frames for a second after a navigation.
+    await new Promise(resolve=>{requestAnimationFrame(resolve);setTimeout(resolve,20)});
     const now=performance.now();if(now-previousAt<16)continue;
     const elements=deepAll(__SELECTOR__);if(elements.length>1)throw new Error('ambiguous target');const el=elements[0];
     if(el){const box=el.getBoundingClientRect(),style=getComputedStyle(el),current=[box.x,box.y,box.width,box.height].join(',');

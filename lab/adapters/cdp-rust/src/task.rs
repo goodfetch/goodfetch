@@ -2,7 +2,59 @@
 use crate::cdp::Page;
 use crate::scripts;
 use serde_json::{Map, Value, json};
-use std::time::Instant;
+use std::time::{Duration, Instant};
+
+#[derive(Clone, Copy)]
+enum Gesture<'a> {
+    Click,
+    DblClick,
+    RightClick,
+    Drag(&'a str),
+    Wheel(i64),
+}
+
+async fn perform(page: &mut Page, kind: Gesture<'_>, selector: &str) -> Result<(), String> {
+    match kind {
+        Gesture::Click => page.click(selector).await,
+        Gesture::DblClick => page.dblclick(selector).await,
+        Gesture::RightClick => page.right_click(selector).await,
+        Gesture::Drag(to) => page.drag(selector, to).await,
+        Gesture::Wheel(delta) => page.wheel(selector, delta).await,
+    }
+}
+
+// Same loop as the Node gesture helper: guard, arm the capture listener, act, disarm, retry when intercepted.
+async fn gesture(page: &mut Page, selector: &str, kind: Gesture<'_>, guarded: bool, timeout: u64, operations: &mut u64) -> Result<(), String> {
+    if !guarded {
+        return perform(page, kind, selector).await;
+    }
+    let events = match kind {
+        Gesture::Click => scripts::CLICK_EVENTS,
+        Gesture::DblClick => scripts::DBLCLICK_EVENTS,
+        Gesture::RightClick => scripts::CONTEXTMENU_EVENTS,
+        Gesture::Drag(_) => scripts::DRAG_EVENTS,
+        Gesture::Wheel(_) => scripts::WHEEL_EVENTS,
+    };
+    let deadline = Instant::now() + Duration::from_millis(timeout);
+    loop {
+        let remaining = deadline.saturating_duration_since(Instant::now()).as_secs_f64() * 1000.0;
+        page.evaluate(&scripts::guard(selector, (remaining.round() as u64).max(50))).await?;
+        *operations += 1;
+        page.evaluate(&scripts::arm(selector, events)).await?;
+        perform(page, kind, selector).await?;
+        let intercepted = page.evaluate(scripts::DISARM.trim()).await?;
+        *operations += 2;
+        if intercepted.is_null() {
+            return Ok(());
+        }
+        if Instant::now() >= deadline {
+            return Err(format!("gesture intercepted: {}", intercepted.as_str().unwrap_or("?")));
+        }
+    }
+}
+
+// The drivers' own copy of the unicode variant text (the fixture keeps the oracle's copy).
+const UNICODE_TEXT: &str = "Ünïcødé — 漢字 😀";
 
 fn ms(since: Instant) -> f64 {
     since.elapsed().as_secs_f64() * 1000.0
@@ -46,6 +98,54 @@ pub async fn run(page: &mut Page, task: &Value) -> Result<Value, String> {
         }
         return Ok(json!({"status": "ok", "records": records, "metrics": {"operationCount": operations, "taskMs": ms(start)}}));
     }
+    if scenario == "primitives" {
+        page.evaluate(&scripts::wait(&scripts::condition("body-ready", &[]), timeout)).await?;
+        let negative = variant == "retarget";
+        let began = Instant::now();
+        let mut native_rejected = 0;
+        let attempt = async {
+            let target = match variant {
+                "drag" => "#source",
+                "wheel" => "#scroller",
+                "keyboard" | "unicode" => "#field",
+                "contenteditable" => "#editor",
+                "hover" | "dblclick" | "contextmenu" | "moved" | "retarget" => "#target",
+                other => return Err(format!("unknown primitive {other}")),
+            };
+            let kind = match variant {
+                "dblclick" => Some(Gesture::DblClick),
+                "contextmenu" => Some(Gesture::RightClick),
+                "drag" => Some(Gesture::Drag("#dropzone")),
+                "wheel" => Some(Gesture::Wheel(600)),
+                "moved" | "retarget" => Some(Gesture::Click),
+                _ => None,
+            };
+            if let Some(kind) = kind {
+                return gesture(page, target, kind, guarded_policy, timeout, &mut operations).await;
+            }
+            if guarded_policy {
+                page.evaluate(&scripts::guard(target, timeout)).await?;
+            }
+            match variant {
+                "hover" => page.hover(target).await,
+                "keyboard" => page.press_enter(target).await,
+                "contenteditable" => page.fill(target, "Automan").await,
+                _ => page.fill(target, UNICODE_TEXT).await,
+            }
+        }
+        .await;
+        if let Err(error) = attempt {
+            native_rejected = 1;
+            if !negative {
+                return Err(error);
+            }
+        }
+        let action_ms = ms(began);
+        if !negative {
+            page.evaluate(&scripts::wait(&scripts::condition("done", &[]), timeout)).await?;
+        }
+        return Ok(json!({"status": "ok", "metrics": {"nativeRejected": native_rejected, "actionMs": action_ms, "taskMs": ms(start)}}));
+    }
     if scenario == "download" {
         return Ok(json!({"status": "unsupported", "reason": "download events not yet qualified on this adapter"}));
     }
@@ -57,13 +157,7 @@ pub async fn run(page: &mut Page, task: &Value) -> Result<Value, String> {
         let negative = ["never-enabled", "never-uncovered", "ambiguous"].contains(&variant);
         let began = Instant::now();
         let mut native_rejected = 0;
-        let attempt = async {
-            if guarded_policy {
-                page.evaluate(&scripts::guard("#target", timeout)).await?;
-            }
-            page.click("#target").await
-        }
-        .await;
+        let attempt = gesture(page, "#target", Gesture::Click, guarded_policy, timeout, &mut operations).await;
         if let Err(error) = attempt {
             native_rejected = 1;
             if !negative {
@@ -92,11 +186,7 @@ pub async fn run(page: &mut Page, task: &Value) -> Result<Value, String> {
         let mut click_total = 0.0;
         for i in 1..=actions {
             let click_start = Instant::now();
-            if guarded_policy {
-                page.evaluate(&scripts::guard("#counter", timeout)).await?;
-                operations += 1;
-            }
-            page.click("#counter").await?;
+            gesture(page, "#counter", Gesture::Click, guarded_policy, timeout, &mut operations).await?;
             page.evaluate(&scripts::wait(&scripts::condition("count", &[("N", &i.to_string())]), timeout)).await?;
             click_total += ms(click_start);
             operations += 2;
@@ -107,14 +197,17 @@ pub async fn run(page: &mut Page, task: &Value) -> Result<Value, String> {
         page.evaluate(&scripts::wait(&scripts::condition("submit-enabled", &[("ROOT", root)]), timeout)).await?;
         operations += 1;
         for (selector, step) in [("#name", "fill"), ("#region", "select"), ("#consent", "click"), ("#submit", "click")] {
+            if step == "click" {
+                gesture(page, selector, Gesture::Click, guarded_policy, timeout, &mut operations).await?;
+                continue;
+            }
             if guarded_policy {
                 page.evaluate(&scripts::guard(selector, timeout)).await?;
                 operations += 1;
             }
             match step {
                 "fill" => page.fill(selector, "Automan").await?,
-                "select" => page.select(selector, "eu").await?,
-                _ => page.click(selector).await?,
+                _ => page.select(selector, "eu").await?,
             }
         }
         operations += 4;

@@ -8,6 +8,13 @@ const GUARD: &str = include_str!("../../browser-scripts/guard.js");
 const POINT: &str = include_str!("../../browser-scripts/point.js");
 const FOCUS: &str = include_str!("../../browser-scripts/focus.js");
 const SELECT: &str = include_str!("../../browser-scripts/select.js");
+const ARM: &str = include_str!("../../browser-scripts/arm.js");
+pub const DISARM: &str = include_str!("../../browser-scripts/disarm.js");
+pub const CLICK_EVENTS: &[&str] = &["pointerdown", "mousedown", "pointerup", "mouseup", "click"];
+pub const DBLCLICK_EVENTS: &[&str] = &["pointerdown", "mousedown", "pointerup", "mouseup", "click", "dblclick"];
+pub const CONTEXTMENU_EVENTS: &[&str] = &["pointerdown", "mousedown", "pointerup", "mouseup", "contextmenu"];
+pub const DRAG_EVENTS: &[&str] = &["pointerdown", "mousedown"];
+pub const WHEEL_EVENTS: &[&str] = &["wheel"];
 pub const RECORDS: &str = include_str!("../../browser-scripts/records.js");
 pub const NEXT: &str = include_str!("../../browser-scripts/next.js");
 pub const SNAPSHOT: &str = include_str!("../../browser-scripts/snapshot.js");
@@ -36,6 +43,10 @@ pub fn guard(selector: &str, timeout_ms: u64) -> String {
 }
 pub fn point(selector: &str) -> String {
     fill(POINT, &[("DEEP", DEEP.trim()), ("SELECTOR", &quoted(selector))])
+}
+pub fn arm(selector: &str, types: &[&str]) -> String {
+    let types = serde_json::to_string(types).expect("types serialize");
+    fill(ARM, &[("DEEP", DEEP.trim()), ("SELECTOR", &quoted(selector)), ("TYPES", &types)])
 }
 pub fn focus(selector: &str) -> String {
     fill(FOCUS, &[("DEEP", DEEP.trim()), ("SELECTOR", &quoted(selector))])

@@ -5,5 +5,6 @@
   "action-saved": "document.querySelector('#action-saved').textContent==='saved'",
   "count": "document.querySelector('#count').textContent==='__N__'",
   "submit-enabled": "!__ROOT__.querySelector('#submit').disabled",
-  "saved": "document.querySelector('#saved').textContent==='saved'"
+  "saved": "document.querySelector('#saved').textContent==='saved'",
+  "done": "document.querySelector('#done').textContent==='done'"
 }

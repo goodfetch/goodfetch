@@ -70,6 +70,28 @@ export class CdpPage implements BrowserPage {
     await this.send('Input.dispatchMouseEvent', { type: 'mousePressed', x, y, button: 'left', buttons: 1, clickCount: 1 });
     await this.send('Input.dispatchMouseEvent', { type: 'mouseReleased', x, y, button: 'left', buttons: 0, clickCount: 1 });
   }
+  private async mouse(type: string, x: number, y: number, extra: Record<string, unknown> = {}) { await this.send('Input.dispatchMouseEvent', { type, x, y, ...extra }); }
+  async hover(selector: string) { const { x, y } = await this.evaluate<{ x: number; y: number }>(pointScript(selector)); await this.mouse('mouseMoved', x, y); }
+  async dblclick(selector: string) {
+    const { x, y } = await this.evaluate<{ x: number; y: number }>(pointScript(selector)); await this.mouse('mouseMoved', x, y);
+    for (const clickCount of [1, 2]) { await this.mouse('mousePressed', x, y, { button: 'left', buttons: 1, clickCount }); await this.mouse('mouseReleased', x, y, { button: 'left', buttons: 0, clickCount }); }
+  }
+  async rightClick(selector: string) {
+    const { x, y } = await this.evaluate<{ x: number; y: number }>(pointScript(selector)); await this.mouse('mouseMoved', x, y);
+    await this.mouse('mousePressed', x, y, { button: 'right', buttons: 2, clickCount: 1 }); await this.mouse('mouseReleased', x, y, { button: 'right', buttons: 0, clickCount: 1 });
+  }
+  async drag(from: string, to: string) {
+    const start = await this.evaluate<{ x: number; y: number }>(pointScript(from)), end = await this.evaluate<{ x: number; y: number }>(pointScript(to));
+    await this.mouse('mouseMoved', start.x, start.y); await this.mouse('mousePressed', start.x, start.y, { button: 'left', buttons: 1, clickCount: 1 });
+    await this.mouse('mouseMoved', end.x, end.y, { buttons: 1 }); await this.mouse('mouseReleased', end.x, end.y, { button: 'left', buttons: 0, clickCount: 1 });
+  }
+  async wheel(selector: string, deltaY: number) { const { x, y } = await this.evaluate<{ x: number; y: number }>(pointScript(selector)); await this.mouse('mouseMoved', x, y); await this.mouse('mouseWheel', x, y, { deltaX: 0, deltaY }); }
+  async press(selector: string, key: 'Enter') {
+    if (key !== 'Enter') throw new Error(`unsupported key ${key}`);
+    await this.evaluate(focusScript(selector));
+    await this.send('Input.dispatchKeyEvent', { type: 'keyDown', key: 'Enter', code: 'Enter', windowsVirtualKeyCode: 13, text: '\r' });
+    await this.send('Input.dispatchKeyEvent', { type: 'keyUp', key: 'Enter', code: 'Enter', windowsVirtualKeyCode: 13 });
+  }
   async fill(selector: string, value: string) { await this.evaluate(focusScript(selector)); await this.send('Input.insertText', { text: value }); }
   async select(selector: string, value: string) { await this.evaluate(selectScript(selector, value)); }
   async close() { this.commands++; await this.connection.send('Target.closeTarget', { targetId: this.targetId }); }

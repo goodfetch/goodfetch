@@ -64,7 +64,7 @@ test('legacy runs of different shapes are re-expressed as valid run.v2 documents
   const crashed = action!.cells.find(cell => cell.factors.backend === 'stagehand')!;
   assert.equal(crashed.status, 'crashed');
   assert.equal(crashed.errorCode, 'E_STARTUP');
-  assert.equal(action!.legacy.errorCodeInferred, true);
+  assert.equal(action!.legacy!.errorCodeInferred, true);
   assert.equal(suite!.status, 'interrupted');
   assert.equal(suite!.cells.length, 0);
 });

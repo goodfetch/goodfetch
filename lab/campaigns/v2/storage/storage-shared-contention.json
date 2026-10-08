@@ -1,0 +1,43 @@
+{
+  "schemaVersion": 2,
+  "id": "storage-shared-contention",
+  "lane": "storage",
+  "decisionIds": [
+    "D-storage",
+    "D-core-language"
+  ],
+  "hostClass": {
+    "requested": "local-controlled",
+    "allowDowngrade": true
+  },
+  "config": {
+    "name": "storage-shared-contention",
+    "engines": [
+      "node-shared",
+      "rust-sync",
+      "go-sync"
+    ],
+    "formats": [
+      "sqlite-wal-full",
+      "sqlite-wal-normal",
+      "sqlite-delete-full"
+    ],
+    "blocks": 2,
+    "batches": 48,
+    "batchSizes": [
+      1,
+      100
+    ],
+    "payloadBytes": 512,
+    "writers": [
+      1,
+      4
+    ],
+    "producers": 8,
+    "timeoutMs": 15000,
+    "maxDurationMs": 30000,
+    "busyTimeoutMs": 5000,
+    "seed": 174,
+    "killAfterAck": false
+  }
+}

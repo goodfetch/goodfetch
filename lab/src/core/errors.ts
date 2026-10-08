@@ -1,6 +1,6 @@
 // Typed lab errors: attempt status derives from the code, never from message text.
 export const errorCodes = ['E_ADAPTER_TIMEOUT', 'E_ADAPTER_EXIT', 'E_ADAPTER_CLOSED', 'E_ADAPTER_ERROR', 'E_PROTOCOL', 'E_OUTPUT_LIMIT', 'E_SIBLING_ABORT',
-  'E_STARTUP', 'E_RESTART_LIMIT', 'E_INVALID_OUTPUT', 'E_ORACLE_MISMATCH', 'E_CAPACITY', 'E_DEADLINE', 'E_CAPABILITY', 'E_HOST_GATE', 'E_FIXTURE'] as const;
+  'E_STARTUP', 'E_RESTART_LIMIT', 'E_INVALID_OUTPUT', 'E_ORACLE_MISMATCH', 'E_CAPACITY', 'E_DEADLINE', 'E_CAPABILITY', 'E_HOST_GATE', 'E_FIXTURE', 'E_LANE_EXCEPTION'] as const;
 export type ErrorCode = typeof errorCodes[number];
 
 export class LabError extends Error {

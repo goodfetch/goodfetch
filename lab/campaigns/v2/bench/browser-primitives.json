@@ -1,0 +1,45 @@
+{
+  "schemaVersion": 2,
+  "id": "browser-primitives",
+  "lane": "bench",
+  "decisionIds": [
+    "D-browser-driver"
+  ],
+  "hostClass": {
+    "requested": "local-controlled",
+    "allowDowngrade": true
+  },
+  "seed": 88,
+  "blocks": 3,
+  "warmup": 1,
+  "iterations": 5,
+  "concurrency": 1,
+  "mode": "closed",
+  "timeoutMs": 30000,
+  "maxDurationMs": 120000,
+  "maxRestarts": 2,
+  "backends": [
+    "playwright",
+    "puppeteer",
+    "stagehand",
+    "stagehand-batch",
+    "crawlee-playwright",
+    "crawlee-stagehand"
+  ],
+  "scenarios": [
+    "form",
+    "clicks",
+    "shadow",
+    "js-catalog"
+  ],
+  "fixtures": {
+    "pages": 3,
+    "actions": 50,
+    "variants": [
+      "normal",
+      "delayed",
+      "overlay",
+      "rerender"
+    ]
+  }
+}

@@ -1,6 +1,6 @@
 {
  "schemaVersion": 1,
- "classificationSha256": "7ed0881600740cb5939bb9d9fbb70e54ca564ccfc8dcfd376d84bd2679349147",
+ "classificationSha256": "6c1eef937f3c5b301d501d83da2381bdfc0a8566bf643f164b5673eec136cd0b",
  "entries": [
   {
    "runId": "smoke-2026-10-07T20-20-24-226Z-9ebb47",
@@ -1415,6 +1415,309 @@
     "hostClass": null
    },
    "imported": "ledger/imported/spider-http-transport-supported-2026-10-08T00-26-16-511Z-7ce401/run.v2.json"
+  },
+  {
+   "runId": "http-smoke-2026-10-08T07-48-27-175Z-975485",
+   "lane": "bench",
+   "campaign": "http-smoke",
+   "startedAt": "2026-10-08T07:48:27.175Z",
+   "status": "complete",
+   "hostClass": "local-dev",
+   "role": "diagnostic",
+   "supersededBy": null,
+   "reason": "premier run v2 de bout en bout ; sondes de ressources arrêtées après la fin de l'adapter, bug corrigé avant 471f40",
+   "validity": [
+    {
+     "scope": "contracts",
+     "class": "A",
+     "note": "40 tentatives vérifiées"
+    },
+    {
+     "scope": "resources",
+     "class": "none",
+     "note": "métriques de ressources nulles par bug"
+    }
+   ],
+   "decisionIds": [
+    "D-http-transport"
+   ],
+   "citedIn": [],
+   "integrity": "uncatalogued",
+   "rerun": {
+    "required": false,
+    "priority": null,
+    "hostClass": null
+   },
+   "imported": "results/http-smoke-2026-10-08T07-48-27-175Z-975485/run.v2.json"
+  },
+  {
+   "runId": "http-smoke-2026-10-08T07-49-04-577Z-471f40",
+   "lane": "bench",
+   "campaign": "http-smoke",
+   "startedAt": "2026-10-08T07:49:04.577Z",
+   "status": "complete",
+   "hostClass": "local-dev",
+   "role": "diagnostic",
+   "supersededBy": null,
+   "reason": "contrôle de bout en bout du moteur v2 après correction des sondes ; local-dev, sources non commitées",
+   "validity": [
+    {
+     "scope": "contracts",
+     "class": "A",
+     "note": "40 tentatives vérifiées"
+    },
+    {
+     "scope": "timings",
+     "class": "C",
+     "note": "local-dev, hôte chargé"
+    }
+   ],
+   "decisionIds": [
+    "D-http-transport"
+   ],
+   "citedIn": [],
+   "integrity": "uncatalogued",
+   "rerun": {
+    "required": false,
+    "priority": null,
+    "hostClass": null
+   },
+   "imported": "results/http-smoke-2026-10-08T07-49-04-577Z-471f40/run.v2.json"
+  },
+  {
+   "runId": "storage-smoke-2026-10-08T07-56-10-911Z-a8d1b9",
+   "lane": "storage",
+   "campaign": "storage-smoke",
+   "startedAt": "2026-10-08T07:56:10.911Z",
+   "status": "complete",
+   "hostClass": "local-dev",
+   "role": "diagnostic",
+   "supersededBy": null,
+   "reason": "contrôle de non-régression de l'exécuteur de cellule storage extrait en P3 : mêmes comptes que le smoke historique",
+   "validity": [
+    {
+     "scope": "contracts",
+     "class": "A",
+     "note": "44 vérifiées, 4 non supportées, comme 3b617d"
+    }
+   ],
+   "decisionIds": [
+    "D-storage"
+   ],
+   "citedIn": [],
+   "integrity": "uncatalogued",
+   "rerun": {
+    "required": false,
+    "priority": null,
+    "hostClass": null
+   },
+   "imported": "ledger/imported/storage-smoke-2026-10-08T07-56-10-911Z-a8d1b9/run.v2.json"
+  },
+  {
+   "runId": "runtime-native-qualified-2026-10-08T08-08-21-301Z-20a589",
+   "lane": "runtime",
+   "campaign": "runtime-native-qualified",
+   "startedAt": "2026-10-08T08:08:21.301Z",
+   "status": "complete",
+   "hostClass": "local-dev",
+   "role": "diagnostic",
+   "supersededBy": null,
+   "reason": "suite de parité P3 : campagne v2 en données, mêmes comptes vérifiés que la qualification du 8 octobre",
+   "validity": [
+    {
+     "scope": "contracts",
+     "class": "A",
+     "note": "parité des comptes, sources non commitées"
+    },
+    {
+     "scope": "timings",
+     "class": "C",
+     "note": "local-dev, hôte chargé"
+    }
+   ],
+   "decisionIds": [
+    "D-core-language"
+   ],
+   "citedIn": [],
+   "integrity": "uncatalogued",
+   "rerun": {
+    "required": false,
+    "priority": null,
+    "hostClass": null
+   },
+   "imported": "results/runtime-native-qualified-2026-10-08T08-08-21-301Z-20a589/run.v2.json"
+  },
+  {
+   "runId": "runtime-recovery-qualified-2026-10-08T08-16-05-686Z-2b7b94",
+   "lane": "runtime",
+   "campaign": "runtime-recovery-qualified",
+   "startedAt": "2026-10-08T08:16:05.686Z",
+   "status": "complete",
+   "hostClass": "local-dev",
+   "role": "diagnostic",
+   "supersededBy": null,
+   "reason": "suite de parité P3 : campagne v2 en données, mêmes comptes vérifiés que la qualification du 8 octobre",
+   "validity": [
+    {
+     "scope": "contracts",
+     "class": "A",
+     "note": "parité des comptes, sources non commitées"
+    },
+    {
+     "scope": "timings",
+     "class": "C",
+     "note": "local-dev, hôte chargé"
+    }
+   ],
+   "decisionIds": [
+    "D-durable-runtime",
+    "D-core-language"
+   ],
+   "citedIn": [],
+   "integrity": "uncatalogued",
+   "rerun": {
+    "required": false,
+    "priority": null,
+    "hostClass": null
+   },
+   "imported": "results/runtime-recovery-qualified-2026-10-08T08-16-05-686Z-2b7b94/run.v2.json"
+  },
+  {
+   "runId": "browser-actionability-guarded-2026-10-08T08-17-11-516Z-b3378c",
+   "lane": "actionability",
+   "campaign": "browser-actionability-guarded",
+   "startedAt": "2026-10-08T08:17:11.516Z",
+   "status": "complete",
+   "hostClass": "local-dev",
+   "role": "diagnostic",
+   "supersededBy": null,
+   "reason": "suite de parité P3 : campagne v2 en données, mêmes comptes vérifiés que la qualification du 8 octobre",
+   "validity": [
+    {
+     "scope": "contracts",
+     "class": "A",
+     "note": "parité des comptes, sources non commitées"
+    },
+    {
+     "scope": "timings",
+     "class": "C",
+     "note": "local-dev, hôte chargé"
+    }
+   ],
+   "decisionIds": [
+    "D-browser-driver"
+   ],
+   "citedIn": [],
+   "integrity": "uncatalogued",
+   "rerun": {
+    "required": false,
+    "priority": null,
+    "hostClass": null
+   },
+   "imported": "results/browser-actionability-guarded-2026-10-08T08-17-11-516Z-b3378c/run.v2.json"
+  },
+  {
+   "runId": "sqlite-readers-2026-10-08T08-20-58-320Z-de04ab",
+   "lane": "sqlite-readers",
+   "campaign": "sqlite-readers",
+   "startedAt": "2026-10-08T08:20:58.320Z",
+   "status": "complete",
+   "hostClass": "local-dev",
+   "role": "diagnostic",
+   "supersededBy": null,
+   "reason": "suite de parité P3 : campagne v2 en données, mêmes comptes vérifiés que la qualification du 8 octobre",
+   "validity": [
+    {
+     "scope": "contracts",
+     "class": "A",
+     "note": "parité des comptes, sources non commitées"
+    },
+    {
+     "scope": "timings",
+     "class": "C",
+     "note": "local-dev, hôte chargé"
+    }
+   ],
+   "decisionIds": [
+    "D-storage"
+   ],
+   "citedIn": [],
+   "integrity": "uncatalogued",
+   "rerun": {
+    "required": false,
+    "priority": null,
+    "hostClass": null
+   },
+   "imported": "results/sqlite-readers-2026-10-08T08-20-58-320Z-de04ab/run.v2.json"
+  },
+  {
+   "runId": "spider-http-transport-supported-2026-10-08T08-21-33-006Z-dc7f37",
+   "lane": "bench",
+   "campaign": "spider-http-transport-supported",
+   "startedAt": "2026-10-08T08:21:33.006Z",
+   "status": "complete",
+   "hostClass": "local-dev",
+   "role": "diagnostic",
+   "supersededBy": null,
+   "reason": "suite de parité P3 : campagne v2 en données, mêmes comptes vérifiés que la qualification du 8 octobre",
+   "validity": [
+    {
+     "scope": "contracts",
+     "class": "A",
+     "note": "parité des comptes, sources non commitées"
+    },
+    {
+     "scope": "timings",
+     "class": "C",
+     "note": "local-dev, hôte chargé"
+    }
+   ],
+   "decisionIds": [
+    "D-http-transport"
+   ],
+   "citedIn": [],
+   "integrity": "uncatalogued",
+   "rerun": {
+    "required": false,
+    "priority": null,
+    "hostClass": null
+   },
+   "imported": "results/spider-http-transport-supported-2026-10-08T08-21-33-006Z-dc7f37/run.v2.json"
+  },
+  {
+   "runId": "runtime-http-backends-2026-10-08T08-21-34-528Z-4c7aa1",
+   "lane": "runtime",
+   "campaign": "runtime-http-backends",
+   "startedAt": "2026-10-08T08:21:34.528Z",
+   "status": "complete",
+   "hostClass": "local-dev",
+   "role": "diagnostic",
+   "supersededBy": null,
+   "reason": "suite de parité P3 : campagne v2 en données, mêmes comptes vérifiés que la qualification du 8 octobre",
+   "validity": [
+    {
+     "scope": "contracts",
+     "class": "A",
+     "note": "parité des comptes, sources non commitées"
+    },
+    {
+     "scope": "timings",
+     "class": "C",
+     "note": "local-dev, hôte chargé"
+    }
+   ],
+   "decisionIds": [
+    "D-http-transport",
+    "D-core-language"
+   ],
+   "citedIn": [],
+   "integrity": "uncatalogued",
+   "rerun": {
+    "required": false,
+    "priority": null,
+    "hostClass": null
+   },
+   "imported": "results/runtime-http-backends-2026-10-08T08-21-34-528Z-4c7aa1/run.v2.json"
   }
  ]
 }

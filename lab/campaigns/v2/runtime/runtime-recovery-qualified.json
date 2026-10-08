@@ -1,0 +1,170 @@
+{
+  "schemaVersion": 2,
+  "id": "runtime-recovery-qualified",
+  "lane": "runtime",
+  "decisionIds": [
+    "D-durable-runtime",
+    "D-core-language"
+  ],
+  "hostClass": {
+    "requested": "local-controlled",
+    "allowDowngrade": true
+  },
+  "config": {
+    "name": "runtime-recovery-qualified",
+    "blocks": 3,
+    "seed": 8811,
+    "cells": [
+      {
+        "runtime": "node",
+        "fault": "before-commit",
+        "jobs": 24,
+        "pages": 4,
+        "delayMs": 2,
+        "concurrency": 4,
+        "batchJobs": 2,
+        "leaseMs": 1000
+      },
+      {
+        "runtime": "node",
+        "fault": "after-commit",
+        "jobs": 24,
+        "pages": 4,
+        "delayMs": 2,
+        "concurrency": 4,
+        "batchJobs": 2,
+        "leaseMs": 1000
+      },
+      {
+        "runtime": "node",
+        "fault": "during-ack",
+        "jobs": 24,
+        "pages": 4,
+        "delayMs": 2,
+        "concurrency": 4,
+        "batchJobs": 2,
+        "leaseMs": 1000
+      },
+      {
+        "runtime": "node",
+        "fault": "after-ack",
+        "jobs": 24,
+        "pages": 4,
+        "delayMs": 2,
+        "concurrency": 4,
+        "batchJobs": 2,
+        "leaseMs": 1000
+      },
+      {
+        "runtime": "node",
+        "coordinatorCrashAt": "job-claimed",
+        "jobs": 24,
+        "pages": 4,
+        "delayMs": 2,
+        "concurrency": 4,
+        "batchJobs": 2,
+        "leaseMs": 1000
+      },
+      {
+        "runtime": "node",
+        "coordinatorCrashAt": "batch-committed",
+        "jobs": 24,
+        "pages": 4,
+        "delayMs": 2,
+        "concurrency": 4,
+        "batchJobs": 2,
+        "leaseMs": 1000
+      },
+      {
+        "runtime": "node",
+        "faults": [
+          "before-commit",
+          "during-ack",
+          "after-ack"
+        ],
+        "writerDelayMs": 20,
+        "jobs": 24,
+        "pages": 4,
+        "delayMs": 2,
+        "concurrency": 4,
+        "batchJobs": 2,
+        "leaseMs": 1000
+      },
+      {
+        "runtime": "rust",
+        "fault": "before-commit",
+        "jobs": 24,
+        "pages": 4,
+        "delayMs": 2,
+        "concurrency": 4,
+        "batchJobs": 2,
+        "leaseMs": 1000
+      },
+      {
+        "runtime": "rust",
+        "fault": "after-commit",
+        "jobs": 24,
+        "pages": 4,
+        "delayMs": 2,
+        "concurrency": 4,
+        "batchJobs": 2,
+        "leaseMs": 1000
+      },
+      {
+        "runtime": "rust",
+        "fault": "during-ack",
+        "jobs": 24,
+        "pages": 4,
+        "delayMs": 2,
+        "concurrency": 4,
+        "batchJobs": 2,
+        "leaseMs": 1000
+      },
+      {
+        "runtime": "rust",
+        "fault": "after-ack",
+        "jobs": 24,
+        "pages": 4,
+        "delayMs": 2,
+        "concurrency": 4,
+        "batchJobs": 2,
+        "leaseMs": 1000
+      },
+      {
+        "runtime": "rust",
+        "coordinatorCrashAt": "job-claimed",
+        "jobs": 24,
+        "pages": 4,
+        "delayMs": 2,
+        "concurrency": 4,
+        "batchJobs": 2,
+        "leaseMs": 1000
+      },
+      {
+        "runtime": "rust",
+        "coordinatorCrashAt": "batch-committed",
+        "jobs": 24,
+        "pages": 4,
+        "delayMs": 2,
+        "concurrency": 4,
+        "batchJobs": 2,
+        "leaseMs": 1000
+      },
+      {
+        "runtime": "rust",
+        "faults": [
+          "before-commit",
+          "during-ack",
+          "after-ack"
+        ],
+        "writerDelayMs": 20,
+        "jobs": 24,
+        "pages": 4,
+        "delayMs": 2,
+        "concurrency": 4,
+        "batchJobs": 2,
+        "leaseMs": 1000
+      }
+    ]
+  }
+}

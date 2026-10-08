@@ -6,7 +6,7 @@ import type { ImportedRun } from './import-legacy.ts';
 import { validateDocument } from '../src/core/schema.ts';
 
 export type ClassificationEntry = {
-  role: 'selected' | 'superseded' | 'diagnostic' | 'smoke' | 'orchestrator'; reason: string; supersededBy: string | null; decisionIds: string[];
+  role: 'selected' | 'superseded' | 'diagnostic' | 'smoke' | 'orchestrator' | 'unreviewed'; reason: string; supersededBy: string | null; decisionIds: string[];
   validity: { scope: string; class: 'A' | 'B' | 'C' | 'none'; note: string }[]; noisyHost: boolean;
   rerun: { required: boolean; priority: 'P0' | 'P1' | 'P2' | null; hostClass: 'local-controlled' | 'reference' | null };
 };
@@ -25,7 +25,10 @@ export function buildLedger({ runs, classification, citations, decisions }: { ru
   for (const id of Object.keys(classification.runs)) if (!runIds.has(id)) errors.push(`${id}: classified but not a result run`);
   const merged: ImportedRun[] = [], entries: LedgerEntry[] = [];
   for (const run of runs) {
-    const entry = classification.runs[run.runId];
+    // A native v2 run already carries its decisions; it waits as unreviewed until a human classifies it.
+    const entry: ClassificationEntry | undefined = classification.runs[run.runId] ?? (run.legacy === null
+      ? { role: 'unreviewed', reason: 'v2 run awaiting classification', supersededBy: null, decisionIds: [...run.decisionIds], validity: [], noisyHost: false, rerun: { required: false, priority: null, hostClass: null } }
+      : undefined);
     if (!entry) { errors.push(`${run.runId}: no classification`); continue; }
     const cited = [...new Set(citations[run.runId] ?? [])].sort();
     if ((entry.role === 'selected' || entry.role === 'orchestrator') && !cited.length) errors.push(`${run.runId}: role ${entry.role} but not cited in any report`);
@@ -37,7 +40,7 @@ export function buildLedger({ runs, classification, citations, decisions }: { ru
     merged.push(updated);
     entries.push({ runId: run.runId, lane: run.lane, campaign: run.campaign.id, startedAt: run.startedAt, status, hostClass: run.host.classGranted,
       role: entry.role, supersededBy: entry.supersededBy, reason: entry.reason, validity: entry.validity, decisionIds: [...entry.decisionIds],
-      citedIn: cited, integrity: run.provenance.integrity.status, rerun: entry.rerun, imported: `ledger/imported/${run.runId}/run.v2.json` });
+      citedIn: cited, integrity: run.provenance.integrity.status, rerun: entry.rerun, imported: run.legacy === null ? `results/${run.runId}/run.v2.json` : `ledger/imported/${run.runId}/run.v2.json` });
   }
   const ledger: Ledger = { schemaVersion: 1, classificationSha256: createHash('sha256').update(JSON.stringify(classification)).digest('hex'), entries };
   return { errors, ledger, runs: merged };

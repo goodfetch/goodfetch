@@ -1,0 +1,44 @@
+{
+  "schemaVersion": 2,
+  "id": "qualification-current",
+  "description": "Requalification parity: published verified counts of the 8 October qualification, now from data-driven v2 campaigns.",
+  "steps": [
+    {
+      "campaign": "campaigns/v2/runtime/runtime-native-qualified.json",
+      "expected": {
+        "verified": 30
+      }
+    },
+    {
+      "campaign": "campaigns/v2/runtime/runtime-recovery-qualified.json",
+      "expected": {
+        "verified": 42
+      }
+    },
+    {
+      "campaign": "campaigns/v2/actionability/browser-actionability-guarded.json",
+      "expected": {
+        "verified": 162
+      }
+    },
+    {
+      "campaign": "campaigns/v2/sqlite-readers/sqlite-readers.json",
+      "expected": {
+        "verified": 108
+      }
+    },
+    {
+      "campaign": "campaigns/v2/bench/spider-http-transport-supported.json",
+      "expected": {
+        "verified": 60
+      }
+    },
+    {
+      "campaign": "campaigns/v2/runtime/runtime-http-backends.json",
+      "expected": {
+        "verified": 24
+      },
+      "note": "cell-level contract only; throughput needs a quiet host"
+    }
+  ]
+}

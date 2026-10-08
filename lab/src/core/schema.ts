@@ -10,7 +10,7 @@ const Ajv2020 = require('ajv/dist/2020.js') as new (options: object) => { compil
 const ajv = new Ajv2020({ allErrors: true, strict: true, strictRequired: false, allowUnionTypes: true });
 const cache = new Map<string, Validate>();
 
-export const schemaNames = ['decision', 'claim', 'metric-catalog', 'run.v2', 'ledger', 'classification', 'campaign-bench.v2'] as const;
+export const schemaNames = ['decision', 'claim', 'metric-catalog', 'run.v2', 'ledger', 'classification', 'campaign-bench.v2', 'campaign-lane.v2', 'suite.v2'] as const;
 export type SchemaName = typeof schemaNames[number];
 
 export function validateDocument(name: SchemaName, document: unknown): string[] {

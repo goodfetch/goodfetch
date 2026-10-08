@@ -28,14 +28,29 @@ export async function runStorageCampaign(config: StorageConfig, outputRoot = joi
   await mkdir(directory,{recursive:true});
   const sourceHashes=await sourceFingerprint();
   await copySourceSnapshot(directory,sourceHashes);
-  const sharedBuild=config.engines.some(isSharedEngine)?await sharedBuildMetadata():null;let commonIdentity:string|undefined;
+  const sharedBuild=config.engines.some(isSharedEngine)?await sharedBuildMetadata():null;
   await writeFile(join(directory,'manifest.json'),JSON.stringify({schemaVersion:1,config,startedAt:new Date().toISOString(),environment:{sharedBuild,node:process.version,nodeExecutable:process.execPath,arch:arch(),os:release(),cpu:cpus()[0]?.model,totalMemoryBytes:totalmem(),lockHash:await hashFile(join(labRoot,'adapters/storage-rust/Cargo.lock')),writerBinarySha256:config.engines.includes('rust')?await hashFile(join(labRoot,'adapters/rust/target/http/release/automan-lab-storage')):null,sourceHashes},methodology:{oneConnectionPerWriterProcess:true,oneSharedSinkPerCell:true,freshStorePerCell:true,admission:'closed loop; bounded producers',sync:'JSONL durable = file fsync; JSON snapshot = fsync+rename+directory fsync; SQLite explicit PRAGMAs',timing:'startup excluded; ack IPC+encoding+sink included; drain/reopen/oracle separately',killAfterAck:'SIGKILL after all acknowledgements; process crash only; no power-loss proof',scope:'pipeline with common JSON encoding, then native sink; not a pure language comparison'}},null,2)+'\n');
   const cells: Record<string,unknown>[] = [];
-  const combinations = config.engines.flatMap(engine=>config.formats.flatMap(format=>config.batchSizes.flatMap(batchSize=>config.writers.map(writers=>({engine,format,batchSize,writers})))));
-  for(let block=0;block<config.blocks;block++) for(const cell of shuffle(combinations,config.seed+block)) {
-    const label=`${cell.engine}-${cell.format}-b${cell.batchSize}-w${cell.writers}-r${block}`;
-    if(cell.format==='json-snapshot-durable' && cell.writers>1) { cells.push({...cell,block,status:'unsupported',reason:'whole-document replacement requires a single writer or interprocess coordination'}); continue; }
-    if(isSharedEngine(cell.engine)&&!cell.format.startsWith('sqlite')){cells.push({...cell,block,status:'unsupported',reason:'shared synchronous bindings support SQLite only'});continue}
+  const shared:StorageCellShared={sharedBuild};
+  for(let block=0;block<config.blocks;block++) for(const cell of shuffle(storageCombinations(config),config.seed+block)) {
+    cells.push(await runStorageCell(config,cell,block,directory,shared));
+    await writeFile(join(directory,'summary.json'),JSON.stringify({cells,limitations:['exploratory local measurements','SQLite versions/builds may differ; read info','OS page cache and physical power-loss are uncontrolled','JSON snapshot replaces the whole growing document; separate workload','no scraping included in this storage lane']},null,2)+'\n');
+    process.stderr.write(`${cell.engine}-${cell.format}-b${cell.batchSize}-w${cell.writers}-r${block}: ${cells.at(-1)!.status}\n`);
+  }
+  if(sharedBuild){const endingBuild=await sharedBuildMetadata();if(JSON.stringify(endingBuild.hashes)!==JSON.stringify(sharedBuild.hashes))throw new Error('shared binaries changed during campaign; measurements invalid')}
+  const sourceChanges=Object.entries(await sourceFingerprint()).filter(([path,hash])=>sourceHashes[path]!==hash).map(([path])=>path);
+  await writeFile(join(directory,'summary.json'),JSON.stringify({cells,sourceChanges,limitations:['exploratory local measurements','SQLite versions/builds may differ; read info','OS page cache and physical power-loss are uncontrolled','JSON snapshot replaces the whole growing document; separate workload','no scraping included in this storage lane',...(sourceChanges.length?['source changed during campaign; rerun before interpreting performance']:[])]},null,2)+'\n');
+  await writeStorageReport(directory,cells);
+  return {directory,cells,sourceChanges};
+}
+export type StorageCell={engine:StorageEngine;format:StorageFormat;batchSize:number;writers:number};
+export type StorageCellShared={sharedBuild:Awaited<ReturnType<typeof sharedBuildMetadata>>|null;commonIdentity?:string};
+export function storageCombinations(config:StorageConfig):StorageCell[]{return config.engines.flatMap(engine=>config.formats.flatMap(format=>config.batchSizes.flatMap(batchSize=>config.writers.map(writers=>({engine,format,batchSize,writers})))))}
+// One storage cell: fresh sink, real writer processes, acknowledgements, independent re-read oracle.
+export async function runStorageCell(config:StorageConfig,cell:StorageCell,block:number,directory:string,shared:StorageCellShared):Promise<Record<string,unknown>>{
+  const label=`${cell.engine}-${cell.format}-b${cell.batchSize}-w${cell.writers}-r${block}`;
+    if(cell.format==='json-snapshot-durable' && cell.writers>1) return {...cell,block,status:'unsupported',reason:'whole-document replacement requires a single writer or interprocess coordination'};
+    if(isSharedEngine(cell.engine)&&!cell.format.startsWith('sqlite'))return {...cell,block,status:'unsupported',reason:'shared synchronous bindings support SQLite only'};
     const cellDirectory=join(directory,label); await mkdir(cellDirectory,{recursive:true});
     const path=join(cellDirectory,cell.format.startsWith('sqlite')?'records.sqlite':cell.format.startsWith('jsonl')?'records.jsonl':'records.json');
     const workers: WorkerClient[]=[]; const samplers: ReturnType<typeof sampleProcessGroup>[]=[];
@@ -45,7 +60,7 @@ export async function runStorageCampaign(config: StorageConfig, outputRoot = joi
     let startupError:string|null=null; const startupStart=performance.now();
     try {
       for(let i=0;i<cell.writers;i++) { const worker=new WorkerClient(storageCommand(cell.engine,config.timeoutMs)); workers.push(worker); samplers.push(sampleProcessGroup(worker.pid));
-        await worker.call('hello',{}); await worker.call('prepare',{path,format:cell.format,busyTimeoutMs:config.busyTimeoutMs}); const metadata=await worker.call('hello',{}) as Record<string,unknown>;if(isSharedEngine(cell.engine)){await checkSharedInfo(metadata,sharedBuild!,cell.format,config.busyTimeoutMs);const identity=JSON.stringify([metadata.sourceId,metadata.compileOptions]);if(commonIdentity&&identity!==commonIdentity)throw new Error('SQLite source/options differ across shared runtimes');commonIdentity=identity}info.push(metadata); }
+        await worker.call('hello',{}); await worker.call('prepare',{path,format:cell.format,busyTimeoutMs:config.busyTimeoutMs}); const metadata=await worker.call('hello',{}) as Record<string,unknown>;if(isSharedEngine(cell.engine)){await checkSharedInfo(metadata,shared.sharedBuild!,cell.format,config.busyTimeoutMs);const identity=JSON.stringify([metadata.sourceId,metadata.compileOptions]);if(shared.commonIdentity&&identity!==shared.commonIdentity)throw new Error('SQLite source/options differ across shared runtimes');shared.commonIdentity=identity}info.push(metadata); }
     } catch(error) { startupError=error instanceof Error?error.message:String(error); }
     const startupMs=performance.now()-startupStart;
     const batch=(index:number):StorageBatch=>({batchId:`b${index}`,seed:config.seed+block*100003+index,rows:cell.batchSize,payloadBytes:config.payloadBytes});
@@ -69,17 +84,11 @@ export async function runStorageCampaign(config: StorageConfig, outputRoot = joi
     const samples=attempts.map(a=>({status:a.ack==='rejected'?'rejected' as const:a.ack==='acknowledged'&&verdict.status==='verified'?'verified' as const:'failed' as const,elapsedMs:a.elapsedMs}));
     const summary=summarize(samples);
     const verifiedRows=summary.verified*cell.batchSize;
-    cells.push({...cell,block,status:startupError||summary.failed||summary.rejected||verdict.status==='failed'?'failed':'verified',startupMs,startupError,info,writeMs,finalizationMs:performance.now()-finalizationStart,verdict,measurement:summary,serializationMs:quantiles(acknowledged.map(a=>a.metrics!.serializationMs!)),verifiedRowsPerSecond:verdict.status==='verified'&&writeMs>0?verifiedRows*1000/writeMs:null,resources:samplers.map(s=>s.stop()),stderr:workers.map(w=>w.stderr)});
-    await writeFile(join(directory,'summary.json'),JSON.stringify({cells,limitations:['exploratory local measurements','SQLite versions/builds may differ; read info','OS page cache and physical power-loss are uncontrolled','JSON snapshot replaces the whole growing document; separate workload','no scraping included in this storage lane']},null,2)+'\n');
-    process.stderr.write(`${label}: ${cells.at(-1)!.status}\n`);
+    return {...cell,block,status:startupError||summary.failed||summary.rejected||verdict.status==='failed'?'failed':'verified',startupMs,startupError,info,writeMs,finalizationMs:performance.now()-finalizationStart,verdict,measurement:summary,serializationMs:quantiles(acknowledged.map(a=>a.metrics!.serializationMs!)),verifiedRowsPerSecond:verdict.status==='verified'&&writeMs>0?verifiedRows*1000/writeMs:null,resources:samplers.map(s=>s.stop()),stderr:workers.map(w=>w.stderr)};
     } finally { if(!finalized) await Promise.allSettled(workers.map(worker=>worker.close())); for(const sampler of samplers) sampler.stop(); }
-  }
-  if(sharedBuild){const endingBuild=await sharedBuildMetadata();if(JSON.stringify(endingBuild.hashes)!==JSON.stringify(sharedBuild.hashes))throw new Error('shared binaries changed during campaign; measurements invalid')}
-  const sourceChanges=Object.entries(await sourceFingerprint()).filter(([path,hash])=>sourceHashes[path]!==hash).map(([path])=>path);
-  await writeFile(join(directory,'summary.json'),JSON.stringify({cells,sourceChanges,limitations:['exploratory local measurements','SQLite versions/builds may differ; read info','OS page cache and physical power-loss are uncontrolled','JSON snapshot replaces the whole growing document; separate workload','no scraping included in this storage lane',...(sourceChanges.length?['source changed during campaign; rerun before interpreting performance']:[])]},null,2)+'\n');
-  await writeStorageReport(directory,cells);
-  return {directory,cells,sourceChanges};
+
 }
+
 async function writeStorageReport(directory:string,cells:Record<string,unknown>[]) {
   const esc=(v:unknown)=>String(v).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]!));
   const rows=cells.map(c=>{const m=c.measurement as ReturnType<typeof summarize>|undefined; const info=c.info as {sqlite?:string}[]|undefined; return `<tr>${[c.engine,c.format,c.format && String(c.format).startsWith('sqlite') ? info?.[0]?.sqlite??'—':'—',c.batchSize,c.writers,c.block,c.status,m?`${m.verified}/${m.attempts}`:'—',typeof c.verifiedRowsPerSecond==='number'?c.verifiedRowsPerSecond.toFixed(1):'—',m?.successLatencyMs.p95?.toFixed(2)??'—'].map(v=>`<td>${esc(v)}</td>`).join('')}</tr>`}).join('');

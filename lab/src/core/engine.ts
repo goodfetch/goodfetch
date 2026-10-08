@@ -1,21 +1,18 @@
 // Unified campaign engine (bench lane): provenance → host gate → conformance → warmup → measured blocks → finalization.
-import { mkdir, writeFile, appendFile } from 'node:fs/promises';
-import { createHash, randomBytes } from 'node:crypto';
+import { appendFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { WorkerClient, type WorkerCommand } from '../worker-client.ts';
-import { commandFor, labRoot, type BackendName } from '../registry.ts';
+import { commandFor, type BackendName } from '../registry.ts';
 import { shuffle, quantiles } from '../statistics.ts';
 import { schedule } from '../scheduler.ts';
-import { browserPath, copySourceSnapshot, sourceFingerprint } from '../environment.ts';
+import { browserPath } from '../environment.ts';
 import { sampleProcessGroup } from '../resources.ts';
 import { sampleRuntimeResources } from '../runtime-resources.ts';
 import { LabError, errorCode, statusFor, type AttemptStatus, type ErrorCode } from './errors.ts';
 import { validateBenchCampaign, toLegacyBench, type BenchCampaign } from './campaign.ts';
-import { assessHost, loadHostClasses, snapshotHost, type HostSnapshot, type HostAssessment } from './host.ts';
-import { captureProvenance, type Provenance } from './provenance.ts';
 import { startOracle, type Oracle } from './oracle.ts';
-import { loadRegistry } from './decisions.ts';
-import { resolveAvailability, detectProbes, measureMetric, type Availability, type Measure } from './metrics/registry.ts';
+import { detectProbes, type Measure } from './metrics/registry.ts';
+import { openRun, type RunOptions } from './run-context.ts';
 import type { Scenario } from '../../fixtures/server.ts';
 
 export type AttemptV2 = {
@@ -24,7 +21,7 @@ export type AttemptV2 = {
   metrics: Record<string, Measure>; workerGeneration: number; reasons: string[]; adapterMetrics?: Record<string, number>; oracleSnapshot?: Record<string, unknown>;
 };
 type Counts = { verified: number; failed: number; timeout: number; crashed: number; aborted: number; unsupported: number; rejected: number; unavailable: number; skipped: number };
-export type EngineOptions = { outputRoot?: string; command?: (backend: string) => WorkerCommand; oracle?: Oracle | 'process' | 'in-process'; skipProvenance?: boolean; hostSnapshot?: HostSnapshot; executablePath?: string; source?: string };
+export type EngineOptions = RunOptions & { command?: (backend: string) => WorkerCommand; oracle?: Oracle | 'process' | 'in-process'; executablePath?: string };
 
 const browserBackends = (backends: string[]) => backends.some(backend => !['node-http', 'crawlee-http', 'crawlee-http-pooled', 'spider-http'].includes(backend));
 
@@ -68,26 +65,14 @@ class WorkerSlot {
 
 export async function runEngine(campaign: BenchCampaign, options: EngineOptions = {}) {
   validateBenchCampaign(campaign);
-  const registry = loadRegistry();
-  const provenance: Provenance | null = options.skipProvenance ? null : await captureProvenance();
-  const gitClean = Boolean(provenance?.git.available && provenance.git.dirty === false);
-  const classes = loadHostClasses();
-  const preflight = options.hostSnapshot ?? await snapshotHost([process.pid]);
-  const assessment: HostAssessment = assessHost({ snapshot: preflight, requested: campaign.hostClass.requested, allowDowngrade: campaign.hostClass.allowDowngrade, gitClean, classes });
-  if (assessment.refused) throw new LabError('E_HOST_GATE', `host refused for ${campaign.hostClass.requested}: ${assessment.gates.filter(g => !g.ok).map(g => `${g.id}=${g.value} (${g.limit})`).join(', ')}`);
-  const granted = assessment.classGranted!;
-  const startedAt = new Date().toISOString();
-  const runId = `${campaign.id}-${startedAt.replace(/[:.]/g, '-')}-${randomBytes(3).toString('hex')}`;
-  const directory = join(options.outputRoot ?? join(labRoot, 'results'), runId); await mkdir(directory, { recursive: true });
-  if (provenance) await copySourceSnapshot(directory, provenance.sourceHashes);
+  const context = await openRun(campaign, options);
+  const { directory, measureOf } = context;
   const probes = detectProbes();
-  const availability: Availability = resolveAvailability(registry.metrics, { platform: process.platform, probes });
-  const measureOf = (id: string, value: number | null, source: string) => measureMetric(availability, registry.metrics, id, value, source);
   const oracle = typeof options.oracle === 'object' ? options.oracle : await startOracle(options.oracle ?? 'process');
   const ownsOracle = typeof options.oracle !== 'object';
   const legacy = toLegacyBench(campaign);
   const executablePath = options.executablePath ?? (browserBackends(campaign.backends) ? browserPath() : undefined);
-  const attempts: AttemptV2[] = []; const windows: { cellId: string; durationMs: number }[] = []; const blocks: unknown[] = []; const cellResources = new Map<string, unknown[]>();
+  const attempts: AttemptV2[] = []; const windows: { cellId: string; durationMs: number }[] = []; const cellResources = new Map<string, unknown[]>();
   let writes = Promise.resolve();
   const record = (attempt: AttemptV2) => { attempts.push(attempt); writes = writes.then(() => appendFile(join(directory, 'attempts.v2.jsonl'), JSON.stringify(attempt) + '\n')); return writes; };
   const sample = (pid: number) => probes['proc_pid_rusage-v4'] ? sampleRuntimeResources(pid, 100) : sampleProcessGroup(pid);
@@ -147,31 +132,12 @@ export async function runEngine(campaign: BenchCampaign, options: EngineOptions 
           for (const scenario of campaign.scenarios) { const key = `${backend}:${scenario}`; cellResources.set(key, [...(cellResources.get(key) ?? []), ...(resources as unknown[])]); }
         }
       }
-      const sampleHost = options.hostSnapshot ?? await snapshotHost([process.pid]);
-      const loadPerCpu = sampleHost.logicalCpus ? sampleHost.loadAverage1m / sampleHost.logicalCpus : null;
-      const limits = classes.find(spec => spec.class === granted)?.gates ?? [];
-      const max = (id: string) => limits.find(gate => gate.id === id)?.max;
-      const noisy = granted !== 'local-dev' && ((max('load-per-cpu-1m') !== undefined && (loadPerCpu === null || loadPerCpu > max('load-per-cpu-1m')!)) || (max('foreign-cpu-percent') !== undefined && (sampleHost.foreignCpuPercent === null || sampleHost.foreignCpuPercent > max('foreign-cpu-percent')!)));
-      blocks.push({ index: block, order, noisy, host: { loadPerCpu1m: loadPerCpu, foreignCpuPercent: sampleHost.foreignCpuPercent } });
+      await context.sampleBlock(block, order);
     }
   } finally { if (ownsOracle) await oracle.close(); }
   await writes;
-  const postflight = options.hostSnapshot ?? await snapshotHost([process.pid]);
-  const sourceChanges = provenance ? Object.entries(await sourceFingerprint()).filter(([path, hash]) => provenance.sourceHashes[path] !== hash).length : null;
   const cells = campaign.backends.flatMap(backend => campaign.scenarios.map(scenario => summarizeCell(`${backend}:${scenario}`, { backend, scenario }, attempts, windows, cellResources.get(`${backend}:${scenario}`) ?? [], measureOf)));
-  const totals = cells.reduce((sum, cell) => { for (const key of Object.keys(sum) as (keyof Counts)[]) sum[key] += cell.counts[key]; return sum; }, zero());
-  const status = (sourceChanges ?? 0) > 0 ? 'invalid-provenance' : (blocks as { noisy: boolean }[]).some(b => b.noisy) ? 'noisy-host' : 'complete';
-  const run = {
-    schemaVersion: 2 as const, runId, lane: 'bench' as const,
-    campaign: { id: campaign.id, source: options.source ?? null, sha256: createHash('sha256').update(JSON.stringify(campaign)).digest('hex') },
-    startedAt, decisionIds: campaign.decisionIds,
-    provenance: { git: provenance?.git ?? { available: false, sha: null, dirty: null }, sourceTreeSha256: provenance?.sourceTreeSha256 ?? null, sourceChanges, binaryChanges: null,
-      toolchains: provenance?.toolchains ?? { node: process.version }, integrity: { status: 'uncatalogued' as const, checked: 0, mismatches: [] } },
-    host: { classRequested: campaign.hostClass.requested, classGranted: granted, os: preflight.os, arch: preflight.arch, cpu: preflight.cpu, logicalCpus: preflight.logicalCpus, memoryBytes: preflight.memoryBytes,
-      preflight: { snapshot: preflight, gates: assessment.gates }, postflight: { snapshot: postflight } },
-    status, countUnit: 'attempt' as const, cells, totals, metricAvailability: availability, legacy: null, blocks
-  };
-  await writeFile(join(directory, 'run.v2.json'), JSON.stringify(run, null, 1) + '\n');
+  const run = await context.close({ lane: 'bench', campaign, decisionIds: campaign.decisionIds, countUnit: 'attempt', cells, binaryChanges: null });
   return { directory, run, attempts };
 }
 

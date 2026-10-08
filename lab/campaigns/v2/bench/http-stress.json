@@ -1,0 +1,34 @@
+{
+  "schemaVersion": 2,
+  "id": "http-stress",
+  "lane": "bench",
+  "decisionIds": [
+    "D-http-transport"
+  ],
+  "hostClass": {
+    "requested": "local-controlled",
+    "allowDowngrade": true
+  },
+  "seed": 154,
+  "blocks": 3,
+  "warmup": 2,
+  "iterations": 24,
+  "concurrency": 4,
+  "mode": "closed",
+  "timeoutMs": 15000,
+  "maxDurationMs": 120000,
+  "maxRestarts": 2,
+  "backends": [
+    "node-http",
+    "crawlee-http",
+    "spider-http"
+  ],
+  "scenarios": [
+    "http-catalog"
+  ],
+  "fixtures": {
+    "pages": 16,
+    "actions": 1,
+    "delayMs": 2
+  }
+}

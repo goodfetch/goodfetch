@@ -30,6 +30,15 @@ pnpm lab run campaigns/v2/bench/http-smoke.json
 
 `pnpm lab run` exécute une campagne v2 (`schemas/campaign-bench.v2.schema.json`) ; un ancien `campaigns/*.json` est converti et plafonné à `local-dev`. Le moteur enchaîne provenance (SHA git, état dirty, empreinte des sources), contrôle de l'hôte, gate de conformité, warmup, blocs mesurés et finalisation dans `results/<id>/run.v2.json` et `attempts.v2.jsonl`. Seuils des classes `local-controlled` et `reference` : `hosts/*.json`. Un hôte qui ne passe pas les gates est refusé, ou dégradé explicitement si la campagne l'autorise ; des sources non commitées plafonnent à `local-dev`.
 
+Toutes les campagnes sont des données versionnées sous `campaigns/v2/` : `bench/` pour le moteur d'attempts, et `storage/`, `workflow/`, `runtime/`, `actionability/`, `sqlite-readers/` pour les lanes (`schemas/campaign-lane.v2.schema.json`). Chaque campagne nomme ses décisions et demande une classe d'hôte. Une lane garde son exécuteur de cellule et son oracle propres ; le moteur générique (`src/core/lanes.ts`) ajoute provenance, contrôle de l'hôte, blocs randomisés, statuts typés, `run.v2.json` et `cells.raw.jsonl` avec le détail complet de chaque cellule. Les anciens CLI (`pnpm storage`, `pnpm workflow`, `pnpm runtime`, `pnpm actionability`, `pnpm sqlite-readers`) appellent les mêmes exécuteurs et restent disponibles pour comparaison.
+
+```sh
+pnpm lab validate                                          # registre + toutes les campagnes v2
+pnpm lab suite campaigns/v2/suites/qualification-current.json   # enchaîne les campagnes et compare aux comptes attendus
+```
+
+Une suite (`schemas/suite.v2.schema.json`) déclare pour chaque étape les comptes attendus ; elle échoue si un compte diffère ou si la provenance a changé pendant le run. Un run v2 neuf entre dans le ledger comme `unreviewed` jusqu'à sa classification.
+
 Méthode : le statut d'une tentative vient d'un code d'erreur typé (`src/core/errors.ts`), jamais du texte d'un message. Un timeout ne touche que la tentative bloquée : ses voisines en vol sont `aborted` (`E_SIBLING_ABORT`), hors taux d'échec, et le worker redémarre dans la limite de `maxRestarts`. Fixtures et oracle tournent dans un processus séparé (`fixtures/worker.ts`) ; `taskMs` ne couvre que l'appel `run`, et `oracleMs` est mesuré à part. Une métrique sans sonde sur l'hôte vaut `null`, avec sa raison dans `metricAvailability`, jamais 0. Les tentatives bloquées par un gate restent visibles en `skipped-gate`.
 
 `ledger/classification.json` porte le jugement humain sur chaque run (rôle, raison, validité A contrat / B relatif même hôte / C absolu, décisions, rerun). L'import y ajoute les faits mécaniques : comptes, provenance, intégrité recalculée contre les catalogues SHA de `reports/`. Il est idempotent et ne modifie jamais `results/`. Les runs importés restent plafonnés à la classe d'hôte `local-dev`.

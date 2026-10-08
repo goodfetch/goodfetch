@@ -47,6 +47,16 @@ test('classification overlays decisions and noisy-host status onto a valid ledge
   assert.equal(ledger.entries.find(e => e.runId === 'a')!.rerun.priority, 'P0');
 });
 
+test('a new v2 run enters the ledger as unreviewed, while an unclassified legacy run is an error', () => {
+  const fresh = { ...run('v2'), legacy: null, decisionIds: ['D-core-language'] } as unknown as ImportedRun;
+  const { errors, ledger } = buildLedger({ runs: [run('old'), fresh], classification: { schemaVersion: 1, runs: {} }, citations: {}, decisions });
+  assert.deepEqual(errors, ['old: no classification']);
+  const entry = ledger.entries.find(e => e.runId === 'v2')!;
+  assert.equal(entry.role, 'unreviewed');
+  assert.deepEqual(entry.decisionIds, ['D-core-language']);
+  assert.equal(entry.imported, 'results/v2/run.v2.json');
+});
+
 test('decision ids in the classification must exist in the registry', () => {
   const { errors } = buildLedger({ runs: [run('a')], classification: { schemaVersion: 1, runs: { a: entry({ decisionIds: ['D-nope'] }) } }, citations: { a: ['r.md'] }, decisions });
   assert.ok(errors.some(e => e.includes('D-nope')), errors.join('\n'));

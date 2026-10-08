@@ -100,6 +100,32 @@
     "hostClass": "local-controlled"
    }
   },
+  "browser-actionability-guarded-2026-10-08T08-17-11-516Z-b3378c": {
+   "role": "diagnostic",
+   "reason": "suite de parité P3 : campagne v2 en données, mêmes comptes vérifiés que la qualification du 8 octobre",
+   "supersededBy": null,
+   "decisionIds": [
+    "D-browser-driver"
+   ],
+   "validity": [
+    {
+     "scope": "contracts",
+     "class": "A",
+     "note": "parité des comptes, sources non commitées"
+    },
+    {
+     "scope": "timings",
+     "class": "C",
+     "note": "local-dev, hôte chargé"
+    }
+   ],
+   "noisyHost": false,
+   "rerun": {
+    "required": false,
+    "priority": null,
+    "hostClass": null
+   }
+  },
   "browser-primitives-2026-10-07T20-49-14-368Z-51f1c1": {
    "role": "superseded",
    "reason": "primitives navigateur sans provenance",
@@ -229,6 +255,58 @@
     "required": true,
     "priority": "P1",
     "hostClass": "reference"
+   }
+  },
+  "http-smoke-2026-10-08T07-48-27-175Z-975485": {
+   "role": "diagnostic",
+   "reason": "premier run v2 de bout en bout ; sondes de ressources arrêtées après la fin de l'adapter, bug corrigé avant 471f40",
+   "supersededBy": null,
+   "decisionIds": [
+    "D-http-transport"
+   ],
+   "validity": [
+    {
+     "scope": "contracts",
+     "class": "A",
+     "note": "40 tentatives vérifiées"
+    },
+    {
+     "scope": "resources",
+     "class": "none",
+     "note": "métriques de ressources nulles par bug"
+    }
+   ],
+   "noisyHost": false,
+   "rerun": {
+    "required": false,
+    "priority": null,
+    "hostClass": null
+   }
+  },
+  "http-smoke-2026-10-08T07-49-04-577Z-471f40": {
+   "role": "diagnostic",
+   "reason": "contrôle de bout en bout du moteur v2 après correction des sondes ; local-dev, sources non commitées",
+   "supersededBy": null,
+   "decisionIds": [
+    "D-http-transport"
+   ],
+   "validity": [
+    {
+     "scope": "contracts",
+     "class": "A",
+     "note": "40 tentatives vérifiées"
+    },
+    {
+     "scope": "timings",
+     "class": "C",
+     "note": "local-dev, hôte chargé"
+    }
+   ],
+   "noisyHost": false,
+   "rerun": {
+    "required": false,
+    "priority": null,
+    "hostClass": null
    }
   },
   "http-stress-2026-10-07T20-46-30-909Z-244931": {
@@ -435,6 +513,33 @@
     "hostClass": "reference"
    }
   },
+  "runtime-http-backends-2026-10-08T08-21-34-528Z-4c7aa1": {
+   "role": "diagnostic",
+   "reason": "suite de parité P3 : campagne v2 en données, mêmes comptes vérifiés que la qualification du 8 octobre",
+   "supersededBy": null,
+   "decisionIds": [
+    "D-http-transport",
+    "D-core-language"
+   ],
+   "validity": [
+    {
+     "scope": "contracts",
+     "class": "A",
+     "note": "parité des comptes, sources non commitées"
+    },
+    {
+     "scope": "timings",
+     "class": "C",
+     "note": "local-dev, hôte chargé"
+    }
+   ],
+   "noisyHost": false,
+   "rerun": {
+    "required": false,
+    "priority": null,
+    "hostClass": null
+   }
+  },
   "runtime-native-qualified-2026-10-08T00-11-54-841Z-789d5e": {
    "role": "selected",
    "reason": "workflow natif Node contre Rust, configuration partagée par Arc",
@@ -459,6 +564,32 @@
     "required": true,
     "priority": "P0",
     "hostClass": "reference"
+   }
+  },
+  "runtime-native-qualified-2026-10-08T08-08-21-301Z-20a589": {
+   "role": "diagnostic",
+   "reason": "suite de parité P3 : campagne v2 en données, mêmes comptes vérifiés que la qualification du 8 octobre",
+   "supersededBy": null,
+   "decisionIds": [
+    "D-core-language"
+   ],
+   "validity": [
+    {
+     "scope": "contracts",
+     "class": "A",
+     "note": "parité des comptes, sources non commitées"
+    },
+    {
+     "scope": "timings",
+     "class": "C",
+     "note": "local-dev, hôte chargé"
+    }
+   ],
+   "noisyHost": false,
+   "rerun": {
+    "required": false,
+    "priority": null,
+    "hostClass": null
    }
   },
   "runtime-native-sustained-2026-10-07T23-16-32-399Z-86e997": {
@@ -546,6 +677,33 @@
     "hostClass": "reference"
    }
   },
+  "runtime-recovery-qualified-2026-10-08T08-16-05-686Z-2b7b94": {
+   "role": "diagnostic",
+   "reason": "suite de parité P3 : campagne v2 en données, mêmes comptes vérifiés que la qualification du 8 octobre",
+   "supersededBy": null,
+   "decisionIds": [
+    "D-durable-runtime",
+    "D-core-language"
+   ],
+   "validity": [
+    {
+     "scope": "contracts",
+     "class": "A",
+     "note": "parité des comptes, sources non commitées"
+    },
+    {
+     "scope": "timings",
+     "class": "C",
+     "note": "local-dev, hôte chargé"
+    }
+   ],
+   "noisyHost": false,
+   "rerun": {
+    "required": false,
+    "priority": null,
+    "hostClass": null
+   }
+  },
   "smoke-2026-10-07T20-20-24-226Z-9ebb47": {
    "role": "smoke",
    "reason": "première mise en route des adapters, avant hashes de sources et viewport commun",
@@ -624,6 +782,32 @@
     "hostClass": null
    }
   },
+  "spider-http-transport-supported-2026-10-08T08-21-33-006Z-dc7f37": {
+   "role": "diagnostic",
+   "reason": "suite de parité P3 : campagne v2 en données, mêmes comptes vérifiés que la qualification du 8 octobre",
+   "supersededBy": null,
+   "decisionIds": [
+    "D-http-transport"
+   ],
+   "validity": [
+    {
+     "scope": "contracts",
+     "class": "A",
+     "note": "parité des comptes, sources non commitées"
+    },
+    {
+     "scope": "timings",
+     "class": "C",
+     "note": "local-dev, hôte chargé"
+    }
+   ],
+   "noisyHost": false,
+   "rerun": {
+    "required": false,
+    "priority": null,
+    "hostClass": null
+   }
+  },
   "sqlite-readers-2026-10-07T23-52-02-741Z-c5571c": {
    "role": "diagnostic",
    "reason": "course d'initialisation schéma/WAL avec quatre writers",
@@ -662,6 +846,32 @@
      "scope": "throughput",
      "class": "C",
      "note": "Mac partagé non contrôlé ; chiffres absolus non publiables"
+    }
+   ],
+   "noisyHost": false,
+   "rerun": {
+    "required": false,
+    "priority": null,
+    "hostClass": null
+   }
+  },
+  "sqlite-readers-2026-10-08T08-20-58-320Z-de04ab": {
+   "role": "diagnostic",
+   "reason": "suite de parité P3 : campagne v2 en données, mêmes comptes vérifiés que la qualification du 8 octobre",
+   "supersededBy": null,
+   "decisionIds": [
+    "D-storage"
+   ],
+   "validity": [
+    {
+     "scope": "contracts",
+     "class": "A",
+     "note": "parité des comptes, sources non commitées"
+    },
+    {
+     "scope": "timings",
+     "class": "C",
+     "note": "local-dev, hôte chargé"
     }
    ],
    "noisyHost": false,
@@ -870,6 +1080,27 @@
      "scope": "contracts",
      "class": "A",
      "note": "oracles de relecture"
+    }
+   ],
+   "noisyHost": false,
+   "rerun": {
+    "required": false,
+    "priority": null,
+    "hostClass": null
+   }
+  },
+  "storage-smoke-2026-10-08T07-56-10-911Z-a8d1b9": {
+   "role": "diagnostic",
+   "reason": "contrôle de non-régression de l'exécuteur de cellule storage extrait en P3 : mêmes comptes que le smoke historique",
+   "supersededBy": null,
+   "decisionIds": [
+    "D-storage"
+   ],
+   "validity": [
+    {
+     "scope": "contracts",
+     "class": "A",
+     "note": "44 vérifiées, 4 non supportées, comme 3b617d"
     }
    ],
    "noisyHost": false,

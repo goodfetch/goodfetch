@@ -1,0 +1,35 @@
+{
+  "schemaVersion": 2,
+  "lane": "identity",
+  "decisionIds": [
+    "D-identity"
+  ],
+  "hostClass": {
+    "requested": "local-dev",
+    "allowDowngrade": true
+  },
+  "id": "identity-coherence",
+  "config": {
+    "httpTiers": [
+      "node-https",
+      "impit-chrome",
+      "browser-fetch"
+    ],
+    "profiles": [
+      "identified",
+      "standard"
+    ],
+    "purposes": [
+      "search"
+    ],
+    "variants": [
+      "coherent",
+      "key-rotation",
+      "key-revoked"
+    ],
+    "repeats": 5,
+    "blocks": 5,
+    "seed": 3131,
+    "timeoutMs": 20000
+  }
+}

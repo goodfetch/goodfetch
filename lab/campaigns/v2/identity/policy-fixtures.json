@@ -1,0 +1,44 @@
+{
+  "schemaVersion": 2,
+  "lane": "identity",
+  "decisionIds": [
+    "D-identity"
+  ],
+  "hostClass": {
+    "requested": "local-dev",
+    "allowDowngrade": true
+  },
+  "id": "policy-fixtures",
+  "config": {
+    "httpTiers": [
+      "node-https",
+      "impit-chrome",
+      "browser-fetch"
+    ],
+    "profiles": [
+      "identified",
+      "standard"
+    ],
+    "purposes": [
+      "search",
+      "ai-train"
+    ],
+    "variants": [
+      "robots-path",
+      "robots-agent",
+      "crawl-delay",
+      "content-signal",
+      "tdmrep-file",
+      "tdmrep-header",
+      "noai-meta",
+      "paid-402",
+      "denied-403",
+      "challenge-page",
+      "retry-429"
+    ],
+    "repeats": 1,
+    "blocks": 1,
+    "seed": 3232,
+    "timeoutMs": 20000
+  }
+}

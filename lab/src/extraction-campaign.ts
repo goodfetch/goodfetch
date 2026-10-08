@@ -99,7 +99,7 @@ export async function runExtractionCell(config: ExtractionConfig, cell: Extracti
       scores.push({ ...wordF1(text, page.mainContent), withRate: snippetRate(text, page.with), leak: page.without.length ? snippetRate(text, page.without) : 0, ms });
     }
   } finally { await worker.close(); await rm(scratch, { recursive: true, force: true }); }
-  await writeFile(join(directory, `predictions-${cell.extractor}-${cell.pageType}-b${block}.json`), JSON.stringify(predictions));
+  await writeFile(join(directory, `predictions-${cell.renderer === 'none' ? '' : `${cell.renderer}-`}${cell.extractor}-${cell.pageType}-b${block}.json`), JSON.stringify(predictions));
   const mean = (key: keyof (typeof scores)[number]) => scores.length ? scores.reduce((sum, score) => sum + score[key], 0) / scores.length : null;
   const renderStats = render ? { renderOk: [...render.rendered.values()].filter(r => r.status === 'ok').length, renderTimeouts: [...render.rendered.values()].filter(r => r.status === 'timeout').length, renderErrors: [...render.rendered.values()].filter(r => r.status === 'error').length,
     renderMsP50: quantiles([...render.rendered.values()].filter(r => r.status === 'ok').map(r => r.loadMs)).p50, archiveHits: render.hits, refusedRequests: render.misses, refusedTunnels: render.tunnels, renderedBytes: render.renderedBytes, renderFailures: [...render.rendered.values()].filter(r => r.error).map(r => r.error).slice(0, 10) } : {};

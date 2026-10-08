@@ -1,0 +1,35 @@
+{
+  "schemaVersion": 2,
+  "id": "runtime-native-capacity",
+  "lane": "runtime",
+  "decisionIds": [
+    "D-core-language"
+  ],
+  "hostClass": {
+    "requested": "local-controlled",
+    "allowDowngrade": true
+  },
+  "config": {
+    "name": "runtime-native-capacity",
+    "blocks": 8,
+    "seed": 7811,
+    "cells": [
+      {
+        "runtime": "node",
+        "concurrency": 16,
+        "batchJobs": 1,
+        "jobs": 3072,
+        "pages": 16,
+        "delayMs": 4
+      },
+      {
+        "runtime": "rust",
+        "concurrency": 16,
+        "batchJobs": 1,
+        "jobs": 3072,
+        "pages": 16,
+        "delayMs": 4
+      }
+    ]
+  }
+}

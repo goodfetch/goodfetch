@@ -130,6 +130,31 @@ fn canonical(v: &Value) -> Result<(Value, String), String> {
     let digest = format!("{:x}", Sha256::digest(normalized.to_string().as_bytes()));
     Ok((normalized, digest))
 }
+static DB_PATH: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+// Another connection holds the write lock from its own thread, so the sink's busy wait is real contention.
+fn hold_write_lock(hold_ms: u64) -> Result<std::thread::JoinHandle<()>, String> {
+    let path = CString::new(DB_PATH.get().ok_or("not prepared")?.as_str()).map_err(|e| e.to_string())?;
+    let (ready, locked) = std::sync::mpsc::channel();
+    let handle = std::thread::spawn(move || {
+        let format = CString::new("sqlite-wal-full").unwrap();
+        let raw = unsafe { lab_open(path.as_ptr(), format.as_ptr(), 5000) };
+        if raw.is_null() {
+            let _ = ready.send(false);
+            return;
+        }
+        let db = Database(raw);
+        let ok = db.exec("BEGIN IMMEDIATE").is_ok();
+        let _ = ready.send(ok);
+        if ok {
+            std::thread::sleep(std::time::Duration::from_millis(hold_ms));
+            let _ = db.exec("COMMIT");
+        }
+    });
+    match locked.recv() {
+        Ok(true) => Ok(handle),
+        _ => Err("could not take the write lock".into()),
+    }
+}
 fn fault(name: &str, requested: &Value) {
     if requested.as_str() == Some(name) {
         unsafe {
@@ -156,6 +181,9 @@ fn run(db: &Database, p: &Value, lease: u64) -> Result<Value, String> {
             Ok(json!({"jobId":job["jobId"],"task":serde_json::from_str::<Value>(job["task"].as_str().unwrap()).map_err(|e|e.to_string())?,"token":token,"expires":expires}))
         }),
         "commit"=>{
+            if p["fault"]=="write-error"{return Err("injected write error (SQLITE_IOERR)".into())}
+            let locker=match p["fault"].as_str(){Some("lock-held")=>Some(hold_write_lock(500)?),Some("lock-starved")=>Some(hold_write_lock(6000)?),_=>None};
+            let result=(||->Result<Value,String>{
             let entries=p["entries"].as_array().filter(|e|!e.is_empty()&&e.len()<=128).ok_or("invalid commit batch")?;
             let mut seen=std::collections::HashSet::new();let mut prepared=Vec::new();
             for entry in entries {let id=string(entry,"jobId")?;if !seen.insert(id.clone()){return Err("invalid commit batch".into())}let (records,digest)=canonical(&entry["records"])?;prepared.push((id,string(entry,"token")?,records,digest));}
@@ -170,6 +198,9 @@ fn run(db: &Database, p: &Value, lease: u64) -> Result<Value, String> {
                     fault("before-commit",&p["fault"]);receipts.push(json!({"jobId":id,"receipt":receipt}));
                 }Ok(receipts)
             })?;fault("after-commit",&p["fault"]);Ok(json!({"receipts":receipts}))
+            })();
+            if let Some(handle)=locker{let _=handle.join();}
+            result
         },
         "ack"=>{
             let receipts=p["receipts"].as_array().filter(|r|!r.is_empty()&&r.len()<=128).ok_or("invalid acknowledgements")?;
@@ -209,6 +240,7 @@ pub fn serve() {
                         .as_u64()
                         .filter(|v| *v >= 10 && *v <= 120000)
                         .ok_or("invalid lease duration")?;
+                    let _ = DB_PATH.set(string(p, "path")?);
                     let path = CString::new(string(p, "path")?).map_err(|e| e.to_string())?;
                     let format = CString::new("sqlite-wal-full").unwrap();
                     let handle = unsafe { lab_open(path.as_ptr(), format.as_ptr(), 5000) };

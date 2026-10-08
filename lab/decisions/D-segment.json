@@ -26,6 +26,11 @@
     {
       "kind": "research-doc",
       "ref": "research/2026-10-07-direction-automan.md"
+    },
+    {
+      "kind": "research-doc",
+      "ref": "research/market/README.md",
+      "note": "piste demande v1, recherche documentaire ; volonté de payer non mesurée"
     }
   ],
   "dependsOn": [],

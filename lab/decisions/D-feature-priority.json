@@ -10,7 +10,13 @@
       "description": "Backlog classé depuis le classement des douleurs et les entretiens"
     }
   ],
-  "evidence": [],
+  "evidence": [
+    {
+      "kind": "research-doc",
+      "ref": "research/market/README.md",
+      "note": "piste demande v1, recherche documentaire ; volonté de payer non mesurée"
+    }
+  ],
   "dependsOn": [
     "D-segment"
   ],

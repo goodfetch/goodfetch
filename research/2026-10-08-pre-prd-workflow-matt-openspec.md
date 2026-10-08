@@ -2,6 +2,8 @@
 
 **Date :** 8 octobre 2026.
 
+**Mise à jour du 8 octobre :** OpenSpec a été retiré du dépôt après cette étude. Seuls les skills de Matt Pocock sont utilisés. Les sections sur OpenSpec restent comme trace de la comparaison.
+
 **Question :** Automan n'a presque pas de code produit. Il y a des recherches, deux ADR, un glossaire et un laboratoire de mesure. Que recommandent les skills de Matt Pocock et OpenSpec pour arriver à un PRD solide, puis à l'implémentation ?
 
 **Sources :**

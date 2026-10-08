@@ -1,0 +1,123 @@
+{
+  "schemaVersion": 1,
+  "id": "qualification-2026-10-07T21-25-08-753Z-61ffef",
+  "startedAt": "2026-10-07T21:25:08.994Z",
+  "config": {
+    "name": "qualification",
+    "backends": [
+      "node-http",
+      "crawlee-http",
+      "crawlee-http-pooled",
+      "spider-http",
+      "spider-chrome",
+      "spider-smart",
+      "playwright",
+      "puppeteer",
+      "stagehand",
+      "stagehand-batch",
+      "crawlee-playwright",
+      "crawlee-stagehand"
+    ],
+    "scenarios": [
+      "http-catalog",
+      "js-catalog",
+      "form",
+      "clicks",
+      "shadow"
+    ],
+    "seed": 221,
+    "blocks": 1,
+    "iterations": 2,
+    "warmup": 1,
+    "concurrency": 1,
+    "mode": "closed",
+    "timeoutMs": 30000,
+    "maxDurationMs": 120000,
+    "pages": 3,
+    "actions": 50,
+    "variants": [
+      "normal",
+      "delayed",
+      "overlay",
+      "rerender"
+    ]
+  },
+  "environment": {
+    "node": "v25.5.0",
+    "nodeExecutable": "/opt/homebrew/Cellar/node/25.5.0/bin/node",
+    "os": "darwin",
+    "release": "27.0.0",
+    "architecture": "arm64",
+    "cpu": "Apple M3 Max",
+    "logicalCpuCount": 14,
+    "totalMemoryBytes": 38654705664,
+    "browser": {
+      "executablePath": "/Users/jb/Dev/automan/lab/.browsers/chromium-1243/chrome-mac-arm64/Google Chrome for Testing.app/Contents/MacOS/Google Chrome for Testing",
+      "version": "Google Chrome for Testing 153.0.8010.12",
+      "sha256": "8319963f6625accf51c0dd4f55091ceaf9f09ed39e7a52fed4fae12b2a6b668a",
+      "requestedViewport": {
+        "width": 1280,
+        "height": 720
+      },
+      "headless": true
+    },
+    "lockHashes": {
+      "pnpm-lock.yaml": "5de2f799a822e743655d987ce8058e2ef7ad4ab5645105f7c7f5b160dae89177",
+      "adapters/rust/Cargo.lock": "c98b6ad561f91885b38c33b3781b4e67ed527d2deb0880500a2a8befbd4ab2cd",
+      "adapters/storage-rust/Cargo.lock": "3948c489d83b8e492ce3540d7be1b95f348d8dc016b66e897524b6e8c2d95c7c"
+    },
+    "binaryHashes": {
+      "adapters/rust/target/http/release/automan-lab-spider": "1ffb57f23c1f92e774f9941847c6a28c1beed6cb5c42b78bea0820f08a08c4ac",
+      "adapters/rust/target/chrome/release/automan-lab-spider": "31df03268bdd1d32b5aca6071ba1c15289b0f22197bf5927f767e5199211f020",
+      "adapters/rust/target/smart/release/automan-lab-spider": "165c47982a9e587eb899e856a97c8cbd4598569ef72cb4021116952832b30f92",
+      "adapters/rust/target/http/release/automan-lab-storage": "25390cbcc131aa39456ad3cb4fdf96d65bd37dbc759d65abdebae2360f2bed8e"
+    },
+    "sourceHashes": {
+      "src/campaign.ts": "4cc6709341b1c7674d69c29c0abb067c238efebfa93fd766805fcf993ab6eb93",
+      "src/cli.ts": "aa92b283bfd88170d984a32750034417d2d2afa2b37ab998801304b29b5c443c",
+      "src/environment.ts": "7ed614badb32baf9caac1cc000da8291adebb9ce51732c30ec66d43bdd155cb0",
+      "src/registry.ts": "23d04d8d9078df7b9f72c915126c8110ba44f06165b6df7f5d846cb7db71b5fa",
+      "src/report.ts": "12269d35f5a0d01fee289567e0e192e7b8ccb8d5bc0680576a5757d50375158e",
+      "src/resources.ts": "ae64318875812c39097ca5526b9b36d9a43e27b1b807c3d5a363a18b1fdec14c",
+      "src/scheduler.ts": "d247c784832f09dbe81380e8d190c635e8992944409eb684b8c9204914c46b45",
+      "src/statistics.ts": "86fe385d542188716a594bca2793927bd62a3bdba8af11f6620ebb07b5c7324d",
+      "src/storage-campaign.ts": "3401a00b54faa0aaaaada7684b14c49917aff8855646dbb9d8a13b716b3d0d80",
+      "src/storage-cli.ts": "a477c23708c2353875cac300baacc7cce155ee4c19af9ccf997757b03c89c73d",
+      "src/storage.ts": "75a36ba6730dffbdbac7d9a31ad82c8cca88c241e554d2a914853df9be883eee",
+      "src/worker-client.ts": "34645ddaea64c68f9d8e97034fbdd9410befdad74b017d204e373c1ba7ffbbd4",
+      "src/worker-server.ts": "0d47267bc34e59fd64c3db643f0dc26b4e8f6e3335df8d8a7881f0624b995c84",
+      "fixtures/server.ts": "78bbdd1f6269cd5170d40c02b6fb68cafcd1af94f52352d7f766afebb4ca900c",
+      "adapters/node/browser-tasks.ts": "4181ff5065f91245c2e3beed49d1e0439f65f4ddd9ce7c27dc9f49afbd57311c",
+      "adapters/node/pooled-worker.ts": "9129c69cc32d27bf5053d3d982a3340af22af65983e9b7b7d38a98ec7549b9c1",
+      "adapters/node/worker.ts": "5c7254b51a02b33ca87948dd91febcbee489ca107b139af53ddebaef63795fc7",
+      "adapters/rust/src/main.rs": "1998089ef3269426f27d21df673b6ca24772d4df66c550bd32cb318a64aac4e1",
+      "adapters/stagehand-v3/worker.ts": "43acbb80c41769e56c71670bae1d1c615c14654cd6408f967db43a47554e0949",
+      "adapters/storage-node/worker.ts": "e2e52d8d5a6207ae278b96d26e1e00865a80efa0c2689b3f6e6f025e876a265b",
+      "adapters/storage-rust/src/main.rs": "7d9b7cf1734f3e54dfd88dd7d533875eed94e327d7dcf7fdeebfd5facc0c6349",
+      "tools/bootstrap.ts": "e2b057dc2358f02b9999d6c9c75d5b6833f5879d4000192c9fc544d30ec920b8",
+      "tools/doctor.ts": "151efffcf31fee58fbf3cb3febed99aaf9a3a25444de677a49c58eecb1f9337b",
+      ".node-version": "aa0d48458ddcabfd2382395c55a5fec977c56664f5c87dac1a49655a7d6faada",
+      "package.json": "e23e3115c031ea73a2019649404793ed7a7a6b21bbecca52a13b062344f0af09",
+      "pnpm-workspace.yaml": "0efca8723660feb40bfa66318375c08aa4d927d6788cb161e5e6c11c7e3fae3d",
+      "pnpm-lock.yaml": "5de2f799a822e743655d987ce8058e2ef7ad4ab5645105f7c7f5b160dae89177",
+      "tsconfig.json": "56b6ec40c7eecf9798e19d3759d0eb78834af67bb30821d650245256d04ac196",
+      "adapters/node/package.json": "ecca9c029d30e060766c4b70dd9df6433adda9944d11969e39bacf33f6ac89b4",
+      "adapters/stagehand-v3/package.json": "59ea14e936b34c80170481ae32215c5712fb1d239fe83f52b5f54d5d316c5d12",
+      "adapters/rust/Cargo.toml": "93f7918b75c5c076a680e16d73f549862c5fd37505b14852b5d597e718730930",
+      "adapters/rust/Cargo.lock": "c98b6ad561f91885b38c33b3781b4e67ed527d2deb0880500a2a8befbd4ab2cd",
+      "adapters/storage-rust/Cargo.toml": "3d9ba6be5227b11f7caa022403781a92d24d879b4d7169119e603a9503735eb0",
+      "adapters/storage-rust/Cargo.lock": "3948c489d83b8e492ce3540d7be1b95f348d8dc016b66e897524b6e8c2d95c7c"
+    }
+  },
+  "fixtureOrigin": "http://127.0.0.1:57601",
+  "methodology": {
+    "monotonicClock": true,
+    "timing": "worker startup separately; run IPC + task + independent oracle included",
+    "warmupExcludedFromSummary": true,
+    "conformanceGate": true,
+    "blockedTrialsRandomized": true,
+    "resourceLimits": "bounded concurrency, per-call timeout and per-cell scheduling deadline; no OS hard CPU/RAM limit on macOS",
+    "network": "loopback; no provider calls requested",
+    "quality": "private fixture oracle"
+  }
+}

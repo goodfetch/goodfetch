@@ -1,0 +1,6 @@
+{
+  "name":"workflow-recovery", "backends":["node-http"], "blocks":2, "jobs":12,
+  "pages":2, "concurrency":[1,4], "batchJobs":[1,4], "maxBatchWaitMs":10,
+  "leaseMs":1000, "timeoutMs":15000, "delayMs":2, "seed":320,
+  "faults":["before-commit","after-commit"]
+}

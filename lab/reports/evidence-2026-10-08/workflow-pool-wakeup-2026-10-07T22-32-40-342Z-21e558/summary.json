@@ -1,0 +1,2179 @@
+{
+  "cells": [
+    {
+      "backend": "crawlee-http-pooled",
+      "concurrency": 4,
+      "batchJobs": 1,
+      "fault": "none",
+      "poolWake": "notify",
+      "block": 0,
+      "status": "verified",
+      "admittedJobs": 12,
+      "verifiedJobs": 12,
+      "verifiedRecords": 192,
+      "startupMs": 640.9020409999999,
+      "workMs": 740.8929159999999,
+      "finalizationMs": 1.724875000000111,
+      "totalMs": 1383.5925829999999,
+      "verifiedJobsPerSecond": 16.159052672089835,
+      "jobsPerSecondIncludingStartup": 8.673073379723373,
+      "peakBufferedJobs": 4,
+      "restarts": 0,
+      "reconciledJobs": 0,
+      "info": [
+        {
+          "generation": 0,
+          "sink": {
+            "backend": "workflow-node",
+            "protocol": 1,
+            "sqlite": "3.53.4",
+            "pragmas": {
+              "journal_mode": "wal",
+              "synchronous": 2,
+              "busy_timeout": 5000,
+              "foreign_keys": 1,
+              "wal_autocheckpoint": 1000,
+              "page_size": 4096
+            },
+            "contract": "WAL FULL; jobs and results committed atomically; lease tokens fence stale commits; receipt replay is idempotent"
+          },
+          "acquisition": {
+            "backend": "crawlee-http-pooled",
+            "protocol": 1,
+            "capabilities": [
+              "http-catalog"
+            ],
+            "versions": {
+              "crawlee": "3.18.2"
+            },
+            "poolWake": "notify",
+            "lifecycle": "one keepAlive crawler and request queue per block; tasks share its bounded pool"
+          }
+        }
+      ],
+      "resources": {
+        "peakRssBytes": 471842816,
+        "peakProcessCount": 6,
+        "samples": 6,
+        "unavailable": false,
+        "method": "sampled sum RSS of process group and descendants; shared pages double-counted; short peaks may be missed",
+        "intervalMs": 250
+      },
+      "ackLatencyMs": {
+        "n": 12,
+        "p50": 53.56783299999984,
+        "p95": 296.28708299999994,
+        "p99": 296.28708299999994
+      },
+      "acquisitionAndExtractionMs": {
+        "n": 12,
+        "p50": 52.46137499999986,
+        "p95": 281.012166,
+        "p99": 281.012166
+      },
+      "validationMs": {
+        "n": 12,
+        "p50": 0.017166999999972177,
+        "p95": 0.19966699999986304,
+        "p99": 0.19966699999986304
+      },
+      "sinkWaitCommitAckMs": {
+        "n": 12,
+        "p50": 1.379415999999992,
+        "p95": 15.254208999999946,
+        "p99": 15.254208999999946
+      },
+      "commitRpcMs": {
+        "n": 12,
+        "p50": 0.3475419999999758,
+        "p95": 8.33400000000006,
+        "p99": 8.33400000000006
+      },
+      "ackRpcMs": {
+        "n": 12,
+        "p50": 0.22462500000006003,
+        "p95": 1.8667920000000322,
+        "p99": 1.8667920000000322
+      },
+      "batchJobCounts": [
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1
+      ],
+      "abortedAttempts": 0,
+      "failedAttempts": 0
+    },
+    {
+      "backend": "crawlee-http-pooled",
+      "concurrency": 1,
+      "batchJobs": 1,
+      "fault": "none",
+      "poolWake": "poll",
+      "block": 0,
+      "status": "verified",
+      "admittedJobs": 12,
+      "verifiedJobs": 12,
+      "verifiedRecords": 192,
+      "startupMs": 447.3956249999999,
+      "workMs": 6363.351624999999,
+      "finalizationMs": 1.8040000000000873,
+      "totalMs": 6812.569833,
+      "verifiedJobsPerSecond": 1.8852641957202736,
+      "jobsPerSecondIncludingStartup": 1.7614498337869737,
+      "peakBufferedJobs": 1,
+      "restarts": 0,
+      "reconciledJobs": 0,
+      "info": [
+        {
+          "generation": 0,
+          "sink": {
+            "backend": "workflow-node",
+            "protocol": 1,
+            "sqlite": "3.53.4",
+            "pragmas": {
+              "journal_mode": "wal",
+              "synchronous": 2,
+              "busy_timeout": 5000,
+              "foreign_keys": 1,
+              "wal_autocheckpoint": 1000,
+              "page_size": 4096
+            },
+            "contract": "WAL FULL; jobs and results committed atomically; lease tokens fence stale commits; receipt replay is idempotent"
+          },
+          "acquisition": {
+            "backend": "crawlee-http-pooled",
+            "protocol": 1,
+            "capabilities": [
+              "http-catalog"
+            ],
+            "versions": {
+              "crawlee": "3.18.2"
+            },
+            "poolWake": "poll",
+            "lifecycle": "one keepAlive crawler and request queue per block; tasks share its bounded pool"
+          }
+        }
+      ],
+      "resources": {
+        "peakRssBytes": 457768960,
+        "peakProcessCount": 6,
+        "samples": 27,
+        "unavailable": false,
+        "method": "sampled sum RSS of process group and descendants; shared pages double-counted; short peaks may be missed",
+        "intervalMs": 250
+      },
+      "ackLatencyMs": {
+        "n": 12,
+        "p50": 505.4937920000002,
+        "p95": 526.1520410000003,
+        "p99": 526.1520410000003
+      },
+      "acquisitionAndExtractionMs": {
+        "n": 12,
+        "p50": 502.8727080000008,
+        "p95": 523.4599580000004,
+        "p99": 523.4599580000004
+      },
+      "validationMs": {
+        "n": 12,
+        "p50": 0.01712500000030559,
+        "p95": 0.05887499999971624,
+        "p99": 0.05887499999971624
+      },
+      "sinkWaitCommitAckMs": {
+        "n": 12,
+        "p50": 2.0279170000003433,
+        "p95": 8.46487500000012,
+        "p99": 8.46487500000012
+      },
+      "commitRpcMs": {
+        "n": 12,
+        "p50": 1.0917090000002645,
+        "p95": 7.719333000000006,
+        "p99": 7.719333000000006
+      },
+      "ackRpcMs": {
+        "n": 12,
+        "p50": 0.26299999999991996,
+        "p95": 0.5784160000002885,
+        "p99": 0.5784160000002885
+      },
+      "batchJobCounts": [
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1
+      ],
+      "abortedAttempts": 0,
+      "failedAttempts": 0
+    },
+    {
+      "backend": "crawlee-http-pooled",
+      "concurrency": 1,
+      "batchJobs": 1,
+      "fault": "none",
+      "poolWake": "notify",
+      "block": 0,
+      "status": "verified",
+      "admittedJobs": 12,
+      "verifiedJobs": 12,
+      "verifiedRecords": 192,
+      "startupMs": 470.43183300000055,
+      "workMs": 704.4729580000003,
+      "finalizationMs": 1.6023330000007263,
+      "totalMs": 1176.521499999999,
+      "verifiedJobsPerSecond": 16.99535467811744,
+      "jobsPerSecondIncludingStartup": 10.199558614100985,
+      "peakBufferedJobs": 1,
+      "restarts": 0,
+      "reconciledJobs": 0,
+      "info": [
+        {
+          "generation": 0,
+          "sink": {
+            "backend": "workflow-node",
+            "protocol": 1,
+            "sqlite": "3.53.4",
+            "pragmas": {
+              "journal_mode": "wal",
+              "synchronous": 2,
+              "busy_timeout": 5000,
+              "foreign_keys": 1,
+              "wal_autocheckpoint": 1000,
+              "page_size": 4096
+            },
+            "contract": "WAL FULL; jobs and results committed atomically; lease tokens fence stale commits; receipt replay is idempotent"
+          },
+          "acquisition": {
+            "backend": "crawlee-http-pooled",
+            "protocol": 1,
+            "capabilities": [
+              "http-catalog"
+            ],
+            "versions": {
+              "crawlee": "3.18.2"
+            },
+            "poolWake": "notify",
+            "lifecycle": "one keepAlive crawler and request queue per block; tasks share its bounded pool"
+          }
+        }
+      ],
+      "resources": {
+        "peakRssBytes": 437288960,
+        "peakProcessCount": 6,
+        "samples": 5,
+        "unavailable": false,
+        "method": "sampled sum RSS of process group and descendants; shared pages double-counted; short peaks may be missed",
+        "intervalMs": 250
+      },
+      "ackLatencyMs": {
+        "n": 12,
+        "p50": 35.98899999999958,
+        "p95": 230.7005420000005,
+        "p99": 230.7005420000005
+      },
+      "acquisitionAndExtractionMs": {
+        "n": 12,
+        "p50": 34.53312499999993,
+        "p95": 222.44624999999905,
+        "p99": 222.44624999999905
+      },
+      "validationMs": {
+        "n": 12,
+        "p50": 0.01170799999999872,
+        "p95": 0.014375000000654836,
+        "p99": 0.014375000000654836
+      },
+      "sinkWaitCommitAckMs": {
+        "n": 12,
+        "p50": 1.1932079999987764,
+        "p95": 8.242582999999286,
+        "p99": 8.242582999999286
+      },
+      "commitRpcMs": {
+        "n": 12,
+        "p50": 0.631666999999652,
+        "p95": 7.1079160000008414,
+        "p99": 7.1079160000008414
+      },
+      "ackRpcMs": {
+        "n": 12,
+        "p50": 0.23712499999965075,
+        "p95": 0.5707499999989523,
+        "p99": 0.5707499999989523
+      },
+      "batchJobCounts": [
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1
+      ],
+      "abortedAttempts": 0,
+      "failedAttempts": 0
+    },
+    {
+      "backend": "crawlee-http-pooled",
+      "concurrency": 8,
+      "batchJobs": 4,
+      "fault": "none",
+      "poolWake": "poll",
+      "block": 0,
+      "status": "verified",
+      "admittedJobs": 12,
+      "verifiedJobs": 12,
+      "verifiedRecords": 192,
+      "startupMs": 439.5211670000008,
+      "workMs": 1208.4993749999994,
+      "finalizationMs": 1.0840420000004087,
+      "totalMs": 1649.114125,
+      "verifiedJobsPerSecond": 9.92077092935212,
+      "jobsPerSecondIncludingStartup": 7.276634053449757,
+      "peakBufferedJobs": 8,
+      "restarts": 0,
+      "reconciledJobs": 0,
+      "info": [
+        {
+          "generation": 0,
+          "sink": {
+            "backend": "workflow-node",
+            "protocol": 1,
+            "sqlite": "3.53.4",
+            "pragmas": {
+              "journal_mode": "wal",
+              "synchronous": 2,
+              "busy_timeout": 5000,
+              "foreign_keys": 1,
+              "wal_autocheckpoint": 1000,
+              "page_size": 4096
+            },
+            "contract": "WAL FULL; jobs and results committed atomically; lease tokens fence stale commits; receipt replay is idempotent"
+          },
+          "acquisition": {
+            "backend": "crawlee-http-pooled",
+            "protocol": 1,
+            "capabilities": [
+              "http-catalog"
+            ],
+            "versions": {
+              "crawlee": "3.18.2"
+            },
+            "poolWake": "poll",
+            "lifecycle": "one keepAlive crawler and request queue per block; tasks share its bounded pool"
+          }
+        }
+      ],
+      "resources": {
+        "peakRssBytes": 443301888,
+        "peakProcessCount": 6,
+        "samples": 7,
+        "unavailable": false,
+        "method": "sampled sum RSS of process group and descendants; shared pages double-counted; short peaks may be missed",
+        "intervalMs": 250
+      },
+      "ackLatencyMs": {
+        "n": 12,
+        "p50": 301.8746250000004,
+        "p95": 454.563791999999,
+        "p99": 454.563791999999
+      },
+      "acquisitionAndExtractionMs": {
+        "n": 12,
+        "p50": 293.95750000000044,
+        "p95": 451.16991600000074,
+        "p99": 451.16991600000074
+      },
+      "validationMs": {
+        "n": 12,
+        "p50": 0.007208000000900938,
+        "p95": 0.053750000000945874,
+        "p99": 0.053750000000945874
+      },
+      "sinkWaitCommitAckMs": {
+        "n": 12,
+        "p50": 7.911041999999725,
+        "p95": 18.658250000000407,
+        "p99": 18.658250000000407
+      },
+      "commitRpcMs": {
+        "n": 4,
+        "p50": 0.5817919999990409,
+        "p95": 7.201208000000406,
+        "p99": 7.201208000000406
+      },
+      "ackRpcMs": {
+        "n": 4,
+        "p50": 0.26824999999917054,
+        "p95": 0.638875000000553,
+        "p99": 0.638875000000553
+      },
+      "batchJobCounts": [
+        3,
+        4,
+        1,
+        4
+      ],
+      "abortedAttempts": 0,
+      "failedAttempts": 0
+    },
+    {
+      "backend": "crawlee-http-pooled",
+      "concurrency": 8,
+      "batchJobs": 1,
+      "fault": "none",
+      "poolWake": "notify",
+      "block": 0,
+      "status": "verified",
+      "admittedJobs": 12,
+      "verifiedJobs": 12,
+      "verifiedRecords": 192,
+      "startupMs": 423.51479199999994,
+      "workMs": 785.8497079999997,
+      "finalizationMs": 1.2953749999996944,
+      "totalMs": 1210.6704590000008,
+      "verifiedJobsPerSecond": 15.244965965187905,
+      "jobsPerSecondIncludingStartup": 9.911863224871164,
+      "peakBufferedJobs": 2,
+      "restarts": 0,
+      "reconciledJobs": 0,
+      "info": [
+        {
+          "generation": 0,
+          "sink": {
+            "backend": "workflow-node",
+            "protocol": 1,
+            "sqlite": "3.53.4",
+            "pragmas": {
+              "journal_mode": "wal",
+              "synchronous": 2,
+              "busy_timeout": 5000,
+              "foreign_keys": 1,
+              "wal_autocheckpoint": 1000,
+              "page_size": 4096
+            },
+            "contract": "WAL FULL; jobs and results committed atomically; lease tokens fence stale commits; receipt replay is idempotent"
+          },
+          "acquisition": {
+            "backend": "crawlee-http-pooled",
+            "protocol": 1,
+            "capabilities": [
+              "http-catalog"
+            ],
+            "versions": {
+              "crawlee": "3.18.2"
+            },
+            "poolWake": "notify",
+            "lifecycle": "one keepAlive crawler and request queue per block; tasks share its bounded pool"
+          }
+        }
+      ],
+      "resources": {
+        "peakRssBytes": 424787968,
+        "peakProcessCount": 6,
+        "samples": 5,
+        "unavailable": false,
+        "method": "sampled sum RSS of process group and descendants; shared pages double-counted; short peaks may be missed",
+        "intervalMs": 250
+      },
+      "ackLatencyMs": {
+        "n": 12,
+        "p50": 369.0690000000013,
+        "p95": 390.2274589999997,
+        "p99": 390.2274589999997
+      },
+      "acquisitionAndExtractionMs": {
+        "n": 12,
+        "p50": 368.0656250000011,
+        "p95": 388.94087500000023,
+        "p99": 388.94087500000023
+      },
+      "validationMs": {
+        "n": 12,
+        "p50": 0.009792000000743428,
+        "p95": 0.019500000000334694,
+        "p99": 0.019500000000334694
+      },
+      "sinkWaitCommitAckMs": {
+        "n": 12,
+        "p50": 1.219874999998865,
+        "p95": 8.44762499999888,
+        "p99": 8.44762499999888
+      },
+      "commitRpcMs": {
+        "n": 12,
+        "p50": 0.46570900000006077,
+        "p95": 7.570417000000816,
+        "p99": 7.570417000000816
+      },
+      "ackRpcMs": {
+        "n": 12,
+        "p50": 0.18024999999943248,
+        "p95": 0.44812500000080036,
+        "p99": 0.44812500000080036
+      },
+      "batchJobCounts": [
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1
+      ],
+      "abortedAttempts": 0,
+      "failedAttempts": 0
+    },
+    {
+      "backend": "crawlee-http-pooled",
+      "concurrency": 8,
+      "batchJobs": 4,
+      "fault": "none",
+      "poolWake": "notify",
+      "block": 0,
+      "status": "verified",
+      "admittedJobs": 12,
+      "verifiedJobs": 12,
+      "verifiedRecords": 192,
+      "startupMs": 445.57908399999906,
+      "workMs": 700.0552499999994,
+      "finalizationMs": 1.3129590000007738,
+      "totalMs": 1146.963083999999,
+      "verifiedJobsPerSecond": 17.109415348479242,
+      "jobsPerSecondIncludingStartup": 10.462411709146176,
+      "peakBufferedJobs": 6,
+      "restarts": 0,
+      "reconciledJobs": 0,
+      "info": [
+        {
+          "generation": 0,
+          "sink": {
+            "backend": "workflow-node",
+            "protocol": 1,
+            "sqlite": "3.53.4",
+            "pragmas": {
+              "journal_mode": "wal",
+              "synchronous": 2,
+              "busy_timeout": 5000,
+              "foreign_keys": 1,
+              "wal_autocheckpoint": 1000,
+              "page_size": 4096
+            },
+            "contract": "WAL FULL; jobs and results committed atomically; lease tokens fence stale commits; receipt replay is idempotent"
+          },
+          "acquisition": {
+            "backend": "crawlee-http-pooled",
+            "protocol": 1,
+            "capabilities": [
+              "http-catalog"
+            ],
+            "versions": {
+              "crawlee": "3.18.2"
+            },
+            "poolWake": "notify",
+            "lifecycle": "one keepAlive crawler and request queue per block; tasks share its bounded pool"
+          }
+        }
+      ],
+      "resources": {
+        "peakRssBytes": 438845440,
+        "peakProcessCount": 6,
+        "samples": 5,
+        "unavailable": false,
+        "method": "sampled sum RSS of process group and descendants; shared pages double-counted; short peaks may be missed",
+        "intervalMs": 250
+      },
+      "ackLatencyMs": {
+        "n": 12,
+        "p50": 284.2021250000016,
+        "p95": 307.8444159999999,
+        "p99": 307.8444159999999
+      },
+      "acquisitionAndExtractionMs": {
+        "n": 12,
+        "p50": 271.95700000000033,
+        "p95": 294.25183300000026,
+        "p99": 294.25183300000026
+      },
+      "validationMs": {
+        "n": 12,
+        "p50": 0.009625000000596629,
+        "p95": 0.015916000000288477,
+        "p99": 0.015916000000288477
+      },
+      "sinkWaitCommitAckMs": {
+        "n": 12,
+        "p50": 11.213415999998688,
+        "p95": 18.441749999999956,
+        "p99": 18.441749999999956
+      },
+      "commitRpcMs": {
+        "n": 6,
+        "p50": 0.6322499999987485,
+        "p95": 6.81079200000022,
+        "p99": 6.81079200000022
+      },
+      "ackRpcMs": {
+        "n": 6,
+        "p50": 0.2655829999985144,
+        "p95": 0.5310420000005251,
+        "p99": 0.5310420000005251
+      },
+      "batchJobCounts": [
+        1,
+        1,
+        4,
+        2,
+        2,
+        2
+      ],
+      "abortedAttempts": 0,
+      "failedAttempts": 0
+    },
+    {
+      "backend": "crawlee-http-pooled",
+      "concurrency": 8,
+      "batchJobs": 1,
+      "fault": "none",
+      "poolWake": "poll",
+      "block": 0,
+      "status": "verified",
+      "admittedJobs": 12,
+      "verifiedJobs": 12,
+      "verifiedRecords": 192,
+      "startupMs": 445.9823749999996,
+      "workMs": 694.9482079999998,
+      "finalizationMs": 1.6042080000006536,
+      "totalMs": 1142.5719580000004,
+      "verifiedJobsPerSecond": 17.22770566056007,
+      "jobsPerSecondIncludingStartup": 10.50262078985838,
+      "peakBufferedJobs": 3,
+      "restarts": 0,
+      "reconciledJobs": 0,
+      "info": [
+        {
+          "generation": 0,
+          "sink": {
+            "backend": "workflow-node",
+            "protocol": 1,
+            "sqlite": "3.53.4",
+            "pragmas": {
+              "journal_mode": "wal",
+              "synchronous": 2,
+              "busy_timeout": 5000,
+              "foreign_keys": 1,
+              "wal_autocheckpoint": 1000,
+              "page_size": 4096
+            },
+            "contract": "WAL FULL; jobs and results committed atomically; lease tokens fence stale commits; receipt replay is idempotent"
+          },
+          "acquisition": {
+            "backend": "crawlee-http-pooled",
+            "protocol": 1,
+            "capabilities": [
+              "http-catalog"
+            ],
+            "versions": {
+              "crawlee": "3.18.2"
+            },
+            "poolWake": "poll",
+            "lifecycle": "one keepAlive crawler and request queue per block; tasks share its bounded pool"
+          }
+        }
+      ],
+      "resources": {
+        "peakRssBytes": 454098944,
+        "peakProcessCount": 6,
+        "samples": 5,
+        "unavailable": false,
+        "method": "sampled sum RSS of process group and descendants; shared pages double-counted; short peaks may be missed",
+        "intervalMs": 250
+      },
+      "ackLatencyMs": {
+        "n": 12,
+        "p50": 276.68829200000073,
+        "p95": 288.627708,
+        "p99": 288.627708
+      },
+      "acquisitionAndExtractionMs": {
+        "n": 12,
+        "p50": 273.37658399999964,
+        "p95": 287.9573330000003,
+        "p99": 287.9573330000003
+      },
+      "validationMs": {
+        "n": 12,
+        "p50": 0.007249999998748535,
+        "p95": 0.010541000001467182,
+        "p99": 0.010541000001467182
+      },
+      "sinkWaitCommitAckMs": {
+        "n": 12,
+        "p50": 0.9615830000002461,
+        "p95": 7.97400000000016,
+        "p99": 7.97400000000016
+      },
+      "commitRpcMs": {
+        "n": 12,
+        "p50": 0.30724999999983993,
+        "p95": 7.242584000001443,
+        "p99": 7.242584000001443
+      },
+      "ackRpcMs": {
+        "n": 12,
+        "p50": 0.15987499999937427,
+        "p95": 0.33799999999973807,
+        "p99": 0.33799999999973807
+      },
+      "batchJobCounts": [
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1
+      ],
+      "abortedAttempts": 0,
+      "failedAttempts": 0
+    },
+    {
+      "backend": "crawlee-http-pooled",
+      "concurrency": 4,
+      "batchJobs": 1,
+      "fault": "none",
+      "poolWake": "poll",
+      "block": 0,
+      "status": "verified",
+      "admittedJobs": 12,
+      "verifiedJobs": 12,
+      "verifiedRecords": 192,
+      "startupMs": 530.4595829999998,
+      "workMs": 1223.2501250000005,
+      "finalizationMs": 1.32524999999805,
+      "totalMs": 1755.0433749999993,
+      "verifiedJobsPerSecond": 9.799315129948628,
+      "jobsPerSecondIncludingStartup": 6.83743784964859,
+      "peakBufferedJobs": 4,
+      "restarts": 0,
+      "reconciledJobs": 0,
+      "info": [
+        {
+          "generation": 0,
+          "sink": {
+            "backend": "workflow-node",
+            "protocol": 1,
+            "sqlite": "3.53.4",
+            "pragmas": {
+              "journal_mode": "wal",
+              "synchronous": 2,
+              "busy_timeout": 5000,
+              "foreign_keys": 1,
+              "wal_autocheckpoint": 1000,
+              "page_size": 4096
+            },
+            "contract": "WAL FULL; jobs and results committed atomically; lease tokens fence stale commits; receipt replay is idempotent"
+          },
+          "acquisition": {
+            "backend": "crawlee-http-pooled",
+            "protocol": 1,
+            "capabilities": [
+              "http-catalog"
+            ],
+            "versions": {
+              "crawlee": "3.18.2"
+            },
+            "poolWake": "poll",
+            "lifecycle": "one keepAlive crawler and request queue per block; tasks share its bounded pool"
+          }
+        }
+      ],
+      "resources": {
+        "peakRssBytes": 441368576,
+        "peakProcessCount": 4,
+        "samples": 7,
+        "unavailable": false,
+        "method": "sampled sum RSS of process group and descendants; shared pages double-counted; short peaks may be missed",
+        "intervalMs": 250
+      },
+      "ackLatencyMs": {
+        "n": 12,
+        "p50": 250.37416600000142,
+        "p95": 516.360791000001,
+        "p99": 516.360791000001
+      },
+      "acquisitionAndExtractionMs": {
+        "n": 12,
+        "p50": 243.24758400000064,
+        "p95": 515.6964580000003,
+        "p99": 515.6964580000003
+      },
+      "validationMs": {
+        "n": 12,
+        "p50": 0.007500000001527951,
+        "p95": 0.014249999998355634,
+        "p99": 0.014249999998355634
+      },
+      "sinkWaitCommitAckMs": {
+        "n": 12,
+        "p50": 1.4633749999993597,
+        "p95": 7.989917000000787,
+        "p99": 7.989917000000787
+      },
+      "commitRpcMs": {
+        "n": 12,
+        "p50": 0.3096669999995356,
+        "p95": 7.018415999998979,
+        "p99": 7.018415999998979
+      },
+      "ackRpcMs": {
+        "n": 12,
+        "p50": 0.17595799999980954,
+        "p95": 0.48624999999992724,
+        "p99": 0.48624999999992724
+      },
+      "batchJobCounts": [
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1
+      ],
+      "abortedAttempts": 0,
+      "failedAttempts": 0
+    },
+    {
+      "backend": "crawlee-http-pooled",
+      "concurrency": 4,
+      "batchJobs": 4,
+      "fault": "none",
+      "poolWake": "notify",
+      "block": 0,
+      "status": "verified",
+      "admittedJobs": 12,
+      "verifiedJobs": 12,
+      "verifiedRecords": 192,
+      "startupMs": 440.0672080000004,
+      "workMs": 703.8069159999977,
+      "finalizationMs": 1.4240830000017013,
+      "totalMs": 1145.3091249999998,
+      "verifiedJobsPerSecond": 17.01570126244551,
+      "jobsPerSecondIncludingStartup": 10.477520643171339,
+      "peakBufferedJobs": 4,
+      "restarts": 0,
+      "reconciledJobs": 0,
+      "info": [
+        {
+          "generation": 0,
+          "sink": {
+            "backend": "workflow-node",
+            "protocol": 1,
+            "sqlite": "3.53.4",
+            "pragmas": {
+              "journal_mode": "wal",
+              "synchronous": 2,
+              "busy_timeout": 5000,
+              "foreign_keys": 1,
+              "wal_autocheckpoint": 1000,
+              "page_size": 4096
+            },
+            "contract": "WAL FULL; jobs and results committed atomically; lease tokens fence stale commits; receipt replay is idempotent"
+          },
+          "acquisition": {
+            "backend": "crawlee-http-pooled",
+            "protocol": 1,
+            "capabilities": [
+              "http-catalog"
+            ],
+            "versions": {
+              "crawlee": "3.18.2"
+            },
+            "poolWake": "notify",
+            "lifecycle": "one keepAlive crawler and request queue per block; tasks share its bounded pool"
+          }
+        }
+      ],
+      "resources": {
+        "peakRssBytes": 464666624,
+        "peakProcessCount": 6,
+        "samples": 5,
+        "unavailable": false,
+        "method": "sampled sum RSS of process group and descendants; shared pages double-counted; short peaks may be missed",
+        "intervalMs": 250
+      },
+      "ackLatencyMs": {
+        "n": 12,
+        "p50": 52.09575000000041,
+        "p95": 244.71700000000055,
+        "p99": 244.71700000000055
+      },
+      "acquisitionAndExtractionMs": {
+        "n": 12,
+        "p50": 48.79108300000007,
+        "p95": 235.81970800000272,
+        "p99": 235.81970800000272
+      },
+      "validationMs": {
+        "n": 12,
+        "p50": 0.007249999998748535,
+        "p95": 0.01599999999962165,
+        "p99": 0.01599999999962165
+      },
+      "sinkWaitCommitAckMs": {
+        "n": 12,
+        "p50": 3.8534169999984442,
+        "p95": 12.897582999998122,
+        "p99": 12.897582999998122
+      },
+      "commitRpcMs": {
+        "n": 3,
+        "p50": 0.7943339999983436,
+        "p95": 7.456791999997222,
+        "p99": 7.456791999997222
+      },
+      "ackRpcMs": {
+        "n": 3,
+        "p50": 0.39829199999803677,
+        "p95": 0.5831660000003467,
+        "p99": 0.5831660000003467
+      },
+      "batchJobCounts": [
+        4,
+        4,
+        4
+      ],
+      "abortedAttempts": 0,
+      "failedAttempts": 0
+    },
+    {
+      "backend": "crawlee-http-pooled",
+      "concurrency": 4,
+      "batchJobs": 4,
+      "fault": "none",
+      "poolWake": "poll",
+      "block": 0,
+      "status": "verified",
+      "admittedJobs": 12,
+      "verifiedJobs": 12,
+      "verifiedRecords": 192,
+      "startupMs": 448.4732499999991,
+      "workMs": 1729.4847919999993,
+      "finalizationMs": 1.3725830000003043,
+      "totalMs": 2179.3386659999996,
+      "verifiedJobsPerSecond": 6.932980252055721,
+      "jobsPerSecondIncludingStartup": 5.506257557493362,
+      "peakBufferedJobs": 4,
+      "restarts": 0,
+      "reconciledJobs": 0,
+      "info": [
+        {
+          "generation": 0,
+          "sink": {
+            "backend": "workflow-node",
+            "protocol": 1,
+            "sqlite": "3.53.4",
+            "pragmas": {
+              "journal_mode": "wal",
+              "synchronous": 2,
+              "busy_timeout": 5000,
+              "foreign_keys": 1,
+              "wal_autocheckpoint": 1000,
+              "page_size": 4096
+            },
+            "contract": "WAL FULL; jobs and results committed atomically; lease tokens fence stale commits; receipt replay is idempotent"
+          },
+          "acquisition": {
+            "backend": "crawlee-http-pooled",
+            "protocol": 1,
+            "capabilities": [
+              "http-catalog"
+            ],
+            "versions": {
+              "crawlee": "3.18.2"
+            },
+            "poolWake": "poll",
+            "lifecycle": "one keepAlive crawler and request queue per block; tasks share its bounded pool"
+          }
+        }
+      ],
+      "resources": {
+        "peakRssBytes": 450183168,
+        "peakProcessCount": 6,
+        "samples": 9,
+        "unavailable": false,
+        "method": "sampled sum RSS of process group and descendants; shared pages double-counted; short peaks may be missed",
+        "intervalMs": 250
+      },
+      "ackLatencyMs": {
+        "n": 12,
+        "p50": 481.0428749999992,
+        "p95": 514.8303750000014,
+        "p99": 514.8303750000014
+      },
+      "acquisitionAndExtractionMs": {
+        "n": 12,
+        "p50": 477.29925000000003,
+        "p95": 512.3373749999992,
+        "p99": 512.3373749999992
+      },
+      "validationMs": {
+        "n": 12,
+        "p50": 0.005000000001018634,
+        "p95": 0.016083000002254266,
+        "p99": 0.016083000002254266
+      },
+      "sinkWaitCommitAckMs": {
+        "n": 12,
+        "p50": 5.0271670000001905,
+        "p95": 11.795082999997248,
+        "p99": 11.795082999997248
+      },
+      "commitRpcMs": {
+        "n": 3,
+        "p50": 1.0024999999986903,
+        "p95": 7.148334000001341,
+        "p99": 7.148334000001341
+      },
+      "ackRpcMs": {
+        "n": 3,
+        "p50": 0.33008300000074087,
+        "p95": 0.33812500000203727,
+        "p99": 0.33812500000203727
+      },
+      "batchJobCounts": [
+        4,
+        4,
+        4
+      ],
+      "abortedAttempts": 0,
+      "failedAttempts": 0
+    },
+    {
+      "backend": "crawlee-http-pooled",
+      "concurrency": 8,
+      "batchJobs": 4,
+      "fault": "none",
+      "poolWake": "poll",
+      "block": 1,
+      "status": "verified",
+      "admittedJobs": 12,
+      "verifiedJobs": 12,
+      "verifiedRecords": 192,
+      "startupMs": 491.34045799999876,
+      "workMs": 1195.4820830000026,
+      "finalizationMs": 1.0093750000014552,
+      "totalMs": 1687.837958,
+      "verifiedJobsPerSecond": 10.029323585860451,
+      "jobsPerSecondIncludingStartup": 7.10968724404052,
+      "peakBufferedJobs": 8,
+      "restarts": 0,
+      "reconciledJobs": 0,
+      "info": [
+        {
+          "generation": 0,
+          "sink": {
+            "backend": "workflow-node",
+            "protocol": 1,
+            "sqlite": "3.53.4",
+            "pragmas": {
+              "journal_mode": "wal",
+              "synchronous": 2,
+              "busy_timeout": 5000,
+              "foreign_keys": 1,
+              "wal_autocheckpoint": 1000,
+              "page_size": 4096
+            },
+            "contract": "WAL FULL; jobs and results committed atomically; lease tokens fence stale commits; receipt replay is idempotent"
+          },
+          "acquisition": {
+            "backend": "crawlee-http-pooled",
+            "protocol": 1,
+            "capabilities": [
+              "http-catalog"
+            ],
+            "versions": {
+              "crawlee": "3.18.2"
+            },
+            "poolWake": "poll",
+            "lifecycle": "one keepAlive crawler and request queue per block; tasks share its bounded pool"
+          }
+        }
+      ],
+      "resources": {
+        "peakRssBytes": 451592192,
+        "peakProcessCount": 5,
+        "samples": 7,
+        "unavailable": false,
+        "method": "sampled sum RSS of process group and descendants; shared pages double-counted; short peaks may be missed",
+        "intervalMs": 250
+      },
+      "ackLatencyMs": {
+        "n": 12,
+        "p50": 277.6317080000008,
+        "p95": 458.7417090000017,
+        "p99": 458.7417090000017
+      },
+      "acquisitionAndExtractionMs": {
+        "n": 12,
+        "p50": 269.74787500000093,
+        "p95": 456.9036669999987,
+        "p99": 456.9036669999987
+      },
+      "validationMs": {
+        "n": 12,
+        "p50": 0.008042000001296401,
+        "p95": 0.03787500000180444,
+        "p99": 0.03787500000180444
+      },
+      "sinkWaitCommitAckMs": {
+        "n": 12,
+        "p50": 7.880249999998341,
+        "p95": 18.01758300000074,
+        "p99": 18.01758300000074
+      },
+      "commitRpcMs": {
+        "n": 3,
+        "p50": 1.087666999999783,
+        "p95": 7.493792000001122,
+        "p99": 7.493792000001122
+      },
+      "ackRpcMs": {
+        "n": 3,
+        "p50": 0.4107499999990978,
+        "p95": 0.7090420000022277,
+        "p99": 0.7090420000022277
+      },
+      "batchJobCounts": [
+        4,
+        4,
+        4
+      ],
+      "abortedAttempts": 0,
+      "failedAttempts": 0
+    },
+    {
+      "backend": "crawlee-http-pooled",
+      "concurrency": 4,
+      "batchJobs": 4,
+      "fault": "none",
+      "poolWake": "poll",
+      "block": 1,
+      "status": "verified",
+      "admittedJobs": 12,
+      "verifiedJobs": 12,
+      "verifiedRecords": 192,
+      "startupMs": 449.6943749999991,
+      "workMs": 1714.9816250000003,
+      "finalizationMs": 2.2134159999986878,
+      "totalMs": 2166.9237079999984,
+      "verifiedJobsPerSecond": 6.988140376303361,
+      "jobsPerSecondIncludingStartup": 5.5378045639989875,
+      "peakBufferedJobs": 4,
+      "restarts": 0,
+      "reconciledJobs": 0,
+      "info": [
+        {
+          "generation": 0,
+          "sink": {
+            "backend": "workflow-node",
+            "protocol": 1,
+            "sqlite": "3.53.4",
+            "pragmas": {
+              "journal_mode": "wal",
+              "synchronous": 2,
+              "busy_timeout": 5000,
+              "foreign_keys": 1,
+              "wal_autocheckpoint": 1000,
+              "page_size": 4096
+            },
+            "contract": "WAL FULL; jobs and results committed atomically; lease tokens fence stale commits; receipt replay is idempotent"
+          },
+          "acquisition": {
+            "backend": "crawlee-http-pooled",
+            "protocol": 1,
+            "capabilities": [
+              "http-catalog"
+            ],
+            "versions": {
+              "crawlee": "3.18.2"
+            },
+            "poolWake": "poll",
+            "lifecycle": "one keepAlive crawler and request queue per block; tasks share its bounded pool"
+          }
+        }
+      ],
+      "resources": {
+        "peakRssBytes": 449822720,
+        "peakProcessCount": 6,
+        "samples": 9,
+        "unavailable": false,
+        "method": "sampled sum RSS of process group and descendants; shared pages double-counted; short peaks may be missed",
+        "intervalMs": 250
+      },
+      "ackLatencyMs": {
+        "n": 12,
+        "p50": 480.4572499999995,
+        "p95": 503.4768750000003,
+        "p99": 503.4768750000003
+      },
+      "acquisitionAndExtractionMs": {
+        "n": 12,
+        "p50": 476.29925000000003,
+        "p95": 500.52229199999783,
+        "p99": 500.52229199999783
+      },
+      "validationMs": {
+        "n": 12,
+        "p50": 0.009375000001455192,
+        "p95": 0.016083000002254266,
+        "p99": 0.016083000002254266
+      },
+      "sinkWaitCommitAckMs": {
+        "n": 12,
+        "p50": 4.305458999999246,
+        "p95": 12.636083000001236,
+        "p99": 12.636083000001236
+      },
+      "commitRpcMs": {
+        "n": 3,
+        "p50": 1.5657919999976002,
+        "p95": 7.626082999999198,
+        "p99": 7.626082999999198
+      },
+      "ackRpcMs": {
+        "n": 3,
+        "p50": 0.35900000000037835,
+        "p95": 0.5307079999984126,
+        "p99": 0.5307079999984126
+      },
+      "batchJobCounts": [
+        4,
+        4,
+        4
+      ],
+      "abortedAttempts": 0,
+      "failedAttempts": 0
+    },
+    {
+      "backend": "crawlee-http-pooled",
+      "concurrency": 4,
+      "batchJobs": 4,
+      "fault": "none",
+      "poolWake": "notify",
+      "block": 1,
+      "status": "verified",
+      "admittedJobs": 12,
+      "verifiedJobs": 12,
+      "verifiedRecords": 192,
+      "startupMs": 458.89395899999727,
+      "workMs": 706.8782910000009,
+      "finalizationMs": 1.4866670000010345,
+      "totalMs": 1167.2657089999993,
+      "verifiedJobsPerSecond": 16.940420138625726,
+      "jobsPerSecondIncludingStartup": 10.280435643295341,
+      "peakBufferedJobs": 4,
+      "restarts": 0,
+      "reconciledJobs": 0,
+      "info": [
+        {
+          "generation": 0,
+          "sink": {
+            "backend": "workflow-node",
+            "protocol": 1,
+            "sqlite": "3.53.4",
+            "pragmas": {
+              "journal_mode": "wal",
+              "synchronous": 2,
+              "busy_timeout": 5000,
+              "foreign_keys": 1,
+              "wal_autocheckpoint": 1000,
+              "page_size": 4096
+            },
+            "contract": "WAL FULL; jobs and results committed atomically; lease tokens fence stale commits; receipt replay is idempotent"
+          },
+          "acquisition": {
+            "backend": "crawlee-http-pooled",
+            "protocol": 1,
+            "capabilities": [
+              "http-catalog"
+            ],
+            "versions": {
+              "crawlee": "3.18.2"
+            },
+            "poolWake": "notify",
+            "lifecycle": "one keepAlive crawler and request queue per block; tasks share its bounded pool"
+          }
+        }
+      ],
+      "resources": {
+        "peakRssBytes": 448954368,
+        "peakProcessCount": 6,
+        "samples": 5,
+        "unavailable": false,
+        "method": "sampled sum RSS of process group and descendants; shared pages double-counted; short peaks may be missed",
+        "intervalMs": 250
+      },
+      "ackLatencyMs": {
+        "n": 12,
+        "p50": 57.68779100000029,
+        "p95": 246.61654099999942,
+        "p99": 246.61654099999942
+      },
+      "acquisitionAndExtractionMs": {
+        "n": 12,
+        "p50": 53.060959000002185,
+        "p95": 238.24604199999885,
+        "p99": 238.24604199999885
+      },
+      "validationMs": {
+        "n": 12,
+        "p50": 0.006957999998121522,
+        "p95": 0.013624999999592546,
+        "p99": 0.013624999999592546
+      },
+      "sinkWaitCommitAckMs": {
+        "n": 12,
+        "p50": 4.638834000001225,
+        "p95": 12.209124999997584,
+        "p99": 12.209124999997584
+      },
+      "commitRpcMs": {
+        "n": 3,
+        "p50": 0.9677909999991243,
+        "p95": 7.275000000001455,
+        "p99": 7.275000000001455
+      },
+      "ackRpcMs": {
+        "n": 3,
+        "p50": 0.3054169999995793,
+        "p95": 0.3158340000009048,
+        "p99": 0.3158340000009048
+      },
+      "batchJobCounts": [
+        4,
+        4,
+        4
+      ],
+      "abortedAttempts": 0,
+      "failedAttempts": 0
+    },
+    {
+      "backend": "crawlee-http-pooled",
+      "concurrency": 8,
+      "batchJobs": 1,
+      "fault": "none",
+      "poolWake": "notify",
+      "block": 1,
+      "status": "verified",
+      "admittedJobs": 12,
+      "verifiedJobs": 12,
+      "verifiedRecords": 192,
+      "startupMs": 452.6102080000019,
+      "workMs": 718.5443330000016,
+      "finalizationMs": 1.1160000000018044,
+      "totalMs": 1172.2759579999984,
+      "verifiedJobsPerSecond": 16.6745330397416,
+      "jobsPerSecondIncludingStartup": 10.236497573892935,
+      "peakBufferedJobs": 3,
+      "restarts": 0,
+      "reconciledJobs": 0,
+      "info": [
+        {
+          "generation": 0,
+          "sink": {
+            "backend": "workflow-node",
+            "protocol": 1,
+            "sqlite": "3.53.4",
+            "pragmas": {
+              "journal_mode": "wal",
+              "synchronous": 2,
+              "busy_timeout": 5000,
+              "foreign_keys": 1,
+              "wal_autocheckpoint": 1000,
+              "page_size": 4096
+            },
+            "contract": "WAL FULL; jobs and results committed atomically; lease tokens fence stale commits; receipt replay is idempotent"
+          },
+          "acquisition": {
+            "backend": "crawlee-http-pooled",
+            "protocol": 1,
+            "capabilities": [
+              "http-catalog"
+            ],
+            "versions": {
+              "crawlee": "3.18.2"
+            },
+            "poolWake": "notify",
+            "lifecycle": "one keepAlive crawler and request queue per block; tasks share its bounded pool"
+          }
+        }
+      ],
+      "resources": {
+        "peakRssBytes": 419823616,
+        "peakProcessCount": 6,
+        "samples": 5,
+        "unavailable": false,
+        "method": "sampled sum RSS of process group and descendants; shared pages double-counted; short peaks may be missed",
+        "intervalMs": 250
+      },
+      "ackLatencyMs": {
+        "n": 12,
+        "p50": 366.06433299999844,
+        "p95": 400.8184160000019,
+        "p99": 400.8184160000019
+      },
+      "acquisitionAndExtractionMs": {
+        "n": 12,
+        "p50": 364.44837499999994,
+        "p95": 400.1052500000005,
+        "p99": 400.1052500000005
+      },
+      "validationMs": {
+        "n": 12,
+        "p50": 0.012709000002359971,
+        "p95": 0.07670900000084657,
+        "p99": 0.07670900000084657
+      },
+      "sinkWaitCommitAckMs": {
+        "n": 12,
+        "p50": 1.742500000000291,
+        "p95": 12.36858299999949,
+        "p99": 12.36858299999949
+      },
+      "commitRpcMs": {
+        "n": 12,
+        "p50": 0.44216600000072503,
+        "p95": 10.404374999998254,
+        "p99": 10.404374999998254
+      },
+      "ackRpcMs": {
+        "n": 12,
+        "p50": 0.21904199999698903,
+        "p95": 0.9628750000010768,
+        "p99": 0.9628750000010768
+      },
+      "batchJobCounts": [
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1
+      ],
+      "abortedAttempts": 0,
+      "failedAttempts": 0
+    },
+    {
+      "backend": "crawlee-http-pooled",
+      "concurrency": 1,
+      "batchJobs": 1,
+      "fault": "none",
+      "poolWake": "poll",
+      "block": 1,
+      "status": "verified",
+      "admittedJobs": 12,
+      "verifiedJobs": 12,
+      "verifiedRecords": 192,
+      "startupMs": 449.0793749999975,
+      "workMs": 6300.953750000001,
+      "finalizationMs": 1.5659579999992275,
+      "totalMs": 6751.607082999999,
+      "verifiedJobsPerSecond": 1.9040003928536704,
+      "jobsPerSecondIncludingStartup": 1.777354613868901,
+      "peakBufferedJobs": 1,
+      "restarts": 0,
+      "reconciledJobs": 0,
+      "info": [
+        {
+          "generation": 0,
+          "sink": {
+            "backend": "workflow-node",
+            "protocol": 1,
+            "sqlite": "3.53.4",
+            "pragmas": {
+              "journal_mode": "wal",
+              "synchronous": 2,
+              "busy_timeout": 5000,
+              "foreign_keys": 1,
+              "wal_autocheckpoint": 1000,
+              "page_size": 4096
+            },
+            "contract": "WAL FULL; jobs and results committed atomically; lease tokens fence stale commits; receipt replay is idempotent"
+          },
+          "acquisition": {
+            "backend": "crawlee-http-pooled",
+            "protocol": 1,
+            "capabilities": [
+              "http-catalog"
+            ],
+            "versions": {
+              "crawlee": "3.18.2"
+            },
+            "poolWake": "poll",
+            "lifecycle": "one keepAlive crawler and request queue per block; tasks share its bounded pool"
+          }
+        }
+      ],
+      "resources": {
+        "peakRssBytes": 411598848,
+        "peakProcessCount": 6,
+        "samples": 27,
+        "unavailable": false,
+        "method": "sampled sum RSS of process group and descendants; shared pages double-counted; short peaks may be missed",
+        "intervalMs": 250
+      },
+      "ackLatencyMs": {
+        "n": 12,
+        "p50": 501.45170799999687,
+        "p95": 522.6579160000001,
+        "p99": 522.6579160000001
+      },
+      "acquisitionAndExtractionMs": {
+        "n": 12,
+        "p50": 499.78145799999766,
+        "p95": 520.6638330000023,
+        "p99": 520.6638330000023
+      },
+      "validationMs": {
+        "n": 12,
+        "p50": 0.015417000002344139,
+        "p95": 0.02537500000107684,
+        "p99": 0.02537500000107684
+      },
+      "sinkWaitCommitAckMs": {
+        "n": 12,
+        "p50": 1.9691669999992882,
+        "p95": 9.98633300000074,
+        "p99": 9.98633300000074
+      },
+      "commitRpcMs": {
+        "n": 12,
+        "p50": 0.9353330000012647,
+        "p95": 7.4603749999987485,
+        "p99": 7.4603749999987485
+      },
+      "ackRpcMs": {
+        "n": 12,
+        "p50": 0.2984169999981532,
+        "p95": 3.2159579999970447,
+        "p99": 3.2159579999970447
+      },
+      "batchJobCounts": [
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1
+      ],
+      "abortedAttempts": 0,
+      "failedAttempts": 0
+    },
+    {
+      "backend": "crawlee-http-pooled",
+      "concurrency": 1,
+      "batchJobs": 1,
+      "fault": "none",
+      "poolWake": "notify",
+      "block": 1,
+      "status": "verified",
+      "admittedJobs": 12,
+      "verifiedJobs": 12,
+      "verifiedRecords": 192,
+      "startupMs": 449.682249999998,
+      "workMs": 678.6320839999971,
+      "finalizationMs": 1.1215420000007725,
+      "totalMs": 1129.4421250000014,
+      "verifiedJobsPerSecond": 17.653454929860185,
+      "jobsPerSecondIncludingStartup": 10.624714391629395,
+      "peakBufferedJobs": 1,
+      "restarts": 0,
+      "reconciledJobs": 0,
+      "info": [
+        {
+          "generation": 0,
+          "sink": {
+            "backend": "workflow-node",
+            "protocol": 1,
+            "sqlite": "3.53.4",
+            "pragmas": {
+              "journal_mode": "wal",
+              "synchronous": 2,
+              "busy_timeout": 5000,
+              "foreign_keys": 1,
+              "wal_autocheckpoint": 1000,
+              "page_size": 4096
+            },
+            "contract": "WAL FULL; jobs and results committed atomically; lease tokens fence stale commits; receipt replay is idempotent"
+          },
+          "acquisition": {
+            "backend": "crawlee-http-pooled",
+            "protocol": 1,
+            "capabilities": [
+              "http-catalog"
+            ],
+            "versions": {
+              "crawlee": "3.18.2"
+            },
+            "poolWake": "notify",
+            "lifecycle": "one keepAlive crawler and request queue per block; tasks share its bounded pool"
+          }
+        }
+      ],
+      "resources": {
+        "peakRssBytes": 459587584,
+        "peakProcessCount": 6,
+        "samples": 5,
+        "unavailable": false,
+        "method": "sampled sum RSS of process group and descendants; shared pages double-counted; short peaks may be missed",
+        "intervalMs": 250
+      },
+      "ackLatencyMs": {
+        "n": 12,
+        "p50": 38.199541999994835,
+        "p95": 213.45558300000266,
+        "p99": 213.45558300000266
+      },
+      "acquisitionAndExtractionMs": {
+        "n": 12,
+        "p50": 37.02825000000303,
+        "p95": 205.8952500000014,
+        "p99": 205.8952500000014
+      },
+      "validationMs": {
+        "n": 12,
+        "p50": 0.010000000002037268,
+        "p95": 0.013542000000597909,
+        "p99": 0.013542000000597909
+      },
+      "sinkWaitCommitAckMs": {
+        "n": 12,
+        "p50": 1.176166999997804,
+        "p95": 7.550042000002577,
+        "p99": 7.550042000002577
+      },
+      "commitRpcMs": {
+        "n": 12,
+        "p50": 0.6177500000048894,
+        "p95": 6.8032079999975394,
+        "p99": 6.8032079999975394
+      },
+      "ackRpcMs": {
+        "n": 12,
+        "p50": 0.2507499999992433,
+        "p95": 0.4068330000009155,
+        "p99": 0.4068330000009155
+      },
+      "batchJobCounts": [
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1
+      ],
+      "abortedAttempts": 0,
+      "failedAttempts": 0
+    },
+    {
+      "backend": "crawlee-http-pooled",
+      "concurrency": 4,
+      "batchJobs": 1,
+      "fault": "none",
+      "poolWake": "poll",
+      "block": 1,
+      "status": "verified",
+      "admittedJobs": 12,
+      "verifiedJobs": 12,
+      "verifiedRecords": 192,
+      "startupMs": 436.9557910000003,
+      "workMs": 1717.2226249999949,
+      "finalizationMs": 1.0877499999987776,
+      "totalMs": 2155.270958000001,
+      "verifiedJobsPerSecond": 6.983604460864671,
+      "jobsPerSecondIncludingStartup": 5.567745417557839,
+      "peakBufferedJobs": 4,
+      "restarts": 0,
+      "reconciledJobs": 0,
+      "info": [
+        {
+          "generation": 0,
+          "sink": {
+            "backend": "workflow-node",
+            "protocol": 1,
+            "sqlite": "3.53.4",
+            "pragmas": {
+              "journal_mode": "wal",
+              "synchronous": 2,
+              "busy_timeout": 5000,
+              "foreign_keys": 1,
+              "wal_autocheckpoint": 1000,
+              "page_size": 4096
+            },
+            "contract": "WAL FULL; jobs and results committed atomically; lease tokens fence stale commits; receipt replay is idempotent"
+          },
+          "acquisition": {
+            "backend": "crawlee-http-pooled",
+            "protocol": 1,
+            "capabilities": [
+              "http-catalog"
+            ],
+            "versions": {
+              "crawlee": "3.18.2"
+            },
+            "poolWake": "poll",
+            "lifecycle": "one keepAlive crawler and request queue per block; tasks share its bounded pool"
+          }
+        }
+      ],
+      "resources": {
+        "peakRssBytes": 465420288,
+        "peakProcessCount": 6,
+        "samples": 9,
+        "unavailable": false,
+        "method": "sampled sum RSS of process group and descendants; shared pages double-counted; short peaks may be missed",
+        "intervalMs": 250
+      },
+      "ackLatencyMs": {
+        "n": 12,
+        "p50": 481.02695899999526,
+        "p95": 509.4099169999972,
+        "p99": 509.4099169999972
+      },
+      "acquisitionAndExtractionMs": {
+        "n": 12,
+        "p50": 479.28787499999453,
+        "p95": 507.63704199999484,
+        "p99": 507.63704199999484
+      },
+      "validationMs": {
+        "n": 12,
+        "p50": 0.007333000001381151,
+        "p95": 0.02841700000135461,
+        "p99": 0.02841700000135461
+      },
+      "sinkWaitCommitAckMs": {
+        "n": 12,
+        "p50": 1.8561659999977564,
+        "p95": 8.10254200000054,
+        "p99": 8.10254200000054
+      },
+      "commitRpcMs": {
+        "n": 12,
+        "p50": 0.28554199999780394,
+        "p95": 7.125208999997994,
+        "p99": 7.125208999997994
+      },
+      "ackRpcMs": {
+        "n": 12,
+        "p50": 0.22016699999949196,
+        "p95": 0.43637499999749707,
+        "p99": 0.43637499999749707
+      },
+      "batchJobCounts": [
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1
+      ],
+      "abortedAttempts": 0,
+      "failedAttempts": 0
+    },
+    {
+      "backend": "crawlee-http-pooled",
+      "concurrency": 8,
+      "batchJobs": 1,
+      "fault": "none",
+      "poolWake": "poll",
+      "block": 1,
+      "status": "verified",
+      "admittedJobs": 12,
+      "verifiedJobs": 12,
+      "verifiedRecords": 192,
+      "startupMs": 423.7543330000044,
+      "workMs": 693.5159160000039,
+      "finalizationMs": 1.0097079999977723,
+      "totalMs": 1118.2858750000014,
+      "verifiedJobsPerSecond": 17.27798022899148,
+      "jobsPerSecondIncludingStartup": 10.730708728660268,
+      "peakBufferedJobs": 3,
+      "restarts": 0,
+      "reconciledJobs": 0,
+      "info": [
+        {
+          "generation": 0,
+          "sink": {
+            "backend": "workflow-node",
+            "protocol": 1,
+            "sqlite": "3.53.4",
+            "pragmas": {
+              "journal_mode": "wal",
+              "synchronous": 2,
+              "busy_timeout": 5000,
+              "foreign_keys": 1,
+              "wal_autocheckpoint": 1000,
+              "page_size": 4096
+            },
+            "contract": "WAL FULL; jobs and results committed atomically; lease tokens fence stale commits; receipt replay is idempotent"
+          },
+          "acquisition": {
+            "backend": "crawlee-http-pooled",
+            "protocol": 1,
+            "capabilities": [
+              "http-catalog"
+            ],
+            "versions": {
+              "crawlee": "3.18.2"
+            },
+            "poolWake": "poll",
+            "lifecycle": "one keepAlive crawler and request queue per block; tasks share its bounded pool"
+          }
+        }
+      ],
+      "resources": {
+        "peakRssBytes": 474267648,
+        "peakProcessCount": 5,
+        "samples": 5,
+        "unavailable": false,
+        "method": "sampled sum RSS of process group and descendants; shared pages double-counted; short peaks may be missed",
+        "intervalMs": 250
+      },
+      "ackLatencyMs": {
+        "n": 12,
+        "p50": 276.7167499999996,
+        "p95": 292.97954200000095,
+        "p99": 292.97954200000095
+      },
+      "acquisitionAndExtractionMs": {
+        "n": 12,
+        "p50": 275.4119590000046,
+        "p95": 292.17945899999904,
+        "p99": 292.17945899999904
+      },
+      "validationMs": {
+        "n": 12,
+        "p50": 0.008333999998285435,
+        "p95": 0.010041000001365319,
+        "p99": 0.010041000001365319
+      },
+      "sinkWaitCommitAckMs": {
+        "n": 12,
+        "p50": 0.8595829999976559,
+        "p95": 8.494166000004043,
+        "p99": 8.494166000004043
+      },
+      "commitRpcMs": {
+        "n": 12,
+        "p50": 0.2736250000016298,
+        "p95": 7.670458000000508,
+        "p99": 7.670458000000508
+      },
+      "ackRpcMs": {
+        "n": 12,
+        "p50": 0.15362499999901047,
+        "p95": 0.39483299999847077,
+        "p99": 0.39483299999847077
+      },
+      "batchJobCounts": [
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1
+      ],
+      "abortedAttempts": 0,
+      "failedAttempts": 0
+    },
+    {
+      "backend": "crawlee-http-pooled",
+      "concurrency": 4,
+      "batchJobs": 1,
+      "fault": "none",
+      "poolWake": "notify",
+      "block": 1,
+      "status": "verified",
+      "admittedJobs": 12,
+      "verifiedJobs": 12,
+      "verifiedRecords": 192,
+      "startupMs": 433.03549999999814,
+      "workMs": 698.8725829999967,
+      "finalizationMs": 1.0232079999987036,
+      "totalMs": 1132.942332999999,
+      "verifiedJobsPerSecond": 17.14540957998143,
+      "jobsPerSecondIncludingStartup": 10.59188949911011,
+      "peakBufferedJobs": 4,
+      "restarts": 0,
+      "reconciledJobs": 0,
+      "info": [
+        {
+          "generation": 0,
+          "sink": {
+            "backend": "workflow-node",
+            "protocol": 1,
+            "sqlite": "3.53.4",
+            "pragmas": {
+              "journal_mode": "wal",
+              "synchronous": 2,
+              "busy_timeout": 5000,
+              "foreign_keys": 1,
+              "wal_autocheckpoint": 1000,
+              "page_size": 4096
+            },
+            "contract": "WAL FULL; jobs and results committed atomically; lease tokens fence stale commits; receipt replay is idempotent"
+          },
+          "acquisition": {
+            "backend": "crawlee-http-pooled",
+            "protocol": 1,
+            "capabilities": [
+              "http-catalog"
+            ],
+            "versions": {
+              "crawlee": "3.18.2"
+            },
+            "poolWake": "notify",
+            "lifecycle": "one keepAlive crawler and request queue per block; tasks share its bounded pool"
+          }
+        }
+      ],
+      "resources": {
+        "peakRssBytes": 454066176,
+        "peakProcessCount": 6,
+        "samples": 5,
+        "unavailable": false,
+        "method": "sampled sum RSS of process group and descendants; shared pages double-counted; short peaks may be missed",
+        "intervalMs": 250
+      },
+      "ackLatencyMs": {
+        "n": 12,
+        "p50": 102.27133300000423,
+        "p95": 256.4160420000044,
+        "p99": 256.4160420000044
+      },
+      "acquisitionAndExtractionMs": {
+        "n": 12,
+        "p50": 97.94879099999525,
+        "p95": 252.5870419999992,
+        "p99": 252.5870419999992
+      },
+      "validationMs": {
+        "n": 12,
+        "p50": 0.01037499999802094,
+        "p95": 0.014750000002095476,
+        "p99": 0.014750000002095476
+      },
+      "sinkWaitCommitAckMs": {
+        "n": 12,
+        "p50": 3.817083999994793,
+        "p95": 8.552374999999302,
+        "p99": 8.552374999999302
+      },
+      "commitRpcMs": {
+        "n": 12,
+        "p50": 0.4852499999979045,
+        "p95": 6.985082999999577,
+        "p99": 6.985082999999577
+      },
+      "ackRpcMs": {
+        "n": 12,
+        "p50": 0.23475000000325963,
+        "p95": 0.4945000000006985,
+        "p99": 0.4945000000006985
+      },
+      "batchJobCounts": [
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1
+      ],
+      "abortedAttempts": 0,
+      "failedAttempts": 0
+    },
+    {
+      "backend": "crawlee-http-pooled",
+      "concurrency": 8,
+      "batchJobs": 4,
+      "fault": "none",
+      "poolWake": "notify",
+      "block": 1,
+      "status": "verified",
+      "admittedJobs": 12,
+      "verifiedJobs": 12,
+      "verifiedRecords": 192,
+      "startupMs": 539.3431659999987,
+      "workMs": 720.9983750000029,
+      "finalizationMs": 1.3922080000047572,
+      "totalMs": 1261.746874999997,
+      "verifiedJobsPerSecond": 16.611512223990154,
+      "jobsPerSecondIncludingStartup": 9.510623911788985,
+      "peakBufferedJobs": 4,
+      "restarts": 0,
+      "reconciledJobs": 0,
+      "info": [
+        {
+          "generation": 0,
+          "sink": {
+            "backend": "workflow-node",
+            "protocol": 1,
+            "sqlite": "3.53.4",
+            "pragmas": {
+              "journal_mode": "wal",
+              "synchronous": 2,
+              "busy_timeout": 5000,
+              "foreign_keys": 1,
+              "wal_autocheckpoint": 1000,
+              "page_size": 4096
+            },
+            "contract": "WAL FULL; jobs and results committed atomically; lease tokens fence stale commits; receipt replay is idempotent"
+          },
+          "acquisition": {
+            "backend": "crawlee-http-pooled",
+            "protocol": 1,
+            "capabilities": [
+              "http-catalog"
+            ],
+            "versions": {
+              "crawlee": "3.18.2"
+            },
+            "poolWake": "notify",
+            "lifecycle": "one keepAlive crawler and request queue per block; tasks share its bounded pool"
+          }
+        }
+      ],
+      "resources": {
+        "peakRssBytes": 438075392,
+        "peakProcessCount": 4,
+        "samples": 5,
+        "unavailable": false,
+        "method": "sampled sum RSS of process group and descendants; shared pages double-counted; short peaks may be missed",
+        "intervalMs": 250
+      },
+      "ackLatencyMs": {
+        "n": 12,
+        "p50": 313.64395800000057,
+        "p95": 335.2676250000004,
+        "p99": 335.2676250000004
+      },
+      "acquisitionAndExtractionMs": {
+        "n": 12,
+        "p50": 309.9670829999959,
+        "p95": 328.86504199999763,
+        "p99": 328.86504199999763
+      },
+      "validationMs": {
+        "n": 12,
+        "p50": 0.010750000001280569,
+        "p95": 0.019500000002153683,
+        "p99": 0.019500000002153683
+      },
+      "sinkWaitCommitAckMs": {
+        "n": 12,
+        "p50": 4.005582999998296,
+        "p95": 20.97216599999956,
+        "p99": 20.97216599999956
+      },
+      "commitRpcMs": {
+        "n": 4,
+        "p50": 1.5915839999943273,
+        "p95": 9.73029200000019,
+        "p99": 9.73029200000019
+      },
+      "ackRpcMs": {
+        "n": 4,
+        "p50": 0.5754170000000158,
+        "p95": 1.24708400000236,
+        "p99": 1.24708400000236
+      },
+      "batchJobCounts": [
+        1,
+        4,
+        3,
+        4
+      ],
+      "abortedAttempts": 0,
+      "failedAttempts": 0
+    }
+  ],
+  "sourceChanges": [],
+  "binaryChanged": false
+}

@@ -1,0 +1,317 @@
+{
+  "capturedAt": "2026-10-07T23:58:03.265Z",
+  "directory": "results/sqlite-readers-2026-10-07T23-52-02-741Z-c5571c",
+  "cells": [
+    {
+      "index": 20,
+      "block": 0,
+      "engine": "rust-sync",
+      "writers": 4,
+      "readerMode": "short",
+      "error": "Error: database is locked",
+      "persistedRows": 0,
+      "file": "results/sqlite-readers-2026-10-07T23-52-02-741Z-c5571c/cell-20-b0/records.sqlite"
+    },
+    {
+      "index": 34,
+      "block": 0,
+      "engine": "go-sync",
+      "writers": 4,
+      "readerMode": "held",
+      "error": "Error: database is locked",
+      "persistedRows": 0,
+      "file": "results/sqlite-readers-2026-10-07T23-52-02-741Z-c5571c/cell-34-b0/records.sqlite"
+    },
+    {
+      "index": 23,
+      "block": 0,
+      "engine": "rust-sync",
+      "writers": 4,
+      "readerMode": "held",
+      "error": "Error: database is locked",
+      "persistedRows": 0,
+      "file": "results/sqlite-readers-2026-10-07T23-52-02-741Z-c5571c/cell-23-b0/records.sqlite"
+    },
+    {
+      "index": 21,
+      "block": 0,
+      "engine": "rust-sync",
+      "writers": 4,
+      "readerMode": "short",
+      "error": "Error: database is locked",
+      "persistedRows": 0,
+      "file": "results/sqlite-readers-2026-10-07T23-52-02-741Z-c5571c/cell-21-b0/records.sqlite"
+    },
+    {
+      "index": 31,
+      "block": 0,
+      "engine": "go-sync",
+      "writers": 4,
+      "readerMode": "none",
+      "error": "Error: database is locked",
+      "persistedRows": 0,
+      "file": "results/sqlite-readers-2026-10-07T23-52-02-741Z-c5571c/cell-31-b0/records.sqlite"
+    },
+    {
+      "index": 33,
+      "block": 0,
+      "engine": "go-sync",
+      "writers": 4,
+      "readerMode": "short",
+      "error": "Error: database is locked",
+      "persistedRows": 0,
+      "file": "results/sqlite-readers-2026-10-07T23-52-02-741Z-c5571c/cell-33-b0/records.sqlite"
+    },
+    {
+      "index": 30,
+      "block": 0,
+      "engine": "go-sync",
+      "writers": 4,
+      "readerMode": "none",
+      "error": "Error: database is locked",
+      "persistedRows": 0,
+      "file": "results/sqlite-readers-2026-10-07T23-52-02-741Z-c5571c/cell-30-b0/records.sqlite"
+    },
+    {
+      "index": 18,
+      "block": 0,
+      "engine": "rust-sync",
+      "writers": 4,
+      "readerMode": "none",
+      "error": "Error: database is locked",
+      "persistedRows": 0,
+      "file": "results/sqlite-readers-2026-10-07T23-52-02-741Z-c5571c/cell-18-b0/records.sqlite"
+    },
+    {
+      "index": 32,
+      "block": 0,
+      "engine": "go-sync",
+      "writers": 4,
+      "readerMode": "short",
+      "error": "Error: database is locked",
+      "persistedRows": 0,
+      "file": "results/sqlite-readers-2026-10-07T23-52-02-741Z-c5571c/cell-32-b0/records.sqlite"
+    },
+    {
+      "index": 34,
+      "block": 1,
+      "engine": "go-sync",
+      "writers": 4,
+      "readerMode": "held",
+      "error": "Error: database is locked",
+      "persistedRows": 0,
+      "file": "results/sqlite-readers-2026-10-07T23-52-02-741Z-c5571c/cell-34-b1/records.sqlite"
+    },
+    {
+      "index": 35,
+      "block": 1,
+      "engine": "go-sync",
+      "writers": 4,
+      "readerMode": "held",
+      "error": "Error: database is locked",
+      "persistedRows": 0,
+      "file": "results/sqlite-readers-2026-10-07T23-52-02-741Z-c5571c/cell-35-b1/records.sqlite"
+    },
+    {
+      "index": 18,
+      "block": 1,
+      "engine": "rust-sync",
+      "writers": 4,
+      "readerMode": "none",
+      "error": "Error: database is locked",
+      "persistedRows": 0,
+      "file": "results/sqlite-readers-2026-10-07T23-52-02-741Z-c5571c/cell-18-b1/records.sqlite"
+    },
+    {
+      "index": 20,
+      "block": 1,
+      "engine": "rust-sync",
+      "writers": 4,
+      "readerMode": "short",
+      "error": "Error: database is locked",
+      "persistedRows": 0,
+      "file": "results/sqlite-readers-2026-10-07T23-52-02-741Z-c5571c/cell-20-b1/records.sqlite"
+    },
+    {
+      "index": 32,
+      "block": 1,
+      "engine": "go-sync",
+      "writers": 4,
+      "readerMode": "short",
+      "error": "Error: database is locked",
+      "persistedRows": 0,
+      "file": "results/sqlite-readers-2026-10-07T23-52-02-741Z-c5571c/cell-32-b1/records.sqlite"
+    },
+    {
+      "index": 30,
+      "block": 1,
+      "engine": "go-sync",
+      "writers": 4,
+      "readerMode": "none",
+      "error": "Error: database is locked",
+      "persistedRows": 0,
+      "file": "results/sqlite-readers-2026-10-07T23-52-02-741Z-c5571c/cell-30-b1/records.sqlite"
+    },
+    {
+      "index": 22,
+      "block": 1,
+      "engine": "rust-sync",
+      "writers": 4,
+      "readerMode": "held",
+      "error": "Error: database is locked",
+      "persistedRows": 0,
+      "file": "results/sqlite-readers-2026-10-07T23-52-02-741Z-c5571c/cell-22-b1/records.sqlite"
+    },
+    {
+      "index": 33,
+      "block": 1,
+      "engine": "go-sync",
+      "writers": 4,
+      "readerMode": "short",
+      "error": "Error: database is locked",
+      "persistedRows": 0,
+      "file": "results/sqlite-readers-2026-10-07T23-52-02-741Z-c5571c/cell-33-b1/records.sqlite"
+    },
+    {
+      "index": 31,
+      "block": 1,
+      "engine": "go-sync",
+      "writers": 4,
+      "readerMode": "none",
+      "error": "Error: database is locked",
+      "persistedRows": 0,
+      "file": "results/sqlite-readers-2026-10-07T23-52-02-741Z-c5571c/cell-31-b1/records.sqlite"
+    },
+    {
+      "index": 19,
+      "block": 1,
+      "engine": "rust-sync",
+      "writers": 4,
+      "readerMode": "none",
+      "error": "Error: database is locked",
+      "persistedRows": 0,
+      "file": "results/sqlite-readers-2026-10-07T23-52-02-741Z-c5571c/cell-19-b1/records.sqlite"
+    },
+    {
+      "index": 19,
+      "block": 2,
+      "engine": "rust-sync",
+      "writers": 4,
+      "readerMode": "none",
+      "error": "Error: database is locked",
+      "persistedRows": 0,
+      "file": "results/sqlite-readers-2026-10-07T23-52-02-741Z-c5571c/cell-19-b2/records.sqlite"
+    },
+    {
+      "index": 20,
+      "block": 2,
+      "engine": "rust-sync",
+      "writers": 4,
+      "readerMode": "short",
+      "error": "Error: database is locked",
+      "persistedRows": 0,
+      "file": "results/sqlite-readers-2026-10-07T23-52-02-741Z-c5571c/cell-20-b2/records.sqlite"
+    },
+    {
+      "index": 32,
+      "block": 2,
+      "engine": "go-sync",
+      "writers": 4,
+      "readerMode": "short",
+      "error": "Error: database is locked",
+      "persistedRows": 0,
+      "file": "results/sqlite-readers-2026-10-07T23-52-02-741Z-c5571c/cell-32-b2/records.sqlite"
+    },
+    {
+      "index": 23,
+      "block": 2,
+      "engine": "rust-sync",
+      "writers": 4,
+      "readerMode": "held",
+      "error": "Error: database is locked",
+      "persistedRows": 0,
+      "file": "results/sqlite-readers-2026-10-07T23-52-02-741Z-c5571c/cell-23-b2/records.sqlite"
+    },
+    {
+      "index": 21,
+      "block": 2,
+      "engine": "rust-sync",
+      "writers": 4,
+      "readerMode": "short",
+      "error": "Error: database is locked",
+      "persistedRows": 0,
+      "file": "results/sqlite-readers-2026-10-07T23-52-02-741Z-c5571c/cell-21-b2/records.sqlite"
+    },
+    {
+      "index": 22,
+      "block": 2,
+      "engine": "rust-sync",
+      "writers": 4,
+      "readerMode": "held",
+      "error": "Error: database is locked",
+      "persistedRows": 0,
+      "file": "results/sqlite-readers-2026-10-07T23-52-02-741Z-c5571c/cell-22-b2/records.sqlite"
+    },
+    {
+      "index": 30,
+      "block": 2,
+      "engine": "go-sync",
+      "writers": 4,
+      "readerMode": "none",
+      "error": "Error: database is locked",
+      "persistedRows": 0,
+      "file": "results/sqlite-readers-2026-10-07T23-52-02-741Z-c5571c/cell-30-b2/records.sqlite"
+    },
+    {
+      "index": 33,
+      "block": 2,
+      "engine": "go-sync",
+      "writers": 4,
+      "readerMode": "short",
+      "error": "Error: database is locked",
+      "persistedRows": 0,
+      "file": "results/sqlite-readers-2026-10-07T23-52-02-741Z-c5571c/cell-33-b2/records.sqlite"
+    },
+    {
+      "index": 18,
+      "block": 2,
+      "engine": "rust-sync",
+      "writers": 4,
+      "readerMode": "none",
+      "error": "Error: database is locked",
+      "persistedRows": 0,
+      "file": "results/sqlite-readers-2026-10-07T23-52-02-741Z-c5571c/cell-18-b2/records.sqlite"
+    },
+    {
+      "index": 35,
+      "block": 2,
+      "engine": "go-sync",
+      "writers": 4,
+      "readerMode": "held",
+      "error": "Error: database is locked",
+      "persistedRows": 0,
+      "file": "results/sqlite-readers-2026-10-07T23-52-02-741Z-c5571c/cell-35-b2/records.sqlite"
+    },
+    {
+      "index": 34,
+      "block": 2,
+      "engine": "go-sync",
+      "writers": 4,
+      "readerMode": "held",
+      "error": "Error: database is locked",
+      "persistedRows": 0,
+      "file": "results/sqlite-readers-2026-10-07T23-52-02-741Z-c5571c/cell-34-b2/records.sqlite"
+    },
+    {
+      "index": 31,
+      "block": 2,
+      "engine": "go-sync",
+      "writers": 4,
+      "readerMode": "none",
+      "error": "Error: database is locked",
+      "persistedRows": 0,
+      "file": "results/sqlite-readers-2026-10-07T23-52-02-741Z-c5571c/cell-31-b2/records.sqlite"
+    }
+  ],
+  "interpretation": "All failed cells contain zero inserted records; failures precede writer throughput measurement. Concurrent first-open schema/WAL initialization will be covered at the public experiment boundary."
+}

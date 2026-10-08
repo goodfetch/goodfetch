@@ -1,0 +1,6 @@
+{
+  "name":"workflow-pool-wakeup", "backends":["crawlee-http-pooled"], "blocks":2,
+  "jobs":12, "pages":8, "concurrency":[1,4,8], "batchJobs":[1,4],
+  "maxBatchWaitMs":10, "leaseMs":30000, "timeoutMs":15000, "delayMs":2,
+  "seed":321, "faults":["none"], "poolWakeModes":["poll","notify"]
+}

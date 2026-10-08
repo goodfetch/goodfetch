@@ -1,0 +1,75 @@
+{
+  "localDate": "2026-10-08 Europe/Paris",
+  "node": "v25.5.0",
+  "nodeExecutable": "/opt/homebrew/Cellar/node/25.5.0/bin/node",
+  "tests": {
+    "fullSuite": {
+      "passed": 28,
+      "exitCode": 0,
+      "log": "verification-2026-10-08-tests.log"
+    },
+    "additionalPoolIntegration": {
+      "passed": 1,
+      "exitCode": 0,
+      "log": "verification-2026-10-08-pool-qualified.log"
+    },
+    "distinctQualified": 29,
+    "initialPoolTimeout": "caught and fixed; log verification-2026-10-08-pool.log"
+  },
+  "checks": {
+    "typescript": 0,
+    "doctor": 0,
+    "rustFmt": 0,
+    "goFmtUnformattedFiles": 0,
+    "artifactGuardIntegration": 0,
+    "localLinksChecked": 141,
+    "archiveHashesVerified": {
+      "evidence": 161,
+      "evidence-2026-10-08": 562
+    }
+  },
+  "campaigns": [
+    {
+      "title": "SQLite commun : batches et contention",
+      "category": "storage",
+      "name": "storage-shared-contention-2026-10-07T22-23-31-093Z-8d9875",
+      "cells": 72
+    },
+    {
+      "title": "SQLite commun : gros batches",
+      "category": "storage",
+      "name": "storage-shared-checkpoint-2026-10-07T22-24-20-072Z-de4c14",
+      "cells": 9
+    },
+    {
+      "title": "Workflow HTTP complet",
+      "category": "workflow",
+      "name": "workflow-throughput-2026-10-07T22-24-52-832Z-024c4f",
+      "cells": 40
+    },
+    {
+      "title": "Workflow : crashes avant/après commit",
+      "category": "workflow",
+      "name": "workflow-recovery-2026-10-07T22-26-19-297Z-c40792",
+      "cells": 12
+    },
+    {
+      "title": "Crawlee : réveil du pool",
+      "category": "workflow",
+      "name": "workflow-pool-wakeup-2026-10-07T22-32-40-342Z-21e558",
+      "cells": 20
+    }
+  ],
+  "verifiedCells": 153,
+  "sqliteRecords": 606528,
+  "workflowJobs": 1344,
+  "workflowRecords": 19776,
+  "sourceChanges": [],
+  "scope": [
+    "five selected campaigns all verified",
+    "writer fault campaign plus coordinator restart contract tests",
+    "not a pure language comparison",
+    "no power loss proof",
+    "integrated implementation remains Node; no integrated Rust/Go or native Rust CDP qualification"
+  ]
+}

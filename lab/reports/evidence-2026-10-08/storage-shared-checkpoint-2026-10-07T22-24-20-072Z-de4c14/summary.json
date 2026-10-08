@@ -1,0 +1,1062 @@
+{
+  "cells": [
+    {
+      "engine": "node-shared",
+      "format": "sqlite-wal-full",
+      "batchSize": 1000,
+      "writers": 1,
+      "block": 0,
+      "status": "verified",
+      "startupMs": 117.50562499999998,
+      "startupError": null,
+      "info": [
+        {
+          "backend": "storage-node-shared",
+          "runtime": "v25.5.0",
+          "binding": "synchronous Node-API; one common C call per inserted row",
+          "sqlite": "3.53.4",
+          "sourceId": "2026-07-24 19:02:57 bf7c7f30031888f4e796e429ab3978879485813aaca6f641c7b33e4e09459bcc",
+          "libraryPath": "/Users/jb/Dev/automan/lab/.native/libautoman_sqlite.dylib",
+          "compileOptions": [
+            "ATOMIC_INTRINSICS=1",
+            "COMPILER=clang-21.0.0",
+            "DEFAULT_AUTOVACUUM",
+            "DEFAULT_CACHE_SIZE=-2000",
+            "DEFAULT_FILE_FORMAT=4",
+            "DEFAULT_JOURNAL_SIZE_LIMIT=-1",
+            "DEFAULT_MMAP_SIZE=0",
+            "DEFAULT_PAGE_SIZE=4096",
+            "DEFAULT_PCACHE_INITSZ=20",
+            "DEFAULT_RECURSIVE_TRIGGERS",
+            "DEFAULT_SECTOR_SIZE=4096",
+            "DEFAULT_SYNCHRONOUS=2",
+            "DEFAULT_WAL_AUTOCHECKPOINT=1000",
+            "DEFAULT_WAL_SYNCHRONOUS=2",
+            "DEFAULT_WORKER_THREADS=0",
+            "DIRECT_OVERFLOW_READ",
+            "ENABLE_COLUMN_METADATA",
+            "MALLOC_SOFT_LIMIT=1024",
+            "MAX_ATTACHED=10",
+            "MAX_COLUMN=2000",
+            "MAX_COMPOUND_SELECT=500",
+            "MAX_DEFAULT_PAGE_SIZE=8192",
+            "MAX_EXPR_DEPTH=1000",
+            "MAX_FUNCTION_ARG=1000",
+            "MAX_LENGTH=1000000000",
+            "MAX_LIKE_PATTERN_LENGTH=50000",
+            "MAX_MMAP_SIZE=0x7fff0000",
+            "MAX_PAGE_COUNT=0xfffffffe",
+            "MAX_PAGE_SIZE=65536",
+            "MAX_SQL_LENGTH=1000000000",
+            "MAX_TRIGGER_DEPTH=1000",
+            "MAX_VARIABLE_NUMBER=32766",
+            "MAX_VDBE_OP=250000000",
+            "MAX_WORKER_THREADS=8",
+            "MUTEX_PTHREADS",
+            "SYSTEM_MALLOC",
+            "TEMP_STORE=1",
+            "THREADSAFE=1"
+          ],
+          "journal_mode": "wal",
+          "synchronous": 2,
+          "busy_timeout": 5000,
+          "wal_autocheckpoint": 1000,
+          "page_size": 4096
+        }
+      ],
+      "writeMs": 275.968458,
+      "finalizationMs": 138.69291699999997,
+      "verdict": {
+        "status": "verified",
+        "reasons": [],
+        "persistedRows": 48000,
+        "fileBytes": 29003776
+      },
+      "measurement": {
+        "attempts": 48,
+        "verified": 48,
+        "failed": 0,
+        "unsupported": 0,
+        "timeout": 0,
+        "crashed": 0,
+        "rejected": 0,
+        "successRate": 1,
+        "successLatencyMs": {
+          "n": 48,
+          "p50": 38.910124999999994,
+          "p95": 66.27420799999999,
+          "p99": 66.32808399999999
+        },
+        "startedLatencyMs": {
+          "n": 48,
+          "p50": 38.910124999999994,
+          "p95": 66.27420799999999,
+          "p99": 66.32808399999999
+        },
+        "zeroFailureUpper95": 0.06050340934889431,
+        "interpretation": "exploratory; insufficient tail and reliability evidence"
+      },
+      "serializationMs": {
+        "n": 48,
+        "p50": 0.6664579999999916,
+        "p95": 1.241500000000002,
+        "p99": 2.0648749999999723
+      },
+      "verifiedRowsPerSecond": 173932.92098620924,
+      "resources": [
+        {
+          "peakRssBytes": 88244224,
+          "peakProcessCount": 1,
+          "samples": 2,
+          "unavailable": false,
+          "method": "sampled sum RSS of process group and descendants; shared pages double-counted; short peaks may be missed",
+          "intervalMs": 250
+        }
+      ],
+      "stderr": [
+        ""
+      ]
+    },
+    {
+      "engine": "go-sync",
+      "format": "sqlite-wal-full",
+      "batchSize": 1000,
+      "writers": 1,
+      "block": 0,
+      "status": "verified",
+      "startupMs": 6.112416000000053,
+      "startupError": null,
+      "info": [
+        {
+          "backend": "storage-go-sync",
+          "binding": "synchronous cgo; one common C call per inserted row",
+          "busy_timeout": 5000,
+          "compileOptions": [
+            "ATOMIC_INTRINSICS=1",
+            "COMPILER=clang-21.0.0",
+            "DEFAULT_AUTOVACUUM",
+            "DEFAULT_CACHE_SIZE=-2000",
+            "DEFAULT_FILE_FORMAT=4",
+            "DEFAULT_JOURNAL_SIZE_LIMIT=-1",
+            "DEFAULT_MMAP_SIZE=0",
+            "DEFAULT_PAGE_SIZE=4096",
+            "DEFAULT_PCACHE_INITSZ=20",
+            "DEFAULT_RECURSIVE_TRIGGERS",
+            "DEFAULT_SECTOR_SIZE=4096",
+            "DEFAULT_SYNCHRONOUS=2",
+            "DEFAULT_WAL_AUTOCHECKPOINT=1000",
+            "DEFAULT_WAL_SYNCHRONOUS=2",
+            "DEFAULT_WORKER_THREADS=0",
+            "DIRECT_OVERFLOW_READ",
+            "ENABLE_COLUMN_METADATA",
+            "MALLOC_SOFT_LIMIT=1024",
+            "MAX_ATTACHED=10",
+            "MAX_COLUMN=2000",
+            "MAX_COMPOUND_SELECT=500",
+            "MAX_DEFAULT_PAGE_SIZE=8192",
+            "MAX_EXPR_DEPTH=1000",
+            "MAX_FUNCTION_ARG=1000",
+            "MAX_LENGTH=1000000000",
+            "MAX_LIKE_PATTERN_LENGTH=50000",
+            "MAX_MMAP_SIZE=0x7fff0000",
+            "MAX_PAGE_COUNT=0xfffffffe",
+            "MAX_PAGE_SIZE=65536",
+            "MAX_SQL_LENGTH=1000000000",
+            "MAX_TRIGGER_DEPTH=1000",
+            "MAX_VARIABLE_NUMBER=32766",
+            "MAX_VDBE_OP=250000000",
+            "MAX_WORKER_THREADS=8",
+            "MUTEX_PTHREADS",
+            "SYSTEM_MALLOC",
+            "TEMP_STORE=1",
+            "THREADSAFE=1"
+          ],
+          "journal_mode": "wal",
+          "libraryPath": "/Users/jb/Dev/automan/lab/.native/libautoman_sqlite.dylib",
+          "page_size": 4096,
+          "runtime": "go1.27.1",
+          "sourceId": "2026-07-24 19:02:57 bf7c7f30031888f4e796e429ab3978879485813aaca6f641c7b33e4e09459bcc",
+          "sqlite": "3.53.4",
+          "synchronous": 2,
+          "wal_autocheckpoint": 1000
+        }
+      ],
+      "writeMs": 185.87179099999992,
+      "finalizationMs": 127.63816700000007,
+      "verdict": {
+        "status": "verified",
+        "reasons": [],
+        "persistedRows": 48000,
+        "fileBytes": 29003776
+      },
+      "measurement": {
+        "attempts": 48,
+        "verified": 48,
+        "failed": 0,
+        "unsupported": 0,
+        "timeout": 0,
+        "crashed": 0,
+        "rejected": 0,
+        "successRate": 1,
+        "successLatencyMs": {
+          "n": 48,
+          "p50": 29.669750000000022,
+          "p95": 39.43104200000005,
+          "p99": 41.560833
+        },
+        "startedLatencyMs": {
+          "n": 48,
+          "p50": 29.669750000000022,
+          "p95": 39.43104200000005,
+          "p99": 41.560833
+        },
+        "zeroFailureUpper95": 0.06050340934889431,
+        "interpretation": "exploratory; insufficient tail and reliability evidence"
+      },
+      "serializationMs": {
+        "n": 48,
+        "p50": 0.749125,
+        "p95": 0.820333,
+        "p99": 1.238875
+      },
+      "verifiedRowsPerSecond": 258242.52158844276,
+      "resources": [
+        {
+          "peakRssBytes": 1835008,
+          "peakProcessCount": 1,
+          "samples": 1,
+          "unavailable": false,
+          "method": "sampled sum RSS of process group and descendants; shared pages double-counted; short peaks may be missed",
+          "intervalMs": 250
+        }
+      ],
+      "stderr": [
+        ""
+      ]
+    },
+    {
+      "engine": "rust-sync",
+      "format": "sqlite-wal-full",
+      "batchSize": 1000,
+      "writers": 1,
+      "block": 0,
+      "status": "verified",
+      "startupMs": 4.339249999999993,
+      "startupError": null,
+      "info": [
+        {
+          "backend": "storage-rust-sync",
+          "binding": "synchronous Rust FFI; one common C call per inserted row",
+          "busy_timeout": 5000,
+          "compileOptions": [
+            "ATOMIC_INTRINSICS=1",
+            "COMPILER=clang-21.0.0",
+            "DEFAULT_AUTOVACUUM",
+            "DEFAULT_CACHE_SIZE=-2000",
+            "DEFAULT_FILE_FORMAT=4",
+            "DEFAULT_JOURNAL_SIZE_LIMIT=-1",
+            "DEFAULT_MMAP_SIZE=0",
+            "DEFAULT_PAGE_SIZE=4096",
+            "DEFAULT_PCACHE_INITSZ=20",
+            "DEFAULT_RECURSIVE_TRIGGERS",
+            "DEFAULT_SECTOR_SIZE=4096",
+            "DEFAULT_SYNCHRONOUS=2",
+            "DEFAULT_WAL_AUTOCHECKPOINT=1000",
+            "DEFAULT_WAL_SYNCHRONOUS=2",
+            "DEFAULT_WORKER_THREADS=0",
+            "DIRECT_OVERFLOW_READ",
+            "ENABLE_COLUMN_METADATA",
+            "MALLOC_SOFT_LIMIT=1024",
+            "MAX_ATTACHED=10",
+            "MAX_COLUMN=2000",
+            "MAX_COMPOUND_SELECT=500",
+            "MAX_DEFAULT_PAGE_SIZE=8192",
+            "MAX_EXPR_DEPTH=1000",
+            "MAX_FUNCTION_ARG=1000",
+            "MAX_LENGTH=1000000000",
+            "MAX_LIKE_PATTERN_LENGTH=50000",
+            "MAX_MMAP_SIZE=0x7fff0000",
+            "MAX_PAGE_COUNT=0xfffffffe",
+            "MAX_PAGE_SIZE=65536",
+            "MAX_SQL_LENGTH=1000000000",
+            "MAX_TRIGGER_DEPTH=1000",
+            "MAX_VARIABLE_NUMBER=32766",
+            "MAX_VDBE_OP=250000000",
+            "MAX_WORKER_THREADS=8",
+            "MUTEX_PTHREADS",
+            "SYSTEM_MALLOC",
+            "TEMP_STORE=1",
+            "THREADSAFE=1"
+          ],
+          "journal_mode": "wal",
+          "libraryPath": "/Users/jb/Dev/automan/lab/.native/libautoman_sqlite.dylib",
+          "page_size": 4096,
+          "sourceId": "2026-07-24 19:02:57 bf7c7f30031888f4e796e429ab3978879485813aaca6f641c7b33e4e09459bcc",
+          "sqlite": "3.53.4",
+          "synchronous": 2,
+          "wal_autocheckpoint": 1000
+        }
+      ],
+      "writeMs": 188.57662499999992,
+      "finalizationMs": 107.190875,
+      "verdict": {
+        "status": "verified",
+        "reasons": [],
+        "persistedRows": 48000,
+        "fileBytes": 29003776
+      },
+      "measurement": {
+        "attempts": 48,
+        "verified": 48,
+        "failed": 0,
+        "unsupported": 0,
+        "timeout": 0,
+        "crashed": 0,
+        "rejected": 0,
+        "successRate": 1,
+        "successLatencyMs": {
+          "n": 48,
+          "p50": 30.54429200000004,
+          "p95": 39.67654199999993,
+          "p99": 43.12154199999986
+        },
+        "startedLatencyMs": {
+          "n": 48,
+          "p50": 30.54429200000004,
+          "p95": 39.67654199999993,
+          "p99": 43.12154199999986
+        },
+        "zeroFailureUpper95": 0.06050340934889431,
+        "interpretation": "exploratory; insufficient tail and reliability evidence"
+      },
+      "serializationMs": {
+        "n": 48,
+        "p50": 0.640917,
+        "p95": 0.808042,
+        "p99": 0.902459
+      },
+      "verifiedRowsPerSecond": 254538.4402759357,
+      "resources": [
+        {
+          "peakRssBytes": 2768896,
+          "peakProcessCount": 1,
+          "samples": 1,
+          "unavailable": false,
+          "method": "sampled sum RSS of process group and descendants; shared pages double-counted; short peaks may be missed",
+          "intervalMs": 250
+        }
+      ],
+      "stderr": [
+        ""
+      ]
+    },
+    {
+      "engine": "go-sync",
+      "format": "sqlite-wal-full",
+      "batchSize": 1000,
+      "writers": 1,
+      "block": 1,
+      "status": "verified",
+      "startupMs": 4.943125000000009,
+      "startupError": null,
+      "info": [
+        {
+          "backend": "storage-go-sync",
+          "binding": "synchronous cgo; one common C call per inserted row",
+          "busy_timeout": 5000,
+          "compileOptions": [
+            "ATOMIC_INTRINSICS=1",
+            "COMPILER=clang-21.0.0",
+            "DEFAULT_AUTOVACUUM",
+            "DEFAULT_CACHE_SIZE=-2000",
+            "DEFAULT_FILE_FORMAT=4",
+            "DEFAULT_JOURNAL_SIZE_LIMIT=-1",
+            "DEFAULT_MMAP_SIZE=0",
+            "DEFAULT_PAGE_SIZE=4096",
+            "DEFAULT_PCACHE_INITSZ=20",
+            "DEFAULT_RECURSIVE_TRIGGERS",
+            "DEFAULT_SECTOR_SIZE=4096",
+            "DEFAULT_SYNCHRONOUS=2",
+            "DEFAULT_WAL_AUTOCHECKPOINT=1000",
+            "DEFAULT_WAL_SYNCHRONOUS=2",
+            "DEFAULT_WORKER_THREADS=0",
+            "DIRECT_OVERFLOW_READ",
+            "ENABLE_COLUMN_METADATA",
+            "MALLOC_SOFT_LIMIT=1024",
+            "MAX_ATTACHED=10",
+            "MAX_COLUMN=2000",
+            "MAX_COMPOUND_SELECT=500",
+            "MAX_DEFAULT_PAGE_SIZE=8192",
+            "MAX_EXPR_DEPTH=1000",
+            "MAX_FUNCTION_ARG=1000",
+            "MAX_LENGTH=1000000000",
+            "MAX_LIKE_PATTERN_LENGTH=50000",
+            "MAX_MMAP_SIZE=0x7fff0000",
+            "MAX_PAGE_COUNT=0xfffffffe",
+            "MAX_PAGE_SIZE=65536",
+            "MAX_SQL_LENGTH=1000000000",
+            "MAX_TRIGGER_DEPTH=1000",
+            "MAX_VARIABLE_NUMBER=32766",
+            "MAX_VDBE_OP=250000000",
+            "MAX_WORKER_THREADS=8",
+            "MUTEX_PTHREADS",
+            "SYSTEM_MALLOC",
+            "TEMP_STORE=1",
+            "THREADSAFE=1"
+          ],
+          "journal_mode": "wal",
+          "libraryPath": "/Users/jb/Dev/automan/lab/.native/libautoman_sqlite.dylib",
+          "page_size": 4096,
+          "runtime": "go1.27.1",
+          "sourceId": "2026-07-24 19:02:57 bf7c7f30031888f4e796e429ab3978879485813aaca6f641c7b33e4e09459bcc",
+          "sqlite": "3.53.4",
+          "synchronous": 2,
+          "wal_autocheckpoint": 1000
+        }
+      ],
+      "writeMs": 197.198167,
+      "finalizationMs": 105.14366600000017,
+      "verdict": {
+        "status": "verified",
+        "reasons": [],
+        "persistedRows": 48000,
+        "fileBytes": 29003776
+      },
+      "measurement": {
+        "attempts": 48,
+        "verified": 48,
+        "failed": 0,
+        "unsupported": 0,
+        "timeout": 0,
+        "crashed": 0,
+        "rejected": 0,
+        "successRate": 1,
+        "successLatencyMs": {
+          "n": 48,
+          "p50": 32.934334000000035,
+          "p95": 42.28649999999993,
+          "p99": 42.94616599999995
+        },
+        "startedLatencyMs": {
+          "n": 48,
+          "p50": 32.934334000000035,
+          "p95": 42.28649999999993,
+          "p99": 42.94616599999995
+        },
+        "zeroFailureUpper95": 0.06050340934889431,
+        "interpretation": "exploratory; insufficient tail and reliability evidence"
+      },
+      "serializationMs": {
+        "n": 48,
+        "p50": 0.787875,
+        "p95": 1.063083,
+        "p99": 1.16275
+      },
+      "verifiedRowsPerSecond": 243409.9704385183,
+      "resources": [
+        {
+          "peakRssBytes": 1818624,
+          "peakProcessCount": 1,
+          "samples": 1,
+          "unavailable": false,
+          "method": "sampled sum RSS of process group and descendants; shared pages double-counted; short peaks may be missed",
+          "intervalMs": 250
+        }
+      ],
+      "stderr": [
+        ""
+      ]
+    },
+    {
+      "engine": "rust-sync",
+      "format": "sqlite-wal-full",
+      "batchSize": 1000,
+      "writers": 1,
+      "block": 1,
+      "status": "verified",
+      "startupMs": 3.7952499999998963,
+      "startupError": null,
+      "info": [
+        {
+          "backend": "storage-rust-sync",
+          "binding": "synchronous Rust FFI; one common C call per inserted row",
+          "busy_timeout": 5000,
+          "compileOptions": [
+            "ATOMIC_INTRINSICS=1",
+            "COMPILER=clang-21.0.0",
+            "DEFAULT_AUTOVACUUM",
+            "DEFAULT_CACHE_SIZE=-2000",
+            "DEFAULT_FILE_FORMAT=4",
+            "DEFAULT_JOURNAL_SIZE_LIMIT=-1",
+            "DEFAULT_MMAP_SIZE=0",
+            "DEFAULT_PAGE_SIZE=4096",
+            "DEFAULT_PCACHE_INITSZ=20",
+            "DEFAULT_RECURSIVE_TRIGGERS",
+            "DEFAULT_SECTOR_SIZE=4096",
+            "DEFAULT_SYNCHRONOUS=2",
+            "DEFAULT_WAL_AUTOCHECKPOINT=1000",
+            "DEFAULT_WAL_SYNCHRONOUS=2",
+            "DEFAULT_WORKER_THREADS=0",
+            "DIRECT_OVERFLOW_READ",
+            "ENABLE_COLUMN_METADATA",
+            "MALLOC_SOFT_LIMIT=1024",
+            "MAX_ATTACHED=10",
+            "MAX_COLUMN=2000",
+            "MAX_COMPOUND_SELECT=500",
+            "MAX_DEFAULT_PAGE_SIZE=8192",
+            "MAX_EXPR_DEPTH=1000",
+            "MAX_FUNCTION_ARG=1000",
+            "MAX_LENGTH=1000000000",
+            "MAX_LIKE_PATTERN_LENGTH=50000",
+            "MAX_MMAP_SIZE=0x7fff0000",
+            "MAX_PAGE_COUNT=0xfffffffe",
+            "MAX_PAGE_SIZE=65536",
+            "MAX_SQL_LENGTH=1000000000",
+            "MAX_TRIGGER_DEPTH=1000",
+            "MAX_VARIABLE_NUMBER=32766",
+            "MAX_VDBE_OP=250000000",
+            "MAX_WORKER_THREADS=8",
+            "MUTEX_PTHREADS",
+            "SYSTEM_MALLOC",
+            "TEMP_STORE=1",
+            "THREADSAFE=1"
+          ],
+          "journal_mode": "wal",
+          "libraryPath": "/Users/jb/Dev/automan/lab/.native/libautoman_sqlite.dylib",
+          "page_size": 4096,
+          "sourceId": "2026-07-24 19:02:57 bf7c7f30031888f4e796e429ab3978879485813aaca6f641c7b33e4e09459bcc",
+          "sqlite": "3.53.4",
+          "synchronous": 2,
+          "wal_autocheckpoint": 1000
+        }
+      ],
+      "writeMs": 166.012792,
+      "finalizationMs": 105.10304100000008,
+      "verdict": {
+        "status": "verified",
+        "reasons": [],
+        "persistedRows": 48000,
+        "fileBytes": 29003776
+      },
+      "measurement": {
+        "attempts": 48,
+        "verified": 48,
+        "failed": 0,
+        "unsupported": 0,
+        "timeout": 0,
+        "crashed": 0,
+        "rejected": 0,
+        "successRate": 1,
+        "successLatencyMs": {
+          "n": 48,
+          "p50": 26.229458000000022,
+          "p95": 34.966042000000016,
+          "p99": 35.06270799999993
+        },
+        "startedLatencyMs": {
+          "n": 48,
+          "p50": 26.229458000000022,
+          "p95": 34.966042000000016,
+          "p99": 35.06270799999993
+        },
+        "zeroFailureUpper95": 0.06050340934889431,
+        "interpretation": "exploratory; insufficient tail and reliability evidence"
+      },
+      "serializationMs": {
+        "n": 48,
+        "p50": 0.619625,
+        "p95": 0.674917,
+        "p99": 0.8496670000000001
+      },
+      "verifiedRowsPerSecond": 289134.3457436702,
+      "resources": [
+        {
+          "peakRssBytes": 2064384,
+          "peakProcessCount": 1,
+          "samples": 1,
+          "unavailable": false,
+          "method": "sampled sum RSS of process group and descendants; shared pages double-counted; short peaks may be missed",
+          "intervalMs": 250
+        }
+      ],
+      "stderr": [
+        ""
+      ]
+    },
+    {
+      "engine": "node-shared",
+      "format": "sqlite-wal-full",
+      "batchSize": 1000,
+      "writers": 1,
+      "block": 1,
+      "status": "verified",
+      "startupMs": 97.20187499999997,
+      "startupError": null,
+      "info": [
+        {
+          "backend": "storage-node-shared",
+          "runtime": "v25.5.0",
+          "binding": "synchronous Node-API; one common C call per inserted row",
+          "sqlite": "3.53.4",
+          "sourceId": "2026-07-24 19:02:57 bf7c7f30031888f4e796e429ab3978879485813aaca6f641c7b33e4e09459bcc",
+          "libraryPath": "/Users/jb/Dev/automan/lab/.native/libautoman_sqlite.dylib",
+          "compileOptions": [
+            "ATOMIC_INTRINSICS=1",
+            "COMPILER=clang-21.0.0",
+            "DEFAULT_AUTOVACUUM",
+            "DEFAULT_CACHE_SIZE=-2000",
+            "DEFAULT_FILE_FORMAT=4",
+            "DEFAULT_JOURNAL_SIZE_LIMIT=-1",
+            "DEFAULT_MMAP_SIZE=0",
+            "DEFAULT_PAGE_SIZE=4096",
+            "DEFAULT_PCACHE_INITSZ=20",
+            "DEFAULT_RECURSIVE_TRIGGERS",
+            "DEFAULT_SECTOR_SIZE=4096",
+            "DEFAULT_SYNCHRONOUS=2",
+            "DEFAULT_WAL_AUTOCHECKPOINT=1000",
+            "DEFAULT_WAL_SYNCHRONOUS=2",
+            "DEFAULT_WORKER_THREADS=0",
+            "DIRECT_OVERFLOW_READ",
+            "ENABLE_COLUMN_METADATA",
+            "MALLOC_SOFT_LIMIT=1024",
+            "MAX_ATTACHED=10",
+            "MAX_COLUMN=2000",
+            "MAX_COMPOUND_SELECT=500",
+            "MAX_DEFAULT_PAGE_SIZE=8192",
+            "MAX_EXPR_DEPTH=1000",
+            "MAX_FUNCTION_ARG=1000",
+            "MAX_LENGTH=1000000000",
+            "MAX_LIKE_PATTERN_LENGTH=50000",
+            "MAX_MMAP_SIZE=0x7fff0000",
+            "MAX_PAGE_COUNT=0xfffffffe",
+            "MAX_PAGE_SIZE=65536",
+            "MAX_SQL_LENGTH=1000000000",
+            "MAX_TRIGGER_DEPTH=1000",
+            "MAX_VARIABLE_NUMBER=32766",
+            "MAX_VDBE_OP=250000000",
+            "MAX_WORKER_THREADS=8",
+            "MUTEX_PTHREADS",
+            "SYSTEM_MALLOC",
+            "TEMP_STORE=1",
+            "THREADSAFE=1"
+          ],
+          "journal_mode": "wal",
+          "synchronous": 2,
+          "busy_timeout": 5000,
+          "wal_autocheckpoint": 1000,
+          "page_size": 4096
+        }
+      ],
+      "writeMs": 217.92795800000022,
+      "finalizationMs": 103.7758329999997,
+      "verdict": {
+        "status": "verified",
+        "reasons": [],
+        "persistedRows": 48000,
+        "fileBytes": 29003776
+      },
+      "measurement": {
+        "attempts": 48,
+        "verified": 48,
+        "failed": 0,
+        "unsupported": 0,
+        "timeout": 0,
+        "crashed": 0,
+        "rejected": 0,
+        "successRate": 1,
+        "successLatencyMs": {
+          "n": 48,
+          "p50": 35.53462499999978,
+          "p95": 38.750541999999996,
+          "p99": 38.75649999999996
+        },
+        "startedLatencyMs": {
+          "n": 48,
+          "p50": 35.53462499999978,
+          "p95": 38.750541999999996,
+          "p99": 38.75649999999996
+        },
+        "zeroFailureUpper95": 0.06050340934889431,
+        "interpretation": "exploratory; insufficient tail and reliability evidence"
+      },
+      "serializationMs": {
+        "n": 48,
+        "p50": 0.6503329999999892,
+        "p95": 0.8784580000000091,
+        "p99": 1.0599170000000129
+      },
+      "verifiedRowsPerSecond": 220256.273864595,
+      "resources": [
+        {
+          "peakRssBytes": 112967680,
+          "peakProcessCount": 1,
+          "samples": 2,
+          "unavailable": false,
+          "method": "sampled sum RSS of process group and descendants; shared pages double-counted; short peaks may be missed",
+          "intervalMs": 250
+        }
+      ],
+      "stderr": [
+        ""
+      ]
+    },
+    {
+      "engine": "go-sync",
+      "format": "sqlite-wal-full",
+      "batchSize": 1000,
+      "writers": 1,
+      "block": 2,
+      "status": "verified",
+      "startupMs": 4.983749999999873,
+      "startupError": null,
+      "info": [
+        {
+          "backend": "storage-go-sync",
+          "binding": "synchronous cgo; one common C call per inserted row",
+          "busy_timeout": 5000,
+          "compileOptions": [
+            "ATOMIC_INTRINSICS=1",
+            "COMPILER=clang-21.0.0",
+            "DEFAULT_AUTOVACUUM",
+            "DEFAULT_CACHE_SIZE=-2000",
+            "DEFAULT_FILE_FORMAT=4",
+            "DEFAULT_JOURNAL_SIZE_LIMIT=-1",
+            "DEFAULT_MMAP_SIZE=0",
+            "DEFAULT_PAGE_SIZE=4096",
+            "DEFAULT_PCACHE_INITSZ=20",
+            "DEFAULT_RECURSIVE_TRIGGERS",
+            "DEFAULT_SECTOR_SIZE=4096",
+            "DEFAULT_SYNCHRONOUS=2",
+            "DEFAULT_WAL_AUTOCHECKPOINT=1000",
+            "DEFAULT_WAL_SYNCHRONOUS=2",
+            "DEFAULT_WORKER_THREADS=0",
+            "DIRECT_OVERFLOW_READ",
+            "ENABLE_COLUMN_METADATA",
+            "MALLOC_SOFT_LIMIT=1024",
+            "MAX_ATTACHED=10",
+            "MAX_COLUMN=2000",
+            "MAX_COMPOUND_SELECT=500",
+            "MAX_DEFAULT_PAGE_SIZE=8192",
+            "MAX_EXPR_DEPTH=1000",
+            "MAX_FUNCTION_ARG=1000",
+            "MAX_LENGTH=1000000000",
+            "MAX_LIKE_PATTERN_LENGTH=50000",
+            "MAX_MMAP_SIZE=0x7fff0000",
+            "MAX_PAGE_COUNT=0xfffffffe",
+            "MAX_PAGE_SIZE=65536",
+            "MAX_SQL_LENGTH=1000000000",
+            "MAX_TRIGGER_DEPTH=1000",
+            "MAX_VARIABLE_NUMBER=32766",
+            "MAX_VDBE_OP=250000000",
+            "MAX_WORKER_THREADS=8",
+            "MUTEX_PTHREADS",
+            "SYSTEM_MALLOC",
+            "TEMP_STORE=1",
+            "THREADSAFE=1"
+          ],
+          "journal_mode": "wal",
+          "libraryPath": "/Users/jb/Dev/automan/lab/.native/libautoman_sqlite.dylib",
+          "page_size": 4096,
+          "runtime": "go1.27.1",
+          "sourceId": "2026-07-24 19:02:57 bf7c7f30031888f4e796e429ab3978879485813aaca6f641c7b33e4e09459bcc",
+          "sqlite": "3.53.4",
+          "synchronous": 2,
+          "wal_autocheckpoint": 1000
+        }
+      ],
+      "writeMs": 198.42549999999983,
+      "finalizationMs": 105.34595800000034,
+      "verdict": {
+        "status": "verified",
+        "reasons": [],
+        "persistedRows": 48000,
+        "fileBytes": 29003776
+      },
+      "measurement": {
+        "attempts": 48,
+        "verified": 48,
+        "failed": 0,
+        "unsupported": 0,
+        "timeout": 0,
+        "crashed": 0,
+        "rejected": 0,
+        "successRate": 1,
+        "successLatencyMs": {
+          "n": 48,
+          "p50": 31.589958999999908,
+          "p95": 41.320334,
+          "p99": 48.29366600000003
+        },
+        "startedLatencyMs": {
+          "n": 48,
+          "p50": 31.589958999999908,
+          "p95": 41.320334,
+          "p99": 48.29366600000003
+        },
+        "zeroFailureUpper95": 0.06050340934889431,
+        "interpretation": "exploratory; insufficient tail and reliability evidence"
+      },
+      "serializationMs": {
+        "n": 48,
+        "p50": 0.823708,
+        "p95": 1.161917,
+        "p99": 5.826916
+      },
+      "verifiedRowsPerSecond": 241904.39232860718,
+      "resources": [
+        {
+          "peakRssBytes": 3637248,
+          "peakProcessCount": 1,
+          "samples": 1,
+          "unavailable": false,
+          "method": "sampled sum RSS of process group and descendants; shared pages double-counted; short peaks may be missed",
+          "intervalMs": 250
+        }
+      ],
+      "stderr": [
+        ""
+      ]
+    },
+    {
+      "engine": "node-shared",
+      "format": "sqlite-wal-full",
+      "batchSize": 1000,
+      "writers": 1,
+      "block": 2,
+      "status": "verified",
+      "startupMs": 98.96858299999985,
+      "startupError": null,
+      "info": [
+        {
+          "backend": "storage-node-shared",
+          "runtime": "v25.5.0",
+          "binding": "synchronous Node-API; one common C call per inserted row",
+          "sqlite": "3.53.4",
+          "sourceId": "2026-07-24 19:02:57 bf7c7f30031888f4e796e429ab3978879485813aaca6f641c7b33e4e09459bcc",
+          "libraryPath": "/Users/jb/Dev/automan/lab/.native/libautoman_sqlite.dylib",
+          "compileOptions": [
+            "ATOMIC_INTRINSICS=1",
+            "COMPILER=clang-21.0.0",
+            "DEFAULT_AUTOVACUUM",
+            "DEFAULT_CACHE_SIZE=-2000",
+            "DEFAULT_FILE_FORMAT=4",
+            "DEFAULT_JOURNAL_SIZE_LIMIT=-1",
+            "DEFAULT_MMAP_SIZE=0",
+            "DEFAULT_PAGE_SIZE=4096",
+            "DEFAULT_PCACHE_INITSZ=20",
+            "DEFAULT_RECURSIVE_TRIGGERS",
+            "DEFAULT_SECTOR_SIZE=4096",
+            "DEFAULT_SYNCHRONOUS=2",
+            "DEFAULT_WAL_AUTOCHECKPOINT=1000",
+            "DEFAULT_WAL_SYNCHRONOUS=2",
+            "DEFAULT_WORKER_THREADS=0",
+            "DIRECT_OVERFLOW_READ",
+            "ENABLE_COLUMN_METADATA",
+            "MALLOC_SOFT_LIMIT=1024",
+            "MAX_ATTACHED=10",
+            "MAX_COLUMN=2000",
+            "MAX_COMPOUND_SELECT=500",
+            "MAX_DEFAULT_PAGE_SIZE=8192",
+            "MAX_EXPR_DEPTH=1000",
+            "MAX_FUNCTION_ARG=1000",
+            "MAX_LENGTH=1000000000",
+            "MAX_LIKE_PATTERN_LENGTH=50000",
+            "MAX_MMAP_SIZE=0x7fff0000",
+            "MAX_PAGE_COUNT=0xfffffffe",
+            "MAX_PAGE_SIZE=65536",
+            "MAX_SQL_LENGTH=1000000000",
+            "MAX_TRIGGER_DEPTH=1000",
+            "MAX_VARIABLE_NUMBER=32766",
+            "MAX_VDBE_OP=250000000",
+            "MAX_WORKER_THREADS=8",
+            "MUTEX_PTHREADS",
+            "SYSTEM_MALLOC",
+            "TEMP_STORE=1",
+            "THREADSAFE=1"
+          ],
+          "journal_mode": "wal",
+          "synchronous": 2,
+          "busy_timeout": 5000,
+          "wal_autocheckpoint": 1000,
+          "page_size": 4096
+        }
+      ],
+      "writeMs": 208.55458299999964,
+      "finalizationMs": 109.82820900000024,
+      "verdict": {
+        "status": "verified",
+        "reasons": [],
+        "persistedRows": 48000,
+        "fileBytes": 29003776
+      },
+      "measurement": {
+        "attempts": 48,
+        "verified": 48,
+        "failed": 0,
+        "unsupported": 0,
+        "timeout": 0,
+        "crashed": 0,
+        "rejected": 0,
+        "successRate": 1,
+        "successLatencyMs": {
+          "n": 48,
+          "p50": 34.96050000000014,
+          "p95": 37.21125000000029,
+          "p99": 37.21791699999994
+        },
+        "startedLatencyMs": {
+          "n": 48,
+          "p50": 34.96050000000014,
+          "p95": 37.21125000000029,
+          "p99": 37.21791699999994
+        },
+        "zeroFailureUpper95": 0.06050340934889431,
+        "interpretation": "exploratory; insufficient tail and reliability evidence"
+      },
+      "serializationMs": {
+        "n": 48,
+        "p50": 0.658875000000009,
+        "p95": 0.9139590000000055,
+        "p99": 1.0105000000000075
+      },
+      "verifiedRowsPerSecond": 230155.57514744272,
+      "resources": [
+        {
+          "peakRssBytes": 113491968,
+          "peakProcessCount": 1,
+          "samples": 2,
+          "unavailable": false,
+          "method": "sampled sum RSS of process group and descendants; shared pages double-counted; short peaks may be missed",
+          "intervalMs": 250
+        }
+      ],
+      "stderr": [
+        ""
+      ]
+    },
+    {
+      "engine": "rust-sync",
+      "format": "sqlite-wal-full",
+      "batchSize": 1000,
+      "writers": 1,
+      "block": 2,
+      "status": "verified",
+      "startupMs": 4.038250000000062,
+      "startupError": null,
+      "info": [
+        {
+          "backend": "storage-rust-sync",
+          "binding": "synchronous Rust FFI; one common C call per inserted row",
+          "busy_timeout": 5000,
+          "compileOptions": [
+            "ATOMIC_INTRINSICS=1",
+            "COMPILER=clang-21.0.0",
+            "DEFAULT_AUTOVACUUM",
+            "DEFAULT_CACHE_SIZE=-2000",
+            "DEFAULT_FILE_FORMAT=4",
+            "DEFAULT_JOURNAL_SIZE_LIMIT=-1",
+            "DEFAULT_MMAP_SIZE=0",
+            "DEFAULT_PAGE_SIZE=4096",
+            "DEFAULT_PCACHE_INITSZ=20",
+            "DEFAULT_RECURSIVE_TRIGGERS",
+            "DEFAULT_SECTOR_SIZE=4096",
+            "DEFAULT_SYNCHRONOUS=2",
+            "DEFAULT_WAL_AUTOCHECKPOINT=1000",
+            "DEFAULT_WAL_SYNCHRONOUS=2",
+            "DEFAULT_WORKER_THREADS=0",
+            "DIRECT_OVERFLOW_READ",
+            "ENABLE_COLUMN_METADATA",
+            "MALLOC_SOFT_LIMIT=1024",
+            "MAX_ATTACHED=10",
+            "MAX_COLUMN=2000",
+            "MAX_COMPOUND_SELECT=500",
+            "MAX_DEFAULT_PAGE_SIZE=8192",
+            "MAX_EXPR_DEPTH=1000",
+            "MAX_FUNCTION_ARG=1000",
+            "MAX_LENGTH=1000000000",
+            "MAX_LIKE_PATTERN_LENGTH=50000",
+            "MAX_MMAP_SIZE=0x7fff0000",
+            "MAX_PAGE_COUNT=0xfffffffe",
+            "MAX_PAGE_SIZE=65536",
+            "MAX_SQL_LENGTH=1000000000",
+            "MAX_TRIGGER_DEPTH=1000",
+            "MAX_VARIABLE_NUMBER=32766",
+            "MAX_VDBE_OP=250000000",
+            "MAX_WORKER_THREADS=8",
+            "MUTEX_PTHREADS",
+            "SYSTEM_MALLOC",
+            "TEMP_STORE=1",
+            "THREADSAFE=1"
+          ],
+          "journal_mode": "wal",
+          "libraryPath": "/Users/jb/Dev/automan/lab/.native/libautoman_sqlite.dylib",
+          "page_size": 4096,
+          "sourceId": "2026-07-24 19:02:57 bf7c7f30031888f4e796e429ab3978879485813aaca6f641c7b33e4e09459bcc",
+          "sqlite": "3.53.4",
+          "synchronous": 2,
+          "wal_autocheckpoint": 1000
+        }
+      ],
+      "writeMs": 175.56262500000003,
+      "finalizationMs": 106.2024580000002,
+      "verdict": {
+        "status": "verified",
+        "reasons": [],
+        "persistedRows": 48000,
+        "fileBytes": 29003776
+      },
+      "measurement": {
+        "attempts": 48,
+        "verified": 48,
+        "failed": 0,
+        "unsupported": 0,
+        "timeout": 0,
+        "crashed": 0,
+        "rejected": 0,
+        "successRate": 1,
+        "successLatencyMs": {
+          "n": 48,
+          "p50": 28.608291999999892,
+          "p95": 36.88083299999971,
+          "p99": 37.351040999999896
+        },
+        "startedLatencyMs": {
+          "n": 48,
+          "p50": 28.608291999999892,
+          "p95": 36.88083299999971,
+          "p99": 37.351040999999896
+        },
+        "zeroFailureUpper95": 0.06050340934889431,
+        "interpretation": "exploratory; insufficient tail and reliability evidence"
+      },
+      "serializationMs": {
+        "n": 48,
+        "p50": 0.647167,
+        "p95": 0.816792,
+        "p99": 0.8614160000000001
+      },
+      "verifiedRowsPerSecond": 273406.7117075744,
+      "resources": [
+        {
+          "peakRssBytes": 2998272,
+          "peakProcessCount": 1,
+          "samples": 1,
+          "unavailable": false,
+          "method": "sampled sum RSS of process group and descendants; shared pages double-counted; short peaks may be missed",
+          "intervalMs": 250
+        }
+      ],
+      "stderr": [
+        ""
+      ]
+    }
+  ],
+  "sourceChanges": [],
+  "limitations": [
+    "exploratory local measurements",
+    "SQLite versions/builds may differ; read info",
+    "OS page cache and physical power-loss are uncontrolled",
+    "JSON snapshot replaces the whole growing document; separate workload",
+    "no scraping included in this storage lane"
+  ]
+}

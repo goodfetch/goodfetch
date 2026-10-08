@@ -1,0 +1,78 @@
+✔ campaign rejects an empty mutation corpus before starting workers (0.887459ms)
+✔ campaign rejects a retained fixture corpus that exceeds the coordinator budget (0.101084ms)
+node-http: block 1/1 finished
+✔ a worker reporting success with incomplete data fails the private oracle and gets no performance trials (88.0195ms)
+✔ catalogue exposes a paginated fresh dataset and its oracle refuses omissions (23.904083ms)
+✔ oracle rejects duplicates, changed values and fabricated form effects (8.603667ms)
+✔ native Playwright waits for a covered target and refuses a permanently disabled target (2459.603416ms)
+✔ the action oracle rejects a premature trusted effect even when an adapter reports success (11.933ms)
+✔ guarded Stagehand clicks wait for a moving target before producing their trusted effect (7149.055ms)
+✔ the Crawlee pool declares notification mode and preserves exact extraction across idle admissions (1469.508ms)
+✔ the macOS CPU probe reports the same nanosecond unit as independent getrusage (365.074666ms)
+✔ attaching to an existing coordinator accounts only for CPU after the initial sample (219.492791ms)
+(node:15937) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+✔ Node, synchronous Rust and Go use one SQLite artifact and roll back a duplicate batch (158.1835ms)
+(node:15969) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+✔ an old reader snapshot holds back checkpoints without hiding committed rows from new readers (144.460333ms)
+✔ four independent writers can start on a fresh sink while an old reader snapshot remains open (953.833917ms)
+✔ Stagehand accepts scheduler configuration at the lab boundary and completes trusted clicks (1484.849709ms)
+(node:16444) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+✔ node: complete native workflow validates every acquired record, stays bounded and resumes idempotently (757.874625ms)
+✔ node: independently detected false success never reaches storage (313.474584ms)
+✔ rust: complete native workflow validates every acquired record, stays bounded and resumes idempotently (248.651625ms)
+✔ rust: independently detected false success never reaches storage (73.126584ms)
+✔ node: before-commit recovers exact results after a lost transactional response (1296.235958ms)
+✔ node: after-commit recovers exact results after a lost transactional response (1306.94ms)
+✔ node: during-ack recovers exact results after a lost transactional response (1304.229583ms)
+✔ node: after-ack recovers exact results after a lost transactional response (1317.114625ms)
+✔ rust: before-commit recovers exact results after a lost transactional response (1100.83375ms)
+✔ rust: after-commit recovers exact results after a lost transactional response (1081.482334ms)
+✔ rust: during-ack recovers exact results after a lost transactional response (1084.641416ms)
+✔ rust: after-ack recovers exact results after a lost transactional response (1088.353541ms)
+✔ node: repeated writer deaths preserve bounded backpressure and exact committed data (3457.746917ms)
+✔ rust: repeated writer deaths preserve bounded backpressure and exact committed data (3208.995166ms)
+✔ node: a new coordinator resumes after job-claimed (1353.360125ms)
+✔ node: a new coordinator resumes after batch-committed (1302.220334ms)
+✔ rust: a new coordinator resumes after job-claimed (1081.592333ms)
+✔ rust: a new coordinator resumes after batch-committed (1106.957ms)
+✔ node-shared: durable records, idempotent receipts and stale-token fencing use the shared SQLite (143.215375ms)
+✔ rust: durable records, idempotent receipts and stale-token fencing use the shared SQLite (7.46575ms)
+(node:19381) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+✔ the integrated runner rejects excessive retained data and a batch matrix with no bounded configuration (1.12375ms)
+✔ HTTP acquisition is validated, committed and acknowledged before a workflow reports completion (165.8645ms)
+✔ concurrent producers batch results within the queue bound and rerunning acknowledged jobs is idempotent (295.265ms)
+✔ integrated before-commit recovery acknowledges each job once with exact persisted records (10181.0345ms)
+✔ integrated after-commit recovery acknowledges each job once with exact persisted records (10188.52425ms)
+✔ an acquisition reporting success with wrong values is rejected before any data commit (123.74475ms)
+✔ hung adapter is terminated within a bounded deadline and remaining calls reject (107.252125ms)
+✔ out-of-order JSONL responses are correlated to their requests (64.582792ms)
+✔ a corrupt adapter response aborts the pending task instead of accepting a false success (59.243792ms)
+✔ deadline cleanup also terminates an owned descendant that ignores SIGTERM (515.254875ms)
+✔ open arrivals stop at the admission deadline and account for every unstarted task (22.437375ms)
+✔ open overload rejects arrivals without serializing the generator behind slow completions (81.557292ms)
+✔ failed and unstarted attempts stay in denominators and are never fast successes (0.741792ms)
+(node:20690) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+✔ storage oracle accepts exact bytes and rejects duplicate or stale persisted records (4.693292ms)
+✔ SQLite oracle checks persisted values after reopen and detects a changed row (2.132083ms)
+✔ a closed adapter leaves no referenced shutdown timer keeping its supervisor alive (177.273292ms)
+(node:20696) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+✔ a new coordinator process recovers persisted state after a complete job-claimed stop (1276.655417ms)
+✔ a new coordinator process recovers persisted state after a complete batch-committed stop (485.316417ms)
+✔ committing a validated job makes its exact records retrievable and replay keeps one receipt (112.700375ms)
+✔ before-commit crash preserves atomic state and a lost response can be reconciled (227.627541ms)
+✔ after-commit crash preserves atomic state and a lost response can be reconciled (220.026292ms)
+✔ an expired lease cannot commit after another claimant receives a new token (1118.164ms)
+ℹ tests 57
+ℹ suites 0
+ℹ pass 57
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 65128.333334

@@ -1,0 +1,1620 @@
+{
+  "cells": [
+    {
+      "backend": "node-http",
+      "concurrency": 4,
+      "batchJobs": 1,
+      "fault": "before-commit",
+      "block": 0,
+      "status": "verified",
+      "admittedJobs": 12,
+      "verifiedJobs": 12,
+      "verifiedRecords": 48,
+      "startupMs": 172.72258399999998,
+      "workMs": 1079.322875,
+      "finalizationMs": 1.283542000000125,
+      "totalMs": 1253.3819170000002,
+      "verifiedJobsPerSecond": 11.104875754221991,
+      "jobsPerSecondIncludingStartup": 9.5740969589878,
+      "peakBufferedJobs": 4,
+      "restarts": 1,
+      "reconciledJobs": 0,
+      "info": [
+        {
+          "generation": 0,
+          "sink": {
+            "backend": "workflow-node",
+            "protocol": 1,
+            "sqlite": "3.53.4",
+            "pragmas": {
+              "journal_mode": "wal",
+              "synchronous": 2,
+              "busy_timeout": 5000,
+              "foreign_keys": 1,
+              "wal_autocheckpoint": 1000,
+              "page_size": 4096
+            },
+            "contract": "WAL FULL; jobs and results committed atomically; lease tokens fence stale commits; receipt replay is idempotent"
+          },
+          "acquisition": {
+            "backend": "node-http",
+            "protocol": 1,
+            "capabilities": [
+              "http-catalog"
+            ],
+            "runtime": "v25.5.0",
+            "maxConcurrency": 128,
+            "lifecycle": "native fetch; shared process connection pool",
+            "versions": {}
+          }
+        },
+        {
+          "generation": 1,
+          "sink": {
+            "backend": "workflow-node",
+            "protocol": 1,
+            "sqlite": "3.53.4",
+            "pragmas": {
+              "journal_mode": "wal",
+              "synchronous": 2,
+              "busy_timeout": 5000,
+              "foreign_keys": 1,
+              "wal_autocheckpoint": 1000,
+              "page_size": 4096
+            },
+            "contract": "WAL FULL; jobs and results committed atomically; lease tokens fence stale commits; receipt replay is idempotent"
+          },
+          "acquisition": {
+            "backend": "node-http",
+            "protocol": 1,
+            "capabilities": [
+              "http-catalog"
+            ],
+            "runtime": "v25.5.0",
+            "maxConcurrency": 128,
+            "lifecycle": "native fetch; shared process connection pool",
+            "versions": {}
+          }
+        }
+      ],
+      "resources": {
+        "peakRssBytes": 250478592,
+        "peakProcessCount": 4,
+        "samples": 5,
+        "unavailable": false,
+        "method": "sampled sum RSS of process group and descendants; shared pages double-counted; short peaks may be missed",
+        "intervalMs": 250
+      },
+      "ackLatencyMs": {
+        "n": 12,
+        "p50": 6.876582999999982,
+        "p95": 1058.83,
+        "p99": 1058.83
+      },
+      "acquisitionAndExtractionMs": {
+        "n": 12,
+        "p50": 5.286166999999978,
+        "p95": 47.046499999999924,
+        "p99": 47.046499999999924
+      },
+      "validationMs": {
+        "n": 12,
+        "p50": 0.006666999999879408,
+        "p95": 0.02783299999987321,
+        "p99": 0.02783299999987321
+      },
+      "sinkWaitCommitAckMs": {
+        "n": 12,
+        "p50": 1.0776249999998981,
+        "p95": 8.82220899999993,
+        "p99": 8.82220899999993
+      },
+      "commitRpcMs": {
+        "n": 12,
+        "p50": 0.275333000000046,
+        "p95": 7.598375000000033,
+        "p99": 7.598375000000033
+      },
+      "ackRpcMs": {
+        "n": 12,
+        "p50": 0.14287500000000364,
+        "p95": 0.5610420000000431,
+        "p99": 0.5610420000000431
+      },
+      "batchJobCounts": [
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1
+      ],
+      "abortedAttempts": 4,
+      "failedAttempts": 0
+    },
+    {
+      "backend": "node-http",
+      "concurrency": 4,
+      "batchJobs": 4,
+      "fault": "before-commit",
+      "block": 0,
+      "status": "verified",
+      "admittedJobs": 12,
+      "verifiedJobs": 12,
+      "verifiedRecords": 48,
+      "startupMs": 106.51695900000004,
+      "workMs": 1087.302,
+      "finalizationMs": 0.9203750000001492,
+      "totalMs": 1194.7485840000002,
+      "verifiedJobsPerSecond": 11.02715793727362,
+      "jobsPerSecondIncludingStartup": 10.043954151277736,
+      "peakBufferedJobs": 4,
+      "restarts": 1,
+      "reconciledJobs": 0,
+      "info": [
+        {
+          "generation": 0,
+          "sink": {
+            "backend": "workflow-node",
+            "protocol": 1,
+            "sqlite": "3.53.4",
+            "pragmas": {
+              "journal_mode": "wal",
+              "synchronous": 2,
+              "busy_timeout": 5000,
+              "foreign_keys": 1,
+              "wal_autocheckpoint": 1000,
+              "page_size": 4096
+            },
+            "contract": "WAL FULL; jobs and results committed atomically; lease tokens fence stale commits; receipt replay is idempotent"
+          },
+          "acquisition": {
+            "backend": "node-http",
+            "protocol": 1,
+            "capabilities": [
+              "http-catalog"
+            ],
+            "runtime": "v25.5.0",
+            "maxConcurrency": 128,
+            "lifecycle": "native fetch; shared process connection pool",
+            "versions": {}
+          }
+        },
+        {
+          "generation": 1,
+          "sink": {
+            "backend": "workflow-node",
+            "protocol": 1,
+            "sqlite": "3.53.4",
+            "pragmas": {
+              "journal_mode": "wal",
+              "synchronous": 2,
+              "busy_timeout": 5000,
+              "foreign_keys": 1,
+              "wal_autocheckpoint": 1000,
+              "page_size": 4096
+            },
+            "contract": "WAL FULL; jobs and results committed atomically; lease tokens fence stale commits; receipt replay is idempotent"
+          },
+          "acquisition": {
+            "backend": "node-http",
+            "protocol": 1,
+            "capabilities": [
+              "http-catalog"
+            ],
+            "runtime": "v25.5.0",
+            "maxConcurrency": 128,
+            "lifecycle": "native fetch; shared process connection pool",
+            "versions": {}
+          }
+        }
+      ],
+      "resources": {
+        "peakRssBytes": 245596160,
+        "peakProcessCount": 5,
+        "samples": 5,
+        "unavailable": false,
+        "method": "sampled sum RSS of process group and descendants; shared pages double-counted; short peaks may be missed",
+        "intervalMs": 250
+      },
+      "ackLatencyMs": {
+        "n": 12,
+        "p50": 9.737875000000258,
+        "p95": 1060.4644170000001,
+        "p99": 1060.4644170000001
+      },
+      "acquisitionAndExtractionMs": {
+        "n": 12,
+        "p50": 8.205833999999868,
+        "p95": 47.79166699999996,
+        "p99": 47.79166699999996
+      },
+      "validationMs": {
+        "n": 12,
+        "p50": 0.004791000000295753,
+        "p95": 0.021999999999934516,
+        "p99": 0.021999999999934516
+      },
+      "sinkWaitCommitAckMs": {
+        "n": 12,
+        "p50": 2.568499999999858,
+        "p95": 10.65866700000015,
+        "p99": 10.65866700000015
+      },
+      "commitRpcMs": {
+        "n": 3,
+        "p50": 0.6612910000003467,
+        "p95": 7.4128749999999854,
+        "p99": 7.4128749999999854
+      },
+      "ackRpcMs": {
+        "n": 3,
+        "p50": 0.30016599999999016,
+        "p95": 0.5295000000000982,
+        "p99": 0.5295000000000982
+      },
+      "batchJobCounts": [
+        4,
+        4,
+        4
+      ],
+      "abortedAttempts": 4,
+      "failedAttempts": 0
+    },
+    {
+      "backend": "node-http",
+      "concurrency": 4,
+      "batchJobs": 4,
+      "fault": "after-commit",
+      "block": 0,
+      "status": "verified",
+      "admittedJobs": 12,
+      "verifiedJobs": 12,
+      "verifiedRecords": 48,
+      "startupMs": 108.47137500000008,
+      "workMs": 254.6856670000002,
+      "finalizationMs": 0.9707499999999527,
+      "totalMs": 364.1381660000002,
+      "verifiedJobsPerSecond": 46.93799647516766,
+      "jobsPerSecondIncludingStartup": 32.954524190139395,
+      "peakBufferedJobs": 4,
+      "restarts": 1,
+      "reconciledJobs": 4,
+      "info": [
+        {
+          "generation": 0,
+          "sink": {
+            "backend": "workflow-node",
+            "protocol": 1,
+            "sqlite": "3.53.4",
+            "pragmas": {
+              "journal_mode": "wal",
+              "synchronous": 2,
+              "busy_timeout": 5000,
+              "foreign_keys": 1,
+              "wal_autocheckpoint": 1000,
+              "page_size": 4096
+            },
+            "contract": "WAL FULL; jobs and results committed atomically; lease tokens fence stale commits; receipt replay is idempotent"
+          },
+          "acquisition": {
+            "backend": "node-http",
+            "protocol": 1,
+            "capabilities": [
+              "http-catalog"
+            ],
+            "runtime": "v25.5.0",
+            "maxConcurrency": 128,
+            "lifecycle": "native fetch; shared process connection pool",
+            "versions": {}
+          }
+        },
+        {
+          "generation": 1,
+          "sink": {
+            "backend": "workflow-node",
+            "protocol": 1,
+            "sqlite": "3.53.4",
+            "pragmas": {
+              "journal_mode": "wal",
+              "synchronous": 2,
+              "busy_timeout": 5000,
+              "foreign_keys": 1,
+              "wal_autocheckpoint": 1000,
+              "page_size": 4096
+            },
+            "contract": "WAL FULL; jobs and results committed atomically; lease tokens fence stale commits; receipt replay is idempotent"
+          },
+          "acquisition": {
+            "backend": "node-http",
+            "protocol": 1,
+            "capabilities": [
+              "http-catalog"
+            ],
+            "runtime": "v25.5.0",
+            "maxConcurrency": 128,
+            "lifecycle": "native fetch; shared process connection pool",
+            "versions": {}
+          }
+        }
+      ],
+      "resources": {
+        "peakRssBytes": 204521472,
+        "peakProcessCount": 4,
+        "samples": 2,
+        "unavailable": false,
+        "method": "sampled sum RSS of process group and descendants; shared pages double-counted; short peaks may be missed",
+        "intervalMs": 250
+      },
+      "ackLatencyMs": {
+        "n": 12,
+        "p50": 52.555875000000015,
+        "p95": 181.58979199999976,
+        "p99": 181.58979199999976
+      },
+      "acquisitionAndExtractionMs": {
+        "n": 8,
+        "p50": 6.336124999999811,
+        "p95": 44.41912500000035,
+        "p99": 44.41912500000035
+      },
+      "validationMs": {
+        "n": 8,
+        "p50": 0.004417000000103144,
+        "p95": 0.008709000000180822,
+        "p99": 0.008709000000180822
+      },
+      "sinkWaitCommitAckMs": {
+        "n": 8,
+        "p50": 1.4481670000000122,
+        "p95": 8.999291000000085,
+        "p99": 8.999291000000085
+      },
+      "commitRpcMs": {
+        "n": 2,
+        "p50": 0.5680419999998776,
+        "p95": 7.397083000000293,
+        "p99": 7.397083000000293
+      },
+      "ackRpcMs": {
+        "n": 2,
+        "p50": 0.23408299999982773,
+        "p95": 0.35391699999991033,
+        "p99": 0.35391699999991033
+      },
+      "batchJobCounts": [
+        4,
+        4
+      ],
+      "abortedAttempts": 4,
+      "failedAttempts": 0
+    },
+    {
+      "backend": "node-http",
+      "concurrency": 1,
+      "batchJobs": 1,
+      "fault": "after-commit",
+      "block": 0,
+      "status": "verified",
+      "admittedJobs": 12,
+      "verifiedJobs": 12,
+      "verifiedRecords": 48,
+      "startupMs": 107.81595799999968,
+      "workMs": 310.52300000000014,
+      "finalizationMs": 0.7855000000004111,
+      "totalMs": 419.135041,
+      "verifiedJobsPerSecond": 38.54697189443905,
+      "jobsPerSecondIncludingStartup": 28.630390747978524,
+      "peakBufferedJobs": 1,
+      "restarts": 1,
+      "reconciledJobs": 1,
+      "info": [
+        {
+          "generation": 0,
+          "sink": {
+            "backend": "workflow-node",
+            "protocol": 1,
+            "sqlite": "3.53.4",
+            "pragmas": {
+              "journal_mode": "wal",
+              "synchronous": 2,
+              "busy_timeout": 5000,
+              "foreign_keys": 1,
+              "wal_autocheckpoint": 1000,
+              "page_size": 4096
+            },
+            "contract": "WAL FULL; jobs and results committed atomically; lease tokens fence stale commits; receipt replay is idempotent"
+          },
+          "acquisition": {
+            "backend": "node-http",
+            "protocol": 1,
+            "capabilities": [
+              "http-catalog"
+            ],
+            "runtime": "v25.5.0",
+            "maxConcurrency": 128,
+            "lifecycle": "native fetch; shared process connection pool",
+            "versions": {}
+          }
+        },
+        {
+          "generation": 1,
+          "sink": {
+            "backend": "workflow-node",
+            "protocol": 1,
+            "sqlite": "3.53.4",
+            "pragmas": {
+              "journal_mode": "wal",
+              "synchronous": 2,
+              "busy_timeout": 5000,
+              "foreign_keys": 1,
+              "wal_autocheckpoint": 1000,
+              "page_size": 4096
+            },
+            "contract": "WAL FULL; jobs and results committed atomically; lease tokens fence stale commits; receipt replay is idempotent"
+          },
+          "acquisition": {
+            "backend": "node-http",
+            "protocol": 1,
+            "capabilities": [
+              "http-catalog"
+            ],
+            "runtime": "v25.5.0",
+            "maxConcurrency": 128,
+            "lifecycle": "native fetch; shared process connection pool",
+            "versions": {}
+          }
+        }
+      ],
+      "resources": {
+        "peakRssBytes": 206061568,
+        "peakProcessCount": 4,
+        "samples": 2,
+        "unavailable": false,
+        "method": "sampled sum RSS of process group and descendants; shared pages double-counted; short peaks may be missed",
+        "intervalMs": 250
+      },
+      "ackLatencyMs": {
+        "n": 12,
+        "p50": 6.220624999999927,
+        "p95": 187.010041,
+        "p99": 187.010041
+      },
+      "acquisitionAndExtractionMs": {
+        "n": 11,
+        "p50": 5.5681250000002365,
+        "p95": 42.55137500000001,
+        "p99": 42.55137500000001
+      },
+      "validationMs": {
+        "n": 11,
+        "p50": 0.004708999999820662,
+        "p95": 0.010124999999788997,
+        "p99": 0.010124999999788997
+      },
+      "sinkWaitCommitAckMs": {
+        "n": 11,
+        "p50": 0.6705000000001746,
+        "p95": 8.237250000000131,
+        "p99": 8.237250000000131
+      },
+      "commitRpcMs": {
+        "n": 11,
+        "p50": 0.3367920000000595,
+        "p95": 7.332042000000001,
+        "p99": 7.332042000000001
+      },
+      "ackRpcMs": {
+        "n": 11,
+        "p50": 0.14816700000028504,
+        "p95": 0.37412499999982174,
+        "p99": 0.37412499999982174
+      },
+      "batchJobCounts": [
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1
+      ],
+      "abortedAttempts": 1,
+      "failedAttempts": 0
+    },
+    {
+      "backend": "node-http",
+      "concurrency": 1,
+      "batchJobs": 1,
+      "fault": "before-commit",
+      "block": 0,
+      "status": "verified",
+      "admittedJobs": 12,
+      "verifiedJobs": 12,
+      "verifiedRecords": 48,
+      "startupMs": 107.35841699999992,
+      "workMs": 1183.7389580000004,
+      "finalizationMs": 1.0256660000004558,
+      "totalMs": 1292.1290419999996,
+      "verifiedJobsPerSecond": 10.128594116429317,
+      "jobsPerSecondIncludingStartup": 9.28699813249767,
+      "peakBufferedJobs": 1,
+      "restarts": 1,
+      "reconciledJobs": 0,
+      "info": [
+        {
+          "generation": 0,
+          "sink": {
+            "backend": "workflow-node",
+            "protocol": 1,
+            "sqlite": "3.53.4",
+            "pragmas": {
+              "journal_mode": "wal",
+              "synchronous": 2,
+              "busy_timeout": 5000,
+              "foreign_keys": 1,
+              "wal_autocheckpoint": 1000,
+              "page_size": 4096
+            },
+            "contract": "WAL FULL; jobs and results committed atomically; lease tokens fence stale commits; receipt replay is idempotent"
+          },
+          "acquisition": {
+            "backend": "node-http",
+            "protocol": 1,
+            "capabilities": [
+              "http-catalog"
+            ],
+            "runtime": "v25.5.0",
+            "maxConcurrency": 128,
+            "lifecycle": "native fetch; shared process connection pool",
+            "versions": {}
+          }
+        },
+        {
+          "generation": 1,
+          "sink": {
+            "backend": "workflow-node",
+            "protocol": 1,
+            "sqlite": "3.53.4",
+            "pragmas": {
+              "journal_mode": "wal",
+              "synchronous": 2,
+              "busy_timeout": 5000,
+              "foreign_keys": 1,
+              "wal_autocheckpoint": 1000,
+              "page_size": 4096
+            },
+            "contract": "WAL FULL; jobs and results committed atomically; lease tokens fence stale commits; receipt replay is idempotent"
+          },
+          "acquisition": {
+            "backend": "node-http",
+            "protocol": 1,
+            "capabilities": [
+              "http-catalog"
+            ],
+            "runtime": "v25.5.0",
+            "maxConcurrency": 128,
+            "lifecycle": "native fetch; shared process connection pool",
+            "versions": {}
+          }
+        }
+      ],
+      "resources": {
+        "peakRssBytes": 246939648,
+        "peakProcessCount": 4,
+        "samples": 5,
+        "unavailable": false,
+        "method": "sampled sum RSS of process group and descendants; shared pages double-counted; short peaks may be missed",
+        "intervalMs": 250
+      },
+      "ackLatencyMs": {
+        "n": 12,
+        "p50": 8.515999999999622,
+        "p95": 1072.8224999999998,
+        "p99": 1072.8224999999998
+      },
+      "acquisitionAndExtractionMs": {
+        "n": 12,
+        "p50": 6.8052499999994325,
+        "p95": 59.17254199999934,
+        "p99": 59.17254199999934
+      },
+      "validationMs": {
+        "n": 12,
+        "p50": 0.010874999999941792,
+        "p95": 0.05570900000020629,
+        "p99": 0.05570900000020629
+      },
+      "sinkWaitCommitAckMs": {
+        "n": 12,
+        "p50": 1.6005839999997988,
+        "p95": 10.02758300000005,
+        "p99": 10.02758300000005
+      },
+      "commitRpcMs": {
+        "n": 12,
+        "p50": 0.6369999999997162,
+        "p95": 7.8747080000002825,
+        "p99": 7.8747080000002825
+      },
+      "ackRpcMs": {
+        "n": 12,
+        "p50": 0.2958329999992202,
+        "p95": 1.1701249999996435,
+        "p99": 1.1701249999996435
+      },
+      "batchJobCounts": [
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1
+      ],
+      "abortedAttempts": 1,
+      "failedAttempts": 0
+    },
+    {
+      "backend": "node-http",
+      "concurrency": 4,
+      "batchJobs": 1,
+      "fault": "after-commit",
+      "block": 0,
+      "status": "verified",
+      "admittedJobs": 12,
+      "verifiedJobs": 12,
+      "verifiedRecords": 48,
+      "startupMs": 110.0679170000003,
+      "workMs": 1093.9651249999997,
+      "finalizationMs": 1.0239579999997659,
+      "totalMs": 1205.063792,
+      "verifiedJobsPerSecond": 10.959013369451105,
+      "jobsPerSecondIncludingStartup": 9.957979054439967,
+      "peakBufferedJobs": 4,
+      "restarts": 1,
+      "reconciledJobs": 1,
+      "info": [
+        {
+          "generation": 0,
+          "sink": {
+            "backend": "workflow-node",
+            "protocol": 1,
+            "sqlite": "3.53.4",
+            "pragmas": {
+              "journal_mode": "wal",
+              "synchronous": 2,
+              "busy_timeout": 5000,
+              "foreign_keys": 1,
+              "wal_autocheckpoint": 1000,
+              "page_size": 4096
+            },
+            "contract": "WAL FULL; jobs and results committed atomically; lease tokens fence stale commits; receipt replay is idempotent"
+          },
+          "acquisition": {
+            "backend": "node-http",
+            "protocol": 1,
+            "capabilities": [
+              "http-catalog"
+            ],
+            "runtime": "v25.5.0",
+            "maxConcurrency": 128,
+            "lifecycle": "native fetch; shared process connection pool",
+            "versions": {}
+          }
+        },
+        {
+          "generation": 1,
+          "sink": {
+            "backend": "workflow-node",
+            "protocol": 1,
+            "sqlite": "3.53.4",
+            "pragmas": {
+              "journal_mode": "wal",
+              "synchronous": 2,
+              "busy_timeout": 5000,
+              "foreign_keys": 1,
+              "wal_autocheckpoint": 1000,
+              "page_size": 4096
+            },
+            "contract": "WAL FULL; jobs and results committed atomically; lease tokens fence stale commits; receipt replay is idempotent"
+          },
+          "acquisition": {
+            "backend": "node-http",
+            "protocol": 1,
+            "capabilities": [
+              "http-catalog"
+            ],
+            "runtime": "v25.5.0",
+            "maxConcurrency": 128,
+            "lifecycle": "native fetch; shared process connection pool",
+            "versions": {}
+          }
+        }
+      ],
+      "resources": {
+        "peakRssBytes": 248217600,
+        "peakProcessCount": 5,
+        "samples": 5,
+        "unavailable": false,
+        "method": "sampled sum RSS of process group and descendants; shared pages double-counted; short peaks may be missed",
+        "intervalMs": 250
+      },
+      "ackLatencyMs": {
+        "n": 12,
+        "p50": 7.106834000000163,
+        "p95": 1070.0927090000005,
+        "p99": 1070.0927090000005
+      },
+      "acquisitionAndExtractionMs": {
+        "n": 11,
+        "p50": 5.716542000000118,
+        "p95": 55.17741699999988,
+        "p99": 55.17741699999988
+      },
+      "validationMs": {
+        "n": 11,
+        "p50": 0.007749999999759893,
+        "p95": 0.01558400000067195,
+        "p99": 0.01558400000067195
+      },
+      "sinkWaitCommitAckMs": {
+        "n": 11,
+        "p50": 1.4250419999998485,
+        "p95": 11.026082999999744,
+        "p99": 11.026082999999744
+      },
+      "commitRpcMs": {
+        "n": 11,
+        "p50": 0.30975000000034925,
+        "p95": 8.939624999999978,
+        "p99": 8.939624999999978
+      },
+      "ackRpcMs": {
+        "n": 11,
+        "p50": 0.18374999999923602,
+        "p95": 0.41045799999938026,
+        "p99": 0.41045799999938026
+      },
+      "batchJobCounts": [
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1
+      ],
+      "abortedAttempts": 4,
+      "failedAttempts": 0
+    },
+    {
+      "backend": "node-http",
+      "concurrency": 1,
+      "batchJobs": 1,
+      "fault": "before-commit",
+      "block": 1,
+      "status": "verified",
+      "admittedJobs": 12,
+      "verifiedJobs": 12,
+      "verifiedRecords": 48,
+      "startupMs": 111.77224999999999,
+      "workMs": 1157.9033330000002,
+      "finalizationMs": 1.028374999999869,
+      "totalMs": 1270.7299160000002,
+      "verifiedJobsPerSecond": 10.354363347870365,
+      "jobsPerSecondIncludingStartup": 9.443391431102498,
+      "peakBufferedJobs": 1,
+      "restarts": 1,
+      "reconciledJobs": 0,
+      "info": [
+        {
+          "generation": 0,
+          "sink": {
+            "backend": "workflow-node",
+            "protocol": 1,
+            "sqlite": "3.53.4",
+            "pragmas": {
+              "journal_mode": "wal",
+              "synchronous": 2,
+              "busy_timeout": 5000,
+              "foreign_keys": 1,
+              "wal_autocheckpoint": 1000,
+              "page_size": 4096
+            },
+            "contract": "WAL FULL; jobs and results committed atomically; lease tokens fence stale commits; receipt replay is idempotent"
+          },
+          "acquisition": {
+            "backend": "node-http",
+            "protocol": 1,
+            "capabilities": [
+              "http-catalog"
+            ],
+            "runtime": "v25.5.0",
+            "maxConcurrency": 128,
+            "lifecycle": "native fetch; shared process connection pool",
+            "versions": {}
+          }
+        },
+        {
+          "generation": 1,
+          "sink": {
+            "backend": "workflow-node",
+            "protocol": 1,
+            "sqlite": "3.53.4",
+            "pragmas": {
+              "journal_mode": "wal",
+              "synchronous": 2,
+              "busy_timeout": 5000,
+              "foreign_keys": 1,
+              "wal_autocheckpoint": 1000,
+              "page_size": 4096
+            },
+            "contract": "WAL FULL; jobs and results committed atomically; lease tokens fence stale commits; receipt replay is idempotent"
+          },
+          "acquisition": {
+            "backend": "node-http",
+            "protocol": 1,
+            "capabilities": [
+              "http-catalog"
+            ],
+            "runtime": "v25.5.0",
+            "maxConcurrency": 128,
+            "lifecycle": "native fetch; shared process connection pool",
+            "versions": {}
+          }
+        }
+      ],
+      "resources": {
+        "peakRssBytes": 250904576,
+        "peakProcessCount": 4,
+        "samples": 5,
+        "unavailable": false,
+        "method": "sampled sum RSS of process group and descendants; shared pages double-counted; short peaks may be missed",
+        "intervalMs": 250
+      },
+      "ackLatencyMs": {
+        "n": 12,
+        "p50": 7.263249999999971,
+        "p95": 1068.3115420000004,
+        "p99": 1068.3115420000004
+      },
+      "acquisitionAndExtractionMs": {
+        "n": 12,
+        "p50": 6.191834000000199,
+        "p95": 52.779750000000604,
+        "p99": 52.779750000000604
+      },
+      "validationMs": {
+        "n": 12,
+        "p50": 0.008625000000392902,
+        "p95": 0.01074999999946158,
+        "p99": 0.01074999999946158
+      },
+      "sinkWaitCommitAckMs": {
+        "n": 12,
+        "p50": 0.9917919999998048,
+        "p95": 12.116209000000708,
+        "p99": 12.116209000000708
+      },
+      "commitRpcMs": {
+        "n": 12,
+        "p50": 0.4769590000005337,
+        "p95": 10.944042000000081,
+        "p99": 10.944042000000081
+      },
+      "ackRpcMs": {
+        "n": 12,
+        "p50": 0.199083000000428,
+        "p95": 0.6129170000003796,
+        "p99": 0.6129170000003796
+      },
+      "batchJobCounts": [
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1
+      ],
+      "abortedAttempts": 1,
+      "failedAttempts": 0
+    },
+    {
+      "backend": "node-http",
+      "concurrency": 4,
+      "batchJobs": 1,
+      "fault": "after-commit",
+      "block": 1,
+      "status": "verified",
+      "admittedJobs": 12,
+      "verifiedJobs": 12,
+      "verifiedRecords": 48,
+      "startupMs": 106.68395899999996,
+      "workMs": 1080.3137080000006,
+      "finalizationMs": 0.8808330000010756,
+      "totalMs": 1187.8868749999992,
+      "verifiedJobsPerSecond": 11.09883517253162,
+      "jobsPerSecondIncludingStartup": 10.101972041740092,
+      "peakBufferedJobs": 4,
+      "restarts": 1,
+      "reconciledJobs": 1,
+      "info": [
+        {
+          "generation": 0,
+          "sink": {
+            "backend": "workflow-node",
+            "protocol": 1,
+            "sqlite": "3.53.4",
+            "pragmas": {
+              "journal_mode": "wal",
+              "synchronous": 2,
+              "busy_timeout": 5000,
+              "foreign_keys": 1,
+              "wal_autocheckpoint": 1000,
+              "page_size": 4096
+            },
+            "contract": "WAL FULL; jobs and results committed atomically; lease tokens fence stale commits; receipt replay is idempotent"
+          },
+          "acquisition": {
+            "backend": "node-http",
+            "protocol": 1,
+            "capabilities": [
+              "http-catalog"
+            ],
+            "runtime": "v25.5.0",
+            "maxConcurrency": 128,
+            "lifecycle": "native fetch; shared process connection pool",
+            "versions": {}
+          }
+        },
+        {
+          "generation": 1,
+          "sink": {
+            "backend": "workflow-node",
+            "protocol": 1,
+            "sqlite": "3.53.4",
+            "pragmas": {
+              "journal_mode": "wal",
+              "synchronous": 2,
+              "busy_timeout": 5000,
+              "foreign_keys": 1,
+              "wal_autocheckpoint": 1000,
+              "page_size": 4096
+            },
+            "contract": "WAL FULL; jobs and results committed atomically; lease tokens fence stale commits; receipt replay is idempotent"
+          },
+          "acquisition": {
+            "backend": "node-http",
+            "protocol": 1,
+            "capabilities": [
+              "http-catalog"
+            ],
+            "runtime": "v25.5.0",
+            "maxConcurrency": 128,
+            "lifecycle": "native fetch; shared process connection pool",
+            "versions": {}
+          }
+        }
+      ],
+      "resources": {
+        "peakRssBytes": 245858304,
+        "peakProcessCount": 5,
+        "samples": 5,
+        "unavailable": false,
+        "method": "sampled sum RSS of process group and descendants; shared pages double-counted; short peaks may be missed",
+        "intervalMs": 250
+      },
+      "ackLatencyMs": {
+        "n": 12,
+        "p50": 7.51483399999961,
+        "p95": 1057.1425420000005,
+        "p99": 1057.1425420000005
+      },
+      "acquisitionAndExtractionMs": {
+        "n": 11,
+        "p50": 5.982500000000073,
+        "p95": 46.43287500000042,
+        "p99": 46.43287500000042
+      },
+      "validationMs": {
+        "n": 11,
+        "p50": 0.006957999999940512,
+        "p95": 0.02712500000052387,
+        "p99": 0.02712500000052387
+      },
+      "sinkWaitCommitAckMs": {
+        "n": 11,
+        "p50": 1.711583000000246,
+        "p95": 9.067208000000392,
+        "p99": 9.067208000000392
+      },
+      "commitRpcMs": {
+        "n": 11,
+        "p50": 0.32233400000041,
+        "p95": 7.537292000000889,
+        "p99": 7.537292000000889
+      },
+      "ackRpcMs": {
+        "n": 11,
+        "p50": 0.2050409999992553,
+        "p95": 0.2521249999990687,
+        "p99": 0.2521249999990687
+      },
+      "batchJobCounts": [
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1
+      ],
+      "abortedAttempts": 4,
+      "failedAttempts": 0
+    },
+    {
+      "backend": "node-http",
+      "concurrency": 4,
+      "batchJobs": 4,
+      "fault": "before-commit",
+      "block": 1,
+      "status": "verified",
+      "admittedJobs": 12,
+      "verifiedJobs": 12,
+      "verifiedRecords": 48,
+      "startupMs": 103.1948339999999,
+      "workMs": 1080.1327500000007,
+      "finalizationMs": 1.1865419999994629,
+      "totalMs": 1184.5196669999987,
+      "verifiedJobsPerSecond": 11.097554708198066,
+      "jobsPerSecondIncludingStartup": 10.130688695437264,
+      "peakBufferedJobs": 4,
+      "restarts": 1,
+      "reconciledJobs": 0,
+      "info": [
+        {
+          "generation": 0,
+          "sink": {
+            "backend": "workflow-node",
+            "protocol": 1,
+            "sqlite": "3.53.4",
+            "pragmas": {
+              "journal_mode": "wal",
+              "synchronous": 2,
+              "busy_timeout": 5000,
+              "foreign_keys": 1,
+              "wal_autocheckpoint": 1000,
+              "page_size": 4096
+            },
+            "contract": "WAL FULL; jobs and results committed atomically; lease tokens fence stale commits; receipt replay is idempotent"
+          },
+          "acquisition": {
+            "backend": "node-http",
+            "protocol": 1,
+            "capabilities": [
+              "http-catalog"
+            ],
+            "runtime": "v25.5.0",
+            "maxConcurrency": 128,
+            "lifecycle": "native fetch; shared process connection pool",
+            "versions": {}
+          }
+        },
+        {
+          "generation": 1,
+          "sink": {
+            "backend": "workflow-node",
+            "protocol": 1,
+            "sqlite": "3.53.4",
+            "pragmas": {
+              "journal_mode": "wal",
+              "synchronous": 2,
+              "busy_timeout": 5000,
+              "foreign_keys": 1,
+              "wal_autocheckpoint": 1000,
+              "page_size": 4096
+            },
+            "contract": "WAL FULL; jobs and results committed atomically; lease tokens fence stale commits; receipt replay is idempotent"
+          },
+          "acquisition": {
+            "backend": "node-http",
+            "protocol": 1,
+            "capabilities": [
+              "http-catalog"
+            ],
+            "runtime": "v25.5.0",
+            "maxConcurrency": 128,
+            "lifecycle": "native fetch; shared process connection pool",
+            "versions": {}
+          }
+        }
+      ],
+      "resources": {
+        "peakRssBytes": 250380288,
+        "peakProcessCount": 4,
+        "samples": 5,
+        "unavailable": false,
+        "method": "sampled sum RSS of process group and descendants; shared pages double-counted; short peaks may be missed",
+        "intervalMs": 250
+      },
+      "ackLatencyMs": {
+        "n": 12,
+        "p50": 8.421625000000859,
+        "p95": 1055.2159999999985,
+        "p99": 1055.2159999999985
+      },
+      "acquisitionAndExtractionMs": {
+        "n": 12,
+        "p50": 6.612082999999984,
+        "p95": 45.289166999999,
+        "p99": 45.289166999999
+      },
+      "validationMs": {
+        "n": 12,
+        "p50": 0.00579200000174751,
+        "p95": 0.009958000000551692,
+        "p99": 0.009958000000551692
+      },
+      "sinkWaitCommitAckMs": {
+        "n": 12,
+        "p50": 3.2834579999998823,
+        "p95": 9.000083000000814,
+        "p99": 9.000083000000814
+      },
+      "commitRpcMs": {
+        "n": 3,
+        "p50": 0.8932089999998425,
+        "p95": 7.2520409999997355,
+        "p99": 7.2520409999997355
+      },
+      "ackRpcMs": {
+        "n": 3,
+        "p50": 0.4211249999989377,
+        "p95": 0.4352920000001177,
+        "p99": 0.4352920000001177
+      },
+      "batchJobCounts": [
+        4,
+        4,
+        4
+      ],
+      "abortedAttempts": 4,
+      "failedAttempts": 0
+    },
+    {
+      "backend": "node-http",
+      "concurrency": 1,
+      "batchJobs": 1,
+      "fault": "after-commit",
+      "block": 1,
+      "status": "verified",
+      "admittedJobs": 12,
+      "verifiedJobs": 12,
+      "verifiedRecords": 48,
+      "startupMs": 105.73916699999972,
+      "workMs": 311.5995839999996,
+      "finalizationMs": 0.9402919999993173,
+      "totalMs": 418.2879589999993,
+      "verifiedJobsPerSecond": 38.395100662291306,
+      "jobsPerSecondIncludingStartup": 28.688370635120336,
+      "peakBufferedJobs": 1,
+      "restarts": 1,
+      "reconciledJobs": 1,
+      "info": [
+        {
+          "generation": 0,
+          "sink": {
+            "backend": "workflow-node",
+            "protocol": 1,
+            "sqlite": "3.53.4",
+            "pragmas": {
+              "journal_mode": "wal",
+              "synchronous": 2,
+              "busy_timeout": 5000,
+              "foreign_keys": 1,
+              "wal_autocheckpoint": 1000,
+              "page_size": 4096
+            },
+            "contract": "WAL FULL; jobs and results committed atomically; lease tokens fence stale commits; receipt replay is idempotent"
+          },
+          "acquisition": {
+            "backend": "node-http",
+            "protocol": 1,
+            "capabilities": [
+              "http-catalog"
+            ],
+            "runtime": "v25.5.0",
+            "maxConcurrency": 128,
+            "lifecycle": "native fetch; shared process connection pool",
+            "versions": {}
+          }
+        },
+        {
+          "generation": 1,
+          "sink": {
+            "backend": "workflow-node",
+            "protocol": 1,
+            "sqlite": "3.53.4",
+            "pragmas": {
+              "journal_mode": "wal",
+              "synchronous": 2,
+              "busy_timeout": 5000,
+              "foreign_keys": 1,
+              "wal_autocheckpoint": 1000,
+              "page_size": 4096
+            },
+            "contract": "WAL FULL; jobs and results committed atomically; lease tokens fence stale commits; receipt replay is idempotent"
+          },
+          "acquisition": {
+            "backend": "node-http",
+            "protocol": 1,
+            "capabilities": [
+              "http-catalog"
+            ],
+            "runtime": "v25.5.0",
+            "maxConcurrency": 128,
+            "lifecycle": "native fetch; shared process connection pool",
+            "versions": {}
+          }
+        }
+      ],
+      "resources": {
+        "peakRssBytes": 225918976,
+        "peakProcessCount": 4,
+        "samples": 2,
+        "unavailable": false,
+        "method": "sampled sum RSS of process group and descendants; shared pages double-counted; short peaks may be missed",
+        "intervalMs": 250
+      },
+      "ackLatencyMs": {
+        "n": 12,
+        "p50": 6.94891699999971,
+        "p95": 183.12245799999982,
+        "p99": 183.12245799999982
+      },
+      "acquisitionAndExtractionMs": {
+        "n": 11,
+        "p50": 6.077750000000378,
+        "p95": 39.76224999999977,
+        "p99": 39.76224999999977
+      },
+      "validationMs": {
+        "n": 11,
+        "p50": 0.007332999999562162,
+        "p95": 0.023916000000099302,
+        "p99": 0.023916000000099302
+      },
+      "sinkWaitCommitAckMs": {
+        "n": 11,
+        "p50": 1.0380829999994603,
+        "p95": 7.881749999998647,
+        "p99": 7.881749999998647
+      },
+      "commitRpcMs": {
+        "n": 11,
+        "p50": 0.4919590000008611,
+        "p95": 7.098583000000872,
+        "p99": 7.098583000000872
+      },
+      "ackRpcMs": {
+        "n": 11,
+        "p50": 0.18845900000087568,
+        "p95": 0.3420829999995476,
+        "p99": 0.3420829999995476
+      },
+      "batchJobCounts": [
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1
+      ],
+      "abortedAttempts": 1,
+      "failedAttempts": 0
+    },
+    {
+      "backend": "node-http",
+      "concurrency": 4,
+      "batchJobs": 4,
+      "fault": "after-commit",
+      "block": 1,
+      "status": "verified",
+      "admittedJobs": 12,
+      "verifiedJobs": 12,
+      "verifiedRecords": 48,
+      "startupMs": 107.39704199999869,
+      "workMs": 300.2487920000003,
+      "finalizationMs": 0.9648329999999987,
+      "totalMs": 408.61683300000004,
+      "verifiedJobsPerSecond": 39.838835311649625,
+      "jobsPerSecondIncludingStartup": 29.367365783484498,
+      "peakBufferedJobs": 4,
+      "restarts": 1,
+      "reconciledJobs": 4,
+      "info": [
+        {
+          "generation": 0,
+          "sink": {
+            "backend": "workflow-node",
+            "protocol": 1,
+            "sqlite": "3.53.4",
+            "pragmas": {
+              "journal_mode": "wal",
+              "synchronous": 2,
+              "busy_timeout": 5000,
+              "foreign_keys": 1,
+              "wal_autocheckpoint": 1000,
+              "page_size": 4096
+            },
+            "contract": "WAL FULL; jobs and results committed atomically; lease tokens fence stale commits; receipt replay is idempotent"
+          },
+          "acquisition": {
+            "backend": "node-http",
+            "protocol": 1,
+            "capabilities": [
+              "http-catalog"
+            ],
+            "runtime": "v25.5.0",
+            "maxConcurrency": 128,
+            "lifecycle": "native fetch; shared process connection pool",
+            "versions": {}
+          }
+        },
+        {
+          "generation": 1,
+          "sink": {
+            "backend": "workflow-node",
+            "protocol": 1,
+            "sqlite": "3.53.4",
+            "pragmas": {
+              "journal_mode": "wal",
+              "synchronous": 2,
+              "busy_timeout": 5000,
+              "foreign_keys": 1,
+              "wal_autocheckpoint": 1000,
+              "page_size": 4096
+            },
+            "contract": "WAL FULL; jobs and results committed atomically; lease tokens fence stale commits; receipt replay is idempotent"
+          },
+          "acquisition": {
+            "backend": "node-http",
+            "protocol": 1,
+            "capabilities": [
+              "http-catalog"
+            ],
+            "runtime": "v25.5.0",
+            "maxConcurrency": 128,
+            "lifecycle": "native fetch; shared process connection pool",
+            "versions": {}
+          }
+        }
+      ],
+      "resources": {
+        "peakRssBytes": 146341888,
+        "peakProcessCount": 4,
+        "samples": 2,
+        "unavailable": false,
+        "method": "sampled sum RSS of process group and descendants; shared pages double-counted; short peaks may be missed",
+        "intervalMs": 250
+      },
+      "ackLatencyMs": {
+        "n": 12,
+        "p50": 51.328207999998995,
+        "p95": 226.78245900000002,
+        "p99": 226.78245900000002
+      },
+      "acquisitionAndExtractionMs": {
+        "n": 8,
+        "p50": 6.46166600000106,
+        "p95": 43.064000000000306,
+        "p99": 43.064000000000306
+      },
+      "validationMs": {
+        "n": 8,
+        "p50": 0.004833999999391381,
+        "p95": 0.009833000000071479,
+        "p99": 0.009833000000071479
+      },
+      "sinkWaitCommitAckMs": {
+        "n": 8,
+        "p50": 1.3565830000006827,
+        "p95": 8.89220800000112,
+        "p99": 8.89220800000112
+      },
+      "commitRpcMs": {
+        "n": 2,
+        "p50": 0.5487919999995938,
+        "p95": 7.363541000000623,
+        "p99": 7.363541000000623
+      },
+      "ackRpcMs": {
+        "n": 2,
+        "p50": 0.26258299999972223,
+        "p95": 0.4273749999993015,
+        "p99": 0.4273749999993015
+      },
+      "batchJobCounts": [
+        4,
+        4
+      ],
+      "abortedAttempts": 4,
+      "failedAttempts": 0
+    },
+    {
+      "backend": "node-http",
+      "concurrency": 4,
+      "batchJobs": 1,
+      "fault": "before-commit",
+      "block": 1,
+      "status": "verified",
+      "admittedJobs": 12,
+      "verifiedJobs": 12,
+      "verifiedRecords": 48,
+      "startupMs": 104.75795800000014,
+      "workMs": 1094.8474589999987,
+      "finalizationMs": 1.1064169999990554,
+      "totalMs": 1200.7221250000002,
+      "verifiedJobsPerSecond": 10.949365901964313,
+      "jobsPerSecondIncludingStartup": 9.993985910770153,
+      "peakBufferedJobs": 4,
+      "restarts": 1,
+      "reconciledJobs": 0,
+      "info": [
+        {
+          "generation": 0,
+          "sink": {
+            "backend": "workflow-node",
+            "protocol": 1,
+            "sqlite": "3.53.4",
+            "pragmas": {
+              "journal_mode": "wal",
+              "synchronous": 2,
+              "busy_timeout": 5000,
+              "foreign_keys": 1,
+              "wal_autocheckpoint": 1000,
+              "page_size": 4096
+            },
+            "contract": "WAL FULL; jobs and results committed atomically; lease tokens fence stale commits; receipt replay is idempotent"
+          },
+          "acquisition": {
+            "backend": "node-http",
+            "protocol": 1,
+            "capabilities": [
+              "http-catalog"
+            ],
+            "runtime": "v25.5.0",
+            "maxConcurrency": 128,
+            "lifecycle": "native fetch; shared process connection pool",
+            "versions": {}
+          }
+        },
+        {
+          "generation": 1,
+          "sink": {
+            "backend": "workflow-node",
+            "protocol": 1,
+            "sqlite": "3.53.4",
+            "pragmas": {
+              "journal_mode": "wal",
+              "synchronous": 2,
+              "busy_timeout": 5000,
+              "foreign_keys": 1,
+              "wal_autocheckpoint": 1000,
+              "page_size": 4096
+            },
+            "contract": "WAL FULL; jobs and results committed atomically; lease tokens fence stale commits; receipt replay is idempotent"
+          },
+          "acquisition": {
+            "backend": "node-http",
+            "protocol": 1,
+            "capabilities": [
+              "http-catalog"
+            ],
+            "runtime": "v25.5.0",
+            "maxConcurrency": 128,
+            "lifecycle": "native fetch; shared process connection pool",
+            "versions": {}
+          }
+        }
+      ],
+      "resources": {
+        "peakRssBytes": 253870080,
+        "peakProcessCount": 4,
+        "samples": 5,
+        "unavailable": false,
+        "method": "sampled sum RSS of process group and descendants; shared pages double-counted; short peaks may be missed",
+        "intervalMs": 250
+      },
+      "ackLatencyMs": {
+        "n": 12,
+        "p50": 7.542000000001281,
+        "p95": 1070.3251670000009,
+        "p99": 1070.3251670000009
+      },
+      "acquisitionAndExtractionMs": {
+        "n": 12,
+        "p50": 5.692208000000392,
+        "p95": 55.36008299999958,
+        "p99": 55.36008299999958
+      },
+      "validationMs": {
+        "n": 12,
+        "p50": 0.005875000000742148,
+        "p95": 0.01616699999976845,
+        "p99": 0.01616699999976845
+      },
+      "sinkWaitCommitAckMs": {
+        "n": 12,
+        "p50": 1.7761669999999867,
+        "p95": 10.682833000000755,
+        "p99": 10.682833000000755
+      },
+      "commitRpcMs": {
+        "n": 12,
+        "p50": 0.28770799999983865,
+        "p95": 7.953833000001396,
+        "p99": 7.953833000001396
+      },
+      "ackRpcMs": {
+        "n": 12,
+        "p50": 0.20091599999977916,
+        "p95": 0.723667000000205,
+        "p99": 0.723667000000205
+      },
+      "batchJobCounts": [
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1
+      ],
+      "abortedAttempts": 4,
+      "failedAttempts": 0
+    }
+  ],
+  "sourceChanges": [],
+  "binaryChanged": false
+}

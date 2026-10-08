@@ -1,0 +1,4 @@
+backend,scenario,conformance_verified,conformance_attempts,verified,attempts,verified_tasks_per_second,p50_success_ms,p95_success_ms,p99_success_ms,failed,timeout,crashed,rejected
+node-http,http-catalog,2,2,80,80,19.6018454769982,89.11383299999943,95.07329099999879,102.06500000000051,0,0,0,0
+crawlee-http,http-catalog,2,2,72,80,16.914458094092364,183.13025000000016,258.17833300000075,362.51245800000015,0,0,0,8
+spider-http,http-catalog,2,2,80,80,19.555714934632274,88.46524999999929,94.01066600000013,97.35816700000032,0,0,0,0

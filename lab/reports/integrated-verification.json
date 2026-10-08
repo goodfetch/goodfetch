@@ -1,0 +1,5713 @@
+{
+  "tests": {
+    "total": 57,
+    "passed": 57,
+    "failed": 0,
+    "skipped": 0,
+    "log": "reports/qualification-current-tests.log"
+  },
+  "checks": [
+    {
+      "contract": "Sources remained frozen during current suite",
+      "passed": true,
+      "detail": []
+    },
+    {
+      "contract": "runtime-native-qualified expected total and verified",
+      "passed": true,
+      "detail": {
+        "name": "runtime-native-qualified",
+        "directory": "/Users/jb/Dev/automan/lab/results/runtime-native-qualified-2026-10-08T00-11-54-841Z-789d5e",
+        "expected": 30,
+        "verified": 30,
+        "total": 30,
+        "status": "qualified"
+      }
+    },
+    {
+      "contract": "runtime-native-qualified source and binary provenance",
+      "passed": true,
+      "detail": {
+        "sourceChanges": [],
+        "binaryChanges": [],
+        "binaryChanged": null
+      }
+    },
+    {
+      "contract": "runtime-native-qualified/cell-2-b0 exact counts and queue bound",
+      "passed": true,
+      "detail": {
+        "jobs": 768,
+        "records": 24576,
+        "buffered": 4
+      }
+    },
+    {
+      "contract": "runtime-native-qualified/cell-2-b0 fault and coordinator restart counts",
+      "passed": true,
+      "detail": {
+        "writerRestarts": 0,
+        "coordinatorRestarts": 0
+      }
+    },
+    {
+      "contract": "runtime-native-qualified/cell-5-b0 exact counts and queue bound",
+      "passed": true,
+      "detail": {
+        "jobs": 768,
+        "records": 24576,
+        "buffered": 4
+      }
+    },
+    {
+      "contract": "runtime-native-qualified/cell-5-b0 fault and coordinator restart counts",
+      "passed": true,
+      "detail": {
+        "writerRestarts": 0,
+        "coordinatorRestarts": 0
+      }
+    },
+    {
+      "contract": "runtime-native-qualified/cell-7-b0 exact counts and queue bound",
+      "passed": true,
+      "detail": {
+        "jobs": 3072,
+        "records": 98304,
+        "buffered": 11
+      }
+    },
+    {
+      "contract": "runtime-native-qualified/cell-7-b0 fault and coordinator restart counts",
+      "passed": true,
+      "detail": {
+        "writerRestarts": 0,
+        "coordinatorRestarts": 0
+      }
+    },
+    {
+      "contract": "runtime-native-qualified/cell-0-b0 exact counts and queue bound",
+      "passed": true,
+      "detail": {
+        "jobs": 192,
+        "records": 6144,
+        "buffered": 1
+      }
+    },
+    {
+      "contract": "runtime-native-qualified/cell-0-b0 fault and coordinator restart counts",
+      "passed": true,
+      "detail": {
+        "writerRestarts": 0,
+        "coordinatorRestarts": 0
+      }
+    },
+    {
+      "contract": "runtime-native-qualified/cell-9-b0 exact counts and queue bound",
+      "passed": true,
+      "detail": {
+        "jobs": 3072,
+        "records": 98304,
+        "buffered": 12
+      }
+    },
+    {
+      "contract": "runtime-native-qualified/cell-9-b0 fault and coordinator restart counts",
+      "passed": true,
+      "detail": {
+        "writerRestarts": 0,
+        "coordinatorRestarts": 0
+      }
+    },
+    {
+      "contract": "runtime-native-qualified/cell-8-b0 exact counts and queue bound",
+      "passed": true,
+      "detail": {
+        "jobs": 3072,
+        "records": 98304,
+        "buffered": 16
+      }
+    },
+    {
+      "contract": "runtime-native-qualified/cell-8-b0 fault and coordinator restart counts",
+      "passed": true,
+      "detail": {
+        "writerRestarts": 0,
+        "coordinatorRestarts": 0
+      }
+    },
+    {
+      "contract": "runtime-native-qualified/cell-3-b0 exact counts and queue bound",
+      "passed": true,
+      "detail": {
+        "jobs": 768,
+        "records": 24576,
+        "buffered": 4
+      }
+    },
+    {
+      "contract": "runtime-native-qualified/cell-3-b0 fault and coordinator restart counts",
+      "passed": true,
+      "detail": {
+        "writerRestarts": 0,
+        "coordinatorRestarts": 0
+      }
+    },
+    {
+      "contract": "runtime-native-qualified/cell-6-b0 exact counts and queue bound",
+      "passed": true,
+      "detail": {
+        "jobs": 3072,
+        "records": 98304,
+        "buffered": 16
+      }
+    },
+    {
+      "contract": "runtime-native-qualified/cell-6-b0 fault and coordinator restart counts",
+      "passed": true,
+      "detail": {
+        "writerRestarts": 0,
+        "coordinatorRestarts": 0
+      }
+    },
+    {
+      "contract": "runtime-native-qualified/cell-1-b0 exact counts and queue bound",
+      "passed": true,
+      "detail": {
+        "jobs": 192,
+        "records": 6144,
+        "buffered": 1
+      }
+    },
+    {
+      "contract": "runtime-native-qualified/cell-1-b0 fault and coordinator restart counts",
+      "passed": true,
+      "detail": {
+        "writerRestarts": 0,
+        "coordinatorRestarts": 0
+      }
+    },
+    {
+      "contract": "runtime-native-qualified/cell-4-b0 exact counts and queue bound",
+      "passed": true,
+      "detail": {
+        "jobs": 768,
+        "records": 24576,
+        "buffered": 4
+      }
+    },
+    {
+      "contract": "runtime-native-qualified/cell-4-b0 fault and coordinator restart counts",
+      "passed": true,
+      "detail": {
+        "writerRestarts": 0,
+        "coordinatorRestarts": 0
+      }
+    },
+    {
+      "contract": "runtime-native-qualified/cell-3-b1 exact counts and queue bound",
+      "passed": true,
+      "detail": {
+        "jobs": 768,
+        "records": 24576,
+        "buffered": 4
+      }
+    },
+    {
+      "contract": "runtime-native-qualified/cell-3-b1 fault and coordinator restart counts",
+      "passed": true,
+      "detail": {
+        "writerRestarts": 0,
+        "coordinatorRestarts": 0
+      }
+    },
+    {
+      "contract": "runtime-native-qualified/cell-1-b1 exact counts and queue bound",
+      "passed": true,
+      "detail": {
+        "jobs": 192,
+        "records": 6144,
+        "buffered": 1
+      }
+    },
+    {
+      "contract": "runtime-native-qualified/cell-1-b1 fault and coordinator restart counts",
+      "passed": true,
+      "detail": {
+        "writerRestarts": 0,
+        "coordinatorRestarts": 0
+      }
+    },
+    {
+      "contract": "runtime-native-qualified/cell-9-b1 exact counts and queue bound",
+      "passed": true,
+      "detail": {
+        "jobs": 3072,
+        "records": 98304,
+        "buffered": 12
+      }
+    },
+    {
+      "contract": "runtime-native-qualified/cell-9-b1 fault and coordinator restart counts",
+      "passed": true,
+      "detail": {
+        "writerRestarts": 0,
+        "coordinatorRestarts": 0
+      }
+    },
+    {
+      "contract": "runtime-native-qualified/cell-2-b1 exact counts and queue bound",
+      "passed": true,
+      "detail": {
+        "jobs": 768,
+        "records": 24576,
+        "buffered": 4
+      }
+    },
+    {
+      "contract": "runtime-native-qualified/cell-2-b1 fault and coordinator restart counts",
+      "passed": true,
+      "detail": {
+        "writerRestarts": 0,
+        "coordinatorRestarts": 0
+      }
+    },
+    {
+      "contract": "runtime-native-qualified/cell-0-b1 exact counts and queue bound",
+      "passed": true,
+      "detail": {
+        "jobs": 192,
+        "records": 6144,
+        "buffered": 1
+      }
+    },
+    {
+      "contract": "runtime-native-qualified/cell-0-b1 fault and coordinator restart counts",
+      "passed": true,
+      "detail": {
+        "writerRestarts": 0,
+        "coordinatorRestarts": 0
+      }
+    },
+    {
+      "contract": "runtime-native-qualified/cell-4-b1 exact counts and queue bound",
+      "passed": true,
+      "detail": {
+        "jobs": 768,
+        "records": 24576,
+        "buffered": 4
+      }
+    },
+    {
+      "contract": "runtime-native-qualified/cell-4-b1 fault and coordinator restart counts",
+      "passed": true,
+      "detail": {
+        "writerRestarts": 0,
+        "coordinatorRestarts": 0
+      }
+    },
+    {
+      "contract": "runtime-native-qualified/cell-8-b1 exact counts and queue bound",
+      "passed": true,
+      "detail": {
+        "jobs": 3072,
+        "records": 98304,
+        "buffered": 16
+      }
+    },
+    {
+      "contract": "runtime-native-qualified/cell-8-b1 fault and coordinator restart counts",
+      "passed": true,
+      "detail": {
+        "writerRestarts": 0,
+        "coordinatorRestarts": 0
+      }
+    },
+    {
+      "contract": "runtime-native-qualified/cell-6-b1 exact counts and queue bound",
+      "passed": true,
+      "detail": {
+        "jobs": 3072,
+        "records": 98304,
+        "buffered": 14
+      }
+    },
+    {
+      "contract": "runtime-native-qualified/cell-6-b1 fault and coordinator restart counts",
+      "passed": true,
+      "detail": {
+        "writerRestarts": 0,
+        "coordinatorRestarts": 0
+      }
+    },
+    {
+      "contract": "runtime-native-qualified/cell-7-b1 exact counts and queue bound",
+      "passed": true,
+      "detail": {
+        "jobs": 3072,
+        "records": 98304,
+        "buffered": 15
+      }
+    },
+    {
+      "contract": "runtime-native-qualified/cell-7-b1 fault and coordinator restart counts",
+      "passed": true,
+      "detail": {
+        "writerRestarts": 0,
+        "coordinatorRestarts": 0
+      }
+    },
+    {
+      "contract": "runtime-native-qualified/cell-5-b1 exact counts and queue bound",
+      "passed": true,
+      "detail": {
+        "jobs": 768,
+        "records": 24576,
+        "buffered": 4
+      }
+    },
+    {
+      "contract": "runtime-native-qualified/cell-5-b1 fault and coordinator restart counts",
+      "passed": true,
+      "detail": {
+        "writerRestarts": 0,
+        "coordinatorRestarts": 0
+      }
+    },
+    {
+      "contract": "runtime-native-qualified/cell-7-b2 exact counts and queue bound",
+      "passed": true,
+      "detail": {
+        "jobs": 3072,
+        "records": 98304,
+        "buffered": 16
+      }
+    },
+    {
+      "contract": "runtime-native-qualified/cell-7-b2 fault and coordinator restart counts",
+      "passed": true,
+      "detail": {
+        "writerRestarts": 0,
+        "coordinatorRestarts": 0
+      }
+    },
+    {
+      "contract": "runtime-native-qualified/cell-3-b2 exact counts and queue bound",
+      "passed": true,
+      "detail": {
+        "jobs": 768,
+        "records": 24576,
+        "buffered": 4
+      }
+    },
+    {
+      "contract": "runtime-native-qualified/cell-3-b2 fault and coordinator restart counts",
+      "passed": true,
+      "detail": {
+        "writerRestarts": 0,
+        "coordinatorRestarts": 0
+      }
+    },
+    {
+      "contract": "runtime-native-qualified/cell-4-b2 exact counts and queue bound",
+      "passed": true,
+      "detail": {
+        "jobs": 768,
+        "records": 24576,
+        "buffered": 4
+      }
+    },
+    {
+      "contract": "runtime-native-qualified/cell-4-b2 fault and coordinator restart counts",
+      "passed": true,
+      "detail": {
+        "writerRestarts": 0,
+        "coordinatorRestarts": 0
+      }
+    },
+    {
+      "contract": "runtime-native-qualified/cell-5-b2 exact counts and queue bound",
+      "passed": true,
+      "detail": {
+        "jobs": 768,
+        "records": 24576,
+        "buffered": 4
+      }
+    },
+    {
+      "contract": "runtime-native-qualified/cell-5-b2 fault and coordinator restart counts",
+      "passed": true,
+      "detail": {
+        "writerRestarts": 0,
+        "coordinatorRestarts": 0
+      }
+    },
+    {
+      "contract": "runtime-native-qualified/cell-2-b2 exact counts and queue bound",
+      "passed": true,
+      "detail": {
+        "jobs": 768,
+        "records": 24576,
+        "buffered": 4
+      }
+    },
+    {
+      "contract": "runtime-native-qualified/cell-2-b2 fault and coordinator restart counts",
+      "passed": true,
+      "detail": {
+        "writerRestarts": 0,
+        "coordinatorRestarts": 0
+      }
+    },
+    {
+      "contract": "runtime-native-qualified/cell-1-b2 exact counts and queue bound",
+      "passed": true,
+      "detail": {
+        "jobs": 192,
+        "records": 6144,
+        "buffered": 1
+      }
+    },
+    {
+      "contract": "runtime-native-qualified/cell-1-b2 fault and coordinator restart counts",
+      "passed": true,
+      "detail": {
+        "writerRestarts": 0,
+        "coordinatorRestarts": 0
+      }
+    },
+    {
+      "contract": "runtime-native-qualified/cell-0-b2 exact counts and queue bound",
+      "passed": true,
+      "detail": {
+        "jobs": 192,
+        "records": 6144,
+        "buffered": 1
+      }
+    },
+    {
+      "contract": "runtime-native-qualified/cell-0-b2 fault and coordinator restart counts",
+      "passed": true,
+      "detail": {
+        "writerRestarts": 0,
+        "coordinatorRestarts": 0
+      }
+    },
+    {
+      "contract": "runtime-native-qualified/cell-6-b2 exact counts and queue bound",
+      "passed": true,
+      "detail": {
+        "jobs": 3072,
+        "records": 98304,
+        "buffered": 15
+      }
+    },
+    {
+      "contract": "runtime-native-qualified/cell-6-b2 fault and coordinator restart counts",
+      "passed": true,
+      "detail": {
+        "writerRestarts": 0,
+        "coordinatorRestarts": 0
+      }
+    },
+    {
+      "contract": "runtime-native-qualified/cell-9-b2 exact counts and queue bound",
+      "passed": true,
+      "detail": {
+        "jobs": 3072,
+        "records": 98304,
+        "buffered": 16
+      }
+    },
+    {
+      "contract": "runtime-native-qualified/cell-9-b2 fault and coordinator restart counts",
+      "passed": true,
+      "detail": {
+        "writerRestarts": 0,
+        "coordinatorRestarts": 0
+      }
+    },
+    {
+      "contract": "runtime-native-qualified/cell-8-b2 exact counts and queue bound",
+      "passed": true,
+      "detail": {
+        "jobs": 3072,
+        "records": 98304,
+        "buffered": 16
+      }
+    },
+    {
+      "contract": "runtime-native-qualified/cell-8-b2 fault and coordinator restart counts",
+      "passed": true,
+      "detail": {
+        "writerRestarts": 0,
+        "coordinatorRestarts": 0
+      }
+    },
+    {
+      "contract": "runtime-recovery-qualified expected total and verified",
+      "passed": true,
+      "detail": {
+        "name": "runtime-recovery-qualified",
+        "directory": "/Users/jb/Dev/automan/lab/results/runtime-recovery-qualified-2026-10-08T00-20-09-515Z-ad3e70",
+        "expected": 42,
+        "verified": 42,
+        "total": 42,
+        "status": "qualified"
+      }
+    },
+    {
+      "contract": "runtime-recovery-qualified source and binary provenance",
+      "passed": true,
+      "detail": {
+        "sourceChanges": [],
+        "binaryChanges": [],
+        "binaryChanged": null
+      }
+    },
+    {
+      "contract": "runtime-recovery-qualified/cell-7-b0 exact counts and queue bound",
+      "passed": true,
+      "detail": {
+        "jobs": 24,
+        "records": 192,
+        "buffered": 4
+      }
+    },
+    {
+      "contract": "runtime-recovery-qualified/cell-7-b0 fault and coordinator restart counts",
+      "passed": true,
+      "detail": {
+        "writerRestarts": 1,
+        "coordinatorRestarts": 0
+      }
+    },
+    {
+      "contract": "runtime-recovery-qualified/cell-10-b0 exact counts and queue bound",
+      "passed": true,
+      "detail": {
+        "jobs": 24,
+        "records": 192,
+        "buffered": 4
+      }
+    },
+    {
+      "contract": "runtime-recovery-qualified/cell-10-b0 fault and coordinator restart counts",
+      "passed": true,
+      "detail": {
+        "writerRestarts": 1,
+        "coordinatorRestarts": 0
+      }
+    },
+    {
+      "contract": "runtime-recovery-qualified/cell-6-b0 exact counts and queue bound",
+      "passed": true,
+      "detail": {
+        "jobs": 24,
+        "records": 192,
+        "buffered": 4
+      }
+    },
+    {
+      "contract": "runtime-recovery-qualified/cell-6-b0 fault and coordinator restart counts",
+      "passed": true,
+      "detail": {
+        "writerRestarts": 3,
+        "coordinatorRestarts": 0
+      }
+    },
+    {
+      "contract": "runtime-recovery-qualified/cell-4-b0 exact counts and queue bound",
+      "passed": true,
+      "detail": {
+        "jobs": 24,
+        "records": 192,
+        "buffered": 4
+      }
+    },
+    {
+      "contract": "runtime-recovery-qualified/cell-4-b0 fault and coordinator restart counts",
+      "passed": true,
+      "detail": {
+        "writerRestarts": 0,
+        "coordinatorRestarts": 1
+      }
+    },
+    {
+      "contract": "runtime-recovery-qualified/cell-4-b0 correct persisted checkpoint at crash",
+      "passed": true,
+      "detail": {
+        "at": "job-claimed",
+        "states": [
+          "leased",
+          "leased",
+          "leased",
+          "pending",
+          "pending",
+          "pending",
+          "pending",
+          "pending",
+          "pending",
+          "pending",
+          "pending",
+          "pending",
+          "pending",
+          "pending",
+          "pending",
+          "pending",
+          "pending",
+          "pending",
+          "pending",
+          "pending",
+          "pending",
+          "pending",
+          "pending",
+          "pending"
+        ]
+      }
+    },
+    {
+      "contract": "runtime-recovery-qualified/cell-3-b0 exact counts and queue bound",
+      "passed": true,
+      "detail": {
+        "jobs": 24,
+        "records": 192,
+        "buffered": 4
+      }
+    },
+    {
+      "contract": "runtime-recovery-qualified/cell-3-b0 fault and coordinator restart counts",
+      "passed": true,
+      "detail": {
+        "writerRestarts": 1,
+        "coordinatorRestarts": 0
+      }
+    },
+    {
+      "contract": "runtime-recovery-qualified/cell-13-b0 exact counts and queue bound",
+      "passed": true,
+      "detail": {
+        "jobs": 24,
+        "records": 192,
+        "buffered": 4
+      }
+    },
+    {
+      "contract": "runtime-recovery-qualified/cell-13-b0 fault and coordinator restart counts",
+      "passed": true,
+      "detail": {
+        "writerRestarts": 3,
+        "coordinatorRestarts": 0
+      }
+    },
+    {
+      "contract": "runtime-recovery-qualified/cell-12-b0 exact counts and queue bound",
+      "passed": true,
+      "detail": {
+        "jobs": 24,
+        "records": 192,
+        "buffered": 4
+      }
+    },
+    {
+      "contract": "runtime-recovery-qualified/cell-12-b0 fault and coordinator restart counts",
+      "passed": true,
+      "detail": {
+        "writerRestarts": 0,
+        "coordinatorRestarts": 1
+      }
+    },
+    {
+      "contract": "runtime-recovery-qualified/cell-12-b0 correct persisted checkpoint at crash",
+      "passed": true,
+      "detail": {
+        "at": "batch-committed",
+        "states": [
+          "committed",
+          "committed",
+          "leased",
+          "leased",
+          "pending",
+          "pending",
+          "pending",
+          "pending",
+          "pending",
+          "pending",
+          "pending",
+          "pending",
+          "pending",
+          "pending",
+          "pending",
+          "pending",
+          "pending",
+          "pending",
+          "pending",
+          "pending",
+          "pending",
+          "pending",
+          "pending",
+          "pending"
+        ]
+      }
+    },
+    {
+      "contract": "runtime-recovery-qualified/cell-1-b0 exact counts and queue bound",
+      "passed": true,
+      "detail": {
+        "jobs": 24,
+        "records": 192,
+        "buffered": 4
+      }
+    },
+    {
+      "contract": "runtime-recovery-qualified/cell-1-b0 fault and coordinator restart counts",
+      "passed": true,
+      "detail": {
+        "writerRestarts": 1,
+        "coordinatorRestarts": 0
+      }
+    },
+    {
+      "contract": "runtime-recovery-qualified/cell-9-b0 exact counts and queue bound",
+      "passed": true,
+      "detail": {
+        "jobs": 24,
+        "records": 192,
+        "buffered": 4
+      }
+    },
+    {
+      "contract": "runtime-recovery-qualified/cell-9-b0 fault and coordinator restart counts",
+      "passed": true,
+      "detail": {
+        "writerRestarts": 1,
+        "coordinatorRestarts": 0
+      }
+    },
+    {
+      "contract": "runtime-recovery-qualified/cell-2-b0 exact counts and queue bound",
+      "passed": true,
+      "detail": {
+        "jobs": 24,
+        "records": 192,
+        "buffered": 4
+      }
+    },
+    {
+      "contract": "runtime-recovery-qualified/cell-2-b0 fault and coordinator restart counts",
+      "passed": true,
+      "detail": {
+        "writerRestarts": 1,
+        "coordinatorRestarts": 0
+      }
+    },
+    {
+      "contract": "runtime-recovery-qualified/cell-0-b0 exact counts and queue bound",
+      "passed": true,
+      "detail": {
+        "jobs": 24,
+        "records": 192,
+        "buffered": 4
+      }
+    },
+    {
+      "contract": "runtime-recovery-qualified/cell-0-b0 fault and coordinator restart counts",
+      "passed": true,
+      "detail": {
+        "writerRestarts": 1,
+        "coordinatorRestarts": 0
+      }
+    },
+    {
+      "contract": "runtime-recovery-qualified/cell-11-b0 exact counts and queue bound",
+      "passed": true,
+      "detail": {
+        "jobs": 24,
+        "records": 192,
+        "buffered": 4
+      }
+    },
+    {
+      "contract": "runtime-recovery-qualified/cell-11-b0 fault and coordinator restart counts",
+      "passed": true,
+      "detail": {
+        "writerRestarts": 0,
+        "coordinatorRestarts": 1
+      }
+    },
+    {
+      "contract": "runtime-recovery-qualified/cell-11-b0 correct persisted checkpoint at crash",
+      "passed": true,
+      "detail": {
+        "at": "job-claimed",
+        "states": [
+          "leased",
+          "leased",
+          "pending",
+          "pending",
+          "pending",
+          "pending",
+          "pending",
+          "pending",
+          "pending",
+          "pending",
+          "pending",
+          "pending",
+          "pending",
+          "pending",
+          "pending",
+          "pending",
+          "pending",
+          "pending",
+          "pending",
+          "pending",
+          "pending",
+          "pending",
+          "pending",
+          "pending"
+        ]
+      }
+    },
+    {
+      "contract": "runtime-recovery-qualified/cell-8-b0 exact counts and queue bound",
+      "passed": true,
+      "detail": {
+        "jobs": 24,
+        "records": 192,
+        "buffered": 4
+      }
+    },
+    {
+      "contract": "runtime-recovery-qualified/cell-8-b0 fault and coordinator restart counts",
+      "passed": true,
+      "detail": {
+        "writerRestarts": 1,
+        "coordinatorRestarts": 0
+      }
+    },
+    {
+      "contract": "runtime-recovery-qualified/cell-5-b0 exact counts and queue bound",
+      "passed": true,
+      "detail": {
+        "jobs": 24,
+        "records": 192,
+        "buffered": 4
+      }
+    },
+    {
+      "contract": "runtime-recovery-qualified/cell-5-b0 fault and coordinator restart counts",
+      "passed": true,
+      "detail": {
+        "writerRestarts": 0,
+        "coordinatorRestarts": 1
+      }
+    },
+    {
+      "contract": "runtime-recovery-qualified/cell-5-b0 correct persisted checkpoint at crash",
+      "passed": true,
+      "detail": {
+        "at": "batch-committed",
+        "states": [
+          "committed",
+          "committed",
+          "leased",
+          "leased",
+          "pending",
+          "pending",
+          "pending",
+          "pending",
+          "pending",
+          "pending",
+          "pending",
+          "pending",
+          "pending",
+          "pending",
+          "pending",
+          "pending",
+          "pending",
+          "pending",
+          "pending",
+          "pending",
+          "pending",
+          "pending",
+          "pending",
+          "pending"
+        ]
+      }
+    },
+    {
+      "contract": "runtime-recovery-qualified/cell-0-b1 exact counts and queue bound",
+      "passed": true,
+      "detail": {
+        "jobs": 24,
+        "records": 192,
+        "buffered": 4
+      }
+    },
+    {
+      "contract": "runtime-recovery-qualified/cell-0-b1 fault and coordinator restart counts",
+      "passed": true,
+      "detail": {
+        "writerRestarts": 1,
+        "coordinatorRestarts": 0
+      }
+    },
+    {
+      "contract": "runtime-recovery-qualified/cell-8-b1 exact counts and queue bound",
+      "passed": true,
+      "detail": {
+        "jobs": 24,
+        "records": 192,
+        "buffered": 4
+      }
+    },
+    {
+      "contract": "runtime-recovery-qualified/cell-8-b1 fault and coordinator restart counts",
+      "passed": true,
+      "detail": {
+        "writerRestarts": 1,
+        "coordinatorRestarts": 0
+      }
+    },
+    {
+      "contract": "runtime-recovery-qualified/cell-11-b1 exact counts and queue bound",
+      "passed": true,
+      "detail": {
+        "jobs": 24,
+        "records": 192,
+        "buffered": 4
+      }
+    },
+    {
+      "contract": "runtime-recovery-qualified/cell-11-b1 fault and coordinator restart counts",
+      "passed": true,
+      "detail": {
+        "writerRestarts": 0,
+        "coordinatorRestarts": 1
+      }
+    },
+    {
+      "contract": "runtime-recovery-qualified/cell-11-b1 correct persisted checkpoint at crash",
+      "passed": true,
+      "detail": {
+        "at": "job-claimed",
+        "states": [
+          "leased",
+          "pending",
+          "pending",
+          "pending",
+          "pending",
+          "pending",
+          "pending",
+          "pending",
+          "pending",
+          "pending",
+          "pending",
+          "pending",
+          "pending",
+          "pending",
+          "pending",
+          "pending",
+          "pending",
+          "pending",
+          "pending",
+          "pending",
+          "pending",
+          "pending",
+          "pending",
+          "pending"
+        ]
+      }
+    },
+    {
+      "contract": "runtime-recovery-qualified/cell-5-b1 exact counts and queue bound",
+      "passed": true,
+      "detail": {
+        "jobs": 24,
+        "records": 192,
+        "buffered": 4
+      }
+    },
+    {
+      "contract": "runtime-recovery-qualified/cell-5-b1 fault and coordinator restart counts",
+      "passed": true,
+      "detail": {
+        "writerRestarts": 0,
+        "coordinatorRestarts": 1
+      }
+    },
+    {
+      "contract": "runtime-recovery-qualified/cell-5-b1 correct persisted checkpoint at crash",
+      "passed": true,
+      "detail": {
+        "at": "batch-committed",
+        "states": [
+          "committed",
+          "committed",
+          "leased",
+          "leased",
+          "pending",
+          "pending",
+          "pending",
+          "pending",
+          "pending",
+          "pending",
+          "pending",
+          "pending",
+          "pending",
+          "pending",
+          "pending",
+          "pending",
+          "pending",
+          "pending",
+          "pending",
+          "pending",
+          "pending",
+          "pending",
+          "pending",
+          "pending"
+        ]
+      }
+    },
+    {
+      "contract": "runtime-recovery-qualified/cell-3-b1 exact counts and queue bound",
+      "passed": true,
+      "detail": {
+        "jobs": 24,
+        "records": 192,
+        "buffered": 4
+      }
+    },
+    {
+      "contract": "runtime-recovery-qualified/cell-3-b1 fault and coordinator restart counts",
+      "passed": true,
+      "detail": {
+        "writerRestarts": 1,
+        "coordinatorRestarts": 0
+      }
+    },
+    {
+      "contract": "runtime-recovery-qualified/cell-12-b1 exact counts and queue bound",
+      "passed": true,
+      "detail": {
+        "jobs": 24,
+        "records": 192,
+        "buffered": 4
+      }
+    },
+    {
+      "contract": "runtime-recovery-qualified/cell-12-b1 fault and coordinator restart counts",
+      "passed": true,
+      "detail": {
+        "writerRestarts": 0,
+        "coordinatorRestarts": 1
+      }
+    },
+    {
+      "contract": "runtime-recovery-qualified/cell-12-b1 correct persisted checkpoint at crash",
+      "passed": true,
+      "detail": {
+        "at": "batch-committed",
+        "states": [
+          "committed",
+          "committed",
+          "leased",
+          "leased",
+          "pending",
+          "pending",
+          "pending",
+          "pending",
+          "pending",
+          "pending",
+          "pending",
+          "pending",
+          "pending",
+          "pending",
+          "pending",
+          "pending",
+          "pending",
+          "pending",
+          "pending",
+          "pending",
+          "pending",
+          "pending",
+          "pending",
+          "pending"
+        ]
+      }
+    },
+    {
+      "contract": "runtime-recovery-qualified/cell-10-b1 exact counts and queue bound",
+      "passed": true,
+      "detail": {
+        "jobs": 24,
+        "records": 192,
+        "buffered": 4
+      }
+    },
+    {
+      "contract": "runtime-recovery-qualified/cell-10-b1 fault and coordinator restart counts",
+      "passed": true,
+      "detail": {
+        "writerRestarts": 1,
+        "coordinatorRestarts": 0
+      }
+    },
+    {
+      "contract": "runtime-recovery-qualified/cell-2-b1 exact counts and queue bound",
+      "passed": true,
+      "detail": {
+        "jobs": 24,
+        "records": 192,
+        "buffered": 4
+      }
+    },
+    {
+      "contract": "runtime-recovery-qualified/cell-2-b1 fault and coordinator restart counts",
+      "passed": true,
+      "detail": {
+        "writerRestarts": 1,
+        "coordinatorRestarts": 0
+      }
+    },
+    {
+      "contract": "runtime-recovery-qualified/cell-9-b1 exact counts and queue bound",
+      "passed": true,
+      "detail": {
+        "jobs": 24,
+        "records": 192,
+        "buffered": 4
+      }
+    },
+    {
+      "contract": "runtime-recovery-qualified/cell-9-b1 fault and coordinator restart counts",
+      "passed": true,
+      "detail": {
+        "writerRestarts": 1,
+        "coordinatorRestarts": 0
+      }
+    },
+    {
+      "contract": "runtime-recovery-qualified/cell-1-b1 exact counts and queue bound",
+      "passed": true,
+      "detail": {
+        "jobs": 24,
+        "records": 192,
+        "buffered": 4
+      }
+    },
+    {
+      "contract": "runtime-recovery-qualified/cell-1-b1 fault and coordinator restart counts",
+      "passed": true,
+      "detail": {
+        "writerRestarts": 1,
+        "coordinatorRestarts": 0
+      }
+    },
+    {
+      "contract": "runtime-recovery-qualified/cell-7-b1 exact counts and queue bound",
+      "passed": true,
+      "detail": {
+        "jobs": 24,
+        "records": 192,
+        "buffered": 4
+      }
+    },
+    {
+      "contract": "runtime-recovery-qualified/cell-7-b1 fault and coordinator restart counts",
+      "passed": true,
+      "detail": {
+        "writerRestarts": 1,
+        "coordinatorRestarts": 0
+      }
+    },
+    {
+      "contract": "runtime-recovery-qualified/cell-13-b1 exact counts and queue bound",
+      "passed": true,
+      "detail": {
+        "jobs": 24,
+        "records": 192,
+        "buffered": 4
+      }
+    },
+    {
+      "contract": "runtime-recovery-qualified/cell-13-b1 fault and coordinator restart counts",
+      "passed": true,
+      "detail": {
+        "writerRestarts": 3,
+        "coordinatorRestarts": 0
+      }
+    },
+    {
+      "contract": "runtime-recovery-qualified/cell-6-b1 exact counts and queue bound",
+      "passed": true,
+      "detail": {
+        "jobs": 24,
+        "records": 192,
+        "buffered": 4
+      }
+    },
+    {
+      "contract": "runtime-recovery-qualified/cell-6-b1 fault and coordinator restart counts",
+      "passed": true,
+      "detail": {
+        "writerRestarts": 3,
+        "coordinatorRestarts": 0
+      }
+    },
+    {
+      "contract": "runtime-recovery-qualified/cell-4-b1 exact counts and queue bound",
+      "passed": true,
+      "detail": {
+        "jobs": 24,
+        "records": 192,
+        "buffered": 4
+      }
+    },
+    {
+      "contract": "runtime-recovery-qualified/cell-4-b1 fault and coordinator restart counts",
+      "passed": true,
+      "detail": {
+        "writerRestarts": 0,
+        "coordinatorRestarts": 1
+      }
+    },
+    {
+      "contract": "runtime-recovery-qualified/cell-4-b1 correct persisted checkpoint at crash",
+      "passed": true,
+      "detail": {
+        "at": "job-claimed",
+        "states": [
+          "leased",
+          "leased",
+          "pending",
+          "pending",
+          "pending",
+          "pending",
+          "pending",
+          "pending",
+          "pending",
+          "pending",
+          "pending",
+          "pending",
+          "pending",
+          "pending",
+          "pending",
+          "pending",
+          "pending",
+          "pending",
+          "pending",
+          "pending",
+          "pending",
+          "pending",
+          "pending",
+          "pending"
+        ]
+      }
+    },
+    {
+      "contract": "runtime-recovery-qualified/cell-9-b2 exact counts and queue bound",
+      "passed": true,
+      "detail": {
+        "jobs": 24,
+        "records": 192,
+        "buffered": 4
+      }
+    },
+    {
+      "contract": "runtime-recovery-qualified/cell-9-b2 fault and coordinator restart counts",
+      "passed": true,
+      "detail": {
+        "writerRestarts": 1,
+        "coordinatorRestarts": 0
+      }
+    },
+    {
+      "contract": "runtime-recovery-qualified/cell-1-b2 exact counts and queue bound",
+      "passed": true,
+      "detail": {
+        "jobs": 24,
+        "records": 192,
+        "buffered": 4
+      }
+    },
+    {
+      "contract": "runtime-recovery-qualified/cell-1-b2 fault and coordinator restart counts",
+      "passed": true,
+      "detail": {
+        "writerRestarts": 1,
+        "coordinatorRestarts": 0
+      }
+    },
+    {
+      "contract": "runtime-recovery-qualified/cell-11-b2 exact counts and queue bound",
+      "passed": true,
+      "detail": {
+        "jobs": 24,
+        "records": 192,
+        "buffered": 4
+      }
+    },
+    {
+      "contract": "runtime-recovery-qualified/cell-11-b2 fault and coordinator restart counts",
+      "passed": true,
+      "detail": {
+        "writerRestarts": 0,
+        "coordinatorRestarts": 1
+      }
+    },
+    {
+      "contract": "runtime-recovery-qualified/cell-11-b2 correct persisted checkpoint at crash",
+      "passed": true,
+      "detail": {
+        "at": "job-claimed",
+        "states": [
+          "leased",
+          "pending",
+          "pending",
+          "pending",
+          "pending",
+          "pending",
+          "pending",
+          "pending",
+          "pending",
+          "pending",
+          "pending",
+          "pending",
+          "pending",
+          "pending",
+          "pending",
+          "pending",
+          "pending",
+          "pending",
+          "pending",
+          "pending",
+          "pending",
+          "pending",
+          "pending",
+          "pending"
+        ]
+      }
+    },
+    {
+      "contract": "runtime-recovery-qualified/cell-5-b2 exact counts and queue bound",
+      "passed": true,
+      "detail": {
+        "jobs": 24,
+        "records": 192,
+        "buffered": 4
+      }
+    },
+    {
+      "contract": "runtime-recovery-qualified/cell-5-b2 fault and coordinator restart counts",
+      "passed": true,
+      "detail": {
+        "writerRestarts": 0,
+        "coordinatorRestarts": 1
+      }
+    },
+    {
+      "contract": "runtime-recovery-qualified/cell-5-b2 correct persisted checkpoint at crash",
+      "passed": true,
+      "detail": {
+        "at": "batch-committed",
+        "states": [
+          "committed",
+          "committed",
+          "leased",
+          "leased",
+          "pending",
+          "pending",
+          "pending",
+          "pending",
+          "pending",
+          "pending",
+          "pending",
+          "pending",
+          "pending",
+          "pending",
+          "pending",
+          "pending",
+          "pending",
+          "pending",
+          "pending",
+          "pending",
+          "pending",
+          "pending",
+          "pending",
+          "pending"
+        ]
+      }
+    },
+    {
+      "contract": "runtime-recovery-qualified/cell-2-b2 exact counts and queue bound",
+      "passed": true,
+      "detail": {
+        "jobs": 24,
+        "records": 192,
+        "buffered": 4
+      }
+    },
+    {
+      "contract": "runtime-recovery-qualified/cell-2-b2 fault and coordinator restart counts",
+      "passed": true,
+      "detail": {
+        "writerRestarts": 1,
+        "coordinatorRestarts": 0
+      }
+    },
+    {
+      "contract": "runtime-recovery-qualified/cell-8-b2 exact counts and queue bound",
+      "passed": true,
+      "detail": {
+        "jobs": 24,
+        "records": 192,
+        "buffered": 4
+      }
+    },
+    {
+      "contract": "runtime-recovery-qualified/cell-8-b2 fault and coordinator restart counts",
+      "passed": true,
+      "detail": {
+        "writerRestarts": 1,
+        "coordinatorRestarts": 0
+      }
+    },
+    {
+      "contract": "runtime-recovery-qualified/cell-13-b2 exact counts and queue bound",
+      "passed": true,
+      "detail": {
+        "jobs": 24,
+        "records": 192,
+        "buffered": 4
+      }
+    },
+    {
+      "contract": "runtime-recovery-qualified/cell-13-b2 fault and coordinator restart counts",
+      "passed": true,
+      "detail": {
+        "writerRestarts": 3,
+        "coordinatorRestarts": 0
+      }
+    },
+    {
+      "contract": "runtime-recovery-qualified/cell-10-b2 exact counts and queue bound",
+      "passed": true,
+      "detail": {
+        "jobs": 24,
+        "records": 192,
+        "buffered": 4
+      }
+    },
+    {
+      "contract": "runtime-recovery-qualified/cell-10-b2 fault and coordinator restart counts",
+      "passed": true,
+      "detail": {
+        "writerRestarts": 1,
+        "coordinatorRestarts": 0
+      }
+    },
+    {
+      "contract": "runtime-recovery-qualified/cell-7-b2 exact counts and queue bound",
+      "passed": true,
+      "detail": {
+        "jobs": 24,
+        "records": 192,
+        "buffered": 4
+      }
+    },
+    {
+      "contract": "runtime-recovery-qualified/cell-7-b2 fault and coordinator restart counts",
+      "passed": true,
+      "detail": {
+        "writerRestarts": 1,
+        "coordinatorRestarts": 0
+      }
+    },
+    {
+      "contract": "runtime-recovery-qualified/cell-4-b2 exact counts and queue bound",
+      "passed": true,
+      "detail": {
+        "jobs": 24,
+        "records": 192,
+        "buffered": 4
+      }
+    },
+    {
+      "contract": "runtime-recovery-qualified/cell-4-b2 fault and coordinator restart counts",
+      "passed": true,
+      "detail": {
+        "writerRestarts": 0,
+        "coordinatorRestarts": 1
+      }
+    },
+    {
+      "contract": "runtime-recovery-qualified/cell-4-b2 correct persisted checkpoint at crash",
+      "passed": true,
+      "detail": {
+        "at": "job-claimed",
+        "states": [
+          "leased",
+          "leased",
+          "pending",
+          "pending",
+          "pending",
+          "pending",
+          "pending",
+          "pending",
+          "pending",
+          "pending",
+          "pending",
+          "pending",
+          "pending",
+          "pending",
+          "pending",
+          "pending",
+          "pending",
+          "pending",
+          "pending",
+          "pending",
+          "pending",
+          "pending",
+          "pending",
+          "pending"
+        ]
+      }
+    },
+    {
+      "contract": "runtime-recovery-qualified/cell-0-b2 exact counts and queue bound",
+      "passed": true,
+      "detail": {
+        "jobs": 24,
+        "records": 192,
+        "buffered": 4
+      }
+    },
+    {
+      "contract": "runtime-recovery-qualified/cell-0-b2 fault and coordinator restart counts",
+      "passed": true,
+      "detail": {
+        "writerRestarts": 1,
+        "coordinatorRestarts": 0
+      }
+    },
+    {
+      "contract": "runtime-recovery-qualified/cell-6-b2 exact counts and queue bound",
+      "passed": true,
+      "detail": {
+        "jobs": 24,
+        "records": 192,
+        "buffered": 4
+      }
+    },
+    {
+      "contract": "runtime-recovery-qualified/cell-6-b2 fault and coordinator restart counts",
+      "passed": true,
+      "detail": {
+        "writerRestarts": 3,
+        "coordinatorRestarts": 0
+      }
+    },
+    {
+      "contract": "runtime-recovery-qualified/cell-3-b2 exact counts and queue bound",
+      "passed": true,
+      "detail": {
+        "jobs": 24,
+        "records": 192,
+        "buffered": 4
+      }
+    },
+    {
+      "contract": "runtime-recovery-qualified/cell-3-b2 fault and coordinator restart counts",
+      "passed": true,
+      "detail": {
+        "writerRestarts": 1,
+        "coordinatorRestarts": 0
+      }
+    },
+    {
+      "contract": "runtime-recovery-qualified/cell-12-b2 exact counts and queue bound",
+      "passed": true,
+      "detail": {
+        "jobs": 24,
+        "records": 192,
+        "buffered": 4
+      }
+    },
+    {
+      "contract": "runtime-recovery-qualified/cell-12-b2 fault and coordinator restart counts",
+      "passed": true,
+      "detail": {
+        "writerRestarts": 0,
+        "coordinatorRestarts": 1
+      }
+    },
+    {
+      "contract": "runtime-recovery-qualified/cell-12-b2 correct persisted checkpoint at crash",
+      "passed": true,
+      "detail": {
+        "at": "batch-committed",
+        "states": [
+          "committed",
+          "committed",
+          "leased",
+          "leased",
+          "pending",
+          "pending",
+          "pending",
+          "pending",
+          "pending",
+          "pending",
+          "pending",
+          "pending",
+          "pending",
+          "pending",
+          "pending",
+          "pending",
+          "pending",
+          "pending",
+          "pending",
+          "pending",
+          "pending",
+          "pending",
+          "pending",
+          "pending"
+        ]
+      }
+    },
+    {
+      "contract": "browser-actionability-guarded expected total and verified",
+      "passed": true,
+      "detail": {
+        "name": "browser-actionability-guarded",
+        "directory": "/Users/jb/Dev/automan/lab/results/browser-actionability-2026-10-08T00-21-16-186Z-b21a28",
+        "expected": 162,
+        "verified": 162,
+        "total": 162,
+        "status": "qualified"
+      }
+    },
+    {
+      "contract": "browser-actionability-guarded source and binary provenance",
+      "passed": true,
+      "detail": {
+        "sourceChanges": [],
+        "binaryChanges": null,
+        "binaryChanged": null
+      }
+    },
+    {
+      "contract": "browser/puppeteer/overlay/b0 observable effects and refusal",
+      "passed": true,
+      "detail": {
+        "effects": [
+          {
+            "target": "target",
+            "phaseReady": true,
+            "trusted": true
+          }
+        ],
+        "rejected": 0
+      }
+    },
+    {
+      "contract": "browser/crawlee-playwright/rerender/b0 observable effects and refusal",
+      "passed": true,
+      "detail": {
+        "effects": [
+          {
+            "target": "target",
+            "phaseReady": true,
+            "trusted": true
+          }
+        ],
+        "rejected": 0
+      }
+    },
+    {
+      "contract": "browser/stagehand/hidden/b0 observable effects and refusal",
+      "passed": true,
+      "detail": {
+        "effects": [
+          {
+            "target": "target",
+            "phaseReady": true,
+            "trusted": true
+          }
+        ],
+        "rejected": 0
+      }
+    },
+    {
+      "contract": "browser/crawlee-playwright/delayed/b0 observable effects and refusal",
+      "passed": true,
+      "detail": {
+        "effects": [
+          {
+            "target": "target",
+            "phaseReady": true,
+            "trusted": true
+          }
+        ],
+        "rejected": 0
+      }
+    },
+    {
+      "contract": "browser/stagehand/delayed/b0 observable effects and refusal",
+      "passed": true,
+      "detail": {
+        "effects": [
+          {
+            "target": "target",
+            "phaseReady": true,
+            "trusted": true
+          }
+        ],
+        "rejected": 0
+      }
+    },
+    {
+      "contract": "browser/puppeteer/normal/b0 observable effects and refusal",
+      "passed": true,
+      "detail": {
+        "effects": [
+          {
+            "target": "target",
+            "phaseReady": true,
+            "trusted": true
+          }
+        ],
+        "rejected": 0
+      }
+    },
+    {
+      "contract": "browser/stagehand-batch/ambiguous/b0 observable effects and refusal",
+      "passed": true,
+      "detail": {
+        "effects": [],
+        "rejected": 1
+      }
+    },
+    {
+      "contract": "browser/crawlee-playwright/ambiguous/b0 observable effects and refusal",
+      "passed": true,
+      "detail": {
+        "effects": [],
+        "rejected": 1
+      }
+    },
+    {
+      "contract": "browser/playwright/moving/b0 observable effects and refusal",
+      "passed": true,
+      "detail": {
+        "effects": [
+          {
+            "target": "target",
+            "phaseReady": true,
+            "trusted": true
+          }
+        ],
+        "rejected": 0
+      }
+    },
+    {
+      "contract": "browser/crawlee-playwright/overlay/b0 observable effects and refusal",
+      "passed": true,
+      "detail": {
+        "effects": [
+          {
+            "target": "target",
+            "phaseReady": true,
+            "trusted": true
+          }
+        ],
+        "rejected": 0
+      }
+    },
+    {
+      "contract": "browser/stagehand-batch/hidden/b0 observable effects and refusal",
+      "passed": true,
+      "detail": {
+        "effects": [
+          {
+            "target": "target",
+            "phaseReady": true,
+            "trusted": true
+          }
+        ],
+        "rejected": 0
+      }
+    },
+    {
+      "contract": "browser/puppeteer/never-uncovered/b0 observable effects and refusal",
+      "passed": true,
+      "detail": {
+        "effects": [],
+        "rejected": 1
+      }
+    },
+    {
+      "contract": "browser/stagehand/overlay/b0 observable effects and refusal",
+      "passed": true,
+      "detail": {
+        "effects": [
+          {
+            "target": "target",
+            "phaseReady": true,
+            "trusted": true
+          }
+        ],
+        "rejected": 0
+      }
+    },
+    {
+      "contract": "browser/crawlee-stagehand/normal/b0 observable effects and refusal",
+      "passed": true,
+      "detail": {
+        "effects": [
+          {
+            "target": "target",
+            "phaseReady": true,
+            "trusted": true
+          }
+        ],
+        "rejected": 0
+      }
+    },
+    {
+      "contract": "browser/playwright/normal/b0 observable effects and refusal",
+      "passed": true,
+      "detail": {
+        "effects": [
+          {
+            "target": "target",
+            "phaseReady": true,
+            "trusted": true
+          }
+        ],
+        "rejected": 0
+      }
+    },
+    {
+      "contract": "browser/crawlee-playwright/hidden/b0 observable effects and refusal",
+      "passed": true,
+      "detail": {
+        "effects": [
+          {
+            "target": "target",
+            "phaseReady": true,
+            "trusted": true
+          }
+        ],
+        "rejected": 0
+      }
+    },
+    {
+      "contract": "browser/stagehand-batch/overlay/b0 observable effects and refusal",
+      "passed": true,
+      "detail": {
+        "effects": [
+          {
+            "target": "target",
+            "phaseReady": true,
+            "trusted": true
+          }
+        ],
+        "rejected": 0
+      }
+    },
+    {
+      "contract": "browser/crawlee-stagehand/overlay/b0 observable effects and refusal",
+      "passed": true,
+      "detail": {
+        "effects": [
+          {
+            "target": "target",
+            "phaseReady": true,
+            "trusted": true
+          }
+        ],
+        "rejected": 0
+      }
+    },
+    {
+      "contract": "browser/stagehand/never-enabled/b0 observable effects and refusal",
+      "passed": true,
+      "detail": {
+        "effects": [],
+        "rejected": 1
+      }
+    },
+    {
+      "contract": "browser/playwright/overlay/b0 observable effects and refusal",
+      "passed": true,
+      "detail": {
+        "effects": [
+          {
+            "target": "target",
+            "phaseReady": true,
+            "trusted": true
+          }
+        ],
+        "rejected": 0
+      }
+    },
+    {
+      "contract": "browser/puppeteer/ambiguous/b0 observable effects and refusal",
+      "passed": true,
+      "detail": {
+        "effects": [],
+        "rejected": 1
+      }
+    },
+    {
+      "contract": "browser/playwright/delayed/b0 observable effects and refusal",
+      "passed": true,
+      "detail": {
+        "effects": [
+          {
+            "target": "target",
+            "phaseReady": true,
+            "trusted": true
+          }
+        ],
+        "rejected": 0
+      }
+    },
+    {
+      "contract": "browser/playwright/ambiguous/b0 observable effects and refusal",
+      "passed": true,
+      "detail": {
+        "effects": [],
+        "rejected": 1
+      }
+    },
+    {
+      "contract": "browser/stagehand/moving/b0 observable effects and refusal",
+      "passed": true,
+      "detail": {
+        "effects": [
+          {
+            "target": "target",
+            "phaseReady": true,
+            "trusted": true
+          }
+        ],
+        "rejected": 0
+      }
+    },
+    {
+      "contract": "browser/stagehand-batch/normal/b0 observable effects and refusal",
+      "passed": true,
+      "detail": {
+        "effects": [
+          {
+            "target": "target",
+            "phaseReady": true,
+            "trusted": true
+          }
+        ],
+        "rejected": 0
+      }
+    },
+    {
+      "contract": "browser/crawlee-stagehand/never-enabled/b0 observable effects and refusal",
+      "passed": true,
+      "detail": {
+        "effects": [],
+        "rejected": 1
+      }
+    },
+    {
+      "contract": "browser/puppeteer/delayed/b0 observable effects and refusal",
+      "passed": true,
+      "detail": {
+        "effects": [
+          {
+            "target": "target",
+            "phaseReady": true,
+            "trusted": true
+          }
+        ],
+        "rejected": 0
+      }
+    },
+    {
+      "contract": "browser/crawlee-stagehand/delayed/b0 observable effects and refusal",
+      "passed": true,
+      "detail": {
+        "effects": [
+          {
+            "target": "target",
+            "phaseReady": true,
+            "trusted": true
+          }
+        ],
+        "rejected": 0
+      }
+    },
+    {
+      "contract": "browser/playwright/rerender/b0 observable effects and refusal",
+      "passed": true,
+      "detail": {
+        "effects": [
+          {
+            "target": "target",
+            "phaseReady": true,
+            "trusted": true
+          }
+        ],
+        "rejected": 0
+      }
+    },
+    {
+      "contract": "browser/stagehand-batch/moving/b0 observable effects and refusal",
+      "passed": true,
+      "detail": {
+        "effects": [
+          {
+            "target": "target",
+            "phaseReady": true,
+            "trusted": true
+          }
+        ],
+        "rejected": 0
+      }
+    },
+    {
+      "contract": "browser/crawlee-stagehand/moving/b0 observable effects and refusal",
+      "passed": true,
+      "detail": {
+        "effects": [
+          {
+            "target": "target",
+            "phaseReady": true,
+            "trusted": true
+          }
+        ],
+        "rejected": 0
+      }
+    },
+    {
+      "contract": "browser/stagehand-batch/never-uncovered/b0 observable effects and refusal",
+      "passed": true,
+      "detail": {
+        "effects": [],
+        "rejected": 1
+      }
+    },
+    {
+      "contract": "browser/crawlee-playwright/normal/b0 observable effects and refusal",
+      "passed": true,
+      "detail": {
+        "effects": [
+          {
+            "target": "target",
+            "phaseReady": true,
+            "trusted": true
+          }
+        ],
+        "rejected": 0
+      }
+    },
+    {
+      "contract": "browser/playwright/never-enabled/b0 observable effects and refusal",
+      "passed": true,
+      "detail": {
+        "effects": [],
+        "rejected": 1
+      }
+    },
+    {
+      "contract": "browser/playwright/hidden/b0 observable effects and refusal",
+      "passed": true,
+      "detail": {
+        "effects": [
+          {
+            "target": "target",
+            "phaseReady": true,
+            "trusted": true
+          }
+        ],
+        "rejected": 0
+      }
+    },
+    {
+      "contract": "browser/stagehand/rerender/b0 observable effects and refusal",
+      "passed": true,
+      "detail": {
+        "effects": [
+          {
+            "target": "target",
+            "phaseReady": true,
+            "trusted": true
+          }
+        ],
+        "rejected": 0
+      }
+    },
+    {
+      "contract": "browser/playwright/never-uncovered/b0 observable effects and refusal",
+      "passed": true,
+      "detail": {
+        "effects": [],
+        "rejected": 1
+      }
+    },
+    {
+      "contract": "browser/crawlee-playwright/never-enabled/b0 observable effects and refusal",
+      "passed": true,
+      "detail": {
+        "effects": [],
+        "rejected": 1
+      }
+    },
+    {
+      "contract": "browser/crawlee-stagehand/ambiguous/b0 observable effects and refusal",
+      "passed": true,
+      "detail": {
+        "effects": [],
+        "rejected": 1
+      }
+    },
+    {
+      "contract": "browser/puppeteer/moving/b0 observable effects and refusal",
+      "passed": true,
+      "detail": {
+        "effects": [
+          {
+            "target": "target",
+            "phaseReady": true,
+            "trusted": true
+          }
+        ],
+        "rejected": 0
+      }
+    },
+    {
+      "contract": "browser/crawlee-playwright/moving/b0 observable effects and refusal",
+      "passed": true,
+      "detail": {
+        "effects": [
+          {
+            "target": "target",
+            "phaseReady": true,
+            "trusted": true
+          }
+        ],
+        "rejected": 0
+      }
+    },
+    {
+      "contract": "browser/crawlee-stagehand/rerender/b0 observable effects and refusal",
+      "passed": true,
+      "detail": {
+        "effects": [
+          {
+            "target": "target",
+            "phaseReady": true,
+            "trusted": true
+          }
+        ],
+        "rejected": 0
+      }
+    },
+    {
+      "contract": "browser/crawlee-playwright/never-uncovered/b0 observable effects and refusal",
+      "passed": true,
+      "detail": {
+        "effects": [],
+        "rejected": 1
+      }
+    },
+    {
+      "contract": "browser/stagehand-batch/rerender/b0 observable effects and refusal",
+      "passed": true,
+      "detail": {
+        "effects": [
+          {
+            "target": "target",
+            "phaseReady": true,
+            "trusted": true
+          }
+        ],
+        "rejected": 0
+      }
+    },
+    {
+      "contract": "browser/stagehand/ambiguous/b0 observable effects and refusal",
+      "passed": true,
+      "detail": {
+        "effects": [],
+        "rejected": 1
+      }
+    },
+    {
+      "contract": "browser/puppeteer/never-enabled/b0 observable effects and refusal",
+      "passed": true,
+      "detail": {
+        "effects": [],
+        "rejected": 1
+      }
+    },
+    {
+      "contract": "browser/stagehand/normal/b0 observable effects and refusal",
+      "passed": true,
+      "detail": {
+        "effects": [
+          {
+            "target": "target",
+            "phaseReady": true,
+            "trusted": true
+          }
+        ],
+        "rejected": 0
+      }
+    },
+    {
+      "contract": "browser/puppeteer/hidden/b0 observable effects and refusal",
+      "passed": true,
+      "detail": {
+        "effects": [
+          {
+            "target": "target",
+            "phaseReady": true,
+            "trusted": true
+          }
+        ],
+        "rejected": 0
+      }
+    },
+    {
+      "contract": "browser/crawlee-stagehand/never-uncovered/b0 observable effects and refusal",
+      "passed": true,
+      "detail": {
+        "effects": [],
+        "rejected": 1
+      }
+    },
+    {
+      "contract": "browser/stagehand-batch/never-enabled/b0 observable effects and refusal",
+      "passed": true,
+      "detail": {
+        "effects": [],
+        "rejected": 1
+      }
+    },
+    {
+      "contract": "browser/stagehand/never-uncovered/b0 observable effects and refusal",
+      "passed": true,
+      "detail": {
+        "effects": [],
+        "rejected": 1
+      }
+    },
+    {
+      "contract": "browser/crawlee-stagehand/hidden/b0 observable effects and refusal",
+      "passed": true,
+      "detail": {
+        "effects": [
+          {
+            "target": "target",
+            "phaseReady": true,
+            "trusted": true
+          }
+        ],
+        "rejected": 0
+      }
+    },
+    {
+      "contract": "browser/puppeteer/rerender/b0 observable effects and refusal",
+      "passed": true,
+      "detail": {
+        "effects": [
+          {
+            "target": "target",
+            "phaseReady": true,
+            "trusted": true
+          }
+        ],
+        "rejected": 0
+      }
+    },
+    {
+      "contract": "browser/stagehand-batch/delayed/b0 observable effects and refusal",
+      "passed": true,
+      "detail": {
+        "effects": [
+          {
+            "target": "target",
+            "phaseReady": true,
+            "trusted": true
+          }
+        ],
+        "rejected": 0
+      }
+    },
+    {
+      "contract": "browser/stagehand/moving/b1 observable effects and refusal",
+      "passed": true,
+      "detail": {
+        "effects": [
+          {
+            "target": "target",
+            "phaseReady": true,
+            "trusted": true
+          }
+        ],
+        "rejected": 0
+      }
+    },
+    {
+      "contract": "browser/playwright/delayed/b1 observable effects and refusal",
+      "passed": true,
+      "detail": {
+        "effects": [
+          {
+            "target": "target",
+            "phaseReady": true,
+            "trusted": true
+          }
+        ],
+        "rejected": 0
+      }
+    },
+    {
+      "contract": "browser/stagehand-batch/delayed/b1 observable effects and refusal",
+      "passed": true,
+      "detail": {
+        "effects": [
+          {
+            "target": "target",
+            "phaseReady": true,
+            "trusted": true
+          }
+        ],
+        "rejected": 0
+      }
+    },
+    {
+      "contract": "browser/playwright/moving/b1 observable effects and refusal",
+      "passed": true,
+      "detail": {
+        "effects": [
+          {
+            "target": "target",
+            "phaseReady": true,
+            "trusted": true
+          }
+        ],
+        "rejected": 0
+      }
+    },
+    {
+      "contract": "browser/stagehand/ambiguous/b1 observable effects and refusal",
+      "passed": true,
+      "detail": {
+        "effects": [],
+        "rejected": 1
+      }
+    },
+    {
+      "contract": "browser/stagehand/delayed/b1 observable effects and refusal",
+      "passed": true,
+      "detail": {
+        "effects": [
+          {
+            "target": "target",
+            "phaseReady": true,
+            "trusted": true
+          }
+        ],
+        "rejected": 0
+      }
+    },
+    {
+      "contract": "browser/stagehand-batch/never-uncovered/b1 observable effects and refusal",
+      "passed": true,
+      "detail": {
+        "effects": [],
+        "rejected": 1
+      }
+    },
+    {
+      "contract": "browser/playwright/rerender/b1 observable effects and refusal",
+      "passed": true,
+      "detail": {
+        "effects": [
+          {
+            "target": "target",
+            "phaseReady": true,
+            "trusted": true
+          }
+        ],
+        "rejected": 0
+      }
+    },
+    {
+      "contract": "browser/stagehand-batch/overlay/b1 observable effects and refusal",
+      "passed": true,
+      "detail": {
+        "effects": [
+          {
+            "target": "target",
+            "phaseReady": true,
+            "trusted": true
+          }
+        ],
+        "rejected": 0
+      }
+    },
+    {
+      "contract": "browser/puppeteer/never-uncovered/b1 observable effects and refusal",
+      "passed": true,
+      "detail": {
+        "effects": [],
+        "rejected": 1
+      }
+    },
+    {
+      "contract": "browser/stagehand-batch/moving/b1 observable effects and refusal",
+      "passed": true,
+      "detail": {
+        "effects": [
+          {
+            "target": "target",
+            "phaseReady": true,
+            "trusted": true
+          }
+        ],
+        "rejected": 0
+      }
+    },
+    {
+      "contract": "browser/crawlee-playwright/ambiguous/b1 observable effects and refusal",
+      "passed": true,
+      "detail": {
+        "effects": [],
+        "rejected": 1
+      }
+    },
+    {
+      "contract": "browser/puppeteer/hidden/b1 observable effects and refusal",
+      "passed": true,
+      "detail": {
+        "effects": [
+          {
+            "target": "target",
+            "phaseReady": true,
+            "trusted": true
+          }
+        ],
+        "rejected": 0
+      }
+    },
+    {
+      "contract": "browser/stagehand/rerender/b1 observable effects and refusal",
+      "passed": true,
+      "detail": {
+        "effects": [
+          {
+            "target": "target",
+            "phaseReady": true,
+            "trusted": true
+          }
+        ],
+        "rejected": 0
+      }
+    },
+    {
+      "contract": "browser/crawlee-stagehand/hidden/b1 observable effects and refusal",
+      "passed": true,
+      "detail": {
+        "effects": [
+          {
+            "target": "target",
+            "phaseReady": true,
+            "trusted": true
+          }
+        ],
+        "rejected": 0
+      }
+    },
+    {
+      "contract": "browser/puppeteer/overlay/b1 observable effects and refusal",
+      "passed": true,
+      "detail": {
+        "effects": [
+          {
+            "target": "target",
+            "phaseReady": true,
+            "trusted": true
+          }
+        ],
+        "rejected": 0
+      }
+    },
+    {
+      "contract": "browser/crawlee-stagehand/ambiguous/b1 observable effects and refusal",
+      "passed": true,
+      "detail": {
+        "effects": [],
+        "rejected": 1
+      }
+    },
+    {
+      "contract": "browser/crawlee-stagehand/delayed/b1 observable effects and refusal",
+      "passed": true,
+      "detail": {
+        "effects": [
+          {
+            "target": "target",
+            "phaseReady": true,
+            "trusted": true
+          }
+        ],
+        "rejected": 0
+      }
+    },
+    {
+      "contract": "browser/puppeteer/normal/b1 observable effects and refusal",
+      "passed": true,
+      "detail": {
+        "effects": [
+          {
+            "target": "target",
+            "phaseReady": true,
+            "trusted": true
+          }
+        ],
+        "rejected": 0
+      }
+    },
+    {
+      "contract": "browser/playwright/hidden/b1 observable effects and refusal",
+      "passed": true,
+      "detail": {
+        "effects": [
+          {
+            "target": "target",
+            "phaseReady": true,
+            "trusted": true
+          }
+        ],
+        "rejected": 0
+      }
+    },
+    {
+      "contract": "browser/stagehand-batch/ambiguous/b1 observable effects and refusal",
+      "passed": true,
+      "detail": {
+        "effects": [],
+        "rejected": 1
+      }
+    },
+    {
+      "contract": "browser/stagehand-batch/normal/b1 observable effects and refusal",
+      "passed": true,
+      "detail": {
+        "effects": [
+          {
+            "target": "target",
+            "phaseReady": true,
+            "trusted": true
+          }
+        ],
+        "rejected": 0
+      }
+    },
+    {
+      "contract": "browser/crawlee-playwright/hidden/b1 observable effects and refusal",
+      "passed": true,
+      "detail": {
+        "effects": [
+          {
+            "target": "target",
+            "phaseReady": true,
+            "trusted": true
+          }
+        ],
+        "rejected": 0
+      }
+    },
+    {
+      "contract": "browser/stagehand-batch/hidden/b1 observable effects and refusal",
+      "passed": true,
+      "detail": {
+        "effects": [
+          {
+            "target": "target",
+            "phaseReady": true,
+            "trusted": true
+          }
+        ],
+        "rejected": 0
+      }
+    },
+    {
+      "contract": "browser/crawlee-playwright/delayed/b1 observable effects and refusal",
+      "passed": true,
+      "detail": {
+        "effects": [
+          {
+            "target": "target",
+            "phaseReady": true,
+            "trusted": true
+          }
+        ],
+        "rejected": 0
+      }
+    },
+    {
+      "contract": "browser/puppeteer/ambiguous/b1 observable effects and refusal",
+      "passed": true,
+      "detail": {
+        "effects": [],
+        "rejected": 1
+      }
+    },
+    {
+      "contract": "browser/crawlee-stagehand/never-uncovered/b1 observable effects and refusal",
+      "passed": true,
+      "detail": {
+        "effects": [],
+        "rejected": 1
+      }
+    },
+    {
+      "contract": "browser/stagehand-batch/never-enabled/b1 observable effects and refusal",
+      "passed": true,
+      "detail": {
+        "effects": [],
+        "rejected": 1
+      }
+    },
+    {
+      "contract": "browser/stagehand/normal/b1 observable effects and refusal",
+      "passed": true,
+      "detail": {
+        "effects": [
+          {
+            "target": "target",
+            "phaseReady": true,
+            "trusted": true
+          }
+        ],
+        "rejected": 0
+      }
+    },
+    {
+      "contract": "browser/stagehand/overlay/b1 observable effects and refusal",
+      "passed": true,
+      "detail": {
+        "effects": [
+          {
+            "target": "target",
+            "phaseReady": true,
+            "trusted": true
+          }
+        ],
+        "rejected": 0
+      }
+    },
+    {
+      "contract": "browser/crawlee-stagehand/never-enabled/b1 observable effects and refusal",
+      "passed": true,
+      "detail": {
+        "effects": [],
+        "rejected": 1
+      }
+    },
+    {
+      "contract": "browser/stagehand/never-enabled/b1 observable effects and refusal",
+      "passed": true,
+      "detail": {
+        "effects": [],
+        "rejected": 1
+      }
+    },
+    {
+      "contract": "browser/playwright/never-uncovered/b1 observable effects and refusal",
+      "passed": true,
+      "detail": {
+        "effects": [],
+        "rejected": 1
+      }
+    },
+    {
+      "contract": "browser/puppeteer/never-enabled/b1 observable effects and refusal",
+      "passed": true,
+      "detail": {
+        "effects": [],
+        "rejected": 1
+      }
+    },
+    {
+      "contract": "browser/crawlee-playwright/rerender/b1 observable effects and refusal",
+      "passed": true,
+      "detail": {
+        "effects": [
+          {
+            "target": "target",
+            "phaseReady": true,
+            "trusted": true
+          }
+        ],
+        "rejected": 0
+      }
+    },
+    {
+      "contract": "browser/playwright/ambiguous/b1 observable effects and refusal",
+      "passed": true,
+      "detail": {
+        "effects": [],
+        "rejected": 1
+      }
+    },
+    {
+      "contract": "browser/crawlee-playwright/never-uncovered/b1 observable effects and refusal",
+      "passed": true,
+      "detail": {
+        "effects": [],
+        "rejected": 1
+      }
+    },
+    {
+      "contract": "browser/crawlee-playwright/moving/b1 observable effects and refusal",
+      "passed": true,
+      "detail": {
+        "effects": [
+          {
+            "target": "target",
+            "phaseReady": true,
+            "trusted": true
+          }
+        ],
+        "rejected": 0
+      }
+    },
+    {
+      "contract": "browser/crawlee-stagehand/moving/b1 observable effects and refusal",
+      "passed": true,
+      "detail": {
+        "effects": [
+          {
+            "target": "target",
+            "phaseReady": true,
+            "trusted": true
+          }
+        ],
+        "rejected": 0
+      }
+    },
+    {
+      "contract": "browser/stagehand-batch/rerender/b1 observable effects and refusal",
+      "passed": true,
+      "detail": {
+        "effects": [
+          {
+            "target": "target",
+            "phaseReady": true,
+            "trusted": true
+          }
+        ],
+        "rejected": 0
+      }
+    },
+    {
+      "contract": "browser/stagehand/hidden/b1 observable effects and refusal",
+      "passed": true,
+      "detail": {
+        "effects": [
+          {
+            "target": "target",
+            "phaseReady": true,
+            "trusted": true
+          }
+        ],
+        "rejected": 0
+      }
+    },
+    {
+      "contract": "browser/playwright/overlay/b1 observable effects and refusal",
+      "passed": true,
+      "detail": {
+        "effects": [
+          {
+            "target": "target",
+            "phaseReady": true,
+            "trusted": true
+          }
+        ],
+        "rejected": 0
+      }
+    },
+    {
+      "contract": "browser/crawlee-stagehand/normal/b1 observable effects and refusal",
+      "passed": true,
+      "detail": {
+        "effects": [
+          {
+            "target": "target",
+            "phaseReady": true,
+            "trusted": true
+          }
+        ],
+        "rejected": 0
+      }
+    },
+    {
+      "contract": "browser/puppeteer/delayed/b1 observable effects and refusal",
+      "passed": true,
+      "detail": {
+        "effects": [
+          {
+            "target": "target",
+            "phaseReady": true,
+            "trusted": true
+          }
+        ],
+        "rejected": 0
+      }
+    },
+    {
+      "contract": "browser/stagehand/never-uncovered/b1 observable effects and refusal",
+      "passed": true,
+      "detail": {
+        "effects": [],
+        "rejected": 1
+      }
+    },
+    {
+      "contract": "browser/crawlee-stagehand/overlay/b1 observable effects and refusal",
+      "passed": true,
+      "detail": {
+        "effects": [
+          {
+            "target": "target",
+            "phaseReady": true,
+            "trusted": true
+          }
+        ],
+        "rejected": 0
+      }
+    },
+    {
+      "contract": "browser/crawlee-playwright/normal/b1 observable effects and refusal",
+      "passed": true,
+      "detail": {
+        "effects": [
+          {
+            "target": "target",
+            "phaseReady": true,
+            "trusted": true
+          }
+        ],
+        "rejected": 0
+      }
+    },
+    {
+      "contract": "browser/crawlee-playwright/overlay/b1 observable effects and refusal",
+      "passed": true,
+      "detail": {
+        "effects": [
+          {
+            "target": "target",
+            "phaseReady": true,
+            "trusted": true
+          }
+        ],
+        "rejected": 0
+      }
+    },
+    {
+      "contract": "browser/crawlee-stagehand/rerender/b1 observable effects and refusal",
+      "passed": true,
+      "detail": {
+        "effects": [
+          {
+            "target": "target",
+            "phaseReady": true,
+            "trusted": true
+          }
+        ],
+        "rejected": 0
+      }
+    },
+    {
+      "contract": "browser/puppeteer/moving/b1 observable effects and refusal",
+      "passed": true,
+      "detail": {
+        "effects": [
+          {
+            "target": "target",
+            "phaseReady": true,
+            "trusted": true
+          }
+        ],
+        "rejected": 0
+      }
+    },
+    {
+      "contract": "browser/crawlee-playwright/never-enabled/b1 observable effects and refusal",
+      "passed": true,
+      "detail": {
+        "effects": [],
+        "rejected": 1
+      }
+    },
+    {
+      "contract": "browser/playwright/never-enabled/b1 observable effects and refusal",
+      "passed": true,
+      "detail": {
+        "effects": [],
+        "rejected": 1
+      }
+    },
+    {
+      "contract": "browser/puppeteer/rerender/b1 observable effects and refusal",
+      "passed": true,
+      "detail": {
+        "effects": [
+          {
+            "target": "target",
+            "phaseReady": true,
+            "trusted": true
+          }
+        ],
+        "rejected": 0
+      }
+    },
+    {
+      "contract": "browser/playwright/normal/b1 observable effects and refusal",
+      "passed": true,
+      "detail": {
+        "effects": [
+          {
+            "target": "target",
+            "phaseReady": true,
+            "trusted": true
+          }
+        ],
+        "rejected": 0
+      }
+    },
+    {
+      "contract": "browser/puppeteer/rerender/b2 observable effects and refusal",
+      "passed": true,
+      "detail": {
+        "effects": [
+          {
+            "target": "target",
+            "phaseReady": true,
+            "trusted": true
+          }
+        ],
+        "rejected": 0
+      }
+    },
+    {
+      "contract": "browser/crawlee-stagehand/ambiguous/b2 observable effects and refusal",
+      "passed": true,
+      "detail": {
+        "effects": [],
+        "rejected": 1
+      }
+    },
+    {
+      "contract": "browser/puppeteer/hidden/b2 observable effects and refusal",
+      "passed": true,
+      "detail": {
+        "effects": [
+          {
+            "target": "target",
+            "phaseReady": true,
+            "trusted": true
+          }
+        ],
+        "rejected": 0
+      }
+    },
+    {
+      "contract": "browser/stagehand-batch/normal/b2 observable effects and refusal",
+      "passed": true,
+      "detail": {
+        "effects": [
+          {
+            "target": "target",
+            "phaseReady": true,
+            "trusted": true
+          }
+        ],
+        "rejected": 0
+      }
+    },
+    {
+      "contract": "browser/stagehand/normal/b2 observable effects and refusal",
+      "passed": true,
+      "detail": {
+        "effects": [
+          {
+            "target": "target",
+            "phaseReady": true,
+            "trusted": true
+          }
+        ],
+        "rejected": 0
+      }
+    },
+    {
+      "contract": "browser/stagehand/overlay/b2 observable effects and refusal",
+      "passed": true,
+      "detail": {
+        "effects": [
+          {
+            "target": "target",
+            "phaseReady": true,
+            "trusted": true
+          }
+        ],
+        "rejected": 0
+      }
+    },
+    {
+      "contract": "browser/stagehand/delayed/b2 observable effects and refusal",
+      "passed": true,
+      "detail": {
+        "effects": [
+          {
+            "target": "target",
+            "phaseReady": true,
+            "trusted": true
+          }
+        ],
+        "rejected": 0
+      }
+    },
+    {
+      "contract": "browser/puppeteer/delayed/b2 observable effects and refusal",
+      "passed": true,
+      "detail": {
+        "effects": [
+          {
+            "target": "target",
+            "phaseReady": true,
+            "trusted": true
+          }
+        ],
+        "rejected": 0
+      }
+    },
+    {
+      "contract": "browser/crawlee-stagehand/rerender/b2 observable effects and refusal",
+      "passed": true,
+      "detail": {
+        "effects": [
+          {
+            "target": "target",
+            "phaseReady": true,
+            "trusted": true
+          }
+        ],
+        "rejected": 0
+      }
+    },
+    {
+      "contract": "browser/crawlee-playwright/ambiguous/b2 observable effects and refusal",
+      "passed": true,
+      "detail": {
+        "effects": [],
+        "rejected": 1
+      }
+    },
+    {
+      "contract": "browser/crawlee-stagehand/delayed/b2 observable effects and refusal",
+      "passed": true,
+      "detail": {
+        "effects": [
+          {
+            "target": "target",
+            "phaseReady": true,
+            "trusted": true
+          }
+        ],
+        "rejected": 0
+      }
+    },
+    {
+      "contract": "browser/stagehand-batch/ambiguous/b2 observable effects and refusal",
+      "passed": true,
+      "detail": {
+        "effects": [],
+        "rejected": 1
+      }
+    },
+    {
+      "contract": "browser/stagehand/never-enabled/b2 observable effects and refusal",
+      "passed": true,
+      "detail": {
+        "effects": [],
+        "rejected": 1
+      }
+    },
+    {
+      "contract": "browser/puppeteer/ambiguous/b2 observable effects and refusal",
+      "passed": true,
+      "detail": {
+        "effects": [],
+        "rejected": 1
+      }
+    },
+    {
+      "contract": "browser/crawlee-stagehand/overlay/b2 observable effects and refusal",
+      "passed": true,
+      "detail": {
+        "effects": [
+          {
+            "target": "target",
+            "phaseReady": true,
+            "trusted": true
+          }
+        ],
+        "rejected": 0
+      }
+    },
+    {
+      "contract": "browser/stagehand/rerender/b2 observable effects and refusal",
+      "passed": true,
+      "detail": {
+        "effects": [
+          {
+            "target": "target",
+            "phaseReady": true,
+            "trusted": true
+          }
+        ],
+        "rejected": 0
+      }
+    },
+    {
+      "contract": "browser/crawlee-stagehand/never-enabled/b2 observable effects and refusal",
+      "passed": true,
+      "detail": {
+        "effects": [],
+        "rejected": 1
+      }
+    },
+    {
+      "contract": "browser/stagehand-batch/delayed/b2 observable effects and refusal",
+      "passed": true,
+      "detail": {
+        "effects": [
+          {
+            "target": "target",
+            "phaseReady": true,
+            "trusted": true
+          }
+        ],
+        "rejected": 0
+      }
+    },
+    {
+      "contract": "browser/stagehand-batch/rerender/b2 observable effects and refusal",
+      "passed": true,
+      "detail": {
+        "effects": [
+          {
+            "target": "target",
+            "phaseReady": true,
+            "trusted": true
+          }
+        ],
+        "rejected": 0
+      }
+    },
+    {
+      "contract": "browser/playwright/never-enabled/b2 observable effects and refusal",
+      "passed": true,
+      "detail": {
+        "effects": [],
+        "rejected": 1
+      }
+    },
+    {
+      "contract": "browser/puppeteer/moving/b2 observable effects and refusal",
+      "passed": true,
+      "detail": {
+        "effects": [
+          {
+            "target": "target",
+            "phaseReady": true,
+            "trusted": true
+          }
+        ],
+        "rejected": 0
+      }
+    },
+    {
+      "contract": "browser/puppeteer/overlay/b2 observable effects and refusal",
+      "passed": true,
+      "detail": {
+        "effects": [
+          {
+            "target": "target",
+            "phaseReady": true,
+            "trusted": true
+          }
+        ],
+        "rejected": 0
+      }
+    },
+    {
+      "contract": "browser/playwright/overlay/b2 observable effects and refusal",
+      "passed": true,
+      "detail": {
+        "effects": [
+          {
+            "target": "target",
+            "phaseReady": true,
+            "trusted": true
+          }
+        ],
+        "rejected": 0
+      }
+    },
+    {
+      "contract": "browser/stagehand-batch/moving/b2 observable effects and refusal",
+      "passed": true,
+      "detail": {
+        "effects": [
+          {
+            "target": "target",
+            "phaseReady": true,
+            "trusted": true
+          }
+        ],
+        "rejected": 0
+      }
+    },
+    {
+      "contract": "browser/crawlee-stagehand/normal/b2 observable effects and refusal",
+      "passed": true,
+      "detail": {
+        "effects": [
+          {
+            "target": "target",
+            "phaseReady": true,
+            "trusted": true
+          }
+        ],
+        "rejected": 0
+      }
+    },
+    {
+      "contract": "browser/stagehand-batch/never-uncovered/b2 observable effects and refusal",
+      "passed": true,
+      "detail": {
+        "effects": [],
+        "rejected": 1
+      }
+    },
+    {
+      "contract": "browser/puppeteer/never-uncovered/b2 observable effects and refusal",
+      "passed": true,
+      "detail": {
+        "effects": [],
+        "rejected": 1
+      }
+    },
+    {
+      "contract": "browser/crawlee-playwright/normal/b2 observable effects and refusal",
+      "passed": true,
+      "detail": {
+        "effects": [
+          {
+            "target": "target",
+            "phaseReady": true,
+            "trusted": true
+          }
+        ],
+        "rejected": 0
+      }
+    },
+    {
+      "contract": "browser/stagehand/ambiguous/b2 observable effects and refusal",
+      "passed": true,
+      "detail": {
+        "effects": [],
+        "rejected": 1
+      }
+    },
+    {
+      "contract": "browser/crawlee-playwright/moving/b2 observable effects and refusal",
+      "passed": true,
+      "detail": {
+        "effects": [
+          {
+            "target": "target",
+            "phaseReady": true,
+            "trusted": true
+          }
+        ],
+        "rejected": 0
+      }
+    },
+    {
+      "contract": "browser/puppeteer/normal/b2 observable effects and refusal",
+      "passed": true,
+      "detail": {
+        "effects": [
+          {
+            "target": "target",
+            "phaseReady": true,
+            "trusted": true
+          }
+        ],
+        "rejected": 0
+      }
+    },
+    {
+      "contract": "browser/crawlee-stagehand/never-uncovered/b2 observable effects and refusal",
+      "passed": true,
+      "detail": {
+        "effects": [],
+        "rejected": 1
+      }
+    },
+    {
+      "contract": "browser/crawlee-playwright/hidden/b2 observable effects and refusal",
+      "passed": true,
+      "detail": {
+        "effects": [
+          {
+            "target": "target",
+            "phaseReady": true,
+            "trusted": true
+          }
+        ],
+        "rejected": 0
+      }
+    },
+    {
+      "contract": "browser/crawlee-playwright/overlay/b2 observable effects and refusal",
+      "passed": true,
+      "detail": {
+        "effects": [
+          {
+            "target": "target",
+            "phaseReady": true,
+            "trusted": true
+          }
+        ],
+        "rejected": 0
+      }
+    },
+    {
+      "contract": "browser/playwright/delayed/b2 observable effects and refusal",
+      "passed": true,
+      "detail": {
+        "effects": [
+          {
+            "target": "target",
+            "phaseReady": true,
+            "trusted": true
+          }
+        ],
+        "rejected": 0
+      }
+    },
+    {
+      "contract": "browser/crawlee-playwright/delayed/b2 observable effects and refusal",
+      "passed": true,
+      "detail": {
+        "effects": [
+          {
+            "target": "target",
+            "phaseReady": true,
+            "trusted": true
+          }
+        ],
+        "rejected": 0
+      }
+    },
+    {
+      "contract": "browser/puppeteer/never-enabled/b2 observable effects and refusal",
+      "passed": true,
+      "detail": {
+        "effects": [],
+        "rejected": 1
+      }
+    },
+    {
+      "contract": "browser/stagehand-batch/hidden/b2 observable effects and refusal",
+      "passed": true,
+      "detail": {
+        "effects": [
+          {
+            "target": "target",
+            "phaseReady": true,
+            "trusted": true
+          }
+        ],
+        "rejected": 0
+      }
+    },
+    {
+      "contract": "browser/stagehand/never-uncovered/b2 observable effects and refusal",
+      "passed": true,
+      "detail": {
+        "effects": [],
+        "rejected": 1
+      }
+    },
+    {
+      "contract": "browser/playwright/never-uncovered/b2 observable effects and refusal",
+      "passed": true,
+      "detail": {
+        "effects": [],
+        "rejected": 1
+      }
+    },
+    {
+      "contract": "browser/stagehand-batch/never-enabled/b2 observable effects and refusal",
+      "passed": true,
+      "detail": {
+        "effects": [],
+        "rejected": 1
+      }
+    },
+    {
+      "contract": "browser/crawlee-playwright/never-uncovered/b2 observable effects and refusal",
+      "passed": true,
+      "detail": {
+        "effects": [],
+        "rejected": 1
+      }
+    },
+    {
+      "contract": "browser/playwright/rerender/b2 observable effects and refusal",
+      "passed": true,
+      "detail": {
+        "effects": [
+          {
+            "target": "target",
+            "phaseReady": true,
+            "trusted": true
+          }
+        ],
+        "rejected": 0
+      }
+    },
+    {
+      "contract": "browser/stagehand/moving/b2 observable effects and refusal",
+      "passed": true,
+      "detail": {
+        "effects": [
+          {
+            "target": "target",
+            "phaseReady": true,
+            "trusted": true
+          }
+        ],
+        "rejected": 0
+      }
+    },
+    {
+      "contract": "browser/playwright/hidden/b2 observable effects and refusal",
+      "passed": true,
+      "detail": {
+        "effects": [
+          {
+            "target": "target",
+            "phaseReady": true,
+            "trusted": true
+          }
+        ],
+        "rejected": 0
+      }
+    },
+    {
+      "contract": "browser/crawlee-playwright/rerender/b2 observable effects and refusal",
+      "passed": true,
+      "detail": {
+        "effects": [
+          {
+            "target": "target",
+            "phaseReady": true,
+            "trusted": true
+          }
+        ],
+        "rejected": 0
+      }
+    },
+    {
+      "contract": "browser/stagehand-batch/overlay/b2 observable effects and refusal",
+      "passed": true,
+      "detail": {
+        "effects": [
+          {
+            "target": "target",
+            "phaseReady": true,
+            "trusted": true
+          }
+        ],
+        "rejected": 0
+      }
+    },
+    {
+      "contract": "browser/playwright/ambiguous/b2 observable effects and refusal",
+      "passed": true,
+      "detail": {
+        "effects": [],
+        "rejected": 1
+      }
+    },
+    {
+      "contract": "browser/playwright/moving/b2 observable effects and refusal",
+      "passed": true,
+      "detail": {
+        "effects": [
+          {
+            "target": "target",
+            "phaseReady": true,
+            "trusted": true
+          }
+        ],
+        "rejected": 0
+      }
+    },
+    {
+      "contract": "browser/stagehand/hidden/b2 observable effects and refusal",
+      "passed": true,
+      "detail": {
+        "effects": [
+          {
+            "target": "target",
+            "phaseReady": true,
+            "trusted": true
+          }
+        ],
+        "rejected": 0
+      }
+    },
+    {
+      "contract": "browser/crawlee-stagehand/moving/b2 observable effects and refusal",
+      "passed": true,
+      "detail": {
+        "effects": [
+          {
+            "target": "target",
+            "phaseReady": true,
+            "trusted": true
+          }
+        ],
+        "rejected": 0
+      }
+    },
+    {
+      "contract": "browser/playwright/normal/b2 observable effects and refusal",
+      "passed": true,
+      "detail": {
+        "effects": [
+          {
+            "target": "target",
+            "phaseReady": true,
+            "trusted": true
+          }
+        ],
+        "rejected": 0
+      }
+    },
+    {
+      "contract": "browser/crawlee-stagehand/hidden/b2 observable effects and refusal",
+      "passed": true,
+      "detail": {
+        "effects": [
+          {
+            "target": "target",
+            "phaseReady": true,
+            "trusted": true
+          }
+        ],
+        "rejected": 0
+      }
+    },
+    {
+      "contract": "browser/crawlee-playwright/never-enabled/b2 observable effects and refusal",
+      "passed": true,
+      "detail": {
+        "effects": [],
+        "rejected": 1
+      }
+    },
+    {
+      "contract": "sqlite-readers-qualified expected total and verified",
+      "passed": true,
+      "detail": {
+        "name": "sqlite-readers-qualified",
+        "directory": "/Users/jb/Dev/automan/lab/results/sqlite-readers-2026-10-08T00-25-35-434Z-92d4f3",
+        "expected": 108,
+        "verified": 108,
+        "total": 108,
+        "status": "qualified"
+      }
+    },
+    {
+      "contract": "sqlite-readers-qualified source and binary provenance",
+      "passed": true,
+      "detail": {
+        "sourceChanges": [],
+        "binaryChanges": null,
+        "binaryChanged": false
+      }
+    },
+    {
+      "contract": "sqlite/cell-22-b0 exact rows and checkpoint drained",
+      "passed": true,
+      "detail": {
+        "rows": 32000,
+        "truncate": {
+          "busy": 0,
+          "log": 0,
+          "checkpointed": 0
+        },
+        "walAfter": 0
+      }
+    },
+    {
+      "contract": "sqlite/cell-22-b0 held reader blocks full checkpoint",
+      "passed": true,
+      "detail": {
+        "snapshot": 0,
+        "passive": {
+          "busy": 0,
+          "log": 7096,
+          "checkpointed": 3
+        }
+      }
+    },
+    {
+      "contract": "sqlite/cell-2-b0 exact rows and checkpoint drained",
+      "passed": true,
+      "detail": {
+        "rows": 32000,
+        "truncate": {
+          "busy": 0,
+          "log": 0,
+          "checkpointed": 0
+        },
+        "walAfter": 0
+      }
+    },
+    {
+      "contract": "sqlite/cell-2-b0 short readers actually ran",
+      "passed": true,
+      "detail": 16
+    },
+    {
+      "contract": "sqlite/cell-25-b0 exact rows and checkpoint drained",
+      "passed": true,
+      "detail": {
+        "rows": 32000,
+        "truncate": {
+          "busy": 0,
+          "log": 0,
+          "checkpointed": 0
+        },
+        "walAfter": 0
+      }
+    },
+    {
+      "contract": "sqlite/cell-27-b0 exact rows and checkpoint drained",
+      "passed": true,
+      "detail": {
+        "rows": 32000,
+        "truncate": {
+          "busy": 0,
+          "log": 0,
+          "checkpointed": 0
+        },
+        "walAfter": 0
+      }
+    },
+    {
+      "contract": "sqlite/cell-27-b0 short readers actually ran",
+      "passed": true,
+      "detail": 14
+    },
+    {
+      "contract": "sqlite/cell-20-b0 exact rows and checkpoint drained",
+      "passed": true,
+      "detail": {
+        "rows": 32000,
+        "truncate": {
+          "busy": 0,
+          "log": 0,
+          "checkpointed": 0
+        },
+        "walAfter": 0
+      }
+    },
+    {
+      "contract": "sqlite/cell-20-b0 short readers actually ran",
+      "passed": true,
+      "detail": 18
+    },
+    {
+      "contract": "sqlite/cell-34-b0 exact rows and checkpoint drained",
+      "passed": true,
+      "detail": {
+        "rows": 32000,
+        "truncate": {
+          "busy": 0,
+          "log": 0,
+          "checkpointed": 0
+        },
+        "walAfter": 0
+      }
+    },
+    {
+      "contract": "sqlite/cell-34-b0 held reader blocks full checkpoint",
+      "passed": true,
+      "detail": {
+        "snapshot": 0,
+        "passive": {
+          "busy": 0,
+          "log": 7118,
+          "checkpointed": 3
+        }
+      }
+    },
+    {
+      "contract": "sqlite/cell-7-b0 exact rows and checkpoint drained",
+      "passed": true,
+      "detail": {
+        "rows": 32000,
+        "truncate": {
+          "busy": 0,
+          "log": 0,
+          "checkpointed": 0
+        },
+        "walAfter": 0
+      }
+    },
+    {
+      "contract": "sqlite/cell-0-b0 exact rows and checkpoint drained",
+      "passed": true,
+      "detail": {
+        "rows": 32000,
+        "truncate": {
+          "busy": 0,
+          "log": 0,
+          "checkpointed": 0
+        },
+        "walAfter": 0
+      }
+    },
+    {
+      "contract": "sqlite/cell-16-b0 exact rows and checkpoint drained",
+      "passed": true,
+      "detail": {
+        "rows": 32000,
+        "truncate": {
+          "busy": 0,
+          "log": 0,
+          "checkpointed": 0
+        },
+        "walAfter": 0
+      }
+    },
+    {
+      "contract": "sqlite/cell-16-b0 held reader blocks full checkpoint",
+      "passed": true,
+      "detail": {
+        "snapshot": 0,
+        "passive": {
+          "busy": 0,
+          "log": 7096,
+          "checkpointed": 3
+        }
+      }
+    },
+    {
+      "contract": "sqlite/cell-1-b0 exact rows and checkpoint drained",
+      "passed": true,
+      "detail": {
+        "rows": 32000,
+        "truncate": {
+          "busy": 0,
+          "log": 0,
+          "checkpointed": 0
+        },
+        "walAfter": 0
+      }
+    },
+    {
+      "contract": "sqlite/cell-11-b0 exact rows and checkpoint drained",
+      "passed": true,
+      "detail": {
+        "rows": 32000,
+        "truncate": {
+          "busy": 0,
+          "log": 0,
+          "checkpointed": 0
+        },
+        "walAfter": 0
+      }
+    },
+    {
+      "contract": "sqlite/cell-11-b0 held reader blocks full checkpoint",
+      "passed": true,
+      "detail": {
+        "snapshot": 0,
+        "passive": {
+          "busy": 0,
+          "log": 5037,
+          "checkpointed": 3
+        }
+      }
+    },
+    {
+      "contract": "sqlite/cell-29-b0 exact rows and checkpoint drained",
+      "passed": true,
+      "detail": {
+        "rows": 32000,
+        "truncate": {
+          "busy": 0,
+          "log": 0,
+          "checkpointed": 0
+        },
+        "walAfter": 0
+      }
+    },
+    {
+      "contract": "sqlite/cell-29-b0 held reader blocks full checkpoint",
+      "passed": true,
+      "detail": {
+        "snapshot": 0,
+        "passive": {
+          "busy": 0,
+          "log": 5034,
+          "checkpointed": 3
+        }
+      }
+    },
+    {
+      "contract": "sqlite/cell-4-b0 exact rows and checkpoint drained",
+      "passed": true,
+      "detail": {
+        "rows": 32000,
+        "truncate": {
+          "busy": 0,
+          "log": 0,
+          "checkpointed": 0
+        },
+        "walAfter": 0
+      }
+    },
+    {
+      "contract": "sqlite/cell-4-b0 held reader blocks full checkpoint",
+      "passed": true,
+      "detail": {
+        "snapshot": 0,
+        "passive": {
+          "busy": 0,
+          "log": 7096,
+          "checkpointed": 3
+        }
+      }
+    },
+    {
+      "contract": "sqlite/cell-19-b0 exact rows and checkpoint drained",
+      "passed": true,
+      "detail": {
+        "rows": 32000,
+        "truncate": {
+          "busy": 0,
+          "log": 0,
+          "checkpointed": 0
+        },
+        "walAfter": 0
+      }
+    },
+    {
+      "contract": "sqlite/cell-15-b0 exact rows and checkpoint drained",
+      "passed": true,
+      "detail": {
+        "rows": 32000,
+        "truncate": {
+          "busy": 0,
+          "log": 0,
+          "checkpointed": 0
+        },
+        "walAfter": 0
+      }
+    },
+    {
+      "contract": "sqlite/cell-15-b0 short readers actually ran",
+      "passed": true,
+      "detail": 12
+    },
+    {
+      "contract": "sqlite/cell-28-b0 exact rows and checkpoint drained",
+      "passed": true,
+      "detail": {
+        "rows": 32000,
+        "truncate": {
+          "busy": 0,
+          "log": 0,
+          "checkpointed": 0
+        },
+        "walAfter": 0
+      }
+    },
+    {
+      "contract": "sqlite/cell-28-b0 held reader blocks full checkpoint",
+      "passed": true,
+      "detail": {
+        "snapshot": 0,
+        "passive": {
+          "busy": 0,
+          "log": 7096,
+          "checkpointed": 3
+        }
+      }
+    },
+    {
+      "contract": "sqlite/cell-10-b0 exact rows and checkpoint drained",
+      "passed": true,
+      "detail": {
+        "rows": 32000,
+        "truncate": {
+          "busy": 0,
+          "log": 0,
+          "checkpointed": 0
+        },
+        "walAfter": 0
+      }
+    },
+    {
+      "contract": "sqlite/cell-10-b0 held reader blocks full checkpoint",
+      "passed": true,
+      "detail": {
+        "snapshot": 0,
+        "passive": {
+          "busy": 0,
+          "log": 7107,
+          "checkpointed": 3
+        }
+      }
+    },
+    {
+      "contract": "sqlite/cell-23-b0 exact rows and checkpoint drained",
+      "passed": true,
+      "detail": {
+        "rows": 32000,
+        "truncate": {
+          "busy": 0,
+          "log": 0,
+          "checkpointed": 0
+        },
+        "walAfter": 0
+      }
+    },
+    {
+      "contract": "sqlite/cell-23-b0 held reader blocks full checkpoint",
+      "passed": true,
+      "detail": {
+        "snapshot": 0,
+        "passive": {
+          "busy": 0,
+          "log": 5040,
+          "checkpointed": 3
+        }
+      }
+    },
+    {
+      "contract": "sqlite/cell-21-b0 exact rows and checkpoint drained",
+      "passed": true,
+      "detail": {
+        "rows": 32000,
+        "truncate": {
+          "busy": 0,
+          "log": 0,
+          "checkpointed": 0
+        },
+        "walAfter": 0
+      }
+    },
+    {
+      "contract": "sqlite/cell-21-b0 short readers actually ran",
+      "passed": true,
+      "detail": 14
+    },
+    {
+      "contract": "sqlite/cell-6-b0 exact rows and checkpoint drained",
+      "passed": true,
+      "detail": {
+        "rows": 32000,
+        "truncate": {
+          "busy": 0,
+          "log": 0,
+          "checkpointed": 0
+        },
+        "walAfter": 0
+      }
+    },
+    {
+      "contract": "sqlite/cell-14-b0 exact rows and checkpoint drained",
+      "passed": true,
+      "detail": {
+        "rows": 32000,
+        "truncate": {
+          "busy": 0,
+          "log": 0,
+          "checkpointed": 0
+        },
+        "walAfter": 0
+      }
+    },
+    {
+      "contract": "sqlite/cell-14-b0 short readers actually ran",
+      "passed": true,
+      "detail": 14
+    },
+    {
+      "contract": "sqlite/cell-17-b0 exact rows and checkpoint drained",
+      "passed": true,
+      "detail": {
+        "rows": 32000,
+        "truncate": {
+          "busy": 0,
+          "log": 0,
+          "checkpointed": 0
+        },
+        "walAfter": 0
+      }
+    },
+    {
+      "contract": "sqlite/cell-17-b0 held reader blocks full checkpoint",
+      "passed": true,
+      "detail": {
+        "snapshot": 0,
+        "passive": {
+          "busy": 0,
+          "log": 5034,
+          "checkpointed": 3
+        }
+      }
+    },
+    {
+      "contract": "sqlite/cell-24-b0 exact rows and checkpoint drained",
+      "passed": true,
+      "detail": {
+        "rows": 32000,
+        "truncate": {
+          "busy": 0,
+          "log": 0,
+          "checkpointed": 0
+        },
+        "walAfter": 0
+      }
+    },
+    {
+      "contract": "sqlite/cell-31-b0 exact rows and checkpoint drained",
+      "passed": true,
+      "detail": {
+        "rows": 32000,
+        "truncate": {
+          "busy": 0,
+          "log": 0,
+          "checkpointed": 0
+        },
+        "walAfter": 0
+      }
+    },
+    {
+      "contract": "sqlite/cell-3-b0 exact rows and checkpoint drained",
+      "passed": true,
+      "detail": {
+        "rows": 32000,
+        "truncate": {
+          "busy": 0,
+          "log": 0,
+          "checkpointed": 0
+        },
+        "walAfter": 0
+      }
+    },
+    {
+      "contract": "sqlite/cell-3-b0 short readers actually ran",
+      "passed": true,
+      "detail": 14
+    },
+    {
+      "contract": "sqlite/cell-12-b0 exact rows and checkpoint drained",
+      "passed": true,
+      "detail": {
+        "rows": 32000,
+        "truncate": {
+          "busy": 0,
+          "log": 0,
+          "checkpointed": 0
+        },
+        "walAfter": 0
+      }
+    },
+    {
+      "contract": "sqlite/cell-33-b0 exact rows and checkpoint drained",
+      "passed": true,
+      "detail": {
+        "rows": 32000,
+        "truncate": {
+          "busy": 0,
+          "log": 0,
+          "checkpointed": 0
+        },
+        "walAfter": 0
+      }
+    },
+    {
+      "contract": "sqlite/cell-33-b0 short readers actually ran",
+      "passed": true,
+      "detail": 13
+    },
+    {
+      "contract": "sqlite/cell-26-b0 exact rows and checkpoint drained",
+      "passed": true,
+      "detail": {
+        "rows": 32000,
+        "truncate": {
+          "busy": 0,
+          "log": 0,
+          "checkpointed": 0
+        },
+        "walAfter": 0
+      }
+    },
+    {
+      "contract": "sqlite/cell-26-b0 short readers actually ran",
+      "passed": true,
+      "detail": 15
+    },
+    {
+      "contract": "sqlite/cell-5-b0 exact rows and checkpoint drained",
+      "passed": true,
+      "detail": {
+        "rows": 32000,
+        "truncate": {
+          "busy": 0,
+          "log": 0,
+          "checkpointed": 0
+        },
+        "walAfter": 0
+      }
+    },
+    {
+      "contract": "sqlite/cell-5-b0 held reader blocks full checkpoint",
+      "passed": true,
+      "detail": {
+        "snapshot": 0,
+        "passive": {
+          "busy": 0,
+          "log": 5034,
+          "checkpointed": 3
+        }
+      }
+    },
+    {
+      "contract": "sqlite/cell-8-b0 exact rows and checkpoint drained",
+      "passed": true,
+      "detail": {
+        "rows": 32000,
+        "truncate": {
+          "busy": 0,
+          "log": 0,
+          "checkpointed": 0
+        },
+        "walAfter": 0
+      }
+    },
+    {
+      "contract": "sqlite/cell-8-b0 short readers actually ran",
+      "passed": true,
+      "detail": 19
+    },
+    {
+      "contract": "sqlite/cell-30-b0 exact rows and checkpoint drained",
+      "passed": true,
+      "detail": {
+        "rows": 32000,
+        "truncate": {
+          "busy": 0,
+          "log": 0,
+          "checkpointed": 0
+        },
+        "walAfter": 0
+      }
+    },
+    {
+      "contract": "sqlite/cell-18-b0 exact rows and checkpoint drained",
+      "passed": true,
+      "detail": {
+        "rows": 32000,
+        "truncate": {
+          "busy": 0,
+          "log": 0,
+          "checkpointed": 0
+        },
+        "walAfter": 0
+      }
+    },
+    {
+      "contract": "sqlite/cell-13-b0 exact rows and checkpoint drained",
+      "passed": true,
+      "detail": {
+        "rows": 32000,
+        "truncate": {
+          "busy": 0,
+          "log": 0,
+          "checkpointed": 0
+        },
+        "walAfter": 0
+      }
+    },
+    {
+      "contract": "sqlite/cell-32-b0 exact rows and checkpoint drained",
+      "passed": true,
+      "detail": {
+        "rows": 32000,
+        "truncate": {
+          "busy": 0,
+          "log": 0,
+          "checkpointed": 0
+        },
+        "walAfter": 0
+      }
+    },
+    {
+      "contract": "sqlite/cell-32-b0 short readers actually ran",
+      "passed": true,
+      "detail": 17
+    },
+    {
+      "contract": "sqlite/cell-9-b0 exact rows and checkpoint drained",
+      "passed": true,
+      "detail": {
+        "rows": 32000,
+        "truncate": {
+          "busy": 0,
+          "log": 0,
+          "checkpointed": 0
+        },
+        "walAfter": 0
+      }
+    },
+    {
+      "contract": "sqlite/cell-9-b0 short readers actually ran",
+      "passed": true,
+      "detail": 16
+    },
+    {
+      "contract": "sqlite/cell-35-b0 exact rows and checkpoint drained",
+      "passed": true,
+      "detail": {
+        "rows": 32000,
+        "truncate": {
+          "busy": 0,
+          "log": 0,
+          "checkpointed": 0
+        },
+        "walAfter": 0
+      }
+    },
+    {
+      "contract": "sqlite/cell-35-b0 held reader blocks full checkpoint",
+      "passed": true,
+      "detail": {
+        "snapshot": 0,
+        "passive": {
+          "busy": 0,
+          "log": 5035,
+          "checkpointed": 3
+        }
+      }
+    },
+    {
+      "contract": "sqlite/cell-34-b1 exact rows and checkpoint drained",
+      "passed": true,
+      "detail": {
+        "rows": 32000,
+        "truncate": {
+          "busy": 0,
+          "log": 0,
+          "checkpointed": 0
+        },
+        "walAfter": 0
+      }
+    },
+    {
+      "contract": "sqlite/cell-34-b1 held reader blocks full checkpoint",
+      "passed": true,
+      "detail": {
+        "snapshot": 0,
+        "passive": {
+          "busy": 0,
+          "log": 7113,
+          "checkpointed": 3
+        }
+      }
+    },
+    {
+      "contract": "sqlite/cell-35-b1 exact rows and checkpoint drained",
+      "passed": true,
+      "detail": {
+        "rows": 32000,
+        "truncate": {
+          "busy": 0,
+          "log": 0,
+          "checkpointed": 0
+        },
+        "walAfter": 0
+      }
+    },
+    {
+      "contract": "sqlite/cell-35-b1 held reader blocks full checkpoint",
+      "passed": true,
+      "detail": {
+        "snapshot": 0,
+        "passive": {
+          "busy": 0,
+          "log": 5046,
+          "checkpointed": 3
+        }
+      }
+    },
+    {
+      "contract": "sqlite/cell-23-b1 exact rows and checkpoint drained",
+      "passed": true,
+      "detail": {
+        "rows": 32000,
+        "truncate": {
+          "busy": 0,
+          "log": 0,
+          "checkpointed": 0
+        },
+        "walAfter": 0
+      }
+    },
+    {
+      "contract": "sqlite/cell-23-b1 held reader blocks full checkpoint",
+      "passed": true,
+      "detail": {
+        "snapshot": 0,
+        "passive": {
+          "busy": 0,
+          "log": 5039,
+          "checkpointed": 3
+        }
+      }
+    },
+    {
+      "contract": "sqlite/cell-16-b1 exact rows and checkpoint drained",
+      "passed": true,
+      "detail": {
+        "rows": 32000,
+        "truncate": {
+          "busy": 0,
+          "log": 0,
+          "checkpointed": 0
+        },
+        "walAfter": 0
+      }
+    },
+    {
+      "contract": "sqlite/cell-16-b1 held reader blocks full checkpoint",
+      "passed": true,
+      "detail": {
+        "snapshot": 0,
+        "passive": {
+          "busy": 0,
+          "log": 7096,
+          "checkpointed": 3
+        }
+      }
+    },
+    {
+      "contract": "sqlite/cell-18-b1 exact rows and checkpoint drained",
+      "passed": true,
+      "detail": {
+        "rows": 32000,
+        "truncate": {
+          "busy": 0,
+          "log": 0,
+          "checkpointed": 0
+        },
+        "walAfter": 0
+      }
+    },
+    {
+      "contract": "sqlite/cell-20-b1 exact rows and checkpoint drained",
+      "passed": true,
+      "detail": {
+        "rows": 32000,
+        "truncate": {
+          "busy": 0,
+          "log": 0,
+          "checkpointed": 0
+        },
+        "walAfter": 0
+      }
+    },
+    {
+      "contract": "sqlite/cell-20-b1 short readers actually ran",
+      "passed": true,
+      "detail": 29
+    },
+    {
+      "contract": "sqlite/cell-27-b1 exact rows and checkpoint drained",
+      "passed": true,
+      "detail": {
+        "rows": 32000,
+        "truncate": {
+          "busy": 0,
+          "log": 0,
+          "checkpointed": 0
+        },
+        "walAfter": 0
+      }
+    },
+    {
+      "contract": "sqlite/cell-27-b1 short readers actually ran",
+      "passed": true,
+      "detail": 14
+    },
+    {
+      "contract": "sqlite/cell-0-b1 exact rows and checkpoint drained",
+      "passed": true,
+      "detail": {
+        "rows": 32000,
+        "truncate": {
+          "busy": 0,
+          "log": 0,
+          "checkpointed": 0
+        },
+        "walAfter": 0
+      }
+    },
+    {
+      "contract": "sqlite/cell-13-b1 exact rows and checkpoint drained",
+      "passed": true,
+      "detail": {
+        "rows": 32000,
+        "truncate": {
+          "busy": 0,
+          "log": 0,
+          "checkpointed": 0
+        },
+        "walAfter": 0
+      }
+    },
+    {
+      "contract": "sqlite/cell-12-b1 exact rows and checkpoint drained",
+      "passed": true,
+      "detail": {
+        "rows": 32000,
+        "truncate": {
+          "busy": 0,
+          "log": 0,
+          "checkpointed": 0
+        },
+        "walAfter": 0
+      }
+    },
+    {
+      "contract": "sqlite/cell-9-b1 exact rows and checkpoint drained",
+      "passed": true,
+      "detail": {
+        "rows": 32000,
+        "truncate": {
+          "busy": 0,
+          "log": 0,
+          "checkpointed": 0
+        },
+        "walAfter": 0
+      }
+    },
+    {
+      "contract": "sqlite/cell-9-b1 short readers actually ran",
+      "passed": true,
+      "detail": 16
+    },
+    {
+      "contract": "sqlite/cell-11-b1 exact rows and checkpoint drained",
+      "passed": true,
+      "detail": {
+        "rows": 32000,
+        "truncate": {
+          "busy": 0,
+          "log": 0,
+          "checkpointed": 0
+        },
+        "walAfter": 0
+      }
+    },
+    {
+      "contract": "sqlite/cell-11-b1 held reader blocks full checkpoint",
+      "passed": true,
+      "detail": {
+        "snapshot": 0,
+        "passive": {
+          "busy": 0,
+          "log": 5035,
+          "checkpointed": 3
+        }
+      }
+    },
+    {
+      "contract": "sqlite/cell-29-b1 exact rows and checkpoint drained",
+      "passed": true,
+      "detail": {
+        "rows": 32000,
+        "truncate": {
+          "busy": 0,
+          "log": 0,
+          "checkpointed": 0
+        },
+        "walAfter": 0
+      }
+    },
+    {
+      "contract": "sqlite/cell-29-b1 held reader blocks full checkpoint",
+      "passed": true,
+      "detail": {
+        "snapshot": 0,
+        "passive": {
+          "busy": 0,
+          "log": 5034,
+          "checkpointed": 3
+        }
+      }
+    },
+    {
+      "contract": "sqlite/cell-32-b1 exact rows and checkpoint drained",
+      "passed": true,
+      "detail": {
+        "rows": 32000,
+        "truncate": {
+          "busy": 0,
+          "log": 0,
+          "checkpointed": 0
+        },
+        "walAfter": 0
+      }
+    },
+    {
+      "contract": "sqlite/cell-32-b1 short readers actually ran",
+      "passed": true,
+      "detail": 21
+    },
+    {
+      "contract": "sqlite/cell-6-b1 exact rows and checkpoint drained",
+      "passed": true,
+      "detail": {
+        "rows": 32000,
+        "truncate": {
+          "busy": 0,
+          "log": 0,
+          "checkpointed": 0
+        },
+        "walAfter": 0
+      }
+    },
+    {
+      "contract": "sqlite/cell-25-b1 exact rows and checkpoint drained",
+      "passed": true,
+      "detail": {
+        "rows": 32000,
+        "truncate": {
+          "busy": 0,
+          "log": 0,
+          "checkpointed": 0
+        },
+        "walAfter": 0
+      }
+    },
+    {
+      "contract": "sqlite/cell-30-b1 exact rows and checkpoint drained",
+      "passed": true,
+      "detail": {
+        "rows": 32000,
+        "truncate": {
+          "busy": 0,
+          "log": 0,
+          "checkpointed": 0
+        },
+        "walAfter": 0
+      }
+    },
+    {
+      "contract": "sqlite/cell-10-b1 exact rows and checkpoint drained",
+      "passed": true,
+      "detail": {
+        "rows": 32000,
+        "truncate": {
+          "busy": 0,
+          "log": 0,
+          "checkpointed": 0
+        },
+        "walAfter": 0
+      }
+    },
+    {
+      "contract": "sqlite/cell-10-b1 held reader blocks full checkpoint",
+      "passed": true,
+      "detail": {
+        "snapshot": 0,
+        "passive": {
+          "busy": 0,
+          "log": 7096,
+          "checkpointed": 3
+        }
+      }
+    },
+    {
+      "contract": "sqlite/cell-22-b1 exact rows and checkpoint drained",
+      "passed": true,
+      "detail": {
+        "rows": 32000,
+        "truncate": {
+          "busy": 0,
+          "log": 0,
+          "checkpointed": 0
+        },
+        "walAfter": 0
+      }
+    },
+    {
+      "contract": "sqlite/cell-22-b1 held reader blocks full checkpoint",
+      "passed": true,
+      "detail": {
+        "snapshot": 0,
+        "passive": {
+          "busy": 0,
+          "log": 7084,
+          "checkpointed": 3
+        }
+      }
+    },
+    {
+      "contract": "sqlite/cell-33-b1 exact rows and checkpoint drained",
+      "passed": true,
+      "detail": {
+        "rows": 32000,
+        "truncate": {
+          "busy": 0,
+          "log": 0,
+          "checkpointed": 0
+        },
+        "walAfter": 0
+      }
+    },
+    {
+      "contract": "sqlite/cell-33-b1 short readers actually ran",
+      "passed": true,
+      "detail": 12
+    },
+    {
+      "contract": "sqlite/cell-15-b1 exact rows and checkpoint drained",
+      "passed": true,
+      "detail": {
+        "rows": 32000,
+        "truncate": {
+          "busy": 0,
+          "log": 0,
+          "checkpointed": 0
+        },
+        "walAfter": 0
+      }
+    },
+    {
+      "contract": "sqlite/cell-15-b1 short readers actually ran",
+      "passed": true,
+      "detail": 12
+    },
+    {
+      "contract": "sqlite/cell-14-b1 exact rows and checkpoint drained",
+      "passed": true,
+      "detail": {
+        "rows": 32000,
+        "truncate": {
+          "busy": 0,
+          "log": 0,
+          "checkpointed": 0
+        },
+        "walAfter": 0
+      }
+    },
+    {
+      "contract": "sqlite/cell-14-b1 short readers actually ran",
+      "passed": true,
+      "detail": 15
+    },
+    {
+      "contract": "sqlite/cell-26-b1 exact rows and checkpoint drained",
+      "passed": true,
+      "detail": {
+        "rows": 32000,
+        "truncate": {
+          "busy": 0,
+          "log": 0,
+          "checkpointed": 0
+        },
+        "walAfter": 0
+      }
+    },
+    {
+      "contract": "sqlite/cell-26-b1 short readers actually ran",
+      "passed": true,
+      "detail": 14
+    },
+    {
+      "contract": "sqlite/cell-17-b1 exact rows and checkpoint drained",
+      "passed": true,
+      "detail": {
+        "rows": 32000,
+        "truncate": {
+          "busy": 0,
+          "log": 0,
+          "checkpointed": 0
+        },
+        "walAfter": 0
+      }
+    },
+    {
+      "contract": "sqlite/cell-17-b1 held reader blocks full checkpoint",
+      "passed": true,
+      "detail": {
+        "snapshot": 0,
+        "passive": {
+          "busy": 0,
+          "log": 5034,
+          "checkpointed": 3
+        }
+      }
+    },
+    {
+      "contract": "sqlite/cell-3-b1 exact rows and checkpoint drained",
+      "passed": true,
+      "detail": {
+        "rows": 32000,
+        "truncate": {
+          "busy": 0,
+          "log": 0,
+          "checkpointed": 0
+        },
+        "walAfter": 0
+      }
+    },
+    {
+      "contract": "sqlite/cell-3-b1 short readers actually ran",
+      "passed": true,
+      "detail": 14
+    },
+    {
+      "contract": "sqlite/cell-8-b1 exact rows and checkpoint drained",
+      "passed": true,
+      "detail": {
+        "rows": 32000,
+        "truncate": {
+          "busy": 0,
+          "log": 0,
+          "checkpointed": 0
+        },
+        "walAfter": 0
+      }
+    },
+    {
+      "contract": "sqlite/cell-8-b1 short readers actually ran",
+      "passed": true,
+      "detail": 17
+    },
+    {
+      "contract": "sqlite/cell-7-b1 exact rows and checkpoint drained",
+      "passed": true,
+      "detail": {
+        "rows": 32000,
+        "truncate": {
+          "busy": 0,
+          "log": 0,
+          "checkpointed": 0
+        },
+        "walAfter": 0
+      }
+    },
+    {
+      "contract": "sqlite/cell-21-b1 exact rows and checkpoint drained",
+      "passed": true,
+      "detail": {
+        "rows": 32000,
+        "truncate": {
+          "busy": 0,
+          "log": 0,
+          "checkpointed": 0
+        },
+        "walAfter": 0
+      }
+    },
+    {
+      "contract": "sqlite/cell-21-b1 short readers actually ran",
+      "passed": true,
+      "detail": 14
+    },
+    {
+      "contract": "sqlite/cell-1-b1 exact rows and checkpoint drained",
+      "passed": true,
+      "detail": {
+        "rows": 32000,
+        "truncate": {
+          "busy": 0,
+          "log": 0,
+          "checkpointed": 0
+        },
+        "walAfter": 0
+      }
+    },
+    {
+      "contract": "sqlite/cell-5-b1 exact rows and checkpoint drained",
+      "passed": true,
+      "detail": {
+        "rows": 32000,
+        "truncate": {
+          "busy": 0,
+          "log": 0,
+          "checkpointed": 0
+        },
+        "walAfter": 0
+      }
+    },
+    {
+      "contract": "sqlite/cell-5-b1 held reader blocks full checkpoint",
+      "passed": true,
+      "detail": {
+        "snapshot": 0,
+        "passive": {
+          "busy": 0,
+          "log": 5034,
+          "checkpointed": 3
+        }
+      }
+    },
+    {
+      "contract": "sqlite/cell-2-b1 exact rows and checkpoint drained",
+      "passed": true,
+      "detail": {
+        "rows": 32000,
+        "truncate": {
+          "busy": 0,
+          "log": 0,
+          "checkpointed": 0
+        },
+        "walAfter": 0
+      }
+    },
+    {
+      "contract": "sqlite/cell-2-b1 short readers actually ran",
+      "passed": true,
+      "detail": 17
+    },
+    {
+      "contract": "sqlite/cell-31-b1 exact rows and checkpoint drained",
+      "passed": true,
+      "detail": {
+        "rows": 32000,
+        "truncate": {
+          "busy": 0,
+          "log": 0,
+          "checkpointed": 0
+        },
+        "walAfter": 0
+      }
+    },
+    {
+      "contract": "sqlite/cell-19-b1 exact rows and checkpoint drained",
+      "passed": true,
+      "detail": {
+        "rows": 32000,
+        "truncate": {
+          "busy": 0,
+          "log": 0,
+          "checkpointed": 0
+        },
+        "walAfter": 0
+      }
+    },
+    {
+      "contract": "sqlite/cell-28-b1 exact rows and checkpoint drained",
+      "passed": true,
+      "detail": {
+        "rows": 32000,
+        "truncate": {
+          "busy": 0,
+          "log": 0,
+          "checkpointed": 0
+        },
+        "walAfter": 0
+      }
+    },
+    {
+      "contract": "sqlite/cell-28-b1 held reader blocks full checkpoint",
+      "passed": true,
+      "detail": {
+        "snapshot": 0,
+        "passive": {
+          "busy": 0,
+          "log": 7096,
+          "checkpointed": 3
+        }
+      }
+    },
+    {
+      "contract": "sqlite/cell-24-b1 exact rows and checkpoint drained",
+      "passed": true,
+      "detail": {
+        "rows": 32000,
+        "truncate": {
+          "busy": 0,
+          "log": 0,
+          "checkpointed": 0
+        },
+        "walAfter": 0
+      }
+    },
+    {
+      "contract": "sqlite/cell-4-b1 exact rows and checkpoint drained",
+      "passed": true,
+      "detail": {
+        "rows": 32000,
+        "truncate": {
+          "busy": 0,
+          "log": 0,
+          "checkpointed": 0
+        },
+        "walAfter": 0
+      }
+    },
+    {
+      "contract": "sqlite/cell-4-b1 held reader blocks full checkpoint",
+      "passed": true,
+      "detail": {
+        "snapshot": 0,
+        "passive": {
+          "busy": 0,
+          "log": 7096,
+          "checkpointed": 3
+        }
+      }
+    },
+    {
+      "contract": "sqlite/cell-19-b2 exact rows and checkpoint drained",
+      "passed": true,
+      "detail": {
+        "rows": 32000,
+        "truncate": {
+          "busy": 0,
+          "log": 0,
+          "checkpointed": 0
+        },
+        "walAfter": 0
+      }
+    },
+    {
+      "contract": "sqlite/cell-8-b2 exact rows and checkpoint drained",
+      "passed": true,
+      "detail": {
+        "rows": 32000,
+        "truncate": {
+          "busy": 0,
+          "log": 0,
+          "checkpointed": 0
+        },
+        "walAfter": 0
+      }
+    },
+    {
+      "contract": "sqlite/cell-8-b2 short readers actually ran",
+      "passed": true,
+      "detail": 18
+    },
+    {
+      "contract": "sqlite/cell-12-b2 exact rows and checkpoint drained",
+      "passed": true,
+      "detail": {
+        "rows": 32000,
+        "truncate": {
+          "busy": 0,
+          "log": 0,
+          "checkpointed": 0
+        },
+        "walAfter": 0
+      }
+    },
+    {
+      "contract": "sqlite/cell-16-b2 exact rows and checkpoint drained",
+      "passed": true,
+      "detail": {
+        "rows": 32000,
+        "truncate": {
+          "busy": 0,
+          "log": 0,
+          "checkpointed": 0
+        },
+        "walAfter": 0
+      }
+    },
+    {
+      "contract": "sqlite/cell-16-b2 held reader blocks full checkpoint",
+      "passed": true,
+      "detail": {
+        "snapshot": 0,
+        "passive": {
+          "busy": 0,
+          "log": 7096,
+          "checkpointed": 3
+        }
+      }
+    },
+    {
+      "contract": "sqlite/cell-4-b2 exact rows and checkpoint drained",
+      "passed": true,
+      "detail": {
+        "rows": 32000,
+        "truncate": {
+          "busy": 0,
+          "log": 0,
+          "checkpointed": 0
+        },
+        "walAfter": 0
+      }
+    },
+    {
+      "contract": "sqlite/cell-4-b2 held reader blocks full checkpoint",
+      "passed": true,
+      "detail": {
+        "snapshot": 0,
+        "passive": {
+          "busy": 0,
+          "log": 7096,
+          "checkpointed": 3
+        }
+      }
+    },
+    {
+      "contract": "sqlite/cell-20-b2 exact rows and checkpoint drained",
+      "passed": true,
+      "detail": {
+        "rows": 32000,
+        "truncate": {
+          "busy": 0,
+          "log": 0,
+          "checkpointed": 0
+        },
+        "walAfter": 0
+      }
+    },
+    {
+      "contract": "sqlite/cell-20-b2 short readers actually ran",
+      "passed": true,
+      "detail": 16
+    },
+    {
+      "contract": "sqlite/cell-32-b2 exact rows and checkpoint drained",
+      "passed": true,
+      "detail": {
+        "rows": 32000,
+        "truncate": {
+          "busy": 0,
+          "log": 0,
+          "checkpointed": 0
+        },
+        "walAfter": 0
+      }
+    },
+    {
+      "contract": "sqlite/cell-32-b2 short readers actually ran",
+      "passed": true,
+      "detail": 18
+    },
+    {
+      "contract": "sqlite/cell-17-b2 exact rows and checkpoint drained",
+      "passed": true,
+      "detail": {
+        "rows": 32000,
+        "truncate": {
+          "busy": 0,
+          "log": 0,
+          "checkpointed": 0
+        },
+        "walAfter": 0
+      }
+    },
+    {
+      "contract": "sqlite/cell-17-b2 held reader blocks full checkpoint",
+      "passed": true,
+      "detail": {
+        "snapshot": 0,
+        "passive": {
+          "busy": 0,
+          "log": 5034,
+          "checkpointed": 3
+        }
+      }
+    },
+    {
+      "contract": "sqlite/cell-23-b2 exact rows and checkpoint drained",
+      "passed": true,
+      "detail": {
+        "rows": 32000,
+        "truncate": {
+          "busy": 0,
+          "log": 0,
+          "checkpointed": 0
+        },
+        "walAfter": 0
+      }
+    },
+    {
+      "contract": "sqlite/cell-23-b2 held reader blocks full checkpoint",
+      "passed": true,
+      "detail": {
+        "snapshot": 0,
+        "passive": {
+          "busy": 0,
+          "log": 5037,
+          "checkpointed": 3
+        }
+      }
+    },
+    {
+      "contract": "sqlite/cell-25-b2 exact rows and checkpoint drained",
+      "passed": true,
+      "detail": {
+        "rows": 32000,
+        "truncate": {
+          "busy": 0,
+          "log": 0,
+          "checkpointed": 0
+        },
+        "walAfter": 0
+      }
+    },
+    {
+      "contract": "sqlite/cell-13-b2 exact rows and checkpoint drained",
+      "passed": true,
+      "detail": {
+        "rows": 32000,
+        "truncate": {
+          "busy": 0,
+          "log": 0,
+          "checkpointed": 0
+        },
+        "walAfter": 0
+      }
+    },
+    {
+      "contract": "sqlite/cell-21-b2 exact rows and checkpoint drained",
+      "passed": true,
+      "detail": {
+        "rows": 32000,
+        "truncate": {
+          "busy": 0,
+          "log": 0,
+          "checkpointed": 0
+        },
+        "walAfter": 0
+      }
+    },
+    {
+      "contract": "sqlite/cell-21-b2 short readers actually ran",
+      "passed": true,
+      "detail": 14
+    },
+    {
+      "contract": "sqlite/cell-22-b2 exact rows and checkpoint drained",
+      "passed": true,
+      "detail": {
+        "rows": 32000,
+        "truncate": {
+          "busy": 0,
+          "log": 0,
+          "checkpointed": 0
+        },
+        "walAfter": 0
+      }
+    },
+    {
+      "contract": "sqlite/cell-22-b2 held reader blocks full checkpoint",
+      "passed": true,
+      "detail": {
+        "snapshot": 0,
+        "passive": {
+          "busy": 0,
+          "log": 7102,
+          "checkpointed": 3
+        }
+      }
+    },
+    {
+      "contract": "sqlite/cell-2-b2 exact rows and checkpoint drained",
+      "passed": true,
+      "detail": {
+        "rows": 32000,
+        "truncate": {
+          "busy": 0,
+          "log": 0,
+          "checkpointed": 0
+        },
+        "walAfter": 0
+      }
+    },
+    {
+      "contract": "sqlite/cell-2-b2 short readers actually ran",
+      "passed": true,
+      "detail": 18
+    },
+    {
+      "contract": "sqlite/cell-29-b2 exact rows and checkpoint drained",
+      "passed": true,
+      "detail": {
+        "rows": 32000,
+        "truncate": {
+          "busy": 0,
+          "log": 0,
+          "checkpointed": 0
+        },
+        "walAfter": 0
+      }
+    },
+    {
+      "contract": "sqlite/cell-29-b2 held reader blocks full checkpoint",
+      "passed": true,
+      "detail": {
+        "snapshot": 0,
+        "passive": {
+          "busy": 0,
+          "log": 5034,
+          "checkpointed": 3
+        }
+      }
+    },
+    {
+      "contract": "sqlite/cell-9-b2 exact rows and checkpoint drained",
+      "passed": true,
+      "detail": {
+        "rows": 32000,
+        "truncate": {
+          "busy": 0,
+          "log": 0,
+          "checkpointed": 0
+        },
+        "walAfter": 0
+      }
+    },
+    {
+      "contract": "sqlite/cell-9-b2 short readers actually ran",
+      "passed": true,
+      "detail": 14
+    },
+    {
+      "contract": "sqlite/cell-30-b2 exact rows and checkpoint drained",
+      "passed": true,
+      "detail": {
+        "rows": 32000,
+        "truncate": {
+          "busy": 0,
+          "log": 0,
+          "checkpointed": 0
+        },
+        "walAfter": 0
+      }
+    },
+    {
+      "contract": "sqlite/cell-28-b2 exact rows and checkpoint drained",
+      "passed": true,
+      "detail": {
+        "rows": 32000,
+        "truncate": {
+          "busy": 0,
+          "log": 0,
+          "checkpointed": 0
+        },
+        "walAfter": 0
+      }
+    },
+    {
+      "contract": "sqlite/cell-28-b2 held reader blocks full checkpoint",
+      "passed": true,
+      "detail": {
+        "snapshot": 0,
+        "passive": {
+          "busy": 0,
+          "log": 7096,
+          "checkpointed": 3
+        }
+      }
+    },
+    {
+      "contract": "sqlite/cell-15-b2 exact rows and checkpoint drained",
+      "passed": true,
+      "detail": {
+        "rows": 32000,
+        "truncate": {
+          "busy": 0,
+          "log": 0,
+          "checkpointed": 0
+        },
+        "walAfter": 0
+      }
+    },
+    {
+      "contract": "sqlite/cell-15-b2 short readers actually ran",
+      "passed": true,
+      "detail": 12
+    },
+    {
+      "contract": "sqlite/cell-24-b2 exact rows and checkpoint drained",
+      "passed": true,
+      "detail": {
+        "rows": 32000,
+        "truncate": {
+          "busy": 0,
+          "log": 0,
+          "checkpointed": 0
+        },
+        "walAfter": 0
+      }
+    },
+    {
+      "contract": "sqlite/cell-33-b2 exact rows and checkpoint drained",
+      "passed": true,
+      "detail": {
+        "rows": 32000,
+        "truncate": {
+          "busy": 0,
+          "log": 0,
+          "checkpointed": 0
+        },
+        "walAfter": 0
+      }
+    },
+    {
+      "contract": "sqlite/cell-33-b2 short readers actually ran",
+      "passed": true,
+      "detail": 14
+    },
+    {
+      "contract": "sqlite/cell-11-b2 exact rows and checkpoint drained",
+      "passed": true,
+      "detail": {
+        "rows": 32000,
+        "truncate": {
+          "busy": 0,
+          "log": 0,
+          "checkpointed": 0
+        },
+        "walAfter": 0
+      }
+    },
+    {
+      "contract": "sqlite/cell-11-b2 held reader blocks full checkpoint",
+      "passed": true,
+      "detail": {
+        "snapshot": 0,
+        "passive": {
+          "busy": 0,
+          "log": 5042,
+          "checkpointed": 3
+        }
+      }
+    },
+    {
+      "contract": "sqlite/cell-6-b2 exact rows and checkpoint drained",
+      "passed": true,
+      "detail": {
+        "rows": 32000,
+        "truncate": {
+          "busy": 0,
+          "log": 0,
+          "checkpointed": 0
+        },
+        "walAfter": 0
+      }
+    },
+    {
+      "contract": "sqlite/cell-18-b2 exact rows and checkpoint drained",
+      "passed": true,
+      "detail": {
+        "rows": 32000,
+        "truncate": {
+          "busy": 0,
+          "log": 0,
+          "checkpointed": 0
+        },
+        "walAfter": 0
+      }
+    },
+    {
+      "contract": "sqlite/cell-1-b2 exact rows and checkpoint drained",
+      "passed": true,
+      "detail": {
+        "rows": 32000,
+        "truncate": {
+          "busy": 0,
+          "log": 0,
+          "checkpointed": 0
+        },
+        "walAfter": 0
+      }
+    },
+    {
+      "contract": "sqlite/cell-35-b2 exact rows and checkpoint drained",
+      "passed": true,
+      "detail": {
+        "rows": 32000,
+        "truncate": {
+          "busy": 0,
+          "log": 0,
+          "checkpointed": 0
+        },
+        "walAfter": 0
+      }
+    },
+    {
+      "contract": "sqlite/cell-35-b2 held reader blocks full checkpoint",
+      "passed": true,
+      "detail": {
+        "snapshot": 0,
+        "passive": {
+          "busy": 0,
+          "log": 5037,
+          "checkpointed": 3
+        }
+      }
+    },
+    {
+      "contract": "sqlite/cell-5-b2 exact rows and checkpoint drained",
+      "passed": true,
+      "detail": {
+        "rows": 32000,
+        "truncate": {
+          "busy": 0,
+          "log": 0,
+          "checkpointed": 0
+        },
+        "walAfter": 0
+      }
+    },
+    {
+      "contract": "sqlite/cell-5-b2 held reader blocks full checkpoint",
+      "passed": true,
+      "detail": {
+        "snapshot": 0,
+        "passive": {
+          "busy": 0,
+          "log": 5034,
+          "checkpointed": 3
+        }
+      }
+    },
+    {
+      "contract": "sqlite/cell-3-b2 exact rows and checkpoint drained",
+      "passed": true,
+      "detail": {
+        "rows": 32000,
+        "truncate": {
+          "busy": 0,
+          "log": 0,
+          "checkpointed": 0
+        },
+        "walAfter": 0
+      }
+    },
+    {
+      "contract": "sqlite/cell-3-b2 short readers actually ran",
+      "passed": true,
+      "detail": 13
+    },
+    {
+      "contract": "sqlite/cell-27-b2 exact rows and checkpoint drained",
+      "passed": true,
+      "detail": {
+        "rows": 32000,
+        "truncate": {
+          "busy": 0,
+          "log": 0,
+          "checkpointed": 0
+        },
+        "walAfter": 0
+      }
+    },
+    {
+      "contract": "sqlite/cell-27-b2 short readers actually ran",
+      "passed": true,
+      "detail": 13
+    },
+    {
+      "contract": "sqlite/cell-0-b2 exact rows and checkpoint drained",
+      "passed": true,
+      "detail": {
+        "rows": 32000,
+        "truncate": {
+          "busy": 0,
+          "log": 0,
+          "checkpointed": 0
+        },
+        "walAfter": 0
+      }
+    },
+    {
+      "contract": "sqlite/cell-7-b2 exact rows and checkpoint drained",
+      "passed": true,
+      "detail": {
+        "rows": 32000,
+        "truncate": {
+          "busy": 0,
+          "log": 0,
+          "checkpointed": 0
+        },
+        "walAfter": 0
+      }
+    },
+    {
+      "contract": "sqlite/cell-34-b2 exact rows and checkpoint drained",
+      "passed": true,
+      "detail": {
+        "rows": 32000,
+        "truncate": {
+          "busy": 0,
+          "log": 0,
+          "checkpointed": 0
+        },
+        "walAfter": 0
+      }
+    },
+    {
+      "contract": "sqlite/cell-34-b2 held reader blocks full checkpoint",
+      "passed": true,
+      "detail": {
+        "snapshot": 0,
+        "passive": {
+          "busy": 0,
+          "log": 7112,
+          "checkpointed": 3
+        }
+      }
+    },
+    {
+      "contract": "sqlite/cell-31-b2 exact rows and checkpoint drained",
+      "passed": true,
+      "detail": {
+        "rows": 32000,
+        "truncate": {
+          "busy": 0,
+          "log": 0,
+          "checkpointed": 0
+        },
+        "walAfter": 0
+      }
+    },
+    {
+      "contract": "sqlite/cell-10-b2 exact rows and checkpoint drained",
+      "passed": true,
+      "detail": {
+        "rows": 32000,
+        "truncate": {
+          "busy": 0,
+          "log": 0,
+          "checkpointed": 0
+        },
+        "walAfter": 0
+      }
+    },
+    {
+      "contract": "sqlite/cell-10-b2 held reader blocks full checkpoint",
+      "passed": true,
+      "detail": {
+        "snapshot": 0,
+        "passive": {
+          "busy": 0,
+          "log": 7105,
+          "checkpointed": 3
+        }
+      }
+    },
+    {
+      "contract": "sqlite/cell-14-b2 exact rows and checkpoint drained",
+      "passed": true,
+      "detail": {
+        "rows": 32000,
+        "truncate": {
+          "busy": 0,
+          "log": 0,
+          "checkpointed": 0
+        },
+        "walAfter": 0
+      }
+    },
+    {
+      "contract": "sqlite/cell-14-b2 short readers actually ran",
+      "passed": true,
+      "detail": 27
+    },
+    {
+      "contract": "sqlite/cell-26-b2 exact rows and checkpoint drained",
+      "passed": true,
+      "detail": {
+        "rows": 32000,
+        "truncate": {
+          "busy": 0,
+          "log": 0,
+          "checkpointed": 0
+        },
+        "walAfter": 0
+      }
+    },
+    {
+      "contract": "sqlite/cell-26-b2 short readers actually ran",
+      "passed": true,
+      "detail": 27
+    },
+    {
+      "contract": "spider-http-transport-supported expected total and verified",
+      "passed": true,
+      "detail": {
+        "name": "spider-http-transport-supported",
+        "directory": "/Users/jb/Dev/automan/lab/results/spider-http-transport-supported-2026-10-08T00-26-16-511Z-7ce401",
+        "expected": 60,
+        "verified": 60,
+        "total": 60,
+        "status": "qualified"
+      }
+    },
+    {
+      "contract": "spider-http-transport-supported source and binary provenance",
+      "passed": true,
+      "detail": {
+        "sourceChanges": [],
+        "binaryChanges": null,
+        "binaryChanged": null
+      }
+    },
+    {
+      "contract": "All preserved source snapshots match manifests",
+      "passed": true,
+      "detail": {
+        "snapshots": 16,
+        "filesChecked": 1382
+      }
+    }
+  ],
+  "passed": 510,
+  "failed": 0,
+  "suite": "results/qualification-current-2026-10-08T00-11-54-553Z-21d1f2",
+  "scope": "raw evidence consistency and independent effects/checkpoint state; original record oracle retained in campaign execution; no new benchmark"
+}

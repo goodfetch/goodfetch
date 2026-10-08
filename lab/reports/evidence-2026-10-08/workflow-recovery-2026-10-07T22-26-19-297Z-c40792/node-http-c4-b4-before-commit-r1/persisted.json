@@ -1,0 +1,516 @@
+{
+  "snapshot": {
+    "jobs": [
+      {
+        "jobId": "job-0",
+        "task": {
+          "scenario": "http-catalog",
+          "seed": 100323,
+          "pages": 2,
+          "actions": 1,
+          "timeoutMs": 15000,
+          "variant": "normal",
+          "url": "http://127.0.0.1:61310/runs/512dfeab185d511b69d306b1/catalog?p=0"
+        },
+        "state": "acked",
+        "token": "74edcc55-d33d-43bb-9189-04022fd48a4d",
+        "expires": 1791411989662,
+        "attempts": 2,
+        "receipt": "c54d3e30-9048-44de-80ac-0a3ec3175850",
+        "digest": "6876e4ad020ca2cdd07541e0bf4ef0ac201909d65575cacf86d0a658dc8d000e",
+        "error": null,
+        "records": [
+          {
+            "id": "P-001",
+            "price": 1226
+          },
+          {
+            "id": "P-002",
+            "price": 1263
+          },
+          {
+            "id": "P-003",
+            "price": 1300
+          },
+          {
+            "id": "P-004",
+            "price": 1337
+          }
+        ]
+      },
+      {
+        "jobId": "job-1",
+        "task": {
+          "scenario": "http-catalog",
+          "seed": 100324,
+          "pages": 2,
+          "actions": 1,
+          "timeoutMs": 15000,
+          "variant": "normal",
+          "url": "http://127.0.0.1:61310/runs/234a6f30c605e2568e2bac24/catalog?p=0"
+        },
+        "state": "acked",
+        "token": "011f5947-babe-461b-93af-2e97b0dafe47",
+        "expires": 1791411989662,
+        "attempts": 2,
+        "receipt": "68265f83-e168-4baa-83e4-829905c5c29b",
+        "digest": "01ca1d04253afbd38f81639330430117296af45d2aab0d482e17a29580cb894c",
+        "error": null,
+        "records": [
+          {
+            "id": "P-001",
+            "price": 1227
+          },
+          {
+            "id": "P-002",
+            "price": 1264
+          },
+          {
+            "id": "P-003",
+            "price": 1301
+          },
+          {
+            "id": "P-004",
+            "price": 1338
+          }
+        ]
+      },
+      {
+        "jobId": "job-2",
+        "task": {
+          "scenario": "http-catalog",
+          "seed": 100325,
+          "pages": 2,
+          "actions": 1,
+          "timeoutMs": 15000,
+          "variant": "normal",
+          "url": "http://127.0.0.1:61310/runs/63cf7b74f9d16b6b8eb59c45/catalog?p=0"
+        },
+        "state": "acked",
+        "token": "f21f8a0b-b407-47c8-9a55-e817785020db",
+        "expires": 1791411989663,
+        "attempts": 2,
+        "receipt": "141f070d-87d5-4bf2-bb55-1b96abd68582",
+        "digest": "071efb88c67cee9b53888bea85a6ecc2c3661da2abd32f2d7f01c0ae35741476",
+        "error": null,
+        "records": [
+          {
+            "id": "P-001",
+            "price": 1228
+          },
+          {
+            "id": "P-002",
+            "price": 1265
+          },
+          {
+            "id": "P-003",
+            "price": 1302
+          },
+          {
+            "id": "P-004",
+            "price": 1339
+          }
+        ]
+      },
+      {
+        "jobId": "job-3",
+        "task": {
+          "scenario": "http-catalog",
+          "seed": 100326,
+          "pages": 2,
+          "actions": 1,
+          "timeoutMs": 15000,
+          "variant": "normal",
+          "url": "http://127.0.0.1:61310/runs/bf4b7c3bd32e88b12516e5af/catalog?p=0"
+        },
+        "state": "acked",
+        "token": "73056f69-7f03-4d65-9f60-881a4add5803",
+        "expires": 1791411989663,
+        "attempts": 2,
+        "receipt": "6eab4945-f5b8-4b3f-a156-cc2b1101258f",
+        "digest": "bcab08ce5cf5a2dcf4bf9fb96b178dec597c14b9275d597103a674fce1e7f410",
+        "error": null,
+        "records": [
+          {
+            "id": "P-001",
+            "price": 1229
+          },
+          {
+            "id": "P-002",
+            "price": 1266
+          },
+          {
+            "id": "P-003",
+            "price": 1303
+          },
+          {
+            "id": "P-004",
+            "price": 1340
+          }
+        ]
+      },
+      {
+        "jobId": "job-4",
+        "task": {
+          "scenario": "http-catalog",
+          "seed": 100327,
+          "pages": 2,
+          "actions": 1,
+          "timeoutMs": 15000,
+          "variant": "normal",
+          "url": "http://127.0.0.1:61310/runs/b5af214f8efa81317a182f1e/catalog?p=0"
+        },
+        "state": "acked",
+        "token": "36f3c7d1-468d-4ae4-8181-41fcfc25647e",
+        "expires": 1791411989716,
+        "attempts": 1,
+        "receipt": "a39c222f-c2fa-4be7-bae5-2780561c4f61",
+        "digest": "e1c6943f9fc3acf5c03a19386b460b03de1ac389679db26fa8ecc62a41909795",
+        "error": null,
+        "records": [
+          {
+            "id": "P-001",
+            "price": 1230
+          },
+          {
+            "id": "P-002",
+            "price": 1267
+          },
+          {
+            "id": "P-003",
+            "price": 1304
+          },
+          {
+            "id": "P-004",
+            "price": 1341
+          }
+        ]
+      },
+      {
+        "jobId": "job-5",
+        "task": {
+          "scenario": "http-catalog",
+          "seed": 100328,
+          "pages": 2,
+          "actions": 1,
+          "timeoutMs": 15000,
+          "variant": "normal",
+          "url": "http://127.0.0.1:61310/runs/305d03af40d453eb34726772/catalog?p=0"
+        },
+        "state": "acked",
+        "token": "7df41948-f73e-4794-9fa7-77ca4672cb5a",
+        "expires": 1791411989717,
+        "attempts": 1,
+        "receipt": "f0b26ade-3c4b-449d-9fa8-ad3fd3e0a496",
+        "digest": "5eb1be3e4f956b70ae09ea28d4e2d61296b4a8b0cf351c811c8764ad2188b758",
+        "error": null,
+        "records": [
+          {
+            "id": "P-001",
+            "price": 1231
+          },
+          {
+            "id": "P-002",
+            "price": 1268
+          },
+          {
+            "id": "P-003",
+            "price": 1305
+          },
+          {
+            "id": "P-004",
+            "price": 1342
+          }
+        ]
+      },
+      {
+        "jobId": "job-6",
+        "task": {
+          "scenario": "http-catalog",
+          "seed": 100329,
+          "pages": 2,
+          "actions": 1,
+          "timeoutMs": 15000,
+          "variant": "normal",
+          "url": "http://127.0.0.1:61310/runs/d716873853a9883533e58e8d/catalog?p=0"
+        },
+        "state": "acked",
+        "token": "a7732642-fb0b-4088-9aa4-a2d2a712009d",
+        "expires": 1791411989717,
+        "attempts": 1,
+        "receipt": "ea0b1106-842a-48ec-8e43-6cbcbc251fbc",
+        "digest": "3b78488c7ee5c0611f4923e365fb1cda6ed013d6d5ece9aa4357fa587d05610f",
+        "error": null,
+        "records": [
+          {
+            "id": "P-001",
+            "price": 1232
+          },
+          {
+            "id": "P-002",
+            "price": 1269
+          },
+          {
+            "id": "P-003",
+            "price": 1306
+          },
+          {
+            "id": "P-004",
+            "price": 1343
+          }
+        ]
+      },
+      {
+        "jobId": "job-7",
+        "task": {
+          "scenario": "http-catalog",
+          "seed": 100330,
+          "pages": 2,
+          "actions": 1,
+          "timeoutMs": 15000,
+          "variant": "normal",
+          "url": "http://127.0.0.1:61310/runs/3f9d2f5b2234bce4b3914e8c/catalog?p=0"
+        },
+        "state": "acked",
+        "token": "d4904d12-4eae-435f-ad7c-941080ec6261",
+        "expires": 1791411989717,
+        "attempts": 1,
+        "receipt": "35943123-5212-4fb7-ba9d-b0c98c45b70b",
+        "digest": "ebedfa622bbe1fc893bbf3cae52f2ff6744ec989a8bfb3b3a3f624aec1cb72a8",
+        "error": null,
+        "records": [
+          {
+            "id": "P-001",
+            "price": 1233
+          },
+          {
+            "id": "P-002",
+            "price": 1270
+          },
+          {
+            "id": "P-003",
+            "price": 1307
+          },
+          {
+            "id": "P-004",
+            "price": 1344
+          }
+        ]
+      },
+      {
+        "jobId": "job-8",
+        "task": {
+          "scenario": "http-catalog",
+          "seed": 100331,
+          "pages": 2,
+          "actions": 1,
+          "timeoutMs": 15000,
+          "variant": "normal",
+          "url": "http://127.0.0.1:61310/runs/481ab8f9af5e6bc1d9a29295/catalog?p=0"
+        },
+        "state": "acked",
+        "token": "e1bfbf45-2cc9-49e2-949a-741919cd9119",
+        "expires": 1791411989725,
+        "attempts": 1,
+        "receipt": "c49af36e-6b97-44e2-88b3-29c5514f8db9",
+        "digest": "e9d82fac258204a29af16b1e5613424b000f2cf378eb9b304c0bf433023b0f33",
+        "error": null,
+        "records": [
+          {
+            "id": "P-001",
+            "price": 1234
+          },
+          {
+            "id": "P-002",
+            "price": 1271
+          },
+          {
+            "id": "P-003",
+            "price": 1308
+          },
+          {
+            "id": "P-004",
+            "price": 1345
+          }
+        ]
+      },
+      {
+        "jobId": "job-9",
+        "task": {
+          "scenario": "http-catalog",
+          "seed": 100332,
+          "pages": 2,
+          "actions": 1,
+          "timeoutMs": 15000,
+          "variant": "normal",
+          "url": "http://127.0.0.1:61310/runs/7d5f8d5412897a57a881e191/catalog?p=0"
+        },
+        "state": "acked",
+        "token": "410a3af5-265d-4c3e-804e-bd2098a57f49",
+        "expires": 1791411989725,
+        "attempts": 1,
+        "receipt": "71b683ec-ca36-4834-b9cb-5b3983154af9",
+        "digest": "92c41a821966c270c0b815451b5bc63bf6df17c655ce372bd1d21d350a47a1a7",
+        "error": null,
+        "records": [
+          {
+            "id": "P-001",
+            "price": 1235
+          },
+          {
+            "id": "P-002",
+            "price": 1272
+          },
+          {
+            "id": "P-003",
+            "price": 1309
+          },
+          {
+            "id": "P-004",
+            "price": 1346
+          }
+        ]
+      },
+      {
+        "jobId": "job-10",
+        "task": {
+          "scenario": "http-catalog",
+          "seed": 100333,
+          "pages": 2,
+          "actions": 1,
+          "timeoutMs": 15000,
+          "variant": "normal",
+          "url": "http://127.0.0.1:61310/runs/bef694a99b65f59e52a91c63/catalog?p=0"
+        },
+        "state": "acked",
+        "token": "fe83f4e4-3606-48de-a805-34d3030a31ab",
+        "expires": 1791411989725,
+        "attempts": 1,
+        "receipt": "1fb75fd5-ba12-4a41-92d9-759f3435dbcf",
+        "digest": "ac6d637e5fb423cab6de20616aecc664901ad84083b54dbbd5411e133c18b1ab",
+        "error": null,
+        "records": [
+          {
+            "id": "P-001",
+            "price": 1236
+          },
+          {
+            "id": "P-002",
+            "price": 1273
+          },
+          {
+            "id": "P-003",
+            "price": 1310
+          },
+          {
+            "id": "P-004",
+            "price": 1347
+          }
+        ]
+      },
+      {
+        "jobId": "job-11",
+        "task": {
+          "scenario": "http-catalog",
+          "seed": 100334,
+          "pages": 2,
+          "actions": 1,
+          "timeoutMs": 15000,
+          "variant": "normal",
+          "url": "http://127.0.0.1:61310/runs/3f40f1525894ff95661d06ff/catalog?p=0"
+        },
+        "state": "acked",
+        "token": "c40c6a1a-add8-4d3d-bf02-8c3a9f6e518a",
+        "expires": 1791411989725,
+        "attempts": 1,
+        "receipt": "552e3f6a-bbb6-4250-874a-2d7726640dbe",
+        "digest": "3d4206f9c0e3b4d746ecca10041724439097c698383f0b599b07d350f7f9d2ca",
+        "error": null,
+        "records": [
+          {
+            "id": "P-001",
+            "price": 1237
+          },
+          {
+            "id": "P-002",
+            "price": 1274
+          },
+          {
+            "id": "P-003",
+            "price": 1311
+          },
+          {
+            "id": "P-004",
+            "price": 1348
+          }
+        ]
+      }
+    ],
+    "integrity": [
+      "ok"
+    ],
+    "foreignKeys": []
+  },
+  "verdicts": [
+    {
+      "jobId": "job-0",
+      "status": "verified",
+      "reasons": []
+    },
+    {
+      "jobId": "job-1",
+      "status": "verified",
+      "reasons": []
+    },
+    {
+      "jobId": "job-2",
+      "status": "verified",
+      "reasons": []
+    },
+    {
+      "jobId": "job-3",
+      "status": "verified",
+      "reasons": []
+    },
+    {
+      "jobId": "job-4",
+      "status": "verified",
+      "reasons": []
+    },
+    {
+      "jobId": "job-5",
+      "status": "verified",
+      "reasons": []
+    },
+    {
+      "jobId": "job-6",
+      "status": "verified",
+      "reasons": []
+    },
+    {
+      "jobId": "job-7",
+      "status": "verified",
+      "reasons": []
+    },
+    {
+      "jobId": "job-8",
+      "status": "verified",
+      "reasons": []
+    },
+    {
+      "jobId": "job-9",
+      "status": "verified",
+      "reasons": []
+    },
+    {
+      "jobId": "job-10",
+      "status": "verified",
+      "reasons": []
+    },
+    {
+      "jobId": "job-11",
+      "status": "verified",
+      "reasons": []
+    }
+  ]
+}

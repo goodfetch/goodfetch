@@ -1,0 +1,16 @@
+packages:
+  - adapters/node
+  - adapters/stagehand-v3
+allowBuilds:
+  esbuild: true
+  better-sqlite3: true
+  '@google/genai': false
+  bufferutil: false
+  protobufjs: false
+packageExtensions:
+  '@browserbasehq/stagehand@3.7.3':
+    dependencies:
+      zod: '3.25.76'
+  'ollama-ai-provider-v2@1.5.5':
+    dependencies:
+      zod: '4.4.3'

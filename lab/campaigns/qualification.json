@@ -1,0 +1,7 @@
+{
+  "name": "qualification", "backends": ["node-http", "crawlee-http", "crawlee-http-pooled", "spider-http", "spider-chrome", "spider-smart", "playwright", "puppeteer", "stagehand", "stagehand-batch", "crawlee-playwright", "crawlee-stagehand"],
+  "scenarios": ["http-catalog", "js-catalog", "form", "clicks", "shadow"],
+  "seed": 221, "blocks": 1, "iterations": 2, "warmup": 1, "concurrency": 1,
+  "mode": "closed", "timeoutMs": 30000, "maxDurationMs": 120000,
+  "pages": 3, "actions": 50, "variants": ["normal", "delayed", "overlay", "rerender"]
+}

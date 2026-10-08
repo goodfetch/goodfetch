@@ -1,0 +1,1092 @@
+{
+  "snapshot": {
+    "jobs": [
+      {
+        "jobId": "job-0",
+        "task": {
+          "scenario": "http-catalog",
+          "seed": 100324,
+          "pages": 8,
+          "actions": 1,
+          "timeoutMs": 15000,
+          "variant": "normal",
+          "url": "http://127.0.0.1:61954/runs/80ee8cb8faea9981db2689d8/catalog?p=0"
+        },
+        "state": "acked",
+        "token": "6be7fade-0227-4180-b2e7-e046ba3eb699",
+        "expires": 1791412427817,
+        "attempts": 1,
+        "receipt": "5f5f0e6f-99c2-45a2-9147-b90fffa1b505",
+        "digest": "9cb150a4389af51fa34094278c06384885bd3cb6e3237aee0441867bfd5bc712",
+        "error": null,
+        "records": [
+          {
+            "id": "P-001",
+            "price": 1227
+          },
+          {
+            "id": "P-002",
+            "price": 1264
+          },
+          {
+            "id": "P-003",
+            "price": 1301
+          },
+          {
+            "id": "P-004",
+            "price": 1338
+          },
+          {
+            "id": "P-005",
+            "price": 1375
+          },
+          {
+            "id": "P-006",
+            "price": 1412
+          },
+          {
+            "id": "P-007",
+            "price": 1449
+          },
+          {
+            "id": "P-008",
+            "price": 1486
+          },
+          {
+            "id": "P-009",
+            "price": 1523
+          },
+          {
+            "id": "P-010",
+            "price": 1560
+          },
+          {
+            "id": "P-011",
+            "price": 1597
+          },
+          {
+            "id": "P-012",
+            "price": 1634
+          },
+          {
+            "id": "P-013",
+            "price": 1671
+          },
+          {
+            "id": "P-014",
+            "price": 1708
+          },
+          {
+            "id": "P-015",
+            "price": 1745
+          },
+          {
+            "id": "P-016",
+            "price": 1782
+          }
+        ]
+      },
+      {
+        "jobId": "job-1",
+        "task": {
+          "scenario": "http-catalog",
+          "seed": 100325,
+          "pages": 8,
+          "actions": 1,
+          "timeoutMs": 15000,
+          "variant": "normal",
+          "url": "http://127.0.0.1:61954/runs/f0fbe8c6edf8e89046b09326/catalog?p=0"
+        },
+        "state": "acked",
+        "token": "283b122d-896f-4e9d-9acf-59a38bfe519d",
+        "expires": 1791412427818,
+        "attempts": 1,
+        "receipt": "8fec41ee-8e99-40ea-a4b3-c4c040ce5b56",
+        "digest": "5745613f6f34d52fccdf75796815cc06065c19e94b528d8a23f9bd1c28bfed2e",
+        "error": null,
+        "records": [
+          {
+            "id": "P-001",
+            "price": 1228
+          },
+          {
+            "id": "P-002",
+            "price": 1265
+          },
+          {
+            "id": "P-003",
+            "price": 1302
+          },
+          {
+            "id": "P-004",
+            "price": 1339
+          },
+          {
+            "id": "P-005",
+            "price": 1376
+          },
+          {
+            "id": "P-006",
+            "price": 1413
+          },
+          {
+            "id": "P-007",
+            "price": 1450
+          },
+          {
+            "id": "P-008",
+            "price": 1487
+          },
+          {
+            "id": "P-009",
+            "price": 1524
+          },
+          {
+            "id": "P-010",
+            "price": 1561
+          },
+          {
+            "id": "P-011",
+            "price": 1598
+          },
+          {
+            "id": "P-012",
+            "price": 1635
+          },
+          {
+            "id": "P-013",
+            "price": 1672
+          },
+          {
+            "id": "P-014",
+            "price": 1709
+          },
+          {
+            "id": "P-015",
+            "price": 1746
+          },
+          {
+            "id": "P-016",
+            "price": 1783
+          }
+        ]
+      },
+      {
+        "jobId": "job-2",
+        "task": {
+          "scenario": "http-catalog",
+          "seed": 100326,
+          "pages": 8,
+          "actions": 1,
+          "timeoutMs": 15000,
+          "variant": "normal",
+          "url": "http://127.0.0.1:61954/runs/30469c95641a1e2bc201774d/catalog?p=0"
+        },
+        "state": "acked",
+        "token": "29e53806-d91b-4bec-ad1b-94b6d6ee2280",
+        "expires": 1791412427818,
+        "attempts": 1,
+        "receipt": "b4bbc08e-ed2a-4ade-9ae7-fc329fc90d1c",
+        "digest": "311a2a7abb09e4fe9be7d87c4461510834925b9b5990827281ecdb48ffcfe632",
+        "error": null,
+        "records": [
+          {
+            "id": "P-001",
+            "price": 1229
+          },
+          {
+            "id": "P-002",
+            "price": 1266
+          },
+          {
+            "id": "P-003",
+            "price": 1303
+          },
+          {
+            "id": "P-004",
+            "price": 1340
+          },
+          {
+            "id": "P-005",
+            "price": 1377
+          },
+          {
+            "id": "P-006",
+            "price": 1414
+          },
+          {
+            "id": "P-007",
+            "price": 1451
+          },
+          {
+            "id": "P-008",
+            "price": 1488
+          },
+          {
+            "id": "P-009",
+            "price": 1525
+          },
+          {
+            "id": "P-010",
+            "price": 1562
+          },
+          {
+            "id": "P-011",
+            "price": 1599
+          },
+          {
+            "id": "P-012",
+            "price": 1636
+          },
+          {
+            "id": "P-013",
+            "price": 1673
+          },
+          {
+            "id": "P-014",
+            "price": 1710
+          },
+          {
+            "id": "P-015",
+            "price": 1747
+          },
+          {
+            "id": "P-016",
+            "price": 1784
+          }
+        ]
+      },
+      {
+        "jobId": "job-3",
+        "task": {
+          "scenario": "http-catalog",
+          "seed": 100327,
+          "pages": 8,
+          "actions": 1,
+          "timeoutMs": 15000,
+          "variant": "normal",
+          "url": "http://127.0.0.1:61954/runs/260d78554bb9029b75e27a61/catalog?p=0"
+        },
+        "state": "acked",
+        "token": "d19624c5-ae4c-43ae-8448-e3da4d3e797d",
+        "expires": 1791412427818,
+        "attempts": 1,
+        "receipt": "4ddb73a7-9dfc-4908-a86d-9ff851d3d931",
+        "digest": "9ce64dcc6bcc876032c4c2a0a3900ac0dab4c5bca96bce74ee81f64dc121a2c7",
+        "error": null,
+        "records": [
+          {
+            "id": "P-001",
+            "price": 1230
+          },
+          {
+            "id": "P-002",
+            "price": 1267
+          },
+          {
+            "id": "P-003",
+            "price": 1304
+          },
+          {
+            "id": "P-004",
+            "price": 1341
+          },
+          {
+            "id": "P-005",
+            "price": 1378
+          },
+          {
+            "id": "P-006",
+            "price": 1415
+          },
+          {
+            "id": "P-007",
+            "price": 1452
+          },
+          {
+            "id": "P-008",
+            "price": 1489
+          },
+          {
+            "id": "P-009",
+            "price": 1526
+          },
+          {
+            "id": "P-010",
+            "price": 1563
+          },
+          {
+            "id": "P-011",
+            "price": 1600
+          },
+          {
+            "id": "P-012",
+            "price": 1637
+          },
+          {
+            "id": "P-013",
+            "price": 1674
+          },
+          {
+            "id": "P-014",
+            "price": 1711
+          },
+          {
+            "id": "P-015",
+            "price": 1748
+          },
+          {
+            "id": "P-016",
+            "price": 1785
+          }
+        ]
+      },
+      {
+        "jobId": "job-4",
+        "task": {
+          "scenario": "http-catalog",
+          "seed": 100328,
+          "pages": 8,
+          "actions": 1,
+          "timeoutMs": 15000,
+          "variant": "normal",
+          "url": "http://127.0.0.1:61954/runs/538d32a435ca64abfff51eb2/catalog?p=0"
+        },
+        "state": "acked",
+        "token": "cf4dd179-05b0-4f48-bddf-4402f28c87ad",
+        "expires": 1791412428073,
+        "attempts": 1,
+        "receipt": "f98e4b50-ab7f-4c69-8aad-33de742b4ba8",
+        "digest": "91e7ba67dd99950534992321dff4fc0773a2d6f20a94c503b5c6168a1f50817d",
+        "error": null,
+        "records": [
+          {
+            "id": "P-001",
+            "price": 1231
+          },
+          {
+            "id": "P-002",
+            "price": 1268
+          },
+          {
+            "id": "P-003",
+            "price": 1305
+          },
+          {
+            "id": "P-004",
+            "price": 1342
+          },
+          {
+            "id": "P-005",
+            "price": 1379
+          },
+          {
+            "id": "P-006",
+            "price": 1416
+          },
+          {
+            "id": "P-007",
+            "price": 1453
+          },
+          {
+            "id": "P-008",
+            "price": 1490
+          },
+          {
+            "id": "P-009",
+            "price": 1527
+          },
+          {
+            "id": "P-010",
+            "price": 1564
+          },
+          {
+            "id": "P-011",
+            "price": 1601
+          },
+          {
+            "id": "P-012",
+            "price": 1638
+          },
+          {
+            "id": "P-013",
+            "price": 1675
+          },
+          {
+            "id": "P-014",
+            "price": 1712
+          },
+          {
+            "id": "P-015",
+            "price": 1749
+          },
+          {
+            "id": "P-016",
+            "price": 1786
+          }
+        ]
+      },
+      {
+        "jobId": "job-5",
+        "task": {
+          "scenario": "http-catalog",
+          "seed": 100329,
+          "pages": 8,
+          "actions": 1,
+          "timeoutMs": 15000,
+          "variant": "normal",
+          "url": "http://127.0.0.1:61954/runs/822126f2b2b6c115796cb7f3/catalog?p=0"
+        },
+        "state": "acked",
+        "token": "64a37528-4cbd-46a4-bb8e-ded0e99fc61b",
+        "expires": 1791412428074,
+        "attempts": 1,
+        "receipt": "c07584a3-a103-4771-9159-7e68f1b00f99",
+        "digest": "a1ff797ac5fe76c77a84883ef23edff06b7b39e1d517af7dc2764685ff82d4eb",
+        "error": null,
+        "records": [
+          {
+            "id": "P-001",
+            "price": 1232
+          },
+          {
+            "id": "P-002",
+            "price": 1269
+          },
+          {
+            "id": "P-003",
+            "price": 1306
+          },
+          {
+            "id": "P-004",
+            "price": 1343
+          },
+          {
+            "id": "P-005",
+            "price": 1380
+          },
+          {
+            "id": "P-006",
+            "price": 1417
+          },
+          {
+            "id": "P-007",
+            "price": 1454
+          },
+          {
+            "id": "P-008",
+            "price": 1491
+          },
+          {
+            "id": "P-009",
+            "price": 1528
+          },
+          {
+            "id": "P-010",
+            "price": 1565
+          },
+          {
+            "id": "P-011",
+            "price": 1602
+          },
+          {
+            "id": "P-012",
+            "price": 1639
+          },
+          {
+            "id": "P-013",
+            "price": 1676
+          },
+          {
+            "id": "P-014",
+            "price": 1713
+          },
+          {
+            "id": "P-015",
+            "price": 1750
+          },
+          {
+            "id": "P-016",
+            "price": 1787
+          }
+        ]
+      },
+      {
+        "jobId": "job-6",
+        "task": {
+          "scenario": "http-catalog",
+          "seed": 100330,
+          "pages": 8,
+          "actions": 1,
+          "timeoutMs": 15000,
+          "variant": "normal",
+          "url": "http://127.0.0.1:61954/runs/4a69346d4532c7c5dc38e84e/catalog?p=0"
+        },
+        "state": "acked",
+        "token": "1494e8a5-b42d-4208-ba99-81871c7f39fc",
+        "expires": 1791412428074,
+        "attempts": 1,
+        "receipt": "91e5b23b-b2fd-41ee-98cc-e801f81f65b3",
+        "digest": "29ba90faeb4c767d9707f6540c518552e464a5e98f455f24e8f8503217cc3193",
+        "error": null,
+        "records": [
+          {
+            "id": "P-001",
+            "price": 1233
+          },
+          {
+            "id": "P-002",
+            "price": 1270
+          },
+          {
+            "id": "P-003",
+            "price": 1307
+          },
+          {
+            "id": "P-004",
+            "price": 1344
+          },
+          {
+            "id": "P-005",
+            "price": 1381
+          },
+          {
+            "id": "P-006",
+            "price": 1418
+          },
+          {
+            "id": "P-007",
+            "price": 1455
+          },
+          {
+            "id": "P-008",
+            "price": 1492
+          },
+          {
+            "id": "P-009",
+            "price": 1529
+          },
+          {
+            "id": "P-010",
+            "price": 1566
+          },
+          {
+            "id": "P-011",
+            "price": 1603
+          },
+          {
+            "id": "P-012",
+            "price": 1640
+          },
+          {
+            "id": "P-013",
+            "price": 1677
+          },
+          {
+            "id": "P-014",
+            "price": 1714
+          },
+          {
+            "id": "P-015",
+            "price": 1751
+          },
+          {
+            "id": "P-016",
+            "price": 1788
+          }
+        ]
+      },
+      {
+        "jobId": "job-7",
+        "task": {
+          "scenario": "http-catalog",
+          "seed": 100331,
+          "pages": 8,
+          "actions": 1,
+          "timeoutMs": 15000,
+          "variant": "normal",
+          "url": "http://127.0.0.1:61954/runs/fa1ed6a0e0582ce380ccc7f0/catalog?p=0"
+        },
+        "state": "acked",
+        "token": "248cee99-b7a4-448a-ae32-edc5db71e1ce",
+        "expires": 1791412428075,
+        "attempts": 1,
+        "receipt": "fb34b734-3982-44cc-be12-e06cd0461e9a",
+        "digest": "932e9ee1492598bf233a3de59f2cb8e500e3082157f94eb4cbe4401cc334cb35",
+        "error": null,
+        "records": [
+          {
+            "id": "P-001",
+            "price": 1234
+          },
+          {
+            "id": "P-002",
+            "price": 1271
+          },
+          {
+            "id": "P-003",
+            "price": 1308
+          },
+          {
+            "id": "P-004",
+            "price": 1345
+          },
+          {
+            "id": "P-005",
+            "price": 1382
+          },
+          {
+            "id": "P-006",
+            "price": 1419
+          },
+          {
+            "id": "P-007",
+            "price": 1456
+          },
+          {
+            "id": "P-008",
+            "price": 1493
+          },
+          {
+            "id": "P-009",
+            "price": 1530
+          },
+          {
+            "id": "P-010",
+            "price": 1567
+          },
+          {
+            "id": "P-011",
+            "price": 1604
+          },
+          {
+            "id": "P-012",
+            "price": 1641
+          },
+          {
+            "id": "P-013",
+            "price": 1678
+          },
+          {
+            "id": "P-014",
+            "price": 1715
+          },
+          {
+            "id": "P-015",
+            "price": 1752
+          },
+          {
+            "id": "P-016",
+            "price": 1789
+          }
+        ]
+      },
+      {
+        "jobId": "job-8",
+        "task": {
+          "scenario": "http-catalog",
+          "seed": 100332,
+          "pages": 8,
+          "actions": 1,
+          "timeoutMs": 15000,
+          "variant": "normal",
+          "url": "http://127.0.0.1:61954/runs/aee46561d818eeb74121b579/catalog?p=0"
+        },
+        "state": "acked",
+        "token": "e5e2ef47-0906-4b7f-9976-5143cde6fc9b",
+        "expires": 1791412428173,
+        "attempts": 1,
+        "receipt": "13e3774d-aedc-4536-a5ae-637ce7701651",
+        "digest": "92a9017aca7d3c19769d5829590920a022a7a9e4c155cc8773d39aa9331fea83",
+        "error": null,
+        "records": [
+          {
+            "id": "P-001",
+            "price": 1235
+          },
+          {
+            "id": "P-002",
+            "price": 1272
+          },
+          {
+            "id": "P-003",
+            "price": 1309
+          },
+          {
+            "id": "P-004",
+            "price": 1346
+          },
+          {
+            "id": "P-005",
+            "price": 1383
+          },
+          {
+            "id": "P-006",
+            "price": 1420
+          },
+          {
+            "id": "P-007",
+            "price": 1457
+          },
+          {
+            "id": "P-008",
+            "price": 1494
+          },
+          {
+            "id": "P-009",
+            "price": 1531
+          },
+          {
+            "id": "P-010",
+            "price": 1568
+          },
+          {
+            "id": "P-011",
+            "price": 1605
+          },
+          {
+            "id": "P-012",
+            "price": 1642
+          },
+          {
+            "id": "P-013",
+            "price": 1679
+          },
+          {
+            "id": "P-014",
+            "price": 1716
+          },
+          {
+            "id": "P-015",
+            "price": 1753
+          },
+          {
+            "id": "P-016",
+            "price": 1790
+          }
+        ]
+      },
+      {
+        "jobId": "job-9",
+        "task": {
+          "scenario": "http-catalog",
+          "seed": 100333,
+          "pages": 8,
+          "actions": 1,
+          "timeoutMs": 15000,
+          "variant": "normal",
+          "url": "http://127.0.0.1:61954/runs/c8a3a88dcf127587196906c2/catalog?p=0"
+        },
+        "state": "acked",
+        "token": "5c0380b5-4afc-4505-8022-66a4be032219",
+        "expires": 1791412428176,
+        "attempts": 1,
+        "receipt": "99ae4634-232e-475e-9fa7-6b8681612e60",
+        "digest": "de924e0aced56fc043772437fa30d1d6482e998fccdad75283fd4bb68b164de4",
+        "error": null,
+        "records": [
+          {
+            "id": "P-001",
+            "price": 1236
+          },
+          {
+            "id": "P-002",
+            "price": 1273
+          },
+          {
+            "id": "P-003",
+            "price": 1310
+          },
+          {
+            "id": "P-004",
+            "price": 1347
+          },
+          {
+            "id": "P-005",
+            "price": 1384
+          },
+          {
+            "id": "P-006",
+            "price": 1421
+          },
+          {
+            "id": "P-007",
+            "price": 1458
+          },
+          {
+            "id": "P-008",
+            "price": 1495
+          },
+          {
+            "id": "P-009",
+            "price": 1532
+          },
+          {
+            "id": "P-010",
+            "price": 1569
+          },
+          {
+            "id": "P-011",
+            "price": 1606
+          },
+          {
+            "id": "P-012",
+            "price": 1643
+          },
+          {
+            "id": "P-013",
+            "price": 1680
+          },
+          {
+            "id": "P-014",
+            "price": 1717
+          },
+          {
+            "id": "P-015",
+            "price": 1754
+          },
+          {
+            "id": "P-016",
+            "price": 1791
+          }
+        ]
+      },
+      {
+        "jobId": "job-10",
+        "task": {
+          "scenario": "http-catalog",
+          "seed": 100334,
+          "pages": 8,
+          "actions": 1,
+          "timeoutMs": 15000,
+          "variant": "normal",
+          "url": "http://127.0.0.1:61954/runs/23ed525f4c5ad4d205043bd8/catalog?p=0"
+        },
+        "state": "acked",
+        "token": "ae23e7b7-24ea-450e-a507-fd5cf408943d",
+        "expires": 1791412428177,
+        "attempts": 1,
+        "receipt": "eee0a78f-afd6-4f4f-90a1-cdb2d1c6f215",
+        "digest": "92ce55713705303ba3306a2d1983a7172e6ead3f5b83326619c2b2d63e89e878",
+        "error": null,
+        "records": [
+          {
+            "id": "P-001",
+            "price": 1237
+          },
+          {
+            "id": "P-002",
+            "price": 1274
+          },
+          {
+            "id": "P-003",
+            "price": 1311
+          },
+          {
+            "id": "P-004",
+            "price": 1348
+          },
+          {
+            "id": "P-005",
+            "price": 1385
+          },
+          {
+            "id": "P-006",
+            "price": 1422
+          },
+          {
+            "id": "P-007",
+            "price": 1459
+          },
+          {
+            "id": "P-008",
+            "price": 1496
+          },
+          {
+            "id": "P-009",
+            "price": 1533
+          },
+          {
+            "id": "P-010",
+            "price": 1570
+          },
+          {
+            "id": "P-011",
+            "price": 1607
+          },
+          {
+            "id": "P-012",
+            "price": 1644
+          },
+          {
+            "id": "P-013",
+            "price": 1681
+          },
+          {
+            "id": "P-014",
+            "price": 1718
+          },
+          {
+            "id": "P-015",
+            "price": 1755
+          },
+          {
+            "id": "P-016",
+            "price": 1792
+          }
+        ]
+      },
+      {
+        "jobId": "job-11",
+        "task": {
+          "scenario": "http-catalog",
+          "seed": 100335,
+          "pages": 8,
+          "actions": 1,
+          "timeoutMs": 15000,
+          "variant": "normal",
+          "url": "http://127.0.0.1:61954/runs/16aab15e2078a6506584ebea/catalog?p=0"
+        },
+        "state": "acked",
+        "token": "8c7af41d-6c98-4187-aebb-adee2c0aa28d",
+        "expires": 1791412428181,
+        "attempts": 1,
+        "receipt": "3d3c0809-6679-4e33-b76f-755be34dc20c",
+        "digest": "c6beefe4d8b83a0fe596040d055d20326ac05723631d265703e6c0aa96a2dcfc",
+        "error": null,
+        "records": [
+          {
+            "id": "P-001",
+            "price": 1238
+          },
+          {
+            "id": "P-002",
+            "price": 1275
+          },
+          {
+            "id": "P-003",
+            "price": 1312
+          },
+          {
+            "id": "P-004",
+            "price": 1349
+          },
+          {
+            "id": "P-005",
+            "price": 1386
+          },
+          {
+            "id": "P-006",
+            "price": 1423
+          },
+          {
+            "id": "P-007",
+            "price": 1460
+          },
+          {
+            "id": "P-008",
+            "price": 1497
+          },
+          {
+            "id": "P-009",
+            "price": 1534
+          },
+          {
+            "id": "P-010",
+            "price": 1571
+          },
+          {
+            "id": "P-011",
+            "price": 1608
+          },
+          {
+            "id": "P-012",
+            "price": 1645
+          },
+          {
+            "id": "P-013",
+            "price": 1682
+          },
+          {
+            "id": "P-014",
+            "price": 1719
+          },
+          {
+            "id": "P-015",
+            "price": 1756
+          },
+          {
+            "id": "P-016",
+            "price": 1793
+          }
+        ]
+      }
+    ],
+    "integrity": [
+      "ok"
+    ],
+    "foreignKeys": []
+  },
+  "verdicts": [
+    {
+      "jobId": "job-0",
+      "status": "verified",
+      "reasons": []
+    },
+    {
+      "jobId": "job-1",
+      "status": "verified",
+      "reasons": []
+    },
+    {
+      "jobId": "job-2",
+      "status": "verified",
+      "reasons": []
+    },
+    {
+      "jobId": "job-3",
+      "status": "verified",
+      "reasons": []
+    },
+    {
+      "jobId": "job-4",
+      "status": "verified",
+      "reasons": []
+    },
+    {
+      "jobId": "job-5",
+      "status": "verified",
+      "reasons": []
+    },
+    {
+      "jobId": "job-6",
+      "status": "verified",
+      "reasons": []
+    },
+    {
+      "jobId": "job-7",
+      "status": "verified",
+      "reasons": []
+    },
+    {
+      "jobId": "job-8",
+      "status": "verified",
+      "reasons": []
+    },
+    {
+      "jobId": "job-9",
+      "status": "verified",
+      "reasons": []
+    },
+    {
+      "jobId": "job-10",
+      "status": "verified",
+      "reasons": []
+    },
+    {
+      "jobId": "job-11",
+      "status": "verified",
+      "reasons": []
+    }
+  ]
+}

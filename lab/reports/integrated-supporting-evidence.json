@@ -1,0 +1,100 @@
+{
+  "files": [
+    {
+      "path": "reports/analyze-integrated.mjs",
+      "bytes": 12535,
+      "sha256": "b47e2b757c783500c4f60d2558e564c677c25659a08243ebfecd645433b24f83"
+    },
+    {
+      "path": "reports/render-integrated.py",
+      "bytes": 19040,
+      "sha256": "016a6436805068ef0bdce1fe8d7a366e78fe93f132dd26f05a6e3e8f37feebf1"
+    },
+    {
+      "path": "reports/audit-integrated.py",
+      "bytes": 4922,
+      "sha256": "7f762a606664771eaa153ec68548486b19f15480bdc7ec85dc538c133dae1b3d"
+    },
+    {
+      "path": "reports/update-integrated-index.py",
+      "bytes": 3130,
+      "sha256": "2e554c2f9822baab5cbc56d88e04d57ab07de4a7edd07c54fbab2260c68d8eb7"
+    },
+    {
+      "path": "reports/integrated-2026-10-08.md",
+      "bytes": 20586,
+      "sha256": "0c59c31db0dfd587d0e6a232a2088a433de0e0460c853a303f27ea4567e89602"
+    },
+    {
+      "path": "reports/qualification-current-tests.log",
+      "bytes": 6875,
+      "sha256": "9fb9ddb705a1b0822e8c241b34aab6aa61890577668ba1eb9a1e5b4d1ac7c935"
+    },
+    {
+      "path": "reports/qualification-current-build.log",
+      "bytes": 155,
+      "sha256": "8db45a32a894c8bc1a87d247612de8f70aed951c84db14120dacce4b3a79e688"
+    },
+    {
+      "path": "reports/qualification-final-state.json",
+      "bytes": 1607,
+      "sha256": "8dc80d71d75e2ba56f960526d7fe14d6145964a5a6b1da8aca33998867b7818b"
+    },
+    {
+      "path": "reports/qualification-links.json",
+      "bytes": 38,
+      "sha256": "e745cb37e3da61d1b52fd56eaf625e66a04277973df1db73691f0b130003b045"
+    },
+    {
+      "path": "reports/qualification-guard-red.log",
+      "bytes": 1283,
+      "sha256": "9a484877e971d2dc651df846f5f82dedc1c3baebc9905d68365855c2a4bb8c31"
+    },
+    {
+      "path": "reports/qualification-guard-green.log",
+      "bytes": 1283,
+      "sha256": "101cfd2876f5038779848622b1fa001b89253ecfad32619599f07eebd3714194"
+    },
+    {
+      "path": "reports/qualification-guard-calibrated-green.log",
+      "bytes": 224,
+      "sha256": "4aaa407117926a9655470b70d61704656607acc81fbbc33a4024fc130d546ef3"
+    },
+    {
+      "path": "reports/qualification-writers-red.log",
+      "bytes": 1008,
+      "sha256": "6045c5035141128d33aa09c156594429c0621475711014651fa9ca7bf6fe259e"
+    },
+    {
+      "path": "reports/qualification-writers-green.log",
+      "bytes": 395,
+      "sha256": "c8310e44e1966c9a65776b560fe64314600c27dcdd2c0b07aa39c5ad54ef6f69"
+    },
+    {
+      "path": "reports/host-load-2026-10-08.json",
+      "bytes": 767,
+      "sha256": "d5d478f87d41ffaf63a4cd99e975a9b5d55160133666856dfd1fbfbcf3e1320b"
+    },
+    {
+      "path": "reports/sqlite-initialization-diagnostics.json",
+      "bytes": 9446,
+      "sha256": "a7714ce90f3e569c22138cb65a9f47b627023cbe94ae5c63379a05868575ef8d"
+    },
+    {
+      "path": "reports/evidence-integrated/artifacts/automan-workflow-rust-before-arc",
+      "bytes": 6681712,
+      "sha256": "dece94b96090ac1bc7a88079532c0de8afca3d75eb09d919641e4380d31b19b0"
+    },
+    {
+      "path": "reports/evidence-integrated/artifacts/spider-2.53.9-website.rs",
+      "bytes": 846185,
+      "sha256": "9636689ee46381615f308fab00e0a9706222629df75c6127a23070e31ed8c614"
+    },
+    {
+      "path": "reports/evidence-integrated/artifacts/spider-2.53.9-LICENSE",
+      "bytes": 10,
+      "sha256": "1e881ecf2862d01e6e5bc2b861e46886d2a6fb01499c0c508a209a7271b13cf2"
+    }
+  ],
+  "purpose": "analysis, verification logs, preserved pre-Arc binary and pinned third-party source/license; campaign raw files catalogued separately"
+}

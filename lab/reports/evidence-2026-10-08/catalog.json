@@ -1,0 +1,2852 @@
+{
+  "schemaVersion": 1,
+  "localDate": "2026-10-08 Europe/Paris",
+  "campaigns": [
+    {
+      "title": "SQLite commun : batches et contention",
+      "category": "storage",
+      "name": "storage-shared-contention-2026-10-07T22-23-31-093Z-8d9875",
+      "cells": 72
+    },
+    {
+      "title": "SQLite commun : gros batches",
+      "category": "storage",
+      "name": "storage-shared-checkpoint-2026-10-07T22-24-20-072Z-de4c14",
+      "cells": 9
+    },
+    {
+      "title": "Workflow HTTP complet",
+      "category": "workflow",
+      "name": "workflow-throughput-2026-10-07T22-24-52-832Z-024c4f",
+      "cells": 40
+    },
+    {
+      "title": "Workflow : crashes avant/après commit",
+      "category": "workflow",
+      "name": "workflow-recovery-2026-10-07T22-26-19-297Z-c40792",
+      "cells": 12
+    },
+    {
+      "title": "Crawlee : réveil du pool",
+      "category": "workflow",
+      "name": "workflow-pool-wakeup-2026-10-07T22-32-40-342Z-21e558",
+      "cells": 20
+    }
+  ],
+  "files": [
+    {
+      "path": "evidence-2026-10-08/storage-shared-contention-2026-10-07T22-23-31-093Z-8d9875/summary.json",
+      "bytes": 520719,
+      "sha256": "bc3eda1f5323a91d042b521aee7293b1e6b7d5bb17772c0244c82ecaa3eb2f09"
+    },
+    {
+      "path": "evidence-2026-10-08/storage-shared-contention-2026-10-07T22-23-31-093Z-8d9875/manifest.json",
+      "bytes": 9660,
+      "sha256": "6bdd8c6c27f2278427bce1fc4283321bd16698e2760a6e4d09906628a3251efc"
+    },
+    {
+      "path": "evidence-2026-10-08/storage-shared-contention-2026-10-07T22-23-31-093Z-8d9875/report.html",
+      "bytes": 12656,
+      "sha256": "dba027f5bbf099b78922af37cd3aaec27e9edb6a2ff4e4398a8857627f003284"
+    },
+    {
+      "path": "evidence-2026-10-08/storage-shared-contention-2026-10-07T22-23-31-093Z-8d9875/node-shared-sqlite-delete-full-b100-w1-r0/attempts.jsonl",
+      "bytes": 12790,
+      "sha256": "b475ff202242b05fa85d37721b0316d82118481968183d522ef86e49e603a57b"
+    },
+    {
+      "path": "evidence-2026-10-08/storage-shared-contention-2026-10-07T22-23-31-093Z-8d9875/go-sync-sqlite-delete-full-b1-w4-r0/attempts.jsonl",
+      "bytes": 11617,
+      "sha256": "00026ee8ddd88fe8089475d1c6e5f36d100081284619b300c019e6c315c13338"
+    },
+    {
+      "path": "evidence-2026-10-08/storage-shared-contention-2026-10-07T22-23-31-093Z-8d9875/go-sync-sqlite-wal-full-b1-w1-r1/attempts.jsonl",
+      "bytes": 11773,
+      "sha256": "5dd77b2be0e6dafd41cc6d597b93ae60e4897dccdee419db2de56396777f358f"
+    },
+    {
+      "path": "evidence-2026-10-08/storage-shared-contention-2026-10-07T22-23-31-093Z-8d9875/go-sync-sqlite-wal-full-b1-w1-r0/attempts.jsonl",
+      "bytes": 11615,
+      "sha256": "43e334dc01f9585eef99a1da0f842027f67a41571154f39636a88dd6e02259ca"
+    },
+    {
+      "path": "evidence-2026-10-08/storage-shared-contention-2026-10-07T22-23-31-093Z-8d9875/go-sync-sqlite-delete-full-b1-w4-r1/attempts.jsonl",
+      "bytes": 11764,
+      "sha256": "833b58dd19132ac2cdcf234ddfd90fe9e990559e176a5300cace2a331c6d3b64"
+    },
+    {
+      "path": "evidence-2026-10-08/storage-shared-contention-2026-10-07T22-23-31-093Z-8d9875/node-shared-sqlite-delete-full-b100-w1-r1/attempts.jsonl",
+      "bytes": 12943,
+      "sha256": "297554f0254fb9cf451a8d3599faf99a524794312078553ac7a7f5c4247f0660"
+    },
+    {
+      "path": "evidence-2026-10-08/storage-shared-contention-2026-10-07T22-23-31-093Z-8d9875/go-sync-sqlite-delete-full-b1-w1-r0/attempts.jsonl",
+      "bytes": 11610,
+      "sha256": "ebfc7234d6960628c4b06eb70d0e50d1c5663166198cabb76ae71c0af7063e38"
+    },
+    {
+      "path": "evidence-2026-10-08/storage-shared-contention-2026-10-07T22-23-31-093Z-8d9875/node-shared-sqlite-delete-full-b100-w4-r0/attempts.jsonl",
+      "bytes": 12814,
+      "sha256": "2cc9b96b2703bf388c4969630625bbe6049ec8f3b3aa59786a4bc94b57ced4a6"
+    },
+    {
+      "path": "evidence-2026-10-08/storage-shared-contention-2026-10-07T22-23-31-093Z-8d9875/go-sync-sqlite-wal-full-b1-w4-r1/attempts.jsonl",
+      "bytes": 11765,
+      "sha256": "bce02f295b3ff74d49f8be1e93b8b9970935505641f8245696c3725389bf6e67"
+    },
+    {
+      "path": "evidence-2026-10-08/storage-shared-contention-2026-10-07T22-23-31-093Z-8d9875/go-sync-sqlite-wal-full-b1-w4-r0/attempts.jsonl",
+      "bytes": 11615,
+      "sha256": "556d613663b6c2c1219d56d66b691bbe1a65ac42ec9ff6f7aab7f86208a4897e"
+    },
+    {
+      "path": "evidence-2026-10-08/storage-shared-contention-2026-10-07T22-23-31-093Z-8d9875/node-shared-sqlite-delete-full-b100-w4-r1/attempts.jsonl",
+      "bytes": 12939,
+      "sha256": "53f09356d356c2181545d13eec7241d834f5bc750d41adcad87285b6f0617d88"
+    },
+    {
+      "path": "evidence-2026-10-08/storage-shared-contention-2026-10-07T22-23-31-093Z-8d9875/go-sync-sqlite-delete-full-b1-w1-r1/attempts.jsonl",
+      "bytes": 11737,
+      "sha256": "48fe74ef2c74793d25766b946a734c5216a95c0218b6d024d208fba1b45491a0"
+    },
+    {
+      "path": "evidence-2026-10-08/storage-shared-contention-2026-10-07T22-23-31-093Z-8d9875/rust-sync-sqlite-wal-normal-b1-w1-r0/attempts.jsonl",
+      "bytes": 12066,
+      "sha256": "daae1c824bb4c3c1dabc0e82b181df9976530df099993bf1d47db3b422dd0c68"
+    },
+    {
+      "path": "evidence-2026-10-08/storage-shared-contention-2026-10-07T22-23-31-093Z-8d9875/node-shared-sqlite-delete-full-b1-w1-r1/attempts.jsonl",
+      "bytes": 12871,
+      "sha256": "ad757c9400dead1653c3f04231d72d781ee5b69b2a77849e2920feb15c35c78c"
+    },
+    {
+      "path": "evidence-2026-10-08/storage-shared-contention-2026-10-07T22-23-31-093Z-8d9875/rust-sync-sqlite-wal-full-b100-w4-r1/attempts.jsonl",
+      "bytes": 12226,
+      "sha256": "45e36eadaa4ca7259e5ea17d6558af2f520f2ba433ada7bacbcf0ac096c5c498"
+    },
+    {
+      "path": "evidence-2026-10-08/storage-shared-contention-2026-10-07T22-23-31-093Z-8d9875/node-shared-sqlite-wal-full-b1-w1-r1/attempts.jsonl",
+      "bytes": 12912,
+      "sha256": "21228c5c3db22c005bda0c821a55ae6ecc0b0b1786e968447cee152db17ed3e4"
+    },
+    {
+      "path": "evidence-2026-10-08/storage-shared-contention-2026-10-07T22-23-31-093Z-8d9875/rust-sync-sqlite-wal-normal-b1-w1-r1/attempts.jsonl",
+      "bytes": 12131,
+      "sha256": "0ef5cb4410799a9abd9a304d227e540a466b9cc126cf1bfbdf6d5ca85c8d7094"
+    },
+    {
+      "path": "evidence-2026-10-08/storage-shared-contention-2026-10-07T22-23-31-093Z-8d9875/node-shared-sqlite-delete-full-b1-w1-r0/attempts.jsonl",
+      "bytes": 12732,
+      "sha256": "b19ae5718ca0a8cd6bbf2fa866b6f1da75442420f12ad0c717bbab2ff2feb893"
+    },
+    {
+      "path": "evidence-2026-10-08/storage-shared-contention-2026-10-07T22-23-31-093Z-8d9875/node-shared-sqlite-wal-full-b1-w1-r0/attempts.jsonl",
+      "bytes": 12792,
+      "sha256": "2ed194d44bd283d901ad960b8c86ddb9d00a53ab8e33d18be60947f9175c77f5"
+    },
+    {
+      "path": "evidence-2026-10-08/storage-shared-contention-2026-10-07T22-23-31-093Z-8d9875/rust-sync-sqlite-wal-full-b100-w4-r0/attempts.jsonl",
+      "bytes": 12032,
+      "sha256": "0b1f3b8293b6d01d27a0ad9ab80825221b60511f900558499e5a69555ec6388e"
+    },
+    {
+      "path": "evidence-2026-10-08/storage-shared-contention-2026-10-07T22-23-31-093Z-8d9875/rust-sync-sqlite-wal-normal-b1-w4-r0/attempts.jsonl",
+      "bytes": 11926,
+      "sha256": "70b606f2109290a8f495030b4b42a73b3ef384ff21aa423c88fe9172ddb414ae"
+    },
+    {
+      "path": "evidence-2026-10-08/storage-shared-contention-2026-10-07T22-23-31-093Z-8d9875/node-shared-sqlite-delete-full-b1-w4-r1/attempts.jsonl",
+      "bytes": 12830,
+      "sha256": "8c744717b1c406ebd7b29131dc68238f25544102cb0ecf230a12cfa84b6c0ddb"
+    },
+    {
+      "path": "evidence-2026-10-08/storage-shared-contention-2026-10-07T22-23-31-093Z-8d9875/rust-sync-sqlite-wal-full-b100-w1-r1/attempts.jsonl",
+      "bytes": 12136,
+      "sha256": "cdf117f19eabd172a8939edd59e99d4e1f5fb2f36efac0a42708bc3d7f76cba3"
+    },
+    {
+      "path": "evidence-2026-10-08/storage-shared-contention-2026-10-07T22-23-31-093Z-8d9875/node-shared-sqlite-wal-full-b1-w4-r1/attempts.jsonl",
+      "bytes": 12879,
+      "sha256": "46980cc12883f4470f11c384872d7558aeaf17dc431985059782d1fca18ac7b6"
+    },
+    {
+      "path": "evidence-2026-10-08/storage-shared-contention-2026-10-07T22-23-31-093Z-8d9875/rust-sync-sqlite-wal-normal-b1-w4-r1/attempts.jsonl",
+      "bytes": 12071,
+      "sha256": "890d22d0d642b2715d6fa0a124599a778e6b4eb39c0f617eac9379db220d13c3"
+    },
+    {
+      "path": "evidence-2026-10-08/storage-shared-contention-2026-10-07T22-23-31-093Z-8d9875/node-shared-sqlite-delete-full-b1-w4-r0/attempts.jsonl",
+      "bytes": 12696,
+      "sha256": "d5fba0ae80679ef1ab4e1c9a5f7064287a8e40242f075b239d96fc350fba6ea1"
+    },
+    {
+      "path": "evidence-2026-10-08/storage-shared-contention-2026-10-07T22-23-31-093Z-8d9875/node-shared-sqlite-wal-full-b1-w4-r0/attempts.jsonl",
+      "bytes": 12762,
+      "sha256": "d87096c0d5334359b7c004ce732c61eb9b05b4d432d3733e672c5970b285afd7"
+    },
+    {
+      "path": "evidence-2026-10-08/storage-shared-contention-2026-10-07T22-23-31-093Z-8d9875/rust-sync-sqlite-wal-full-b100-w1-r0/attempts.jsonl",
+      "bytes": 12118,
+      "sha256": "7fe8cecbba9c0ab40ec020e115ca3567c5cc8a6fb03adbe43e4b6aa055daf2f2"
+    },
+    {
+      "path": "evidence-2026-10-08/storage-shared-contention-2026-10-07T22-23-31-093Z-8d9875/go-sync-sqlite-delete-full-b100-w4-r1/attempts.jsonl",
+      "bytes": 11928,
+      "sha256": "955aab434f2eba875c14b2c787412d85795e71bb34a7d1a3303f7f4295c07f8b"
+    },
+    {
+      "path": "evidence-2026-10-08/storage-shared-contention-2026-10-07T22-23-31-093Z-8d9875/node-shared-sqlite-wal-normal-b1-w4-r1/attempts.jsonl",
+      "bytes": 12890,
+      "sha256": "66ef40e155c5a97a50e9ffdf1b6fc31e5e080d5cd5bd285a67b969548c9a1f21"
+    },
+    {
+      "path": "evidence-2026-10-08/storage-shared-contention-2026-10-07T22-23-31-093Z-8d9875/node-shared-sqlite-wal-normal-b100-w4-r0/attempts.jsonl",
+      "bytes": 12806,
+      "sha256": "7a65f4e0475193fe50f6c38ad34b85414a2df25c82f5354bbbbc1a90fc903911"
+    },
+    {
+      "path": "evidence-2026-10-08/storage-shared-contention-2026-10-07T22-23-31-093Z-8d9875/go-sync-sqlite-wal-normal-b100-w1-r1/attempts.jsonl",
+      "bytes": 11960,
+      "sha256": "6821e4027f265220f261ba4236922e24c00f1940b664598188b9f450843130f6"
+    },
+    {
+      "path": "evidence-2026-10-08/storage-shared-contention-2026-10-07T22-23-31-093Z-8d9875/rust-sync-sqlite-wal-normal-b100-w4-r0/attempts.jsonl",
+      "bytes": 12187,
+      "sha256": "eea88934867b4327d69756629dbae76eb3e258d503818ba5c820b80cf094abd8"
+    },
+    {
+      "path": "evidence-2026-10-08/storage-shared-contention-2026-10-07T22-23-31-093Z-8d9875/node-shared-sqlite-wal-full-b100-w1-r0/attempts.jsonl",
+      "bytes": 12859,
+      "sha256": "a0542f20be0b3ace763fa66c24f3d6cd0e4b5248cd33479e6b820614a681e812"
+    },
+    {
+      "path": "evidence-2026-10-08/storage-shared-contention-2026-10-07T22-23-31-093Z-8d9875/rust-sync-sqlite-delete-full-b1-w4-r1/attempts.jsonl",
+      "bytes": 12023,
+      "sha256": "dbaaf420b5fa171af4b4c5fc397ccf5008a1b76c64317b25ad00fcae8df52783"
+    },
+    {
+      "path": "evidence-2026-10-08/storage-shared-contention-2026-10-07T22-23-31-093Z-8d9875/node-shared-sqlite-wal-normal-b100-w4-r1/attempts.jsonl",
+      "bytes": 12978,
+      "sha256": "31a9a276e0870340174992925675a9c528d3a0477de7297475e6d18b1d3d1976"
+    },
+    {
+      "path": "evidence-2026-10-08/storage-shared-contention-2026-10-07T22-23-31-093Z-8d9875/go-sync-sqlite-wal-normal-b100-w1-r0/attempts.jsonl",
+      "bytes": 11807,
+      "sha256": "dcb60cb2f1e9d6085a5f80dcd45ee7fb2f73b676cea60b16bf967205e81004b9"
+    },
+    {
+      "path": "evidence-2026-10-08/storage-shared-contention-2026-10-07T22-23-31-093Z-8d9875/go-sync-sqlite-delete-full-b100-w4-r0/attempts.jsonl",
+      "bytes": 11814,
+      "sha256": "1f05ef988405833caad619d10e5d4ef7706923e28e5d65d3b19cb5454acd1788"
+    },
+    {
+      "path": "evidence-2026-10-08/storage-shared-contention-2026-10-07T22-23-31-093Z-8d9875/node-shared-sqlite-wal-normal-b1-w4-r0/attempts.jsonl",
+      "bytes": 12774,
+      "sha256": "3d95647dd99e7f9709bf442147da386ed6e3693d9111ef7a1067c3edb724fa70"
+    },
+    {
+      "path": "evidence-2026-10-08/storage-shared-contention-2026-10-07T22-23-31-093Z-8d9875/rust-sync-sqlite-delete-full-b1-w4-r0/attempts.jsonl",
+      "bytes": 11884,
+      "sha256": "5c2c643e5b955b1fd6aa4ec56e38eaedd0cce16775fc62745a07bf69fe14e33b"
+    },
+    {
+      "path": "evidence-2026-10-08/storage-shared-contention-2026-10-07T22-23-31-093Z-8d9875/node-shared-sqlite-wal-full-b100-w1-r1/attempts.jsonl",
+      "bytes": 12996,
+      "sha256": "40e7cac4617e2f4e1fdd0fa5a7288117c3a9463700dc7a11e822ef874f6887f0"
+    },
+    {
+      "path": "evidence-2026-10-08/storage-shared-contention-2026-10-07T22-23-31-093Z-8d9875/rust-sync-sqlite-wal-normal-b100-w4-r1/attempts.jsonl",
+      "bytes": 12365,
+      "sha256": "8abf7f983238bbea48c41c82bd08104e129d30bab0647298fb40128229a99457"
+    },
+    {
+      "path": "evidence-2026-10-08/storage-shared-contention-2026-10-07T22-23-31-093Z-8d9875/go-sync-sqlite-delete-full-b100-w1-r1/attempts.jsonl",
+      "bytes": 11928,
+      "sha256": "6080923bea6b8516dea96629d836f7412b241df373977c8f724165433958f628"
+    },
+    {
+      "path": "evidence-2026-10-08/storage-shared-contention-2026-10-07T22-23-31-093Z-8d9875/node-shared-sqlite-wal-normal-b1-w1-r1/attempts.jsonl",
+      "bytes": 12952,
+      "sha256": "048c8de59ad7c3c8d6455b34d5445f2b6202d36af28f5efdf813ba72697f55cc"
+    },
+    {
+      "path": "evidence-2026-10-08/storage-shared-contention-2026-10-07T22-23-31-093Z-8d9875/node-shared-sqlite-wal-normal-b100-w1-r0/attempts.jsonl",
+      "bytes": 12822,
+      "sha256": "0b25f04be7330b688beda2ae16c4bbab2fcb3f9c205e4e55b9402784c56d1284"
+    },
+    {
+      "path": "evidence-2026-10-08/storage-shared-contention-2026-10-07T22-23-31-093Z-8d9875/go-sync-sqlite-wal-normal-b100-w4-r1/attempts.jsonl",
+      "bytes": 11938,
+      "sha256": "088e14a598a7236378c48acf521772b02a661820e2b8604118c46919fcf43d7d"
+    },
+    {
+      "path": "evidence-2026-10-08/storage-shared-contention-2026-10-07T22-23-31-093Z-8d9875/rust-sync-sqlite-delete-full-b1-w1-r1/attempts.jsonl",
+      "bytes": 12024,
+      "sha256": "55099ddc118383fb8af3a5195680bef0b4319433af948c133bd71a22e3297cc2"
+    },
+    {
+      "path": "evidence-2026-10-08/storage-shared-contention-2026-10-07T22-23-31-093Z-8d9875/node-shared-sqlite-wal-full-b100-w4-r0/attempts.jsonl",
+      "bytes": 12825,
+      "sha256": "102f6c03646b59e031fb16160a5da1c29e55ee9cbe2d6654e8f5b0e0064b8851"
+    },
+    {
+      "path": "evidence-2026-10-08/storage-shared-contention-2026-10-07T22-23-31-093Z-8d9875/rust-sync-sqlite-wal-normal-b100-w1-r0/attempts.jsonl",
+      "bytes": 12020,
+      "sha256": "e1d7a6a2eddfd819631e196dc0742a2b0a72758d2018d5b715817bd85f6a0068"
+    },
+    {
+      "path": "evidence-2026-10-08/storage-shared-contention-2026-10-07T22-23-31-093Z-8d9875/node-shared-sqlite-wal-normal-b100-w1-r1/attempts.jsonl",
+      "bytes": 12991,
+      "sha256": "01c4629e4f6f260a5de12bdf89d65b9461d0e1a27bd3e03db90cfdb3facec2bd"
+    },
+    {
+      "path": "evidence-2026-10-08/storage-shared-contention-2026-10-07T22-23-31-093Z-8d9875/go-sync-sqlite-wal-normal-b100-w4-r0/attempts.jsonl",
+      "bytes": 11824,
+      "sha256": "261a276b11345178253d13f200944f2a97ac2802b2aa66698138b99b965811ee"
+    },
+    {
+      "path": "evidence-2026-10-08/storage-shared-contention-2026-10-07T22-23-31-093Z-8d9875/go-sync-sqlite-delete-full-b100-w1-r0/attempts.jsonl",
+      "bytes": 11801,
+      "sha256": "1ed2d6669e2c46997f3030952aae79848e6276201e49b2b9cc270464fcb55ad3"
+    },
+    {
+      "path": "evidence-2026-10-08/storage-shared-contention-2026-10-07T22-23-31-093Z-8d9875/node-shared-sqlite-wal-normal-b1-w1-r0/attempts.jsonl",
+      "bytes": 12811,
+      "sha256": "811d74361293c1c5ba493f23164338d8ac792c04dd283c22b9cb6957431fcd33"
+    },
+    {
+      "path": "evidence-2026-10-08/storage-shared-contention-2026-10-07T22-23-31-093Z-8d9875/rust-sync-sqlite-wal-normal-b100-w1-r1/attempts.jsonl",
+      "bytes": 12233,
+      "sha256": "55dff8d3173d98b5ba5950f4f337c5a4aaf1d3c2c4f48edd0c02da86c9b9a009"
+    },
+    {
+      "path": "evidence-2026-10-08/storage-shared-contention-2026-10-07T22-23-31-093Z-8d9875/sources/pnpm-lock.yaml",
+      "bytes": 160696,
+      "sha256": "5de2f799a822e743655d987ce8058e2ef7ad4ab5645105f7c7f5b160dae89177"
+    },
+    {
+      "path": "evidence-2026-10-08/storage-shared-contention-2026-10-07T22-23-31-093Z-8d9875/sources/.node-version",
+      "bytes": 7,
+      "sha256": "aa0d48458ddcabfd2382395c55a5fec977c56664f5c87dac1a49655a7d6faada"
+    },
+    {
+      "path": "evidence-2026-10-08/storage-shared-contention-2026-10-07T22-23-31-093Z-8d9875/sources/package.json",
+      "bytes": 692,
+      "sha256": "c7bc7a581210eb64c39f76ee166e61b7f84148560cb0e1e647b215de12d8dd45"
+    },
+    {
+      "path": "evidence-2026-10-08/storage-shared-contention-2026-10-07T22-23-31-093Z-8d9875/sources/tsconfig.json",
+      "bytes": 395,
+      "sha256": "56b6ec40c7eecf9798e19d3759d0eb78834af67bb30821d650245256d04ac196"
+    },
+    {
+      "path": "evidence-2026-10-08/storage-shared-contention-2026-10-07T22-23-31-093Z-8d9875/sources/pnpm-workspace.yaml",
+      "bytes": 335,
+      "sha256": "0efca8723660feb40bfa66318375c08aa4d927d6788cb161e5e6c11c7e3fae3d"
+    },
+    {
+      "path": "evidence-2026-10-08/storage-shared-contention-2026-10-07T22-23-31-093Z-8d9875/node-shared-sqlite-wal-full-b100-w4-r1/attempts.jsonl",
+      "bytes": 12991,
+      "sha256": "35a166cae0ecd8b29c7da3794c548517b72ff745537e6ccb907031f57e894282"
+    },
+    {
+      "path": "evidence-2026-10-08/storage-shared-contention-2026-10-07T22-23-31-093Z-8d9875/rust-sync-sqlite-delete-full-b1-w1-r0/attempts.jsonl",
+      "bytes": 11948,
+      "sha256": "f0ffd69aef9680359668375e517e9e5a886c0021693c65584c0840dd12af9269"
+    },
+    {
+      "path": "evidence-2026-10-08/storage-shared-contention-2026-10-07T22-23-31-093Z-8d9875/rust-sync-sqlite-delete-full-b100-w1-r0/attempts.jsonl",
+      "bytes": 12104,
+      "sha256": "28698fb03ad707a534d82e02a4d41f192254911804fb1b4d00101630bcfb4b01"
+    },
+    {
+      "path": "evidence-2026-10-08/storage-shared-contention-2026-10-07T22-23-31-093Z-8d9875/go-sync-sqlite-wal-normal-b1-w1-r1/attempts.jsonl",
+      "bytes": 11824,
+      "sha256": "aba2b16b40895a36628596bd2887804a8951ddf664149346f2c3b2b465443ca5"
+    },
+    {
+      "path": "evidence-2026-10-08/storage-shared-contention-2026-10-07T22-23-31-093Z-8d9875/rust-sync-sqlite-wal-full-b1-w1-r0/attempts.jsonl",
+      "bytes": 11902,
+      "sha256": "5b0afdb9e6f74858e9d4ba75683e38f99f1fac90592b8b0444ea640790fea99f"
+    },
+    {
+      "path": "evidence-2026-10-08/storage-shared-contention-2026-10-07T22-23-31-093Z-8d9875/go-sync-sqlite-wal-full-b100-w4-r0/attempts.jsonl",
+      "bytes": 11798,
+      "sha256": "a505be8291031a9f4249206d2e099f3aee5d5e9d75e30fafae6b8186a2b3101d"
+    },
+    {
+      "path": "evidence-2026-10-08/storage-shared-contention-2026-10-07T22-23-31-093Z-8d9875/go-sync-sqlite-wal-normal-b1-w1-r0/attempts.jsonl",
+      "bytes": 11706,
+      "sha256": "87506b4e53eb494d895df0a66ce4e207e0d32ef6246539ba0b6b848fda7e1cdb"
+    },
+    {
+      "path": "evidence-2026-10-08/storage-shared-contention-2026-10-07T22-23-31-093Z-8d9875/rust-sync-sqlite-delete-full-b100-w1-r1/attempts.jsonl",
+      "bytes": 12167,
+      "sha256": "152c302d492b6305d385292d46f6dbcb47ea62df29269e49e25aba663c3a7243"
+    },
+    {
+      "path": "evidence-2026-10-08/storage-shared-contention-2026-10-07T22-23-31-093Z-8d9875/go-sync-sqlite-wal-full-b100-w4-r1/attempts.jsonl",
+      "bytes": 11949,
+      "sha256": "7efd27c196251affb924a61a1e40c9c43f72f0052f157bdd37965f7d24f0aa38"
+    },
+    {
+      "path": "evidence-2026-10-08/storage-shared-contention-2026-10-07T22-23-31-093Z-8d9875/rust-sync-sqlite-wal-full-b1-w1-r1/attempts.jsonl",
+      "bytes": 11984,
+      "sha256": "1fe2b94e2bd5270adf734cd7d01ba2fe2f8129f93225065ffe18cbd3653484b0"
+    },
+    {
+      "path": "evidence-2026-10-08/storage-shared-contention-2026-10-07T22-23-31-093Z-8d9875/go-sync-sqlite-wal-normal-b1-w4-r1/attempts.jsonl",
+      "bytes": 11789,
+      "sha256": "a77f83bc626d4bc7829bbd10a552fc4a30441b4525983af3c2f23726725f1dbf"
+    },
+    {
+      "path": "evidence-2026-10-08/storage-shared-contention-2026-10-07T22-23-31-093Z-8d9875/rust-sync-sqlite-delete-full-b100-w4-r0/attempts.jsonl",
+      "bytes": 12143,
+      "sha256": "2efe86178f9c583eff913d895939a829cfb31ebbbaa21a7163dbb86079ba5a21"
+    },
+    {
+      "path": "evidence-2026-10-08/storage-shared-contention-2026-10-07T22-23-31-093Z-8d9875/go-sync-sqlite-wal-full-b100-w1-r0/attempts.jsonl",
+      "bytes": 11824,
+      "sha256": "165913759b78d464784afdbb84f3312c598a159412e5900d9ebc755f9be91665"
+    },
+    {
+      "path": "evidence-2026-10-08/storage-shared-contention-2026-10-07T22-23-31-093Z-8d9875/rust-sync-sqlite-wal-full-b1-w4-r0/attempts.jsonl",
+      "bytes": 11953,
+      "sha256": "0bb43bde8b15ae909f03e22ddf3774e8caa47007267b7e9ca27210a873be97d0"
+    },
+    {
+      "path": "evidence-2026-10-08/storage-shared-contention-2026-10-07T22-23-31-093Z-8d9875/rust-sync-sqlite-delete-full-b100-w4-r1/attempts.jsonl",
+      "bytes": 12251,
+      "sha256": "d9b5faa364c9599cdd7b769bae1cf128aa1114fd1519f350cf72e439d06d4480"
+    },
+    {
+      "path": "evidence-2026-10-08/storage-shared-contention-2026-10-07T22-23-31-093Z-8d9875/go-sync-sqlite-wal-normal-b1-w4-r0/attempts.jsonl",
+      "bytes": 11670,
+      "sha256": "eb158f47d635c46771c1a14c67993da35c6bcf628d48bed1f98748c5146245f5"
+    },
+    {
+      "path": "evidence-2026-10-08/storage-shared-contention-2026-10-07T22-23-31-093Z-8d9875/rust-sync-sqlite-wal-full-b1-w4-r1/attempts.jsonl",
+      "bytes": 12145,
+      "sha256": "8ebf83c89811234efa58dc8f3b66ec62a0a7d1d964de57572f391ac68073c2a2"
+    },
+    {
+      "path": "evidence-2026-10-08/storage-shared-contention-2026-10-07T22-23-31-093Z-8d9875/go-sync-sqlite-wal-full-b100-w1-r1/attempts.jsonl",
+      "bytes": 11936,
+      "sha256": "6e2ce23b820dfaa46483d60355b51ce123b2c114713035b506756f465b79746a"
+    },
+    {
+      "path": "evidence-2026-10-08/storage-shared-contention-2026-10-07T22-23-31-093Z-8d9875/sources/tools/doctor.ts",
+      "bytes": 1537,
+      "sha256": "590dfe9777c6add1d4462280f63a718a7aa95b2daa3245e6004498226c00147a"
+    },
+    {
+      "path": "evidence-2026-10-08/storage-shared-contention-2026-10-07T22-23-31-093Z-8d9875/sources/tools/build-shared-sqlite.ts",
+      "bytes": 5928,
+      "sha256": "d4dfb62b41b3ebe5e8450dd0b7c5f591d4a43675acab086e8e884caca07d8772"
+    },
+    {
+      "path": "evidence-2026-10-08/storage-shared-contention-2026-10-07T22-23-31-093Z-8d9875/sources/tools/bootstrap.ts",
+      "bytes": 1236,
+      "sha256": "66cf117d9d6ec46a01d5ec87719abf79f087b7c8495a8559d8ce8b0b28720dbf"
+    },
+    {
+      "path": "evidence-2026-10-08/storage-shared-contention-2026-10-07T22-23-31-093Z-8d9875/sources/fixtures/server.ts",
+      "bytes": 9231,
+      "sha256": "78bbdd1f6269cd5170d40c02b6fb68cafcd1af94f52352d7f766afebb4ca900c"
+    },
+    {
+      "path": "evidence-2026-10-08/storage-shared-contention-2026-10-07T22-23-31-093Z-8d9875/sources/src/report.ts",
+      "bytes": 3459,
+      "sha256": "12269d35f5a0d01fee289567e0e192e7b8ccb8d5bc0680576a5757d50375158e"
+    },
+    {
+      "path": "evidence-2026-10-08/storage-shared-contention-2026-10-07T22-23-31-093Z-8d9875/sources/src/worker-client.ts",
+      "bytes": 4027,
+      "sha256": "34645ddaea64c68f9d8e97034fbdd9410befdad74b017d204e373c1ba7ffbbd4"
+    },
+    {
+      "path": "evidence-2026-10-08/storage-shared-contention-2026-10-07T22-23-31-093Z-8d9875/sources/src/statistics.ts",
+      "bytes": 2147,
+      "sha256": "86fe385d542188716a594bca2793927bd62a3bdba8af11f6620ebb07b5c7324d"
+    },
+    {
+      "path": "evidence-2026-10-08/storage-shared-contention-2026-10-07T22-23-31-093Z-8d9875/sources/src/workflow.ts",
+      "bytes": 11752,
+      "sha256": "2d8df32f816091fa412500780bac4bc97f604f74c48f87a55ce3187cdc5f6bd4"
+    },
+    {
+      "path": "evidence-2026-10-08/storage-shared-contention-2026-10-07T22-23-31-093Z-8d9875/sources/src/scheduler.ts",
+      "bytes": 1938,
+      "sha256": "d247c784832f09dbe81380e8d190c635e8992944409eb684b8c9204914c46b45"
+    },
+    {
+      "path": "evidence-2026-10-08/storage-shared-contention-2026-10-07T22-23-31-093Z-8d9875/sources/src/resources.ts",
+      "bytes": 1512,
+      "sha256": "ae64318875812c39097ca5526b9b36d9a43e27b1b807c3d5a363a18b1fdec14c"
+    },
+    {
+      "path": "evidence-2026-10-08/storage-shared-contention-2026-10-07T22-23-31-093Z-8d9875/sources/src/environment.ts",
+      "bytes": 3661,
+      "sha256": "e31521c87f2883bf14c74fc83988ac50a42e35f493de335dcdb7696c0c1c20d6"
+    },
+    {
+      "path": "evidence-2026-10-08/storage-shared-contention-2026-10-07T22-23-31-093Z-8d9875/sources/src/storage-engines.ts",
+      "bytes": 2826,
+      "sha256": "9c90df1bf6fc7052529c6a3663dca5a4c07dd6f979a9951bc72e77431614d473"
+    },
+    {
+      "path": "evidence-2026-10-08/storage-shared-contention-2026-10-07T22-23-31-093Z-8d9875/sources/src/storage.ts",
+      "bytes": 2533,
+      "sha256": "75a36ba6730dffbdbac7d9a31ad82c8cca88c241e554d2a914853df9be883eee"
+    },
+    {
+      "path": "evidence-2026-10-08/storage-shared-contention-2026-10-07T22-23-31-093Z-8d9875/sources/src/cli.ts",
+      "bytes": 1330,
+      "sha256": "aa92b283bfd88170d984a32750034417d2d2afa2b37ab998801304b29b5c443c"
+    },
+    {
+      "path": "evidence-2026-10-08/storage-shared-contention-2026-10-07T22-23-31-093Z-8d9875/sources/src/campaign.ts",
+      "bytes": 12571,
+      "sha256": "4cc6709341b1c7674d69c29c0abb067c238efebfa93fd766805fcf993ab6eb93"
+    },
+    {
+      "path": "evidence-2026-10-08/storage-shared-contention-2026-10-07T22-23-31-093Z-8d9875/sources/src/worker-server.ts",
+      "bytes": 2132,
+      "sha256": "0d47267bc34e59fd64c3db643f0dc26b4e8f6e3335df8d8a7881f0624b995c84"
+    },
+    {
+      "path": "evidence-2026-10-08/storage-shared-contention-2026-10-07T22-23-31-093Z-8d9875/sources/src/storage-cli.ts",
+      "bytes": 570,
+      "sha256": "a477c23708c2353875cac300baacc7cce155ee4c19af9ccf997757b03c89c73d"
+    },
+    {
+      "path": "evidence-2026-10-08/storage-shared-contention-2026-10-07T22-23-31-093Z-8d9875/sources/src/workflow-cli.ts",
+      "bytes": 589,
+      "sha256": "8cdb26b76bc35af812002e15872e35f361c20de122e3d8d64bd5533a98236cb4"
+    },
+    {
+      "path": "evidence-2026-10-08/storage-shared-contention-2026-10-07T22-23-31-093Z-8d9875/sources/src/workflow-campaign.ts",
+      "bytes": 10002,
+      "sha256": "7da7589de88258f6340861c772f5fbd2784c9c17e953b08a1e040edb0fb254c5"
+    },
+    {
+      "path": "evidence-2026-10-08/storage-shared-contention-2026-10-07T22-23-31-093Z-8d9875/sources/src/registry.ts",
+      "bytes": 1348,
+      "sha256": "23d04d8d9078df7b9f72c915126c8110ba44f06165b6df7f5d846cb7db71b5fa"
+    },
+    {
+      "path": "evidence-2026-10-08/storage-shared-contention-2026-10-07T22-23-31-093Z-8d9875/sources/src/storage-campaign.ts",
+      "bytes": 12586,
+      "sha256": "36fd3097a971ab3e74e84735ed374448be7920a6dc694577df5d0ca080f20623"
+    },
+    {
+      "path": "evidence-2026-10-08/storage-shared-contention-2026-10-07T22-23-31-093Z-8d9875/sources/adapters/storage-rust/Cargo.toml",
+      "bytes": 340,
+      "sha256": "3d9ba6be5227b11f7caa022403781a92d24d879b4d7169119e603a9503735eb0"
+    },
+    {
+      "path": "evidence-2026-10-08/storage-shared-contention-2026-10-07T22-23-31-093Z-8d9875/sources/adapters/storage-rust/Cargo.lock",
+      "bytes": 28594,
+      "sha256": "3948c489d83b8e492ce3540d7be1b95f348d8dc016b66e897524b6e8c2d95c7c"
+    },
+    {
+      "path": "evidence-2026-10-08/storage-shared-contention-2026-10-07T22-23-31-093Z-8d9875/sources/adapters/sqlite-common/lab_sqlite.h",
+      "bytes": 622,
+      "sha256": "3203e2f8693041a9505754a4e1b7d3510be7c070b33b5fd6620e03a1548352b4"
+    },
+    {
+      "path": "evidence-2026-10-08/storage-shared-contention-2026-10-07T22-23-31-093Z-8d9875/sources/adapters/sqlite-common/node_addon.c",
+      "bytes": 3499,
+      "sha256": "eaa15a0116a730e79fef74854544806d99a2faba4045355dc21c3a7beef045d1"
+    },
+    {
+      "path": "evidence-2026-10-08/storage-shared-contention-2026-10-07T22-23-31-093Z-8d9875/sources/adapters/sqlite-common/lab_sqlite.c",
+      "bytes": 3962,
+      "sha256": "22709a4794e41132cc30de68a9f34aa0502566fe39d6bcba95c075386436fdb7"
+    },
+    {
+      "path": "evidence-2026-10-08/storage-shared-contention-2026-10-07T22-23-31-093Z-8d9875/sources/adapters/rust/Cargo.toml",
+      "bytes": 566,
+      "sha256": "93f7918b75c5c076a680e16d73f549862c5fd37505b14852b5d597e718730930"
+    },
+    {
+      "path": "evidence-2026-10-08/storage-shared-contention-2026-10-07T22-23-31-093Z-8d9875/sources/adapters/rust/Cargo.lock",
+      "bytes": 115660,
+      "sha256": "c98b6ad561f91885b38c33b3781b4e67ed527d2deb0880500a2a8befbd4ab2cd"
+    },
+    {
+      "path": "evidence-2026-10-08/storage-shared-contention-2026-10-07T22-23-31-093Z-8d9875/sources/adapters/stagehand-v3/package.json",
+      "bytes": 220,
+      "sha256": "59ea14e936b34c80170481ae32215c5712fb1d239fe83f52b5f54d5d316c5d12"
+    },
+    {
+      "path": "evidence-2026-10-08/storage-shared-contention-2026-10-07T22-23-31-093Z-8d9875/sources/adapters/stagehand-v3/worker.ts",
+      "bytes": 3417,
+      "sha256": "43acbb80c41769e56c71670bae1d1c615c14654cd6408f967db43a47554e0949"
+    },
+    {
+      "path": "evidence-2026-10-08/storage-shared-contention-2026-10-07T22-23-31-093Z-8d9875/sources/adapters/workflow-node/worker.ts",
+      "bytes": 7116,
+      "sha256": "53c93dd701dc7368110d0cd5b26db16eb638e1603b46406019f19531131fbcf4"
+    },
+    {
+      "path": "evidence-2026-10-08/storage-shared-contention-2026-10-07T22-23-31-093Z-8d9875/sources/adapters/storage-shared-node/worker.ts",
+      "bytes": 1741,
+      "sha256": "88036d041df21bfc87f7e1e6a63db9b4359628f22dff71cbba1e80e937ab4b16"
+    },
+    {
+      "path": "evidence-2026-10-08/storage-shared-contention-2026-10-07T22-23-31-093Z-8d9875/sources/adapters/storage-go-sync/go.mod",
+      "bytes": 46,
+      "sha256": "7ecfea82372a8ba0c1142df0f1d75faa489dfde4c2cc43ff69af331b9042bb07"
+    },
+    {
+      "path": "evidence-2026-10-08/storage-shared-contention-2026-10-07T22-23-31-093Z-8d9875/sources/adapters/storage-go-sync/main.go",
+      "bytes": 4223,
+      "sha256": "c8f17b923ebc98acfcc23fa976e1d8d81efd6479e15f2fe7daa65c236dda457a"
+    },
+    {
+      "path": "evidence-2026-10-08/storage-shared-contention-2026-10-07T22-23-31-093Z-8d9875/sources/adapters/storage-node/worker.ts",
+      "bytes": 3848,
+      "sha256": "e2e52d8d5a6207ae278b96d26e1e00865a80efa0c2689b3f6e6f025e876a265b"
+    },
+    {
+      "path": "evidence-2026-10-08/storage-shared-contention-2026-10-07T22-23-31-093Z-8d9875/sources/adapters/storage-rust-sync/Cargo.toml",
+      "bytes": 142,
+      "sha256": "76fa86c5fc67377cae8ef483cb37b93c440103937958c3c3f40ede9d21d0fb66"
+    },
+    {
+      "path": "evidence-2026-10-08/storage-shared-contention-2026-10-07T22-23-31-093Z-8d9875/sources/adapters/storage-rust-sync/Cargo.lock",
+      "bytes": 2655,
+      "sha256": "753d53e9c25f62601bc3dfe4a9c22dbea093775909b4fb8aae7acde60b30cc1e"
+    },
+    {
+      "path": "evidence-2026-10-08/storage-shared-contention-2026-10-07T22-23-31-093Z-8d9875/sources/adapters/storage-rust-sync/build.rs",
+      "bytes": 598,
+      "sha256": "229a482f822551afe6542aa988ef6ff22e15aba2c64546647d2d1546dbcd7250"
+    },
+    {
+      "path": "evidence-2026-10-08/storage-shared-contention-2026-10-07T22-23-31-093Z-8d9875/sources/adapters/node/package.json",
+      "bytes": 221,
+      "sha256": "ecca9c029d30e060766c4b70dd9df6433adda9944d11969e39bacf33f6ac89b4"
+    },
+    {
+      "path": "evidence-2026-10-08/storage-shared-contention-2026-10-07T22-23-31-093Z-8d9875/sources/adapters/node/pooled-worker.ts",
+      "bytes": 2546,
+      "sha256": "9129c69cc32d27bf5053d3d982a3340af22af65983e9b7b7d38a98ec7549b9c1"
+    },
+    {
+      "path": "evidence-2026-10-08/storage-shared-contention-2026-10-07T22-23-31-093Z-8d9875/sources/adapters/node/worker.ts",
+      "bytes": 10067,
+      "sha256": "5c7254b51a02b33ca87948dd91febcbee489ca107b139af53ddebaef63795fc7"
+    },
+    {
+      "path": "evidence-2026-10-08/storage-shared-contention-2026-10-07T22-23-31-093Z-8d9875/sources/adapters/node/browser-tasks.ts",
+      "bytes": 3980,
+      "sha256": "4181ff5065f91245c2e3beed49d1e0439f65f4ddd9ce7c27dc9f49afbd57311c"
+    },
+    {
+      "path": "evidence-2026-10-08/storage-shared-contention-2026-10-07T22-23-31-093Z-8d9875/sources/adapters/storage-rust-sync/src/main.rs",
+      "bytes": 6034,
+      "sha256": "417ec53dbedc58b5538e93a1e02ce8b6d764292cb9ac7879608940c4136b709f"
+    },
+    {
+      "path": "evidence-2026-10-08/storage-shared-contention-2026-10-07T22-23-31-093Z-8d9875/sources/adapters/rust/src/main.rs",
+      "bytes": 6656,
+      "sha256": "1998089ef3269426f27d21df673b6ca24772d4df66c550bd32cb318a64aac4e1"
+    },
+    {
+      "path": "evidence-2026-10-08/storage-shared-contention-2026-10-07T22-23-31-093Z-8d9875/sources/adapters/storage-rust/src/main.rs",
+      "bytes": 9410,
+      "sha256": "7d9b7cf1734f3e54dfd88dd7d533875eed94e327d7dcf7fdeebfd5facc0c6349"
+    },
+    {
+      "path": "evidence-2026-10-08/storage-shared-checkpoint-2026-10-07T22-24-20-072Z-de4c14/summary.json",
+      "bytes": 33955,
+      "sha256": "362ba7ba7dbb73c8ba8033d0e32547b4db36f63a9d4e28c998a3fa13c836e1b2"
+    },
+    {
+      "path": "evidence-2026-10-08/storage-shared-checkpoint-2026-10-07T22-24-20-072Z-de4c14/manifest.json",
+      "bytes": 9588,
+      "sha256": "049365fa0bc135c891c57dc7ad8c5d02611504c7543f33fa484b2fc4caa566fa"
+    },
+    {
+      "path": "evidence-2026-10-08/storage-shared-checkpoint-2026-10-07T22-24-20-072Z-de4c14/report.html",
+      "bytes": 2657,
+      "sha256": "311ca64d2b731d5f743355e45a92a5c20fc68b6f2a491d8b37ba53159fe83a16"
+    },
+    {
+      "path": "evidence-2026-10-08/storage-shared-checkpoint-2026-10-07T22-24-20-072Z-de4c14/node-shared-sqlite-wal-full-b1000-w1-r2/attempts.jsonl",
+      "bytes": 12983,
+      "sha256": "1998826b859aa312e00f828d8842a6d1faff60112c6472290b75f6062c2e97c8"
+    },
+    {
+      "path": "evidence-2026-10-08/storage-shared-checkpoint-2026-10-07T22-24-20-072Z-de4c14/go-sync-sqlite-wal-full-b1000-w1-r2/attempts.jsonl",
+      "bytes": 12027,
+      "sha256": "8f7f69d011e4cd1fccc5707fdcec36de3ee153329fc8b814f1840bc132d36001"
+    },
+    {
+      "path": "evidence-2026-10-08/storage-shared-checkpoint-2026-10-07T22-24-20-072Z-de4c14/rust-sync-sqlite-wal-full-b1000-w1-r0/attempts.jsonl",
+      "bytes": 12125,
+      "sha256": "646060a0aabca567eb90365458ed7a163325bbc802b59331f45bef965ff0aaa2"
+    },
+    {
+      "path": "evidence-2026-10-08/storage-shared-checkpoint-2026-10-07T22-24-20-072Z-de4c14/rust-sync-sqlite-wal-full-b1000-w1-r1/attempts.jsonl",
+      "bytes": 12270,
+      "sha256": "7fa1a508b790d7002b696a63360b6f72eeb7f4dd4d9a365096f92a95fba02697"
+    },
+    {
+      "path": "evidence-2026-10-08/storage-shared-checkpoint-2026-10-07T22-24-20-072Z-de4c14/node-shared-sqlite-wal-full-b1000-w1-r0/attempts.jsonl",
+      "bytes": 12794,
+      "sha256": "327396f093a7cfbe1a3de478d5c5e5adcb08d030a369a3660ffae725c5fa7d0a"
+    },
+    {
+      "path": "evidence-2026-10-08/storage-shared-checkpoint-2026-10-07T22-24-20-072Z-de4c14/node-shared-sqlite-wal-full-b1000-w1-r1/attempts.jsonl",
+      "bytes": 13005,
+      "sha256": "d9563537989d780a303cfdbf3ae76600c7e26c73272d40d83e67a473e140f944"
+    },
+    {
+      "path": "evidence-2026-10-08/storage-shared-checkpoint-2026-10-07T22-24-20-072Z-de4c14/sources/pnpm-lock.yaml",
+      "bytes": 160696,
+      "sha256": "5de2f799a822e743655d987ce8058e2ef7ad4ab5645105f7c7f5b160dae89177"
+    },
+    {
+      "path": "evidence-2026-10-08/storage-shared-checkpoint-2026-10-07T22-24-20-072Z-de4c14/sources/.node-version",
+      "bytes": 7,
+      "sha256": "aa0d48458ddcabfd2382395c55a5fec977c56664f5c87dac1a49655a7d6faada"
+    },
+    {
+      "path": "evidence-2026-10-08/storage-shared-checkpoint-2026-10-07T22-24-20-072Z-de4c14/sources/package.json",
+      "bytes": 692,
+      "sha256": "c7bc7a581210eb64c39f76ee166e61b7f84148560cb0e1e647b215de12d8dd45"
+    },
+    {
+      "path": "evidence-2026-10-08/storage-shared-checkpoint-2026-10-07T22-24-20-072Z-de4c14/sources/tsconfig.json",
+      "bytes": 395,
+      "sha256": "56b6ec40c7eecf9798e19d3759d0eb78834af67bb30821d650245256d04ac196"
+    },
+    {
+      "path": "evidence-2026-10-08/storage-shared-checkpoint-2026-10-07T22-24-20-072Z-de4c14/sources/pnpm-workspace.yaml",
+      "bytes": 335,
+      "sha256": "0efca8723660feb40bfa66318375c08aa4d927d6788cb161e5e6c11c7e3fae3d"
+    },
+    {
+      "path": "evidence-2026-10-08/storage-shared-checkpoint-2026-10-07T22-24-20-072Z-de4c14/go-sync-sqlite-wal-full-b1000-w1-r1/attempts.jsonl",
+      "bytes": 12054,
+      "sha256": "350a200de0035ff8b2cbb4225d4b6f1ecdf4df0bf1401cdc407c7ecddc5433cd"
+    },
+    {
+      "path": "evidence-2026-10-08/storage-shared-checkpoint-2026-10-07T22-24-20-072Z-de4c14/rust-sync-sqlite-wal-full-b1000-w1-r2/attempts.jsonl",
+      "bytes": 12308,
+      "sha256": "61368aecb427f0a992cb4d3d1052ec09cd8bf2b4c85ca5d5aef39032daf03b00"
+    },
+    {
+      "path": "evidence-2026-10-08/storage-shared-checkpoint-2026-10-07T22-24-20-072Z-de4c14/go-sync-sqlite-wal-full-b1000-w1-r0/attempts.jsonl",
+      "bytes": 11891,
+      "sha256": "3be096951e0b2c9647583fc5919c5ba5ac9e00c6c67c154d0d9530043d85a2eb"
+    },
+    {
+      "path": "evidence-2026-10-08/storage-shared-checkpoint-2026-10-07T22-24-20-072Z-de4c14/sources/tools/doctor.ts",
+      "bytes": 1537,
+      "sha256": "590dfe9777c6add1d4462280f63a718a7aa95b2daa3245e6004498226c00147a"
+    },
+    {
+      "path": "evidence-2026-10-08/storage-shared-checkpoint-2026-10-07T22-24-20-072Z-de4c14/sources/tools/build-shared-sqlite.ts",
+      "bytes": 5928,
+      "sha256": "d4dfb62b41b3ebe5e8450dd0b7c5f591d4a43675acab086e8e884caca07d8772"
+    },
+    {
+      "path": "evidence-2026-10-08/storage-shared-checkpoint-2026-10-07T22-24-20-072Z-de4c14/sources/tools/bootstrap.ts",
+      "bytes": 1236,
+      "sha256": "66cf117d9d6ec46a01d5ec87719abf79f087b7c8495a8559d8ce8b0b28720dbf"
+    },
+    {
+      "path": "evidence-2026-10-08/storage-shared-checkpoint-2026-10-07T22-24-20-072Z-de4c14/sources/fixtures/server.ts",
+      "bytes": 9231,
+      "sha256": "78bbdd1f6269cd5170d40c02b6fb68cafcd1af94f52352d7f766afebb4ca900c"
+    },
+    {
+      "path": "evidence-2026-10-08/storage-shared-checkpoint-2026-10-07T22-24-20-072Z-de4c14/sources/src/report.ts",
+      "bytes": 3459,
+      "sha256": "12269d35f5a0d01fee289567e0e192e7b8ccb8d5bc0680576a5757d50375158e"
+    },
+    {
+      "path": "evidence-2026-10-08/storage-shared-checkpoint-2026-10-07T22-24-20-072Z-de4c14/sources/src/worker-client.ts",
+      "bytes": 4027,
+      "sha256": "34645ddaea64c68f9d8e97034fbdd9410befdad74b017d204e373c1ba7ffbbd4"
+    },
+    {
+      "path": "evidence-2026-10-08/storage-shared-checkpoint-2026-10-07T22-24-20-072Z-de4c14/sources/src/statistics.ts",
+      "bytes": 2147,
+      "sha256": "86fe385d542188716a594bca2793927bd62a3bdba8af11f6620ebb07b5c7324d"
+    },
+    {
+      "path": "evidence-2026-10-08/storage-shared-checkpoint-2026-10-07T22-24-20-072Z-de4c14/sources/src/workflow.ts",
+      "bytes": 11752,
+      "sha256": "2d8df32f816091fa412500780bac4bc97f604f74c48f87a55ce3187cdc5f6bd4"
+    },
+    {
+      "path": "evidence-2026-10-08/storage-shared-checkpoint-2026-10-07T22-24-20-072Z-de4c14/sources/src/scheduler.ts",
+      "bytes": 1938,
+      "sha256": "d247c784832f09dbe81380e8d190c635e8992944409eb684b8c9204914c46b45"
+    },
+    {
+      "path": "evidence-2026-10-08/storage-shared-checkpoint-2026-10-07T22-24-20-072Z-de4c14/sources/src/resources.ts",
+      "bytes": 1512,
+      "sha256": "ae64318875812c39097ca5526b9b36d9a43e27b1b807c3d5a363a18b1fdec14c"
+    },
+    {
+      "path": "evidence-2026-10-08/storage-shared-checkpoint-2026-10-07T22-24-20-072Z-de4c14/sources/src/environment.ts",
+      "bytes": 3661,
+      "sha256": "e31521c87f2883bf14c74fc83988ac50a42e35f493de335dcdb7696c0c1c20d6"
+    },
+    {
+      "path": "evidence-2026-10-08/storage-shared-checkpoint-2026-10-07T22-24-20-072Z-de4c14/sources/src/storage-engines.ts",
+      "bytes": 2826,
+      "sha256": "9c90df1bf6fc7052529c6a3663dca5a4c07dd6f979a9951bc72e77431614d473"
+    },
+    {
+      "path": "evidence-2026-10-08/storage-shared-checkpoint-2026-10-07T22-24-20-072Z-de4c14/sources/src/storage.ts",
+      "bytes": 2533,
+      "sha256": "75a36ba6730dffbdbac7d9a31ad82c8cca88c241e554d2a914853df9be883eee"
+    },
+    {
+      "path": "evidence-2026-10-08/storage-shared-checkpoint-2026-10-07T22-24-20-072Z-de4c14/sources/src/cli.ts",
+      "bytes": 1330,
+      "sha256": "aa92b283bfd88170d984a32750034417d2d2afa2b37ab998801304b29b5c443c"
+    },
+    {
+      "path": "evidence-2026-10-08/storage-shared-checkpoint-2026-10-07T22-24-20-072Z-de4c14/sources/src/campaign.ts",
+      "bytes": 12571,
+      "sha256": "4cc6709341b1c7674d69c29c0abb067c238efebfa93fd766805fcf993ab6eb93"
+    },
+    {
+      "path": "evidence-2026-10-08/storage-shared-checkpoint-2026-10-07T22-24-20-072Z-de4c14/sources/src/worker-server.ts",
+      "bytes": 2132,
+      "sha256": "0d47267bc34e59fd64c3db643f0dc26b4e8f6e3335df8d8a7881f0624b995c84"
+    },
+    {
+      "path": "evidence-2026-10-08/storage-shared-checkpoint-2026-10-07T22-24-20-072Z-de4c14/sources/src/storage-cli.ts",
+      "bytes": 570,
+      "sha256": "a477c23708c2353875cac300baacc7cce155ee4c19af9ccf997757b03c89c73d"
+    },
+    {
+      "path": "evidence-2026-10-08/storage-shared-checkpoint-2026-10-07T22-24-20-072Z-de4c14/sources/src/workflow-cli.ts",
+      "bytes": 589,
+      "sha256": "8cdb26b76bc35af812002e15872e35f361c20de122e3d8d64bd5533a98236cb4"
+    },
+    {
+      "path": "evidence-2026-10-08/storage-shared-checkpoint-2026-10-07T22-24-20-072Z-de4c14/sources/src/workflow-campaign.ts",
+      "bytes": 10002,
+      "sha256": "7da7589de88258f6340861c772f5fbd2784c9c17e953b08a1e040edb0fb254c5"
+    },
+    {
+      "path": "evidence-2026-10-08/storage-shared-checkpoint-2026-10-07T22-24-20-072Z-de4c14/sources/src/registry.ts",
+      "bytes": 1348,
+      "sha256": "23d04d8d9078df7b9f72c915126c8110ba44f06165b6df7f5d846cb7db71b5fa"
+    },
+    {
+      "path": "evidence-2026-10-08/storage-shared-checkpoint-2026-10-07T22-24-20-072Z-de4c14/sources/src/storage-campaign.ts",
+      "bytes": 12586,
+      "sha256": "36fd3097a971ab3e74e84735ed374448be7920a6dc694577df5d0ca080f20623"
+    },
+    {
+      "path": "evidence-2026-10-08/storage-shared-checkpoint-2026-10-07T22-24-20-072Z-de4c14/sources/adapters/storage-rust/Cargo.toml",
+      "bytes": 340,
+      "sha256": "3d9ba6be5227b11f7caa022403781a92d24d879b4d7169119e603a9503735eb0"
+    },
+    {
+      "path": "evidence-2026-10-08/storage-shared-checkpoint-2026-10-07T22-24-20-072Z-de4c14/sources/adapters/storage-rust/Cargo.lock",
+      "bytes": 28594,
+      "sha256": "3948c489d83b8e492ce3540d7be1b95f348d8dc016b66e897524b6e8c2d95c7c"
+    },
+    {
+      "path": "evidence-2026-10-08/storage-shared-checkpoint-2026-10-07T22-24-20-072Z-de4c14/sources/adapters/sqlite-common/lab_sqlite.h",
+      "bytes": 622,
+      "sha256": "3203e2f8693041a9505754a4e1b7d3510be7c070b33b5fd6620e03a1548352b4"
+    },
+    {
+      "path": "evidence-2026-10-08/storage-shared-checkpoint-2026-10-07T22-24-20-072Z-de4c14/sources/adapters/sqlite-common/node_addon.c",
+      "bytes": 3499,
+      "sha256": "eaa15a0116a730e79fef74854544806d99a2faba4045355dc21c3a7beef045d1"
+    },
+    {
+      "path": "evidence-2026-10-08/storage-shared-checkpoint-2026-10-07T22-24-20-072Z-de4c14/sources/adapters/sqlite-common/lab_sqlite.c",
+      "bytes": 3962,
+      "sha256": "22709a4794e41132cc30de68a9f34aa0502566fe39d6bcba95c075386436fdb7"
+    },
+    {
+      "path": "evidence-2026-10-08/storage-shared-checkpoint-2026-10-07T22-24-20-072Z-de4c14/sources/adapters/rust/Cargo.toml",
+      "bytes": 566,
+      "sha256": "93f7918b75c5c076a680e16d73f549862c5fd37505b14852b5d597e718730930"
+    },
+    {
+      "path": "evidence-2026-10-08/storage-shared-checkpoint-2026-10-07T22-24-20-072Z-de4c14/sources/adapters/rust/Cargo.lock",
+      "bytes": 115660,
+      "sha256": "c98b6ad561f91885b38c33b3781b4e67ed527d2deb0880500a2a8befbd4ab2cd"
+    },
+    {
+      "path": "evidence-2026-10-08/storage-shared-checkpoint-2026-10-07T22-24-20-072Z-de4c14/sources/adapters/stagehand-v3/package.json",
+      "bytes": 220,
+      "sha256": "59ea14e936b34c80170481ae32215c5712fb1d239fe83f52b5f54d5d316c5d12"
+    },
+    {
+      "path": "evidence-2026-10-08/storage-shared-checkpoint-2026-10-07T22-24-20-072Z-de4c14/sources/adapters/stagehand-v3/worker.ts",
+      "bytes": 3417,
+      "sha256": "43acbb80c41769e56c71670bae1d1c615c14654cd6408f967db43a47554e0949"
+    },
+    {
+      "path": "evidence-2026-10-08/storage-shared-checkpoint-2026-10-07T22-24-20-072Z-de4c14/sources/adapters/workflow-node/worker.ts",
+      "bytes": 7116,
+      "sha256": "53c93dd701dc7368110d0cd5b26db16eb638e1603b46406019f19531131fbcf4"
+    },
+    {
+      "path": "evidence-2026-10-08/storage-shared-checkpoint-2026-10-07T22-24-20-072Z-de4c14/sources/adapters/storage-shared-node/worker.ts",
+      "bytes": 1741,
+      "sha256": "88036d041df21bfc87f7e1e6a63db9b4359628f22dff71cbba1e80e937ab4b16"
+    },
+    {
+      "path": "evidence-2026-10-08/storage-shared-checkpoint-2026-10-07T22-24-20-072Z-de4c14/sources/adapters/storage-go-sync/go.mod",
+      "bytes": 46,
+      "sha256": "7ecfea82372a8ba0c1142df0f1d75faa489dfde4c2cc43ff69af331b9042bb07"
+    },
+    {
+      "path": "evidence-2026-10-08/storage-shared-checkpoint-2026-10-07T22-24-20-072Z-de4c14/sources/adapters/storage-go-sync/main.go",
+      "bytes": 4223,
+      "sha256": "c8f17b923ebc98acfcc23fa976e1d8d81efd6479e15f2fe7daa65c236dda457a"
+    },
+    {
+      "path": "evidence-2026-10-08/storage-shared-checkpoint-2026-10-07T22-24-20-072Z-de4c14/sources/adapters/storage-node/worker.ts",
+      "bytes": 3848,
+      "sha256": "e2e52d8d5a6207ae278b96d26e1e00865a80efa0c2689b3f6e6f025e876a265b"
+    },
+    {
+      "path": "evidence-2026-10-08/storage-shared-checkpoint-2026-10-07T22-24-20-072Z-de4c14/sources/adapters/storage-rust-sync/Cargo.toml",
+      "bytes": 142,
+      "sha256": "76fa86c5fc67377cae8ef483cb37b93c440103937958c3c3f40ede9d21d0fb66"
+    },
+    {
+      "path": "evidence-2026-10-08/storage-shared-checkpoint-2026-10-07T22-24-20-072Z-de4c14/sources/adapters/storage-rust-sync/Cargo.lock",
+      "bytes": 2655,
+      "sha256": "753d53e9c25f62601bc3dfe4a9c22dbea093775909b4fb8aae7acde60b30cc1e"
+    },
+    {
+      "path": "evidence-2026-10-08/storage-shared-checkpoint-2026-10-07T22-24-20-072Z-de4c14/sources/adapters/storage-rust-sync/build.rs",
+      "bytes": 598,
+      "sha256": "229a482f822551afe6542aa988ef6ff22e15aba2c64546647d2d1546dbcd7250"
+    },
+    {
+      "path": "evidence-2026-10-08/storage-shared-checkpoint-2026-10-07T22-24-20-072Z-de4c14/sources/adapters/node/package.json",
+      "bytes": 221,
+      "sha256": "ecca9c029d30e060766c4b70dd9df6433adda9944d11969e39bacf33f6ac89b4"
+    },
+    {
+      "path": "evidence-2026-10-08/storage-shared-checkpoint-2026-10-07T22-24-20-072Z-de4c14/sources/adapters/node/pooled-worker.ts",
+      "bytes": 2546,
+      "sha256": "9129c69cc32d27bf5053d3d982a3340af22af65983e9b7b7d38a98ec7549b9c1"
+    },
+    {
+      "path": "evidence-2026-10-08/storage-shared-checkpoint-2026-10-07T22-24-20-072Z-de4c14/sources/adapters/node/worker.ts",
+      "bytes": 10067,
+      "sha256": "5c7254b51a02b33ca87948dd91febcbee489ca107b139af53ddebaef63795fc7"
+    },
+    {
+      "path": "evidence-2026-10-08/storage-shared-checkpoint-2026-10-07T22-24-20-072Z-de4c14/sources/adapters/node/browser-tasks.ts",
+      "bytes": 3980,
+      "sha256": "4181ff5065f91245c2e3beed49d1e0439f65f4ddd9ce7c27dc9f49afbd57311c"
+    },
+    {
+      "path": "evidence-2026-10-08/storage-shared-checkpoint-2026-10-07T22-24-20-072Z-de4c14/sources/adapters/storage-rust-sync/src/main.rs",
+      "bytes": 6034,
+      "sha256": "417ec53dbedc58b5538e93a1e02ce8b6d764292cb9ac7879608940c4136b709f"
+    },
+    {
+      "path": "evidence-2026-10-08/storage-shared-checkpoint-2026-10-07T22-24-20-072Z-de4c14/sources/adapters/rust/src/main.rs",
+      "bytes": 6656,
+      "sha256": "1998089ef3269426f27d21df673b6ca24772d4df66c550bd32cb318a64aac4e1"
+    },
+    {
+      "path": "evidence-2026-10-08/storage-shared-checkpoint-2026-10-07T22-24-20-072Z-de4c14/sources/adapters/storage-rust/src/main.rs",
+      "bytes": 9410,
+      "sha256": "7d9b7cf1734f3e54dfd88dd7d533875eed94e327d7dcf7fdeebfd5facc0c6349"
+    },
+    {
+      "path": "evidence-2026-10-08/workflow-throughput-2026-10-07T22-24-52-832Z-024c4f/summary.json",
+      "bytes": 122424,
+      "sha256": "b0295f730252fbc86a88f811427ef4949256c57391e6a4b9c60e60623e539b9d"
+    },
+    {
+      "path": "evidence-2026-10-08/workflow-throughput-2026-10-07T22-24-52-832Z-024c4f/manifest.json",
+      "bytes": 7000,
+      "sha256": "1a65007d23f9236d1272eedff88875a51371d5f8426ced6c039a090334bbba7a"
+    },
+    {
+      "path": "evidence-2026-10-08/workflow-throughput-2026-10-07T22-24-52-832Z-024c4f/report.html",
+      "bytes": 8034,
+      "sha256": "5acc9d6de3a24e5895f1af2675d92b005f932f622cffb09f5ac30e1ad0d226af"
+    },
+    {
+      "path": "evidence-2026-10-08/workflow-throughput-2026-10-07T22-24-52-832Z-024c4f/crawlee-http-c1-b1-none-r0/persisted.json",
+      "bytes": 48031,
+      "sha256": "a8d42cbc842f8011c9985b0f755e3819fa9a46f4499064f2ed6e86e475812cf4"
+    },
+    {
+      "path": "evidence-2026-10-08/workflow-throughput-2026-10-07T22-24-52-832Z-024c4f/crawlee-http-c1-b1-none-r0/events.jsonl",
+      "bytes": 11106,
+      "sha256": "5ffd093b0e38ecfe5f2fc4d1a0083b83e4eb93a4c5c6cc7618feb337060ae508"
+    },
+    {
+      "path": "evidence-2026-10-08/workflow-throughput-2026-10-07T22-24-52-832Z-024c4f/crawlee-http-c1-b1-none-r0/attempts.jsonl",
+      "bytes": 4950,
+      "sha256": "1fefde56d32fab29c73985d93cd44d38b4d3835aecf159d1e573172b07d62542"
+    },
+    {
+      "path": "evidence-2026-10-08/workflow-throughput-2026-10-07T22-24-52-832Z-024c4f/crawlee-http-c1-b1-none-r1/persisted.json",
+      "bytes": 48103,
+      "sha256": "4120b242557c22baf2c4df846c968a93030af7917c444470a9239c163cbf68e8"
+    },
+    {
+      "path": "evidence-2026-10-08/workflow-throughput-2026-10-07T22-24-52-832Z-024c4f/crawlee-http-c1-b1-none-r1/events.jsonl",
+      "bytes": 11110,
+      "sha256": "451d206180d514d57c3a1d57fdc782f5884380650750ba03dcf3e0da4caea6f2"
+    },
+    {
+      "path": "evidence-2026-10-08/workflow-throughput-2026-10-07T22-24-52-832Z-024c4f/crawlee-http-c1-b1-none-r1/attempts.jsonl",
+      "bytes": 4968,
+      "sha256": "eee575575bc549f03ca1fe87c43c706028d89d2d95a470cd849b190f128a7b37"
+    },
+    {
+      "path": "evidence-2026-10-08/workflow-throughput-2026-10-07T22-24-52-832Z-024c4f/spider-http-c8-b4-none-r0/persisted.json",
+      "bytes": 48031,
+      "sha256": "e74f39347da0085cb7044e5e703288e85af7b04499b95c65e5d4b2c5ff26cc71"
+    },
+    {
+      "path": "evidence-2026-10-08/workflow-throughput-2026-10-07T22-24-52-832Z-024c4f/spider-http-c8-b4-none-r0/events.jsonl",
+      "bytes": 8306,
+      "sha256": "4808ec7416643e8a95f0f5c5903940cc60b1d50323b0433cf197590c63255796"
+    },
+    {
+      "path": "evidence-2026-10-08/workflow-throughput-2026-10-07T22-24-52-832Z-024c4f/spider-http-c8-b4-none-r0/attempts.jsonl",
+      "bytes": 4954,
+      "sha256": "59397f90640b3fcb10babc08500bbf7cff29478812772efa31f5f7b4a9ba897a"
+    },
+    {
+      "path": "evidence-2026-10-08/workflow-throughput-2026-10-07T22-24-52-832Z-024c4f/crawlee-http-c4-b1-none-r1/persisted.json",
+      "bytes": 48103,
+      "sha256": "c1095ca8739d4443ba49b5e0efde20a40c73b3d60894042f01997ecfa26bb5f8"
+    },
+    {
+      "path": "evidence-2026-10-08/workflow-throughput-2026-10-07T22-24-52-832Z-024c4f/crawlee-http-c4-b1-none-r1/events.jsonl",
+      "bytes": 11114,
+      "sha256": "0508767d486b20af3e4961302955d91b941c675b8f8d827b5505264423dcc7d2"
+    },
+    {
+      "path": "evidence-2026-10-08/workflow-throughput-2026-10-07T22-24-52-832Z-024c4f/crawlee-http-c4-b1-none-r1/attempts.jsonl",
+      "bytes": 4955,
+      "sha256": "2622cc49e25254129a8fa056bf521969d22b399a33c5ba2d65f2505974a3b27d"
+    },
+    {
+      "path": "evidence-2026-10-08/workflow-throughput-2026-10-07T22-24-52-832Z-024c4f/crawlee-http-pooled-c4-b4-none-r1/persisted.json",
+      "bytes": 48103,
+      "sha256": "9de3b011ecc371cce95c7222bb0aa69dcdbc2e4ad538c3c65807863193494141"
+    },
+    {
+      "path": "evidence-2026-10-08/workflow-throughput-2026-10-07T22-24-52-832Z-024c4f/crawlee-http-pooled-c4-b4-none-r1/events.jsonl",
+      "bytes": 8287,
+      "sha256": "2b7d8a4d203f409b3a55250fe8d8d7038f6ec9354c8f1e08190449fd37595d7c"
+    },
+    {
+      "path": "evidence-2026-10-08/workflow-throughput-2026-10-07T22-24-52-832Z-024c4f/crawlee-http-pooled-c4-b4-none-r1/attempts.jsonl",
+      "bytes": 4936,
+      "sha256": "7c7414a973d2053d5ed55eaccd8c65b1379439cd3d2e979a4b0247fa65d4b44d"
+    },
+    {
+      "path": "evidence-2026-10-08/workflow-throughput-2026-10-07T22-24-52-832Z-024c4f/node-http-c4-b4-none-r1/persisted.json",
+      "bytes": 48103,
+      "sha256": "557c5f79bdbd2b33dfd7f2f3de8e37bef4fc5f7f9078291bf87d16ad6605306a"
+    },
+    {
+      "path": "evidence-2026-10-08/workflow-throughput-2026-10-07T22-24-52-832Z-024c4f/node-http-c4-b4-none-r1/events.jsonl",
+      "bytes": 8304,
+      "sha256": "26350622da6eb40ef69063e1c26abebc28e248db7581402c4fb7dce92e430846"
+    },
+    {
+      "path": "evidence-2026-10-08/workflow-throughput-2026-10-07T22-24-52-832Z-024c4f/node-http-c4-b4-none-r1/attempts.jsonl",
+      "bytes": 4949,
+      "sha256": "0a1097c4aa57b82b65c69ba508824234fc46f7180317f1e3deeaa0cdee1b82e6"
+    },
+    {
+      "path": "evidence-2026-10-08/workflow-throughput-2026-10-07T22-24-52-832Z-024c4f/crawlee-http-c4-b1-none-r0/persisted.json",
+      "bytes": 48031,
+      "sha256": "ad4ad9b4b6e740bd4b28ee256f100d24a94d43362f047654e7f2670f495102aa"
+    },
+    {
+      "path": "evidence-2026-10-08/workflow-throughput-2026-10-07T22-24-52-832Z-024c4f/crawlee-http-c4-b1-none-r0/events.jsonl",
+      "bytes": 11100,
+      "sha256": "987140d1ba35c44b366485919674cbbdaa9b9a0f676f2bd51149d8ae909f7787"
+    },
+    {
+      "path": "evidence-2026-10-08/workflow-throughput-2026-10-07T22-24-52-832Z-024c4f/crawlee-http-c4-b1-none-r0/attempts.jsonl",
+      "bytes": 4945,
+      "sha256": "216d1cddc768741d170959842be7f19a5cf7492a00e8c25b4867d32b20f2145d"
+    },
+    {
+      "path": "evidence-2026-10-08/workflow-throughput-2026-10-07T22-24-52-832Z-024c4f/spider-http-c8-b4-none-r1/persisted.json",
+      "bytes": 48103,
+      "sha256": "43d570cc4c87b21b569ef1c2692a7fdca733a02fd738d171e6e8639675aa8199"
+    },
+    {
+      "path": "evidence-2026-10-08/workflow-throughput-2026-10-07T22-24-52-832Z-024c4f/spider-http-c8-b4-none-r1/events.jsonl",
+      "bytes": 8282,
+      "sha256": "84f769161053dd0756d25193ed91a6215627bdf11a530204715f58e6aa437c9f"
+    },
+    {
+      "path": "evidence-2026-10-08/workflow-throughput-2026-10-07T22-24-52-832Z-024c4f/spider-http-c8-b4-none-r1/attempts.jsonl",
+      "bytes": 4931,
+      "sha256": "6d59bc16489865aacdfc20a7da0caa3272766617e709d88bc787630e7474c97c"
+    },
+    {
+      "path": "evidence-2026-10-08/workflow-throughput-2026-10-07T22-24-52-832Z-024c4f/node-http-c4-b4-none-r0/persisted.json",
+      "bytes": 48031,
+      "sha256": "a23e55c88ef5320d9bcc97598e50626ecfae47657c2d6202e01df730fac5076c"
+    },
+    {
+      "path": "evidence-2026-10-08/workflow-throughput-2026-10-07T22-24-52-832Z-024c4f/node-http-c4-b4-none-r0/events.jsonl",
+      "bytes": 8284,
+      "sha256": "c2c724691a9bbfa5c00a57b03d9eaf398eeeb7036c983c17b31793e26e1e7723"
+    },
+    {
+      "path": "evidence-2026-10-08/workflow-throughput-2026-10-07T22-24-52-832Z-024c4f/node-http-c4-b4-none-r0/attempts.jsonl",
+      "bytes": 4928,
+      "sha256": "07635cb3c32672920652eb8854243c7d9b49dafc5ab92fd2a01c3600e8a75a9a"
+    },
+    {
+      "path": "evidence-2026-10-08/workflow-throughput-2026-10-07T22-24-52-832Z-024c4f/crawlee-http-pooled-c4-b4-none-r0/persisted.json",
+      "bytes": 48031,
+      "sha256": "06c732fae5178b6a5e7a33598bc6c6e8abc2354176f6c3098023979b651eaf91"
+    },
+    {
+      "path": "evidence-2026-10-08/workflow-throughput-2026-10-07T22-24-52-832Z-024c4f/crawlee-http-pooled-c4-b4-none-r0/events.jsonl",
+      "bytes": 8577,
+      "sha256": "924476599eb00c4dd38b4b74d31793d72bcbdeaf06310f6e9a29f72e2786f169"
+    },
+    {
+      "path": "evidence-2026-10-08/workflow-throughput-2026-10-07T22-24-52-832Z-024c4f/crawlee-http-pooled-c4-b4-none-r0/attempts.jsonl",
+      "bytes": 4921,
+      "sha256": "7ee9a3a8d44ed9d8e11c7f114d9fc99bf3878841e77767a44806708466e6bcfa"
+    },
+    {
+      "path": "evidence-2026-10-08/workflow-throughput-2026-10-07T22-24-52-832Z-024c4f/spider-http-c1-b1-none-r1/persisted.json",
+      "bytes": 48103,
+      "sha256": "52f7d9923bafec3a6bec9fe6c4b766cd0c938201272087958cce00fcadf22d80"
+    },
+    {
+      "path": "evidence-2026-10-08/workflow-throughput-2026-10-07T22-24-52-832Z-024c4f/spider-http-c1-b1-none-r1/events.jsonl",
+      "bytes": 11071,
+      "sha256": "e128d0362b09a937aa61afea0ee7ad2d4badaf5702442ff7a5dc134a10413e1c"
+    },
+    {
+      "path": "evidence-2026-10-08/workflow-throughput-2026-10-07T22-24-52-832Z-024c4f/spider-http-c1-b1-none-r1/attempts.jsonl",
+      "bytes": 4933,
+      "sha256": "ffca5a3ecc6088610f743d1ddc968950ed127ab1660018faf17cf7032cc75838"
+    },
+    {
+      "path": "evidence-2026-10-08/workflow-throughput-2026-10-07T22-24-52-832Z-024c4f/spider-http-c1-b1-none-r0/persisted.json",
+      "bytes": 48031,
+      "sha256": "b34e49a2a939588bca4b3dc4e059fb15616d487bac0080fa3acf7a348574ad30"
+    },
+    {
+      "path": "evidence-2026-10-08/workflow-throughput-2026-10-07T22-24-52-832Z-024c4f/spider-http-c1-b1-none-r0/events.jsonl",
+      "bytes": 11092,
+      "sha256": "d97d2ef57b8455863b8fb884aac42a2a5c497f97c46d1d990f0a9866837475b3"
+    },
+    {
+      "path": "evidence-2026-10-08/workflow-throughput-2026-10-07T22-24-52-832Z-024c4f/spider-http-c1-b1-none-r0/attempts.jsonl",
+      "bytes": 4944,
+      "sha256": "96e67a8d2c7d1c94d22a971a3ae856d0ccfb5460f1435c2a569ea90410c2b1b2"
+    },
+    {
+      "path": "evidence-2026-10-08/workflow-throughput-2026-10-07T22-24-52-832Z-024c4f/node-http-c8-b1-none-r1/persisted.json",
+      "bytes": 48103,
+      "sha256": "ff2403de7612c156827f7367f11fcaccb288d652ba6fd87dfac7b0e4d258b740"
+    },
+    {
+      "path": "evidence-2026-10-08/workflow-throughput-2026-10-07T22-24-52-832Z-024c4f/node-http-c8-b1-none-r1/events.jsonl",
+      "bytes": 11125,
+      "sha256": "5202e7e152b4c7e23bd2977f299a528e9ba8fd8788f09f56e1a12443647a4639"
+    },
+    {
+      "path": "evidence-2026-10-08/workflow-throughput-2026-10-07T22-24-52-832Z-024c4f/node-http-c8-b1-none-r1/attempts.jsonl",
+      "bytes": 4942,
+      "sha256": "69ffd38e199d71776eb0bb2e6c41e2d54b18fd4b3bdbd8ddf0fbd553409f27fa"
+    },
+    {
+      "path": "evidence-2026-10-08/workflow-throughput-2026-10-07T22-24-52-832Z-024c4f/crawlee-http-pooled-c8-b1-none-r1/persisted.json",
+      "bytes": 48103,
+      "sha256": "418d3b5c51088300b08e7bea19ee654d76a618ede8222b43954d13c34cef623e"
+    },
+    {
+      "path": "evidence-2026-10-08/workflow-throughput-2026-10-07T22-24-52-832Z-024c4f/crawlee-http-pooled-c8-b1-none-r1/events.jsonl",
+      "bytes": 11089,
+      "sha256": "ba54e9686d06fa10982412e3120ab6e0d1af0a90b0d9b7e5da35853b56453248"
+    },
+    {
+      "path": "evidence-2026-10-08/workflow-throughput-2026-10-07T22-24-52-832Z-024c4f/crawlee-http-pooled-c8-b1-none-r1/attempts.jsonl",
+      "bytes": 4929,
+      "sha256": "66c91d6726b6e4e58e3999f097f06d745e699469a6d87576b7959dddce1d9326"
+    },
+    {
+      "path": "evidence-2026-10-08/workflow-throughput-2026-10-07T22-24-52-832Z-024c4f/spider-http-c4-b1-none-r0/persisted.json",
+      "bytes": 48031,
+      "sha256": "acec50c0d427082ffbc00be3114e8cd0d2b865450ff2e2993c3dfe0f69e911e8"
+    },
+    {
+      "path": "evidence-2026-10-08/workflow-throughput-2026-10-07T22-24-52-832Z-024c4f/spider-http-c4-b1-none-r0/events.jsonl",
+      "bytes": 11130,
+      "sha256": "9aa9832e1983a4e9e367d1db93be6309fb51e9784ba3c5cfd10361ccb3cac22a"
+    },
+    {
+      "path": "evidence-2026-10-08/workflow-throughput-2026-10-07T22-24-52-832Z-024c4f/spider-http-c4-b1-none-r0/attempts.jsonl",
+      "bytes": 4949,
+      "sha256": "7cf7b4365234e585763d9e21d8c25529e7d85523f5a7504e381e3c79326bc016"
+    },
+    {
+      "path": "evidence-2026-10-08/workflow-throughput-2026-10-07T22-24-52-832Z-024c4f/crawlee-http-c8-b4-none-r1/persisted.json",
+      "bytes": 48103,
+      "sha256": "0812dda6f1199bda78593419a11b33c2cbd20fcb40ff0693d1de8cc5de50382a"
+    },
+    {
+      "path": "evidence-2026-10-08/workflow-throughput-2026-10-07T22-24-52-832Z-024c4f/crawlee-http-c8-b4-none-r1/events.jsonl",
+      "bytes": 8611,
+      "sha256": "a8cbfb1a230f5b6d0ea3cfdc7e1310f13b7948051d69d4fae9f0eeffe31944c2"
+    },
+    {
+      "path": "evidence-2026-10-08/workflow-throughput-2026-10-07T22-24-52-832Z-024c4f/crawlee-http-c8-b4-none-r1/attempts.jsonl",
+      "bytes": 4945,
+      "sha256": "5ac0b9bc1d76288046a6bdf9c6776603cc75f6434998285d96825e4ac1182f97"
+    },
+    {
+      "path": "evidence-2026-10-08/workflow-throughput-2026-10-07T22-24-52-832Z-024c4f/crawlee-http-pooled-c8-b1-none-r0/persisted.json",
+      "bytes": 48031,
+      "sha256": "c3ba26b9869cab92647db6934f6b6ca053cace9b843c37a7918a62348b484f6f"
+    },
+    {
+      "path": "evidence-2026-10-08/workflow-throughput-2026-10-07T22-24-52-832Z-024c4f/crawlee-http-pooled-c8-b1-none-r0/events.jsonl",
+      "bytes": 11095,
+      "sha256": "80db85f299199641a682b75c854b9c5a33498af8f43cb51bc7de07a5d1ced9f5"
+    },
+    {
+      "path": "evidence-2026-10-08/workflow-throughput-2026-10-07T22-24-52-832Z-024c4f/crawlee-http-pooled-c8-b1-none-r0/attempts.jsonl",
+      "bytes": 4916,
+      "sha256": "579f739797e3e4c8ad75f2929ab690752050ce23a17d504f142b330f6a243253"
+    },
+    {
+      "path": "evidence-2026-10-08/workflow-throughput-2026-10-07T22-24-52-832Z-024c4f/node-http-c8-b1-none-r0/persisted.json",
+      "bytes": 48031,
+      "sha256": "bad1b103228dc510c1f2888279734a00ed34e0660f7a900d7b9333dd31e8c45c"
+    },
+    {
+      "path": "evidence-2026-10-08/workflow-throughput-2026-10-07T22-24-52-832Z-024c4f/node-http-c8-b1-none-r0/events.jsonl",
+      "bytes": 11132,
+      "sha256": "791fa3a815163efe8b09242c0e55944fdcc2d2bbf7752974e4668cd2ee67d84b"
+    },
+    {
+      "path": "evidence-2026-10-08/workflow-throughput-2026-10-07T22-24-52-832Z-024c4f/node-http-c8-b1-none-r0/attempts.jsonl",
+      "bytes": 4952,
+      "sha256": "b17f16d4efc93ec7fbb3da01747e664a697241fd5f2afa98ac4f5f04d9bff8c4"
+    },
+    {
+      "path": "evidence-2026-10-08/workflow-throughput-2026-10-07T22-24-52-832Z-024c4f/crawlee-http-c8-b4-none-r0/persisted.json",
+      "bytes": 48031,
+      "sha256": "aeb09f8bce15a273e7d92d0973682b7e3d67daa2365c47b5153655307c76e23b"
+    },
+    {
+      "path": "evidence-2026-10-08/workflow-throughput-2026-10-07T22-24-52-832Z-024c4f/crawlee-http-c8-b4-none-r0/events.jsonl",
+      "bytes": 8772,
+      "sha256": "c77a148821a450ededcb876964acec0283599b4a5c9da27473e15245730087c9"
+    },
+    {
+      "path": "evidence-2026-10-08/workflow-throughput-2026-10-07T22-24-52-832Z-024c4f/crawlee-http-c8-b4-none-r0/attempts.jsonl",
+      "bytes": 4949,
+      "sha256": "d577496bc7669ef7117e02ffafa6ba546faa4045d1543219e00f501b24d864f6"
+    },
+    {
+      "path": "evidence-2026-10-08/workflow-throughput-2026-10-07T22-24-52-832Z-024c4f/spider-http-c4-b1-none-r1/persisted.json",
+      "bytes": 48103,
+      "sha256": "9a7915fa01d70bb7b59b8c555c6aa5af478fecb34dee3b344cb09684b22ae674"
+    },
+    {
+      "path": "evidence-2026-10-08/workflow-throughput-2026-10-07T22-24-52-832Z-024c4f/spider-http-c4-b1-none-r1/events.jsonl",
+      "bytes": 11123,
+      "sha256": "97739b5b7e63dc0a10bbb7d3bf638c1f3a9dc743d309fc6cf6061c4c925d3c02"
+    },
+    {
+      "path": "evidence-2026-10-08/workflow-throughput-2026-10-07T22-24-52-832Z-024c4f/spider-http-c4-b1-none-r1/attempts.jsonl",
+      "bytes": 4943,
+      "sha256": "472649507be0361e0aed9011656e9e401e1960c4ec27bcb33587b07cb6ed4049"
+    },
+    {
+      "path": "evidence-2026-10-08/workflow-throughput-2026-10-07T22-24-52-832Z-024c4f/crawlee-http-c8-b1-none-r0/persisted.json",
+      "bytes": 48031,
+      "sha256": "7b45e01e54240197a75803974335017177dc71de83da1fb0bb586550dbe9b062"
+    },
+    {
+      "path": "evidence-2026-10-08/workflow-throughput-2026-10-07T22-24-52-832Z-024c4f/crawlee-http-c8-b1-none-r0/events.jsonl",
+      "bytes": 11112,
+      "sha256": "1fdf3a55992f2532b1978a78c539e73297a7cd917621a7993be0ba73eb447bae"
+    },
+    {
+      "path": "evidence-2026-10-08/workflow-throughput-2026-10-07T22-24-52-832Z-024c4f/crawlee-http-c8-b1-none-r0/attempts.jsonl",
+      "bytes": 4951,
+      "sha256": "c00eeb13017b7c26c4d1d6965794b57922e3e80b795f289e3c7d1aeac18c8fc9"
+    },
+    {
+      "path": "evidence-2026-10-08/workflow-throughput-2026-10-07T22-24-52-832Z-024c4f/spider-http-c4-b4-none-r1/persisted.json",
+      "bytes": 48103,
+      "sha256": "e9c57160f24ee1815c562a88b291c0eef0db4beb029c6364d031d834e089c436"
+    },
+    {
+      "path": "evidence-2026-10-08/workflow-throughput-2026-10-07T22-24-52-832Z-024c4f/spider-http-c4-b4-none-r1/events.jsonl",
+      "bytes": 8287,
+      "sha256": "b8d4bd94756deff12f95f3bd4873982166d62beeaa1373f0111eb8d103d96649"
+    },
+    {
+      "path": "evidence-2026-10-08/workflow-throughput-2026-10-07T22-24-52-832Z-024c4f/spider-http-c4-b4-none-r1/attempts.jsonl",
+      "bytes": 4939,
+      "sha256": "388bb4d6859f82333f982f5fd3c2910d95f53007636abb3613f9a3cb252a47ec"
+    },
+    {
+      "path": "evidence-2026-10-08/workflow-throughput-2026-10-07T22-24-52-832Z-024c4f/crawlee-http-pooled-c8-b4-none-r0/persisted.json",
+      "bytes": 48031,
+      "sha256": "9131facfd73556d1fe0af24e45adc72b99e1b732f4da773a1526f6ef50713b23"
+    },
+    {
+      "path": "evidence-2026-10-08/workflow-throughput-2026-10-07T22-24-52-832Z-024c4f/crawlee-http-pooled-c8-b4-none-r0/events.jsonl",
+      "bytes": 8749,
+      "sha256": "86c0d18f9edb7ca2e2bfb18f2d8a066fabfd3ce501305d68196ea5072962c2bd"
+    },
+    {
+      "path": "evidence-2026-10-08/workflow-throughput-2026-10-07T22-24-52-832Z-024c4f/crawlee-http-pooled-c8-b4-none-r0/attempts.jsonl",
+      "bytes": 4933,
+      "sha256": "fa16ba26ee585ae3653b298140a3e903a802bfb1b981ec5c47deab88496af820"
+    },
+    {
+      "path": "evidence-2026-10-08/workflow-throughput-2026-10-07T22-24-52-832Z-024c4f/node-http-c8-b4-none-r0/persisted.json",
+      "bytes": 48031,
+      "sha256": "0a2efe81cdcbd84406aed1d146a76b123b8957aa8d4226d2826a479921769345"
+    },
+    {
+      "path": "evidence-2026-10-08/workflow-throughput-2026-10-07T22-24-52-832Z-024c4f/node-http-c8-b4-none-r0/events.jsonl",
+      "bytes": 8283,
+      "sha256": "2f4fa60786862d79de4f1ef953efe424722492cfa1e14ae1242ddb1e0d14c075"
+    },
+    {
+      "path": "evidence-2026-10-08/workflow-throughput-2026-10-07T22-24-52-832Z-024c4f/node-http-c8-b4-none-r0/attempts.jsonl",
+      "bytes": 4933,
+      "sha256": "5c57e7c9cf8a940d12770ec40b6d62ecac79ab62c9629d2907c83d5b295b442d"
+    },
+    {
+      "path": "evidence-2026-10-08/workflow-throughput-2026-10-07T22-24-52-832Z-024c4f/spider-http-c4-b4-none-r0/persisted.json",
+      "bytes": 48031,
+      "sha256": "da45b40eab9c75c281fa02ba237f04db1558868b0acd568ccc68db9866096b71"
+    },
+    {
+      "path": "evidence-2026-10-08/workflow-throughput-2026-10-07T22-24-52-832Z-024c4f/spider-http-c4-b4-none-r0/events.jsonl",
+      "bytes": 8308,
+      "sha256": "fbfbe74cca8aec1b13c1e59e59f81cf0c358aabd9833d3a98e874c148bd16326"
+    },
+    {
+      "path": "evidence-2026-10-08/workflow-throughput-2026-10-07T22-24-52-832Z-024c4f/spider-http-c4-b4-none-r0/attempts.jsonl",
+      "bytes": 4958,
+      "sha256": "d8b35b4dbda47b6187b045e735cd018bb389104038fd5a8613badd7ca5ff867a"
+    },
+    {
+      "path": "evidence-2026-10-08/workflow-throughput-2026-10-07T22-24-52-832Z-024c4f/crawlee-http-c8-b1-none-r1/persisted.json",
+      "bytes": 48103,
+      "sha256": "8a3d6fc0dc02593a0cfe0e31bd0a48116378399bf4adc473a5b6d90dd20e3329"
+    },
+    {
+      "path": "evidence-2026-10-08/workflow-throughput-2026-10-07T22-24-52-832Z-024c4f/crawlee-http-c8-b1-none-r1/events.jsonl",
+      "bytes": 11105,
+      "sha256": "7a07a6f75a6b707ba1d39e3899927f63c87c8feb5d5a2847a9b00333e3ad916e"
+    },
+    {
+      "path": "evidence-2026-10-08/workflow-throughput-2026-10-07T22-24-52-832Z-024c4f/crawlee-http-c8-b1-none-r1/attempts.jsonl",
+      "bytes": 4950,
+      "sha256": "8a2b376c1629a5bae0f6f51c600de3df4fa8f9e71486262776a1c7decd81833f"
+    },
+    {
+      "path": "evidence-2026-10-08/workflow-throughput-2026-10-07T22-24-52-832Z-024c4f/node-http-c8-b4-none-r1/persisted.json",
+      "bytes": 48103,
+      "sha256": "7420bcb0a4d5e7f398bb8899e633fe3956e4f3be52fcb091f33db3e76ec58813"
+    },
+    {
+      "path": "evidence-2026-10-08/workflow-throughput-2026-10-07T22-24-52-832Z-024c4f/node-http-c8-b4-none-r1/events.jsonl",
+      "bytes": 8287,
+      "sha256": "4fc848e49dc6c9747220e735f65c9f775ac1060263c9dcd75222e4e7c688d592"
+    },
+    {
+      "path": "evidence-2026-10-08/workflow-throughput-2026-10-07T22-24-52-832Z-024c4f/node-http-c8-b4-none-r1/attempts.jsonl",
+      "bytes": 4944,
+      "sha256": "4f3bb160ffb8e72670ec59a548593d700e2fc3ed43be79345ace6ca757574473"
+    },
+    {
+      "path": "evidence-2026-10-08/workflow-throughput-2026-10-07T22-24-52-832Z-024c4f/crawlee-http-pooled-c8-b4-none-r1/persisted.json",
+      "bytes": 48103,
+      "sha256": "3b8b4fd14c8502e600dbdb08cec56d57310fe3d003febffbcca30e5b09c9373a"
+    },
+    {
+      "path": "evidence-2026-10-08/workflow-throughput-2026-10-07T22-24-52-832Z-024c4f/crawlee-http-pooled-c8-b4-none-r1/events.jsonl",
+      "bytes": 8438,
+      "sha256": "2f5085a3910d5f9b912b9b69540e8e3295ca0784812f8a90cf743a5dd8efc83e"
+    },
+    {
+      "path": "evidence-2026-10-08/workflow-throughput-2026-10-07T22-24-52-832Z-024c4f/crawlee-http-pooled-c8-b4-none-r1/attempts.jsonl",
+      "bytes": 4929,
+      "sha256": "06acaf91b97901682d66ef7ff331657b238366b2e41c1081c1c0d4d56555dc2e"
+    },
+    {
+      "path": "evidence-2026-10-08/workflow-throughput-2026-10-07T22-24-52-832Z-024c4f/sources/pnpm-lock.yaml",
+      "bytes": 160696,
+      "sha256": "5de2f799a822e743655d987ce8058e2ef7ad4ab5645105f7c7f5b160dae89177"
+    },
+    {
+      "path": "evidence-2026-10-08/workflow-throughput-2026-10-07T22-24-52-832Z-024c4f/sources/.node-version",
+      "bytes": 7,
+      "sha256": "aa0d48458ddcabfd2382395c55a5fec977c56664f5c87dac1a49655a7d6faada"
+    },
+    {
+      "path": "evidence-2026-10-08/workflow-throughput-2026-10-07T22-24-52-832Z-024c4f/sources/package.json",
+      "bytes": 692,
+      "sha256": "c7bc7a581210eb64c39f76ee166e61b7f84148560cb0e1e647b215de12d8dd45"
+    },
+    {
+      "path": "evidence-2026-10-08/workflow-throughput-2026-10-07T22-24-52-832Z-024c4f/sources/tsconfig.json",
+      "bytes": 395,
+      "sha256": "56b6ec40c7eecf9798e19d3759d0eb78834af67bb30821d650245256d04ac196"
+    },
+    {
+      "path": "evidence-2026-10-08/workflow-throughput-2026-10-07T22-24-52-832Z-024c4f/sources/pnpm-workspace.yaml",
+      "bytes": 335,
+      "sha256": "0efca8723660feb40bfa66318375c08aa4d927d6788cb161e5e6c11c7e3fae3d"
+    },
+    {
+      "path": "evidence-2026-10-08/workflow-throughput-2026-10-07T22-24-52-832Z-024c4f/node-http-c4-b1-none-r0/persisted.json",
+      "bytes": 48031,
+      "sha256": "9e0ce4d171c717b6d1ee38b0d5045643a5e8993f4d51213a1a24b254613beea4"
+    },
+    {
+      "path": "evidence-2026-10-08/workflow-throughput-2026-10-07T22-24-52-832Z-024c4f/node-http-c4-b1-none-r0/events.jsonl",
+      "bytes": 11061,
+      "sha256": "4c9b602236db91a3da2031a67253c395d54f6899484258665a5b3ee892905ad3"
+    },
+    {
+      "path": "evidence-2026-10-08/workflow-throughput-2026-10-07T22-24-52-832Z-024c4f/node-http-c4-b1-none-r0/attempts.jsonl",
+      "bytes": 4914,
+      "sha256": "123dbc60f0eb45a079ac19e324555f29353a89c02ccdc37f0e0a47c823343071"
+    },
+    {
+      "path": "evidence-2026-10-08/workflow-throughput-2026-10-07T22-24-52-832Z-024c4f/crawlee-http-pooled-c4-b1-none-r0/persisted.json",
+      "bytes": 48031,
+      "sha256": "ffa774f49d70bdf5a681f2b306d75bfedf70db665e3e7c78a730c9908c7b4791"
+    },
+    {
+      "path": "evidence-2026-10-08/workflow-throughput-2026-10-07T22-24-52-832Z-024c4f/crawlee-http-pooled-c4-b1-none-r0/events.jsonl",
+      "bytes": 11107,
+      "sha256": "186bbd09cc8d3015d20b522e509f4bb1f23c2a051854af6e1bc95563176a7238"
+    },
+    {
+      "path": "evidence-2026-10-08/workflow-throughput-2026-10-07T22-24-52-832Z-024c4f/crawlee-http-pooled-c4-b1-none-r0/attempts.jsonl",
+      "bytes": 4934,
+      "sha256": "e53b36782df48dd2f26ed612d7be8a60332168b9fa8de9106f7c54292a8eee3c"
+    },
+    {
+      "path": "evidence-2026-10-08/workflow-throughput-2026-10-07T22-24-52-832Z-024c4f/crawlee-http-c4-b4-none-r0/persisted.json",
+      "bytes": 48031,
+      "sha256": "f1dba6f66b542cce096ccf1f1c0979630dbd7d00369c7ae1458a1a887ba255c3"
+    },
+    {
+      "path": "evidence-2026-10-08/workflow-throughput-2026-10-07T22-24-52-832Z-024c4f/crawlee-http-c4-b4-none-r0/events.jsonl",
+      "bytes": 8597,
+      "sha256": "8e90feca5f265a2105965c5041f2e04ae7e4c82216e5beeec059b7f5834ba6dc"
+    },
+    {
+      "path": "evidence-2026-10-08/workflow-throughput-2026-10-07T22-24-52-832Z-024c4f/crawlee-http-c4-b4-none-r0/attempts.jsonl",
+      "bytes": 4934,
+      "sha256": "5cb70ed8d69ef346e7d23cd9145eb0501d7e44f180bf3d2a3e21db0a420cb563"
+    },
+    {
+      "path": "evidence-2026-10-08/workflow-throughput-2026-10-07T22-24-52-832Z-024c4f/spider-http-c8-b1-none-r1/persisted.json",
+      "bytes": 48103,
+      "sha256": "8616bf68bdad8181e4d7d52292753245b92856e133962fb6302f5d50f55bce42"
+    },
+    {
+      "path": "evidence-2026-10-08/workflow-throughput-2026-10-07T22-24-52-832Z-024c4f/spider-http-c8-b1-none-r1/events.jsonl",
+      "bytes": 11110,
+      "sha256": "0e34d6fcc3a43e7ddb468242345674272064d8f3de8f92fcce075e6eec1768e9"
+    },
+    {
+      "path": "evidence-2026-10-08/workflow-throughput-2026-10-07T22-24-52-832Z-024c4f/spider-http-c8-b1-none-r1/attempts.jsonl",
+      "bytes": 4939,
+      "sha256": "a16aff9fe5bbf38bf0c5c1a966c2d24ffc7eeed40cad6f6efa0a1191ebed5e1e"
+    },
+    {
+      "path": "evidence-2026-10-08/workflow-throughput-2026-10-07T22-24-52-832Z-024c4f/crawlee-http-pooled-c4-b1-none-r1/persisted.json",
+      "bytes": 48103,
+      "sha256": "fc10e91cdbecaab85c9e3ecc8c07b2f1f3420f58679290c55660d13b2c59e789"
+    },
+    {
+      "path": "evidence-2026-10-08/workflow-throughput-2026-10-07T22-24-52-832Z-024c4f/crawlee-http-pooled-c4-b1-none-r1/events.jsonl",
+      "bytes": 11103,
+      "sha256": "51625e21abc316b9d9ca3b64ca14a596ef453d4c88268ff351fcbcd21546287d"
+    },
+    {
+      "path": "evidence-2026-10-08/workflow-throughput-2026-10-07T22-24-52-832Z-024c4f/crawlee-http-pooled-c4-b1-none-r1/attempts.jsonl",
+      "bytes": 4933,
+      "sha256": "e1ac0cac6b2f229a3919a3b2ab3e37bb142b5fcee6fa77cbc0db4101a0e713e3"
+    },
+    {
+      "path": "evidence-2026-10-08/workflow-throughput-2026-10-07T22-24-52-832Z-024c4f/node-http-c4-b1-none-r1/persisted.json",
+      "bytes": 48103,
+      "sha256": "2c2c84e07eb91e1385e6359cae6ebe5b4d5a69c4eefe76bd2d2354ecc9e9766b"
+    },
+    {
+      "path": "evidence-2026-10-08/workflow-throughput-2026-10-07T22-24-52-832Z-024c4f/node-http-c4-b1-none-r1/events.jsonl",
+      "bytes": 11093,
+      "sha256": "751ff6a9b80259c4551e85671edb0cd7b3cc22f33138633fa73f53af315c2e60"
+    },
+    {
+      "path": "evidence-2026-10-08/workflow-throughput-2026-10-07T22-24-52-832Z-024c4f/node-http-c4-b1-none-r1/attempts.jsonl",
+      "bytes": 4953,
+      "sha256": "4aff717ba2ed94fb7632a72dc922307a3ce4cc048a84f8243c1b39c820646d24"
+    },
+    {
+      "path": "evidence-2026-10-08/workflow-throughput-2026-10-07T22-24-52-832Z-024c4f/spider-http-c8-b1-none-r0/persisted.json",
+      "bytes": 48031,
+      "sha256": "21fae4dbd0461459c2f7e7f663d87a2289157a6e4af11ac43053e1e025966d7d"
+    },
+    {
+      "path": "evidence-2026-10-08/workflow-throughput-2026-10-07T22-24-52-832Z-024c4f/spider-http-c8-b1-none-r0/events.jsonl",
+      "bytes": 11089,
+      "sha256": "86c6bf320bcd0cba81374fb7976af3acd8e00dfcf1481b4df3daf1565d77306a"
+    },
+    {
+      "path": "evidence-2026-10-08/workflow-throughput-2026-10-07T22-24-52-832Z-024c4f/spider-http-c8-b1-none-r0/attempts.jsonl",
+      "bytes": 4932,
+      "sha256": "4cf12a0ec6e53d1cea81dc6cd6dd0c732bf85f7f8b1f420dcde383ea5521b97f"
+    },
+    {
+      "path": "evidence-2026-10-08/workflow-throughput-2026-10-07T22-24-52-832Z-024c4f/crawlee-http-c4-b4-none-r1/persisted.json",
+      "bytes": 48103,
+      "sha256": "26867ca3544cc1f48e110f3fb35f61d41d2f7234c20013ad24154cb4dd0de130"
+    },
+    {
+      "path": "evidence-2026-10-08/workflow-throughput-2026-10-07T22-24-52-832Z-024c4f/crawlee-http-c4-b4-none-r1/events.jsonl",
+      "bytes": 8314,
+      "sha256": "7a1f50eaeb0e358b4a38c0a1ff1a24131ab12174f3e1d9183b5b16c6308021d1"
+    },
+    {
+      "path": "evidence-2026-10-08/workflow-throughput-2026-10-07T22-24-52-832Z-024c4f/crawlee-http-c4-b4-none-r1/attempts.jsonl",
+      "bytes": 4960,
+      "sha256": "3230b84e7ab501b0b9db54cf26b8d093623987f2cbdb25e2aadaf3ed2fcf115f"
+    },
+    {
+      "path": "evidence-2026-10-08/workflow-throughput-2026-10-07T22-24-52-832Z-024c4f/node-http-c1-b1-none-r1/persisted.json",
+      "bytes": 48103,
+      "sha256": "74c396dcaba18194d18e207a0e5747f7e989b83df3975c56c22ba9f5f27731bf"
+    },
+    {
+      "path": "evidence-2026-10-08/workflow-throughput-2026-10-07T22-24-52-832Z-024c4f/node-http-c1-b1-none-r1/events.jsonl",
+      "bytes": 11096,
+      "sha256": "b64f366c33ae1be198b01aa8f476d935ac68d8c4f86b444826153ae41917fc2c"
+    },
+    {
+      "path": "evidence-2026-10-08/workflow-throughput-2026-10-07T22-24-52-832Z-024c4f/node-http-c1-b1-none-r1/attempts.jsonl",
+      "bytes": 4947,
+      "sha256": "11332c9cdf8561dd83af8dc89c14529858dab3e4cedb3a6e37e8d84c332d4e02"
+    },
+    {
+      "path": "evidence-2026-10-08/workflow-throughput-2026-10-07T22-24-52-832Z-024c4f/crawlee-http-pooled-c1-b1-none-r1/persisted.json",
+      "bytes": 48103,
+      "sha256": "2b2be28d2bfda2e56755a9364c7f17aefedbb9bfb3268a9e802007a6b6d1e2ba"
+    },
+    {
+      "path": "evidence-2026-10-08/workflow-throughput-2026-10-07T22-24-52-832Z-024c4f/crawlee-http-pooled-c1-b1-none-r1/events.jsonl",
+      "bytes": 11080,
+      "sha256": "c7a6cf257432a86aa77f764cfbcbe4ff25f2798184acb0d344b83a106154330d"
+    },
+    {
+      "path": "evidence-2026-10-08/workflow-throughput-2026-10-07T22-24-52-832Z-024c4f/crawlee-http-pooled-c1-b1-none-r1/attempts.jsonl",
+      "bytes": 4935,
+      "sha256": "40b07a8a99a7f05ad8f4652e328e808e9084a4609f207290da66ee127dd41dfb"
+    },
+    {
+      "path": "evidence-2026-10-08/workflow-throughput-2026-10-07T22-24-52-832Z-024c4f/crawlee-http-pooled-c1-b1-none-r0/persisted.json",
+      "bytes": 48031,
+      "sha256": "b8a1265d7592a43c3b9fcae05e33208398c4abd76c68a7146e25fafbe37253ab"
+    },
+    {
+      "path": "evidence-2026-10-08/workflow-throughput-2026-10-07T22-24-52-832Z-024c4f/crawlee-http-pooled-c1-b1-none-r0/events.jsonl",
+      "bytes": 11050,
+      "sha256": "49e91bc682747c30f4d554709b718fbc4f84bed6d78e36a70af86f4acefa9e69"
+    },
+    {
+      "path": "evidence-2026-10-08/workflow-throughput-2026-10-07T22-24-52-832Z-024c4f/crawlee-http-pooled-c1-b1-none-r0/attempts.jsonl",
+      "bytes": 4912,
+      "sha256": "ce1d5e3ea48a8e1fe896d07b42d6dc4743a45f01ee2a288d941156ffa88cb81a"
+    },
+    {
+      "path": "evidence-2026-10-08/workflow-throughput-2026-10-07T22-24-52-832Z-024c4f/node-http-c1-b1-none-r0/persisted.json",
+      "bytes": 48031,
+      "sha256": "198378869fd7f705d299653188f86b309be9aa7f53ec3325accf91a880e640c8"
+    },
+    {
+      "path": "evidence-2026-10-08/workflow-throughput-2026-10-07T22-24-52-832Z-024c4f/node-http-c1-b1-none-r0/events.jsonl",
+      "bytes": 11099,
+      "sha256": "f4209a430eb7eaf42730cfaffe5d77c6d6174b2e10c2c8554f8923de21a80b9f"
+    },
+    {
+      "path": "evidence-2026-10-08/workflow-throughput-2026-10-07T22-24-52-832Z-024c4f/node-http-c1-b1-none-r0/attempts.jsonl",
+      "bytes": 4948,
+      "sha256": "0bb172e349660415dd829bba2e7affb6982aaba0858af765b5c1aebedf9171ed"
+    },
+    {
+      "path": "evidence-2026-10-08/workflow-throughput-2026-10-07T22-24-52-832Z-024c4f/sources/tools/doctor.ts",
+      "bytes": 1537,
+      "sha256": "590dfe9777c6add1d4462280f63a718a7aa95b2daa3245e6004498226c00147a"
+    },
+    {
+      "path": "evidence-2026-10-08/workflow-throughput-2026-10-07T22-24-52-832Z-024c4f/sources/tools/build-shared-sqlite.ts",
+      "bytes": 5928,
+      "sha256": "d4dfb62b41b3ebe5e8450dd0b7c5f591d4a43675acab086e8e884caca07d8772"
+    },
+    {
+      "path": "evidence-2026-10-08/workflow-throughput-2026-10-07T22-24-52-832Z-024c4f/sources/tools/bootstrap.ts",
+      "bytes": 1236,
+      "sha256": "66cf117d9d6ec46a01d5ec87719abf79f087b7c8495a8559d8ce8b0b28720dbf"
+    },
+    {
+      "path": "evidence-2026-10-08/workflow-throughput-2026-10-07T22-24-52-832Z-024c4f/sources/fixtures/server.ts",
+      "bytes": 9231,
+      "sha256": "78bbdd1f6269cd5170d40c02b6fb68cafcd1af94f52352d7f766afebb4ca900c"
+    },
+    {
+      "path": "evidence-2026-10-08/workflow-throughput-2026-10-07T22-24-52-832Z-024c4f/sources/src/report.ts",
+      "bytes": 3459,
+      "sha256": "12269d35f5a0d01fee289567e0e192e7b8ccb8d5bc0680576a5757d50375158e"
+    },
+    {
+      "path": "evidence-2026-10-08/workflow-throughput-2026-10-07T22-24-52-832Z-024c4f/sources/src/worker-client.ts",
+      "bytes": 4027,
+      "sha256": "34645ddaea64c68f9d8e97034fbdd9410befdad74b017d204e373c1ba7ffbbd4"
+    },
+    {
+      "path": "evidence-2026-10-08/workflow-throughput-2026-10-07T22-24-52-832Z-024c4f/sources/src/statistics.ts",
+      "bytes": 2147,
+      "sha256": "86fe385d542188716a594bca2793927bd62a3bdba8af11f6620ebb07b5c7324d"
+    },
+    {
+      "path": "evidence-2026-10-08/workflow-throughput-2026-10-07T22-24-52-832Z-024c4f/sources/src/workflow.ts",
+      "bytes": 11752,
+      "sha256": "2d8df32f816091fa412500780bac4bc97f604f74c48f87a55ce3187cdc5f6bd4"
+    },
+    {
+      "path": "evidence-2026-10-08/workflow-throughput-2026-10-07T22-24-52-832Z-024c4f/sources/src/scheduler.ts",
+      "bytes": 1938,
+      "sha256": "d247c784832f09dbe81380e8d190c635e8992944409eb684b8c9204914c46b45"
+    },
+    {
+      "path": "evidence-2026-10-08/workflow-throughput-2026-10-07T22-24-52-832Z-024c4f/sources/src/resources.ts",
+      "bytes": 1512,
+      "sha256": "ae64318875812c39097ca5526b9b36d9a43e27b1b807c3d5a363a18b1fdec14c"
+    },
+    {
+      "path": "evidence-2026-10-08/workflow-throughput-2026-10-07T22-24-52-832Z-024c4f/sources/src/environment.ts",
+      "bytes": 3661,
+      "sha256": "e31521c87f2883bf14c74fc83988ac50a42e35f493de335dcdb7696c0c1c20d6"
+    },
+    {
+      "path": "evidence-2026-10-08/workflow-throughput-2026-10-07T22-24-52-832Z-024c4f/sources/src/storage-engines.ts",
+      "bytes": 2826,
+      "sha256": "9c90df1bf6fc7052529c6a3663dca5a4c07dd6f979a9951bc72e77431614d473"
+    },
+    {
+      "path": "evidence-2026-10-08/workflow-throughput-2026-10-07T22-24-52-832Z-024c4f/sources/src/storage.ts",
+      "bytes": 2533,
+      "sha256": "75a36ba6730dffbdbac7d9a31ad82c8cca88c241e554d2a914853df9be883eee"
+    },
+    {
+      "path": "evidence-2026-10-08/workflow-throughput-2026-10-07T22-24-52-832Z-024c4f/sources/src/cli.ts",
+      "bytes": 1330,
+      "sha256": "aa92b283bfd88170d984a32750034417d2d2afa2b37ab998801304b29b5c443c"
+    },
+    {
+      "path": "evidence-2026-10-08/workflow-throughput-2026-10-07T22-24-52-832Z-024c4f/sources/src/campaign.ts",
+      "bytes": 12571,
+      "sha256": "4cc6709341b1c7674d69c29c0abb067c238efebfa93fd766805fcf993ab6eb93"
+    },
+    {
+      "path": "evidence-2026-10-08/workflow-throughput-2026-10-07T22-24-52-832Z-024c4f/sources/src/worker-server.ts",
+      "bytes": 2132,
+      "sha256": "0d47267bc34e59fd64c3db643f0dc26b4e8f6e3335df8d8a7881f0624b995c84"
+    },
+    {
+      "path": "evidence-2026-10-08/workflow-throughput-2026-10-07T22-24-52-832Z-024c4f/sources/src/storage-cli.ts",
+      "bytes": 570,
+      "sha256": "a477c23708c2353875cac300baacc7cce155ee4c19af9ccf997757b03c89c73d"
+    },
+    {
+      "path": "evidence-2026-10-08/workflow-throughput-2026-10-07T22-24-52-832Z-024c4f/sources/src/workflow-cli.ts",
+      "bytes": 589,
+      "sha256": "8cdb26b76bc35af812002e15872e35f361c20de122e3d8d64bd5533a98236cb4"
+    },
+    {
+      "path": "evidence-2026-10-08/workflow-throughput-2026-10-07T22-24-52-832Z-024c4f/sources/src/workflow-campaign.ts",
+      "bytes": 10002,
+      "sha256": "7da7589de88258f6340861c772f5fbd2784c9c17e953b08a1e040edb0fb254c5"
+    },
+    {
+      "path": "evidence-2026-10-08/workflow-throughput-2026-10-07T22-24-52-832Z-024c4f/sources/src/registry.ts",
+      "bytes": 1348,
+      "sha256": "23d04d8d9078df7b9f72c915126c8110ba44f06165b6df7f5d846cb7db71b5fa"
+    },
+    {
+      "path": "evidence-2026-10-08/workflow-throughput-2026-10-07T22-24-52-832Z-024c4f/sources/src/storage-campaign.ts",
+      "bytes": 12586,
+      "sha256": "36fd3097a971ab3e74e84735ed374448be7920a6dc694577df5d0ca080f20623"
+    },
+    {
+      "path": "evidence-2026-10-08/workflow-throughput-2026-10-07T22-24-52-832Z-024c4f/sources/adapters/storage-rust/Cargo.toml",
+      "bytes": 340,
+      "sha256": "3d9ba6be5227b11f7caa022403781a92d24d879b4d7169119e603a9503735eb0"
+    },
+    {
+      "path": "evidence-2026-10-08/workflow-throughput-2026-10-07T22-24-52-832Z-024c4f/sources/adapters/storage-rust/Cargo.lock",
+      "bytes": 28594,
+      "sha256": "3948c489d83b8e492ce3540d7be1b95f348d8dc016b66e897524b6e8c2d95c7c"
+    },
+    {
+      "path": "evidence-2026-10-08/workflow-throughput-2026-10-07T22-24-52-832Z-024c4f/sources/adapters/sqlite-common/lab_sqlite.h",
+      "bytes": 622,
+      "sha256": "3203e2f8693041a9505754a4e1b7d3510be7c070b33b5fd6620e03a1548352b4"
+    },
+    {
+      "path": "evidence-2026-10-08/workflow-throughput-2026-10-07T22-24-52-832Z-024c4f/sources/adapters/sqlite-common/node_addon.c",
+      "bytes": 3499,
+      "sha256": "eaa15a0116a730e79fef74854544806d99a2faba4045355dc21c3a7beef045d1"
+    },
+    {
+      "path": "evidence-2026-10-08/workflow-throughput-2026-10-07T22-24-52-832Z-024c4f/sources/adapters/sqlite-common/lab_sqlite.c",
+      "bytes": 3962,
+      "sha256": "22709a4794e41132cc30de68a9f34aa0502566fe39d6bcba95c075386436fdb7"
+    },
+    {
+      "path": "evidence-2026-10-08/workflow-throughput-2026-10-07T22-24-52-832Z-024c4f/sources/adapters/rust/Cargo.toml",
+      "bytes": 566,
+      "sha256": "93f7918b75c5c076a680e16d73f549862c5fd37505b14852b5d597e718730930"
+    },
+    {
+      "path": "evidence-2026-10-08/workflow-throughput-2026-10-07T22-24-52-832Z-024c4f/sources/adapters/rust/Cargo.lock",
+      "bytes": 115660,
+      "sha256": "c98b6ad561f91885b38c33b3781b4e67ed527d2deb0880500a2a8befbd4ab2cd"
+    },
+    {
+      "path": "evidence-2026-10-08/workflow-throughput-2026-10-07T22-24-52-832Z-024c4f/sources/adapters/stagehand-v3/package.json",
+      "bytes": 220,
+      "sha256": "59ea14e936b34c80170481ae32215c5712fb1d239fe83f52b5f54d5d316c5d12"
+    },
+    {
+      "path": "evidence-2026-10-08/workflow-throughput-2026-10-07T22-24-52-832Z-024c4f/sources/adapters/stagehand-v3/worker.ts",
+      "bytes": 3417,
+      "sha256": "43acbb80c41769e56c71670bae1d1c615c14654cd6408f967db43a47554e0949"
+    },
+    {
+      "path": "evidence-2026-10-08/workflow-throughput-2026-10-07T22-24-52-832Z-024c4f/sources/adapters/workflow-node/worker.ts",
+      "bytes": 7116,
+      "sha256": "53c93dd701dc7368110d0cd5b26db16eb638e1603b46406019f19531131fbcf4"
+    },
+    {
+      "path": "evidence-2026-10-08/workflow-throughput-2026-10-07T22-24-52-832Z-024c4f/sources/adapters/storage-shared-node/worker.ts",
+      "bytes": 1741,
+      "sha256": "88036d041df21bfc87f7e1e6a63db9b4359628f22dff71cbba1e80e937ab4b16"
+    },
+    {
+      "path": "evidence-2026-10-08/workflow-throughput-2026-10-07T22-24-52-832Z-024c4f/sources/adapters/storage-go-sync/go.mod",
+      "bytes": 46,
+      "sha256": "7ecfea82372a8ba0c1142df0f1d75faa489dfde4c2cc43ff69af331b9042bb07"
+    },
+    {
+      "path": "evidence-2026-10-08/workflow-throughput-2026-10-07T22-24-52-832Z-024c4f/sources/adapters/storage-go-sync/main.go",
+      "bytes": 4223,
+      "sha256": "c8f17b923ebc98acfcc23fa976e1d8d81efd6479e15f2fe7daa65c236dda457a"
+    },
+    {
+      "path": "evidence-2026-10-08/workflow-throughput-2026-10-07T22-24-52-832Z-024c4f/sources/adapters/storage-node/worker.ts",
+      "bytes": 3848,
+      "sha256": "e2e52d8d5a6207ae278b96d26e1e00865a80efa0c2689b3f6e6f025e876a265b"
+    },
+    {
+      "path": "evidence-2026-10-08/workflow-throughput-2026-10-07T22-24-52-832Z-024c4f/sources/adapters/storage-rust-sync/Cargo.toml",
+      "bytes": 142,
+      "sha256": "76fa86c5fc67377cae8ef483cb37b93c440103937958c3c3f40ede9d21d0fb66"
+    },
+    {
+      "path": "evidence-2026-10-08/workflow-throughput-2026-10-07T22-24-52-832Z-024c4f/sources/adapters/storage-rust-sync/Cargo.lock",
+      "bytes": 2655,
+      "sha256": "753d53e9c25f62601bc3dfe4a9c22dbea093775909b4fb8aae7acde60b30cc1e"
+    },
+    {
+      "path": "evidence-2026-10-08/workflow-throughput-2026-10-07T22-24-52-832Z-024c4f/sources/adapters/storage-rust-sync/build.rs",
+      "bytes": 598,
+      "sha256": "229a482f822551afe6542aa988ef6ff22e15aba2c64546647d2d1546dbcd7250"
+    },
+    {
+      "path": "evidence-2026-10-08/workflow-throughput-2026-10-07T22-24-52-832Z-024c4f/sources/adapters/node/package.json",
+      "bytes": 221,
+      "sha256": "ecca9c029d30e060766c4b70dd9df6433adda9944d11969e39bacf33f6ac89b4"
+    },
+    {
+      "path": "evidence-2026-10-08/workflow-throughput-2026-10-07T22-24-52-832Z-024c4f/sources/adapters/node/pooled-worker.ts",
+      "bytes": 2546,
+      "sha256": "9129c69cc32d27bf5053d3d982a3340af22af65983e9b7b7d38a98ec7549b9c1"
+    },
+    {
+      "path": "evidence-2026-10-08/workflow-throughput-2026-10-07T22-24-52-832Z-024c4f/sources/adapters/node/worker.ts",
+      "bytes": 10067,
+      "sha256": "5c7254b51a02b33ca87948dd91febcbee489ca107b139af53ddebaef63795fc7"
+    },
+    {
+      "path": "evidence-2026-10-08/workflow-throughput-2026-10-07T22-24-52-832Z-024c4f/sources/adapters/node/browser-tasks.ts",
+      "bytes": 3980,
+      "sha256": "4181ff5065f91245c2e3beed49d1e0439f65f4ddd9ce7c27dc9f49afbd57311c"
+    },
+    {
+      "path": "evidence-2026-10-08/workflow-throughput-2026-10-07T22-24-52-832Z-024c4f/sources/adapters/storage-rust-sync/src/main.rs",
+      "bytes": 6034,
+      "sha256": "417ec53dbedc58b5538e93a1e02ce8b6d764292cb9ac7879608940c4136b709f"
+    },
+    {
+      "path": "evidence-2026-10-08/workflow-throughput-2026-10-07T22-24-52-832Z-024c4f/sources/adapters/rust/src/main.rs",
+      "bytes": 6656,
+      "sha256": "1998089ef3269426f27d21df673b6ca24772d4df66c550bd32cb318a64aac4e1"
+    },
+    {
+      "path": "evidence-2026-10-08/workflow-throughput-2026-10-07T22-24-52-832Z-024c4f/sources/adapters/storage-rust/src/main.rs",
+      "bytes": 9410,
+      "sha256": "7d9b7cf1734f3e54dfd88dd7d533875eed94e327d7dcf7fdeebfd5facc0c6349"
+    },
+    {
+      "path": "evidence-2026-10-08/workflow-recovery-2026-10-07T22-26-19-297Z-c40792/summary.json",
+      "bytes": 46340,
+      "sha256": "08938d538354e1723b23b7330636c25f1cbc92ac66a1d9ad98f98bc80a9d802a"
+    },
+    {
+      "path": "evidence-2026-10-08/workflow-recovery-2026-10-07T22-26-19-297Z-c40792/manifest.json",
+      "bytes": 6885,
+      "sha256": "9a907632eb3587caf3f8541ead4d8d44e4217cc4b561de7e9bf0820c31ba6905"
+    },
+    {
+      "path": "evidence-2026-10-08/workflow-recovery-2026-10-07T22-26-19-297Z-c40792/report.html",
+      "bytes": 3244,
+      "sha256": "db822806744a6030fa0264556ab49dd101da973f47d7cb497132c06cba76fa79"
+    },
+    {
+      "path": "evidence-2026-10-08/workflow-recovery-2026-10-07T22-26-19-297Z-c40792/node-http-c4-b1-after-commit-r0/persisted.json",
+      "bytes": 12835,
+      "sha256": "f9c88360975721a253bfeb864610d1935407d324de11fa16a841f8c231eb0778"
+    },
+    {
+      "path": "evidence-2026-10-08/workflow-recovery-2026-10-07T22-26-19-297Z-c40792/node-http-c4-b1-after-commit-r0/events.jsonl",
+      "bytes": 5707,
+      "sha256": "606057dc701a581012cee7888ee77003ea5e9eb6638a2b7d5da636105fc635e4"
+    },
+    {
+      "path": "evidence-2026-10-08/workflow-recovery-2026-10-07T22-26-19-297Z-c40792/node-http-c4-b1-after-commit-r0/attempts.jsonl",
+      "bytes": 2875,
+      "sha256": "ad760b33a2ed9b01d3662117cf03357b73a94cecc72527fdd702596653948b86"
+    },
+    {
+      "path": "evidence-2026-10-08/workflow-recovery-2026-10-07T22-26-19-297Z-c40792/node-http-c1-b1-before-commit-r1/persisted.json",
+      "bytes": 12871,
+      "sha256": "dd30ebd52a54ef4ff3ef743fc3858b615546eb8ec7aadc9fd7b44212c7a24c53"
+    },
+    {
+      "path": "evidence-2026-10-08/workflow-recovery-2026-10-07T22-26-19-297Z-c40792/node-http-c1-b1-before-commit-r1/events.jsonl",
+      "bytes": 5846,
+      "sha256": "02544cc5d41fb03d93813e27436426e2c724baec88c0d97a90cd3bf8229f42af"
+    },
+    {
+      "path": "evidence-2026-10-08/workflow-recovery-2026-10-07T22-26-19-297Z-c40792/node-http-c1-b1-before-commit-r1/attempts.jsonl",
+      "bytes": 2606,
+      "sha256": "64ebd42de282c09ec645d1dba85ada9308879f5e0d7d49dab957691aab5d80d1"
+    },
+    {
+      "path": "evidence-2026-10-08/workflow-recovery-2026-10-07T22-26-19-297Z-c40792/node-http-c4-b1-after-commit-r1/persisted.json",
+      "bytes": 12871,
+      "sha256": "977c33e6080128b922e32a0c958b9c84abffedf1297f8bef852bf63c71197c13"
+    },
+    {
+      "path": "evidence-2026-10-08/workflow-recovery-2026-10-07T22-26-19-297Z-c40792/node-http-c4-b1-after-commit-r1/events.jsonl",
+      "bytes": 5697,
+      "sha256": "63505bc17677d5402a0d25d3d14e2603a9958bc2f7f604a2fadead55952295de"
+    },
+    {
+      "path": "evidence-2026-10-08/workflow-recovery-2026-10-07T22-26-19-297Z-c40792/node-http-c4-b1-after-commit-r1/attempts.jsonl",
+      "bytes": 2877,
+      "sha256": "15cf0e53f2973ad23b07238894da334d1428e449d0a683ae61b1e0c4ce0dd026"
+    },
+    {
+      "path": "evidence-2026-10-08/workflow-recovery-2026-10-07T22-26-19-297Z-c40792/node-http-c1-b1-before-commit-r0/persisted.json",
+      "bytes": 12835,
+      "sha256": "63f91050b6e067f2fad64141060bfc13ea4ac827d6d72b2074fa6102000157f4"
+    },
+    {
+      "path": "evidence-2026-10-08/workflow-recovery-2026-10-07T22-26-19-297Z-c40792/node-http-c1-b1-before-commit-r0/events.jsonl",
+      "bytes": 5794,
+      "sha256": "ab509a3aa0b753267db2a4ce387a4ed1b1f2bbb52dd84034b84b49f9c3bc123f"
+    },
+    {
+      "path": "evidence-2026-10-08/workflow-recovery-2026-10-07T22-26-19-297Z-c40792/node-http-c1-b1-before-commit-r0/attempts.jsonl",
+      "bytes": 2585,
+      "sha256": "370cfb79cd00c31b514c8edca03ef2b47ce561c5378a10f864d96a8a94ae32b1"
+    },
+    {
+      "path": "evidence-2026-10-08/workflow-recovery-2026-10-07T22-26-19-297Z-c40792/node-http-c4-b1-before-commit-r1/persisted.json",
+      "bytes": 12871,
+      "sha256": "8ed6ab86008256dd4a0abfa07010dd35870d61dd9576db98c8e8f6faef22a9e3"
+    },
+    {
+      "path": "evidence-2026-10-08/workflow-recovery-2026-10-07T22-26-19-297Z-c40792/node-http-c4-b1-before-commit-r1/events.jsonl",
+      "bytes": 6088,
+      "sha256": "d6d5cfe3393f13e97aed4749156e5b954abdf9e86af6ba7461be5d4b2e9d8af4"
+    },
+    {
+      "path": "evidence-2026-10-08/workflow-recovery-2026-10-07T22-26-19-297Z-c40792/node-http-c4-b1-before-commit-r1/attempts.jsonl",
+      "bytes": 3070,
+      "sha256": "757ca8f9124a19cdbb78086fe5cdd123b2512f9969f8e5f278c1c775cd58f970"
+    },
+    {
+      "path": "evidence-2026-10-08/workflow-recovery-2026-10-07T22-26-19-297Z-c40792/node-http-c4-b1-before-commit-r0/persisted.json",
+      "bytes": 12835,
+      "sha256": "1446ec41b4fa7d270b70ce5a6d60b578dffa2305dae68f634026eee6f67b444b"
+    },
+    {
+      "path": "evidence-2026-10-08/workflow-recovery-2026-10-07T22-26-19-297Z-c40792/node-http-c4-b1-before-commit-r0/events.jsonl",
+      "bytes": 6059,
+      "sha256": "c64c0ae6c5ae6004d18644daa30f6213b661d47998f67631491da0476fe60fbd"
+    },
+    {
+      "path": "evidence-2026-10-08/workflow-recovery-2026-10-07T22-26-19-297Z-c40792/node-http-c4-b1-before-commit-r0/attempts.jsonl",
+      "bytes": 3046,
+      "sha256": "88d342848d2e703faf03366bd8ef16a175718374c932c7bc38cbb9b1311a276b"
+    },
+    {
+      "path": "evidence-2026-10-08/workflow-recovery-2026-10-07T22-26-19-297Z-c40792/node-http-c4-b4-before-commit-r0/persisted.json",
+      "bytes": 12835,
+      "sha256": "002decbccc1f9f0b789f489acc8c460ca5fdd1491b211640d69ebd44f1cd1585"
+    },
+    {
+      "path": "evidence-2026-10-08/workflow-recovery-2026-10-07T22-26-19-297Z-c40792/node-http-c4-b4-before-commit-r0/events.jsonl",
+      "bytes": 4669,
+      "sha256": "21221cc7e6194ba6ab0461fb2175de6f3f657ef3d986f0d4ba0f9e135624c88b"
+    },
+    {
+      "path": "evidence-2026-10-08/workflow-recovery-2026-10-07T22-26-19-297Z-c40792/node-http-c4-b4-before-commit-r0/attempts.jsonl",
+      "bytes": 3067,
+      "sha256": "7a78f7a1c752f30a0d25d4ff6b637360f9eec08bbfe27742910d7c98aed262cf"
+    },
+    {
+      "path": "evidence-2026-10-08/workflow-recovery-2026-10-07T22-26-19-297Z-c40792/node-http-c1-b1-after-commit-r0/persisted.json",
+      "bytes": 12835,
+      "sha256": "8f7a94ab84b8d7806f9b8e1e632135d234c0507f37f4b29d255f132ddf1ac978"
+    },
+    {
+      "path": "evidence-2026-10-08/workflow-recovery-2026-10-07T22-26-19-297Z-c40792/node-http-c1-b1-after-commit-r0/events.jsonl",
+      "bytes": 5398,
+      "sha256": "46cdef586bf33bb04999f21f03c9ff9d6df6867c26083cf680ca8b1402b828ff"
+    },
+    {
+      "path": "evidence-2026-10-08/workflow-recovery-2026-10-07T22-26-19-297Z-c40792/node-http-c1-b1-after-commit-r0/attempts.jsonl",
+      "bytes": 2401,
+      "sha256": "de9bc407d418f4fdf40fc3d0cb6e7e6b9c5aa5129041fa42774328a99f3191f3"
+    },
+    {
+      "path": "evidence-2026-10-08/workflow-recovery-2026-10-07T22-26-19-297Z-c40792/node-http-c1-b1-after-commit-r1/persisted.json",
+      "bytes": 12871,
+      "sha256": "40949f917fc8e3d40f7e847cfe6beb00c43a3d32088afbb26fe5d8d749000123"
+    },
+    {
+      "path": "evidence-2026-10-08/workflow-recovery-2026-10-07T22-26-19-297Z-c40792/node-http-c1-b1-after-commit-r1/events.jsonl",
+      "bytes": 5405,
+      "sha256": "88260158130d0aa600e1ad06ec877b39c250b42515884614fc35e35ac714c400"
+    },
+    {
+      "path": "evidence-2026-10-08/workflow-recovery-2026-10-07T22-26-19-297Z-c40792/node-http-c1-b1-after-commit-r1/attempts.jsonl",
+      "bytes": 2402,
+      "sha256": "ad1e033f1c904f536f888f2a94cef7ac82f942f1caff2b3780758538292b6563"
+    },
+    {
+      "path": "evidence-2026-10-08/workflow-recovery-2026-10-07T22-26-19-297Z-c40792/node-http-c4-b4-before-commit-r1/persisted.json",
+      "bytes": 12871,
+      "sha256": "3b444c904ac840dd68db1aa16525254fff3143aced70ec1d688b4d69bd04e0db"
+    },
+    {
+      "path": "evidence-2026-10-08/workflow-recovery-2026-10-07T22-26-19-297Z-c40792/node-http-c4-b4-before-commit-r1/events.jsonl",
+      "bytes": 4672,
+      "sha256": "46dc76aa31f3255f201c444641c3d00994dc4029d2499b7996c9439a12f28ff7"
+    },
+    {
+      "path": "evidence-2026-10-08/workflow-recovery-2026-10-07T22-26-19-297Z-c40792/node-http-c4-b4-before-commit-r1/attempts.jsonl",
+      "bytes": 3069,
+      "sha256": "8c9e98bb161685cbc61fa2d3b19bfc1adee6cfdbe1b1d403fe96e1462339e10e"
+    },
+    {
+      "path": "evidence-2026-10-08/workflow-recovery-2026-10-07T22-26-19-297Z-c40792/sources/pnpm-lock.yaml",
+      "bytes": 160696,
+      "sha256": "5de2f799a822e743655d987ce8058e2ef7ad4ab5645105f7c7f5b160dae89177"
+    },
+    {
+      "path": "evidence-2026-10-08/workflow-recovery-2026-10-07T22-26-19-297Z-c40792/sources/.node-version",
+      "bytes": 7,
+      "sha256": "aa0d48458ddcabfd2382395c55a5fec977c56664f5c87dac1a49655a7d6faada"
+    },
+    {
+      "path": "evidence-2026-10-08/workflow-recovery-2026-10-07T22-26-19-297Z-c40792/sources/package.json",
+      "bytes": 692,
+      "sha256": "c7bc7a581210eb64c39f76ee166e61b7f84148560cb0e1e647b215de12d8dd45"
+    },
+    {
+      "path": "evidence-2026-10-08/workflow-recovery-2026-10-07T22-26-19-297Z-c40792/sources/tsconfig.json",
+      "bytes": 395,
+      "sha256": "56b6ec40c7eecf9798e19d3759d0eb78834af67bb30821d650245256d04ac196"
+    },
+    {
+      "path": "evidence-2026-10-08/workflow-recovery-2026-10-07T22-26-19-297Z-c40792/sources/pnpm-workspace.yaml",
+      "bytes": 335,
+      "sha256": "0efca8723660feb40bfa66318375c08aa4d927d6788cb161e5e6c11c7e3fae3d"
+    },
+    {
+      "path": "evidence-2026-10-08/workflow-recovery-2026-10-07T22-26-19-297Z-c40792/node-http-c4-b4-after-commit-r1/persisted.json",
+      "bytes": 12871,
+      "sha256": "a2aa22d81154622ff6c5bbb678a38a3c2cd2a581995079aafa2f6590bf6c68cb"
+    },
+    {
+      "path": "evidence-2026-10-08/workflow-recovery-2026-10-07T22-26-19-297Z-c40792/node-http-c4-b4-after-commit-r1/events.jsonl",
+      "bytes": 3539,
+      "sha256": "f9a2035223a6b72a6a1b3ec133475f716a86f219e9f75bcb8315adfb3215534a"
+    },
+    {
+      "path": "evidence-2026-10-08/workflow-recovery-2026-10-07T22-26-19-297Z-c40792/node-http-c4-b4-after-commit-r1/attempts.jsonl",
+      "bytes": 2268,
+      "sha256": "64bb5addd8a0f69388a06554961563ec380d47d5ed6afd14ff43ec08bb3f28dc"
+    },
+    {
+      "path": "evidence-2026-10-08/workflow-recovery-2026-10-07T22-26-19-297Z-c40792/node-http-c4-b4-after-commit-r0/persisted.json",
+      "bytes": 12835,
+      "sha256": "2dc2d778099ecc773eef7150a85dc1d19a4b9f15a01536a49eec1463e4165370"
+    },
+    {
+      "path": "evidence-2026-10-08/workflow-recovery-2026-10-07T22-26-19-297Z-c40792/node-http-c4-b4-after-commit-r0/events.jsonl",
+      "bytes": 3544,
+      "sha256": "14250e42120b34ff433cb127d64122fe5b24a6c3d8a26ee5a83231a2f294f634"
+    },
+    {
+      "path": "evidence-2026-10-08/workflow-recovery-2026-10-07T22-26-19-297Z-c40792/node-http-c4-b4-after-commit-r0/attempts.jsonl",
+      "bytes": 2262,
+      "sha256": "3a62d56e94d6156108ac8c2a85f0a74bc1a542d00202b3f0841370184ecc63e9"
+    },
+    {
+      "path": "evidence-2026-10-08/workflow-recovery-2026-10-07T22-26-19-297Z-c40792/sources/tools/doctor.ts",
+      "bytes": 1537,
+      "sha256": "590dfe9777c6add1d4462280f63a718a7aa95b2daa3245e6004498226c00147a"
+    },
+    {
+      "path": "evidence-2026-10-08/workflow-recovery-2026-10-07T22-26-19-297Z-c40792/sources/tools/build-shared-sqlite.ts",
+      "bytes": 5928,
+      "sha256": "d4dfb62b41b3ebe5e8450dd0b7c5f591d4a43675acab086e8e884caca07d8772"
+    },
+    {
+      "path": "evidence-2026-10-08/workflow-recovery-2026-10-07T22-26-19-297Z-c40792/sources/tools/bootstrap.ts",
+      "bytes": 1236,
+      "sha256": "66cf117d9d6ec46a01d5ec87719abf79f087b7c8495a8559d8ce8b0b28720dbf"
+    },
+    {
+      "path": "evidence-2026-10-08/workflow-recovery-2026-10-07T22-26-19-297Z-c40792/sources/fixtures/server.ts",
+      "bytes": 9231,
+      "sha256": "78bbdd1f6269cd5170d40c02b6fb68cafcd1af94f52352d7f766afebb4ca900c"
+    },
+    {
+      "path": "evidence-2026-10-08/workflow-recovery-2026-10-07T22-26-19-297Z-c40792/sources/src/report.ts",
+      "bytes": 3459,
+      "sha256": "12269d35f5a0d01fee289567e0e192e7b8ccb8d5bc0680576a5757d50375158e"
+    },
+    {
+      "path": "evidence-2026-10-08/workflow-recovery-2026-10-07T22-26-19-297Z-c40792/sources/src/worker-client.ts",
+      "bytes": 4027,
+      "sha256": "34645ddaea64c68f9d8e97034fbdd9410befdad74b017d204e373c1ba7ffbbd4"
+    },
+    {
+      "path": "evidence-2026-10-08/workflow-recovery-2026-10-07T22-26-19-297Z-c40792/sources/src/statistics.ts",
+      "bytes": 2147,
+      "sha256": "86fe385d542188716a594bca2793927bd62a3bdba8af11f6620ebb07b5c7324d"
+    },
+    {
+      "path": "evidence-2026-10-08/workflow-recovery-2026-10-07T22-26-19-297Z-c40792/sources/src/workflow.ts",
+      "bytes": 11752,
+      "sha256": "2d8df32f816091fa412500780bac4bc97f604f74c48f87a55ce3187cdc5f6bd4"
+    },
+    {
+      "path": "evidence-2026-10-08/workflow-recovery-2026-10-07T22-26-19-297Z-c40792/sources/src/scheduler.ts",
+      "bytes": 1938,
+      "sha256": "d247c784832f09dbe81380e8d190c635e8992944409eb684b8c9204914c46b45"
+    },
+    {
+      "path": "evidence-2026-10-08/workflow-recovery-2026-10-07T22-26-19-297Z-c40792/sources/src/resources.ts",
+      "bytes": 1512,
+      "sha256": "ae64318875812c39097ca5526b9b36d9a43e27b1b807c3d5a363a18b1fdec14c"
+    },
+    {
+      "path": "evidence-2026-10-08/workflow-recovery-2026-10-07T22-26-19-297Z-c40792/sources/src/environment.ts",
+      "bytes": 3661,
+      "sha256": "e31521c87f2883bf14c74fc83988ac50a42e35f493de335dcdb7696c0c1c20d6"
+    },
+    {
+      "path": "evidence-2026-10-08/workflow-recovery-2026-10-07T22-26-19-297Z-c40792/sources/src/storage-engines.ts",
+      "bytes": 2826,
+      "sha256": "9c90df1bf6fc7052529c6a3663dca5a4c07dd6f979a9951bc72e77431614d473"
+    },
+    {
+      "path": "evidence-2026-10-08/workflow-recovery-2026-10-07T22-26-19-297Z-c40792/sources/src/storage.ts",
+      "bytes": 2533,
+      "sha256": "75a36ba6730dffbdbac7d9a31ad82c8cca88c241e554d2a914853df9be883eee"
+    },
+    {
+      "path": "evidence-2026-10-08/workflow-recovery-2026-10-07T22-26-19-297Z-c40792/sources/src/cli.ts",
+      "bytes": 1330,
+      "sha256": "aa92b283bfd88170d984a32750034417d2d2afa2b37ab998801304b29b5c443c"
+    },
+    {
+      "path": "evidence-2026-10-08/workflow-recovery-2026-10-07T22-26-19-297Z-c40792/sources/src/campaign.ts",
+      "bytes": 12571,
+      "sha256": "4cc6709341b1c7674d69c29c0abb067c238efebfa93fd766805fcf993ab6eb93"
+    },
+    {
+      "path": "evidence-2026-10-08/workflow-recovery-2026-10-07T22-26-19-297Z-c40792/sources/src/worker-server.ts",
+      "bytes": 2132,
+      "sha256": "0d47267bc34e59fd64c3db643f0dc26b4e8f6e3335df8d8a7881f0624b995c84"
+    },
+    {
+      "path": "evidence-2026-10-08/workflow-recovery-2026-10-07T22-26-19-297Z-c40792/sources/src/storage-cli.ts",
+      "bytes": 570,
+      "sha256": "a477c23708c2353875cac300baacc7cce155ee4c19af9ccf997757b03c89c73d"
+    },
+    {
+      "path": "evidence-2026-10-08/workflow-recovery-2026-10-07T22-26-19-297Z-c40792/sources/src/workflow-cli.ts",
+      "bytes": 589,
+      "sha256": "8cdb26b76bc35af812002e15872e35f361c20de122e3d8d64bd5533a98236cb4"
+    },
+    {
+      "path": "evidence-2026-10-08/workflow-recovery-2026-10-07T22-26-19-297Z-c40792/sources/src/workflow-campaign.ts",
+      "bytes": 10002,
+      "sha256": "7da7589de88258f6340861c772f5fbd2784c9c17e953b08a1e040edb0fb254c5"
+    },
+    {
+      "path": "evidence-2026-10-08/workflow-recovery-2026-10-07T22-26-19-297Z-c40792/sources/src/registry.ts",
+      "bytes": 1348,
+      "sha256": "23d04d8d9078df7b9f72c915126c8110ba44f06165b6df7f5d846cb7db71b5fa"
+    },
+    {
+      "path": "evidence-2026-10-08/workflow-recovery-2026-10-07T22-26-19-297Z-c40792/sources/src/storage-campaign.ts",
+      "bytes": 12586,
+      "sha256": "36fd3097a971ab3e74e84735ed374448be7920a6dc694577df5d0ca080f20623"
+    },
+    {
+      "path": "evidence-2026-10-08/workflow-recovery-2026-10-07T22-26-19-297Z-c40792/sources/adapters/storage-rust/Cargo.toml",
+      "bytes": 340,
+      "sha256": "3d9ba6be5227b11f7caa022403781a92d24d879b4d7169119e603a9503735eb0"
+    },
+    {
+      "path": "evidence-2026-10-08/workflow-recovery-2026-10-07T22-26-19-297Z-c40792/sources/adapters/storage-rust/Cargo.lock",
+      "bytes": 28594,
+      "sha256": "3948c489d83b8e492ce3540d7be1b95f348d8dc016b66e897524b6e8c2d95c7c"
+    },
+    {
+      "path": "evidence-2026-10-08/workflow-recovery-2026-10-07T22-26-19-297Z-c40792/sources/adapters/sqlite-common/lab_sqlite.h",
+      "bytes": 622,
+      "sha256": "3203e2f8693041a9505754a4e1b7d3510be7c070b33b5fd6620e03a1548352b4"
+    },
+    {
+      "path": "evidence-2026-10-08/workflow-recovery-2026-10-07T22-26-19-297Z-c40792/sources/adapters/sqlite-common/node_addon.c",
+      "bytes": 3499,
+      "sha256": "eaa15a0116a730e79fef74854544806d99a2faba4045355dc21c3a7beef045d1"
+    },
+    {
+      "path": "evidence-2026-10-08/workflow-recovery-2026-10-07T22-26-19-297Z-c40792/sources/adapters/sqlite-common/lab_sqlite.c",
+      "bytes": 3962,
+      "sha256": "22709a4794e41132cc30de68a9f34aa0502566fe39d6bcba95c075386436fdb7"
+    },
+    {
+      "path": "evidence-2026-10-08/workflow-recovery-2026-10-07T22-26-19-297Z-c40792/sources/adapters/rust/Cargo.toml",
+      "bytes": 566,
+      "sha256": "93f7918b75c5c076a680e16d73f549862c5fd37505b14852b5d597e718730930"
+    },
+    {
+      "path": "evidence-2026-10-08/workflow-recovery-2026-10-07T22-26-19-297Z-c40792/sources/adapters/rust/Cargo.lock",
+      "bytes": 115660,
+      "sha256": "c98b6ad561f91885b38c33b3781b4e67ed527d2deb0880500a2a8befbd4ab2cd"
+    },
+    {
+      "path": "evidence-2026-10-08/workflow-recovery-2026-10-07T22-26-19-297Z-c40792/sources/adapters/stagehand-v3/package.json",
+      "bytes": 220,
+      "sha256": "59ea14e936b34c80170481ae32215c5712fb1d239fe83f52b5f54d5d316c5d12"
+    },
+    {
+      "path": "evidence-2026-10-08/workflow-recovery-2026-10-07T22-26-19-297Z-c40792/sources/adapters/stagehand-v3/worker.ts",
+      "bytes": 3417,
+      "sha256": "43acbb80c41769e56c71670bae1d1c615c14654cd6408f967db43a47554e0949"
+    },
+    {
+      "path": "evidence-2026-10-08/workflow-recovery-2026-10-07T22-26-19-297Z-c40792/sources/adapters/workflow-node/worker.ts",
+      "bytes": 7116,
+      "sha256": "53c93dd701dc7368110d0cd5b26db16eb638e1603b46406019f19531131fbcf4"
+    },
+    {
+      "path": "evidence-2026-10-08/workflow-recovery-2026-10-07T22-26-19-297Z-c40792/sources/adapters/storage-shared-node/worker.ts",
+      "bytes": 1741,
+      "sha256": "88036d041df21bfc87f7e1e6a63db9b4359628f22dff71cbba1e80e937ab4b16"
+    },
+    {
+      "path": "evidence-2026-10-08/workflow-recovery-2026-10-07T22-26-19-297Z-c40792/sources/adapters/storage-go-sync/go.mod",
+      "bytes": 46,
+      "sha256": "7ecfea82372a8ba0c1142df0f1d75faa489dfde4c2cc43ff69af331b9042bb07"
+    },
+    {
+      "path": "evidence-2026-10-08/workflow-recovery-2026-10-07T22-26-19-297Z-c40792/sources/adapters/storage-go-sync/main.go",
+      "bytes": 4223,
+      "sha256": "c8f17b923ebc98acfcc23fa976e1d8d81efd6479e15f2fe7daa65c236dda457a"
+    },
+    {
+      "path": "evidence-2026-10-08/workflow-recovery-2026-10-07T22-26-19-297Z-c40792/sources/adapters/storage-node/worker.ts",
+      "bytes": 3848,
+      "sha256": "e2e52d8d5a6207ae278b96d26e1e00865a80efa0c2689b3f6e6f025e876a265b"
+    },
+    {
+      "path": "evidence-2026-10-08/workflow-recovery-2026-10-07T22-26-19-297Z-c40792/sources/adapters/storage-rust-sync/Cargo.toml",
+      "bytes": 142,
+      "sha256": "76fa86c5fc67377cae8ef483cb37b93c440103937958c3c3f40ede9d21d0fb66"
+    },
+    {
+      "path": "evidence-2026-10-08/workflow-recovery-2026-10-07T22-26-19-297Z-c40792/sources/adapters/storage-rust-sync/Cargo.lock",
+      "bytes": 2655,
+      "sha256": "753d53e9c25f62601bc3dfe4a9c22dbea093775909b4fb8aae7acde60b30cc1e"
+    },
+    {
+      "path": "evidence-2026-10-08/workflow-recovery-2026-10-07T22-26-19-297Z-c40792/sources/adapters/storage-rust-sync/build.rs",
+      "bytes": 598,
+      "sha256": "229a482f822551afe6542aa988ef6ff22e15aba2c64546647d2d1546dbcd7250"
+    },
+    {
+      "path": "evidence-2026-10-08/workflow-recovery-2026-10-07T22-26-19-297Z-c40792/sources/adapters/node/package.json",
+      "bytes": 221,
+      "sha256": "ecca9c029d30e060766c4b70dd9df6433adda9944d11969e39bacf33f6ac89b4"
+    },
+    {
+      "path": "evidence-2026-10-08/workflow-recovery-2026-10-07T22-26-19-297Z-c40792/sources/adapters/node/pooled-worker.ts",
+      "bytes": 2546,
+      "sha256": "9129c69cc32d27bf5053d3d982a3340af22af65983e9b7b7d38a98ec7549b9c1"
+    },
+    {
+      "path": "evidence-2026-10-08/workflow-recovery-2026-10-07T22-26-19-297Z-c40792/sources/adapters/node/worker.ts",
+      "bytes": 10067,
+      "sha256": "5c7254b51a02b33ca87948dd91febcbee489ca107b139af53ddebaef63795fc7"
+    },
+    {
+      "path": "evidence-2026-10-08/workflow-recovery-2026-10-07T22-26-19-297Z-c40792/sources/adapters/node/browser-tasks.ts",
+      "bytes": 3980,
+      "sha256": "4181ff5065f91245c2e3beed49d1e0439f65f4ddd9ce7c27dc9f49afbd57311c"
+    },
+    {
+      "path": "evidence-2026-10-08/workflow-recovery-2026-10-07T22-26-19-297Z-c40792/sources/adapters/storage-rust-sync/src/main.rs",
+      "bytes": 6034,
+      "sha256": "417ec53dbedc58b5538e93a1e02ce8b6d764292cb9ac7879608940c4136b709f"
+    },
+    {
+      "path": "evidence-2026-10-08/workflow-recovery-2026-10-07T22-26-19-297Z-c40792/sources/adapters/rust/src/main.rs",
+      "bytes": 6656,
+      "sha256": "1998089ef3269426f27d21df673b6ca24772d4df66c550bd32cb318a64aac4e1"
+    },
+    {
+      "path": "evidence-2026-10-08/workflow-recovery-2026-10-07T22-26-19-297Z-c40792/sources/adapters/storage-rust/src/main.rs",
+      "bytes": 9410,
+      "sha256": "7d9b7cf1734f3e54dfd88dd7d533875eed94e327d7dcf7fdeebfd5facc0c6349"
+    },
+    {
+      "path": "evidence-2026-10-08/workflow-pool-wakeup-2026-10-07T22-32-40-342Z-21e558/summary.json",
+      "bytes": 60671,
+      "sha256": "2220895c78c5545f450d0d5e9594cd6fc8d7be80c1e6468351337af3eccc26cf"
+    },
+    {
+      "path": "evidence-2026-10-08/workflow-pool-wakeup-2026-10-07T22-32-40-342Z-21e558/manifest.json",
+      "bytes": 6936,
+      "sha256": "b725025129c8fc2356e9fda8903f1f8235154e23efae6dca5aa63b735a5c81a1"
+    },
+    {
+      "path": "evidence-2026-10-08/workflow-pool-wakeup-2026-10-07T22-32-40-342Z-21e558/report.html",
+      "bytes": 4988,
+      "sha256": "6b88beae5f7a53f715dfba1c4f55414298ec3e18466c5db9433cbf6056a50172"
+    },
+    {
+      "path": "evidence-2026-10-08/workflow-pool-wakeup-2026-10-07T22-32-40-342Z-21e558/crawlee-http-pooled-c4-b1-none-notify-r1/persisted.json",
+      "bytes": 24103,
+      "sha256": "c378aa5e86f6d1f18231499d153591f0ff2c4ba451ca477eb7c1326c4a03db7a"
+    },
+    {
+      "path": "evidence-2026-10-08/workflow-pool-wakeup-2026-10-07T22-32-40-342Z-21e558/crawlee-http-pooled-c4-b1-none-notify-r1/events.jsonl",
+      "bytes": 5576,
+      "sha256": "f8d48aebd6568825f9a5206d4c3ace80d108fd2043713d78626f633ee8abd418"
+    },
+    {
+      "path": "evidence-2026-10-08/workflow-pool-wakeup-2026-10-07T22-32-40-342Z-21e558/crawlee-http-pooled-c4-b1-none-notify-r1/attempts.jsonl",
+      "bytes": 2459,
+      "sha256": "2cff088f6886175aec160b0ed36f021cec33047d74417120e6a1fe342f59d8b0"
+    },
+    {
+      "path": "evidence-2026-10-08/workflow-pool-wakeup-2026-10-07T22-32-40-342Z-21e558/crawlee-http-pooled-c1-b1-none-notify-r0/persisted.json",
+      "bytes": 24067,
+      "sha256": "0b694aff33e74dbaa5867c70c1cde8902c754ce9b368319b2c74152e8c2b138e"
+    },
+    {
+      "path": "evidence-2026-10-08/workflow-pool-wakeup-2026-10-07T22-32-40-342Z-21e558/crawlee-http-pooled-c1-b1-none-notify-r0/events.jsonl",
+      "bytes": 5578,
+      "sha256": "1cafa051821107ea9be771a00a13da537d91fa2e3fabc166341e468ee485f671"
+    },
+    {
+      "path": "evidence-2026-10-08/workflow-pool-wakeup-2026-10-07T22-32-40-342Z-21e558/crawlee-http-pooled-c1-b1-none-notify-r0/attempts.jsonl",
+      "bytes": 2466,
+      "sha256": "3db4da85c4e8bbf73d01c35828787509baecb4a8ef6c3adac592c93ce299502b"
+    },
+    {
+      "path": "evidence-2026-10-08/workflow-pool-wakeup-2026-10-07T22-32-40-342Z-21e558/crawlee-http-pooled-c1-b1-none-notify-r1/persisted.json",
+      "bytes": 24103,
+      "sha256": "f8f301c500377b0b9ecf5d4601584dbcc2cd68f0d0ac3847e1173a972f72710f"
+    },
+    {
+      "path": "evidence-2026-10-08/workflow-pool-wakeup-2026-10-07T22-32-40-342Z-21e558/crawlee-http-pooled-c1-b1-none-notify-r1/events.jsonl",
+      "bytes": 5574,
+      "sha256": "cbbe2ec19239dbc1565bbb7f68a624579b80d676eaddbe1d9d12606de0b965c1"
+    },
+    {
+      "path": "evidence-2026-10-08/workflow-pool-wakeup-2026-10-07T22-32-40-342Z-21e558/crawlee-http-pooled-c1-b1-none-notify-r1/attempts.jsonl",
+      "bytes": 2463,
+      "sha256": "6c137d7a3409f453f13f92acfeafb0a7aa4546c2a9c57e25dbe2cad626e3695c"
+    },
+    {
+      "path": "evidence-2026-10-08/workflow-pool-wakeup-2026-10-07T22-32-40-342Z-21e558/crawlee-http-pooled-c4-b1-none-notify-r0/persisted.json",
+      "bytes": 24067,
+      "sha256": "6daa04f5338a4fa12de74941b6827680d48b3d6475e75904683e7bc3a3ffdc3e"
+    },
+    {
+      "path": "evidence-2026-10-08/workflow-pool-wakeup-2026-10-07T22-32-40-342Z-21e558/crawlee-http-pooled-c4-b1-none-notify-r0/events.jsonl",
+      "bytes": 5547,
+      "sha256": "af0a8f13a625911e4b2832f75ca6e5990b362afda095199338ef6768eb43283c"
+    },
+    {
+      "path": "evidence-2026-10-08/workflow-pool-wakeup-2026-10-07T22-32-40-342Z-21e558/crawlee-http-pooled-c4-b1-none-notify-r0/attempts.jsonl",
+      "bytes": 2438,
+      "sha256": "58cb306cf64866885466422e941b060c5eb718f92314df09e86ceaae156e02e8"
+    },
+    {
+      "path": "evidence-2026-10-08/workflow-pool-wakeup-2026-10-07T22-32-40-342Z-21e558/crawlee-http-pooled-c8-b1-none-poll-r0/persisted.json",
+      "bytes": 24067,
+      "sha256": "462b429f0ff77ecfee227db9b2fbc97f2f2569a5a3cbf049860c4fd8d5d95e54"
+    },
+    {
+      "path": "evidence-2026-10-08/workflow-pool-wakeup-2026-10-07T22-32-40-342Z-21e558/crawlee-http-pooled-c8-b1-none-poll-r0/events.jsonl",
+      "bytes": 5584,
+      "sha256": "0a88dc0d9a49651d7506f99b4ff5cbff134ba2329bbb92170ae8de8e8e7547b8"
+    },
+    {
+      "path": "evidence-2026-10-08/workflow-pool-wakeup-2026-10-07T22-32-40-342Z-21e558/crawlee-http-pooled-c8-b1-none-poll-r0/attempts.jsonl",
+      "bytes": 2463,
+      "sha256": "237f93abb240946328dbfdfd303460e429e8d1d6606a8018254f98726c8c1da9"
+    },
+    {
+      "path": "evidence-2026-10-08/workflow-pool-wakeup-2026-10-07T22-32-40-342Z-21e558/crawlee-http-pooled-c8-b1-none-poll-r1/persisted.json",
+      "bytes": 24103,
+      "sha256": "5d603c799a8ccdcd6d95a6642c77bc84e985b4d285be8dd16bfa1e78b14bce1c"
+    },
+    {
+      "path": "evidence-2026-10-08/workflow-pool-wakeup-2026-10-07T22-32-40-342Z-21e558/crawlee-http-pooled-c8-b1-none-poll-r1/events.jsonl",
+      "bytes": 5578,
+      "sha256": "37084a0f25b76d63cff15ea22fe5cbdc80548c05bbc4fd8bf15feff708b15f8a"
+    },
+    {
+      "path": "evidence-2026-10-08/workflow-pool-wakeup-2026-10-07T22-32-40-342Z-21e558/crawlee-http-pooled-c8-b1-none-poll-r1/attempts.jsonl",
+      "bytes": 2457,
+      "sha256": "9ce3ec95ff9d9cfcaf2a01a295b830ff3b775da836678c7a33edc0518fe33b75"
+    },
+    {
+      "path": "evidence-2026-10-08/workflow-pool-wakeup-2026-10-07T22-32-40-342Z-21e558/crawlee-http-pooled-c1-b1-none-poll-r0/persisted.json",
+      "bytes": 24067,
+      "sha256": "821259c454257f77f0418b1e28c7eb2601998ea918de98c1956e4248368630fc"
+    },
+    {
+      "path": "evidence-2026-10-08/workflow-pool-wakeup-2026-10-07T22-32-40-342Z-21e558/crawlee-http-pooled-c1-b1-none-poll-r0/events.jsonl",
+      "bytes": 5544,
+      "sha256": "fa804f3c3fc733fcac7471a5df82a68c6277b9e2ebf313caed219e6a6c55362a"
+    },
+    {
+      "path": "evidence-2026-10-08/workflow-pool-wakeup-2026-10-07T22-32-40-342Z-21e558/crawlee-http-pooled-c1-b1-none-poll-r0/attempts.jsonl",
+      "bytes": 2443,
+      "sha256": "7f89ee6baf250a87e9ee96916257adf0d669a76c8f257f52f700615d6fa29ba7"
+    },
+    {
+      "path": "evidence-2026-10-08/workflow-pool-wakeup-2026-10-07T22-32-40-342Z-21e558/crawlee-http-pooled-c4-b4-none-notify-r1/persisted.json",
+      "bytes": 24103,
+      "sha256": "bdc3f1ef4b07f417c23a7a3b511cd14d50d7cb97cb998c3673ed4bccf5794b9c"
+    },
+    {
+      "path": "evidence-2026-10-08/workflow-pool-wakeup-2026-10-07T22-32-40-342Z-21e558/crawlee-http-pooled-c4-b4-none-notify-r1/events.jsonl",
+      "bytes": 4173,
+      "sha256": "d93efbb2c0bc1599010dfc40574244eaccc5a5ed918a5bb1a73a03256c2b909c"
+    },
+    {
+      "path": "evidence-2026-10-08/workflow-pool-wakeup-2026-10-07T22-32-40-342Z-21e558/crawlee-http-pooled-c4-b4-none-notify-r1/attempts.jsonl",
+      "bytes": 2463,
+      "sha256": "e01bae6a28547ef4331a95673141577c136cd21ca21217b521745ad5a3f4475b"
+    },
+    {
+      "path": "evidence-2026-10-08/workflow-pool-wakeup-2026-10-07T22-32-40-342Z-21e558/crawlee-http-pooled-c4-b4-none-poll-r1/persisted.json",
+      "bytes": 24103,
+      "sha256": "dcfa5a84b4409e8beb4159df6f58f839d7c1051217d0642b255bb89ddd7a24ad"
+    },
+    {
+      "path": "evidence-2026-10-08/workflow-pool-wakeup-2026-10-07T22-32-40-342Z-21e558/crawlee-http-pooled-c4-b4-none-poll-r1/events.jsonl",
+      "bytes": 4184,
+      "sha256": "ee5c5db51b6c7df4e9266610cb130e751f69ec7ab1ab1ebe056121c23bb378e9"
+    },
+    {
+      "path": "evidence-2026-10-08/workflow-pool-wakeup-2026-10-07T22-32-40-342Z-21e558/crawlee-http-pooled-c4-b4-none-poll-r1/attempts.jsonl",
+      "bytes": 2472,
+      "sha256": "aaf6f44d45f3928771f7fc190f37f0cdb27a5ed8d7106e1c7ebe534c2a8610ba"
+    },
+    {
+      "path": "evidence-2026-10-08/workflow-pool-wakeup-2026-10-07T22-32-40-342Z-21e558/crawlee-http-pooled-c4-b4-none-poll-r0/persisted.json",
+      "bytes": 24067,
+      "sha256": "23d6077ab70a65aff893dbcb60a535bcd98a22997f295ce3801927efb4c486bf"
+    },
+    {
+      "path": "evidence-2026-10-08/workflow-pool-wakeup-2026-10-07T22-32-40-342Z-21e558/crawlee-http-pooled-c4-b4-none-poll-r0/events.jsonl",
+      "bytes": 4179,
+      "sha256": "7caafbc8ec4cae362e2a5c42152659a9b5f3fb77cafa998f2a8d26979c0e9bb9"
+    },
+    {
+      "path": "evidence-2026-10-08/workflow-pool-wakeup-2026-10-07T22-32-40-342Z-21e558/crawlee-http-pooled-c4-b4-none-poll-r0/attempts.jsonl",
+      "bytes": 2466,
+      "sha256": "126ff16929c3af4e6c9d4869ccd5facb3d5e627691329f50ae80b80817685a0d"
+    },
+    {
+      "path": "evidence-2026-10-08/workflow-pool-wakeup-2026-10-07T22-32-40-342Z-21e558/crawlee-http-pooled-c4-b4-none-notify-r0/persisted.json",
+      "bytes": 24067,
+      "sha256": "cbdaf350ac1b303cd85891094ab43f7bd3e8f1679d664a2f71ac799bd98062ef"
+    },
+    {
+      "path": "evidence-2026-10-08/workflow-pool-wakeup-2026-10-07T22-32-40-342Z-21e558/crawlee-http-pooled-c4-b4-none-notify-r0/events.jsonl",
+      "bytes": 4179,
+      "sha256": "267d7827e3a5959f66fd744b6fcc43cd64674aa52ec6b7c3c4f530684996b452"
+    },
+    {
+      "path": "evidence-2026-10-08/workflow-pool-wakeup-2026-10-07T22-32-40-342Z-21e558/crawlee-http-pooled-c4-b4-none-notify-r0/attempts.jsonl",
+      "bytes": 2467,
+      "sha256": "f0004472ac72c114adec945415aedb071b547032343e157be09095539ff3ae0e"
+    },
+    {
+      "path": "evidence-2026-10-08/workflow-pool-wakeup-2026-10-07T22-32-40-342Z-21e558/crawlee-http-pooled-c1-b1-none-poll-r1/persisted.json",
+      "bytes": 24103,
+      "sha256": "7f1379d1092aae803dc04d36a128c97778225bf830e79dba13d492cef6c97a51"
+    },
+    {
+      "path": "evidence-2026-10-08/workflow-pool-wakeup-2026-10-07T22-32-40-342Z-21e558/crawlee-http-pooled-c1-b1-none-poll-r1/events.jsonl",
+      "bytes": 5567,
+      "sha256": "88a51cbed0176b889fe9c576d0ec834ddca085ae51e6c472a3e7b29686b71d68"
+    },
+    {
+      "path": "evidence-2026-10-08/workflow-pool-wakeup-2026-10-07T22-32-40-342Z-21e558/crawlee-http-pooled-c1-b1-none-poll-r1/attempts.jsonl",
+      "bytes": 2459,
+      "sha256": "6e08655cd907639d6ea98a197ce51a3051b8f7acab98e90757ce4b80ff78df44"
+    },
+    {
+      "path": "evidence-2026-10-08/workflow-pool-wakeup-2026-10-07T22-32-40-342Z-21e558/crawlee-http-pooled-c8-b4-none-notify-r1/persisted.json",
+      "bytes": 24103,
+      "sha256": "7193736584c3242760c3b1eb03d0930e3f3bb93aab9323e88539e5875bbc1e93"
+    },
+    {
+      "path": "evidence-2026-10-08/workflow-pool-wakeup-2026-10-07T22-32-40-342Z-21e558/crawlee-http-pooled-c8-b4-none-notify-r1/events.jsonl",
+      "bytes": 4318,
+      "sha256": "87628e7b4cf4b4aea696345f513f4d474029869f49f76b83a0df2257cc070735"
+    },
+    {
+      "path": "evidence-2026-10-08/workflow-pool-wakeup-2026-10-07T22-32-40-342Z-21e558/crawlee-http-pooled-c8-b4-none-notify-r1/attempts.jsonl",
+      "bytes": 2457,
+      "sha256": "6a43ee14afd5ab09df7c2ef1c4a9785ba0a036e934daee84e8725a9f9ac12af9"
+    },
+    {
+      "path": "evidence-2026-10-08/workflow-pool-wakeup-2026-10-07T22-32-40-342Z-21e558/crawlee-http-pooled-c4-b1-none-poll-r1/persisted.json",
+      "bytes": 24103,
+      "sha256": "0b3d0e0cfa028b81e4f55cce36ea9d67edd76ee7f68f69929b6f5133a33b29ed"
+    },
+    {
+      "path": "evidence-2026-10-08/workflow-pool-wakeup-2026-10-07T22-32-40-342Z-21e558/crawlee-http-pooled-c4-b1-none-poll-r1/events.jsonl",
+      "bytes": 5581,
+      "sha256": "f2edfae92935d3ae3df2d5100adb540bef01b824da100e024b03ca1141b30845"
+    },
+    {
+      "path": "evidence-2026-10-08/workflow-pool-wakeup-2026-10-07T22-32-40-342Z-21e558/crawlee-http-pooled-c4-b1-none-poll-r1/attempts.jsonl",
+      "bytes": 2464,
+      "sha256": "55315fbc8764d59a5398d7e5668bfca099e073beb1301396ab4222db1a38ef44"
+    },
+    {
+      "path": "evidence-2026-10-08/workflow-pool-wakeup-2026-10-07T22-32-40-342Z-21e558/crawlee-http-pooled-c8-b4-none-notify-r0/persisted.json",
+      "bytes": 24067,
+      "sha256": "b6b281d6b67ab1155ddd6efb00f651817b16bf9d5d890f2ef1f05f4a37b60311"
+    },
+    {
+      "path": "evidence-2026-10-08/workflow-pool-wakeup-2026-10-07T22-32-40-342Z-21e558/crawlee-http-pooled-c8-b4-none-notify-r0/events.jsonl",
+      "bytes": 4636,
+      "sha256": "6ff3d90b2a795b3f709023285fd0b6ca0eccbf3ca8dd9e40860eb3d7ffe1c865"
+    },
+    {
+      "path": "evidence-2026-10-08/workflow-pool-wakeup-2026-10-07T22-32-40-342Z-21e558/crawlee-http-pooled-c8-b4-none-notify-r0/attempts.jsonl",
+      "bytes": 2465,
+      "sha256": "93ef06181464484af2967f028637b423e33e1aafccd3db361657cdd67a0458f3"
+    },
+    {
+      "path": "evidence-2026-10-08/workflow-pool-wakeup-2026-10-07T22-32-40-342Z-21e558/crawlee-http-pooled-c4-b1-none-poll-r0/persisted.json",
+      "bytes": 24067,
+      "sha256": "1dc589d95525a7d61a6c0b7ea736e02f52a273a8adb1e498c48e7afe3692dbb6"
+    },
+    {
+      "path": "evidence-2026-10-08/workflow-pool-wakeup-2026-10-07T22-32-40-342Z-21e558/crawlee-http-pooled-c4-b1-none-poll-r0/events.jsonl",
+      "bytes": 5576,
+      "sha256": "e4d4e9fb094db0f7ed410514873bb239ec77e1a18dc65b75288ba23ab7feb2a5"
+    },
+    {
+      "path": "evidence-2026-10-08/workflow-pool-wakeup-2026-10-07T22-32-40-342Z-21e558/crawlee-http-pooled-c4-b1-none-poll-r0/attempts.jsonl",
+      "bytes": 2463,
+      "sha256": "53db30409dafd35e054f60250d5f5f79cd17174d11a58dd53293b9b1861b15c7"
+    },
+    {
+      "path": "evidence-2026-10-08/workflow-pool-wakeup-2026-10-07T22-32-40-342Z-21e558/sources/pnpm-lock.yaml",
+      "bytes": 160696,
+      "sha256": "5de2f799a822e743655d987ce8058e2ef7ad4ab5645105f7c7f5b160dae89177"
+    },
+    {
+      "path": "evidence-2026-10-08/workflow-pool-wakeup-2026-10-07T22-32-40-342Z-21e558/sources/.node-version",
+      "bytes": 7,
+      "sha256": "aa0d48458ddcabfd2382395c55a5fec977c56664f5c87dac1a49655a7d6faada"
+    },
+    {
+      "path": "evidence-2026-10-08/workflow-pool-wakeup-2026-10-07T22-32-40-342Z-21e558/sources/package.json",
+      "bytes": 692,
+      "sha256": "c7bc7a581210eb64c39f76ee166e61b7f84148560cb0e1e647b215de12d8dd45"
+    },
+    {
+      "path": "evidence-2026-10-08/workflow-pool-wakeup-2026-10-07T22-32-40-342Z-21e558/sources/tsconfig.json",
+      "bytes": 395,
+      "sha256": "56b6ec40c7eecf9798e19d3759d0eb78834af67bb30821d650245256d04ac196"
+    },
+    {
+      "path": "evidence-2026-10-08/workflow-pool-wakeup-2026-10-07T22-32-40-342Z-21e558/sources/pnpm-workspace.yaml",
+      "bytes": 335,
+      "sha256": "0efca8723660feb40bfa66318375c08aa4d927d6788cb161e5e6c11c7e3fae3d"
+    },
+    {
+      "path": "evidence-2026-10-08/workflow-pool-wakeup-2026-10-07T22-32-40-342Z-21e558/crawlee-http-pooled-c8-b4-none-poll-r0/persisted.json",
+      "bytes": 24067,
+      "sha256": "e6945b566a12f530ca42c0907cb56bd1233940815ebc141e701e8c2667727051"
+    },
+    {
+      "path": "evidence-2026-10-08/workflow-pool-wakeup-2026-10-07T22-32-40-342Z-21e558/crawlee-http-pooled-c8-b4-none-poll-r0/events.jsonl",
+      "bytes": 4318,
+      "sha256": "73be377d9fd003479bbbf2ade39bcb0f0a3d44139f997a5a8168a9ecf672fc0b"
+    },
+    {
+      "path": "evidence-2026-10-08/workflow-pool-wakeup-2026-10-07T22-32-40-342Z-21e558/crawlee-http-pooled-c8-b4-none-poll-r0/attempts.jsonl",
+      "bytes": 2453,
+      "sha256": "6be1e2058a5b14b56d7428e3090ac0d3aa4aabfa12bdf4fbad6754d25490e298"
+    },
+    {
+      "path": "evidence-2026-10-08/workflow-pool-wakeup-2026-10-07T22-32-40-342Z-21e558/crawlee-http-pooled-c8-b4-none-poll-r1/persisted.json",
+      "bytes": 24103,
+      "sha256": "9d21fb1120700c2d1d22ad28160188f74172369e2629ccf50922933809a87bf0"
+    },
+    {
+      "path": "evidence-2026-10-08/workflow-pool-wakeup-2026-10-07T22-32-40-342Z-21e558/crawlee-http-pooled-c8-b4-none-poll-r1/events.jsonl",
+      "bytes": 4162,
+      "sha256": "2a07af52b201c51a2815eb4100eecd3fd97206ffe3fe324e0aa8af39f1455d3d"
+    },
+    {
+      "path": "evidence-2026-10-08/workflow-pool-wakeup-2026-10-07T22-32-40-342Z-21e558/crawlee-http-pooled-c8-b4-none-poll-r1/attempts.jsonl",
+      "bytes": 2453,
+      "sha256": "6f69960b71031c75565a45ee470d4884b621d517e89b3ece1384c9b10119093e"
+    },
+    {
+      "path": "evidence-2026-10-08/workflow-pool-wakeup-2026-10-07T22-32-40-342Z-21e558/crawlee-http-pooled-c8-b1-none-notify-r1/persisted.json",
+      "bytes": 24103,
+      "sha256": "47c656e268a9622476fe4f9b31cdd1c27559fe22096c7752f42af69aea6efb95"
+    },
+    {
+      "path": "evidence-2026-10-08/workflow-pool-wakeup-2026-10-07T22-32-40-342Z-21e558/crawlee-http-pooled-c8-b1-none-notify-r1/events.jsonl",
+      "bytes": 5580,
+      "sha256": "09937a8dbb317d6e30bbaf8224af060e2f1cfcc4e28549f77dc4aa97cc7d0d87"
+    },
+    {
+      "path": "evidence-2026-10-08/workflow-pool-wakeup-2026-10-07T22-32-40-342Z-21e558/crawlee-http-pooled-c8-b1-none-notify-r1/attempts.jsonl",
+      "bytes": 2460,
+      "sha256": "449324237f3c478c669004f31f949123a17911e8416af7393b1d38e2b56720b7"
+    },
+    {
+      "path": "evidence-2026-10-08/workflow-pool-wakeup-2026-10-07T22-32-40-342Z-21e558/crawlee-http-pooled-c8-b1-none-notify-r0/persisted.json",
+      "bytes": 24067,
+      "sha256": "beefe28a7dc748b9f8414c8255d3c79cc36b73a03b98603623516833cd595ef0"
+    },
+    {
+      "path": "evidence-2026-10-08/workflow-pool-wakeup-2026-10-07T22-32-40-342Z-21e558/crawlee-http-pooled-c8-b1-none-notify-r0/events.jsonl",
+      "bytes": 5579,
+      "sha256": "653f69d04144a6ad47c7e809e377261721fd503b66f7d4a5ff04f1768d0bd459"
+    },
+    {
+      "path": "evidence-2026-10-08/workflow-pool-wakeup-2026-10-07T22-32-40-342Z-21e558/crawlee-http-pooled-c8-b1-none-notify-r0/attempts.jsonl",
+      "bytes": 2460,
+      "sha256": "e8a4f39fa88bde75ae798fa1e68d794ca56be99d1dccd96992844355c4ef10be"
+    },
+    {
+      "path": "evidence-2026-10-08/workflow-pool-wakeup-2026-10-07T22-32-40-342Z-21e558/sources/tools/doctor.ts",
+      "bytes": 1537,
+      "sha256": "590dfe9777c6add1d4462280f63a718a7aa95b2daa3245e6004498226c00147a"
+    },
+    {
+      "path": "evidence-2026-10-08/workflow-pool-wakeup-2026-10-07T22-32-40-342Z-21e558/sources/tools/build-shared-sqlite.ts",
+      "bytes": 5928,
+      "sha256": "d4dfb62b41b3ebe5e8450dd0b7c5f591d4a43675acab086e8e884caca07d8772"
+    },
+    {
+      "path": "evidence-2026-10-08/workflow-pool-wakeup-2026-10-07T22-32-40-342Z-21e558/sources/tools/bootstrap.ts",
+      "bytes": 1236,
+      "sha256": "66cf117d9d6ec46a01d5ec87719abf79f087b7c8495a8559d8ce8b0b28720dbf"
+    },
+    {
+      "path": "evidence-2026-10-08/workflow-pool-wakeup-2026-10-07T22-32-40-342Z-21e558/sources/fixtures/server.ts",
+      "bytes": 9231,
+      "sha256": "78bbdd1f6269cd5170d40c02b6fb68cafcd1af94f52352d7f766afebb4ca900c"
+    },
+    {
+      "path": "evidence-2026-10-08/workflow-pool-wakeup-2026-10-07T22-32-40-342Z-21e558/sources/src/report.ts",
+      "bytes": 3459,
+      "sha256": "12269d35f5a0d01fee289567e0e192e7b8ccb8d5bc0680576a5757d50375158e"
+    },
+    {
+      "path": "evidence-2026-10-08/workflow-pool-wakeup-2026-10-07T22-32-40-342Z-21e558/sources/src/worker-client.ts",
+      "bytes": 4027,
+      "sha256": "34645ddaea64c68f9d8e97034fbdd9410befdad74b017d204e373c1ba7ffbbd4"
+    },
+    {
+      "path": "evidence-2026-10-08/workflow-pool-wakeup-2026-10-07T22-32-40-342Z-21e558/sources/src/statistics.ts",
+      "bytes": 2147,
+      "sha256": "86fe385d542188716a594bca2793927bd62a3bdba8af11f6620ebb07b5c7324d"
+    },
+    {
+      "path": "evidence-2026-10-08/workflow-pool-wakeup-2026-10-07T22-32-40-342Z-21e558/sources/src/workflow.ts",
+      "bytes": 11967,
+      "sha256": "cab878967766653f5165d51a78238c4d0950bb9161a7b6c079d01e6c1ac50355"
+    },
+    {
+      "path": "evidence-2026-10-08/workflow-pool-wakeup-2026-10-07T22-32-40-342Z-21e558/sources/src/scheduler.ts",
+      "bytes": 1938,
+      "sha256": "d247c784832f09dbe81380e8d190c635e8992944409eb684b8c9204914c46b45"
+    },
+    {
+      "path": "evidence-2026-10-08/workflow-pool-wakeup-2026-10-07T22-32-40-342Z-21e558/sources/src/resources.ts",
+      "bytes": 1512,
+      "sha256": "ae64318875812c39097ca5526b9b36d9a43e27b1b807c3d5a363a18b1fdec14c"
+    },
+    {
+      "path": "evidence-2026-10-08/workflow-pool-wakeup-2026-10-07T22-32-40-342Z-21e558/sources/src/environment.ts",
+      "bytes": 3661,
+      "sha256": "e31521c87f2883bf14c74fc83988ac50a42e35f493de335dcdb7696c0c1c20d6"
+    },
+    {
+      "path": "evidence-2026-10-08/workflow-pool-wakeup-2026-10-07T22-32-40-342Z-21e558/sources/src/storage-engines.ts",
+      "bytes": 2826,
+      "sha256": "9c90df1bf6fc7052529c6a3663dca5a4c07dd6f979a9951bc72e77431614d473"
+    },
+    {
+      "path": "evidence-2026-10-08/workflow-pool-wakeup-2026-10-07T22-32-40-342Z-21e558/sources/src/storage.ts",
+      "bytes": 2533,
+      "sha256": "75a36ba6730dffbdbac7d9a31ad82c8cca88c241e554d2a914853df9be883eee"
+    },
+    {
+      "path": "evidence-2026-10-08/workflow-pool-wakeup-2026-10-07T22-32-40-342Z-21e558/sources/src/cli.ts",
+      "bytes": 1330,
+      "sha256": "aa92b283bfd88170d984a32750034417d2d2afa2b37ab998801304b29b5c443c"
+    },
+    {
+      "path": "evidence-2026-10-08/workflow-pool-wakeup-2026-10-07T22-32-40-342Z-21e558/sources/src/campaign.ts",
+      "bytes": 12571,
+      "sha256": "4cc6709341b1c7674d69c29c0abb067c238efebfa93fd766805fcf993ab6eb93"
+    },
+    {
+      "path": "evidence-2026-10-08/workflow-pool-wakeup-2026-10-07T22-32-40-342Z-21e558/sources/src/worker-server.ts",
+      "bytes": 2132,
+      "sha256": "0d47267bc34e59fd64c3db643f0dc26b4e8f6e3335df8d8a7881f0624b995c84"
+    },
+    {
+      "path": "evidence-2026-10-08/workflow-pool-wakeup-2026-10-07T22-32-40-342Z-21e558/sources/src/storage-cli.ts",
+      "bytes": 570,
+      "sha256": "a477c23708c2353875cac300baacc7cce155ee4c19af9ccf997757b03c89c73d"
+    },
+    {
+      "path": "evidence-2026-10-08/workflow-pool-wakeup-2026-10-07T22-32-40-342Z-21e558/sources/src/workflow-cli.ts",
+      "bytes": 589,
+      "sha256": "8cdb26b76bc35af812002e15872e35f361c20de122e3d8d64bd5533a98236cb4"
+    },
+    {
+      "path": "evidence-2026-10-08/workflow-pool-wakeup-2026-10-07T22-32-40-342Z-21e558/sources/src/workflow-campaign.ts",
+      "bytes": 10526,
+      "sha256": "e4aa7ee538f49600c7827224df3839c64d709b6ea0aac4a1b08206da06cdb423"
+    },
+    {
+      "path": "evidence-2026-10-08/workflow-pool-wakeup-2026-10-07T22-32-40-342Z-21e558/sources/src/registry.ts",
+      "bytes": 1348,
+      "sha256": "23d04d8d9078df7b9f72c915126c8110ba44f06165b6df7f5d846cb7db71b5fa"
+    },
+    {
+      "path": "evidence-2026-10-08/workflow-pool-wakeup-2026-10-07T22-32-40-342Z-21e558/sources/src/storage-campaign.ts",
+      "bytes": 12586,
+      "sha256": "36fd3097a971ab3e74e84735ed374448be7920a6dc694577df5d0ca080f20623"
+    },
+    {
+      "path": "evidence-2026-10-08/workflow-pool-wakeup-2026-10-07T22-32-40-342Z-21e558/sources/adapters/storage-rust/Cargo.toml",
+      "bytes": 340,
+      "sha256": "3d9ba6be5227b11f7caa022403781a92d24d879b4d7169119e603a9503735eb0"
+    },
+    {
+      "path": "evidence-2026-10-08/workflow-pool-wakeup-2026-10-07T22-32-40-342Z-21e558/sources/adapters/storage-rust/Cargo.lock",
+      "bytes": 28594,
+      "sha256": "3948c489d83b8e492ce3540d7be1b95f348d8dc016b66e897524b6e8c2d95c7c"
+    },
+    {
+      "path": "evidence-2026-10-08/workflow-pool-wakeup-2026-10-07T22-32-40-342Z-21e558/sources/adapters/sqlite-common/lab_sqlite.h",
+      "bytes": 622,
+      "sha256": "3203e2f8693041a9505754a4e1b7d3510be7c070b33b5fd6620e03a1548352b4"
+    },
+    {
+      "path": "evidence-2026-10-08/workflow-pool-wakeup-2026-10-07T22-32-40-342Z-21e558/sources/adapters/sqlite-common/node_addon.c",
+      "bytes": 3499,
+      "sha256": "eaa15a0116a730e79fef74854544806d99a2faba4045355dc21c3a7beef045d1"
+    },
+    {
+      "path": "evidence-2026-10-08/workflow-pool-wakeup-2026-10-07T22-32-40-342Z-21e558/sources/adapters/sqlite-common/lab_sqlite.c",
+      "bytes": 3962,
+      "sha256": "22709a4794e41132cc30de68a9f34aa0502566fe39d6bcba95c075386436fdb7"
+    },
+    {
+      "path": "evidence-2026-10-08/workflow-pool-wakeup-2026-10-07T22-32-40-342Z-21e558/sources/adapters/rust/Cargo.toml",
+      "bytes": 566,
+      "sha256": "93f7918b75c5c076a680e16d73f549862c5fd37505b14852b5d597e718730930"
+    },
+    {
+      "path": "evidence-2026-10-08/workflow-pool-wakeup-2026-10-07T22-32-40-342Z-21e558/sources/adapters/rust/Cargo.lock",
+      "bytes": 115660,
+      "sha256": "c98b6ad561f91885b38c33b3781b4e67ed527d2deb0880500a2a8befbd4ab2cd"
+    },
+    {
+      "path": "evidence-2026-10-08/workflow-pool-wakeup-2026-10-07T22-32-40-342Z-21e558/sources/adapters/stagehand-v3/package.json",
+      "bytes": 220,
+      "sha256": "59ea14e936b34c80170481ae32215c5712fb1d239fe83f52b5f54d5d316c5d12"
+    },
+    {
+      "path": "evidence-2026-10-08/workflow-pool-wakeup-2026-10-07T22-32-40-342Z-21e558/sources/adapters/stagehand-v3/worker.ts",
+      "bytes": 3417,
+      "sha256": "43acbb80c41769e56c71670bae1d1c615c14654cd6408f967db43a47554e0949"
+    },
+    {
+      "path": "evidence-2026-10-08/workflow-pool-wakeup-2026-10-07T22-32-40-342Z-21e558/sources/adapters/workflow-node/worker.ts",
+      "bytes": 7116,
+      "sha256": "53c93dd701dc7368110d0cd5b26db16eb638e1603b46406019f19531131fbcf4"
+    },
+    {
+      "path": "evidence-2026-10-08/workflow-pool-wakeup-2026-10-07T22-32-40-342Z-21e558/sources/adapters/storage-shared-node/worker.ts",
+      "bytes": 1741,
+      "sha256": "88036d041df21bfc87f7e1e6a63db9b4359628f22dff71cbba1e80e937ab4b16"
+    },
+    {
+      "path": "evidence-2026-10-08/workflow-pool-wakeup-2026-10-07T22-32-40-342Z-21e558/sources/adapters/storage-go-sync/go.mod",
+      "bytes": 46,
+      "sha256": "7ecfea82372a8ba0c1142df0f1d75faa489dfde4c2cc43ff69af331b9042bb07"
+    },
+    {
+      "path": "evidence-2026-10-08/workflow-pool-wakeup-2026-10-07T22-32-40-342Z-21e558/sources/adapters/storage-go-sync/main.go",
+      "bytes": 4223,
+      "sha256": "c8f17b923ebc98acfcc23fa976e1d8d81efd6479e15f2fe7daa65c236dda457a"
+    },
+    {
+      "path": "evidence-2026-10-08/workflow-pool-wakeup-2026-10-07T22-32-40-342Z-21e558/sources/adapters/storage-node/worker.ts",
+      "bytes": 3848,
+      "sha256": "e2e52d8d5a6207ae278b96d26e1e00865a80efa0c2689b3f6e6f025e876a265b"
+    },
+    {
+      "path": "evidence-2026-10-08/workflow-pool-wakeup-2026-10-07T22-32-40-342Z-21e558/sources/adapters/storage-rust-sync/Cargo.toml",
+      "bytes": 142,
+      "sha256": "76fa86c5fc67377cae8ef483cb37b93c440103937958c3c3f40ede9d21d0fb66"
+    },
+    {
+      "path": "evidence-2026-10-08/workflow-pool-wakeup-2026-10-07T22-32-40-342Z-21e558/sources/adapters/storage-rust-sync/Cargo.lock",
+      "bytes": 2655,
+      "sha256": "753d53e9c25f62601bc3dfe4a9c22dbea093775909b4fb8aae7acde60b30cc1e"
+    },
+    {
+      "path": "evidence-2026-10-08/workflow-pool-wakeup-2026-10-07T22-32-40-342Z-21e558/sources/adapters/storage-rust-sync/build.rs",
+      "bytes": 598,
+      "sha256": "229a482f822551afe6542aa988ef6ff22e15aba2c64546647d2d1546dbcd7250"
+    },
+    {
+      "path": "evidence-2026-10-08/workflow-pool-wakeup-2026-10-07T22-32-40-342Z-21e558/sources/adapters/node/package.json",
+      "bytes": 221,
+      "sha256": "ecca9c029d30e060766c4b70dd9df6433adda9944d11969e39bacf33f6ac89b4"
+    },
+    {
+      "path": "evidence-2026-10-08/workflow-pool-wakeup-2026-10-07T22-32-40-342Z-21e558/sources/adapters/node/pooled-worker.ts",
+      "bytes": 3067,
+      "sha256": "e3322b43c34ae9682df5f3e6ee30982b9e05b815bb7cbabe3d0f23e7e77e9160"
+    },
+    {
+      "path": "evidence-2026-10-08/workflow-pool-wakeup-2026-10-07T22-32-40-342Z-21e558/sources/adapters/node/worker.ts",
+      "bytes": 10067,
+      "sha256": "5c7254b51a02b33ca87948dd91febcbee489ca107b139af53ddebaef63795fc7"
+    },
+    {
+      "path": "evidence-2026-10-08/workflow-pool-wakeup-2026-10-07T22-32-40-342Z-21e558/sources/adapters/node/browser-tasks.ts",
+      "bytes": 3980,
+      "sha256": "4181ff5065f91245c2e3beed49d1e0439f65f4ddd9ce7c27dc9f49afbd57311c"
+    },
+    {
+      "path": "evidence-2026-10-08/workflow-pool-wakeup-2026-10-07T22-32-40-342Z-21e558/sources/adapters/storage-rust-sync/src/main.rs",
+      "bytes": 6034,
+      "sha256": "417ec53dbedc58b5538e93a1e02ce8b6d764292cb9ac7879608940c4136b709f"
+    },
+    {
+      "path": "evidence-2026-10-08/workflow-pool-wakeup-2026-10-07T22-32-40-342Z-21e558/sources/adapters/rust/src/main.rs",
+      "bytes": 6656,
+      "sha256": "1998089ef3269426f27d21df673b6ca24772d4df66c550bd32cb318a64aac4e1"
+    },
+    {
+      "path": "evidence-2026-10-08/workflow-pool-wakeup-2026-10-07T22-32-40-342Z-21e558/sources/adapters/storage-rust/src/main.rs",
+      "bytes": 9410,
+      "sha256": "7d9b7cf1734f3e54dfd88dd7d533875eed94e327d7dcf7fdeebfd5facc0c6349"
+    }
+  ],
+  "excludedDiagnostics": [
+    "storage-shared-contention-2026-10-07T22-19-18-394Z-a3d041 (SQLite 3.46.0 legacy)",
+    "workflow-pool-wakeup-2026-10-07T22-30-10-185Z-15ae16 (initialization race, interrupted)"
+  ]
+}

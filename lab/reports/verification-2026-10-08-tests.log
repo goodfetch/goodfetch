@@ -1,0 +1,45 @@
+✔ campaign rejects an empty mutation corpus before starting workers (0.87725ms)
+✔ campaign rejects a retained fixture corpus that exceeds the coordinator budget (0.100917ms)
+node-http: block 1/1 finished
+✔ a worker reporting success with incomplete data fails the private oracle and gets no performance trials (100.453542ms)
+✔ catalogue exposes a paginated fresh dataset and its oracle refuses omissions (23.156333ms)
+✔ oracle rejects duplicates, changed values and fabricated form effects (12.282459ms)
+(node:20139) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+✔ Node, synchronous Rust and Go use one SQLite artifact and roll back a duplicate batch (731.123833ms)
+✔ Stagehand accepts scheduler configuration at the lab boundary and completes trusted clicks (2659.452625ms)
+(node:20141) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+✔ the integrated runner rejects excessive retained data and a batch matrix with no bounded configuration (0.965375ms)
+✔ HTTP acquisition is validated, committed and acknowledged before a workflow reports completion (188.363666ms)
+✔ concurrent producers batch results within the queue bound and rerunning acknowledged jobs is idempotent (319.850875ms)
+✔ integrated before-commit recovery acknowledges each job once with exact persisted records (10184.771917ms)
+✔ integrated after-commit recovery acknowledges each job once with exact persisted records (10181.325333ms)
+✔ an acquisition reporting success with wrong values is rejected before any data commit (111.922083ms)
+✔ hung adapter is terminated within a bounded deadline and remaining calls reject (113.337833ms)
+✔ out-of-order JSONL responses are correlated to their requests (75.723042ms)
+✔ a corrupt adapter response aborts the pending task instead of accepting a false success (66.936667ms)
+✔ deadline cleanup also terminates an owned descendant that ignores SIGTERM (531.952875ms)
+✔ open arrivals stop at the admission deadline and account for every unstarted task (23.990459ms)
+✔ open overload rejects arrivals without serializing the generator behind slow completions (83.562083ms)
+✔ failed and unstarted attempts stay in denominators and are never fast successes (0.752ms)
+(node:20145) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+✔ storage oracle accepts exact bytes and rejects duplicate or stale persisted records (37.320083ms)
+✔ SQLite oracle checks persisted values after reopen and detects a changed row (15.356583ms)
+(node:20146) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+✔ a new coordinator process recovers persisted state after a complete job-claimed stop (1782.143167ms)
+✔ a new coordinator process recovers persisted state after a complete batch-committed stop (956.744916ms)
+✔ committing a validated job makes its exact records retrievable and replay keeps one receipt (169.893584ms)
+✔ before-commit crash preserves atomic state and a lost response can be reconciled (244.953083ms)
+✔ after-commit crash preserves atomic state and a lost response can be reconciled (233.41825ms)
+✔ an expired lease cannot commit after another claimant receives a new token (1124.8525ms)
+ℹ tests 28
+ℹ suites 0
+ℹ pass 28
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 21603.206334

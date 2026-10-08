@@ -1,0 +1,13 @@
+✔ the macOS CPU probe reports the same nanosecond unit as independent getrusage (154.88475ms)
+✔ attaching to an existing coordinator accounts only for CPU after the initial sample (219.941833ms)
+(node:74770) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+✔ an old reader snapshot holds back checkpoints without hiding committed rows from new readers (144.536667ms)
+ℹ tests 3
+ℹ suites 0
+ℹ pass 3
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 518.189792

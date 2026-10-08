@@ -1,0 +1,11 @@
+{
+  "observedAt": "2026-10-07T23:35:00Z",
+  "timePrecision": "minute; captured during runtime-http-backends block 2",
+  "logicalCpuCount": 14,
+  "uptimeLoadAverages": [25.14, 17.87, 13.06],
+  "memoryFreePercent": 34,
+  "thermalWarnings": "pmset reported no recorded thermal or performance warning",
+  "otherActivity": "An unrelated ffmpeg process, desktop applications and virtualization were active; no processes outside this lab were modified.",
+  "interpretation": "Shared host activity is a possible confounder, not an established explanation for any individual cell. Retain block variation; do not generalize noisy backend throughput into a runtime property.",
+  "commands": ["uptime", "memory_pressure -Q", "pmset -g therm", "ps -axo pid,ppid,%cpu,rss,comm"]
+}

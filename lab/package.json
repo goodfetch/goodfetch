@@ -1,0 +1,25 @@
+{
+  "name": "automan-lab",
+  "private": true,
+  "type": "module",
+  "packageManager": "pnpm@12.9.1",
+  "engines": { "node": ">=24.0.0" },
+  "scripts": {
+    "test": "node --test tests/*.test.ts",
+    "integration": "node --test tests/integration/*.test.ts",
+    "check": "tsc --noEmit",
+    "doctor": "node tools/doctor.ts",
+    "bootstrap": "node tools/bootstrap.ts",
+    "run": "node src/cli.ts",
+    "bench": "node src/cli.ts",
+    "storage": "node src/storage-cli.ts",
+    "shared-build": "node tools/build-shared-sqlite.ts",
+    "workflow": "node src/workflow-cli.ts",
+    "workflow-build": "node tools/build-workflow.ts",
+    "runtime": "node src/runtime-campaign.ts",
+    "actionability": "node src/actionability-campaign.ts",
+    "sqlite-readers": "node src/sqlite-readers-campaign.ts",
+    "report": "node src/cli.ts report"
+  },
+  "devDependencies": { "typescript": "7.0.2", "@types/node": "26.6.4" }
+}

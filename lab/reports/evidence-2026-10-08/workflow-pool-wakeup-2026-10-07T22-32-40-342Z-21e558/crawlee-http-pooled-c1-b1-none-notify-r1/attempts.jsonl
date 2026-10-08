@@ -1,0 +1,12 @@
+{"jobId":"job-0","generation":0,"status":"acked","acquisitionMs":205.8952500000014,"validationMs":0.009500000000116415,"sinkWaitCommitAckMs":7.550042000002577,"endToEndMs":213.45558300000266,"records":16}
+{"jobId":"job-1","generation":0,"status":"acked","acquisitionMs":36.3136250000025,"validationMs":0.008708000001206528,"sinkWaitCommitAckMs":1.176166999997804,"endToEndMs":37.50100000000384,"records":16}
+{"jobId":"job-2","generation":0,"status":"acked","acquisitionMs":36.18649999999616,"validationMs":0.012709000002359971,"sinkWaitCommitAckMs":1.1967080000031274,"endToEndMs":37.39658299999428,"records":16}
+{"jobId":"job-3","generation":0,"status":"acked","acquisitionMs":33.120332999998936,"validationMs":0.009874999996100087,"sinkWaitCommitAckMs":1.101291000006313,"endToEndMs":34.2320830000026,"records":16}
+{"jobId":"job-4","generation":0,"status":"acked","acquisitionMs":37.149875000002794,"validationMs":0.008625000002211891,"sinkWaitCommitAckMs":1.0542500000010477,"endToEndMs":38.21333299999969,"records":16}
+{"jobId":"job-5","generation":0,"status":"acked","acquisitionMs":37.02825000000303,"validationMs":0.010332999998354353,"sinkWaitCommitAckMs":1.1545419999965816,"endToEndMs":38.194125000001804,"records":16}
+{"jobId":"job-6","generation":0,"status":"acked","acquisitionMs":35.513167000004614,"validationMs":0.01041599999734899,"sinkWaitCommitAckMs":1.1115409999983967,"endToEndMs":36.635833000000275,"records":16}
+{"jobId":"job-7","generation":0,"status":"acked","acquisitionMs":37.48795799999789,"validationMs":0.013542000000597909,"sinkWaitCommitAckMs":1.356791999998677,"endToEndMs":38.8596250000046,"records":16}
+{"jobId":"job-8","generation":0,"status":"acked","acquisitionMs":37.558875000002445,"validationMs":0.010000000002037268,"sinkWaitCommitAckMs":1.4802090000011958,"endToEndMs":39.04983299999731,"records":16}
+{"jobId":"job-9","generation":0,"status":"acked","acquisitionMs":37.70670799999789,"validationMs":0.011167000004206784,"sinkWaitCommitAckMs":1.2761249999966822,"endToEndMs":38.995208000000275,"records":16}
+{"jobId":"job-10","generation":0,"status":"acked","acquisitionMs":36.62583399999858,"validationMs":0.012000000002444722,"sinkWaitCommitAckMs":1.5605839999989257,"endToEndMs":38.199541999994835,"records":16}
+{"jobId":"job-11","generation":0,"status":"acked","acquisitionMs":39.21483299999818,"validationMs":0.009125000004132744,"sinkWaitCommitAckMs":1.1319169999987935,"endToEndMs":40.35658300000068,"records":16}

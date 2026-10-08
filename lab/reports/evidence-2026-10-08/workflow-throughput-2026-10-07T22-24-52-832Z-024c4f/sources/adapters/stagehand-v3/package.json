@@ -1,0 +1,7 @@
+{
+  "name": "@automan-lab/stagehand-v3", "private": true, "type": "module",
+  "dependencies": {
+    "@crawlee/stagehand": "3.18.2", "@browserbasehq/stagehand": "3.7.3",
+    "playwright": "1.63.0", "zod": "3.25.76"
+  }
+}

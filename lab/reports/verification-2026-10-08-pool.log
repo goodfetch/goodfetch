@@ -1,0 +1,18 @@
+✖ the Crawlee pool declares notification mode and preserves exact extraction across idle admissions (16106.653292ms)
+ℹ tests 1
+ℹ suites 0
+ℹ pass 0
+ℹ fail 1
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 16463.673583
+
+✖ failing tests:
+
+test at tests/integration/crawlee-pool.test.ts:7:1
+✖ the Crawlee pool declares notification mode and preserves exact extraction across idle admissions (16106.653292ms)
+  Error: adapter timeout (run)
+      at Timeout.<anonymous> (file:///Users/jb/Dev/automan/lab/src/worker-client.ts:45:48)
+      at listOnTimeout (node:internal/timers:605:17)
+      at process.processTimers (node:internal/timers:541:7)

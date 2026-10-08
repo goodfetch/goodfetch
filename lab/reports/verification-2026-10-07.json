@@ -1,0 +1,44 @@
+{
+  "checkedAt": "2026-10-07T21:48:28.192Z",
+  "commands": [
+    {
+      "command": "pnpm test",
+      "exitCode": 0,
+      "passed": 14,
+      "failed": 0
+    },
+    {
+      "command": "pnpm integration",
+      "exitCode": 0,
+      "passed": 1,
+      "failed": 0
+    },
+    {
+      "command": "pnpm check",
+      "exitCode": 0
+    },
+    {
+      "command": "cargo fmt --check --manifest-path adapters/rust/Cargo.toml",
+      "exitCode": 0
+    },
+    {
+      "command": "cargo fmt --check --manifest-path adapters/storage-rust/Cargo.toml",
+      "exitCode": 0
+    },
+    {
+      "command": "pnpm run doctor",
+      "exitCode": 0,
+      "backendsResponded": 12,
+      "storageWorkersResponded": 2
+    }
+  ],
+  "reportChecks": {
+    "localLinksChecked": 108,
+    "broken": 0,
+    "evidenceChecksumsVerified": 161,
+    "indexCards": 7,
+    "storageFilterCards": 3,
+    "screenshot": "../results/report-preview-2026-10-07.png"
+  },
+  "scope": "contract tests and integration; experimental performance evidence stays in the campaign archives"
+}

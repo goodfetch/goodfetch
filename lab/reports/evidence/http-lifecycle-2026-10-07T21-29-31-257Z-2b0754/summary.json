@@ -1,0 +1,1074 @@
+{
+  "id": "http-lifecycle-2026-10-07T21-29-31-257Z-2b0754",
+  "summaries": [
+    {
+      "backend": "node-http",
+      "scenario": "http-catalog",
+      "conformance": {
+        "attempts": 3,
+        "verified": 3,
+        "failed": 0,
+        "unsupported": 0,
+        "timeout": 0,
+        "crashed": 0,
+        "rejected": 0,
+        "successRate": 1,
+        "successLatencyMs": {
+          "n": 3,
+          "p50": 76.24579100000119,
+          "p95": 76.62566600000036,
+          "p99": 76.62566600000036
+        },
+        "startedLatencyMs": {
+          "n": 3,
+          "p50": 76.24579100000119,
+          "p95": 76.62566600000036,
+          "p99": 76.62566600000036
+        },
+        "zeroFailureUpper95": 0.6315968501359612,
+        "interpretation": "exploratory; insufficient tail and reliability evidence"
+      },
+      "warmup": {
+        "attempts": 6,
+        "verified": 6,
+        "failed": 0,
+        "unsupported": 0,
+        "timeout": 0,
+        "crashed": 0,
+        "rejected": 0,
+        "successRate": 1,
+        "successLatencyMs": {
+          "n": 6,
+          "p50": 41.64812499999971,
+          "p95": 44.10829100000046,
+          "p99": 44.10829100000046
+        },
+        "startedLatencyMs": {
+          "n": 6,
+          "p50": 41.64812499999971,
+          "p95": 44.10829100000046,
+          "p99": 44.10829100000046
+        },
+        "zeroFailureUpper95": 0.39303776899708276,
+        "interpretation": "exploratory; insufficient tail and reliability evidence"
+      },
+      "measurement": {
+        "attempts": 72,
+        "verified": 72,
+        "failed": 0,
+        "unsupported": 0,
+        "timeout": 0,
+        "crashed": 0,
+        "rejected": 0,
+        "successRate": 1,
+        "successLatencyMs": {
+          "n": 72,
+          "p50": 44.02858399999968,
+          "p95": 50.90054199999986,
+          "p99": 53.310249999999996
+        },
+        "startedLatencyMs": {
+          "n": 72,
+          "p50": 44.02858399999968,
+          "p95": 50.90054199999986,
+          "p99": 53.310249999999996
+        },
+        "zeroFailureUpper95": 0.04075368623063991,
+        "interpretation": "exploratory; insufficient tail and reliability evidence"
+      },
+      "throughput": {
+        "durationMs": 811.5857500000016,
+        "verifiedTasksPerSecond": 88.71520969903656,
+        "plannedTasksPerSecond": 88.71520969903656,
+        "configuredRatePerSecond": null
+      },
+      "admissionDelayMs": {
+        "n": 72,
+        "p50": 0.0002920000006270129,
+        "p95": 0.0012919999990117503,
+        "p99": 0.001374999999825377
+      },
+      "endToEndMs": {
+        "n": 72,
+        "p50": 44.02870900000016,
+        "p95": 50.90120899999965,
+        "p99": 53.31062500000007
+      },
+      "blocks": [
+        {
+          "block": 0,
+          "durationMs": 273.2689999999998,
+          "measurement": {
+            "attempts": 24,
+            "verified": 24,
+            "failed": 0,
+            "unsupported": 0,
+            "timeout": 0,
+            "crashed": 0,
+            "rejected": 0,
+            "successRate": 1,
+            "successLatencyMs": {
+              "n": 24,
+              "p50": 43.57216700000026,
+              "p95": 53.27233299999989,
+              "p99": 53.310249999999996
+            },
+            "startedLatencyMs": {
+              "n": 24,
+              "p50": 43.57216700000026,
+              "p95": 53.27233299999989,
+              "p99": 53.310249999999996
+            },
+            "zeroFailureUpper95": 0.11734615615494881,
+            "interpretation": "exploratory; insufficient tail and reliability evidence"
+          }
+        },
+        {
+          "block": 1,
+          "durationMs": 258.98833300000115,
+          "measurement": {
+            "attempts": 24,
+            "verified": 24,
+            "failed": 0,
+            "unsupported": 0,
+            "timeout": 0,
+            "crashed": 0,
+            "rejected": 0,
+            "successRate": 1,
+            "successLatencyMs": {
+              "n": 24,
+              "p50": 40.88041700000031,
+              "p95": 46.46800000000076,
+              "p99": 46.53504199999952
+            },
+            "startedLatencyMs": {
+              "n": 24,
+              "p50": 40.88041700000031,
+              "p95": 46.46800000000076,
+              "p99": 46.53504199999952
+            },
+            "zeroFailureUpper95": 0.11734615615494881,
+            "interpretation": "exploratory; insufficient tail and reliability evidence"
+          }
+        },
+        {
+          "block": 2,
+          "durationMs": 279.3284170000006,
+          "measurement": {
+            "attempts": 24,
+            "verified": 24,
+            "failed": 0,
+            "unsupported": 0,
+            "timeout": 0,
+            "crashed": 0,
+            "rejected": 0,
+            "successRate": 1,
+            "successLatencyMs": {
+              "n": 24,
+              "p50": 45.427999999999884,
+              "p95": 48.33283300000039,
+              "p99": 48.726416999999856
+            },
+            "startedLatencyMs": {
+              "n": 24,
+              "p50": 45.427999999999884,
+              "p95": 48.33283300000039,
+              "p99": 48.726416999999856
+            },
+            "zeroFailureUpper95": 0.11734615615494881,
+            "interpretation": "exploratory; insufficient tail and reliability evidence"
+          }
+        }
+      ]
+    },
+    {
+      "backend": "spider-http",
+      "scenario": "http-catalog",
+      "conformance": {
+        "attempts": 3,
+        "verified": 3,
+        "failed": 0,
+        "unsupported": 0,
+        "timeout": 0,
+        "crashed": 0,
+        "rejected": 0,
+        "successRate": 1,
+        "successLatencyMs": {
+          "n": 3,
+          "p50": 47.32579200000055,
+          "p95": 47.501374999999825,
+          "p99": 47.501374999999825
+        },
+        "startedLatencyMs": {
+          "n": 3,
+          "p50": 47.32579200000055,
+          "p95": 47.501374999999825,
+          "p99": 47.501374999999825
+        },
+        "zeroFailureUpper95": 0.6315968501359612,
+        "interpretation": "exploratory; insufficient tail and reliability evidence"
+      },
+      "warmup": {
+        "attempts": 6,
+        "verified": 6,
+        "failed": 0,
+        "unsupported": 0,
+        "timeout": 0,
+        "crashed": 0,
+        "rejected": 0,
+        "successRate": 1,
+        "successLatencyMs": {
+          "n": 6,
+          "p50": 42.38641599999937,
+          "p95": 42.94508399999995,
+          "p99": 42.94508399999995
+        },
+        "startedLatencyMs": {
+          "n": 6,
+          "p50": 42.38641599999937,
+          "p95": 42.94508399999995,
+          "p99": 42.94508399999995
+        },
+        "zeroFailureUpper95": 0.39303776899708276,
+        "interpretation": "exploratory; insufficient tail and reliability evidence"
+      },
+      "measurement": {
+        "attempts": 72,
+        "verified": 72,
+        "failed": 0,
+        "unsupported": 0,
+        "timeout": 0,
+        "crashed": 0,
+        "rejected": 0,
+        "successRate": 1,
+        "successLatencyMs": {
+          "n": 72,
+          "p50": 42.74137499999961,
+          "p95": 45.75749999999971,
+          "p99": 46.6195000000007
+        },
+        "startedLatencyMs": {
+          "n": 72,
+          "p50": 42.74137499999961,
+          "p95": 45.75749999999971,
+          "p99": 46.6195000000007
+        },
+        "zeroFailureUpper95": 0.04075368623063991,
+        "interpretation": "exploratory; insufficient tail and reliability evidence"
+      },
+      "throughput": {
+        "durationMs": 781.956626000001,
+        "verifiedTasksPerSecond": 92.0767183319448,
+        "plannedTasksPerSecond": 92.0767183319448,
+        "configuredRatePerSecond": null
+      },
+      "admissionDelayMs": {
+        "n": 72,
+        "p50": 0.00033399999938410474,
+        "p95": 0.0018749999999272404,
+        "p99": 0.002165999999306223
+      },
+      "endToEndMs": {
+        "n": 72,
+        "p50": 42.741665999999896,
+        "p95": 45.75758400000086,
+        "p99": 46.61970800000108
+      },
+      "blocks": [
+        {
+          "block": 0,
+          "durationMs": 263.0155420000001,
+          "measurement": {
+            "attempts": 24,
+            "verified": 24,
+            "failed": 0,
+            "unsupported": 0,
+            "timeout": 0,
+            "crashed": 0,
+            "rejected": 0,
+            "successRate": 1,
+            "successLatencyMs": {
+              "n": 24,
+              "p50": 42.877707999999984,
+              "p95": 46.52966599999945,
+              "p99": 46.6195000000007
+            },
+            "startedLatencyMs": {
+              "n": 24,
+              "p50": 42.877707999999984,
+              "p95": 46.52966599999945,
+              "p99": 46.6195000000007
+            },
+            "zeroFailureUpper95": 0.11734615615494881,
+            "interpretation": "exploratory; insufficient tail and reliability evidence"
+          }
+        },
+        {
+          "block": 1,
+          "durationMs": 260.4437090000001,
+          "measurement": {
+            "attempts": 24,
+            "verified": 24,
+            "failed": 0,
+            "unsupported": 0,
+            "timeout": 0,
+            "crashed": 0,
+            "rejected": 0,
+            "successRate": 1,
+            "successLatencyMs": {
+              "n": 24,
+              "p50": 42.286167000000205,
+              "p95": 45.37354099999993,
+              "p99": 45.42229099999986
+            },
+            "startedLatencyMs": {
+              "n": 24,
+              "p50": 42.286167000000205,
+              "p95": 45.37354099999993,
+              "p99": 45.42229099999986
+            },
+            "zeroFailureUpper95": 0.11734615615494881,
+            "interpretation": "exploratory; insufficient tail and reliability evidence"
+          }
+        },
+        {
+          "block": 2,
+          "durationMs": 258.49737500000083,
+          "measurement": {
+            "attempts": 24,
+            "verified": 24,
+            "failed": 0,
+            "unsupported": 0,
+            "timeout": 0,
+            "crashed": 0,
+            "rejected": 0,
+            "successRate": 1,
+            "successLatencyMs": {
+              "n": 24,
+              "p50": 42.62325000000055,
+              "p95": 45.72395800000049,
+              "p99": 45.75749999999971
+            },
+            "startedLatencyMs": {
+              "n": 24,
+              "p50": 42.62325000000055,
+              "p95": 45.72395800000049,
+              "p99": 45.75749999999971
+            },
+            "zeroFailureUpper95": 0.11734615615494881,
+            "interpretation": "exploratory; insufficient tail and reliability evidence"
+          }
+        }
+      ]
+    },
+    {
+      "backend": "crawlee-http",
+      "scenario": "http-catalog",
+      "conformance": {
+        "attempts": 3,
+        "verified": 3,
+        "failed": 0,
+        "unsupported": 0,
+        "timeout": 0,
+        "crashed": 0,
+        "rejected": 0,
+        "successRate": 1,
+        "successLatencyMs": {
+          "n": 3,
+          "p50": 238.70062499999767,
+          "p95": 298.46858299999985,
+          "p99": 298.46858299999985
+        },
+        "startedLatencyMs": {
+          "n": 3,
+          "p50": 238.70062499999767,
+          "p95": 298.46858299999985,
+          "p99": 298.46858299999985
+        },
+        "zeroFailureUpper95": 0.6315968501359612,
+        "interpretation": "exploratory; insufficient tail and reliability evidence"
+      },
+      "warmup": {
+        "attempts": 6,
+        "verified": 6,
+        "failed": 0,
+        "unsupported": 0,
+        "timeout": 0,
+        "crashed": 0,
+        "rejected": 0,
+        "successRate": 1,
+        "successLatencyMs": {
+          "n": 6,
+          "p50": 130.46183400000155,
+          "p95": 143.8795829999999,
+          "p99": 143.8795829999999
+        },
+        "startedLatencyMs": {
+          "n": 6,
+          "p50": 130.46183400000155,
+          "p95": 143.8795829999999,
+          "p99": 143.8795829999999
+        },
+        "zeroFailureUpper95": 0.39303776899708276,
+        "interpretation": "exploratory; insufficient tail and reliability evidence"
+      },
+      "measurement": {
+        "attempts": 72,
+        "verified": 72,
+        "failed": 0,
+        "unsupported": 0,
+        "timeout": 0,
+        "crashed": 0,
+        "rejected": 0,
+        "successRate": 1,
+        "successLatencyMs": {
+          "n": 72,
+          "p50": 193.78491699999995,
+          "p95": 413.2136250000003,
+          "p99": 420.57845799999996
+        },
+        "startedLatencyMs": {
+          "n": 72,
+          "p50": 193.78491699999995,
+          "p95": 413.2136250000003,
+          "p99": 420.57845799999996
+        },
+        "zeroFailureUpper95": 0.04075368623063991,
+        "interpretation": "exploratory; insufficient tail and reliability evidence"
+      },
+      "throughput": {
+        "durationMs": 3940.2025419999986,
+        "verifiedTasksPerSecond": 18.27317231348561,
+        "plannedTasksPerSecond": 18.27317231348561,
+        "configuredRatePerSecond": null
+      },
+      "admissionDelayMs": {
+        "n": 72,
+        "p50": 0.0004580000022542663,
+        "p95": 0.0011660000000119908,
+        "p99": 0.019457999999985987
+      },
+      "endToEndMs": {
+        "n": 72,
+        "p50": 193.78541700000005,
+        "p95": 413.2144159999989,
+        "p99": 420.5786670000016
+      },
+      "blocks": [
+        {
+          "block": 0,
+          "durationMs": 1187.7812079999999,
+          "measurement": {
+            "attempts": 24,
+            "verified": 24,
+            "failed": 0,
+            "unsupported": 0,
+            "timeout": 0,
+            "crashed": 0,
+            "rejected": 0,
+            "successRate": 1,
+            "successLatencyMs": {
+              "n": 24,
+              "p50": 193.78491699999995,
+              "p95": 222.70833300000004,
+              "p99": 224.78437500000018
+            },
+            "startedLatencyMs": {
+              "n": 24,
+              "p50": 193.78491699999995,
+              "p95": 222.70833300000004,
+              "p99": 224.78437500000018
+            },
+            "zeroFailureUpper95": 0.11734615615494881,
+            "interpretation": "exploratory; insufficient tail and reliability evidence"
+          }
+        },
+        {
+          "block": 1,
+          "durationMs": 1119.4717500000006,
+          "measurement": {
+            "attempts": 24,
+            "verified": 24,
+            "failed": 0,
+            "unsupported": 0,
+            "timeout": 0,
+            "crashed": 0,
+            "rejected": 0,
+            "successRate": 1,
+            "successLatencyMs": {
+              "n": 24,
+              "p50": 185.95020900000054,
+              "p95": 199.79941700000018,
+              "p99": 200.12583300000006
+            },
+            "startedLatencyMs": {
+              "n": 24,
+              "p50": 185.95020900000054,
+              "p95": 199.79941700000018,
+              "p99": 200.12583300000006
+            },
+            "zeroFailureUpper95": 0.11734615615494881,
+            "interpretation": "exploratory; insufficient tail and reliability evidence"
+          }
+        },
+        {
+          "block": 2,
+          "durationMs": 1632.9495839999981,
+          "measurement": {
+            "attempts": 24,
+            "verified": 24,
+            "failed": 0,
+            "unsupported": 0,
+            "timeout": 0,
+            "crashed": 0,
+            "rejected": 0,
+            "successRate": 1,
+            "successLatencyMs": {
+              "n": 24,
+              "p50": 225.04770900000221,
+              "p95": 418.47049999999945,
+              "p99": 420.57845799999996
+            },
+            "startedLatencyMs": {
+              "n": 24,
+              "p50": 225.04770900000221,
+              "p95": 418.47049999999945,
+              "p99": 420.57845799999996
+            },
+            "zeroFailureUpper95": 0.11734615615494881,
+            "interpretation": "exploratory; insufficient tail and reliability evidence"
+          }
+        }
+      ]
+    },
+    {
+      "backend": "crawlee-http-pooled",
+      "scenario": "http-catalog",
+      "conformance": {
+        "attempts": 3,
+        "verified": 3,
+        "failed": 0,
+        "unsupported": 0,
+        "timeout": 0,
+        "crashed": 0,
+        "rejected": 0,
+        "successRate": 1,
+        "successLatencyMs": {
+          "n": 3,
+          "p50": 223.5330419999991,
+          "p95": 231.15454200000022,
+          "p99": 231.15454200000022
+        },
+        "startedLatencyMs": {
+          "n": 3,
+          "p50": 223.5330419999991,
+          "p95": 231.15454200000022,
+          "p99": 231.15454200000022
+        },
+        "zeroFailureUpper95": 0.6315968501359612,
+        "interpretation": "exploratory; insufficient tail and reliability evidence"
+      },
+      "warmup": {
+        "attempts": 6,
+        "verified": 6,
+        "failed": 0,
+        "unsupported": 0,
+        "timeout": 0,
+        "crashed": 0,
+        "rejected": 0,
+        "successRate": 1,
+        "successLatencyMs": {
+          "n": 6,
+          "p50": 498.5099170000003,
+          "p95": 507.4297919999999,
+          "p99": 507.4297919999999
+        },
+        "startedLatencyMs": {
+          "n": 6,
+          "p50": 498.5099170000003,
+          "p95": 507.4297919999999,
+          "p99": 507.4297919999999
+        },
+        "zeroFailureUpper95": 0.39303776899708276,
+        "interpretation": "exploratory; insufficient tail and reliability evidence"
+      },
+      "measurement": {
+        "attempts": 72,
+        "verified": 72,
+        "failed": 0,
+        "unsupported": 0,
+        "timeout": 0,
+        "crashed": 0,
+        "rejected": 0,
+        "successRate": 1,
+        "successLatencyMs": {
+          "n": 72,
+          "p50": 81.80558399999973,
+          "p95": 542.1116249999995,
+          "p99": 549.015958
+        },
+        "startedLatencyMs": {
+          "n": 72,
+          "p50": 81.80558399999973,
+          "p95": 542.1116249999995,
+          "p99": 549.015958
+        },
+        "zeroFailureUpper95": 0.04075368623063991,
+        "interpretation": "exploratory; insufficient tail and reliability evidence"
+      },
+      "throughput": {
+        "durationMs": 2832.3691260000023,
+        "verifiedTasksPerSecond": 25.420415488598973,
+        "plannedTasksPerSecond": 25.420415488598973,
+        "configuredRatePerSecond": null
+      },
+      "admissionDelayMs": {
+        "n": 72,
+        "p50": 0.0003750000014406396,
+        "p95": 0.0009580000005371403,
+        "p99": 0.0022499999995488906
+      },
+      "endToEndMs": {
+        "n": 72,
+        "p50": 81.80633399999988,
+        "p95": 542.1124589999981,
+        "p99": 549.0160830000004
+      },
+      "blocks": [
+        {
+          "block": 0,
+          "durationMs": 944.9540420000003,
+          "measurement": {
+            "attempts": 24,
+            "verified": 24,
+            "failed": 0,
+            "unsupported": 0,
+            "timeout": 0,
+            "crashed": 0,
+            "rejected": 0,
+            "successRate": 1,
+            "successLatencyMs": {
+              "n": 24,
+              "p50": 81.80558399999973,
+              "p95": 533.7639170000002,
+              "p99": 535.5753750000003
+            },
+            "startedLatencyMs": {
+              "n": 24,
+              "p50": 81.80558399999973,
+              "p95": 533.7639170000002,
+              "p99": 535.5753750000003
+            },
+            "zeroFailureUpper95": 0.11734615615494881,
+            "interpretation": "exploratory; insufficient tail and reliability evidence"
+          }
+        },
+        {
+          "block": 1,
+          "durationMs": 946.9135420000002,
+          "measurement": {
+            "attempts": 24,
+            "verified": 24,
+            "failed": 0,
+            "unsupported": 0,
+            "timeout": 0,
+            "crashed": 0,
+            "rejected": 0,
+            "successRate": 1,
+            "successLatencyMs": {
+              "n": 24,
+              "p50": 82.82620900000074,
+              "p95": 535.7333749999998,
+              "p99": 538.6385410000003
+            },
+            "startedLatencyMs": {
+              "n": 24,
+              "p50": 82.82620900000074,
+              "p95": 535.7333749999998,
+              "p99": 538.6385410000003
+            },
+            "zeroFailureUpper95": 0.11734615615494881,
+            "interpretation": "exploratory; insufficient tail and reliability evidence"
+          }
+        },
+        {
+          "block": 2,
+          "durationMs": 940.5015420000018,
+          "measurement": {
+            "attempts": 24,
+            "verified": 24,
+            "failed": 0,
+            "unsupported": 0,
+            "timeout": 0,
+            "crashed": 0,
+            "rejected": 0,
+            "successRate": 1,
+            "successLatencyMs": {
+              "n": 24,
+              "p50": 78.36416699999972,
+              "p95": 544.4175830000004,
+              "p99": 549.015958
+            },
+            "startedLatencyMs": {
+              "n": 24,
+              "p50": 78.36416699999972,
+              "p95": 544.4175830000004,
+              "p99": 549.015958
+            },
+            "zeroFailureUpper95": 0.11734615615494881,
+            "interpretation": "exploratory; insufficient tail and reliability evidence"
+          }
+        }
+      ]
+    }
+  ],
+  "diagnostics": [
+    {
+      "backend": "crawlee-http",
+      "block": 0,
+      "info": {
+        "backend": "crawlee-http",
+        "protocol": 1,
+        "capabilities": [
+          "http-catalog"
+        ],
+        "runtime": "v25.5.0",
+        "maxConcurrency": 128,
+        "lifecycle": "crawler per task",
+        "versions": {
+          "crawlee": "3.18.2"
+        }
+      },
+      "startupMs": 660.3108749999999,
+      "startupError": null,
+      "experimentMs": 1788.411875,
+      "resources": {
+        "peakRssBytes": 767131648,
+        "peakProcessCount": 9,
+        "samples": 10,
+        "unavailable": false,
+        "method": "sampled sum RSS of process group and descendants; shared pages double-counted; short peaks may be missed",
+        "intervalMs": 250
+      },
+      "stderr": ""
+    },
+    {
+      "backend": "node-http",
+      "block": 0,
+      "info": {
+        "backend": "node-http",
+        "protocol": 1,
+        "capabilities": [
+          "http-catalog"
+        ],
+        "runtime": "v25.5.0",
+        "maxConcurrency": 128,
+        "lifecycle": "native fetch; shared process connection pool",
+        "versions": {}
+      },
+      "startupMs": 99.78137500000003,
+      "startupError": null,
+      "experimentMs": 437.638833,
+      "resources": {
+        "peakRssBytes": 129794048,
+        "peakProcessCount": 1,
+        "samples": 3,
+        "unavailable": false,
+        "method": "sampled sum RSS of process group and descendants; shared pages double-counted; short peaks may be missed",
+        "intervalMs": 250
+      },
+      "stderr": ""
+    },
+    {
+      "backend": "crawlee-http-pooled",
+      "block": 0,
+      "info": {
+        "backend": "crawlee-http-pooled",
+        "protocol": 1,
+        "capabilities": [
+          "http-catalog"
+        ],
+        "versions": {
+          "crawlee": "3.18.2"
+        },
+        "lifecycle": "one keepAlive crawler and request queue per block; tasks share its bounded pool"
+      },
+      "startupMs": 404.39604199999985,
+      "startupError": null,
+      "experimentMs": 2188.1194170000003,
+      "resources": {
+        "peakRssBytes": 354959360,
+        "peakProcessCount": 2,
+        "samples": 11,
+        "unavailable": false,
+        "method": "sampled sum RSS of process group and descendants; shared pages double-counted; short peaks may be missed",
+        "intervalMs": 250
+      },
+      "stderr": ""
+    },
+    {
+      "backend": "spider-http",
+      "block": 0,
+      "info": {
+        "backend": "spider-http",
+        "capabilities": [
+          "http-catalog"
+        ],
+        "chromeFeature": false,
+        "lifecycle": "website per task; browser managed by Spider",
+        "protocol": 1,
+        "smartFeature": false,
+        "versions": {
+          "spider": "2.53.9"
+        }
+      },
+      "startupMs": 4.611167000000023,
+      "startupError": null,
+      "experimentMs": 397.93066699999963,
+      "resources": {
+        "peakRssBytes": 26001408,
+        "peakProcessCount": 1,
+        "samples": 2,
+        "unavailable": false,
+        "method": "sampled sum RSS of process group and descendants; shared pages double-counted; short peaks may be missed",
+        "intervalMs": 250
+      },
+      "stderr": ""
+    },
+    {
+      "backend": "spider-http",
+      "block": 1,
+      "info": {
+        "backend": "spider-http",
+        "capabilities": [
+          "http-catalog"
+        ],
+        "chromeFeature": false,
+        "lifecycle": "website per task; browser managed by Spider",
+        "protocol": 1,
+        "smartFeature": false,
+        "versions": {
+          "spider": "2.53.9"
+        }
+      },
+      "startupMs": 4.897874999999658,
+      "startupError": null,
+      "experimentMs": 396.3432079999993,
+      "resources": {
+        "peakRssBytes": 24903680,
+        "peakProcessCount": 1,
+        "samples": 2,
+        "unavailable": false,
+        "method": "sampled sum RSS of process group and descendants; shared pages double-counted; short peaks may be missed",
+        "intervalMs": 250
+      },
+      "stderr": ""
+    },
+    {
+      "backend": "crawlee-http-pooled",
+      "block": 1,
+      "info": {
+        "backend": "crawlee-http-pooled",
+        "protocol": 1,
+        "capabilities": [
+          "http-catalog"
+        ],
+        "versions": {
+          "crawlee": "3.18.2"
+        },
+        "lifecycle": "one keepAlive crawler and request queue per block; tasks share its bounded pool"
+      },
+      "startupMs": 416.2399580000001,
+      "startupError": null,
+      "experimentMs": 2695.795250000001,
+      "resources": {
+        "peakRssBytes": 342163456,
+        "peakProcessCount": 2,
+        "samples": 13,
+        "unavailable": false,
+        "method": "sampled sum RSS of process group and descendants; shared pages double-counted; short peaks may be missed",
+        "intervalMs": 250
+      },
+      "stderr": ""
+    },
+    {
+      "backend": "crawlee-http",
+      "block": 1,
+      "info": {
+        "backend": "crawlee-http",
+        "protocol": 1,
+        "capabilities": [
+          "http-catalog"
+        ],
+        "runtime": "v25.5.0",
+        "maxConcurrency": 128,
+        "lifecycle": "crawler per task",
+        "versions": {
+          "crawlee": "3.18.2"
+        }
+      },
+      "startupMs": 410.45524999999907,
+      "startupError": null,
+      "experimentMs": 1637.6833339999994,
+      "resources": {
+        "peakRssBytes": 804175872,
+        "peakProcessCount": 7,
+        "samples": 9,
+        "unavailable": false,
+        "method": "sampled sum RSS of process group and descendants; shared pages double-counted; short peaks may be missed",
+        "intervalMs": 250
+      },
+      "stderr": ""
+    },
+    {
+      "backend": "node-http",
+      "block": 1,
+      "info": {
+        "backend": "node-http",
+        "protocol": 1,
+        "capabilities": [
+          "http-catalog"
+        ],
+        "runtime": "v25.5.0",
+        "maxConcurrency": 128,
+        "lifecycle": "native fetch; shared process connection pool",
+        "versions": {}
+      },
+      "startupMs": 98.61349999999948,
+      "startupError": null,
+      "experimentMs": 427.1134170000005,
+      "resources": {
+        "peakRssBytes": 116178944,
+        "peakProcessCount": 1,
+        "samples": 2,
+        "unavailable": false,
+        "method": "sampled sum RSS of process group and descendants; shared pages double-counted; short peaks may be missed",
+        "intervalMs": 250
+      },
+      "stderr": ""
+    },
+    {
+      "backend": "crawlee-http-pooled",
+      "block": 2,
+      "info": {
+        "backend": "crawlee-http-pooled",
+        "protocol": 1,
+        "capabilities": [
+          "http-catalog"
+        ],
+        "versions": {
+          "crawlee": "3.18.2"
+        },
+        "lifecycle": "one keepAlive crawler and request queue per block; tasks share its bounded pool"
+      },
+      "startupMs": 398.4852499999997,
+      "startupError": null,
+      "experimentMs": 2192.607917000001,
+      "resources": {
+        "peakRssBytes": 371425280,
+        "peakProcessCount": 2,
+        "samples": 11,
+        "unavailable": false,
+        "method": "sampled sum RSS of process group and descendants; shared pages double-counted; short peaks may be missed",
+        "intervalMs": 250
+      },
+      "stderr": ""
+    },
+    {
+      "backend": "node-http",
+      "block": 2,
+      "info": {
+        "backend": "node-http",
+        "protocol": 1,
+        "capabilities": [
+          "http-catalog"
+        ],
+        "runtime": "v25.5.0",
+        "maxConcurrency": 128,
+        "lifecycle": "native fetch; shared process connection pool",
+        "versions": {}
+      },
+      "startupMs": 97.69254200000069,
+      "startupError": null,
+      "experimentMs": 445.1774170000008,
+      "resources": {
+        "peakRssBytes": 132759552,
+        "peakProcessCount": 1,
+        "samples": 3,
+        "unavailable": false,
+        "method": "sampled sum RSS of process group and descendants; shared pages double-counted; short peaks may be missed",
+        "intervalMs": 250
+      },
+      "stderr": ""
+    },
+    {
+      "backend": "spider-http",
+      "block": 2,
+      "info": {
+        "backend": "spider-http",
+        "capabilities": [
+          "http-catalog"
+        ],
+        "chromeFeature": false,
+        "lifecycle": "website per task; browser managed by Spider",
+        "protocol": 1,
+        "smartFeature": false,
+        "versions": {
+          "spider": "2.53.9"
+        }
+      },
+      "startupMs": 4.17712500000016,
+      "startupError": null,
+      "experimentMs": 391.1188750000001,
+      "resources": {
+        "peakRssBytes": 24543232,
+        "peakProcessCount": 1,
+        "samples": 2,
+        "unavailable": false,
+        "method": "sampled sum RSS of process group and descendants; shared pages double-counted; short peaks may be missed",
+        "intervalMs": 250
+      },
+      "stderr": ""
+    },
+    {
+      "backend": "crawlee-http",
+      "block": 2,
+      "info": {
+        "backend": "crawlee-http",
+        "protocol": 1,
+        "capabilities": [
+          "http-catalog"
+        ],
+        "runtime": "v25.5.0",
+        "maxConcurrency": 128,
+        "lifecycle": "crawler per task",
+        "versions": {
+          "crawlee": "3.18.2"
+        }
+      },
+      "startupMs": 408.6949170000007,
+      "startupError": null,
+      "experimentMs": 2152.9399169999997,
+      "resources": {
+        "peakRssBytes": 722468864,
+        "peakProcessCount": 9,
+        "samples": 11,
+        "unavailable": false,
+        "method": "sampled sum RSS of process group and descendants; shared pages double-counted; short peaks may be missed",
+        "intervalMs": 250
+      },
+      "stderr": ""
+    }
+  ],
+  "sourceChanges": [],
+  "finishedAt": "2026-10-07T21:29:49.708Z",
+  "limitations": [
+    "local exploratory campaign",
+    "no monetary or token cost measured in deterministic mode",
+    "RSS is sampled and double-counts shared pages",
+    "no universal performance ranking",
+    "backend lifecycle differs; consult diagnostics",
+    "admissionDelayMs is generator lateness; no FIFO queue",
+    "zeroFailureUpper95 assumes independent representative Bernoulli trials; this corpus does not establish them"
+  ]
+}

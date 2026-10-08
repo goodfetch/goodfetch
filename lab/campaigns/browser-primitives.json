@@ -1,0 +1,7 @@
+{
+  "name": "browser-primitives", "backends": ["playwright", "puppeteer", "stagehand", "stagehand-batch", "crawlee-playwright", "crawlee-stagehand"],
+  "scenarios": ["form", "clicks", "shadow", "js-catalog"], "seed": 88,
+  "blocks": 3, "iterations": 5, "warmup": 1, "concurrency": 1, "mode": "closed",
+  "timeoutMs": 30000, "maxDurationMs": 120000, "pages": 3, "actions": 50,
+  "variants": ["normal", "delayed", "overlay", "rerender"]
+}

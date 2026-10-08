@@ -1,0 +1,597 @@
+(node:81963) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+START runtime-native-sustained
+runtime-native-sustained/node/native/C4/B1/b0: verified
+runtime-native-sustained/rust/native/C4/B4/b0: verified
+runtime-native-sustained/rust/native/C16/B1/b0: verified
+runtime-native-sustained/node/native/C1/B1/b0: verified
+runtime-native-sustained/rust/native/C16/B4/b0: verified
+runtime-native-sustained/node/native/C16/B4/b0: verified
+runtime-native-sustained/rust/native/C4/B1/b0: verified
+runtime-native-sustained/node/native/C16/B1/b0: verified
+runtime-native-sustained/rust/native/C1/B1/b0: verified
+runtime-native-sustained/node/native/C4/B4/b0: verified
+runtime-native-sustained/rust/native/C4/B1/b1: verified
+runtime-native-sustained/rust/native/C1/B1/b1: verified
+runtime-native-sustained/rust/native/C16/B4/b1: verified
+runtime-native-sustained/node/native/C4/B1/b1: verified
+runtime-native-sustained/node/native/C1/B1/b1: verified
+runtime-native-sustained/node/native/C4/B4/b1: verified
+runtime-native-sustained/node/native/C16/B4/b1: verified
+runtime-native-sustained/node/native/C16/B1/b1: verified
+runtime-native-sustained/rust/native/C16/B1/b1: verified
+runtime-native-sustained/rust/native/C4/B4/b1: verified
+runtime-native-sustained/rust/native/C16/B1/b2: verified
+runtime-native-sustained/rust/native/C4/B1/b2: verified
+runtime-native-sustained/node/native/C4/B4/b2: verified
+runtime-native-sustained/rust/native/C4/B4/b2: verified
+runtime-native-sustained/node/native/C4/B1/b2: verified
+runtime-native-sustained/rust/native/C1/B1/b2: verified
+runtime-native-sustained/node/native/C1/B1/b2: verified
+runtime-native-sustained/node/native/C16/B1/b2: verified
+runtime-native-sustained/rust/native/C16/B4/b2: verified
+runtime-native-sustained/node/native/C16/B4/b2: verified
+FINISH runtime-native-sustained: executed
+START runtime-http-backends
+runtime-http-backends/node/crawlee-http-pooled/C16/B4/b0: verified
+runtime-http-backends/node/native/C4/B4/b0: verified
+runtime-http-backends/rust/native/C16/B4/b0: verified
+runtime-http-backends/node/spider-http/C16/B4/b0: verified
+runtime-http-backends/node/spider-http/C4/B4/b0: verified
+runtime-http-backends/node/native/C16/B4/b0: verified
+runtime-http-backends/rust/native/C4/B4/b0: verified
+runtime-http-backends/node/crawlee-http-pooled/C4/B4/b0: verified
+runtime-http-backends/node/spider-http/C4/B4/b1: verified
+runtime-http-backends/rust/native/C4/B4/b1: verified
+runtime-http-backends/node/native/C4/B4/b1: verified
+runtime-http-backends/node/crawlee-http-pooled/C4/B4/b1: verified
+runtime-http-backends/node/spider-http/C16/B4/b1: verified
+runtime-http-backends/node/crawlee-http-pooled/C16/B4/b1: verified
+runtime-http-backends/rust/native/C16/B4/b1: verified
+runtime-http-backends/node/native/C16/B4/b1: verified
+runtime-http-backends/node/spider-http/C4/B4/b2: verified
+runtime-http-backends/node/crawlee-http-pooled/C4/B4/b2: verified
+runtime-http-backends/rust/native/C4/B4/b2: verified
+runtime-http-backends/rust/native/C16/B4/b2: verified
+runtime-http-backends/node/native/C4/B4/b2: verified
+runtime-http-backends/node/native/C16/B4/b2: verified
+runtime-http-backends/node/crawlee-http-pooled/C16/B4/b2: verified
+runtime-http-backends/node/spider-http/C16/B4/b2: verified
+FINISH runtime-http-backends: executed
+START runtime-recovery
+runtime-recovery/rust/native/C4/B2/b0: verified
+runtime-recovery/rust/native/C4/B2/b0: verified
+runtime-recovery/node/native/C4/B2/b0: verified
+runtime-recovery/node/native/C4/B2/b0: verified
+runtime-recovery/node/native/C4/B2/b0: verified
+runtime-recovery/rust/native/C4/B2/b0: verified
+runtime-recovery/rust/native/C4/B2/b0: verified
+runtime-recovery/node/native/C4/B2/b0: verified
+runtime-recovery/rust/native/C4/B2/b0: verified
+runtime-recovery/node/native/C4/B2/b0: verified
+runtime-recovery/node/native/C4/B2/b0: verified
+runtime-recovery/rust/native/C4/B2/b0: verified
+runtime-recovery/rust/native/C4/B2/b0: verified
+runtime-recovery/node/native/C4/B2/b0: verified
+runtime-recovery/node/native/C4/B2/b1: verified
+runtime-recovery/rust/native/C4/B2/b1: verified
+runtime-recovery/rust/native/C4/B2/b1: verified
+runtime-recovery/node/native/C4/B2/b1: verified
+runtime-recovery/node/native/C4/B2/b1: verified
+runtime-recovery/rust/native/C4/B2/b1: verified
+runtime-recovery/rust/native/C4/B2/b1: verified
+runtime-recovery/node/native/C4/B2/b1: verified
+runtime-recovery/rust/native/C4/B2/b1: verified
+runtime-recovery/node/native/C4/B2/b1: verified
+runtime-recovery/rust/native/C4/B2/b1: verified
+runtime-recovery/rust/native/C4/B2/b1: verified
+runtime-recovery/node/native/C4/B2/b1: verified
+runtime-recovery/node/native/C4/B2/b1: verified
+runtime-recovery/rust/native/C4/B2/b2: verified
+runtime-recovery/node/native/C4/B2/b2: verified
+runtime-recovery/rust/native/C4/B2/b2: verified
+runtime-recovery/node/native/C4/B2/b2: verified
+runtime-recovery/node/native/C4/B2/b2: verified
+runtime-recovery/rust/native/C4/B2/b2: verified
+runtime-recovery/rust/native/C4/B2/b2: verified
+runtime-recovery/rust/native/C4/B2/b2: verified
+runtime-recovery/rust/native/C4/B2/b2: verified
+runtime-recovery/node/native/C4/B2/b2: verified
+runtime-recovery/node/native/C4/B2/b2: verified
+runtime-recovery/node/native/C4/B2/b2: verified
+runtime-recovery/node/native/C4/B2/b2: verified
+runtime-recovery/rust/native/C4/B2/b2: verified
+FINISH runtime-recovery: executed
+START browser-actionability
+stagehand-batch/native/ambiguous/b0: failed
+crawlee-playwright/guarded/ambiguous/b0: verified
+stagehand-batch/native/never-uncovered/b0: failed
+playwright/native/overlay/b0: verified
+stagehand-batch/guarded/hidden/b0: verified
+crawlee-stagehand/native/hidden/b0: verified
+puppeteer/guarded/delayed/b0: verified
+stagehand/native/rerender/b0: failed
+stagehand-batch/native/hidden/b0: failed
+puppeteer/guarded/overlay/b0: verified
+playwright/guarded/hidden/b0: verified
+crawlee-playwright/native/delayed/b0: verified
+crawlee-stagehand/guarded/rerender/b0: verified
+playwright/native/never-enabled/b0: verified
+playwright/native/moving/b0: verified
+puppeteer/native/never-enabled/b0: verified
+crawlee-playwright/native/rerender/b0: verified
+stagehand-batch/guarded/rerender/b0: verified
+stagehand/native/normal/b0: verified
+playwright/guarded/rerender/b0: verified
+playwright/native/never-uncovered/b0: verified
+playwright/guarded/overlay/b0: verified
+puppeteer/native/rerender/b0: failed
+playwright/guarded/never-uncovered/b0: verified
+crawlee-playwright/guarded/rerender/b0: verified
+stagehand/guarded/hidden/b0: verified
+stagehand-batch/native/normal/b0: verified
+crawlee-stagehand/native/normal/b0: verified
+stagehand/guarded/never-uncovered/b0: verified
+playwright/native/normal/b0: verified
+stagehand/native/hidden/b0: failed
+crawlee-stagehand/guarded/delayed/b0: verified
+crawlee-playwright/native/never-uncovered/b0: verified
+puppeteer/guarded/hidden/b0: verified
+puppeteer/native/hidden/b0: verified
+crawlee-playwright/native/overlay/b0: verified
+stagehand-batch/native/moving/b0: failed
+stagehand-batch/native/never-enabled/b0: failed
+stagehand/guarded/rerender/b0: verified
+crawlee-stagehand/guarded/normal/b0: verified
+crawlee-playwright/native/never-enabled/b0: verified
+puppeteer/guarded/ambiguous/b0: verified
+puppeteer/guarded/never-uncovered/b0: verified
+stagehand-batch/guarded/normal/b0: verified
+stagehand-batch/guarded/moving/b0: failed
+stagehand/native/never-uncovered/b0: failed
+crawlee-stagehand/native/rerender/b0: verified
+crawlee-playwright/native/hidden/b0: verified
+stagehand/native/ambiguous/b0: failed
+crawlee-stagehand/guarded/overlay/b0: verified
+crawlee-playwright/native/moving/b0: verified
+crawlee-playwright/guarded/delayed/b0: verified
+crawlee-playwright/guarded/overlay/b0: verified
+stagehand/guarded/delayed/b0: verified
+puppeteer/native/overlay/b0: failed
+playwright/native/delayed/b0: verified
+crawlee-stagehand/native/overlay/b0: verified
+crawlee-stagehand/native/never-uncovered/b0: verified
+playwright/guarded/never-enabled/b0: verified
+stagehand-batch/native/overlay/b0: failed
+crawlee-playwright/guarded/moving/b0: verified
+stagehand/native/moving/b0: failed
+crawlee-stagehand/native/never-enabled/b0: verified
+crawlee-stagehand/guarded/hidden/b0: verified
+stagehand/guarded/overlay/b0: verified
+puppeteer/native/never-uncovered/b0: failed
+playwright/native/hidden/b0: verified
+stagehand-batch/guarded/never-enabled/b0: verified
+playwright/guarded/normal/b0: verified
+crawlee-stagehand/guarded/ambiguous/b0: verified
+puppeteer/native/delayed/b0: verified
+stagehand/guarded/never-enabled/b0: verified
+stagehand/native/never-enabled/b0: failed
+playwright/guarded/delayed/b0: verified
+stagehand-batch/native/rerender/b0: failed
+crawlee-playwright/native/ambiguous/b0: verified
+puppeteer/guarded/moving/b0: verified
+crawlee-playwright/native/normal/b0: verified
+stagehand/native/overlay/b0: failed
+stagehand/guarded/moving/b0: failed
+crawlee-stagehand/guarded/moving/b0: verified
+stagehand/guarded/normal/b0: verified
+crawlee-playwright/guarded/never-uncovered/b0: verified
+crawlee-playwright/guarded/never-enabled/b0: verified
+playwright/guarded/ambiguous/b0: verified
+playwright/native/rerender/b0: verified
+puppeteer/guarded/normal/b0: verified
+playwright/native/ambiguous/b0: verified
+playwright/guarded/moving/b0: verified
+stagehand-batch/guarded/overlay/b0: verified
+puppeteer/native/normal/b0: verified
+crawlee-playwright/guarded/hidden/b0: verified
+crawlee-stagehand/guarded/never-enabled/b0: verified
+puppeteer/guarded/never-enabled/b0: verified
+crawlee-stagehand/native/delayed/b0: verified
+crawlee-stagehand/guarded/never-uncovered/b0: verified
+crawlee-playwright/guarded/normal/b0: verified
+stagehand-batch/guarded/ambiguous/b0: verified
+stagehand-batch/native/delayed/b0: failed
+puppeteer/native/ambiguous/b0: failed
+stagehand/native/delayed/b0: failed
+puppeteer/native/moving/b0: verified
+crawlee-stagehand/native/ambiguous/b0: verified
+stagehand-batch/guarded/never-uncovered/b0: verified
+stagehand/guarded/ambiguous/b0: verified
+crawlee-stagehand/native/moving/b0: verified
+puppeteer/guarded/rerender/b0: verified
+stagehand-batch/guarded/delayed/b0: verified
+crawlee-playwright/native/delayed/b1: verified
+stagehand/guarded/delayed/b1: verified
+stagehand-batch/native/hidden/b1: failed
+crawlee-playwright/guarded/normal/b1: verified
+playwright/guarded/never-enabled/b1: verified
+crawlee-playwright/guarded/rerender/b1: verified
+puppeteer/native/moving/b1: verified
+playwright/native/overlay/b1: verified
+stagehand-batch/native/moving/b1: failed
+crawlee-stagehand/native/ambiguous/b1: verified
+playwright/guarded/rerender/b1: verified
+stagehand-batch/guarded/never-enabled/b1: verified
+playwright/guarded/never-uncovered/b1: verified
+puppeteer/guarded/ambiguous/b1: verified
+stagehand/guarded/hidden/b1: verified
+puppeteer/native/delayed/b1: verified
+stagehand/native/overlay/b1: failed
+puppeteer/guarded/never-uncovered/b1: verified
+crawlee-stagehand/native/delayed/b1: verified
+playwright/native/normal/b1: verified
+crawlee-stagehand/guarded/moving/b1: verified
+playwright/guarded/hidden/b1: verified
+stagehand/native/never-uncovered/b1: failed
+crawlee-playwright/guarded/never-enabled/b1: verified
+puppeteer/guarded/hidden/b1: verified
+stagehand-batch/native/never-uncovered/b1: failed
+stagehand-batch/guarded/never-uncovered/b1: verified
+stagehand-batch/guarded/hidden/b1: verified
+crawlee-stagehand/guarded/never-uncovered/b1: verified
+stagehand-batch/native/never-enabled/b1: failed
+puppeteer/guarded/never-enabled/b1: verified
+crawlee-playwright/native/normal/b1: verified
+crawlee-stagehand/guarded/delayed/b1: verified
+crawlee-stagehand/guarded/overlay/b1: verified
+playwright/native/rerender/b1: verified
+playwright/guarded/delayed/b1: verified
+crawlee-stagehand/native/moving/b1: verified
+stagehand/native/never-enabled/b1: failed
+stagehand/native/normal/b1: verified
+stagehand/guarded/overlay/b1: verified
+puppeteer/guarded/delayed/b1: verified
+crawlee-stagehand/native/rerender/b1: verified
+crawlee-stagehand/native/never-enabled/b1: verified
+crawlee-stagehand/guarded/rerender/b1: verified
+stagehand-batch/guarded/overlay/b1: verified
+stagehand-batch/native/delayed/b1: failed
+playwright/native/hidden/b1: verified
+crawlee-playwright/native/overlay/b1: verified
+stagehand-batch/guarded/normal/b1: verified
+puppeteer/native/never-enabled/b1: verified
+playwright/native/ambiguous/b1: verified
+stagehand/guarded/rerender/b1: verified
+crawlee-stagehand/native/never-uncovered/b1: verified
+stagehand/guarded/never-uncovered/b1: verified
+playwright/guarded/moving/b1: verified
+stagehand/guarded/normal/b1: verified
+puppeteer/guarded/moving/b1: verified
+crawlee-playwright/native/never-enabled/b1: verified
+puppeteer/guarded/normal/b1: verified
+playwright/native/moving/b1: verified
+playwright/guarded/ambiguous/b1: verified
+crawlee-playwright/guarded/moving/b1: verified
+stagehand-batch/guarded/ambiguous/b1: verified
+stagehand-batch/native/ambiguous/b1: failed
+crawlee-playwright/guarded/never-uncovered/b1: verified
+stagehand-batch/guarded/delayed/b1: verified
+stagehand-batch/guarded/rerender/b1: verified
+crawlee-stagehand/native/overlay/b1: verified
+crawlee-stagehand/native/hidden/b1: verified
+stagehand/native/rerender/b1: failed
+crawlee-stagehand/guarded/ambiguous/b1: verified
+stagehand-batch/guarded/moving/b1: failed
+puppeteer/native/ambiguous/b1: failed
+playwright/native/never-uncovered/b1: verified
+crawlee-stagehand/native/normal/b1: verified
+crawlee-playwright/guarded/hidden/b1: verified
+crawlee-stagehand/guarded/hidden/b1: verified
+crawlee-playwright/native/never-uncovered/b1: verified
+stagehand/native/hidden/b1: failed
+crawlee-stagehand/guarded/normal/b1: verified
+stagehand/native/moving/b1: failed
+stagehand/guarded/moving/b1: verified
+stagehand/guarded/ambiguous/b1: verified
+stagehand-batch/native/normal/b1: verified
+puppeteer/native/normal/b1: verified
+stagehand-batch/native/rerender/b1: failed
+puppeteer/native/overlay/b1: failed
+stagehand/native/delayed/b1: verified
+playwright/native/delayed/b1: verified
+puppeteer/guarded/overlay/b1: verified
+crawlee-stagehand/guarded/never-enabled/b1: verified
+stagehand/native/ambiguous/b1: failed
+puppeteer/native/never-uncovered/b1: failed
+crawlee-playwright/guarded/overlay/b1: verified
+stagehand/guarded/never-enabled/b1: verified
+playwright/guarded/overlay/b1: verified
+crawlee-playwright/native/rerender/b1: verified
+puppeteer/native/hidden/b1: verified
+stagehand-batch/native/overlay/b1: failed
+crawlee-playwright/native/hidden/b1: verified
+crawlee-playwright/guarded/delayed/b1: verified
+crawlee-playwright/native/moving/b1: verified
+crawlee-playwright/guarded/ambiguous/b1: verified
+puppeteer/guarded/rerender/b1: verified
+crawlee-playwright/native/ambiguous/b1: verified
+playwright/native/never-enabled/b1: verified
+puppeteer/native/rerender/b1: failed
+playwright/guarded/normal/b1: verified
+stagehand-batch/native/normal/b2: verified
+stagehand/guarded/never-enabled/b2: verified
+puppeteer/guarded/never-uncovered/b2: verified
+stagehand-batch/native/hidden/b2: failed
+puppeteer/native/rerender/b2: verified
+crawlee-playwright/guarded/delayed/b2: verified
+stagehand/guarded/overlay/b2: verified
+stagehand/guarded/ambiguous/b2: verified
+crawlee-playwright/guarded/rerender/b2: verified
+crawlee-stagehand/guarded/never-enabled/b2: verified
+puppeteer/guarded/delayed/b2: verified
+puppeteer/native/never-enabled/b2: verified
+stagehand-batch/native/delayed/b2: failed
+playwright/native/ambiguous/b2: verified
+stagehand-batch/guarded/never-uncovered/b2: verified
+crawlee-playwright/native/rerender/b2: verified
+crawlee-playwright/native/normal/b2: verified
+stagehand/guarded/rerender/b2: verified
+crawlee-stagehand/native/never-enabled/b2: verified
+stagehand-batch/guarded/ambiguous/b2: verified
+crawlee-playwright/native/never-uncovered/b2: verified
+crawlee-stagehand/native/hidden/b2: verified
+playwright/guarded/overlay/b2: verified
+crawlee-stagehand/native/delayed/b2: verified
+puppeteer/guarded/normal/b2: verified
+puppeteer/native/ambiguous/b2: failed
+stagehand-batch/guarded/normal/b2: verified
+stagehand-batch/guarded/never-enabled/b2: verified
+puppeteer/native/normal/b2: verified
+crawlee-playwright/native/ambiguous/b2: verified
+playwright/guarded/never-uncovered/b2: verified
+playwright/native/overlay/b2: verified
+crawlee-stagehand/native/rerender/b2: verified
+crawlee-stagehand/native/overlay/b2: verified
+stagehand-batch/guarded/overlay/b2: verified
+crawlee-stagehand/native/ambiguous/b2: verified
+puppeteer/guarded/never-enabled/b2: verified
+playwright/native/rerender/b2: verified
+stagehand-batch/native/rerender/b2: failed
+stagehand/native/hidden/b2: failed
+stagehand/native/moving/b2: failed
+stagehand-batch/native/never-uncovered/b2: failed
+crawlee-stagehand/guarded/hidden/b2: verified
+stagehand-batch/native/overlay/b2: failed
+stagehand/guarded/delayed/b2: verified
+crawlee-playwright/native/moving/b2: verified
+playwright/native/never-uncovered/b2: verified
+stagehand-batch/guarded/rerender/b2: verified
+crawlee-stagehand/guarded/moving/b2: verified
+crawlee-playwright/native/delayed/b2: verified
+crawlee-playwright/native/never-enabled/b2: verified
+puppeteer/native/delayed/b2: verified
+stagehand-batch/native/never-enabled/b2: failed
+crawlee-stagehand/guarded/delayed/b2: verified
+playwright/native/hidden/b2: verified
+crawlee-playwright/guarded/moving/b2: verified
+puppeteer/native/never-uncovered/b2: failed
+stagehand/native/delayed/b2: failed
+puppeteer/guarded/ambiguous/b2: verified
+stagehand/native/overlay/b2: failed
+puppeteer/guarded/moving/b2: verified
+crawlee-stagehand/guarded/overlay/b2: verified
+stagehand-batch/native/moving/b2: failed
+crawlee-playwright/guarded/normal/b2: verified
+stagehand/guarded/never-uncovered/b2: verified
+crawlee-stagehand/guarded/ambiguous/b2: verified
+crawlee-playwright/guarded/never-uncovered/b2: verified
+crawlee-stagehand/guarded/normal/b2: verified
+crawlee-stagehand/guarded/never-uncovered/b2: verified
+puppeteer/guarded/overlay/b2: verified
+playwright/native/normal/b2: verified
+crawlee-stagehand/native/normal/b2: verified
+puppeteer/guarded/rerender/b2: verified
+puppeteer/guarded/hidden/b2: verified
+stagehand/native/rerender/b2: failed
+stagehand/guarded/normal/b2: verified
+playwright/native/delayed/b2: verified
+playwright/guarded/never-enabled/b2: verified
+stagehand-batch/native/ambiguous/b2: failed
+playwright/native/moving/b2: verified
+stagehand/native/never-enabled/b2: failed
+stagehand/guarded/hidden/b2: verified
+crawlee-playwright/guarded/overlay/b2: verified
+puppeteer/native/moving/b2: verified
+puppeteer/native/hidden/b2: verified
+playwright/native/never-enabled/b2: verified
+puppeteer/native/overlay/b2: failed
+crawlee-playwright/guarded/hidden/b2: verified
+playwright/guarded/delayed/b2: verified
+stagehand-batch/guarded/moving/b2: verified
+stagehand/native/normal/b2: verified
+crawlee-playwright/native/overlay/b2: verified
+stagehand-batch/guarded/delayed/b2: verified
+crawlee-stagehand/native/never-uncovered/b2: verified
+crawlee-playwright/native/hidden/b2: verified
+stagehand/native/ambiguous/b2: failed
+playwright/guarded/rerender/b2: verified
+stagehand/native/never-uncovered/b2: failed
+playwright/guarded/hidden/b2: verified
+crawlee-playwright/guarded/ambiguous/b2: verified
+stagehand-batch/guarded/hidden/b2: verified
+playwright/guarded/ambiguous/b2: verified
+playwright/guarded/moving/b2: verified
+stagehand/guarded/moving/b2: failed
+crawlee-stagehand/guarded/rerender/b2: verified
+playwright/guarded/normal/b2: verified
+crawlee-stagehand/native/moving/b2: verified
+crawlee-playwright/guarded/never-enabled/b2: verified
+FINISH browser-actionability: executed
+START sqlite-readers
+sqlite/rust-sync/W4/held/B100/b0: verified
+sqlite/node-shared/W1/short/B100/b0: verified
+sqlite/go-sync/W1/none/B1000/b0: verified
+sqlite/go-sync/W1/short/B1000/b0: verified
+sqlite/rust-sync/W4/short/B100/b0: failed
+sqlite/go-sync/W4/held/B100/b0: failed
+sqlite/node-shared/W4/none/B1000/b0: verified
+sqlite/node-shared/W1/none/B100/b0: verified
+sqlite/rust-sync/W1/held/B100/b0: verified
+sqlite/node-shared/W1/none/B1000/b0: verified
+sqlite/node-shared/W4/held/B1000/b0: verified
+sqlite/go-sync/W1/held/B1000/b0: verified
+sqlite/node-shared/W1/held/B100/b0: verified
+sqlite/rust-sync/W4/none/B1000/b0: verified
+sqlite/rust-sync/W1/short/B1000/b0: verified
+sqlite/go-sync/W1/held/B100/b0: verified
+sqlite/node-shared/W4/held/B100/b0: verified
+sqlite/rust-sync/W4/held/B1000/b0: failed
+sqlite/rust-sync/W4/short/B1000/b0: failed
+sqlite/node-shared/W4/none/B100/b0: verified
+sqlite/rust-sync/W1/short/B100/b0: verified
+sqlite/rust-sync/W1/held/B1000/b0: verified
+sqlite/go-sync/W1/none/B100/b0: verified
+sqlite/go-sync/W4/none/B1000/b0: failed
+sqlite/node-shared/W1/short/B1000/b0: verified
+sqlite/rust-sync/W1/none/B100/b0: verified
+sqlite/go-sync/W4/short/B1000/b0: failed
+sqlite/go-sync/W1/short/B100/b0: verified
+sqlite/node-shared/W1/held/B1000/b0: verified
+sqlite/node-shared/W4/short/B100/b0: verified
+sqlite/go-sync/W4/none/B100/b0: failed
+sqlite/rust-sync/W4/none/B100/b0: failed
+sqlite/rust-sync/W1/none/B1000/b0: verified
+sqlite/go-sync/W4/short/B100/b0: failed
+sqlite/node-shared/W4/short/B1000/b0: verified
+sqlite/go-sync/W4/held/B1000/b0: verified
+sqlite/go-sync/W4/held/B100/b1: failed
+sqlite/go-sync/W4/held/B1000/b1: failed
+sqlite/rust-sync/W4/held/B1000/b1: verified
+sqlite/rust-sync/W1/held/B100/b1: verified
+sqlite/rust-sync/W4/none/B100/b1: failed
+sqlite/rust-sync/W4/short/B100/b1: failed
+sqlite/go-sync/W1/short/B1000/b1: verified
+sqlite/node-shared/W1/none/B100/b1: verified
+sqlite/rust-sync/W1/none/B1000/b1: verified
+sqlite/rust-sync/W1/none/B100/b1: verified
+sqlite/node-shared/W4/short/B1000/b1: verified
+sqlite/node-shared/W4/held/B1000/b1: verified
+sqlite/go-sync/W1/held/B1000/b1: verified
+sqlite/go-sync/W4/short/B100/b1: failed
+sqlite/node-shared/W4/none/B100/b1: verified
+sqlite/go-sync/W1/none/B1000/b1: verified
+sqlite/go-sync/W4/none/B100/b1: failed
+sqlite/node-shared/W4/held/B100/b1: verified
+sqlite/rust-sync/W4/held/B100/b1: failed
+sqlite/go-sync/W4/short/B1000/b1: failed
+sqlite/rust-sync/W1/short/B1000/b1: verified
+sqlite/rust-sync/W1/short/B100/b1: verified
+sqlite/go-sync/W1/short/B100/b1: verified
+sqlite/rust-sync/W1/held/B1000/b1: verified
+sqlite/node-shared/W1/short/B1000/b1: verified
+sqlite/node-shared/W4/short/B100/b1: verified
+sqlite/node-shared/W4/none/B1000/b1: verified
+sqlite/rust-sync/W4/short/B1000/b1: verified
+sqlite/node-shared/W1/none/B1000/b1: verified
+sqlite/node-shared/W1/held/B1000/b1: verified
+sqlite/node-shared/W1/short/B100/b1: verified
+sqlite/go-sync/W4/none/B1000/b1: failed
+sqlite/rust-sync/W4/none/B1000/b1: failed
+sqlite/go-sync/W1/held/B100/b1: verified
+sqlite/go-sync/W1/none/B100/b1: verified
+sqlite/node-shared/W1/held/B100/b1: verified
+sqlite/rust-sync/W4/none/B1000/b2: failed
+sqlite/node-shared/W4/short/B100/b2: verified
+sqlite/rust-sync/W1/none/B100/b2: verified
+sqlite/rust-sync/W1/held/B100/b2: verified
+sqlite/node-shared/W1/held/B100/b2: verified
+sqlite/rust-sync/W4/short/B100/b2: failed
+sqlite/go-sync/W4/short/B100/b2: failed
+sqlite/rust-sync/W1/held/B1000/b2: verified
+sqlite/rust-sync/W4/held/B1000/b2: failed
+sqlite/go-sync/W1/none/B1000/b2: verified
+sqlite/rust-sync/W1/none/B1000/b2: verified
+sqlite/rust-sync/W4/short/B1000/b2: failed
+sqlite/rust-sync/W4/held/B100/b2: failed
+sqlite/node-shared/W1/short/B100/b2: verified
+sqlite/go-sync/W1/held/B1000/b2: verified
+sqlite/node-shared/W4/short/B1000/b2: verified
+sqlite/go-sync/W4/none/B100/b2: failed
+sqlite/go-sync/W1/held/B100/b2: verified
+sqlite/rust-sync/W1/short/B1000/b2: verified
+sqlite/go-sync/W1/none/B100/b2: verified
+sqlite/go-sync/W4/short/B1000/b2: failed
+sqlite/node-shared/W4/held/B1000/b2: verified
+sqlite/node-shared/W4/none/B100/b2: verified
+sqlite/rust-sync/W4/none/B100/b2: failed
+sqlite/node-shared/W1/none/B1000/b2: verified
+sqlite/go-sync/W4/held/B1000/b2: failed
+sqlite/node-shared/W1/held/B1000/b2: verified
+sqlite/node-shared/W1/short/B1000/b2: verified
+sqlite/go-sync/W1/short/B1000/b2: verified
+sqlite/node-shared/W1/none/B100/b2: verified
+sqlite/node-shared/W4/none/B1000/b2: verified
+sqlite/go-sync/W4/held/B100/b2: failed
+sqlite/go-sync/W4/none/B1000/b2: failed
+sqlite/node-shared/W4/held/B100/b2: verified
+sqlite/rust-sync/W1/short/B100/b2: verified
+sqlite/go-sync/W1/short/B100/b2: verified
+FINISH sqlite-readers: executed
+START http-transport
+crawlee-http: block 1/3 finished
+crawlee-http-pooled: block 1/3 finished
+node-http: block 1/3 finished
+spider-http: block 1/3 finished
+crawlee-http: block 2/3 finished
+crawlee-http-pooled: block 2/3 finished
+node-http: block 2/3 finished
+spider-http: block 2/3 finished
+crawlee-http: block 3/3 finished
+crawlee-http-pooled: block 3/3 finished
+node-http: block 3/3 finished
+spider-http: block 3/3 finished
+FINISH http-transport: executed
+START http-open-20
+crawlee-http: block 1/3 finished
+crawlee-http-pooled: block 1/3 finished
+node-http: block 1/3 finished
+spider-http: block 1/3 finished
+crawlee-http: block 2/3 finished
+crawlee-http-pooled: block 2/3 finished
+node-http: block 2/3 finished
+spider-http: block 2/3 finished
+crawlee-http: block 3/3 finished
+crawlee-http-pooled: block 3/3 finished
+node-http: block 3/3 finished
+spider-http: block 3/3 finished
+FINISH http-open-20: executed
+START http-open-100
+crawlee-http: block 1/3 finished
+crawlee-http-pooled: block 1/3 finished
+node-http: block 1/3 finished
+spider-http: block 1/3 finished
+crawlee-http: block 2/3 finished
+crawlee-http-pooled: block 2/3 finished
+node-http: block 2/3 finished
+spider-http: block 2/3 finished
+crawlee-http: block 3/3 finished
+crawlee-http-pooled: block 3/3 finished
+node-http: block 3/3 finished
+spider-http: block 3/3 finished
+FINISH http-open-100: executed
+START http-open-250
+crawlee-http: block 1/3 finished
+crawlee-http-pooled: block 1/3 finished
+node-http: block 1/3 finished
+spider-http: block 1/3 finished
+crawlee-http: block 2/3 finished
+crawlee-http-pooled: block 2/3 finished
+node-http: block 2/3 finished
+spider-http: block 2/3 finished
+crawlee-http: block 3/3 finished
+crawlee-http-pooled: block 3/3 finished
+node-http: block 3/3 finished
+spider-http: block 3/3 finished
+FINISH http-open-250: executed
+{"directory":"/Users/jb/Dev/automan/lab/results/qualification-integrated-2026-10-07T23-21-58-974Z-6b64b0","steps":[{"name":"runtime-native-sustained","directory":"/Users/jb/Dev/automan/lab/results/runtime-native-sustained-2026-10-07T23-21-59-298Z-bf6ecb","status":"executed","verified":30,"total":30},{"name":"runtime-http-backends","directory":"/Users/jb/Dev/automan/lab/results/runtime-http-backends-2026-10-07T23-29-49-072Z-2b2b75","status":"executed","verified":24,"total":24},{"name":"runtime-recovery","directory":"/Users/jb/Dev/automan/lab/results/runtime-recovery-2026-10-07T23-37-26-683Z-fcaced","status":"executed","verified":42,"total":42},{"name":"browser-actionability","directory":"/Users/jb/Dev/automan/lab/results/browser-actionability-2026-10-07T23-38-33-163Z-ccad1f","status":"executed","verified":262,"total":324},{"name":"sqlite-readers","directory":"/Users/jb/Dev/automan/lab/results/sqlite-readers-2026-10-07T23-52-02-741Z-c5571c","status":"executed","verified":77,"total":108},{"name":"http-transport","directory":"/Users/jb/Dev/automan/lab/results/http-transport-2026-10-07T23-52-40-042Z-be9fbc","status":"executed","verified":192,"total":195},{"name":"http-open-20","directory":"/Users/jb/Dev/automan/lab/results/http-open-20-2026-10-07T23-52-50-976Z-19b9fb","status":"executed","verified":2755,"total":2916},{"name":"http-open-100","directory":"/Users/jb/Dev/automan/lab/results/http-open-100-2026-10-07T23-55-27-645Z-9f6596","status":"executed","verified":10496,"total":14436},{"name":"http-open-250","directory":"/Users/jb/Dev/automan/lab/results/http-open-250-2026-10-07T23-58-01-322Z-66a668","status":"executed","verified":12238,"total":36036}],"sourceChanges":[]}

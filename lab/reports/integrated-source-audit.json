@@ -1,0 +1,85 @@
+{
+  "snapshots": [
+    {
+      "directory": "results/qualification-integrated-2026-10-07T23-21-58-974Z-6b64b0",
+      "checked": 86,
+      "mismatches": []
+    },
+    {
+      "directory": "results/runtime-native-sustained-2026-10-07T23-21-59-298Z-bf6ecb",
+      "checked": 86,
+      "mismatches": []
+    },
+    {
+      "directory": "results/runtime-http-backends-2026-10-07T23-29-49-072Z-2b2b75",
+      "checked": 86,
+      "mismatches": []
+    },
+    {
+      "directory": "results/runtime-recovery-2026-10-07T23-37-26-683Z-fcaced",
+      "checked": 86,
+      "mismatches": []
+    },
+    {
+      "directory": "results/browser-actionability-2026-10-07T23-38-33-163Z-ccad1f",
+      "checked": 86,
+      "mismatches": []
+    },
+    {
+      "directory": "results/sqlite-readers-2026-10-07T23-52-02-741Z-c5571c",
+      "checked": 86,
+      "mismatches": []
+    },
+    {
+      "directory": "results/http-transport-2026-10-07T23-52-40-042Z-be9fbc",
+      "checked": 86,
+      "mismatches": []
+    },
+    {
+      "directory": "results/http-open-20-2026-10-07T23-52-50-976Z-19b9fb",
+      "checked": 86,
+      "mismatches": []
+    },
+    {
+      "directory": "results/http-open-100-2026-10-07T23-55-27-645Z-9f6596",
+      "checked": 86,
+      "mismatches": []
+    },
+    {
+      "directory": "results/http-open-250-2026-10-07T23-58-01-322Z-66a668",
+      "checked": 86,
+      "mismatches": []
+    },
+    {
+      "directory": "results/runtime-native-qualified-2026-10-08T00-11-54-841Z-789d5e",
+      "checked": 87,
+      "mismatches": []
+    },
+    {
+      "directory": "results/runtime-recovery-qualified-2026-10-08T00-20-09-515Z-ad3e70",
+      "checked": 87,
+      "mismatches": []
+    },
+    {
+      "directory": "results/browser-actionability-2026-10-08T00-21-16-186Z-b21a28",
+      "checked": 87,
+      "mismatches": []
+    },
+    {
+      "directory": "results/sqlite-readers-2026-10-08T00-25-35-434Z-92d4f3",
+      "checked": 87,
+      "mismatches": []
+    },
+    {
+      "directory": "results/spider-http-transport-supported-2026-10-08T00-26-16-511Z-7ce401",
+      "checked": 87,
+      "mismatches": []
+    },
+    {
+      "directory": "results/qualification-current-2026-10-08T00-11-54-553Z-21d1f2",
+      "checked": 87,
+      "mismatches": []
+    }
+  ],
+  "method": "compare SHA-256 of every preserved source against each manifest; acquisition campaigns refer to a suite snapshot with an identical SHA-256 for each file"
+}

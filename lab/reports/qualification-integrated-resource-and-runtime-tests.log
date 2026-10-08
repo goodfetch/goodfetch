@@ -1,0 +1,29 @@
+✔ the macOS CPU probe reports the same nanosecond unit as independent getrusage (355.601708ms)
+(node:69722) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+✔ node: complete native workflow validates every acquired record, stays bounded and resumes idempotently (599.708875ms)
+✔ node: independently detected false success never reaches storage (261.21375ms)
+✔ rust: complete native workflow validates every acquired record, stays bounded and resumes idempotently (176.373584ms)
+✔ rust: independently detected false success never reaches storage (39.167666ms)
+✔ node: before-commit recovers exact results after a lost transactional response (1265.028958ms)
+✔ node: after-commit recovers exact results after a lost transactional response (1256.812042ms)
+✔ node: during-ack recovers exact results after a lost transactional response (1261.509917ms)
+✔ node: after-ack recovers exact results after a lost transactional response (1447.449208ms)
+✔ rust: before-commit recovers exact results after a lost transactional response (1147.931333ms)
+✔ rust: after-commit recovers exact results after a lost transactional response (1065.493417ms)
+✔ rust: during-ack recovers exact results after a lost transactional response (1059.014333ms)
+✔ rust: after-ack recovers exact results after a lost transactional response (1054.788875ms)
+✔ node: repeated writer deaths preserve bounded backpressure and exact committed data (3402.424375ms)
+✔ rust: repeated writer deaths preserve bounded backpressure and exact committed data (3190.642167ms)
+✔ node: a new coordinator resumes after job-claimed (1331.378917ms)
+✔ node: a new coordinator resumes after batch-committed (1277.6665ms)
+✔ rust: a new coordinator resumes after job-claimed (1055.148125ms)
+✔ rust: a new coordinator resumes after batch-committed (1050.184625ms)
+ℹ tests 19
+ℹ suites 0
+ℹ pass 19
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 22091.319208

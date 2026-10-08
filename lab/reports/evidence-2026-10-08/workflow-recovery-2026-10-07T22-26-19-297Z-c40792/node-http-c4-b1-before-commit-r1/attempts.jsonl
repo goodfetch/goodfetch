@@ -1,0 +1,16 @@
+{"jobId":"job-1","generation":0,"status":"aborted","acquisitionMs":42.16579199999978,"validationMs":0.007541000000856002,"error":"adapter exited (SIGKILL)"}
+{"jobId":"job-0","generation":0,"status":"aborted","acquisitionMs":42.85412499999984,"validationMs":0.006624999999985448,"error":"adapter exited (SIGKILL)"}
+{"jobId":"job-2","generation":0,"status":"aborted","acquisitionMs":42.6107090000005,"validationMs":0.004917000000205007,"error":"adapter exited (SIGKILL)"}
+{"jobId":"job-3","generation":0,"status":"aborted","acquisitionMs":42.74750000000131,"validationMs":0.0020000000004074536,"error":"adapter exited (SIGKILL)"}
+{"jobId":"job-1","generation":1,"status":"acked","acquisitionMs":54.68458400000054,"validationMs":0.011749999999665306,"sinkWaitCommitAckMs":9.306708000000071,"endToEndMs":1068.3105419999993,"records":4}
+{"jobId":"job-0","generation":1,"status":"acked","acquisitionMs":55.10633300000154,"validationMs":0.006708000000799075,"sinkWaitCommitAckMs":9.660916000000725,"endToEndMs":1069.3741250000003,"records":4}
+{"jobId":"job-2","generation":1,"status":"acked","acquisitionMs":55.18483399999968,"validationMs":0.004750000000058208,"sinkWaitCommitAckMs":10.30908399999862,"endToEndMs":1069.776667,"records":4}
+{"jobId":"job-3","generation":1,"status":"acked","acquisitionMs":55.36008299999958,"validationMs":0.00429200000144192,"sinkWaitCommitAckMs":10.682833000000755,"endToEndMs":1070.3251670000009,"records":4}
+{"jobId":"job-4","generation":1,"status":"acked","acquisitionMs":4.70495899999878,"validationMs":0.009957999998732703,"sinkWaitCommitAckMs":1.1998750000002474,"endToEndMs":5.915584000000308,"records":4}
+{"jobId":"job-5","generation":1,"status":"acked","acquisitionMs":5.692208000000392,"validationMs":0.005875000000742148,"sinkWaitCommitAckMs":0.6656249999996362,"endToEndMs":6.364083000000392,"records":4}
+{"jobId":"job-6","generation":1,"status":"acked","acquisitionMs":5.066082999999708,"validationMs":0.007333000001381151,"sinkWaitCommitAckMs":2.1657500000001164,"endToEndMs":7.239999999999782,"records":4}
+{"jobId":"job-7","generation":1,"status":"acked","acquisitionMs":5.3995840000006865,"validationMs":0.005124999999679858,"sinkWaitCommitAckMs":2.1356250000008004,"endToEndMs":7.542000000001281,"records":4}
+{"jobId":"job-8","generation":1,"status":"acked","acquisitionMs":5.646999999999025,"validationMs":0.007332999999562162,"sinkWaitCommitAckMs":0.9649160000008123,"endToEndMs":6.619708000000173,"records":4}
+{"jobId":"job-9","generation":1,"status":"acked","acquisitionMs":4.658832999999504,"validationMs":0.0027090000003227033,"sinkWaitCommitAckMs":1.1880830000009155,"endToEndMs":5.850040999999692,"records":4}
+{"jobId":"job-10","generation":1,"status":"acked","acquisitionMs":6.106166999999914,"validationMs":0.01616699999976845,"sinkWaitCommitAckMs":1.5846249999995052,"endToEndMs":7.70770900000025,"records":4}
+{"jobId":"job-11","generation":1,"status":"acked","acquisitionMs":5.978499999999258,"validationMs":0.005250000000160071,"sinkWaitCommitAckMs":1.7761669999999867,"endToEndMs":7.760541999999987,"records":4}

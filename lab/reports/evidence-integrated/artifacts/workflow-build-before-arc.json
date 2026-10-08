@@ -1,0 +1,13 @@
+{
+  "hashes": {
+    "adapters/workflow-rust/Cargo.toml": "8da048fc27d5b0e2aa19a22a053a019da475d52335c9751ce19228cb05baaede",
+    "adapters/workflow-rust/Cargo.lock": "db7fd997537dc2fe38ec52722cbc3a279014d1ef999e7e81a483e30914358896",
+    "adapters/workflow-rust/build.rs": "145addf1dd7356607f16e0195da9320a9fb8bd405c6230f85910195599695cdb",
+    "adapters/workflow-rust/src/main.rs": "dc283527764d6d5f092e6adc55248a5836916632c83df7423b8ac854a63ceb47",
+    "adapters/workflow-rust/src/ledger.rs": "f0dc9b533d20f4e327f650d51500733ed786190448d35a56c2f12c3be949f603",
+    "adapters/workflow-rust/src/coordinator.rs": "7e7b17907dcb1ded436dc4b3ed21e135b214a34c6fbe2cda49c9d233ff138588"
+  },
+  "binarySha256": "dece94b96090ac1bc7a88079532c0de8afca3d75eb09d919641e4380d31b19b0",
+  "sqliteSha256": "852dcbd8171117e6cf1d6a219128e6fd3ba8e7b9a83c33fc862ee9ba34135b7c",
+  "sqliteSourceId": "2026-07-24 19:02:57 bf7c7f30031888f4e796e429ab3978879485813aaca6f641c7b33e4e09459bcc"
+}

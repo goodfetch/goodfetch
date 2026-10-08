@@ -1,0 +1,914 @@
+{
+  "cells": [
+    {
+      "engine": "rust",
+      "format": "jsonl-durable",
+      "batchSize": 32,
+      "writers": 1,
+      "block": 0,
+      "status": "verified",
+      "startupMs": 4.425041999999991,
+      "startupError": null,
+      "info": [
+        {
+          "backend": "storage-rust",
+          "execution": "Tokio; one SQLx connection per worker process",
+          "sqlx": "0.8.6"
+        }
+      ],
+      "writeMs": 42.73762500000001,
+      "finalizationMs": 1.8793330000000026,
+      "verdict": {
+        "status": "verified",
+        "reasons": [],
+        "persistedRows": 256,
+        "fileBytes": 42756
+      },
+      "measurement": {
+        "attempts": 8,
+        "verified": 8,
+        "failed": 0,
+        "unsupported": 0,
+        "timeout": 0,
+        "crashed": 0,
+        "rejected": 0,
+        "successRate": 1,
+        "successLatencyMs": {
+          "n": 8,
+          "p50": 16.663667000000004,
+          "p95": 24.542375000000007,
+          "p99": 24.542375000000007
+        },
+        "startedLatencyMs": {
+          "n": 8,
+          "p50": 16.663667000000004,
+          "p95": 24.542375000000007,
+          "p99": 24.542375000000007
+        },
+        "zeroFailureUpper95": 0.31234397806636793,
+        "interpretation": "exploratory; insufficient tail and reliability evidence"
+      },
+      "serializationMs": {
+        "n": 8,
+        "p50": 0.055583,
+        "p95": 0.225417,
+        "p99": 0.225417
+      },
+      "verifiedRowsPerSecond": 5990.03805195071,
+      "resources": [
+        {
+          "peakRssBytes": 3096576,
+          "peakProcessCount": 1,
+          "samples": 1,
+          "unavailable": false,
+          "method": "sampled sum RSS of process group and descendants; shared pages double-counted; short peaks may be missed",
+          "intervalMs": 250
+        }
+      ],
+      "stderr": [
+        ""
+      ]
+    },
+    {
+      "engine": "node",
+      "format": "sqlite-wal-full",
+      "batchSize": 32,
+      "writers": 1,
+      "block": 0,
+      "status": "verified",
+      "startupMs": 101.69679200000002,
+      "startupError": null,
+      "info": [
+        {
+          "backend": "storage-node",
+          "runtime": "v25.5.0",
+          "sqlite": "3.53.4",
+          "execution": "DatabaseSync blocks one event loop; one connection per worker process",
+          "journal_mode": "wal",
+          "synchronous": 2,
+          "busy_timeout": 5000,
+          "wal_autocheckpoint": 1000,
+          "compileOptions": [
+            "ATOMIC_INTRINSICS=1",
+            "COMPILER=clang-21.0.0",
+            "DEFAULT_AUTOVACUUM",
+            "DEFAULT_CACHE_SIZE=-2000",
+            "DEFAULT_FILE_FORMAT=4",
+            "DEFAULT_JOURNAL_SIZE_LIMIT=-1",
+            "DEFAULT_MMAP_SIZE=0",
+            "DEFAULT_PAGE_SIZE=4096",
+            "DEFAULT_PCACHE_INITSZ=20",
+            "DEFAULT_RECURSIVE_TRIGGERS",
+            "DEFAULT_SECTOR_SIZE=4096",
+            "DEFAULT_SYNCHRONOUS=2",
+            "DEFAULT_WAL_AUTOCHECKPOINT=1000",
+            "DEFAULT_WAL_SYNCHRONOUS=2",
+            "DEFAULT_WORKER_THREADS=0",
+            "DIRECT_OVERFLOW_READ",
+            "ENABLE_API_ARMOR",
+            "ENABLE_COLUMN_METADATA",
+            "ENABLE_DBSTAT_VTAB",
+            "ENABLE_FTS3",
+            "ENABLE_FTS3_PARENTHESIS",
+            "ENABLE_FTS5",
+            "ENABLE_GEOPOLY",
+            "ENABLE_MATH_FUNCTIONS",
+            "ENABLE_MEMORY_MANAGEMENT",
+            "ENABLE_PERCENTILE",
+            "ENABLE_PREUPDATE_HOOK",
+            "ENABLE_RTREE",
+            "ENABLE_SESSION",
+            "ENABLE_STAT4",
+            "ENABLE_UNLOCK_NOTIFY",
+            "MALLOC_SOFT_LIMIT=1024",
+            "MAX_ATTACHED=10",
+            "MAX_COLUMN=2000",
+            "MAX_COMPOUND_SELECT=500",
+            "MAX_DEFAULT_PAGE_SIZE=8192",
+            "MAX_EXPR_DEPTH=1000",
+            "MAX_FUNCTION_ARG=1000",
+            "MAX_LENGTH=1000000000",
+            "MAX_LIKE_PATTERN_LENGTH=50000",
+            "MAX_MMAP_SIZE=0x7fff0000",
+            "MAX_PAGE_COUNT=0xfffffffe",
+            "MAX_PAGE_SIZE=65536",
+            "MAX_SQL_LENGTH=1000000000",
+            "MAX_TRIGGER_DEPTH=1000",
+            "MAX_VARIABLE_NUMBER=250000",
+            "MAX_VDBE_OP=250000000",
+            "MAX_WORKER_THREADS=8",
+            "MUTEX_PTHREADS",
+            "SYSTEM_MALLOC",
+            "TEMP_STORE=1",
+            "THREADSAFE=1",
+            "USE_URI"
+          ]
+        }
+      ],
+      "writeMs": 3.0974160000000097,
+      "finalizationMs": 3.042332999999985,
+      "verdict": {
+        "status": "verified",
+        "reasons": [],
+        "persistedRows": 256,
+        "fileBytes": 214056
+      },
+      "measurement": {
+        "attempts": 8,
+        "verified": 8,
+        "failed": 0,
+        "unsupported": 0,
+        "timeout": 0,
+        "crashed": 0,
+        "rejected": 0,
+        "successRate": 1,
+        "successLatencyMs": {
+          "n": 8,
+          "p50": 0.7091250000000286,
+          "p95": 1.9965419999999767,
+          "p99": 1.9965419999999767
+        },
+        "startedLatencyMs": {
+          "n": 8,
+          "p50": 0.7091250000000286,
+          "p95": 1.9965419999999767,
+          "p99": 1.9965419999999767
+        },
+        "zeroFailureUpper95": 0.31234397806636793,
+        "interpretation": "exploratory; insufficient tail and reliability evidence"
+      },
+      "serializationMs": {
+        "n": 8,
+        "p50": 0.021707999999989624,
+        "p95": 0.053875000000005,
+        "p99": 0.053875000000005
+      },
+      "verifiedRowsPerSecond": 82649.53755000916,
+      "resources": [
+        {
+          "peakRssBytes": 360448,
+          "peakProcessCount": 1,
+          "samples": 1,
+          "unavailable": false,
+          "method": "sampled sum RSS of process group and descendants; shared pages double-counted; short peaks may be missed",
+          "intervalMs": 250
+        }
+      ],
+      "stderr": [
+        "(node:11049) ExperimentalWarning: SQLite is an experimental feature and might change at any time\n(Use `node --trace-warnings ...` to show where the warning was created)\n"
+      ]
+    },
+    {
+      "engine": "node",
+      "format": "sqlite-wal-normal",
+      "batchSize": 32,
+      "writers": 1,
+      "block": 0,
+      "status": "verified",
+      "startupMs": 99.866917,
+      "startupError": null,
+      "info": [
+        {
+          "backend": "storage-node",
+          "runtime": "v25.5.0",
+          "sqlite": "3.53.4",
+          "execution": "DatabaseSync blocks one event loop; one connection per worker process",
+          "journal_mode": "wal",
+          "synchronous": 1,
+          "busy_timeout": 5000,
+          "wal_autocheckpoint": 1000,
+          "compileOptions": [
+            "ATOMIC_INTRINSICS=1",
+            "COMPILER=clang-21.0.0",
+            "DEFAULT_AUTOVACUUM",
+            "DEFAULT_CACHE_SIZE=-2000",
+            "DEFAULT_FILE_FORMAT=4",
+            "DEFAULT_JOURNAL_SIZE_LIMIT=-1",
+            "DEFAULT_MMAP_SIZE=0",
+            "DEFAULT_PAGE_SIZE=4096",
+            "DEFAULT_PCACHE_INITSZ=20",
+            "DEFAULT_RECURSIVE_TRIGGERS",
+            "DEFAULT_SECTOR_SIZE=4096",
+            "DEFAULT_SYNCHRONOUS=2",
+            "DEFAULT_WAL_AUTOCHECKPOINT=1000",
+            "DEFAULT_WAL_SYNCHRONOUS=2",
+            "DEFAULT_WORKER_THREADS=0",
+            "DIRECT_OVERFLOW_READ",
+            "ENABLE_API_ARMOR",
+            "ENABLE_COLUMN_METADATA",
+            "ENABLE_DBSTAT_VTAB",
+            "ENABLE_FTS3",
+            "ENABLE_FTS3_PARENTHESIS",
+            "ENABLE_FTS5",
+            "ENABLE_GEOPOLY",
+            "ENABLE_MATH_FUNCTIONS",
+            "ENABLE_MEMORY_MANAGEMENT",
+            "ENABLE_PERCENTILE",
+            "ENABLE_PREUPDATE_HOOK",
+            "ENABLE_RTREE",
+            "ENABLE_SESSION",
+            "ENABLE_STAT4",
+            "ENABLE_UNLOCK_NOTIFY",
+            "MALLOC_SOFT_LIMIT=1024",
+            "MAX_ATTACHED=10",
+            "MAX_COLUMN=2000",
+            "MAX_COMPOUND_SELECT=500",
+            "MAX_DEFAULT_PAGE_SIZE=8192",
+            "MAX_EXPR_DEPTH=1000",
+            "MAX_FUNCTION_ARG=1000",
+            "MAX_LENGTH=1000000000",
+            "MAX_LIKE_PATTERN_LENGTH=50000",
+            "MAX_MMAP_SIZE=0x7fff0000",
+            "MAX_PAGE_COUNT=0xfffffffe",
+            "MAX_PAGE_SIZE=65536",
+            "MAX_SQL_LENGTH=1000000000",
+            "MAX_TRIGGER_DEPTH=1000",
+            "MAX_VARIABLE_NUMBER=250000",
+            "MAX_VDBE_OP=250000000",
+            "MAX_WORKER_THREADS=8",
+            "MUTEX_PTHREADS",
+            "SYSTEM_MALLOC",
+            "TEMP_STORE=1",
+            "THREADSAFE=1",
+            "USE_URI"
+          ]
+        }
+      ],
+      "writeMs": 2.4000409999999874,
+      "finalizationMs": 3.06087500000001,
+      "verdict": {
+        "status": "verified",
+        "reasons": [],
+        "persistedRows": 256,
+        "fileBytes": 214056
+      },
+      "measurement": {
+        "attempts": 8,
+        "verified": 8,
+        "failed": 0,
+        "unsupported": 0,
+        "timeout": 0,
+        "crashed": 0,
+        "rejected": 0,
+        "successRate": 1,
+        "successLatencyMs": {
+          "n": 8,
+          "p50": 0.43779200000000174,
+          "p95": 1.678875000000005,
+          "p99": 1.678875000000005
+        },
+        "startedLatencyMs": {
+          "n": 8,
+          "p50": 0.43779200000000174,
+          "p95": 1.678875000000005,
+          "p99": 1.678875000000005
+        },
+        "zeroFailureUpper95": 0.31234397806636793,
+        "interpretation": "exploratory; insufficient tail and reliability evidence"
+      },
+      "serializationMs": {
+        "n": 8,
+        "p50": 0.020832999999996105,
+        "p95": 0.054083000000005654,
+        "p99": 0.054083000000005654
+      },
+      "verifiedRowsPerSecond": 106664.84447557411,
+      "resources": [
+        {
+          "peakRssBytes": 294912,
+          "peakProcessCount": 1,
+          "samples": 1,
+          "unavailable": false,
+          "method": "sampled sum RSS of process group and descendants; shared pages double-counted; short peaks may be missed",
+          "intervalMs": 250
+        }
+      ],
+      "stderr": [
+        "(node:11122) ExperimentalWarning: SQLite is an experimental feature and might change at any time\n(Use `node --trace-warnings ...` to show where the warning was created)\n"
+      ]
+    },
+    {
+      "engine": "rust",
+      "format": "sqlite-wal-normal",
+      "batchSize": 32,
+      "writers": 1,
+      "block": 0,
+      "status": "verified",
+      "startupMs": 4.472291999999982,
+      "startupError": null,
+      "info": [
+        {
+          "backend": "storage-rust",
+          "busy_timeout": 5000,
+          "compileOptions": [
+            "ATOMIC_INTRINSICS=1",
+            "COMPILER=clang-21.0.0",
+            "DEFAULT_AUTOVACUUM",
+            "DEFAULT_CACHE_SIZE=-2000",
+            "DEFAULT_FILE_FORMAT=4",
+            "DEFAULT_FOREIGN_KEYS",
+            "DEFAULT_JOURNAL_SIZE_LIMIT=-1",
+            "DEFAULT_MMAP_SIZE=0",
+            "DEFAULT_PAGE_SIZE=4096",
+            "DEFAULT_PCACHE_INITSZ=20",
+            "DEFAULT_RECURSIVE_TRIGGERS",
+            "DEFAULT_SECTOR_SIZE=4096",
+            "DEFAULT_SYNCHRONOUS=2",
+            "DEFAULT_WAL_AUTOCHECKPOINT=1000",
+            "DEFAULT_WAL_SYNCHRONOUS=2",
+            "DEFAULT_WORKER_THREADS=0",
+            "DIRECT_OVERFLOW_READ",
+            "ENABLE_API_ARMOR",
+            "ENABLE_COLUMN_METADATA",
+            "ENABLE_DBSTAT_VTAB",
+            "ENABLE_FTS3",
+            "ENABLE_FTS3_PARENTHESIS",
+            "ENABLE_FTS5",
+            "ENABLE_LOAD_EXTENSION",
+            "ENABLE_MEMORY_MANAGEMENT",
+            "ENABLE_RTREE",
+            "ENABLE_STAT4",
+            "ENABLE_UNLOCK_NOTIFY",
+            "HAVE_ISNAN",
+            "MALLOC_SOFT_LIMIT=1024",
+            "MAX_ATTACHED=10",
+            "MAX_COLUMN=2000",
+            "MAX_COMPOUND_SELECT=500",
+            "MAX_DEFAULT_PAGE_SIZE=8192",
+            "MAX_EXPR_DEPTH=1000",
+            "MAX_FUNCTION_ARG=127",
+            "MAX_LENGTH=1000000000",
+            "MAX_LIKE_PATTERN_LENGTH=50000",
+            "MAX_MMAP_SIZE=0x7fff0000",
+            "MAX_PAGE_COUNT=0xfffffffe",
+            "MAX_PAGE_SIZE=65536",
+            "MAX_SQL_LENGTH=1000000000",
+            "MAX_TRIGGER_DEPTH=1000",
+            "MAX_VARIABLE_NUMBER=32766",
+            "MAX_VDBE_OP=250000000",
+            "MAX_WORKER_THREADS=8",
+            "MUTEX_PTHREADS",
+            "SOUNDEX",
+            "SYSTEM_MALLOC",
+            "TEMP_STORE=1",
+            "THREADSAFE=1",
+            "USE_URI"
+          ],
+          "execution": "Tokio; one SQLx connection per worker process",
+          "journal_mode": "wal",
+          "sqlite": "3.46.0",
+          "sqlx": "0.8.6",
+          "synchronous": 1,
+          "wal_autocheckpoint": 1000
+        }
+      ],
+      "writeMs": 3.754333000000031,
+      "finalizationMs": 1.587541999999985,
+      "verdict": {
+        "status": "verified",
+        "reasons": [],
+        "persistedRows": 256,
+        "fileBytes": 214056
+      },
+      "measurement": {
+        "attempts": 8,
+        "verified": 8,
+        "failed": 0,
+        "unsupported": 0,
+        "timeout": 0,
+        "crashed": 0,
+        "rejected": 0,
+        "successRate": 1,
+        "successLatencyMs": {
+          "n": 8,
+          "p50": 1.5495000000000232,
+          "p95": 1.9788750000000164,
+          "p99": 1.9788750000000164
+        },
+        "startedLatencyMs": {
+          "n": 8,
+          "p50": 1.5495000000000232,
+          "p95": 1.9788750000000164,
+          "p99": 1.9788750000000164
+        },
+        "zeroFailureUpper95": 0.31234397806636793,
+        "interpretation": "exploratory; insufficient tail and reliability evidence"
+      },
+      "serializationMs": {
+        "n": 8,
+        "p50": 0.021291,
+        "p95": 0.071917,
+        "p99": 0.071917
+      },
+      "verifiedRowsPerSecond": 68187.87784674345,
+      "resources": [
+        {
+          "peakRssBytes": null,
+          "peakProcessCount": 0,
+          "samples": 0,
+          "unavailable": false,
+          "method": "sampled sum RSS of process group and descendants; shared pages double-counted; short peaks may be missed",
+          "intervalMs": 250
+        }
+      ],
+      "stderr": [
+        ""
+      ]
+    },
+    {
+      "engine": "rust",
+      "format": "sqlite-wal-full",
+      "batchSize": 32,
+      "writers": 1,
+      "block": 0,
+      "status": "verified",
+      "startupMs": 3.8093749999999886,
+      "startupError": null,
+      "info": [
+        {
+          "backend": "storage-rust",
+          "busy_timeout": 5000,
+          "compileOptions": [
+            "ATOMIC_INTRINSICS=1",
+            "COMPILER=clang-21.0.0",
+            "DEFAULT_AUTOVACUUM",
+            "DEFAULT_CACHE_SIZE=-2000",
+            "DEFAULT_FILE_FORMAT=4",
+            "DEFAULT_FOREIGN_KEYS",
+            "DEFAULT_JOURNAL_SIZE_LIMIT=-1",
+            "DEFAULT_MMAP_SIZE=0",
+            "DEFAULT_PAGE_SIZE=4096",
+            "DEFAULT_PCACHE_INITSZ=20",
+            "DEFAULT_RECURSIVE_TRIGGERS",
+            "DEFAULT_SECTOR_SIZE=4096",
+            "DEFAULT_SYNCHRONOUS=2",
+            "DEFAULT_WAL_AUTOCHECKPOINT=1000",
+            "DEFAULT_WAL_SYNCHRONOUS=2",
+            "DEFAULT_WORKER_THREADS=0",
+            "DIRECT_OVERFLOW_READ",
+            "ENABLE_API_ARMOR",
+            "ENABLE_COLUMN_METADATA",
+            "ENABLE_DBSTAT_VTAB",
+            "ENABLE_FTS3",
+            "ENABLE_FTS3_PARENTHESIS",
+            "ENABLE_FTS5",
+            "ENABLE_LOAD_EXTENSION",
+            "ENABLE_MEMORY_MANAGEMENT",
+            "ENABLE_RTREE",
+            "ENABLE_STAT4",
+            "ENABLE_UNLOCK_NOTIFY",
+            "HAVE_ISNAN",
+            "MALLOC_SOFT_LIMIT=1024",
+            "MAX_ATTACHED=10",
+            "MAX_COLUMN=2000",
+            "MAX_COMPOUND_SELECT=500",
+            "MAX_DEFAULT_PAGE_SIZE=8192",
+            "MAX_EXPR_DEPTH=1000",
+            "MAX_FUNCTION_ARG=127",
+            "MAX_LENGTH=1000000000",
+            "MAX_LIKE_PATTERN_LENGTH=50000",
+            "MAX_MMAP_SIZE=0x7fff0000",
+            "MAX_PAGE_COUNT=0xfffffffe",
+            "MAX_PAGE_SIZE=65536",
+            "MAX_SQL_LENGTH=1000000000",
+            "MAX_TRIGGER_DEPTH=1000",
+            "MAX_VARIABLE_NUMBER=32766",
+            "MAX_VDBE_OP=250000000",
+            "MAX_WORKER_THREADS=8",
+            "MUTEX_PTHREADS",
+            "SOUNDEX",
+            "SYSTEM_MALLOC",
+            "TEMP_STORE=1",
+            "THREADSAFE=1",
+            "USE_URI"
+          ],
+          "execution": "Tokio; one SQLx connection per worker process",
+          "journal_mode": "wal",
+          "sqlite": "3.46.0",
+          "sqlx": "0.8.6",
+          "synchronous": 2,
+          "wal_autocheckpoint": 1000
+        }
+      ],
+      "writeMs": 4.035624999999982,
+      "finalizationMs": 1.5190000000000055,
+      "verdict": {
+        "status": "verified",
+        "reasons": [],
+        "persistedRows": 256,
+        "fileBytes": 214056
+      },
+      "measurement": {
+        "attempts": 8,
+        "verified": 8,
+        "failed": 0,
+        "unsupported": 0,
+        "timeout": 0,
+        "crashed": 0,
+        "rejected": 0,
+        "successRate": 1,
+        "successLatencyMs": {
+          "n": 8,
+          "p50": 1.6938329999999837,
+          "p95": 2.0212080000000014,
+          "p99": 2.0212080000000014
+        },
+        "startedLatencyMs": {
+          "n": 8,
+          "p50": 1.6938329999999837,
+          "p95": 2.0212080000000014,
+          "p99": 2.0212080000000014
+        },
+        "zeroFailureUpper95": 0.31234397806636793,
+        "interpretation": "exploratory; insufficient tail and reliability evidence"
+      },
+      "serializationMs": {
+        "n": 8,
+        "p50": 0.027792,
+        "p95": 0.09608299999999999,
+        "p99": 0.09608299999999999
+      },
+      "verifiedRowsPerSecond": 63435.0317484903,
+      "resources": [
+        {
+          "peakRssBytes": null,
+          "peakProcessCount": 0,
+          "samples": 0,
+          "unavailable": false,
+          "method": "sampled sum RSS of process group and descendants; shared pages double-counted; short peaks may be missed",
+          "intervalMs": 250
+        }
+      ],
+      "stderr": [
+        ""
+      ]
+    },
+    {
+      "engine": "rust",
+      "format": "json-snapshot-durable",
+      "batchSize": 32,
+      "writers": 1,
+      "block": 0,
+      "status": "verified",
+      "startupMs": 2.6952079999999796,
+      "startupError": null,
+      "info": [
+        {
+          "backend": "storage-rust",
+          "execution": "Tokio; one SQLx connection per worker process",
+          "sqlx": "0.8.6"
+        }
+      ],
+      "writeMs": 78.46137499999998,
+      "finalizationMs": 0.9297920000000204,
+      "verdict": {
+        "status": "verified",
+        "reasons": [],
+        "persistedRows": 256,
+        "fileBytes": 42757
+      },
+      "measurement": {
+        "attempts": 8,
+        "verified": 8,
+        "failed": 0,
+        "unsupported": 0,
+        "timeout": 0,
+        "crashed": 0,
+        "rejected": 0,
+        "successRate": 1,
+        "successLatencyMs": {
+          "n": 8,
+          "p50": 35.55695799999995,
+          "p95": 42.54033300000003,
+          "p99": 42.54033300000003
+        },
+        "startedLatencyMs": {
+          "n": 8,
+          "p50": 35.55695799999995,
+          "p95": 42.54033300000003,
+          "p99": 42.54033300000003
+        },
+        "zeroFailureUpper95": 0.31234397806636793,
+        "interpretation": "exploratory; insufficient tail and reliability evidence"
+      },
+      "serializationMs": {
+        "n": 8,
+        "p50": 0.029207999999999998,
+        "p95": 0.229375,
+        "p99": 0.229375
+      },
+      "verifiedRowsPerSecond": 3262.751895438999,
+      "resources": [
+        {
+          "peakRssBytes": 2719744,
+          "peakProcessCount": 1,
+          "samples": 1,
+          "unavailable": false,
+          "method": "sampled sum RSS of process group and descendants; shared pages double-counted; short peaks may be missed",
+          "intervalMs": 250
+        }
+      ],
+      "stderr": [
+        ""
+      ]
+    },
+    {
+      "engine": "node",
+      "format": "jsonl-durable",
+      "batchSize": 32,
+      "writers": 1,
+      "block": 0,
+      "status": "verified",
+      "startupMs": 97.470125,
+      "startupError": null,
+      "info": [
+        {
+          "backend": "storage-node",
+          "runtime": "v25.5.0",
+          "sqlite": "3.53.4",
+          "execution": "DatabaseSync blocks one event loop; one connection per worker process",
+          "compileOptions": [
+            "ATOMIC_INTRINSICS=1",
+            "COMPILER=clang-21.0.0",
+            "DEFAULT_AUTOVACUUM",
+            "DEFAULT_CACHE_SIZE=-2000",
+            "DEFAULT_FILE_FORMAT=4",
+            "DEFAULT_JOURNAL_SIZE_LIMIT=-1",
+            "DEFAULT_MMAP_SIZE=0",
+            "DEFAULT_PAGE_SIZE=4096",
+            "DEFAULT_PCACHE_INITSZ=20",
+            "DEFAULT_RECURSIVE_TRIGGERS",
+            "DEFAULT_SECTOR_SIZE=4096",
+            "DEFAULT_SYNCHRONOUS=2",
+            "DEFAULT_WAL_AUTOCHECKPOINT=1000",
+            "DEFAULT_WAL_SYNCHRONOUS=2",
+            "DEFAULT_WORKER_THREADS=0",
+            "DIRECT_OVERFLOW_READ",
+            "ENABLE_API_ARMOR",
+            "ENABLE_COLUMN_METADATA",
+            "ENABLE_DBSTAT_VTAB",
+            "ENABLE_FTS3",
+            "ENABLE_FTS3_PARENTHESIS",
+            "ENABLE_FTS5",
+            "ENABLE_GEOPOLY",
+            "ENABLE_MATH_FUNCTIONS",
+            "ENABLE_MEMORY_MANAGEMENT",
+            "ENABLE_PERCENTILE",
+            "ENABLE_PREUPDATE_HOOK",
+            "ENABLE_RTREE",
+            "ENABLE_SESSION",
+            "ENABLE_STAT4",
+            "ENABLE_UNLOCK_NOTIFY",
+            "MALLOC_SOFT_LIMIT=1024",
+            "MAX_ATTACHED=10",
+            "MAX_COLUMN=2000",
+            "MAX_COMPOUND_SELECT=500",
+            "MAX_DEFAULT_PAGE_SIZE=8192",
+            "MAX_EXPR_DEPTH=1000",
+            "MAX_FUNCTION_ARG=1000",
+            "MAX_LENGTH=1000000000",
+            "MAX_LIKE_PATTERN_LENGTH=50000",
+            "MAX_MMAP_SIZE=0x7fff0000",
+            "MAX_PAGE_COUNT=0xfffffffe",
+            "MAX_PAGE_SIZE=65536",
+            "MAX_SQL_LENGTH=1000000000",
+            "MAX_TRIGGER_DEPTH=1000",
+            "MAX_VARIABLE_NUMBER=250000",
+            "MAX_VDBE_OP=250000000",
+            "MAX_WORKER_THREADS=8",
+            "MUTEX_PTHREADS",
+            "SYSTEM_MALLOC",
+            "TEMP_STORE=1",
+            "THREADSAFE=1",
+            "USE_URI"
+          ]
+        }
+      ],
+      "writeMs": 37.283000000000015,
+      "finalizationMs": 2.5474159999999983,
+      "verdict": {
+        "status": "verified",
+        "reasons": [],
+        "persistedRows": 256,
+        "fileBytes": 42756
+      },
+      "measurement": {
+        "attempts": 8,
+        "verified": 8,
+        "failed": 0,
+        "unsupported": 0,
+        "timeout": 0,
+        "crashed": 0,
+        "rejected": 0,
+        "successRate": 1,
+        "successLatencyMs": {
+          "n": 8,
+          "p50": 17.407584000000043,
+          "p95": 19.51583299999993,
+          "p99": 19.51583299999993
+        },
+        "startedLatencyMs": {
+          "n": 8,
+          "p50": 17.407584000000043,
+          "p95": 19.51583299999993,
+          "p99": 19.51583299999993
+        },
+        "zeroFailureUpper95": 0.31234397806636793,
+        "interpretation": "exploratory; insufficient tail and reliability evidence"
+      },
+      "serializationMs": {
+        "n": 8,
+        "p50": 0.02420800000000156,
+        "p95": 0.05374999999999375,
+        "p99": 0.05374999999999375
+      },
+      "verifiedRowsPerSecond": 6866.400236032505,
+      "resources": [
+        {
+          "peakRssBytes": 294912,
+          "peakProcessCount": 1,
+          "samples": 1,
+          "unavailable": false,
+          "method": "sampled sum RSS of process group and descendants; shared pages double-counted; short peaks may be missed",
+          "intervalMs": 250
+        }
+      ],
+      "stderr": [
+        "(node:11343) ExperimentalWarning: SQLite is an experimental feature and might change at any time\n(Use `node --trace-warnings ...` to show where the warning was created)\n"
+      ]
+    },
+    {
+      "engine": "node",
+      "format": "json-snapshot-durable",
+      "batchSize": 32,
+      "writers": 1,
+      "block": 0,
+      "status": "verified",
+      "startupMs": 97.05554099999995,
+      "startupError": null,
+      "info": [
+        {
+          "backend": "storage-node",
+          "runtime": "v25.5.0",
+          "sqlite": "3.53.4",
+          "execution": "DatabaseSync blocks one event loop; one connection per worker process",
+          "compileOptions": [
+            "ATOMIC_INTRINSICS=1",
+            "COMPILER=clang-21.0.0",
+            "DEFAULT_AUTOVACUUM",
+            "DEFAULT_CACHE_SIZE=-2000",
+            "DEFAULT_FILE_FORMAT=4",
+            "DEFAULT_JOURNAL_SIZE_LIMIT=-1",
+            "DEFAULT_MMAP_SIZE=0",
+            "DEFAULT_PAGE_SIZE=4096",
+            "DEFAULT_PCACHE_INITSZ=20",
+            "DEFAULT_RECURSIVE_TRIGGERS",
+            "DEFAULT_SECTOR_SIZE=4096",
+            "DEFAULT_SYNCHRONOUS=2",
+            "DEFAULT_WAL_AUTOCHECKPOINT=1000",
+            "DEFAULT_WAL_SYNCHRONOUS=2",
+            "DEFAULT_WORKER_THREADS=0",
+            "DIRECT_OVERFLOW_READ",
+            "ENABLE_API_ARMOR",
+            "ENABLE_COLUMN_METADATA",
+            "ENABLE_DBSTAT_VTAB",
+            "ENABLE_FTS3",
+            "ENABLE_FTS3_PARENTHESIS",
+            "ENABLE_FTS5",
+            "ENABLE_GEOPOLY",
+            "ENABLE_MATH_FUNCTIONS",
+            "ENABLE_MEMORY_MANAGEMENT",
+            "ENABLE_PERCENTILE",
+            "ENABLE_PREUPDATE_HOOK",
+            "ENABLE_RTREE",
+            "ENABLE_SESSION",
+            "ENABLE_STAT4",
+            "ENABLE_UNLOCK_NOTIFY",
+            "MALLOC_SOFT_LIMIT=1024",
+            "MAX_ATTACHED=10",
+            "MAX_COLUMN=2000",
+            "MAX_COMPOUND_SELECT=500",
+            "MAX_DEFAULT_PAGE_SIZE=8192",
+            "MAX_EXPR_DEPTH=1000",
+            "MAX_FUNCTION_ARG=1000",
+            "MAX_LENGTH=1000000000",
+            "MAX_LIKE_PATTERN_LENGTH=50000",
+            "MAX_MMAP_SIZE=0x7fff0000",
+            "MAX_PAGE_COUNT=0xfffffffe",
+            "MAX_PAGE_SIZE=65536",
+            "MAX_SQL_LENGTH=1000000000",
+            "MAX_TRIGGER_DEPTH=1000",
+            "MAX_VARIABLE_NUMBER=250000",
+            "MAX_VDBE_OP=250000000",
+            "MAX_WORKER_THREADS=8",
+            "MUTEX_PTHREADS",
+            "SYSTEM_MALLOC",
+            "TEMP_STORE=1",
+            "THREADSAFE=1",
+            "USE_URI"
+          ]
+        }
+      ],
+      "writeMs": 77.89737500000001,
+      "finalizationMs": 2.6708329999999023,
+      "verdict": {
+        "status": "verified",
+        "reasons": [],
+        "persistedRows": 256,
+        "fileBytes": 42757
+      },
+      "measurement": {
+        "attempts": 8,
+        "verified": 8,
+        "failed": 0,
+        "unsupported": 0,
+        "timeout": 0,
+        "crashed": 0,
+        "rejected": 0,
+        "successRate": 1,
+        "successLatencyMs": {
+          "n": 8,
+          "p50": 35.89224999999999,
+          "p95": 40.81329200000005,
+          "p99": 40.81329200000005
+        },
+        "startedLatencyMs": {
+          "n": 8,
+          "p50": 35.89224999999999,
+          "p95": 40.81329200000005,
+          "p99": 40.81329200000005
+        },
+        "zeroFailureUpper95": 0.31234397806636793,
+        "interpretation": "exploratory; insufficient tail and reliability evidence"
+      },
+      "serializationMs": {
+        "n": 8,
+        "p50": 0.0257090000000062,
+        "p95": 0.05108300000000554,
+        "p99": 0.05108300000000554
+      },
+      "verifiedRowsPerSecond": 3286.3751827324086,
+      "resources": [
+        {
+          "peakRssBytes": 262144,
+          "peakProcessCount": 1,
+          "samples": 1,
+          "unavailable": false,
+          "method": "sampled sum RSS of process group and descendants; shared pages double-counted; short peaks may be missed",
+          "intervalMs": 250
+        }
+      ],
+      "stderr": [
+        "(node:11368) ExperimentalWarning: SQLite is an experimental feature and might change at any time\n(Use `node --trace-warnings ...` to show where the warning was created)\n"
+      ]
+    }
+  ],
+  "sourceChanges": [],
+  "limitations": [
+    "exploratory local measurements",
+    "SQLite versions/builds may differ; read info",
+    "OS page cache and physical power-loss are uncontrolled",
+    "JSON snapshot replaces the whole growing document; separate workload",
+    "no scraping included in this storage lane"
+  ]
+}

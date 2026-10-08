@@ -1,0 +1,51 @@
+{
+  "node": "v25.5.0",
+  "nodeExecutable": "/opt/homebrew/Cellar/node/25.5.0/bin/node",
+  "os": "darwin",
+  "release": "27.0.0",
+  "architecture": "arm64",
+  "cpu": "Apple M3 Max",
+  "logicalCpuCount": 14,
+  "totalMemoryBytes": 38654705664,
+  "browser": {
+    "executablePath": "/Users/jb/Dev/automan/lab/.browsers/chromium-1243/chrome-mac-arm64/Google Chrome for Testing.app/Contents/MacOS/Google Chrome for Testing",
+    "version": "Google Chrome for Testing 153.0.8010.12",
+    "sha256": "8319963f6625accf51c0dd4f55091ceaf9f09ed39e7a52fed4fae12b2a6b668a",
+    "requestedViewport": {
+      "width": 1280,
+      "height": 720
+    },
+    "headless": true
+  },
+  "lockHashes": {
+    "pnpm-lock.yaml": "5de2f799a822e743655d987ce8058e2ef7ad4ab5645105f7c7f5b160dae89177",
+    "adapters/rust/Cargo.lock": "c98b6ad561f91885b38c33b3781b4e67ed527d2deb0880500a2a8befbd4ab2cd",
+    "adapters/storage-rust/Cargo.lock": "3948c489d83b8e492ce3540d7be1b95f348d8dc016b66e897524b6e8c2d95c7c"
+  },
+  "binaryHashes": {
+    "adapters/rust/target/http/release/automan-lab-spider": "1ffb57f23c1f92e774f9941847c6a28c1beed6cb5c42b78bea0820f08a08c4ac",
+    "adapters/rust/target/chrome/release/automan-lab-spider": "31df03268bdd1d32b5aca6071ba1c15289b0f22197bf5927f767e5199211f020",
+    "adapters/rust/target/smart/release/automan-lab-spider": "165c47982a9e587eb899e856a97c8cbd4598569ef72cb4021116952832b30f92",
+    "adapters/rust/target/http/release/automan-lab-storage": "25390cbcc131aa39456ad3cb4fdf96d65bd37dbc759d65abdebae2360f2bed8e"
+  },
+  "sourceHashes": {
+    "files": 50
+  }
+}
+{"backend":"node-http","info":{"backend":"node-http","protocol":1,"capabilities":["http-catalog"],"runtime":"v25.5.0","maxConcurrency":128,"lifecycle":"native fetch; shared process connection pool","versions":{}}}
+{"backend":"crawlee-http","info":{"backend":"crawlee-http","protocol":1,"capabilities":["http-catalog"],"runtime":"v25.5.0","maxConcurrency":128,"lifecycle":"crawler per task","versions":{"crawlee":"3.18.2"}}}
+{"backend":"crawlee-http-pooled","info":{"backend":"crawlee-http-pooled","protocol":1,"capabilities":["http-catalog"],"versions":{"crawlee":"3.18.2"},"poolWake":"poll","lifecycle":"one keepAlive crawler and request queue per block; tasks share its bounded pool"}}
+{"backend":"crawlee-playwright","info":{"backend":"crawlee-playwright","protocol":1,"capabilities":["http-catalog","js-catalog","form","clicks","shadow"],"runtime":"v25.5.0","maxConcurrency":128,"lifecycle":"crawler and browser per task","versions":{"crawlee":"3.18.2","playwright":"1.63.0"}}}
+{"backend":"playwright","info":{"backend":"playwright","protocol":1,"capabilities":["http-catalog","js-catalog","form","clicks","shadow"],"runtime":"v25.5.0","maxConcurrency":128,"lifecycle":"browser per block; page per task","versions":{"playwright":"1.63.0"}}}
+{"backend":"puppeteer","info":{"backend":"puppeteer","protocol":1,"capabilities":["http-catalog","js-catalog","form","clicks"],"runtime":"v25.5.0","maxConcurrency":128,"lifecycle":"browser per block; page per task","versions":{"puppeteer":"25.12.0"}}}
+{"backend":"stagehand","info":{"backend":"stagehand","protocol":1,"capabilities":["http-catalog","js-catalog","form","clicks","shadow"],"runtime":"v25.5.0","maxConcurrency":128,"lifecycle":"browser per block; page per task","versions":{"stagehand":"4.1.0"}}}
+{"backend":"stagehand-batch","info":{"backend":"stagehand-batch","protocol":1,"capabilities":["http-catalog","js-catalog","form","clicks","shadow"],"runtime":"v25.5.0","maxConcurrency":1,"lifecycle":"browser per block; page per task","versions":{"stagehand":"4.1.0"}}}
+{"backend":"crawlee-stagehand","info":{"backend":"crawlee-stagehand","protocol":1,"capabilities":["http-catalog","js-catalog","form","clicks","shadow"],"versions":{"@crawlee/stagehand":"3.18.2","stagehand":"3.7.3","playwright":"1.63.0"},"inference":"disabled at model boundary"}}
+{"backend":"spider-http","info":{"backend":"spider-http","capabilities":["http-catalog"],"chromeFeature":false,"lifecycle":"website per task; browser managed by Spider","protocol":1,"smartFeature":false,"versions":{"spider":"2.53.9"}}}
+{"backend":"spider-chrome","info":{"backend":"spider-chrome","capabilities":["http-catalog","js-catalog"],"chromeFeature":true,"lifecycle":"website per task; browser managed by Spider","protocol":1,"smartFeature":false,"versions":{"spider":"2.53.9"}}}
+{"backend":"spider-smart","info":{"backend":"spider-smart","capabilities":["http-catalog","js-catalog"],"chromeFeature":true,"lifecycle":"website per task; browser managed by Spider","protocol":1,"smartFeature":true,"versions":{"spider":"2.53.9"}}}
+{"backend":"node","info":{"backend":"storage-node","runtime":"v25.5.0","sqlite":"3.53.4","execution":"DatabaseSync blocks one event loop; one connection per worker process","compileOptions":["ATOMIC_INTRINSICS=1","COMPILER=clang-21.0.0","DEFAULT_AUTOVACUUM","DEFAULT_CACHE_SIZE=-2000","DEFAULT_FILE_FORMAT=4","DEFAULT_JOURNAL_SIZE_LIMIT=-1","DEFAULT_MMAP_SIZE=0","DEFAULT_PAGE_SIZE=4096","DEFAULT_PCACHE_INITSZ=20","DEFAULT_RECURSIVE_TRIGGERS","DEFAULT_SECTOR_SIZE=4096","DEFAULT_SYNCHRONOUS=2","DEFAULT_WAL_AUTOCHECKPOINT=1000","DEFAULT_WAL_SYNCHRONOUS=2","DEFAULT_WORKER_THREADS=0","DIRECT_OVERFLOW_READ","ENABLE_API_ARMOR","ENABLE_COLUMN_METADATA","ENABLE_DBSTAT_VTAB","ENABLE_FTS3","ENABLE_FTS3_PARENTHESIS","ENABLE_FTS5","ENABLE_GEOPOLY","ENABLE_MATH_FUNCTIONS","ENABLE_MEMORY_MANAGEMENT","ENABLE_PERCENTILE","ENABLE_PREUPDATE_HOOK","ENABLE_RTREE","ENABLE_SESSION","ENABLE_STAT4","ENABLE_UNLOCK_NOTIFY","MALLOC_SOFT_LIMIT=1024","MAX_ATTACHED=10","MAX_COLUMN=2000","MAX_COMPOUND_SELECT=500","MAX_DEFAULT_PAGE_SIZE=8192","MAX_EXPR_DEPTH=1000","MAX_FUNCTION_ARG=1000","MAX_LENGTH=1000000000","MAX_LIKE_PATTERN_LENGTH=50000","MAX_MMAP_SIZE=0x7fff0000","MAX_PAGE_COUNT=0xfffffffe","MAX_PAGE_SIZE=65536","MAX_SQL_LENGTH=1000000000","MAX_TRIGGER_DEPTH=1000","MAX_VARIABLE_NUMBER=250000","MAX_VDBE_OP=250000000","MAX_WORKER_THREADS=8","MUTEX_PTHREADS","SYSTEM_MALLOC","TEMP_STORE=1","THREADSAFE=1","USE_URI"]}}
+{"backend":"rust","info":{"backend":"storage-rust","execution":"Tokio; one SQLx connection per worker process","sqlx":"0.8.6"}}
+{"backend":"node-shared","info":{"backend":"storage-node-shared","runtime":"v25.5.0","binding":"synchronous Node-API; one common C call per inserted row","sqlite":"3.53.4","sourceId":"2026-07-24 19:02:57 bf7c7f30031888f4e796e429ab3978879485813aaca6f641c7b33e4e09459bcc","libraryPath":"/Users/jb/Dev/automan/lab/.native/libautoman_sqlite.dylib","compileOptions":["ATOMIC_INTRINSICS=1","COMPILER=clang-21.0.0","DEFAULT_AUTOVACUUM","DEFAULT_CACHE_SIZE=-2000","DEFAULT_FILE_FORMAT=4","DEFAULT_JOURNAL_SIZE_LIMIT=-1","DEFAULT_MMAP_SIZE=0","DEFAULT_PAGE_SIZE=4096","DEFAULT_PCACHE_INITSZ=20","DEFAULT_RECURSIVE_TRIGGERS","DEFAULT_SECTOR_SIZE=4096","DEFAULT_SYNCHRONOUS=2","DEFAULT_WAL_AUTOCHECKPOINT=1000","DEFAULT_WAL_SYNCHRONOUS=2","DEFAULT_WORKER_THREADS=0","DIRECT_OVERFLOW_READ","ENABLE_COLUMN_METADATA","MALLOC_SOFT_LIMIT=1024","MAX_ATTACHED=10","MAX_COLUMN=2000","MAX_COMPOUND_SELECT=500","MAX_DEFAULT_PAGE_SIZE=8192","MAX_EXPR_DEPTH=1000","MAX_FUNCTION_ARG=1000","MAX_LENGTH=1000000000","MAX_LIKE_PATTERN_LENGTH=50000","MAX_MMAP_SIZE=0x7fff0000","MAX_PAGE_COUNT=0xfffffffe","MAX_PAGE_SIZE=65536","MAX_SQL_LENGTH=1000000000","MAX_TRIGGER_DEPTH=1000","MAX_VARIABLE_NUMBER=32766","MAX_VDBE_OP=250000000","MAX_WORKER_THREADS=8","MUTEX_PTHREADS","SYSTEM_MALLOC","TEMP_STORE=1","THREADSAFE=1"],"journal_mode":"memory","synchronous":2,"busy_timeout":5000,"wal_autocheckpoint":1000,"page_size":4096}}
+{"backend":"rust-sync","info":{"backend":"storage-rust-sync","binding":"synchronous Rust FFI; one common C call per inserted row","busy_timeout":5000,"compileOptions":["ATOMIC_INTRINSICS=1","COMPILER=clang-21.0.0","DEFAULT_AUTOVACUUM","DEFAULT_CACHE_SIZE=-2000","DEFAULT_FILE_FORMAT=4","DEFAULT_JOURNAL_SIZE_LIMIT=-1","DEFAULT_MMAP_SIZE=0","DEFAULT_PAGE_SIZE=4096","DEFAULT_PCACHE_INITSZ=20","DEFAULT_RECURSIVE_TRIGGERS","DEFAULT_SECTOR_SIZE=4096","DEFAULT_SYNCHRONOUS=2","DEFAULT_WAL_AUTOCHECKPOINT=1000","DEFAULT_WAL_SYNCHRONOUS=2","DEFAULT_WORKER_THREADS=0","DIRECT_OVERFLOW_READ","ENABLE_COLUMN_METADATA","MALLOC_SOFT_LIMIT=1024","MAX_ATTACHED=10","MAX_COLUMN=2000","MAX_COMPOUND_SELECT=500","MAX_DEFAULT_PAGE_SIZE=8192","MAX_EXPR_DEPTH=1000","MAX_FUNCTION_ARG=1000","MAX_LENGTH=1000000000","MAX_LIKE_PATTERN_LENGTH=50000","MAX_MMAP_SIZE=0x7fff0000","MAX_PAGE_COUNT=0xfffffffe","MAX_PAGE_SIZE=65536","MAX_SQL_LENGTH=1000000000","MAX_TRIGGER_DEPTH=1000","MAX_VARIABLE_NUMBER=32766","MAX_VDBE_OP=250000000","MAX_WORKER_THREADS=8","MUTEX_PTHREADS","SYSTEM_MALLOC","TEMP_STORE=1","THREADSAFE=1"],"journal_mode":"memory","libraryPath":"/Users/jb/Dev/automan/lab/.native/libautoman_sqlite.dylib","page_size":4096,"sourceId":"2026-07-24 19:02:57 bf7c7f30031888f4e796e429ab3978879485813aaca6f641c7b33e4e09459bcc","sqlite":"3.53.4","synchronous":2,"wal_autocheckpoint":1000}}
+{"backend":"go-sync","info":{"backend":"storage-go-sync","binding":"synchronous cgo; one common C call per inserted row","busy_timeout":5000,"compileOptions":["ATOMIC_INTRINSICS=1","COMPILER=clang-21.0.0","DEFAULT_AUTOVACUUM","DEFAULT_CACHE_SIZE=-2000","DEFAULT_FILE_FORMAT=4","DEFAULT_JOURNAL_SIZE_LIMIT=-1","DEFAULT_MMAP_SIZE=0","DEFAULT_PAGE_SIZE=4096","DEFAULT_PCACHE_INITSZ=20","DEFAULT_RECURSIVE_TRIGGERS","DEFAULT_SECTOR_SIZE=4096","DEFAULT_SYNCHRONOUS=2","DEFAULT_WAL_AUTOCHECKPOINT=1000","DEFAULT_WAL_SYNCHRONOUS=2","DEFAULT_WORKER_THREADS=0","DIRECT_OVERFLOW_READ","ENABLE_COLUMN_METADATA","MALLOC_SOFT_LIMIT=1024","MAX_ATTACHED=10","MAX_COLUMN=2000","MAX_COMPOUND_SELECT=500","MAX_DEFAULT_PAGE_SIZE=8192","MAX_EXPR_DEPTH=1000","MAX_FUNCTION_ARG=1000","MAX_LENGTH=1000000000","MAX_LIKE_PATTERN_LENGTH=50000","MAX_MMAP_SIZE=0x7fff0000","MAX_PAGE_COUNT=0xfffffffe","MAX_PAGE_SIZE=65536","MAX_SQL_LENGTH=1000000000","MAX_TRIGGER_DEPTH=1000","MAX_VARIABLE_NUMBER=32766","MAX_VDBE_OP=250000000","MAX_WORKER_THREADS=8","MUTEX_PTHREADS","SYSTEM_MALLOC","TEMP_STORE=1","THREADSAFE=1"],"journal_mode":"memory","libraryPath":"/Users/jb/Dev/automan/lab/.native/libautoman_sqlite.dylib","page_size":4096,"runtime":"go1.27.1","sourceId":"2026-07-24 19:02:57 bf7c7f30031888f4e796e429ab3978879485813aaca6f641c7b33e4e09459bcc","sqlite":"3.53.4","synchronous":2,"wal_autocheckpoint":1000}}

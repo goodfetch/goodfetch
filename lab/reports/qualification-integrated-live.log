@@ -1,0 +1,8 @@
+(node:59188) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+START runtime-native-sustained
+runtime-native-sustained/node/native/C4/B1/b0: verified
+runtime-native-sustained/rust/native/C4/B4/b0: verified
+runtime-native-sustained/rust/native/C16/B1/b0: verified
+runtime-native-sustained/node/native/C1/B1/b0: verified
+runtime-native-sustained/rust/native/C16/B4/b0: verified

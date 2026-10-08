@@ -1,0 +1,7 @@
+{
+  "name":"storage-smoke", "engines":["node","rust"],
+  "formats":["jsonl-buffered","jsonl-durable","json-snapshot-durable","sqlite-wal-full","sqlite-wal-normal","sqlite-delete-full"],
+  "blocks":1, "batches":8, "batchSizes":[1,32], "payloadBytes":128,
+  "writers":[1,2], "producers":4, "timeoutMs":10000, "maxDurationMs":20000,
+  "busyTimeoutMs":5000, "seed":73, "killAfterAck":false
+}

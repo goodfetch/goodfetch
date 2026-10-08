@@ -1,0 +1,13 @@
+import {readFile,writeFile,copyFile} from 'node:fs/promises';
+import {join} from 'node:path';
+import {spawn} from 'node:child_process';
+import {labRoot} from '../src/registry.ts';
+import {hashFile} from '../src/environment.ts';
+const native=join(labRoot,'.native');
+await new Promise<void>((resolve,reject)=>{const child=spawn('clang',['-O2','tools/process-probe.c','-o',join(native,'process-probe')],{cwd:labRoot,stdio:'inherit'});child.on('error',reject);child.on('exit',code=>code===0?resolve():reject(new Error(`resource probe build exited ${code}`)))});
+const build=JSON.parse(await readFile(join(native,'build.json'),'utf8'));
+if(await hashFile(join(native,'libautoman_sqlite.dylib'))!==build.hashes['libautoman_sqlite.dylib'])throw new Error('shared SQLite artifact changed');
+await new Promise<void>((resolve,reject)=>{const child=spawn('cargo',['build','--release','--locked','--offline','--manifest-path','adapters/workflow-rust/Cargo.toml','--target-dir','adapters/rust/target/workflow'],{cwd:labRoot,stdio:'inherit'});child.on('error',reject);child.on('exit',code=>code===0?resolve():reject(new Error(`Rust build exited ${code}`)))});
+await copyFile(join(labRoot,'adapters/rust/target/workflow/release/automan-workflow-rust'),join(native,'automan-workflow-rust'));
+const hashes:Record<string,string>={};for(const file of ['adapters/workflow-rust/Cargo.toml','adapters/workflow-rust/Cargo.lock','adapters/workflow-rust/build.rs','adapters/workflow-rust/src/main.rs','adapters/workflow-rust/src/ledger.rs','adapters/workflow-rust/src/coordinator.rs'])hashes[file]=await hashFile(join(labRoot,file));
+await writeFile(join(native,'workflow-build.json'),JSON.stringify({hashes,binarySha256:await hashFile(join(native,'automan-workflow-rust')),sqliteSha256:build.hashes['libautoman_sqlite.dylib'],sqliteSourceId:build.sqliteSourceId},null,2)+'\n');

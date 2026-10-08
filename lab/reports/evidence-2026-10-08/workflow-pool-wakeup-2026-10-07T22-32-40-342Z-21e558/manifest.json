@@ -1,0 +1,109 @@
+{
+  "schemaVersion": 1,
+  "startedAt": "2026-10-07T22:32:40.370Z",
+  "config": {
+    "name": "workflow-pool-wakeup",
+    "backends": [
+      "crawlee-http-pooled"
+    ],
+    "blocks": 2,
+    "jobs": 12,
+    "pages": 8,
+    "concurrency": [
+      1,
+      4,
+      8
+    ],
+    "batchJobs": [
+      1,
+      4
+    ],
+    "maxBatchWaitMs": 10,
+    "leaseMs": 30000,
+    "timeoutMs": 15000,
+    "delayMs": 2,
+    "seed": 321,
+    "faults": [
+      "none"
+    ],
+    "poolWakeModes": [
+      "poll",
+      "notify"
+    ]
+  },
+  "environment": {
+    "node": "v25.5.0",
+    "nodeExecutable": "/opt/homebrew/Cellar/node/25.5.0/bin/node",
+    "arch": "arm64",
+    "os": "27.0.0",
+    "cpu": "Apple M3 Max",
+    "totalMemoryBytes": 38654705664,
+    "sourceHashes": {
+      "src/campaign.ts": "4cc6709341b1c7674d69c29c0abb067c238efebfa93fd766805fcf993ab6eb93",
+      "src/cli.ts": "aa92b283bfd88170d984a32750034417d2d2afa2b37ab998801304b29b5c443c",
+      "src/environment.ts": "e31521c87f2883bf14c74fc83988ac50a42e35f493de335dcdb7696c0c1c20d6",
+      "src/registry.ts": "23d04d8d9078df7b9f72c915126c8110ba44f06165b6df7f5d846cb7db71b5fa",
+      "src/report.ts": "12269d35f5a0d01fee289567e0e192e7b8ccb8d5bc0680576a5757d50375158e",
+      "src/resources.ts": "ae64318875812c39097ca5526b9b36d9a43e27b1b807c3d5a363a18b1fdec14c",
+      "src/scheduler.ts": "d247c784832f09dbe81380e8d190c635e8992944409eb684b8c9204914c46b45",
+      "src/statistics.ts": "86fe385d542188716a594bca2793927bd62a3bdba8af11f6620ebb07b5c7324d",
+      "src/storage-campaign.ts": "36fd3097a971ab3e74e84735ed374448be7920a6dc694577df5d0ca080f20623",
+      "src/storage-cli.ts": "a477c23708c2353875cac300baacc7cce155ee4c19af9ccf997757b03c89c73d",
+      "src/storage-engines.ts": "9c90df1bf6fc7052529c6a3663dca5a4c07dd6f979a9951bc72e77431614d473",
+      "src/storage.ts": "75a36ba6730dffbdbac7d9a31ad82c8cca88c241e554d2a914853df9be883eee",
+      "src/worker-client.ts": "34645ddaea64c68f9d8e97034fbdd9410befdad74b017d204e373c1ba7ffbbd4",
+      "src/worker-server.ts": "0d47267bc34e59fd64c3db643f0dc26b4e8f6e3335df8d8a7881f0624b995c84",
+      "src/workflow-campaign.ts": "e4aa7ee538f49600c7827224df3839c64d709b6ea0aac4a1b08206da06cdb423",
+      "src/workflow-cli.ts": "8cdb26b76bc35af812002e15872e35f361c20de122e3d8d64bd5533a98236cb4",
+      "src/workflow.ts": "cab878967766653f5165d51a78238c4d0950bb9161a7b6c079d01e6c1ac50355",
+      "fixtures/server.ts": "78bbdd1f6269cd5170d40c02b6fb68cafcd1af94f52352d7f766afebb4ca900c",
+      "adapters/node/browser-tasks.ts": "4181ff5065f91245c2e3beed49d1e0439f65f4ddd9ce7c27dc9f49afbd57311c",
+      "adapters/node/pooled-worker.ts": "e3322b43c34ae9682df5f3e6ee30982b9e05b815bb7cbabe3d0f23e7e77e9160",
+      "adapters/node/worker.ts": "5c7254b51a02b33ca87948dd91febcbee489ca107b139af53ddebaef63795fc7",
+      "adapters/rust/src/main.rs": "1998089ef3269426f27d21df673b6ca24772d4df66c550bd32cb318a64aac4e1",
+      "adapters/sqlite-common/lab_sqlite.c": "22709a4794e41132cc30de68a9f34aa0502566fe39d6bcba95c075386436fdb7",
+      "adapters/sqlite-common/lab_sqlite.h": "3203e2f8693041a9505754a4e1b7d3510be7c070b33b5fd6620e03a1548352b4",
+      "adapters/sqlite-common/node_addon.c": "eaa15a0116a730e79fef74854544806d99a2faba4045355dc21c3a7beef045d1",
+      "adapters/stagehand-v3/worker.ts": "43acbb80c41769e56c71670bae1d1c615c14654cd6408f967db43a47554e0949",
+      "adapters/storage-go-sync/main.go": "c8f17b923ebc98acfcc23fa976e1d8d81efd6479e15f2fe7daa65c236dda457a",
+      "adapters/storage-node/worker.ts": "e2e52d8d5a6207ae278b96d26e1e00865a80efa0c2689b3f6e6f025e876a265b",
+      "adapters/storage-rust/src/main.rs": "7d9b7cf1734f3e54dfd88dd7d533875eed94e327d7dcf7fdeebfd5facc0c6349",
+      "adapters/storage-rust-sync/build.rs": "229a482f822551afe6542aa988ef6ff22e15aba2c64546647d2d1546dbcd7250",
+      "adapters/storage-rust-sync/src/main.rs": "417ec53dbedc58b5538e93a1e02ce8b6d764292cb9ac7879608940c4136b709f",
+      "adapters/storage-shared-node/worker.ts": "88036d041df21bfc87f7e1e6a63db9b4359628f22dff71cbba1e80e937ab4b16",
+      "adapters/workflow-node/worker.ts": "53c93dd701dc7368110d0cd5b26db16eb638e1603b46406019f19531131fbcf4",
+      "tools/bootstrap.ts": "66cf117d9d6ec46a01d5ec87719abf79f087b7c8495a8559d8ce8b0b28720dbf",
+      "tools/build-shared-sqlite.ts": "d4dfb62b41b3ebe5e8450dd0b7c5f591d4a43675acab086e8e884caca07d8772",
+      "tools/doctor.ts": "590dfe9777c6add1d4462280f63a718a7aa95b2daa3245e6004498226c00147a",
+      ".node-version": "aa0d48458ddcabfd2382395c55a5fec977c56664f5c87dac1a49655a7d6faada",
+      "package.json": "c7bc7a581210eb64c39f76ee166e61b7f84148560cb0e1e647b215de12d8dd45",
+      "pnpm-workspace.yaml": "0efca8723660feb40bfa66318375c08aa4d927d6788cb161e5e6c11c7e3fae3d",
+      "pnpm-lock.yaml": "5de2f799a822e743655d987ce8058e2ef7ad4ab5645105f7c7f5b160dae89177",
+      "tsconfig.json": "56b6ec40c7eecf9798e19d3759d0eb78834af67bb30821d650245256d04ac196",
+      "adapters/node/package.json": "ecca9c029d30e060766c4b70dd9df6433adda9944d11969e39bacf33f6ac89b4",
+      "adapters/stagehand-v3/package.json": "59ea14e936b34c80170481ae32215c5712fb1d239fe83f52b5f54d5d316c5d12",
+      "adapters/rust/Cargo.toml": "93f7918b75c5c076a680e16d73f549862c5fd37505b14852b5d597e718730930",
+      "adapters/rust/Cargo.lock": "c98b6ad561f91885b38c33b3781b4e67ed527d2deb0880500a2a8befbd4ab2cd",
+      "adapters/storage-rust/Cargo.toml": "3d9ba6be5227b11f7caa022403781a92d24d879b4d7169119e603a9503735eb0",
+      "adapters/storage-rust/Cargo.lock": "3948c489d83b8e492ce3540d7be1b95f348d8dc016b66e897524b6e8c2d95c7c",
+      "adapters/storage-rust-sync/Cargo.toml": "76fa86c5fc67377cae8ef483cb37b93c440103937958c3c3f40ede9d21d0fb66",
+      "adapters/storage-rust-sync/Cargo.lock": "753d53e9c25f62601bc3dfe4a9c22dbea093775909b4fb8aae7acde60b30cc1e",
+      "adapters/storage-go-sync/go.mod": "7ecfea82372a8ba0c1142df0f1d75faa489dfde4c2cc43ff69af331b9042bb07"
+    },
+    "spiderBinary": null
+  },
+  "methodology": {
+    "workflow": "HTTP acquisition + extraction → private oracle → bounded batch writer → atomic results/job commit → durable ack",
+    "durability": "Node SQLite WAL FULL; separate commit and ack transactions",
+    "backpressure": "at most concurrency unacknowledged jobs; one batch in flight; batchJobs <= concurrency",
+    "timing": "startup separated; work includes acquisition, validation, queue wait, commit, ack, recovery and worker drain; independent final reopen separately; no warmup removed",
+    "rss": "coordinator including fixtures/oracle + owned descendants; sampled every 250 ms",
+    "faults": "writer SIGKILL inside transaction or after COMMIT before response; coordinator stays alive; reacquisition only for idempotent HTTP reads",
+    "limits": [
+      "prototype is not the final runtime architecture",
+      "wall-clock leases, no heartbeat or migration",
+      "not a browser interaction or power-loss recovery proof",
+      "machine not reserved; exploratory paired blocks"
+    ]
+  }
+}

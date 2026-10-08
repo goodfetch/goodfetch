@@ -14,6 +14,7 @@ export type IdentityVariant = typeof identityVariants[number];
 export const identityRefusals: IdentityVariant[] = ['robots-path', 'robots-agent', 'content-signal', 'tdmrep-file', 'tdmrep-header', 'noai-meta', 'paid-402', 'denied-403', 'challenge-page'];
 const tdmPurposes = ['ai-train', 'ai-input', 'data-collection'], noaiPurposes = ['ai-train', 'ai-input'];
 const directoryPath = '/.well-known/http-message-signatures-directory';
+const browserInitiated = (s: { path: string }) => s.path === '/favicon.ico';
 
 type Signature = { present: boolean; ok: boolean; keyid?: string; error?: string; created?: number; expires?: number; nonce?: string };
 type Seen = { path: string; label: string | null; at: number; headers: Record<string, string>; fingerprint: Fingerprint | null; sid: string | null; signature: Promise<Signature> };
@@ -141,7 +142,8 @@ export async function startIdentitySite({ variant, seed }: { variant: IdentityVa
       for (const s of seen) { const key = s.label ?? (s.sid ? issuedTo.get(s.sid) ?? '?' : ''); if (several && !key) continue; byLabel.set(key, [...(byLabel.get(key) ?? []), s]); }
       for (const [label, group] of byLabel) {
         const tag = label ? `session ${label}: ` : '';
-        for (const header of ['user-agent', 'accept-language', 'sec-ch-ua', 'sec-ch-ua-mobile', 'sec-ch-ua-platform']) { const values = new Set(group.map(s => s.headers[header] ?? '∅')); if (values.size > 1) flag('coherence', `${tag}${header} changed within the session: ${[...values].map(v => v.slice(0, 50)).join(' / ')}`); }
+        // A favicon load is started by the browser itself, without client hints, as in any Chrome; it still shares the client's UA and connection.
+        for (const header of ['user-agent', 'accept-language', 'sec-ch-ua', 'sec-ch-ua-mobile', 'sec-ch-ua-platform']) { const values = new Set(group.filter(s => header === 'user-agent' || !browserInitiated(s)).map(s => s.headers[header] ?? '∅')); if (values.size > 1) flag('coherence', `${tag}${header} changed within the session: ${[...values].map(v => v.slice(0, 50)).join(' / ')}`); }
         const tls = new Set(group.map(s => s.fingerprint?.ja4 ?? '∅')); if (tls.size > 1) flag('coherence', `${tag}TLS fingerprint changed within the session: ${[...tls].join(' / ')}`);
         const h2 = new Set(group.map(s => `${s.fingerprint?.http}|${s.fingerprint?.h2}`)); if (h2.size > 1) flag('coherence', `${tag}HTTP version or HTTP/2 fingerprint changed within the session: ${[...h2].join(' / ')}`);
         const ua = group[0]?.headers['user-agent'] ?? '';
@@ -151,7 +153,7 @@ export async function startIdentitySite({ variant, seed }: { variant: IdentityVa
       // Cookies: after its first catalog response, each session presents its own sid on every request, never another one.
       for (const s of seen) if (s.sid && !issuedTo.has(s.sid)) flag('cookie', `unknown session cookie on ${s.path}`);
       for (const [label, sid] of sids) {
-        const own = seen.filter(s => (s.label ?? '') === label); const first = own.findIndex(s => s.path.startsWith('/catalog') || s.path.startsWith('/private/'));
+        const own = seen.filter(s => (s.label ?? '') === label && !browserInitiated(s)); const first = own.findIndex(s => s.path.startsWith('/catalog') || s.path.startsWith('/private/'));
         const later = own.slice(first + 1).filter(s => s.sid !== sid);
         if (later.length) flag(later.some(s => s.sid && s.sid !== sid) ? 'isolation' : 'cookie', `${label ? `session ${label}: ` : ''}${later.length} request(s) after the first without the session cookie (${later[0]!.path})`);
       }

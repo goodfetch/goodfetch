@@ -4,7 +4,7 @@ Matrices de contrat de D-browser-driver, exécutées en `local-dev` sur des sour
 
 ## Matrice d'actionnabilité étendue
 
-Run retenu : `browser-actionability-extended-2026-10-08T12-05-27-529Z-49432b`. 8 pilotes, 9 variantes, 2 politiques, 3 blocs.
+Run retenu : `browser-actionability-extended-2026-10-08T16-46-59-186Z-c5a02a` (il remplace `browser-actionability-extended-2026-10-08T12-05-27-529Z-49432b`, mêmes résultats). 8 pilotes, 9 variantes, 2 politiques, 3 blocs.
 
 - Tous les pilotes **gardés** passent les 27 cellules : Rust CDP, Node CDP, Puppeteer, Playwright, Stagehand, Stagehand batch, Crawlee Playwright et Crawlee Stagehand.
 - En **natif**, Playwright et les deux Crawlee passent 27 sur 27.
@@ -13,10 +13,18 @@ Run retenu : `browser-actionability-extended-2026-10-08T12-05-27-529Z-49432b`. 8
 
 ## Primitives
 
-Run retenu : `browser-driver-primitives-2026-10-08T12-14-55-485Z-4b6074`. 4 pilotes, 10 gestes, 2 politiques, 3 blocs.
+Run retenu : `browser-driver-primitives-2026-10-08T16-56-23-563Z-6a0bbd` (il remplace `browser-driver-primitives-2026-10-08T12-14-55-485Z-4b6074`, mêmes résultats). 4 pilotes, 10 gestes, 2 politiques, 3 blocs.
 
 - Les pilotes gardés et Playwright natif réussissent les 30 cellules.
 - Les pilotes natifs sans interception (Rust CDP, Node CDP et Puppeteer) échouent sur `moved` et `retarget`.
+
+## Navigation, iframes et fichiers
+
+Run retenu : `browser-navigation-frames-files-2026-10-08T16-44-06-166Z-d35973`. 6 pilotes, 7 situations, 2 politiques, 3 blocs.
+
+- Rust CDP, Node CDP, Puppeteer et Playwright réussissent les 21 cellules, en natif comme en gardé : route SPA, retour dans l'historique, popup, iframe de même origine, iframe d'une autre origine, envoi et téléchargement de fichier.
+- Stagehand et Crawlee Playwright ne proposent pas ces opérations : leurs cellules sont non prises en charge.
+- La première exécution (`browser-navigation-frames-files-2026-10-08T16-26-23-841Z-410d88`) a révélé une fragilité de Chromium headless, qui touche aussi Puppeteer sur le même navigateur. Routé par la page, un clic vers une iframe d'une autre origine fraîchement créée peut atterrir sur l'élément `<iframe>` parent. Les pilotes CDP envoient désormais cette entrée sur la session propre de l'iframe, et la garde détecte un geste de pointeur qui n'a rien atteint.
 
 ## Deux défauts de la garde Automan, trouvés et corrigés
 

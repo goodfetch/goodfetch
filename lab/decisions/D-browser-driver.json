@@ -116,16 +116,6 @@
     },
     {
       "kind": "run",
-      "ref": "browser-actionability-extended-2026-10-08T12-05-27-529Z-49432b",
-      "note": "matrice étendue, garde v2"
-    },
-    {
-      "kind": "run",
-      "ref": "browser-driver-primitives-2026-10-08T12-14-55-485Z-4b6074",
-      "note": "primitives, garde v2"
-    },
-    {
-      "kind": "run",
       "ref": "browser-driver-rtt-0-2026-10-08T12-39-53-109Z-63890b"
     },
     {
@@ -139,6 +129,21 @@
     {
       "kind": "run",
       "ref": "browser-driver-rtt-300-2026-10-08T14-00-36-292Z-657a67"
+    },
+    {
+      "kind": "run",
+      "ref": "browser-navigation-frames-files-2026-10-08T16-44-06-166Z-d35973",
+      "note": "navigation, iframes, fichiers"
+    },
+    {
+      "kind": "run",
+      "ref": "browser-actionability-extended-2026-10-08T16-46-59-186Z-c5a02a",
+      "note": "matrice étendue, garde v2"
+    },
+    {
+      "kind": "run",
+      "ref": "browser-driver-primitives-2026-10-08T16-56-23-563Z-6a0bbd",
+      "note": "primitives, garde v2"
     }
   ],
   "verdictRef": "verdicts/D-browser-driver.json",

@@ -1,0 +1,5182 @@
+{
+ "schemaVersion": 2,
+ "runId": "browser-actionability-guarded-2026-10-08T11-07-42-702Z-2ee15e",
+ "lane": "actionability",
+ "campaign": {
+  "id": "browser-actionability-guarded",
+  "source": "campaigns/v2/actionability/browser-actionability-guarded.json",
+  "sha256": "eff22738c946932986ffd1776d586f9cb09472cc248935f59e13d5dbd14b95b1"
+ },
+ "startedAt": "2026-10-08T11:07:42.702Z",
+ "decisionIds": [
+  "D-browser-driver"
+ ],
+ "provenance": {
+  "git": {
+   "available": true,
+   "sha": "fda9acd00a8f5f44c7b3a28b47a7ce379d3c8617",
+   "dirty": true
+  },
+  "sourceTreeSha256": "23dfc89b334985378045488f9d6918e5c97657a5d6f67a7958e2fd82a75e26ce",
+  "sourceChanges": 0,
+  "binaryChanges": null,
+  "toolchains": {
+   "node": "v25.5.0",
+   "rustc": "rustc 1.93.0 (254b59607 2026-01-19)",
+   "go": "go version go1.27.1 darwin/arm64",
+   "pnpm": "12.9.1"
+  },
+  "integrity": {
+   "status": "uncatalogued",
+   "checked": 0,
+   "mismatches": []
+  }
+ },
+ "host": {
+  "classRequested": "local-controlled",
+  "classGranted": "local-dev",
+  "os": "darwin",
+  "arch": "arm64",
+  "cpu": "Apple M3 Max",
+  "logicalCpus": 14,
+  "memoryBytes": 38654705664,
+  "preflight": {
+   "snapshot": {
+    "os": "darwin",
+    "arch": "arm64",
+    "cpu": "Apple M3 Max",
+    "logicalCpus": 14,
+    "memoryBytes": 38654705664,
+    "loadAverage1m": 9.705078125,
+    "memoryFreePercent": 42,
+    "thermalWarning": false,
+    "onAC": false,
+    "lowPowerMode": false,
+    "foreignCpuPercent": 247.79999999999993,
+    "foreignTop": [
+     {
+      "command": "ffprobe",
+      "cpuPercent": 83.7
+     },
+     {
+      "command": "WindowServer",
+      "cpuPercent": 44.2
+     },
+     {
+      "command": "Claude Helper",
+      "cpuPercent": 12.2
+     },
+     {
+      "command": "com.apple.Virtualization.VirtualMachine",
+      "cpuPercent": 10.4
+     },
+     {
+      "command": "Google Chrome Helper (Renderer)",
+      "cpuPercent": 9.9
+     }
+    ],
+    "cpuGovernor": null,
+    "virtualized": false
+   },
+   "gates": [
+    {
+     "class": "local-controlled",
+     "id": "git-clean",
+     "ok": false,
+     "value": false,
+     "limit": "= true"
+    },
+    {
+     "class": "local-controlled",
+     "id": "load-per-cpu-1m",
+     "ok": false,
+     "value": 0.6932198660714286,
+     "limit": "<= 0.25"
+    },
+    {
+     "class": "local-controlled",
+     "id": "memory-free-percent",
+     "ok": true,
+     "value": 42,
+     "limit": ">= 20"
+    },
+    {
+     "class": "local-controlled",
+     "id": "thermal-warning",
+     "ok": true,
+     "value": false,
+     "limit": "= false"
+    },
+    {
+     "class": "local-controlled",
+     "id": "on-ac",
+     "ok": false,
+     "value": false,
+     "limit": "= true"
+    },
+    {
+     "class": "local-controlled",
+     "id": "low-power-mode",
+     "ok": true,
+     "value": false,
+     "limit": "= false"
+    },
+    {
+     "class": "local-controlled",
+     "id": "foreign-cpu-percent",
+     "ok": false,
+     "value": 247.79999999999993,
+     "limit": "<= 50"
+    }
+   ]
+  },
+  "postflight": {
+   "snapshot": {
+    "os": "darwin",
+    "arch": "arm64",
+    "cpu": "Apple M3 Max",
+    "logicalCpus": 14,
+    "memoryBytes": 38654705664,
+    "loadAverage1m": 6.98388671875,
+    "memoryFreePercent": 41,
+    "thermalWarning": false,
+    "onAC": false,
+    "lowPowerMode": false,
+    "foreignCpuPercent": 431.0000000000004,
+    "foreignTop": [
+     {
+      "command": "com.apple.Virtualization.VirtualMachine",
+      "cpuPercent": 142.7
+     },
+     {
+      "command": "ffmpeg",
+      "cpuPercent": 89.7
+     },
+     {
+      "command": "WindowServer",
+      "cpuPercent": 44.4
+     },
+     {
+      "command": "Claude Helper",
+      "cpuPercent": 11.8
+     },
+     {
+      "command": "Google Chrome Helper (Renderer)",
+      "cpuPercent": 10.5
+     }
+    ],
+    "cpuGovernor": null,
+    "virtualized": false
+   }
+  }
+ },
+ "status": "complete",
+ "countUnit": "cell",
+ "cells": [
+  {
+   "cellId": "bd38a4510376-0",
+   "factors": {
+    "backend": "puppeteer",
+    "variant": "overlay",
+    "policy": "guarded",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 339.4673329999998,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "7080c9590599-1",
+   "factors": {
+    "backend": "crawlee-playwright",
+    "variant": "rerender",
+    "policy": "guarded",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 1304.7048329999998,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "1accfe1ccabb-2",
+   "factors": {
+    "backend": "stagehand",
+    "variant": "hidden",
+    "policy": "guarded",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 341.0669170000001,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "ef689dcc63fb-3",
+   "factors": {
+    "backend": "crawlee-playwright",
+    "variant": "delayed",
+    "policy": "guarded",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 1115.3421670000007,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "5d80a9ed3be9-4",
+   "factors": {
+    "backend": "stagehand",
+    "variant": "delayed",
+    "policy": "guarded",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 298.0985419999997,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "cf0b62dc85b6-5",
+   "factors": {
+    "backend": "puppeteer",
+    "variant": "normal",
+    "policy": "guarded",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 165.58366600000045,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "3196f6181461-6",
+   "factors": {
+    "backend": "stagehand-batch",
+    "variant": "ambiguous",
+    "policy": "guarded",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 111.98374999999942,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "fc8d09a19caf-7",
+   "factors": {
+    "backend": "crawlee-playwright",
+    "variant": "ambiguous",
+    "policy": "guarded",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 849.4322919999995,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "6760a4a4e203-8",
+   "factors": {
+    "backend": "playwright",
+    "variant": "moving",
+    "policy": "guarded",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 484.3967499999999,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "d35dec92513d-9",
+   "factors": {
+    "backend": "crawlee-playwright",
+    "variant": "overlay",
+    "policy": "guarded",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 1153.499667,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "cb2dfea2213b-10",
+   "factors": {
+    "backend": "stagehand-batch",
+    "variant": "hidden",
+    "policy": "guarded",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 359.55316700000003,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "5a98732ca6e5-11",
+   "factors": {
+    "backend": "puppeteer",
+    "variant": "never-uncovered",
+    "policy": "guarded",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 874.5612089999995,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "aff862a5ee47-12",
+   "factors": {
+    "backend": "stagehand",
+    "variant": "overlay",
+    "policy": "guarded",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 304.60399999999936,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "7832cb70a78a-13",
+   "factors": {
+    "backend": "crawlee-stagehand",
+    "variant": "normal",
+    "policy": "guarded",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 715.8037080000031,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "a3f98bfe24b9-14",
+   "factors": {
+    "backend": "playwright",
+    "variant": "normal",
+    "policy": "guarded",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 307.92154200000004,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "b57c0d910cf2-15",
+   "factors": {
+    "backend": "crawlee-playwright",
+    "variant": "hidden",
+    "policy": "guarded",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 1210.9891669999997,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "9a9d182bcd36-16",
+   "factors": {
+    "backend": "stagehand-batch",
+    "variant": "overlay",
+    "policy": "guarded",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 316.2702079999981,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "4c151ccc5da8-17",
+   "factors": {
+    "backend": "crawlee-stagehand",
+    "variant": "overlay",
+    "policy": "guarded",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 880.8417090000003,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "fe7ee2255bd6-18",
+   "factors": {
+    "backend": "stagehand",
+    "variant": "never-enabled",
+    "policy": "guarded",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 942.429250000001,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "bf612b928a09-19",
+   "factors": {
+    "backend": "playwright",
+    "variant": "overlay",
+    "policy": "guarded",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 481.44183300000077,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "e3bb310827a7-20",
+   "factors": {
+    "backend": "puppeteer",
+    "variant": "ambiguous",
+    "policy": "guarded",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 66.31537500000195,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "dec609f74323-21",
+   "factors": {
+    "backend": "playwright",
+    "variant": "delayed",
+    "policy": "guarded",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 437.1223339999997,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "bf98356fa1f5-22",
+   "factors": {
+    "backend": "playwright",
+    "variant": "ambiguous",
+    "policy": "guarded",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 200.92162500000268,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "93b0ee7bfecc-23",
+   "factors": {
+    "backend": "stagehand",
+    "variant": "moving",
+    "policy": "guarded",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 327.7104169999984,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "581e4386cef9-24",
+   "factors": {
+    "backend": "stagehand-batch",
+    "variant": "normal",
+    "policy": "guarded",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 198.70845800000097,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "50a87b49a450-25",
+   "factors": {
+    "backend": "crawlee-stagehand",
+    "variant": "never-enabled",
+    "policy": "guarded",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 1403.5319999999992,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "ac5edf44f1d5-26",
+   "factors": {
+    "backend": "puppeteer",
+    "variant": "delayed",
+    "policy": "guarded",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 305.7139580000003,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "e862808a28d1-27",
+   "factors": {
+    "backend": "crawlee-stagehand",
+    "variant": "delayed",
+    "policy": "guarded",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 900.1519999999946,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "fc7717537ef5-28",
+   "factors": {
+    "backend": "playwright",
+    "variant": "rerender",
+    "policy": "guarded",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 433.49304100000154,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "e85459008986-29",
+   "factors": {
+    "backend": "stagehand-batch",
+    "variant": "moving",
+    "policy": "guarded",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 349.4233330000061,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "c9a2cd6c321d-30",
+   "factors": {
+    "backend": "crawlee-stagehand",
+    "variant": "moving",
+    "policy": "guarded",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 892.0508750000008,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "4386d02eeb23-31",
+   "factors": {
+    "backend": "stagehand-batch",
+    "variant": "never-uncovered",
+    "policy": "guarded",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 957.8789999999935,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "22398fd0f11e-32",
+   "factors": {
+    "backend": "crawlee-playwright",
+    "variant": "normal",
+    "policy": "guarded",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 989.6147920000003,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "fdfe1afd21fc-33",
+   "factors": {
+    "backend": "playwright",
+    "variant": "never-enabled",
+    "policy": "guarded",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 1034.4912919999988,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "a61a1e6576c4-34",
+   "factors": {
+    "backend": "playwright",
+    "variant": "hidden",
+    "policy": "guarded",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 518.7670829999988,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "39cb4a226d44-35",
+   "factors": {
+    "backend": "stagehand",
+    "variant": "rerender",
+    "policy": "guarded",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 311.16137499999604,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "7a894bb3f386-36",
+   "factors": {
+    "backend": "playwright",
+    "variant": "never-uncovered",
+    "policy": "guarded",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 1018.3528749999969,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "933e0fa1dd48-37",
+   "factors": {
+    "backend": "crawlee-playwright",
+    "variant": "never-enabled",
+    "policy": "guarded",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 1772.9044159999976,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "a078779fc8fe-38",
+   "factors": {
+    "backend": "crawlee-stagehand",
+    "variant": "ambiguous",
+    "policy": "guarded",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 593.9095839999936,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "7d5c64e79ec7-39",
+   "factors": {
+    "backend": "puppeteer",
+    "variant": "moving",
+    "policy": "guarded",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 370.2929590000058,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "0f7021634a88-40",
+   "factors": {
+    "backend": "crawlee-playwright",
+    "variant": "moving",
+    "policy": "guarded",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 1182.0866250000036,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "45f8ab26910d-41",
+   "factors": {
+    "backend": "crawlee-stagehand",
+    "variant": "rerender",
+    "policy": "guarded",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 896.0579589999979,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "7c7b7f0f5ad1-42",
+   "factors": {
+    "backend": "crawlee-playwright",
+    "variant": "never-uncovered",
+    "policy": "guarded",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 1759.7304170000061,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "84d1e5480e8e-43",
+   "factors": {
+    "backend": "stagehand-batch",
+    "variant": "rerender",
+    "policy": "guarded",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 313.934792,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "8d7057fbd80c-44",
+   "factors": {
+    "backend": "stagehand",
+    "variant": "ambiguous",
+    "policy": "guarded",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 115.05166699999972,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "1d93c827d549-45",
+   "factors": {
+    "backend": "puppeteer",
+    "variant": "never-enabled",
+    "policy": "guarded",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 874.2777080000014,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "705b1bf4c143-46",
+   "factors": {
+    "backend": "stagehand",
+    "variant": "normal",
+    "policy": "guarded",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 190.73433400000795,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "58cdb76a347c-47",
+   "factors": {
+    "backend": "puppeteer",
+    "variant": "hidden",
+    "policy": "guarded",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 336.90095799999835,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "8d7ec5761162-48",
+   "factors": {
+    "backend": "crawlee-stagehand",
+    "variant": "never-uncovered",
+    "policy": "guarded",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 1423.5819580000098,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "3d5c6dc3bfb5-49",
+   "factors": {
+    "backend": "stagehand-batch",
+    "variant": "never-enabled",
+    "policy": "guarded",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 947.159083999999,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "9cd35450ae79-50",
+   "factors": {
+    "backend": "stagehand",
+    "variant": "never-uncovered",
+    "policy": "guarded",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 933.2119589999929,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "a9bdd819e258-51",
+   "factors": {
+    "backend": "crawlee-stagehand",
+    "variant": "hidden",
+    "policy": "guarded",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 906.5530409999919,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "e1490b30b948-52",
+   "factors": {
+    "backend": "puppeteer",
+    "variant": "rerender",
+    "policy": "guarded",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 307.11162499999045,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "08f26d742268-53",
+   "factors": {
+    "backend": "stagehand-batch",
+    "variant": "delayed",
+    "policy": "guarded",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 303.2337499999994,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "75cbc5febe4a-54",
+   "factors": {
+    "backend": "stagehand",
+    "variant": "moving",
+    "policy": "guarded",
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 323.810415999993,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "bf465b11bdf6-55",
+   "factors": {
+    "backend": "playwright",
+    "variant": "delayed",
+    "policy": "guarded",
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 442.94629199999326,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "ad805873455b-56",
+   "factors": {
+    "backend": "stagehand-batch",
+    "variant": "delayed",
+    "policy": "guarded",
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 311.7829170000041,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "59d6dc46ea4d-57",
+   "factors": {
+    "backend": "playwright",
+    "variant": "moving",
+    "policy": "guarded",
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 463.955833,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "1350284bf6b2-58",
+   "factors": {
+    "backend": "stagehand",
+    "variant": "ambiguous",
+    "policy": "guarded",
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 115.79654100000334,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "fb384f177bb2-59",
+   "factors": {
+    "backend": "stagehand",
+    "variant": "delayed",
+    "policy": "guarded",
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 292.2489159999968,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "2eeee20b5316-60",
+   "factors": {
+    "backend": "stagehand-batch",
+    "variant": "never-uncovered",
+    "policy": "guarded",
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 945.4709589999984,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "4ddc61905914-61",
+   "factors": {
+    "backend": "playwright",
+    "variant": "rerender",
+    "policy": "guarded",
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 472.10191700000723,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "141094aa1e5f-62",
+   "factors": {
+    "backend": "stagehand-batch",
+    "variant": "overlay",
+    "policy": "guarded",
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 305.4938339999935,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "3e864093e4a4-63",
+   "factors": {
+    "backend": "puppeteer",
+    "variant": "never-uncovered",
+    "policy": "guarded",
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 878.0681659999973,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "17ac709d770c-64",
+   "factors": {
+    "backend": "stagehand-batch",
+    "variant": "moving",
+    "policy": "guarded",
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 321.0532499999972,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "6cfee167a747-65",
+   "factors": {
+    "backend": "crawlee-playwright",
+    "variant": "ambiguous",
+    "policy": "guarded",
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 908.3999170000025,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "30867bfad5d5-66",
+   "factors": {
+    "backend": "puppeteer",
+    "variant": "hidden",
+    "policy": "guarded",
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 336.88508300000103,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "7e488b60705d-67",
+   "factors": {
+    "backend": "stagehand",
+    "variant": "rerender",
+    "policy": "guarded",
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 311.0352500000008,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "6ba7ca6a0c29-68",
+   "factors": {
+    "backend": "crawlee-stagehand",
+    "variant": "hidden",
+    "policy": "guarded",
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 897.5231670000067,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "0afdba3aa915-69",
+   "factors": {
+    "backend": "puppeteer",
+    "variant": "overlay",
+    "policy": "guarded",
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 303.732124999995,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "37c2f7c8bcc2-70",
+   "factors": {
+    "backend": "crawlee-stagehand",
+    "variant": "ambiguous",
+    "policy": "guarded",
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 592.2322500000009,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "67ecc6a0c0c2-71",
+   "factors": {
+    "backend": "crawlee-stagehand",
+    "variant": "delayed",
+    "policy": "guarded",
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 869.9251250000088,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "a7a1a4fa3cf0-72",
+   "factors": {
+    "backend": "puppeteer",
+    "variant": "normal",
+    "policy": "guarded",
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 186.02866599999834,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "8b0991c29961-73",
+   "factors": {
+    "backend": "playwright",
+    "variant": "hidden",
+    "policy": "guarded",
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 521.8557500000024,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "42e76fcfef52-74",
+   "factors": {
+    "backend": "stagehand-batch",
+    "variant": "ambiguous",
+    "policy": "guarded",
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 117.4280829999916,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "3075a2fd5eed-75",
+   "factors": {
+    "backend": "stagehand-batch",
+    "variant": "normal",
+    "policy": "guarded",
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 181.033792000002,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "9d06d8c530e5-76",
+   "factors": {
+    "backend": "crawlee-playwright",
+    "variant": "hidden",
+    "policy": "guarded",
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 1175.4246249999997,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "4f9d14587a64-77",
+   "factors": {
+    "backend": "stagehand-batch",
+    "variant": "hidden",
+    "policy": "guarded",
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 333.8425419999985,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "cfa28e6c3cd5-78",
+   "factors": {
+    "backend": "crawlee-playwright",
+    "variant": "delayed",
+    "policy": "guarded",
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 1156.1762920000037,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "8f67e721182c-79",
+   "factors": {
+    "backend": "puppeteer",
+    "variant": "ambiguous",
+    "policy": "guarded",
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 67.42041700000118,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "38fe5051a42f-80",
+   "factors": {
+    "backend": "crawlee-stagehand",
+    "variant": "never-uncovered",
+    "policy": "guarded",
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 1450.8842500000028,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "b50f951dfaa4-81",
+   "factors": {
+    "backend": "stagehand-batch",
+    "variant": "never-enabled",
+    "policy": "guarded",
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 922.1915000000008,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "6a877189f098-82",
+   "factors": {
+    "backend": "stagehand",
+    "variant": "normal",
+    "policy": "guarded",
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 188.6387079999986,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "f96e849964aa-83",
+   "factors": {
+    "backend": "stagehand",
+    "variant": "overlay",
+    "policy": "guarded",
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 307.98504200000025,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "4ba1fcebb611-84",
+   "factors": {
+    "backend": "crawlee-stagehand",
+    "variant": "never-enabled",
+    "policy": "guarded",
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 1596.7439589999994,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "835c08fa16f6-85",
+   "factors": {
+    "backend": "stagehand",
+    "variant": "never-enabled",
+    "policy": "guarded",
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 930.9788340000086,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "efdbec594279-86",
+   "factors": {
+    "backend": "playwright",
+    "variant": "never-uncovered",
+    "policy": "guarded",
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 1012.0067080000008,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "dd661f382231-87",
+   "factors": {
+    "backend": "puppeteer",
+    "variant": "never-enabled",
+    "policy": "guarded",
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 877.9307080000144,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "4bcf4026972f-88",
+   "factors": {
+    "backend": "crawlee-playwright",
+    "variant": "rerender",
+    "policy": "guarded",
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 1133.544166000007,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "b94fd99285f5-89",
+   "factors": {
+    "backend": "playwright",
+    "variant": "ambiguous",
+    "policy": "guarded",
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 229.0168330000015,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "71b356a5b3dd-90",
+   "factors": {
+    "backend": "crawlee-playwright",
+    "variant": "never-uncovered",
+    "policy": "guarded",
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 1736.8012499999895,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "b3bbbcba4a0d-91",
+   "factors": {
+    "backend": "crawlee-playwright",
+    "variant": "moving",
+    "policy": "guarded",
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 1151.1046659999993,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "72b415346351-92",
+   "factors": {
+    "backend": "crawlee-stagehand",
+    "variant": "moving",
+    "policy": "guarded",
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 863.8871249999793,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "42362df7d3ad-93",
+   "factors": {
+    "backend": "stagehand-batch",
+    "variant": "rerender",
+    "policy": "guarded",
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 311.83820900000865,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "77b1abfd9e1e-94",
+   "factors": {
+    "backend": "stagehand",
+    "variant": "hidden",
+    "policy": "guarded",
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 338.46100000001024,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "5e8b96394217-95",
+   "factors": {
+    "backend": "playwright",
+    "variant": "overlay",
+    "policy": "guarded",
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 462.47387499999604,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "f805cc27c04d-96",
+   "factors": {
+    "backend": "crawlee-stagehand",
+    "variant": "normal",
+    "policy": "guarded",
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 733.5375000000058,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "29ce750c1e38-97",
+   "factors": {
+    "backend": "puppeteer",
+    "variant": "delayed",
+    "policy": "guarded",
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 302.32224999999744,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "be1671d45a4c-98",
+   "factors": {
+    "backend": "stagehand",
+    "variant": "never-uncovered",
+    "policy": "guarded",
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 952.8859159999993,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "3bcc625b2e46-99",
+   "factors": {
+    "backend": "crawlee-stagehand",
+    "variant": "overlay",
+    "policy": "guarded",
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 904.7909999999974,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "819523dc9652-100",
+   "factors": {
+    "backend": "crawlee-playwright",
+    "variant": "normal",
+    "policy": "guarded",
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 974.3517500000016,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "6fda6dc2985d-101",
+   "factors": {
+    "backend": "crawlee-playwright",
+    "variant": "overlay",
+    "policy": "guarded",
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 1133.9525830000057,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "13be86465a8a-102",
+   "factors": {
+    "backend": "crawlee-stagehand",
+    "variant": "rerender",
+    "policy": "guarded",
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 889.1135409999988,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "676bd2db45b3-103",
+   "factors": {
+    "backend": "puppeteer",
+    "variant": "moving",
+    "policy": "guarded",
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 338.52954199997475,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "dafd25512e74-104",
+   "factors": {
+    "backend": "crawlee-playwright",
+    "variant": "never-enabled",
+    "policy": "guarded",
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 1758.8387079999957,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "442314fc81d6-105",
+   "factors": {
+    "backend": "playwright",
+    "variant": "never-enabled",
+    "policy": "guarded",
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 1014.4095420000085,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "261400c91a94-106",
+   "factors": {
+    "backend": "puppeteer",
+    "variant": "rerender",
+    "policy": "guarded",
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 304.1738329999789,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "43efe66b2663-107",
+   "factors": {
+    "backend": "playwright",
+    "variant": "normal",
+    "policy": "guarded",
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 342.7250420000055,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "849900493c74-108",
+   "factors": {
+    "backend": "puppeteer",
+    "variant": "rerender",
+    "policy": "guarded",
+    "block": 2
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 307.4898749999993,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "7a06e4accb20-109",
+   "factors": {
+    "backend": "crawlee-stagehand",
+    "variant": "ambiguous",
+    "policy": "guarded",
+    "block": 2
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 807.7101669999829,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "9aeb3b66086b-110",
+   "factors": {
+    "backend": "puppeteer",
+    "variant": "hidden",
+    "policy": "guarded",
+    "block": 2
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 336.737374999997,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "729aa711a119-111",
+   "factors": {
+    "backend": "stagehand-batch",
+    "variant": "normal",
+    "policy": "guarded",
+    "block": 2
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 166.75316699998803,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "88bbd2b0c52b-112",
+   "factors": {
+    "backend": "stagehand",
+    "variant": "normal",
+    "policy": "guarded",
+    "block": 2
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 181.0018749999872,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "7e19c385f496-113",
+   "factors": {
+    "backend": "stagehand",
+    "variant": "overlay",
+    "policy": "guarded",
+    "block": 2
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 310.7853339999856,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "0355b99c37bc-114",
+   "factors": {
+    "backend": "stagehand",
+    "variant": "delayed",
+    "policy": "guarded",
+    "block": 2
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 297.3741250000021,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "aca8425c5610-115",
+   "factors": {
+    "backend": "puppeteer",
+    "variant": "delayed",
+    "policy": "guarded",
+    "block": 2
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 307.6631670000206,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "3d91ae127650-116",
+   "factors": {
+    "backend": "crawlee-stagehand",
+    "variant": "rerender",
+    "policy": "guarded",
+    "block": 2
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 900.7464999999793,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "a3154f6bd502-117",
+   "factors": {
+    "backend": "crawlee-playwright",
+    "variant": "ambiguous",
+    "policy": "guarded",
+    "block": 2
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 880.2568749999919,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "057d81838573-118",
+   "factors": {
+    "backend": "crawlee-stagehand",
+    "variant": "delayed",
+    "policy": "guarded",
+    "block": 2
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 849.2869170000195,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "6f95a0c54211-119",
+   "factors": {
+    "backend": "stagehand-batch",
+    "variant": "ambiguous",
+    "policy": "guarded",
+    "block": 2
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 115.74424999998882,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "3680b41baf06-120",
+   "factors": {
+    "backend": "stagehand",
+    "variant": "never-enabled",
+    "policy": "guarded",
+    "block": 2
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 940.7826659999846,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "de2287d6b405-121",
+   "factors": {
+    "backend": "puppeteer",
+    "variant": "ambiguous",
+    "policy": "guarded",
+    "block": 2
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 67.33900000000722,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "775f18a6b689-122",
+   "factors": {
+    "backend": "crawlee-stagehand",
+    "variant": "overlay",
+    "policy": "guarded",
+    "block": 2
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 867.7992079999822,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "c945e47a7fb9-123",
+   "factors": {
+    "backend": "stagehand",
+    "variant": "rerender",
+    "policy": "guarded",
+    "block": 2
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 325.52087500001653,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "d9b2e7c741aa-124",
+   "factors": {
+    "backend": "crawlee-stagehand",
+    "variant": "never-enabled",
+    "policy": "guarded",
+    "block": 2
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 1429.4323749999749,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "a16d3e16d834-125",
+   "factors": {
+    "backend": "stagehand-batch",
+    "variant": "delayed",
+    "policy": "guarded",
+    "block": 2
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 295.38562499999534,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "301a5ee97386-126",
+   "factors": {
+    "backend": "stagehand-batch",
+    "variant": "rerender",
+    "policy": "guarded",
+    "block": 2
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 309.12254199999734,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "9783964aa764-127",
+   "factors": {
+    "backend": "playwright",
+    "variant": "never-enabled",
+    "policy": "guarded",
+    "block": 2
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 1033.401291999995,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "3e1e8075dcc3-128",
+   "factors": {
+    "backend": "puppeteer",
+    "variant": "moving",
+    "policy": "guarded",
+    "block": 2
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 370.08083300001454,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "bd94171869ec-129",
+   "factors": {
+    "backend": "puppeteer",
+    "variant": "overlay",
+    "policy": "guarded",
+    "block": 2
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 303.6842089999991,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "007bc158eae6-130",
+   "factors": {
+    "backend": "playwright",
+    "variant": "overlay",
+    "policy": "guarded",
+    "block": 2
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 463.0777909999888,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "f68abe8372c5-131",
+   "factors": {
+    "backend": "stagehand-batch",
+    "variant": "moving",
+    "policy": "guarded",
+    "block": 2
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 320.2030419999792,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "479864256994-132",
+   "factors": {
+    "backend": "crawlee-stagehand",
+    "variant": "normal",
+    "policy": "guarded",
+    "block": 2
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 689.1704590000154,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "065b87c0097d-133",
+   "factors": {
+    "backend": "stagehand-batch",
+    "variant": "never-uncovered",
+    "policy": "guarded",
+    "block": 2
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 957.8811250000144,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "e83dee3f5bbb-134",
+   "factors": {
+    "backend": "puppeteer",
+    "variant": "never-uncovered",
+    "policy": "guarded",
+    "block": 2
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 867.748499999987,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "1012dda45946-135",
+   "factors": {
+    "backend": "crawlee-playwright",
+    "variant": "normal",
+    "policy": "guarded",
+    "block": 2
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 972.5920829999959,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "276ef4020cb5-136",
+   "factors": {
+    "backend": "stagehand",
+    "variant": "ambiguous",
+    "policy": "guarded",
+    "block": 2
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 112.20479099999648,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "8c4580760ce1-137",
+   "factors": {
+    "backend": "crawlee-playwright",
+    "variant": "moving",
+    "policy": "guarded",
+    "block": 2
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 1218.8358339999977,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "7d29a2bea2d0-138",
+   "factors": {
+    "backend": "puppeteer",
+    "variant": "normal",
+    "policy": "guarded",
+    "block": 2
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 185.77074999999604,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "ca644a226164-139",
+   "factors": {
+    "backend": "crawlee-stagehand",
+    "variant": "never-uncovered",
+    "policy": "guarded",
+    "block": 2
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 1476.898749999993,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "0adea1135ca9-140",
+   "factors": {
+    "backend": "crawlee-playwright",
+    "variant": "hidden",
+    "policy": "guarded",
+    "block": 2
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 1181.7679169999901,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "07965fe0cd32-141",
+   "factors": {
+    "backend": "crawlee-playwright",
+    "variant": "overlay",
+    "policy": "guarded",
+    "block": 2
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 1137.5514590000093,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "a509ad362a45-142",
+   "factors": {
+    "backend": "playwright",
+    "variant": "delayed",
+    "policy": "guarded",
+    "block": 2
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 450.60679200000595,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "b58a681580c8-143",
+   "factors": {
+    "backend": "crawlee-playwright",
+    "variant": "delayed",
+    "policy": "guarded",
+    "block": 2
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 1131.4141669999808,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "34eb38d3be0e-144",
+   "factors": {
+    "backend": "puppeteer",
+    "variant": "never-enabled",
+    "policy": "guarded",
+    "block": 2
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 877.9986670000071,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "97b7767d74df-145",
+   "factors": {
+    "backend": "stagehand-batch",
+    "variant": "hidden",
+    "policy": "guarded",
+    "block": 2
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 362.623917000019,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "71fdbcb5a076-146",
+   "factors": {
+    "backend": "stagehand",
+    "variant": "never-uncovered",
+    "policy": "guarded",
+    "block": 2
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 947.8735000000161,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "eb9df03b980b-147",
+   "factors": {
+    "backend": "playwright",
+    "variant": "never-uncovered",
+    "policy": "guarded",
+    "block": 2
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 1012.1034159999981,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "fbe527551a40-148",
+   "factors": {
+    "backend": "stagehand-batch",
+    "variant": "never-enabled",
+    "policy": "guarded",
+    "block": 2
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 940.8372909999744,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "ebda6ace2e8a-149",
+   "factors": {
+    "backend": "crawlee-playwright",
+    "variant": "never-uncovered",
+    "policy": "guarded",
+    "block": 2
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 1702.0136660000135,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "5ed2eb59e82e-150",
+   "factors": {
+    "backend": "playwright",
+    "variant": "rerender",
+    "policy": "guarded",
+    "block": 2
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 434.2735420000099,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "e6f9cee535ea-151",
+   "factors": {
+    "backend": "stagehand",
+    "variant": "moving",
+    "policy": "guarded",
+    "block": 2
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 317.24199999999837,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "d6d1dff273ff-152",
+   "factors": {
+    "backend": "playwright",
+    "variant": "hidden",
+    "policy": "guarded",
+    "block": 2
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 498.5818750000035,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "c902b546aac3-153",
+   "factors": {
+    "backend": "crawlee-playwright",
+    "variant": "rerender",
+    "policy": "guarded",
+    "block": 2
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 1117.1549579999992,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "ddcd1c850484-154",
+   "factors": {
+    "backend": "stagehand-batch",
+    "variant": "overlay",
+    "policy": "guarded",
+    "block": 2
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 294.0572500000126,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "aa80c24edc0b-155",
+   "factors": {
+    "backend": "playwright",
+    "variant": "ambiguous",
+    "policy": "guarded",
+    "block": 2
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 208.08445899997605,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "0b5665332530-156",
+   "factors": {
+    "backend": "playwright",
+    "variant": "moving",
+    "policy": "guarded",
+    "block": 2
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 483.52283299999544,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "dc297faa7c58-157",
+   "factors": {
+    "backend": "stagehand",
+    "variant": "hidden",
+    "policy": "guarded",
+    "block": 2
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 340.0199999999895,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "7f8ad08315a0-158",
+   "factors": {
+    "backend": "crawlee-stagehand",
+    "variant": "moving",
+    "policy": "guarded",
+    "block": 2
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 930.9448749999865,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "826b5bded1ad-159",
+   "factors": {
+    "backend": "playwright",
+    "variant": "normal",
+    "policy": "guarded",
+    "block": 2
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 313.81254100002116,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "b7727d0d53a2-160",
+   "factors": {
+    "backend": "crawlee-stagehand",
+    "variant": "hidden",
+    "policy": "guarded",
+    "block": 2
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 889.2790830000013,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "299d0898acbe-161",
+   "factors": {
+    "backend": "crawlee-playwright",
+    "variant": "never-enabled",
+    "policy": "guarded",
+    "block": 2
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 1730.655832999997,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  }
+ ],
+ "totals": {
+  "verified": 162,
+  "failed": 0,
+  "timeout": 0,
+  "crashed": 0,
+  "aborted": 0,
+  "unsupported": 0,
+  "rejected": 0,
+  "unavailable": 0,
+  "skipped": 0
+ },
+ "metricAvailability": {
+  "verified-jobs-per-second": {
+   "available": true
+  },
+  "verified-tasks-per-second": {
+   "available": true
+  },
+  "verified-rows-per-second": {
+   "available": true
+  },
+  "task-p50-ms-verified": {
+   "available": true
+  },
+  "task-p95-ms-verified": {
+   "available": true
+  },
+  "task-ms": {
+   "available": true
+  },
+  "ack-latency-p95-ms": {
+   "available": true
+  },
+  "startup-ms": {
+   "available": true
+  },
+  "cpu-ms-per-verified-job": {
+   "available": true
+  },
+  "footprint-peak-bytes": {
+   "available": true
+  },
+  "pss-peak-bytes": {
+   "available": false,
+   "reason": "no probe on darwin"
+  },
+  "cgroup-memory-peak-bytes": {
+   "available": false,
+   "reason": "no probe on darwin"
+  },
+  "rss-peak-bytes": {
+   "available": true
+  },
+  "cdp-commands-per-task": {
+   "available": true
+  },
+  "extraction-f1": {
+   "available": true
+  },
+  "field-precision": {
+   "available": true
+  },
+  "field-recall": {
+   "available": true
+  },
+  "pass-k": {
+   "available": true
+  },
+  "llm-calls-per-verified-task": {
+   "available": false,
+   "reason": "adapter protocol v2 usage reporting is not implemented yet"
+  },
+  "tokens-per-verified-task": {
+   "available": false,
+   "reason": "adapter protocol v2 usage reporting is not implemented yet"
+  },
+  "usd-per-1k-verified": {
+   "available": false,
+   "reason": "pricing tables are not implemented yet"
+  },
+  "interface-turns-per-task": {
+   "available": true
+  },
+  "oracle-exact": {
+   "available": true
+  },
+  "false-success-count": {
+   "available": true
+  },
+  "actionability-conformance": {
+   "available": true
+  },
+  "recovery-exact": {
+   "available": true
+  },
+  "durability-power-loss": {
+   "available": false,
+   "reason": "no probe on darwin"
+  },
+  "identity-coherence": {
+   "available": true
+  },
+  "policy-compliance": {
+   "available": true
+  },
+  "session-isolation": {
+   "available": true
+  },
+  "admission-no-loss": {
+   "available": true
+  }
+ },
+ "legacy": null,
+ "blocks": [
+  {
+   "index": 0,
+   "order": [
+    "puppeteer/guarded/overlay",
+    "crawlee-playwright/guarded/rerender",
+    "stagehand/guarded/hidden",
+    "crawlee-playwright/guarded/delayed",
+    "stagehand/guarded/delayed",
+    "puppeteer/guarded/normal",
+    "stagehand-batch/guarded/ambiguous",
+    "crawlee-playwright/guarded/ambiguous",
+    "playwright/guarded/moving",
+    "crawlee-playwright/guarded/overlay",
+    "stagehand-batch/guarded/hidden",
+    "puppeteer/guarded/never-uncovered",
+    "stagehand/guarded/overlay",
+    "crawlee-stagehand/guarded/normal",
+    "playwright/guarded/normal",
+    "crawlee-playwright/guarded/hidden",
+    "stagehand-batch/guarded/overlay",
+    "crawlee-stagehand/guarded/overlay",
+    "stagehand/guarded/never-enabled",
+    "playwright/guarded/overlay",
+    "puppeteer/guarded/ambiguous",
+    "playwright/guarded/delayed",
+    "playwright/guarded/ambiguous",
+    "stagehand/guarded/moving",
+    "stagehand-batch/guarded/normal",
+    "crawlee-stagehand/guarded/never-enabled",
+    "puppeteer/guarded/delayed",
+    "crawlee-stagehand/guarded/delayed",
+    "playwright/guarded/rerender",
+    "stagehand-batch/guarded/moving",
+    "crawlee-stagehand/guarded/moving",
+    "stagehand-batch/guarded/never-uncovered",
+    "crawlee-playwright/guarded/normal",
+    "playwright/guarded/never-enabled",
+    "playwright/guarded/hidden",
+    "stagehand/guarded/rerender",
+    "playwright/guarded/never-uncovered",
+    "crawlee-playwright/guarded/never-enabled",
+    "crawlee-stagehand/guarded/ambiguous",
+    "puppeteer/guarded/moving",
+    "crawlee-playwright/guarded/moving",
+    "crawlee-stagehand/guarded/rerender",
+    "crawlee-playwright/guarded/never-uncovered",
+    "stagehand-batch/guarded/rerender",
+    "stagehand/guarded/ambiguous",
+    "puppeteer/guarded/never-enabled",
+    "stagehand/guarded/normal",
+    "puppeteer/guarded/hidden",
+    "crawlee-stagehand/guarded/never-uncovered",
+    "stagehand-batch/guarded/never-enabled",
+    "stagehand/guarded/never-uncovered",
+    "crawlee-stagehand/guarded/hidden",
+    "puppeteer/guarded/rerender",
+    "stagehand-batch/guarded/delayed"
+   ],
+   "noisy": false,
+   "host": {
+    "loadPerCpu1m": 0.556396484375,
+    "foreignCpuPercent": 294.4000000000005
+   }
+  },
+  {
+   "index": 1,
+   "order": [
+    "stagehand/guarded/moving",
+    "playwright/guarded/delayed",
+    "stagehand-batch/guarded/delayed",
+    "playwright/guarded/moving",
+    "stagehand/guarded/ambiguous",
+    "stagehand/guarded/delayed",
+    "stagehand-batch/guarded/never-uncovered",
+    "playwright/guarded/rerender",
+    "stagehand-batch/guarded/overlay",
+    "puppeteer/guarded/never-uncovered",
+    "stagehand-batch/guarded/moving",
+    "crawlee-playwright/guarded/ambiguous",
+    "puppeteer/guarded/hidden",
+    "stagehand/guarded/rerender",
+    "crawlee-stagehand/guarded/hidden",
+    "puppeteer/guarded/overlay",
+    "crawlee-stagehand/guarded/ambiguous",
+    "crawlee-stagehand/guarded/delayed",
+    "puppeteer/guarded/normal",
+    "playwright/guarded/hidden",
+    "stagehand-batch/guarded/ambiguous",
+    "stagehand-batch/guarded/normal",
+    "crawlee-playwright/guarded/hidden",
+    "stagehand-batch/guarded/hidden",
+    "crawlee-playwright/guarded/delayed",
+    "puppeteer/guarded/ambiguous",
+    "crawlee-stagehand/guarded/never-uncovered",
+    "stagehand-batch/guarded/never-enabled",
+    "stagehand/guarded/normal",
+    "stagehand/guarded/overlay",
+    "crawlee-stagehand/guarded/never-enabled",
+    "stagehand/guarded/never-enabled",
+    "playwright/guarded/never-uncovered",
+    "puppeteer/guarded/never-enabled",
+    "crawlee-playwright/guarded/rerender",
+    "playwright/guarded/ambiguous",
+    "crawlee-playwright/guarded/never-uncovered",
+    "crawlee-playwright/guarded/moving",
+    "crawlee-stagehand/guarded/moving",
+    "stagehand-batch/guarded/rerender",
+    "stagehand/guarded/hidden",
+    "playwright/guarded/overlay",
+    "crawlee-stagehand/guarded/normal",
+    "puppeteer/guarded/delayed",
+    "stagehand/guarded/never-uncovered",
+    "crawlee-stagehand/guarded/overlay",
+    "crawlee-playwright/guarded/normal",
+    "crawlee-playwright/guarded/overlay",
+    "crawlee-stagehand/guarded/rerender",
+    "puppeteer/guarded/moving",
+    "crawlee-playwright/guarded/never-enabled",
+    "playwright/guarded/never-enabled",
+    "puppeteer/guarded/rerender",
+    "playwright/guarded/normal"
+   ],
+   "noisy": false,
+   "host": {
+    "loadPerCpu1m": 0.5986328125,
+    "foreignCpuPercent": 410.9000000000005
+   }
+  },
+  {
+   "index": 2,
+   "order": [
+    "puppeteer/guarded/rerender",
+    "crawlee-stagehand/guarded/ambiguous",
+    "puppeteer/guarded/hidden",
+    "stagehand-batch/guarded/normal",
+    "stagehand/guarded/normal",
+    "stagehand/guarded/overlay",
+    "stagehand/guarded/delayed",
+    "puppeteer/guarded/delayed",
+    "crawlee-stagehand/guarded/rerender",
+    "crawlee-playwright/guarded/ambiguous",
+    "crawlee-stagehand/guarded/delayed",
+    "stagehand-batch/guarded/ambiguous",
+    "stagehand/guarded/never-enabled",
+    "puppeteer/guarded/ambiguous",
+    "crawlee-stagehand/guarded/overlay",
+    "stagehand/guarded/rerender",
+    "crawlee-stagehand/guarded/never-enabled",
+    "stagehand-batch/guarded/delayed",
+    "stagehand-batch/guarded/rerender",
+    "playwright/guarded/never-enabled",
+    "puppeteer/guarded/moving",
+    "puppeteer/guarded/overlay",
+    "playwright/guarded/overlay",
+    "stagehand-batch/guarded/moving",
+    "crawlee-stagehand/guarded/normal",
+    "stagehand-batch/guarded/never-uncovered",
+    "puppeteer/guarded/never-uncovered",
+    "crawlee-playwright/guarded/normal",
+    "stagehand/guarded/ambiguous",
+    "crawlee-playwright/guarded/moving",
+    "puppeteer/guarded/normal",
+    "crawlee-stagehand/guarded/never-uncovered",
+    "crawlee-playwright/guarded/hidden",
+    "crawlee-playwright/guarded/overlay",
+    "playwright/guarded/delayed",
+    "crawlee-playwright/guarded/delayed",
+    "puppeteer/guarded/never-enabled",
+    "stagehand-batch/guarded/hidden",
+    "stagehand/guarded/never-uncovered",
+    "playwright/guarded/never-uncovered",
+    "stagehand-batch/guarded/never-enabled",
+    "crawlee-playwright/guarded/never-uncovered",
+    "playwright/guarded/rerender",
+    "stagehand/guarded/moving",
+    "playwright/guarded/hidden",
+    "crawlee-playwright/guarded/rerender",
+    "stagehand-batch/guarded/overlay",
+    "playwright/guarded/ambiguous",
+    "playwright/guarded/moving",
+    "stagehand/guarded/hidden",
+    "crawlee-stagehand/guarded/moving",
+    "playwright/guarded/normal",
+    "crawlee-stagehand/guarded/hidden",
+    "crawlee-playwright/guarded/never-enabled"
+   ],
+   "noisy": false,
+   "host": {
+    "loadPerCpu1m": 0.4988490513392857,
+    "foreignCpuPercent": 457.40000000000026
+   }
+  }
+ ]
+}

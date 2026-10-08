@@ -1,6 +1,6 @@
 {
  "schemaVersion": 1,
- "classificationSha256": "5d0b8038d012c66693a0a84403d0e5fdbd243796d79c3e1baf30331004f4f05d",
+ "classificationSha256": "a6c2bafe9c184f271cd0a293a1cf247fe284840902357c1392f3f3a42ae228c1",
  "entries": [
   {
    "runId": "smoke-2026-10-07T20-20-24-226Z-9ebb47",
@@ -1449,7 +1449,7 @@
     "priority": null,
     "hostClass": null
    },
-   "imported": "results/http-smoke-2026-10-08T07-48-27-175Z-975485/run.v2.json"
+   "imported": "ledger/runs/http-smoke-2026-10-08T07-48-27-175Z-975485/run.v2.json"
   },
   {
    "runId": "http-smoke-2026-10-08T07-49-04-577Z-471f40",
@@ -1483,7 +1483,7 @@
     "priority": null,
     "hostClass": null
    },
-   "imported": "results/http-smoke-2026-10-08T07-49-04-577Z-471f40/run.v2.json"
+   "imported": "ledger/runs/http-smoke-2026-10-08T07-49-04-577Z-471f40/run.v2.json"
   },
   {
    "runId": "storage-smoke-2026-10-08T07-56-10-911Z-a8d1b9",
@@ -1546,7 +1546,7 @@
     "priority": null,
     "hostClass": null
    },
-   "imported": "results/runtime-native-qualified-2026-10-08T08-08-21-301Z-20a589/run.v2.json"
+   "imported": "ledger/runs/runtime-native-qualified-2026-10-08T08-08-21-301Z-20a589/run.v2.json"
   },
   {
    "runId": "runtime-recovery-qualified-2026-10-08T08-16-05-686Z-2b7b94",
@@ -1581,7 +1581,7 @@
     "priority": null,
     "hostClass": null
    },
-   "imported": "results/runtime-recovery-qualified-2026-10-08T08-16-05-686Z-2b7b94/run.v2.json"
+   "imported": "ledger/runs/runtime-recovery-qualified-2026-10-08T08-16-05-686Z-2b7b94/run.v2.json"
   },
   {
    "runId": "browser-actionability-guarded-2026-10-08T08-17-11-516Z-b3378c",
@@ -1615,7 +1615,7 @@
     "priority": null,
     "hostClass": null
    },
-   "imported": "results/browser-actionability-guarded-2026-10-08T08-17-11-516Z-b3378c/run.v2.json"
+   "imported": "ledger/runs/browser-actionability-guarded-2026-10-08T08-17-11-516Z-b3378c/run.v2.json"
   },
   {
    "runId": "sqlite-readers-2026-10-08T08-20-58-320Z-de04ab",
@@ -1649,7 +1649,7 @@
     "priority": null,
     "hostClass": null
    },
-   "imported": "results/sqlite-readers-2026-10-08T08-20-58-320Z-de04ab/run.v2.json"
+   "imported": "ledger/runs/sqlite-readers-2026-10-08T08-20-58-320Z-de04ab/run.v2.json"
   },
   {
    "runId": "spider-http-transport-supported-2026-10-08T08-21-33-006Z-dc7f37",
@@ -1683,7 +1683,7 @@
     "priority": null,
     "hostClass": null
    },
-   "imported": "results/spider-http-transport-supported-2026-10-08T08-21-33-006Z-dc7f37/run.v2.json"
+   "imported": "ledger/runs/spider-http-transport-supported-2026-10-08T08-21-33-006Z-dc7f37/run.v2.json"
   },
   {
    "runId": "runtime-http-backends-2026-10-08T08-21-34-528Z-4c7aa1",
@@ -1718,7 +1718,7 @@
     "priority": null,
     "hostClass": null
    },
-   "imported": "results/runtime-http-backends-2026-10-08T08-21-34-528Z-4c7aa1/run.v2.json"
+   "imported": "ledger/runs/runtime-http-backends-2026-10-08T08-21-34-528Z-4c7aa1/run.v2.json"
   },
   {
    "runId": "browser-driver-smoke-2026-10-08T10-56-57-786Z-5a5a6c",
@@ -1752,7 +1752,7 @@
     "priority": null,
     "hostClass": null
    },
-   "imported": "results/browser-driver-smoke-2026-10-08T10-56-57-786Z-5a5a6c/run.v2.json"
+   "imported": "ledger/runs/browser-driver-smoke-2026-10-08T10-56-57-786Z-5a5a6c/run.v2.json"
   },
   {
    "runId": "browser-driver-smoke-2026-10-08T11-00-10-023Z-b248a5",
@@ -1786,7 +1786,7 @@
     "priority": null,
     "hostClass": null
    },
-   "imported": "results/browser-driver-smoke-2026-10-08T11-00-10-023Z-b248a5/run.v2.json"
+   "imported": "ledger/runs/browser-driver-smoke-2026-10-08T11-00-10-023Z-b248a5/run.v2.json"
   },
   {
    "runId": "browser-actionability-guarded-2026-10-08T11-07-42-702Z-2ee15e",
@@ -1815,7 +1815,7 @@
     "priority": null,
     "hostClass": null
    },
-   "imported": "results/browser-actionability-guarded-2026-10-08T11-07-42-702Z-2ee15e/run.v2.json"
+   "imported": "ledger/runs/browser-actionability-guarded-2026-10-08T11-07-42-702Z-2ee15e/run.v2.json"
   },
   {
    "runId": "browser-actionability-extended-2026-10-08T11-32-42-565Z-3212a3",
@@ -1844,7 +1844,7 @@
     "priority": null,
     "hostClass": null
    },
-   "imported": "results/browser-actionability-extended-2026-10-08T11-32-42-565Z-3212a3/run.v2.json"
+   "imported": "ledger/runs/browser-actionability-extended-2026-10-08T11-32-42-565Z-3212a3/run.v2.json"
   },
   {
    "runId": "browser-driver-primitives-2026-10-08T11-42-40-378Z-c8b654",
@@ -1880,7 +1880,7 @@
     "priority": null,
     "hostClass": null
    },
-   "imported": "results/browser-driver-primitives-2026-10-08T11-42-40-378Z-c8b654/run.v2.json"
+   "imported": "ledger/runs/browser-driver-primitives-2026-10-08T11-42-40-378Z-c8b654/run.v2.json"
   },
   {
    "runId": "browser-actionability-extended-2026-10-08T11-48-53-712Z-6d3e14",
@@ -1909,7 +1909,7 @@
     "priority": null,
     "hostClass": null
    },
-   "imported": "results/browser-actionability-extended-2026-10-08T11-48-53-712Z-6d3e14/run.v2.json"
+   "imported": "ledger/runs/browser-actionability-extended-2026-10-08T11-48-53-712Z-6d3e14/run.v2.json"
   },
   {
    "runId": "browser-driver-primitives-2026-10-08T11-58-10-523Z-81aec8",
@@ -1938,7 +1938,7 @@
     "priority": null,
     "hostClass": null
    },
-   "imported": "results/browser-driver-primitives-2026-10-08T11-58-10-523Z-81aec8/run.v2.json"
+   "imported": "ledger/runs/browser-driver-primitives-2026-10-08T11-58-10-523Z-81aec8/run.v2.json"
   },
   {
    "runId": "browser-actionability-extended-2026-10-08T12-05-27-529Z-49432b",
@@ -1969,7 +1969,7 @@
     "priority": null,
     "hostClass": null
    },
-   "imported": "results/browser-actionability-extended-2026-10-08T12-05-27-529Z-49432b/run.v2.json"
+   "imported": "ledger/runs/browser-actionability-extended-2026-10-08T12-05-27-529Z-49432b/run.v2.json"
   },
   {
    "runId": "browser-driver-primitives-2026-10-08T12-14-55-485Z-4b6074",
@@ -2000,7 +2000,7 @@
     "priority": null,
     "hostClass": null
    },
-   "imported": "results/browser-driver-primitives-2026-10-08T12-14-55-485Z-4b6074/run.v2.json"
+   "imported": "ledger/runs/browser-driver-primitives-2026-10-08T12-14-55-485Z-4b6074/run.v2.json"
   },
   {
    "runId": "runtime-native-qualified-2026-10-08T12-18-18-121Z-34efb7",
@@ -2070,7 +2070,7 @@
     "priority": "P1",
     "hostClass": "reference"
    },
-   "imported": "results/browser-driver-rtt-0-2026-10-08T12-39-53-109Z-63890b/run.v2.json"
+   "imported": "ledger/runs/browser-driver-rtt-0-2026-10-08T12-39-53-109Z-63890b/run.v2.json"
   },
   {
    "runId": "runtime-native-capacity-2026-10-08T12-46-38-910Z-83d7e0",
@@ -2111,7 +2111,7 @@
     "priority": "P1",
     "hostClass": "reference"
    },
-   "imported": "results/runtime-native-capacity-2026-10-08T12-46-38-910Z-83d7e0/run.v2.json"
+   "imported": "ledger/runs/runtime-native-capacity-2026-10-08T12-46-38-910Z-83d7e0/run.v2.json"
   },
   {
    "runId": "browser-driver-rtt-20-2026-10-08T12-50-54-854Z-96969e",
@@ -2152,7 +2152,7 @@
     "priority": "P1",
     "hostClass": "reference"
    },
-   "imported": "results/browser-driver-rtt-20-2026-10-08T12-50-54-854Z-96969e/run.v2.json"
+   "imported": "ledger/runs/browser-driver-rtt-20-2026-10-08T12-50-54-854Z-96969e/run.v2.json"
   },
   {
    "runId": "browser-driver-rtt-100-2026-10-08T13-14-24-301Z-331916",
@@ -2193,7 +2193,7 @@
     "priority": "P1",
     "hostClass": "reference"
    },
-   "imported": "results/browser-driver-rtt-100-2026-10-08T13-14-24-301Z-331916/run.v2.json"
+   "imported": "ledger/runs/browser-driver-rtt-100-2026-10-08T13-14-24-301Z-331916/run.v2.json"
   },
   {
    "runId": "browser-driver-rtt-300-2026-10-08T14-00-36-292Z-657a67",
@@ -2234,7 +2234,7 @@
     "priority": "P1",
     "hostClass": "reference"
    },
-   "imported": "results/browser-driver-rtt-300-2026-10-08T14-00-36-292Z-657a67/run.v2.json"
+   "imported": "ledger/runs/browser-driver-rtt-300-2026-10-08T14-00-36-292Z-657a67/run.v2.json"
   },
   {
    "runId": "runtime-native-qualified-2026-10-08T15-45-51-341Z-b0577e",
@@ -2268,7 +2268,7 @@
     "priority": null,
     "hostClass": null
    },
-   "imported": "results/runtime-native-qualified-2026-10-08T15-45-51-341Z-b0577e/run.v2.json"
+   "imported": "ledger/runs/runtime-native-qualified-2026-10-08T15-45-51-341Z-b0577e/run.v2.json"
   },
   {
    "runId": "runtime-recovery-qualified-2026-10-08T15-53-42-532Z-e2e992",
@@ -2302,7 +2302,7 @@
     "priority": null,
     "hostClass": null
    },
-   "imported": "results/runtime-recovery-qualified-2026-10-08T15-53-42-532Z-e2e992/run.v2.json"
+   "imported": "ledger/runs/runtime-recovery-qualified-2026-10-08T15-53-42-532Z-e2e992/run.v2.json"
   },
   {
    "runId": "browser-actionability-guarded-2026-10-08T15-54-48-293Z-238299",
@@ -2336,7 +2336,7 @@
     "priority": null,
     "hostClass": null
    },
-   "imported": "results/browser-actionability-guarded-2026-10-08T15-54-48-293Z-238299/run.v2.json"
+   "imported": "ledger/runs/browser-actionability-guarded-2026-10-08T15-54-48-293Z-238299/run.v2.json"
   },
   {
    "runId": "sqlite-readers-2026-10-08T15-58-38-640Z-eb0d28",
@@ -2370,7 +2370,7 @@
     "priority": null,
     "hostClass": null
    },
-   "imported": "results/sqlite-readers-2026-10-08T15-58-38-640Z-eb0d28/run.v2.json"
+   "imported": "ledger/runs/sqlite-readers-2026-10-08T15-58-38-640Z-eb0d28/run.v2.json"
   },
   {
    "runId": "spider-http-transport-supported-2026-10-08T15-59-17-154Z-3ca944",
@@ -2404,7 +2404,7 @@
     "priority": null,
     "hostClass": null
    },
-   "imported": "results/spider-http-transport-supported-2026-10-08T15-59-17-154Z-3ca944/run.v2.json"
+   "imported": "ledger/runs/spider-http-transport-supported-2026-10-08T15-59-17-154Z-3ca944/run.v2.json"
   },
   {
    "runId": "runtime-http-backends-2026-10-08T15-59-18-771Z-0e28ae",
@@ -2438,7 +2438,7 @@
     "priority": null,
     "hostClass": null
    },
-   "imported": "results/runtime-http-backends-2026-10-08T15-59-18-771Z-0e28ae/run.v2.json"
+   "imported": "ledger/runs/runtime-http-backends-2026-10-08T15-59-18-771Z-0e28ae/run.v2.json"
   },
   {
    "runId": "browser-navigation-frames-files-2026-10-08T16-26-23-841Z-410d88",
@@ -2469,7 +2469,7 @@
     "priority": null,
     "hostClass": null
    },
-   "imported": "results/browser-navigation-frames-files-2026-10-08T16-26-23-841Z-410d88/run.v2.json"
+   "imported": "ledger/runs/browser-navigation-frames-files-2026-10-08T16-26-23-841Z-410d88/run.v2.json"
   },
   {
    "runId": "browser-navigation-frames-files-2026-10-08T16-44-06-166Z-d35973",
@@ -2500,7 +2500,7 @@
     "priority": null,
     "hostClass": null
    },
-   "imported": "results/browser-navigation-frames-files-2026-10-08T16-44-06-166Z-d35973/run.v2.json"
+   "imported": "ledger/runs/browser-navigation-frames-files-2026-10-08T16-44-06-166Z-d35973/run.v2.json"
   },
   {
    "runId": "browser-actionability-extended-2026-10-08T16-46-59-186Z-c5a02a",
@@ -2531,7 +2531,7 @@
     "priority": null,
     "hostClass": null
    },
-   "imported": "results/browser-actionability-extended-2026-10-08T16-46-59-186Z-c5a02a/run.v2.json"
+   "imported": "ledger/runs/browser-actionability-extended-2026-10-08T16-46-59-186Z-c5a02a/run.v2.json"
   },
   {
    "runId": "browser-driver-primitives-2026-10-08T16-56-23-563Z-6a0bbd",
@@ -2562,7 +2562,7 @@
     "priority": null,
     "hostClass": null
    },
-   "imported": "results/browser-driver-primitives-2026-10-08T16-56-23-563Z-6a0bbd/run.v2.json"
+   "imported": "ledger/runs/browser-driver-primitives-2026-10-08T16-56-23-563Z-6a0bbd/run.v2.json"
   },
   {
    "runId": "http-incidents-2026-10-08T17-03-09-936Z-726cb0",
@@ -2593,7 +2593,7 @@
     "priority": null,
     "hostClass": null
    },
-   "imported": "results/http-incidents-2026-10-08T17-03-09-936Z-726cb0/run.v2.json"
+   "imported": "ledger/runs/http-incidents-2026-10-08T17-03-09-936Z-726cb0/run.v2.json"
   },
   {
    "runId": "http-incidents-2026-10-08T17-05-19-221Z-4848df",
@@ -2622,7 +2622,7 @@
     "priority": null,
     "hostClass": null
    },
-   "imported": "results/http-incidents-2026-10-08T17-05-19-221Z-4848df/run.v2.json"
+   "imported": "ledger/runs/http-incidents-2026-10-08T17-05-19-221Z-4848df/run.v2.json"
   },
   {
    "runId": "http-incidents-2026-10-08T17-07-35-305Z-73011e",
@@ -2653,7 +2653,7 @@
     "priority": null,
     "hostClass": null
    },
-   "imported": "results/http-incidents-2026-10-08T17-07-35-305Z-73011e/run.v2.json"
+   "imported": "ledger/runs/http-incidents-2026-10-08T17-07-35-305Z-73011e/run.v2.json"
   },
   {
    "runId": "access-policy-2026-10-08T17-12-08-988Z-a84605",
@@ -2682,7 +2682,7 @@
     "priority": null,
     "hostClass": null
    },
-   "imported": "results/access-policy-2026-10-08T17-12-08-988Z-a84605/run.v2.json"
+   "imported": "ledger/runs/access-policy-2026-10-08T17-12-08-988Z-a84605/run.v2.json"
   },
   {
    "runId": "access-policy-2026-10-08T17-13-44-790Z-ab211d",
@@ -2711,7 +2711,7 @@
     "priority": null,
     "hostClass": null
    },
-   "imported": "results/access-policy-2026-10-08T17-13-44-790Z-ab211d/run.v2.json"
+   "imported": "ledger/runs/access-policy-2026-10-08T17-13-44-790Z-ab211d/run.v2.json"
   },
   {
    "runId": "access-policy-2026-10-08T17-15-34-616Z-cad714",
@@ -2743,7 +2743,7 @@
     "priority": null,
     "hostClass": null
    },
-   "imported": "results/access-policy-2026-10-08T17-15-34-616Z-cad714/run.v2.json"
+   "imported": "ledger/runs/access-policy-2026-10-08T17-15-34-616Z-cad714/run.v2.json"
   },
   {
    "runId": "http-incidents-2026-10-08T17-20-57-511Z-c21c56",
@@ -2772,7 +2772,7 @@
     "priority": null,
     "hostClass": null
    },
-   "imported": "results/http-incidents-2026-10-08T17-20-57-511Z-c21c56/run.v2.json"
+   "imported": "ledger/runs/http-incidents-2026-10-08T17-20-57-511Z-c21c56/run.v2.json"
   },
   {
    "runId": "access-policy-2026-10-08T17-23-02-739Z-3c0b7b",
@@ -2801,7 +2801,7 @@
     "priority": null,
     "hostClass": null
    },
-   "imported": "results/access-policy-2026-10-08T17-23-02-739Z-3c0b7b/run.v2.json"
+   "imported": "ledger/runs/access-policy-2026-10-08T17-23-02-739Z-3c0b7b/run.v2.json"
   },
   {
    "runId": "http-incidents-2026-10-08T17-25-00-258Z-206e01",
@@ -2832,7 +2832,7 @@
     "priority": null,
     "hostClass": null
    },
-   "imported": "results/http-incidents-2026-10-08T17-25-00-258Z-206e01/run.v2.json"
+   "imported": "ledger/runs/http-incidents-2026-10-08T17-25-00-258Z-206e01/run.v2.json"
   },
   {
    "runId": "access-policy-2026-10-08T17-27-03-497Z-f99eb0",
@@ -2864,7 +2864,7 @@
     "priority": null,
     "hostClass": null
    },
-   "imported": "results/access-policy-2026-10-08T17-27-03-497Z-f99eb0/run.v2.json"
+   "imported": "ledger/runs/access-policy-2026-10-08T17-27-03-497Z-f99eb0/run.v2.json"
   },
   {
    "runId": "tls-fingerprint-2026-10-08T17-35-35-196Z-050e48",
@@ -2893,7 +2893,7 @@
     "priority": null,
     "hostClass": null
    },
-   "imported": "results/tls-fingerprint-2026-10-08T17-35-35-196Z-050e48/run.v2.json"
+   "imported": "ledger/runs/tls-fingerprint-2026-10-08T17-35-35-196Z-050e48/run.v2.json"
   },
   {
    "runId": "tls-fingerprint-2026-10-08T17-40-56-581Z-c17f5a",
@@ -2922,7 +2922,7 @@
     "priority": null,
     "hostClass": null
    },
-   "imported": "results/tls-fingerprint-2026-10-08T17-40-56-581Z-c17f5a/run.v2.json"
+   "imported": "ledger/runs/tls-fingerprint-2026-10-08T17-40-56-581Z-c17f5a/run.v2.json"
   },
   {
    "runId": "tls-fingerprint-2026-10-08T17-42-02-124Z-1dec60",
@@ -2954,7 +2954,7 @@
     "priority": null,
     "hostClass": null
    },
-   "imported": "results/tls-fingerprint-2026-10-08T17-42-02-124Z-1dec60/run.v2.json"
+   "imported": "ledger/runs/tls-fingerprint-2026-10-08T17-42-02-124Z-1dec60/run.v2.json"
   },
   {
    "runId": "runtime-faults-extended-2026-10-08T17-47-19-287Z-f1fb41",
@@ -2983,7 +2983,7 @@
     "priority": null,
     "hostClass": null
    },
-   "imported": "results/runtime-faults-extended-2026-10-08T17-47-19-287Z-f1fb41/run.v2.json"
+   "imported": "ledger/runs/runtime-faults-extended-2026-10-08T17-47-19-287Z-f1fb41/run.v2.json"
   },
   {
    "runId": "runtime-faults-extended-2026-10-08T17-49-02-487Z-54a5e6",
@@ -3014,7 +3014,7 @@
     "priority": null,
     "hostClass": null
    },
-   "imported": "results/runtime-faults-extended-2026-10-08T17-49-02-487Z-54a5e6/run.v2.json"
+   "imported": "ledger/runs/runtime-faults-extended-2026-10-08T17-49-02-487Z-54a5e6/run.v2.json"
   },
   {
    "runId": "extraction-quality-dev-2026-10-08T17-55-15-573Z-caa1d9",
@@ -3043,7 +3043,7 @@
     "priority": null,
     "hostClass": null
    },
-   "imported": "results/extraction-quality-dev-2026-10-08T17-55-15-573Z-caa1d9/run.v2.json"
+   "imported": "ledger/runs/extraction-quality-dev-2026-10-08T17-55-15-573Z-caa1d9/run.v2.json"
   },
   {
    "runId": "extraction-quality-dev-2026-10-08T17-58-37-038Z-ee347f",
@@ -3079,7 +3079,7 @@
     "priority": null,
     "hostClass": null
    },
-   "imported": "results/extraction-quality-dev-2026-10-08T17-58-37-038Z-ee347f/run.v2.json"
+   "imported": "ledger/runs/extraction-quality-dev-2026-10-08T17-58-37-038Z-ee347f/run.v2.json"
   },
   {
    "runId": "extraction-quality-test-2026-10-08T18-00-46-463Z-751a55",
@@ -3115,7 +3115,7 @@
     "priority": null,
     "hostClass": null
    },
-   "imported": "results/extraction-quality-test-2026-10-08T18-00-46-463Z-751a55/run.v2.json"
+   "imported": "ledger/runs/extraction-quality-test-2026-10-08T18-00-46-463Z-751a55/run.v2.json"
   },
   {
    "runId": "light-engine-compat-native-2026-10-08T18-04-04-641Z-9c880a",
@@ -3144,7 +3144,7 @@
     "priority": null,
     "hostClass": null
    },
-   "imported": "results/light-engine-compat-native-2026-10-08T18-04-04-641Z-9c880a/run.v2.json"
+   "imported": "ledger/runs/light-engine-compat-native-2026-10-08T18-04-04-641Z-9c880a/run.v2.json"
   },
   {
    "runId": "light-engine-compat-guarded-2026-10-08T18-04-38-930Z-569382",
@@ -3173,7 +3173,7 @@
     "priority": null,
     "hostClass": null
    },
-   "imported": "results/light-engine-compat-guarded-2026-10-08T18-04-38-930Z-569382/run.v2.json"
+   "imported": "ledger/runs/light-engine-compat-guarded-2026-10-08T18-04-38-930Z-569382/run.v2.json"
   },
   {
    "runId": "light-engine-actionability-2026-10-08T18-05-49-043Z-f0bb5d",
@@ -3202,7 +3202,7 @@
     "priority": null,
     "hostClass": null
    },
-   "imported": "results/light-engine-actionability-2026-10-08T18-05-49-043Z-f0bb5d/run.v2.json"
+   "imported": "ledger/runs/light-engine-actionability-2026-10-08T18-05-49-043Z-f0bb5d/run.v2.json"
   },
   {
    "runId": "light-engine-primitives-2026-10-08T18-07-32-791Z-e50594",
@@ -3231,7 +3231,7 @@
     "priority": null,
     "hostClass": null
    },
-   "imported": "results/light-engine-primitives-2026-10-08T18-07-32-791Z-e50594/run.v2.json"
+   "imported": "ledger/runs/light-engine-primitives-2026-10-08T18-07-32-791Z-e50594/run.v2.json"
   },
   {
    "runId": "light-engine-navigation-2026-10-08T18-09-44-266Z-9355b8",
@@ -3260,7 +3260,7 @@
     "priority": null,
     "hostClass": null
    },
-   "imported": "results/light-engine-navigation-2026-10-08T18-09-44-266Z-9355b8/run.v2.json"
+   "imported": "ledger/runs/light-engine-navigation-2026-10-08T18-09-44-266Z-9355b8/run.v2.json"
   },
   {
    "runId": "light-engine-compat-native-2026-10-08T18-16-40-008Z-f659d1",
@@ -3291,7 +3291,7 @@
     "priority": null,
     "hostClass": null
    },
-   "imported": "results/light-engine-compat-native-2026-10-08T18-16-40-008Z-f659d1/run.v2.json"
+   "imported": "ledger/runs/light-engine-compat-native-2026-10-08T18-16-40-008Z-f659d1/run.v2.json"
   },
   {
    "runId": "light-engine-compat-guarded-2026-10-08T18-17-15-329Z-6d44f1",
@@ -3322,7 +3322,7 @@
     "priority": null,
     "hostClass": null
    },
-   "imported": "results/light-engine-compat-guarded-2026-10-08T18-17-15-329Z-6d44f1/run.v2.json"
+   "imported": "ledger/runs/light-engine-compat-guarded-2026-10-08T18-17-15-329Z-6d44f1/run.v2.json"
   },
   {
    "runId": "light-engine-actionability-2026-10-08T18-17-53-360Z-1d5ca3",
@@ -3353,7 +3353,7 @@
     "priority": null,
     "hostClass": null
    },
-   "imported": "results/light-engine-actionability-2026-10-08T18-17-53-360Z-1d5ca3/run.v2.json"
+   "imported": "ledger/runs/light-engine-actionability-2026-10-08T18-17-53-360Z-1d5ca3/run.v2.json"
   },
   {
    "runId": "light-engine-primitives-2026-10-08T18-19-11-980Z-d7f0e3",
@@ -3384,7 +3384,7 @@
     "priority": null,
     "hostClass": null
    },
-   "imported": "results/light-engine-primitives-2026-10-08T18-19-11-980Z-d7f0e3/run.v2.json"
+   "imported": "ledger/runs/light-engine-primitives-2026-10-08T18-19-11-980Z-d7f0e3/run.v2.json"
   },
   {
    "runId": "light-engine-navigation-2026-10-08T18-21-06-891Z-318afe",
@@ -3415,7 +3415,7 @@
     "priority": null,
     "hostClass": null
    },
-   "imported": "results/light-engine-navigation-2026-10-08T18-21-06-891Z-318afe/run.v2.json"
+   "imported": "ledger/runs/light-engine-navigation-2026-10-08T18-21-06-891Z-318afe/run.v2.json"
   },
   {
    "runId": "ai-replay-repair-2026-10-08T18-32-22-360Z-37ef9d",
@@ -3444,7 +3444,7 @@
     "priority": null,
     "hostClass": null
    },
-   "imported": "results/ai-replay-repair-2026-10-08T18-32-22-360Z-37ef9d/run.v2.json"
+   "imported": "ledger/runs/ai-replay-repair-2026-10-08T18-32-22-360Z-37ef9d/run.v2.json"
   },
   {
    "runId": "ai-replay-repair-2026-10-08T18-33-18-796Z-20040a",
@@ -3473,7 +3473,7 @@
     "priority": null,
     "hostClass": null
    },
-   "imported": "results/ai-replay-repair-2026-10-08T18-33-18-796Z-20040a/run.v2.json"
+   "imported": "ledger/runs/ai-replay-repair-2026-10-08T18-33-18-796Z-20040a/run.v2.json"
   },
   {
    "runId": "ai-replay-repair-2026-10-08T18-34-35-116Z-9d2545",
@@ -3502,7 +3502,7 @@
     "priority": null,
     "hostClass": null
    },
-   "imported": "results/ai-replay-repair-2026-10-08T18-34-35-116Z-9d2545/run.v2.json"
+   "imported": "ledger/runs/ai-replay-repair-2026-10-08T18-34-35-116Z-9d2545/run.v2.json"
   },
   {
    "runId": "ai-replay-repair-2026-10-08T18-36-20-202Z-8f0ce3",
@@ -3538,7 +3538,7 @@
     "priority": null,
     "hostClass": null
    },
-   "imported": "results/ai-replay-repair-2026-10-08T18-36-20-202Z-8f0ce3/run.v2.json"
+   "imported": "ledger/runs/ai-replay-repair-2026-10-08T18-36-20-202Z-8f0ce3/run.v2.json"
   },
   {
    "runId": "identity-coherence-2026-10-08T19-01-12-225Z-2b3452",
@@ -3567,7 +3567,7 @@
     "priority": null,
     "hostClass": null
    },
-   "imported": "results/identity-coherence-2026-10-08T19-01-12-225Z-2b3452/run.v2.json"
+   "imported": "ledger/runs/identity-coherence-2026-10-08T19-01-12-225Z-2b3452/run.v2.json"
   },
   {
    "runId": "policy-fixtures-2026-10-08T19-06-24-241Z-00a1ff",
@@ -3630,7 +3630,7 @@
     "priority": null,
     "hostClass": null
    },
-   "imported": "results/identity-coherence-2026-10-08T19-08-09-611Z-deb797/run.v2.json"
+   "imported": "ledger/runs/identity-coherence-2026-10-08T19-08-09-611Z-deb797/run.v2.json"
   },
   {
    "runId": "policy-fixtures-2026-10-08T19-11-08-127Z-31838d",
@@ -3661,7 +3661,7 @@
     "priority": null,
     "hostClass": null
    },
-   "imported": "results/policy-fixtures-2026-10-08T19-11-08-127Z-31838d/run.v2.json"
+   "imported": "ledger/runs/policy-fixtures-2026-10-08T19-11-08-127Z-31838d/run.v2.json"
   },
   {
    "runId": "session-isolation-2026-10-08T19-15-24-150Z-001cf2",
@@ -3690,7 +3690,7 @@
     "priority": null,
     "hostClass": null
    },
-   "imported": "results/session-isolation-2026-10-08T19-15-24-150Z-001cf2/run.v2.json"
+   "imported": "ledger/runs/session-isolation-2026-10-08T19-15-24-150Z-001cf2/run.v2.json"
   },
   {
    "runId": "durable-admission-2026-10-08T19-22-31-770Z-5ab034",
@@ -3725,7 +3725,7 @@
     "priority": null,
     "hostClass": null
    },
-   "imported": "results/durable-admission-2026-10-08T19-22-31-770Z-5ab034/run.v2.json"
+   "imported": "ledger/runs/durable-admission-2026-10-08T19-22-31-770Z-5ab034/run.v2.json"
   },
   {
    "runId": "durable-scheduler-2026-10-08T19-23-13-402Z-a1f48f",
@@ -3760,7 +3760,7 @@
     "priority": null,
     "hostClass": null
    },
-   "imported": "results/durable-scheduler-2026-10-08T19-23-13-402Z-a1f48f/run.v2.json"
+   "imported": "ledger/runs/durable-scheduler-2026-10-08T19-23-13-402Z-a1f48f/run.v2.json"
   },
   {
    "runId": "tls-fingerprint-2026-10-08T19-32-26-736Z-f42991",
@@ -3792,7 +3792,7 @@
     "priority": null,
     "hostClass": null
    },
-   "imported": "results/tls-fingerprint-2026-10-08T19-32-26-736Z-f42991/run.v2.json"
+   "imported": "ledger/runs/tls-fingerprint-2026-10-08T19-32-26-736Z-f42991/run.v2.json"
   },
   {
    "runId": "identity-coherence-2026-10-08T19-32-36-456Z-419b62",
@@ -3828,7 +3828,7 @@
     "priority": "P2",
     "hostClass": "local-controlled"
    },
-   "imported": "results/identity-coherence-2026-10-08T19-32-36-456Z-419b62/run.v2.json"
+   "imported": "ledger/runs/identity-coherence-2026-10-08T19-32-36-456Z-419b62/run.v2.json"
   },
   {
    "runId": "session-isolation-2026-10-08T19-34-55-558Z-f91765",
@@ -3859,7 +3859,7 @@
     "priority": null,
     "hostClass": null
    },
-   "imported": "results/session-isolation-2026-10-08T19-34-55-558Z-f91765/run.v2.json"
+   "imported": "ledger/runs/session-isolation-2026-10-08T19-34-55-558Z-f91765/run.v2.json"
   },
   {
    "runId": "proxy-pool-2026-10-08T19-35-52-648Z-de827b",
@@ -3890,7 +3890,7 @@
     "priority": null,
     "hostClass": null
    },
-   "imported": "results/proxy-pool-2026-10-08T19-35-52-648Z-de827b/run.v2.json"
+   "imported": "ledger/runs/proxy-pool-2026-10-08T19-35-52-648Z-de827b/run.v2.json"
   },
   {
    "runId": "durable-admission-2026-10-08T19-43-14-860Z-b8ad5b",
@@ -3927,7 +3927,7 @@
     "priority": "P1",
     "hostClass": "local-controlled"
    },
-   "imported": "results/durable-admission-2026-10-08T19-43-14-860Z-b8ad5b/run.v2.json"
+   "imported": "ledger/runs/durable-admission-2026-10-08T19-43-14-860Z-b8ad5b/run.v2.json"
   },
   {
    "runId": "durable-scheduler-2026-10-08T19-43-56-509Z-dfabee",
@@ -3964,7 +3964,7 @@
     "priority": "P1",
     "hostClass": "local-controlled"
    },
-   "imported": "results/durable-scheduler-2026-10-08T19-43-56-509Z-dfabee/run.v2.json"
+   "imported": "ledger/runs/durable-scheduler-2026-10-08T19-43-56-509Z-dfabee/run.v2.json"
   },
   {
    "runId": "durable-admission-recovery-2026-10-08T19-44-42-896Z-88a50f",
@@ -3993,7 +3993,7 @@
     "priority": null,
     "hostClass": null
    },
-   "imported": "results/durable-admission-recovery-2026-10-08T19-44-42-896Z-88a50f/run.v2.json"
+   "imported": "ledger/runs/durable-admission-recovery-2026-10-08T19-44-42-896Z-88a50f/run.v2.json"
   },
   {
    "runId": "durable-admission-recovery-2026-10-08T19-49-28-380Z-2249bb",
@@ -4022,7 +4022,7 @@
     "priority": null,
     "hostClass": null
    },
-   "imported": "results/durable-admission-recovery-2026-10-08T19-49-28-380Z-2249bb/run.v2.json"
+   "imported": "ledger/runs/durable-admission-recovery-2026-10-08T19-49-28-380Z-2249bb/run.v2.json"
   },
   {
    "runId": "durable-admission-recovery-2026-10-08T19-50-26-865Z-f4c814",
@@ -4053,7 +4053,7 @@
     "priority": null,
     "hostClass": null
    },
-   "imported": "results/durable-admission-recovery-2026-10-08T19-50-26-865Z-f4c814/run.v2.json"
+   "imported": "ledger/runs/durable-admission-recovery-2026-10-08T19-50-26-865Z-f4c814/run.v2.json"
   },
   {
    "runId": "extraction-rendered-test-2026-10-08T19-58-30-657Z-5e2d46",
@@ -4083,7 +4083,7 @@
     "priority": null,
     "hostClass": null
    },
-   "imported": "results/extraction-rendered-test-2026-10-08T19-58-30-657Z-5e2d46/run.v2.json"
+   "imported": "ledger/runs/extraction-rendered-test-2026-10-08T19-58-30-657Z-5e2d46/run.v2.json"
   },
   {
    "runId": "extraction-rendered-test-2026-10-08T20-01-54-598Z-94e927",
@@ -4113,7 +4113,7 @@
     "priority": null,
     "hostClass": null
    },
-   "imported": "results/extraction-rendered-test-2026-10-08T20-01-54-598Z-94e927/run.v2.json"
+   "imported": "ledger/runs/extraction-rendered-test-2026-10-08T20-01-54-598Z-94e927/run.v2.json"
   },
   {
    "runId": "extraction-rendered-test-2026-10-08T20-09-03-136Z-e2e504",
@@ -4143,7 +4143,7 @@
     "priority": null,
     "hostClass": null
    },
-   "imported": "results/extraction-rendered-test-2026-10-08T20-09-03-136Z-e2e504/run.v2.json"
+   "imported": "ledger/runs/extraction-rendered-test-2026-10-08T20-09-03-136Z-e2e504/run.v2.json"
   },
   {
    "runId": "extraction-rendered-test-2026-10-08T20-14-39-618Z-9f5f67",
@@ -4180,7 +4180,7 @@
     "priority": "P2",
     "hostClass": "local-controlled"
    },
-   "imported": "results/extraction-rendered-test-2026-10-08T20-14-39-618Z-9f5f67/run.v2.json"
+   "imported": "ledger/runs/extraction-rendered-test-2026-10-08T20-14-39-618Z-9f5f67/run.v2.json"
   },
   {
    "runId": "ai-real-models-2026-10-08T22-15-04-120Z-d70ce2",
@@ -4216,7 +4216,72 @@
     "priority": null,
     "hostClass": null
    },
-   "imported": "results/ai-real-models-2026-10-08T22-15-04-120Z-d70ce2/run.v2.json"
+   "imported": "ledger/runs/ai-real-models-2026-10-08T22-15-04-120Z-d70ce2/run.v2.json"
+  },
+  {
+   "runId": "interface-arena-2026-10-08T22-31-38-074Z-164ce5",
+   "lane": "ai",
+   "campaign": "interface-arena",
+   "startedAt": "2026-10-08T22:31:38.074Z",
+   "status": "complete",
+   "hostClass": "local-dev",
+   "role": "diagnostic",
+   "supersededBy": "interface-arena-2026-10-08T23-05-03-060Z-3c8d7c",
+   "reason": "surface sans messages de statut, réservation jugée avant la confirmation, mode code sans trace",
+   "validity": [
+    {
+     "scope": "all",
+     "class": "none",
+     "note": "surface et harnais corrigés ensuite"
+    }
+   ],
+   "decisionIds": [
+    "D-agent-interface"
+   ],
+   "citedIn": [],
+   "integrity": "uncatalogued",
+   "rerun": {
+    "required": false,
+    "priority": null,
+    "hostClass": null
+   },
+   "imported": "ledger/runs/interface-arena-2026-10-08T22-31-38-074Z-164ce5/run.v2.json"
+  },
+  {
+   "runId": "interface-arena-2026-10-08T23-05-03-060Z-3c8d7c",
+   "lane": "ai",
+   "campaign": "interface-arena",
+   "startedAt": "2026-10-08T23:05:03.060Z",
+   "status": "complete",
+   "hostClass": "local-dev",
+   "role": "selected",
+   "supersededBy": null,
+   "reason": "arène des interfaces : même tâche par MCP, outils de fonction, CLI et code, trois vrais modèles",
+   "validity": [
+    {
+     "scope": "interface-contract",
+     "class": "A",
+     "note": "oracle de la page, faux succès comptés"
+    },
+    {
+     "scope": "cost",
+     "class": "A",
+     "note": "coût de la passerelle par appel"
+    }
+   ],
+   "decisionIds": [
+    "D-agent-interface"
+   ],
+   "citedIn": [
+    "lab/reports/interface-arena-2026-10-09.md"
+   ],
+   "integrity": "uncatalogued",
+   "rerun": {
+    "required": false,
+    "priority": null,
+    "hostClass": null
+   },
+   "imported": "ledger/runs/interface-arena-2026-10-08T23-05-03-060Z-3c8d7c/run.v2.json"
   }
  ]
 }

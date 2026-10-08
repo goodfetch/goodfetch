@@ -1,0 +1,399 @@
+{
+ "schemaVersion": 1,
+ "decisionId": "D-agent-interface",
+ "metricId": "interface-turns-per-task",
+ "direction": "lower",
+ "rule": {
+  "kind": "superiority",
+  "alpha": 0.05,
+  "power": 0.8,
+  "noisyBlockPolicy": "exclude"
+ },
+ "delta": {
+  "kind": "ratio",
+  "value": 0.15
+ },
+ "option": "cli",
+ "baseline": "mcp",
+ "stratum": {
+  "variant": "baseline"
+ },
+ "outcome": "insufficient-n",
+ "n": 9,
+ "margin": 0.13976194237515863,
+ "requiredN": 196,
+ "estimate": {
+  "meanLogRatio": 0.1116222260782948,
+  "ratio": 1.1180903954583912,
+  "ci": [
+   -0.296060838561399,
+   0.53506165759892
+  ],
+  "ratioCi": [
+   0.7437421784395459,
+   1.7075535226587442
+  ],
+  "hodgesLehmannRatio": 1.0894095588038444,
+  "wilcoxon": {
+   "n": 9,
+   "wPlus": 27,
+   "pValue": 0.6343945723573274,
+   "method": "normal"
+  },
+  "interval": "95% block bootstrap"
+ },
+ "gates": [
+  {
+   "id": "oracle-exact",
+   "ok": true,
+   "evaluated": true
+  }
+ ],
+ "host": {
+  "required": "local-controlled",
+  "observed": "local-dev",
+  "eligible": false
+ },
+ "comparisons": [
+  {
+   "option": "cli",
+   "baseline": "mcp",
+   "stratum": {
+    "variant": "baseline"
+   },
+   "outcome": "insufficient-n",
+   "n": 9,
+   "margin": 0.13976194237515863,
+   "requiredN": 196,
+   "estimate": {
+    "meanLogRatio": 0.1116222260782948,
+    "ratio": 1.1180903954583912,
+    "ci": [
+     -0.296060838561399,
+     0.53506165759892
+    ],
+    "ratioCi": [
+     0.7437421784395459,
+     1.7075535226587442
+    ],
+    "hodgesLehmannRatio": 1.0894095588038444,
+    "wilcoxon": {
+     "n": 9,
+     "wPlus": 27,
+     "pValue": 0.6343945723573274,
+     "method": "normal"
+    },
+    "interval": "95% block bootstrap"
+   },
+   "gates": [
+    {
+     "id": "oracle-exact",
+     "ok": true,
+     "evaluated": true
+    }
+   ],
+   "host": {
+    "required": "local-controlled",
+    "observed": "local-dev",
+    "eligible": false
+   }
+  },
+  {
+   "option": "cli",
+   "baseline": "mcp",
+   "stratum": {
+    "variant": "decoy-swap"
+   },
+   "outcome": "insufficient-n",
+   "n": 9,
+   "margin": 0.13976194237515863,
+   "requiredN": 56,
+   "estimate": {
+    "meanLogRatio": -0.13886088256432091,
+    "ratio": 0.8703491007714663,
+    "ci": [
+     -0.36899870371399646,
+     0.08284149519761301
+    ],
+    "ratioCi": [
+     0.6914263067359715,
+     1.0863696001018823
+    ],
+    "hodgesLehmannRatio": 0.9047619047619048,
+    "wilcoxon": {
+     "n": 8,
+     "wPlus": 11,
+     "pValue": 0.3621375249479091,
+     "method": "normal"
+    },
+    "interval": "95% block bootstrap"
+   },
+   "gates": [
+    {
+     "id": "oracle-exact",
+     "ok": true,
+     "evaluated": true
+    }
+   ],
+   "host": {
+    "required": "local-controlled",
+    "observed": "local-dev",
+    "eligible": false
+   }
+  },
+  {
+   "option": "cli",
+   "baseline": "mcp",
+   "stratum": {
+    "variant": "price-change"
+   },
+   "outcome": "insufficient-n",
+   "n": 9,
+   "margin": 0.13976194237515863,
+   "requiredN": 16,
+   "estimate": {
+    "meanLogRatio": 0.3170115775444992,
+    "ratio": 1.3730184680158515,
+    "ci": [
+     0.19757871509441094,
+     0.4364444399945874
+    ],
+    "ratioCi": [
+     1.2184489715207714,
+     1.5471962778709263
+    ],
+    "hodgesLehmannRatio": 1.3333333333333333,
+    "wilcoxon": {
+     "n": 9,
+     "wPlus": 44,
+     "pValue": 0.011023462803152029,
+     "method": "normal"
+    },
+    "interval": "95% block bootstrap"
+   },
+   "gates": [
+    {
+     "id": "oracle-exact",
+     "ok": true,
+     "evaluated": true
+    }
+   ],
+   "host": {
+    "required": "local-controlled",
+    "observed": "local-dev",
+    "eligible": false
+   }
+  },
+  {
+   "option": "sdk",
+   "baseline": "mcp",
+   "stratum": {
+    "variant": "baseline"
+   },
+   "outcome": "insufficient-n",
+   "n": 9,
+   "margin": 0.13976194237515863,
+   "requiredN": 19,
+   "estimate": {
+    "meanLogRatio": 0.012445584063404687,
+    "ratio": 1.0125233526349604,
+    "ci": [
+     -0.12862585046345365,
+     0.13146296374056188
+    ],
+    "ratioCi": [
+     0.8793028947779511,
+     1.1404956672467412
+    ],
+    "hodgesLehmannRatio": 1.0350983390135313,
+    "wilcoxon": {
+     "n": 6,
+     "wPlus": 13,
+     "pValue": 0.6875,
+     "method": "exact"
+    },
+    "interval": "95% block bootstrap"
+   },
+   "gates": [
+    {
+     "id": "oracle-exact",
+     "ok": true,
+     "evaluated": true
+    }
+   ],
+   "host": {
+    "required": "local-controlled",
+    "observed": "local-dev",
+    "eligible": false
+   }
+  },
+  {
+   "option": "sdk",
+   "baseline": "mcp",
+   "stratum": {
+    "variant": "decoy-swap"
+   },
+   "outcome": "equivalent",
+   "n": 9,
+   "margin": 0.13976194237515863,
+   "requiredN": 5,
+   "estimate": {
+    "meanLogRatio": -0.004509475568342047,
+    "ratio": 0.9955006768501812,
+    "ci": [
+     -0.029871548010673186,
+     0.02151201193174625
+    ],
+    "ratioCi": [
+     0.9705701972143024,
+     1.0217450633956338
+    ],
+    "hodgesLehmannRatio": 1,
+    "wilcoxon": {
+     "n": 3,
+     "wPlus": 3,
+     "pValue": 1,
+     "method": "exact"
+    },
+    "interval": "95% block bootstrap"
+   },
+   "gates": [
+    {
+     "id": "oracle-exact",
+     "ok": true,
+     "evaluated": true
+    }
+   ],
+   "host": {
+    "required": "local-controlled",
+    "observed": "local-dev",
+    "eligible": false
+   }
+  },
+  {
+   "option": "sdk",
+   "baseline": "mcp",
+   "stratum": {
+    "variant": "price-change"
+   },
+   "outcome": "equivalent",
+   "n": 9,
+   "margin": 0.13976194237515863,
+   "requiredN": 8,
+   "estimate": {
+    "meanLogRatio": -0.04505167867868494,
+    "ratio": 0.9559480784229751,
+    "ci": [
+     -0.13515503603605483,
+     0
+    ],
+    "ratioCi": [
+     0.8735804647362988,
+     1
+    ],
+    "hodgesLehmannRatio": 1,
+    "wilcoxon": {
+     "n": 1,
+     "wPlus": 0,
+     "pValue": 1,
+     "method": "exact"
+    },
+    "interval": "95% block bootstrap"
+   },
+   "gates": [
+    {
+     "id": "oracle-exact",
+     "ok": true,
+     "evaluated": true
+    }
+   ],
+   "host": {
+    "required": "local-controlled",
+    "observed": "local-dev",
+    "eligible": false
+   }
+  },
+  {
+   "option": "code-mode",
+   "baseline": "mcp",
+   "stratum": {
+    "variant": "baseline"
+   },
+   "outcome": "blocked-by-contract",
+   "n": 7,
+   "margin": 0.13976194237515863,
+   "requiredN": null,
+   "estimate": null,
+   "gates": [
+    {
+     "id": "oracle-exact",
+     "ok": false,
+     "evaluated": true
+    }
+   ],
+   "host": {
+    "required": "local-controlled",
+    "observed": "local-dev",
+    "eligible": false
+   }
+  },
+  {
+   "option": "code-mode",
+   "baseline": "mcp",
+   "stratum": {
+    "variant": "decoy-swap"
+   },
+   "outcome": "blocked-by-contract",
+   "n": 6,
+   "margin": 0.13976194237515863,
+   "requiredN": null,
+   "estimate": null,
+   "gates": [
+    {
+     "id": "oracle-exact",
+     "ok": false,
+     "evaluated": true
+    }
+   ],
+   "host": {
+    "required": "local-controlled",
+    "observed": "local-dev",
+    "eligible": false
+   }
+  },
+  {
+   "option": "code-mode",
+   "baseline": "mcp",
+   "stratum": {
+    "variant": "price-change"
+   },
+   "outcome": "blocked-by-contract",
+   "n": 9,
+   "margin": 0.13976194237515863,
+   "requiredN": null,
+   "estimate": null,
+   "gates": [
+    {
+     "id": "oracle-exact",
+     "ok": false,
+     "evaluated": true
+    }
+   ],
+   "host": {
+    "required": "local-controlled",
+    "observed": "local-dev",
+    "eligible": false
+   }
+  }
+ ],
+ "inputs": {
+  "runs": [
+   "interface-arena-2026-10-08T23-05-03-060Z-3c8d7c"
+  ],
+  "considered": [
+   "interface-arena-2026-10-08T23-05-03-060Z-3c8d7c"
+  ],
+  "missing": [],
+  "ledgerSha256": "28c8d90555ea2f3ded9ff49d3f403bc7d2415c0bfb365fd76aec887fe059e085"
+ }
+}

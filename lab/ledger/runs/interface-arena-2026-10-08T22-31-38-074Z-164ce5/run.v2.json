@@ -1,0 +1,5162 @@
+{
+ "schemaVersion": 2,
+ "runId": "interface-arena-2026-10-08T22-31-38-074Z-164ce5",
+ "lane": "ai",
+ "campaign": {
+  "id": "interface-arena",
+  "source": "campaigns/v2/ai/interface-arena.json",
+  "sha256": "968f9526a1d7242c8f4cf8c8d5109dec983652ee8844a6923a55d85aad8b42a0"
+ },
+ "startedAt": "2026-10-08T22:31:38.074Z",
+ "decisionIds": [
+  "D-agent-interface"
+ ],
+ "provenance": {
+  "git": {
+   "available": true,
+   "sha": "33de22c358d4cef3325ae1a246a914cbaedc7723",
+   "dirty": false
+  },
+  "sourceTreeSha256": "1d41514b531562e9171306a2e0ec344a01cf8006ac10ca117b6670a5114f720a",
+  "sourceChanges": 0,
+  "binaryChanges": null,
+  "toolchains": {
+   "node": "v25.5.0",
+   "rustc": "rustc 1.93.0 (254b59607 2026-01-19)",
+   "go": "go version go1.27.1 darwin/arm64",
+   "pnpm": "12.9.1"
+  },
+  "integrity": {
+   "status": "uncatalogued",
+   "checked": 0,
+   "mismatches": []
+  }
+ },
+ "host": {
+  "classRequested": "local-dev",
+  "classGranted": "local-dev",
+  "os": "darwin",
+  "arch": "arm64",
+  "cpu": "Apple M3 Max",
+  "logicalCpus": 14,
+  "memoryBytes": 38654705664,
+  "preflight": {
+   "snapshot": {
+    "os": "darwin",
+    "arch": "arm64",
+    "cpu": "Apple M3 Max",
+    "logicalCpus": 14,
+    "memoryBytes": 38654705664,
+    "loadAverage1m": 11.17919921875,
+    "memoryFreePercent": 50,
+    "thermalWarning": false,
+    "onAC": true,
+    "lowPowerMode": false,
+    "foreignCpuPercent": 206.79999999999993,
+    "foreignTop": [
+     {
+      "command": "WindowServer",
+      "cpuPercent": 43.4
+     },
+     {
+      "command": "com.apple.Virtualization.VirtualMachine",
+      "cpuPercent": 17.7
+     },
+     {
+      "command": "Google Chrome Helper",
+      "cpuPercent": 16.1
+     },
+     {
+      "command": "Google Chrome",
+      "cpuPercent": 12.2
+     },
+     {
+      "command": "Codex (Renderer)",
+      "cpuPercent": 9.5
+     }
+    ],
+    "cpuGovernor": null,
+    "virtualized": false,
+    "controllerCpuPercent": 25.400000000000006
+   },
+   "gates": []
+  },
+  "postflight": {
+   "snapshot": {
+    "os": "darwin",
+    "arch": "arm64",
+    "cpu": "Apple M3 Max",
+    "logicalCpus": 14,
+    "memoryBytes": 38654705664,
+    "loadAverage1m": 5.82275390625,
+    "memoryFreePercent": 51,
+    "thermalWarning": false,
+    "onAC": false,
+    "lowPowerMode": false,
+    "foreignCpuPercent": 241.49999999999986,
+    "foreignTop": [
+     {
+      "command": "WindowServer",
+      "cpuPercent": 48.3
+     },
+     {
+      "command": "Sauce",
+      "cpuPercent": 20
+     },
+     {
+      "command": "Google Chrome Helper (Renderer)",
+      "cpuPercent": 16.9
+     },
+     {
+      "command": "Google Chrome Helper",
+      "cpuPercent": 16.1
+     },
+     {
+      "command": "com.apple.Virtualization.VirtualMachine",
+      "cpuPercent": 12.1
+     }
+    ],
+    "cpuGovernor": null,
+    "virtualized": false,
+    "controllerCpuPercent": 41.30000000000001
+   }
+  }
+ },
+ "status": "complete",
+ "countUnit": "cell",
+ "cells": [
+  {
+   "cellId": "e98827a01646-0",
+   "factors": {
+    "model": "google/gemini-3.1-flash-lite",
+    "interface": "cli",
+    "variant": "baseline",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "tokens-per-verified-task": {
+     "value": 930,
+     "unit": "token/task",
+     "source": "lane; fake model accounting over the session, dated price table"
+    },
+    "model-usd-per-1k-verified": {
+     "value": 0.35375000000000006,
+     "unit": "USD/1k",
+     "source": "lane; fake model accounting over the session, dated price table"
+    },
+    "interface-turns-per-task": {
+     "value": 3,
+     "unit": "turn/task",
+     "source": "lane; model turns over verified tasks through one interface"
+    },
+    "task-p50-ms-verified": {
+     "value": 2189.2048749999994,
+     "unit": "ms",
+     "source": "lane; whole task including model latency"
+    }
+   }
+  },
+  {
+   "cellId": "30a165caa338-1",
+   "factors": {
+    "model": "google/gemini-3.1-flash-lite",
+    "interface": "mcp",
+    "variant": "decoy-swap",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "tokens-per-verified-task": {
+     "value": 3045,
+     "unit": "token/task",
+     "source": "lane; fake model accounting over the session, dated price table"
+    },
+    "model-usd-per-1k-verified": {
+     "value": 0.9137500000000001,
+     "unit": "USD/1k",
+     "source": "lane; fake model accounting over the session, dated price table"
+    },
+    "interface-turns-per-task": {
+     "value": 7,
+     "unit": "turn/task",
+     "source": "lane; model turns over verified tasks through one interface"
+    },
+    "task-p50-ms-verified": {
+     "value": 5161.078917000001,
+     "unit": "ms",
+     "source": "lane; whole task including model latency"
+    }
+   }
+  },
+  {
+   "cellId": "fce62fcc592f-2",
+   "factors": {
+    "model": "anthropic/claude-haiku-5.5",
+    "interface": "sdk",
+    "variant": "baseline",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "tokens-per-verified-task": {
+     "value": 9221.666666666666,
+     "unit": "token/task",
+     "source": "lane; fake model accounting over the session, dated price table"
+    },
+    "model-usd-per-1k-verified": {
+     "value": 1.3489666666666666,
+     "unit": "USD/1k",
+     "source": "lane; fake model accounting over the session, dated price table"
+    },
+    "interface-turns-per-task": {
+     "value": 5,
+     "unit": "turn/task",
+     "source": "lane; model turns over verified tasks through one interface"
+    },
+    "task-p50-ms-verified": {
+     "value": 8073.243625000003,
+     "unit": "ms",
+     "source": "lane; whole task including model latency"
+    }
+   }
+  },
+  {
+   "cellId": "3ab6eb481e6b-3",
+   "factors": {
+    "model": "google/gemini-3.1-flash-lite",
+    "interface": "sdk",
+    "variant": "baseline",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "tokens-per-verified-task": {
+     "value": 2919,
+     "unit": "token/task",
+     "source": "lane; fake model accounting over the session, dated price table"
+    },
+    "model-usd-per-1k-verified": {
+     "value": 0.8659999999999999,
+     "unit": "USD/1k",
+     "source": "lane; fake model accounting over the session, dated price table"
+    },
+    "interface-turns-per-task": {
+     "value": 7,
+     "unit": "turn/task",
+     "source": "lane; model turns over verified tasks through one interface"
+    },
+    "task-p50-ms-verified": {
+     "value": 6089.740166000003,
+     "unit": "ms",
+     "source": "lane; whole task including model latency"
+    }
+   }
+  },
+  {
+   "cellId": "05ca31367ddf-4",
+   "factors": {
+    "model": "openai/gpt-5.6-luna",
+    "interface": "sdk",
+    "variant": "price-change",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "tokens-per-verified-task": {
+     "value": 1314.6666666666667,
+     "unit": "token/task",
+     "source": "lane; fake model accounting over the session, dated price table"
+    },
+    "model-usd-per-1k-verified": {
+     "value": 0.3366,
+     "unit": "USD/1k",
+     "source": "lane; fake model accounting over the session, dated price table"
+    },
+    "interface-turns-per-task": {
+     "value": 3,
+     "unit": "turn/task",
+     "source": "lane; model turns over verified tasks through one interface"
+    },
+    "task-p50-ms-verified": {
+     "value": 3441.4225000000006,
+     "unit": "ms",
+     "source": "lane; whole task including model latency"
+    }
+   }
+  },
+  {
+   "cellId": "dfdd48703aeb-5",
+   "factors": {
+    "model": "anthropic/claude-haiku-5.5",
+    "interface": "cli",
+    "variant": "baseline",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "tokens-per-verified-task": {
+     "value": null,
+     "unit": "token/task",
+     "source": "lane; fake model accounting over the session, dated price table"
+    },
+    "model-usd-per-1k-verified": {
+     "value": null,
+     "unit": "USD/1k",
+     "source": "lane; fake model accounting over the session, dated price table"
+    },
+    "interface-turns-per-task": {
+     "value": null,
+     "unit": "turn/task",
+     "source": "lane; model turns over verified tasks through one interface"
+    },
+    "task-p50-ms-verified": {
+     "value": null,
+     "unit": "ms",
+     "source": "lane; whole task including model latency"
+    }
+   }
+  },
+  {
+   "cellId": "e9c914d9bb90-6",
+   "factors": {
+    "model": "google/gemini-3.1-flash-lite",
+    "interface": "code-mode",
+    "variant": "decoy-swap",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "tokens-per-verified-task": {
+     "value": 398,
+     "unit": "token/task",
+     "source": "lane; fake model accounting over the session, dated price table"
+    },
+    "model-usd-per-1k-verified": {
+     "value": 0.17825,
+     "unit": "USD/1k",
+     "source": "lane; fake model accounting over the session, dated price table"
+    },
+    "interface-turns-per-task": {
+     "value": 1,
+     "unit": "turn/task",
+     "source": "lane; model turns over verified tasks through one interface"
+    },
+    "task-p50-ms-verified": {
+     "value": 997.4483750000072,
+     "unit": "ms",
+     "source": "lane; whole task including model latency"
+    }
+   }
+  },
+  {
+   "cellId": "1b8e23f488f2-7",
+   "factors": {
+    "model": "anthropic/claude-haiku-5.5",
+    "interface": "code-mode",
+    "variant": "baseline",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "tokens-per-verified-task": {
+     "value": 724.6666666666666,
+     "unit": "token/task",
+     "source": "lane; fake model accounting over the session, dated price table"
+    },
+    "model-usd-per-1k-verified": {
+     "value": 0.17113333333333333,
+     "unit": "USD/1k",
+     "source": "lane; fake model accounting over the session, dated price table"
+    },
+    "interface-turns-per-task": {
+     "value": 1,
+     "unit": "turn/task",
+     "source": "lane; model turns over verified tasks through one interface"
+    },
+    "task-p50-ms-verified": {
+     "value": 1997.6192919999885,
+     "unit": "ms",
+     "source": "lane; whole task including model latency"
+    }
+   }
+  },
+  {
+   "cellId": "b34b77d14143-8",
+   "factors": {
+    "model": "openai/gpt-5.6-luna",
+    "interface": "mcp",
+    "variant": "baseline",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "tokens-per-verified-task": {
+     "value": 2218.3333333333335,
+     "unit": "token/task",
+     "source": "lane; fake model accounting over the session, dated price table"
+    },
+    "model-usd-per-1k-verified": {
+     "value": 0.6339999999999999,
+     "unit": "USD/1k",
+     "source": "lane; fake model accounting over the session, dated price table"
+    },
+    "interface-turns-per-task": {
+     "value": 4,
+     "unit": "turn/task",
+     "source": "lane; model turns over verified tasks through one interface"
+    },
+    "task-p50-ms-verified": {
+     "value": 5927.547583999985,
+     "unit": "ms",
+     "source": "lane; whole task including model latency"
+    }
+   }
+  },
+  {
+   "cellId": "6aab12bd637a-9",
+   "factors": {
+    "model": "anthropic/claude-haiku-5.5",
+    "interface": "code-mode",
+    "variant": "decoy-swap",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "tokens-per-verified-task": {
+     "value": 729.6666666666666,
+     "unit": "token/task",
+     "source": "lane; fake model accounting over the session, dated price table"
+    },
+    "model-usd-per-1k-verified": {
+     "value": 0.15883333333333333,
+     "unit": "USD/1k",
+     "source": "lane; fake model accounting over the session, dated price table"
+    },
+    "interface-turns-per-task": {
+     "value": 1,
+     "unit": "turn/task",
+     "source": "lane; model turns over verified tasks through one interface"
+    },
+    "task-p50-ms-verified": {
+     "value": 1793.5355419999978,
+     "unit": "ms",
+     "source": "lane; whole task including model latency"
+    }
+   }
+  },
+  {
+   "cellId": "096b91f2b21b-10",
+   "factors": {
+    "model": "google/gemini-3.1-flash-lite",
+    "interface": "mcp",
+    "variant": "baseline",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "tokens-per-verified-task": {
+     "value": 2954,
+     "unit": "token/task",
+     "source": "lane; fake model accounting over the session, dated price table"
+    },
+    "model-usd-per-1k-verified": {
+     "value": 0.8747500000000001,
+     "unit": "USD/1k",
+     "source": "lane; fake model accounting over the session, dated price table"
+    },
+    "interface-turns-per-task": {
+     "value": 7,
+     "unit": "turn/task",
+     "source": "lane; model turns over verified tasks through one interface"
+    },
+    "task-p50-ms-verified": {
+     "value": 5878.471707999997,
+     "unit": "ms",
+     "source": "lane; whole task including model latency"
+    }
+   }
+  },
+  {
+   "cellId": "302f3a99d85e-11",
+   "factors": {
+    "model": "openai/gpt-5.6-luna",
+    "interface": "code-mode",
+    "variant": "decoy-swap",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "tokens-per-verified-task": {
+     "value": 2247,
+     "unit": "token/task",
+     "source": "lane; fake model accounting over the session, dated price table"
+    },
+    "model-usd-per-1k-verified": {
+     "value": 0.9164,
+     "unit": "USD/1k",
+     "source": "lane; fake model accounting over the session, dated price table"
+    },
+    "interface-turns-per-task": {
+     "value": 5,
+     "unit": "turn/task",
+     "source": "lane; model turns over verified tasks through one interface"
+    },
+    "task-p50-ms-verified": {
+     "value": 3199.5599159999983,
+     "unit": "ms",
+     "source": "lane; whole task including model latency"
+    }
+   }
+  },
+  {
+   "cellId": "8049a798acdb-12",
+   "factors": {
+    "model": "anthropic/claude-haiku-5.5",
+    "interface": "cli",
+    "variant": "price-change",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "tokens-per-verified-task": {
+     "value": 3724.3333333333335,
+     "unit": "token/task",
+     "source": "lane; fake model accounting over the session, dated price table"
+    },
+    "model-usd-per-1k-verified": {
+     "value": 0.5035000000000001,
+     "unit": "USD/1k",
+     "source": "lane; fake model accounting over the session, dated price table"
+    },
+    "interface-turns-per-task": {
+     "value": 4,
+     "unit": "turn/task",
+     "source": "lane; model turns over verified tasks through one interface"
+    },
+    "task-p50-ms-verified": {
+     "value": 4627.993542000011,
+     "unit": "ms",
+     "source": "lane; whole task including model latency"
+    }
+   }
+  },
+  {
+   "cellId": "1de114910525-13",
+   "factors": {
+    "model": "google/gemini-3.1-flash-lite",
+    "interface": "cli",
+    "variant": "price-change",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "tokens-per-verified-task": {
+     "value": 2107,
+     "unit": "token/task",
+     "source": "lane; fake model accounting over the session, dated price table"
+    },
+    "model-usd-per-1k-verified": {
+     "value": 0.768,
+     "unit": "USD/1k",
+     "source": "lane; fake model accounting over the session, dated price table"
+    },
+    "interface-turns-per-task": {
+     "value": 5,
+     "unit": "turn/task",
+     "source": "lane; model turns over verified tasks through one interface"
+    },
+    "task-p50-ms-verified": {
+     "value": 4492.221791999997,
+     "unit": "ms",
+     "source": "lane; whole task including model latency"
+    }
+   }
+  },
+  {
+   "cellId": "84f99a0d577c-14",
+   "factors": {
+    "model": "anthropic/claude-haiku-5.5",
+    "interface": "code-mode",
+    "variant": "price-change",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "tokens-per-verified-task": {
+     "value": 614,
+     "unit": "token/task",
+     "source": "lane; fake model accounting over the session, dated price table"
+    },
+    "model-usd-per-1k-verified": {
+     "value": 0.12380000000000001,
+     "unit": "USD/1k",
+     "source": "lane; fake model accounting over the session, dated price table"
+    },
+    "interface-turns-per-task": {
+     "value": 1,
+     "unit": "turn/task",
+     "source": "lane; model turns over verified tasks through one interface"
+    },
+    "task-p50-ms-verified": {
+     "value": 1590.400834,
+     "unit": "ms",
+     "source": "lane; whole task including model latency"
+    }
+   }
+  },
+  {
+   "cellId": "f7c6e43f9d30-15",
+   "factors": {
+    "model": "openai/gpt-5.6-luna",
+    "interface": "cli",
+    "variant": "price-change",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "tokens-per-verified-task": {
+     "value": 1620.3333333333333,
+     "unit": "token/task",
+     "source": "lane; fake model accounting over the session, dated price table"
+    },
+    "model-usd-per-1k-verified": {
+     "value": 0.44939999999999997,
+     "unit": "USD/1k",
+     "source": "lane; fake model accounting over the session, dated price table"
+    },
+    "interface-turns-per-task": {
+     "value": 4,
+     "unit": "turn/task",
+     "source": "lane; model turns over verified tasks through one interface"
+    },
+    "task-p50-ms-verified": {
+     "value": 4483.177333999978,
+     "unit": "ms",
+     "source": "lane; whole task including model latency"
+    }
+   }
+  },
+  {
+   "cellId": "9a23047c2e5d-16",
+   "factors": {
+    "model": "openai/gpt-5.6-luna",
+    "interface": "code-mode",
+    "variant": "price-change",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "tokens-per-verified-task": {
+     "value": 367.3333333333333,
+     "unit": "token/task",
+     "source": "lane; fake model accounting over the session, dated price table"
+    },
+    "model-usd-per-1k-verified": {
+     "value": 0.14079999999999998,
+     "unit": "USD/1k",
+     "source": "lane; fake model accounting over the session, dated price table"
+    },
+    "interface-turns-per-task": {
+     "value": 1,
+     "unit": "turn/task",
+     "source": "lane; model turns over verified tasks through one interface"
+    },
+    "task-p50-ms-verified": {
+     "value": 1573.6302920000162,
+     "unit": "ms",
+     "source": "lane; whole task including model latency"
+    }
+   }
+  },
+  {
+   "cellId": "cfb4206fc749-17",
+   "factors": {
+    "model": "openai/gpt-5.6-luna",
+    "interface": "mcp",
+    "variant": "decoy-swap",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "tokens-per-verified-task": {
+     "value": 2297.6666666666665,
+     "unit": "token/task",
+     "source": "lane; fake model accounting over the session, dated price table"
+    },
+    "model-usd-per-1k-verified": {
+     "value": 0.6572,
+     "unit": "USD/1k",
+     "source": "lane; fake model accounting over the session, dated price table"
+    },
+    "interface-turns-per-task": {
+     "value": 4,
+     "unit": "turn/task",
+     "source": "lane; model turns over verified tasks through one interface"
+    },
+    "task-p50-ms-verified": {
+     "value": 6026.582791999972,
+     "unit": "ms",
+     "source": "lane; whole task including model latency"
+    }
+   }
+  },
+  {
+   "cellId": "06d6b3f2d02a-18",
+   "factors": {
+    "model": "anthropic/claude-haiku-5.5",
+    "interface": "sdk",
+    "variant": "decoy-swap",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "tokens-per-verified-task": {
+     "value": 9918.333333333334,
+     "unit": "token/task",
+     "source": "lane; fake model accounting over the session, dated price table"
+    },
+    "model-usd-per-1k-verified": {
+     "value": 1.3807666666666667,
+     "unit": "USD/1k",
+     "source": "lane; fake model accounting over the session, dated price table"
+    },
+    "interface-turns-per-task": {
+     "value": 5.333333333333333,
+     "unit": "turn/task",
+     "source": "lane; model turns over verified tasks through one interface"
+    },
+    "task-p50-ms-verified": {
+     "value": 9428.814207999967,
+     "unit": "ms",
+     "source": "lane; whole task including model latency"
+    }
+   }
+  },
+  {
+   "cellId": "57ca4d4b510d-19",
+   "factors": {
+    "model": "openai/gpt-5.6-luna",
+    "interface": "code-mode",
+    "variant": "baseline",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "tokens-per-verified-task": {
+     "value": null,
+     "unit": "token/task",
+     "source": "lane; fake model accounting over the session, dated price table"
+    },
+    "model-usd-per-1k-verified": {
+     "value": null,
+     "unit": "USD/1k",
+     "source": "lane; fake model accounting over the session, dated price table"
+    },
+    "interface-turns-per-task": {
+     "value": null,
+     "unit": "turn/task",
+     "source": "lane; model turns over verified tasks through one interface"
+    },
+    "task-p50-ms-verified": {
+     "value": null,
+     "unit": "ms",
+     "source": "lane; whole task including model latency"
+    }
+   }
+  },
+  {
+   "cellId": "554c80c51fd0-20",
+   "factors": {
+    "model": "google/gemini-3.1-flash-lite",
+    "interface": "code-mode",
+    "variant": "price-change",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "tokens-per-verified-task": {
+     "value": 317,
+     "unit": "token/task",
+     "source": "lane; fake model accounting over the session, dated price table"
+    },
+    "model-usd-per-1k-verified": {
+     "value": 0.10175000000000001,
+     "unit": "USD/1k",
+     "source": "lane; fake model accounting over the session, dated price table"
+    },
+    "interface-turns-per-task": {
+     "value": 1,
+     "unit": "turn/task",
+     "source": "lane; model turns over verified tasks through one interface"
+    },
+    "task-p50-ms-verified": {
+     "value": 744.5696660000249,
+     "unit": "ms",
+     "source": "lane; whole task including model latency"
+    }
+   }
+  },
+  {
+   "cellId": "9b8e7bfb4ef2-21",
+   "factors": {
+    "model": "openai/gpt-5.6-luna",
+    "interface": "sdk",
+    "variant": "baseline",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "tokens-per-verified-task": {
+     "value": 2204.3333333333335,
+     "unit": "token/task",
+     "source": "lane; fake model accounting over the session, dated price table"
+    },
+    "model-usd-per-1k-verified": {
+     "value": 0.6371999999999999,
+     "unit": "USD/1k",
+     "source": "lane; fake model accounting over the session, dated price table"
+    },
+    "interface-turns-per-task": {
+     "value": 4,
+     "unit": "turn/task",
+     "source": "lane; model turns over verified tasks through one interface"
+    },
+    "task-p50-ms-verified": {
+     "value": 5093.211874999979,
+     "unit": "ms",
+     "source": "lane; whole task including model latency"
+    }
+   }
+  },
+  {
+   "cellId": "0e9b5e990c35-22",
+   "factors": {
+    "model": "openai/gpt-5.6-luna",
+    "interface": "mcp",
+    "variant": "price-change",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "tokens-per-verified-task": {
+     "value": 1330,
+     "unit": "token/task",
+     "source": "lane; fake model accounting over the session, dated price table"
+    },
+    "model-usd-per-1k-verified": {
+     "value": 0.33999999999999997,
+     "unit": "USD/1k",
+     "source": "lane; fake model accounting over the session, dated price table"
+    },
+    "interface-turns-per-task": {
+     "value": 3,
+     "unit": "turn/task",
+     "source": "lane; model turns over verified tasks through one interface"
+    },
+    "task-p50-ms-verified": {
+     "value": 4313.571875000023,
+     "unit": "ms",
+     "source": "lane; whole task including model latency"
+    }
+   }
+  },
+  {
+   "cellId": "5ed3073ab7e0-23",
+   "factors": {
+    "model": "google/gemini-3.1-flash-lite",
+    "interface": "cli",
+    "variant": "decoy-swap",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "tokens-per-verified-task": {
+     "value": 1430,
+     "unit": "token/task",
+     "source": "lane; fake model accounting over the session, dated price table"
+    },
+    "model-usd-per-1k-verified": {
+     "value": 0.495,
+     "unit": "USD/1k",
+     "source": "lane; fake model accounting over the session, dated price table"
+    },
+    "interface-turns-per-task": {
+     "value": 4,
+     "unit": "turn/task",
+     "source": "lane; model turns over verified tasks through one interface"
+    },
+    "task-p50-ms-verified": {
+     "value": 3600.6502919999766,
+     "unit": "ms",
+     "source": "lane; whole task including model latency"
+    }
+   }
+  },
+  {
+   "cellId": "a6a54510f053-24",
+   "factors": {
+    "model": "openai/gpt-5.6-luna",
+    "interface": "cli",
+    "variant": "baseline",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "tokens-per-verified-task": {
+     "value": 1842,
+     "unit": "token/task",
+     "source": "lane; fake model accounting over the session, dated price table"
+    },
+    "model-usd-per-1k-verified": {
+     "value": 0.5654000000000001,
+     "unit": "USD/1k",
+     "source": "lane; fake model accounting over the session, dated price table"
+    },
+    "interface-turns-per-task": {
+     "value": 4,
+     "unit": "turn/task",
+     "source": "lane; model turns over verified tasks through one interface"
+    },
+    "task-p50-ms-verified": {
+     "value": 7255.744542,
+     "unit": "ms",
+     "source": "lane; whole task including model latency"
+    }
+   }
+  },
+  {
+   "cellId": "eeb3e2d266b3-25",
+   "factors": {
+    "model": "google/gemini-3.1-flash-lite",
+    "interface": "mcp",
+    "variant": "price-change",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "tokens-per-verified-task": {
+     "value": 1055,
+     "unit": "token/task",
+     "source": "lane; fake model accounting over the session, dated price table"
+    },
+    "model-usd-per-1k-verified": {
+     "value": 0.3075,
+     "unit": "USD/1k",
+     "source": "lane; fake model accounting over the session, dated price table"
+    },
+    "interface-turns-per-task": {
+     "value": 3,
+     "unit": "turn/task",
+     "source": "lane; model turns over verified tasks through one interface"
+    },
+    "task-p50-ms-verified": {
+     "value": 2629.64954199997,
+     "unit": "ms",
+     "source": "lane; whole task including model latency"
+    }
+   }
+  },
+  {
+   "cellId": "99c3f9cd7ac5-26",
+   "factors": {
+    "model": "google/gemini-3.1-flash-lite",
+    "interface": "code-mode",
+    "variant": "baseline",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "tokens-per-verified-task": {
+     "value": 374,
+     "unit": "token/task",
+     "source": "lane; fake model accounting over the session, dated price table"
+    },
+    "model-usd-per-1k-verified": {
+     "value": 0.17225000000000001,
+     "unit": "USD/1k",
+     "source": "lane; fake model accounting over the session, dated price table"
+    },
+    "interface-turns-per-task": {
+     "value": 1,
+     "unit": "turn/task",
+     "source": "lane; model turns over verified tasks through one interface"
+    },
+    "task-p50-ms-verified": {
+     "value": 909.1105830000015,
+     "unit": "ms",
+     "source": "lane; whole task including model latency"
+    }
+   }
+  },
+  {
+   "cellId": "afe76bc4b738-27",
+   "factors": {
+    "model": "openai/gpt-5.6-luna",
+    "interface": "sdk",
+    "variant": "decoy-swap",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "tokens-per-verified-task": {
+     "value": 2686.3333333333335,
+     "unit": "token/task",
+     "source": "lane; fake model accounting over the session, dated price table"
+    },
+    "model-usd-per-1k-verified": {
+     "value": 0.7315999999999999,
+     "unit": "USD/1k",
+     "source": "lane; fake model accounting over the session, dated price table"
+    },
+    "interface-turns-per-task": {
+     "value": 4.666666666666667,
+     "unit": "turn/task",
+     "source": "lane; model turns over verified tasks through one interface"
+    },
+    "task-p50-ms-verified": {
+     "value": 6144.954374999972,
+     "unit": "ms",
+     "source": "lane; whole task including model latency"
+    }
+   }
+  },
+  {
+   "cellId": "86ae1365dfa1-28",
+   "factors": {
+    "model": "anthropic/claude-haiku-5.5",
+    "interface": "mcp",
+    "variant": "price-change",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "tokens-per-verified-task": {
+     "value": 3699,
+     "unit": "token/task",
+     "source": "lane; fake model accounting over the session, dated price table"
+    },
+    "model-usd-per-1k-verified": {
+     "value": 0.4303,
+     "unit": "USD/1k",
+     "source": "lane; fake model accounting over the session, dated price table"
+    },
+    "interface-turns-per-task": {
+     "value": 3,
+     "unit": "turn/task",
+     "source": "lane; model turns over verified tasks through one interface"
+    },
+    "task-p50-ms-verified": {
+     "value": 3054.8950000000186,
+     "unit": "ms",
+     "source": "lane; whole task including model latency"
+    }
+   }
+  },
+  {
+   "cellId": "6c0c5d4cdf11-29",
+   "factors": {
+    "model": "anthropic/claude-haiku-5.5",
+    "interface": "cli",
+    "variant": "decoy-swap",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "tokens-per-verified-task": {
+     "value": 32214,
+     "unit": "token/task",
+     "source": "lane; fake model accounting over the session, dated price table"
+    },
+    "model-usd-per-1k-verified": {
+     "value": 4.932199999999999,
+     "unit": "USD/1k",
+     "source": "lane; fake model accounting over the session, dated price table"
+    },
+    "interface-turns-per-task": {
+     "value": 20,
+     "unit": "turn/task",
+     "source": "lane; model turns over verified tasks through one interface"
+    },
+    "task-p50-ms-verified": {
+     "value": 11164.838625000033,
+     "unit": "ms",
+     "source": "lane; whole task including model latency"
+    }
+   }
+  },
+  {
+   "cellId": "bd6427e4b73c-30",
+   "factors": {
+    "model": "anthropic/claude-haiku-5.5",
+    "interface": "sdk",
+    "variant": "price-change",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "tokens-per-verified-task": {
+     "value": 3681.6666666666665,
+     "unit": "token/task",
+     "source": "lane; fake model accounting over the session, dated price table"
+    },
+    "model-usd-per-1k-verified": {
+     "value": 0.4300333333333333,
+     "unit": "USD/1k",
+     "source": "lane; fake model accounting over the session, dated price table"
+    },
+    "interface-turns-per-task": {
+     "value": 3,
+     "unit": "turn/task",
+     "source": "lane; model turns over verified tasks through one interface"
+    },
+    "task-p50-ms-verified": {
+     "value": 3001.8851659999928,
+     "unit": "ms",
+     "source": "lane; whole task including model latency"
+    }
+   }
+  },
+  {
+   "cellId": "7e8f0da03822-31",
+   "factors": {
+    "model": "anthropic/claude-haiku-5.5",
+    "interface": "mcp",
+    "variant": "baseline",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "tokens-per-verified-task": {
+     "value": 11006.333333333334,
+     "unit": "token/task",
+     "source": "lane; fake model accounting over the session, dated price table"
+    },
+    "model-usd-per-1k-verified": {
+     "value": 1.6166333333333334,
+     "unit": "USD/1k",
+     "source": "lane; fake model accounting over the session, dated price table"
+    },
+    "interface-turns-per-task": {
+     "value": 5.666666666666667,
+     "unit": "turn/task",
+     "source": "lane; model turns over verified tasks through one interface"
+    },
+    "task-p50-ms-verified": {
+     "value": 10041.833417000016,
+     "unit": "ms",
+     "source": "lane; whole task including model latency"
+    }
+   }
+  },
+  {
+   "cellId": "d2861abb1fe4-32",
+   "factors": {
+    "model": "anthropic/claude-haiku-5.5",
+    "interface": "mcp",
+    "variant": "decoy-swap",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "tokens-per-verified-task": {
+     "value": 20474.5,
+     "unit": "token/task",
+     "source": "lane; fake model accounting over the session, dated price table"
+    },
+    "model-usd-per-1k-verified": {
+     "value": 2.97305,
+     "unit": "USD/1k",
+     "source": "lane; fake model accounting over the session, dated price table"
+    },
+    "interface-turns-per-task": {
+     "value": 9.5,
+     "unit": "turn/task",
+     "source": "lane; model turns over verified tasks through one interface"
+    },
+    "task-p50-ms-verified": {
+     "value": 11592.860833000042,
+     "unit": "ms",
+     "source": "lane; whole task including model latency"
+    }
+   }
+  },
+  {
+   "cellId": "f7e8f47b8dbe-33",
+   "factors": {
+    "model": "openai/gpt-5.6-luna",
+    "interface": "cli",
+    "variant": "decoy-swap",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "tokens-per-verified-task": {
+     "value": 2132.3333333333335,
+     "unit": "token/task",
+     "source": "lane; fake model accounting over the session, dated price table"
+    },
+    "model-usd-per-1k-verified": {
+     "value": 0.6448,
+     "unit": "USD/1k",
+     "source": "lane; fake model accounting over the session, dated price table"
+    },
+    "interface-turns-per-task": {
+     "value": 4.333333333333333,
+     "unit": "turn/task",
+     "source": "lane; model turns over verified tasks through one interface"
+    },
+    "task-p50-ms-verified": {
+     "value": 6634.190874999971,
+     "unit": "ms",
+     "source": "lane; whole task including model latency"
+    }
+   }
+  },
+  {
+   "cellId": "54ca98d476bc-34",
+   "factors": {
+    "model": "google/gemini-3.1-flash-lite",
+    "interface": "sdk",
+    "variant": "price-change",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "tokens-per-verified-task": {
+     "value": 1040,
+     "unit": "token/task",
+     "source": "lane; fake model accounting over the session, dated price table"
+    },
+    "model-usd-per-1k-verified": {
+     "value": 0.30374999999999996,
+     "unit": "USD/1k",
+     "source": "lane; fake model accounting over the session, dated price table"
+    },
+    "interface-turns-per-task": {
+     "value": 3,
+     "unit": "turn/task",
+     "source": "lane; model turns over verified tasks through one interface"
+    },
+    "task-p50-ms-verified": {
+     "value": 2317.7169579999754,
+     "unit": "ms",
+     "source": "lane; whole task including model latency"
+    }
+   }
+  },
+  {
+   "cellId": "44d850b2da80-35",
+   "factors": {
+    "model": "google/gemini-3.1-flash-lite",
+    "interface": "sdk",
+    "variant": "decoy-swap",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "tokens-per-verified-task": {
+     "value": 3010,
+     "unit": "token/task",
+     "source": "lane; fake model accounting over the session, dated price table"
+    },
+    "model-usd-per-1k-verified": {
+     "value": 0.9049999999999999,
+     "unit": "USD/1k",
+     "source": "lane; fake model accounting over the session, dated price table"
+    },
+    "interface-turns-per-task": {
+     "value": 7,
+     "unit": "turn/task",
+     "source": "lane; model turns over verified tasks through one interface"
+    },
+    "task-p50-ms-verified": {
+     "value": 5952.143792000017,
+     "unit": "ms",
+     "source": "lane; whole task including model latency"
+    }
+   }
+  },
+  {
+   "cellId": "b6662a1eed07-36",
+   "factors": {
+    "model": "google/gemini-3.1-flash-lite",
+    "interface": "mcp",
+    "variant": "baseline",
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "tokens-per-verified-task": {
+     "value": 2954,
+     "unit": "token/task",
+     "source": "lane; fake model accounting over the session, dated price table"
+    },
+    "model-usd-per-1k-verified": {
+     "value": 0.8747500000000001,
+     "unit": "USD/1k",
+     "source": "lane; fake model accounting over the session, dated price table"
+    },
+    "interface-turns-per-task": {
+     "value": 7,
+     "unit": "turn/task",
+     "source": "lane; model turns over verified tasks through one interface"
+    },
+    "task-p50-ms-verified": {
+     "value": 5824.329207999981,
+     "unit": "ms",
+     "source": "lane; whole task including model latency"
+    }
+   }
+  },
+  {
+   "cellId": "9b61a79fd71a-37",
+   "factors": {
+    "model": "google/gemini-3.1-flash-lite",
+    "interface": "sdk",
+    "variant": "decoy-swap",
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "tokens-per-verified-task": {
+     "value": 3010,
+     "unit": "token/task",
+     "source": "lane; fake model accounting over the session, dated price table"
+    },
+    "model-usd-per-1k-verified": {
+     "value": 0.9049999999999999,
+     "unit": "USD/1k",
+     "source": "lane; fake model accounting over the session, dated price table"
+    },
+    "interface-turns-per-task": {
+     "value": 7,
+     "unit": "turn/task",
+     "source": "lane; model turns over verified tasks through one interface"
+    },
+    "task-p50-ms-verified": {
+     "value": 6532.899083000026,
+     "unit": "ms",
+     "source": "lane; whole task including model latency"
+    }
+   }
+  },
+  {
+   "cellId": "4498139e3fcb-38",
+   "factors": {
+    "model": "anthropic/claude-haiku-5.5",
+    "interface": "code-mode",
+    "variant": "price-change",
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "tokens-per-verified-task": {
+     "value": 920,
+     "unit": "token/task",
+     "source": "lane; fake model accounting over the session, dated price table"
+    },
+    "model-usd-per-1k-verified": {
+     "value": 0.1852,
+     "unit": "USD/1k",
+     "source": "lane; fake model accounting over the session, dated price table"
+    },
+    "interface-turns-per-task": {
+     "value": 1.5,
+     "unit": "turn/task",
+     "source": "lane; model turns over verified tasks through one interface"
+    },
+    "task-p50-ms-verified": {
+     "value": 1685.3902920000255,
+     "unit": "ms",
+     "source": "lane; whole task including model latency"
+    }
+   }
+  },
+  {
+   "cellId": "37b9d1d0569e-39",
+   "factors": {
+    "model": "openai/gpt-5.6-luna",
+    "interface": "code-mode",
+    "variant": "price-change",
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "tokens-per-verified-task": {
+     "value": 372.3333333333333,
+     "unit": "token/task",
+     "source": "lane; fake model accounting over the session, dated price table"
+    },
+    "model-usd-per-1k-verified": {
+     "value": 0.14679999999999999,
+     "unit": "USD/1k",
+     "source": "lane; fake model accounting over the session, dated price table"
+    },
+    "interface-turns-per-task": {
+     "value": 1,
+     "unit": "turn/task",
+     "source": "lane; model turns over verified tasks through one interface"
+    },
+    "task-p50-ms-verified": {
+     "value": 1766.7148329999764,
+     "unit": "ms",
+     "source": "lane; whole task including model latency"
+    }
+   }
+  },
+  {
+   "cellId": "ce103db23ed9-40",
+   "factors": {
+    "model": "google/gemini-3.1-flash-lite",
+    "interface": "code-mode",
+    "variant": "baseline",
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "tokens-per-verified-task": {
+     "value": 374,
+     "unit": "token/task",
+     "source": "lane; fake model accounting over the session, dated price table"
+    },
+    "model-usd-per-1k-verified": {
+     "value": 0.17225000000000001,
+     "unit": "USD/1k",
+     "source": "lane; fake model accounting over the session, dated price table"
+    },
+    "interface-turns-per-task": {
+     "value": 1,
+     "unit": "turn/task",
+     "source": "lane; model turns over verified tasks through one interface"
+    },
+    "task-p50-ms-verified": {
+     "value": 986.7777920000954,
+     "unit": "ms",
+     "source": "lane; whole task including model latency"
+    }
+   }
+  },
+  {
+   "cellId": "fb0299d82a8f-41",
+   "factors": {
+    "model": "anthropic/claude-haiku-5.5",
+    "interface": "mcp",
+    "variant": "baseline",
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "tokens-per-verified-task": {
+     "value": 11181,
+     "unit": "token/task",
+     "source": "lane; fake model accounting over the session, dated price table"
+    },
+    "model-usd-per-1k-verified": {
+     "value": 1.6350333333333333,
+     "unit": "USD/1k",
+     "source": "lane; fake model accounting over the session, dated price table"
+    },
+    "interface-turns-per-task": {
+     "value": 5.666666666666667,
+     "unit": "turn/task",
+     "source": "lane; model turns over verified tasks through one interface"
+    },
+    "task-p50-ms-verified": {
+     "value": 10841.191041999962,
+     "unit": "ms",
+     "source": "lane; whole task including model latency"
+    }
+   }
+  },
+  {
+   "cellId": "eb85884dbe04-42",
+   "factors": {
+    "model": "openai/gpt-5.6-luna",
+    "interface": "cli",
+    "variant": "price-change",
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "tokens-per-verified-task": {
+     "value": 1609.3333333333333,
+     "unit": "token/task",
+     "source": "lane; fake model accounting over the session, dated price table"
+    },
+    "model-usd-per-1k-verified": {
+     "value": 0.43620000000000003,
+     "unit": "USD/1k",
+     "source": "lane; fake model accounting over the session, dated price table"
+    },
+    "interface-turns-per-task": {
+     "value": 4,
+     "unit": "turn/task",
+     "source": "lane; model turns over verified tasks through one interface"
+    },
+    "task-p50-ms-verified": {
+     "value": 4708.258207999985,
+     "unit": "ms",
+     "source": "lane; whole task including model latency"
+    }
+   }
+  },
+  {
+   "cellId": "c46e056fc814-43",
+   "factors": {
+    "model": "openai/gpt-5.6-luna",
+    "interface": "mcp",
+    "variant": "decoy-swap",
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "tokens-per-verified-task": {
+     "value": 2715.3333333333335,
+     "unit": "token/task",
+     "source": "lane; fake model accounting over the session, dated price table"
+    },
+    "model-usd-per-1k-verified": {
+     "value": 0.7430666666666665,
+     "unit": "USD/1k",
+     "source": "lane; fake model accounting over the session, dated price table"
+    },
+    "interface-turns-per-task": {
+     "value": 4.666666666666667,
+     "unit": "turn/task",
+     "source": "lane; model turns over verified tasks through one interface"
+    },
+    "task-p50-ms-verified": {
+     "value": 6681.647375000059,
+     "unit": "ms",
+     "source": "lane; whole task including model latency"
+    }
+   }
+  },
+  {
+   "cellId": "0594d4d25d0a-44",
+   "factors": {
+    "model": "google/gemini-3.1-flash-lite",
+    "interface": "cli",
+    "variant": "baseline",
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "tokens-per-verified-task": {
+     "value": 930,
+     "unit": "token/task",
+     "source": "lane; fake model accounting over the session, dated price table"
+    },
+    "model-usd-per-1k-verified": {
+     "value": 0.35375000000000006,
+     "unit": "USD/1k",
+     "source": "lane; fake model accounting over the session, dated price table"
+    },
+    "interface-turns-per-task": {
+     "value": 3,
+     "unit": "turn/task",
+     "source": "lane; model turns over verified tasks through one interface"
+    },
+    "task-p50-ms-verified": {
+     "value": 2530.0119170000544,
+     "unit": "ms",
+     "source": "lane; whole task including model latency"
+    }
+   }
+  },
+  {
+   "cellId": "2f9f421ed47d-45",
+   "factors": {
+    "model": "anthropic/claude-haiku-5.5",
+    "interface": "code-mode",
+    "variant": "baseline",
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "tokens-per-verified-task": {
+     "value": 751,
+     "unit": "token/task",
+     "source": "lane; fake model accounting over the session, dated price table"
+    },
+    "model-usd-per-1k-verified": {
+     "value": 0.18430000000000002,
+     "unit": "USD/1k",
+     "source": "lane; fake model accounting over the session, dated price table"
+    },
+    "interface-turns-per-task": {
+     "value": 1,
+     "unit": "turn/task",
+     "source": "lane; model turns over verified tasks through one interface"
+    },
+    "task-p50-ms-verified": {
+     "value": 1992.8047499998938,
+     "unit": "ms",
+     "source": "lane; whole task including model latency"
+    }
+   }
+  },
+  {
+   "cellId": "8f58586af8ac-46",
+   "factors": {
+    "model": "openai/gpt-5.6-luna",
+    "interface": "mcp",
+    "variant": "baseline",
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "tokens-per-verified-task": {
+     "value": 2222,
+     "unit": "token/task",
+     "source": "lane; fake model accounting over the session, dated price table"
+    },
+    "model-usd-per-1k-verified": {
+     "value": 0.6383999999999999,
+     "unit": "USD/1k",
+     "source": "lane; fake model accounting over the session, dated price table"
+    },
+    "interface-turns-per-task": {
+     "value": 4,
+     "unit": "turn/task",
+     "source": "lane; model turns over verified tasks through one interface"
+    },
+    "task-p50-ms-verified": {
+     "value": 6485.198665999924,
+     "unit": "ms",
+     "source": "lane; whole task including model latency"
+    }
+   }
+  },
+  {
+   "cellId": "76840623d033-47",
+   "factors": {
+    "model": "openai/gpt-5.6-luna",
+    "interface": "sdk",
+    "variant": "decoy-swap",
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "tokens-per-verified-task": {
+     "value": 2638.6666666666665,
+     "unit": "token/task",
+     "source": "lane; fake model accounting over the session, dated price table"
+    },
+    "model-usd-per-1k-verified": {
+     "value": 0.7397333333333332,
+     "unit": "USD/1k",
+     "source": "lane; fake model accounting over the session, dated price table"
+    },
+    "interface-turns-per-task": {
+     "value": 4.333333333333333,
+     "unit": "turn/task",
+     "source": "lane; model turns over verified tasks through one interface"
+    },
+    "task-p50-ms-verified": {
+     "value": 6033.62725000002,
+     "unit": "ms",
+     "source": "lane; whole task including model latency"
+    }
+   }
+  },
+  {
+   "cellId": "eb9b053f4303-48",
+   "factors": {
+    "model": "google/gemini-3.1-flash-lite",
+    "interface": "cli",
+    "variant": "price-change",
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "tokens-per-verified-task": {
+     "value": 2107,
+     "unit": "token/task",
+     "source": "lane; fake model accounting over the session, dated price table"
+    },
+    "model-usd-per-1k-verified": {
+     "value": 0.768,
+     "unit": "USD/1k",
+     "source": "lane; fake model accounting over the session, dated price table"
+    },
+    "interface-turns-per-task": {
+     "value": 5,
+     "unit": "turn/task",
+     "source": "lane; model turns over verified tasks through one interface"
+    },
+    "task-p50-ms-verified": {
+     "value": 4069.0132919999305,
+     "unit": "ms",
+     "source": "lane; whole task including model latency"
+    }
+   }
+  },
+  {
+   "cellId": "5d2160ac0716-49",
+   "factors": {
+    "model": "anthropic/claude-haiku-5.5",
+    "interface": "cli",
+    "variant": "price-change",
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "tokens-per-verified-task": {
+     "value": 3696.3333333333335,
+     "unit": "token/task",
+     "source": "lane; fake model accounting over the session, dated price table"
+    },
+    "model-usd-per-1k-verified": {
+     "value": 0.49376666666666674,
+     "unit": "USD/1k",
+     "source": "lane; fake model accounting over the session, dated price table"
+    },
+    "interface-turns-per-task": {
+     "value": 4,
+     "unit": "turn/task",
+     "source": "lane; model turns over verified tasks through one interface"
+    },
+    "task-p50-ms-verified": {
+     "value": 4506.723916999996,
+     "unit": "ms",
+     "source": "lane; whole task including model latency"
+    }
+   }
+  },
+  {
+   "cellId": "a9a0ca02b99c-50",
+   "factors": {
+    "model": "google/gemini-3.1-flash-lite",
+    "interface": "sdk",
+    "variant": "baseline",
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "tokens-per-verified-task": {
+     "value": 2919,
+     "unit": "token/task",
+     "source": "lane; fake model accounting over the session, dated price table"
+    },
+    "model-usd-per-1k-verified": {
+     "value": 0.8659999999999999,
+     "unit": "USD/1k",
+     "source": "lane; fake model accounting over the session, dated price table"
+    },
+    "interface-turns-per-task": {
+     "value": 7,
+     "unit": "turn/task",
+     "source": "lane; model turns over verified tasks through one interface"
+    },
+    "task-p50-ms-verified": {
+     "value": 6472.688084000023,
+     "unit": "ms",
+     "source": "lane; whole task including model latency"
+    }
+   }
+  },
+  {
+   "cellId": "0bc9dd7e4b8a-51",
+   "factors": {
+    "model": "openai/gpt-5.6-luna",
+    "interface": "sdk",
+    "variant": "price-change",
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "tokens-per-verified-task": {
+     "value": 1314.3333333333333,
+     "unit": "token/task",
+     "source": "lane; fake model accounting over the session, dated price table"
+    },
+    "model-usd-per-1k-verified": {
+     "value": 0.33620000000000005,
+     "unit": "USD/1k",
+     "source": "lane; fake model accounting over the session, dated price table"
+    },
+    "interface-turns-per-task": {
+     "value": 3,
+     "unit": "turn/task",
+     "source": "lane; model turns over verified tasks through one interface"
+    },
+    "task-p50-ms-verified": {
+     "value": 3616.149624999962,
+     "unit": "ms",
+     "source": "lane; whole task including model latency"
+    }
+   }
+  },
+  {
+   "cellId": "0ad66bc0e595-52",
+   "factors": {
+    "model": "openai/gpt-5.6-luna",
+    "interface": "code-mode",
+    "variant": "decoy-swap",
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "tokens-per-verified-task": {
+     "value": null,
+     "unit": "token/task",
+     "source": "lane; fake model accounting over the session, dated price table"
+    },
+    "model-usd-per-1k-verified": {
+     "value": null,
+     "unit": "USD/1k",
+     "source": "lane; fake model accounting over the session, dated price table"
+    },
+    "interface-turns-per-task": {
+     "value": null,
+     "unit": "turn/task",
+     "source": "lane; model turns over verified tasks through one interface"
+    },
+    "task-p50-ms-verified": {
+     "value": null,
+     "unit": "ms",
+     "source": "lane; whole task including model latency"
+    }
+   }
+  },
+  {
+   "cellId": "980bb99beaa6-53",
+   "factors": {
+    "model": "anthropic/claude-haiku-5.5",
+    "interface": "cli",
+    "variant": "decoy-swap",
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "tokens-per-verified-task": {
+     "value": 13305.5,
+     "unit": "token/task",
+     "source": "lane; fake model accounting over the session, dated price table"
+    },
+    "model-usd-per-1k-verified": {
+     "value": 1.93355,
+     "unit": "USD/1k",
+     "source": "lane; fake model accounting over the session, dated price table"
+    },
+    "interface-turns-per-task": {
+     "value": 9,
+     "unit": "turn/task",
+     "source": "lane; model turns over verified tasks through one interface"
+    },
+    "task-p50-ms-verified": {
+     "value": 9299.421375000034,
+     "unit": "ms",
+     "source": "lane; whole task including model latency"
+    }
+   }
+  },
+  {
+   "cellId": "e2ae03c1dce1-54",
+   "factors": {
+    "model": "google/gemini-3.1-flash-lite",
+    "interface": "cli",
+    "variant": "decoy-swap",
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "tokens-per-verified-task": {
+     "value": 1430,
+     "unit": "token/task",
+     "source": "lane; fake model accounting over the session, dated price table"
+    },
+    "model-usd-per-1k-verified": {
+     "value": 0.495,
+     "unit": "USD/1k",
+     "source": "lane; fake model accounting over the session, dated price table"
+    },
+    "interface-turns-per-task": {
+     "value": 4,
+     "unit": "turn/task",
+     "source": "lane; model turns over verified tasks through one interface"
+    },
+    "task-p50-ms-verified": {
+     "value": 3200.9158329999773,
+     "unit": "ms",
+     "source": "lane; whole task including model latency"
+    }
+   }
+  },
+  {
+   "cellId": "d982a5a95b61-55",
+   "factors": {
+    "model": "anthropic/claude-haiku-5.5",
+    "interface": "sdk",
+    "variant": "decoy-swap",
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "tokens-per-verified-task": {
+     "value": 10034,
+     "unit": "token/task",
+     "source": "lane; fake model accounting over the session, dated price table"
+    },
+    "model-usd-per-1k-verified": {
+     "value": 1.4276666666666666,
+     "unit": "USD/1k",
+     "source": "lane; fake model accounting over the session, dated price table"
+    },
+    "interface-turns-per-task": {
+     "value": 5.333333333333333,
+     "unit": "turn/task",
+     "source": "lane; model turns over verified tasks through one interface"
+    },
+    "task-p50-ms-verified": {
+     "value": 8364.230584000004,
+     "unit": "ms",
+     "source": "lane; whole task including model latency"
+    }
+   }
+  },
+  {
+   "cellId": "35c72dddaa67-56",
+   "factors": {
+    "model": "google/gemini-3.1-flash-lite",
+    "interface": "code-mode",
+    "variant": "price-change",
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "tokens-per-verified-task": {
+     "value": 317,
+     "unit": "token/task",
+     "source": "lane; fake model accounting over the session, dated price table"
+    },
+    "model-usd-per-1k-verified": {
+     "value": 0.10175000000000001,
+     "unit": "USD/1k",
+     "source": "lane; fake model accounting over the session, dated price table"
+    },
+    "interface-turns-per-task": {
+     "value": 1,
+     "unit": "turn/task",
+     "source": "lane; model turns over verified tasks through one interface"
+    },
+    "task-p50-ms-verified": {
+     "value": 714.453125,
+     "unit": "ms",
+     "source": "lane; whole task including model latency"
+    }
+   }
+  },
+  {
+   "cellId": "c9d1aee0ab6a-57",
+   "factors": {
+    "model": "google/gemini-3.1-flash-lite",
+    "interface": "code-mode",
+    "variant": "decoy-swap",
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "tokens-per-verified-task": {
+     "value": 398,
+     "unit": "token/task",
+     "source": "lane; fake model accounting over the session, dated price table"
+    },
+    "model-usd-per-1k-verified": {
+     "value": 0.17825,
+     "unit": "USD/1k",
+     "source": "lane; fake model accounting over the session, dated price table"
+    },
+    "interface-turns-per-task": {
+     "value": 1,
+     "unit": "turn/task",
+     "source": "lane; model turns over verified tasks through one interface"
+    },
+    "task-p50-ms-verified": {
+     "value": 1445.938790999935,
+     "unit": "ms",
+     "source": "lane; whole task including model latency"
+    }
+   }
+  },
+  {
+   "cellId": "462fb3812783-58",
+   "factors": {
+    "model": "openai/gpt-5.6-luna",
+    "interface": "mcp",
+    "variant": "price-change",
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "tokens-per-verified-task": {
+     "value": 1327.6666666666667,
+     "unit": "token/task",
+     "source": "lane; fake model accounting over the session, dated price table"
+    },
+    "model-usd-per-1k-verified": {
+     "value": 0.33719999999999994,
+     "unit": "USD/1k",
+     "source": "lane; fake model accounting over the session, dated price table"
+    },
+    "interface-turns-per-task": {
+     "value": 3,
+     "unit": "turn/task",
+     "source": "lane; model turns over verified tasks through one interface"
+    },
+    "task-p50-ms-verified": {
+     "value": 3900.913749999949,
+     "unit": "ms",
+     "source": "lane; whole task including model latency"
+    }
+   }
+  },
+  {
+   "cellId": "99972f905be3-59",
+   "factors": {
+    "model": "anthropic/claude-haiku-5.5",
+    "interface": "mcp",
+    "variant": "price-change",
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "tokens-per-verified-task": {
+     "value": 3721.3333333333335,
+     "unit": "token/task",
+     "source": "lane; fake model accounting over the session, dated price table"
+    },
+    "model-usd-per-1k-verified": {
+     "value": 0.4414666666666666,
+     "unit": "USD/1k",
+     "source": "lane; fake model accounting over the session, dated price table"
+    },
+    "interface-turns-per-task": {
+     "value": 3,
+     "unit": "turn/task",
+     "source": "lane; model turns over verified tasks through one interface"
+    },
+    "task-p50-ms-verified": {
+     "value": 3285.9144999999553,
+     "unit": "ms",
+     "source": "lane; whole task including model latency"
+    }
+   }
+  },
+  {
+   "cellId": "a8864b0c68b2-60",
+   "factors": {
+    "model": "anthropic/claude-haiku-5.5",
+    "interface": "sdk",
+    "variant": "price-change",
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "tokens-per-verified-task": {
+     "value": 3694,
+     "unit": "token/task",
+     "source": "lane; fake model accounting over the session, dated price table"
+    },
+    "model-usd-per-1k-verified": {
+     "value": 0.43620000000000003,
+     "unit": "USD/1k",
+     "source": "lane; fake model accounting over the session, dated price table"
+    },
+    "interface-turns-per-task": {
+     "value": 3,
+     "unit": "turn/task",
+     "source": "lane; model turns over verified tasks through one interface"
+    },
+    "task-p50-ms-verified": {
+     "value": 2973.2610829999903,
+     "unit": "ms",
+     "source": "lane; whole task including model latency"
+    }
+   }
+  },
+  {
+   "cellId": "aae400d36d05-61",
+   "factors": {
+    "model": "openai/gpt-5.6-luna",
+    "interface": "sdk",
+    "variant": "baseline",
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "tokens-per-verified-task": {
+     "value": 2198.3333333333335,
+     "unit": "token/task",
+     "source": "lane; fake model accounting over the session, dated price table"
+    },
+    "model-usd-per-1k-verified": {
+     "value": 0.63,
+     "unit": "USD/1k",
+     "source": "lane; fake model accounting over the session, dated price table"
+    },
+    "interface-turns-per-task": {
+     "value": 4,
+     "unit": "turn/task",
+     "source": "lane; model turns over verified tasks through one interface"
+    },
+    "task-p50-ms-verified": {
+     "value": 5775.920041000005,
+     "unit": "ms",
+     "source": "lane; whole task including model latency"
+    }
+   }
+  },
+  {
+   "cellId": "7a50f202a22c-62",
+   "factors": {
+    "model": "google/gemini-3.1-flash-lite",
+    "interface": "sdk",
+    "variant": "price-change",
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "tokens-per-verified-task": {
+     "value": 1040,
+     "unit": "token/task",
+     "source": "lane; fake model accounting over the session, dated price table"
+    },
+    "model-usd-per-1k-verified": {
+     "value": 0.30374999999999996,
+     "unit": "USD/1k",
+     "source": "lane; fake model accounting over the session, dated price table"
+    },
+    "interface-turns-per-task": {
+     "value": 3,
+     "unit": "turn/task",
+     "source": "lane; model turns over verified tasks through one interface"
+    },
+    "task-p50-ms-verified": {
+     "value": 3463.093292000005,
+     "unit": "ms",
+     "source": "lane; whole task including model latency"
+    }
+   }
+  },
+  {
+   "cellId": "c1d25d45b1b1-63",
+   "factors": {
+    "model": "openai/gpt-5.6-luna",
+    "interface": "cli",
+    "variant": "decoy-swap",
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "tokens-per-verified-task": {
+     "value": 2126,
+     "unit": "token/task",
+     "source": "lane; fake model accounting over the session, dated price table"
+    },
+    "model-usd-per-1k-verified": {
+     "value": 0.6518666666666667,
+     "unit": "USD/1k",
+     "source": "lane; fake model accounting over the session, dated price table"
+    },
+    "interface-turns-per-task": {
+     "value": 4.333333333333333,
+     "unit": "turn/task",
+     "source": "lane; model turns over verified tasks through one interface"
+    },
+    "task-p50-ms-verified": {
+     "value": 5564.559832999948,
+     "unit": "ms",
+     "source": "lane; whole task including model latency"
+    }
+   }
+  },
+  {
+   "cellId": "637d23a898f6-64",
+   "factors": {
+    "model": "anthropic/claude-haiku-5.5",
+    "interface": "cli",
+    "variant": "baseline",
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "tokens-per-verified-task": {
+     "value": 37030,
+     "unit": "token/task",
+     "source": "lane; fake model accounting over the session, dated price table"
+    },
+    "model-usd-per-1k-verified": {
+     "value": 5.6814,
+     "unit": "USD/1k",
+     "source": "lane; fake model accounting over the session, dated price table"
+    },
+    "interface-turns-per-task": {
+     "value": 23,
+     "unit": "turn/task",
+     "source": "lane; model turns over verified tasks through one interface"
+    },
+    "task-p50-ms-verified": {
+     "value": 11989.967124999966,
+     "unit": "ms",
+     "source": "lane; whole task including model latency"
+    }
+   }
+  },
+  {
+   "cellId": "ee5bbe1288ed-65",
+   "factors": {
+    "model": "google/gemini-3.1-flash-lite",
+    "interface": "mcp",
+    "variant": "decoy-swap",
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "tokens-per-verified-task": {
+     "value": 3045,
+     "unit": "token/task",
+     "source": "lane; fake model accounting over the session, dated price table"
+    },
+    "model-usd-per-1k-verified": {
+     "value": 0.9137500000000001,
+     "unit": "USD/1k",
+     "source": "lane; fake model accounting over the session, dated price table"
+    },
+    "interface-turns-per-task": {
+     "value": 7,
+     "unit": "turn/task",
+     "source": "lane; model turns over verified tasks through one interface"
+    },
+    "task-p50-ms-verified": {
+     "value": 6169.294125000015,
+     "unit": "ms",
+     "source": "lane; whole task including model latency"
+    }
+   }
+  },
+  {
+   "cellId": "6407d7f2ba8d-66",
+   "factors": {
+    "model": "openai/gpt-5.6-luna",
+    "interface": "code-mode",
+    "variant": "baseline",
+    "block": 1
+   },
+   "status": "failed",
+   "errorCode": null,
+   "counts": {
+    "verified": 0,
+    "failed": 1,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "tokens-per-verified-task": {
+     "value": 2638,
+     "unit": "token/task",
+     "source": "lane; fake model accounting over the session, dated price table"
+    },
+    "model-usd-per-1k-verified": {
+     "value": 1.5055999999999998,
+     "unit": "USD/1k",
+     "source": "lane; fake model accounting over the session, dated price table"
+    },
+    "interface-turns-per-task": {
+     "value": 5,
+     "unit": "turn/task",
+     "source": "lane; model turns over verified tasks through one interface"
+    },
+    "task-p50-ms-verified": {
+     "value": 4968.93675000011,
+     "unit": "ms",
+     "source": "lane; whole task including model latency"
+    }
+   }
+  },
+  {
+   "cellId": "f2863698a88a-67",
+   "factors": {
+    "model": "anthropic/claude-haiku-5.5",
+    "interface": "sdk",
+    "variant": "baseline",
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "tokens-per-verified-task": {
+     "value": 9343,
+     "unit": "token/task",
+     "source": "lane; fake model accounting over the session, dated price table"
+    },
+    "model-usd-per-1k-verified": {
+     "value": 1.3899000000000001,
+     "unit": "USD/1k",
+     "source": "lane; fake model accounting over the session, dated price table"
+    },
+    "interface-turns-per-task": {
+     "value": 5,
+     "unit": "turn/task",
+     "source": "lane; model turns over verified tasks through one interface"
+    },
+    "task-p50-ms-verified": {
+     "value": 8643.84987499984,
+     "unit": "ms",
+     "source": "lane; whole task including model latency"
+    }
+   }
+  },
+  {
+   "cellId": "f5e290834117-68",
+   "factors": {
+    "model": "openai/gpt-5.6-luna",
+    "interface": "cli",
+    "variant": "baseline",
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "tokens-per-verified-task": {
+     "value": 2517.6666666666665,
+     "unit": "token/task",
+     "source": "lane; fake model accounting over the session, dated price table"
+    },
+    "model-usd-per-1k-verified": {
+     "value": 0.7372000000000001,
+     "unit": "USD/1k",
+     "source": "lane; fake model accounting over the session, dated price table"
+    },
+    "interface-turns-per-task": {
+     "value": 5,
+     "unit": "turn/task",
+     "source": "lane; model turns over verified tasks through one interface"
+    },
+    "task-p50-ms-verified": {
+     "value": 6098.240791999968,
+     "unit": "ms",
+     "source": "lane; whole task including model latency"
+    }
+   }
+  },
+  {
+   "cellId": "889b3f9efc2d-69",
+   "factors": {
+    "model": "google/gemini-3.1-flash-lite",
+    "interface": "mcp",
+    "variant": "price-change",
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "tokens-per-verified-task": {
+     "value": 1055,
+     "unit": "token/task",
+     "source": "lane; fake model accounting over the session, dated price table"
+    },
+    "model-usd-per-1k-verified": {
+     "value": 0.3075,
+     "unit": "USD/1k",
+     "source": "lane; fake model accounting over the session, dated price table"
+    },
+    "interface-turns-per-task": {
+     "value": 3,
+     "unit": "turn/task",
+     "source": "lane; model turns over verified tasks through one interface"
+    },
+    "task-p50-ms-verified": {
+     "value": 2445.8906659998465,
+     "unit": "ms",
+     "source": "lane; whole task including model latency"
+    }
+   }
+  },
+  {
+   "cellId": "2ddb3f7a0153-70",
+   "factors": {
+    "model": "anthropic/claude-haiku-5.5",
+    "interface": "mcp",
+    "variant": "decoy-swap",
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "tokens-per-verified-task": {
+     "value": 23246,
+     "unit": "token/task",
+     "source": "lane; fake model accounting over the session, dated price table"
+    },
+    "model-usd-per-1k-verified": {
+     "value": 3.3266,
+     "unit": "USD/1k",
+     "source": "lane; fake model accounting over the session, dated price table"
+    },
+    "interface-turns-per-task": {
+     "value": 10.5,
+     "unit": "turn/task",
+     "source": "lane; model turns over verified tasks through one interface"
+    },
+    "task-p50-ms-verified": {
+     "value": 10187.797917000018,
+     "unit": "ms",
+     "source": "lane; whole task including model latency"
+    }
+   }
+  },
+  {
+   "cellId": "2b1283ff9a49-71",
+   "factors": {
+    "model": "anthropic/claude-haiku-5.5",
+    "interface": "code-mode",
+    "variant": "decoy-swap",
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "tokens-per-verified-task": {
+     "value": 757.6666666666666,
+     "unit": "token/task",
+     "source": "lane; fake model accounting over the session, dated price table"
+    },
+    "model-usd-per-1k-verified": {
+     "value": 0.1728333333333333,
+     "unit": "USD/1k",
+     "source": "lane; fake model accounting over the session, dated price table"
+    },
+    "interface-turns-per-task": {
+     "value": 1,
+     "unit": "turn/task",
+     "source": "lane; model turns over verified tasks through one interface"
+    },
+    "task-p50-ms-verified": {
+     "value": 1852.8233330000658,
+     "unit": "ms",
+     "source": "lane; whole task including model latency"
+    }
+   }
+  },
+  {
+   "cellId": "64b8046c95fd-72",
+   "factors": {
+    "model": "anthropic/claude-haiku-5.5",
+    "interface": "sdk",
+    "variant": "baseline",
+    "block": 2
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "tokens-per-verified-task": {
+     "value": 10115.666666666666,
+     "unit": "token/task",
+     "source": "lane; fake model accounting over the session, dated price table"
+    },
+    "model-usd-per-1k-verified": {
+     "value": 1.4686333333333335,
+     "unit": "USD/1k",
+     "source": "lane; fake model accounting over the session, dated price table"
+    },
+    "interface-turns-per-task": {
+     "value": 5.333333333333333,
+     "unit": "turn/task",
+     "source": "lane; model turns over verified tasks through one interface"
+    },
+    "task-p50-ms-verified": {
+     "value": 9659.057791999774,
+     "unit": "ms",
+     "source": "lane; whole task including model latency"
+    }
+   }
+  },
+  {
+   "cellId": "244d2f3ddb48-73",
+   "factors": {
+    "model": "openai/gpt-5.6-luna",
+    "interface": "sdk",
+    "variant": "baseline",
+    "block": 2
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "tokens-per-verified-task": {
+     "value": 2194.6666666666665,
+     "unit": "token/task",
+     "source": "lane; fake model accounting over the session, dated price table"
+    },
+    "model-usd-per-1k-verified": {
+     "value": 0.6255999999999999,
+     "unit": "USD/1k",
+     "source": "lane; fake model accounting over the session, dated price table"
+    },
+    "interface-turns-per-task": {
+     "value": 4,
+     "unit": "turn/task",
+     "source": "lane; model turns over verified tasks through one interface"
+    },
+    "task-p50-ms-verified": {
+     "value": 5128.073625000194,
+     "unit": "ms",
+     "source": "lane; whole task including model latency"
+    }
+   }
+  },
+  {
+   "cellId": "bb42f8ba930d-74",
+   "factors": {
+    "model": "google/gemini-3.1-flash-lite",
+    "interface": "cli",
+    "variant": "baseline",
+    "block": 2
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "tokens-per-verified-task": {
+     "value": 930,
+     "unit": "token/task",
+     "source": "lane; fake model accounting over the session, dated price table"
+    },
+    "model-usd-per-1k-verified": {
+     "value": 0.35375000000000006,
+     "unit": "USD/1k",
+     "source": "lane; fake model accounting over the session, dated price table"
+    },
+    "interface-turns-per-task": {
+     "value": 3,
+     "unit": "turn/task",
+     "source": "lane; model turns over verified tasks through one interface"
+    },
+    "task-p50-ms-verified": {
+     "value": 2630.054749999894,
+     "unit": "ms",
+     "source": "lane; whole task including model latency"
+    }
+   }
+  },
+  {
+   "cellId": "1eaa0a44a568-75",
+   "factors": {
+    "model": "openai/gpt-5.6-luna",
+    "interface": "mcp",
+    "variant": "baseline",
+    "block": 2
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "tokens-per-verified-task": {
+     "value": 2427,
+     "unit": "token/task",
+     "source": "lane; fake model accounting over the session, dated price table"
+    },
+    "model-usd-per-1k-verified": {
+     "value": 0.6847333333333333,
+     "unit": "USD/1k",
+     "source": "lane; fake model accounting over the session, dated price table"
+    },
+    "interface-turns-per-task": {
+     "value": 4.333333333333333,
+     "unit": "turn/task",
+     "source": "lane; model turns over verified tasks through one interface"
+    },
+    "task-p50-ms-verified": {
+     "value": 5884.977790999925,
+     "unit": "ms",
+     "source": "lane; whole task including model latency"
+    }
+   }
+  },
+  {
+   "cellId": "6e463f92c7b1-76",
+   "factors": {
+    "model": "openai/gpt-5.6-luna",
+    "interface": "sdk",
+    "variant": "price-change",
+    "block": 2
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "tokens-per-verified-task": {
+     "value": 1307,
+     "unit": "token/task",
+     "source": "lane; fake model accounting over the session, dated price table"
+    },
+    "model-usd-per-1k-verified": {
+     "value": 0.3274,
+     "unit": "USD/1k",
+     "source": "lane; fake model accounting over the session, dated price table"
+    },
+    "interface-turns-per-task": {
+     "value": 3,
+     "unit": "turn/task",
+     "source": "lane; model turns over verified tasks through one interface"
+    },
+    "task-p50-ms-verified": {
+     "value": 3319.7937500001863,
+     "unit": "ms",
+     "source": "lane; whole task including model latency"
+    }
+   }
+  },
+  {
+   "cellId": "07150edb0c93-77",
+   "factors": {
+    "model": "google/gemini-3.1-flash-lite",
+    "interface": "mcp",
+    "variant": "baseline",
+    "block": 2
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "tokens-per-verified-task": {
+     "value": 2954,
+     "unit": "token/task",
+     "source": "lane; fake model accounting over the session, dated price table"
+    },
+    "model-usd-per-1k-verified": {
+     "value": 0.8747500000000001,
+     "unit": "USD/1k",
+     "source": "lane; fake model accounting over the session, dated price table"
+    },
+    "interface-turns-per-task": {
+     "value": 7,
+     "unit": "turn/task",
+     "source": "lane; model turns over verified tasks through one interface"
+    },
+    "task-p50-ms-verified": {
+     "value": 6171.420875000069,
+     "unit": "ms",
+     "source": "lane; whole task including model latency"
+    }
+   }
+  },
+  {
+   "cellId": "42c609822a82-78",
+   "factors": {
+    "model": "anthropic/claude-haiku-5.5",
+    "interface": "code-mode",
+    "variant": "price-change",
+    "block": 2
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "tokens-per-verified-task": {
+     "value": 672.6666666666666,
+     "unit": "token/task",
+     "source": "lane; fake model accounting over the session, dated price table"
+    },
+    "model-usd-per-1k-verified": {
+     "value": 0.15313333333333332,
+     "unit": "USD/1k",
+     "source": "lane; fake model accounting over the session, dated price table"
+    },
+    "interface-turns-per-task": {
+     "value": 1,
+     "unit": "turn/task",
+     "source": "lane; model turns over verified tasks through one interface"
+    },
+    "task-p50-ms-verified": {
+     "value": 1752.66941699991,
+     "unit": "ms",
+     "source": "lane; whole task including model latency"
+    }
+   }
+  },
+  {
+   "cellId": "9d22f298443b-79",
+   "factors": {
+    "model": "google/gemini-3.1-flash-lite",
+    "interface": "sdk",
+    "variant": "baseline",
+    "block": 2
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "tokens-per-verified-task": {
+     "value": 2919,
+     "unit": "token/task",
+     "source": "lane; fake model accounting over the session, dated price table"
+    },
+    "model-usd-per-1k-verified": {
+     "value": 0.8659999999999999,
+     "unit": "USD/1k",
+     "source": "lane; fake model accounting over the session, dated price table"
+    },
+    "interface-turns-per-task": {
+     "value": 7,
+     "unit": "turn/task",
+     "source": "lane; model turns over verified tasks through one interface"
+    },
+    "task-p50-ms-verified": {
+     "value": 5786.034958000062,
+     "unit": "ms",
+     "source": "lane; whole task including model latency"
+    }
+   }
+  },
+  {
+   "cellId": "01002776159b-80",
+   "factors": {
+    "model": "google/gemini-3.1-flash-lite",
+    "interface": "mcp",
+    "variant": "price-change",
+    "block": 2
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "tokens-per-verified-task": {
+     "value": 1055,
+     "unit": "token/task",
+     "source": "lane; fake model accounting over the session, dated price table"
+    },
+    "model-usd-per-1k-verified": {
+     "value": 0.3075,
+     "unit": "USD/1k",
+     "source": "lane; fake model accounting over the session, dated price table"
+    },
+    "interface-turns-per-task": {
+     "value": 3,
+     "unit": "turn/task",
+     "source": "lane; model turns over verified tasks through one interface"
+    },
+    "task-p50-ms-verified": {
+     "value": 2632.661708000116,
+     "unit": "ms",
+     "source": "lane; whole task including model latency"
+    }
+   }
+  },
+  {
+   "cellId": "efb2102ee119-81",
+   "factors": {
+    "model": "google/gemini-3.1-flash-lite",
+    "interface": "cli",
+    "variant": "price-change",
+    "block": 2
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "tokens-per-verified-task": {
+     "value": 2107,
+     "unit": "token/task",
+     "source": "lane; fake model accounting over the session, dated price table"
+    },
+    "model-usd-per-1k-verified": {
+     "value": 0.768,
+     "unit": "USD/1k",
+     "source": "lane; fake model accounting over the session, dated price table"
+    },
+    "interface-turns-per-task": {
+     "value": 5,
+     "unit": "turn/task",
+     "source": "lane; model turns over verified tasks through one interface"
+    },
+    "task-p50-ms-verified": {
+     "value": 4773.889167000074,
+     "unit": "ms",
+     "source": "lane; whole task including model latency"
+    }
+   }
+  },
+  {
+   "cellId": "dbf9c93f9252-82",
+   "factors": {
+    "model": "anthropic/claude-haiku-5.5",
+    "interface": "mcp",
+    "variant": "baseline",
+    "block": 2
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "tokens-per-verified-task": {
+     "value": 12131.666666666666,
+     "unit": "token/task",
+     "source": "lane; fake model accounting over the session, dated price table"
+    },
+    "model-usd-per-1k-verified": {
+     "value": 1.8102333333333334,
+     "unit": "USD/1k",
+     "source": "lane; fake model accounting over the session, dated price table"
+    },
+    "interface-turns-per-task": {
+     "value": 6,
+     "unit": "turn/task",
+     "source": "lane; model turns over verified tasks through one interface"
+    },
+    "task-p50-ms-verified": {
+     "value": 11302.153333999915,
+     "unit": "ms",
+     "source": "lane; whole task including model latency"
+    }
+   }
+  },
+  {
+   "cellId": "735bd85f34e8-83",
+   "factors": {
+    "model": "openai/gpt-5.6-luna",
+    "interface": "code-mode",
+    "variant": "baseline",
+    "block": 2
+   },
+   "status": "failed",
+   "errorCode": null,
+   "counts": {
+    "verified": 0,
+    "failed": 1,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "tokens-per-verified-task": {
+     "value": 2682,
+     "unit": "token/task",
+     "source": "lane; fake model accounting over the session, dated price table"
+    },
+    "model-usd-per-1k-verified": {
+     "value": 1.5584000000000002,
+     "unit": "USD/1k",
+     "source": "lane; fake model accounting over the session, dated price table"
+    },
+    "interface-turns-per-task": {
+     "value": 5,
+     "unit": "turn/task",
+     "source": "lane; model turns over verified tasks through one interface"
+    },
+    "task-p50-ms-verified": {
+     "value": 3182.3126669998746,
+     "unit": "ms",
+     "source": "lane; whole task including model latency"
+    }
+   }
+  },
+  {
+   "cellId": "8b9052dc27eb-84",
+   "factors": {
+    "model": "openai/gpt-5.6-luna",
+    "interface": "cli",
+    "variant": "price-change",
+    "block": 2
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "tokens-per-verified-task": {
+     "value": 1610,
+     "unit": "token/task",
+     "source": "lane; fake model accounting over the session, dated price table"
+    },
+    "model-usd-per-1k-verified": {
+     "value": 0.43700000000000006,
+     "unit": "USD/1k",
+     "source": "lane; fake model accounting over the session, dated price table"
+    },
+    "interface-turns-per-task": {
+     "value": 4,
+     "unit": "turn/task",
+     "source": "lane; model turns over verified tasks through one interface"
+    },
+    "task-p50-ms-verified": {
+     "value": 4734.356875000056,
+     "unit": "ms",
+     "source": "lane; whole task including model latency"
+    }
+   }
+  },
+  {
+   "cellId": "7b0fb85f28b3-85",
+   "factors": {
+    "model": "google/gemini-3.1-flash-lite",
+    "interface": "cli",
+    "variant": "decoy-swap",
+    "block": 2
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "tokens-per-verified-task": {
+     "value": 1430,
+     "unit": "token/task",
+     "source": "lane; fake model accounting over the session, dated price table"
+    },
+    "model-usd-per-1k-verified": {
+     "value": 0.495,
+     "unit": "USD/1k",
+     "source": "lane; fake model accounting over the session, dated price table"
+    },
+    "interface-turns-per-task": {
+     "value": 4,
+     "unit": "turn/task",
+     "source": "lane; model turns over verified tasks through one interface"
+    },
+    "task-p50-ms-verified": {
+     "value": 4100.276917000068,
+     "unit": "ms",
+     "source": "lane; whole task including model latency"
+    }
+   }
+  },
+  {
+   "cellId": "c74d4522bcb3-86",
+   "factors": {
+    "model": "anthropic/claude-haiku-5.5",
+    "interface": "cli",
+    "variant": "price-change",
+    "block": 2
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "tokens-per-verified-task": {
+     "value": 3685.3333333333335,
+     "unit": "token/task",
+     "source": "lane; fake model accounting over the session, dated price table"
+    },
+    "model-usd-per-1k-verified": {
+     "value": 0.4812,
+     "unit": "USD/1k",
+     "source": "lane; fake model accounting over the session, dated price table"
+    },
+    "interface-turns-per-task": {
+     "value": 4,
+     "unit": "turn/task",
+     "source": "lane; model turns over verified tasks through one interface"
+    },
+    "task-p50-ms-verified": {
+     "value": 5343.925791000016,
+     "unit": "ms",
+     "source": "lane; whole task including model latency"
+    }
+   }
+  },
+  {
+   "cellId": "8bb21fbb010e-87",
+   "factors": {
+    "model": "anthropic/claude-haiku-5.5",
+    "interface": "sdk",
+    "variant": "decoy-swap",
+    "block": 2
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "tokens-per-verified-task": {
+     "value": 10383.333333333334,
+     "unit": "token/task",
+     "source": "lane; fake model accounting over the session, dated price table"
+    },
+    "model-usd-per-1k-verified": {
+     "value": 1.4858,
+     "unit": "USD/1k",
+     "source": "lane; fake model accounting over the session, dated price table"
+    },
+    "interface-turns-per-task": {
+     "value": 5.333333333333333,
+     "unit": "turn/task",
+     "source": "lane; model turns over verified tasks through one interface"
+    },
+    "task-p50-ms-verified": {
+     "value": 8357.188749999972,
+     "unit": "ms",
+     "source": "lane; whole task including model latency"
+    }
+   }
+  },
+  {
+   "cellId": "c2aa80e48a60-88",
+   "factors": {
+    "model": "openai/gpt-5.6-luna",
+    "interface": "cli",
+    "variant": "baseline",
+    "block": 2
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "tokens-per-verified-task": {
+     "value": 2516.6666666666665,
+     "unit": "token/task",
+     "source": "lane; fake model accounting over the session, dated price table"
+    },
+    "model-usd-per-1k-verified": {
+     "value": 0.7346666666666666,
+     "unit": "USD/1k",
+     "source": "lane; fake model accounting over the session, dated price table"
+    },
+    "interface-turns-per-task": {
+     "value": 5,
+     "unit": "turn/task",
+     "source": "lane; model turns over verified tasks through one interface"
+    },
+    "task-p50-ms-verified": {
+     "value": 6803.8887499999255,
+     "unit": "ms",
+     "source": "lane; whole task including model latency"
+    }
+   }
+  },
+  {
+   "cellId": "929e5ee6113f-89",
+   "factors": {
+    "model": "google/gemini-3.1-flash-lite",
+    "interface": "mcp",
+    "variant": "decoy-swap",
+    "block": 2
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "tokens-per-verified-task": {
+     "value": 3045,
+     "unit": "token/task",
+     "source": "lane; fake model accounting over the session, dated price table"
+    },
+    "model-usd-per-1k-verified": {
+     "value": 0.9137500000000001,
+     "unit": "USD/1k",
+     "source": "lane; fake model accounting over the session, dated price table"
+    },
+    "interface-turns-per-task": {
+     "value": 7,
+     "unit": "turn/task",
+     "source": "lane; model turns over verified tasks through one interface"
+    },
+    "task-p50-ms-verified": {
+     "value": 5877.325082999887,
+     "unit": "ms",
+     "source": "lane; whole task including model latency"
+    }
+   }
+  },
+  {
+   "cellId": "bc30d29c22a3-90",
+   "factors": {
+    "model": "anthropic/claude-haiku-5.5",
+    "interface": "code-mode",
+    "variant": "baseline",
+    "block": 2
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "tokens-per-verified-task": {
+     "value": 721.3333333333334,
+     "unit": "token/task",
+     "source": "lane; fake model accounting over the session, dated price table"
+    },
+    "model-usd-per-1k-verified": {
+     "value": 0.16946666666666668,
+     "unit": "USD/1k",
+     "source": "lane; fake model accounting over the session, dated price table"
+    },
+    "interface-turns-per-task": {
+     "value": 1,
+     "unit": "turn/task",
+     "source": "lane; model turns over verified tasks through one interface"
+    },
+    "task-p50-ms-verified": {
+     "value": 2221.3567079999484,
+     "unit": "ms",
+     "source": "lane; whole task including model latency"
+    }
+   }
+  },
+  {
+   "cellId": "c74014a432cc-91",
+   "factors": {
+    "model": "google/gemini-3.1-flash-lite",
+    "interface": "sdk",
+    "variant": "decoy-swap",
+    "block": 2
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "tokens-per-verified-task": {
+     "value": 3010,
+     "unit": "token/task",
+     "source": "lane; fake model accounting over the session, dated price table"
+    },
+    "model-usd-per-1k-verified": {
+     "value": 0.9049999999999999,
+     "unit": "USD/1k",
+     "source": "lane; fake model accounting over the session, dated price table"
+    },
+    "interface-turns-per-task": {
+     "value": 7,
+     "unit": "turn/task",
+     "source": "lane; model turns over verified tasks through one interface"
+    },
+    "task-p50-ms-verified": {
+     "value": 4805.714042000007,
+     "unit": "ms",
+     "source": "lane; whole task including model latency"
+    }
+   }
+  },
+  {
+   "cellId": "1f3eb15ff712-92",
+   "factors": {
+    "model": "anthropic/claude-haiku-5.5",
+    "interface": "code-mode",
+    "variant": "decoy-swap",
+    "block": 2
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "tokens-per-verified-task": {
+     "value": 763,
+     "unit": "token/task",
+     "source": "lane; fake model accounting over the session, dated price table"
+    },
+    "model-usd-per-1k-verified": {
+     "value": 0.17550000000000002,
+     "unit": "USD/1k",
+     "source": "lane; fake model accounting over the session, dated price table"
+    },
+    "interface-turns-per-task": {
+     "value": 1,
+     "unit": "turn/task",
+     "source": "lane; model turns over verified tasks through one interface"
+    },
+    "task-p50-ms-verified": {
+     "value": 1932.8285420001484,
+     "unit": "ms",
+     "source": "lane; whole task including model latency"
+    }
+   }
+  },
+  {
+   "cellId": "3d1da130f0d2-93",
+   "factors": {
+    "model": "anthropic/claude-haiku-5.5",
+    "interface": "sdk",
+    "variant": "price-change",
+    "block": 2
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "tokens-per-verified-task": {
+     "value": 3692.3333333333335,
+     "unit": "token/task",
+     "source": "lane; fake model accounting over the session, dated price table"
+    },
+    "model-usd-per-1k-verified": {
+     "value": 0.43536666666666674,
+     "unit": "USD/1k",
+     "source": "lane; fake model accounting over the session, dated price table"
+    },
+    "interface-turns-per-task": {
+     "value": 3,
+     "unit": "turn/task",
+     "source": "lane; model turns over verified tasks through one interface"
+    },
+    "task-p50-ms-verified": {
+     "value": 3113.767959000077,
+     "unit": "ms",
+     "source": "lane; whole task including model latency"
+    }
+   }
+  },
+  {
+   "cellId": "8e1cfafd7d4f-94",
+   "factors": {
+    "model": "openai/gpt-5.6-luna",
+    "interface": "mcp",
+    "variant": "price-change",
+    "block": 2
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "tokens-per-verified-task": {
+     "value": 1327.6666666666667,
+     "unit": "token/task",
+     "source": "lane; fake model accounting over the session, dated price table"
+    },
+    "model-usd-per-1k-verified": {
+     "value": 0.33719999999999994,
+     "unit": "USD/1k",
+     "source": "lane; fake model accounting over the session, dated price table"
+    },
+    "interface-turns-per-task": {
+     "value": 3,
+     "unit": "turn/task",
+     "source": "lane; model turns over verified tasks through one interface"
+    },
+    "task-p50-ms-verified": {
+     "value": 3944.9203329999,
+     "unit": "ms",
+     "source": "lane; whole task including model latency"
+    }
+   }
+  },
+  {
+   "cellId": "4997dbda09a2-95",
+   "factors": {
+    "model": "openai/gpt-5.6-luna",
+    "interface": "code-mode",
+    "variant": "price-change",
+    "block": 2
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "tokens-per-verified-task": {
+     "value": 374.3333333333333,
+     "unit": "token/task",
+     "source": "lane; fake model accounting over the session, dated price table"
+    },
+    "model-usd-per-1k-verified": {
+     "value": 0.1492,
+     "unit": "USD/1k",
+     "source": "lane; fake model accounting over the session, dated price table"
+    },
+    "interface-turns-per-task": {
+     "value": 1,
+     "unit": "turn/task",
+     "source": "lane; model turns over verified tasks through one interface"
+    },
+    "task-p50-ms-verified": {
+     "value": 2016.4482080000453,
+     "unit": "ms",
+     "source": "lane; whole task including model latency"
+    }
+   }
+  },
+  {
+   "cellId": "88bd8dcc1134-96",
+   "factors": {
+    "model": "google/gemini-3.1-flash-lite",
+    "interface": "code-mode",
+    "variant": "price-change",
+    "block": 2
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "tokens-per-verified-task": {
+     "value": 317,
+     "unit": "token/task",
+     "source": "lane; fake model accounting over the session, dated price table"
+    },
+    "model-usd-per-1k-verified": {
+     "value": 0.10175000000000001,
+     "unit": "USD/1k",
+     "source": "lane; fake model accounting over the session, dated price table"
+    },
+    "interface-turns-per-task": {
+     "value": 1,
+     "unit": "turn/task",
+     "source": "lane; model turns over verified tasks through one interface"
+    },
+    "task-p50-ms-verified": {
+     "value": 750.161958000157,
+     "unit": "ms",
+     "source": "lane; whole task including model latency"
+    }
+   }
+  },
+  {
+   "cellId": "90868f176532-97",
+   "factors": {
+    "model": "openai/gpt-5.6-luna",
+    "interface": "mcp",
+    "variant": "decoy-swap",
+    "block": 2
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "tokens-per-verified-task": {
+     "value": 2714.3333333333335,
+     "unit": "token/task",
+     "source": "lane; fake model accounting over the session, dated price table"
+    },
+    "model-usd-per-1k-verified": {
+     "value": 0.7418666666666667,
+     "unit": "USD/1k",
+     "source": "lane; fake model accounting over the session, dated price table"
+    },
+    "interface-turns-per-task": {
+     "value": 4.666666666666667,
+     "unit": "turn/task",
+     "source": "lane; model turns over verified tasks through one interface"
+    },
+    "task-p50-ms-verified": {
+     "value": 6860.440458999947,
+     "unit": "ms",
+     "source": "lane; whole task including model latency"
+    }
+   }
+  },
+  {
+   "cellId": "a792f30cbb6b-98",
+   "factors": {
+    "model": "google/gemini-3.1-flash-lite",
+    "interface": "code-mode",
+    "variant": "decoy-swap",
+    "block": 2
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "tokens-per-verified-task": {
+     "value": 398,
+     "unit": "token/task",
+     "source": "lane; fake model accounting over the session, dated price table"
+    },
+    "model-usd-per-1k-verified": {
+     "value": 0.17825,
+     "unit": "USD/1k",
+     "source": "lane; fake model accounting over the session, dated price table"
+    },
+    "interface-turns-per-task": {
+     "value": 1,
+     "unit": "turn/task",
+     "source": "lane; model turns over verified tasks through one interface"
+    },
+    "task-p50-ms-verified": {
+     "value": 874.362417000113,
+     "unit": "ms",
+     "source": "lane; whole task including model latency"
+    }
+   }
+  },
+  {
+   "cellId": "1949e22d6213-99",
+   "factors": {
+    "model": "google/gemini-3.1-flash-lite",
+    "interface": "sdk",
+    "variant": "price-change",
+    "block": 2
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "tokens-per-verified-task": {
+     "value": 1040,
+     "unit": "token/task",
+     "source": "lane; fake model accounting over the session, dated price table"
+    },
+    "model-usd-per-1k-verified": {
+     "value": 0.30374999999999996,
+     "unit": "USD/1k",
+     "source": "lane; fake model accounting over the session, dated price table"
+    },
+    "interface-turns-per-task": {
+     "value": 3,
+     "unit": "turn/task",
+     "source": "lane; model turns over verified tasks through one interface"
+    },
+    "task-p50-ms-verified": {
+     "value": 1742.7865840001032,
+     "unit": "ms",
+     "source": "lane; whole task including model latency"
+    }
+   }
+  },
+  {
+   "cellId": "70eba718be1b-100",
+   "factors": {
+    "model": "openai/gpt-5.6-luna",
+    "interface": "code-mode",
+    "variant": "decoy-swap",
+    "block": 2
+   },
+   "status": "failed",
+   "errorCode": null,
+   "counts": {
+    "verified": 0,
+    "failed": 1,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "tokens-per-verified-task": {
+     "value": null,
+     "unit": "token/task",
+     "source": "lane; fake model accounting over the session, dated price table"
+    },
+    "model-usd-per-1k-verified": {
+     "value": null,
+     "unit": "USD/1k",
+     "source": "lane; fake model accounting over the session, dated price table"
+    },
+    "interface-turns-per-task": {
+     "value": null,
+     "unit": "turn/task",
+     "source": "lane; model turns over verified tasks through one interface"
+    },
+    "task-p50-ms-verified": {
+     "value": null,
+     "unit": "ms",
+     "source": "lane; whole task including model latency"
+    }
+   }
+  },
+  {
+   "cellId": "647db1201aa7-101",
+   "factors": {
+    "model": "openai/gpt-5.6-luna",
+    "interface": "sdk",
+    "variant": "decoy-swap",
+    "block": 2
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "tokens-per-verified-task": {
+     "value": 2699.6666666666665,
+     "unit": "token/task",
+     "source": "lane; fake model accounting over the session, dated price table"
+    },
+    "model-usd-per-1k-verified": {
+     "value": 0.7475999999999998,
+     "unit": "USD/1k",
+     "source": "lane; fake model accounting over the session, dated price table"
+    },
+    "interface-turns-per-task": {
+     "value": 4.666666666666667,
+     "unit": "turn/task",
+     "source": "lane; model turns over verified tasks through one interface"
+    },
+    "task-p50-ms-verified": {
+     "value": 6158.438958999934,
+     "unit": "ms",
+     "source": "lane; whole task including model latency"
+    }
+   }
+  },
+  {
+   "cellId": "ba55025ba0b6-102",
+   "factors": {
+    "model": "openai/gpt-5.6-luna",
+    "interface": "cli",
+    "variant": "decoy-swap",
+    "block": 2
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "tokens-per-verified-task": {
+     "value": 2112,
+     "unit": "token/task",
+     "source": "lane; fake model accounting over the session, dated price table"
+    },
+    "model-usd-per-1k-verified": {
+     "value": 0.6350666666666667,
+     "unit": "USD/1k",
+     "source": "lane; fake model accounting over the session, dated price table"
+    },
+    "interface-turns-per-task": {
+     "value": 4.333333333333333,
+     "unit": "turn/task",
+     "source": "lane; model turns over verified tasks through one interface"
+    },
+    "task-p50-ms-verified": {
+     "value": 7358.181792000076,
+     "unit": "ms",
+     "source": "lane; whole task including model latency"
+    }
+   }
+  },
+  {
+   "cellId": "3106bafcb93f-103",
+   "factors": {
+    "model": "anthropic/claude-haiku-5.5",
+    "interface": "mcp",
+    "variant": "decoy-swap",
+    "block": 2
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "tokens-per-verified-task": {
+     "value": 16910.666666666668,
+     "unit": "token/task",
+     "source": "lane; fake model accounting over the session, dated price table"
+    },
+    "model-usd-per-1k-verified": {
+     "value": 2.3508,
+     "unit": "USD/1k",
+     "source": "lane; fake model accounting over the session, dated price table"
+    },
+    "interface-turns-per-task": {
+     "value": 7.333333333333333,
+     "unit": "turn/task",
+     "source": "lane; model turns over verified tasks through one interface"
+    },
+    "task-p50-ms-verified": {
+     "value": 10945.478124999907,
+     "unit": "ms",
+     "source": "lane; whole task including model latency"
+    }
+   }
+  },
+  {
+   "cellId": "db04f16431c4-104",
+   "factors": {
+    "model": "anthropic/claude-haiku-5.5",
+    "interface": "mcp",
+    "variant": "price-change",
+    "block": 2
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "tokens-per-verified-task": {
+     "value": 3699.3333333333335,
+     "unit": "token/task",
+     "source": "lane; fake model accounting over the session, dated price table"
+    },
+    "model-usd-per-1k-verified": {
+     "value": 0.4304666666666666,
+     "unit": "USD/1k",
+     "source": "lane; fake model accounting over the session, dated price table"
+    },
+    "interface-turns-per-task": {
+     "value": 3,
+     "unit": "turn/task",
+     "source": "lane; model turns over verified tasks through one interface"
+    },
+    "task-p50-ms-verified": {
+     "value": 3229.7221249998547,
+     "unit": "ms",
+     "source": "lane; whole task including model latency"
+    }
+   }
+  },
+  {
+   "cellId": "e1b01f3101a3-105",
+   "factors": {
+    "model": "anthropic/claude-haiku-5.5",
+    "interface": "cli",
+    "variant": "baseline",
+    "block": 2
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "tokens-per-verified-task": {
+     "value": 29578,
+     "unit": "token/task",
+     "source": "lane; fake model accounting over the session, dated price table"
+    },
+    "model-usd-per-1k-verified": {
+     "value": 4.4578,
+     "unit": "USD/1k",
+     "source": "lane; fake model accounting over the session, dated price table"
+    },
+    "interface-turns-per-task": {
+     "value": 20,
+     "unit": "turn/task",
+     "source": "lane; model turns over verified tasks through one interface"
+    },
+    "task-p50-ms-verified": {
+     "value": 8872.99295799993,
+     "unit": "ms",
+     "source": "lane; whole task including model latency"
+    }
+   }
+  },
+  {
+   "cellId": "0f53754fc35c-106",
+   "factors": {
+    "model": "google/gemini-3.1-flash-lite",
+    "interface": "code-mode",
+    "variant": "baseline",
+    "block": 2
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "tokens-per-verified-task": {
+     "value": 374,
+     "unit": "token/task",
+     "source": "lane; fake model accounting over the session, dated price table"
+    },
+    "model-usd-per-1k-verified": {
+     "value": 0.17225000000000001,
+     "unit": "USD/1k",
+     "source": "lane; fake model accounting over the session, dated price table"
+    },
+    "interface-turns-per-task": {
+     "value": 1,
+     "unit": "turn/task",
+     "source": "lane; model turns over verified tasks through one interface"
+    },
+    "task-p50-ms-verified": {
+     "value": 1118.489833000116,
+     "unit": "ms",
+     "source": "lane; whole task including model latency"
+    }
+   }
+  },
+  {
+   "cellId": "1b590800934d-107",
+   "factors": {
+    "model": "anthropic/claude-haiku-5.5",
+    "interface": "cli",
+    "variant": "decoy-swap",
+    "block": 2
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "tokens-per-verified-task": {
+     "value": 13258.5,
+     "unit": "token/task",
+     "source": "lane; fake model accounting over the session, dated price table"
+    },
+    "model-usd-per-1k-verified": {
+     "value": 1.92625,
+     "unit": "USD/1k",
+     "source": "lane; fake model accounting over the session, dated price table"
+    },
+    "interface-turns-per-task": {
+     "value": 9,
+     "unit": "turn/task",
+     "source": "lane; model turns over verified tasks through one interface"
+    },
+    "task-p50-ms-verified": {
+     "value": 8635.780999999959,
+     "unit": "ms",
+     "source": "lane; whole task including model latency"
+    }
+   }
+  }
+ ],
+ "totals": {
+  "verified": 105,
+  "failed": 3,
+  "timeout": 0,
+  "crashed": 0,
+  "aborted": 0,
+  "unsupported": 0,
+  "rejected": 0,
+  "unavailable": 0,
+  "skipped": 0
+ },
+ "metricAvailability": {
+  "verified-jobs-per-second": {
+   "available": true
+  },
+  "verified-tasks-per-second": {
+   "available": true
+  },
+  "verified-rows-per-second": {
+   "available": true
+  },
+  "task-p50-ms-verified": {
+   "available": true
+  },
+  "task-p95-ms-verified": {
+   "available": true
+  },
+  "task-ms": {
+   "available": true
+  },
+  "ack-latency-p95-ms": {
+   "available": true
+  },
+  "extraction-precision": {
+   "available": true
+  },
+  "extraction-recall": {
+   "available": true
+  },
+  "snippet-recall": {
+   "available": true
+  },
+  "boilerplate-leak": {
+   "available": true
+  },
+  "extract-ms-p50": {
+   "available": true
+  },
+  "startup-ms": {
+   "available": true
+  },
+  "cpu-ms-per-verified-job": {
+   "available": true
+  },
+  "footprint-peak-bytes": {
+   "available": true
+  },
+  "pss-peak-bytes": {
+   "available": false,
+   "reason": "no probe on darwin"
+  },
+  "cgroup-memory-peak-bytes": {
+   "available": false,
+   "reason": "no probe on darwin"
+  },
+  "rss-peak-bytes": {
+   "available": true
+  },
+  "cdp-commands-per-task": {
+   "available": true
+  },
+  "extraction-f1": {
+   "available": true
+  },
+  "field-precision": {
+   "available": true
+  },
+  "field-recall": {
+   "available": true
+  },
+  "pass-k": {
+   "available": true
+  },
+  "llm-calls-per-verified-task": {
+   "available": true
+  },
+  "tokens-per-verified-task": {
+   "available": true
+  },
+  "usd-per-1k-verified": {
+   "available": false,
+   "reason": "pricing tables are not implemented yet"
+  },
+  "model-usd-per-1k-verified": {
+   "available": true
+  },
+  "interface-turns-per-task": {
+   "available": true
+  },
+  "oracle-exact": {
+   "available": true
+  },
+  "false-success-count": {
+   "available": true
+  },
+  "actionability-conformance": {
+   "available": true
+  },
+  "recovery-exact": {
+   "available": true
+  },
+  "durability-power-loss": {
+   "available": false,
+   "reason": "no probe on darwin"
+  },
+  "identity-coherence": {
+   "available": true
+  },
+  "policy-compliance": {
+   "available": true
+  },
+  "session-isolation": {
+   "available": true
+  },
+  "admission-no-loss": {
+   "available": true
+  },
+  "proxy-continuity": {
+   "available": true
+  },
+  "light-domain-goodput": {
+   "available": true
+  },
+  "light-domain-p95-ms": {
+   "available": true
+  },
+  "light-domain-acceptance": {
+   "available": true
+  }
+ },
+ "legacy": null,
+ "blocks": [
+  {
+   "index": 0,
+   "order": [
+    "google/gemini-3.1-flash-lite/cli/baseline",
+    "google/gemini-3.1-flash-lite/mcp/decoy-swap",
+    "anthropic/claude-haiku-5.5/sdk/baseline",
+    "google/gemini-3.1-flash-lite/sdk/baseline",
+    "openai/gpt-5.6-luna/sdk/price-change",
+    "anthropic/claude-haiku-5.5/cli/baseline",
+    "google/gemini-3.1-flash-lite/code-mode/decoy-swap",
+    "anthropic/claude-haiku-5.5/code-mode/baseline",
+    "openai/gpt-5.6-luna/mcp/baseline",
+    "anthropic/claude-haiku-5.5/code-mode/decoy-swap",
+    "google/gemini-3.1-flash-lite/mcp/baseline",
+    "openai/gpt-5.6-luna/code-mode/decoy-swap",
+    "anthropic/claude-haiku-5.5/cli/price-change",
+    "google/gemini-3.1-flash-lite/cli/price-change",
+    "anthropic/claude-haiku-5.5/code-mode/price-change",
+    "openai/gpt-5.6-luna/cli/price-change",
+    "openai/gpt-5.6-luna/code-mode/price-change",
+    "openai/gpt-5.6-luna/mcp/decoy-swap",
+    "anthropic/claude-haiku-5.5/sdk/decoy-swap",
+    "openai/gpt-5.6-luna/code-mode/baseline",
+    "google/gemini-3.1-flash-lite/code-mode/price-change",
+    "openai/gpt-5.6-luna/sdk/baseline",
+    "openai/gpt-5.6-luna/mcp/price-change",
+    "google/gemini-3.1-flash-lite/cli/decoy-swap",
+    "openai/gpt-5.6-luna/cli/baseline",
+    "google/gemini-3.1-flash-lite/mcp/price-change",
+    "google/gemini-3.1-flash-lite/code-mode/baseline",
+    "openai/gpt-5.6-luna/sdk/decoy-swap",
+    "anthropic/claude-haiku-5.5/mcp/price-change",
+    "anthropic/claude-haiku-5.5/cli/decoy-swap",
+    "anthropic/claude-haiku-5.5/sdk/price-change",
+    "anthropic/claude-haiku-5.5/mcp/baseline",
+    "anthropic/claude-haiku-5.5/mcp/decoy-swap",
+    "openai/gpt-5.6-luna/cli/decoy-swap",
+    "google/gemini-3.1-flash-lite/sdk/price-change",
+    "google/gemini-3.1-flash-lite/sdk/decoy-swap"
+   ],
+   "noisy": false,
+   "host": {
+    "loadPerCpu1m": 0.5375627790178571,
+    "foreignCpuPercent": 503.40000000000043
+   }
+  },
+  {
+   "index": 1,
+   "order": [
+    "google/gemini-3.1-flash-lite/mcp/baseline",
+    "google/gemini-3.1-flash-lite/sdk/decoy-swap",
+    "anthropic/claude-haiku-5.5/code-mode/price-change",
+    "openai/gpt-5.6-luna/code-mode/price-change",
+    "google/gemini-3.1-flash-lite/code-mode/baseline",
+    "anthropic/claude-haiku-5.5/mcp/baseline",
+    "openai/gpt-5.6-luna/cli/price-change",
+    "openai/gpt-5.6-luna/mcp/decoy-swap",
+    "google/gemini-3.1-flash-lite/cli/baseline",
+    "anthropic/claude-haiku-5.5/code-mode/baseline",
+    "openai/gpt-5.6-luna/mcp/baseline",
+    "openai/gpt-5.6-luna/sdk/decoy-swap",
+    "google/gemini-3.1-flash-lite/cli/price-change",
+    "anthropic/claude-haiku-5.5/cli/price-change",
+    "google/gemini-3.1-flash-lite/sdk/baseline",
+    "openai/gpt-5.6-luna/sdk/price-change",
+    "openai/gpt-5.6-luna/code-mode/decoy-swap",
+    "anthropic/claude-haiku-5.5/cli/decoy-swap",
+    "google/gemini-3.1-flash-lite/cli/decoy-swap",
+    "anthropic/claude-haiku-5.5/sdk/decoy-swap",
+    "google/gemini-3.1-flash-lite/code-mode/price-change",
+    "google/gemini-3.1-flash-lite/code-mode/decoy-swap",
+    "openai/gpt-5.6-luna/mcp/price-change",
+    "anthropic/claude-haiku-5.5/mcp/price-change",
+    "anthropic/claude-haiku-5.5/sdk/price-change",
+    "openai/gpt-5.6-luna/sdk/baseline",
+    "google/gemini-3.1-flash-lite/sdk/price-change",
+    "openai/gpt-5.6-luna/cli/decoy-swap",
+    "anthropic/claude-haiku-5.5/cli/baseline",
+    "google/gemini-3.1-flash-lite/mcp/decoy-swap",
+    "openai/gpt-5.6-luna/code-mode/baseline",
+    "anthropic/claude-haiku-5.5/sdk/baseline",
+    "openai/gpt-5.6-luna/cli/baseline",
+    "google/gemini-3.1-flash-lite/mcp/price-change",
+    "anthropic/claude-haiku-5.5/mcp/decoy-swap",
+    "anthropic/claude-haiku-5.5/code-mode/decoy-swap"
+   ],
+   "noisy": false,
+   "host": {
+    "loadPerCpu1m": 0.3961704799107143,
+    "foreignCpuPercent": 253.39999999999992
+   }
+  },
+  {
+   "index": 2,
+   "order": [
+    "anthropic/claude-haiku-5.5/sdk/baseline",
+    "openai/gpt-5.6-luna/sdk/baseline",
+    "google/gemini-3.1-flash-lite/cli/baseline",
+    "openai/gpt-5.6-luna/mcp/baseline",
+    "openai/gpt-5.6-luna/sdk/price-change",
+    "google/gemini-3.1-flash-lite/mcp/baseline",
+    "anthropic/claude-haiku-5.5/code-mode/price-change",
+    "google/gemini-3.1-flash-lite/sdk/baseline",
+    "google/gemini-3.1-flash-lite/mcp/price-change",
+    "google/gemini-3.1-flash-lite/cli/price-change",
+    "anthropic/claude-haiku-5.5/mcp/baseline",
+    "openai/gpt-5.6-luna/code-mode/baseline",
+    "openai/gpt-5.6-luna/cli/price-change",
+    "google/gemini-3.1-flash-lite/cli/decoy-swap",
+    "anthropic/claude-haiku-5.5/cli/price-change",
+    "anthropic/claude-haiku-5.5/sdk/decoy-swap",
+    "openai/gpt-5.6-luna/cli/baseline",
+    "google/gemini-3.1-flash-lite/mcp/decoy-swap",
+    "anthropic/claude-haiku-5.5/code-mode/baseline",
+    "google/gemini-3.1-flash-lite/sdk/decoy-swap",
+    "anthropic/claude-haiku-5.5/code-mode/decoy-swap",
+    "anthropic/claude-haiku-5.5/sdk/price-change",
+    "openai/gpt-5.6-luna/mcp/price-change",
+    "openai/gpt-5.6-luna/code-mode/price-change",
+    "google/gemini-3.1-flash-lite/code-mode/price-change",
+    "openai/gpt-5.6-luna/mcp/decoy-swap",
+    "google/gemini-3.1-flash-lite/code-mode/decoy-swap",
+    "google/gemini-3.1-flash-lite/sdk/price-change",
+    "openai/gpt-5.6-luna/code-mode/decoy-swap",
+    "openai/gpt-5.6-luna/sdk/decoy-swap",
+    "openai/gpt-5.6-luna/cli/decoy-swap",
+    "anthropic/claude-haiku-5.5/mcp/decoy-swap",
+    "anthropic/claude-haiku-5.5/mcp/price-change",
+    "anthropic/claude-haiku-5.5/cli/baseline",
+    "google/gemini-3.1-flash-lite/code-mode/baseline",
+    "anthropic/claude-haiku-5.5/cli/decoy-swap"
+   ],
+   "noisy": false,
+   "host": {
+    "loadPerCpu1m": 0.41591099330357145,
+    "foreignCpuPercent": 219.6999999999999
+   }
+  }
+ ]
+}

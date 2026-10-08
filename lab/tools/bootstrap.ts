@@ -15,5 +15,5 @@ await run('cargo',['build','--release','--locked','--manifest-path','adapters/st
 await run('cargo',['build','--release','--locked','--manifest-path','adapters/cdp-rust/Cargo.toml']);
 await run('cargo',['build','--release','--locked','--manifest-path','adapters/extract-rust/Cargo.toml']);
 for (const stack of ['reqwest','wreq']) await run('cargo',['build','--release','--locked','--features',stack,'--manifest-path','adapters/http-rust/Cargo.toml','--target-dir',`adapters/http-rust/target/${stack}`]);
-if(process.platform==='darwin'&&process.arch==='arm64')await run(process.execPath,['tools/build-shared-sqlite.ts']);
+await run(process.execPath,['tools/build-shared-sqlite.ts']);
 await run(process.execPath,['tools/doctor.ts']);

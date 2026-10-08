@@ -1,3 +1,4 @@
+import { sqliteLibrary } from '../registry.ts';
 // Lane drivers and the generic lane engine: each lane keeps its own cell executor and oracle,
 // the engine adds provenance, host gates, randomized blocks, typed statuses and a run.v2 document.
 import { appendFile } from 'node:fs/promises';
@@ -53,7 +54,7 @@ export const drivers: Record<LaneName, LaneDriver> = {
     validate: config => { const c = config as RuntimeCampaign; if (!c || !/^[a-z0-9-]{1,80}$/.test(c.name) || !integer(c.blocks, 1, 20) || !integer(c.seed, 0, 2 ** 32 - 1) || !Array.isArray(c.cells) || !c.cells.length) throw new Error('invalid runtime campaign'); },
     blocks: config => (config as RuntimeCampaign).blocks, seed: config => (config as RuntimeCampaign).seed,
     combinations: config => (config as RuntimeCampaign).cells.map((cell, index) => ({ ...cell, index }) as Json), label: cell => `cell-${cell.index}`,
-    prepare: () => nativeHashes(['libautoman_sqlite.dylib', 'sqlite.node', 'automan-workflow-rust', 'process-probe']),
+    prepare: () => nativeHashes([sqliteLibrary, 'sqlite.node', 'automan-workflow-rust', ...(process.platform === 'darwin' ? ['process-probe'] : [])]),
     runCell: (config, cell, block, directory) => runRuntimeCell(config as RuntimeCampaign, Number(cell.index), block, directory),
     binaryChanges: async (_config, before) => { const after = await nativeHashes(Object.keys(before as Record<string, string>)); return Object.entries(before as Record<string, string>).filter(([file, hash]) => after[file] !== hash).length; }
   },
@@ -65,9 +66,9 @@ export const drivers: Record<LaneName, LaneDriver> = {
     runCell: (config, cell, block, _directory, executablePath) => runActionabilityCell(config as ActionabilityConfig, cell as unknown as ActionabilityCell, block, executablePath as string)
   },
   ai: {
-    validate: config => { const c = config as AiConfig; if (!c || !Array.isArray(c.modes) || !c.modes.length || !c.modes.every(m => m === 'agent-each-run' || m === 'compiled-replay') || !Array.isArray(c.variants) || !c.variants.length || !integer(c.warmRuns, 1, 50) || !integer(c.blocks, 1, 10) || !integer(c.timeoutMs, 100, 60_000) || (c.models !== undefined && (!Array.isArray(c.models) || !c.models.length || !c.models.every(m => /^[a-z0-9-]+\/[a-z0-9.-]+$/.test(m)) || typeof c.gateway !== 'string' || !/^https:\/\//.test(c.gateway) || !(typeof c.maxUsd === 'number' && c.maxUsd > 0 && c.maxUsd <= 20)))) throw new Error('invalid ai campaign'); },
+    validate: config => { const c = config as AiConfig; if (!c || !Array.isArray(c.modes) || !c.modes.length || !c.modes.every(m => m === 'agent-each-run' || m === 'compiled-replay') || !Array.isArray(c.variants) || !c.variants.length || !integer(c.warmRuns, 1, 50) || !integer(c.blocks, 1, 10) || !integer(c.timeoutMs, 100, 60_000) || (c.models !== undefined && (!Array.isArray(c.models) || !c.models.length || !c.models.every(m => /^[a-z0-9-]+\/[a-z0-9.-]+$/.test(m)) || typeof c.gateway !== 'string' || !/^https:\/\//.test(c.gateway) || !(typeof c.maxUsd === 'number' && c.maxUsd > 0 && c.maxUsd <= 20))) || (c.interfaces !== undefined && (!c.models || !Array.isArray(c.interfaces) || !c.interfaces.every(i => ['sdk', 'mcp', 'cli', 'code-mode'].includes(i))))) throw new Error('invalid ai campaign'); },
     blocks: config => (config as AiConfig).blocks, seed: config => (config as AiConfig).seed,
-    combinations: config => aiCombinations(config as AiConfig) as unknown as Json[], label: cell => `${cell.model}/${cell.mode}/${cell.variant}`,
+    combinations: config => aiCombinations(config as AiConfig) as unknown as Json[], label: cell => `${cell.model}/${cell.interface ?? cell.mode}/${cell.variant}`,
     prepare: config => priceSnapshot(config as AiConfig),
     runCell: (config, cell, block, directory, prices) => runAiCell(config as AiConfig, cell as unknown as AiCell, block, directory, prices as Awaited<ReturnType<typeof priceSnapshot>>) as Promise<Json>
   },
@@ -97,7 +98,7 @@ export const drivers: Record<LaneName, LaneDriver> = {
     combinations: config => readersMatrix(config as ReadersConfig).map((cell, index) => ({ ...cell, index }) as Json), label: cell => `cell-${cell.index}`,
     prepare: () => sharedBuildMetadata(),
     runCell: (config, cell, block, directory) => runReadersCell(config as ReadersConfig, Number(cell.index), block, directory),
-    binaryChanges: async (_config, before) => (await sharedBuildMetadata()).hashes['libautoman_sqlite.dylib'] !== (before as Awaited<ReturnType<typeof sharedBuildMetadata>>).hashes['libautoman_sqlite.dylib'] ? 1 : 0
+    binaryChanges: async (_config, before) => (await sharedBuildMetadata()).hashes[sqliteLibrary] !== (before as Awaited<ReturnType<typeof sharedBuildMetadata>>).hashes[sqliteLibrary] ? 1 : 0
   }
 };
 

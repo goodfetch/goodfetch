@@ -1,0 +1,370 @@
+{
+ "schemaVersion": 2,
+ "runId": "http-smoke-2026-10-08T07-48-27-175Z-975485",
+ "lane": "bench",
+ "campaign": {
+  "id": "http-smoke",
+  "source": "campaigns/v2/bench/http-smoke.json",
+  "sha256": "718ecdac6f848af53928bd9fbfdedb7ad6dec30bc3e53245cf4d1acd91768f1f"
+ },
+ "startedAt": "2026-10-08T07:48:27.175Z",
+ "decisionIds": [
+  "D-http-transport"
+ ],
+ "provenance": {
+  "git": {
+   "available": true,
+   "sha": "d5806f3523e8d6c70ffdd88986873bb62f36adb9",
+   "dirty": true
+  },
+  "sourceTreeSha256": "ca30a9904936b1ff7ca254c2904d97118c3f1b5517e160a472917e23fe84f7fb",
+  "sourceChanges": 0,
+  "binaryChanges": null,
+  "toolchains": {
+   "node": "v25.5.0",
+   "rustc": "rustc 1.93.0 (254b59607 2026-01-19)",
+   "go": "go version go1.27.1 darwin/arm64",
+   "pnpm": "12.9.1"
+  },
+  "integrity": {
+   "status": "uncatalogued",
+   "checked": 0,
+   "mismatches": []
+  }
+ },
+ "host": {
+  "classRequested": "local-dev",
+  "classGranted": "local-dev",
+  "os": "darwin",
+  "arch": "arm64",
+  "cpu": "Apple M3 Max",
+  "logicalCpus": 14,
+  "memoryBytes": 38654705664,
+  "preflight": {
+   "snapshot": {
+    "os": "darwin",
+    "arch": "arm64",
+    "cpu": "Apple M3 Max",
+    "logicalCpus": 14,
+    "memoryBytes": 38654705664,
+    "loadAverage1m": 6.5556640625,
+    "memoryFreePercent": 37,
+    "thermalWarning": false,
+    "onAC": true,
+    "lowPowerMode": false,
+    "foreignCpuPercent": 268.70000000000005,
+    "foreignTop": [
+     {
+      "command": "xtask-c2e60107a5a9b8ea",
+      "cpuPercent": 92.4
+     },
+     {
+      "command": "com.apple.Virtualization.VirtualMachine",
+      "cpuPercent": 40.6
+     },
+     {
+      "command": "WindowServer",
+      "cpuPercent": 37.1
+     },
+     {
+      "command": "Google Chrome Helper",
+      "cpuPercent": 13.8
+     },
+     {
+      "command": "syspolicyd",
+      "cpuPercent": 7.7
+     }
+    ],
+    "cpuGovernor": null,
+    "virtualized": false
+   },
+   "gates": []
+  },
+  "postflight": {
+   "snapshot": {
+    "os": "darwin",
+    "arch": "arm64",
+    "cpu": "Apple M3 Max",
+    "logicalCpus": 14,
+    "memoryBytes": 38654705664,
+    "loadAverage1m": 6.5556640625,
+    "memoryFreePercent": 36,
+    "thermalWarning": false,
+    "onAC": true,
+    "lowPowerMode": false,
+    "foreignCpuPercent": 402.6000000000002,
+    "foreignTop": [
+     {
+      "command": "xtask-c2e60107a5a9b8ea",
+      "cpuPercent": 42.8
+     },
+     {
+      "command": "WindowServer",
+      "cpuPercent": 32.7
+     },
+     {
+      "command": "mdworker_shared",
+      "cpuPercent": 21.2
+     },
+     {
+      "command": "mdworker_shared",
+      "cpuPercent": 20.1
+     },
+     {
+      "command": "mdworker_shared",
+      "cpuPercent": 19.7
+     }
+    ],
+    "cpuGovernor": null,
+    "virtualized": false
+   }
+  }
+ },
+ "status": "complete",
+ "countUnit": "attempt",
+ "cells": [
+  {
+   "cellId": "node-http:http-catalog",
+   "factors": {
+    "backend": "node-http",
+    "scenario": "http-catalog"
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 20,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-tasks-per-second": {
+     "value": 972.0583645713391,
+     "unit": "task/s",
+     "source": "engine; verified measured tasks over the measured window, rejections in the denominator window"
+    },
+    "task-p50-ms-verified": {
+     "value": 1.507708999999977,
+     "unit": "ms",
+     "source": "engine; run RPC only"
+    },
+    "task-p95-ms-verified": {
+     "value": 2.436790999999971,
+     "unit": "ms",
+     "source": "engine; run RPC only, nearest rank"
+    },
+    "cpu-ms-per-verified-job": {
+     "value": null,
+     "unit": "ms/job",
+     "source": "engine; adapter process tree over all phases"
+    },
+    "footprint-peak-bytes": {
+     "value": null,
+     "unit": "B",
+     "source": "engine; adapter process tree"
+    },
+    "rss-peak-bytes": {
+     "value": null,
+     "unit": "B",
+     "source": "engine; adapter process tree, shared pages double-counted"
+    }
+   }
+  },
+  {
+   "cellId": "spider-http:http-catalog",
+   "factors": {
+    "backend": "spider-http",
+    "scenario": "http-catalog"
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 20,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-tasks-per-second": {
+     "value": 956.351518955195,
+     "unit": "task/s",
+     "source": "engine; verified measured tasks over the measured window, rejections in the denominator window"
+    },
+    "task-p50-ms-verified": {
+     "value": 1.49412499999994,
+     "unit": "ms",
+     "source": "engine; run RPC only"
+    },
+    "task-p95-ms-verified": {
+     "value": 3.9036250000000337,
+     "unit": "ms",
+     "source": "engine; run RPC only, nearest rank"
+    },
+    "cpu-ms-per-verified-job": {
+     "value": null,
+     "unit": "ms/job",
+     "source": "engine; adapter process tree over all phases"
+    },
+    "footprint-peak-bytes": {
+     "value": null,
+     "unit": "B",
+     "source": "engine; adapter process tree"
+    },
+    "rss-peak-bytes": {
+     "value": null,
+     "unit": "B",
+     "source": "engine; adapter process tree, shared pages double-counted"
+    }
+   }
+  }
+ ],
+ "totals": {
+  "verified": 40,
+  "failed": 0,
+  "timeout": 0,
+  "crashed": 0,
+  "aborted": 0,
+  "unsupported": 0,
+  "rejected": 0,
+  "unavailable": 0,
+  "skipped": 0
+ },
+ "metricAvailability": {
+  "verified-jobs-per-second": {
+   "available": true
+  },
+  "verified-tasks-per-second": {
+   "available": true
+  },
+  "verified-rows-per-second": {
+   "available": true
+  },
+  "task-p50-ms-verified": {
+   "available": true
+  },
+  "task-p95-ms-verified": {
+   "available": true
+  },
+  "task-ms": {
+   "available": true
+  },
+  "ack-latency-p95-ms": {
+   "available": true
+  },
+  "startup-ms": {
+   "available": true
+  },
+  "cpu-ms-per-verified-job": {
+   "available": true
+  },
+  "footprint-peak-bytes": {
+   "available": true
+  },
+  "pss-peak-bytes": {
+   "available": false,
+   "reason": "no probe on darwin"
+  },
+  "cgroup-memory-peak-bytes": {
+   "available": false,
+   "reason": "no probe on darwin"
+  },
+  "rss-peak-bytes": {
+   "available": true
+  },
+  "cdp-commands-per-task": {
+   "available": true
+  },
+  "extraction-f1": {
+   "available": true
+  },
+  "field-precision": {
+   "available": true
+  },
+  "field-recall": {
+   "available": true
+  },
+  "pass-k": {
+   "available": true
+  },
+  "llm-calls-per-verified-task": {
+   "available": false,
+   "reason": "adapter protocol v2 usage reporting is not implemented yet"
+  },
+  "tokens-per-verified-task": {
+   "available": false,
+   "reason": "adapter protocol v2 usage reporting is not implemented yet"
+  },
+  "usd-per-1k-verified": {
+   "available": false,
+   "reason": "pricing tables are not implemented yet"
+  },
+  "interface-turns-per-task": {
+   "available": true
+  },
+  "oracle-exact": {
+   "available": true
+  },
+  "false-success-count": {
+   "available": true
+  },
+  "actionability-conformance": {
+   "available": true
+  },
+  "recovery-exact": {
+   "available": true
+  },
+  "durability-power-loss": {
+   "available": false,
+   "reason": "no probe on darwin"
+  },
+  "identity-coherence": {
+   "available": true
+  },
+  "policy-compliance": {
+   "available": true
+  },
+  "session-isolation": {
+   "available": true
+  },
+  "admission-no-loss": {
+   "available": true
+  }
+ },
+ "legacy": null,
+ "blocks": [
+  {
+   "index": 0,
+   "order": [
+    "node-http",
+    "spider-http"
+   ],
+   "noisy": false,
+   "host": {
+    "loadPerCpu1m": 0.46826171875,
+    "foreignCpuPercent": 360.9000000000002
+   }
+  },
+  {
+   "index": 1,
+   "order": [
+    "node-http",
+    "spider-http"
+   ],
+   "noisy": false,
+   "host": {
+    "loadPerCpu1m": 0.46826171875,
+    "foreignCpuPercent": 383.30000000000024
+   }
+  }
+ ]
+}

@@ -14,6 +14,7 @@
 | [competitors-strengths-gaps.md](./competitors-strengths-gaps.md) | Concurrent par concurrent : ce qui est salué, reproché, et les raisons de changement |
 | [interview-guide.md](./interview-guide.md) | Guide d'entretien « switch » (JTBD) : recrutement par segment, chronologie du changement, quatre forces, codage |
 | [pricing-questionnaire.md](./pricing-questionnaire.md) | Questionnaire Van Westendorp et Gabor-Granger sur le résultat vérifié, unité préférée et plafond |
+| [recruitment.md](./recruitment.md) | Recrutement des entretiens : canaux, annonces prêtes à publier, message direct, suivi anonymisé |
 
 ## 1. Constats clés
 

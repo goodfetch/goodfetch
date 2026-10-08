@@ -52,11 +52,56 @@
   "campaigns": [
     "interface-arena"
   ],
-  "evidence": [],
+  "evidence": [
+    {
+      "kind": "run",
+      "ref": "interface-arena-2026-10-08T23-05-03-060Z-3c8d7c",
+      "note": "MCP, outils de fonction, CLI et code avec trois vrais modèles"
+    },
+    {
+      "kind": "research-doc",
+      "ref": "lab/reports/interface-arena-2026-10-09.md"
+    }
+  ],
   "verdictRef": null,
   "adr": null,
   "dependsOn": [
     "D-ai-layer"
   ],
-  "notes": "Croiser les interfaces avec découverte, rejeu et réparation ; mêmes tâches, modèle et budget."
+  "notes": "Croiser les interfaces avec découverte, rejeu et réparation ; mêmes tâches, modèle et budget.",
+  "analysis": {
+    "lane": "ai",
+    "options": {
+      "mcp": {
+        "interface": "mcp"
+      },
+      "sdk": {
+        "interface": "sdk"
+      },
+      "cli": {
+        "interface": "cli"
+      },
+      "code-mode": {
+        "interface": "code-mode"
+      }
+    },
+    "pairBy": [
+      "model",
+      "variant"
+    ],
+    "stratum": {
+      "variant": "baseline"
+    },
+    "strata": [
+      {
+        "variant": "baseline"
+      },
+      {
+        "variant": "decoy-swap"
+      },
+      {
+        "variant": "price-change"
+      }
+    ]
+  }
 }

@@ -21,7 +21,7 @@ const instructions = [
 ].join('\n');
 
 const describe = `const describe=el=>({tag:el.tagName.toLowerCase(),type:el.type||'',label:(el.closest('label')?.textContent||el.getAttribute('aria-label')||'').trim().replace(/\\s+/g,' '),text:el.tagName==='BUTTON'?el.textContent.trim():'',plan:el.dataset.plan??null});`;
-const observeScript = `(()=>{${describe}return Array.from(document.querySelectorAll('input,select,button,[data-plan]'),(el,ref)=>({ref,selector:el.id?'#'+CSS.escape(el.id):el.dataset.plan?'[data-plan="'+el.dataset.plan+'"]':el.name?el.tagName.toLowerCase()+'[name="'+el.name+'"]':null,...describe(el)})).filter(e=>e.selector)})()`;
+export const observeScript = `(()=>{${describe}return Array.from(document.querySelectorAll('input,select,button,[data-plan]'),(el,ref)=>({ref,selector:el.id?'#'+CSS.escape(el.id):el.dataset.plan?'[data-plan="'+el.dataset.plan+'"]':el.name?el.tagName.toLowerCase()+'[name="'+el.name+'"]':null,...describe(el)})).filter(e=>e.selector)})()`;
 const fingerprintScript = (selector: string) => `(()=>{${describe}const el=document.querySelector(${JSON.stringify(selector)});return el?describe(el):null})()`;
 const same = (a: Fingerprint | null, b: Fingerprint) => !!a && a.tag === b.tag && a.type === b.type && a.label === b.label && a.text === b.text && a.plan === b.plan;
 

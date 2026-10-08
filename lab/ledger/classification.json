@@ -3005,6 +3005,53 @@
         "priority": null,
         "hostClass": null
       }
+    },
+    "interface-arena-2026-10-08T23-05-03-060Z-3c8d7c": {
+      "role": "selected",
+      "reason": "arène des interfaces : même tâche par MCP, outils de fonction, CLI et code, trois vrais modèles",
+      "supersededBy": null,
+      "decisionIds": [
+        "D-agent-interface"
+      ],
+      "validity": [
+        {
+          "scope": "interface-contract",
+          "class": "A",
+          "note": "oracle de la page, faux succès comptés"
+        },
+        {
+          "scope": "cost",
+          "class": "A",
+          "note": "coût de la passerelle par appel"
+        }
+      ],
+      "noisyHost": false,
+      "rerun": {
+        "required": false,
+        "priority": null,
+        "hostClass": null
+      }
+    },
+    "interface-arena-2026-10-08T22-31-38-074Z-164ce5": {
+      "role": "diagnostic",
+      "reason": "surface sans messages de statut, réservation jugée avant la confirmation, mode code sans trace",
+      "supersededBy": "interface-arena-2026-10-08T23-05-03-060Z-3c8d7c",
+      "decisionIds": [
+        "D-agent-interface"
+      ],
+      "validity": [
+        {
+          "scope": "all",
+          "class": "none",
+          "note": "surface et harnais corrigés ensuite"
+        }
+      ],
+      "noisyHost": false,
+      "rerun": {
+        "required": false,
+        "priority": null,
+        "hostClass": null
+      }
     }
   }
 }

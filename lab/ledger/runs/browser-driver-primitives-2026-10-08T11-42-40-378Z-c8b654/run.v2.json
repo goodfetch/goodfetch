@@ -1,0 +1,7762 @@
+{
+ "schemaVersion": 2,
+ "runId": "browser-driver-primitives-2026-10-08T11-42-40-378Z-c8b654",
+ "lane": "actionability",
+ "campaign": {
+  "id": "browser-driver-primitives",
+  "source": "campaigns/v2/actionability/browser-driver-primitives.json",
+  "sha256": "50af542fde9b377994071bddafa51820c97288f8634dbd8cf4047fcc0033ad72"
+ },
+ "startedAt": "2026-10-08T11:42:40.378Z",
+ "decisionIds": [
+  "D-browser-driver"
+ ],
+ "provenance": {
+  "git": {
+   "available": true,
+   "sha": "9f32a8767caf5bbe4b6d7f01a9ec3748dbba30d8",
+   "dirty": true
+  },
+  "sourceTreeSha256": "302176ec85f4fa8a77edc731101316867271c8ba476a4a8a50589010dc7d90d2",
+  "sourceChanges": 1,
+  "binaryChanges": null,
+  "toolchains": {
+   "node": "v25.5.0",
+   "rustc": "rustc 1.93.0 (254b59607 2026-01-19)",
+   "go": "go version go1.27.1 darwin/arm64",
+   "pnpm": "12.9.1"
+  },
+  "integrity": {
+   "status": "uncatalogued",
+   "checked": 0,
+   "mismatches": []
+  }
+ },
+ "host": {
+  "classRequested": "local-controlled",
+  "classGranted": "local-dev",
+  "os": "darwin",
+  "arch": "arm64",
+  "cpu": "Apple M3 Max",
+  "logicalCpus": 14,
+  "memoryBytes": 38654705664,
+  "preflight": {
+   "snapshot": {
+    "os": "darwin",
+    "arch": "arm64",
+    "cpu": "Apple M3 Max",
+    "logicalCpus": 14,
+    "memoryBytes": 38654705664,
+    "loadAverage1m": 7.3349609375,
+    "memoryFreePercent": 49,
+    "thermalWarning": false,
+    "onAC": true,
+    "lowPowerMode": false,
+    "foreignCpuPercent": 169.99999999999991,
+    "foreignTop": [
+     {
+      "command": "WindowServer",
+      "cpuPercent": 46.1
+     },
+     {
+      "command": "com.apple.Virtualization.VirtualMachine",
+      "cpuPercent": 17.3
+     },
+     {
+      "command": "Claude Helper",
+      "cpuPercent": 13
+     },
+     {
+      "command": "Google Chrome Helper",
+      "cpuPercent": 12.6
+     },
+     {
+      "command": "dataaccessd",
+      "cpuPercent": 8.1
+     }
+    ],
+    "cpuGovernor": null,
+    "virtualized": false
+   },
+   "gates": [
+    {
+     "class": "local-controlled",
+     "id": "git-clean",
+     "ok": false,
+     "value": false,
+     "limit": "= true"
+    },
+    {
+     "class": "local-controlled",
+     "id": "load-per-cpu-1m",
+     "ok": false,
+     "value": 0.52392578125,
+     "limit": "<= 0.25"
+    },
+    {
+     "class": "local-controlled",
+     "id": "memory-free-percent",
+     "ok": true,
+     "value": 49,
+     "limit": ">= 20"
+    },
+    {
+     "class": "local-controlled",
+     "id": "thermal-warning",
+     "ok": true,
+     "value": false,
+     "limit": "= false"
+    },
+    {
+     "class": "local-controlled",
+     "id": "on-ac",
+     "ok": true,
+     "value": true,
+     "limit": "= true"
+    },
+    {
+     "class": "local-controlled",
+     "id": "low-power-mode",
+     "ok": true,
+     "value": false,
+     "limit": "= false"
+    },
+    {
+     "class": "local-controlled",
+     "id": "foreign-cpu-percent",
+     "ok": false,
+     "value": 169.99999999999991,
+     "limit": "<= 50"
+    }
+   ]
+  },
+  "postflight": {
+   "snapshot": {
+    "os": "darwin",
+    "arch": "arm64",
+    "cpu": "Apple M3 Max",
+    "logicalCpus": 14,
+    "memoryBytes": 38654705664,
+    "loadAverage1m": 6.4921875,
+    "memoryFreePercent": 46,
+    "thermalWarning": false,
+    "onAC": false,
+    "lowPowerMode": false,
+    "foreignCpuPercent": 218.19999999999985,
+    "foreignTop": [
+     {
+      "command": "WindowServer",
+      "cpuPercent": 37.4
+     },
+     {
+      "command": "com.apple.Virtualization.VirtualMachine",
+      "cpuPercent": 14.7
+     },
+     {
+      "command": "Claude Helper",
+      "cpuPercent": 13.6
+     },
+     {
+      "command": "Google Chrome Helper",
+      "cpuPercent": 12.2
+     },
+     {
+      "command": "fseventsd",
+      "cpuPercent": 11.2
+     }
+    ],
+    "cpuGovernor": null,
+    "virtualized": false
+   }
+  }
+ },
+ "status": "invalid-provenance",
+ "countUnit": "cell",
+ "cells": [
+  {
+   "cellId": "179147cbecf2-0",
+   "factors": {
+    "backend": "playwright",
+    "scenario": "primitives",
+    "variant": "contenteditable",
+    "policy": "native",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 368.13420799999994,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "42b86362a33f-1",
+   "factors": {
+    "backend": "rust-cdp",
+    "scenario": "primitives",
+    "variant": "unicode",
+    "policy": "guarded",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 300.69083299999966,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "098b9148520d-2",
+   "factors": {
+    "backend": "playwright",
+    "scenario": "primitives",
+    "variant": "dblclick",
+    "policy": "guarded",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 296.59137499999997,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "8c7c478dcb22-3",
+   "factors": {
+    "backend": "rust-cdp",
+    "scenario": "primitives",
+    "variant": "retarget",
+    "policy": "guarded",
+    "block": 0
+   },
+   "status": "failed",
+   "errorCode": null,
+   "counts": {
+    "verified": 0,
+    "failed": 1,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 267.8361249999998,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "8b63a262c0b6-4",
+   "factors": {
+    "backend": "playwright",
+    "scenario": "primitives",
+    "variant": "retarget",
+    "policy": "guarded",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 1731.2806659999997,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "0af75f48c396-5",
+   "factors": {
+    "backend": "node-cdp",
+    "scenario": "primitives",
+    "variant": "contenteditable",
+    "policy": "native",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 90.2529170000007,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "5b9acdbdb6c3-6",
+   "factors": {
+    "backend": "rust-cdp",
+    "scenario": "primitives",
+    "variant": "dblclick",
+    "policy": "guarded",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 274.9175000000005,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "578211047339-7",
+   "factors": {
+    "backend": "puppeteer",
+    "scenario": "primitives",
+    "variant": "keyboard",
+    "policy": "native",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 88.0693339999998,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "d66623a02f05-8",
+   "factors": {
+    "backend": "node-cdp",
+    "scenario": "primitives",
+    "variant": "keyboard",
+    "policy": "native",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 86.8784169999999,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "48663073e8ac-9",
+   "factors": {
+    "backend": "rust-cdp",
+    "scenario": "primitives",
+    "variant": "keyboard",
+    "policy": "native",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 210.75516700000117,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "5385ff206b9b-10",
+   "factors": {
+    "backend": "puppeteer",
+    "scenario": "primitives",
+    "variant": "moved",
+    "policy": "guarded",
+    "block": 0
+   },
+   "status": "failed",
+   "errorCode": null,
+   "counts": {
+    "verified": 0,
+    "failed": 1,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 1690.2311249999984,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "b3f7c951f608-11",
+   "factors": {
+    "backend": "puppeteer",
+    "scenario": "primitives",
+    "variant": "drag",
+    "policy": "native",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 94.71508399999948,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "1d5084141e1f-12",
+   "factors": {
+    "backend": "playwright",
+    "scenario": "primitives",
+    "variant": "contextmenu",
+    "policy": "native",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 245.06574999999975,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "f30356e91c80-13",
+   "factors": {
+    "backend": "node-cdp",
+    "scenario": "primitives",
+    "variant": "drag",
+    "policy": "guarded",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 158.97129199999836,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "4c47d568927b-14",
+   "factors": {
+    "backend": "node-cdp",
+    "scenario": "primitives",
+    "variant": "retarget",
+    "policy": "native",
+    "block": 0
+   },
+   "status": "failed",
+   "errorCode": null,
+   "counts": {
+    "verified": 0,
+    "failed": 1,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 64.80391699999927,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "fdf12e35f962-15",
+   "factors": {
+    "backend": "node-cdp",
+    "scenario": "primitives",
+    "variant": "dblclick",
+    "policy": "guarded",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 143.7619590000013,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "f440640fe983-16",
+   "factors": {
+    "backend": "rust-cdp",
+    "scenario": "primitives",
+    "variant": "dblclick",
+    "policy": "native",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 232.2954579999987,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "24af109d1879-17",
+   "factors": {
+    "backend": "rust-cdp",
+    "scenario": "primitives",
+    "variant": "moved",
+    "policy": "native",
+    "block": 0
+   },
+   "status": "failed",
+   "errorCode": null,
+   "counts": {
+    "verified": 0,
+    "failed": 1,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 1697.898957999998,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "46b90577386a-18",
+   "factors": {
+    "backend": "playwright",
+    "scenario": "primitives",
+    "variant": "hover",
+    "policy": "guarded",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 314.7898329999989,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "dc770d6e194d-19",
+   "factors": {
+    "backend": "playwright",
+    "scenario": "primitives",
+    "variant": "moved",
+    "policy": "guarded",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 337.6844579999997,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "6a16b692e7a7-20",
+   "factors": {
+    "backend": "playwright",
+    "scenario": "primitives",
+    "variant": "drag",
+    "policy": "native",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 315.122209000001,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "2a58ef678786-21",
+   "factors": {
+    "backend": "node-cdp",
+    "scenario": "primitives",
+    "variant": "hover",
+    "policy": "native",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 81.28070799999841,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "b9e04dde9d91-22",
+   "factors": {
+    "backend": "node-cdp",
+    "scenario": "primitives",
+    "variant": "contextmenu",
+    "policy": "native",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 100.14225000000079,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "2a5ecdea27cd-23",
+   "factors": {
+    "backend": "playwright",
+    "scenario": "primitives",
+    "variant": "hover",
+    "policy": "native",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 257.1514160000006,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "9b8560a68621-24",
+   "factors": {
+    "backend": "rust-cdp",
+    "scenario": "primitives",
+    "variant": "moved",
+    "policy": "guarded",
+    "block": 0
+   },
+   "status": "failed",
+   "errorCode": null,
+   "counts": {
+    "verified": 0,
+    "failed": 1,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 1787.9860829999998,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "edc5cd143a5d-25",
+   "factors": {
+    "backend": "rust-cdp",
+    "scenario": "primitives",
+    "variant": "contenteditable",
+    "policy": "native",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 210.0337499999987,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "1b6270284645-26",
+   "factors": {
+    "backend": "rust-cdp",
+    "scenario": "primitives",
+    "variant": "drag",
+    "policy": "guarded",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 299.0658329999969,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "b600bcb2a922-27",
+   "factors": {
+    "backend": "node-cdp",
+    "scenario": "primitives",
+    "variant": "drag",
+    "policy": "native",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 108.62604100000317,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "9abb1f418c0f-28",
+   "factors": {
+    "backend": "rust-cdp",
+    "scenario": "primitives",
+    "variant": "wheel",
+    "policy": "guarded",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 298.4752090000002,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "03e38db7df75-29",
+   "factors": {
+    "backend": "node-cdp",
+    "scenario": "primitives",
+    "variant": "wheel",
+    "policy": "native",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 116.47529200000281,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "2ae4625ca4c6-30",
+   "factors": {
+    "backend": "rust-cdp",
+    "scenario": "primitives",
+    "variant": "hover",
+    "policy": "guarded",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 291.01820900000166,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "bf6582afe681-31",
+   "factors": {
+    "backend": "puppeteer",
+    "scenario": "primitives",
+    "variant": "dblclick",
+    "policy": "guarded",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 165.69304199999897,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "d7ed088bef5a-32",
+   "factors": {
+    "backend": "node-cdp",
+    "scenario": "primitives",
+    "variant": "unicode",
+    "policy": "native",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 109.61291599999822,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "fd75fbfceee9-33",
+   "factors": {
+    "backend": "puppeteer",
+    "scenario": "primitives",
+    "variant": "hover",
+    "policy": "native",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 144.7346660000003,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "3102a885fcc1-34",
+   "factors": {
+    "backend": "puppeteer",
+    "scenario": "primitives",
+    "variant": "contextmenu",
+    "policy": "native",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 113.18416699999943,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "a84b4a6c7b2e-35",
+   "factors": {
+    "backend": "puppeteer",
+    "scenario": "primitives",
+    "variant": "wheel",
+    "policy": "guarded",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 200.8438750000023,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "d9efda035add-36",
+   "factors": {
+    "backend": "playwright",
+    "scenario": "primitives",
+    "variant": "drag",
+    "policy": "guarded",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 364.56516700000066,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "6003b08e1fff-37",
+   "factors": {
+    "backend": "node-cdp",
+    "scenario": "primitives",
+    "variant": "dblclick",
+    "policy": "native",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 102.82987499999581,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "fa7c9a04942d-38",
+   "factors": {
+    "backend": "puppeteer",
+    "scenario": "primitives",
+    "variant": "unicode",
+    "policy": "native",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 134.4518339999995,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "fcc23f642799-39",
+   "factors": {
+    "backend": "puppeteer",
+    "scenario": "primitives",
+    "variant": "contenteditable",
+    "policy": "native",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 98.76183299999684,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "bb5b04c3544f-40",
+   "factors": {
+    "backend": "node-cdp",
+    "scenario": "primitives",
+    "variant": "keyboard",
+    "policy": "guarded",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 134.24929100000008,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "c0c9b9dd7614-41",
+   "factors": {
+    "backend": "rust-cdp",
+    "scenario": "primitives",
+    "variant": "keyboard",
+    "policy": "guarded",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 280.8248339999991,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "160b3539d7f7-42",
+   "factors": {
+    "backend": "playwright",
+    "scenario": "primitives",
+    "variant": "contenteditable",
+    "policy": "guarded",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 320.1957089999996,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "4906cc743200-43",
+   "factors": {
+    "backend": "playwright",
+    "scenario": "primitives",
+    "variant": "wheel",
+    "policy": "native",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 353.6655829999945,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "7ffdc90b88f2-44",
+   "factors": {
+    "backend": "puppeteer",
+    "scenario": "primitives",
+    "variant": "drag",
+    "policy": "guarded",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 144.56316700000025,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "ece4c8c0d699-45",
+   "factors": {
+    "backend": "rust-cdp",
+    "scenario": "primitives",
+    "variant": "contenteditable",
+    "policy": "guarded",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 249.26129200000287,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "26407d1d9f79-46",
+   "factors": {
+    "backend": "rust-cdp",
+    "scenario": "primitives",
+    "variant": "contextmenu",
+    "policy": "guarded",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 282.7901669999992,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "2ec831f26ae9-47",
+   "factors": {
+    "backend": "puppeteer",
+    "scenario": "primitives",
+    "variant": "unicode",
+    "policy": "guarded",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 171.59954200000357,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "1da9b467b4dc-48",
+   "factors": {
+    "backend": "puppeteer",
+    "scenario": "primitives",
+    "variant": "contextmenu",
+    "policy": "guarded",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 173.3204579999947,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "943a937933fe-49",
+   "factors": {
+    "backend": "puppeteer",
+    "scenario": "primitives",
+    "variant": "moved",
+    "policy": "native",
+    "block": 0
+   },
+   "status": "failed",
+   "errorCode": null,
+   "counts": {
+    "verified": 0,
+    "failed": 1,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 1627.080541999996,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "0abf6f3bd2e7-50",
+   "factors": {
+    "backend": "playwright",
+    "scenario": "primitives",
+    "variant": "keyboard",
+    "policy": "native",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 240.61466700000165,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "e0b5be811d76-51",
+   "factors": {
+    "backend": "rust-cdp",
+    "scenario": "primitives",
+    "variant": "unicode",
+    "policy": "native",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 206.1384160000016,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "4643a7265d56-52",
+   "factors": {
+    "backend": "puppeteer",
+    "scenario": "primitives",
+    "variant": "contenteditable",
+    "policy": "guarded",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 152.15791699999681,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "f3e8127e923d-53",
+   "factors": {
+    "backend": "node-cdp",
+    "scenario": "primitives",
+    "variant": "moved",
+    "policy": "native",
+    "block": 0
+   },
+   "status": "failed",
+   "errorCode": null,
+   "counts": {
+    "verified": 0,
+    "failed": 1,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 1590.5491249999977,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "4ea480ba97d4-54",
+   "factors": {
+    "backend": "playwright",
+    "scenario": "primitives",
+    "variant": "keyboard",
+    "policy": "guarded",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 257.4693750000006,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "c69b8b196809-55",
+   "factors": {
+    "backend": "rust-cdp",
+    "scenario": "primitives",
+    "variant": "hover",
+    "policy": "native",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 240.41520899999887,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "19494d066eab-56",
+   "factors": {
+    "backend": "node-cdp",
+    "scenario": "primitives",
+    "variant": "moved",
+    "policy": "guarded",
+    "block": 0
+   },
+   "status": "failed",
+   "errorCode": null,
+   "counts": {
+    "verified": 0,
+    "failed": 1,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 1645.0428329999995,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "574fa0aa4fab-57",
+   "factors": {
+    "backend": "puppeteer",
+    "scenario": "primitives",
+    "variant": "keyboard",
+    "policy": "guarded",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 117.97716699999728,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "0ed01ffcfea0-58",
+   "factors": {
+    "backend": "node-cdp",
+    "scenario": "primitives",
+    "variant": "unicode",
+    "policy": "guarded",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 132.91787499999919,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "6d150ecdae7a-59",
+   "factors": {
+    "backend": "playwright",
+    "scenario": "primitives",
+    "variant": "wheel",
+    "policy": "guarded",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 363.96800000000076,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "219a8a8dc680-60",
+   "factors": {
+    "backend": "node-cdp",
+    "scenario": "primitives",
+    "variant": "contenteditable",
+    "policy": "guarded",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 127.56433300000208,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "6a8678de1bca-61",
+   "factors": {
+    "backend": "puppeteer",
+    "scenario": "primitives",
+    "variant": "retarget",
+    "policy": "native",
+    "block": 0
+   },
+   "status": "failed",
+   "errorCode": null,
+   "counts": {
+    "verified": 0,
+    "failed": 1,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 101.60658400000102,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "84491349c6fe-62",
+   "factors": {
+    "backend": "rust-cdp",
+    "scenario": "primitives",
+    "variant": "contextmenu",
+    "policy": "native",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 85.58487500000047,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "5ec1b25dce0e-63",
+   "factors": {
+    "backend": "puppeteer",
+    "scenario": "primitives",
+    "variant": "dblclick",
+    "policy": "native",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 120.45216699999582,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "6c78503647be-64",
+   "factors": {
+    "backend": "rust-cdp",
+    "scenario": "primitives",
+    "variant": "retarget",
+    "policy": "native",
+    "block": 0
+   },
+   "status": "failed",
+   "errorCode": null,
+   "counts": {
+    "verified": 0,
+    "failed": 1,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 224.01633299999958,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "da07a498886c-65",
+   "factors": {
+    "backend": "puppeteer",
+    "scenario": "primitives",
+    "variant": "wheel",
+    "policy": "native",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 155.5580420000042,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "e76623c6b0d8-66",
+   "factors": {
+    "backend": "playwright",
+    "scenario": "primitives",
+    "variant": "unicode",
+    "policy": "guarded",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 257.07895799999824,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "91e97341450a-67",
+   "factors": {
+    "backend": "node-cdp",
+    "scenario": "primitives",
+    "variant": "hover",
+    "policy": "guarded",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 123.13716700000077,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "a6dddc248975-68",
+   "factors": {
+    "backend": "node-cdp",
+    "scenario": "primitives",
+    "variant": "wheel",
+    "policy": "guarded",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 163.85399999999936,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "3330a9da1a1b-69",
+   "factors": {
+    "backend": "puppeteer",
+    "scenario": "primitives",
+    "variant": "hover",
+    "policy": "guarded",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 178.59741699999722,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "f23abdc47c3c-70",
+   "factors": {
+    "backend": "rust-cdp",
+    "scenario": "primitives",
+    "variant": "wheel",
+    "policy": "native",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 249.1728329999969,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "d59bc1919902-71",
+   "factors": {
+    "backend": "playwright",
+    "scenario": "primitives",
+    "variant": "contextmenu",
+    "policy": "guarded",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 296.35470799999894,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "bde5f7fae2d3-72",
+   "factors": {
+    "backend": "playwright",
+    "scenario": "primitives",
+    "variant": "moved",
+    "policy": "native",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 352.6992079999982,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "bad3fb334617-73",
+   "factors": {
+    "backend": "node-cdp",
+    "scenario": "primitives",
+    "variant": "contextmenu",
+    "policy": "guarded",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 147.2899580000012,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "32126ee18a1d-74",
+   "factors": {
+    "backend": "playwright",
+    "scenario": "primitives",
+    "variant": "dblclick",
+    "policy": "native",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 238.8364999999976,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "70ec83f3b7b3-75",
+   "factors": {
+    "backend": "puppeteer",
+    "scenario": "primitives",
+    "variant": "retarget",
+    "policy": "guarded",
+    "block": 0
+   },
+   "status": "failed",
+   "errorCode": null,
+   "counts": {
+    "verified": 0,
+    "failed": 1,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 154.04462500000227,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "7290b59c5dca-76",
+   "factors": {
+    "backend": "playwright",
+    "scenario": "primitives",
+    "variant": "unicode",
+    "policy": "native",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 239.86416699999972,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "f3c79eae9013-77",
+   "factors": {
+    "backend": "rust-cdp",
+    "scenario": "primitives",
+    "variant": "drag",
+    "policy": "native",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 252.11824999999953,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "4d1b4025efe4-78",
+   "factors": {
+    "backend": "node-cdp",
+    "scenario": "primitives",
+    "variant": "retarget",
+    "policy": "guarded",
+    "block": 0
+   },
+   "status": "failed",
+   "errorCode": null,
+   "counts": {
+    "verified": 0,
+    "failed": 1,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 115.17183300000033,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "d41fff512eb1-79",
+   "factors": {
+    "backend": "playwright",
+    "scenario": "primitives",
+    "variant": "retarget",
+    "policy": "native",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 1696.3551250000019,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "871267e194cd-80",
+   "factors": {
+    "backend": "playwright",
+    "scenario": "primitives",
+    "variant": "moved",
+    "policy": "guarded",
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 311.16687499999534,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "f35b0e82e5bd-81",
+   "factors": {
+    "backend": "puppeteer",
+    "scenario": "primitives",
+    "variant": "keyboard",
+    "policy": "guarded",
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 136.48374999999942,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "1117434d4076-82",
+   "factors": {
+    "backend": "node-cdp",
+    "scenario": "primitives",
+    "variant": "drag",
+    "policy": "native",
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 107.78670799999963,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "42c06b05c88e-83",
+   "factors": {
+    "backend": "puppeteer",
+    "scenario": "primitives",
+    "variant": "retarget",
+    "policy": "native",
+    "block": 1
+   },
+   "status": "failed",
+   "errorCode": null,
+   "counts": {
+    "verified": 0,
+    "failed": 1,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 86.42387500000768,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "1dd7c53e0b69-84",
+   "factors": {
+    "backend": "puppeteer",
+    "scenario": "primitives",
+    "variant": "dblclick",
+    "policy": "native",
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 115.13841699999466,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "263cff30bd2b-85",
+   "factors": {
+    "backend": "node-cdp",
+    "scenario": "primitives",
+    "variant": "hover",
+    "policy": "native",
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 81.35891699999047,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "22a5b8970066-86",
+   "factors": {
+    "backend": "puppeteer",
+    "scenario": "primitives",
+    "variant": "retarget",
+    "policy": "guarded",
+    "block": 1
+   },
+   "status": "failed",
+   "errorCode": null,
+   "counts": {
+    "verified": 0,
+    "failed": 1,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 152.33095799999137,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "f2d582b0260e-87",
+   "factors": {
+    "backend": "playwright",
+    "scenario": "primitives",
+    "variant": "drag",
+    "policy": "guarded",
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 360.0611249999929,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "02b4e394f7cd-88",
+   "factors": {
+    "backend": "puppeteer",
+    "scenario": "primitives",
+    "variant": "wheel",
+    "policy": "native",
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 152.82929100000183,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "126f5ed8a258-89",
+   "factors": {
+    "backend": "rust-cdp",
+    "scenario": "primitives",
+    "variant": "moved",
+    "policy": "guarded",
+    "block": 1
+   },
+   "status": "failed",
+   "errorCode": null,
+   "counts": {
+    "verified": 0,
+    "failed": 1,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 1795.4265829999931,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "992d1d1e3527-90",
+   "factors": {
+    "backend": "rust-cdp",
+    "scenario": "primitives",
+    "variant": "contenteditable",
+    "policy": "native",
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 208.40158299999894,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "e4e2c22ecb4e-91",
+   "factors": {
+    "backend": "playwright",
+    "scenario": "primitives",
+    "variant": "contenteditable",
+    "policy": "guarded",
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 260.9698749999952,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "94ae0185e167-92",
+   "factors": {
+    "backend": "rust-cdp",
+    "scenario": "primitives",
+    "variant": "keyboard",
+    "policy": "guarded",
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 299.81533299999137,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "260d66048746-93",
+   "factors": {
+    "backend": "playwright",
+    "scenario": "primitives",
+    "variant": "keyboard",
+    "policy": "native",
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 227.87537500000326,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "bc2bedb24eab-94",
+   "factors": {
+    "backend": "node-cdp",
+    "scenario": "primitives",
+    "variant": "keyboard",
+    "policy": "guarded",
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 131.49279200000456,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "0500ef44721f-95",
+   "factors": {
+    "backend": "rust-cdp",
+    "scenario": "primitives",
+    "variant": "contenteditable",
+    "policy": "guarded",
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 259.87537500000326,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "b8ff64ee9ffb-96",
+   "factors": {
+    "backend": "node-cdp",
+    "scenario": "primitives",
+    "variant": "wheel",
+    "policy": "guarded",
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 175.78304199999548,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "2d025fb3e763-97",
+   "factors": {
+    "backend": "puppeteer",
+    "scenario": "primitives",
+    "variant": "keyboard",
+    "policy": "native",
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 72.98408300000301,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "7ee50d080a0a-98",
+   "factors": {
+    "backend": "rust-cdp",
+    "scenario": "primitives",
+    "variant": "wheel",
+    "policy": "native",
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 282.3123750000086,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "d2f60c5fa311-99",
+   "factors": {
+    "backend": "puppeteer",
+    "scenario": "primitives",
+    "variant": "moved",
+    "policy": "guarded",
+    "block": 1
+   },
+   "status": "failed",
+   "errorCode": null,
+   "counts": {
+    "verified": 0,
+    "failed": 1,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 1677.106415999995,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "6625b7abace8-100",
+   "factors": {
+    "backend": "node-cdp",
+    "scenario": "primitives",
+    "variant": "drag",
+    "policy": "guarded",
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 155.93312499999593,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "8695c9c7134b-101",
+   "factors": {
+    "backend": "puppeteer",
+    "scenario": "primitives",
+    "variant": "hover",
+    "policy": "native",
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 116.71316700000898,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "a5364b107470-102",
+   "factors": {
+    "backend": "puppeteer",
+    "scenario": "primitives",
+    "variant": "unicode",
+    "policy": "guarded",
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 170.73891600000206,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "de8ddef18bbe-103",
+   "factors": {
+    "backend": "node-cdp",
+    "scenario": "primitives",
+    "variant": "contextmenu",
+    "policy": "native",
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 81.10345799999777,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "cbfda3460df8-104",
+   "factors": {
+    "backend": "node-cdp",
+    "scenario": "primitives",
+    "variant": "unicode",
+    "policy": "guarded",
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 123.16737500000454,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "52d9feeefa5f-105",
+   "factors": {
+    "backend": "node-cdp",
+    "scenario": "primitives",
+    "variant": "wheel",
+    "policy": "native",
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 115.31170900000143,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "d0bf5d1f22f9-106",
+   "factors": {
+    "backend": "playwright",
+    "scenario": "primitives",
+    "variant": "dblclick",
+    "policy": "native",
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 244.71029199998884,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "f50d4f8c1f85-107",
+   "factors": {
+    "backend": "puppeteer",
+    "scenario": "primitives",
+    "variant": "contenteditable",
+    "policy": "guarded",
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 155.72620799999277,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "5e2b485199aa-108",
+   "factors": {
+    "backend": "playwright",
+    "scenario": "primitives",
+    "variant": "hover",
+    "policy": "guarded",
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 296.7068750000035,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "44526803aeb2-109",
+   "factors": {
+    "backend": "playwright",
+    "scenario": "primitives",
+    "variant": "dblclick",
+    "policy": "guarded",
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 287.81916700000875,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "4499e2471305-110",
+   "factors": {
+    "backend": "playwright",
+    "scenario": "primitives",
+    "variant": "contextmenu",
+    "policy": "guarded",
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 274.11125000000175,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "846c74ef8021-111",
+   "factors": {
+    "backend": "rust-cdp",
+    "scenario": "primitives",
+    "variant": "unicode",
+    "policy": "guarded",
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 239.72550000000047,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "2985ae2e43b2-112",
+   "factors": {
+    "backend": "playwright",
+    "scenario": "primitives",
+    "variant": "wheel",
+    "policy": "native",
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 303.8577499999956,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "0224b54202eb-113",
+   "factors": {
+    "backend": "playwright",
+    "scenario": "primitives",
+    "variant": "hover",
+    "policy": "native",
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 270.14537500000733,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "a3e53534ad98-114",
+   "factors": {
+    "backend": "node-cdp",
+    "scenario": "primitives",
+    "variant": "moved",
+    "policy": "native",
+    "block": 1
+   },
+   "status": "failed",
+   "errorCode": null,
+   "counts": {
+    "verified": 0,
+    "failed": 1,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 1574.4505409999983,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "0ef059bf57c5-115",
+   "factors": {
+    "backend": "node-cdp",
+    "scenario": "primitives",
+    "variant": "retarget",
+    "policy": "guarded",
+    "block": 1
+   },
+   "status": "failed",
+   "errorCode": null,
+   "counts": {
+    "verified": 0,
+    "failed": 1,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 133.71558299999742,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "8c1ce487c645-116",
+   "factors": {
+    "backend": "rust-cdp",
+    "scenario": "primitives",
+    "variant": "retarget",
+    "policy": "guarded",
+    "block": 1
+   },
+   "status": "failed",
+   "errorCode": null,
+   "counts": {
+    "verified": 0,
+    "failed": 1,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 241.92133399999875,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "f01684ed219b-117",
+   "factors": {
+    "backend": "rust-cdp",
+    "scenario": "primitives",
+    "variant": "dblclick",
+    "policy": "native",
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 227.0425840000098,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "0cff959b43d1-118",
+   "factors": {
+    "backend": "playwright",
+    "scenario": "primitives",
+    "variant": "keyboard",
+    "policy": "guarded",
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 250.82445800000278,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "6cb2c3ea3f39-119",
+   "factors": {
+    "backend": "rust-cdp",
+    "scenario": "primitives",
+    "variant": "contextmenu",
+    "policy": "guarded",
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 269.7775420000107,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "fb24112aa29b-120",
+   "factors": {
+    "backend": "puppeteer",
+    "scenario": "primitives",
+    "variant": "contextmenu",
+    "policy": "guarded",
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 171.1159580000094,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "f18313242c3f-121",
+   "factors": {
+    "backend": "playwright",
+    "scenario": "primitives",
+    "variant": "unicode",
+    "policy": "native",
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 216.54895900000702,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "66a28feaa0d7-122",
+   "factors": {
+    "backend": "puppeteer",
+    "scenario": "primitives",
+    "variant": "dblclick",
+    "policy": "guarded",
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 169.90350000000035,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "8dd17590ea5a-123",
+   "factors": {
+    "backend": "node-cdp",
+    "scenario": "primitives",
+    "variant": "contextmenu",
+    "policy": "guarded",
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 145.06158299998788,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "e2d931e97528-124",
+   "factors": {
+    "backend": "rust-cdp",
+    "scenario": "primitives",
+    "variant": "keyboard",
+    "policy": "native",
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 209.85924999999406,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "61c499ff12af-125",
+   "factors": {
+    "backend": "puppeteer",
+    "scenario": "primitives",
+    "variant": "hover",
+    "policy": "guarded",
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 183.68629200001305,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "1e6583ec82fe-126",
+   "factors": {
+    "backend": "node-cdp",
+    "scenario": "primitives",
+    "variant": "contenteditable",
+    "policy": "guarded",
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 191.07508300000336,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "ba00044461ec-127",
+   "factors": {
+    "backend": "node-cdp",
+    "scenario": "primitives",
+    "variant": "dblclick",
+    "policy": "native",
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 172.9391670000041,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "692f0dace6b8-128",
+   "factors": {
+    "backend": "puppeteer",
+    "scenario": "primitives",
+    "variant": "drag",
+    "policy": "native",
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 92.54916600001161,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "3ec851539545-129",
+   "factors": {
+    "backend": "playwright",
+    "scenario": "primitives",
+    "variant": "retarget",
+    "policy": "guarded",
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 1774.5472080000036,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "3c489a50bea1-130",
+   "factors": {
+    "backend": "rust-cdp",
+    "scenario": "primitives",
+    "variant": "drag",
+    "policy": "native",
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 222.89858399999503,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "0c29cc5460c6-131",
+   "factors": {
+    "backend": "playwright",
+    "scenario": "primitives",
+    "variant": "drag",
+    "policy": "native",
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 307.1772920000076,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "fe4fcdabc50c-132",
+   "factors": {
+    "backend": "puppeteer",
+    "scenario": "primitives",
+    "variant": "unicode",
+    "policy": "native",
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 112.34758299999521,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "98c0224b9c33-133",
+   "factors": {
+    "backend": "puppeteer",
+    "scenario": "primitives",
+    "variant": "contextmenu",
+    "policy": "native",
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 119.43024999999034,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "98acf7c5ea5b-134",
+   "factors": {
+    "backend": "playwright",
+    "scenario": "primitives",
+    "variant": "retarget",
+    "policy": "native",
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 1700.8463340000017,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "9e952c2113c9-135",
+   "factors": {
+    "backend": "node-cdp",
+    "scenario": "primitives",
+    "variant": "moved",
+    "policy": "guarded",
+    "block": 1
+   },
+   "status": "failed",
+   "errorCode": null,
+   "counts": {
+    "verified": 0,
+    "failed": 1,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 1636.234500000006,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "e84027b0b440-136",
+   "factors": {
+    "backend": "playwright",
+    "scenario": "primitives",
+    "variant": "contextmenu",
+    "policy": "native",
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 238.26924999999756,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "567e7045e74c-137",
+   "factors": {
+    "backend": "rust-cdp",
+    "scenario": "primitives",
+    "variant": "moved",
+    "policy": "native",
+    "block": 1
+   },
+   "status": "failed",
+   "errorCode": null,
+   "counts": {
+    "verified": 0,
+    "failed": 1,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 1694.1917919999978,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "df51c5332a0d-138",
+   "factors": {
+    "backend": "rust-cdp",
+    "scenario": "primitives",
+    "variant": "unicode",
+    "policy": "native",
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 250.4289160000044,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "b7dff02588d7-139",
+   "factors": {
+    "backend": "puppeteer",
+    "scenario": "primitives",
+    "variant": "drag",
+    "policy": "guarded",
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 161.08170899999095,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "7494a0a0ac77-140",
+   "factors": {
+    "backend": "rust-cdp",
+    "scenario": "primitives",
+    "variant": "drag",
+    "policy": "guarded",
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 274.24583300000813,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "bd623d8b8672-141",
+   "factors": {
+    "backend": "node-cdp",
+    "scenario": "primitives",
+    "variant": "keyboard",
+    "policy": "native",
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 85.54279200000747,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "16b65930be76-142",
+   "factors": {
+    "backend": "node-cdp",
+    "scenario": "primitives",
+    "variant": "dblclick",
+    "policy": "guarded",
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 145.62008399999468,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "7cbe51d5de0b-143",
+   "factors": {
+    "backend": "rust-cdp",
+    "scenario": "primitives",
+    "variant": "hover",
+    "policy": "guarded",
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 260.3868749999965,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "fae52603a427-144",
+   "factors": {
+    "backend": "node-cdp",
+    "scenario": "primitives",
+    "variant": "hover",
+    "policy": "guarded",
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 126.77166600000055,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "5c4ee50cb6d1-145",
+   "factors": {
+    "backend": "node-cdp",
+    "scenario": "primitives",
+    "variant": "contenteditable",
+    "policy": "native",
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 75.2518340000097,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "23a78830031a-146",
+   "factors": {
+    "backend": "playwright",
+    "scenario": "primitives",
+    "variant": "contenteditable",
+    "policy": "native",
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 211.6543750000128,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "bdfbb8b99a59-147",
+   "factors": {
+    "backend": "rust-cdp",
+    "scenario": "primitives",
+    "variant": "contextmenu",
+    "policy": "native",
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 220.864459000004,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "e91e541d4aad-148",
+   "factors": {
+    "backend": "puppeteer",
+    "scenario": "primitives",
+    "variant": "contenteditable",
+    "policy": "native",
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 105.3504580000008,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "7693b3b6a397-149",
+   "factors": {
+    "backend": "rust-cdp",
+    "scenario": "primitives",
+    "variant": "dblclick",
+    "policy": "guarded",
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 151.98991699999897,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "d38b03ae4d62-150",
+   "factors": {
+    "backend": "playwright",
+    "scenario": "primitives",
+    "variant": "unicode",
+    "policy": "guarded",
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 290.94283300000825,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "152e568fbd7a-151",
+   "factors": {
+    "backend": "playwright",
+    "scenario": "primitives",
+    "variant": "moved",
+    "policy": "native",
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 302.1939999999886,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "db6cd293b2af-152",
+   "factors": {
+    "backend": "rust-cdp",
+    "scenario": "primitives",
+    "variant": "wheel",
+    "policy": "guarded",
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 302.1375410000037,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "b3b1345f993e-153",
+   "factors": {
+    "backend": "rust-cdp",
+    "scenario": "primitives",
+    "variant": "retarget",
+    "policy": "native",
+    "block": 1
+   },
+   "status": "failed",
+   "errorCode": null,
+   "counts": {
+    "verified": 0,
+    "failed": 1,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 214.22970799999894,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "a358c892d49b-154",
+   "factors": {
+    "backend": "node-cdp",
+    "scenario": "primitives",
+    "variant": "retarget",
+    "policy": "native",
+    "block": 1
+   },
+   "status": "failed",
+   "errorCode": null,
+   "counts": {
+    "verified": 0,
+    "failed": 1,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 64.27874999999767,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "1b5820895133-155",
+   "factors": {
+    "backend": "node-cdp",
+    "scenario": "primitives",
+    "variant": "unicode",
+    "policy": "native",
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 81.79954100000032,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "05bc119396e7-156",
+   "factors": {
+    "backend": "rust-cdp",
+    "scenario": "primitives",
+    "variant": "hover",
+    "policy": "native",
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 221.5132500000036,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "e724e844385e-157",
+   "factors": {
+    "backend": "playwright",
+    "scenario": "primitives",
+    "variant": "wheel",
+    "policy": "guarded",
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 363.74104100000113,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "8ac01f4edd90-158",
+   "factors": {
+    "backend": "puppeteer",
+    "scenario": "primitives",
+    "variant": "moved",
+    "policy": "native",
+    "block": 1
+   },
+   "status": "failed",
+   "errorCode": null,
+   "counts": {
+    "verified": 0,
+    "failed": 1,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 1622.1754169999913,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "e5b0a8b5c18f-159",
+   "factors": {
+    "backend": "puppeteer",
+    "scenario": "primitives",
+    "variant": "wheel",
+    "policy": "guarded",
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 205.89074999999139,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "3a1182eef0e6-160",
+   "factors": {
+    "backend": "node-cdp",
+    "scenario": "primitives",
+    "variant": "wheel",
+    "policy": "native",
+    "block": 2
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 124.11791600001743,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "ef8e1cc124b8-161",
+   "factors": {
+    "backend": "node-cdp",
+    "scenario": "primitives",
+    "variant": "dblclick",
+    "policy": "native",
+    "block": 2
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 135.0207909999881,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "f0c8413d12cd-162",
+   "factors": {
+    "backend": "rust-cdp",
+    "scenario": "primitives",
+    "variant": "contenteditable",
+    "policy": "guarded",
+    "block": 2
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 249.13179200000013,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "5c4ab903e8d7-163",
+   "factors": {
+    "backend": "rust-cdp",
+    "scenario": "primitives",
+    "variant": "drag",
+    "policy": "guarded",
+    "block": 2
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 313.84391600001254,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "84c00f4cf6f5-164",
+   "factors": {
+    "backend": "puppeteer",
+    "scenario": "primitives",
+    "variant": "dblclick",
+    "policy": "native",
+    "block": 2
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 110.98670799998217,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "9ef44326b784-165",
+   "factors": {
+    "backend": "puppeteer",
+    "scenario": "primitives",
+    "variant": "keyboard",
+    "policy": "native",
+    "block": 2
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 77.78458400000818,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "f844a869f261-166",
+   "factors": {
+    "backend": "playwright",
+    "scenario": "primitives",
+    "variant": "hover",
+    "policy": "guarded",
+    "block": 2
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 320.46287499999744,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "879866c42adc-167",
+   "factors": {
+    "backend": "puppeteer",
+    "scenario": "primitives",
+    "variant": "wheel",
+    "policy": "native",
+    "block": 2
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 138.96441600000253,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "f971ee4a6be0-168",
+   "factors": {
+    "backend": "node-cdp",
+    "scenario": "primitives",
+    "variant": "hover",
+    "policy": "native",
+    "block": 2
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 89.60599999999977,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "d1a22b3049e2-169",
+   "factors": {
+    "backend": "puppeteer",
+    "scenario": "primitives",
+    "variant": "unicode",
+    "policy": "native",
+    "block": 2
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 116.72883300000103,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "d6cb193da42a-170",
+   "factors": {
+    "backend": "node-cdp",
+    "scenario": "primitives",
+    "variant": "keyboard",
+    "policy": "guarded",
+    "block": 2
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 133.16466699997545,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "601ff07d9563-171",
+   "factors": {
+    "backend": "node-cdp",
+    "scenario": "primitives",
+    "variant": "retarget",
+    "policy": "guarded",
+    "block": 2
+   },
+   "status": "failed",
+   "errorCode": null,
+   "counts": {
+    "verified": 0,
+    "failed": 1,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 130.76358299999265,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "765a29b8d1ac-172",
+   "factors": {
+    "backend": "playwright",
+    "scenario": "primitives",
+    "variant": "contextmenu",
+    "policy": "native",
+    "block": 2
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 239.59162500000093,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "1a3199a67348-173",
+   "factors": {
+    "backend": "puppeteer",
+    "scenario": "primitives",
+    "variant": "moved",
+    "policy": "native",
+    "block": 2
+   },
+   "status": "failed",
+   "errorCode": null,
+   "counts": {
+    "verified": 0,
+    "failed": 1,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 1622.702250000002,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "cebb9083c35d-174",
+   "factors": {
+    "backend": "puppeteer",
+    "scenario": "primitives",
+    "variant": "moved",
+    "policy": "guarded",
+    "block": 2
+   },
+   "status": "failed",
+   "errorCode": null,
+   "counts": {
+    "verified": 0,
+    "failed": 1,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 1670.0145409999823,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "4950c1c89e55-175",
+   "factors": {
+    "backend": "rust-cdp",
+    "scenario": "primitives",
+    "variant": "unicode",
+    "policy": "guarded",
+    "block": 2
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 288.8742500000226,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "cc537a63fa5f-176",
+   "factors": {
+    "backend": "rust-cdp",
+    "scenario": "primitives",
+    "variant": "contextmenu",
+    "policy": "guarded",
+    "block": 2
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 296.7761670000036,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "30294aa6c241-177",
+   "factors": {
+    "backend": "node-cdp",
+    "scenario": "primitives",
+    "variant": "drag",
+    "policy": "native",
+    "block": 2
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 107.51654199999757,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "746c0d7199f7-178",
+   "factors": {
+    "backend": "node-cdp",
+    "scenario": "primitives",
+    "variant": "retarget",
+    "policy": "native",
+    "block": 2
+   },
+   "status": "failed",
+   "errorCode": null,
+   "counts": {
+    "verified": 0,
+    "failed": 1,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 86.36483400000725,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "1d819790e205-179",
+   "factors": {
+    "backend": "puppeteer",
+    "scenario": "primitives",
+    "variant": "contextmenu",
+    "policy": "guarded",
+    "block": 2
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 169.95154199999524,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "408f6cedfa4e-180",
+   "factors": {
+    "backend": "playwright",
+    "scenario": "primitives",
+    "variant": "moved",
+    "policy": "native",
+    "block": 2
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 322.8074170000036,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "036bf1eb35c6-181",
+   "factors": {
+    "backend": "puppeteer",
+    "scenario": "primitives",
+    "variant": "contenteditable",
+    "policy": "native",
+    "block": 2
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 107.09091699999408,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "f9b3bd65a4ba-182",
+   "factors": {
+    "backend": "puppeteer",
+    "scenario": "primitives",
+    "variant": "unicode",
+    "policy": "guarded",
+    "block": 2
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 182.01204199998756,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "eb701ea9237e-183",
+   "factors": {
+    "backend": "rust-cdp",
+    "scenario": "primitives",
+    "variant": "keyboard",
+    "policy": "native",
+    "block": 2
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 234.1752919999999,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "7c436caaec7d-184",
+   "factors": {
+    "backend": "rust-cdp",
+    "scenario": "primitives",
+    "variant": "wheel",
+    "policy": "native",
+    "block": 2
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 242.52150000000256,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "fe742ef3f688-185",
+   "factors": {
+    "backend": "node-cdp",
+    "scenario": "primitives",
+    "variant": "wheel",
+    "policy": "guarded",
+    "block": 2
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 169.4246250000142,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "3295249a5d47-186",
+   "factors": {
+    "backend": "puppeteer",
+    "scenario": "primitives",
+    "variant": "hover",
+    "policy": "guarded",
+    "block": 2
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 179.64412499999162,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "c0335c1ee893-187",
+   "factors": {
+    "backend": "puppeteer",
+    "scenario": "primitives",
+    "variant": "retarget",
+    "policy": "native",
+    "block": 2
+   },
+   "status": "failed",
+   "errorCode": null,
+   "counts": {
+    "verified": 0,
+    "failed": 1,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 104.02395800000522,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "3f1b22747002-188",
+   "factors": {
+    "backend": "playwright",
+    "scenario": "primitives",
+    "variant": "unicode",
+    "policy": "native",
+    "block": 2
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 231.61991700000362,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "5912dc9f3a68-189",
+   "factors": {
+    "backend": "playwright",
+    "scenario": "primitives",
+    "variant": "contenteditable",
+    "policy": "guarded",
+    "block": 2
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 281.41708300000755,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "10b653d6d93e-190",
+   "factors": {
+    "backend": "playwright",
+    "scenario": "primitives",
+    "variant": "contenteditable",
+    "policy": "native",
+    "block": 2
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 256.5293750000128,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "fb153431f965-191",
+   "factors": {
+    "backend": "playwright",
+    "scenario": "primitives",
+    "variant": "wheel",
+    "policy": "guarded",
+    "block": 2
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 411.42137500000536,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "2e7c7849a02a-192",
+   "factors": {
+    "backend": "playwright",
+    "scenario": "primitives",
+    "variant": "hover",
+    "policy": "native",
+    "block": 2
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 284.9943750000093,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "8c20c9ef48e0-193",
+   "factors": {
+    "backend": "rust-cdp",
+    "scenario": "primitives",
+    "variant": "contextmenu",
+    "policy": "native",
+    "block": 2
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 234.16041700000642,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "9606490c0a08-194",
+   "factors": {
+    "backend": "puppeteer",
+    "scenario": "primitives",
+    "variant": "drag",
+    "policy": "native",
+    "block": 2
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 92.98870799998986,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "215bac131dd4-195",
+   "factors": {
+    "backend": "rust-cdp",
+    "scenario": "primitives",
+    "variant": "dblclick",
+    "policy": "native",
+    "block": 2
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 218.34808299998986,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "deecd3f80d56-196",
+   "factors": {
+    "backend": "node-cdp",
+    "scenario": "primitives",
+    "variant": "dblclick",
+    "policy": "guarded",
+    "block": 2
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 145.3327500000014,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "e18226bb5481-197",
+   "factors": {
+    "backend": "playwright",
+    "scenario": "primitives",
+    "variant": "retarget",
+    "policy": "native",
+    "block": 2
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 1706.7997500000056,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "6fff3b9ac595-198",
+   "factors": {
+    "backend": "puppeteer",
+    "scenario": "primitives",
+    "variant": "contenteditable",
+    "policy": "guarded",
+    "block": 2
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 155.29154199999175,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "d4f7a3342ef0-199",
+   "factors": {
+    "backend": "playwright",
+    "scenario": "primitives",
+    "variant": "retarget",
+    "policy": "guarded",
+    "block": 2
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 1727.5773749999935,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "9ca1090ff5af-200",
+   "factors": {
+    "backend": "playwright",
+    "scenario": "primitives",
+    "variant": "dblclick",
+    "policy": "native",
+    "block": 2
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 261.50358300001244,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "7d7169351a5f-201",
+   "factors": {
+    "backend": "node-cdp",
+    "scenario": "primitives",
+    "variant": "hover",
+    "policy": "guarded",
+    "block": 2
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 140.67416700001922,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "286af2514b78-202",
+   "factors": {
+    "backend": "rust-cdp",
+    "scenario": "primitives",
+    "variant": "contenteditable",
+    "policy": "native",
+    "block": 2
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 71.13524999999208,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "00157fd08b2c-203",
+   "factors": {
+    "backend": "playwright",
+    "scenario": "primitives",
+    "variant": "unicode",
+    "policy": "guarded",
+    "block": 2
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 249.61866599999485,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "5bca34ad0fd9-204",
+   "factors": {
+    "backend": "playwright",
+    "scenario": "primitives",
+    "variant": "dblclick",
+    "policy": "guarded",
+    "block": 2
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 298.10779199999524,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "664ee0600469-205",
+   "factors": {
+    "backend": "node-cdp",
+    "scenario": "primitives",
+    "variant": "moved",
+    "policy": "guarded",
+    "block": 2
+   },
+   "status": "failed",
+   "errorCode": null,
+   "counts": {
+    "verified": 0,
+    "failed": 1,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 1655.692624999996,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "831dfce1d64c-206",
+   "factors": {
+    "backend": "playwright",
+    "scenario": "primitives",
+    "variant": "moved",
+    "policy": "guarded",
+    "block": 2
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 349.7837090000103,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "c851012cd7e9-207",
+   "factors": {
+    "backend": "playwright",
+    "scenario": "primitives",
+    "variant": "drag",
+    "policy": "guarded",
+    "block": 2
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 325.3391249999986,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "27f26e557aba-208",
+   "factors": {
+    "backend": "puppeteer",
+    "scenario": "primitives",
+    "variant": "retarget",
+    "policy": "guarded",
+    "block": 2
+   },
+   "status": "failed",
+   "errorCode": null,
+   "counts": {
+    "verified": 0,
+    "failed": 1,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 164.17404099999112,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "00f187870323-209",
+   "factors": {
+    "backend": "rust-cdp",
+    "scenario": "primitives",
+    "variant": "moved",
+    "policy": "guarded",
+    "block": 2
+   },
+   "status": "failed",
+   "errorCode": null,
+   "counts": {
+    "verified": 0,
+    "failed": 1,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 1767.926792000013,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "fa6b074652f8-210",
+   "factors": {
+    "backend": "rust-cdp",
+    "scenario": "primitives",
+    "variant": "retarget",
+    "policy": "native",
+    "block": 2
+   },
+   "status": "failed",
+   "errorCode": null,
+   "counts": {
+    "verified": 0,
+    "failed": 1,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 205.76995899999747,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "fa959f42a688-211",
+   "factors": {
+    "backend": "node-cdp",
+    "scenario": "primitives",
+    "variant": "unicode",
+    "policy": "native",
+    "block": 2
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 85.10570800001733,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "f69393b14861-212",
+   "factors": {
+    "backend": "node-cdp",
+    "scenario": "primitives",
+    "variant": "drag",
+    "policy": "guarded",
+    "block": 2
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 157.62870800000383,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "4a72fb73d12f-213",
+   "factors": {
+    "backend": "rust-cdp",
+    "scenario": "primitives",
+    "variant": "keyboard",
+    "policy": "guarded",
+    "block": 2
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 254.65737500000978,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "3c00a4eb5deb-214",
+   "factors": {
+    "backend": "rust-cdp",
+    "scenario": "primitives",
+    "variant": "unicode",
+    "policy": "native",
+    "block": 2
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 232.8492499999993,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "478b1ad98b53-215",
+   "factors": {
+    "backend": "rust-cdp",
+    "scenario": "primitives",
+    "variant": "moved",
+    "policy": "native",
+    "block": 2
+   },
+   "status": "failed",
+   "errorCode": null,
+   "counts": {
+    "verified": 0,
+    "failed": 1,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 1710.3104580000218,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "924404f8edb0-216",
+   "factors": {
+    "backend": "playwright",
+    "scenario": "primitives",
+    "variant": "contextmenu",
+    "policy": "guarded",
+    "block": 2
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 275.41304200000013,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "7beccc801f7f-217",
+   "factors": {
+    "backend": "node-cdp",
+    "scenario": "primitives",
+    "variant": "contextmenu",
+    "policy": "native",
+    "block": 2
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 82.03250000000116,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "5e3a61d376f0-218",
+   "factors": {
+    "backend": "rust-cdp",
+    "scenario": "primitives",
+    "variant": "hover",
+    "policy": "guarded",
+    "block": 2
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 267.73729200000525,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "bb3b1865b23c-219",
+   "factors": {
+    "backend": "rust-cdp",
+    "scenario": "primitives",
+    "variant": "drag",
+    "policy": "native",
+    "block": 2
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 224.3900830000057,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "5a6d34127184-220",
+   "factors": {
+    "backend": "node-cdp",
+    "scenario": "primitives",
+    "variant": "contenteditable",
+    "policy": "guarded",
+    "block": 2
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 125.81200000000536,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "828bc051ae6b-221",
+   "factors": {
+    "backend": "node-cdp",
+    "scenario": "primitives",
+    "variant": "contextmenu",
+    "policy": "guarded",
+    "block": 2
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 147.1852919999801,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "badff8245dc3-222",
+   "factors": {
+    "backend": "node-cdp",
+    "scenario": "primitives",
+    "variant": "keyboard",
+    "policy": "native",
+    "block": 2
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 81.72399999998743,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "5f84320080f0-223",
+   "factors": {
+    "backend": "rust-cdp",
+    "scenario": "primitives",
+    "variant": "retarget",
+    "policy": "guarded",
+    "block": 2
+   },
+   "status": "failed",
+   "errorCode": null,
+   "counts": {
+    "verified": 0,
+    "failed": 1,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 227.31879199997638,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "9b9845659596-224",
+   "factors": {
+    "backend": "rust-cdp",
+    "scenario": "primitives",
+    "variant": "hover",
+    "policy": "native",
+    "block": 2
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 225.34966700000223,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "320bfdff8c60-225",
+   "factors": {
+    "backend": "node-cdp",
+    "scenario": "primitives",
+    "variant": "unicode",
+    "policy": "guarded",
+    "block": 2
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 130.6701250000042,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "1c8736e636da-226",
+   "factors": {
+    "backend": "puppeteer",
+    "scenario": "primitives",
+    "variant": "dblclick",
+    "policy": "guarded",
+    "block": 2
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 183.54649999999674,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "9a667c90cd16-227",
+   "factors": {
+    "backend": "playwright",
+    "scenario": "primitives",
+    "variant": "keyboard",
+    "policy": "guarded",
+    "block": 2
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 262.03250000000116,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "0c0d0f411f93-228",
+   "factors": {
+    "backend": "playwright",
+    "scenario": "primitives",
+    "variant": "wheel",
+    "policy": "native",
+    "block": 2
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 322.74366699997336,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "7ebb607315ac-229",
+   "factors": {
+    "backend": "puppeteer",
+    "scenario": "primitives",
+    "variant": "drag",
+    "policy": "guarded",
+    "block": 2
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 164.29904099999112,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "721e5bb0940e-230",
+   "factors": {
+    "backend": "playwright",
+    "scenario": "primitives",
+    "variant": "keyboard",
+    "policy": "native",
+    "block": 2
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 211.10491599998204,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "6ec9f2229b97-231",
+   "factors": {
+    "backend": "playwright",
+    "scenario": "primitives",
+    "variant": "drag",
+    "policy": "native",
+    "block": 2
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 286.1935840000224,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "2b7103c267be-232",
+   "factors": {
+    "backend": "rust-cdp",
+    "scenario": "primitives",
+    "variant": "wheel",
+    "policy": "guarded",
+    "block": 2
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 333.2476670000178,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "7c02867226c4-233",
+   "factors": {
+    "backend": "rust-cdp",
+    "scenario": "primitives",
+    "variant": "dblclick",
+    "policy": "guarded",
+    "block": 2
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 331.27645800000755,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "005fa22d2113-234",
+   "factors": {
+    "backend": "puppeteer",
+    "scenario": "primitives",
+    "variant": "keyboard",
+    "policy": "guarded",
+    "block": 2
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 112.59662500000559,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "af6f1f5f3b9b-235",
+   "factors": {
+    "backend": "node-cdp",
+    "scenario": "primitives",
+    "variant": "moved",
+    "policy": "native",
+    "block": 2
+   },
+   "status": "failed",
+   "errorCode": null,
+   "counts": {
+    "verified": 0,
+    "failed": 1,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 1588.7759589999914,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "8041c1f4b747-236",
+   "factors": {
+    "backend": "puppeteer",
+    "scenario": "primitives",
+    "variant": "hover",
+    "policy": "native",
+    "block": 2
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 135.44770799999242,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "81e31ef8e9fd-237",
+   "factors": {
+    "backend": "node-cdp",
+    "scenario": "primitives",
+    "variant": "contenteditable",
+    "policy": "native",
+    "block": 2
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 73.76574999999139,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "18240d841712-238",
+   "factors": {
+    "backend": "puppeteer",
+    "scenario": "primitives",
+    "variant": "wheel",
+    "policy": "guarded",
+    "block": 2
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 223.48237500002142,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "a819cc35433e-239",
+   "factors": {
+    "backend": "puppeteer",
+    "scenario": "primitives",
+    "variant": "contextmenu",
+    "policy": "native",
+    "block": 2
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 116.25574999998207,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  }
+ ],
+ "totals": {
+  "verified": 204,
+  "failed": 36,
+  "timeout": 0,
+  "crashed": 0,
+  "aborted": 0,
+  "unsupported": 0,
+  "rejected": 0,
+  "unavailable": 0,
+  "skipped": 0
+ },
+ "metricAvailability": {
+  "verified-jobs-per-second": {
+   "available": true
+  },
+  "verified-tasks-per-second": {
+   "available": true
+  },
+  "verified-rows-per-second": {
+   "available": true
+  },
+  "task-p50-ms-verified": {
+   "available": true
+  },
+  "task-p95-ms-verified": {
+   "available": true
+  },
+  "task-ms": {
+   "available": true
+  },
+  "ack-latency-p95-ms": {
+   "available": true
+  },
+  "startup-ms": {
+   "available": true
+  },
+  "cpu-ms-per-verified-job": {
+   "available": true
+  },
+  "footprint-peak-bytes": {
+   "available": true
+  },
+  "pss-peak-bytes": {
+   "available": false,
+   "reason": "no probe on darwin"
+  },
+  "cgroup-memory-peak-bytes": {
+   "available": false,
+   "reason": "no probe on darwin"
+  },
+  "rss-peak-bytes": {
+   "available": true
+  },
+  "cdp-commands-per-task": {
+   "available": true
+  },
+  "extraction-f1": {
+   "available": true
+  },
+  "field-precision": {
+   "available": true
+  },
+  "field-recall": {
+   "available": true
+  },
+  "pass-k": {
+   "available": true
+  },
+  "llm-calls-per-verified-task": {
+   "available": false,
+   "reason": "adapter protocol v2 usage reporting is not implemented yet"
+  },
+  "tokens-per-verified-task": {
+   "available": false,
+   "reason": "adapter protocol v2 usage reporting is not implemented yet"
+  },
+  "usd-per-1k-verified": {
+   "available": false,
+   "reason": "pricing tables are not implemented yet"
+  },
+  "interface-turns-per-task": {
+   "available": true
+  },
+  "oracle-exact": {
+   "available": true
+  },
+  "false-success-count": {
+   "available": true
+  },
+  "actionability-conformance": {
+   "available": true
+  },
+  "recovery-exact": {
+   "available": true
+  },
+  "durability-power-loss": {
+   "available": false,
+   "reason": "no probe on darwin"
+  },
+  "identity-coherence": {
+   "available": true
+  },
+  "policy-compliance": {
+   "available": true
+  },
+  "session-isolation": {
+   "available": true
+  },
+  "admission-no-loss": {
+   "available": true
+  }
+ },
+ "legacy": null,
+ "blocks": [
+  {
+   "index": 0,
+   "order": [
+    "primitives/playwright/native/contenteditable",
+    "primitives/rust-cdp/guarded/unicode",
+    "primitives/playwright/guarded/dblclick",
+    "primitives/rust-cdp/guarded/retarget",
+    "primitives/playwright/guarded/retarget",
+    "primitives/node-cdp/native/contenteditable",
+    "primitives/rust-cdp/guarded/dblclick",
+    "primitives/puppeteer/native/keyboard",
+    "primitives/node-cdp/native/keyboard",
+    "primitives/rust-cdp/native/keyboard",
+    "primitives/puppeteer/guarded/moved",
+    "primitives/puppeteer/native/drag",
+    "primitives/playwright/native/contextmenu",
+    "primitives/node-cdp/guarded/drag",
+    "primitives/node-cdp/native/retarget",
+    "primitives/node-cdp/guarded/dblclick",
+    "primitives/rust-cdp/native/dblclick",
+    "primitives/rust-cdp/native/moved",
+    "primitives/playwright/guarded/hover",
+    "primitives/playwright/guarded/moved",
+    "primitives/playwright/native/drag",
+    "primitives/node-cdp/native/hover",
+    "primitives/node-cdp/native/contextmenu",
+    "primitives/playwright/native/hover",
+    "primitives/rust-cdp/guarded/moved",
+    "primitives/rust-cdp/native/contenteditable",
+    "primitives/rust-cdp/guarded/drag",
+    "primitives/node-cdp/native/drag",
+    "primitives/rust-cdp/guarded/wheel",
+    "primitives/node-cdp/native/wheel",
+    "primitives/rust-cdp/guarded/hover",
+    "primitives/puppeteer/guarded/dblclick",
+    "primitives/node-cdp/native/unicode",
+    "primitives/puppeteer/native/hover",
+    "primitives/puppeteer/native/contextmenu",
+    "primitives/puppeteer/guarded/wheel",
+    "primitives/playwright/guarded/drag",
+    "primitives/node-cdp/native/dblclick",
+    "primitives/puppeteer/native/unicode",
+    "primitives/puppeteer/native/contenteditable",
+    "primitives/node-cdp/guarded/keyboard",
+    "primitives/rust-cdp/guarded/keyboard",
+    "primitives/playwright/guarded/contenteditable",
+    "primitives/playwright/native/wheel",
+    "primitives/puppeteer/guarded/drag",
+    "primitives/rust-cdp/guarded/contenteditable",
+    "primitives/rust-cdp/guarded/contextmenu",
+    "primitives/puppeteer/guarded/unicode",
+    "primitives/puppeteer/guarded/contextmenu",
+    "primitives/puppeteer/native/moved",
+    "primitives/playwright/native/keyboard",
+    "primitives/rust-cdp/native/unicode",
+    "primitives/puppeteer/guarded/contenteditable",
+    "primitives/node-cdp/native/moved",
+    "primitives/playwright/guarded/keyboard",
+    "primitives/rust-cdp/native/hover",
+    "primitives/node-cdp/guarded/moved",
+    "primitives/puppeteer/guarded/keyboard",
+    "primitives/node-cdp/guarded/unicode",
+    "primitives/playwright/guarded/wheel",
+    "primitives/node-cdp/guarded/contenteditable",
+    "primitives/puppeteer/native/retarget",
+    "primitives/rust-cdp/native/contextmenu",
+    "primitives/puppeteer/native/dblclick",
+    "primitives/rust-cdp/native/retarget",
+    "primitives/puppeteer/native/wheel",
+    "primitives/playwright/guarded/unicode",
+    "primitives/node-cdp/guarded/hover",
+    "primitives/node-cdp/guarded/wheel",
+    "primitives/puppeteer/guarded/hover",
+    "primitives/rust-cdp/native/wheel",
+    "primitives/playwright/guarded/contextmenu",
+    "primitives/playwright/native/moved",
+    "primitives/node-cdp/guarded/contextmenu",
+    "primitives/playwright/native/dblclick",
+    "primitives/puppeteer/guarded/retarget",
+    "primitives/playwright/native/unicode",
+    "primitives/rust-cdp/native/drag",
+    "primitives/node-cdp/guarded/retarget",
+    "primitives/playwright/native/retarget"
+   ],
+   "noisy": false,
+   "host": {
+    "loadPerCpu1m": 0.7108677455357143,
+    "foreignCpuPercent": 182.09999999999997
+   }
+  },
+  {
+   "index": 1,
+   "order": [
+    "primitives/playwright/guarded/moved",
+    "primitives/puppeteer/guarded/keyboard",
+    "primitives/node-cdp/native/drag",
+    "primitives/puppeteer/native/retarget",
+    "primitives/puppeteer/native/dblclick",
+    "primitives/node-cdp/native/hover",
+    "primitives/puppeteer/guarded/retarget",
+    "primitives/playwright/guarded/drag",
+    "primitives/puppeteer/native/wheel",
+    "primitives/rust-cdp/guarded/moved",
+    "primitives/rust-cdp/native/contenteditable",
+    "primitives/playwright/guarded/contenteditable",
+    "primitives/rust-cdp/guarded/keyboard",
+    "primitives/playwright/native/keyboard",
+    "primitives/node-cdp/guarded/keyboard",
+    "primitives/rust-cdp/guarded/contenteditable",
+    "primitives/node-cdp/guarded/wheel",
+    "primitives/puppeteer/native/keyboard",
+    "primitives/rust-cdp/native/wheel",
+    "primitives/puppeteer/guarded/moved",
+    "primitives/node-cdp/guarded/drag",
+    "primitives/puppeteer/native/hover",
+    "primitives/puppeteer/guarded/unicode",
+    "primitives/node-cdp/native/contextmenu",
+    "primitives/node-cdp/guarded/unicode",
+    "primitives/node-cdp/native/wheel",
+    "primitives/playwright/native/dblclick",
+    "primitives/puppeteer/guarded/contenteditable",
+    "primitives/playwright/guarded/hover",
+    "primitives/playwright/guarded/dblclick",
+    "primitives/playwright/guarded/contextmenu",
+    "primitives/rust-cdp/guarded/unicode",
+    "primitives/playwright/native/wheel",
+    "primitives/playwright/native/hover",
+    "primitives/node-cdp/native/moved",
+    "primitives/node-cdp/guarded/retarget",
+    "primitives/rust-cdp/guarded/retarget",
+    "primitives/rust-cdp/native/dblclick",
+    "primitives/playwright/guarded/keyboard",
+    "primitives/rust-cdp/guarded/contextmenu",
+    "primitives/puppeteer/guarded/contextmenu",
+    "primitives/playwright/native/unicode",
+    "primitives/puppeteer/guarded/dblclick",
+    "primitives/node-cdp/guarded/contextmenu",
+    "primitives/rust-cdp/native/keyboard",
+    "primitives/puppeteer/guarded/hover",
+    "primitives/node-cdp/guarded/contenteditable",
+    "primitives/node-cdp/native/dblclick",
+    "primitives/puppeteer/native/drag",
+    "primitives/playwright/guarded/retarget",
+    "primitives/rust-cdp/native/drag",
+    "primitives/playwright/native/drag",
+    "primitives/puppeteer/native/unicode",
+    "primitives/puppeteer/native/contextmenu",
+    "primitives/playwright/native/retarget",
+    "primitives/node-cdp/guarded/moved",
+    "primitives/playwright/native/contextmenu",
+    "primitives/rust-cdp/native/moved",
+    "primitives/rust-cdp/native/unicode",
+    "primitives/puppeteer/guarded/drag",
+    "primitives/rust-cdp/guarded/drag",
+    "primitives/node-cdp/native/keyboard",
+    "primitives/node-cdp/guarded/dblclick",
+    "primitives/rust-cdp/guarded/hover",
+    "primitives/node-cdp/guarded/hover",
+    "primitives/node-cdp/native/contenteditable",
+    "primitives/playwright/native/contenteditable",
+    "primitives/rust-cdp/native/contextmenu",
+    "primitives/puppeteer/native/contenteditable",
+    "primitives/rust-cdp/guarded/dblclick",
+    "primitives/playwright/guarded/unicode",
+    "primitives/playwright/native/moved",
+    "primitives/rust-cdp/guarded/wheel",
+    "primitives/rust-cdp/native/retarget",
+    "primitives/node-cdp/native/retarget",
+    "primitives/node-cdp/native/unicode",
+    "primitives/rust-cdp/native/hover",
+    "primitives/playwright/guarded/wheel",
+    "primitives/puppeteer/native/moved",
+    "primitives/puppeteer/guarded/wheel"
+   ],
+   "noisy": false,
+   "host": {
+    "loadPerCpu1m": 0.622314453125,
+    "foreignCpuPercent": 235.99999999999986
+   }
+  },
+  {
+   "index": 2,
+   "order": [
+    "primitives/node-cdp/native/wheel",
+    "primitives/node-cdp/native/dblclick",
+    "primitives/rust-cdp/guarded/contenteditable",
+    "primitives/rust-cdp/guarded/drag",
+    "primitives/puppeteer/native/dblclick",
+    "primitives/puppeteer/native/keyboard",
+    "primitives/playwright/guarded/hover",
+    "primitives/puppeteer/native/wheel",
+    "primitives/node-cdp/native/hover",
+    "primitives/puppeteer/native/unicode",
+    "primitives/node-cdp/guarded/keyboard",
+    "primitives/node-cdp/guarded/retarget",
+    "primitives/playwright/native/contextmenu",
+    "primitives/puppeteer/native/moved",
+    "primitives/puppeteer/guarded/moved",
+    "primitives/rust-cdp/guarded/unicode",
+    "primitives/rust-cdp/guarded/contextmenu",
+    "primitives/node-cdp/native/drag",
+    "primitives/node-cdp/native/retarget",
+    "primitives/puppeteer/guarded/contextmenu",
+    "primitives/playwright/native/moved",
+    "primitives/puppeteer/native/contenteditable",
+    "primitives/puppeteer/guarded/unicode",
+    "primitives/rust-cdp/native/keyboard",
+    "primitives/rust-cdp/native/wheel",
+    "primitives/node-cdp/guarded/wheel",
+    "primitives/puppeteer/guarded/hover",
+    "primitives/puppeteer/native/retarget",
+    "primitives/playwright/native/unicode",
+    "primitives/playwright/guarded/contenteditable",
+    "primitives/playwright/native/contenteditable",
+    "primitives/playwright/guarded/wheel",
+    "primitives/playwright/native/hover",
+    "primitives/rust-cdp/native/contextmenu",
+    "primitives/puppeteer/native/drag",
+    "primitives/rust-cdp/native/dblclick",
+    "primitives/node-cdp/guarded/dblclick",
+    "primitives/playwright/native/retarget",
+    "primitives/puppeteer/guarded/contenteditable",
+    "primitives/playwright/guarded/retarget",
+    "primitives/playwright/native/dblclick",
+    "primitives/node-cdp/guarded/hover",
+    "primitives/rust-cdp/native/contenteditable",
+    "primitives/playwright/guarded/unicode",
+    "primitives/playwright/guarded/dblclick",
+    "primitives/node-cdp/guarded/moved",
+    "primitives/playwright/guarded/moved",
+    "primitives/playwright/guarded/drag",
+    "primitives/puppeteer/guarded/retarget",
+    "primitives/rust-cdp/guarded/moved",
+    "primitives/rust-cdp/native/retarget",
+    "primitives/node-cdp/native/unicode",
+    "primitives/node-cdp/guarded/drag",
+    "primitives/rust-cdp/guarded/keyboard",
+    "primitives/rust-cdp/native/unicode",
+    "primitives/rust-cdp/native/moved",
+    "primitives/playwright/guarded/contextmenu",
+    "primitives/node-cdp/native/contextmenu",
+    "primitives/rust-cdp/guarded/hover",
+    "primitives/rust-cdp/native/drag",
+    "primitives/node-cdp/guarded/contenteditable",
+    "primitives/node-cdp/guarded/contextmenu",
+    "primitives/node-cdp/native/keyboard",
+    "primitives/rust-cdp/guarded/retarget",
+    "primitives/rust-cdp/native/hover",
+    "primitives/node-cdp/guarded/unicode",
+    "primitives/puppeteer/guarded/dblclick",
+    "primitives/playwright/guarded/keyboard",
+    "primitives/playwright/native/wheel",
+    "primitives/puppeteer/guarded/drag",
+    "primitives/playwright/native/keyboard",
+    "primitives/playwright/native/drag",
+    "primitives/rust-cdp/guarded/wheel",
+    "primitives/rust-cdp/guarded/dblclick",
+    "primitives/puppeteer/guarded/keyboard",
+    "primitives/node-cdp/native/moved",
+    "primitives/puppeteer/native/hover",
+    "primitives/node-cdp/native/contenteditable",
+    "primitives/puppeteer/guarded/wheel",
+    "primitives/puppeteer/native/contextmenu"
+   ],
+   "noisy": false,
+   "host": {
+    "loadPerCpu1m": 0.46372767857142855,
+    "foreignCpuPercent": 218.09999999999985
+   }
+  }
+ ]
+}

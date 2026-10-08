@@ -1,0 +1,4831 @@
+{
+ "schemaVersion": 2,
+ "runId": "http-incidents-2026-10-08T17-20-57-511Z-c21c56",
+ "lane": "actionability",
+ "campaign": {
+  "id": "http-incidents",
+  "source": "campaigns/v2/actionability/http-incidents.json",
+  "sha256": "cade10bca1778d114f929756dc0573fabb7fe475a66cf4ec96a53cb313c0833e"
+ },
+ "startedAt": "2026-10-08T17:20:57.511Z",
+ "decisionIds": [
+  "D-http-transport"
+ ],
+ "provenance": {
+  "git": {
+   "available": true,
+   "sha": "55488bf676fe96fe79ccaafb0d99073188bf4661",
+   "dirty": true
+  },
+  "sourceTreeSha256": "e9ce78fb7eee8baa89af024c79bafeba96514838c3948d5a511878d55932a9c1",
+  "sourceChanges": 0,
+  "binaryChanges": null,
+  "toolchains": {
+   "node": "v25.5.0",
+   "rustc": "rustc 1.93.0 (254b59607 2026-01-19)",
+   "go": "go version go1.27.1 darwin/arm64",
+   "pnpm": "12.9.1"
+  },
+  "integrity": {
+   "status": "uncatalogued",
+   "checked": 0,
+   "mismatches": []
+  }
+ },
+ "host": {
+  "classRequested": "local-dev",
+  "classGranted": "local-dev",
+  "os": "darwin",
+  "arch": "arm64",
+  "cpu": "Apple M3 Max",
+  "logicalCpus": 14,
+  "memoryBytes": 38654705664,
+  "preflight": {
+   "snapshot": {
+    "os": "darwin",
+    "arch": "arm64",
+    "cpu": "Apple M3 Max",
+    "logicalCpus": 14,
+    "memoryBytes": 38654705664,
+    "loadAverage1m": 16.6123046875,
+    "memoryFreePercent": 38,
+    "thermalWarning": false,
+    "onAC": false,
+    "lowPowerMode": false,
+    "foreignCpuPercent": 275.50000000000017,
+    "foreignTop": [
+     {
+      "command": "ffmpeg",
+      "cpuPercent": 86.1
+     },
+     {
+      "command": "WindowServer",
+      "cpuPercent": 43.6
+     },
+     {
+      "command": "com.apple.Virtualization.VirtualMachine",
+      "cpuPercent": 26.7
+     },
+     {
+      "command": "Google Chrome",
+      "cpuPercent": 20.1
+     },
+     {
+      "command": "Sauce",
+      "cpuPercent": 16.8
+     }
+    ],
+    "cpuGovernor": null,
+    "virtualized": false,
+    "controllerCpuPercent": 29.9
+   },
+   "gates": []
+  },
+  "postflight": {
+   "snapshot": {
+    "os": "darwin",
+    "arch": "arm64",
+    "cpu": "Apple M3 Max",
+    "logicalCpus": 14,
+    "memoryBytes": 38654705664,
+    "loadAverage1m": 7.56396484375,
+    "memoryFreePercent": 38,
+    "thermalWarning": false,
+    "onAC": false,
+    "lowPowerMode": false,
+    "foreignCpuPercent": 382.7000000000003,
+    "foreignTop": [
+     {
+      "command": "ffmpeg",
+      "cpuPercent": 91.2
+     },
+     {
+      "command": "Google Chrome Helper",
+      "cpuPercent": 50
+     },
+     {
+      "command": "WindowServer",
+      "cpuPercent": 49.8
+     },
+     {
+      "command": "Google Chrome Helper (Renderer)",
+      "cpuPercent": 38.8
+     },
+     {
+      "command": "Google Chrome",
+      "cpuPercent": 29.8
+     }
+    ],
+    "cpuGovernor": null,
+    "virtualized": false,
+    "controllerCpuPercent": 24.7
+   }
+  }
+ },
+ "status": "complete",
+ "countUnit": "cell",
+ "cells": [
+  {
+   "cellId": "fcdfd6a6123b-0",
+   "factors": {
+    "backend": "spider-http",
+    "scenario": "http-catalog",
+    "variant": "http-reset",
+    "policy": "native",
+    "block": 0
+   },
+   "status": "failed",
+   "errorCode": null,
+   "counts": {
+    "verified": 0,
+    "failed": 1,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 45.19233299999996,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "56e9dabbffa6-1",
+   "factors": {
+    "backend": "impit-http",
+    "scenario": "http-catalog",
+    "variant": "http-truncated",
+    "policy": "native",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 79.13579200000004,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "1dbdc919b1bb-2",
+   "factors": {
+    "backend": "node-http",
+    "scenario": "http-catalog",
+    "variant": "http-429",
+    "policy": "native",
+    "block": 0
+   },
+   "status": "failed",
+   "errorCode": null,
+   "counts": {
+    "verified": 0,
+    "failed": 1,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 36.41637499999979,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "6b4f176cda5b-3",
+   "factors": {
+    "backend": "spider-http",
+    "scenario": "http-catalog",
+    "variant": "http-429",
+    "policy": "native",
+    "block": 0
+   },
+   "status": "failed",
+   "errorCode": null,
+   "counts": {
+    "verified": 0,
+    "failed": 1,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 5.619875000000093,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "47a2b7eba356-4",
+   "factors": {
+    "backend": "node-http",
+    "scenario": "http-catalog",
+    "variant": "http-redirect-loop",
+    "policy": "native",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 41.874958000000106,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "3f8ab14604ee-5",
+   "factors": {
+    "backend": "node-http",
+    "scenario": "http-catalog",
+    "variant": "http-truncated",
+    "policy": "native",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 48.85599999999977,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "ab4b2d15d12c-6",
+   "factors": {
+    "backend": "impit-http",
+    "scenario": "http-catalog",
+    "variant": "http-503-once",
+    "policy": "native",
+    "block": 0
+   },
+   "status": "failed",
+   "errorCode": null,
+   "counts": {
+    "verified": 0,
+    "failed": 1,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 55.09545799999978,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "fd25d5791929-7",
+   "factors": {
+    "backend": "reqwest-http",
+    "scenario": "http-catalog",
+    "variant": "http-503-once",
+    "policy": "native",
+    "block": 0
+   },
+   "status": "failed",
+   "errorCode": null,
+   "counts": {
+    "verified": 0,
+    "failed": 1,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 1.727041999999983,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "497a87993b41-8",
+   "factors": {
+    "backend": "crawlee-http",
+    "scenario": "http-catalog",
+    "variant": "http-429",
+    "policy": "native",
+    "block": 0
+   },
+   "status": "failed",
+   "errorCode": null,
+   "counts": {
+    "verified": 0,
+    "failed": 1,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 219.41037499999993,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "58c327c5e8a5-9",
+   "factors": {
+    "backend": "reqwest-http",
+    "scenario": "http-catalog",
+    "variant": "http-truncated",
+    "policy": "native",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 12.255249999999705,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "8d92cd9bd48a-10",
+   "factors": {
+    "backend": "reqwest-http",
+    "scenario": "http-catalog",
+    "variant": "http-429",
+    "policy": "native",
+    "block": 0
+   },
+   "status": "failed",
+   "errorCode": null,
+   "counts": {
+    "verified": 0,
+    "failed": 1,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 0.8914580000000569,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "f990d2ca16cd-11",
+   "factors": {
+    "backend": "crawlee-http",
+    "scenario": "http-catalog",
+    "variant": "http-503-once",
+    "policy": "native",
+    "block": 0
+   },
+   "status": "failed",
+   "errorCode": null,
+   "counts": {
+    "verified": 0,
+    "failed": 1,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 182.8450410000005,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "6fce2993c711-12",
+   "factors": {
+    "backend": "spider-http",
+    "scenario": "http-catalog",
+    "variant": "normal",
+    "policy": "native",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 6.616750000000138,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "5c156e7d9516-13",
+   "factors": {
+    "backend": "spider-http",
+    "scenario": "http-catalog",
+    "variant": "http-slow",
+    "policy": "native",
+    "block": 0
+   },
+   "status": "failed",
+   "errorCode": null,
+   "counts": {
+    "verified": 0,
+    "failed": 1,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 2010.3826250000002,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "dcb138f644b0-14",
+   "factors": {
+    "backend": "crawlee-http",
+    "scenario": "http-catalog",
+    "variant": "http-reset",
+    "policy": "native",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 168.85641699999996,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "9cea14adabb2-15",
+   "factors": {
+    "backend": "node-http",
+    "scenario": "http-catalog",
+    "variant": "normal",
+    "policy": "native",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 39.00224999999955,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "7a821f9d2145-16",
+   "factors": {
+    "backend": "crawlee-http-pooled",
+    "scenario": "http-catalog",
+    "variant": "http-503-once",
+    "policy": "native",
+    "block": 0
+   },
+   "status": "failed",
+   "errorCode": null,
+   "counts": {
+    "verified": 0,
+    "failed": 1,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 148.34687500000018,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "e1bfaf757c81-17",
+   "factors": {
+    "backend": "crawlee-http-pooled",
+    "scenario": "http-catalog",
+    "variant": "http-truncated",
+    "policy": "native",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 161.67458400000032,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "ca2fd42937ef-18",
+   "factors": {
+    "backend": "spider-http",
+    "scenario": "http-catalog",
+    "variant": "http-redirect-loop",
+    "policy": "native",
+    "block": 0
+   },
+   "status": "failed",
+   "errorCode": null,
+   "counts": {
+    "verified": 0,
+    "failed": 1,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 6.168208000000959,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "2ae67ccc0529-19",
+   "factors": {
+    "backend": "wreq-http",
+    "scenario": "http-catalog",
+    "variant": "http-503-once",
+    "policy": "native",
+    "block": 0
+   },
+   "status": "failed",
+   "errorCode": null,
+   "counts": {
+    "verified": 0,
+    "failed": 1,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 4.370499999999083,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "47e59a7103ec-20",
+   "factors": {
+    "backend": "reqwest-http",
+    "scenario": "http-catalog",
+    "variant": "http-reset",
+    "policy": "native",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 13.00695799999994,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "6cf8003c7b4c-21",
+   "factors": {
+    "backend": "wreq-http",
+    "scenario": "http-catalog",
+    "variant": "http-slow",
+    "policy": "native",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 2005.2599580000006,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "170e1f28c4ef-22",
+   "factors": {
+    "backend": "crawlee-http-pooled",
+    "scenario": "http-catalog",
+    "variant": "normal",
+    "policy": "native",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 156.59662500000013,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "360968bab34d-23",
+   "factors": {
+    "backend": "node-http",
+    "scenario": "http-catalog",
+    "variant": "http-slow",
+    "policy": "native",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 2040.7041250000002,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "769815776733-24",
+   "factors": {
+    "backend": "wreq-http",
+    "scenario": "http-catalog",
+    "variant": "http-reset",
+    "policy": "native",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 14.94208400000025,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "ff89a84a9416-25",
+   "factors": {
+    "backend": "wreq-http",
+    "scenario": "http-catalog",
+    "variant": "http-truncated",
+    "policy": "native",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 14.790124999999534,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "861772bf2261-26",
+   "factors": {
+    "backend": "wreq-http",
+    "scenario": "http-catalog",
+    "variant": "http-redirect-loop",
+    "policy": "native",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 3.6127919999998994,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "d872a3c92ae8-27",
+   "factors": {
+    "backend": "crawlee-http",
+    "scenario": "http-catalog",
+    "variant": "http-truncated",
+    "policy": "native",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 182.87333299999955,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "d0330dc179bc-28",
+   "factors": {
+    "backend": "crawlee-http",
+    "scenario": "http-catalog",
+    "variant": "http-slow",
+    "policy": "native",
+    "block": 0
+   },
+   "status": "failed",
+   "errorCode": null,
+   "counts": {
+    "verified": 0,
+    "failed": 1,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 8188.417834000002,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "19031adcdbb7-29",
+   "factors": {
+    "backend": "impit-http",
+    "scenario": "http-catalog",
+    "variant": "normal",
+    "policy": "native",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 67.42970799999966,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "1bc7bec62d43-30",
+   "factors": {
+    "backend": "impit-http",
+    "scenario": "http-catalog",
+    "variant": "http-429",
+    "policy": "native",
+    "block": 0
+   },
+   "status": "failed",
+   "errorCode": null,
+   "counts": {
+    "verified": 0,
+    "failed": 1,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 56.23262500000055,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "4b4d308bbd58-31",
+   "factors": {
+    "backend": "crawlee-http",
+    "scenario": "http-catalog",
+    "variant": "normal",
+    "policy": "native",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 179.0034999999989,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "38e047f188cb-32",
+   "factors": {
+    "backend": "reqwest-http",
+    "scenario": "http-catalog",
+    "variant": "http-slow",
+    "policy": "native",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 2003.0250419999975,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "37eff5cd2044-33",
+   "factors": {
+    "backend": "impit-http",
+    "scenario": "http-catalog",
+    "variant": "http-slow",
+    "policy": "native",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 2058.4786669999994,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "35047ddd090e-34",
+   "factors": {
+    "backend": "crawlee-http-pooled",
+    "scenario": "http-catalog",
+    "variant": "http-reset",
+    "policy": "native",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 161.97158300000228,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "f6b954503976-35",
+   "factors": {
+    "backend": "spider-http",
+    "scenario": "http-catalog",
+    "variant": "http-truncated",
+    "policy": "native",
+    "block": 0
+   },
+   "status": "failed",
+   "errorCode": null,
+   "counts": {
+    "verified": 0,
+    "failed": 1,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 31.62195900000006,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "abc456b53da5-36",
+   "factors": {
+    "backend": "impit-http",
+    "scenario": "http-catalog",
+    "variant": "http-reset",
+    "policy": "native",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 69.86799999999857,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "5d7eb9ad888d-37",
+   "factors": {
+    "backend": "spider-http",
+    "scenario": "http-catalog",
+    "variant": "http-503-once",
+    "policy": "native",
+    "block": 0
+   },
+   "status": "failed",
+   "errorCode": null,
+   "counts": {
+    "verified": 0,
+    "failed": 1,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 5.5474579999972775,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "cc50135db8ce-38",
+   "factors": {
+    "backend": "wreq-http",
+    "scenario": "http-catalog",
+    "variant": "http-429",
+    "policy": "native",
+    "block": 0
+   },
+   "status": "failed",
+   "errorCode": null,
+   "counts": {
+    "verified": 0,
+    "failed": 1,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 7.028041999998095,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "f2f77cf5113f-39",
+   "factors": {
+    "backend": "crawlee-http",
+    "scenario": "http-catalog",
+    "variant": "http-redirect-loop",
+    "policy": "native",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 171.78733300000022,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "57117d0333cd-40",
+   "factors": {
+    "backend": "crawlee-http-pooled",
+    "scenario": "http-catalog",
+    "variant": "http-redirect-loop",
+    "policy": "native",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 161.97979199999827,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "45d5e5950fc3-41",
+   "factors": {
+    "backend": "node-http",
+    "scenario": "http-catalog",
+    "variant": "http-reset",
+    "policy": "native",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 48.44516700000531,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "e762868e1bc8-42",
+   "factors": {
+    "backend": "reqwest-http",
+    "scenario": "http-catalog",
+    "variant": "normal",
+    "policy": "native",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 1.8610000000044238,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "f44dc48b2096-43",
+   "factors": {
+    "backend": "impit-http",
+    "scenario": "http-catalog",
+    "variant": "http-redirect-loop",
+    "policy": "native",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 61.67687499999738,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "c0a959f20fc4-44",
+   "factors": {
+    "backend": "reqwest-http",
+    "scenario": "http-catalog",
+    "variant": "http-redirect-loop",
+    "policy": "native",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 2.2697919999991427,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "d4502dd7140b-45",
+   "factors": {
+    "backend": "wreq-http",
+    "scenario": "http-catalog",
+    "variant": "normal",
+    "policy": "native",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 2.464124999998603,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "7f6bf6e6bb52-46",
+   "factors": {
+    "backend": "crawlee-http-pooled",
+    "scenario": "http-catalog",
+    "variant": "http-429",
+    "policy": "native",
+    "block": 0
+   },
+   "status": "failed",
+   "errorCode": null,
+   "counts": {
+    "verified": 0,
+    "failed": 1,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 140.46287499999744,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "27080c14a85b-47",
+   "factors": {
+    "backend": "crawlee-http-pooled",
+    "scenario": "http-catalog",
+    "variant": "http-slow",
+    "policy": "native",
+    "block": 0
+   },
+   "status": "failed",
+   "errorCode": null,
+   "counts": {
+    "verified": 0,
+    "failed": 1,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 8167.630084000004,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "68576b17e74c-48",
+   "factors": {
+    "backend": "node-http",
+    "scenario": "http-catalog",
+    "variant": "http-503-once",
+    "policy": "native",
+    "block": 0
+   },
+   "status": "failed",
+   "errorCode": null,
+   "counts": {
+    "verified": 0,
+    "failed": 1,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 35.92712500000198,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "029cc2228f6b-49",
+   "factors": {
+    "backend": "wreq-http",
+    "scenario": "http-catalog",
+    "variant": "http-slow",
+    "policy": "native",
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 2004.1800000000003,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "f78b0f4194eb-50",
+   "factors": {
+    "backend": "crawlee-http",
+    "scenario": "http-catalog",
+    "variant": "normal",
+    "policy": "native",
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 194.95350000000326,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "75d43ce072f2-51",
+   "factors": {
+    "backend": "spider-http",
+    "scenario": "http-catalog",
+    "variant": "http-slow",
+    "policy": "native",
+    "block": 1
+   },
+   "status": "failed",
+   "errorCode": null,
+   "counts": {
+    "verified": 0,
+    "failed": 1,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 2023.565208,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "26f749159b87-52",
+   "factors": {
+    "backend": "reqwest-http",
+    "scenario": "http-catalog",
+    "variant": "normal",
+    "policy": "native",
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 4.167042000000947,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "fce44fc0b227-53",
+   "factors": {
+    "backend": "impit-http",
+    "scenario": "http-catalog",
+    "variant": "http-429",
+    "policy": "native",
+    "block": 1
+   },
+   "status": "failed",
+   "errorCode": null,
+   "counts": {
+    "verified": 0,
+    "failed": 1,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 64.5872920000038,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "c1b156d2d5e8-54",
+   "factors": {
+    "backend": "wreq-http",
+    "scenario": "http-catalog",
+    "variant": "normal",
+    "policy": "native",
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 2.6727499999979045,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "987ea74de3cd-55",
+   "factors": {
+    "backend": "reqwest-http",
+    "scenario": "http-catalog",
+    "variant": "http-503-once",
+    "policy": "native",
+    "block": 1
+   },
+   "status": "failed",
+   "errorCode": null,
+   "counts": {
+    "verified": 0,
+    "failed": 1,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 0.9416669999991427,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "aceab1e23373-56",
+   "factors": {
+    "backend": "crawlee-http-pooled",
+    "scenario": "http-catalog",
+    "variant": "http-429",
+    "policy": "native",
+    "block": 1
+   },
+   "status": "failed",
+   "errorCode": null,
+   "counts": {
+    "verified": 0,
+    "failed": 1,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 156.9110409999994,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "f6844b6bbcc7-57",
+   "factors": {
+    "backend": "node-http",
+    "scenario": "http-catalog",
+    "variant": "http-truncated",
+    "policy": "native",
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 50.37249999999767,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "f4a7f5e4e303-58",
+   "factors": {
+    "backend": "spider-http",
+    "scenario": "http-catalog",
+    "variant": "http-429",
+    "policy": "native",
+    "block": 1
+   },
+   "status": "failed",
+   "errorCode": null,
+   "counts": {
+    "verified": 0,
+    "failed": 1,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 6.4565829999992275,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "d69e5bb1c1f9-59",
+   "factors": {
+    "backend": "crawlee-http",
+    "scenario": "http-catalog",
+    "variant": "http-slow",
+    "policy": "native",
+    "block": 1
+   },
+   "status": "failed",
+   "errorCode": null,
+   "counts": {
+    "verified": 0,
+    "failed": 1,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 8172.778665999998,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "28d24c4b5832-60",
+   "factors": {
+    "backend": "reqwest-http",
+    "scenario": "http-catalog",
+    "variant": "http-429",
+    "policy": "native",
+    "block": 1
+   },
+   "status": "failed",
+   "errorCode": null,
+   "counts": {
+    "verified": 0,
+    "failed": 1,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 3.281875000000582,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "250adf30ad3a-61",
+   "factors": {
+    "backend": "wreq-http",
+    "scenario": "http-catalog",
+    "variant": "http-503-once",
+    "policy": "native",
+    "block": 1
+   },
+   "status": "failed",
+   "errorCode": null,
+   "counts": {
+    "verified": 0,
+    "failed": 1,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 8.845291999998153,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "3454a4daaf40-62",
+   "factors": {
+    "backend": "spider-http",
+    "scenario": "http-catalog",
+    "variant": "normal",
+    "policy": "native",
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 10.237833999999566,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "fd44f14abc08-63",
+   "factors": {
+    "backend": "node-http",
+    "scenario": "http-catalog",
+    "variant": "http-503-once",
+    "policy": "native",
+    "block": 1
+   },
+   "status": "failed",
+   "errorCode": null,
+   "counts": {
+    "verified": 0,
+    "failed": 1,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 38.697291999997105,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "c6334fc24338-64",
+   "factors": {
+    "backend": "reqwest-http",
+    "scenario": "http-catalog",
+    "variant": "http-truncated",
+    "policy": "native",
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 11.834499999997206,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "c75f3cc6fcad-65",
+   "factors": {
+    "backend": "crawlee-http-pooled",
+    "scenario": "http-catalog",
+    "variant": "http-slow",
+    "policy": "native",
+    "block": 1
+   },
+   "status": "failed",
+   "errorCode": null,
+   "counts": {
+    "verified": 0,
+    "failed": 1,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 8166.092583999998,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "1dcf4ef6c78c-66",
+   "factors": {
+    "backend": "wreq-http",
+    "scenario": "http-catalog",
+    "variant": "http-429",
+    "policy": "native",
+    "block": 1
+   },
+   "status": "failed",
+   "errorCode": null,
+   "counts": {
+    "verified": 0,
+    "failed": 1,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 2.659249999996973,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "46b570ccb4de-67",
+   "factors": {
+    "backend": "node-http",
+    "scenario": "http-catalog",
+    "variant": "http-redirect-loop",
+    "policy": "native",
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 43.08150000000023,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "bac432756b24-68",
+   "factors": {
+    "backend": "crawlee-http-pooled",
+    "scenario": "http-catalog",
+    "variant": "http-503-once",
+    "policy": "native",
+    "block": 1
+   },
+   "status": "failed",
+   "errorCode": null,
+   "counts": {
+    "verified": 0,
+    "failed": 1,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 151.85191699999268,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "a447b036637e-69",
+   "factors": {
+    "backend": "reqwest-http",
+    "scenario": "http-catalog",
+    "variant": "http-redirect-loop",
+    "policy": "native",
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 2.136291999995592,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "9b034ed68a46-70",
+   "factors": {
+    "backend": "crawlee-http",
+    "scenario": "http-catalog",
+    "variant": "http-503-once",
+    "policy": "native",
+    "block": 1
+   },
+   "status": "failed",
+   "errorCode": null,
+   "counts": {
+    "verified": 0,
+    "failed": 1,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 165.22512500001176,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "2af23461126b-71",
+   "factors": {
+    "backend": "crawlee-http",
+    "scenario": "http-catalog",
+    "variant": "http-reset",
+    "policy": "native",
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 172.94524999998976,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "40a78dea88b3-72",
+   "factors": {
+    "backend": "node-http",
+    "scenario": "http-catalog",
+    "variant": "http-reset",
+    "policy": "native",
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 47.92337499999849,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "11e1566e7539-73",
+   "factors": {
+    "backend": "impit-http",
+    "scenario": "http-catalog",
+    "variant": "normal",
+    "policy": "native",
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 63.81262500000594,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "26fbddb941aa-74",
+   "factors": {
+    "backend": "impit-http",
+    "scenario": "http-catalog",
+    "variant": "http-slow",
+    "policy": "native",
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 2059.7471249999944,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "e586165b161a-75",
+   "factors": {
+    "backend": "spider-http",
+    "scenario": "http-catalog",
+    "variant": "http-reset",
+    "policy": "native",
+    "block": 1
+   },
+   "status": "failed",
+   "errorCode": null,
+   "counts": {
+    "verified": 0,
+    "failed": 1,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 38.59429199999431,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "1cbbe0825546-76",
+   "factors": {
+    "backend": "crawlee-http",
+    "scenario": "http-catalog",
+    "variant": "http-redirect-loop",
+    "policy": "native",
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 181.8517920000013,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "cc97c8fecd15-77",
+   "factors": {
+    "backend": "impit-http",
+    "scenario": "http-catalog",
+    "variant": "http-reset",
+    "policy": "native",
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 65.03112499999406,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "b558a1bf79c4-78",
+   "factors": {
+    "backend": "node-http",
+    "scenario": "http-catalog",
+    "variant": "http-slow",
+    "policy": "native",
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 2036.3772920000047,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "897afad45416-79",
+   "factors": {
+    "backend": "crawlee-http-pooled",
+    "scenario": "http-catalog",
+    "variant": "http-redirect-loop",
+    "policy": "native",
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 159.75333300000057,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "c173a05beaea-80",
+   "factors": {
+    "backend": "crawlee-http-pooled",
+    "scenario": "http-catalog",
+    "variant": "normal",
+    "policy": "native",
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 154.48433300000033,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "c037cecf2141-81",
+   "factors": {
+    "backend": "impit-http",
+    "scenario": "http-catalog",
+    "variant": "http-503-once",
+    "policy": "native",
+    "block": 1
+   },
+   "status": "failed",
+   "errorCode": null,
+   "counts": {
+    "verified": 0,
+    "failed": 1,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 56.69670899999619,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "13858986ba85-82",
+   "factors": {
+    "backend": "wreq-http",
+    "scenario": "http-catalog",
+    "variant": "http-redirect-loop",
+    "policy": "native",
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 2.4197089999943273,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "0b82f6ed9348-83",
+   "factors": {
+    "backend": "reqwest-http",
+    "scenario": "http-catalog",
+    "variant": "http-slow",
+    "policy": "native",
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 2003.5115409999999,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "f60eb7f2f7fc-84",
+   "factors": {
+    "backend": "node-http",
+    "scenario": "http-catalog",
+    "variant": "normal",
+    "policy": "native",
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 38.53987499998766,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "5fbdc444cd71-85",
+   "factors": {
+    "backend": "wreq-http",
+    "scenario": "http-catalog",
+    "variant": "http-reset",
+    "policy": "native",
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 13.830124999993131,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "4b86e3f8fca9-86",
+   "factors": {
+    "backend": "crawlee-http-pooled",
+    "scenario": "http-catalog",
+    "variant": "http-reset",
+    "policy": "native",
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 160.73187499999767,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "b42caab04a1a-87",
+   "factors": {
+    "backend": "reqwest-http",
+    "scenario": "http-catalog",
+    "variant": "http-reset",
+    "policy": "native",
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 13.939916999996058,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "ce56a9c68e0f-88",
+   "factors": {
+    "backend": "spider-http",
+    "scenario": "http-catalog",
+    "variant": "http-truncated",
+    "policy": "native",
+    "block": 1
+   },
+   "status": "failed",
+   "errorCode": null,
+   "counts": {
+    "verified": 0,
+    "failed": 1,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 22.1799580000079,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "0d1aee6301b8-89",
+   "factors": {
+    "backend": "impit-http",
+    "scenario": "http-catalog",
+    "variant": "http-truncated",
+    "policy": "native",
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 72.339083999992,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "e2e3bfb3537d-90",
+   "factors": {
+    "backend": "impit-http",
+    "scenario": "http-catalog",
+    "variant": "http-redirect-loop",
+    "policy": "native",
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 58.34383399999933,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "19ecbe13113a-91",
+   "factors": {
+    "backend": "crawlee-http",
+    "scenario": "http-catalog",
+    "variant": "http-429",
+    "policy": "native",
+    "block": 1
+   },
+   "status": "failed",
+   "errorCode": null,
+   "counts": {
+    "verified": 0,
+    "failed": 1,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 164.80445900000632,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "687be4608bdf-92",
+   "factors": {
+    "backend": "node-http",
+    "scenario": "http-catalog",
+    "variant": "http-429",
+    "policy": "native",
+    "block": 1
+   },
+   "status": "failed",
+   "errorCode": null,
+   "counts": {
+    "verified": 0,
+    "failed": 1,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 35.78125,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "ffc5a5d79cbf-93",
+   "factors": {
+    "backend": "crawlee-http",
+    "scenario": "http-catalog",
+    "variant": "http-truncated",
+    "policy": "native",
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 169.3202500000043,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "5c025d6bae87-94",
+   "factors": {
+    "backend": "crawlee-http-pooled",
+    "scenario": "http-catalog",
+    "variant": "http-truncated",
+    "policy": "native",
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 165.02312499999243,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "084c0c87960d-95",
+   "factors": {
+    "backend": "spider-http",
+    "scenario": "http-catalog",
+    "variant": "http-redirect-loop",
+    "policy": "native",
+    "block": 1
+   },
+   "status": "failed",
+   "errorCode": null,
+   "counts": {
+    "verified": 0,
+    "failed": 1,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 10.789791999995941,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "b279c101341b-96",
+   "factors": {
+    "backend": "wreq-http",
+    "scenario": "http-catalog",
+    "variant": "http-truncated",
+    "policy": "native",
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 14.964249999989988,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "305819e92fbc-97",
+   "factors": {
+    "backend": "spider-http",
+    "scenario": "http-catalog",
+    "variant": "http-503-once",
+    "policy": "native",
+    "block": 1
+   },
+   "status": "failed",
+   "errorCode": null,
+   "counts": {
+    "verified": 0,
+    "failed": 1,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 7.339375000010477,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "e6099e517e53-98",
+   "factors": {
+    "backend": "crawlee-http",
+    "scenario": "http-catalog",
+    "variant": "http-503-once",
+    "policy": "native",
+    "block": 2
+   },
+   "status": "failed",
+   "errorCode": null,
+   "counts": {
+    "verified": 0,
+    "failed": 1,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 155.75679200000013,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "08d5608a1b15-99",
+   "factors": {
+    "backend": "crawlee-http-pooled",
+    "scenario": "http-catalog",
+    "variant": "http-reset",
+    "policy": "native",
+    "block": 2
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 164.04025000000547,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "4b68d6f152f0-100",
+   "factors": {
+    "backend": "impit-http",
+    "scenario": "http-catalog",
+    "variant": "normal",
+    "policy": "native",
+    "block": 2
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 56.82166600000346,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "e35c5647562e-101",
+   "factors": {
+    "backend": "node-http",
+    "scenario": "http-catalog",
+    "variant": "http-429",
+    "policy": "native",
+    "block": 2
+   },
+   "status": "failed",
+   "errorCode": null,
+   "counts": {
+    "verified": 0,
+    "failed": 1,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 36.145541999998386,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "fde375f24c98-102",
+   "factors": {
+    "backend": "wreq-http",
+    "scenario": "http-catalog",
+    "variant": "http-slow",
+    "policy": "native",
+    "block": 2
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 2005.0525840000046,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "8071d464395b-103",
+   "factors": {
+    "backend": "impit-http",
+    "scenario": "http-catalog",
+    "variant": "http-redirect-loop",
+    "policy": "native",
+    "block": 2
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 60.85091599999578,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "3f054d8423f5-104",
+   "factors": {
+    "backend": "impit-http",
+    "scenario": "http-catalog",
+    "variant": "http-429",
+    "policy": "native",
+    "block": 2
+   },
+   "status": "failed",
+   "errorCode": null,
+   "counts": {
+    "verified": 0,
+    "failed": 1,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 55.71541599999182,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "238a164e9d04-105",
+   "factors": {
+    "backend": "node-http",
+    "scenario": "http-catalog",
+    "variant": "http-truncated",
+    "policy": "native",
+    "block": 2
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 50.106875000012224,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "ed742b7ee895-106",
+   "factors": {
+    "backend": "reqwest-http",
+    "scenario": "http-catalog",
+    "variant": "http-503-once",
+    "policy": "native",
+    "block": 2
+   },
+   "status": "failed",
+   "errorCode": null,
+   "counts": {
+    "verified": 0,
+    "failed": 1,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 1.1142910000053234,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "a227f9ea4358-107",
+   "factors": {
+    "backend": "node-http",
+    "scenario": "http-catalog",
+    "variant": "http-slow",
+    "policy": "native",
+    "block": 2
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 2038.1530829999974,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "8a40bffd21eb-108",
+   "factors": {
+    "backend": "reqwest-http",
+    "scenario": "http-catalog",
+    "variant": "http-redirect-loop",
+    "policy": "native",
+    "block": 2
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 4.013666999991983,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "e9464a5ae228-109",
+   "factors": {
+    "backend": "spider-http",
+    "scenario": "http-catalog",
+    "variant": "http-redirect-loop",
+    "policy": "native",
+    "block": 2
+   },
+   "status": "failed",
+   "errorCode": null,
+   "counts": {
+    "verified": 0,
+    "failed": 1,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 10.265542000008281,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "39d9c834912a-110",
+   "factors": {
+    "backend": "crawlee-http",
+    "scenario": "http-catalog",
+    "variant": "http-redirect-loop",
+    "policy": "native",
+    "block": 2
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 167.01137500000186,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "c442f2b1da3a-111",
+   "factors": {
+    "backend": "crawlee-http",
+    "scenario": "http-catalog",
+    "variant": "http-reset",
+    "policy": "native",
+    "block": 2
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 168.33874999999534,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "a60a851e9880-112",
+   "factors": {
+    "backend": "spider-http",
+    "scenario": "http-catalog",
+    "variant": "http-slow",
+    "policy": "native",
+    "block": 2
+   },
+   "status": "failed",
+   "errorCode": null,
+   "counts": {
+    "verified": 0,
+    "failed": 1,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 2007.9952909999993,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "34fb54715e6b-113",
+   "factors": {
+    "backend": "wreq-http",
+    "scenario": "http-catalog",
+    "variant": "http-truncated",
+    "policy": "native",
+    "block": 2
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 15.70066700001189,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "4f8ada540942-114",
+   "factors": {
+    "backend": "wreq-http",
+    "scenario": "http-catalog",
+    "variant": "http-redirect-loop",
+    "policy": "native",
+    "block": 2
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 3.7634169999946607,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "ec4160efbc66-115",
+   "factors": {
+    "backend": "impit-http",
+    "scenario": "http-catalog",
+    "variant": "http-503-once",
+    "policy": "native",
+    "block": 2
+   },
+   "status": "failed",
+   "errorCode": null,
+   "counts": {
+    "verified": 0,
+    "failed": 1,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 62.52474999999686,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "fe1608df2db1-116",
+   "factors": {
+    "backend": "spider-http",
+    "scenario": "http-catalog",
+    "variant": "normal",
+    "policy": "native",
+    "block": 2
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 8.231291999996756,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "204b02f91c58-117",
+   "factors": {
+    "backend": "crawlee-http-pooled",
+    "scenario": "http-catalog",
+    "variant": "http-truncated",
+    "policy": "native",
+    "block": 2
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 165.0257500000007,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "b1e1f9428455-118",
+   "factors": {
+    "backend": "wreq-http",
+    "scenario": "http-catalog",
+    "variant": "http-reset",
+    "policy": "native",
+    "block": 2
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 14.333291999995708,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "e33db69e5c01-119",
+   "factors": {
+    "backend": "node-http",
+    "scenario": "http-catalog",
+    "variant": "http-redirect-loop",
+    "policy": "native",
+    "block": 2
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 41.39108400000259,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "adcc818b93e0-120",
+   "factors": {
+    "backend": "crawlee-http",
+    "scenario": "http-catalog",
+    "variant": "http-slow",
+    "policy": "native",
+    "block": 2
+   },
+   "status": "failed",
+   "errorCode": null,
+   "counts": {
+    "verified": 0,
+    "failed": 1,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 8171.404249999992,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "d2d97f329fcd-121",
+   "factors": {
+    "backend": "reqwest-http",
+    "scenario": "http-catalog",
+    "variant": "http-reset",
+    "policy": "native",
+    "block": 2
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 14.197708000006969,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "77d22de82f5e-122",
+   "factors": {
+    "backend": "impit-http",
+    "scenario": "http-catalog",
+    "variant": "http-reset",
+    "policy": "native",
+    "block": 2
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 67.21937500000058,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "8ec5845b92a9-123",
+   "factors": {
+    "backend": "reqwest-http",
+    "scenario": "http-catalog",
+    "variant": "http-429",
+    "policy": "native",
+    "block": 2
+   },
+   "status": "failed",
+   "errorCode": null,
+   "counts": {
+    "verified": 0,
+    "failed": 1,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 1.0264579999929992,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "389a1fa4b66a-124",
+   "factors": {
+    "backend": "impit-http",
+    "scenario": "http-catalog",
+    "variant": "http-slow",
+    "policy": "native",
+    "block": 2
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 2058.3635420000064,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "f74996ce4417-125",
+   "factors": {
+    "backend": "spider-http",
+    "scenario": "http-catalog",
+    "variant": "http-truncated",
+    "policy": "native",
+    "block": 2
+   },
+   "status": "failed",
+   "errorCode": null,
+   "counts": {
+    "verified": 0,
+    "failed": 1,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 21.875125000005937,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "e0ffb4075e70-126",
+   "factors": {
+    "backend": "node-http",
+    "scenario": "http-catalog",
+    "variant": "http-reset",
+    "policy": "native",
+    "block": 2
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 49.98020799999358,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "aeb465d1f5aa-127",
+   "factors": {
+    "backend": "node-http",
+    "scenario": "http-catalog",
+    "variant": "http-503-once",
+    "policy": "native",
+    "block": 2
+   },
+   "status": "failed",
+   "errorCode": null,
+   "counts": {
+    "verified": 0,
+    "failed": 1,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 36.139374999998836,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "a4bc6e338276-128",
+   "factors": {
+    "backend": "reqwest-http",
+    "scenario": "http-catalog",
+    "variant": "http-truncated",
+    "policy": "native",
+    "block": 2
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 12.08391699999629,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "54b5c46543c5-129",
+   "factors": {
+    "backend": "crawlee-http",
+    "scenario": "http-catalog",
+    "variant": "http-truncated",
+    "policy": "native",
+    "block": 2
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 167.55587500000547,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "549074af5089-130",
+   "factors": {
+    "backend": "crawlee-http-pooled",
+    "scenario": "http-catalog",
+    "variant": "http-slow",
+    "policy": "native",
+    "block": 2
+   },
+   "status": "failed",
+   "errorCode": null,
+   "counts": {
+    "verified": 0,
+    "failed": 1,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 8162.627708,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "513d5c7b7106-131",
+   "factors": {
+    "backend": "reqwest-http",
+    "scenario": "http-catalog",
+    "variant": "http-slow",
+    "policy": "native",
+    "block": 2
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 2002.2744170000078,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "cd9dfa099fbf-132",
+   "factors": {
+    "backend": "crawlee-http",
+    "scenario": "http-catalog",
+    "variant": "normal",
+    "policy": "native",
+    "block": 2
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 166.68741699999373,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "546c4138267b-133",
+   "factors": {
+    "backend": "spider-http",
+    "scenario": "http-catalog",
+    "variant": "http-503-once",
+    "policy": "native",
+    "block": 2
+   },
+   "status": "failed",
+   "errorCode": null,
+   "counts": {
+    "verified": 0,
+    "failed": 1,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 6.151624999998603,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "305581a957d2-134",
+   "factors": {
+    "backend": "impit-http",
+    "scenario": "http-catalog",
+    "variant": "http-truncated",
+    "policy": "native",
+    "block": 2
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 69.78533400000015,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "a0a5743c683b-135",
+   "factors": {
+    "backend": "crawlee-http-pooled",
+    "scenario": "http-catalog",
+    "variant": "http-429",
+    "policy": "native",
+    "block": 2
+   },
+   "status": "failed",
+   "errorCode": null,
+   "counts": {
+    "verified": 0,
+    "failed": 1,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 152.88595799999894,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "5536802cc5ad-136",
+   "factors": {
+    "backend": "crawlee-http",
+    "scenario": "http-catalog",
+    "variant": "http-429",
+    "policy": "native",
+    "block": 2
+   },
+   "status": "failed",
+   "errorCode": null,
+   "counts": {
+    "verified": 0,
+    "failed": 1,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 173.03358400000434,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "dcb24c92b0d8-137",
+   "factors": {
+    "backend": "wreq-http",
+    "scenario": "http-catalog",
+    "variant": "http-503-once",
+    "policy": "native",
+    "block": 2
+   },
+   "status": "failed",
+   "errorCode": null,
+   "counts": {
+    "verified": 0,
+    "failed": 1,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 6.38749999999709,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "3a4390ec5d5f-138",
+   "factors": {
+    "backend": "node-http",
+    "scenario": "http-catalog",
+    "variant": "normal",
+    "policy": "native",
+    "block": 2
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 38.68233300000429,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "5897b437fdbe-139",
+   "factors": {
+    "backend": "reqwest-http",
+    "scenario": "http-catalog",
+    "variant": "normal",
+    "policy": "native",
+    "block": 2
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 1.9177080000081332,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "d9d92ae749ac-140",
+   "factors": {
+    "backend": "wreq-http",
+    "scenario": "http-catalog",
+    "variant": "http-429",
+    "policy": "native",
+    "block": 2
+   },
+   "status": "failed",
+   "errorCode": null,
+   "counts": {
+    "verified": 0,
+    "failed": 1,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 2.4395000000076834,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "2f914a2c78b1-141",
+   "factors": {
+    "backend": "crawlee-http-pooled",
+    "scenario": "http-catalog",
+    "variant": "normal",
+    "policy": "native",
+    "block": 2
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 155.51425000000745,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "b524d1bec945-142",
+   "factors": {
+    "backend": "wreq-http",
+    "scenario": "http-catalog",
+    "variant": "normal",
+    "policy": "native",
+    "block": 2
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 4.786500000001979,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "d55abda59853-143",
+   "factors": {
+    "backend": "spider-http",
+    "scenario": "http-catalog",
+    "variant": "http-reset",
+    "policy": "native",
+    "block": 2
+   },
+   "status": "failed",
+   "errorCode": null,
+   "counts": {
+    "verified": 0,
+    "failed": 1,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 20.82987500001036,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "60c0a6c73bf1-144",
+   "factors": {
+    "backend": "spider-http",
+    "scenario": "http-catalog",
+    "variant": "http-429",
+    "policy": "native",
+    "block": 2
+   },
+   "status": "failed",
+   "errorCode": null,
+   "counts": {
+    "verified": 0,
+    "failed": 1,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 8.579167000003508,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "a8c333b9ee1b-145",
+   "factors": {
+    "backend": "crawlee-http-pooled",
+    "scenario": "http-catalog",
+    "variant": "http-redirect-loop",
+    "policy": "native",
+    "block": 2
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 152.09537499998987,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "860dfcc59ceb-146",
+   "factors": {
+    "backend": "crawlee-http-pooled",
+    "scenario": "http-catalog",
+    "variant": "http-503-once",
+    "policy": "native",
+    "block": 2
+   },
+   "status": "failed",
+   "errorCode": null,
+   "counts": {
+    "verified": 0,
+    "failed": 1,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 141.53579200000968,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  }
+ ],
+ "totals": {
+  "verified": 87,
+  "failed": 60,
+  "timeout": 0,
+  "crashed": 0,
+  "aborted": 0,
+  "unsupported": 0,
+  "rejected": 0,
+  "unavailable": 0,
+  "skipped": 0
+ },
+ "metricAvailability": {
+  "verified-jobs-per-second": {
+   "available": true
+  },
+  "verified-tasks-per-second": {
+   "available": true
+  },
+  "verified-rows-per-second": {
+   "available": true
+  },
+  "task-p50-ms-verified": {
+   "available": true
+  },
+  "task-p95-ms-verified": {
+   "available": true
+  },
+  "task-ms": {
+   "available": true
+  },
+  "ack-latency-p95-ms": {
+   "available": true
+  },
+  "startup-ms": {
+   "available": true
+  },
+  "cpu-ms-per-verified-job": {
+   "available": true
+  },
+  "footprint-peak-bytes": {
+   "available": true
+  },
+  "pss-peak-bytes": {
+   "available": false,
+   "reason": "no probe on darwin"
+  },
+  "cgroup-memory-peak-bytes": {
+   "available": false,
+   "reason": "no probe on darwin"
+  },
+  "rss-peak-bytes": {
+   "available": true
+  },
+  "cdp-commands-per-task": {
+   "available": true
+  },
+  "extraction-f1": {
+   "available": true
+  },
+  "field-precision": {
+   "available": true
+  },
+  "field-recall": {
+   "available": true
+  },
+  "pass-k": {
+   "available": true
+  },
+  "llm-calls-per-verified-task": {
+   "available": false,
+   "reason": "adapter protocol v2 usage reporting is not implemented yet"
+  },
+  "tokens-per-verified-task": {
+   "available": false,
+   "reason": "adapter protocol v2 usage reporting is not implemented yet"
+  },
+  "usd-per-1k-verified": {
+   "available": false,
+   "reason": "pricing tables are not implemented yet"
+  },
+  "interface-turns-per-task": {
+   "available": true
+  },
+  "oracle-exact": {
+   "available": true
+  },
+  "false-success-count": {
+   "available": true
+  },
+  "actionability-conformance": {
+   "available": true
+  },
+  "recovery-exact": {
+   "available": true
+  },
+  "durability-power-loss": {
+   "available": false,
+   "reason": "no probe on darwin"
+  },
+  "identity-coherence": {
+   "available": true
+  },
+  "policy-compliance": {
+   "available": true
+  },
+  "session-isolation": {
+   "available": true
+  },
+  "admission-no-loss": {
+   "available": true
+  }
+ },
+ "legacy": null,
+ "blocks": [
+  {
+   "index": 0,
+   "order": [
+    "http-catalog/spider-http/native/http-reset",
+    "http-catalog/impit-http/native/http-truncated",
+    "http-catalog/node-http/native/http-429",
+    "http-catalog/spider-http/native/http-429",
+    "http-catalog/node-http/native/http-redirect-loop",
+    "http-catalog/node-http/native/http-truncated",
+    "http-catalog/impit-http/native/http-503-once",
+    "http-catalog/reqwest-http/native/http-503-once",
+    "http-catalog/crawlee-http/native/http-429",
+    "http-catalog/reqwest-http/native/http-truncated",
+    "http-catalog/reqwest-http/native/http-429",
+    "http-catalog/crawlee-http/native/http-503-once",
+    "http-catalog/spider-http/native/normal",
+    "http-catalog/spider-http/native/http-slow",
+    "http-catalog/crawlee-http/native/http-reset",
+    "http-catalog/node-http/native/normal",
+    "http-catalog/crawlee-http-pooled/native/http-503-once",
+    "http-catalog/crawlee-http-pooled/native/http-truncated",
+    "http-catalog/spider-http/native/http-redirect-loop",
+    "http-catalog/wreq-http/native/http-503-once",
+    "http-catalog/reqwest-http/native/http-reset",
+    "http-catalog/wreq-http/native/http-slow",
+    "http-catalog/crawlee-http-pooled/native/normal",
+    "http-catalog/node-http/native/http-slow",
+    "http-catalog/wreq-http/native/http-reset",
+    "http-catalog/wreq-http/native/http-truncated",
+    "http-catalog/wreq-http/native/http-redirect-loop",
+    "http-catalog/crawlee-http/native/http-truncated",
+    "http-catalog/crawlee-http/native/http-slow",
+    "http-catalog/impit-http/native/normal",
+    "http-catalog/impit-http/native/http-429",
+    "http-catalog/crawlee-http/native/normal",
+    "http-catalog/reqwest-http/native/http-slow",
+    "http-catalog/impit-http/native/http-slow",
+    "http-catalog/crawlee-http-pooled/native/http-reset",
+    "http-catalog/spider-http/native/http-truncated",
+    "http-catalog/impit-http/native/http-reset",
+    "http-catalog/spider-http/native/http-503-once",
+    "http-catalog/wreq-http/native/http-429",
+    "http-catalog/crawlee-http/native/http-redirect-loop",
+    "http-catalog/crawlee-http-pooled/native/http-redirect-loop",
+    "http-catalog/node-http/native/http-reset",
+    "http-catalog/reqwest-http/native/normal",
+    "http-catalog/impit-http/native/http-redirect-loop",
+    "http-catalog/reqwest-http/native/http-redirect-loop",
+    "http-catalog/wreq-http/native/normal",
+    "http-catalog/crawlee-http-pooled/native/http-429",
+    "http-catalog/crawlee-http-pooled/native/http-slow",
+    "http-catalog/node-http/native/http-503-once"
+   ],
+   "noisy": false,
+   "host": {
+    "loadPerCpu1m": 1.0359933035714286,
+    "foreignCpuPercent": 333.40000000000015
+   }
+  },
+  {
+   "index": 1,
+   "order": [
+    "http-catalog/wreq-http/native/http-slow",
+    "http-catalog/crawlee-http/native/normal",
+    "http-catalog/spider-http/native/http-slow",
+    "http-catalog/reqwest-http/native/normal",
+    "http-catalog/impit-http/native/http-429",
+    "http-catalog/wreq-http/native/normal",
+    "http-catalog/reqwest-http/native/http-503-once",
+    "http-catalog/crawlee-http-pooled/native/http-429",
+    "http-catalog/node-http/native/http-truncated",
+    "http-catalog/spider-http/native/http-429",
+    "http-catalog/crawlee-http/native/http-slow",
+    "http-catalog/reqwest-http/native/http-429",
+    "http-catalog/wreq-http/native/http-503-once",
+    "http-catalog/spider-http/native/normal",
+    "http-catalog/node-http/native/http-503-once",
+    "http-catalog/reqwest-http/native/http-truncated",
+    "http-catalog/crawlee-http-pooled/native/http-slow",
+    "http-catalog/wreq-http/native/http-429",
+    "http-catalog/node-http/native/http-redirect-loop",
+    "http-catalog/crawlee-http-pooled/native/http-503-once",
+    "http-catalog/reqwest-http/native/http-redirect-loop",
+    "http-catalog/crawlee-http/native/http-503-once",
+    "http-catalog/crawlee-http/native/http-reset",
+    "http-catalog/node-http/native/http-reset",
+    "http-catalog/impit-http/native/normal",
+    "http-catalog/impit-http/native/http-slow",
+    "http-catalog/spider-http/native/http-reset",
+    "http-catalog/crawlee-http/native/http-redirect-loop",
+    "http-catalog/impit-http/native/http-reset",
+    "http-catalog/node-http/native/http-slow",
+    "http-catalog/crawlee-http-pooled/native/http-redirect-loop",
+    "http-catalog/crawlee-http-pooled/native/normal",
+    "http-catalog/impit-http/native/http-503-once",
+    "http-catalog/wreq-http/native/http-redirect-loop",
+    "http-catalog/reqwest-http/native/http-slow",
+    "http-catalog/node-http/native/normal",
+    "http-catalog/wreq-http/native/http-reset",
+    "http-catalog/crawlee-http-pooled/native/http-reset",
+    "http-catalog/reqwest-http/native/http-reset",
+    "http-catalog/spider-http/native/http-truncated",
+    "http-catalog/impit-http/native/http-truncated",
+    "http-catalog/impit-http/native/http-redirect-loop",
+    "http-catalog/crawlee-http/native/http-429",
+    "http-catalog/node-http/native/http-429",
+    "http-catalog/crawlee-http/native/http-truncated",
+    "http-catalog/crawlee-http-pooled/native/http-truncated",
+    "http-catalog/spider-http/native/http-redirect-loop",
+    "http-catalog/wreq-http/native/http-truncated",
+    "http-catalog/spider-http/native/http-503-once"
+   ],
+   "noisy": false,
+   "host": {
+    "loadPerCpu1m": 0.692626953125,
+    "foreignCpuPercent": 300.3000000000003
+   }
+  },
+  {
+   "index": 2,
+   "order": [
+    "http-catalog/crawlee-http/native/http-503-once",
+    "http-catalog/crawlee-http-pooled/native/http-reset",
+    "http-catalog/impit-http/native/normal",
+    "http-catalog/node-http/native/http-429",
+    "http-catalog/wreq-http/native/http-slow",
+    "http-catalog/impit-http/native/http-redirect-loop",
+    "http-catalog/impit-http/native/http-429",
+    "http-catalog/node-http/native/http-truncated",
+    "http-catalog/reqwest-http/native/http-503-once",
+    "http-catalog/node-http/native/http-slow",
+    "http-catalog/reqwest-http/native/http-redirect-loop",
+    "http-catalog/spider-http/native/http-redirect-loop",
+    "http-catalog/crawlee-http/native/http-redirect-loop",
+    "http-catalog/crawlee-http/native/http-reset",
+    "http-catalog/spider-http/native/http-slow",
+    "http-catalog/wreq-http/native/http-truncated",
+    "http-catalog/wreq-http/native/http-redirect-loop",
+    "http-catalog/impit-http/native/http-503-once",
+    "http-catalog/spider-http/native/normal",
+    "http-catalog/crawlee-http-pooled/native/http-truncated",
+    "http-catalog/wreq-http/native/http-reset",
+    "http-catalog/node-http/native/http-redirect-loop",
+    "http-catalog/crawlee-http/native/http-slow",
+    "http-catalog/reqwest-http/native/http-reset",
+    "http-catalog/impit-http/native/http-reset",
+    "http-catalog/reqwest-http/native/http-429",
+    "http-catalog/impit-http/native/http-slow",
+    "http-catalog/spider-http/native/http-truncated",
+    "http-catalog/node-http/native/http-reset",
+    "http-catalog/node-http/native/http-503-once",
+    "http-catalog/reqwest-http/native/http-truncated",
+    "http-catalog/crawlee-http/native/http-truncated",
+    "http-catalog/crawlee-http-pooled/native/http-slow",
+    "http-catalog/reqwest-http/native/http-slow",
+    "http-catalog/crawlee-http/native/normal",
+    "http-catalog/spider-http/native/http-503-once",
+    "http-catalog/impit-http/native/http-truncated",
+    "http-catalog/crawlee-http-pooled/native/http-429",
+    "http-catalog/crawlee-http/native/http-429",
+    "http-catalog/wreq-http/native/http-503-once",
+    "http-catalog/node-http/native/normal",
+    "http-catalog/reqwest-http/native/normal",
+    "http-catalog/wreq-http/native/http-429",
+    "http-catalog/crawlee-http-pooled/native/normal",
+    "http-catalog/wreq-http/native/normal",
+    "http-catalog/spider-http/native/http-reset",
+    "http-catalog/spider-http/native/http-429",
+    "http-catalog/crawlee-http-pooled/native/http-redirect-loop",
+    "http-catalog/crawlee-http-pooled/native/http-503-once"
+   ],
+   "noisy": false,
+   "host": {
+    "loadPerCpu1m": 0.540283203125,
+    "foreignCpuPercent": 408.8000000000003
+   }
+  }
+ ]
+}

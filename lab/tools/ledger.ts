@@ -40,7 +40,7 @@ export function buildLedger({ runs, classification, citations, decisions }: { ru
     merged.push(updated);
     entries.push({ runId: run.runId, lane: run.lane, campaign: run.campaign.id, startedAt: run.startedAt, status, hostClass: run.host.classGranted,
       role: entry.role, supersededBy: entry.supersededBy, reason: entry.reason, validity: entry.validity, decisionIds: [...entry.decisionIds],
-      citedIn: cited, integrity: run.provenance.integrity.status, rerun: entry.rerun, imported: run.legacy === null ? `results/${run.runId}/run.v2.json` : `ledger/imported/${run.runId}/run.v2.json` });
+      citedIn: cited, integrity: run.provenance.integrity.status, rerun: entry.rerun, imported: run.legacy === null ? `ledger/runs/${run.runId}/run.v2.json` : `ledger/imported/${run.runId}/run.v2.json` });
   }
   const ledger: Ledger = { schemaVersion: 1, classificationSha256: createHash('sha256').update(JSON.stringify(classification)).digest('hex'), entries };
   return { errors, ledger, runs: merged };

@@ -1,0 +1,822 @@
+{
+ "schemaVersion": 2,
+ "runId": "durable-admission-recovery-2026-10-08T19-50-26-865Z-f4c814",
+ "lane": "admission",
+ "campaign": {
+  "id": "durable-admission-recovery",
+  "source": "campaigns/v2/admission/durable-admission-recovery.json",
+  "sha256": "be13c49c313cee6dbb5b546d7f6348e5df4cac8bfe503921746c05b942d5a103"
+ },
+ "startedAt": "2026-10-08T19:50:26.865Z",
+ "decisionIds": [
+  "D-durable-runtime"
+ ],
+ "provenance": {
+  "git": {
+   "available": true,
+   "sha": "3e80c24b67ff00db19455fc99b7429283a43d41c",
+   "dirty": false
+  },
+  "sourceTreeSha256": "36cbad074c845043493d116019dd12bc95f16c979f8aef747aa0c120f7df9f11",
+  "sourceChanges": 0,
+  "binaryChanges": 0,
+  "toolchains": {
+   "node": "v25.5.0",
+   "rustc": "rustc 1.93.0 (254b59607 2026-01-19)",
+   "go": "go version go1.27.1 darwin/arm64",
+   "pnpm": "12.9.1"
+  },
+  "integrity": {
+   "status": "uncatalogued",
+   "checked": 0,
+   "mismatches": []
+  }
+ },
+ "host": {
+  "classRequested": "local-dev",
+  "classGranted": "local-dev",
+  "os": "darwin",
+  "arch": "arm64",
+  "cpu": "Apple M3 Max",
+  "logicalCpus": 14,
+  "memoryBytes": 38654705664,
+  "preflight": {
+   "snapshot": {
+    "os": "darwin",
+    "arch": "arm64",
+    "cpu": "Apple M3 Max",
+    "logicalCpus": 14,
+    "memoryBytes": 38654705664,
+    "loadAverage1m": 12.0712890625,
+    "memoryFreePercent": 49,
+    "thermalWarning": false,
+    "onAC": false,
+    "lowPowerMode": false,
+    "foreignCpuPercent": 331.20000000000005,
+    "foreignTop": [
+     {
+      "command": "ffmpeg",
+      "cpuPercent": 97.2
+     },
+     {
+      "command": "ffmpeg",
+      "cpuPercent": 86.1
+     },
+     {
+      "command": "WindowServer",
+      "cpuPercent": 46.2
+     },
+     {
+      "command": "com.apple.Virtualization.VirtualMachine",
+      "cpuPercent": 29.7
+     },
+     {
+      "command": "Google Chrome Helper",
+      "cpuPercent": 10.9
+     }
+    ],
+    "cpuGovernor": null,
+    "virtualized": false,
+    "controllerCpuPercent": 16.099999999999998
+   },
+   "gates": []
+  },
+  "postflight": {
+   "snapshot": {
+    "os": "darwin",
+    "arch": "arm64",
+    "cpu": "Apple M3 Max",
+    "logicalCpus": 14,
+    "memoryBytes": 38654705664,
+    "loadAverage1m": 10.48779296875,
+    "memoryFreePercent": 52,
+    "thermalWarning": false,
+    "onAC": false,
+    "lowPowerMode": false,
+    "foreignCpuPercent": 389.4000000000004,
+    "foreignTop": [
+     {
+      "command": "ffmpeg",
+      "cpuPercent": 96.6
+     },
+     {
+      "command": "ffmpeg",
+      "cpuPercent": 84.6
+     },
+     {
+      "command": "com.apple.Virtualization.VirtualMachine",
+      "cpuPercent": 49.6
+     },
+     {
+      "command": "WindowServer",
+      "cpuPercent": 44.7
+     },
+     {
+      "command": "Google Chrome Helper (Renderer)",
+      "cpuPercent": 26.2
+     }
+    ],
+    "cpuGovernor": null,
+    "virtualized": false,
+    "controllerCpuPercent": 15.899999999999997
+   }
+  }
+ },
+ "status": "complete",
+ "countUnit": "cell",
+ "cells": [
+  {
+   "cellId": "edb3c986e0ca-0",
+   "factors": {
+    "scenario": "overload-crash",
+    "fault": "crash",
+    "policy": "fifo-global",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "ack-latency-p95-ms": {
+     "value": 1.1299159999998665,
+     "unit": "ms",
+     "source": "lane; open Poisson arrivals, acknowledgement once journaled, completions observed at the site"
+    },
+    "verified-jobs-per-second": {
+     "value": 70.85161857100597,
+     "unit": "job/s",
+     "source": "lane; open Poisson arrivals, acknowledgement once journaled, completions observed at the site"
+    },
+    "light-domain-goodput": {
+     "value": 22.5,
+     "unit": "job/s",
+     "source": "lane; open Poisson arrivals, acknowledgement once journaled, completions observed at the site"
+    },
+    "light-domain-p95-ms": {
+     "value": 24.731667000000016,
+     "unit": "ms",
+     "source": "lane; open Poisson arrivals, acknowledgement once journaled, completions observed at the site"
+    },
+    "light-domain-acceptance": {
+     "value": 0.4838709677419355,
+     "unit": "ratio",
+     "source": "lane; open Poisson arrivals, acknowledgement once journaled, completions observed at the site"
+    }
+   }
+  },
+  {
+   "cellId": "0d69e5651cb6-1",
+   "factors": {
+    "scenario": "overload-crash",
+    "fault": "crash",
+    "policy": "fair-domain",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "ack-latency-p95-ms": {
+     "value": 1.6130829999992784,
+     "unit": "ms",
+     "source": "lane; open Poisson arrivals, acknowledgement once journaled, completions observed at the site"
+    },
+    "verified-jobs-per-second": {
+     "value": 91.19317216462261,
+     "unit": "job/s",
+     "source": "lane; open Poisson arrivals, acknowledgement once journaled, completions observed at the site"
+    },
+    "light-domain-goodput": {
+     "value": 46.5,
+     "unit": "job/s",
+     "source": "lane; open Poisson arrivals, acknowledgement once journaled, completions observed at the site"
+    },
+    "light-domain-p95-ms": {
+     "value": 34.6155830000007,
+     "unit": "ms",
+     "source": "lane; open Poisson arrivals, acknowledgement once journaled, completions observed at the site"
+    },
+    "light-domain-acceptance": {
+     "value": 1,
+     "unit": "ratio",
+     "source": "lane; open Poisson arrivals, acknowledgement once journaled, completions observed at the site"
+    }
+   }
+  },
+  {
+   "cellId": "e3bb03580131-2",
+   "factors": {
+    "scenario": "overload-crash",
+    "fault": "crash",
+    "policy": "fifo-global",
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "ack-latency-p95-ms": {
+     "value": 1.3387499999989814,
+     "unit": "ms",
+     "source": "lane; open Poisson arrivals, acknowledgement once journaled, completions observed at the site"
+    },
+    "verified-jobs-per-second": {
+     "value": 68.70823141254047,
+     "unit": "job/s",
+     "source": "lane; open Poisson arrivals, acknowledgement once journaled, completions observed at the site"
+    },
+    "light-domain-goodput": {
+     "value": 20,
+     "unit": "job/s",
+     "source": "lane; open Poisson arrivals, acknowledgement once journaled, completions observed at the site"
+    },
+    "light-domain-p95-ms": {
+     "value": 24.011666000000332,
+     "unit": "ms",
+     "source": "lane; open Poisson arrivals, acknowledgement once journaled, completions observed at the site"
+    },
+    "light-domain-acceptance": {
+     "value": 0.365296803652968,
+     "unit": "ratio",
+     "source": "lane; open Poisson arrivals, acknowledgement once journaled, completions observed at the site"
+    }
+   }
+  },
+  {
+   "cellId": "39b99347ad99-3",
+   "factors": {
+    "scenario": "overload-crash",
+    "fault": "crash",
+    "policy": "fair-domain",
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "ack-latency-p95-ms": {
+     "value": 1.0717920000006416,
+     "unit": "ms",
+     "source": "lane; open Poisson arrivals, acknowledgement once journaled, completions observed at the site"
+    },
+    "verified-jobs-per-second": {
+     "value": 99.95241723431326,
+     "unit": "job/s",
+     "source": "lane; open Poisson arrivals, acknowledgement once journaled, completions observed at the site"
+    },
+    "light-domain-goodput": {
+     "value": 54.75,
+     "unit": "job/s",
+     "source": "lane; open Poisson arrivals, acknowledgement once journaled, completions observed at the site"
+    },
+    "light-domain-p95-ms": {
+     "value": 64.23716699999932,
+     "unit": "ms",
+     "source": "lane; open Poisson arrivals, acknowledgement once journaled, completions observed at the site"
+    },
+    "light-domain-acceptance": {
+     "value": 1,
+     "unit": "ratio",
+     "source": "lane; open Poisson arrivals, acknowledgement once journaled, completions observed at the site"
+    }
+   }
+  },
+  {
+   "cellId": "1fff339dcdd4-4",
+   "factors": {
+    "scenario": "overload-crash",
+    "fault": "crash",
+    "policy": "fifo-global",
+    "block": 2
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "ack-latency-p95-ms": {
+     "value": 0.7383330000011483,
+     "unit": "ms",
+     "source": "lane; open Poisson arrivals, acknowledgement once journaled, completions observed at the site"
+    },
+    "verified-jobs-per-second": {
+     "value": 66.32801070987905,
+     "unit": "job/s",
+     "source": "lane; open Poisson arrivals, acknowledgement once journaled, completions observed at the site"
+    },
+    "light-domain-goodput": {
+     "value": 16.5,
+     "unit": "job/s",
+     "source": "lane; open Poisson arrivals, acknowledgement once journaled, completions observed at the site"
+    },
+    "light-domain-p95-ms": {
+     "value": 29.625041000002966,
+     "unit": "ms",
+     "source": "lane; open Poisson arrivals, acknowledgement once journaled, completions observed at the site"
+    },
+    "light-domain-acceptance": {
+     "value": 0.39759036144578314,
+     "unit": "ratio",
+     "source": "lane; open Poisson arrivals, acknowledgement once journaled, completions observed at the site"
+    }
+   }
+  },
+  {
+   "cellId": "0afbe2ccbe42-5",
+   "factors": {
+    "scenario": "overload-crash",
+    "fault": "crash",
+    "policy": "fair-domain",
+    "block": 2
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "ack-latency-p95-ms": {
+     "value": 0.8559170000007725,
+     "unit": "ms",
+     "source": "lane; open Poisson arrivals, acknowledgement once journaled, completions observed at the site"
+    },
+    "verified-jobs-per-second": {
+     "value": 87.12783134363612,
+     "unit": "job/s",
+     "source": "lane; open Poisson arrivals, acknowledgement once journaled, completions observed at the site"
+    },
+    "light-domain-goodput": {
+     "value": 41.5,
+     "unit": "job/s",
+     "source": "lane; open Poisson arrivals, acknowledgement once journaled, completions observed at the site"
+    },
+    "light-domain-p95-ms": {
+     "value": 34.28987500000221,
+     "unit": "ms",
+     "source": "lane; open Poisson arrivals, acknowledgement once journaled, completions observed at the site"
+    },
+    "light-domain-acceptance": {
+     "value": 1,
+     "unit": "ratio",
+     "source": "lane; open Poisson arrivals, acknowledgement once journaled, completions observed at the site"
+    }
+   }
+  },
+  {
+   "cellId": "69d033cc3556-6",
+   "factors": {
+    "scenario": "overload-crash",
+    "fault": "crash",
+    "policy": "fifo-global",
+    "block": 3
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "ack-latency-p95-ms": {
+     "value": 0.9163330000010319,
+     "unit": "ms",
+     "source": "lane; open Poisson arrivals, acknowledgement once journaled, completions observed at the site"
+    },
+    "verified-jobs-per-second": {
+     "value": 65.99605825908519,
+     "unit": "job/s",
+     "source": "lane; open Poisson arrivals, acknowledgement once journaled, completions observed at the site"
+    },
+    "light-domain-goodput": {
+     "value": 17.5,
+     "unit": "job/s",
+     "source": "lane; open Poisson arrivals, acknowledgement once journaled, completions observed at the site"
+    },
+    "light-domain-p95-ms": {
+     "value": 23.62800000000061,
+     "unit": "ms",
+     "source": "lane; open Poisson arrivals, acknowledgement once journaled, completions observed at the site"
+    },
+    "light-domain-acceptance": {
+     "value": 0.358974358974359,
+     "unit": "ratio",
+     "source": "lane; open Poisson arrivals, acknowledgement once journaled, completions observed at the site"
+    }
+   }
+  },
+  {
+   "cellId": "05e1cc30fa61-7",
+   "factors": {
+    "scenario": "overload-crash",
+    "fault": "crash",
+    "policy": "fair-domain",
+    "block": 3
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "ack-latency-p95-ms": {
+     "value": 2.4827079999959096,
+     "unit": "ms",
+     "source": "lane; open Poisson arrivals, acknowledgement once journaled, completions observed at the site"
+    },
+    "verified-jobs-per-second": {
+     "value": 126.49558515249758,
+     "unit": "job/s",
+     "source": "lane; open Poisson arrivals, acknowledgement once journaled, completions observed at the site"
+    },
+    "light-domain-goodput": {
+     "value": 42,
+     "unit": "job/s",
+     "source": "lane; open Poisson arrivals, acknowledgement once journaled, completions observed at the site"
+    },
+    "light-domain-p95-ms": {
+     "value": 1850.7982499999998,
+     "unit": "ms",
+     "source": "lane; open Poisson arrivals, acknowledgement once journaled, completions observed at the site"
+    },
+    "light-domain-acceptance": {
+     "value": 0.8615384615384616,
+     "unit": "ratio",
+     "source": "lane; open Poisson arrivals, acknowledgement once journaled, completions observed at the site"
+    }
+   }
+  },
+  {
+   "cellId": "e6c7e1ebae44-8",
+   "factors": {
+    "scenario": "overload-crash",
+    "fault": "crash",
+    "policy": "fair-domain",
+    "block": 4
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "ack-latency-p95-ms": {
+     "value": 1.9248749999969732,
+     "unit": "ms",
+     "source": "lane; open Poisson arrivals, acknowledgement once journaled, completions observed at the site"
+    },
+    "verified-jobs-per-second": {
+     "value": 86.40293713017269,
+     "unit": "job/s",
+     "source": "lane; open Poisson arrivals, acknowledgement once journaled, completions observed at the site"
+    },
+    "light-domain-goodput": {
+     "value": 42.75,
+     "unit": "job/s",
+     "source": "lane; open Poisson arrivals, acknowledgement once journaled, completions observed at the site"
+    },
+    "light-domain-p95-ms": {
+     "value": 26.635999999998603,
+     "unit": "ms",
+     "source": "lane; open Poisson arrivals, acknowledgement once journaled, completions observed at the site"
+    },
+    "light-domain-acceptance": {
+     "value": 1,
+     "unit": "ratio",
+     "source": "lane; open Poisson arrivals, acknowledgement once journaled, completions observed at the site"
+    }
+   }
+  },
+  {
+   "cellId": "2818d81848db-9",
+   "factors": {
+    "scenario": "overload-crash",
+    "fault": "crash",
+    "policy": "fifo-global",
+    "block": 4
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "ack-latency-p95-ms": {
+     "value": 2.2881670000060694,
+     "unit": "ms",
+     "source": "lane; open Poisson arrivals, acknowledgement once journaled, completions observed at the site"
+    },
+    "verified-jobs-per-second": {
+     "value": 63.90611513318282,
+     "unit": "job/s",
+     "source": "lane; open Poisson arrivals, acknowledgement once journaled, completions observed at the site"
+    },
+    "light-domain-goodput": {
+     "value": 16.5,
+     "unit": "job/s",
+     "source": "lane; open Poisson arrivals, acknowledgement once journaled, completions observed at the site"
+    },
+    "light-domain-p95-ms": {
+     "value": 25.23124999999709,
+     "unit": "ms",
+     "source": "lane; open Poisson arrivals, acknowledgement once journaled, completions observed at the site"
+    },
+    "light-domain-acceptance": {
+     "value": 0.38596491228070173,
+     "unit": "ratio",
+     "source": "lane; open Poisson arrivals, acknowledgement once journaled, completions observed at the site"
+    }
+   }
+  }
+ ],
+ "totals": {
+  "verified": 10,
+  "failed": 0,
+  "timeout": 0,
+  "crashed": 0,
+  "aborted": 0,
+  "unsupported": 0,
+  "rejected": 0,
+  "unavailable": 0,
+  "skipped": 0
+ },
+ "metricAvailability": {
+  "verified-jobs-per-second": {
+   "available": true
+  },
+  "verified-tasks-per-second": {
+   "available": true
+  },
+  "verified-rows-per-second": {
+   "available": true
+  },
+  "task-p50-ms-verified": {
+   "available": true
+  },
+  "task-p95-ms-verified": {
+   "available": true
+  },
+  "task-ms": {
+   "available": true
+  },
+  "ack-latency-p95-ms": {
+   "available": true
+  },
+  "extraction-precision": {
+   "available": true
+  },
+  "extraction-recall": {
+   "available": true
+  },
+  "snippet-recall": {
+   "available": true
+  },
+  "boilerplate-leak": {
+   "available": true
+  },
+  "extract-ms-p50": {
+   "available": true
+  },
+  "startup-ms": {
+   "available": true
+  },
+  "cpu-ms-per-verified-job": {
+   "available": true
+  },
+  "footprint-peak-bytes": {
+   "available": true
+  },
+  "pss-peak-bytes": {
+   "available": false,
+   "reason": "no probe on darwin"
+  },
+  "cgroup-memory-peak-bytes": {
+   "available": false,
+   "reason": "no probe on darwin"
+  },
+  "rss-peak-bytes": {
+   "available": true
+  },
+  "cdp-commands-per-task": {
+   "available": true
+  },
+  "extraction-f1": {
+   "available": true
+  },
+  "field-precision": {
+   "available": true
+  },
+  "field-recall": {
+   "available": true
+  },
+  "pass-k": {
+   "available": true
+  },
+  "llm-calls-per-verified-task": {
+   "available": true
+  },
+  "tokens-per-verified-task": {
+   "available": true
+  },
+  "usd-per-1k-verified": {
+   "available": false,
+   "reason": "pricing tables are not implemented yet"
+  },
+  "model-usd-per-1k-verified": {
+   "available": true
+  },
+  "interface-turns-per-task": {
+   "available": true
+  },
+  "oracle-exact": {
+   "available": true
+  },
+  "false-success-count": {
+   "available": true
+  },
+  "actionability-conformance": {
+   "available": true
+  },
+  "recovery-exact": {
+   "available": true
+  },
+  "durability-power-loss": {
+   "available": false,
+   "reason": "no probe on darwin"
+  },
+  "identity-coherence": {
+   "available": true
+  },
+  "policy-compliance": {
+   "available": true
+  },
+  "session-isolation": {
+   "available": true
+  },
+  "admission-no-loss": {
+   "available": true
+  },
+  "proxy-continuity": {
+   "available": true
+  },
+  "light-domain-goodput": {
+   "available": true
+  },
+  "light-domain-p95-ms": {
+   "available": true
+  },
+  "light-domain-acceptance": {
+   "available": true
+  }
+ },
+ "legacy": null,
+ "blocks": [
+  {
+   "index": 0,
+   "order": [
+    "fifo-global/overload-crash/crash",
+    "fair-domain/overload-crash/crash"
+   ],
+   "noisy": false,
+   "host": {
+    "loadPerCpu1m": 0.94287109375,
+    "foreignCpuPercent": 339.50000000000045
+   }
+  },
+  {
+   "index": 1,
+   "order": [
+    "fifo-global/overload-crash/crash",
+    "fair-domain/overload-crash/crash"
+   ],
+   "noisy": false,
+   "host": {
+    "loadPerCpu1m": 0.9630650111607143,
+    "foreignCpuPercent": 354.4000000000003
+   }
+  },
+  {
+   "index": 2,
+   "order": [
+    "fifo-global/overload-crash/crash",
+    "fair-domain/overload-crash/crash"
+   ],
+   "noisy": false,
+   "host": {
+    "loadPerCpu1m": 0.8689662388392857,
+    "foreignCpuPercent": 328.00000000000045
+   }
+  },
+  {
+   "index": 3,
+   "order": [
+    "fifo-global/overload-crash/crash",
+    "fair-domain/overload-crash/crash"
+   ],
+   "noisy": false,
+   "host": {
+    "loadPerCpu1m": 0.8265904017857143,
+    "foreignCpuPercent": 331.8000000000003
+   }
+  },
+  {
+   "index": 4,
+   "order": [
+    "fair-domain/overload-crash/crash",
+    "fifo-global/overload-crash/crash"
+   ],
+   "noisy": false,
+   "host": {
+    "loadPerCpu1m": 0.7491280691964286,
+    "foreignCpuPercent": 342.3000000000002
+   }
+  }
+ ]
+}

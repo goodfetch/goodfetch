@@ -1,6 +1,6 @@
 // Re-express legacy lab results (schemaVersion 1 and lane-specific shapes) as run.v2 documents.
 // Read-only on results/ and reports/: originals are never modified, and output is deterministic.
-import { readFile, readdir, mkdir, writeFile, access } from 'node:fs/promises';
+import { copyFile, readFile, readdir, mkdir, writeFile, access } from 'node:fs/promises';
 import { createHash } from 'node:crypto';
 import { join } from 'node:path';
 import { hashFile } from '../src/environment.ts';
@@ -118,12 +118,22 @@ export async function writeImported(runs: ImportedRun[], outDir: string) {
   }
 }
 
-// Native v2 runs are read as written by the engine; they are never rewritten.
+// Native v2 runs are read as written by the engine; they are never rewritten. The ledger keeps a byte-identical copy of each
+// (ledger/runs), committed with the repository, so a clone without results/ still holds every run a verdict uses.
 export async function loadV2Runs({ root = labRoot }: { root?: string } = {}): Promise<ImportedRun[]> {
-  const resultsDir = join(root, 'results'), runs: ImportedRun[] = [];
-  for (const entry of (await readdir(resultsDir, { withFileTypes: true })).sort((a, b) => a.name.localeCompare(b.name))) {
-    const path = join(resultsDir, entry.name, 'run.v2.json');
-    if (entry.isDirectory() && await exists(path)) runs.push(await readJson(path) as unknown as ImportedRun);
+  const runs = new Map<string, ImportedRun>();
+  for (const directory of [join(root, 'results'), join(root, 'ledger/runs')]) {
+    if (!(await exists(directory))) continue;
+    for (const entry of (await readdir(directory, { withFileTypes: true })).sort((a, b) => a.name.localeCompare(b.name))) {
+      const path = join(directory, entry.name, 'run.v2.json');
+      if (entry.isDirectory() && !runs.has(entry.name) && await exists(path)) runs.set(entry.name, await readJson(path) as unknown as ImportedRun);
+    }
   }
-  return runs;
+  return [...runs.values()];
+}
+export async function copyV2Runs(runIds: string[], { root = labRoot }: { root?: string } = {}) {
+  for (const runId of runIds) {
+    const source = join(root, 'results', runId, 'run.v2.json'); if (!(await exists(source))) continue;
+    await mkdir(join(root, 'ledger/runs', runId), { recursive: true }); await copyFile(source, join(root, 'ledger/runs', runId, 'run.v2.json'));
+  }
 }

@@ -1,3 +1,4 @@
+import { sqliteLibrary } from '../../src/registry.ts';
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {mkdtemp} from 'node:fs/promises';
@@ -13,7 +14,7 @@ for(const runtime of ['node-shared','rust'] as const)test(`${runtime}: durable r
   try{
     await w.call('prepare',{path,leaseMs:10000});
     const info=await w.call('hello',{}) as {sqlite:string;sourceId:string;libraryPath:string};
-    assert.equal(info.sqlite,'3.53.4');assert.equal(info.libraryPath,join(labRoot,'.native/libautoman_sqlite.dylib'));
+    assert.equal(info.sqlite,'3.53.4');assert.equal(info.libraryPath,join(labRoot,`.native/${sqliteLibrary}`));
     await w.call('run',{op:'submit',jobs:[{jobId:'job-1',task}]});
     const claim=await w.call('run',{op:'claim'}) as {jobId:string;token:string};
     const records=[{id:'P-001',price:1201},{id:'P-002',price:1238}];

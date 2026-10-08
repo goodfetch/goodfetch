@@ -3,7 +3,7 @@ import { readFile, writeFile, mkdir } from 'node:fs/promises';
 import { join } from 'node:path';
 import { labRoot } from '../src/registry.ts';
 import { loadRegistry, checkRegistry } from '../src/core/decisions.ts';
-import { importLegacy, writeImported, loadV2Runs } from './import-legacy.ts';
+import { importLegacy, writeImported, loadV2Runs, copyV2Runs } from './import-legacy.ts';
 import { buildLedger, findCitations, type Classification } from './ledger.ts';
 import { runEngine } from '../src/core/engine.ts';
 import { fromLegacyBench, validateBenchCampaign, type BenchCampaign } from '../src/core/campaign.ts';
@@ -28,6 +28,7 @@ async function importCommand() {
   const { errors, ledger, runs } = buildLedger({ runs: imported, classification, citations, decisions: registry.decisions.map(decision => decision.id) });
   if (errors.length) return fail(errors);
   await writeImported(runs.filter(run => run.legacy !== null), join(ledgerDir, 'imported'));
+  await copyV2Runs(runs.filter(run => run.legacy === null).map(run => run.runId));
   await mkdir(ledgerDir, { recursive: true });
   await writeFile(join(ledgerDir, 'results-ledger.json'), JSON.stringify(ledger, null, 1) + '\n');
   const byRole = Object.entries(Object.groupBy(ledger.entries, entry => entry.role)).map(([role, list]) => `${role} ${list!.length}`).join(', ');

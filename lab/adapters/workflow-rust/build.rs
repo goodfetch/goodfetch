@@ -7,7 +7,8 @@ fn main() {
     println!("cargo:rustc-link-lib=dylib=automan_sqlite");
     println!("cargo:rustc-link-arg=-Wl,-rpath,{}", native.display());
     println!(
-        "cargo:rerun-if-changed={}/libautoman_sqlite.dylib",
-        native.display()
+        "cargo:rerun-if-changed={}/{}",
+        native.display(),
+        if std::env::var("CARGO_CFG_TARGET_OS").as_deref() == Ok("macos") { "libautoman_sqlite.dylib" } else { "libautoman_sqlite.so" }
     );
 }

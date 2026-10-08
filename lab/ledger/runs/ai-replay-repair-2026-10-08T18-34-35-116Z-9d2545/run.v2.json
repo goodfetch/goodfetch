@@ -1,0 +1,1226 @@
+{
+ "schemaVersion": 2,
+ "runId": "ai-replay-repair-2026-10-08T18-34-35-116Z-9d2545",
+ "lane": "ai",
+ "campaign": {
+  "id": "ai-replay-repair",
+  "source": "campaigns/v2/ai/ai-replay-repair.json",
+  "sha256": "e11773f1134a95b083ae7944f57f8c2f10d88216958dbd290c13a62858e7994e"
+ },
+ "startedAt": "2026-10-08T18:34:35.116Z",
+ "decisionIds": [
+  "D-ai-layer"
+ ],
+ "provenance": {
+  "git": {
+   "available": true,
+   "sha": "ce11db682ce1ef59c88237129c160ebccae989fb",
+   "dirty": false
+  },
+  "sourceTreeSha256": "827d9fed34c30bba22fcbadafd4236e3e0acc4dcf8058d6b4a2ffd3869410008",
+  "sourceChanges": 0,
+  "binaryChanges": null,
+  "toolchains": {
+   "node": "v25.5.0",
+   "rustc": "rustc 1.93.0 (254b59607 2026-01-19)",
+   "go": "go version go1.27.1 darwin/arm64",
+   "pnpm": "12.9.1"
+  },
+  "integrity": {
+   "status": "uncatalogued",
+   "checked": 0,
+   "mismatches": []
+  }
+ },
+ "host": {
+  "classRequested": "local-dev",
+  "classGranted": "local-dev",
+  "os": "darwin",
+  "arch": "arm64",
+  "cpu": "Apple M3 Max",
+  "logicalCpus": 14,
+  "memoryBytes": 38654705664,
+  "preflight": {
+   "snapshot": {
+    "os": "darwin",
+    "arch": "arm64",
+    "cpu": "Apple M3 Max",
+    "logicalCpus": 14,
+    "memoryBytes": 38654705664,
+    "loadAverage1m": 9.69189453125,
+    "memoryFreePercent": 41,
+    "thermalWarning": false,
+    "onAC": false,
+    "lowPowerMode": false,
+    "foreignCpuPercent": 271.90000000000043,
+    "foreignTop": [
+     {
+      "command": "ffprobe",
+      "cpuPercent": 85.9
+     },
+     {
+      "command": "WindowServer",
+      "cpuPercent": 46.2
+     },
+     {
+      "command": "com.apple.Virtualization.VirtualMachine",
+      "cpuPercent": 29.3
+     },
+     {
+      "command": "Sauce",
+      "cpuPercent": 18.5
+     },
+     {
+      "command": "media_integration-d493560430853bd8",
+      "cpuPercent": 14.2
+     }
+    ],
+    "cpuGovernor": null,
+    "virtualized": false,
+    "controllerCpuPercent": 19.200000000000003
+   },
+   "gates": []
+  },
+  "postflight": {
+   "snapshot": {
+    "os": "darwin",
+    "arch": "arm64",
+    "cpu": "Apple M3 Max",
+    "logicalCpus": 14,
+    "memoryBytes": 38654705664,
+    "loadAverage1m": 14.6826171875,
+    "memoryFreePercent": 36,
+    "thermalWarning": false,
+    "onAC": false,
+    "lowPowerMode": false,
+    "foreignCpuPercent": 486.1000000000003,
+    "foreignTop": [
+     {
+      "command": "ffmpeg",
+      "cpuPercent": 76.7
+     },
+     {
+      "command": "ffprobe",
+      "cpuPercent": 61.8
+     },
+     {
+      "command": "Google Chrome Helper (Renderer)",
+      "cpuPercent": 55.8
+     },
+     {
+      "command": "com.apple.Virtualization.VirtualMachine",
+      "cpuPercent": 55.2
+     },
+     {
+      "command": "WindowServer",
+      "cpuPercent": 50.4
+     }
+    ],
+    "cpuGovernor": null,
+    "virtualized": false,
+    "controllerCpuPercent": 28.6
+   }
+  }
+ },
+ "status": "complete",
+ "countUnit": "cell",
+ "cells": [
+  {
+   "cellId": "7c5f68fc111e-0",
+   "factors": {
+    "mode": "agent-each-run",
+    "variant": "price-change",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "llm-calls-per-verified-task": {
+     "value": 1,
+     "unit": "call/task",
+     "source": "lane; fake model accounting over the session, dated price table"
+    },
+    "tokens-per-verified-task": {
+     "value": 182,
+     "unit": "token/task",
+     "source": "lane; fake model accounting over the session, dated price table"
+    },
+    "model-usd-per-1k-verified": {
+     "value": 0.594,
+     "unit": "USD/1k",
+     "source": "lane; fake model accounting over the session, dated price table"
+    }
+   }
+  },
+  {
+   "cellId": "d7d8974369d6-1",
+   "factors": {
+    "mode": "compiled-replay",
+    "variant": "relabel",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "llm-calls-per-verified-task": {
+     "value": 0.3333333333333333,
+     "unit": "call/task",
+     "source": "lane; fake model accounting over the session, dated price table"
+    },
+    "tokens-per-verified-task": {
+     "value": 80.33333333333333,
+     "unit": "token/task",
+     "source": "lane; fake model accounting over the session, dated price table"
+    },
+    "model-usd-per-1k-verified": {
+     "value": 0.453,
+     "unit": "USD/1k",
+     "source": "lane; fake model accounting over the session, dated price table"
+    }
+   }
+  },
+  {
+   "cellId": "58083a0bb5ac-2",
+   "factors": {
+    "mode": "agent-each-run",
+    "variant": "relabel",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "llm-calls-per-verified-task": {
+     "value": 1,
+     "unit": "call/task",
+     "source": "lane; fake model accounting over the session, dated price table"
+    },
+    "tokens-per-verified-task": {
+     "value": 241,
+     "unit": "token/task",
+     "source": "lane; fake model accounting over the session, dated price table"
+    },
+    "model-usd-per-1k-verified": {
+     "value": 1.359,
+     "unit": "USD/1k",
+     "source": "lane; fake model accounting over the session, dated price table"
+    }
+   }
+  },
+  {
+   "cellId": "b3d7d3d7cad7-3",
+   "factors": {
+    "mode": "compiled-replay",
+    "variant": "baseline",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "llm-calls-per-verified-task": {
+     "value": 0.2,
+     "unit": "call/task",
+     "source": "lane; fake model accounting over the session, dated price table"
+    },
+    "tokens-per-verified-task": {
+     "value": 48.2,
+     "unit": "token/task",
+     "source": "lane; fake model accounting over the session, dated price table"
+    },
+    "model-usd-per-1k-verified": {
+     "value": 0.2718,
+     "unit": "USD/1k",
+     "source": "lane; fake model accounting over the session, dated price table"
+    }
+   }
+  },
+  {
+   "cellId": "a1b6458525d5-4",
+   "factors": {
+    "mode": "compiled-replay",
+    "variant": "price-change",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "llm-calls-per-verified-task": {
+     "value": 0.16666666666666666,
+     "unit": "call/task",
+     "source": "lane; fake model accounting over the session, dated price table"
+    },
+    "tokens-per-verified-task": {
+     "value": 30.333333333333332,
+     "unit": "token/task",
+     "source": "lane; fake model accounting over the session, dated price table"
+    },
+    "model-usd-per-1k-verified": {
+     "value": 0.099,
+     "unit": "USD/1k",
+     "source": "lane; fake model accounting over the session, dated price table"
+    }
+   }
+  },
+  {
+   "cellId": "032a8325024f-5",
+   "factors": {
+    "mode": "compiled-replay",
+    "variant": "decoy-swap",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "llm-calls-per-verified-task": {
+     "value": 0.3333333333333333,
+     "unit": "call/task",
+     "source": "lane; fake model accounting over the session, dated price table"
+    },
+    "tokens-per-verified-task": {
+     "value": 84.16666666666667,
+     "unit": "token/task",
+     "source": "lane; fake model accounting over the session, dated price table"
+    },
+    "model-usd-per-1k-verified": {
+     "value": 0.4645,
+     "unit": "USD/1k",
+     "source": "lane; fake model accounting over the session, dated price table"
+    }
+   }
+  },
+  {
+   "cellId": "e514e94be2ef-6",
+   "factors": {
+    "mode": "agent-each-run",
+    "variant": "decoy-swap",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "llm-calls-per-verified-task": {
+     "value": 1,
+     "unit": "call/task",
+     "source": "lane; fake model accounting over the session, dated price table"
+    },
+    "tokens-per-verified-task": {
+     "value": 244.83333333333334,
+     "unit": "token/task",
+     "source": "lane; fake model accounting over the session, dated price table"
+    },
+    "model-usd-per-1k-verified": {
+     "value": 1.3705,
+     "unit": "USD/1k",
+     "source": "lane; fake model accounting over the session, dated price table"
+    }
+   }
+  },
+  {
+   "cellId": "a1f9d349a856-7",
+   "factors": {
+    "mode": "agent-each-run",
+    "variant": "baseline",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "llm-calls-per-verified-task": {
+     "value": 1,
+     "unit": "call/task",
+     "source": "lane; fake model accounting over the session, dated price table"
+    },
+    "tokens-per-verified-task": {
+     "value": 241,
+     "unit": "token/task",
+     "source": "lane; fake model accounting over the session, dated price table"
+    },
+    "model-usd-per-1k-verified": {
+     "value": 1.359,
+     "unit": "USD/1k",
+     "source": "lane; fake model accounting over the session, dated price table"
+    }
+   }
+  },
+  {
+   "cellId": "92ba6fcf78f2-8",
+   "factors": {
+    "mode": "agent-each-run",
+    "variant": "price-change",
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "llm-calls-per-verified-task": {
+     "value": 1,
+     "unit": "call/task",
+     "source": "lane; fake model accounting over the session, dated price table"
+    },
+    "tokens-per-verified-task": {
+     "value": 182,
+     "unit": "token/task",
+     "source": "lane; fake model accounting over the session, dated price table"
+    },
+    "model-usd-per-1k-verified": {
+     "value": 0.594,
+     "unit": "USD/1k",
+     "source": "lane; fake model accounting over the session, dated price table"
+    }
+   }
+  },
+  {
+   "cellId": "293c2c72222e-9",
+   "factors": {
+    "mode": "compiled-replay",
+    "variant": "price-change",
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "llm-calls-per-verified-task": {
+     "value": 0.16666666666666666,
+     "unit": "call/task",
+     "source": "lane; fake model accounting over the session, dated price table"
+    },
+    "tokens-per-verified-task": {
+     "value": 30.333333333333332,
+     "unit": "token/task",
+     "source": "lane; fake model accounting over the session, dated price table"
+    },
+    "model-usd-per-1k-verified": {
+     "value": 0.099,
+     "unit": "USD/1k",
+     "source": "lane; fake model accounting over the session, dated price table"
+    }
+   }
+  },
+  {
+   "cellId": "5b8fa76351f2-10",
+   "factors": {
+    "mode": "compiled-replay",
+    "variant": "decoy-swap",
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "llm-calls-per-verified-task": {
+     "value": 0.3333333333333333,
+     "unit": "call/task",
+     "source": "lane; fake model accounting over the session, dated price table"
+    },
+    "tokens-per-verified-task": {
+     "value": 84.16666666666667,
+     "unit": "token/task",
+     "source": "lane; fake model accounting over the session, dated price table"
+    },
+    "model-usd-per-1k-verified": {
+     "value": 0.4645,
+     "unit": "USD/1k",
+     "source": "lane; fake model accounting over the session, dated price table"
+    }
+   }
+  },
+  {
+   "cellId": "f135fcb789d3-11",
+   "factors": {
+    "mode": "agent-each-run",
+    "variant": "relabel",
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "llm-calls-per-verified-task": {
+     "value": 1,
+     "unit": "call/task",
+     "source": "lane; fake model accounting over the session, dated price table"
+    },
+    "tokens-per-verified-task": {
+     "value": 241,
+     "unit": "token/task",
+     "source": "lane; fake model accounting over the session, dated price table"
+    },
+    "model-usd-per-1k-verified": {
+     "value": 1.359,
+     "unit": "USD/1k",
+     "source": "lane; fake model accounting over the session, dated price table"
+    }
+   }
+  },
+  {
+   "cellId": "4a8a6fa9ea58-12",
+   "factors": {
+    "mode": "compiled-replay",
+    "variant": "relabel",
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "llm-calls-per-verified-task": {
+     "value": 0.3333333333333333,
+     "unit": "call/task",
+     "source": "lane; fake model accounting over the session, dated price table"
+    },
+    "tokens-per-verified-task": {
+     "value": 80.33333333333333,
+     "unit": "token/task",
+     "source": "lane; fake model accounting over the session, dated price table"
+    },
+    "model-usd-per-1k-verified": {
+     "value": 0.453,
+     "unit": "USD/1k",
+     "source": "lane; fake model accounting over the session, dated price table"
+    }
+   }
+  },
+  {
+   "cellId": "3bdd99f78552-13",
+   "factors": {
+    "mode": "agent-each-run",
+    "variant": "baseline",
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "llm-calls-per-verified-task": {
+     "value": 1,
+     "unit": "call/task",
+     "source": "lane; fake model accounting over the session, dated price table"
+    },
+    "tokens-per-verified-task": {
+     "value": 241,
+     "unit": "token/task",
+     "source": "lane; fake model accounting over the session, dated price table"
+    },
+    "model-usd-per-1k-verified": {
+     "value": 1.359,
+     "unit": "USD/1k",
+     "source": "lane; fake model accounting over the session, dated price table"
+    }
+   }
+  },
+  {
+   "cellId": "1e38193dff9e-14",
+   "factors": {
+    "mode": "compiled-replay",
+    "variant": "baseline",
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "llm-calls-per-verified-task": {
+     "value": 0.2,
+     "unit": "call/task",
+     "source": "lane; fake model accounting over the session, dated price table"
+    },
+    "tokens-per-verified-task": {
+     "value": 48.2,
+     "unit": "token/task",
+     "source": "lane; fake model accounting over the session, dated price table"
+    },
+    "model-usd-per-1k-verified": {
+     "value": 0.2718,
+     "unit": "USD/1k",
+     "source": "lane; fake model accounting over the session, dated price table"
+    }
+   }
+  },
+  {
+   "cellId": "7e4ca1ab86b6-15",
+   "factors": {
+    "mode": "agent-each-run",
+    "variant": "decoy-swap",
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "llm-calls-per-verified-task": {
+     "value": 1,
+     "unit": "call/task",
+     "source": "lane; fake model accounting over the session, dated price table"
+    },
+    "tokens-per-verified-task": {
+     "value": 244.83333333333334,
+     "unit": "token/task",
+     "source": "lane; fake model accounting over the session, dated price table"
+    },
+    "model-usd-per-1k-verified": {
+     "value": 1.3705,
+     "unit": "USD/1k",
+     "source": "lane; fake model accounting over the session, dated price table"
+    }
+   }
+  },
+  {
+   "cellId": "e9d8c2f4e8fa-16",
+   "factors": {
+    "mode": "agent-each-run",
+    "variant": "price-change",
+    "block": 2
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "llm-calls-per-verified-task": {
+     "value": 1,
+     "unit": "call/task",
+     "source": "lane; fake model accounting over the session, dated price table"
+    },
+    "tokens-per-verified-task": {
+     "value": 182,
+     "unit": "token/task",
+     "source": "lane; fake model accounting over the session, dated price table"
+    },
+    "model-usd-per-1k-verified": {
+     "value": 0.594,
+     "unit": "USD/1k",
+     "source": "lane; fake model accounting over the session, dated price table"
+    }
+   }
+  },
+  {
+   "cellId": "ead9fc9c1b50-17",
+   "factors": {
+    "mode": "agent-each-run",
+    "variant": "relabel",
+    "block": 2
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "llm-calls-per-verified-task": {
+     "value": 1,
+     "unit": "call/task",
+     "source": "lane; fake model accounting over the session, dated price table"
+    },
+    "tokens-per-verified-task": {
+     "value": 241,
+     "unit": "token/task",
+     "source": "lane; fake model accounting over the session, dated price table"
+    },
+    "model-usd-per-1k-verified": {
+     "value": 1.359,
+     "unit": "USD/1k",
+     "source": "lane; fake model accounting over the session, dated price table"
+    }
+   }
+  },
+  {
+   "cellId": "60aaf8778293-18",
+   "factors": {
+    "mode": "compiled-replay",
+    "variant": "relabel",
+    "block": 2
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "llm-calls-per-verified-task": {
+     "value": 0.3333333333333333,
+     "unit": "call/task",
+     "source": "lane; fake model accounting over the session, dated price table"
+    },
+    "tokens-per-verified-task": {
+     "value": 80.33333333333333,
+     "unit": "token/task",
+     "source": "lane; fake model accounting over the session, dated price table"
+    },
+    "model-usd-per-1k-verified": {
+     "value": 0.453,
+     "unit": "USD/1k",
+     "source": "lane; fake model accounting over the session, dated price table"
+    }
+   }
+  },
+  {
+   "cellId": "9748f7907668-19",
+   "factors": {
+    "mode": "compiled-replay",
+    "variant": "price-change",
+    "block": 2
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "llm-calls-per-verified-task": {
+     "value": 0.16666666666666666,
+     "unit": "call/task",
+     "source": "lane; fake model accounting over the session, dated price table"
+    },
+    "tokens-per-verified-task": {
+     "value": 30.333333333333332,
+     "unit": "token/task",
+     "source": "lane; fake model accounting over the session, dated price table"
+    },
+    "model-usd-per-1k-verified": {
+     "value": 0.099,
+     "unit": "USD/1k",
+     "source": "lane; fake model accounting over the session, dated price table"
+    }
+   }
+  },
+  {
+   "cellId": "09dd3f3890a9-20",
+   "factors": {
+    "mode": "agent-each-run",
+    "variant": "decoy-swap",
+    "block": 2
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "llm-calls-per-verified-task": {
+     "value": 1,
+     "unit": "call/task",
+     "source": "lane; fake model accounting over the session, dated price table"
+    },
+    "tokens-per-verified-task": {
+     "value": 244.83333333333334,
+     "unit": "token/task",
+     "source": "lane; fake model accounting over the session, dated price table"
+    },
+    "model-usd-per-1k-verified": {
+     "value": 1.3705,
+     "unit": "USD/1k",
+     "source": "lane; fake model accounting over the session, dated price table"
+    }
+   }
+  },
+  {
+   "cellId": "efeb7379f5a8-21",
+   "factors": {
+    "mode": "compiled-replay",
+    "variant": "baseline",
+    "block": 2
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "llm-calls-per-verified-task": {
+     "value": 0.2,
+     "unit": "call/task",
+     "source": "lane; fake model accounting over the session, dated price table"
+    },
+    "tokens-per-verified-task": {
+     "value": 48.2,
+     "unit": "token/task",
+     "source": "lane; fake model accounting over the session, dated price table"
+    },
+    "model-usd-per-1k-verified": {
+     "value": 0.2718,
+     "unit": "USD/1k",
+     "source": "lane; fake model accounting over the session, dated price table"
+    }
+   }
+  },
+  {
+   "cellId": "c94e7faeccd0-22",
+   "factors": {
+    "mode": "agent-each-run",
+    "variant": "baseline",
+    "block": 2
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "llm-calls-per-verified-task": {
+     "value": 1,
+     "unit": "call/task",
+     "source": "lane; fake model accounting over the session, dated price table"
+    },
+    "tokens-per-verified-task": {
+     "value": 241,
+     "unit": "token/task",
+     "source": "lane; fake model accounting over the session, dated price table"
+    },
+    "model-usd-per-1k-verified": {
+     "value": 1.359,
+     "unit": "USD/1k",
+     "source": "lane; fake model accounting over the session, dated price table"
+    }
+   }
+  },
+  {
+   "cellId": "f593bdac59c4-23",
+   "factors": {
+    "mode": "compiled-replay",
+    "variant": "decoy-swap",
+    "block": 2
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "llm-calls-per-verified-task": {
+     "value": 0.3333333333333333,
+     "unit": "call/task",
+     "source": "lane; fake model accounting over the session, dated price table"
+    },
+    "tokens-per-verified-task": {
+     "value": 84.16666666666667,
+     "unit": "token/task",
+     "source": "lane; fake model accounting over the session, dated price table"
+    },
+    "model-usd-per-1k-verified": {
+     "value": 0.4645,
+     "unit": "USD/1k",
+     "source": "lane; fake model accounting over the session, dated price table"
+    }
+   }
+  }
+ ],
+ "totals": {
+  "verified": 24,
+  "failed": 0,
+  "timeout": 0,
+  "crashed": 0,
+  "aborted": 0,
+  "unsupported": 0,
+  "rejected": 0,
+  "unavailable": 0,
+  "skipped": 0
+ },
+ "metricAvailability": {
+  "verified-jobs-per-second": {
+   "available": true
+  },
+  "verified-tasks-per-second": {
+   "available": true
+  },
+  "verified-rows-per-second": {
+   "available": true
+  },
+  "task-p50-ms-verified": {
+   "available": true
+  },
+  "task-p95-ms-verified": {
+   "available": true
+  },
+  "task-ms": {
+   "available": true
+  },
+  "ack-latency-p95-ms": {
+   "available": true
+  },
+  "extraction-precision": {
+   "available": true
+  },
+  "extraction-recall": {
+   "available": true
+  },
+  "snippet-recall": {
+   "available": true
+  },
+  "boilerplate-leak": {
+   "available": true
+  },
+  "extract-ms-p50": {
+   "available": true
+  },
+  "startup-ms": {
+   "available": true
+  },
+  "cpu-ms-per-verified-job": {
+   "available": true
+  },
+  "footprint-peak-bytes": {
+   "available": true
+  },
+  "pss-peak-bytes": {
+   "available": false,
+   "reason": "no probe on darwin"
+  },
+  "cgroup-memory-peak-bytes": {
+   "available": false,
+   "reason": "no probe on darwin"
+  },
+  "rss-peak-bytes": {
+   "available": true
+  },
+  "cdp-commands-per-task": {
+   "available": true
+  },
+  "extraction-f1": {
+   "available": true
+  },
+  "field-precision": {
+   "available": true
+  },
+  "field-recall": {
+   "available": true
+  },
+  "pass-k": {
+   "available": true
+  },
+  "llm-calls-per-verified-task": {
+   "available": true
+  },
+  "tokens-per-verified-task": {
+   "available": true
+  },
+  "usd-per-1k-verified": {
+   "available": false,
+   "reason": "pricing tables are not implemented yet"
+  },
+  "model-usd-per-1k-verified": {
+   "available": true
+  },
+  "interface-turns-per-task": {
+   "available": true
+  },
+  "oracle-exact": {
+   "available": true
+  },
+  "false-success-count": {
+   "available": true
+  },
+  "actionability-conformance": {
+   "available": true
+  },
+  "recovery-exact": {
+   "available": true
+  },
+  "durability-power-loss": {
+   "available": false,
+   "reason": "no probe on darwin"
+  },
+  "identity-coherence": {
+   "available": true
+  },
+  "policy-compliance": {
+   "available": true
+  },
+  "session-isolation": {
+   "available": true
+  },
+  "admission-no-loss": {
+   "available": true
+  }
+ },
+ "legacy": null,
+ "blocks": [
+  {
+   "index": 0,
+   "order": [
+    "agent-each-run/price-change",
+    "compiled-replay/relabel",
+    "agent-each-run/relabel",
+    "compiled-replay/baseline",
+    "compiled-replay/price-change",
+    "compiled-replay/decoy-swap",
+    "agent-each-run/decoy-swap",
+    "agent-each-run/baseline"
+   ],
+   "noisy": false,
+   "host": {
+    "loadPerCpu1m": 0.7331891741071429,
+    "foreignCpuPercent": 597.5000000000007
+   }
+  },
+  {
+   "index": 1,
+   "order": [
+    "agent-each-run/price-change",
+    "compiled-replay/price-change",
+    "compiled-replay/decoy-swap",
+    "agent-each-run/relabel",
+    "compiled-replay/relabel",
+    "agent-each-run/baseline",
+    "compiled-replay/baseline",
+    "agent-each-run/decoy-swap"
+   ],
+   "noisy": false,
+   "host": {
+    "loadPerCpu1m": 1.0215541294642858,
+    "foreignCpuPercent": 1069.2999999999986
+   }
+  },
+  {
+   "index": 2,
+   "order": [
+    "agent-each-run/price-change",
+    "agent-each-run/relabel",
+    "compiled-replay/relabel",
+    "compiled-replay/price-change",
+    "agent-each-run/decoy-swap",
+    "compiled-replay/baseline",
+    "agent-each-run/baseline",
+    "compiled-replay/decoy-swap"
+   ],
+   "noisy": false,
+   "host": {
+    "loadPerCpu1m": 1.0487583705357142,
+    "foreignCpuPercent": 546.5000000000005
+   }
+  }
+ ]
+}

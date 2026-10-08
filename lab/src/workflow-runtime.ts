@@ -1,3 +1,4 @@
+import { sqliteLibrary } from './registry.ts';
 import {createServer} from 'node:http';
 import type {AddressInfo} from 'node:net';
 import {randomBytes} from 'node:crypto';
@@ -32,7 +33,7 @@ export async function runRuntime(options:RuntimeConfig){
   let execution=0;let coordinatorCrashUsed=false;
   async function execute():Promise<RuntimeExecution>{
     if(closed)throw new Error('fixtures closed');
-    const build=JSON.parse(await readFile(join(labRoot,'.native/build.json'),'utf8'));const currentLibrary=await hashFile(join(labRoot,'.native/libautoman_sqlite.dylib'));if(currentLibrary!==build.hashes['libautoman_sqlite.dylib'])throw new Error('shared SQLite artifact differs from build');
+    const build=JSON.parse(await readFile(join(labRoot,'.native/build.json'),'utf8'));const currentLibrary=await hashFile(join(labRoot,`.native/${sqliteLibrary}`));if(currentLibrary!==build.hashes[sqliteLibrary])throw new Error('shared SQLite artifact differs from build');
     const rustBuild=JSON.parse(await readFile(join(labRoot,'.native/workflow-build.json'),'utf8'));if(options.runtime==='rust'&&(rustBuild.sqliteSha256!==currentLibrary||await hashFile(join(labRoot,'.native/automan-workflow-rust'))!==rustBuild.binarySha256))throw new Error('Rust workflow artifact differs from build');
     const label=`execution-${execution++}`;const command=options.runtime==='rust'?join(labRoot,'.native/automan-workflow-rust'):process.execPath;const args=options.runtime==='rust'?[configPath]:[join(labRoot,'src/workflow-native-runner.ts'),configPath];
     const child=spawn(command,args,{cwd:labRoot,stdio:['ignore','pipe','pipe'],detached:true});const sampler=sampleRuntimeResources(child.pid!,100);const events:Record<string,unknown>[]=[];let buffer='';let stderr='';let result:RuntimeResult|undefined;let fatal:string|undefined;const began=performance.now();

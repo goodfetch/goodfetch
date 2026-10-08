@@ -4,7 +4,15 @@ Rapport généré par `pnpm lab report` depuis `decisions/` et `verdicts/`. Les 
 
 | Décision | Statut | Verdict | Estimation option / baseline | Blocs | Hôte | Gates |
 | --- | --- | --- | --- | --- | --- | --- |
-| D-agent-interface | open | pas encore calculé | | | requis local-controlled | oracle-exact |
+| D-agent-interface | open | cli / mcp [variant baseline] : blocs insuffisants | 1.12 [0.744 ; 1.71] (95% block bootstrap) | 9 sur 196 requis | local-dev / requis local-controlled (non éligible) | oracle-exact ok |
+|  |  | cli / mcp [variant decoy-swap] : blocs insuffisants | 0.87 [0.691 ; 1.09] (95% block bootstrap) | 9 sur 56 requis | local-dev / requis local-controlled (non éligible) | oracle-exact ok |
+|  |  | cli / mcp [variant price-change] : blocs insuffisants | 1.37 [1.22 ; 1.55] (95% block bootstrap) | 9 sur 16 requis | local-dev / requis local-controlled (non éligible) | oracle-exact ok |
+|  |  | sdk / mcp [variant baseline] : blocs insuffisants | 1.01 [0.879 ; 1.14] (95% block bootstrap) | 9 sur 19 requis | local-dev / requis local-controlled (non éligible) | oracle-exact ok |
+|  |  | sdk / mcp [variant decoy-swap] : équivalentes | 0.996 [0.971 ; 1.02] (95% block bootstrap) | 9 sur 5 requis | local-dev / requis local-controlled (non éligible) | oracle-exact ok |
+|  |  | sdk / mcp [variant price-change] : équivalentes | 0.956 [0.874 ; 1] (95% block bootstrap) | 9 sur 8 requis | local-dev / requis local-controlled (non éligible) | oracle-exact ok |
+|  |  | code-mode / mcp [variant baseline] : bloqué par un contrat |  | 7 | local-dev / requis local-controlled (non éligible) | oracle-exact échec |
+|  |  | code-mode / mcp [variant decoy-swap] : bloqué par un contrat |  | 6 | local-dev / requis local-controlled (non éligible) | oracle-exact échec |
+|  |  | code-mode / mcp [variant price-change] : bloqué par un contrat |  | 9 | local-dev / requis local-controlled (non éligible) | oracle-exact échec |
 | D-ai-layer | open | pas encore calculé | | | requis local-controlled | false-success-count, oracle-exact |
 | D-browser-driver | open | rust-cdp-guarded / playwright-native [scenario form, rttMs 0] : option moins bonne | 1.43 [1.41 ; 1.45] (95% block bootstrap) | 7 sur 5 requis | local-controlled / requis local-controlled | actionability-conformance ok, false-success-count ok, oracle-exact ok |
 |  |  | rust-cdp-guarded / playwright-native [scenario clicks, rttMs 0] : option moins bonne | 1.23 [1.21 ; 1.25] (95% block bootstrap) | 7 sur 5 requis | local-controlled / requis local-controlled | actionability-conformance ok, false-success-count ok, oracle-exact ok |

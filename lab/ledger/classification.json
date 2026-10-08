@@ -1869,9 +1869,9 @@
       }
     },
     "http-incidents-2026-10-08T17-07-35-305Z-73011e": {
-      "role": "selected",
+      "role": "superseded",
       "reason": "incidents HTTP : 429, 503, réponse tronquée ou coupée, boucle de redirections, serveur lent",
-      "supersededBy": null,
+      "supersededBy": "http-incidents-2026-10-08T17-25-00-258Z-206e01",
       "decisionIds": [
         "D-http-transport"
       ],
@@ -1932,8 +1932,51 @@
       }
     },
     "access-policy-2026-10-08T17-15-34-616Z-cad714": {
-      "role": "selected",
+      "role": "superseded",
       "reason": "robots.txt et page de challenge servie en 200 (ADR-002)",
+      "supersededBy": "access-policy-2026-10-08T17-27-03-497Z-f99eb0",
+      "decisionIds": [
+        "D-identity",
+        "D-http-transport"
+      ],
+      "validity": [
+        {
+          "scope": "access-contract",
+          "class": "A",
+          "note": "aucun backend ne détecte le challenge ; node-http ignore robots.txt"
+        }
+      ],
+      "noisyHost": false,
+      "rerun": {
+        "required": false,
+        "priority": null,
+        "hostClass": null
+      }
+    },
+    "http-incidents-2026-10-08T17-25-00-258Z-206e01": {
+      "role": "selected",
+      "reason": "incidents HTTP sur sept backends, dont reqwest, wreq et Impit",
+      "supersededBy": null,
+      "decisionIds": [
+        "D-http-transport"
+      ],
+      "validity": [
+        {
+          "scope": "incident-contract",
+          "class": "A",
+          "note": "Spider HTTP seul à produire des faux succès ; aucune relance configurée dans les adapters"
+        }
+      ],
+      "noisyHost": false,
+      "rerun": {
+        "required": false,
+        "priority": null,
+        "hostClass": null
+      }
+    },
+    "access-policy-2026-10-08T17-27-03-497Z-f99eb0": {
+      "role": "selected",
+      "reason": "robots.txt et challenge en 200 sur sept backends",
       "supersededBy": null,
       "decisionIds": [
         "D-identity",
@@ -1944,6 +1987,48 @@
           "scope": "access-contract",
           "class": "A",
           "note": "aucun backend ne détecte le challenge ; node-http ignore robots.txt"
+        }
+      ],
+      "noisyHost": false,
+      "rerun": {
+        "required": false,
+        "priority": null,
+        "hostClass": null
+      }
+    },
+    "access-policy-2026-10-08T17-23-02-739Z-3c0b7b": {
+      "role": "diagnostic",
+      "reason": "même matrice sur sources non commitées",
+      "supersededBy": null,
+      "decisionIds": [
+        "D-http-transport"
+      ],
+      "validity": [
+        {
+          "scope": "all",
+          "class": "none",
+          "note": "sources non commitées"
+        }
+      ],
+      "noisyHost": false,
+      "rerun": {
+        "required": false,
+        "priority": null,
+        "hostClass": null
+      }
+    },
+    "http-incidents-2026-10-08T17-20-57-511Z-c21c56": {
+      "role": "diagnostic",
+      "reason": "même matrice sur sources non commitées",
+      "supersededBy": null,
+      "decisionIds": [
+        "D-http-transport"
+      ],
+      "validity": [
+        {
+          "scope": "all",
+          "class": "none",
+          "note": "sources non commitées"
         }
       ],
       "noisyHost": false,

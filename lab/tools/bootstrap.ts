@@ -13,5 +13,6 @@ for (const mode of ['http','chrome','smart']) {
 }
 await run('cargo',['build','--release','--locked','--manifest-path','adapters/storage-rust/Cargo.toml','--target-dir','adapters/rust/target/http']);
 await run('cargo',['build','--release','--locked','--manifest-path','adapters/cdp-rust/Cargo.toml']);
+for (const stack of ['reqwest','wreq']) await run('cargo',['build','--release','--locked','--features',stack,'--manifest-path','adapters/http-rust/Cargo.toml','--target-dir',`adapters/http-rust/target/${stack}`]);
 if(process.platform==='darwin'&&process.arch==='arm64')await run(process.execPath,['tools/build-shared-sqlite.ts']);
 await run(process.execPath,['tools/doctor.ts']);

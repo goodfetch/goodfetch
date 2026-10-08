@@ -19,7 +19,10 @@
       "node-http",
       "crawlee-http",
       "crawlee-http-pooled",
-      "spider-http"
+      "spider-http",
+      "reqwest-http",
+      "wreq-http",
+      "impit-http"
     ],
     "variants": [
       "normal",

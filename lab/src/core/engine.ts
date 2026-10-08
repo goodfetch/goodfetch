@@ -27,7 +27,7 @@ export type AttemptV2 = {
 type Counts = { verified: number; failed: number; timeout: number; crashed: number; aborted: number; unsupported: number; rejected: number; unavailable: number; skipped: number };
 export type EngineOptions = RunOptions & { command?: (backend: string) => WorkerCommand; oracle?: Oracle | 'process' | 'in-process'; executablePath?: string };
 
-const browserBackends = (backends: string[]) => backends.some(backend => !['node-http', 'crawlee-http', 'crawlee-http-pooled', 'spider-http'].includes(backend));
+const browserBackends = (backends: string[]) => backends.some(backend => !['node-http', 'crawlee-http', 'crawlee-http-pooled', 'spider-http', 'reqwest-http', 'wreq-http', 'impit-http'].includes(backend));
 
 function checkedOutput(value: unknown) {
   const out = value as { status?: string; records?: { id: unknown; price: unknown }[]; file?: unknown; metrics?: Record<string, unknown>; reason?: string };

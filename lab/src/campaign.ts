@@ -23,7 +23,7 @@ export function validateCampaign(value: unknown): asserts value is Campaign {
   const c = value as Campaign;
   if (!c || typeof c.name !== 'string' || !/^[a-z0-9-]{1,80}$/.test(c.name)) throw new Error('invalid campaign name');
   if (!Array.isArray(c.backends) || !c.backends.length || !c.backends.every(b => backendNames.includes(b)) || new Set(c.backends).size !== c.backends.length) throw new Error('invalid backends');
-  const scenarios = ['http-catalog', 'js-catalog', 'form', 'clicks', 'shadow', 'iframe', 'download','actionability','primitives'];
+  const scenarios = ['http-catalog', 'js-catalog', 'form', 'clicks', 'shadow', 'iframe', 'download','actionability','primitives','navigation'];
   if (!Array.isArray(c.scenarios) || !c.scenarios.length || !c.scenarios.every(s => scenarios.includes(s))) throw new Error('invalid scenarios');
   for (const [key, min, max] of [['seed',0,2**32-1], ['blocks',1,100], ['iterations',1,100_000], ['warmup',0,1000], ['concurrency',1,128], ['timeoutMs',50,120_000], ['maxDurationMs',100,3_600_000], ['pages',1,5000], ['actions',1,1000]] as const) {
     if (!Number.isInteger(c[key]) || c[key] < min || c[key] > max) throw new Error(`invalid ${key}`);
@@ -31,7 +31,7 @@ export function validateCampaign(value: unknown): asserts value is Campaign {
   if (!['closed', 'open'].includes(c.mode) || (c.mode === 'open' && (!Number.isFinite(c.ratePerSecond) || c.ratePerSecond! <= 0 || c.ratePerSecond! > 10000))) throw new Error('invalid arrival model');
   if (c.delayMs !== undefined && (!Number.isInteger(c.delayMs) || c.delayMs < 0 || c.delayMs > 1000)) throw new Error('invalid fixture delay');
   if(c.poolWake!==undefined&&!['poll','notify'].includes(c.poolWake))throw new Error('invalid pool wake mode');
-  if (c.variants !== undefined && (!Array.isArray(c.variants) || !c.variants.length || !c.variants.every(v => ['normal','overlay','rerender','delayed','hidden','moving','never-enabled','never-uncovered','ambiguous','http-redirect','http-gzip','http-chunked','http-large','hover','dblclick','contextmenu','drag','wheel','keyboard','contenteditable','unicode','moved','retarget'].includes(v)))) throw new Error('invalid variants');
+  if (c.variants !== undefined && (!Array.isArray(c.variants) || !c.variants.length || !c.variants.every(v => ['normal','overlay','rerender','delayed','hidden','moving','never-enabled','never-uncovered','ambiguous','http-redirect','http-gzip','http-chunked','http-large','hover','dblclick','contextmenu','drag','wheel','keyboard','contenteditable','unicode','moved','retarget','spa','history','popup','frame','cross-frame','upload','download'].includes(v)))) throw new Error('invalid variants');
   const planned = c.backends.length * c.scenarios.length * c.blocks * (c.iterations + c.warmup + (c.variants?.length ?? 1));
   if (planned > 200000 || planned * c.pages * 2 > 1000000) throw new Error('fixture corpus budget exceeded; split campaign or use a streaming oracle');
 }

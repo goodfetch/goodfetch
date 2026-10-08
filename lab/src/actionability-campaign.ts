@@ -8,9 +8,9 @@ import {environment,sourceFingerprint,copySourceSnapshot} from './environment.ts
 import {shuffle} from './statistics.ts';
 
 // The matrix lane runs one action per cell with a fresh adapter: the actionability variants, or the primitive actions.
-export type ActionabilityConfig={blocks:number;seed:number;backends:BackendName[];variants:NonNullable<RunSpec['variant']>[];policies:('native'|'guarded')[];timeoutMs:number;outerTimeoutMs:number;scenario?:'actionability'|'primitives'};
+export type ActionabilityConfig={blocks:number;seed:number;backends:BackendName[];variants:NonNullable<RunSpec['variant']>[];policies:('native'|'guarded')[];timeoutMs:number;outerTimeoutMs:number;scenario?:'actionability'|'primitives'|'navigation'};
 export const defaultActionability=(blocks=3,policies:('native'|'guarded')[]=['native','guarded']):ActionabilityConfig=>({blocks,seed:4242,backends:['playwright','puppeteer','stagehand','stagehand-batch','crawlee-playwright','crawlee-stagehand'],variants:['normal','overlay','delayed','hidden','moving','rerender','never-enabled','never-uncovered','ambiguous'],policies,timeoutMs:800,outerTimeoutMs:8000});
-export type ActionabilityCell={backend:BackendName;variant:NonNullable<RunSpec['variant']>;policy:'native'|'guarded';scenario:'actionability'|'primitives'};
+export type ActionabilityCell={backend:BackendName;variant:NonNullable<RunSpec['variant']>;policy:'native'|'guarded';scenario:'actionability'|'primitives'|'navigation'};
 export function actionabilityCombinations(config:ActionabilityConfig):ActionabilityCell[]{const scenario=config.scenario??'actionability';return config.backends.flatMap(backend=>config.variants.flatMap(variant=>config.policies.map(policy=>({backend,variant,policy,scenario}))))}
 // One actionability cell: fresh adapter and fixtures, one action, effect and refusal checked by the private oracle.
 export async function runActionabilityCell(config:ActionabilityConfig,cell:ActionabilityCell,block:number,executablePath:string):Promise<Record<string,unknown>>{

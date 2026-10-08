@@ -1,0 +1,40 @@
+{
+  "schemaVersion": 2,
+  "id": "browser-navigation-frames-files",
+  "lane": "actionability",
+  "decisionIds": [
+    "D-browser-driver"
+  ],
+  "hostClass": {
+    "requested": "local-controlled",
+    "allowDowngrade": true
+  },
+  "config": {
+    "blocks": 3,
+    "seed": 6161,
+    "scenario": "navigation",
+    "backends": [
+      "rust-cdp",
+      "node-cdp",
+      "puppeteer",
+      "playwright",
+      "stagehand",
+      "crawlee-playwright"
+    ],
+    "variants": [
+      "spa",
+      "history",
+      "popup",
+      "frame",
+      "cross-frame",
+      "upload",
+      "download"
+    ],
+    "policies": [
+      "native",
+      "guarded"
+    ],
+    "timeoutMs": 3000,
+    "outerTimeoutMs": 15000
+  }
+}

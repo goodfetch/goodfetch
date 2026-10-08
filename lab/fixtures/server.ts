@@ -5,8 +5,8 @@ import type { AddressInfo } from 'node:net';
 
 export type RecordItem = { id: string; price: number };
 export type Verdict = { status: 'verified' | 'failed'; reasons: string[] };
-export type Scenario = 'http-catalog' | 'js-catalog' | 'form' | 'clicks' | 'shadow' | 'iframe' | 'download' | 'actionability' | 'primitives';
-export type RunSpec = { scenario: Scenario; seed: number; pages?: number; actions?: number; delayMs?: number; variant?: 'normal' | 'overlay' | 'rerender' | 'delayed' | 'hidden' | 'moving' | 'never-enabled' | 'never-uncovered' | 'ambiguous' | 'hover' | 'dblclick' | 'contextmenu' | 'drag' | 'wheel' | 'keyboard' | 'contenteditable' | 'unicode' | 'moved' | 'retarget' | 'http-redirect' | 'http-gzip' | 'http-chunked' | 'http-large' };
+export type Scenario = 'http-catalog' | 'js-catalog' | 'form' | 'clicks' | 'shadow' | 'iframe' | 'download' | 'actionability' | 'primitives' | 'navigation';
+export type RunSpec = { scenario: Scenario; seed: number; pages?: number; actions?: number; delayMs?: number; variant?: 'normal' | 'overlay' | 'rerender' | 'delayed' | 'hidden' | 'moving' | 'never-enabled' | 'never-uncovered' | 'ambiguous' | 'hover' | 'dblclick' | 'contextmenu' | 'drag' | 'wheel' | 'keyboard' | 'contenteditable' | 'unicode' | 'moved' | 'retarget' | 'spa' | 'history' | 'popup' | 'frame' | 'cross-frame' | 'upload' | 'download' | 'http-redirect' | 'http-gzip' | 'http-chunked' | 'http-large' };
 type Run = RunSpec & { id: string; records: RecordItem[]; effects: unknown[]; requests: number; errors: number };
 
 function send(res: ServerResponse, status: number, body: string, type = 'text/html') {
@@ -22,9 +22,10 @@ function pageHtml(run: Run, page: number) {
   const next = page + 1 < (run.pages ?? 3) ? `<a class="next" href="/runs/${run.id}/catalog?p=${page + 1}">Next</a>` : '';
   return `<main id="catalog" data-ready="true">${items}${next}</main>`;
 }
-function ui(run: Run) {
+function ui(run: Run, crossOrigin = '') {
   if(run.scenario==='actionability')return actionUi(run);
   if(run.scenario==='primitives')return primitivesUi(run);
+  if(run.scenario==='navigation')return navigationUi(run, crossOrigin);
   const nested = run.scenario === 'shadow' ? '<div id="shadow-host"></div>' : run.scenario === 'iframe' ? `<iframe src="/runs/${run.id}/frame"></iframe>` : '';
   const controls = `<label>Name <input id="name" name="name"></label><select id="region"><option value="us">US</option><option value="eu">EU</option></select><input type="checkbox" id="consent"><button id="submit">Save</button>`;
   return `<!doctype html><html><body>${nested || controls}<button id="counter">Increment</button><output id="count">0</output><output id="saved"></output><a id="download" href="/runs/${run.id}/file">Download</a>
@@ -97,6 +98,32 @@ function primitivesUi(run: Run) {
     document.body.dataset.ready='true';
   </script></body></html>`;
 }
+// Navigation, frames and files. Each page posts its effect with isTrusted; #done marks the expected end state.
+export const uploadText = 'automan-upload\n';
+function navigationUi(run: Run, crossOrigin: string) {
+  const variant = run.variant ?? 'spa';
+  const post = `const post=effect=>fetch('/runs/${run.id}/effect',{method:'POST',body:JSON.stringify(effect)});const done=()=>{document.querySelector('#done').textContent='done'};`;
+  const body: Record<string, string> = {
+    spa: `<a id="go" href="/runs/${run.id}/ui?view=detail">Detail</a><h1 id="view">list</h1><script>${post}document.querySelector('#go').addEventListener('click',async e=>{e.preventDefault();history.pushState({},'',e.currentTarget.href);document.querySelector('#view').textContent='detail';await post({kind:'route',path:location.pathname+location.search,trusted:e.isTrusted});done()});</script>`,
+    history: `<h1>page A</h1><script>${post}addEventListener('pageshow',async e=>{const type=performance.getEntriesByType('navigation')[0]?.type;if(e.persisted||type==='back_forward'){await post({kind:'page',page:'a',back:true});done()}});</script>`,
+    popup: `<button id="open" style="width:160px;height:40px">Open</button><script>${post}document.querySelector('#open').addEventListener('click',()=>{window.open('/runs/${run.id}/popup','_blank','width=600,height=400')});</script>`,
+    frame: `<iframe id="frame" onload="this.dataset.loaded='true'" src="/runs/${run.id}/inner" style="border:0;width:400px;height:200px;position:absolute;left:50px;top:80px"></iframe>`,
+    'cross-frame': `<iframe id="frame" onload="this.dataset.loaded='true'" src="${crossOrigin}/runs/${run.id}/inner" style="border:0;width:400px;height:200px;position:absolute;left:50px;top:80px"></iframe>`,
+    upload: `<input id="file" type="file"><script>${post}document.querySelector('#file').addEventListener('change',async e=>{const file=e.target.files[0];await post({kind:'upload',name:file.name,content:await file.text(),trusted:e.isTrusted});done()});</script>`,
+    download: `<a id="file" href="/runs/${run.id}/file" download="catalog.txt">Download</a>`
+  };
+  return `<!doctype html><html><body style="margin:0;font:16px sans-serif"><output id="done"></output>${body[variant] ?? ''}<script>document.body.dataset.ready='true'</script></body></html>`;
+}
+// Pages opened from navigation runs: the second history page, the popup and the frame content, each with one trusted control.
+function navigationChild(run: Run, kind: 'page-b' | 'popup' | 'inner') {
+  const control = kind === 'page-b' ? '<h1>page B</h1>' : `<button id="confirm" style="position:absolute;left:20px;top:20px;width:160px;height:40px">Confirm</button>`;
+  const effect = kind === 'popup' ? 'popup-click' : 'frame-click';
+  return `<!doctype html><html><body style="margin:0">${control}<output id="done"></output><script>
+    ${kind === 'page-b' ? '' : `document.querySelector('#confirm').addEventListener('click',async e=>{await fetch('/runs/${run.id}/effect',{method:'POST',body:JSON.stringify({kind:'${effect}',trusted:e.isTrusted,origin:location.origin})});document.querySelector('#done').textContent='done'});`}
+    document.body.dataset.ready='true';
+  </script></body></html>`;
+}
+
 const expectedPrimitive: Record<string, { kind: string; target: string }> = {
   hover: { kind: 'hover', target: 'target' }, dblclick: { kind: 'dblclick', target: 'target' }, contextmenu: { kind: 'contextmenu', target: 'target' }, drag: { kind: 'drop', target: 'dropzone' },
   wheel: { kind: 'scrolled', target: 'scroller' }, keyboard: { kind: 'enter', target: 'field' }, contenteditable: { kind: 'edited', target: 'editor' }, unicode: { kind: 'typed', target: 'field' }, moved: { kind: 'click', target: 'target' }
@@ -124,7 +151,8 @@ export async function startFixtures() {
         return send(res, 200,html);
       }
       if (action === 'data') return send(res, 200, pageHtml(run, Number(url.searchParams.get('p') ?? 0)));
-      if (action === 'ui') return send(res, 200, ui(run));
+      if (action === 'ui') return send(res, 200, ui(run, crossOrigin));
+      if (action === 'page-b' || action === 'popup' || action === 'inner') return send(res, 200, navigationChild(run, action));
       if (action === 'frame') return send(res, 200, `<input id="name"><select id="region"><option value="eu">EU</option></select><input id="consent" type="checkbox"><button id="submit">Save</button><script>document.querySelector('#submit').onclick=async e=>{await fetch('/runs/${id}/effect',{method:'POST',body:JSON.stringify({name:document.querySelector('#name').value,region:document.querySelector('#region').value,consent:document.querySelector('#consent').checked,trusted:e.isTrusted})});document.body.dataset.saved='true'};document.body.dataset.ready='true'</script>`);
       if (action === 'file') { res.setHeader('content-disposition', 'attachment; filename="catalog.txt"'); return send(res, 200, `automan-fixture:${run.seed}\n`, 'text/plain'); }
       return send(res, 404, 'unknown route');
@@ -132,6 +160,8 @@ export async function startFixtures() {
   });
   await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve));
   const origin = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
+  // The same server under another host name is another site, so Chromium isolates its frames in their own process.
+  const crossOrigin = `http://localhost:${(server.address() as AddressInfo).port}`;
   return {
     origin,
     async createRun(spec: RunSpec) {
@@ -172,6 +202,18 @@ export async function startFixtures() {
           if (variant === 'drag' && !(Number(own[0]?.moves) >= 1)) reasons.push('drop without pointer movement');
           if (metrics?.nativeRejected !== 0) reasons.push('actionable target was rejected');
         }
+      } else if (run.scenario === 'navigation') {
+        const variant = run.variant ?? 'spa'; const effects = run.effects as { kind?: string; trusted?: boolean; path?: string; page?: string; back?: boolean; origin?: string; name?: string; content?: string }[];
+        const one = (kind: string) => { const own = effects.filter(e => e.kind === kind); if (own.length !== 1 || effects.length !== 1) reasons.push(`expected exactly one ${kind} effect, got ${effects.length}`); return own[0]; };
+        if (variant === 'spa') { const e = one('route'); if (e && (!e.trusted || !e.path?.endsWith('/ui?view=detail'))) reasons.push('wrong or untrusted route change'); }
+        else if (variant === 'history') { const e = one('page'); if (e && (e.page !== 'a' || e.back !== true)) reasons.push('page A was not restored by a history navigation'); }
+        else if (variant === 'popup') { const e = one('popup-click'); if (e && !e.trusted) reasons.push('untrusted popup click'); }
+        else if (variant === 'frame' || variant === 'cross-frame') {
+          const e = one('frame-click'); const host = variant === 'cross-frame' ? 'localhost' : '127.0.0.1';
+          if (e && (!e.trusted || !e.origin?.includes(host))) reasons.push(`wrong or untrusted click in the ${variant === 'cross-frame' ? 'cross-origin' : 'same-origin'} frame`);
+        }
+        else if (variant === 'upload') { const e = one('upload'); if (e && (e.name !== 'upload.txt' || e.content !== uploadText)) reasons.push('wrong uploaded file'); }
+        else if (variant === 'download') { if (output.file !== `automan-fixture:${run.seed}\n`) reasons.push('wrong downloaded bytes'); if (effects.length) reasons.push('unexpected effect'); }
       } else if (run.scenario === 'download') {
         if (output.file !== `automan-fixture:${run.seed}\n`) reasons.push('wrong downloaded bytes');
       } else {

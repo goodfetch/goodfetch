@@ -45,6 +45,8 @@ export async function runAdmissionCell(config: AdmissionConfig, cell: AdmissionC
         const fault = crashArmed && performance.now() - start >= config.crashAtMs! ? 'after-commit' : undefined; if (fault) crashArmed = false;
         try {
           const r = await used.call('run', { op: 'submit', job: { jobId: submission.jobId, domain: submission.domain, url: site.url(submission.domain, submission.jobId) }, ...(fault ? { fault } : {}) }) as { admitted: boolean; code?: string; duplicate?: boolean };
+          // A refused submission is never journaled, so it cannot crash the runtime: the fault waits for the next one.
+          if (fault && !r.admitted) crashArmed = true;
           submission.respondedAt = performance.now(); submission.admitted = r.admitted; submission.code = r.code ?? null; submission.duplicate = r.duplicate === true; delete submission.error; return;
         } catch (error) {
           submission.error = String(error);

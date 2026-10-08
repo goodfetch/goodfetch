@@ -1,0 +1,18 @@
+{
+  "id": "D-feature-priority",
+  "title": "Priorité des fonctionnalités",
+  "question": "Quelles fonctionnalités prioriser pour le premier segment ?",
+  "kind": "product",
+  "status": "open",
+  "options": [
+    {
+      "id": "ranked-backlog",
+      "description": "Backlog classé depuis le classement des douleurs et les entretiens"
+    }
+  ],
+  "evidence": [],
+  "dependsOn": [
+    "D-segment"
+  ],
+  "notes": "Produite depuis research/market et les entretiens."
+}

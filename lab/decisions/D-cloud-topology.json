@@ -1,0 +1,50 @@
+{
+  "id": "D-cloud-topology",
+  "title": "Topologie d'exécution cloud",
+  "question": "Quelle topologie d'exécution des navigateurs hébergés adopter ?",
+  "kind": "technical",
+  "status": "deferred",
+  "options": [
+    {
+      "id": "firecracker-snapshot",
+      "description": "microVM avec snapshot après démarrage du navigateur"
+    },
+    {
+      "id": "container-pool",
+      "description": "pool de conteneurs chauds"
+    }
+  ],
+  "baseline": "container-pool",
+  "primaryMetric": {
+    "metricId": "startup-ms",
+    "blockStatistic": "median"
+  },
+  "secondaryMetrics": [],
+  "contractGates": [
+    "session-isolation",
+    "oracle-exact"
+  ],
+  "delta": {
+    "kind": "ratio",
+    "value": 0.2
+  },
+  "rule": {
+    "kind": "superiority",
+    "alpha": 0.05,
+    "power": 0.8,
+    "noisyBlockPolicy": "exclude"
+  },
+  "hostClass": {
+    "decision": "reference",
+    "publication": "reference"
+  },
+  "networkProfiles": [],
+  "campaigns": [
+    "cloud-topology"
+  ],
+  "evidence": [],
+  "verdictRef": null,
+  "adr": null,
+  "dependsOn": [],
+  "notes": "Reportée après la stack locale ; inclut l'endurance multi-tenant."
+}

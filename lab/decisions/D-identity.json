@@ -1,0 +1,55 @@
+{
+  "id": "D-identity",
+  "title": "Identité réseau et profils d'accès",
+  "question": "Le moteur maintient-il une identité cohérente et des profils identified/standard/stealth conformes à l'ADR-002 ?",
+  "kind": "technical",
+  "status": "open",
+  "options": [
+    {
+      "id": "session-identity-profile",
+      "description": "Profil d'identité porté par la session, conservé entre tiers"
+    }
+  ],
+  "baseline": "session-identity-profile",
+  "primaryMetric": {
+    "metricId": "task-p50-ms-verified",
+    "blockStatistic": "median"
+  },
+  "secondaryMetrics": [],
+  "contractGates": [
+    "identity-coherence",
+    "policy-compliance",
+    "false-success-count",
+    "session-isolation"
+  ],
+  "delta": {
+    "kind": "ratio",
+    "value": 0.1
+  },
+  "rule": {
+    "kind": "non-inferiority",
+    "alpha": 0.05,
+    "power": 0.8,
+    "noisyBlockPolicy": "exclude"
+  },
+  "hostClass": {
+    "decision": "local-controlled",
+    "publication": "reference"
+  },
+  "networkProfiles": [],
+  "campaigns": [
+    "identity-coherence",
+    "policy-fixtures",
+    "session-isolation"
+  ],
+  "evidence": [
+    {
+      "kind": "research-doc",
+      "ref": "docs/adr/0002-access-identity-stealth.md"
+    }
+  ],
+  "verdictRef": null,
+  "adr": "docs/adr/0002-access-identity-stealth.md",
+  "dependsOn": [],
+  "notes": "Décision de contrat avant tout : la métrique de performance sert seulement à vérifier que la signature et la cohérence n'ajoutent pas un coût excessif."
+}

@@ -1,0 +1,60 @@
+{
+  "id": "D-sinks",
+  "title": "Sinks additionnels",
+  "question": "Quels sinks au-delà de SQLite et JSONL justifient une implémentation ?",
+  "kind": "technical",
+  "status": "deferred",
+  "options": [
+    {
+      "id": "postgres-copy",
+      "description": "PostgreSQL COPY"
+    },
+    {
+      "id": "parquet-arrow",
+      "description": "Parquet/Arrow"
+    },
+    {
+      "id": "duckdb",
+      "description": "DuckDB"
+    },
+    {
+      "id": "object-store",
+      "description": "stockage objet multipart"
+    }
+  ],
+  "baseline": "postgres-copy",
+  "primaryMetric": {
+    "metricId": "verified-rows-per-second",
+    "blockStatistic": "ratio-of-sums"
+  },
+  "secondaryMetrics": [],
+  "contractGates": [
+    "oracle-exact",
+    "recovery-exact"
+  ],
+  "delta": {
+    "kind": "ratio",
+    "value": 0.1
+  },
+  "rule": {
+    "kind": "non-inferiority",
+    "alpha": 0.05,
+    "power": 0.8,
+    "noisyBlockPolicy": "exclude"
+  },
+  "hostClass": {
+    "decision": "local-controlled",
+    "publication": "reference"
+  },
+  "networkProfiles": [],
+  "campaigns": [
+    "sinks-qualification"
+  ],
+  "evidence": [],
+  "verdictRef": null,
+  "adr": null,
+  "dependsOn": [
+    "D-feature-priority"
+  ],
+  "notes": "Ouverte seulement pour les sinks demandés par les clients."
+}

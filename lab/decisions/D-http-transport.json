@@ -1,0 +1,99 @@
+{
+  "id": "D-http-transport",
+  "title": "Transport HTTP",
+  "question": "Quel transport HTTP et quel cycle de vie d'acquisition adopter par défaut ?",
+  "kind": "technical",
+  "status": "open",
+  "options": [
+    {
+      "id": "reqwest",
+      "description": "reqwest (Rust) baseline"
+    },
+    {
+      "id": "wreq",
+      "description": "wreq, contrôle fin TLS et HTTP/2"
+    },
+    {
+      "id": "impit",
+      "description": "Impit, HTTP/3 et impersonation"
+    },
+    {
+      "id": "spider-http",
+      "description": "Spider HTTP intégré",
+      "adapters": [
+        "spider-http"
+      ]
+    },
+    {
+      "id": "crawlee-http-pooled",
+      "description": "Crawlee HTTP avec pool",
+      "adapters": [
+        "crawlee-http-pooled"
+      ]
+    },
+    {
+      "id": "node-fetch",
+      "description": "fetch natif Node",
+      "adapters": [
+        "node-http"
+      ]
+    }
+  ],
+  "baseline": "reqwest",
+  "primaryMetric": {
+    "metricId": "verified-tasks-per-second",
+    "blockStatistic": "ratio-of-sums"
+  },
+  "secondaryMetrics": [
+    "cpu-ms-per-verified-job",
+    "task-p95-ms-verified"
+  ],
+  "contractGates": [
+    "oracle-exact",
+    "policy-compliance"
+  ],
+  "delta": {
+    "kind": "ratio",
+    "value": 0.1
+  },
+  "rule": {
+    "kind": "non-inferiority",
+    "alpha": 0.05,
+    "power": 0.8,
+    "noisyBlockPolicy": "exclude"
+  },
+  "hostClass": {
+    "decision": "local-controlled",
+    "publication": "reference"
+  },
+  "networkProfiles": [],
+  "campaigns": [
+    "http-capacity",
+    "http-transport-incidents"
+  ],
+  "evidence": [
+    {
+      "kind": "run",
+      "ref": "http-transport-2026-10-07T23-52-40-042Z-be9fbc"
+    },
+    {
+      "kind": "run",
+      "ref": "spider-http-transport-supported-2026-10-08T00-26-16-511Z-7ce401"
+    },
+    {
+      "kind": "run",
+      "ref": "http-open-250-2026-10-07T23-58-01-322Z-66a668"
+    },
+    {
+      "kind": "run",
+      "ref": "runtime-http-backends-2026-10-07T23-29-49-072Z-2b2b75",
+      "note": "hôte bruité"
+    }
+  ],
+  "verdictRef": null,
+  "adr": null,
+  "dependsOn": [
+    "D-identity"
+  ],
+  "notes": "Les contrôles SSRF natifs sont conservés ; un refus de redirection loopback n'est jamais contourné pour fabriquer un succès."
+}

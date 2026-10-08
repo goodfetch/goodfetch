@@ -1,0 +1,81 @@
+{
+ "schemaVersion": 2,
+ "runId": "qualification-integrated-2026-10-07T23-16-32-138Z-d5bec9",
+ "lane": "suite",
+ "campaign": {
+  "id": "qualification-integrated",
+  "source": null
+ },
+ "startedAt": "2026-10-07T23:16:32.138Z",
+ "decisionIds": [
+  "D-core-language"
+ ],
+ "provenance": {
+  "git": {
+   "available": false,
+   "sha": null,
+   "dirty": null
+  },
+  "sourceTreeSha256": "ac5813cdab5c8f5f6a577c8e77da45b3d0e5bd981780ec0ecccac2c190bd498e",
+  "sourceChanges": null,
+  "binaryChanges": null,
+  "toolchains": {
+   "node": "v25.5.0",
+   "browser": "Google Chrome for Testing 153.0.8010.12"
+  },
+  "integrity": {
+   "status": "uncatalogued",
+   "checked": 0,
+   "mismatches": []
+  }
+ },
+ "host": {
+  "classRequested": null,
+  "classGranted": "local-dev",
+  "os": "darwin",
+  "arch": "arm64",
+  "cpu": "Apple M3 Max",
+  "logicalCpus": 14,
+  "memoryBytes": 38654705664,
+  "preflight": null,
+  "postflight": null
+ },
+ "status": "interrupted",
+ "countUnit": "step",
+ "cells": [],
+ "totals": {
+  "verified": 0,
+  "failed": 0,
+  "timeout": 0,
+  "crashed": 0,
+  "aborted": 0,
+  "unsupported": 0,
+  "rejected": 0,
+  "unavailable": 0,
+  "skipped": 0
+ },
+ "metricAvailability": {
+  "pss-peak-bytes": {
+   "available": false,
+   "reason": "linux-only probe; legacy run on darwin"
+  },
+  "cgroup-memory-peak-bytes": {
+   "available": false,
+   "reason": "linux-only probe; legacy run on darwin"
+  },
+  "cpu-ms-per-verified-job": {
+   "available": false,
+   "reason": "CPU was not instrumented in this legacy lane"
+  },
+  "footprint-peak-bytes": {
+   "available": false,
+   "reason": "footprint was not instrumented in this legacy lane"
+  }
+ },
+ "legacy": {
+  "shape": "interrupted",
+  "sourceDir": "results/qualification-integrated-2026-10-07T23-16-32-138Z-d5bec9",
+  "errorCodeInferred": false,
+  "note": "CPU counter units require calibration against getrusage; preliminary campaign excluded from selection"
+ }
+}

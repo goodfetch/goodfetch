@@ -1,0 +1,47 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://automan.local/lab/schemas/classification.schema.json",
+  "title": "Human classification of lab result runs, input of the results ledger",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "runs"],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "runs": {
+      "type": "object",
+      "additionalProperties": { "$ref": "#/$defs/entry" }
+    }
+  },
+  "$defs": {
+    "entry": {
+      "type": "object", "additionalProperties": false,
+      "required": ["role", "reason", "supersededBy", "decisionIds", "validity", "noisyHost", "rerun"],
+      "properties": {
+        "role": { "enum": ["selected", "superseded", "diagnostic", "smoke", "orchestrator"] },
+        "reason": { "type": "string", "minLength": 1 },
+        "supersededBy": { "type": ["string", "null"] },
+        "decisionIds": { "type": "array", "items": { "type": "string", "pattern": "^D-[a-z0-9-]+$" } },
+        "validity": {
+          "type": "array",
+          "items": {
+            "type": "object", "additionalProperties": false, "required": ["scope", "class", "note"],
+            "properties": {
+              "scope": { "type": "string" },
+              "class": { "enum": ["A", "B", "C", "none"] },
+              "note": { "type": "string" }
+            }
+          }
+        },
+        "noisyHost": { "type": "boolean" },
+        "rerun": {
+          "type": "object", "additionalProperties": false, "required": ["required", "priority", "hostClass"],
+          "properties": {
+            "required": { "type": "boolean" },
+            "priority": { "enum": [null, "P0", "P1", "P2"] },
+            "hostClass": { "enum": [null, "local-controlled", "reference"] }
+          }
+        }
+      }
+    }
+  }
+}

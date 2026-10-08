@@ -1,0 +1,62 @@
+{
+  "id": "D-durable-runtime",
+  "title": "Exécution durable",
+  "question": "L'admission, l'ordonnancement, les leases et la reprise tiennent-ils sous charge continue et pannes ?",
+  "kind": "technical",
+  "status": "open",
+  "options": [
+    {
+      "id": "journal-leases-epoch",
+      "description": "Journal transactionnel, leases à epoch et fencing, writer batché"
+    }
+  ],
+  "baseline": "journal-leases-epoch",
+  "primaryMetric": {
+    "metricId": "ack-latency-p95-ms",
+    "blockStatistic": "median"
+  },
+  "secondaryMetrics": [
+    "verified-jobs-per-second"
+  ],
+  "contractGates": [
+    "admission-no-loss",
+    "recovery-exact",
+    "oracle-exact"
+  ],
+  "delta": {
+    "kind": "ratio",
+    "value": 0.1
+  },
+  "rule": {
+    "kind": "non-inferiority",
+    "alpha": 0.05,
+    "power": 0.8,
+    "noisyBlockPolicy": "exclude"
+  },
+  "hostClass": {
+    "decision": "local-controlled",
+    "publication": "reference"
+  },
+  "networkProfiles": [],
+  "campaigns": [
+    "durable-admission",
+    "durable-scheduler",
+    "fault-injection"
+  ],
+  "evidence": [
+    {
+      "kind": "run",
+      "ref": "runtime-recovery-qualified-2026-10-08T00-20-09-515Z-ad3e70"
+    },
+    {
+      "kind": "run",
+      "ref": "workflow-recovery-2026-10-07T22-26-19-297Z-c40792"
+    }
+  ],
+  "verdictRef": null,
+  "adr": null,
+  "dependsOn": [
+    "D-storage"
+  ],
+  "notes": "La durabilité au-delà d'un crash de processus exige un hard reset de VM ; sans lui, le contrat est libellé crash de processus uniquement."
+}

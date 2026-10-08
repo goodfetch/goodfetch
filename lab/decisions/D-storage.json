@@ -1,0 +1,69 @@
+{
+  "id": "D-storage",
+  "title": "Stockage local et contrats d'écriture",
+  "question": "Quel sink et quel contrat d'écriture servent l'état local et les exports ?",
+  "kind": "technical",
+  "status": "decided",
+  "options": [
+    {
+      "id": "sqlite-wal-full-single-writer",
+      "description": "SQLite WAL FULL, writer unique, transactions batchées"
+    },
+    {
+      "id": "sqlite-wal-normal",
+      "description": "SQLite WAL NORMAL pour données re-dérivables"
+    },
+    {
+      "id": "jsonl-zstd",
+      "description": "JSONL compressé pour exports"
+    }
+  ],
+  "baseline": "sqlite-wal-full-single-writer",
+  "primaryMetric": {
+    "metricId": "verified-rows-per-second",
+    "blockStatistic": "ratio-of-sums"
+  },
+  "secondaryMetrics": [
+    "ack-latency-p95-ms"
+  ],
+  "contractGates": [
+    "oracle-exact",
+    "recovery-exact"
+  ],
+  "delta": {
+    "kind": "ratio",
+    "value": 0.1
+  },
+  "rule": {
+    "kind": "equivalence",
+    "alpha": 0.05,
+    "power": 0.8,
+    "noisyBlockPolicy": "exclude"
+  },
+  "hostClass": {
+    "decision": "local-controlled",
+    "publication": "reference"
+  },
+  "networkProfiles": [],
+  "campaigns": [
+    "storage-decomposed"
+  ],
+  "evidence": [
+    {
+      "kind": "run",
+      "ref": "storage-shared-contention-2026-10-07T22-23-31-093Z-8d9875"
+    },
+    {
+      "kind": "run",
+      "ref": "sqlite-readers-2026-10-08T00-25-35-434Z-92d4f3"
+    },
+    {
+      "kind": "run",
+      "ref": "storage-process-crash-2026-10-07T21-30-54-410Z-718212"
+    }
+  ],
+  "verdictRef": null,
+  "adr": null,
+  "dependsOn": [],
+  "notes": "Base décidée : writer unique, lots bornés en taille et en temps, transactions de lecture courtes, initialisation du schéma une seule fois. Les reruns servent la publication et les réglages fins."
+}

@@ -1,0 +1,17 @@
+{
+  "id": "C-replay-without-llm",
+  "statement": "Un plan compilé se rejoue sans appel de modèle tant qu'aucune dérive n'est détectée.",
+  "decisionId": "D-ai-layer",
+  "metricId": "llm-calls-per-verified-task",
+  "comparator": {
+    "option": "compiled-replay",
+    "against": [
+      "agent-each-run"
+    ]
+  },
+  "direction": "zero",
+  "publicationHostClass": "local-controlled",
+  "status": "candidate",
+  "evidence": [],
+  "notes": ""
+}

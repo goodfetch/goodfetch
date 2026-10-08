@@ -1,0 +1,36 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://automan.local/lab/schemas/ledger.schema.json",
+  "title": "Automan lab results ledger, generated from imported runs and their classification",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "classificationSha256", "entries"],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "classificationSha256": { "type": "string" },
+    "entries": {
+      "type": "array",
+      "items": {
+        "type": "object", "additionalProperties": false,
+        "required": ["runId", "lane", "campaign", "startedAt", "status", "hostClass", "role", "supersededBy", "reason", "validity", "decisionIds", "citedIn", "integrity", "rerun", "imported"],
+        "properties": {
+          "runId": { "type": "string" },
+          "lane": { "type": "string" },
+          "campaign": { "type": "string" },
+          "startedAt": { "type": "string" },
+          "status": { "enum": ["complete", "aborted", "invalid-provenance", "noisy-host", "interrupted"] },
+          "hostClass": { "enum": ["local-dev", "local-controlled", "reference"] },
+          "role": { "enum": ["selected", "superseded", "diagnostic", "smoke", "orchestrator"] },
+          "supersededBy": { "type": ["string", "null"] },
+          "reason": { "type": "string" },
+          "validity": { "type": "array", "items": { "type": "object" } },
+          "decisionIds": { "type": "array", "items": { "type": "string" } },
+          "citedIn": { "type": "array", "items": { "type": "string" } },
+          "integrity": { "enum": ["verified", "mismatch", "uncatalogued"] },
+          "rerun": { "type": "object" },
+          "imported": { "type": "string" }
+        }
+      }
+    }
+  }
+}

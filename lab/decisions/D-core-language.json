@@ -1,0 +1,80 @@
+{
+  "id": "D-core-language",
+  "title": "Langage du noyau portable",
+  "question": "Quel runtime porte le noyau d'exécution durable (acquisition, validation, écriture, reprise) ?",
+  "kind": "technical",
+  "status": "open",
+  "options": [
+    {
+      "id": "rust-tokio",
+      "description": "Noyau Rust/Tokio natif",
+      "adapters": [
+        "workflow-rust"
+      ]
+    },
+    {
+      "id": "node",
+      "description": "Noyau Node/TypeScript",
+      "adapters": [
+        "workflow-node"
+      ]
+    },
+    {
+      "id": "go",
+      "description": "Noyau Go (témoin)"
+    }
+  ],
+  "baseline": "node",
+  "primaryMetric": {
+    "metricId": "cpu-ms-per-verified-job",
+    "blockStatistic": "ratio-of-sums"
+  },
+  "secondaryMetrics": [
+    "verified-jobs-per-second",
+    "footprint-peak-bytes",
+    "pss-peak-bytes",
+    "ack-latency-p95-ms"
+  ],
+  "contractGates": [
+    "oracle-exact",
+    "recovery-exact"
+  ],
+  "delta": {
+    "kind": "ratio",
+    "value": 0.1
+  },
+  "rule": {
+    "kind": "superiority",
+    "alpha": 0.05,
+    "power": 0.8,
+    "noisyBlockPolicy": "exclude"
+  },
+  "hostClass": {
+    "decision": "local-controlled",
+    "publication": "reference"
+  },
+  "networkProfiles": [],
+  "campaigns": [
+    "runtime-native-capacity",
+    "runtime-native-recovery"
+  ],
+  "evidence": [
+    {
+      "kind": "run",
+      "ref": "runtime-native-qualified-2026-10-08T00-11-54-841Z-789d5e",
+      "note": "pilote relatif, hôte partagé"
+    },
+    {
+      "kind": "run",
+      "ref": "runtime-recovery-qualified-2026-10-08T00-20-09-515Z-ad3e70"
+    },
+    {
+      "kind": "run",
+      "ref": "storage-shared-checkpoint-2026-10-07T22-24-20-072Z-de4c14"
+    }
+  ],
+  "verdictRef": null,
+  "adr": "docs/adr/0001-runtime-language.md",
+  "dependsOn": [],
+  "notes": "Débit attendu proche entre runtimes quand le travail attend le réseau ; le critère principal est donc le coût CPU par job vérifié, avec mémoire en métrique secondaire. Exiger un profil sans délai serveur pour ne pas masquer l'écart de calcul."
+}

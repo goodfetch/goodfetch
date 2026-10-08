@@ -1,0 +1,58 @@
+{
+  "id": "D-ai-layer",
+  "title": "Couche IA, compilation et réparation",
+  "question": "Le rejeu de plans compilés et la réparation bornée réduisent-ils le coût par tâche vérifiée sans faux succès ?",
+  "kind": "technical",
+  "status": "open",
+  "options": [
+    {
+      "id": "compiled-replay",
+      "description": "Découverte LLM puis plan compilé rejoué sans LLM, réparation bornée"
+    },
+    {
+      "id": "agent-each-run",
+      "description": "Agent LLM à chaque run"
+    }
+  ],
+  "baseline": "agent-each-run",
+  "primaryMetric": {
+    "metricId": "usd-per-1k-verified",
+    "blockStatistic": "ratio-of-sums"
+  },
+  "secondaryMetrics": [
+    "llm-calls-per-verified-task",
+    "tokens-per-verified-task",
+    "pass-k"
+  ],
+  "contractGates": [
+    "false-success-count",
+    "oracle-exact"
+  ],
+  "delta": {
+    "kind": "ratio",
+    "value": 0.2
+  },
+  "rule": {
+    "kind": "superiority",
+    "alpha": 0.05,
+    "power": 0.8,
+    "noisyBlockPolicy": "exclude"
+  },
+  "hostClass": {
+    "decision": "local-controlled",
+    "publication": "reference"
+  },
+  "networkProfiles": [],
+  "campaigns": [
+    "ai-replay-repair",
+    "agentic-comparison",
+    "silent-drift"
+  ],
+  "evidence": [],
+  "verdictRef": null,
+  "adr": null,
+  "dependsOn": [
+    "D-browser-driver"
+  ],
+  "notes": "Faux provider d'abord pour les contrats et les budgets, puis modèles réels avec plafond de coût déclaré par campagne."
+}

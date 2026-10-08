@@ -1,3 +1,4 @@
+import { sqliteLibrary } from '../registry.ts';
 // Lane drivers and the generic lane engine: each lane keeps its own cell executor and oracle,
 // the engine adds provenance, host gates, randomized blocks, typed statuses and a run.v2 document.
 import { appendFile } from 'node:fs/promises';
@@ -53,7 +54,7 @@ export const drivers: Record<LaneName, LaneDriver> = {
     validate: config => { const c = config as RuntimeCampaign; if (!c || !/^[a-z0-9-]{1,80}$/.test(c.name) || !integer(c.blocks, 1, 20) || !integer(c.seed, 0, 2 ** 32 - 1) || !Array.isArray(c.cells) || !c.cells.length) throw new Error('invalid runtime campaign'); },
     blocks: config => (config as RuntimeCampaign).blocks, seed: config => (config as RuntimeCampaign).seed,
     combinations: config => (config as RuntimeCampaign).cells.map((cell, index) => ({ ...cell, index }) as Json), label: cell => `cell-${cell.index}`,
-    prepare: () => nativeHashes(['libautoman_sqlite.dylib', 'sqlite.node', 'automan-workflow-rust', 'process-probe']),
+    prepare: () => nativeHashes([sqliteLibrary, 'sqlite.node', 'automan-workflow-rust', 'process-probe']),
     runCell: (config, cell, block, directory) => runRuntimeCell(config as RuntimeCampaign, Number(cell.index), block, directory),
     binaryChanges: async (_config, before) => { const after = await nativeHashes(Object.keys(before as Record<string, string>)); return Object.entries(before as Record<string, string>).filter(([file, hash]) => after[file] !== hash).length; }
   },
@@ -97,7 +98,7 @@ export const drivers: Record<LaneName, LaneDriver> = {
     combinations: config => readersMatrix(config as ReadersConfig).map((cell, index) => ({ ...cell, index }) as Json), label: cell => `cell-${cell.index}`,
     prepare: () => sharedBuildMetadata(),
     runCell: (config, cell, block, directory) => runReadersCell(config as ReadersConfig, Number(cell.index), block, directory),
-    binaryChanges: async (_config, before) => (await sharedBuildMetadata()).hashes['libautoman_sqlite.dylib'] !== (before as Awaited<ReturnType<typeof sharedBuildMetadata>>).hashes['libautoman_sqlite.dylib'] ? 1 : 0
+    binaryChanges: async (_config, before) => (await sharedBuildMetadata()).hashes[sqliteLibrary] !== (before as Awaited<ReturnType<typeof sharedBuildMetadata>>).hashes[sqliteLibrary] ? 1 : 0
   }
 };
 

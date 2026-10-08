@@ -1,3 +1,4 @@
+import { sqliteLibrary } from './registry.ts';
 import {mkdtemp,mkdir,writeFile,stat} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
@@ -36,7 +37,7 @@ export async function runReaderExperiment(config:ReaderConfig){
     if(config.readerMode==='held'&&(oldSnapshotRows!==0||Number(passiveCheckpoint.log)<=Number(passiveCheckpoint.checkpointed)))throw new Error('held snapshot did not prevent checkpoint progress');
     if(truncateCheckpoint.busy!==0||truncateCheckpoint.log!==0||truncateCheckpoint.checkpointed!==0||walAfterTruncateBytes!==0)throw new Error('checkpoint did not truncate after readers released');
     if(reads.some((r,i)=>r.rows>config.batches*config.batchRows||(i>0&&r.rows<reads[i-1]!.rows)))throw new Error('non-monotonic reader publication');
-    const result={config,buildSha256:build.hashes['libautoman_sqlite.dylib'],verdict,startupMs,writeMs,passiveCheckpointMs,truncateCheckpointMs,drainMs,oracleMs,totalMs:performance.now()-started,verifiedRowsPerSecond:verdict.status==='verified'?verdict.persistedRows*1000/writeMs:0,ackLatencyMs:quantiles(acks.map(a=>a.rpcMs)),oldSnapshotRows,passiveCheckpoint,truncateCheckpoint,walBeforeReleaseBytes,walAfterTruncateBytes,resources,readerSnapshots:reads.length};
+    const result={config,buildSha256:build.hashes[sqliteLibrary],verdict,startupMs,writeMs,passiveCheckpointMs,truncateCheckpointMs,drainMs,oracleMs,totalMs:performance.now()-started,verifiedRowsPerSecond:verdict.status==='verified'?verdict.persistedRows*1000/writeMs:0,ackLatencyMs:quantiles(acks.map(a=>a.rpcMs)),oldSnapshotRows,passiveCheckpoint,truncateCheckpoint,walBeforeReleaseBytes,walAfterTruncateBytes,resources,readerSnapshots:reads.length};
     await writeFile(join(directory,'summary.json'),JSON.stringify(result,null,2)+'\n');await writeFile(join(directory,'acks.jsonl'),acks.map(a=>JSON.stringify(a)).join('\n')+'\n');await writeFile(join(directory,'reads.jsonl'),reads.map(r=>JSON.stringify(r)).join('\n')+'\n');return {...result,directory};
   }finally{stopped=true;if(readerTimer)clearInterval(readerTimer);await reading?.catch(()=>{});if(reader){try{if(config.readerMode==='held')reader.exec('ROLLBACK')}catch{}reader.close()}control?.close();await Promise.all(workers.map(w=>w.close()));await sampler.stop()}
 }

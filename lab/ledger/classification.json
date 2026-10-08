@@ -2979,6 +2979,32 @@
         "priority": null,
         "hostClass": null
       }
+    },
+    "ai-real-models-2026-10-08T22-15-04-120Z-d70ce2": {
+      "role": "selected",
+      "reason": "couche IA avec trois vrais modèles par la passerelle Vercel AI : agent à chaque exécution contre rejeu compilé, dérive silencieuse",
+      "supersededBy": null,
+      "decisionIds": [
+        "D-ai-layer"
+      ],
+      "validity": [
+        {
+          "scope": "replay-contract",
+          "class": "A",
+          "note": "zéro faux succès sur trois modèles"
+        },
+        {
+          "scope": "cost",
+          "class": "A",
+          "note": "coût de la passerelle recoupé avec un instantané daté des prix"
+        }
+      ],
+      "noisyHost": false,
+      "rerun": {
+        "required": false,
+        "priority": null,
+        "hostClass": null
+      }
     }
   }
 }

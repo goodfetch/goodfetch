@@ -1430,6 +1430,161 @@
         "priority": null,
         "hostClass": null
       }
+    },
+    "browser-driver-rtt-0-2026-10-08T12-39-53-109Z-63890b": {
+      "role": "selected",
+      "reason": "pilotes navigateur sur le navigateur du harnais, lien driver-browser à 0 ms ; bloc 0 bruité, exclu par la règle",
+      "supersededBy": null,
+      "decisionIds": [
+        "D-browser-driver"
+      ],
+      "validity": [
+        {
+          "scope": "contracts",
+          "class": "A",
+          "note": "toutes les tâches vérifiées par l'oracle"
+        },
+        {
+          "scope": "relative",
+          "class": "B",
+          "note": "blocs appariés sur Mac au repos, seuils local-controlled ajustés le 8 octobre"
+        },
+        {
+          "scope": "absolute",
+          "class": "C",
+          "note": "chiffres absolus non publiables avant l'hôte de référence"
+        }
+      ],
+      "noisyHost": true,
+      "rerun": {
+        "required": true,
+        "priority": "P1",
+        "hostClass": "reference"
+      }
+    },
+    "browser-driver-rtt-20-2026-10-08T12-50-54-854Z-96969e": {
+      "role": "selected",
+      "reason": "pilotes navigateur, lien driver-browser à 20 ms",
+      "supersededBy": null,
+      "decisionIds": [
+        "D-browser-driver"
+      ],
+      "validity": [
+        {
+          "scope": "contracts",
+          "class": "A",
+          "note": "toutes les tâches vérifiées par l'oracle"
+        },
+        {
+          "scope": "relative",
+          "class": "B",
+          "note": "blocs appariés sur Mac au repos, seuils local-controlled ajustés le 8 octobre"
+        },
+        {
+          "scope": "absolute",
+          "class": "C",
+          "note": "chiffres absolus non publiables avant l'hôte de référence"
+        }
+      ],
+      "noisyHost": false,
+      "rerun": {
+        "required": true,
+        "priority": "P1",
+        "hostClass": "reference"
+      }
+    },
+    "browser-driver-rtt-100-2026-10-08T13-14-24-301Z-331916": {
+      "role": "selected",
+      "reason": "pilotes navigateur, lien driver-browser à 100 ms",
+      "supersededBy": null,
+      "decisionIds": [
+        "D-browser-driver"
+      ],
+      "validity": [
+        {
+          "scope": "contracts",
+          "class": "A",
+          "note": "toutes les tâches vérifiées par l'oracle"
+        },
+        {
+          "scope": "relative",
+          "class": "B",
+          "note": "blocs appariés sur Mac au repos, seuils local-controlled ajustés le 8 octobre"
+        },
+        {
+          "scope": "absolute",
+          "class": "C",
+          "note": "chiffres absolus non publiables avant l'hôte de référence"
+        }
+      ],
+      "noisyHost": false,
+      "rerun": {
+        "required": true,
+        "priority": "P1",
+        "hostClass": "reference"
+      }
+    },
+    "browser-driver-rtt-300-2026-10-08T14-00-36-292Z-657a67": {
+      "role": "selected",
+      "reason": "pilotes navigateur, lien driver-browser à 300 ms",
+      "supersededBy": null,
+      "decisionIds": [
+        "D-browser-driver"
+      ],
+      "validity": [
+        {
+          "scope": "contracts",
+          "class": "A",
+          "note": "toutes les tâches vérifiées par l'oracle"
+        },
+        {
+          "scope": "relative",
+          "class": "B",
+          "note": "blocs appariés sur Mac au repos, seuils local-controlled ajustés le 8 octobre"
+        },
+        {
+          "scope": "absolute",
+          "class": "C",
+          "note": "chiffres absolus non publiables avant l'hôte de référence"
+        }
+      ],
+      "noisyHost": false,
+      "rerun": {
+        "required": true,
+        "priority": "P1",
+        "hostClass": "reference"
+      }
+    },
+    "runtime-native-capacity-2026-10-08T12-46-38-910Z-83d7e0": {
+      "role": "selected",
+      "reason": "capacité du runtime durable, strate de décision (16 jobs concurrents, lots de 1), Node contre Rust",
+      "supersededBy": null,
+      "decisionIds": [
+        "D-core-language"
+      ],
+      "validity": [
+        {
+          "scope": "contracts",
+          "class": "A",
+          "note": "jobs vérifiés et commités"
+        },
+        {
+          "scope": "relative",
+          "class": "B",
+          "note": "huit blocs appariés sur Mac au repos, seuils local-controlled ajustés"
+        },
+        {
+          "scope": "absolute",
+          "class": "C",
+          "note": "chiffres absolus non publiables avant l'hôte de référence"
+        }
+      ],
+      "noisyHost": false,
+      "rerun": {
+        "required": true,
+        "priority": "P1",
+        "hostClass": "reference"
+      }
     }
   }
 }

@@ -1,0 +1,1 @@
+(()=>{const deepAll=__DEEP__;const el=deepAll(__SELECTOR__)[0];if(!el)throw new Error('no frame for selector');const box=el.getBoundingClientRect();return {x:box.x+el.clientLeft,y:box.y+el.clientTop}})()

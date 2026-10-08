@@ -3,7 +3,7 @@
 import { readFileSync } from 'node:fs';
 
 const read = (name: string) => readFileSync(new URL(`./${name}`, import.meta.url), 'utf8').trim();
-const templates = { deep: read('deep.js'), wait: read('wait.js'), guard: read('guard.js'), point: read('point.js'), focus: read('focus.js'), select: read('select.js'), arm: read('arm.js') };
+const templates = { deep: read('deep.js'), wait: read('wait.js'), guard: read('guard.js'), point: read('point.js'), focus: read('focus.js'), select: read('select.js'), arm: read('arm.js'), frameOffset: read('frame-offset.js') };
 const conditionTemplates = JSON.parse(read('conditions.json')) as Record<string, string>;
 const fill = (template: string, values: Record<string, string>) => Object.entries(values).reduce((text, [key, value]) => text.split(`__${key}__`).join(value), template);
 
@@ -22,5 +22,6 @@ export const waitScript = (conditionText: string, timeoutMs: number) => fill(tem
 export const guardScript = (selector: string, timeoutMs: number) => fill(templates.guard, { DEEP: templates.deep, TIMEOUT: String(timeoutMs), SELECTOR: JSON.stringify(selector) });
 export const pointScript = (selector: string) => fill(templates.point, { DEEP: templates.deep, SELECTOR: JSON.stringify(selector) });
 export const armScript = (selector: string, types: readonly string[]) => fill(templates.arm, { DEEP: templates.deep, SELECTOR: JSON.stringify(selector), TYPES: JSON.stringify(types) });
+export const frameOffsetScript = (selector: string) => fill(templates.frameOffset, { DEEP: templates.deep, SELECTOR: JSON.stringify(selector) });
 export const focusScript = (selector: string) => fill(templates.focus, { DEEP: templates.deep, SELECTOR: JSON.stringify(selector) });
 export const selectScript = (selector: string, value: string) => fill(templates.select, { DEEP: templates.deep, SELECTOR: JSON.stringify(selector), VALUE: JSON.stringify(value) });

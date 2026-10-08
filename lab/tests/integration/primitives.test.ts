@@ -36,3 +36,26 @@ test('Playwright performs every primitive with its native guarantees', async () 
   const rows = await primitives('playwright', 'native');
   assert.deepEqual(rows.filter(row => row.status !== 'verified').map(row => [row.variant, row.reasons]), []);
 });
+
+const navigationVariants = ['spa', 'history', 'popup', 'frame', 'cross-frame', 'upload', 'download'];
+async function navigation(backend: 'node-cdp' | 'rust-cdp') {
+  const fixtures = await startFixtures(); const worker = new WorkerClient(commandFor(backend, 20_000, browserPath()));
+  const rows: { variant: string; status: string; reasons: string[]; cdpCommands?: number }[] = [];
+  try {
+    await worker.call('hello', {}); await worker.call('prepare', { executablePath: browserPath(), headless: true }, 45_000);
+    for (const variant of navigationVariants) {
+      const fixture = await fixtures.createRun({ scenario: 'navigation', seed: 3, variant: variant as never });
+      try {
+        const output = await worker.call('run', { scenario: 'navigation', seed: 3, pages: 1, actions: 1, timeoutMs: 3000, variant, actionPolicy: 'guarded', url: fixture.url }) as { metrics?: Record<string, number> };
+        rows.push({ variant, ...(await fixtures.verify(fixture.id, output as never)), cdpCommands: output.metrics?.cdpCommands });
+      } catch (error) { rows.push({ variant, status: 'failed', reasons: [String(error)] }); }
+    }
+  } finally { await worker.close(); await fixtures.close(); }
+  return rows;
+}
+
+test('guarded CDP drivers handle SPA routes, history, popups, same- and cross-origin frames, uploads and downloads with equal command counts', { skip: !rustBuilt && 'run pnpm bootstrap to build adapters/cdp-rust' }, async () => {
+  const [node, rust] = [await navigation('node-cdp'), await navigation('rust-cdp')];
+  for (const rows of [node, rust]) assert.deepEqual(rows.filter(row => row.status !== 'verified').map(row => [row.variant, row.reasons]), []);
+  assert.deepEqual(rust.map(row => [row.variant, row.cdpCommands]), node.map(row => [row.variant, row.cdpCommands]));
+});

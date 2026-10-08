@@ -1,6 +1,6 @@
 {
  "schemaVersion": 1,
- "classificationSha256": "d2202c5f75dc3ab2d38d16dadd96fe44a6a4c4fa7a5fe1cc607c1276e6a51fed",
+ "classificationSha256": "fc8df1bdaecac4ab49ee4c1ddedf9631b7cc0e576456a7b1270246e8b0e91971",
  "entries": [
   {
    "runId": "smoke-2026-10-07T20-20-24-226Z-9ebb47",
@@ -1947,8 +1947,8 @@
    "startedAt": "2026-10-08T12:05:27.529Z",
    "status": "complete",
    "hostClass": "local-dev",
-   "role": "selected",
-   "supersededBy": null,
+   "role": "superseded",
+   "supersededBy": "browser-actionability-extended-2026-10-08T16-46-59-186Z-c5a02a",
    "reason": "matrice d'actionnabilité étendue aux pilotes CDP, garde v2 avec échantillonnage par frame ou timer",
    "validity": [
     {
@@ -1978,8 +1978,8 @@
    "startedAt": "2026-10-08T12:14:55.485Z",
    "status": "complete",
    "hostClass": "local-dev",
-   "role": "selected",
-   "supersededBy": null,
+   "role": "superseded",
+   "supersededBy": "browser-driver-primitives-2026-10-08T16-56-23-563Z-6a0bbd",
    "reason": "dix primitives, garde v2 : interception au moment du geste",
    "validity": [
     {
@@ -2439,6 +2439,130 @@
     "hostClass": null
    },
    "imported": "results/runtime-http-backends-2026-10-08T15-59-18-771Z-0e28ae/run.v2.json"
+  },
+  {
+   "runId": "browser-navigation-frames-files-2026-10-08T16-26-23-841Z-410d88",
+   "lane": "actionability",
+   "campaign": "browser-navigation-frames-files",
+   "startedAt": "2026-10-08T16:26:23.841Z",
+   "status": "complete",
+   "hostClass": "local-dev",
+   "role": "diagnostic",
+   "supersededBy": null,
+   "reason": "première matrice de navigation : clics perdus vers l'iframe hors processus, pilotes sans capacité comptés en échec",
+   "validity": [
+    {
+     "scope": "all",
+     "class": "none",
+     "note": "défauts du pilote et de la lane, corrigés"
+    }
+   ],
+   "decisionIds": [
+    "D-browser-driver"
+   ],
+   "citedIn": [
+    "lab/reports/browser-driver-contracts-2026-10-08.md"
+   ],
+   "integrity": "uncatalogued",
+   "rerun": {
+    "required": false,
+    "priority": null,
+    "hostClass": null
+   },
+   "imported": "results/browser-navigation-frames-files-2026-10-08T16-26-23-841Z-410d88/run.v2.json"
+  },
+  {
+   "runId": "browser-navigation-frames-files-2026-10-08T16-44-06-166Z-d35973",
+   "lane": "actionability",
+   "campaign": "browser-navigation-frames-files",
+   "startedAt": "2026-10-08T16:44:06.166Z",
+   "status": "complete",
+   "hostClass": "local-dev",
+   "role": "selected",
+   "supersededBy": null,
+   "reason": "matrice navigation, iframes et fichiers : SPA, historique, popup, iframes de même origine et d'une autre origine, envoi et téléchargement",
+   "validity": [
+    {
+     "scope": "navigation-conformance",
+     "class": "A",
+     "note": "quatre pilotes 21/21 en natif et en gardé ; Stagehand et Crawlee non pris en charge"
+    }
+   ],
+   "decisionIds": [
+    "D-browser-driver"
+   ],
+   "citedIn": [
+    "lab/reports/browser-driver-contracts-2026-10-08.md"
+   ],
+   "integrity": "uncatalogued",
+   "rerun": {
+    "required": false,
+    "priority": null,
+    "hostClass": null
+   },
+   "imported": "results/browser-navigation-frames-files-2026-10-08T16-44-06-166Z-d35973/run.v2.json"
+  },
+  {
+   "runId": "browser-actionability-extended-2026-10-08T16-46-59-186Z-c5a02a",
+   "lane": "actionability",
+   "campaign": "browser-actionability-extended",
+   "startedAt": "2026-10-08T16:46:59.186Z",
+   "status": "complete",
+   "hostClass": "local-dev",
+   "role": "selected",
+   "supersededBy": null,
+   "reason": "matrice d'actionnabilité étendue, garde v2 avec détection des gestes perdus",
+   "validity": [
+    {
+     "scope": "guarded-conformance",
+     "class": "A",
+     "note": "tous les pilotes gardés 27/27"
+    }
+   ],
+   "decisionIds": [
+    "D-browser-driver"
+   ],
+   "citedIn": [
+    "lab/reports/browser-driver-contracts-2026-10-08.md"
+   ],
+   "integrity": "uncatalogued",
+   "rerun": {
+    "required": false,
+    "priority": null,
+    "hostClass": null
+   },
+   "imported": "results/browser-actionability-extended-2026-10-08T16-46-59-186Z-c5a02a/run.v2.json"
+  },
+  {
+   "runId": "browser-driver-primitives-2026-10-08T16-56-23-563Z-6a0bbd",
+   "lane": "actionability",
+   "campaign": "browser-driver-primitives",
+   "startedAt": "2026-10-08T16:56:23.563Z",
+   "status": "complete",
+   "hostClass": "local-dev",
+   "role": "selected",
+   "supersededBy": null,
+   "reason": "dix primitives, garde v2 avec détection des gestes perdus",
+   "validity": [
+    {
+     "scope": "primitives-conformance",
+     "class": "A",
+     "note": "pilotes gardés et Playwright natif 30/30"
+    }
+   ],
+   "decisionIds": [
+    "D-browser-driver"
+   ],
+   "citedIn": [
+    "lab/reports/browser-driver-contracts-2026-10-08.md"
+   ],
+   "integrity": "uncatalogued",
+   "rerun": {
+    "required": false,
+    "priority": null,
+    "hostClass": null
+   },
+   "imported": "results/browser-driver-primitives-2026-10-08T16-56-23-563Z-6a0bbd/run.v2.json"
   }
  ]
 }

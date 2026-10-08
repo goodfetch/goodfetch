@@ -6,5 +6,7 @@
   "count": "document.querySelector('#count').textContent==='__N__'",
   "submit-enabled": "!__ROOT__.querySelector('#submit').disabled",
   "saved": "document.querySelector('#saved').textContent==='saved'",
-  "done": "document.querySelector('#done').textContent==='done'"
+  "done": "document.querySelector('#done').textContent==='done'",
+  "frame-loaded": "document.querySelector('#frame').dataset.loaded==='true'",
+  "page-b": "location.pathname.endsWith('/page-b') && document.body.dataset.ready==='true'"
 }

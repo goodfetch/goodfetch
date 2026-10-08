@@ -1,5 +1,5 @@
 // Port of runBrowserTask (adapters/node/browser-tasks.ts): same steps, same scripts, same metrics.
-use crate::cdp::Page;
+use crate::cdp::{Frame, Page, upload_file};
 use crate::scripts;
 use serde_json::{Map, Value, json};
 use std::time::{Duration, Instant};
@@ -55,9 +55,45 @@ async fn gesture(page: &mut Page, selector: &str, kind: Gesture<'_>, guarded: bo
 
 // The drivers' own copy of the unicode variant text (the fixture keeps the oracle's copy).
 const UNICODE_TEXT: &str = "Ünïcødé — 漢字 😀";
+const UPLOAD_TEXT: &str = "automan-upload\n";
 
 fn ms(since: Instant) -> f64 {
     since.elapsed().as_secs_f64() * 1000.0
+}
+
+// Inside a popup: same readiness, guarded click and postcondition as on the main page.
+async fn confirm_page(page: &mut Page, guarded: bool, timeout: u64, operations: &mut u64) -> Result<(), String> {
+    page.evaluate(&scripts::wait(&scripts::condition("body-ready", &[]), timeout)).await?;
+    gesture(page, "#confirm", Gesture::Click, guarded, timeout, operations).await?;
+    page.evaluate(&scripts::wait(&scripts::condition("done", &[]), timeout)).await?;
+    Ok(())
+}
+
+// Inside a frame: the gesture loop runs in the frame's context, input goes through the page.
+async fn confirm_frame(page: &mut Page, frame: &Frame, guarded: bool, timeout: u64, operations: &mut u64) -> Result<(), String> {
+    page.frame_evaluate(frame, &scripts::wait(&scripts::condition("body-ready", &[]), timeout)).await?;
+    if guarded {
+        let deadline = Instant::now() + Duration::from_millis(timeout);
+        loop {
+            let remaining = deadline.saturating_duration_since(Instant::now()).as_secs_f64() * 1000.0;
+            page.frame_evaluate(frame, &scripts::guard("#confirm", (remaining.round() as u64).max(50))).await?;
+            *operations += 1;
+            page.frame_evaluate(frame, &scripts::arm("#confirm", scripts::CLICK_EVENTS)).await?;
+            page.frame_click(frame, "#confirm").await?;
+            let intercepted = page.frame_evaluate(frame, scripts::DISARM.trim()).await?;
+            *operations += 2;
+            if intercepted.is_null() {
+                break;
+            }
+            if Instant::now() >= deadline {
+                return Err(format!("gesture intercepted: {}", intercepted.as_str().unwrap_or("?")));
+            }
+        }
+    } else {
+        page.frame_click(frame, "#confirm").await?;
+    }
+    page.frame_evaluate(frame, &scripts::wait(&scripts::condition("done", &[]), timeout)).await?;
+    Ok(())
 }
 
 pub async fn run(page: &mut Page, task: &Value) -> Result<Value, String> {
@@ -145,6 +181,58 @@ pub async fn run(page: &mut Page, task: &Value) -> Result<Value, String> {
             page.evaluate(&scripts::wait(&scripts::condition("done", &[]), timeout)).await?;
         }
         return Ok(json!({"status": "ok", "metrics": {"nativeRejected": native_rejected, "actionMs": action_ms, "taskMs": ms(start)}}));
+    }
+    if scenario == "navigation" {
+        page.evaluate(&scripts::wait(&scripts::condition("body-ready", &[]), timeout)).await?;
+        let wait_done = |target: &str| scripts::wait(&scripts::condition(target, &[]), timeout);
+        let mut file: Option<String> = None;
+        match variant {
+            "spa" => {
+                gesture(page, "#go", Gesture::Click, guarded_policy, timeout, &mut operations).await?;
+                page.evaluate(&wait_done("done")).await?;
+            }
+            "history" => {
+                page.goto(&url.replace("/ui", "/page-b")).await?;
+                page.evaluate(&wait_done("page-b")).await?;
+                page.go_back().await?;
+                page.evaluate(&wait_done("done")).await?;
+            }
+            "popup" => {
+                if guarded_policy {
+                    page.evaluate(&scripts::guard("#open", timeout)).await?;
+                }
+                let mut popup = page.open_popup("#open").await?;
+                let confirmed = confirm_page(&mut popup, guarded_policy, timeout, &mut operations).await;
+                let closed = page.close_popup(popup).await;
+                confirmed?;
+                closed?;
+            }
+            "frame" | "cross-frame" => {
+                page.evaluate(&wait_done("frame-loaded")).await?;
+                let frame = page.frame("#frame").await?;
+                confirm_frame(page, &frame, guarded_policy, timeout, &mut operations).await?;
+            }
+            "upload" => {
+                let path = upload_file(UPLOAD_TEXT)?;
+                if guarded_policy {
+                    page.evaluate(&scripts::guard("#file", timeout)).await?;
+                }
+                page.upload("#file", &path).await?;
+                page.evaluate(&wait_done("done")).await?;
+            }
+            "download" => {
+                if guarded_policy {
+                    page.evaluate(&scripts::guard("#file", timeout)).await?;
+                }
+                file = Some(page.download("#file").await?);
+            }
+            other => return Err(format!("unknown navigation variant {other}")),
+        }
+        let mut output = json!({"status": "ok", "metrics": {"taskMs": ms(start)}});
+        if let Some(text) = file {
+            output["file"] = json!(text);
+        }
+        return Ok(output);
     }
     if scenario == "download" {
         return Ok(json!({"status": "unsupported", "reason": "download events not yet qualified on this adapter"}));

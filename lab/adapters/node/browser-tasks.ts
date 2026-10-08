@@ -1,3 +1,6 @@
+import { mkdtemp, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import type { AdapterOutput, Task } from '../../src/worker-server.ts';
 import { waitScript, guardScript, armScript, disarmScript, gestureEvents, condition, recordsScript, nextScript, snapshotScript } from '../browser-scripts/scripts.ts';
 
@@ -15,9 +18,16 @@ export interface BrowserPage {
   drag?(from: string, to: string): Promise<void>;
   wheel?(selector: string, deltaY: number): Promise<void>;
   press?(selector: string, key: 'Enter'): Promise<void>;
+  // Navigation, frames and files; popups and frames are handed to the task as pages of their own.
+  goBack?(): Promise<void>;
+  withPopup?(trigger: string, act: (popup: BrowserPage) => Promise<void>): Promise<void>;
+  withFrame?(frame: string, act: (frame: BrowserPage) => Promise<void>): Promise<void>;
+  upload?(selector: string, path: string): Promise<void>;
+  download?(selector: string): Promise<string>;
 }
 // The drivers' own copy of the unicode variant text (the fixture keeps the oracle's copy).
 export const unicodeText = 'Ünïcødé — 漢字 😀';
+export const uploadText = 'automan-upload\n';
 const primitiveNegatives = ['retarget'];
 export { waitScript } from '../browser-scripts/scripts.ts';
 // The Automan guard: bounded strictness, visibility, enabled, stability and hit-test checks, shadow DOM included.
@@ -28,13 +38,14 @@ export async function runBrowserTask(page: BrowserPage, task: Task, alreadyNavig
   const guarded = async (selector: string) => { if (task.actionPolicy === 'guarded') { await page.evaluate(guardScript(selector, task.timeoutMs)); operations++; } };
   // Guarded gestures also arm a capture listener on the verified element: an event reaching anything else is cancelled
   // and the gesture retried, so a page that moves or swaps the target as the pointer arrives cannot redirect it.
-  const gesture = async (selector: string, types: readonly string[], perform: () => Promise<void>) => {
+  const gesture = (selector: string, types: readonly string[], perform: () => Promise<void>) => gestureOn(page, selector, types, perform);
+  const gestureOn = async (target: BrowserPage, selector: string, types: readonly string[], perform: () => Promise<void>) => {
     if (task.actionPolicy !== 'guarded') return perform();
     const deadline = performance.now() + task.timeoutMs;
     for (;;) {
-      await page.evaluate(guardScript(selector, Math.max(50, Math.round(deadline - performance.now())))); operations++;
-      await page.evaluate(armScript(selector, types)); await perform();
-      const intercepted = await page.evaluate<string | null>(disarmScript); operations += 2;
+      await target.evaluate(guardScript(selector, Math.max(50, Math.round(deadline - performance.now())))); operations++;
+      await target.evaluate(armScript(selector, types)); await perform();
+      const intercepted = await target.evaluate<string | null>(disarmScript); operations += 2;
       if (!intercepted) return;
       if (performance.now() >= deadline) throw new Error(`gesture intercepted: ${intercepted}`);
     }
@@ -73,6 +84,29 @@ export async function runBrowserTask(page: BrowserPage, task: Task, alreadyNavig
     const actionMs = performance.now() - began;
     if (!negative) await page.evaluate(waitScript(condition('done'), task.timeoutMs));
     return { status: 'ok', metrics: { nativeRejected, actionMs, taskMs: performance.now() - start } };
+  }
+  if (task.scenario === 'navigation') {
+    const required: Record<string, unknown> = { history: page.goBack, popup: page.withPopup, frame: page.withFrame, 'cross-frame': page.withFrame, upload: page.upload, download: page.download };
+    if (task.variant in required && !required[task.variant]) return { status: 'unsupported', reason: `${task.variant} not implemented by this driver` };
+    await page.evaluate(waitScript(condition('body-ready'), task.timeoutMs));
+    // Inside a popup or a frame: same readiness, guarded gesture and postcondition as on the main page.
+    const confirm = async (target: BrowserPage) => {
+      await target.evaluate(waitScript(condition('body-ready'), task.timeoutMs));
+      await gestureOn(target, '#confirm', gestureEvents.click, () => target.click('#confirm'));
+      await target.evaluate(waitScript(condition('done'), task.timeoutMs));
+    };
+    let file: string | undefined;
+    if (task.variant === 'spa') { await gesture('#go', gestureEvents.click, () => page.click('#go')); await page.evaluate(waitScript(condition('done'), task.timeoutMs)); }
+    else if (task.variant === 'history') { await page.goto(task.url.replace('/ui', '/page-b')); await page.evaluate(waitScript(condition('page-b'), task.timeoutMs)); await page.goBack!(); await page.evaluate(waitScript(condition('done'), task.timeoutMs)); }
+    else if (task.variant === 'popup') { await guarded('#open'); await page.withPopup!('#open', confirm); }
+    // A cross-origin frame first commits in-process and then swaps to its own process: resolve it once loaded.
+    else if (task.variant === 'frame' || task.variant === 'cross-frame') { await page.evaluate(waitScript(condition('frame-loaded'), task.timeoutMs)); await page.withFrame!('#frame', confirm); }
+    else if (task.variant === 'upload') {
+      const path = join(await mkdtemp(join(tmpdir(), 'automan-upload-')), 'upload.txt'); await writeFile(path, uploadText);
+      await guarded('#file'); await page.upload!('#file', path); await page.evaluate(waitScript(condition('done'), task.timeoutMs));
+    } else if (task.variant === 'download') { await guarded('#file'); file = await page.download!('#file'); }
+    else throw new Error(`unknown navigation variant ${task.variant}`);
+    return { status: 'ok', ...(file !== undefined ? { file } : {}), metrics: { taskMs: performance.now() - start } };
   }
   if (task.scenario === 'download') return { status: 'unsupported', reason: 'download events not yet qualified on this adapter' };
   if (task.scenario === 'iframe') return { status: 'unsupported', reason: 'frame-specific adapter contract not qualified' };

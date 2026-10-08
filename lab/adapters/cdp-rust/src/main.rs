@@ -11,7 +11,7 @@ use std::io::Write;
 use std::sync::Arc;
 use tokio::io::{AsyncBufReadExt, BufReader};
 
-const CAPABILITIES: [&str; 7] = ["http-catalog", "js-catalog", "form", "clicks", "actionability", "shadow", "primitives"];
+const CAPABILITIES: [&str; 8] = ["http-catalog", "js-catalog", "form", "clicks", "actionability", "shadow", "primitives", "navigation"];
 
 fn respond(id: Value, result: Result<Value, String>) {
     let message = match result {

@@ -52,6 +52,16 @@ L'issue est mécanique, comparée à ±ln(1 + Δ) : `better`, `worse`, `equivale
 
 Méthode : le statut d'une tentative vient d'un code d'erreur typé (`src/core/errors.ts`), jamais du texte d'un message. Un timeout ne touche que la tentative bloquée : ses voisines en vol sont `aborted` (`E_SIBLING_ABORT`), hors taux d'échec, et le worker redémarre dans la limite de `maxRestarts`. Fixtures et oracle tournent dans un processus séparé (`fixtures/worker.ts`) ; `taskMs` ne couvre que l'appel `run`, et `oracleMs` est mesuré à part. Une métrique sans sonde sur l'hôte vaut `null`, avec sa raison dans `metricAvailability`, jamais 0. Les tentatives bloquées par un gate restent visibles en `skipped-gate`.
 
+### Réseau, Linux et CI locale
+
+```sh
+pnpm lab ci     # typecheck, tests unitaires et de contrat, validation du registre et des campagnes
+```
+
+Une campagne bench peut déclarer `network: { link: "browser-origin", rttMs }`. Le moteur calibre d'abord le profil : des ping-pong d'un octet, directs et à travers le proxy, sont alternés, et le run consigne la médiane appariée du délai ajouté. Hors tolérance (le plus grand de 2 ms et 10 %), les métriques de temps et de ressources deviennent indisponibles ; les métriques de contrat restent valides. Les fixtures sont ensuite servies à travers un proxy TCP en espace utilisateur (`src/net/latency-proxy.ts`), sans privilège, sur macOS comme sur Linux. Il ajoute la moitié du RTT dans chaque sens, préserve l'ordre des octets et ne libère jamais un paquet avant son échéance. Le lien `driver-browser` arrive avec l'adapter CDP de P6 ; perte et gigue relèvent de `tc netem` sur l'hôte de référence.
+
+Sur Linux, le CPU de l'arbre de processus vient de `/proc/<pid>/stat` et la mémoire proportionnelle (PSS anonyme + swap) de `smaps_rollup`. Les compteurs cgroup v2 demandent un scope systemd par run et restent déclarés indisponibles d'ici là. Préparation de l'hôte : [`docs/reference-host.md`](../docs/reference-host.md).
+
 `ledger/classification.json` porte le jugement humain sur chaque run (rôle, raison, validité A contrat / B relatif même hôte / C absolu, décisions, rerun). L'import y ajoute les faits mécaniques : comptes, provenance, intégrité recalculée contre les catalogues SHA de `reports/`. Il est idempotent et ne modifie jamais `results/`. Les runs importés restent plafonnés à la classe d'hôte `local-dev`.
 
 ## Démarrer

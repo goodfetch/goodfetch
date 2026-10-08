@@ -1585,6 +1585,162 @@
         "priority": "P1",
         "hostClass": "reference"
       }
+    },
+    "browser-actionability-guarded-2026-10-08T15-54-48-293Z-238299": {
+      "role": "diagnostic",
+      "reason": "suite de qualification rejouée sur sources commitées : comptes publiés reproduits",
+      "supersededBy": null,
+      "decisionIds": [
+        "D-browser-driver"
+      ],
+      "validity": [
+        {
+          "scope": "contracts",
+          "class": "A",
+          "note": "comptes identiques aux runs publiés"
+        },
+        {
+          "scope": "timings",
+          "class": "C",
+          "note": "local-dev, machine en usage"
+        }
+      ],
+      "noisyHost": false,
+      "rerun": {
+        "required": false,
+        "priority": null,
+        "hostClass": null
+      }
+    },
+    "runtime-http-backends-2026-10-08T15-59-18-771Z-0e28ae": {
+      "role": "diagnostic",
+      "reason": "suite de qualification rejouée sur sources commitées : comptes publiés reproduits",
+      "supersededBy": null,
+      "decisionIds": [
+        "D-core-language"
+      ],
+      "validity": [
+        {
+          "scope": "contracts",
+          "class": "A",
+          "note": "comptes identiques aux runs publiés"
+        },
+        {
+          "scope": "timings",
+          "class": "C",
+          "note": "local-dev, machine en usage"
+        }
+      ],
+      "noisyHost": false,
+      "rerun": {
+        "required": false,
+        "priority": null,
+        "hostClass": null
+      }
+    },
+    "runtime-native-qualified-2026-10-08T15-45-51-341Z-b0577e": {
+      "role": "diagnostic",
+      "reason": "suite de qualification rejouée sur sources commitées : comptes publiés reproduits",
+      "supersededBy": null,
+      "decisionIds": [
+        "D-core-language"
+      ],
+      "validity": [
+        {
+          "scope": "contracts",
+          "class": "A",
+          "note": "comptes identiques aux runs publiés"
+        },
+        {
+          "scope": "timings",
+          "class": "C",
+          "note": "local-dev, machine en usage"
+        }
+      ],
+      "noisyHost": false,
+      "rerun": {
+        "required": false,
+        "priority": null,
+        "hostClass": null
+      }
+    },
+    "runtime-recovery-qualified-2026-10-08T15-53-42-532Z-e2e992": {
+      "role": "diagnostic",
+      "reason": "suite de qualification rejouée sur sources commitées : comptes publiés reproduits",
+      "supersededBy": null,
+      "decisionIds": [
+        "D-core-language"
+      ],
+      "validity": [
+        {
+          "scope": "contracts",
+          "class": "A",
+          "note": "comptes identiques aux runs publiés"
+        },
+        {
+          "scope": "timings",
+          "class": "C",
+          "note": "local-dev, machine en usage"
+        }
+      ],
+      "noisyHost": false,
+      "rerun": {
+        "required": false,
+        "priority": null,
+        "hostClass": null
+      }
+    },
+    "spider-http-transport-supported-2026-10-08T15-59-17-154Z-3ca944": {
+      "role": "diagnostic",
+      "reason": "suite de qualification rejouée sur sources commitées : comptes publiés reproduits",
+      "supersededBy": null,
+      "decisionIds": [
+        "D-http-transport"
+      ],
+      "validity": [
+        {
+          "scope": "contracts",
+          "class": "A",
+          "note": "comptes identiques aux runs publiés"
+        },
+        {
+          "scope": "timings",
+          "class": "C",
+          "note": "local-dev, machine en usage"
+        }
+      ],
+      "noisyHost": false,
+      "rerun": {
+        "required": false,
+        "priority": null,
+        "hostClass": null
+      }
+    },
+    "sqlite-readers-2026-10-08T15-58-38-640Z-eb0d28": {
+      "role": "diagnostic",
+      "reason": "suite de qualification rejouée sur sources commitées : comptes publiés reproduits",
+      "supersededBy": null,
+      "decisionIds": [
+        "D-storage"
+      ],
+      "validity": [
+        {
+          "scope": "contracts",
+          "class": "A",
+          "note": "comptes identiques aux runs publiés"
+        },
+        {
+          "scope": "timings",
+          "class": "C",
+          "note": "local-dev, machine en usage"
+        }
+      ],
+      "noisyHost": false,
+      "rerun": {
+        "required": false,
+        "priority": null,
+        "hostClass": null
+      }
     }
   }
 }

@@ -1,0 +1,16 @@
+[package]
+name = "automan-lab-cdp"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[dependencies]
+tokio = { version = "=1.53.2", features = ["rt-multi-thread", "macros", "process", "io-util", "io-std", "sync", "time"] }
+tokio-tungstenite = "=0.29.0"
+futures-util = { version = "=0.3.34", default-features = false, features = ["sink", "std"] }
+serde_json = "=1.0.151"
+
+[workspace]
+
+[profile.release]
+codegen-units = 1

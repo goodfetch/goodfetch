@@ -10,7 +10,8 @@ export type Decision = {
   primaryMetric?: { metricId: string; blockStatistic: string }; secondaryMetrics?: string[]; contractGates?: string[];
   delta?: { kind: string; value: number }; rule?: { kind: string; alpha: number; power: number; noisyBlockPolicy: string };
   hostClass?: { decision: string; publication: string }; networkProfiles?: unknown[]; campaigns?: string[];
-  evidence: { kind: 'run' | 'research-doc'; ref: string; note?: string }[]; verdictRef?: string | null; adr?: string | null; dependsOn: string[]; notes: string;
+  evidence: { kind: 'run' | 'research-doc'; ref: string; note?: string }[]; verdictRef?: string | null;
+  analysis?: { lane: string; options: Record<string, Record<string, string | number | boolean | null>>; pairBy: string[]; stratum: Record<string, string | number | boolean | null> }; adr?: string | null; dependsOn: string[]; notes: string;
 };
 export type Claim = { id: string; statement: string; decisionId: string; metricId: string; comparator: { option: string; against: string[] }; direction: string; publicationHostClass: string; status: string; evidence: string[]; notes: string };
 export type Registry = { root: string; decisions: Decision[]; claims: Claim[]; metrics: Metric[]; ledgerRunIds: string[] | null };
@@ -26,7 +27,10 @@ export function loadRegistry(root = labRoot): Registry {
 }
 
 // Measured figures belong to generated verdicts; editorial text must not restate them.
-const measuredFigure = /\d+(?:[.,]\d+)?\s*(?:%|ms\b|s\b|µs\b|[KMG]i?B\b|[KMG]o\b|B\b|jobs?\/s|req(?:uests)?\/s|rows?\/s|tasks?\/s|×|x\b|fois\b)/i;
+export const measuredFigure = /\d+(?:[.,]\d+)?\s*(?:%|ms\b|s\b|µs\b|[KMG]i?B\b|[KMG]o\b|B\b|jobs?\/s|req(?:uests)?\/s|rows?\/s|tasks?\/s|×|x\b|fois\b)/i;
+
+// Returns the first measured figure found in editorial text, or null.
+export function lintEditorial(text: string): string | null { return text.match(new RegExp(measuredFigure.source, 'i'))?.[0] ?? null; }
 
 export function checkRegistry(registry: Registry): string[] {
   const errors: string[] = [];

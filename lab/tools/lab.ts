@@ -10,6 +10,8 @@ import { fromLegacyBench, validateBenchCampaign, type BenchCampaign } from '../s
 import { runLaneCampaign, validateLaneCampaign, drivers, type LaneCampaign } from '../src/core/lanes.ts';
 import { validateDocument } from '../src/core/schema.ts';
 import { readdir } from 'node:fs/promises';
+import { evaluateDecision } from '../src/stats/verdict.ts';
+import { renderDecisionsReport } from '../src/report/generate.ts';
 import { assessHost, loadHostClasses, snapshotHost, hostClasses, type HostClass } from '../src/core/host.ts';
 import { captureProvenance } from '../src/core/provenance.ts';
 import type { Campaign } from '../src/campaign.ts';
@@ -107,9 +109,31 @@ async function preflightCommand() {
   if (assessment.classGranted !== requested) process.exitCode = 1;
 }
 
+// Computes the verdict of every decision that declares a mechanical analysis, or of the one named.
+async function verdictCommand() {
+  const registry = loadRegistry();
+  const wanted = process.argv[3];
+  const decisions = registry.decisions.filter(decision => decision.analysis && (!wanted || decision.id === wanted));
+  if (!decisions.length) return fail([wanted ? `${wanted} has no mechanical analysis` : 'no decision declares an analysis']);
+  await mkdir(join(labRoot, 'verdicts'), { recursive: true });
+  for (const decision of decisions) {
+    const verdict = await evaluateDecision(decision, { registry });
+    await writeFile(join(labRoot, 'verdicts', `${decision.id}.json`), JSON.stringify(verdict, null, 1) + '\n');
+    process.stdout.write(`${decision.id}: ${verdict.outcome} n=${verdict.n}${verdict.requiredN !== null ? `/${verdict.requiredN}` : ''} host ${verdict.host.observed}${verdict.host.eligible ? '' : ' (not eligible)'}\n`);
+  }
+}
+
+async function reportCommand() {
+  const registry = loadRegistry();
+  const verdicts = [];
+  for (const entry of await readdir(join(labRoot, 'verdicts')).catch(() => [])) if (entry.endsWith('.json')) verdicts.push(JSON.parse(await readFile(join(labRoot, 'verdicts', entry), 'utf8')));
+  await writeFile(join(labRoot, 'reports', 'decisions.md'), renderDecisionsReport(registry, verdicts));
+  process.stdout.write(`reports/decisions.md written from ${verdicts.length} verdicts\n`);
+}
+
 function fail(errors: string[]) { for (const error of errors) process.stderr.write(`${error}\n`); process.exitCode = 1; }
 
-const commands: Record<string, () => unknown> = { validate: validateCommand, import: importCommand, ledger: ledgerCommand, run: runCommand, suite: suiteCommand, preflight: preflightCommand };
+const commands: Record<string, () => unknown> = { validate: validateCommand, import: importCommand, ledger: ledgerCommand, run: runCommand, suite: suiteCommand, preflight: preflightCommand, verdict: verdictCommand, report: reportCommand };
 const command = commands[process.argv[2] ?? ''];
 if (!command) { process.stderr.write(`usage: pnpm lab <${Object.keys(commands).join('|')}>\n`); process.exitCode = 2; }
 else await command();

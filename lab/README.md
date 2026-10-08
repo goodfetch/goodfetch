@@ -39,6 +39,17 @@ pnpm lab suite campaigns/v2/suites/qualification-current.json   # enchaîne les 
 
 Une suite (`schemas/suite.v2.schema.json`) déclare pour chaque étape les comptes attendus ; elle échoue si un compte diffère ou si la provenance a changé pendant le run. Un run v2 neuf entre dans le ledger comme `unreviewed` jusqu'à sa classification.
 
+### Verdicts et rapport
+
+```sh
+pnpm lab verdict            # verdicts/<décision>.json pour chaque décision dotée d'un bloc `analysis`
+pnpm lab report             # reports/decisions.md, généré depuis decisions/ et verdicts/ uniquement
+```
+
+Une décision déclare dans `analysis` la lane, les facteurs qui désignent chaque option, les facteurs d'appariement et la strate principale. Pour chaque bloc apparié, le verdict calcule ln(option / baseline) de la métrique principale. Il produit ensuite un intervalle par bootstrap de blocs seedé : (1 − α) en supériorité, (1 − 2α) en équivalence et en non-infériorité. Hodges–Lehmann et Wilcoxon signé exact sont donnés en contrôle de robustesse.
+
+L'issue est mécanique, comparée à ±ln(1 + Δ) : `better`, `worse`, `equivalent`, `trivial`, `non-inferior` ou `inconclusive`. Elle vaut `blocked-by-contract` si une gate échoue ou n'est pas encore évaluable, et `insufficient-n` si les blocs sont moins nombreux que ceux exigés par la dispersion observée (minimum cinq). Un verdict n'est éligible pour la décision que si l'hôte observé atteint la classe requise.
+
 Méthode : le statut d'une tentative vient d'un code d'erreur typé (`src/core/errors.ts`), jamais du texte d'un message. Un timeout ne touche que la tentative bloquée : ses voisines en vol sont `aborted` (`E_SIBLING_ABORT`), hors taux d'échec, et le worker redémarre dans la limite de `maxRestarts`. Fixtures et oracle tournent dans un processus séparé (`fixtures/worker.ts`) ; `taskMs` ne couvre que l'appel `run`, et `oracleMs` est mesuré à part. Une métrique sans sonde sur l'hôte vaut `null`, avec sa raison dans `metricAvailability`, jamais 0. Les tentatives bloquées par un gate restent visibles en `skipped-gate`.
 
 `ledger/classification.json` porte le jugement humain sur chaque run (rôle, raison, validité A contrat / B relatif même hôte / C absolu, décisions, rerun). L'import y ajoute les faits mécaniques : comptes, provenance, intégrité recalculée contre les catalogues SHA de `reports/`. Il est idempotent et ne modifie jamais `results/`. Les runs importés restent plafonnés à la classe d'hôte `local-dev`.

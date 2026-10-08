@@ -163,11 +163,14 @@ class CdpFrame implements BrowserPage {
     if (result.exceptionDetails) throw new Error(result.exceptionDetails.exception?.description ?? result.exceptionDetails.text ?? 'evaluation failed');
     return result.result?.value as T;
   }
+  // An out-of-process frame takes input on its own session in frame coordinates: routed through the page, input to a
+  // freshly created frame process can land on the parent's <iframe> element instead, with any driver.
   async click(selector: string) {
-    const point = await this.evaluate<{ x: number; y: number }>(pointScript(selector)); const [x, y] = [point.x + this.offset.x, point.y + this.offset.y];
-    await this.page.send('Input.dispatchMouseEvent', { type: 'mouseMoved', x, y });
-    await this.page.send('Input.dispatchMouseEvent', { type: 'mousePressed', x, y, button: 'left', buttons: 1, clickCount: 1 });
-    await this.page.send('Input.dispatchMouseEvent', { type: 'mouseReleased', x, y, button: 'left', buttons: 0, clickCount: 1 });
+    const point = await this.evaluate<{ x: number; y: number }>(pointScript(selector));
+    const own = this.contextId === null; const [x, y] = own ? [point.x, point.y] : [point.x + this.offset.x, point.y + this.offset.y]; const session = own ? this.sessionId : undefined;
+    await this.page.send('Input.dispatchMouseEvent', { type: 'mouseMoved', x, y }, session);
+    await this.page.send('Input.dispatchMouseEvent', { type: 'mousePressed', x, y, button: 'left', buttons: 1, clickCount: 1 }, session);
+    await this.page.send('Input.dispatchMouseEvent', { type: 'mouseReleased', x, y, button: 'left', buttons: 0, clickCount: 1 }, session);
   }
   goto(): Promise<void> { throw new Error('navigation inside a frame is not part of the frame contract'); }
   fill(): Promise<void> { throw new Error('fill inside a frame is not part of the frame contract'); }

@@ -19,7 +19,8 @@ export async function runActionabilityCell(config:ActionabilityConfig,cell:Actio
     info=await w.call('hello',{});await w.call('prepare',{executablePath,headless:true},45000);startupMs=performance.now()-started;
     const fixture=await fixtures.createRun({scenario:cell.scenario,seed:config.seed+block,variant:cell.variant});const began=performance.now();
     let row:Record<string,unknown>;
-    try{const output=await w.call('run',{scenario:cell.scenario,seed:config.seed+block,pages:1,actions:1,timeoutMs:config.timeoutMs,variant:cell.variant,actionPolicy:cell.policy,url:fixture.url}) as Record<string,unknown>;const verdict=await fixtures.verify(fixture.id,output);row={...cell,block,...verdict,taskMs:performance.now()-began,metrics:output.metrics,...fixtures.snapshot(fixture.id)}}
+    try{const output=await w.call('run',{scenario:cell.scenario,seed:config.seed+block,pages:1,actions:1,timeoutMs:config.timeoutMs,variant:cell.variant,actionPolicy:cell.policy,url:fixture.url}) as Record<string,unknown>;// A driver without the capability says so; it is unsupported, not failed.
+      const verdict=output.status==='unsupported'?{status:'unsupported',reasons:[String(output.reason??'unsupported')]}:await fixtures.verify(fixture.id,output);row={...cell,block,...verdict,taskMs:performance.now()-began,metrics:output.metrics,...fixtures.snapshot(fixture.id)}}
     catch(error){row={...cell,block,status:'failed',reasons:[String(error)],taskMs:performance.now()-began,...fixtures.snapshot(fixture.id)}}
     return {...row,startupMs,info};
   }catch(error){return {...cell,block,status:'startup-failed',reasons:[String(error)],startupMs:performance.now()-started,info}}

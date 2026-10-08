@@ -213,13 +213,30 @@ impl Page {
         Ok(result["result"].get("value").cloned().unwrap_or(Value::Null))
     }
 
+    // An out-of-process frame takes input on its own session in frame coordinates: routed through the page, input to a
+    // freshly created frame process can land on the parent's <iframe> element instead, with any driver.
     pub async fn frame_click(&mut self, frame: &Frame, selector: &str) -> Result<(), String> {
         let point = self.frame_evaluate(frame, &scripts::point(selector)).await?;
-        let x = json!(point["x"].as_f64().unwrap_or(0.0) + frame.offset.0);
-        let y = json!(point["y"].as_f64().unwrap_or(0.0) + frame.offset.1);
-        self.mouse("mouseMoved", &x, &y, json!({})).await?;
-        self.mouse("mousePressed", &x, &y, json!({"button": "left", "buttons": 1, "clickCount": 1})).await?;
-        self.mouse("mouseReleased", &x, &y, json!({"button": "left", "buttons": 0, "clickCount": 1})).await
+        let own = frame.context_id.is_none();
+        let (dx, dy) = if own { (0.0, 0.0) } else { frame.offset };
+        let x = json!(point["x"].as_f64().unwrap_or(0.0) + dx);
+        let y = json!(point["y"].as_f64().unwrap_or(0.0) + dy);
+        let session = if own { Some(frame.session_id.clone()) } else { None };
+        for (kind, extra) in [
+            ("mouseMoved", json!({})),
+            ("mousePressed", json!({"button": "left", "buttons": 1, "clickCount": 1})),
+            ("mouseReleased", json!({"button": "left", "buttons": 0, "clickCount": 1})),
+        ] {
+            let mut params = json!({"type": kind, "x": x, "y": y});
+            if let (Some(target), Value::Object(fields)) = (params.as_object_mut(), extra) {
+                target.extend(fields);
+            }
+            match &session {
+                Some(id) => self.send_on("Input.dispatchMouseEvent", params, Some(id)).await?,
+                None => self.send("Input.dispatchMouseEvent", params).await?,
+            };
+        }
+        Ok(())
     }
 
     pub async fn upload(&mut self, selector: &str, path: &str) -> Result<(), String> {

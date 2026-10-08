@@ -70,7 +70,7 @@ Le chemin connu utilise le moyen suffisant : API autorisée ou HTTP, navigateur 
 | App macOS SwiftUI/AppKit, daemon séparé | Interface réellement native, moteur partagé et isolation du lifecycle | FFI Rust si une mesure justifie IPC ; WebView/Tauri ne satisfait pas seul l'objectif d'interface native |
 | Apache-2.0 proposé pour le framework | Adoption des développeurs et construction de services autour | Copyleft possible si l'objectif de diffusion change ; les dépendances gardent leurs licences propres |
 
-Les décisions sont détaillées dans [l'architecture](./architecture.md) et les [options de plateforme sourcées](../research/2026-10-07-product-platform-options.md). Le choix Rust précédent reste un [ADR proposé](../research/2026-10-07-adr-runtime-language.md), développé ici. Il n'existe pas de consensus universel établi sur le « meilleur langage ».
+Les décisions sont détaillées dans [l'architecture](./architecture.md) et les [options de plateforme sourcées](../research/2026-10-07-product-platform-options.md). Le choix Rust précédent reste un [ADR proposé](./adr/0001-runtime-language.md), développé ici. Il n'existe pas de consensus universel établi sur le « meilleur langage ».
 
 ## 5. L'API et l'expérience produit
 

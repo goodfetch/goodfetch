@@ -2,7 +2,7 @@
 
 **État étudié : 7 octobre 2026. Statut : propositions de conception à intégrer au PRD et aux ADR.** Aucune application, exécution cloud, mesure de performance ou qualification de sécurité n’a été réalisée pour cette note. La contrainte de petite équipe et de calendrier 3–6 mois a été retirée ; elle ne gouverne aucun choix ci-dessous.
 
-Cette note complète l’[ADR du runtime](./2026-10-07-adr-runtime-language.md), les [contrats Crawlee/Spider](./2026-10-07-crawlee-spider-contracts-followup.md) et l’[audit Stagehand](./2026-10-07-stagehand-alternatives-followup.md). Elle vérifie les surfaces de plateforme auprès des sources officielles et distingue leurs faits de nos recommandations. Les documents courants sont consultés à cette date ; leurs liens ne constituent pas une version figée à installer. Les versions, SDK MCP et capacités du navigateur devront être épinglés lors de l’implémentation.
+Cette note complète l’[ADR du runtime](../docs/adr/0001-runtime-language.md), les [contrats Crawlee/Spider](./2026-10-07-crawlee-spider-contracts-followup.md) et l’[audit Stagehand](./2026-10-07-stagehand-alternatives-followup.md). Elle vérifie les surfaces de plateforme auprès des sources officielles et distingue leurs faits de nos recommandations. Les documents courants sont consultés à cette date ; leurs liens ne constituent pas une version figée à installer. Les versions, SDK MCP et capacités du navigateur devront être épinglés lors de l’implémentation.
 
 ## 1. Décisions proposées
 

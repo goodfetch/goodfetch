@@ -37,8 +37,8 @@ Les propositions produit actuelles se trouvent dans le [rapport consolidé](../d
 | [Contrats Crawlee et Spider](./2026-10-07-crawlee-spider-contracts-followup.md) | Queues/retries/stockage TS et Python, intégration Stagehand, modes Spider, visited versus frontier, workers et agent Rust publié |
 | [Moteurs, workers et navigateurs](./2026-10-07-engines-workers-browsers.md) | Tableau des langages, runtimes, processus, pilotes et navigateurs réellement utilisés |
 | [Langage et architecture : niveau de consensus](./2026-10-07-language-architecture-evidence.md) | Convergences observées, absence de consensus universel, langage SDK versus moteur et topologie |
-| [ADR du runtime](./2026-10-07-adr-runtime-language.md) | Proposition Rust/Tokio avec SDK et CDP ; alternatives, conséquences et qualification requise |
-| [ADR-002 accès, identité et stealth](./2026-10-08-adr-access-identity-stealth.md) | Profils `identified` (défaut), `standard` et `stealth` complet en opt-in ; répartition open source/cloud, niveaux CAPTCHA, garde-fous et qualification |
+| [ADR du runtime](../docs/adr/0001-runtime-language.md) | Proposition Rust/Tokio avec SDK et CDP ; alternatives, conséquences et qualification requise |
+| [ADR-002 accès, identité et stealth](../docs/adr/0002-access-identity-stealth.md) | Profils `identified` (défaut), `standard` et `stealth` complet en opt-in ; répartition open source/cloud, niveaux CAPTCHA, garde-fous et qualification |
 | [Témoignages Reddit audités](./2026-10-07-reddit-evidence-followup.md) | Threads/commentaires identifiés, sessions/coûts/fiabilité ; témoignages distingués des preuves comparatives |
 
 ## 4. Benchmarks : documents et niveau de preuve

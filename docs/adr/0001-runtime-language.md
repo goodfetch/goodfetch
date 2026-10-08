@@ -64,7 +64,7 @@ Le cœur forme des modules bien séparés dans un produit commun ; l'architectur
 7. **Modèles et caches :** modèles facultatifs pour découverte, ambiguïté et réparation. Cache de perception, cache de plan et cache de données ont des invalidations distinctes. Un plan valide peut s'exécuter sans nouvelle inférence.
 8. **Placement :** conserver workers et navigateurs proches, sessions réutilisées sous identité isolée, opérations indépendantes groupées et concurrence bornée. Le SDK ne possède pas une seconde implémentation du moteur.
 
-Ces choix s'inspirent de responsabilités présentes dans les références, sans leur attribuer une garantie qu'elles n'ont pas. Voir [contrats inspectés](./2026-10-07-crawlee-spider-contracts-followup.md) et [Stagehand/alternatives](./2026-10-07-stagehand-alternatives-followup.md).
+Ces choix s'inspirent de responsabilités présentes dans les références, sans leur attribuer une garantie qu'elles n'ont pas. Voir [contrats inspectés](../../research/2026-10-07-crawlee-spider-contracts-followup.md) et [Stagehand/alternatives](../../research/2026-10-07-stagehand-alternatives-followup.md).
 
 ## Conséquences et arbitrages
 
@@ -72,7 +72,7 @@ Le produit dispose d'une seule sémantique d'exécution locale et distante, avec
 
 Le choix Rust ne doit pas déplacer l'effort hors des coûts dominants. Le premier objectif de performance est d'éviter un rendu ou une décision inutile, puis les captures et allers-retours redondants ; le profiling décide de l'optimisation CPU. La sécurité mémoire du cœur ne prouve pas la correction de la recette, de l'extraction ou des effets sur le site.
 
-Les fonctions déjà présentes chez les concurrents — HTTP adaptatif, script cache, réparation, vérification — restent des références. La différenciation Automan doit porter sur leur contrat commun, leur portabilité, leur diagnostic et le coût par résultat réellement correct. [Comparaison approfondie](./2026-10-07-stagehand-crawlee-spider-comparison.md).
+Les fonctions déjà présentes chez les concurrents — HTTP adaptatif, script cache, réparation, vérification — restent des références. La différenciation Automan doit porter sur leur contrat commun, leur portabilité, leur diagnostic et le coût par résultat réellement correct. [Comparaison approfondie](../../research/2026-10-07-stagehand-crawlee-spider-comparison.md).
 
 ## Actions de qualification
 
@@ -82,4 +82,4 @@ Les fonctions déjà présentes chez les concurrents — HTTP adaptatif, script 
 - [ ] Mesurer CPU/mémoire totale, startup froid/chaud, latence, RPC, appels LLM et coût de toutes les tentatives.
 - [ ] Tester dérive de DOM, données changeantes, auth expirée et interruption entre effet, validation et acquittement.
 
-Les gates de promotion d'un backend reposent sur **qualité et fiabilité équivalentes avec gain mesuré**. Aucun classement universel des langages ni gain chiffré Automan n'est établi par cet ADR. [Audit des benchmarks publics](./2026-10-07-benchmark-audit-followup.md).
+Les gates de promotion d'un backend reposent sur **qualité et fiabilité équivalentes avec gain mesuré**. Aucun classement universel des langages ni gain chiffré Automan n'est établi par cet ADR. [Audit des benchmarks publics](../../research/2026-10-07-benchmark-audit-followup.md).

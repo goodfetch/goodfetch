@@ -1,6 +1,6 @@
 # Architecture proposée d'Automan
 
-**7 octobre 2026 — proposition de conception, aucune implémentation à ce stade.** Ce document développe l'[ADR langage/runtime](../research/2026-10-07-adr-runtime-language.md). Les APIs exemples et les objectifs de qualification sont décrits séparément dans [api.md](./api.md) et [roadmap-validation.md](./roadmap-validation.md).
+**7 octobre 2026 — proposition de conception, aucune implémentation à ce stade.** Ce document développe l'[ADR langage/runtime](./adr/0001-runtime-language.md). Les APIs exemples et les objectifs de qualification sont décrits séparément dans [api.md](./api.md) et [roadmap-validation.md](./roadmap-validation.md).
 
 ## 1. Principes et décisions
 
@@ -8,7 +8,7 @@
 
 Rust/Tokio possède les contrats d'exécution : plans, état, frontier, admission, reprises, sessions, validation et coûts. Il est utilisable comme bibliothèque et comme exécutable. Les SDK TypeScript/Python, la CLI et les apps consomment le même moteur. Les modèles de protocole sont générés ; les façades restent idiomatiques, documentées et courtes.
 
-Ce choix vise distribution native, contrôle des ressources et unité sémantique. Il ne prouve pas un avantage sur le temps total d'un workflow dominé par réseau, Chromium ou modèles. Un moteur TS/Node avec Playwright est une alternative crédible, tout comme Go pour la distribution et le réseau. Les bénéfices du choix Rust doivent être mesurés sur le produit complet. [ADR proposé](../research/2026-10-07-adr-runtime-language.md), [Rust](https://rust-lang.org/), [Tokio](https://tokio.rs/).
+Ce choix vise distribution native, contrôle des ressources et unité sémantique. Il ne prouve pas un avantage sur le temps total d'un workflow dominé par réseau, Chromium ou modèles. Un moteur TS/Node avec Playwright est une alternative crédible, tout comme Go pour la distribution et le réseau. Les bénéfices du choix Rust doivent être mesurés sur le produit complet. [ADR proposé](./adr/0001-runtime-language.md), [Rust](https://rust-lang.org/), [Tokio](https://tokio.rs/).
 
 ### 1.2 Modules profonds, processus justifiés
 

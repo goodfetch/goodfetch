@@ -16,7 +16,7 @@ Je recommande trois étapes :
 2. **Stress, reprise et topologies** : saturation, sessions, files, incidents, workers proches ou distants du navigateur ; témoin Go et composants natifs utilisables depuis TypeScript.
 3. **IA et système Automan** : découverte, extraction sémantique, compilation/replay/réparation, puis petits prototypes de moteurs Rust et Node comparés sur les mêmes contrats.
 
-La [roadmap actuelle](./roadmap-validation.md) commence par la console et un workflow HTTP durable. **Pour la demande présente, je propose un lot préalable « Lab et choix techniques ».** Ce rapport ne modifie pas silencieusement le PRD et n'adopte pas l'[ADR Rust](../research/2026-10-07-adr-runtime-language.md).
+La [roadmap actuelle](./roadmap-validation.md) commence par la console et un workflow HTTP durable. **Pour la demande présente, je propose un lot préalable « Lab et choix techniques ».** Ce rapport ne modifie pas silencieusement le PRD et n'adopte pas l'[ADR Rust](./adr/0001-runtime-language.md).
 
 ## 2. Ce que les recherches établissent déjà
 

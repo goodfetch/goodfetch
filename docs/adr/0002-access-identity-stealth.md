@@ -6,7 +6,7 @@
 
 ## Contexte
 
-Proxies, empreintes navigateur cohérentes et options stealth font partie de l'offre standard des services de collecte et de navigateurs hébergés. Le dossier les prévoit déjà : configuration proxy/fingerprint cohérente ([PRD, story 34](../issues/prd.md:62)), pool de proxies avec sticky sessions, santé, cooldown et rotation ([architecture §4.1](../docs/architecture.md:144)), transports spécialisés en fingerprinting avec profil cohérent ([architecture §5.1](../docs/architecture.md:177)).
+Proxies, empreintes navigateur cohérentes et options stealth font partie de l'offre standard des services de collecte et de navigateurs hébergés. Le dossier les prévoit déjà : configuration proxy/fingerprint cohérente ([PRD, story 34](../../issues/prd.md:62)), pool de proxies avec sticky sessions, santé, cooldown et rotation ([architecture §4.1](../architecture.md:144)), transports spécialisés en fingerprinting avec profil cohérent ([architecture §5.1](../architecture.md:177)).
 
 En parallèle, l'accès identifié devient une voie d'accès reconnue :
 
@@ -31,7 +31,7 @@ Ces éléments ne sont pas un avis juridique. La question tranchée ici n'est do
 | `standard` | Navigation et HTTP génériques, sans signature ni masquage ; politique de préférences appliquée | Non |
 | `stealth` | Toutes les options du catalogue ci-dessous, activées individuellement | Non, opt-in explicite |
 
-Une session possède un seul profil, fixé à son ouverture. Signer une requête puis masquer l'automatisation dans la même session est contradictoire : cela expose la clé et la réputation de l'identité signée, et contredit l'usage déclaré exigé par les programmes de vérification. Changer de profil est une transition explicite qui ouvre une nouvelle session, comme le changement de backend ([architecture §5.2](../docs/architecture.md:183)).
+Une session possède un seul profil, fixé à son ouverture. Signer une requête puis masquer l'automatisation dans la même session est contradictoire : cela expose la clé et la réputation de l'identité signée, et contredit l'usage déclaré exigé par les programmes de vérification. Changer de profil est une transition explicite qui ouvre une nouvelle session, comme le changement de backend ([architecture §5.2](../architecture.md:183)).
 
 ### 2. Défaut conforme (`identified`)
 
@@ -55,7 +55,7 @@ Une session possède un seul profil, fixé à son ouverture. Signer une requête
 | CAPTCHA | Voir §4 | Détection, handoff, interface de solveur | Résolution managée |
 | Détection de blocage | Classifieur de pages de challenge, interstitiels et `200` trompeurs ; escalade de profil selon politique | Oui | Statistiques de réussite par site et profil |
 
-Chaque option est déclarée dans le plan ou la politique du workflow, visible dans le journal et comptée dans le budget de tentatives. Rotation de proxy, de session et réparation consomment le même budget total ([architecture §3.4](../docs/architecture.md:125)).
+Chaque option est déclarée dans le plan ou la politique du workflow, visible dans le journal et comptée dans le budget de tentatives. Rotation de proxy, de session et réparation consomment le même budget total ([architecture §3.4](../architecture.md:125)).
 
 ### 4. CAPTCHA : toutes les modalités, livrées par niveaux
 
@@ -84,7 +84,7 @@ Le cloud vend ce qui exige une **maintenance continue** : pools de proxies manag
 
 - La `Session` porte un **profil d'identité complet** : signature ou absence de signature, sortie proxy, profil réseau, profil navigateur, cookies et stockage. Ces éléments sont cohérents entre eux et avec la géolocalisation du proxy.
 - Ce profil est **conservé lorsqu'une requête passe de HTTP au navigateur** dans la même session. Une escalade de moteur qui change d'empreinte crée elle-même le signal de bot.
-- Les erreurs de [l'API](../docs/api.md) s'enrichissent de codes distincts pour un challenge détecté, un refus par politique du site et une demande de paiement (`402`). Le terme exact reste à fixer dans la revue d'API.
+- Les erreurs de [l'API](../api.md) s'enrichissent de codes distincts pour un challenge détecté, un refus par politique du site et une demande de paiement (`402`). Le terme exact reste à fixer dans la revue d'API.
 - Les profils réseau et navigateur sont des artefacts versionnés et datés, avec la version du navigateur qu'ils imitent ; un profil périmé est signalé.
 - Le journal enregistre pour chaque tentative : profil, options actives, décision de politique et résultat de la détection de blocage.
 
@@ -112,4 +112,4 @@ Le cloud vend ce qui exige une **maintenance continue** : pools de proxies manag
 - [ ] **Transitions** : changement de profil refusé dans une session active, nouvelle session explicite acceptée.
 - [ ] **Live** : campagne séparée, hors CI, sur sites autorisés ; ses résultats ne sont jamais agrégés aux scores hermétiques du lab.
 
-Les gates de promotion restent celles de la [roadmap](../docs/roadmap-validation.md) : comportement conforme, limites visibles, aucun succès annoncé pour un effet ou un accès non vérifié.
+Les gates de promotion restent celles de la [roadmap](../roadmap-validation.md) : comportement conforme, limites visibles, aucun succès annoncé pour un effet ou un accès non vérifié.

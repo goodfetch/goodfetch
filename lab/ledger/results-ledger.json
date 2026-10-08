@@ -1,6 +1,6 @@
 {
  "schemaVersion": 1,
- "classificationSha256": "6c1eef937f3c5b301d501d83da2381bdfc0a8566bf643f164b5673eec136cd0b",
+ "classificationSha256": "791fe95e418c29e63f68616c0ab1555751f39ae71ac0704be1a3c07b74148865",
  "entries": [
   {
    "runId": "smoke-2026-10-07T20-20-24-226Z-9ebb47",
@@ -1718,6 +1718,103 @@
     "hostClass": null
    },
    "imported": "results/runtime-http-backends-2026-10-08T08-21-34-528Z-4c7aa1/run.v2.json"
+  },
+  {
+   "runId": "browser-driver-smoke-2026-10-08T10-56-57-786Z-5a5a6c",
+   "lane": "bench",
+   "campaign": "browser-driver-smoke",
+   "startedAt": "2026-10-08T10:56:57.786Z",
+   "status": "complete",
+   "hostClass": "local-dev",
+   "role": "diagnostic",
+   "supersededBy": null,
+   "reason": "smoke du lien driver-browser à 20 ms, quatre pilotes sur le navigateur du harnais ; calibration hors tolérance avant la correction du proxy",
+   "validity": [
+    {
+     "scope": "contracts",
+     "class": "A",
+     "note": "60 tentatives vérifiées, sources non commitées"
+    },
+    {
+     "scope": "timings",
+     "class": "none",
+     "note": "métriques de temps indisponibles par calibration"
+    }
+   ],
+   "decisionIds": [
+    "D-browser-driver"
+   ],
+   "citedIn": [],
+   "integrity": "uncatalogued",
+   "rerun": {
+    "required": false,
+    "priority": null,
+    "hostClass": null
+   },
+   "imported": "results/browser-driver-smoke-2026-10-08T10-56-57-786Z-5a5a6c/run.v2.json"
+  },
+  {
+   "runId": "browser-driver-smoke-2026-10-08T11-00-10-023Z-b248a5",
+   "lane": "bench",
+   "campaign": "browser-driver-smoke",
+   "startedAt": "2026-10-08T11:00:10.023Z",
+   "status": "complete",
+   "hostClass": "local-dev",
+   "role": "diagnostic",
+   "supersededBy": null,
+   "reason": "smoke du lien driver-browser à 20 ms, quatre pilotes sur le navigateur du harnais",
+   "validity": [
+    {
+     "scope": "contracts",
+     "class": "A",
+     "note": "60 tentatives vérifiées, sources non commitées"
+    },
+    {
+     "scope": "timings",
+     "class": "C",
+     "note": "local-dev, un bloc, hôte chargé"
+    }
+   ],
+   "decisionIds": [
+    "D-browser-driver"
+   ],
+   "citedIn": [],
+   "integrity": "uncatalogued",
+   "rerun": {
+    "required": false,
+    "priority": null,
+    "hostClass": null
+   },
+   "imported": "results/browser-driver-smoke-2026-10-08T11-00-10-023Z-b248a5/run.v2.json"
+  },
+  {
+   "runId": "browser-actionability-guarded-2026-10-08T11-07-42-702Z-2ee15e",
+   "lane": "actionability",
+   "campaign": "browser-actionability-guarded",
+   "startedAt": "2026-10-08T11:07:42.702Z",
+   "status": "complete",
+   "hostClass": "local-dev",
+   "role": "diagnostic",
+   "supersededBy": null,
+   "reason": "matrice gardée historique rejouée après la refonte des scripts de page partagés",
+   "validity": [
+    {
+     "scope": "guarded-conformance",
+     "class": "A",
+     "note": "162 cellules vérifiées comme b21a28, sources non commitées"
+    }
+   ],
+   "decisionIds": [
+    "D-browser-driver"
+   ],
+   "citedIn": [],
+   "integrity": "uncatalogued",
+   "rerun": {
+    "required": false,
+    "priority": null,
+    "hostClass": null
+   },
+   "imported": "results/browser-actionability-guarded-2026-10-08T11-07-42-702Z-2ee15e/run.v2.json"
   }
  ]
 }

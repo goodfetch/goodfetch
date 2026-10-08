@@ -1,0 +1,43 @@
+{
+  "schemaVersion": 2,
+  "id": "browser-actionability-extended",
+  "lane": "actionability",
+  "decisionIds": [
+    "D-browser-driver"
+  ],
+  "hostClass": {
+    "requested": "local-controlled",
+    "allowDowngrade": true
+  },
+  "config": {
+    "blocks": 3,
+    "seed": 4242,
+    "backends": [
+      "playwright",
+      "puppeteer",
+      "stagehand",
+      "stagehand-batch",
+      "crawlee-playwright",
+      "crawlee-stagehand",
+      "node-cdp",
+      "rust-cdp"
+    ],
+    "variants": [
+      "normal",
+      "overlay",
+      "delayed",
+      "hidden",
+      "moving",
+      "rerender",
+      "never-enabled",
+      "never-uncovered",
+      "ambiguous"
+    ],
+    "policies": [
+      "native",
+      "guarded"
+    ],
+    "timeoutMs": 800,
+    "outerTimeoutMs": 8000
+  }
+}

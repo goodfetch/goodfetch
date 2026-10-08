@@ -1,1210 +1,1283 @@
 {
- "schemaVersion": 1,
- "runs": {
-  "arrival-stress-2026-10-07T20-47-12-378Z-92d66f": {
-   "role": "superseded",
-   "reason": "arrivées ouvertes, build initial",
-   "supersededBy": "arrival-stress-2026-10-07T21-31-09-975Z-ba6970",
-   "decisionIds": [
-    "D-http-transport"
-   ],
-   "validity": [
-    {
-     "scope": "all",
-     "class": "none",
-     "note": "remplacé"
-    }
-   ],
-   "noisyHost": false,
-   "rerun": {
-    "required": false,
-    "priority": null,
-    "hostClass": null
-   }
-  },
-  "arrival-stress-2026-10-07T21-31-09-975Z-ba6970": {
-   "role": "selected",
-   "reason": "arrivées ouvertes à débit fixe",
-   "supersededBy": null,
-   "decisionIds": [
-    "D-http-transport"
-   ],
-   "validity": [
-    {
-     "scope": "rejections-in-denominator",
-     "class": "A",
-     "note": "contrat de comptage"
+  "schemaVersion": 1,
+  "runs": {
+    "arrival-stress-2026-10-07T20-47-12-378Z-92d66f": {
+      "role": "superseded",
+      "reason": "arrivées ouvertes, build initial",
+      "supersededBy": "arrival-stress-2026-10-07T21-31-09-975Z-ba6970",
+      "decisionIds": [
+        "D-http-transport"
+      ],
+      "validity": [
+        {
+          "scope": "all",
+          "class": "none",
+          "note": "remplacé"
+        }
+      ],
+      "noisyHost": false,
+      "rerun": {
+        "required": false,
+        "priority": null,
+        "hostClass": null
+      }
     },
-    {
-     "scope": "throughput",
-     "class": "B",
-     "note": "Mac partagé non contrôlé ; chiffres absolus non publiables"
-    }
-   ],
-   "noisyHost": false,
-   "rerun": {
-    "required": false,
-    "priority": null,
-    "hostClass": null
-   }
-  },
-  "browser-actionability-2026-10-07T23-38-33-163Z-ccad1f": {
-   "role": "selected",
-   "reason": "matrice d'actionnabilité : colonne native retenue, colonne gardée remplacée par b21a28",
-   "supersededBy": null,
-   "decisionIds": [
-    "D-browser-driver"
-   ],
-   "validity": [
-    {
-     "scope": "native-matrix",
-     "class": "A",
-     "note": "Playwright 27/27, Puppeteer et Stagehand non conformes sur plusieurs variantes"
+    "arrival-stress-2026-10-07T21-31-09-975Z-ba6970": {
+      "role": "selected",
+      "reason": "arrivées ouvertes à débit fixe",
+      "supersededBy": null,
+      "decisionIds": [
+        "D-http-transport"
+      ],
+      "validity": [
+        {
+          "scope": "rejections-in-denominator",
+          "class": "A",
+          "note": "contrat de comptage"
+        },
+        {
+          "scope": "throughput",
+          "class": "B",
+          "note": "Mac partagé non contrôlé ; chiffres absolus non publiables"
+        }
+      ],
+      "noisyHost": false,
+      "rerun": {
+        "required": false,
+        "priority": null,
+        "hostClass": null
+      }
     },
-    {
-     "scope": "guarded",
-     "class": "none",
-     "note": "garde initiale avec faux succès"
-    }
-   ],
-   "noisyHost": false,
-   "rerun": {
-    "required": false,
-    "priority": null,
-    "hostClass": null
-   }
-  },
-  "browser-actionability-2026-10-08T00-21-16-186Z-b21a28": {
-   "role": "selected",
-   "reason": "garde d'actionnabilité corrigée, 162 cellules",
-   "supersededBy": null,
-   "decisionIds": [
-    "D-browser-driver"
-   ],
-   "validity": [
-    {
-     "scope": "guarded-conformance",
-     "class": "A",
-     "note": "sur ce corpus"
+    "browser-actionability-2026-10-07T23-38-33-163Z-ccad1f": {
+      "role": "selected",
+      "reason": "matrice d'actionnabilité : colonne native retenue, colonne gardée remplacée par b21a28",
+      "supersededBy": null,
+      "decisionIds": [
+        "D-browser-driver"
+      ],
+      "validity": [
+        {
+          "scope": "native-matrix",
+          "class": "A",
+          "note": "Playwright 27/27, Puppeteer et Stagehand non conformes sur plusieurs variantes"
+        },
+        {
+          "scope": "guarded",
+          "class": "none",
+          "note": "garde initiale avec faux succès"
+        }
+      ],
+      "noisyHost": false,
+      "rerun": {
+        "required": false,
+        "priority": null,
+        "hostClass": null
+      }
     },
-    {
-     "scope": "timings",
-     "class": "B",
-     "note": "garde commune ; RTT nul"
-    }
-   ],
-   "noisyHost": false,
-   "rerun": {
-    "required": true,
-    "priority": "P0",
-    "hostClass": "local-controlled"
-   }
-  },
-  "browser-actionability-guarded-2026-10-08T08-17-11-516Z-b3378c": {
-   "role": "diagnostic",
-   "reason": "suite de parité P3 : campagne v2 en données, mêmes comptes vérifiés que la qualification du 8 octobre",
-   "supersededBy": null,
-   "decisionIds": [
-    "D-browser-driver"
-   ],
-   "validity": [
-    {
-     "scope": "contracts",
-     "class": "A",
-     "note": "parité des comptes, sources non commitées"
+    "browser-actionability-2026-10-08T00-21-16-186Z-b21a28": {
+      "role": "selected",
+      "reason": "garde d'actionnabilité corrigée, 162 cellules",
+      "supersededBy": null,
+      "decisionIds": [
+        "D-browser-driver"
+      ],
+      "validity": [
+        {
+          "scope": "guarded-conformance",
+          "class": "A",
+          "note": "sur ce corpus"
+        },
+        {
+          "scope": "timings",
+          "class": "B",
+          "note": "garde commune ; RTT nul"
+        }
+      ],
+      "noisyHost": false,
+      "rerun": {
+        "required": true,
+        "priority": "P0",
+        "hostClass": "local-controlled"
+      }
     },
-    {
-     "scope": "timings",
-     "class": "C",
-     "note": "local-dev, hôte chargé"
-    }
-   ],
-   "noisyHost": false,
-   "rerun": {
-    "required": false,
-    "priority": null,
-    "hostClass": null
-   }
-  },
-  "browser-primitives-2026-10-07T20-49-14-368Z-51f1c1": {
-   "role": "superseded",
-   "reason": "primitives navigateur sans provenance",
-   "supersededBy": "browser-primitives-2026-10-07T21-33-08-604Z-f6b1a0",
-   "decisionIds": [
-    "D-browser-driver"
-   ],
-   "validity": [
-    {
-     "scope": "all",
-     "class": "none",
-     "note": "sans provenance"
-    }
-   ],
-   "noisyHost": false,
-   "rerun": {
-    "required": false,
-    "priority": null,
-    "hostClass": null
-   }
-  },
-  "browser-primitives-2026-10-07T21-33-08-604Z-f6b1a0": {
-   "role": "selected",
-   "reason": "primitives navigateur à disponibilité commune",
-   "supersededBy": null,
-   "decisionIds": [
-    "D-browser-driver"
-   ],
-   "validity": [
-    {
-     "scope": "timings",
-     "class": "B",
-     "note": "conditions communes, sans garanties natives ; à relire avec la matrice d'actionnabilité"
-    }
-   ],
-   "noisyHost": false,
-   "rerun": {
-    "required": false,
-    "priority": null,
-    "hostClass": null
-   }
-  },
-  "http-lifecycle-2026-10-07T21-29-31-257Z-2b0754": {
-   "role": "selected",
-   "reason": "cycle de vie HTTP neuf ou poolé",
-   "supersededBy": null,
-   "decisionIds": [
-    "D-http-transport"
-   ],
-   "validity": [
-    {
-     "scope": "ordering",
-     "class": "B",
-     "note": "écart d'orchestration Crawlee, même hôte"
+    "browser-actionability-guarded-2026-10-08T08-17-11-516Z-b3378c": {
+      "role": "diagnostic",
+      "reason": "suite de parité P3 : campagne v2 en données, mêmes comptes vérifiés que la qualification du 8 octobre",
+      "supersededBy": null,
+      "decisionIds": [
+        "D-browser-driver"
+      ],
+      "validity": [
+        {
+          "scope": "contracts",
+          "class": "A",
+          "note": "parité des comptes, sources non commitées"
+        },
+        {
+          "scope": "timings",
+          "class": "C",
+          "note": "local-dev, hôte chargé"
+        }
+      ],
+      "noisyHost": false,
+      "rerun": {
+        "required": false,
+        "priority": null,
+        "hostClass": null
+      }
     },
-    {
-     "scope": "absolute",
-     "class": "C",
-     "note": "Mac partagé non contrôlé ; chiffres absolus non publiables"
-    }
-   ],
-   "noisyHost": false,
-   "rerun": {
-    "required": true,
-    "priority": "P1",
-    "hostClass": "reference"
-   }
-  },
-  "http-open-100-2026-10-07T23-55-27-645Z-9f6596": {
-   "role": "selected",
-   "reason": "arrivées ouvertes à 100 tâches/s",
-   "supersededBy": null,
-   "decisionIds": [
-    "D-http-transport"
-   ],
-   "validity": [
-    {
-     "scope": "capacity",
-     "class": "B",
-     "note": "Mac partagé non contrôlé ; chiffres absolus non publiables"
-    }
-   ],
-   "noisyHost": false,
-   "rerun": {
-    "required": true,
-    "priority": "P1",
-    "hostClass": "reference"
-   }
-  },
-  "http-open-20-2026-10-07T23-52-50-976Z-19b9fb": {
-   "role": "selected",
-   "reason": "arrivées ouvertes à 20 tâches/s",
-   "supersededBy": null,
-   "decisionIds": [
-    "D-http-transport"
-   ],
-   "validity": [
-    {
-     "scope": "capacity",
-     "class": "B",
-     "note": "Mac partagé non contrôlé ; chiffres absolus non publiables"
-    }
-   ],
-   "noisyHost": false,
-   "rerun": {
-    "required": true,
-    "priority": "P1",
-    "hostClass": "reference"
-   }
-  },
-  "http-open-250-2026-10-07T23-58-01-322Z-66a668": {
-   "role": "selected",
-   "reason": "arrivées ouvertes à 250 tâches/s",
-   "supersededBy": null,
-   "decisionIds": [
-    "D-http-transport"
-   ],
-   "validity": [
-    {
-     "scope": "capacity",
-     "class": "B",
-     "note": "Mac partagé non contrôlé ; chiffres absolus non publiables"
-    }
-   ],
-   "noisyHost": false,
-   "rerun": {
-    "required": true,
-    "priority": "P1",
-    "hostClass": "reference"
-   }
-  },
-  "http-smoke-2026-10-08T07-48-27-175Z-975485": {
-   "role": "diagnostic",
-   "reason": "premier run v2 de bout en bout ; sondes de ressources arrêtées après la fin de l'adapter, bug corrigé avant 471f40",
-   "supersededBy": null,
-   "decisionIds": [
-    "D-http-transport"
-   ],
-   "validity": [
-    {
-     "scope": "contracts",
-     "class": "A",
-     "note": "40 tentatives vérifiées"
+    "browser-primitives-2026-10-07T20-49-14-368Z-51f1c1": {
+      "role": "superseded",
+      "reason": "primitives navigateur sans provenance",
+      "supersededBy": "browser-primitives-2026-10-07T21-33-08-604Z-f6b1a0",
+      "decisionIds": [
+        "D-browser-driver"
+      ],
+      "validity": [
+        {
+          "scope": "all",
+          "class": "none",
+          "note": "sans provenance"
+        }
+      ],
+      "noisyHost": false,
+      "rerun": {
+        "required": false,
+        "priority": null,
+        "hostClass": null
+      }
     },
-    {
-     "scope": "resources",
-     "class": "none",
-     "note": "métriques de ressources nulles par bug"
-    }
-   ],
-   "noisyHost": false,
-   "rerun": {
-    "required": false,
-    "priority": null,
-    "hostClass": null
-   }
-  },
-  "http-smoke-2026-10-08T07-49-04-577Z-471f40": {
-   "role": "diagnostic",
-   "reason": "contrôle de bout en bout du moteur v2 après correction des sondes ; local-dev, sources non commitées",
-   "supersededBy": null,
-   "decisionIds": [
-    "D-http-transport"
-   ],
-   "validity": [
-    {
-     "scope": "contracts",
-     "class": "A",
-     "note": "40 tentatives vérifiées"
+    "browser-primitives-2026-10-07T21-33-08-604Z-f6b1a0": {
+      "role": "selected",
+      "reason": "primitives navigateur à disponibilité commune",
+      "supersededBy": null,
+      "decisionIds": [
+        "D-browser-driver"
+      ],
+      "validity": [
+        {
+          "scope": "timings",
+          "class": "B",
+          "note": "conditions communes, sans garanties natives ; à relire avec la matrice d'actionnabilité"
+        }
+      ],
+      "noisyHost": false,
+      "rerun": {
+        "required": false,
+        "priority": null,
+        "hostClass": null
+      }
     },
-    {
-     "scope": "timings",
-     "class": "C",
-     "note": "local-dev, hôte chargé"
-    }
-   ],
-   "noisyHost": false,
-   "rerun": {
-    "required": false,
-    "priority": null,
-    "hostClass": null
-   }
-  },
-  "http-stress-2026-10-07T20-46-30-909Z-244931": {
-   "role": "superseded",
-   "reason": "stress HTTP sans backend pooled, remplacé par http-lifecycle",
-   "supersededBy": "http-lifecycle-2026-10-07T21-29-31-257Z-2b0754",
-   "decisionIds": [
-    "D-http-transport"
-   ],
-   "validity": [
-    {
-     "scope": "all",
-     "class": "none",
-     "note": "remplacé"
-    }
-   ],
-   "noisyHost": false,
-   "rerun": {
-    "required": false,
-    "priority": null,
-    "hostClass": null
-   }
-  },
-  "http-transport-2026-10-07T23-52-40-042Z-be9fbc": {
-   "role": "selected",
-   "reason": "transports HTTP : redirect, gzip, chunked, grandes réponses ; refus SSRF loopback de Spider",
-   "supersededBy": null,
-   "decisionIds": [
-    "D-http-transport"
-   ],
-   "validity": [
-    {
-     "scope": "contracts",
-     "class": "A",
-     "note": "refus par politique, non contourné"
+    "http-lifecycle-2026-10-07T21-29-31-257Z-2b0754": {
+      "role": "selected",
+      "reason": "cycle de vie HTTP neuf ou poolé",
+      "supersededBy": null,
+      "decisionIds": [
+        "D-http-transport"
+      ],
+      "validity": [
+        {
+          "scope": "ordering",
+          "class": "B",
+          "note": "écart d'orchestration Crawlee, même hôte"
+        },
+        {
+          "scope": "absolute",
+          "class": "C",
+          "note": "Mac partagé non contrôlé ; chiffres absolus non publiables"
+        }
+      ],
+      "noisyHost": false,
+      "rerun": {
+        "required": true,
+        "priority": "P1",
+        "hostClass": "reference"
+      }
     },
-    {
-     "scope": "timings",
-     "class": "C",
-     "note": "Mac partagé non contrôlé ; chiffres absolus non publiables"
-    }
-   ],
-   "noisyHost": false,
-   "rerun": {
-    "required": true,
-    "priority": "P1",
-    "hostClass": "reference"
-   }
-  },
-  "qualification-2026-10-07T21-12-54-304Z-def392": {
-   "role": "superseded",
-   "reason": "qualification commune avant changements des workers",
-   "supersededBy": "qualification-2026-10-07T21-25-08-753Z-61ffef",
-   "decisionIds": [
-    "D-browser-driver",
-    "D-http-transport"
-   ],
-   "validity": [
-    {
-     "scope": "all",
-     "class": "none",
-     "note": "sources modifiées ensuite"
-    }
-   ],
-   "noisyHost": false,
-   "rerun": {
-    "required": false,
-    "priority": null,
-    "hostClass": null
-   }
-  },
-  "qualification-2026-10-07T21-18-33-050Z-09a59f": {
-   "role": "superseded",
-   "reason": "qualification commune avant changements des workers",
-   "supersededBy": "qualification-2026-10-07T21-25-08-753Z-61ffef",
-   "decisionIds": [
-    "D-browser-driver",
-    "D-http-transport"
-   ],
-   "validity": [
-    {
-     "scope": "all",
-     "class": "none",
-     "note": "sources modifiées ensuite"
-    }
-   ],
-   "noisyHost": false,
-   "rerun": {
-    "required": false,
-    "priority": null,
-    "hostClass": null
-   }
-  },
-  "qualification-2026-10-07T21-25-08-753Z-61ffef": {
-   "role": "selected",
-   "reason": "gates de capacité des moteurs ; échecs Spider Chrome/Smart sur catalogue JS",
-   "supersededBy": null,
-   "decisionIds": [
-    "D-browser-driver",
-    "D-http-transport"
-   ],
-   "validity": [
-    {
-     "scope": "capability-gates",
-     "class": "A",
-     "note": "conformité et échecs explicites, versions de l'époque"
+    "http-open-100-2026-10-07T23-55-27-645Z-9f6596": {
+      "role": "selected",
+      "reason": "arrivées ouvertes à 100 tâches/s",
+      "supersededBy": null,
+      "decisionIds": [
+        "D-http-transport"
+      ],
+      "validity": [
+        {
+          "scope": "capacity",
+          "class": "B",
+          "note": "Mac partagé non contrôlé ; chiffres absolus non publiables"
+        }
+      ],
+      "noisyHost": false,
+      "rerun": {
+        "required": true,
+        "priority": "P1",
+        "hostClass": "reference"
+      }
     },
-    {
-     "scope": "timings",
-     "class": "C",
-     "note": "Mac partagé non contrôlé ; chiffres absolus non publiables"
-    }
-   ],
-   "noisyHost": false,
-   "rerun": {
-    "required": false,
-    "priority": null,
-    "hostClass": null
-   }
-  },
-  "qualification-current-2026-10-08T00-11-54-553Z-21d1f2": {
-   "role": "orchestrator",
-   "reason": "requalification après corrections",
-   "supersededBy": null,
-   "decisionIds": [],
-   "validity": [
-    {
-     "scope": "orchestration",
-     "class": "none",
-     "note": "agrège les campagnes"
-    }
-   ],
-   "noisyHost": false,
-   "rerun": {
-    "required": false,
-    "priority": null,
-    "hostClass": null
-   }
-  },
-  "qualification-integrated-2026-10-07T23-16-32-138Z-d5bec9": {
-   "role": "diagnostic",
-   "reason": "suite interrompue : unité CPU erronée dans la première sonde",
-   "supersededBy": null,
-   "decisionIds": [
-    "D-core-language"
-   ],
-   "validity": [
-    {
-     "scope": "all",
-     "class": "none",
-     "note": "métriques CPU invalides"
-    }
-   ],
-   "noisyHost": false,
-   "rerun": {
-    "required": false,
-    "priority": null,
-    "hostClass": null
-   }
-  },
-  "qualification-integrated-2026-10-07T23-21-58-974Z-6b64b0": {
-   "role": "orchestrator",
-   "reason": "première suite intégrée complète",
-   "supersededBy": null,
-   "decisionIds": [],
-   "validity": [
-    {
-     "scope": "orchestration",
-     "class": "none",
-     "note": "agrège les campagnes"
-    }
-   ],
-   "noisyHost": false,
-   "rerun": {
-    "required": false,
-    "priority": null,
-    "hostClass": null
-   }
-  },
-  "runtime-http-backends-2026-10-07T23-29-49-072Z-2b2b75": {
-   "role": "selected",
-   "reason": "backends HTTP dans le workflow durable, hôte chargé pendant le bloc 2",
-   "supersededBy": null,
-   "decisionIds": [
-    "D-http-transport",
-    "D-core-language"
-   ],
-   "validity": [
-    {
-     "scope": "pipeline-contract",
-     "class": "A",
-     "note": "comptes exacts"
+    "http-open-20-2026-10-07T23-52-50-976Z-19b9fb": {
+      "role": "selected",
+      "reason": "arrivées ouvertes à 20 tâches/s",
+      "supersededBy": null,
+      "decisionIds": [
+        "D-http-transport"
+      ],
+      "validity": [
+        {
+          "scope": "capacity",
+          "class": "B",
+          "note": "Mac partagé non contrôlé ; chiffres absolus non publiables"
+        }
+      ],
+      "noisyHost": false,
+      "rerun": {
+        "required": true,
+        "priority": "P1",
+        "hostClass": "reference"
+      }
     },
-    {
-     "scope": "throughput",
-     "class": "none",
-     "note": "hôte bruité"
-    }
-   ],
-   "noisyHost": true,
-   "rerun": {
-    "required": true,
-    "priority": "P0",
-    "hostClass": "reference"
-   }
-  },
-  "runtime-http-backends-2026-10-08T08-21-34-528Z-4c7aa1": {
-   "role": "diagnostic",
-   "reason": "suite de parité P3 : campagne v2 en données, mêmes comptes vérifiés que la qualification du 8 octobre",
-   "supersededBy": null,
-   "decisionIds": [
-    "D-http-transport",
-    "D-core-language"
-   ],
-   "validity": [
-    {
-     "scope": "contracts",
-     "class": "A",
-     "note": "parité des comptes, sources non commitées"
+    "http-open-250-2026-10-07T23-58-01-322Z-66a668": {
+      "role": "selected",
+      "reason": "arrivées ouvertes à 250 tâches/s",
+      "supersededBy": null,
+      "decisionIds": [
+        "D-http-transport"
+      ],
+      "validity": [
+        {
+          "scope": "capacity",
+          "class": "B",
+          "note": "Mac partagé non contrôlé ; chiffres absolus non publiables"
+        }
+      ],
+      "noisyHost": false,
+      "rerun": {
+        "required": true,
+        "priority": "P1",
+        "hostClass": "reference"
+      }
     },
-    {
-     "scope": "timings",
-     "class": "C",
-     "note": "local-dev, hôte chargé"
-    }
-   ],
-   "noisyHost": false,
-   "rerun": {
-    "required": false,
-    "priority": null,
-    "hostClass": null
-   }
-  },
-  "runtime-native-qualified-2026-10-08T00-11-54-841Z-789d5e": {
-   "role": "selected",
-   "reason": "workflow natif Node contre Rust, configuration partagée par Arc",
-   "supersededBy": null,
-   "decisionIds": [
-    "D-core-language"
-   ],
-   "validity": [
-    {
-     "scope": "relative",
-     "class": "B",
-     "note": "CPU et footprint moindres pour Rust, débit proche"
+    "http-smoke-2026-10-08T07-48-27-175Z-975485": {
+      "role": "diagnostic",
+      "reason": "premier run v2 de bout en bout ; sondes de ressources arrêtées après la fin de l'adapter, bug corrigé avant 471f40",
+      "supersededBy": null,
+      "decisionIds": [
+        "D-http-transport"
+      ],
+      "validity": [
+        {
+          "scope": "contracts",
+          "class": "A",
+          "note": "40 tentatives vérifiées"
+        },
+        {
+          "scope": "resources",
+          "class": "none",
+          "note": "métriques de ressources nulles par bug"
+        }
+      ],
+      "noisyHost": false,
+      "rerun": {
+        "required": false,
+        "priority": null,
+        "hostClass": null
+      }
     },
-    {
-     "scope": "absolute",
-     "class": "C",
-     "note": "Mac partagé non contrôlé ; chiffres absolus non publiables"
-    }
-   ],
-   "noisyHost": false,
-   "rerun": {
-    "required": true,
-    "priority": "P0",
-    "hostClass": "reference"
-   }
-  },
-  "runtime-native-qualified-2026-10-08T08-08-21-301Z-20a589": {
-   "role": "diagnostic",
-   "reason": "suite de parité P3 : campagne v2 en données, mêmes comptes vérifiés que la qualification du 8 octobre",
-   "supersededBy": null,
-   "decisionIds": [
-    "D-core-language"
-   ],
-   "validity": [
-    {
-     "scope": "contracts",
-     "class": "A",
-     "note": "parité des comptes, sources non commitées"
+    "http-smoke-2026-10-08T07-49-04-577Z-471f40": {
+      "role": "diagnostic",
+      "reason": "contrôle de bout en bout du moteur v2 après correction des sondes ; local-dev, sources non commitées",
+      "supersededBy": null,
+      "decisionIds": [
+        "D-http-transport"
+      ],
+      "validity": [
+        {
+          "scope": "contracts",
+          "class": "A",
+          "note": "40 tentatives vérifiées"
+        },
+        {
+          "scope": "timings",
+          "class": "C",
+          "note": "local-dev, hôte chargé"
+        }
+      ],
+      "noisyHost": false,
+      "rerun": {
+        "required": false,
+        "priority": null,
+        "hostClass": null
+      }
     },
-    {
-     "scope": "timings",
-     "class": "C",
-     "note": "local-dev, hôte chargé"
-    }
-   ],
-   "noisyHost": false,
-   "rerun": {
-    "required": false,
-    "priority": null,
-    "hostClass": null
-   }
-  },
-  "runtime-native-sustained-2026-10-07T23-16-32-399Z-86e997": {
-   "role": "diagnostic",
-   "reason": "série native démarrée dans la suite interrompue",
-   "supersededBy": null,
-   "decisionIds": [
-    "D-core-language"
-   ],
-   "validity": [
-    {
-     "scope": "all",
-     "class": "none",
-     "note": "suite interrompue"
-    }
-   ],
-   "noisyHost": false,
-   "rerun": {
-    "required": false,
-    "priority": null,
-    "hostClass": null
-   }
-  },
-  "runtime-native-sustained-2026-10-07T23-21-59-298Z-bf6ecb": {
-   "role": "diagnostic",
-   "reason": "première série native Node/Rust avant le partage Arc de la configuration",
-   "supersededBy": null,
-   "decisionIds": [
-    "D-core-language"
-   ],
-   "validity": [
-    {
-     "scope": "relative",
-     "class": "B",
-     "note": "série initiale, non causale pour l'effet Arc"
-    }
-   ],
-   "noisyHost": false,
-   "rerun": {
-    "required": false,
-    "priority": null,
-    "hostClass": null
-   }
-  },
-  "runtime-recovery-2026-10-07T23-37-26-683Z-fcaced": {
-   "role": "superseded",
-   "reason": "série initiale de reprise, requalifiée ensuite",
-   "supersededBy": "runtime-recovery-qualified-2026-10-08T00-20-09-515Z-ad3e70",
-   "decisionIds": [
-    "D-durable-runtime"
-   ],
-   "validity": [
-    {
-     "scope": "recovery",
-     "class": "A",
-     "note": "mêmes invariants"
-    }
-   ],
-   "noisyHost": false,
-   "rerun": {
-    "required": false,
-    "priority": null,
-    "hostClass": null
-   }
-  },
-  "runtime-recovery-qualified-2026-10-08T00-20-09-515Z-ad3e70": {
-   "role": "selected",
-   "reason": "reprise Node et Rust : crashes avant/après commit et ACK, nouveau coordinateur",
-   "supersededBy": null,
-   "decisionIds": [
-    "D-core-language",
-    "D-durable-runtime"
-   ],
-   "validity": [
-    {
-     "scope": "recovery",
-     "class": "A",
-     "note": "crash de processus, darwin seulement"
-    }
-   ],
-   "noisyHost": false,
-   "rerun": {
-    "required": true,
-    "priority": "P1",
-    "hostClass": "reference"
-   }
-  },
-  "runtime-recovery-qualified-2026-10-08T08-16-05-686Z-2b7b94": {
-   "role": "diagnostic",
-   "reason": "suite de parité P3 : campagne v2 en données, mêmes comptes vérifiés que la qualification du 8 octobre",
-   "supersededBy": null,
-   "decisionIds": [
-    "D-durable-runtime",
-    "D-core-language"
-   ],
-   "validity": [
-    {
-     "scope": "contracts",
-     "class": "A",
-     "note": "parité des comptes, sources non commitées"
+    "http-stress-2026-10-07T20-46-30-909Z-244931": {
+      "role": "superseded",
+      "reason": "stress HTTP sans backend pooled, remplacé par http-lifecycle",
+      "supersededBy": "http-lifecycle-2026-10-07T21-29-31-257Z-2b0754",
+      "decisionIds": [
+        "D-http-transport"
+      ],
+      "validity": [
+        {
+          "scope": "all",
+          "class": "none",
+          "note": "remplacé"
+        }
+      ],
+      "noisyHost": false,
+      "rerun": {
+        "required": false,
+        "priority": null,
+        "hostClass": null
+      }
     },
-    {
-     "scope": "timings",
-     "class": "C",
-     "note": "local-dev, hôte chargé"
-    }
-   ],
-   "noisyHost": false,
-   "rerun": {
-    "required": false,
-    "priority": null,
-    "hostClass": null
-   }
-  },
-  "smoke-2026-10-07T20-20-24-226Z-9ebb47": {
-   "role": "smoke",
-   "reason": "première mise en route des adapters, avant hashes de sources et viewport commun",
-   "supersededBy": null,
-   "decisionIds": [],
-   "validity": [
-    {
-     "scope": "all",
-     "class": "none",
-     "note": "build initial"
-    }
-   ],
-   "noisyHost": false,
-   "rerun": {
-    "required": false,
-    "priority": null,
-    "hostClass": null
-   }
-  },
-  "smoke-2026-10-07T20-25-09-459Z-c13e18": {
-   "role": "smoke",
-   "reason": "mise en route des backends Stagehand, build initial",
-   "supersededBy": null,
-   "decisionIds": [],
-   "validity": [
-    {
-     "scope": "all",
-     "class": "none",
-     "note": "build initial"
-    }
-   ],
-   "noisyHost": false,
-   "rerun": {
-    "required": false,
-    "priority": null,
-    "hostClass": null
-   }
-  },
-  "smoke-2026-10-07T20-39-24-868Z-382250": {
-   "role": "smoke",
-   "reason": "mise en route complète des backends, build initial",
-   "supersededBy": null,
-   "decisionIds": [],
-   "validity": [
-    {
-     "scope": "all",
-     "class": "none",
-     "note": "build initial"
-    }
-   ],
-   "noisyHost": false,
-   "rerun": {
-    "required": false,
-    "priority": null,
-    "hostClass": null
-   }
-  },
-  "spider-http-transport-supported-2026-10-08T00-26-16-511Z-7ce401": {
-   "role": "selected",
-   "reason": "Spider sur les variantes HTTP supportées",
-   "supersededBy": null,
-   "decisionIds": [
-    "D-http-transport"
-   ],
-   "validity": [
-    {
-     "scope": "contracts",
-     "class": "A",
-     "note": "60 lignes vérifiées"
-    }
-   ],
-   "noisyHost": false,
-   "rerun": {
-    "required": false,
-    "priority": null,
-    "hostClass": null
-   }
-  },
-  "spider-http-transport-supported-2026-10-08T08-21-33-006Z-dc7f37": {
-   "role": "diagnostic",
-   "reason": "suite de parité P3 : campagne v2 en données, mêmes comptes vérifiés que la qualification du 8 octobre",
-   "supersededBy": null,
-   "decisionIds": [
-    "D-http-transport"
-   ],
-   "validity": [
-    {
-     "scope": "contracts",
-     "class": "A",
-     "note": "parité des comptes, sources non commitées"
+    "http-transport-2026-10-07T23-52-40-042Z-be9fbc": {
+      "role": "selected",
+      "reason": "transports HTTP : redirect, gzip, chunked, grandes réponses ; refus SSRF loopback de Spider",
+      "supersededBy": null,
+      "decisionIds": [
+        "D-http-transport"
+      ],
+      "validity": [
+        {
+          "scope": "contracts",
+          "class": "A",
+          "note": "refus par politique, non contourné"
+        },
+        {
+          "scope": "timings",
+          "class": "C",
+          "note": "Mac partagé non contrôlé ; chiffres absolus non publiables"
+        }
+      ],
+      "noisyHost": false,
+      "rerun": {
+        "required": true,
+        "priority": "P1",
+        "hostClass": "reference"
+      }
     },
-    {
-     "scope": "timings",
-     "class": "C",
-     "note": "local-dev, hôte chargé"
-    }
-   ],
-   "noisyHost": false,
-   "rerun": {
-    "required": false,
-    "priority": null,
-    "hostClass": null
-   }
-  },
-  "sqlite-readers-2026-10-07T23-52-02-741Z-c5571c": {
-   "role": "diagnostic",
-   "reason": "course d'initialisation schéma/WAL avec quatre writers",
-   "supersededBy": null,
-   "decisionIds": [
-    "D-storage"
-   ],
-   "validity": [
-    {
-     "scope": "all",
-     "class": "none",
-     "note": "bug du lab corrigé"
-    }
-   ],
-   "noisyHost": false,
-   "rerun": {
-    "required": false,
-    "priority": null,
-    "hostClass": null
-   }
-  },
-  "sqlite-readers-2026-10-08T00-25-35-434Z-92d4f3": {
-   "role": "selected",
-   "reason": "lecteurs longs et courts, checkpoints PASSIVE et TRUNCATE",
-   "supersededBy": null,
-   "decisionIds": [
-    "D-storage"
-   ],
-   "validity": [
-    {
-     "scope": "invariants",
-     "class": "A",
-     "note": "snapshot long, WAL tronqué après libération"
+    "qualification-2026-10-07T21-12-54-304Z-def392": {
+      "role": "superseded",
+      "reason": "qualification commune avant changements des workers",
+      "supersededBy": "qualification-2026-10-07T21-25-08-753Z-61ffef",
+      "decisionIds": [
+        "D-browser-driver",
+        "D-http-transport"
+      ],
+      "validity": [
+        {
+          "scope": "all",
+          "class": "none",
+          "note": "sources modifiées ensuite"
+        }
+      ],
+      "noisyHost": false,
+      "rerun": {
+        "required": false,
+        "priority": null,
+        "hostClass": null
+      }
     },
-    {
-     "scope": "throughput",
-     "class": "C",
-     "note": "Mac partagé non contrôlé ; chiffres absolus non publiables"
-    }
-   ],
-   "noisyHost": false,
-   "rerun": {
-    "required": false,
-    "priority": null,
-    "hostClass": null
-   }
-  },
-  "sqlite-readers-2026-10-08T08-20-58-320Z-de04ab": {
-   "role": "diagnostic",
-   "reason": "suite de parité P3 : campagne v2 en données, mêmes comptes vérifiés que la qualification du 8 octobre",
-   "supersededBy": null,
-   "decisionIds": [
-    "D-storage"
-   ],
-   "validity": [
-    {
-     "scope": "contracts",
-     "class": "A",
-     "note": "parité des comptes, sources non commitées"
+    "qualification-2026-10-07T21-18-33-050Z-09a59f": {
+      "role": "superseded",
+      "reason": "qualification commune avant changements des workers",
+      "supersededBy": "qualification-2026-10-07T21-25-08-753Z-61ffef",
+      "decisionIds": [
+        "D-browser-driver",
+        "D-http-transport"
+      ],
+      "validity": [
+        {
+          "scope": "all",
+          "class": "none",
+          "note": "sources modifiées ensuite"
+        }
+      ],
+      "noisyHost": false,
+      "rerun": {
+        "required": false,
+        "priority": null,
+        "hostClass": null
+      }
     },
-    {
-     "scope": "timings",
-     "class": "C",
-     "note": "local-dev, hôte chargé"
-    }
-   ],
-   "noisyHost": false,
-   "rerun": {
-    "required": false,
-    "priority": null,
-    "hostClass": null
-   }
-  },
-  "storage-contention-2026-10-07T20-48-05-930Z-a43b95": {
-   "role": "superseded",
-   "reason": "contention stockage sans provenance",
-   "supersededBy": "storage-contention-2026-10-07T21-30-24-424Z-6bec59",
-   "decisionIds": [
-    "D-storage"
-   ],
-   "validity": [
-    {
-     "scope": "all",
-     "class": "none",
-     "note": "sans provenance"
-    }
-   ],
-   "noisyHost": false,
-   "rerun": {
-    "required": false,
-    "priority": null,
-    "hostClass": null
-   }
-  },
-  "storage-contention-2026-10-07T21-30-24-424Z-6bec59": {
-   "role": "selected",
-   "reason": "batching et writers multiples, SQLite Node 3.53.4 contre Rust SQLx 3.46.0",
-   "supersededBy": null,
-   "decisionIds": [
-    "D-storage"
-   ],
-   "validity": [
-    {
-     "scope": "batching",
-     "class": "B",
-     "note": "effet du batching ; builds SQLite différents"
+    "qualification-2026-10-07T21-25-08-753Z-61ffef": {
+      "role": "selected",
+      "reason": "gates de capacité des moteurs ; échecs Spider Chrome/Smart sur catalogue JS",
+      "supersededBy": null,
+      "decisionIds": [
+        "D-browser-driver",
+        "D-http-transport"
+      ],
+      "validity": [
+        {
+          "scope": "capability-gates",
+          "class": "A",
+          "note": "conformité et échecs explicites, versions de l'époque"
+        },
+        {
+          "scope": "timings",
+          "class": "C",
+          "note": "Mac partagé non contrôlé ; chiffres absolus non publiables"
+        }
+      ],
+      "noisyHost": false,
+      "rerun": {
+        "required": false,
+        "priority": null,
+        "hostClass": null
+      }
     },
-    {
-     "scope": "absolute",
-     "class": "C",
-     "note": "Mac partagé non contrôlé ; chiffres absolus non publiables"
-    }
-   ],
-   "noisyHost": false,
-   "rerun": {
-    "required": false,
-    "priority": null,
-    "hostClass": null
-   }
-  },
-  "storage-process-crash-2026-10-07T20-47-45-408Z-c9c332": {
-   "role": "superseded",
-   "reason": "crash après acquittement sans provenance",
-   "supersededBy": "storage-process-crash-2026-10-07T21-30-54-410Z-718212",
-   "decisionIds": [
-    "D-storage"
-   ],
-   "validity": [
-    {
-     "scope": "all",
-     "class": "none",
-     "note": "sans provenance"
-    }
-   ],
-   "noisyHost": false,
-   "rerun": {
-    "required": false,
-    "priority": null,
-    "hostClass": null
-   }
-  },
-  "storage-process-crash-2026-10-07T21-30-54-410Z-718212": {
-   "role": "selected",
-   "reason": "SIGKILL après acquittement, crash de processus seulement",
-   "supersededBy": null,
-   "decisionIds": [
-    "D-storage",
-    "D-durable-runtime"
-   ],
-   "validity": [
-    {
-     "scope": "process-crash",
-     "class": "A",
-     "note": "ne prouve pas la coupure électrique"
-    }
-   ],
-   "noisyHost": false,
-   "rerun": {
-    "required": false,
-    "priority": null,
-    "hostClass": null
-   }
-  },
-  "storage-shared-checkpoint-2026-10-07T22-24-20-072Z-de4c14": {
-   "role": "selected",
-   "reason": "gros batches sur SQLite commun",
-   "supersededBy": null,
-   "decisionIds": [
-    "D-storage",
-    "D-core-language"
-   ],
-   "validity": [
-    {
-     "scope": "relative",
-     "class": "B",
-     "note": "Rust et Go devant Node sur ce workload"
+    "qualification-current-2026-10-08T00-11-54-553Z-21d1f2": {
+      "role": "orchestrator",
+      "reason": "requalification après corrections",
+      "supersededBy": null,
+      "decisionIds": [],
+      "validity": [
+        {
+          "scope": "orchestration",
+          "class": "none",
+          "note": "agrège les campagnes"
+        }
+      ],
+      "noisyHost": false,
+      "rerun": {
+        "required": false,
+        "priority": null,
+        "hostClass": null
+      }
     },
-    {
-     "scope": "absolute",
-     "class": "C",
-     "note": "Mac partagé non contrôlé ; chiffres absolus non publiables"
-    }
-   ],
-   "noisyHost": false,
-   "rerun": {
-    "required": true,
-    "priority": "P2",
-    "hostClass": "reference"
-   }
-  },
-  "storage-shared-contention-2026-10-07T22-19-18-394Z-a3d041": {
-   "role": "diagnostic",
-   "reason": "SQLite commun 3.46.0 sans le correctif WAL-reset, exclu de la sélection",
-   "supersededBy": null,
-   "decisionIds": [
-    "D-storage",
-    "D-core-language"
-   ],
-   "validity": [
-    {
-     "scope": "all",
-     "class": "none",
-     "note": "build SQLite exclu"
-    }
-   ],
-   "noisyHost": false,
-   "rerun": {
-    "required": false,
-    "priority": null,
-    "hostClass": null
-   }
-  },
-  "storage-shared-contention-2026-10-07T22-23-31-093Z-8d9875": {
-   "role": "selected",
-   "reason": "SQLite commun 3.53.4 : Node, Rust sync et Go sur le même artefact",
-   "supersededBy": null,
-   "decisionIds": [
-    "D-storage",
-    "D-core-language"
-   ],
-   "validity": [
-    {
-     "scope": "single-writer",
-     "class": "B",
-     "note": "plusieurs writers moins bons, même hôte"
+    "qualification-integrated-2026-10-07T23-16-32-138Z-d5bec9": {
+      "role": "diagnostic",
+      "reason": "suite interrompue : unité CPU erronée dans la première sonde",
+      "supersededBy": null,
+      "decisionIds": [
+        "D-core-language"
+      ],
+      "validity": [
+        {
+          "scope": "all",
+          "class": "none",
+          "note": "métriques CPU invalides"
+        }
+      ],
+      "noisyHost": false,
+      "rerun": {
+        "required": false,
+        "priority": null,
+        "hostClass": null
+      }
     },
-    {
-     "scope": "absolute",
-     "class": "C",
-     "note": "Mac partagé non contrôlé ; chiffres absolus non publiables"
-    }
-   ],
-   "noisyHost": false,
-   "rerun": {
-    "required": true,
-    "priority": "P2",
-    "hostClass": "reference"
-   }
-  },
-  "storage-smoke-2026-10-07T20-45-36-630Z-ebdd52": {
-   "role": "superseded",
-   "reason": "premier smoke stockage sans provenance, 47 cellules au lieu de 48",
-   "supersededBy": "storage-smoke-2026-10-07T21-30-06-119Z-3b617d",
-   "decisionIds": [
-    "D-storage"
-   ],
-   "validity": [
-    {
-     "scope": "all",
-     "class": "none",
-     "note": "sans provenance"
-    }
-   ],
-   "noisyHost": false,
-   "rerun": {
-    "required": false,
-    "priority": null,
-    "hostClass": null
-   }
-  },
-  "storage-smoke-2026-10-07T21-30-06-119Z-3b617d": {
-   "role": "selected",
-   "reason": "six contrats d'écriture, snapshot multi-writers non supporté",
-   "supersededBy": null,
-   "decisionIds": [
-    "D-storage"
-   ],
-   "validity": [
-    {
-     "scope": "contracts",
-     "class": "A",
-     "note": "oracles de relecture"
-    }
-   ],
-   "noisyHost": false,
-   "rerun": {
-    "required": false,
-    "priority": null,
-    "hostClass": null
-   }
-  },
-  "storage-smoke-2026-10-08T07-56-10-911Z-a8d1b9": {
-   "role": "diagnostic",
-   "reason": "contrôle de non-régression de l'exécuteur de cellule storage extrait en P3 : mêmes comptes que le smoke historique",
-   "supersededBy": null,
-   "decisionIds": [
-    "D-storage"
-   ],
-   "validity": [
-    {
-     "scope": "contracts",
-     "class": "A",
-     "note": "44 vérifiées, 4 non supportées, comme 3b617d"
-    }
-   ],
-   "noisyHost": false,
-   "rerun": {
-    "required": false,
-    "priority": null,
-    "hostClass": null
-   }
-  },
-  "workflow-pool-wakeup-2026-10-07T22-30-10-185Z-15ae16": {
-   "role": "diagnostic",
-   "reason": "notify appelé avant initialisation, campagne interrompue et exclue",
-   "supersededBy": null,
-   "decisionIds": [
-    "D-http-transport"
-   ],
-   "validity": [
-    {
-     "scope": "all",
-     "class": "none",
-     "note": "bug d'intégration du lab"
-    }
-   ],
-   "noisyHost": false,
-   "rerun": {
-    "required": false,
-    "priority": null,
-    "hostClass": null
-   }
-  },
-  "workflow-pool-wakeup-2026-10-07T22-32-40-342Z-21e558": {
-   "role": "selected",
-   "reason": "réveil du pool Crawlee, poll contre notify",
-   "supersededBy": null,
-   "decisionIds": [
-    "D-http-transport"
-   ],
-   "validity": [
-    {
-     "scope": "functional",
-     "class": "A",
-     "note": "notify après premier handler"
+    "qualification-integrated-2026-10-07T23-21-58-974Z-6b64b0": {
+      "role": "orchestrator",
+      "reason": "première suite intégrée complète",
+      "supersededBy": null,
+      "decisionIds": [],
+      "validity": [
+        {
+          "scope": "orchestration",
+          "class": "none",
+          "note": "agrège les campagnes"
+        }
+      ],
+      "noisyHost": false,
+      "rerun": {
+        "required": false,
+        "priority": null,
+        "hostClass": null
+      }
     },
-    {
-     "scope": "throughput",
-     "class": "B",
-     "note": "Mac partagé non contrôlé ; chiffres absolus non publiables"
-    }
-   ],
-   "noisyHost": false,
-   "rerun": {
-    "required": false,
-    "priority": null,
-    "hostClass": null
-   }
-  },
-  "workflow-recovery-2026-10-07T22-26-19-297Z-c40792": {
-   "role": "selected",
-   "reason": "crash du writer avant et après commit",
-   "supersededBy": null,
-   "decisionIds": [
-    "D-durable-runtime",
-    "D-storage"
-   ],
-   "validity": [
-    {
-     "scope": "recovery",
-     "class": "A",
-     "note": "reprise exacte, crash de processus"
-    }
-   ],
-   "noisyHost": false,
-   "rerun": {
-    "required": false,
-    "priority": null,
-    "hostClass": null
-   }
-  },
-  "workflow-throughput-2026-10-07T22-24-52-832Z-024c4f": {
-   "role": "selected",
-   "reason": "workflow HTTP durable complet, backends Node",
-   "supersededBy": null,
-   "decisionIds": [
-    "D-http-transport",
-    "D-durable-runtime"
-   ],
-   "validity": [
-    {
-     "scope": "pipeline-contract",
-     "class": "A",
-     "note": "acquittement après commit vérifié"
+    "runtime-http-backends-2026-10-07T23-29-49-072Z-2b2b75": {
+      "role": "selected",
+      "reason": "backends HTTP dans le workflow durable, hôte chargé pendant le bloc 2",
+      "supersededBy": null,
+      "decisionIds": [
+        "D-http-transport",
+        "D-core-language"
+      ],
+      "validity": [
+        {
+          "scope": "pipeline-contract",
+          "class": "A",
+          "note": "comptes exacts"
+        },
+        {
+          "scope": "throughput",
+          "class": "none",
+          "note": "hôte bruité"
+        }
+      ],
+      "noisyHost": true,
+      "rerun": {
+        "required": true,
+        "priority": "P0",
+        "hostClass": "reference"
+      }
     },
-    {
-     "scope": "throughput",
-     "class": "B",
-     "note": "Mac partagé non contrôlé ; chiffres absolus non publiables"
+    "runtime-http-backends-2026-10-08T08-21-34-528Z-4c7aa1": {
+      "role": "diagnostic",
+      "reason": "suite de parité P3 : campagne v2 en données, mêmes comptes vérifiés que la qualification du 8 octobre",
+      "supersededBy": null,
+      "decisionIds": [
+        "D-http-transport",
+        "D-core-language"
+      ],
+      "validity": [
+        {
+          "scope": "contracts",
+          "class": "A",
+          "note": "parité des comptes, sources non commitées"
+        },
+        {
+          "scope": "timings",
+          "class": "C",
+          "note": "local-dev, hôte chargé"
+        }
+      ],
+      "noisyHost": false,
+      "rerun": {
+        "required": false,
+        "priority": null,
+        "hostClass": null
+      }
+    },
+    "runtime-native-qualified-2026-10-08T00-11-54-841Z-789d5e": {
+      "role": "selected",
+      "reason": "workflow natif Node contre Rust, configuration partagée par Arc",
+      "supersededBy": null,
+      "decisionIds": [
+        "D-core-language"
+      ],
+      "validity": [
+        {
+          "scope": "relative",
+          "class": "B",
+          "note": "CPU et footprint moindres pour Rust, débit proche"
+        },
+        {
+          "scope": "absolute",
+          "class": "C",
+          "note": "Mac partagé non contrôlé ; chiffres absolus non publiables"
+        }
+      ],
+      "noisyHost": false,
+      "rerun": {
+        "required": true,
+        "priority": "P0",
+        "hostClass": "reference"
+      }
+    },
+    "runtime-native-qualified-2026-10-08T08-08-21-301Z-20a589": {
+      "role": "diagnostic",
+      "reason": "suite de parité P3 : campagne v2 en données, mêmes comptes vérifiés que la qualification du 8 octobre",
+      "supersededBy": null,
+      "decisionIds": [
+        "D-core-language"
+      ],
+      "validity": [
+        {
+          "scope": "contracts",
+          "class": "A",
+          "note": "parité des comptes, sources non commitées"
+        },
+        {
+          "scope": "timings",
+          "class": "C",
+          "note": "local-dev, hôte chargé"
+        }
+      ],
+      "noisyHost": false,
+      "rerun": {
+        "required": false,
+        "priority": null,
+        "hostClass": null
+      }
+    },
+    "runtime-native-sustained-2026-10-07T23-16-32-399Z-86e997": {
+      "role": "diagnostic",
+      "reason": "série native démarrée dans la suite interrompue",
+      "supersededBy": null,
+      "decisionIds": [
+        "D-core-language"
+      ],
+      "validity": [
+        {
+          "scope": "all",
+          "class": "none",
+          "note": "suite interrompue"
+        }
+      ],
+      "noisyHost": false,
+      "rerun": {
+        "required": false,
+        "priority": null,
+        "hostClass": null
+      }
+    },
+    "runtime-native-sustained-2026-10-07T23-21-59-298Z-bf6ecb": {
+      "role": "diagnostic",
+      "reason": "première série native Node/Rust avant le partage Arc de la configuration",
+      "supersededBy": null,
+      "decisionIds": [
+        "D-core-language"
+      ],
+      "validity": [
+        {
+          "scope": "relative",
+          "class": "B",
+          "note": "série initiale, non causale pour l'effet Arc"
+        }
+      ],
+      "noisyHost": false,
+      "rerun": {
+        "required": false,
+        "priority": null,
+        "hostClass": null
+      }
+    },
+    "runtime-recovery-2026-10-07T23-37-26-683Z-fcaced": {
+      "role": "superseded",
+      "reason": "série initiale de reprise, requalifiée ensuite",
+      "supersededBy": "runtime-recovery-qualified-2026-10-08T00-20-09-515Z-ad3e70",
+      "decisionIds": [
+        "D-durable-runtime"
+      ],
+      "validity": [
+        {
+          "scope": "recovery",
+          "class": "A",
+          "note": "mêmes invariants"
+        }
+      ],
+      "noisyHost": false,
+      "rerun": {
+        "required": false,
+        "priority": null,
+        "hostClass": null
+      }
+    },
+    "runtime-recovery-qualified-2026-10-08T00-20-09-515Z-ad3e70": {
+      "role": "selected",
+      "reason": "reprise Node et Rust : crashes avant/après commit et ACK, nouveau coordinateur",
+      "supersededBy": null,
+      "decisionIds": [
+        "D-core-language",
+        "D-durable-runtime"
+      ],
+      "validity": [
+        {
+          "scope": "recovery",
+          "class": "A",
+          "note": "crash de processus, darwin seulement"
+        }
+      ],
+      "noisyHost": false,
+      "rerun": {
+        "required": true,
+        "priority": "P1",
+        "hostClass": "reference"
+      }
+    },
+    "runtime-recovery-qualified-2026-10-08T08-16-05-686Z-2b7b94": {
+      "role": "diagnostic",
+      "reason": "suite de parité P3 : campagne v2 en données, mêmes comptes vérifiés que la qualification du 8 octobre",
+      "supersededBy": null,
+      "decisionIds": [
+        "D-durable-runtime",
+        "D-core-language"
+      ],
+      "validity": [
+        {
+          "scope": "contracts",
+          "class": "A",
+          "note": "parité des comptes, sources non commitées"
+        },
+        {
+          "scope": "timings",
+          "class": "C",
+          "note": "local-dev, hôte chargé"
+        }
+      ],
+      "noisyHost": false,
+      "rerun": {
+        "required": false,
+        "priority": null,
+        "hostClass": null
+      }
+    },
+    "smoke-2026-10-07T20-20-24-226Z-9ebb47": {
+      "role": "smoke",
+      "reason": "première mise en route des adapters, avant hashes de sources et viewport commun",
+      "supersededBy": null,
+      "decisionIds": [],
+      "validity": [
+        {
+          "scope": "all",
+          "class": "none",
+          "note": "build initial"
+        }
+      ],
+      "noisyHost": false,
+      "rerun": {
+        "required": false,
+        "priority": null,
+        "hostClass": null
+      }
+    },
+    "smoke-2026-10-07T20-25-09-459Z-c13e18": {
+      "role": "smoke",
+      "reason": "mise en route des backends Stagehand, build initial",
+      "supersededBy": null,
+      "decisionIds": [],
+      "validity": [
+        {
+          "scope": "all",
+          "class": "none",
+          "note": "build initial"
+        }
+      ],
+      "noisyHost": false,
+      "rerun": {
+        "required": false,
+        "priority": null,
+        "hostClass": null
+      }
+    },
+    "smoke-2026-10-07T20-39-24-868Z-382250": {
+      "role": "smoke",
+      "reason": "mise en route complète des backends, build initial",
+      "supersededBy": null,
+      "decisionIds": [],
+      "validity": [
+        {
+          "scope": "all",
+          "class": "none",
+          "note": "build initial"
+        }
+      ],
+      "noisyHost": false,
+      "rerun": {
+        "required": false,
+        "priority": null,
+        "hostClass": null
+      }
+    },
+    "spider-http-transport-supported-2026-10-08T00-26-16-511Z-7ce401": {
+      "role": "selected",
+      "reason": "Spider sur les variantes HTTP supportées",
+      "supersededBy": null,
+      "decisionIds": [
+        "D-http-transport"
+      ],
+      "validity": [
+        {
+          "scope": "contracts",
+          "class": "A",
+          "note": "60 lignes vérifiées"
+        }
+      ],
+      "noisyHost": false,
+      "rerun": {
+        "required": false,
+        "priority": null,
+        "hostClass": null
+      }
+    },
+    "spider-http-transport-supported-2026-10-08T08-21-33-006Z-dc7f37": {
+      "role": "diagnostic",
+      "reason": "suite de parité P3 : campagne v2 en données, mêmes comptes vérifiés que la qualification du 8 octobre",
+      "supersededBy": null,
+      "decisionIds": [
+        "D-http-transport"
+      ],
+      "validity": [
+        {
+          "scope": "contracts",
+          "class": "A",
+          "note": "parité des comptes, sources non commitées"
+        },
+        {
+          "scope": "timings",
+          "class": "C",
+          "note": "local-dev, hôte chargé"
+        }
+      ],
+      "noisyHost": false,
+      "rerun": {
+        "required": false,
+        "priority": null,
+        "hostClass": null
+      }
+    },
+    "sqlite-readers-2026-10-07T23-52-02-741Z-c5571c": {
+      "role": "diagnostic",
+      "reason": "course d'initialisation schéma/WAL avec quatre writers",
+      "supersededBy": null,
+      "decisionIds": [
+        "D-storage"
+      ],
+      "validity": [
+        {
+          "scope": "all",
+          "class": "none",
+          "note": "bug du lab corrigé"
+        }
+      ],
+      "noisyHost": false,
+      "rerun": {
+        "required": false,
+        "priority": null,
+        "hostClass": null
+      }
+    },
+    "sqlite-readers-2026-10-08T00-25-35-434Z-92d4f3": {
+      "role": "selected",
+      "reason": "lecteurs longs et courts, checkpoints PASSIVE et TRUNCATE",
+      "supersededBy": null,
+      "decisionIds": [
+        "D-storage"
+      ],
+      "validity": [
+        {
+          "scope": "invariants",
+          "class": "A",
+          "note": "snapshot long, WAL tronqué après libération"
+        },
+        {
+          "scope": "throughput",
+          "class": "C",
+          "note": "Mac partagé non contrôlé ; chiffres absolus non publiables"
+        }
+      ],
+      "noisyHost": false,
+      "rerun": {
+        "required": false,
+        "priority": null,
+        "hostClass": null
+      }
+    },
+    "sqlite-readers-2026-10-08T08-20-58-320Z-de04ab": {
+      "role": "diagnostic",
+      "reason": "suite de parité P3 : campagne v2 en données, mêmes comptes vérifiés que la qualification du 8 octobre",
+      "supersededBy": null,
+      "decisionIds": [
+        "D-storage"
+      ],
+      "validity": [
+        {
+          "scope": "contracts",
+          "class": "A",
+          "note": "parité des comptes, sources non commitées"
+        },
+        {
+          "scope": "timings",
+          "class": "C",
+          "note": "local-dev, hôte chargé"
+        }
+      ],
+      "noisyHost": false,
+      "rerun": {
+        "required": false,
+        "priority": null,
+        "hostClass": null
+      }
+    },
+    "storage-contention-2026-10-07T20-48-05-930Z-a43b95": {
+      "role": "superseded",
+      "reason": "contention stockage sans provenance",
+      "supersededBy": "storage-contention-2026-10-07T21-30-24-424Z-6bec59",
+      "decisionIds": [
+        "D-storage"
+      ],
+      "validity": [
+        {
+          "scope": "all",
+          "class": "none",
+          "note": "sans provenance"
+        }
+      ],
+      "noisyHost": false,
+      "rerun": {
+        "required": false,
+        "priority": null,
+        "hostClass": null
+      }
+    },
+    "storage-contention-2026-10-07T21-30-24-424Z-6bec59": {
+      "role": "selected",
+      "reason": "batching et writers multiples, SQLite Node 3.53.4 contre Rust SQLx 3.46.0",
+      "supersededBy": null,
+      "decisionIds": [
+        "D-storage"
+      ],
+      "validity": [
+        {
+          "scope": "batching",
+          "class": "B",
+          "note": "effet du batching ; builds SQLite différents"
+        },
+        {
+          "scope": "absolute",
+          "class": "C",
+          "note": "Mac partagé non contrôlé ; chiffres absolus non publiables"
+        }
+      ],
+      "noisyHost": false,
+      "rerun": {
+        "required": false,
+        "priority": null,
+        "hostClass": null
+      }
+    },
+    "storage-process-crash-2026-10-07T20-47-45-408Z-c9c332": {
+      "role": "superseded",
+      "reason": "crash après acquittement sans provenance",
+      "supersededBy": "storage-process-crash-2026-10-07T21-30-54-410Z-718212",
+      "decisionIds": [
+        "D-storage"
+      ],
+      "validity": [
+        {
+          "scope": "all",
+          "class": "none",
+          "note": "sans provenance"
+        }
+      ],
+      "noisyHost": false,
+      "rerun": {
+        "required": false,
+        "priority": null,
+        "hostClass": null
+      }
+    },
+    "storage-process-crash-2026-10-07T21-30-54-410Z-718212": {
+      "role": "selected",
+      "reason": "SIGKILL après acquittement, crash de processus seulement",
+      "supersededBy": null,
+      "decisionIds": [
+        "D-storage",
+        "D-durable-runtime"
+      ],
+      "validity": [
+        {
+          "scope": "process-crash",
+          "class": "A",
+          "note": "ne prouve pas la coupure électrique"
+        }
+      ],
+      "noisyHost": false,
+      "rerun": {
+        "required": false,
+        "priority": null,
+        "hostClass": null
+      }
+    },
+    "storage-shared-checkpoint-2026-10-07T22-24-20-072Z-de4c14": {
+      "role": "selected",
+      "reason": "gros batches sur SQLite commun",
+      "supersededBy": null,
+      "decisionIds": [
+        "D-storage",
+        "D-core-language"
+      ],
+      "validity": [
+        {
+          "scope": "relative",
+          "class": "B",
+          "note": "Rust et Go devant Node sur ce workload"
+        },
+        {
+          "scope": "absolute",
+          "class": "C",
+          "note": "Mac partagé non contrôlé ; chiffres absolus non publiables"
+        }
+      ],
+      "noisyHost": false,
+      "rerun": {
+        "required": true,
+        "priority": "P2",
+        "hostClass": "reference"
+      }
+    },
+    "storage-shared-contention-2026-10-07T22-19-18-394Z-a3d041": {
+      "role": "diagnostic",
+      "reason": "SQLite commun 3.46.0 sans le correctif WAL-reset, exclu de la sélection",
+      "supersededBy": null,
+      "decisionIds": [
+        "D-storage",
+        "D-core-language"
+      ],
+      "validity": [
+        {
+          "scope": "all",
+          "class": "none",
+          "note": "build SQLite exclu"
+        }
+      ],
+      "noisyHost": false,
+      "rerun": {
+        "required": false,
+        "priority": null,
+        "hostClass": null
+      }
+    },
+    "storage-shared-contention-2026-10-07T22-23-31-093Z-8d9875": {
+      "role": "selected",
+      "reason": "SQLite commun 3.53.4 : Node, Rust sync et Go sur le même artefact",
+      "supersededBy": null,
+      "decisionIds": [
+        "D-storage",
+        "D-core-language"
+      ],
+      "validity": [
+        {
+          "scope": "single-writer",
+          "class": "B",
+          "note": "plusieurs writers moins bons, même hôte"
+        },
+        {
+          "scope": "absolute",
+          "class": "C",
+          "note": "Mac partagé non contrôlé ; chiffres absolus non publiables"
+        }
+      ],
+      "noisyHost": false,
+      "rerun": {
+        "required": true,
+        "priority": "P2",
+        "hostClass": "reference"
+      }
+    },
+    "storage-smoke-2026-10-07T20-45-36-630Z-ebdd52": {
+      "role": "superseded",
+      "reason": "premier smoke stockage sans provenance, 47 cellules au lieu de 48",
+      "supersededBy": "storage-smoke-2026-10-07T21-30-06-119Z-3b617d",
+      "decisionIds": [
+        "D-storage"
+      ],
+      "validity": [
+        {
+          "scope": "all",
+          "class": "none",
+          "note": "sans provenance"
+        }
+      ],
+      "noisyHost": false,
+      "rerun": {
+        "required": false,
+        "priority": null,
+        "hostClass": null
+      }
+    },
+    "storage-smoke-2026-10-07T21-30-06-119Z-3b617d": {
+      "role": "selected",
+      "reason": "six contrats d'écriture, snapshot multi-writers non supporté",
+      "supersededBy": null,
+      "decisionIds": [
+        "D-storage"
+      ],
+      "validity": [
+        {
+          "scope": "contracts",
+          "class": "A",
+          "note": "oracles de relecture"
+        }
+      ],
+      "noisyHost": false,
+      "rerun": {
+        "required": false,
+        "priority": null,
+        "hostClass": null
+      }
+    },
+    "storage-smoke-2026-10-08T07-56-10-911Z-a8d1b9": {
+      "role": "diagnostic",
+      "reason": "contrôle de non-régression de l'exécuteur de cellule storage extrait en P3 : mêmes comptes que le smoke historique",
+      "supersededBy": null,
+      "decisionIds": [
+        "D-storage"
+      ],
+      "validity": [
+        {
+          "scope": "contracts",
+          "class": "A",
+          "note": "44 vérifiées, 4 non supportées, comme 3b617d"
+        }
+      ],
+      "noisyHost": false,
+      "rerun": {
+        "required": false,
+        "priority": null,
+        "hostClass": null
+      }
+    },
+    "workflow-pool-wakeup-2026-10-07T22-30-10-185Z-15ae16": {
+      "role": "diagnostic",
+      "reason": "notify appelé avant initialisation, campagne interrompue et exclue",
+      "supersededBy": null,
+      "decisionIds": [
+        "D-http-transport"
+      ],
+      "validity": [
+        {
+          "scope": "all",
+          "class": "none",
+          "note": "bug d'intégration du lab"
+        }
+      ],
+      "noisyHost": false,
+      "rerun": {
+        "required": false,
+        "priority": null,
+        "hostClass": null
+      }
+    },
+    "workflow-pool-wakeup-2026-10-07T22-32-40-342Z-21e558": {
+      "role": "selected",
+      "reason": "réveil du pool Crawlee, poll contre notify",
+      "supersededBy": null,
+      "decisionIds": [
+        "D-http-transport"
+      ],
+      "validity": [
+        {
+          "scope": "functional",
+          "class": "A",
+          "note": "notify après premier handler"
+        },
+        {
+          "scope": "throughput",
+          "class": "B",
+          "note": "Mac partagé non contrôlé ; chiffres absolus non publiables"
+        }
+      ],
+      "noisyHost": false,
+      "rerun": {
+        "required": false,
+        "priority": null,
+        "hostClass": null
+      }
+    },
+    "workflow-recovery-2026-10-07T22-26-19-297Z-c40792": {
+      "role": "selected",
+      "reason": "crash du writer avant et après commit",
+      "supersededBy": null,
+      "decisionIds": [
+        "D-durable-runtime",
+        "D-storage"
+      ],
+      "validity": [
+        {
+          "scope": "recovery",
+          "class": "A",
+          "note": "reprise exacte, crash de processus"
+        }
+      ],
+      "noisyHost": false,
+      "rerun": {
+        "required": false,
+        "priority": null,
+        "hostClass": null
+      }
+    },
+    "workflow-throughput-2026-10-07T22-24-52-832Z-024c4f": {
+      "role": "selected",
+      "reason": "workflow HTTP durable complet, backends Node",
+      "supersededBy": null,
+      "decisionIds": [
+        "D-http-transport",
+        "D-durable-runtime"
+      ],
+      "validity": [
+        {
+          "scope": "pipeline-contract",
+          "class": "A",
+          "note": "acquittement après commit vérifié"
+        },
+        {
+          "scope": "throughput",
+          "class": "B",
+          "note": "Mac partagé non contrôlé ; chiffres absolus non publiables"
+        }
+      ],
+      "noisyHost": false,
+      "rerun": {
+        "required": true,
+        "priority": "P1",
+        "hostClass": "reference"
+      }
+    },
+    "browser-actionability-guarded-2026-10-08T11-07-42-702Z-2ee15e": {
+      "role": "diagnostic",
+      "reason": "matrice gardée historique rejouée après la refonte des scripts de page partagés",
+      "supersededBy": null,
+      "decisionIds": [
+        "D-browser-driver"
+      ],
+      "validity": [
+        {
+          "scope": "guarded-conformance",
+          "class": "A",
+          "note": "162 cellules vérifiées comme b21a28, sources non commitées"
+        }
+      ],
+      "noisyHost": false,
+      "rerun": {
+        "required": false,
+        "priority": null,
+        "hostClass": null
+      }
+    },
+    "browser-driver-smoke-2026-10-08T10-56-57-786Z-5a5a6c": {
+      "role": "diagnostic",
+      "reason": "smoke du lien driver-browser à 20 ms, quatre pilotes sur le navigateur du harnais ; calibration hors tolérance avant la correction du proxy",
+      "supersededBy": null,
+      "decisionIds": [
+        "D-browser-driver"
+      ],
+      "validity": [
+        {
+          "scope": "contracts",
+          "class": "A",
+          "note": "60 tentatives vérifiées, sources non commitées"
+        },
+        {
+          "scope": "timings",
+          "class": "none",
+          "note": "métriques de temps indisponibles par calibration"
+        }
+      ],
+      "noisyHost": false,
+      "rerun": {
+        "required": false,
+        "priority": null,
+        "hostClass": null
+      }
+    },
+    "browser-driver-smoke-2026-10-08T11-00-10-023Z-b248a5": {
+      "role": "diagnostic",
+      "reason": "smoke du lien driver-browser à 20 ms, quatre pilotes sur le navigateur du harnais",
+      "supersededBy": null,
+      "decisionIds": [
+        "D-browser-driver"
+      ],
+      "validity": [
+        {
+          "scope": "contracts",
+          "class": "A",
+          "note": "60 tentatives vérifiées, sources non commitées"
+        },
+        {
+          "scope": "timings",
+          "class": "C",
+          "note": "local-dev, un bloc, hôte chargé"
+        }
+      ],
+      "noisyHost": false,
+      "rerun": {
+        "required": false,
+        "priority": null,
+        "hostClass": null
+      }
     }
-   ],
-   "noisyHost": false,
-   "rerun": {
-    "required": true,
-    "priority": "P1",
-    "hostClass": "reference"
-   }
   }
- }
 }

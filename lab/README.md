@@ -62,6 +62,19 @@ Une campagne bench peut déclarer `network: { link: "browser-origin", rttMs }`. 
 
 Sur Linux, le CPU de l'arbre de processus vient de `/proc/<pid>/stat` et la mémoire proportionnelle (PSS anonyme + swap) de `smaps_rollup`. Les compteurs cgroup v2 demandent un scope systemd par run et restent déclarés indisponibles d'ici là. Préparation de l'hôte : [`docs/reference-host.md`](../docs/reference-host.md).
 
+### Pilotes navigateur (D-browser-driver)
+
+```sh
+pnpm lab run campaigns/v2/bench/browser-driver-rtt-0.json          # puis -20, -100, -300 : lien driver-browser
+pnpm lab run campaigns/v2/actionability/browser-actionability-extended.json
+```
+
+Deux pilotes CDP directs envoient la même séquence de commandes pour chaque opération : `node-cdp` (`adapters/cdp-node`) et `rust-cdp` (`adapters/cdp-rust`, compilé par `pnpm bootstrap`). Ils injectent les mêmes scripts de page, lus depuis `adapters/browser-scripts/` : attentes, extraction, et la garde Automan (unicité, visibilité, activation, stabilité, hit-test, shadow DOM compris). Une comparaison entre les deux isole donc le langage du protocole. Chaque tâche rapporte son nombre de commandes CDP, et un test d'intégration exige qu'il soit identique entre les deux langages.
+
+Avec `browserHost: "harness"`, le harnais lance un Chromium par pilote et par bloc, avec les mêmes flags (`src/core/browser-host.ts`). Il échantillonne ce navigateur avec l'adapter, donc le CPU et la mémoire du navigateur comptent pour tous les pilotes. Playwright et Puppeteer s'y connectent par CDP. Un profil `network: { link: "driver-browser" }` place le proxy de latence entre le pilote et le navigateur. `actionPolicies` fixe la politique de chaque pilote : `guarded` applique la garde avant chaque clic, saisie et sélection, `native` s'en remet aux garanties du pilote.
+
+Le bench produit une cellule par pilote, scénario et bloc, ce qui permet d'apparier les blocs. Les facteurs `policy`, `rttMs` et `browserHost` y figurent. Dans une décision, `analysis.gateLanes` indique la lane où chaque gate lit ses cellules : la conformité d'actionnabilité et l'absence de faux succès viennent de la matrice, pas du bench. Une gate ne passe que sur des cellules de l'option elle-même. Chaque option analysée est comparée à la baseline, avec ses propres gates.
+
 `ledger/classification.json` porte le jugement humain sur chaque run (rôle, raison, validité A contrat / B relatif même hôte / C absolu, décisions, rerun). L'import y ajoute les faits mécaniques : comptes, provenance, intégrité recalculée contre les catalogues SHA de `reports/`. Il est idempotent et ne modifie jamais `results/`. Les runs importés restent plafonnés à la classe d'hôte `local-dev`.
 
 ## Démarrer

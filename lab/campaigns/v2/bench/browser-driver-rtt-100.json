@@ -1,0 +1,47 @@
+{
+  "schemaVersion": 2,
+  "id": "browser-driver-rtt-100",
+  "lane": "bench",
+  "decisionIds": [
+    "D-browser-driver"
+  ],
+  "hostClass": {
+    "requested": "local-controlled",
+    "allowDowngrade": true
+  },
+  "seed": 7200,
+  "blocks": 6,
+  "warmup": 1,
+  "iterations": 6,
+  "concurrency": 1,
+  "mode": "closed",
+  "timeoutMs": 30000,
+  "maxDurationMs": 3600000,
+  "maxRestarts": 2,
+  "backends": [
+    "rust-cdp",
+    "node-cdp",
+    "puppeteer",
+    "playwright"
+  ],
+  "scenarios": [
+    "js-catalog",
+    "form",
+    "clicks"
+  ],
+  "fixtures": {
+    "pages": 2,
+    "actions": 5
+  },
+  "browserHost": "harness",
+  "network": {
+    "link": "driver-browser",
+    "rttMs": 100
+  },
+  "actionPolicies": {
+    "rust-cdp": "guarded",
+    "node-cdp": "guarded",
+    "puppeteer": "guarded",
+    "playwright": "native"
+  }
+}

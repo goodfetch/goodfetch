@@ -3,8 +3,6 @@
  "decisionId": "D-core-language",
  "metricId": "cpu-ms-per-verified-job",
  "direction": "lower",
- "option": "rust-tokio",
- "baseline": "node",
  "stratum": {
   "concurrency": 16,
   "batchJobs": 1
@@ -19,6 +17,8 @@
   "kind": "ratio",
   "value": 0.1
  },
+ "option": "rust-tokio",
+ "baseline": "node",
  "outcome": "insufficient-n",
  "n": 3,
  "margin": 0.09531017980432493,
@@ -60,15 +60,63 @@
   "observed": "local-dev",
   "eligible": false
  },
+ "comparisons": [
+  {
+   "option": "rust-tokio",
+   "baseline": "node",
+   "outcome": "insufficient-n",
+   "n": 3,
+   "margin": 0.09531017980432493,
+   "requiredN": 5,
+   "estimate": {
+    "meanLogRatio": -0.6720511363849138,
+    "ratio": 0.5106600693886381,
+    "ci": [
+     -0.7132206919703941,
+     -0.623287320383687
+    ],
+    "ratioCi": [
+     0.49006331008407844,
+     0.5361789453389137
+    ],
+    "hodgesLehmannRatio": 0.5096914677684884,
+    "wilcoxon": {
+     "n": 3,
+     "wPlus": 0,
+     "pValue": 0.25,
+     "method": "exact"
+    },
+    "interval": "95% block bootstrap"
+   },
+   "gates": [
+    {
+     "id": "oracle-exact",
+     "ok": true,
+     "evaluated": true
+    },
+    {
+     "id": "recovery-exact",
+     "ok": true,
+     "evaluated": true
+    }
+   ],
+   "host": {
+    "required": "local-controlled",
+    "observed": "local-dev",
+    "eligible": false
+   }
+  }
+ ],
  "inputs": {
   "runs": [
    "runtime-native-qualified-2026-10-08T00-11-54-841Z-789d5e"
   ],
   "considered": [
    "runtime-native-qualified-2026-10-08T00-11-54-841Z-789d5e",
-   "runtime-recovery-qualified-2026-10-08T00-20-09-515Z-ad3e70"
+   "runtime-recovery-qualified-2026-10-08T00-20-09-515Z-ad3e70",
+   "storage-shared-checkpoint-2026-10-07T22-24-20-072Z-de4c14"
   ],
   "missing": [],
-  "ledgerSha256": "6e8b13b91808c788edf4fe2573a0616c1e3a0a25f4de81f0272df8067de70e7e"
+  "ledgerSha256": "808919b90277de3b9db7c17745c6de6866967de066ba5b97fb0e1a862f5176a3"
  }
 }

@@ -54,7 +54,9 @@ type Rendered = { path: string | null; status: 'ok' | 'timeout' | 'error'; loadM
 async function renderPages(renderer: Exclude<Renderer, 'none'>, pages: Truth[], config: ExtractionConfig, scratch: string): Promise<{ rendered: Map<string, Rendered>; hits: number; misses: number; tunnels: number; renderedBytes: number }> {
   const proxy = await startReplayProxy(pages.map(page => ({ url: page.url, fileId: page.fileId, path: join(corpusRoot(config), config.split, 'html', `${page.fileId}.html.gz`) })));
   const rendered = new Map<string, Rendered>(); const timeoutMs = config.renderTimeoutMs ?? 10_000; let renderedBytes = 0;
-  let engine = await renderingEngine(renderer, proxy.url); let connection = await CdpConnection.connect(engine.wsEndpoint);
+  // Chrome accepts the lab's local certificate for the archived hosts it must load over HTTPS.
+  const connect = async (hosted: HostedBrowser) => { const c = await CdpConnection.connect(hosted.wsEndpoint); if (renderer === 'chrome') await c.send('Security.setIgnoreCertificateErrors', { ignore: true }); return c; };
+  let engine = await renderingEngine(renderer, proxy.url); let connection = await connect(engine);
   try {
     for (const page of pages) {
       proxy.loading(page.url); const began = performance.now(); let tab: CdpPage | null = null;
@@ -70,7 +72,7 @@ async function renderPages(renderer: Exclude<Renderer, 'none'>, pages: Truth[], 
       } catch (error) {
         rendered.set(page.fileId, { path: null, status: /timeout/i.test(String(error)) ? 'timeout' : 'error', loadMs: performance.now() - began, misses: proxy.stats.missesByPage.get(page.url) ?? 0, error: `${page.fileId}: ${String(error).slice(0, 120)}` });
         // A failed load can leave the engine unusable; the next page starts on a fresh one.
-        connection.close(); await engine.close(); engine = await renderingEngine(renderer, proxy.url); connection = await CdpConnection.connect(engine.wsEndpoint);
+        connection.close(); await engine.close(); engine = await renderingEngine(renderer, proxy.url); connection = await connect(engine);
       }
     }
   } finally { connection.close(); await engine.close(); await proxy.close(); }

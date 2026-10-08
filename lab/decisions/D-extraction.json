@@ -54,7 +54,8 @@
     "extraction-quality-dev",
     "extraction-quality-t1",
     "extraction-quality-test",
-    "parsing-representative"
+    "parsing-representative",
+    "extraction-rendered-test"
   ],
   "evidence": [
     {

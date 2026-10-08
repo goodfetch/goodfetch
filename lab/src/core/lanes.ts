@@ -85,9 +85,9 @@ export const drivers: Record<LaneName, LaneDriver> = {
     binaryChanges: async (_config, before) => before !== await hashFile(admissionBinary()) ? 1 : 0
   },
   extraction: {
-    validate: config => { const c = config as ExtractionConfig; if (!c || !['dev', 'test'].includes(c.split) || !Array.isArray(c.extractors) || !c.extractors.length || !c.extractors.every(e => (backendNames as readonly string[]).includes(e)) || !Array.isArray(c.pageTypes) || !c.pageTypes.length || !integer(c.blocks, 1, 5) || !integer(c.seed, 0, 2 ** 32 - 1)) throw new Error('invalid extraction campaign'); },
+    validate: config => { const c = config as ExtractionConfig; if (!c || !['dev', 'test'].includes(c.split) || !Array.isArray(c.extractors) || !c.extractors.length || !c.extractors.every(e => (backendNames as readonly string[]).includes(e)) || !Array.isArray(c.pageTypes) || !c.pageTypes.length || !integer(c.blocks, 1, 5) || !integer(c.seed, 0, 2 ** 32 - 1) || (c.renderers !== undefined && (!Array.isArray(c.renderers) || !c.renderers.every(r => ['none', 'chrome', 'lightpanda'].includes(r))))) throw new Error('invalid extraction campaign'); },
     blocks: config => (config as ExtractionConfig).blocks, seed: config => (config as ExtractionConfig).seed,
-    combinations: config => extractionCombinations(config as ExtractionConfig) as unknown as Json[], label: cell => `${cell.extractor}/${cell.pageType}`,
+    combinations: config => extractionCombinations(config as ExtractionConfig) as unknown as Json[], label: cell => `${cell.renderer ?? 'none'}/${cell.extractor}/${cell.pageType}`,
     runCell: (config, cell, block, directory) => runExtractionCell(config as ExtractionConfig, cell as unknown as ExtractionCell, block, directory) as Promise<Json>
   },
   'sqlite-readers': {

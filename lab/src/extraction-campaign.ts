@@ -5,9 +5,17 @@ import { join } from 'node:path';
 import { WorkerClient } from './worker-client.ts';
 import { commandFor, labRoot, type BackendName } from './registry.ts';
 import { quantiles } from './statistics.ts';
+import { gzipSync } from 'node:zlib';
+import { mkdtemp, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { startReplayProxy, replayUrl } from '../fixtures/replay-proxy.ts';
+import { launchBrowser, launchLightpanda, lightpandaPath, type HostedBrowser } from './core/browser-host.ts';
+import { browserPath } from './environment.ts';
+import { CdpConnection, CdpPage } from '../adapters/cdp-node/cdp.ts';
 
-export type ExtractionConfig = { split: 'dev' | 'test'; extractors: BackendName[]; pageTypes: string[]; blocks: number; seed: number; corpus?: string };
-export type ExtractionCell = { extractor: BackendName; pageType: string };
+export type Renderer = 'none' | 'chrome' | 'lightpanda';
+export type ExtractionConfig = { split: 'dev' | 'test'; extractors: BackendName[]; pageTypes: string[]; blocks: number; seed: number; corpus?: string; renderers?: Renderer[]; renderTimeoutMs?: number };
+export type ExtractionCell = { extractor: BackendName; pageType: string; renderer: Renderer };
 export const corpusRoot = (config: ExtractionConfig) => join(labRoot, config.corpus ?? 'corpora/wcxb');
 
 // Python's \w on str is Unicode letters, digits and underscore; this is its JavaScript equivalent.
@@ -34,24 +42,64 @@ export async function loadTruth(config: ExtractionConfig): Promise<Truth[]> {
   }));
 }
 
-export function extractionCombinations(config: ExtractionConfig): ExtractionCell[] { return config.extractors.flatMap(extractor => config.pageTypes.map(pageType => ({ extractor, pageType }))); }
+export function extractionCombinations(config: ExtractionConfig): ExtractionCell[] { return (config.renderers ?? ['none']).flatMap(renderer => config.extractors.flatMap(extractor => config.pageTypes.map(pageType => ({ extractor, pageType, renderer })))); }
+
+// A browser whose every request goes to the replay proxy: Chrome cannot resolve or reach any other host, Lightpanda blocks every
+// address but loopback, so a frozen page loads only what the archive holds.
+async function renderingEngine(renderer: Exclude<Renderer, 'none'>, proxy: string): Promise<HostedBrowser> {
+  if (renderer === 'chrome') return launchBrowser(browserPath(), 30_000, [`--proxy-server=${proxy}`, '--proxy-bypass-list=<-loopback>', '--host-resolver-rules=MAP * ~NOTFOUND , EXCLUDE 127.0.0.1', '--disable-features=HttpsUpgrades,HttpsFirstBalancedModeAutoEnable,HttpsFirstModeV2ForEngagedSites']);
+  return launchLightpanda(lightpandaPath(labRoot), 15_000, ['--http-proxy', proxy, '--block-cidrs', '0.0.0.0/0', '--block-cidrs', '-127.0.0.1/32']);
+}
+type Rendered = { path: string | null; status: 'ok' | 'timeout' | 'error'; loadMs: number; misses: number; error?: string };
+async function renderPages(renderer: Exclude<Renderer, 'none'>, pages: Truth[], config: ExtractionConfig, scratch: string): Promise<{ rendered: Map<string, Rendered>; hits: number; misses: number; tunnels: number; renderedBytes: number }> {
+  const proxy = await startReplayProxy(pages.map(page => ({ url: page.url, path: join(corpusRoot(config), config.split, 'html', `${page.fileId}.html.gz`) })));
+  const rendered = new Map<string, Rendered>(); const timeoutMs = config.renderTimeoutMs ?? 10_000; let renderedBytes = 0;
+  let engine = await renderingEngine(renderer, proxy.url); let connection = await CdpConnection.connect(engine.wsEndpoint);
+  try {
+    for (const page of pages) {
+      proxy.loading(page.url); const began = performance.now(); let tab: CdpPage | null = null;
+      try {
+        tab = await CdpPage.open(connection, timeoutMs);
+        await tab.goto(replayUrl(page.url));
+        // Inline scripts have run by DOMContentLoaded; external ones are refused at once, so a short settle is enough.
+        await new Promise(resolve => setTimeout(resolve, 200));
+        const html = await Promise.race([tab.evaluate<string>('document.documentElement.outerHTML'), new Promise<never>((_, reject) => setTimeout(() => reject(new Error('timeout')), timeoutMs))]);
+        const path = join(scratch, `${renderer}-${page.fileId}.html.gz`); await writeFile(path, gzipSync(html)); renderedBytes += html.length;
+        rendered.set(page.fileId, { path, status: 'ok', loadMs: performance.now() - began, misses: proxy.stats.missesByPage.get(page.url) ?? 0 });
+        await tab.close().catch(() => {});
+      } catch (error) {
+        rendered.set(page.fileId, { path: null, status: /timeout/i.test(String(error)) ? 'timeout' : 'error', loadMs: performance.now() - began, misses: proxy.stats.missesByPage.get(page.url) ?? 0, error: `${page.fileId}: ${String(error).slice(0, 120)}` });
+        // A failed load can leave the engine unusable; the next page starts on a fresh one.
+        connection.close(); await engine.close(); engine = await renderingEngine(renderer, proxy.url); connection = await CdpConnection.connect(engine.wsEndpoint);
+      }
+    }
+  } finally { connection.close(); await engine.close(); await proxy.close(); }
+  return { rendered, hits: proxy.stats.hits, misses: proxy.stats.misses, tunnels: proxy.stats.tunnels, renderedBytes };
+}
 
 // One cell: one extractor over every page of one type in the split, through a single adapter process.
 export async function runExtractionCell(config: ExtractionConfig, cell: ExtractionCell, block: number, directory: string): Promise<Record<string, unknown>> {
   const pages = (await loadTruth(config)).filter(page => page.pageType === cell.pageType);
+  const scratch = await mkdtemp(join(tmpdir(), 'automan-render-'));
+  const render = cell.renderer === 'none' ? null : await renderPages(cell.renderer, pages, config, scratch);
   const worker = new WorkerClient(commandFor(cell.extractor, 60_000)); const predictions: Record<string, string> = {};
   const scores: { f1: number; precision: number; recall: number; withRate: number; leak: number; ms: number }[] = []; let errors = 0;
   try {
     await worker.call('hello', {}); await worker.call('prepare', {});
     for (const page of pages) {
       let text = '', ms = 0;
-      try { const output = await worker.call('run', { path: join(corpusRoot(config), config.split, 'html', `${page.fileId}.html.gz`), url: page.url }) as { text?: string; metrics?: { extractMs?: number } }; text = output.text ?? ''; ms = output.metrics?.extractMs ?? 0; }
+      // A page the engine failed to render scores zero: the extractor never sees it.
+      const rendered = render?.rendered.get(page.fileId);
+      if (rendered && !rendered.path) { predictions[page.fileId] = ''; scores.push({ ...wordF1('', page.mainContent), withRate: snippetRate('', page.with), leak: 0, ms: 0 }); continue; }
+      try { const output = await worker.call('run', { path: rendered?.path ?? join(corpusRoot(config), config.split, 'html', `${page.fileId}.html.gz`), url: page.url }) as { text?: string; metrics?: { extractMs?: number } }; text = output.text ?? ''; ms = output.metrics?.extractMs ?? 0; }
       catch { errors++; }
       predictions[page.fileId] = text;
       scores.push({ ...wordF1(text, page.mainContent), withRate: snippetRate(text, page.with), leak: page.without.length ? snippetRate(text, page.without) : 0, ms });
     }
-  } finally { await worker.close(); }
+  } finally { await worker.close(); await rm(scratch, { recursive: true, force: true }); }
   await writeFile(join(directory, `predictions-${cell.extractor}-${cell.pageType}-b${block}.json`), JSON.stringify(predictions));
   const mean = (key: keyof (typeof scores)[number]) => scores.length ? scores.reduce((sum, score) => sum + score[key], 0) / scores.length : null;
-  return { ...cell, block, status: 'verified', pages: pages.length, extractErrors: errors, meanF1: mean('f1'), meanPrecision: mean('precision'), meanRecall: mean('recall'), snippetRecall: mean('withRate'), boilerplateLeak: mean('leak'), extractMsP50: quantiles(scores.map(score => score.ms)).p50 };
+  const renderStats = render ? { renderOk: [...render.rendered.values()].filter(r => r.status === 'ok').length, renderTimeouts: [...render.rendered.values()].filter(r => r.status === 'timeout').length, renderErrors: [...render.rendered.values()].filter(r => r.status === 'error').length,
+    renderMsP50: quantiles([...render.rendered.values()].filter(r => r.status === 'ok').map(r => r.loadMs)).p50, archiveHits: render.hits, refusedRequests: render.misses, refusedTunnels: render.tunnels, renderedBytes: render.renderedBytes, renderFailures: [...render.rendered.values()].filter(r => r.error).map(r => r.error).slice(0, 10) } : {};
+  return { ...cell, block, status: 'verified', pages: pages.length, ...renderStats, extractErrors: errors, meanF1: mean('f1'), meanPrecision: mean('precision'), meanRecall: mean('recall'), snippetRecall: mean('withRate'), boilerplateLeak: mean('leak'), extractMsP50: quantiles(scores.map(score => score.ms)).p50 };
 }

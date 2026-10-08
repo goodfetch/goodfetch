@@ -48,7 +48,8 @@
     "light-engine-compat-native",
     "light-engine-corpus",
     "light-engine-navigation",
-    "light-engine-primitives"
+    "light-engine-primitives",
+    "extraction-rendered-test"
   ],
   "evidence": [
     {

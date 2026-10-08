@@ -1,0 +1,37 @@
+{
+  "schemaVersion": 2,
+  "id": "http-incidents",
+  "lane": "actionability",
+  "decisionIds": [
+    "D-http-transport"
+  ],
+  "hostClass": {
+    "requested": "local-dev",
+    "allowDowngrade": true
+  },
+  "config": {
+    "blocks": 3,
+    "seed": 7171,
+    "scenario": "http-catalog",
+    "backends": [
+      "node-http",
+      "crawlee-http",
+      "crawlee-http-pooled",
+      "spider-http"
+    ],
+    "variants": [
+      "normal",
+      "http-429",
+      "http-503-once",
+      "http-truncated",
+      "http-reset",
+      "http-redirect-loop",
+      "http-slow"
+    ],
+    "policies": [
+      "native"
+    ],
+    "timeoutMs": 2000,
+    "outerTimeoutMs": 20000
+  }
+}

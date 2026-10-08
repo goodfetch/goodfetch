@@ -1,6 +1,6 @@
 {
  "schemaVersion": 1,
- "classificationSha256": "fc8df1bdaecac4ab49ee4c1ddedf9631b7cc0e576456a7b1270246e8b0e91971",
+ "classificationSha256": "037fc215d3e24eaaffc6cb3c23fac078e58f68e22afdd857737d2b439da406e3",
  "entries": [
   {
    "runId": "smoke-2026-10-07T20-20-24-226Z-9ebb47",
@@ -2563,6 +2563,97 @@
     "hostClass": null
    },
    "imported": "results/browser-driver-primitives-2026-10-08T16-56-23-563Z-6a0bbd/run.v2.json"
+  },
+  {
+   "runId": "http-incidents-2026-10-08T17-03-09-936Z-726cb0",
+   "lane": "actionability",
+   "campaign": "http-incidents",
+   "startedAt": "2026-10-08T17:03:09.936Z",
+   "status": "complete",
+   "hostClass": "local-dev",
+   "role": "superseded",
+   "supersededBy": "http-incidents-2026-10-08T17-07-35-305Z-73011e",
+   "reason": "même matrice sur sources non commitées",
+   "validity": [
+    {
+     "scope": "all",
+     "class": "none",
+     "note": "sources non commitées"
+    }
+   ],
+   "decisionIds": [
+    "D-http-transport"
+   ],
+   "citedIn": [
+    "lab/reports/http-incidents-2026-10-08.md"
+   ],
+   "integrity": "uncatalogued",
+   "rerun": {
+    "required": false,
+    "priority": null,
+    "hostClass": null
+   },
+   "imported": "results/http-incidents-2026-10-08T17-03-09-936Z-726cb0/run.v2.json"
+  },
+  {
+   "runId": "http-incidents-2026-10-08T17-05-19-221Z-4848df",
+   "lane": "actionability",
+   "campaign": "http-incidents",
+   "startedAt": "2026-10-08T17:05:19.221Z",
+   "status": "complete",
+   "hostClass": "local-dev",
+   "role": "diagnostic",
+   "supersededBy": null,
+   "reason": "même matrice sur sources non commitées",
+   "validity": [
+    {
+     "scope": "all",
+     "class": "none",
+     "note": "sources non commitées"
+    }
+   ],
+   "decisionIds": [
+    "D-http-transport"
+   ],
+   "citedIn": [],
+   "integrity": "uncatalogued",
+   "rerun": {
+    "required": false,
+    "priority": null,
+    "hostClass": null
+   },
+   "imported": "results/http-incidents-2026-10-08T17-05-19-221Z-4848df/run.v2.json"
+  },
+  {
+   "runId": "http-incidents-2026-10-08T17-07-35-305Z-73011e",
+   "lane": "actionability",
+   "campaign": "http-incidents",
+   "startedAt": "2026-10-08T17:07:35.305Z",
+   "status": "complete",
+   "hostClass": "local-dev",
+   "role": "selected",
+   "supersededBy": null,
+   "reason": "incidents HTTP : 429, 503, réponse tronquée ou coupée, boucle de redirections, serveur lent",
+   "validity": [
+    {
+     "scope": "incident-contract",
+     "class": "A",
+     "note": "Spider HTTP seul à produire des faux succès ; aucune relance configurée dans les adapters"
+    }
+   ],
+   "decisionIds": [
+    "D-http-transport"
+   ],
+   "citedIn": [
+    "lab/reports/http-incidents-2026-10-08.md"
+   ],
+   "integrity": "uncatalogued",
+   "rerun": {
+    "required": false,
+    "priority": null,
+    "hostClass": null
+   },
+   "imported": "results/http-incidents-2026-10-08T17-07-35-305Z-73011e/run.v2.json"
   }
  ]
 }

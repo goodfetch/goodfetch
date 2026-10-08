@@ -69,6 +69,7 @@
   "networkProfiles": [],
   "campaigns": [
     "http-capacity",
+    "http-incidents",
     "http-transport-incidents"
   ],
   "evidence": [
@@ -88,6 +89,11 @@
       "kind": "run",
       "ref": "runtime-http-backends-2026-10-07T23-29-49-072Z-2b2b75",
       "note": "hôte bruité"
+    },
+    {
+      "kind": "run",
+      "ref": "http-incidents-2026-10-08T17-07-35-305Z-73011e",
+      "note": "incidents HTTP"
     }
   ],
   "verdictRef": null,

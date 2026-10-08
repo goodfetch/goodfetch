@@ -1,6 +1,6 @@
 {
   "class": "local-controlled",
-  "description": "Developer machine prepared for internal relative decisions: on mains power, no throttling, clean sources, background load bounded. Adjusted on 8 October 2026 because macOS idle maintenance keeps a resting Mac above the first thresholds: foreign CPU 150 % (was 50 %) excluding the agent app that drives the run, load per CPU 0.35 (was 0.25). Paired blocks keep relative ratios valid; absolute figures stay unpublishable.",
+  "description": "Developer machine prepared for internal relative decisions: on mains power, no throttling, clean sources, background load bounded. Adjusted on 8 October 2026 because macOS idle maintenance keeps a resting Mac above the first thresholds: foreign CPU 150 % (was 50 %) excluding the agent app that drives the run, load per CPU 0.35 (was 0.25). Paired blocks keep relative ratios valid; absolute figures stay unpublishable. Mains power is no longer required (8 October 2026): on Apple Silicon the battery alone does not throttle, low-power mode does, and that gate stays.",
   "gates": [
     {
       "id": "git-clean",
@@ -17,10 +17,6 @@
     {
       "id": "thermal-warning",
       "equals": false
-    },
-    {
-      "id": "on-ac",
-      "equals": true
     },
     {
       "id": "low-power-mode",

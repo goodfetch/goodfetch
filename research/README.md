@@ -41,6 +41,12 @@ Les propositions produit actuelles se trouvent dans le [rapport consolidé](../d
 | [ADR-002 accès, identité et stealth](../docs/adr/0002-access-identity-stealth.md) | Profils `identified` (défaut), `standard` et `stealth` complet en opt-in ; répartition open source/cloud, niveaux CAPTCHA, garde-fous et qualification |
 | [Témoignages Reddit audités](./2026-10-07-reddit-evidence-followup.md) | Threads/commentaires identifiés, sessions/coûts/fiabilité ; témoignages distingués des preuves comparatives |
 
+## 3 bis. Demande marché
+
+| Document | Contenu |
+| --- | --- |
+| [Synthèse demande marché](./market/README.md) | 421 signaux publics codés (GitHub, Reddit, HN, avis, rapports 2025–2026), classement des douleurs, besoins par segment, signaux de prix, forces et ratés des concurrents ; rattachés aux décisions D-segment, D-pricing et D-feature-priority. Volonté de payer non mesurée : entretiens à mener |
+
 ## 4. Benchmarks : documents et niveau de preuve
 
 | Document | Benchmarks ou mesures examinés | Statut dans cette recherche |

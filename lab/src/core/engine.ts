@@ -8,11 +8,14 @@ import { schedule } from '../scheduler.ts';
 import { browserPath } from '../environment.ts';
 import { sampleProcessGroup } from '../resources.ts';
 import { sampleRuntimeResources } from '../runtime-resources.ts';
+import { sampleLinuxResources } from './metrics/linux.ts';
 import { LabError, errorCode, statusFor, type AttemptStatus, type ErrorCode } from './errors.ts';
 import { validateBenchCampaign, toLegacyBench, type BenchCampaign } from './campaign.ts';
 import { startOracle, type Oracle } from './oracle.ts';
 import { detectProbes, type Measure } from './metrics/registry.ts';
 import { openRun, type RunOptions } from './run-context.ts';
+import { calibrate, startLatencyProxy, networkAvailability, type Calibration } from '../net/latency-proxy.ts';
+import { loadRegistry } from './decisions.ts';
 import type { Scenario } from '../../fixtures/server.ts';
 
 export type AttemptV2 = {
@@ -70,12 +73,24 @@ export async function runEngine(campaign: BenchCampaign, options: EngineOptions 
   const probes = detectProbes();
   const oracle = typeof options.oracle === 'object' ? options.oracle : await startOracle(options.oracle ?? 'process');
   const ownsOracle = typeof options.oracle !== 'object';
+  // A declared network profile is calibrated first; the fixture origin is then served through the shaped link.
+  let network: { link: string; profile: { rttMs: number }; calibration: Calibration } | undefined;
+  let proxy: Awaited<ReturnType<typeof startLatencyProxy>> | null = null;
+  if (campaign.network) {
+    if (campaign.network.link !== 'browser-origin') throw new LabError('E_CAPABILITY', `network link ${campaign.network.link} is not supported by the bench engine yet`);
+    const calibration = await calibrate(campaign.network.rttMs);
+    Object.assign(context.availability, networkAvailability(loadRegistry().metrics, calibration));
+    const origin = new URL(oracle.origin);
+    proxy = await startLatencyProxy({ host: origin.hostname, port: Number(origin.port), rttMs: campaign.network.rttMs });
+    network = { link: campaign.network.link, profile: { rttMs: campaign.network.rttMs }, calibration };
+  }
+  const shaped = (url: string) => proxy ? url.replace(oracle.origin, `http://${proxy.host}:${proxy.port}`) : url;
   const legacy = toLegacyBench(campaign);
   const executablePath = options.executablePath ?? (browserBackends(campaign.backends) ? browserPath() : undefined);
   const attempts: AttemptV2[] = []; const windows: { cellId: string; durationMs: number }[] = []; const cellResources = new Map<string, unknown[]>();
   let writes = Promise.resolve();
   const record = (attempt: AttemptV2) => { attempts.push(attempt); writes = writes.then(() => appendFile(join(directory, 'attempts.v2.jsonl'), JSON.stringify(attempt) + '\n')); return writes; };
-  const sample = (pid: number) => probes['proc_pid_rusage-v4'] ? sampleRuntimeResources(pid, 100) : sampleProcessGroup(pid);
+  const sample = (pid: number) => probes['proc_pid_rusage-v4'] ? sampleRuntimeResources(pid, 100) : probes['smaps_rollup'] ? sampleLinuxResources(pid, 100) : sampleProcessGroup(pid);
   try {
     for (let block = 0; block < campaign.blocks; block++) {
       const order = shuffle(campaign.backends, campaign.seed + block);
@@ -98,7 +113,7 @@ export async function runEngine(campaign: BenchCampaign, options: EngineOptions 
               const fixture = await oracle.createRun({ scenario: scenario as Scenario, seed: result.seed, pages: campaign.fixtures.pages, actions: campaign.fixtures.actions, delayMs: campaign.fixtures.delayMs, variant: variant as never });
               const client = slot.client!; const began = performance.now();
               try {
-                const out = checkedOutput(await client.call('run', { ...legacy, scenario, seed: result.seed, variant, url: fixture.url }));
+                const out = checkedOutput(await client.call('run', { ...legacy, scenario, seed: result.seed, variant, url: shaped(fixture.url) }));
                 result.timing.taskMs = performance.now() - began;
                 if (out.metrics) result.adapterMetrics = out.metrics;
                 if (out.status === 'unsupported') Object.assign(result, { status: 'unsupported', errorCode: 'E_CAPABILITY', reasons: [out.reason ?? 'unsupported'] });
@@ -134,10 +149,10 @@ export async function runEngine(campaign: BenchCampaign, options: EngineOptions 
       }
       await context.sampleBlock(block, order);
     }
-  } finally { if (ownsOracle) await oracle.close(); }
+  } finally { await proxy?.close(); if (ownsOracle) await oracle.close(); }
   await writes;
   const cells = campaign.backends.flatMap(backend => campaign.scenarios.map(scenario => summarizeCell(`${backend}:${scenario}`, { backend, scenario }, attempts, windows, cellResources.get(`${backend}:${scenario}`) ?? [], measureOf)));
-  const run = await context.close({ lane: 'bench', campaign, decisionIds: campaign.decisionIds, countUnit: 'attempt', cells, binaryChanges: null });
+  const run = await context.close({ lane: 'bench', campaign, decisionIds: campaign.decisionIds, countUnit: 'attempt', cells, binaryChanges: null, network });
   return { directory, run, attempts };
 }
 
@@ -152,8 +167,8 @@ function summarizeCell(cellId: string, factors: Record<string, string>, attempts
   const latency = quantiles(measured.map(a => a.timing.taskMs!).filter(Number.isFinite));
   const failures = counts.failed + counts.timeout + counts.crashed;
   const status = failures ? (counts.verified ? 'mixed' : 'failed') : counts.verified ? 'verified' : counts.unsupported ? 'unsupported' : 'skipped-gate';
-  const typed = resources as { peakFootprintBytes?: number | null; peakRssBytes?: number | null; sampledUserCpuMs?: number; sampledSystemCpuMs?: number }[];
-  const peak = (key: 'peakFootprintBytes' | 'peakRssBytes') => typed.some(r => typeof r[key] === 'number') ? Math.max(...typed.map(r => r[key] ?? 0)) : null;
+  const typed = resources as { peakFootprintBytes?: number | null; peakRssBytes?: number | null; peakPssBytes?: number | null; sampledUserCpuMs?: number; sampledSystemCpuMs?: number }[];
+  const peak = (key: 'peakFootprintBytes' | 'peakRssBytes' | 'peakPssBytes') => typed.some(r => typeof r[key] === 'number') ? Math.max(...typed.map(r => r[key] ?? 0)) : null;
   const cpu = typed.some(r => typeof r.sampledUserCpuMs === 'number') ? typed.reduce((sum, r) => sum + (r.sampledUserCpuMs ?? 0) + (r.sampledSystemCpuMs ?? 0), 0) : null;
   const verifiedAll = own.filter(a => a.status === 'verified').length;
   return { cellId, factors, status: status as AttemptStatus | 'mixed', errorCode: null, counts, metrics: {
@@ -162,6 +177,7 @@ function summarizeCell(cellId: string, factors: Record<string, string>, attempts
     'task-p95-ms-verified': measureOf('task-p95-ms-verified', latency.p95, 'engine; run RPC only, nearest rank'),
     'cpu-ms-per-verified-job': measureOf('cpu-ms-per-verified-job', cpu !== null && verifiedAll ? cpu / verifiedAll : null, 'engine; adapter process tree over all phases'),
     'footprint-peak-bytes': measureOf('footprint-peak-bytes', peak('peakFootprintBytes'), 'engine; adapter process tree'),
+    'pss-peak-bytes': measureOf('pss-peak-bytes', peak('peakPssBytes'), 'engine; adapter process tree, Pss_Anon plus SwapPss'),
     'rss-peak-bytes': measureOf('rss-peak-bytes', peak('peakRssBytes'), 'engine; adapter process tree, shared pages double-counted')
   } };
 }

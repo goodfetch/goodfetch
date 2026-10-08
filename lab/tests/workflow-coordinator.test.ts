@@ -18,7 +18,7 @@ for(const target of ['job-claimed','batch-committed'])test(`a new coordinator pr
   let owned:number[]=[];const first=spawn(process.execPath,['--input-type=module','-e',source,JSON.stringify({config,jobs,flag,output,target})],{detached:true,stdio:'ignore'});const firstExited=new Promise(resolve=>first.once('exit',resolve));
   try{
     const deadline=performance.now()+15000;let paused:{owned:number[];coordinator:number}|undefined;
-    while(performance.now()<deadline&&first.exitCode===null&&first.signalCode===null){try{paused=JSON.parse(await readFile(flag,'utf8'));break}catch(error){if((error as NodeJS.ErrnoException).code!=='ENOENT')throw error}await new Promise(resolve=>setTimeout(resolve,20))}
+    while(performance.now()<deadline&&first.exitCode===null&&first.signalCode===null){try{paused=JSON.parse(await readFile(flag,'utf8'));break}catch(error){if((error as NodeJS.ErrnoException).code!=='ENOENT'&&!(error instanceof SyntaxError))throw error/* absent, or read while the child is still writing it */}await new Promise(resolve=>setTimeout(resolve,20))}
     assert.ok(paused,'coordinator did not expose its durable stop point');assert.equal(paused.coordinator,first.pid);owned=paused.owned;assert.equal(owned.length,2);assert.ok(owned.every(pid=>Number.isInteger(pid)&&pid>0));
     const before=readWorkflow(path);assert.equal(before.jobs[0]!.state,target==='job-claimed'?'leased':'committed');assert.equal(before.jobs[0]!.records.length,target==='job-claimed'?0:2);
     for(const pid of [first.pid!,...owned]){try{process.kill(-pid,'SIGKILL')}catch{}}

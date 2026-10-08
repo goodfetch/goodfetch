@@ -12,6 +12,7 @@ import { validateDocument } from '../src/core/schema.ts';
 import { readdir } from 'node:fs/promises';
 import { evaluateDecision } from '../src/stats/verdict.ts';
 import { renderDecisionsReport } from '../src/report/generate.ts';
+import { runCi, defaultSteps } from './ci.ts';
 import { assessHost, loadHostClasses, snapshotHost, hostClasses, type HostClass } from '../src/core/host.ts';
 import { captureProvenance } from '../src/core/provenance.ts';
 import type { Campaign } from '../src/campaign.ts';
@@ -131,9 +132,11 @@ async function reportCommand() {
   process.stdout.write(`reports/decisions.md written from ${verdicts.length} verdicts\n`);
 }
 
+async function ciCommand() { const result = await runCi(defaultSteps()); if (!result.ok) process.exitCode = 1; }
+
 function fail(errors: string[]) { for (const error of errors) process.stderr.write(`${error}\n`); process.exitCode = 1; }
 
-const commands: Record<string, () => unknown> = { validate: validateCommand, import: importCommand, ledger: ledgerCommand, run: runCommand, suite: suiteCommand, preflight: preflightCommand, verdict: verdictCommand, report: reportCommand };
+const commands: Record<string, () => unknown> = { validate: validateCommand, import: importCommand, ledger: ledgerCommand, run: runCommand, suite: suiteCommand, preflight: preflightCommand, verdict: verdictCommand, report: reportCommand, ci: ciCommand };
 const command = commands[process.argv[2] ?? ''];
 if (!command) { process.stderr.write(`usage: pnpm lab <${Object.keys(commands).join('|')}>\n`); process.exitCode = 2; }
 else await command();

@@ -7,6 +7,7 @@ export type BenchCampaign = {
   seed: number; blocks: number; warmup: number; iterations: number; concurrency: number; mode: 'closed' | 'open'; ratePerSecond?: number;
   timeoutMs: number; maxDurationMs: number; maxRestarts: number; backends: string[]; scenarios: string[];
   fixtures: { pages: number; actions: number; delayMs?: number; variants?: string[] }; poolWake?: 'poll' | 'notify';
+  network?: { link: 'browser-origin' | 'driver-browser'; rttMs: number };
 };
 
 export function toLegacyBench(campaign: BenchCampaign): Campaign {

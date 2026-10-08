@@ -372,6 +372,59 @@
           }
         }
       }
+    },
+    "network": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "link",
+        "profile",
+        "calibration"
+      ],
+      "properties": {
+        "link": {
+          "type": "string"
+        },
+        "profile": {
+          "type": "object"
+        },
+        "calibration": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "rttMs",
+            "medianMs",
+            "p95Ms",
+            "baselineMedianMs",
+            "addedMedianMs",
+            "samples",
+            "withinTolerance"
+          ],
+          "properties": {
+            "rttMs": {
+              "type": "number"
+            },
+            "medianMs": {
+              "type": "number"
+            },
+            "p95Ms": {
+              "type": "number"
+            },
+            "baselineMedianMs": {
+              "type": "number"
+            },
+            "addedMedianMs": {
+              "type": "number"
+            },
+            "samples": {
+              "type": "integer"
+            },
+            "withinTolerance": {
+              "type": "boolean"
+            }
+          }
+        }
+      }
     }
   },
   "$defs": {

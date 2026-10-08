@@ -25,3 +25,11 @@ test('an unavailable metric is recorded as null, never as zero', () => {
   assert.equal(measureMetric(availability, metrics, 'task-ms', 12, 'harness').value, 12);
   assert.throws(() => measureMetric(availability, metrics, 'not-a-metric', 1, 'harness'), /unknown metric/);
 });
+
+test('on Linux, a probe whose producer is not wired stays unavailable even when the kernel interface exists', () => {
+  const availability = resolveAvailability(metrics, { platform: 'linux', probes: { 'smaps_rollup': true, 'proc-stat': true, 'cgroup-v2-memory-peak': true } });
+  assert.equal(availability['pss-peak-bytes']!.available, true);
+  assert.equal(availability['cpu-ms-per-verified-job']!.available, true);
+  assert.equal(availability['cgroup-memory-peak-bytes']!.available, false);
+  assert.match(availability['cgroup-memory-peak-bytes']!.reason!, /per-run systemd scope/);
+});

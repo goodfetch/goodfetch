@@ -120,8 +120,11 @@ export async function runLaneCampaign(campaign: LaneCampaign, options: RunOption
     for (const index of order) {
       const cell = combinations[index]!;
       let raw: Json;
-      try { raw = await driver.runCell(campaign.config, cell, block, context.directory, prepared); }
+      // A cell has a budget (config.cellTimeoutMs, 15 min by default); past it, the cell is a timeout and the campaign goes on.
+      const budgetMs = typeof campaign.config.cellTimeoutMs === 'number' ? campaign.config.cellTimeoutMs : 15 * 60_000; let watchdog: NodeJS.Timeout | undefined;
+      try { raw = await Promise.race([driver.runCell(campaign.config, cell, block, context.directory, prepared), new Promise<Json>(resolve => { watchdog = setTimeout(() => resolve({ ...cell, block, status: 'timeout', errorCode: 'E_CELL_TIMEOUT', error: `cell exceeded its ${budgetMs} ms budget` }), budgetMs); })]); }
       catch (error) { raw = { ...cell, block, status: 'failed', errorCode: 'E_LANE_EXCEPTION', error: error instanceof Error ? error.message : String(error) }; }
+      finally { clearTimeout(watchdog); }
       await appendFile(join(context.directory, 'cells.raw.jsonl'), JSON.stringify(raw) + '\n');
       const mapped = cellsCell(campaign.lane, raw, cells.length).cell;
       if (typeof raw.errorCode === 'string') mapped.errorCode = raw.errorCode;

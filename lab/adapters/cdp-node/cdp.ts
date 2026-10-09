@@ -27,9 +27,14 @@ export class CdpConnection {
     await new Promise<void>((resolve, reject) => { socket.addEventListener('open', () => resolve(), { once: true }); socket.addEventListener('error', () => reject(new Error(`cannot connect to ${url}`)), { once: true }); });
     return new CdpConnection(socket);
   }
-  send(method: string, params: Record<string, unknown> = {}, sessionId?: string) {
+  // A command left without an answer (a browser stalled after the host slept, a dropped target) fails instead of waiting forever.
+  send(method: string, params: Record<string, unknown> = {}, sessionId?: string, timeoutMs = 60_000) {
     const id = this.nextId++;
-    return new Promise<Record<string, unknown>>((resolve, reject) => { this.pending.set(id, { resolve, reject }); this.socket.send(JSON.stringify({ id, method, params, ...(sessionId ? { sessionId } : {}) })); });
+    return new Promise<Record<string, unknown>>((resolve, reject) => {
+      const timer = setTimeout(() => { this.pending.delete(id); reject(new Error(`CDP ${method} timeout after ${timeoutMs} ms`)); }, timeoutMs);
+      this.pending.set(id, { resolve: value => { clearTimeout(timer); resolve(value); }, reject: error => { clearTimeout(timer); reject(error); } });
+      this.socket.send(JSON.stringify({ id, method, params, ...(sessionId ? { sessionId } : {}) }));
+    });
   }
   // Registered before the command that triggers the event, so the event cannot be missed.
   waitForEvent(match: (message: Message) => boolean, label: string, timeoutMs: number) {

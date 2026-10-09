@@ -66,6 +66,7 @@ export async function runTopologyCell(config: TopologyConfig, cell: TopologyCell
       } catch (error) { failures++; reasons.push(`${tenant}: ${error instanceof Error ? error.message : String(error)}`); if (cell.policy !== 'cold-container' && pool.length < config.poolSize) refill(); }
     }
     // The memory a warm pool keeps: idle containers waiting for a tenant.
+    await Promise.allSettled(pool);
     const idle = [...live][0]; let idleBytes: number | null = null;
     if (idle) { const usage = await docker('stats', '--no-stream', '--format', '{{.MemUsage}}', idle.id).catch(() => ''); const m = usage.match(/([\d.]+)\s*([KMG]i?B)/); if (m) idleBytes = Number(m[1]) * ({ KiB: 1024, MiB: 1024 ** 2, GiB: 1024 ** 3, KB: 1e3, MB: 1e6, GB: 1e9 } as Record<string, number>)[m[2]!]!; }
     const verified = !leaks && !failures;

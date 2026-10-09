@@ -71,7 +71,9 @@
     "access-policy",
     "http-capacity",
     "http-incidents",
+    "http-open-v2",
     "http-transport-incidents",
+    "http-transport-v2",
     "tls-fingerprint"
   ],
   "evidence": [
@@ -113,5 +115,37 @@
   "dependsOn": [
     "D-identity"
   ],
-  "notes": "Les contrôles SSRF natifs sont conservés ; un refus de redirection loopback n'est jamais contourné pour fabriquer un succès."
+  "notes": "Les contrôles SSRF natifs sont conservés ; un refus de redirection loopback n'est jamais contourné pour fabriquer un succès.",
+  "analysis": {
+    "lane": "bench",
+    "options": {
+      "reqwest": {
+        "backend": "reqwest-http"
+      },
+      "wreq": {
+        "backend": "wreq-http"
+      },
+      "impit": {
+        "backend": "impit-http"
+      },
+      "spider-http": {
+        "backend": "spider-http"
+      },
+      "crawlee-http-pooled": {
+        "backend": "crawlee-http-pooled"
+      },
+      "node-fetch": {
+        "backend": "node-http"
+      }
+    },
+    "pairBy": [
+      "scenario"
+    ],
+    "stratum": {
+      "scenario": "http-catalog"
+    },
+    "gateLanes": {
+      "policy-compliance": "actionability"
+    }
+  }
 }

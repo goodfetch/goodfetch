@@ -16,8 +16,8 @@
   ],
   "baseline": "agent-each-run",
   "primaryMetric": {
-    "metricId": "usd-per-1k-verified",
-    "blockStatistic": "ratio-of-sums"
+    "metricId": "model-usd-per-1k-verified",
+    "blockStatistic": "median"
   },
   "secondaryMetrics": [
     "llm-calls-per-verified-task",
@@ -25,7 +25,6 @@
     "pass-k"
   ],
   "contractGates": [
-    "false-success-count",
     "oracle-exact"
   ],
   "delta": {
@@ -39,8 +38,8 @@
     "noisyBlockPolicy": "exclude"
   },
   "hostClass": {
-    "decision": "local-controlled",
-    "publication": "reference"
+    "decision": "local-dev",
+    "publication": "local-controlled"
   },
   "networkProfiles": [],
   "campaigns": [
@@ -65,10 +64,42 @@
       "ref": "lab/reports/ai-real-models-2026-10-09.md"
     }
   ],
-  "verdictRef": null,
+  "verdictRef": "verdicts/D-ai-layer.json",
   "adr": null,
   "dependsOn": [
     "D-browser-driver"
   ],
-  "notes": "Faux provider d'abord pour les contrats et les budgets, puis modèles réels avec plafond de coût déclaré par campagne."
+  "notes": "Faux provider d'abord pour les contrats et les budgets, puis modèles réels avec plafond de coût déclaré par campagne. Le 9 octobre 2026 : la métrique principale devient la dépense de modèle seule (model-usd-per-1k-verified), la seule que la lane mesure ; le temps machine reste secondaire. Le gate false-success-count, défini sur les variantes négatives de l'actionnabilité, ne s'applique pas à cette lane : une cellule IA échoue dès qu'un run déclare un succès que l'oracle réfute, si bien qu'oracle-exact porte ce contrat. Les tokens et la dépense sont comptés par le fournisseur : la décision se prend en local-dev.",
+  "analysis": {
+    "lane": "ai",
+    "options": {
+      "compiled-replay": {
+        "mode": "compiled-replay"
+      },
+      "agent-each-run": {
+        "mode": "agent-each-run"
+      }
+    },
+    "pairBy": [
+      "model",
+      "variant"
+    ],
+    "stratum": {
+      "variant": "baseline"
+    },
+    "strata": [
+      {
+        "variant": "baseline"
+      },
+      {
+        "variant": "relabel"
+      },
+      {
+        "variant": "decoy-swap"
+      },
+      {
+        "variant": "price-change"
+      }
+    ]
+  }
 }

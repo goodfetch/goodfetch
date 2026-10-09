@@ -1,0 +1,150 @@
+{
+ "schemaVersion": 1,
+ "decisionId": "D-extraction",
+ "metricId": "extraction-f1",
+ "direction": "higher",
+ "rule": {
+  "kind": "non-inferiority",
+  "alpha": 0.05,
+  "power": 0.8,
+  "noisyBlockPolicy": "exclude"
+ },
+ "delta": {
+  "kind": "ratio",
+  "value": 0.05
+ },
+ "option": "htmd",
+ "baseline": "html5ever-scraper",
+ "stratum": {},
+ "outcome": "insufficient-n",
+ "n": 7,
+ "margin": 0.04879016416943205,
+ "requiredN": 60,
+ "estimate": {
+  "meanLogRatio": -0.428316266044554,
+  "ratio": 0.6516053015758033,
+  "ci": [
+   -0.5187089539578303,
+   -0.3433792981582001
+  ],
+  "ratioCi": [
+   0.5952885970573248,
+   0.7093690981339154
+  ],
+  "hodgesLehmannRatio": 0.650441133933781,
+  "wilcoxon": {
+   "n": 7,
+   "wPlus": 0,
+   "pValue": 0.015625,
+   "method": "exact"
+  },
+  "interval": "90% block bootstrap"
+ },
+ "gates": [
+  {
+   "id": "oracle-exact",
+   "ok": true,
+   "evaluated": true
+  }
+ ],
+ "host": {
+  "required": "local-dev",
+  "observed": "local-dev",
+  "eligible": true
+ },
+ "comparisons": [
+  {
+   "option": "htmd",
+   "baseline": "html5ever-scraper",
+   "stratum": {},
+   "outcome": "insufficient-n",
+   "n": 7,
+   "margin": 0.04879016416943205,
+   "requiredN": 60,
+   "estimate": {
+    "meanLogRatio": -0.428316266044554,
+    "ratio": 0.6516053015758033,
+    "ci": [
+     -0.5187089539578303,
+     -0.3433792981582001
+    ],
+    "ratioCi": [
+     0.5952885970573248,
+     0.7093690981339154
+    ],
+    "hodgesLehmannRatio": 0.650441133933781,
+    "wilcoxon": {
+     "n": 7,
+     "wPlus": 0,
+     "pValue": 0.015625,
+     "method": "exact"
+    },
+    "interval": "90% block bootstrap"
+   },
+   "gates": [
+    {
+     "id": "oracle-exact",
+     "ok": true,
+     "evaluated": true
+    }
+   ],
+   "host": {
+    "required": "local-dev",
+    "observed": "local-dev",
+    "eligible": true
+   }
+  },
+  {
+   "option": "trafilatura-class",
+   "baseline": "html5ever-scraper",
+   "stratum": {},
+   "outcome": "insufficient-n",
+   "n": 7,
+   "margin": 0.04879016416943205,
+   "requiredN": 28,
+   "estimate": {
+    "meanLogRatio": 0.2598727304017566,
+    "ratio": 1.296765037397792,
+    "ci": [
+     0.2052290821821808,
+     0.3218976499453188
+    ],
+    "ratioCi": [
+     1.2278063012956275,
+     1.3797435519022416
+    ],
+    "hodgesLehmannRatio": 1.2490515879970543,
+    "wilcoxon": {
+     "n": 7,
+     "wPlus": 28,
+     "pValue": 0.015625,
+     "method": "exact"
+    },
+    "interval": "90% block bootstrap"
+   },
+   "gates": [
+    {
+     "id": "oracle-exact",
+     "ok": true,
+     "evaluated": true
+    }
+   ],
+   "host": {
+    "required": "local-dev",
+    "observed": "local-dev",
+    "eligible": true
+   }
+  }
+ ],
+ "inputs": {
+  "runs": [
+   "extraction-quality-test-2026-10-08T18-00-46-463Z-751a55"
+  ],
+  "considered": [
+   "extraction-quality-test-2026-10-08T18-00-46-463Z-751a55",
+   "extraction-rendered-test-2026-10-08T20-14-39-618Z-9f5f67"
+  ],
+  "missing": [],
+  "ledgerSha256": "21e68a32a71cbcbc731b65a66234d4f3c5b53b3b3725e40b8ec3425203e5d054"
+ }
+}

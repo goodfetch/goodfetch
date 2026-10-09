@@ -1,0 +1,105 @@
+{
+ "schemaVersion": 1,
+ "decisionId": "D-durable-runtime",
+ "metricId": "ack-latency-p95-ms",
+ "direction": "lower",
+ "rule": {
+  "kind": "non-inferiority",
+  "alpha": 0.05,
+  "power": 0.8,
+  "noisyBlockPolicy": "exclude"
+ },
+ "delta": {
+  "kind": "ratio",
+  "value": 0.1
+ },
+ "option": "journal-leases-epoch",
+ "baseline": "journal-leases-epoch",
+ "stratum": {},
+ "outcome": "contract-met",
+ "n": 5,
+ "margin": null,
+ "requiredN": null,
+ "estimate": null,
+ "gates": [
+  {
+   "id": "admission-no-loss",
+   "ok": true,
+   "evaluated": true,
+   "cells": 30
+  },
+  {
+   "id": "recovery-exact",
+   "ok": true,
+   "evaluated": true,
+   "cells": 60
+  },
+  {
+   "id": "oracle-exact",
+   "ok": true,
+   "evaluated": true,
+   "cells": 60
+  }
+ ],
+ "host": {
+  "required": "local-controlled",
+  "observed": "local-dev",
+  "eligible": false
+ },
+ "comparisons": [
+  {
+   "option": "journal-leases-epoch",
+   "baseline": "journal-leases-epoch",
+   "stratum": {},
+   "outcome": "contract-met",
+   "n": 5,
+   "margin": null,
+   "requiredN": null,
+   "estimate": null,
+   "gates": [
+    {
+     "id": "admission-no-loss",
+     "ok": true,
+     "evaluated": true,
+     "cells": 30
+    },
+    {
+     "id": "recovery-exact",
+     "ok": true,
+     "evaluated": true,
+     "cells": 60
+    },
+    {
+     "id": "oracle-exact",
+     "ok": true,
+     "evaluated": true,
+     "cells": 60
+    }
+   ],
+   "host": {
+    "required": "local-controlled",
+    "observed": "local-dev",
+    "eligible": false
+   }
+  }
+ ],
+ "inputs": {
+  "runs": [
+   "runtime-recovery-qualified-2026-10-08T00-20-09-515Z-ad3e70",
+   "runtime-faults-extended-2026-10-08T17-49-02-487Z-54a5e6",
+   "durable-admission-2026-10-08T19-43-14-860Z-b8ad5b",
+   "durable-scheduler-2026-10-08T19-43-56-509Z-dfabee",
+   "durable-admission-recovery-2026-10-08T19-50-26-865Z-f4c814"
+  ],
+  "considered": [
+   "runtime-recovery-qualified-2026-10-08T00-20-09-515Z-ad3e70",
+   "workflow-recovery-2026-10-07T22-26-19-297Z-c40792",
+   "runtime-faults-extended-2026-10-08T17-49-02-487Z-54a5e6",
+   "durable-admission-2026-10-08T19-43-14-860Z-b8ad5b",
+   "durable-scheduler-2026-10-08T19-43-56-509Z-dfabee",
+   "durable-admission-recovery-2026-10-08T19-50-26-865Z-f4c814"
+  ],
+  "missing": [],
+  "ledgerSha256": "21e68a32a71cbcbc731b65a66234d4f3c5b53b3b3725e40b8ec3425203e5d054"
+ }
+}

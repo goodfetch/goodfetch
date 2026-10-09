@@ -10,6 +10,12 @@ import { captureProvenance, type Provenance } from './provenance.ts';
 import { loadRegistry } from './decisions.ts';
 import { resolveAvailability, detectProbes, measureMetric, type Availability, type Measure } from './metrics/registry.ts';
 
+// A block is judged on the load that is not the run's own. The load average counts the campaign's own browsers and workers, so it
+// gates the host before the run, at rest, but would flag nearly every CPU-bound block during it; foreign CPU excludes the run's tree.
+export function blockNoisy(gates: { id: string; max?: number }[], snapshot: { foreignCpuPercent: number | null }) {
+  const limit = gates.find(gate => gate.id === 'foreign-cpu-percent')?.max;
+  return limit !== undefined && (snapshot.foreignCpuPercent === null || snapshot.foreignCpuPercent > limit);
+}
 export type RunOptions = { outputRoot?: string; skipProvenance?: boolean; hostSnapshot?: HostSnapshot; source?: string };
 export type BlockRecord = { index: number; order: string[]; noisy: boolean; host: { loadPerCpu1m: number | null; foreignCpuPercent: number | null } };
 
@@ -33,10 +39,7 @@ export async function openRun(campaign: { id: string; hostClass: { requested: Ho
   async function sampleBlock(index: number, order: string[]) {
     const snapshot = options.hostSnapshot ?? await snapshotHost([process.pid]);
     const loadPerCpu = snapshot.logicalCpus ? snapshot.loadAverage1m / snapshot.logicalCpus : null;
-    const gates = classes.find(spec => spec.class === granted)?.gates ?? [];
-    const max = (id: string) => gates.find(gate => gate.id === id)?.max;
-    const over = (limit: number | undefined, value: number | null) => limit !== undefined && (value === null || value > limit);
-    const noisy = granted !== 'local-dev' && (over(max('load-per-cpu-1m'), loadPerCpu) || over(max('foreign-cpu-percent'), snapshot.foreignCpuPercent));
+    const noisy = granted !== 'local-dev' && blockNoisy(classes.find(spec => spec.class === granted)?.gates ?? [], snapshot);
     blocks.push({ index, order, noisy, host: { loadPerCpu1m: loadPerCpu, foreignCpuPercent: snapshot.foreignCpuPercent } });
   }
   // Writes run.v2.json; a run whose sources changed is invalid, a run with a noisy block is flagged.

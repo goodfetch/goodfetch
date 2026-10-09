@@ -4393,6 +4393,58 @@
         "priority": "P2",
         "hostClass": "reference"
       }
+    },
+    "browser-driver-rtt-0-2026-10-09T22-38-04-681Z-80ec2d": {
+      "role": "diagnostic",
+      "reason": "1 bloc propre sur 8 : le contrôle de bloc comptait la charge de la campagne elle-même ; compilation Swift étrangère intermittente",
+      "supersededBy": null,
+      "decisionIds": [
+        "D-browser-driver"
+      ],
+      "validity": [
+        {
+          "scope": "browser-driver-contract",
+          "class": "A",
+          "note": "oracle des fixtures"
+        },
+        {
+          "scope": "timing",
+          "class": "none",
+          "note": "blocs bruités"
+        }
+      ],
+      "noisyHost": true,
+      "rerun": {
+        "required": true,
+        "priority": "P0",
+        "hostClass": "local-controlled"
+      }
+    },
+    "browser-driver-rtt-20-2026-10-09T22-44-56-910Z-d2290c": {
+      "role": "diagnostic",
+      "reason": "hôte rétrogradé en local-dev au départ : compilation Swift étrangère, charge par CPU jusqu'à 10,7",
+      "supersededBy": null,
+      "decisionIds": [
+        "D-browser-driver"
+      ],
+      "validity": [
+        {
+          "scope": "browser-driver-contract",
+          "class": "A",
+          "note": "oracle des fixtures"
+        },
+        {
+          "scope": "timing",
+          "class": "none",
+          "note": "blocs bruités"
+        }
+      ],
+      "noisyHost": true,
+      "rerun": {
+        "required": true,
+        "priority": "P0",
+        "hostClass": "local-controlled"
+      }
     }
   }
 }

@@ -7,7 +7,7 @@
     "node": ">=24.0.0"
   },
   "scripts": {
-    "test": "node --test tests/*.test.ts",
+    "test": "node --test tests/*.test.ts && node --test --test-concurrency=1 tests/timing/*.test.ts",
     "integration": "node --test tests/integration/*.test.ts",
     "check": "tsc --noEmit",
     "doctor": "node tools/doctor.ts",

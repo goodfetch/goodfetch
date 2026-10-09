@@ -55,7 +55,7 @@ Méthode : le statut d'une tentative vient d'un code d'erreur typé (`src/core/e
 ### Réseau, Linux et CI locale
 
 ```sh
-pnpm lab ci     # typecheck, tests unitaires et de contrat, validation du registre et des campagnes
+pnpm lab ci     # typecheck, tests unitaires et de contrat, tests de précision temporelle (seuls), validation du registre et des campagnes
 ```
 
 Une campagne bench peut déclarer `network: { link: "browser-origin", rttMs }`. Le moteur calibre d'abord le profil : des ping-pong d'un octet, directs et à travers le proxy, sont alternés, et le run consigne la médiane appariée du délai ajouté. Hors tolérance (le plus grand de 2 ms et 10 %), les métriques de temps et de ressources deviennent indisponibles ; les métriques de contrat restent valides. Les fixtures sont ensuite servies à travers un proxy TCP en espace utilisateur (`src/net/latency-proxy.ts`), sans privilège, sur macOS comme sur Linux. Il ajoute la moitié du RTT dans chaque sens, préserve l'ordre des octets et ne libère jamais un paquet avant son échéance. Le lien `driver-browser` arrive avec l'adapter CDP de P6 ; perte et gigue relèvent de `tc netem` sur l'hôte de référence.

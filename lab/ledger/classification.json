@@ -4445,6 +4445,27 @@
         "priority": "P0",
         "hostClass": "local-controlled"
       }
+    },
+    "browser-driver-rtt-100-2026-10-09T23-11-43-928Z-24e4bc": {
+      "role": "diagnostic",
+      "reason": "interrompu volontairement : hôte bruité, contrôle de bloc en cours de correction",
+      "supersededBy": null,
+      "decisionIds": [
+        "D-browser-driver"
+      ],
+      "validity": [
+        {
+          "scope": "all",
+          "class": "none",
+          "note": "run incomplet"
+        }
+      ],
+      "noisyHost": true,
+      "rerun": {
+        "required": true,
+        "priority": "P0",
+        "hostClass": "local-controlled"
+      }
     }
   }
 }

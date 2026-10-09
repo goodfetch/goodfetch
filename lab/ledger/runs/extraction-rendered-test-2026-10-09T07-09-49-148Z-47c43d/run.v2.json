@@ -1,0 +1,1502 @@
+{
+ "schemaVersion": 2,
+ "runId": "extraction-rendered-test-2026-10-09T07-09-49-148Z-47c43d",
+ "lane": "extraction",
+ "campaign": {
+  "id": "extraction-rendered-test",
+  "source": "campaigns/v2/extraction/extraction-rendered-test.json",
+  "sha256": "6dad654be9dd78eb9fc2301c1c469586be85ed7fc4a43757d2fe60e2dcb85a9b"
+ },
+ "startedAt": "2026-10-09T07:09:49.148Z",
+ "decisionIds": [
+  "D-light-engine",
+  "D-extraction"
+ ],
+ "provenance": {
+  "git": {
+   "available": true,
+   "sha": "5d8407a1299f0a25a4559f1ab8e5fa4641801445",
+   "dirty": false
+  },
+  "sourceTreeSha256": "bb0d5216d6deb076b90ff2d1eb23672abf35acd0938c99a85280c758a76301cb",
+  "sourceChanges": 0,
+  "binaryChanges": null,
+  "toolchains": {
+   "node": "v25.5.0",
+   "rustc": "rustc 1.93.0 (254b59607 2026-01-19)",
+   "go": "go version go1.27.1 darwin/arm64",
+   "pnpm": "12.9.1"
+  },
+  "integrity": {
+   "status": "uncatalogued",
+   "checked": 0,
+   "mismatches": []
+  }
+ },
+ "host": {
+  "classRequested": "local-controlled",
+  "classGranted": "local-controlled",
+  "os": "darwin",
+  "arch": "arm64",
+  "cpu": "Apple M3 Max",
+  "logicalCpus": 14,
+  "memoryBytes": 38654705664,
+  "preflight": {
+   "snapshot": {
+    "os": "darwin",
+    "arch": "arm64",
+    "cpu": "Apple M3 Max",
+    "logicalCpus": 14,
+    "memoryBytes": 38654705664,
+    "loadAverage1m": 4.3359375,
+    "memoryFreePercent": 67,
+    "thermalWarning": false,
+    "onAC": false,
+    "lowPowerMode": false,
+    "foreignCpuPercent": 100.89999999999986,
+    "foreignTop": [
+     {
+      "command": "WindowServer",
+      "cpuPercent": 41.2
+     },
+     {
+      "command": "com.apple.Virtualization.VirtualMachine",
+      "cpuPercent": 19.2
+     },
+     {
+      "command": "syspolicyd",
+      "cpuPercent": 8.8
+     },
+     {
+      "command": "Google Chrome for Testing",
+      "cpuPercent": 4.3
+     },
+     {
+      "command": "turbo",
+      "cpuPercent": 3
+     }
+    ],
+    "cpuGovernor": null,
+    "virtualized": false,
+    "controllerCpuPercent": 32.300000000000004
+   },
+   "gates": [
+    {
+     "class": "local-controlled",
+     "id": "git-clean",
+     "ok": true,
+     "value": true,
+     "limit": "= true"
+    },
+    {
+     "class": "local-controlled",
+     "id": "load-per-cpu-1m",
+     "ok": true,
+     "value": 0.30970982142857145,
+     "limit": "<= 0.35"
+    },
+    {
+     "class": "local-controlled",
+     "id": "memory-free-percent",
+     "ok": true,
+     "value": 67,
+     "limit": ">= 20"
+    },
+    {
+     "class": "local-controlled",
+     "id": "thermal-warning",
+     "ok": true,
+     "value": false,
+     "limit": "= false"
+    },
+    {
+     "class": "local-controlled",
+     "id": "low-power-mode",
+     "ok": true,
+     "value": false,
+     "limit": "= false"
+    },
+    {
+     "class": "local-controlled",
+     "id": "foreign-cpu-percent",
+     "ok": true,
+     "value": 100.89999999999986,
+     "limit": "<= 150"
+    }
+   ]
+  },
+  "postflight": {
+   "snapshot": {
+    "os": "darwin",
+    "arch": "arm64",
+    "cpu": "Apple M3 Max",
+    "logicalCpus": 14,
+    "memoryBytes": 38654705664,
+    "loadAverage1m": 5.26806640625,
+    "memoryFreePercent": 65,
+    "thermalWarning": false,
+    "onAC": true,
+    "lowPowerMode": false,
+    "foreignCpuPercent": 882.8000000000001,
+    "foreignTop": [
+     {
+      "command": "node",
+      "cpuPercent": 181.8
+     },
+     {
+      "command": "node",
+      "cpuPercent": 104.1
+     },
+     {
+      "command": "node",
+      "cpuPercent": 76.4
+     },
+     {
+      "command": "node",
+      "cpuPercent": 54.2
+     },
+     {
+      "command": "node",
+      "cpuPercent": 48.6
+     }
+    ],
+    "cpuGovernor": null,
+    "virtualized": false,
+    "controllerCpuPercent": 26.8
+   }
+  }
+ },
+ "status": "noisy-host",
+ "countUnit": "cell",
+ "cells": [
+  {
+   "cellId": "30da362714ac-0",
+   "factors": {
+    "extractor": "rs-trafilatura",
+    "pageType": "listing",
+    "renderer": "lightpanda",
+    "pages": 40,
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "extraction-f1": {
+     "value": 0.7452464434801988,
+     "unit": "ratio",
+     "source": "lane; mean over the pages of the cell, WCXB evaluate.py definitions"
+    },
+    "extraction-precision": {
+     "value": 0.7611562236035623,
+     "unit": "ratio",
+     "source": "lane; mean over the pages of the cell, WCXB evaluate.py definitions"
+    },
+    "extraction-recall": {
+     "value": 0.8311364149570503,
+     "unit": "ratio",
+     "source": "lane; mean over the pages of the cell, WCXB evaluate.py definitions"
+    },
+    "snippet-recall": {
+     "value": 0.7745833333333334,
+     "unit": "ratio",
+     "source": "lane; mean over the pages of the cell, WCXB evaluate.py definitions"
+    },
+    "boilerplate-leak": {
+     "value": 0.04375,
+     "unit": "ratio",
+     "source": "lane; mean over the pages of the cell, WCXB evaluate.py definitions"
+    },
+    "extract-ms-p50": {
+     "value": 15.82875,
+     "unit": "ms",
+     "source": "lane; mean over the pages of the cell, WCXB evaluate.py definitions"
+    }
+   }
+  },
+  {
+   "cellId": "21f9f25aa62d-1",
+   "factors": {
+    "extractor": "rs-trafilatura",
+    "pageType": "listing",
+    "renderer": "chrome",
+    "pages": 40,
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "extraction-f1": {
+     "value": 0.7452464434801988,
+     "unit": "ratio",
+     "source": "lane; mean over the pages of the cell, WCXB evaluate.py definitions"
+    },
+    "extraction-precision": {
+     "value": 0.7611562236035623,
+     "unit": "ratio",
+     "source": "lane; mean over the pages of the cell, WCXB evaluate.py definitions"
+    },
+    "extraction-recall": {
+     "value": 0.8311364149570503,
+     "unit": "ratio",
+     "source": "lane; mean over the pages of the cell, WCXB evaluate.py definitions"
+    },
+    "snippet-recall": {
+     "value": 0.7745833333333334,
+     "unit": "ratio",
+     "source": "lane; mean over the pages of the cell, WCXB evaluate.py definitions"
+    },
+    "boilerplate-leak": {
+     "value": 0.04375,
+     "unit": "ratio",
+     "source": "lane; mean over the pages of the cell, WCXB evaluate.py definitions"
+    },
+    "extract-ms-p50": {
+     "value": 15.675875,
+     "unit": "ms",
+     "source": "lane; mean over the pages of the cell, WCXB evaluate.py definitions"
+    }
+   }
+  },
+  {
+   "cellId": "b267c36fb6d2-2",
+   "factors": {
+    "extractor": "rs-trafilatura",
+    "pageType": "collection",
+    "renderer": "lightpanda",
+    "pages": 34,
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "extraction-f1": {
+     "value": 0.7746309395721743,
+     "unit": "ratio",
+     "source": "lane; mean over the pages of the cell, WCXB evaluate.py definitions"
+    },
+    "extraction-precision": {
+     "value": 0.763285253750769,
+     "unit": "ratio",
+     "source": "lane; mean over the pages of the cell, WCXB evaluate.py definitions"
+    },
+    "extraction-recall": {
+     "value": 0.8547981849931682,
+     "unit": "ratio",
+     "source": "lane; mean over the pages of the cell, WCXB evaluate.py definitions"
+    },
+    "snippet-recall": {
+     "value": 0.778921568627451,
+     "unit": "ratio",
+     "source": "lane; mean over the pages of the cell, WCXB evaluate.py definitions"
+    },
+    "boilerplate-leak": {
+     "value": 0.058823529411764705,
+     "unit": "ratio",
+     "source": "lane; mean over the pages of the cell, WCXB evaluate.py definitions"
+    },
+    "extract-ms-p50": {
+     "value": 20.151125,
+     "unit": "ms",
+     "source": "lane; mean over the pages of the cell, WCXB evaluate.py definitions"
+    }
+   }
+  },
+  {
+   "cellId": "53acf92fd083-3",
+   "factors": {
+    "extractor": "rs-trafilatura",
+    "pageType": "documentation",
+    "renderer": "chrome",
+    "pages": 42,
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "extraction-f1": {
+     "value": 0.9730439286320186,
+     "unit": "ratio",
+     "source": "lane; mean over the pages of the cell, WCXB evaluate.py definitions"
+    },
+    "extraction-precision": {
+     "value": 0.9778278813179788,
+     "unit": "ratio",
+     "source": "lane; mean over the pages of the cell, WCXB evaluate.py definitions"
+    },
+    "extraction-recall": {
+     "value": 0.9762211218785243,
+     "unit": "ratio",
+     "source": "lane; mean over the pages of the cell, WCXB evaluate.py definitions"
+    },
+    "snippet-recall": {
+     "value": 0.9285714285714286,
+     "unit": "ratio",
+     "source": "lane; mean over the pages of the cell, WCXB evaluate.py definitions"
+    },
+    "boilerplate-leak": {
+     "value": 0.03968253968253968,
+     "unit": "ratio",
+     "source": "lane; mean over the pages of the cell, WCXB evaluate.py definitions"
+    },
+    "extract-ms-p50": {
+     "value": 12.818417,
+     "unit": "ms",
+     "source": "lane; mean over the pages of the cell, WCXB evaluate.py definitions"
+    }
+   }
+  },
+  {
+   "cellId": "f25ff6a116f1-4",
+   "factors": {
+    "extractor": "rs-trafilatura",
+    "pageType": "service",
+    "renderer": "none",
+    "pages": 59,
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "extraction-f1": {
+     "value": 0.8320726165842441,
+     "unit": "ratio",
+     "source": "lane; mean over the pages of the cell, WCXB evaluate.py definitions"
+    },
+    "extraction-precision": {
+     "value": 0.8259093888223586,
+     "unit": "ratio",
+     "source": "lane; mean over the pages of the cell, WCXB evaluate.py definitions"
+    },
+    "extraction-recall": {
+     "value": 0.8786226999895838,
+     "unit": "ratio",
+     "source": "lane; mean over the pages of the cell, WCXB evaluate.py definitions"
+    },
+    "snippet-recall": {
+     "value": 0.8121468926553671,
+     "unit": "ratio",
+     "source": "lane; mean over the pages of the cell, WCXB evaluate.py definitions"
+    },
+    "boilerplate-leak": {
+     "value": 0.10310734463276836,
+     "unit": "ratio",
+     "source": "lane; mean over the pages of the cell, WCXB evaluate.py definitions"
+    },
+    "extract-ms-p50": {
+     "value": 12.202124999999999,
+     "unit": "ms",
+     "source": "lane; mean over the pages of the cell, WCXB evaluate.py definitions"
+    }
+   }
+  },
+  {
+   "cellId": "e2ed2ea13c74-5",
+   "factors": {
+    "extractor": "rs-trafilatura",
+    "pageType": "article",
+    "renderer": "lightpanda",
+    "pages": 257,
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "extraction-f1": {
+     "value": 0.9512209213221012,
+     "unit": "ratio",
+     "source": "lane; mean over the pages of the cell, WCXB evaluate.py definitions"
+    },
+    "extraction-precision": {
+     "value": 0.9435795088529854,
+     "unit": "ratio",
+     "source": "lane; mean over the pages of the cell, WCXB evaluate.py definitions"
+    },
+    "extraction-recall": {
+     "value": 0.9774990077241194,
+     "unit": "ratio",
+     "source": "lane; mean over the pages of the cell, WCXB evaluate.py definitions"
+    },
+    "snippet-recall": {
+     "value": 0.9152399481193256,
+     "unit": "ratio",
+     "source": "lane; mean over the pages of the cell, WCXB evaluate.py definitions"
+    },
+    "boilerplate-leak": {
+     "value": 0.11867704280155641,
+     "unit": "ratio",
+     "source": "lane; mean over the pages of the cell, WCXB evaluate.py definitions"
+    },
+    "extract-ms-p50": {
+     "value": 10.915458,
+     "unit": "ms",
+     "source": "lane; mean over the pages of the cell, WCXB evaluate.py definitions"
+    }
+   }
+  },
+  {
+   "cellId": "98e6adb57891-6",
+   "factors": {
+    "extractor": "rs-trafilatura",
+    "pageType": "service",
+    "renderer": "lightpanda",
+    "pages": 59,
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "extraction-f1": {
+     "value": 0.8320726165842441,
+     "unit": "ratio",
+     "source": "lane; mean over the pages of the cell, WCXB evaluate.py definitions"
+    },
+    "extraction-precision": {
+     "value": 0.8259093888223586,
+     "unit": "ratio",
+     "source": "lane; mean over the pages of the cell, WCXB evaluate.py definitions"
+    },
+    "extraction-recall": {
+     "value": 0.8786226999895838,
+     "unit": "ratio",
+     "source": "lane; mean over the pages of the cell, WCXB evaluate.py definitions"
+    },
+    "snippet-recall": {
+     "value": 0.8121468926553671,
+     "unit": "ratio",
+     "source": "lane; mean over the pages of the cell, WCXB evaluate.py definitions"
+    },
+    "boilerplate-leak": {
+     "value": 0.10310734463276836,
+     "unit": "ratio",
+     "source": "lane; mean over the pages of the cell, WCXB evaluate.py definitions"
+    },
+    "extract-ms-p50": {
+     "value": 12.070583,
+     "unit": "ms",
+     "source": "lane; mean over the pages of the cell, WCXB evaluate.py definitions"
+    }
+   }
+  },
+  {
+   "cellId": "86cd89aee077-7",
+   "factors": {
+    "extractor": "rs-trafilatura",
+    "pageType": "article",
+    "renderer": "chrome",
+    "pages": 257,
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "extraction-f1": {
+     "value": 0.9512209213221012,
+     "unit": "ratio",
+     "source": "lane; mean over the pages of the cell, WCXB evaluate.py definitions"
+    },
+    "extraction-precision": {
+     "value": 0.9435795088529854,
+     "unit": "ratio",
+     "source": "lane; mean over the pages of the cell, WCXB evaluate.py definitions"
+    },
+    "extraction-recall": {
+     "value": 0.9774990077241194,
+     "unit": "ratio",
+     "source": "lane; mean over the pages of the cell, WCXB evaluate.py definitions"
+    },
+    "snippet-recall": {
+     "value": 0.9152399481193256,
+     "unit": "ratio",
+     "source": "lane; mean over the pages of the cell, WCXB evaluate.py definitions"
+    },
+    "boilerplate-leak": {
+     "value": 0.11867704280155641,
+     "unit": "ratio",
+     "source": "lane; mean over the pages of the cell, WCXB evaluate.py definitions"
+    },
+    "extract-ms-p50": {
+     "value": 11.249875,
+     "unit": "ms",
+     "source": "lane; mean over the pages of the cell, WCXB evaluate.py definitions"
+    }
+   }
+  },
+  {
+   "cellId": "1fe45fa5a64e-8",
+   "factors": {
+    "extractor": "rs-trafilatura",
+    "pageType": "documentation",
+    "renderer": "lightpanda",
+    "pages": 42,
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "extraction-f1": {
+     "value": 0.9730439286320186,
+     "unit": "ratio",
+     "source": "lane; mean over the pages of the cell, WCXB evaluate.py definitions"
+    },
+    "extraction-precision": {
+     "value": 0.9778278813179788,
+     "unit": "ratio",
+     "source": "lane; mean over the pages of the cell, WCXB evaluate.py definitions"
+    },
+    "extraction-recall": {
+     "value": 0.9762211218785243,
+     "unit": "ratio",
+     "source": "lane; mean over the pages of the cell, WCXB evaluate.py definitions"
+    },
+    "snippet-recall": {
+     "value": 0.9285714285714286,
+     "unit": "ratio",
+     "source": "lane; mean over the pages of the cell, WCXB evaluate.py definitions"
+    },
+    "boilerplate-leak": {
+     "value": 0.03968253968253968,
+     "unit": "ratio",
+     "source": "lane; mean over the pages of the cell, WCXB evaluate.py definitions"
+    },
+    "extract-ms-p50": {
+     "value": 13.120417,
+     "unit": "ms",
+     "source": "lane; mean over the pages of the cell, WCXB evaluate.py definitions"
+    }
+   }
+  },
+  {
+   "cellId": "3548b0af4f79-9",
+   "factors": {
+    "extractor": "rs-trafilatura",
+    "pageType": "collection",
+    "renderer": "none",
+    "pages": 34,
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "extraction-f1": {
+     "value": 0.7746309395721743,
+     "unit": "ratio",
+     "source": "lane; mean over the pages of the cell, WCXB evaluate.py definitions"
+    },
+    "extraction-precision": {
+     "value": 0.763285253750769,
+     "unit": "ratio",
+     "source": "lane; mean over the pages of the cell, WCXB evaluate.py definitions"
+    },
+    "extraction-recall": {
+     "value": 0.8547981849931682,
+     "unit": "ratio",
+     "source": "lane; mean over the pages of the cell, WCXB evaluate.py definitions"
+    },
+    "snippet-recall": {
+     "value": 0.778921568627451,
+     "unit": "ratio",
+     "source": "lane; mean over the pages of the cell, WCXB evaluate.py definitions"
+    },
+    "boilerplate-leak": {
+     "value": 0.058823529411764705,
+     "unit": "ratio",
+     "source": "lane; mean over the pages of the cell, WCXB evaluate.py definitions"
+    },
+    "extract-ms-p50": {
+     "value": 20.531000000000002,
+     "unit": "ms",
+     "source": "lane; mean over the pages of the cell, WCXB evaluate.py definitions"
+    }
+   }
+  },
+  {
+   "cellId": "182aed4eed09-10",
+   "factors": {
+    "extractor": "rs-trafilatura",
+    "pageType": "forum",
+    "renderer": "none",
+    "pages": 51,
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "extraction-f1": {
+     "value": 0.7874496271896547,
+     "unit": "ratio",
+     "source": "lane; mean over the pages of the cell, WCXB evaluate.py definitions"
+    },
+    "extraction-precision": {
+     "value": 0.8773969830392935,
+     "unit": "ratio",
+     "source": "lane; mean over the pages of the cell, WCXB evaluate.py definitions"
+    },
+    "extraction-recall": {
+     "value": 0.8049616142944978,
+     "unit": "ratio",
+     "source": "lane; mean over the pages of the cell, WCXB evaluate.py definitions"
+    },
+    "snippet-recall": {
+     "value": 0.7264705882352941,
+     "unit": "ratio",
+     "source": "lane; mean over the pages of the cell, WCXB evaluate.py definitions"
+    },
+    "boilerplate-leak": {
+     "value": 0.1437908496732026,
+     "unit": "ratio",
+     "source": "lane; mean over the pages of the cell, WCXB evaluate.py definitions"
+    },
+    "extract-ms-p50": {
+     "value": 20.609625,
+     "unit": "ms",
+     "source": "lane; mean over the pages of the cell, WCXB evaluate.py definitions"
+    }
+   }
+  },
+  {
+   "cellId": "783b73de85a7-11",
+   "factors": {
+    "extractor": "rs-trafilatura",
+    "pageType": "listing",
+    "renderer": "none",
+    "pages": 40,
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "extraction-f1": {
+     "value": 0.7452464434801988,
+     "unit": "ratio",
+     "source": "lane; mean over the pages of the cell, WCXB evaluate.py definitions"
+    },
+    "extraction-precision": {
+     "value": 0.7611562236035623,
+     "unit": "ratio",
+     "source": "lane; mean over the pages of the cell, WCXB evaluate.py definitions"
+    },
+    "extraction-recall": {
+     "value": 0.8311364149570503,
+     "unit": "ratio",
+     "source": "lane; mean over the pages of the cell, WCXB evaluate.py definitions"
+    },
+    "snippet-recall": {
+     "value": 0.7745833333333334,
+     "unit": "ratio",
+     "source": "lane; mean over the pages of the cell, WCXB evaluate.py definitions"
+    },
+    "boilerplate-leak": {
+     "value": 0.04375,
+     "unit": "ratio",
+     "source": "lane; mean over the pages of the cell, WCXB evaluate.py definitions"
+    },
+    "extract-ms-p50": {
+     "value": 16.277,
+     "unit": "ms",
+     "source": "lane; mean over the pages of the cell, WCXB evaluate.py definitions"
+    }
+   }
+  },
+  {
+   "cellId": "6bc3f545bb10-12",
+   "factors": {
+    "extractor": "rs-trafilatura",
+    "pageType": "article",
+    "renderer": "none",
+    "pages": 257,
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "extraction-f1": {
+     "value": 0.9512209213221012,
+     "unit": "ratio",
+     "source": "lane; mean over the pages of the cell, WCXB evaluate.py definitions"
+    },
+    "extraction-precision": {
+     "value": 0.9435795088529854,
+     "unit": "ratio",
+     "source": "lane; mean over the pages of the cell, WCXB evaluate.py definitions"
+    },
+    "extraction-recall": {
+     "value": 0.9774990077241194,
+     "unit": "ratio",
+     "source": "lane; mean over the pages of the cell, WCXB evaluate.py definitions"
+    },
+    "snippet-recall": {
+     "value": 0.9152399481193256,
+     "unit": "ratio",
+     "source": "lane; mean over the pages of the cell, WCXB evaluate.py definitions"
+    },
+    "boilerplate-leak": {
+     "value": 0.11867704280155641,
+     "unit": "ratio",
+     "source": "lane; mean over the pages of the cell, WCXB evaluate.py definitions"
+    },
+    "extract-ms-p50": {
+     "value": 11.126000000000001,
+     "unit": "ms",
+     "source": "lane; mean over the pages of the cell, WCXB evaluate.py definitions"
+    }
+   }
+  },
+  {
+   "cellId": "922ded0781b7-13",
+   "factors": {
+    "extractor": "rs-trafilatura",
+    "pageType": "product",
+    "renderer": "none",
+    "pages": 28,
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "extraction-f1": {
+     "value": 0.7553095936549793,
+     "unit": "ratio",
+     "source": "lane; mean over the pages of the cell, WCXB evaluate.py definitions"
+    },
+    "extraction-precision": {
+     "value": 0.7690847792539411,
+     "unit": "ratio",
+     "source": "lane; mean over the pages of the cell, WCXB evaluate.py definitions"
+    },
+    "extraction-recall": {
+     "value": 0.8205822063202283,
+     "unit": "ratio",
+     "source": "lane; mean over the pages of the cell, WCXB evaluate.py definitions"
+    },
+    "snippet-recall": {
+     "value": 0.7821428571428573,
+     "unit": "ratio",
+     "source": "lane; mean over the pages of the cell, WCXB evaluate.py definitions"
+    },
+    "boilerplate-leak": {
+     "value": 0.044642857142857144,
+     "unit": "ratio",
+     "source": "lane; mean over the pages of the cell, WCXB evaluate.py definitions"
+    },
+    "extract-ms-p50": {
+     "value": 20.457,
+     "unit": "ms",
+     "source": "lane; mean over the pages of the cell, WCXB evaluate.py definitions"
+    }
+   }
+  },
+  {
+   "cellId": "9a97af64a20f-14",
+   "factors": {
+    "extractor": "rs-trafilatura",
+    "pageType": "documentation",
+    "renderer": "none",
+    "pages": 42,
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "extraction-f1": {
+     "value": 0.9730439286320186,
+     "unit": "ratio",
+     "source": "lane; mean over the pages of the cell, WCXB evaluate.py definitions"
+    },
+    "extraction-precision": {
+     "value": 0.9778278813179788,
+     "unit": "ratio",
+     "source": "lane; mean over the pages of the cell, WCXB evaluate.py definitions"
+    },
+    "extraction-recall": {
+     "value": 0.9762211218785243,
+     "unit": "ratio",
+     "source": "lane; mean over the pages of the cell, WCXB evaluate.py definitions"
+    },
+    "snippet-recall": {
+     "value": 0.9285714285714286,
+     "unit": "ratio",
+     "source": "lane; mean over the pages of the cell, WCXB evaluate.py definitions"
+    },
+    "boilerplate-leak": {
+     "value": 0.03968253968253968,
+     "unit": "ratio",
+     "source": "lane; mean over the pages of the cell, WCXB evaluate.py definitions"
+    },
+    "extract-ms-p50": {
+     "value": 13.206917,
+     "unit": "ms",
+     "source": "lane; mean over the pages of the cell, WCXB evaluate.py definitions"
+    }
+   }
+  },
+  {
+   "cellId": "42b3aa544e2f-15",
+   "factors": {
+    "extractor": "rs-trafilatura",
+    "pageType": "service",
+    "renderer": "chrome",
+    "pages": 59,
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "extraction-f1": {
+     "value": 0.8320726165842441,
+     "unit": "ratio",
+     "source": "lane; mean over the pages of the cell, WCXB evaluate.py definitions"
+    },
+    "extraction-precision": {
+     "value": 0.8259093888223586,
+     "unit": "ratio",
+     "source": "lane; mean over the pages of the cell, WCXB evaluate.py definitions"
+    },
+    "extraction-recall": {
+     "value": 0.8786226999895838,
+     "unit": "ratio",
+     "source": "lane; mean over the pages of the cell, WCXB evaluate.py definitions"
+    },
+    "snippet-recall": {
+     "value": 0.8121468926553671,
+     "unit": "ratio",
+     "source": "lane; mean over the pages of the cell, WCXB evaluate.py definitions"
+    },
+    "boilerplate-leak": {
+     "value": 0.10310734463276836,
+     "unit": "ratio",
+     "source": "lane; mean over the pages of the cell, WCXB evaluate.py definitions"
+    },
+    "extract-ms-p50": {
+     "value": 12.797667,
+     "unit": "ms",
+     "source": "lane; mean over the pages of the cell, WCXB evaluate.py definitions"
+    }
+   }
+  },
+  {
+   "cellId": "bde2a4fda520-16",
+   "factors": {
+    "extractor": "rs-trafilatura",
+    "pageType": "product",
+    "renderer": "lightpanda",
+    "pages": 28,
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "extraction-f1": {
+     "value": 0.7553095936549793,
+     "unit": "ratio",
+     "source": "lane; mean over the pages of the cell, WCXB evaluate.py definitions"
+    },
+    "extraction-precision": {
+     "value": 0.7690847792539411,
+     "unit": "ratio",
+     "source": "lane; mean over the pages of the cell, WCXB evaluate.py definitions"
+    },
+    "extraction-recall": {
+     "value": 0.8205822063202283,
+     "unit": "ratio",
+     "source": "lane; mean over the pages of the cell, WCXB evaluate.py definitions"
+    },
+    "snippet-recall": {
+     "value": 0.7821428571428573,
+     "unit": "ratio",
+     "source": "lane; mean over the pages of the cell, WCXB evaluate.py definitions"
+    },
+    "boilerplate-leak": {
+     "value": 0.044642857142857144,
+     "unit": "ratio",
+     "source": "lane; mean over the pages of the cell, WCXB evaluate.py definitions"
+    },
+    "extract-ms-p50": {
+     "value": 19.918792,
+     "unit": "ms",
+     "source": "lane; mean over the pages of the cell, WCXB evaluate.py definitions"
+    }
+   }
+  },
+  {
+   "cellId": "c07fcf0e5bc9-17",
+   "factors": {
+    "extractor": "rs-trafilatura",
+    "pageType": "forum",
+    "renderer": "lightpanda",
+    "pages": 51,
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "extraction-f1": {
+     "value": 0.7874496271896547,
+     "unit": "ratio",
+     "source": "lane; mean over the pages of the cell, WCXB evaluate.py definitions"
+    },
+    "extraction-precision": {
+     "value": 0.8773969830392935,
+     "unit": "ratio",
+     "source": "lane; mean over the pages of the cell, WCXB evaluate.py definitions"
+    },
+    "extraction-recall": {
+     "value": 0.8049616142944978,
+     "unit": "ratio",
+     "source": "lane; mean over the pages of the cell, WCXB evaluate.py definitions"
+    },
+    "snippet-recall": {
+     "value": 0.7264705882352941,
+     "unit": "ratio",
+     "source": "lane; mean over the pages of the cell, WCXB evaluate.py definitions"
+    },
+    "boilerplate-leak": {
+     "value": 0.1437908496732026,
+     "unit": "ratio",
+     "source": "lane; mean over the pages of the cell, WCXB evaluate.py definitions"
+    },
+    "extract-ms-p50": {
+     "value": 21.01825,
+     "unit": "ms",
+     "source": "lane; mean over the pages of the cell, WCXB evaluate.py definitions"
+    }
+   }
+  },
+  {
+   "cellId": "4c6793130fb4-18",
+   "factors": {
+    "extractor": "rs-trafilatura",
+    "pageType": "collection",
+    "renderer": "chrome",
+    "pages": 34,
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "extraction-f1": {
+     "value": 0.7746309395721743,
+     "unit": "ratio",
+     "source": "lane; mean over the pages of the cell, WCXB evaluate.py definitions"
+    },
+    "extraction-precision": {
+     "value": 0.763285253750769,
+     "unit": "ratio",
+     "source": "lane; mean over the pages of the cell, WCXB evaluate.py definitions"
+    },
+    "extraction-recall": {
+     "value": 0.8547981849931682,
+     "unit": "ratio",
+     "source": "lane; mean over the pages of the cell, WCXB evaluate.py definitions"
+    },
+    "snippet-recall": {
+     "value": 0.778921568627451,
+     "unit": "ratio",
+     "source": "lane; mean over the pages of the cell, WCXB evaluate.py definitions"
+    },
+    "boilerplate-leak": {
+     "value": 0.058823529411764705,
+     "unit": "ratio",
+     "source": "lane; mean over the pages of the cell, WCXB evaluate.py definitions"
+    },
+    "extract-ms-p50": {
+     "value": 20.393375,
+     "unit": "ms",
+     "source": "lane; mean over the pages of the cell, WCXB evaluate.py definitions"
+    }
+   }
+  },
+  {
+   "cellId": "85df143e7719-19",
+   "factors": {
+    "extractor": "rs-trafilatura",
+    "pageType": "product",
+    "renderer": "chrome",
+    "pages": 28,
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "extraction-f1": {
+     "value": 0.7553095936549793,
+     "unit": "ratio",
+     "source": "lane; mean over the pages of the cell, WCXB evaluate.py definitions"
+    },
+    "extraction-precision": {
+     "value": 0.7690847792539411,
+     "unit": "ratio",
+     "source": "lane; mean over the pages of the cell, WCXB evaluate.py definitions"
+    },
+    "extraction-recall": {
+     "value": 0.8205822063202283,
+     "unit": "ratio",
+     "source": "lane; mean over the pages of the cell, WCXB evaluate.py definitions"
+    },
+    "snippet-recall": {
+     "value": 0.7821428571428573,
+     "unit": "ratio",
+     "source": "lane; mean over the pages of the cell, WCXB evaluate.py definitions"
+    },
+    "boilerplate-leak": {
+     "value": 0.044642857142857144,
+     "unit": "ratio",
+     "source": "lane; mean over the pages of the cell, WCXB evaluate.py definitions"
+    },
+    "extract-ms-p50": {
+     "value": 20.090708,
+     "unit": "ms",
+     "source": "lane; mean over the pages of the cell, WCXB evaluate.py definitions"
+    }
+   }
+  },
+  {
+   "cellId": "3629512550f6-20",
+   "factors": {
+    "extractor": "rs-trafilatura",
+    "pageType": "forum",
+    "renderer": "chrome",
+    "pages": 51,
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "extraction-f1": {
+     "value": 0.7874496271896547,
+     "unit": "ratio",
+     "source": "lane; mean over the pages of the cell, WCXB evaluate.py definitions"
+    },
+    "extraction-precision": {
+     "value": 0.8773969830392935,
+     "unit": "ratio",
+     "source": "lane; mean over the pages of the cell, WCXB evaluate.py definitions"
+    },
+    "extraction-recall": {
+     "value": 0.8049616142944978,
+     "unit": "ratio",
+     "source": "lane; mean over the pages of the cell, WCXB evaluate.py definitions"
+    },
+    "snippet-recall": {
+     "value": 0.7264705882352941,
+     "unit": "ratio",
+     "source": "lane; mean over the pages of the cell, WCXB evaluate.py definitions"
+    },
+    "boilerplate-leak": {
+     "value": 0.1437908496732026,
+     "unit": "ratio",
+     "source": "lane; mean over the pages of the cell, WCXB evaluate.py definitions"
+    },
+    "extract-ms-p50": {
+     "value": 23.305208,
+     "unit": "ms",
+     "source": "lane; mean over the pages of the cell, WCXB evaluate.py definitions"
+    }
+   }
+  }
+ ],
+ "totals": {
+  "verified": 21,
+  "failed": 0,
+  "timeout": 0,
+  "crashed": 0,
+  "aborted": 0,
+  "unsupported": 0,
+  "rejected": 0,
+  "unavailable": 0,
+  "skipped": 0
+ },
+ "metricAvailability": {
+  "verified-jobs-per-second": {
+   "available": true
+  },
+  "verified-tasks-per-second": {
+   "available": true
+  },
+  "verified-rows-per-second": {
+   "available": true
+  },
+  "task-p50-ms-verified": {
+   "available": true
+  },
+  "task-p95-ms-verified": {
+   "available": true
+  },
+  "task-ms": {
+   "available": true
+  },
+  "ack-latency-p95-ms": {
+   "available": true
+  },
+  "extraction-precision": {
+   "available": true
+  },
+  "extraction-recall": {
+   "available": true
+  },
+  "snippet-recall": {
+   "available": true
+  },
+  "boilerplate-leak": {
+   "available": true
+  },
+  "extract-ms-p50": {
+   "available": true
+  },
+  "startup-ms": {
+   "available": true
+  },
+  "cpu-ms-per-verified-job": {
+   "available": true
+  },
+  "footprint-peak-bytes": {
+   "available": true
+  },
+  "pss-peak-bytes": {
+   "available": false,
+   "reason": "no probe on darwin"
+  },
+  "cgroup-memory-peak-bytes": {
+   "available": false,
+   "reason": "no probe on darwin"
+  },
+  "rss-peak-bytes": {
+   "available": true
+  },
+  "cdp-commands-per-task": {
+   "available": true
+  },
+  "extraction-f1": {
+   "available": true
+  },
+  "field-precision": {
+   "available": true
+  },
+  "field-recall": {
+   "available": true
+  },
+  "pass-k": {
+   "available": true
+  },
+  "llm-calls-per-verified-task": {
+   "available": true
+  },
+  "tokens-per-verified-task": {
+   "available": true
+  },
+  "usd-per-1k-verified": {
+   "available": false,
+   "reason": "pricing tables are not implemented yet"
+  },
+  "model-usd-per-1k-verified": {
+   "available": true
+  },
+  "interface-turns-per-task": {
+   "available": true
+  },
+  "oracle-exact": {
+   "available": true
+  },
+  "false-success-count": {
+   "available": true
+  },
+  "actionability-conformance": {
+   "available": true
+  },
+  "recovery-exact": {
+   "available": true
+  },
+  "durability-power-loss": {
+   "available": false,
+   "reason": "no probe on darwin"
+  },
+  "identity-coherence": {
+   "available": true
+  },
+  "policy-compliance": {
+   "available": true
+  },
+  "session-isolation": {
+   "available": true
+  },
+  "admission-no-loss": {
+   "available": true
+  },
+  "proxy-continuity": {
+   "available": true
+  },
+  "light-domain-goodput": {
+   "available": true
+  },
+  "light-domain-p95-ms": {
+   "available": true
+  },
+  "light-domain-acceptance": {
+   "available": true
+  }
+ },
+ "legacy": null,
+ "blocks": [
+  {
+   "index": 0,
+   "order": [
+    "lightpanda/rs-trafilatura/listing",
+    "chrome/rs-trafilatura/listing",
+    "lightpanda/rs-trafilatura/collection",
+    "chrome/rs-trafilatura/documentation",
+    "none/rs-trafilatura/service",
+    "lightpanda/rs-trafilatura/article",
+    "lightpanda/rs-trafilatura/service",
+    "chrome/rs-trafilatura/article",
+    "lightpanda/rs-trafilatura/documentation",
+    "none/rs-trafilatura/collection",
+    "none/rs-trafilatura/forum",
+    "none/rs-trafilatura/listing",
+    "none/rs-trafilatura/article",
+    "none/rs-trafilatura/product",
+    "none/rs-trafilatura/documentation",
+    "chrome/rs-trafilatura/service",
+    "lightpanda/rs-trafilatura/product",
+    "lightpanda/rs-trafilatura/forum",
+    "chrome/rs-trafilatura/collection",
+    "chrome/rs-trafilatura/product",
+    "chrome/rs-trafilatura/forum"
+   ],
+   "noisy": true,
+   "host": {
+    "loadPerCpu1m": 0.3762904575892857,
+    "foreignCpuPercent": 910.2000000000005
+   }
+  }
+ ]
+}

@@ -3210,6 +3210,324 @@
         "priority": null,
         "hostClass": null
       }
+    },
+    "browser-actionability-2026-10-09T01-35-38-133Z-4f26ee": {
+      "role": "diagnostic",
+      "reason": "tentative sur Mac calme de la nuit du 9 octobre : la charge du run précédent pesait encore sur la vérification d'hôte",
+      "supersededBy": null,
+      "decisionIds": [
+        "D-browser-driver"
+      ],
+      "validity": [
+        {
+          "scope": "contract",
+          "class": "A",
+          "note": "comptes exacts, échecs explicites seulement"
+        },
+        {
+          "scope": "timing",
+          "class": "none",
+          "note": "classe local-dev, pas local-controlled"
+        }
+      ],
+      "noisyHost": true,
+      "rerun": {
+        "required": false,
+        "priority": null,
+        "hostClass": null
+      }
+    },
+    "durable-admission-2026-10-09T01-43-15-214Z-b33154": {
+      "role": "diagnostic",
+      "reason": "tentative sur Mac calme de la nuit du 9 octobre : la charge du run précédent pesait encore sur la vérification d'hôte",
+      "supersededBy": null,
+      "decisionIds": [
+        "D-durable-runtime",
+        "D-scheduling"
+      ],
+      "validity": [
+        {
+          "scope": "contract",
+          "class": "A",
+          "note": "comptes exacts, échecs explicites seulement"
+        },
+        {
+          "scope": "timing",
+          "class": "none",
+          "note": "classe local-dev, pas local-controlled"
+        }
+      ],
+      "noisyHost": true,
+      "rerun": {
+        "required": false,
+        "priority": null,
+        "hostClass": null
+      }
+    },
+    "durable-scheduler-2026-10-09T01-43-56-857Z-9bc434": {
+      "role": "diagnostic",
+      "reason": "tentative sur Mac calme de la nuit du 9 octobre : la charge du run précédent pesait encore sur la vérification d'hôte",
+      "supersededBy": null,
+      "decisionIds": [
+        "D-durable-runtime",
+        "D-scheduling"
+      ],
+      "validity": [
+        {
+          "scope": "contract",
+          "class": "A",
+          "note": "comptes exacts, échecs explicites seulement"
+        },
+        {
+          "scope": "timing",
+          "class": "none",
+          "note": "classe local-dev, pas local-controlled"
+        }
+      ],
+      "noisyHost": true,
+      "rerun": {
+        "required": false,
+        "priority": null,
+        "hostClass": null
+      }
+    },
+    "browser-driver-rtt-300-2026-10-09T01-44-43-239Z-227942": {
+      "role": "diagnostic",
+      "reason": "tentative sur Mac calme de la nuit du 9 octobre : la charge du run précédent pesait encore sur la vérification d'hôte",
+      "supersededBy": null,
+      "decisionIds": [
+        "D-browser-driver"
+      ],
+      "validity": [
+        {
+          "scope": "contract",
+          "class": "A",
+          "note": "comptes exacts, échecs explicites seulement"
+        },
+        {
+          "scope": "timing",
+          "class": "none",
+          "note": "classe local-dev, pas local-controlled"
+        }
+      ],
+      "noisyHost": true,
+      "rerun": {
+        "required": false,
+        "priority": null,
+        "hostClass": null
+      }
+    },
+    "identity-coherence-2026-10-09T03-25-12-726Z-1d0f33": {
+      "role": "diagnostic",
+      "reason": "tentative de la nuit : bloquée quatre heures sur une cellule après la mise en veille, arrêtée",
+      "supersededBy": null,
+      "decisionIds": [
+        "D-identity"
+      ],
+      "validity": [
+        {
+          "scope": "contract",
+          "class": "A",
+          "note": "comptes exacts, échecs explicites seulement"
+        },
+        {
+          "scope": "timing",
+          "class": "none",
+          "note": "classe local-dev, pas local-controlled"
+        }
+      ],
+      "noisyHost": true,
+      "rerun": {
+        "required": false,
+        "priority": null,
+        "hostClass": null
+      }
+    },
+    "extraction-rendered-test-2026-10-09T07-09-49-148Z-47c43d": {
+      "role": "diagnostic",
+      "reason": "tentative sur Mac calme de la nuit du 9 octobre : la charge du run précédent pesait encore sur la vérification d'hôte",
+      "supersededBy": null,
+      "decisionIds": [
+        "D-light-engine",
+        "D-extraction"
+      ],
+      "validity": [
+        {
+          "scope": "contract",
+          "class": "A",
+          "note": "comptes exacts, échecs explicites seulement"
+        },
+        {
+          "scope": "timing",
+          "class": "none",
+          "note": "classe local-dev, pas local-controlled"
+        }
+      ],
+      "noisyHost": true,
+      "rerun": {
+        "required": false,
+        "priority": null,
+        "hostClass": null
+      }
+    },
+    "browser-actionability-2026-10-09T07-33-25-223Z-7b774b": {
+      "role": "diagnostic",
+      "reason": "tentative du 9 octobre au matin : Mac au-dessus des seuils (analyse des photos, VM Docker, affichage)",
+      "supersededBy": null,
+      "decisionIds": [
+        "D-browser-driver"
+      ],
+      "validity": [
+        {
+          "scope": "contract",
+          "class": "A",
+          "note": "comptes exacts, échecs explicites seulement"
+        },
+        {
+          "scope": "timing",
+          "class": "none",
+          "note": "classe local-dev, pas local-controlled"
+        }
+      ],
+      "noisyHost": true,
+      "rerun": {
+        "required": false,
+        "priority": null,
+        "hostClass": null
+      }
+    },
+    "durable-admission-2026-10-09T07-46-17-059Z-d1cc6d": {
+      "role": "diagnostic",
+      "reason": "tentative du 9 octobre au matin : Mac au-dessus des seuils (analyse des photos, VM Docker, affichage)",
+      "supersededBy": null,
+      "decisionIds": [
+        "D-durable-runtime",
+        "D-scheduling"
+      ],
+      "validity": [
+        {
+          "scope": "contract",
+          "class": "A",
+          "note": "comptes exacts, échecs explicites seulement"
+        },
+        {
+          "scope": "timing",
+          "class": "none",
+          "note": "classe local-dev, pas local-controlled"
+        }
+      ],
+      "noisyHost": true,
+      "rerun": {
+        "required": false,
+        "priority": null,
+        "hostClass": null
+      }
+    },
+    "durable-scheduler-2026-10-09T07-48-29-046Z-096d7c": {
+      "role": "diagnostic",
+      "reason": "tentative du 9 octobre au matin : Mac au-dessus des seuils (analyse des photos, VM Docker, affichage)",
+      "supersededBy": null,
+      "decisionIds": [
+        "D-durable-runtime",
+        "D-scheduling"
+      ],
+      "validity": [
+        {
+          "scope": "contract",
+          "class": "A",
+          "note": "comptes exacts, échecs explicites seulement"
+        },
+        {
+          "scope": "timing",
+          "class": "none",
+          "note": "classe local-dev, pas local-controlled"
+        }
+      ],
+      "noisyHost": true,
+      "rerun": {
+        "required": false,
+        "priority": null,
+        "hostClass": null
+      }
+    },
+    "browser-driver-rtt-300-2026-10-09T07-50-45-589Z-aee2ed": {
+      "role": "diagnostic",
+      "reason": "tentative du 9 octobre au matin : Mac au-dessus des seuils (analyse des photos, VM Docker, affichage)",
+      "supersededBy": null,
+      "decisionIds": [
+        "D-browser-driver"
+      ],
+      "validity": [
+        {
+          "scope": "contract",
+          "class": "A",
+          "note": "comptes exacts, échecs explicites seulement"
+        },
+        {
+          "scope": "timing",
+          "class": "none",
+          "note": "classe local-dev, pas local-controlled"
+        }
+      ],
+      "noisyHost": true,
+      "rerun": {
+        "required": false,
+        "priority": null,
+        "hostClass": null
+      }
+    },
+    "identity-coherence-2026-10-09T09-33-41-302Z-dd8aea": {
+      "role": "diagnostic",
+      "reason": "tentative du 9 octobre au matin : Mac au-dessus des seuils (analyse des photos, VM Docker, affichage)",
+      "supersededBy": null,
+      "decisionIds": [
+        "D-identity"
+      ],
+      "validity": [
+        {
+          "scope": "contract",
+          "class": "A",
+          "note": "comptes exacts, échecs explicites seulement"
+        },
+        {
+          "scope": "timing",
+          "class": "none",
+          "note": "classe local-dev, pas local-controlled"
+        }
+      ],
+      "noisyHost": true,
+      "rerun": {
+        "required": false,
+        "priority": null,
+        "hostClass": null
+      }
+    },
+    "extraction-rendered-test-2026-10-09T09-48-01-813Z-3956bc": {
+      "role": "diagnostic",
+      "reason": "tentative du 9 octobre au matin : Mac au-dessus des seuils (analyse des photos, VM Docker, affichage)",
+      "supersededBy": null,
+      "decisionIds": [
+        "D-light-engine",
+        "D-extraction"
+      ],
+      "validity": [
+        {
+          "scope": "contract",
+          "class": "A",
+          "note": "comptes exacts, échecs explicites seulement"
+        },
+        {
+          "scope": "timing",
+          "class": "none",
+          "note": "classe local-dev, pas local-controlled"
+        }
+      ],
+      "noisyHost": true,
+      "rerun": {
+        "required": false,
+        "priority": null,
+        "hostClass": null
+      }
     }
   }
 }

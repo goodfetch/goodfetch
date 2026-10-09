@@ -1,6 +1,6 @@
 {
  "schemaVersion": 1,
- "classificationSha256": "c32688d042219290c59c404d48407b763df0a171cfd795bdfc392f32492dac39",
+ "classificationSha256": "2c9888ab3af073855fd7f9aed9a915caf2fe811145690ed8ab67f79df847d811",
  "entries": [
   {
    "runId": "smoke-2026-10-07T20-20-24-226Z-9ebb47",
@@ -4500,6 +4500,420 @@
     "hostClass": null
    },
    "imported": "ledger/runs/runtime-http-backends-2026-10-09T00-55-32-223Z-35f7fa/run.v2.json"
+  },
+  {
+   "runId": "browser-actionability-2026-10-09T01-35-38-133Z-4f26ee",
+   "lane": "actionability",
+   "campaign": "browser-actionability",
+   "startedAt": "2026-10-09T01:35:38.133Z",
+   "status": "noisy-host",
+   "hostClass": "local-controlled",
+   "role": "diagnostic",
+   "supersededBy": null,
+   "reason": "tentative sur Mac calme de la nuit du 9 octobre : la charge du run précédent pesait encore sur la vérification d'hôte",
+   "validity": [
+    {
+     "scope": "contract",
+     "class": "A",
+     "note": "comptes exacts, échecs explicites seulement"
+    },
+    {
+     "scope": "timing",
+     "class": "none",
+     "note": "classe local-dev, pas local-controlled"
+    }
+   ],
+   "decisionIds": [
+    "D-browser-driver"
+   ],
+   "citedIn": [],
+   "integrity": "uncatalogued",
+   "rerun": {
+    "required": false,
+    "priority": null,
+    "hostClass": null
+   },
+   "imported": "ledger/runs/browser-actionability-2026-10-09T01-35-38-133Z-4f26ee/run.v2.json"
+  },
+  {
+   "runId": "durable-admission-2026-10-09T01-43-15-214Z-b33154",
+   "lane": "admission",
+   "campaign": "durable-admission",
+   "startedAt": "2026-10-09T01:43:15.214Z",
+   "status": "noisy-host",
+   "hostClass": "local-dev",
+   "role": "diagnostic",
+   "supersededBy": null,
+   "reason": "tentative sur Mac calme de la nuit du 9 octobre : la charge du run précédent pesait encore sur la vérification d'hôte",
+   "validity": [
+    {
+     "scope": "contract",
+     "class": "A",
+     "note": "comptes exacts, échecs explicites seulement"
+    },
+    {
+     "scope": "timing",
+     "class": "none",
+     "note": "classe local-dev, pas local-controlled"
+    }
+   ],
+   "decisionIds": [
+    "D-durable-runtime",
+    "D-scheduling"
+   ],
+   "citedIn": [],
+   "integrity": "uncatalogued",
+   "rerun": {
+    "required": false,
+    "priority": null,
+    "hostClass": null
+   },
+   "imported": "ledger/runs/durable-admission-2026-10-09T01-43-15-214Z-b33154/run.v2.json"
+  },
+  {
+   "runId": "durable-scheduler-2026-10-09T01-43-56-857Z-9bc434",
+   "lane": "admission",
+   "campaign": "durable-scheduler",
+   "startedAt": "2026-10-09T01:43:56.857Z",
+   "status": "noisy-host",
+   "hostClass": "local-dev",
+   "role": "diagnostic",
+   "supersededBy": null,
+   "reason": "tentative sur Mac calme de la nuit du 9 octobre : la charge du run précédent pesait encore sur la vérification d'hôte",
+   "validity": [
+    {
+     "scope": "contract",
+     "class": "A",
+     "note": "comptes exacts, échecs explicites seulement"
+    },
+    {
+     "scope": "timing",
+     "class": "none",
+     "note": "classe local-dev, pas local-controlled"
+    }
+   ],
+   "decisionIds": [
+    "D-durable-runtime",
+    "D-scheduling"
+   ],
+   "citedIn": [],
+   "integrity": "uncatalogued",
+   "rerun": {
+    "required": false,
+    "priority": null,
+    "hostClass": null
+   },
+   "imported": "ledger/runs/durable-scheduler-2026-10-09T01-43-56-857Z-9bc434/run.v2.json"
+  },
+  {
+   "runId": "browser-driver-rtt-300-2026-10-09T01-44-43-239Z-227942",
+   "lane": "bench",
+   "campaign": "browser-driver-rtt-300",
+   "startedAt": "2026-10-09T01:44:43.239Z",
+   "status": "noisy-host",
+   "hostClass": "local-dev",
+   "role": "diagnostic",
+   "supersededBy": null,
+   "reason": "tentative sur Mac calme de la nuit du 9 octobre : la charge du run précédent pesait encore sur la vérification d'hôte",
+   "validity": [
+    {
+     "scope": "contract",
+     "class": "A",
+     "note": "comptes exacts, échecs explicites seulement"
+    },
+    {
+     "scope": "timing",
+     "class": "none",
+     "note": "classe local-dev, pas local-controlled"
+    }
+   ],
+   "decisionIds": [
+    "D-browser-driver"
+   ],
+   "citedIn": [],
+   "integrity": "uncatalogued",
+   "rerun": {
+    "required": false,
+    "priority": null,
+    "hostClass": null
+   },
+   "imported": "ledger/runs/browser-driver-rtt-300-2026-10-09T01-44-43-239Z-227942/run.v2.json"
+  },
+  {
+   "runId": "identity-coherence-2026-10-09T03-25-12-726Z-1d0f33",
+   "lane": "bench",
+   "campaign": "identity-coherence",
+   "startedAt": "2026-10-09T03:25:12.726Z",
+   "status": "interrupted",
+   "hostClass": "local-dev",
+   "role": "diagnostic",
+   "supersededBy": null,
+   "reason": "tentative de la nuit : bloquée quatre heures sur une cellule après la mise en veille, arrêtée",
+   "validity": [
+    {
+     "scope": "contract",
+     "class": "A",
+     "note": "comptes exacts, échecs explicites seulement"
+    },
+    {
+     "scope": "timing",
+     "class": "none",
+     "note": "classe local-dev, pas local-controlled"
+    }
+   ],
+   "decisionIds": [
+    "D-identity"
+   ],
+   "citedIn": [],
+   "integrity": "uncatalogued",
+   "rerun": {
+    "required": false,
+    "priority": null,
+    "hostClass": null
+   },
+   "imported": "ledger/imported/identity-coherence-2026-10-09T03-25-12-726Z-1d0f33/run.v2.json"
+  },
+  {
+   "runId": "extraction-rendered-test-2026-10-09T07-09-49-148Z-47c43d",
+   "lane": "extraction",
+   "campaign": "extraction-rendered-test",
+   "startedAt": "2026-10-09T07:09:49.148Z",
+   "status": "noisy-host",
+   "hostClass": "local-controlled",
+   "role": "diagnostic",
+   "supersededBy": null,
+   "reason": "tentative sur Mac calme de la nuit du 9 octobre : la charge du run précédent pesait encore sur la vérification d'hôte",
+   "validity": [
+    {
+     "scope": "contract",
+     "class": "A",
+     "note": "comptes exacts, échecs explicites seulement"
+    },
+    {
+     "scope": "timing",
+     "class": "none",
+     "note": "classe local-dev, pas local-controlled"
+    }
+   ],
+   "decisionIds": [
+    "D-light-engine",
+    "D-extraction"
+   ],
+   "citedIn": [],
+   "integrity": "uncatalogued",
+   "rerun": {
+    "required": false,
+    "priority": null,
+    "hostClass": null
+   },
+   "imported": "ledger/runs/extraction-rendered-test-2026-10-09T07-09-49-148Z-47c43d/run.v2.json"
+  },
+  {
+   "runId": "browser-actionability-2026-10-09T07-33-25-223Z-7b774b",
+   "lane": "actionability",
+   "campaign": "browser-actionability",
+   "startedAt": "2026-10-09T07:33:25.223Z",
+   "status": "noisy-host",
+   "hostClass": "local-dev",
+   "role": "diagnostic",
+   "supersededBy": null,
+   "reason": "tentative du 9 octobre au matin : Mac au-dessus des seuils (analyse des photos, VM Docker, affichage)",
+   "validity": [
+    {
+     "scope": "contract",
+     "class": "A",
+     "note": "comptes exacts, échecs explicites seulement"
+    },
+    {
+     "scope": "timing",
+     "class": "none",
+     "note": "classe local-dev, pas local-controlled"
+    }
+   ],
+   "decisionIds": [
+    "D-browser-driver"
+   ],
+   "citedIn": [],
+   "integrity": "uncatalogued",
+   "rerun": {
+    "required": false,
+    "priority": null,
+    "hostClass": null
+   },
+   "imported": "ledger/runs/browser-actionability-2026-10-09T07-33-25-223Z-7b774b/run.v2.json"
+  },
+  {
+   "runId": "durable-admission-2026-10-09T07-46-17-059Z-d1cc6d",
+   "lane": "admission",
+   "campaign": "durable-admission",
+   "startedAt": "2026-10-09T07:46:17.059Z",
+   "status": "noisy-host",
+   "hostClass": "local-dev",
+   "role": "diagnostic",
+   "supersededBy": null,
+   "reason": "tentative du 9 octobre au matin : Mac au-dessus des seuils (analyse des photos, VM Docker, affichage)",
+   "validity": [
+    {
+     "scope": "contract",
+     "class": "A",
+     "note": "comptes exacts, échecs explicites seulement"
+    },
+    {
+     "scope": "timing",
+     "class": "none",
+     "note": "classe local-dev, pas local-controlled"
+    }
+   ],
+   "decisionIds": [
+    "D-durable-runtime",
+    "D-scheduling"
+   ],
+   "citedIn": [],
+   "integrity": "uncatalogued",
+   "rerun": {
+    "required": false,
+    "priority": null,
+    "hostClass": null
+   },
+   "imported": "ledger/runs/durable-admission-2026-10-09T07-46-17-059Z-d1cc6d/run.v2.json"
+  },
+  {
+   "runId": "durable-scheduler-2026-10-09T07-48-29-046Z-096d7c",
+   "lane": "admission",
+   "campaign": "durable-scheduler",
+   "startedAt": "2026-10-09T07:48:29.046Z",
+   "status": "noisy-host",
+   "hostClass": "local-dev",
+   "role": "diagnostic",
+   "supersededBy": null,
+   "reason": "tentative du 9 octobre au matin : Mac au-dessus des seuils (analyse des photos, VM Docker, affichage)",
+   "validity": [
+    {
+     "scope": "contract",
+     "class": "A",
+     "note": "comptes exacts, échecs explicites seulement"
+    },
+    {
+     "scope": "timing",
+     "class": "none",
+     "note": "classe local-dev, pas local-controlled"
+    }
+   ],
+   "decisionIds": [
+    "D-durable-runtime",
+    "D-scheduling"
+   ],
+   "citedIn": [],
+   "integrity": "uncatalogued",
+   "rerun": {
+    "required": false,
+    "priority": null,
+    "hostClass": null
+   },
+   "imported": "ledger/runs/durable-scheduler-2026-10-09T07-48-29-046Z-096d7c/run.v2.json"
+  },
+  {
+   "runId": "browser-driver-rtt-300-2026-10-09T07-50-45-589Z-aee2ed",
+   "lane": "bench",
+   "campaign": "browser-driver-rtt-300",
+   "startedAt": "2026-10-09T07:50:45.589Z",
+   "status": "noisy-host",
+   "hostClass": "local-dev",
+   "role": "diagnostic",
+   "supersededBy": null,
+   "reason": "tentative du 9 octobre au matin : Mac au-dessus des seuils (analyse des photos, VM Docker, affichage)",
+   "validity": [
+    {
+     "scope": "contract",
+     "class": "A",
+     "note": "comptes exacts, échecs explicites seulement"
+    },
+    {
+     "scope": "timing",
+     "class": "none",
+     "note": "classe local-dev, pas local-controlled"
+    }
+   ],
+   "decisionIds": [
+    "D-browser-driver"
+   ],
+   "citedIn": [],
+   "integrity": "uncatalogued",
+   "rerun": {
+    "required": false,
+    "priority": null,
+    "hostClass": null
+   },
+   "imported": "ledger/runs/browser-driver-rtt-300-2026-10-09T07-50-45-589Z-aee2ed/run.v2.json"
+  },
+  {
+   "runId": "identity-coherence-2026-10-09T09-33-41-302Z-dd8aea",
+   "lane": "identity",
+   "campaign": "identity-coherence",
+   "startedAt": "2026-10-09T09:33:41.302Z",
+   "status": "noisy-host",
+   "hostClass": "local-dev",
+   "role": "diagnostic",
+   "supersededBy": null,
+   "reason": "tentative du 9 octobre au matin : Mac au-dessus des seuils (analyse des photos, VM Docker, affichage)",
+   "validity": [
+    {
+     "scope": "contract",
+     "class": "A",
+     "note": "comptes exacts, échecs explicites seulement"
+    },
+    {
+     "scope": "timing",
+     "class": "none",
+     "note": "classe local-dev, pas local-controlled"
+    }
+   ],
+   "decisionIds": [
+    "D-identity"
+   ],
+   "citedIn": [],
+   "integrity": "uncatalogued",
+   "rerun": {
+    "required": false,
+    "priority": null,
+    "hostClass": null
+   },
+   "imported": "ledger/runs/identity-coherence-2026-10-09T09-33-41-302Z-dd8aea/run.v2.json"
+  },
+  {
+   "runId": "extraction-rendered-test-2026-10-09T09-48-01-813Z-3956bc",
+   "lane": "extraction",
+   "campaign": "extraction-rendered-test",
+   "startedAt": "2026-10-09T09:48:01.813Z",
+   "status": "noisy-host",
+   "hostClass": "local-dev",
+   "role": "diagnostic",
+   "supersededBy": null,
+   "reason": "tentative du 9 octobre au matin : Mac au-dessus des seuils (analyse des photos, VM Docker, affichage)",
+   "validity": [
+    {
+     "scope": "contract",
+     "class": "A",
+     "note": "comptes exacts, échecs explicites seulement"
+    },
+    {
+     "scope": "timing",
+     "class": "none",
+     "note": "classe local-dev, pas local-controlled"
+    }
+   ],
+   "decisionIds": [
+    "D-light-engine",
+    "D-extraction"
+   ],
+   "citedIn": [],
+   "integrity": "uncatalogued",
+   "rerun": {
+    "required": false,
+    "priority": null,
+    "hostClass": null
+   },
+   "imported": "ledger/runs/extraction-rendered-test-2026-10-09T09-48-01-813Z-3956bc/run.v2.json"
   }
  ]
 }

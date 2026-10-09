@@ -41,6 +41,7 @@
         "identity",
         "admission",
         "portal",
+        "topology",
         "suite"
       ]
     },

@@ -40,11 +40,28 @@
   },
   "networkProfiles": [],
   "campaigns": [
-    "cloud-topology"
+    "container-pool"
   ],
   "evidence": [],
-  "verdictRef": null,
+  "verdictRef": "verdicts/D-cloud-topology.json",
   "adr": null,
   "dependsOn": [],
-  "notes": "Reportée après la stack locale ; inclut l'endurance multi-tenant."
+  "notes": "Reportée après la stack locale ; inclut l'endurance multi-tenant. Le 9 octobre 2026 : le pool de conteneurs est mesuré localement dans Docker Desktop (image chromedp/headless-shell épinglée), avec un conteneur froid par session et un pool réutilisé sans remise à zéro comme cas négatif. Firecracker exige /dev/kvm, absent de la VM Docker Desktop : ses cellules sont unsupported et la comparaison attend un hôte Linux avec KVM.",
+  "analysis": {
+    "lane": "topology",
+    "options": {
+      "container-pool": {
+        "policy": "warm-pool"
+      },
+      "firecracker-snapshot": {
+        "policy": "firecracker-snapshot"
+      }
+    },
+    "pairBy": [
+      "variant"
+    ],
+    "stratum": {
+      "variant": "isolation"
+    }
+  }
 }

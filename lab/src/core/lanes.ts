@@ -18,6 +18,7 @@ import { readersMatrix, runReadersCell, type ReadersConfig } from '../sqlite-rea
 import { aiCombinations, runAiCell, priceSnapshot, type AiConfig, type AiCell } from '../ai-campaign.ts';
 import { identityCombinations, runIdentityCell, httpTiers, identityVariants, type IdentityConfig, type IdentityCell } from '../identity-campaign.ts';
 import { admissionCombinations, runAdmissionCell, admissionBinary, type AdmissionConfig, type AdmissionCell } from '../admission-campaign.ts';
+import { topologyCombinations, runTopologyCell, topologyPolicies, type TopologyConfig, type TopologyCell } from '../topology-campaign.ts';
 import { portalCombinations, runPortalCell, portalPolicies, portalVariants, type PortalConfig, type PortalCell } from '../portal-campaign.ts';
 import { extractionCombinations, runExtractionCell, type ExtractionConfig, type ExtractionCell } from '../extraction-campaign.ts';
 import { isSharedEngine, sharedBuildMetadata } from '../storage-engines.ts';
@@ -98,6 +99,12 @@ export const drivers: Record<LaneName, LaneDriver> = {
     blocks: config => (config as PortalConfig).blocks, seed: config => (config as PortalConfig).seed,
     combinations: config => portalCombinations(config as PortalConfig) as unknown as Json[], label: cell => `${cell.scenario}/${cell.variant}/${cell.policy}${cell.tier ? '/' + cell.tier : ''}`,
     runCell: (config, cell, block, directory) => runPortalCell(config as PortalConfig, cell as unknown as PortalCell, block, directory) as Promise<Json>
+  },
+  topology: {
+    validate: config => { const c = config as TopologyConfig; if (!c || !Array.isArray(c.policies) || !c.policies.length || !c.policies.every(p => (topologyPolicies as readonly string[]).includes(p)) || typeof c.image !== 'string' || !/^[a-z0-9./-]+:[0-9A-Za-z.-]+$/.test(c.image) || !integer(c.sessions, 1, 100) || !integer(c.poolSize, 1, 16) || !integer(c.blocks, 1, 20) || !integer(c.seed, 0, 2 ** 32 - 1) || !integer(c.timeoutMs, 1000, 120_000)) throw new Error('invalid topology campaign'); },
+    blocks: config => (config as TopologyConfig).blocks, seed: config => (config as TopologyConfig).seed,
+    combinations: config => topologyCombinations(config as TopologyConfig) as unknown as Json[], label: cell => `${cell.policy}`,
+    runCell: (config, cell, block) => runTopologyCell(config as TopologyConfig, cell as unknown as TopologyCell, block) as Promise<Json>
   },
   'sqlite-readers': {
     validate: config => { const c = config as ReadersConfig; if (!c || !integer(c.blocks, 1, 20) || !integer(c.seed, 0, 2 ** 32 - 1) || !Array.isArray(c.engines) || !c.engines.length || !Array.isArray(c.writers) || !Array.isArray(c.readerModes) || !Array.isArray(c.batchRows) || !c.batchRows.every(b => Number.isInteger(c.totalRows / b))) throw new Error('invalid readers campaign'); },

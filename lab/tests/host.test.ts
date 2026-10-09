@@ -56,3 +56,11 @@ test('the agent app that drives the run is reported apart from foreign CPU', () 
   assert.equal(split.foreignCpuPercent, 75);
   assert.deepEqual(split.foreignTop.map(row => row.command), ['mds_stores']);
 });
+
+test('a measured block is judged on foreign CPU, not on the load average its own run raises', async () => {
+  const { blockNoisy } = await import('../src/core/run-context.ts');
+  const gates = [{ id: 'load-per-cpu-1m', max: 0.35 }, { id: 'foreign-cpu-percent', max: 150 }];
+  assert.equal(blockNoisy(gates, { foreignCpuPercent: 120 }), false, 'own load may push the load average past 0.35');
+  assert.equal(blockNoisy(gates, { foreignCpuPercent: 160 }), true);
+  assert.equal(blockNoisy(gates, { foreignCpuPercent: null }), true, 'an unmeasured block is not assumed quiet');
+});

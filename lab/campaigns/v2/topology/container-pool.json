@@ -1,0 +1,26 @@
+{
+  "schemaVersion": 2,
+  "id": "container-pool",
+  "lane": "topology",
+  "decisionIds": [
+    "D-cloud-topology"
+  ],
+  "hostClass": {
+    "requested": "local-controlled",
+    "allowDowngrade": true
+  },
+  "config": {
+    "policies": [
+      "cold-container",
+      "warm-pool",
+      "reuse-pool",
+      "firecracker-snapshot"
+    ],
+    "image": "chromedp/headless-shell:151.0.7922.109",
+    "sessions": 8,
+    "poolSize": 2,
+    "blocks": 5,
+    "seed": 8181,
+    "timeoutMs": 30000
+  }
+}

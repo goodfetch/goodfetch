@@ -29,8 +29,7 @@
   },
   "secondaryMetrics": [],
   "contractGates": [
-    "oracle-exact",
-    "recovery-exact"
+    "oracle-exact"
   ],
   "delta": {
     "kind": "ratio",
@@ -48,13 +47,58 @@
   },
   "networkProfiles": [],
   "campaigns": [
-    "sinks-qualification"
+    "storage-sinks",
+    "storage-sinks-crash"
   ],
-  "evidence": [],
-  "verdictRef": null,
+  "evidence": [
+    {
+      "kind": "run",
+      "ref": "storage-sinks-2026-10-09T19-55-10-753Z-e5bb86",
+      "note": "débit, cinq sinks"
+    },
+    {
+      "kind": "run",
+      "ref": "storage-sinks-crash-2026-10-09T19-55-28-446Z-b1c63c",
+      "note": "crash du writer après acquittement"
+    },
+    {
+      "kind": "research-doc",
+      "ref": "lab/reports/sinks-topology-2026-10-09.md"
+    }
+  ],
+  "verdictRef": "verdicts/D-sinks.json",
   "adr": null,
   "dependsOn": [
     "D-feature-priority"
   ],
-  "notes": "Ouverte seulement pour les sinks demandés par les clients."
+  "notes": "Ouverte seulement pour les sinks demandés par les clients. Le 9 octobre 2026 : mesuré à l'avance pour avoir les chiffres prêts, PostgreSQL dans un conteneur Docker local ; l'adoption reste subordonnée à la demande. Le crash du writer après acquittement (storage-sinks-crash) est dans les preuves, si bien qu'oracle-exact couvre la reprise : une ligne acquittée absente fait échouer la cellule.",
+  "analysis": {
+    "lane": "storage",
+    "options": {
+      "postgres-copy": {
+        "format": "postgres-copy"
+      },
+      "parquet-arrow": {
+        "format": "parquet-batch"
+      },
+      "duckdb": {
+        "format": "duckdb-table"
+      }
+    },
+    "pairBy": [
+      "batchSize",
+      "writers"
+    ],
+    "stratum": {
+      "batchSize": 512
+    },
+    "strata": [
+      {
+        "batchSize": 512
+      },
+      {
+        "batchSize": 32
+      }
+    ]
+  }
 }

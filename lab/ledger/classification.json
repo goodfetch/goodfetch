@@ -4299,6 +4299,100 @@
         "priority": "P2",
         "hostClass": "local-controlled"
       }
+    },
+    "storage-sinks-2026-10-09T19-55-10-753Z-e5bb86": {
+      "role": "selected",
+      "reason": "SQLite, JSONL, PostgreSQL COPY (Docker local), DuckDB et Parquet, même charge, 5 blocs",
+      "supersededBy": null,
+      "decisionIds": [
+        "D-sinks"
+      ],
+      "validity": [
+        {
+          "scope": "sink-contract",
+          "class": "A",
+          "note": "oracle de relecture indépendant"
+        },
+        {
+          "scope": "timing",
+          "class": "C",
+          "note": "local-dev ; PostgreSQL dans la VM Docker, les autres sur le disque du Mac"
+        }
+      ],
+      "noisyHost": false,
+      "rerun": {
+        "required": true,
+        "priority": "P2",
+        "hostClass": "local-controlled"
+      }
+    },
+    "storage-sinks-crash-2026-10-09T19-55-28-446Z-b1c63c": {
+      "role": "selected",
+      "reason": "crash du writer (SIGKILL) après acquittement, cinq sinks",
+      "supersededBy": null,
+      "decisionIds": [
+        "D-sinks"
+      ],
+      "validity": [
+        {
+          "scope": "process-crash",
+          "class": "A",
+          "note": "oracle de relecture indépendant"
+        }
+      ],
+      "noisyHost": false,
+      "rerun": {
+        "required": false,
+        "priority": null,
+        "hostClass": null
+      }
+    },
+    "container-pool-2026-10-09T20-00-11-969Z-ca61ec": {
+      "role": "superseded",
+      "reason": "mémoire du pool chaud mesurée avant que ses remplaçants aient démarré",
+      "supersededBy": "container-pool-2026-10-09T20-01-19-342Z-147c8e",
+      "decisionIds": [
+        "D-cloud-topology"
+      ],
+      "validity": [
+        {
+          "scope": "all",
+          "class": "none",
+          "note": "mesure mémoire corrigée ensuite"
+        }
+      ],
+      "noisyHost": false,
+      "rerun": {
+        "required": false,
+        "priority": null,
+        "hostClass": null
+      }
+    },
+    "container-pool-2026-10-09T20-01-19-342Z-147c8e": {
+      "role": "selected",
+      "reason": "sessions navigateur par conteneur Docker : froid, pool chaud, pool réutilisé sans remise à zéro ; Firecracker sans KVM",
+      "supersededBy": null,
+      "decisionIds": [
+        "D-cloud-topology"
+      ],
+      "validity": [
+        {
+          "scope": "isolation-contract",
+          "class": "A",
+          "note": "oracle de cookie entre tenants"
+        },
+        {
+          "scope": "timing",
+          "class": "C",
+          "note": "local-dev, Docker Desktop"
+        }
+      ],
+      "noisyHost": false,
+      "rerun": {
+        "required": true,
+        "priority": "P2",
+        "hostClass": "reference"
+      }
     }
   }
 }

@@ -1,0 +1,41 @@
+{
+  "schemaVersion": 2,
+  "id": "storage-sinks-crash",
+  "lane": "storage",
+  "decisionIds": [
+    "D-sinks"
+  ],
+  "hostClass": {
+    "requested": "local-controlled",
+    "allowDowngrade": true
+  },
+  "config": {
+    "name": "storage-sinks-crash",
+    "engines": [
+      "node"
+    ],
+    "formats": [
+      "sqlite-wal-full",
+      "jsonl-durable",
+      "postgres-copy",
+      "duckdb-table",
+      "parquet-batch"
+    ],
+    "blocks": 1,
+    "batches": 16,
+    "batchSizes": [
+      32,
+      512
+    ],
+    "payloadBytes": 128,
+    "writers": [
+      1
+    ],
+    "producers": 4,
+    "timeoutMs": 10000,
+    "maxDurationMs": 60000,
+    "busyTimeoutMs": 5000,
+    "seed": 7701,
+    "killAfterAck": true
+  }
+}

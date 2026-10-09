@@ -31,7 +31,8 @@
         "ai",
         "identity",
         "admission",
-        "portal"
+        "portal",
+        "topology"
       ]
     },
     "decisionIds": {

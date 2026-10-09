@@ -1,0 +1,1132 @@
+{
+ "schemaVersion": 2,
+ "runId": "container-pool-2026-10-09T20-00-11-969Z-ca61ec",
+ "lane": "topology",
+ "campaign": {
+  "id": "container-pool",
+  "source": "campaigns/v2/topology/container-pool.json",
+  "sha256": "45df1509a49c1d5ce69a8f4160e0e82bfa090caf3caaa90f2fda8d08b34e1464"
+ },
+ "startedAt": "2026-10-09T20:00:11.969Z",
+ "decisionIds": [
+  "D-cloud-topology"
+ ],
+ "provenance": {
+  "git": {
+   "available": true,
+   "sha": "08635717abb38466aac7e22279e30a70ff665564",
+   "dirty": false
+  },
+  "sourceTreeSha256": "fb8b992b2131706f287364a716165c26224c1bb25d90edcadeb7aab55c7d44d1",
+  "sourceChanges": 0,
+  "binaryChanges": null,
+  "toolchains": {
+   "node": "v25.5.0",
+   "rustc": "rustc 1.93.0 (254b59607 2026-01-19)",
+   "go": "go version go1.27.1 darwin/arm64",
+   "pnpm": "12.9.1"
+  },
+  "integrity": {
+   "status": "uncatalogued",
+   "checked": 0,
+   "mismatches": []
+  }
+ },
+ "host": {
+  "classRequested": "local-controlled",
+  "classGranted": "local-dev",
+  "os": "darwin",
+  "arch": "arm64",
+  "cpu": "Apple M3 Max",
+  "logicalCpus": 14,
+  "memoryBytes": 38654705664,
+  "preflight": {
+   "snapshot": {
+    "os": "darwin",
+    "arch": "arm64",
+    "cpu": "Apple M3 Max",
+    "logicalCpus": 14,
+    "memoryBytes": 38654705664,
+    "loadAverage1m": 10.8125,
+    "memoryFreePercent": 35,
+    "thermalWarning": false,
+    "onAC": false,
+    "lowPowerMode": false,
+    "foreignCpuPercent": 347.9000000000004,
+    "foreignTop": [
+     {
+      "command": "ffmpeg",
+      "cpuPercent": 75.2
+     },
+     {
+      "command": "ffmpeg",
+      "cpuPercent": 74.3
+     },
+     {
+      "command": "WindowServer",
+      "cpuPercent": 41.2
+     },
+     {
+      "command": "Code Helper (Renderer)",
+      "cpuPercent": 25.9
+     },
+     {
+      "command": "Google Chrome Helper",
+      "cpuPercent": 18.5
+     }
+    ],
+    "cpuGovernor": null,
+    "virtualized": false,
+    "controllerCpuPercent": 32
+   },
+   "gates": [
+    {
+     "class": "local-controlled",
+     "id": "git-clean",
+     "ok": true,
+     "value": true,
+     "limit": "= true"
+    },
+    {
+     "class": "local-controlled",
+     "id": "load-per-cpu-1m",
+     "ok": false,
+     "value": 0.7723214285714286,
+     "limit": "<= 0.35"
+    },
+    {
+     "class": "local-controlled",
+     "id": "memory-free-percent",
+     "ok": true,
+     "value": 35,
+     "limit": ">= 20"
+    },
+    {
+     "class": "local-controlled",
+     "id": "thermal-warning",
+     "ok": true,
+     "value": false,
+     "limit": "= false"
+    },
+    {
+     "class": "local-controlled",
+     "id": "low-power-mode",
+     "ok": true,
+     "value": false,
+     "limit": "= false"
+    },
+    {
+     "class": "local-controlled",
+     "id": "foreign-cpu-percent",
+     "ok": false,
+     "value": 347.9000000000004,
+     "limit": "<= 150"
+    }
+   ]
+  },
+  "postflight": {
+   "snapshot": {
+    "os": "darwin",
+    "arch": "arm64",
+    "cpu": "Apple M3 Max",
+    "logicalCpus": 14,
+    "memoryBytes": 38654705664,
+    "loadAverage1m": 9.478515625,
+    "memoryFreePercent": 36,
+    "thermalWarning": false,
+    "onAC": false,
+    "lowPowerMode": false,
+    "foreignCpuPercent": 694.7000000000006,
+    "foreignTop": [
+     {
+      "command": "com.apple.Virtualization.VirtualMachine",
+      "cpuPercent": 277.2
+     },
+     {
+      "command": "Docker Desktop Helper (Renderer)",
+      "cpuPercent": 90.6
+     },
+     {
+      "command": "ffmpeg",
+      "cpuPercent": 86.4
+     },
+     {
+      "command": "ffprobe",
+      "cpuPercent": 67.4
+     },
+     {
+      "command": "WindowServer",
+      "cpuPercent": 45.6
+     }
+    ],
+    "cpuGovernor": null,
+    "virtualized": false,
+    "controllerCpuPercent": 43.70000000000002
+   }
+  }
+ },
+ "status": "complete",
+ "countUnit": "cell",
+ "cells": [
+  {
+   "cellId": "09b60b0e9ede-0",
+   "factors": {
+    "variant": "isolation",
+    "policy": "firecracker-snapshot",
+    "block": 0
+   },
+   "status": "unsupported",
+   "errorCode": null,
+   "counts": {
+    "verified": 0,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 1,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "startup-ms": {
+     "value": null,
+     "unit": "ms",
+     "source": "lane; Docker Desktop on macOS, container browser reached through CDP; median time from request to a browser ready for the tenant"
+    },
+    "task-p50-ms-verified": {
+     "value": null,
+     "unit": "ms",
+     "source": "lane; Docker Desktop on macOS, container browser reached through CDP; acquisition and two page visits"
+    }
+   }
+  },
+  {
+   "cellId": "f24d5e36f406-1",
+   "factors": {
+    "variant": "isolation",
+    "policy": "warm-pool",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "startup-ms": {
+     "value": 0.003832999999758613,
+     "unit": "ms",
+     "source": "lane; Docker Desktop on macOS, container browser reached through CDP; median time from request to a browser ready for the tenant"
+    },
+    "task-p50-ms-verified": {
+     "value": 187.93475000000012,
+     "unit": "ms",
+     "source": "lane; Docker Desktop on macOS, container browser reached through CDP; acquisition and two page visits"
+    },
+    "rss-peak-bytes": {
+     "value": 0,
+     "unit": "B",
+     "source": "lane; Docker Desktop on macOS, container browser reached through CDP; memory of the idle pool (docker stats of one idle container times the pool size)"
+    }
+   }
+  },
+  {
+   "cellId": "7cdff7cf73d4-2",
+   "factors": {
+    "variant": "isolation",
+    "policy": "reuse-pool",
+    "block": 0
+   },
+   "status": "failed",
+   "errorCode": null,
+   "counts": {
+    "verified": 0,
+    "failed": 1,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "startup-ms": {
+     "value": 0.00233299999990777,
+     "unit": "ms",
+     "source": "lane; Docker Desktop on macOS, container browser reached through CDP; median time from request to a browser ready for the tenant"
+    },
+    "task-p50-ms-verified": {
+     "value": null,
+     "unit": "ms",
+     "source": "lane; Docker Desktop on macOS, container browser reached through CDP; acquisition and two page visits"
+    },
+    "rss-peak-bytes": {
+     "value": 92064972.8,
+     "unit": "B",
+     "source": "lane; Docker Desktop on macOS, container browser reached through CDP; memory of the idle pool (docker stats of one idle container times the pool size)"
+    }
+   }
+  },
+  {
+   "cellId": "be89321258aa-3",
+   "factors": {
+    "variant": "isolation",
+    "policy": "cold-container",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "startup-ms": {
+     "value": 171.6734580000002,
+     "unit": "ms",
+     "source": "lane; Docker Desktop on macOS, container browser reached through CDP; median time from request to a browser ready for the tenant"
+    },
+    "task-p50-ms-verified": {
+     "value": 358.60312499999964,
+     "unit": "ms",
+     "source": "lane; Docker Desktop on macOS, container browser reached through CDP; acquisition and two page visits"
+    },
+    "rss-peak-bytes": {
+     "value": 0,
+     "unit": "B",
+     "source": "lane; Docker Desktop on macOS, container browser reached through CDP; memory of the idle pool (docker stats of one idle container times the pool size)"
+    }
+   }
+  },
+  {
+   "cellId": "70860f5da530-4",
+   "factors": {
+    "variant": "isolation",
+    "policy": "firecracker-snapshot",
+    "block": 1
+   },
+   "status": "unsupported",
+   "errorCode": null,
+   "counts": {
+    "verified": 0,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 1,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "startup-ms": {
+     "value": null,
+     "unit": "ms",
+     "source": "lane; Docker Desktop on macOS, container browser reached through CDP; median time from request to a browser ready for the tenant"
+    },
+    "task-p50-ms-verified": {
+     "value": null,
+     "unit": "ms",
+     "source": "lane; Docker Desktop on macOS, container browser reached through CDP; acquisition and two page visits"
+    }
+   }
+  },
+  {
+   "cellId": "5f5243abca14-5",
+   "factors": {
+    "variant": "isolation",
+    "policy": "reuse-pool",
+    "block": 1
+   },
+   "status": "failed",
+   "errorCode": null,
+   "counts": {
+    "verified": 0,
+    "failed": 1,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "startup-ms": {
+     "value": 0.0022499999995488906,
+     "unit": "ms",
+     "source": "lane; Docker Desktop on macOS, container browser reached through CDP; median time from request to a browser ready for the tenant"
+    },
+    "task-p50-ms-verified": {
+     "value": null,
+     "unit": "ms",
+     "source": "lane; Docker Desktop on macOS, container browser reached through CDP; acquisition and two page visits"
+    },
+    "rss-peak-bytes": {
+     "value": 92106915.84,
+     "unit": "B",
+     "source": "lane; Docker Desktop on macOS, container browser reached through CDP; memory of the idle pool (docker stats of one idle container times the pool size)"
+    }
+   }
+  },
+  {
+   "cellId": "e8ef0688c12e-6",
+   "factors": {
+    "variant": "isolation",
+    "policy": "cold-container",
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "startup-ms": {
+     "value": 162.19641600000068,
+     "unit": "ms",
+     "source": "lane; Docker Desktop on macOS, container browser reached through CDP; median time from request to a browser ready for the tenant"
+    },
+    "task-p50-ms-verified": {
+     "value": 348.41799999999967,
+     "unit": "ms",
+     "source": "lane; Docker Desktop on macOS, container browser reached through CDP; acquisition and two page visits"
+    },
+    "rss-peak-bytes": {
+     "value": 0,
+     "unit": "B",
+     "source": "lane; Docker Desktop on macOS, container browser reached through CDP; memory of the idle pool (docker stats of one idle container times the pool size)"
+    }
+   }
+  },
+  {
+   "cellId": "07c57ee663e2-7",
+   "factors": {
+    "variant": "isolation",
+    "policy": "warm-pool",
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "startup-ms": {
+     "value": 1.8299169999991136,
+     "unit": "ms",
+     "source": "lane; Docker Desktop on macOS, container browser reached through CDP; median time from request to a browser ready for the tenant"
+    },
+    "task-p50-ms-verified": {
+     "value": 152.87879200000134,
+     "unit": "ms",
+     "source": "lane; Docker Desktop on macOS, container browser reached through CDP; acquisition and two page visits"
+    },
+    "rss-peak-bytes": {
+     "value": 80908124.16,
+     "unit": "B",
+     "source": "lane; Docker Desktop on macOS, container browser reached through CDP; memory of the idle pool (docker stats of one idle container times the pool size)"
+    }
+   }
+  },
+  {
+   "cellId": "4f32e46af3cc-8",
+   "factors": {
+    "variant": "isolation",
+    "policy": "warm-pool",
+    "block": 2
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "startup-ms": {
+     "value": 0.0020000000004074536,
+     "unit": "ms",
+     "source": "lane; Docker Desktop on macOS, container browser reached through CDP; median time from request to a browser ready for the tenant"
+    },
+    "task-p50-ms-verified": {
+     "value": 189.24275000000125,
+     "unit": "ms",
+     "source": "lane; Docker Desktop on macOS, container browser reached through CDP; acquisition and two page visits"
+    },
+    "rss-peak-bytes": {
+     "value": 80929095.68,
+     "unit": "B",
+     "source": "lane; Docker Desktop on macOS, container browser reached through CDP; memory of the idle pool (docker stats of one idle container times the pool size)"
+    }
+   }
+  },
+  {
+   "cellId": "00ce36f1662b-9",
+   "factors": {
+    "variant": "isolation",
+    "policy": "firecracker-snapshot",
+    "block": 2
+   },
+   "status": "unsupported",
+   "errorCode": null,
+   "counts": {
+    "verified": 0,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 1,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "startup-ms": {
+     "value": null,
+     "unit": "ms",
+     "source": "lane; Docker Desktop on macOS, container browser reached through CDP; median time from request to a browser ready for the tenant"
+    },
+    "task-p50-ms-verified": {
+     "value": null,
+     "unit": "ms",
+     "source": "lane; Docker Desktop on macOS, container browser reached through CDP; acquisition and two page visits"
+    }
+   }
+  },
+  {
+   "cellId": "1f3961e7f387-10",
+   "factors": {
+    "variant": "isolation",
+    "policy": "reuse-pool",
+    "block": 2
+   },
+   "status": "failed",
+   "errorCode": null,
+   "counts": {
+    "verified": 0,
+    "failed": 1,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "startup-ms": {
+     "value": 0.0014169999994919635,
+     "unit": "ms",
+     "source": "lane; Docker Desktop on macOS, container browser reached through CDP; median time from request to a browser ready for the tenant"
+    },
+    "task-p50-ms-verified": {
+     "value": null,
+     "unit": "ms",
+     "source": "lane; Docker Desktop on macOS, container browser reached through CDP; acquisition and two page visits"
+    },
+    "rss-peak-bytes": {
+     "value": 91330969.6,
+     "unit": "B",
+     "source": "lane; Docker Desktop on macOS, container browser reached through CDP; memory of the idle pool (docker stats of one idle container times the pool size)"
+    }
+   }
+  },
+  {
+   "cellId": "df4063084137-11",
+   "factors": {
+    "variant": "isolation",
+    "policy": "cold-container",
+    "block": 2
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "startup-ms": {
+     "value": 185.5510409999988,
+     "unit": "ms",
+     "source": "lane; Docker Desktop on macOS, container browser reached through CDP; median time from request to a browser ready for the tenant"
+    },
+    "task-p50-ms-verified": {
+     "value": 340.992083000001,
+     "unit": "ms",
+     "source": "lane; Docker Desktop on macOS, container browser reached through CDP; acquisition and two page visits"
+    },
+    "rss-peak-bytes": {
+     "value": 0,
+     "unit": "B",
+     "source": "lane; Docker Desktop on macOS, container browser reached through CDP; memory of the idle pool (docker stats of one idle container times the pool size)"
+    }
+   }
+  },
+  {
+   "cellId": "c54f0da3fd2e-12",
+   "factors": {
+    "variant": "isolation",
+    "policy": "reuse-pool",
+    "block": 3
+   },
+   "status": "failed",
+   "errorCode": null,
+   "counts": {
+    "verified": 0,
+    "failed": 1,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "startup-ms": {
+     "value": 0.0012500000011641532,
+     "unit": "ms",
+     "source": "lane; Docker Desktop on macOS, container browser reached through CDP; median time from request to a browser ready for the tenant"
+    },
+    "task-p50-ms-verified": {
+     "value": null,
+     "unit": "ms",
+     "source": "lane; Docker Desktop on macOS, container browser reached through CDP; acquisition and two page visits"
+    },
+    "rss-peak-bytes": {
+     "value": 91414855.68,
+     "unit": "B",
+     "source": "lane; Docker Desktop on macOS, container browser reached through CDP; memory of the idle pool (docker stats of one idle container times the pool size)"
+    }
+   }
+  },
+  {
+   "cellId": "8ab163e7636e-13",
+   "factors": {
+    "variant": "isolation",
+    "policy": "cold-container",
+    "block": 3
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "startup-ms": {
+     "value": 178.0010000000002,
+     "unit": "ms",
+     "source": "lane; Docker Desktop on macOS, container browser reached through CDP; median time from request to a browser ready for the tenant"
+    },
+    "task-p50-ms-verified": {
+     "value": 331.64208399999916,
+     "unit": "ms",
+     "source": "lane; Docker Desktop on macOS, container browser reached through CDP; acquisition and two page visits"
+    },
+    "rss-peak-bytes": {
+     "value": 0,
+     "unit": "B",
+     "source": "lane; Docker Desktop on macOS, container browser reached through CDP; memory of the idle pool (docker stats of one idle container times the pool size)"
+    }
+   }
+  },
+  {
+   "cellId": "7a92caa2389b-14",
+   "factors": {
+    "variant": "isolation",
+    "policy": "warm-pool",
+    "block": 3
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "startup-ms": {
+     "value": 0.0025000000023283064,
+     "unit": "ms",
+     "source": "lane; Docker Desktop on macOS, container browser reached through CDP; median time from request to a browser ready for the tenant"
+    },
+    "task-p50-ms-verified": {
+     "value": 182.01358299999993,
+     "unit": "ms",
+     "source": "lane; Docker Desktop on macOS, container browser reached through CDP; acquisition and two page visits"
+    },
+    "rss-peak-bytes": {
+     "value": 0,
+     "unit": "B",
+     "source": "lane; Docker Desktop on macOS, container browser reached through CDP; memory of the idle pool (docker stats of one idle container times the pool size)"
+    }
+   }
+  },
+  {
+   "cellId": "bc7656ac67ef-15",
+   "factors": {
+    "variant": "isolation",
+    "policy": "firecracker-snapshot",
+    "block": 3
+   },
+   "status": "unsupported",
+   "errorCode": null,
+   "counts": {
+    "verified": 0,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 1,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "startup-ms": {
+     "value": null,
+     "unit": "ms",
+     "source": "lane; Docker Desktop on macOS, container browser reached through CDP; median time from request to a browser ready for the tenant"
+    },
+    "task-p50-ms-verified": {
+     "value": null,
+     "unit": "ms",
+     "source": "lane; Docker Desktop on macOS, container browser reached through CDP; acquisition and two page visits"
+    }
+   }
+  },
+  {
+   "cellId": "c6f5b619f5d9-16",
+   "factors": {
+    "variant": "isolation",
+    "policy": "reuse-pool",
+    "block": 4
+   },
+   "status": "failed",
+   "errorCode": null,
+   "counts": {
+    "verified": 0,
+    "failed": 1,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "startup-ms": {
+     "value": 0.0013330000001587905,
+     "unit": "ms",
+     "source": "lane; Docker Desktop on macOS, container browser reached through CDP; median time from request to a browser ready for the tenant"
+    },
+    "task-p50-ms-verified": {
+     "value": null,
+     "unit": "ms",
+     "source": "lane; Docker Desktop on macOS, container browser reached through CDP; acquisition and two page visits"
+    },
+    "rss-peak-bytes": {
+     "value": 91603599.36,
+     "unit": "B",
+     "source": "lane; Docker Desktop on macOS, container browser reached through CDP; memory of the idle pool (docker stats of one idle container times the pool size)"
+    }
+   }
+  },
+  {
+   "cellId": "812bbd78e50d-17",
+   "factors": {
+    "variant": "isolation",
+    "policy": "warm-pool",
+    "block": 4
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "startup-ms": {
+     "value": 0.0028329999986453913,
+     "unit": "ms",
+     "source": "lane; Docker Desktop on macOS, container browser reached through CDP; median time from request to a browser ready for the tenant"
+    },
+    "task-p50-ms-verified": {
+     "value": 151.97420799999963,
+     "unit": "ms",
+     "source": "lane; Docker Desktop on macOS, container browser reached through CDP; acquisition and two page visits"
+    },
+    "rss-peak-bytes": {
+     "value": 0,
+     "unit": "B",
+     "source": "lane; Docker Desktop on macOS, container browser reached through CDP; memory of the idle pool (docker stats of one idle container times the pool size)"
+    }
+   }
+  },
+  {
+   "cellId": "0ccf59bbf129-18",
+   "factors": {
+    "variant": "isolation",
+    "policy": "cold-container",
+    "block": 4
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "startup-ms": {
+     "value": 177.07529200000135,
+     "unit": "ms",
+     "source": "lane; Docker Desktop on macOS, container browser reached through CDP; median time from request to a browser ready for the tenant"
+    },
+    "task-p50-ms-verified": {
+     "value": 324.16275000000314,
+     "unit": "ms",
+     "source": "lane; Docker Desktop on macOS, container browser reached through CDP; acquisition and two page visits"
+    },
+    "rss-peak-bytes": {
+     "value": 0,
+     "unit": "B",
+     "source": "lane; Docker Desktop on macOS, container browser reached through CDP; memory of the idle pool (docker stats of one idle container times the pool size)"
+    }
+   }
+  },
+  {
+   "cellId": "07be4102d0e3-19",
+   "factors": {
+    "variant": "isolation",
+    "policy": "firecracker-snapshot",
+    "block": 4
+   },
+   "status": "unsupported",
+   "errorCode": null,
+   "counts": {
+    "verified": 0,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 1,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "startup-ms": {
+     "value": null,
+     "unit": "ms",
+     "source": "lane; Docker Desktop on macOS, container browser reached through CDP; median time from request to a browser ready for the tenant"
+    },
+    "task-p50-ms-verified": {
+     "value": null,
+     "unit": "ms",
+     "source": "lane; Docker Desktop on macOS, container browser reached through CDP; acquisition and two page visits"
+    }
+   }
+  }
+ ],
+ "totals": {
+  "verified": 10,
+  "failed": 5,
+  "timeout": 0,
+  "crashed": 0,
+  "aborted": 0,
+  "unsupported": 5,
+  "rejected": 0,
+  "unavailable": 0,
+  "skipped": 0
+ },
+ "metricAvailability": {
+  "verified-jobs-per-second": {
+   "available": true
+  },
+  "verified-tasks-per-second": {
+   "available": true
+  },
+  "verified-rows-per-second": {
+   "available": true
+  },
+  "task-p50-ms-verified": {
+   "available": true
+  },
+  "task-p95-ms-verified": {
+   "available": true
+  },
+  "task-ms": {
+   "available": true
+  },
+  "ack-latency-p95-ms": {
+   "available": true
+  },
+  "extraction-precision": {
+   "available": true
+  },
+  "extraction-recall": {
+   "available": true
+  },
+  "snippet-recall": {
+   "available": true
+  },
+  "boilerplate-leak": {
+   "available": true
+  },
+  "extract-ms-p50": {
+   "available": true
+  },
+  "startup-ms": {
+   "available": true
+  },
+  "cpu-ms-per-verified-job": {
+   "available": true
+  },
+  "footprint-peak-bytes": {
+   "available": true
+  },
+  "pss-peak-bytes": {
+   "available": false,
+   "reason": "no probe on darwin"
+  },
+  "cgroup-memory-peak-bytes": {
+   "available": false,
+   "reason": "no probe on darwin"
+  },
+  "rss-peak-bytes": {
+   "available": true
+  },
+  "cdp-commands-per-task": {
+   "available": true
+  },
+  "extraction-f1": {
+   "available": true
+  },
+  "field-precision": {
+   "available": true
+  },
+  "field-recall": {
+   "available": true
+  },
+  "pass-k": {
+   "available": true
+  },
+  "llm-calls-per-verified-task": {
+   "available": true
+  },
+  "tokens-per-verified-task": {
+   "available": true
+  },
+  "usd-per-1k-verified": {
+   "available": false,
+   "reason": "pricing tables are not implemented yet"
+  },
+  "model-usd-per-1k-verified": {
+   "available": true
+  },
+  "interface-turns-per-task": {
+   "available": true
+  },
+  "oracle-exact": {
+   "available": true
+  },
+  "false-success-count": {
+   "available": true
+  },
+  "actionability-conformance": {
+   "available": true
+  },
+  "recovery-exact": {
+   "available": true
+  },
+  "durability-power-loss": {
+   "available": false,
+   "reason": "no probe on darwin"
+  },
+  "identity-coherence": {
+   "available": true
+  },
+  "policy-compliance": {
+   "available": true
+  },
+  "session-isolation": {
+   "available": true
+  },
+  "admission-no-loss": {
+   "available": true
+  },
+  "proxy-continuity": {
+   "available": true
+  },
+  "site-logins-per-run": {
+   "available": true
+  },
+  "steady-run-ms": {
+   "available": true
+  },
+  "browser-pages-per-run": {
+   "available": true
+  },
+  "requests-per-verified-record": {
+   "available": true
+  },
+  "light-domain-goodput": {
+   "available": true
+  },
+  "light-domain-p95-ms": {
+   "available": true
+  },
+  "light-domain-acceptance": {
+   "available": true
+  }
+ },
+ "legacy": null,
+ "blocks": [
+  {
+   "index": 0,
+   "order": [
+    "firecracker-snapshot",
+    "warm-pool",
+    "reuse-pool",
+    "cold-container"
+   ],
+   "noisy": false,
+   "host": {
+    "loadPerCpu1m": 0.7218889508928571,
+    "foreignCpuPercent": 694.7999999999998
+   }
+  },
+  {
+   "index": 1,
+   "order": [
+    "firecracker-snapshot",
+    "reuse-pool",
+    "cold-container",
+    "warm-pool"
+   ],
+   "noisy": false,
+   "host": {
+    "loadPerCpu1m": 0.7250279017857143,
+    "foreignCpuPercent": 525.3000000000002
+   }
+  },
+  {
+   "index": 2,
+   "order": [
+    "warm-pool",
+    "firecracker-snapshot",
+    "reuse-pool",
+    "cold-container"
+   ],
+   "noisy": false,
+   "host": {
+    "loadPerCpu1m": 0.7308872767857143,
+    "foreignCpuPercent": 744.9000000000003
+   }
+  },
+  {
+   "index": 3,
+   "order": [
+    "reuse-pool",
+    "cold-container",
+    "warm-pool",
+    "firecracker-snapshot"
+   ],
+   "noisy": false,
+   "host": {
+    "loadPerCpu1m": 0.6952078683035714,
+    "foreignCpuPercent": 962.2000000000006
+   }
+  },
+  {
+   "index": 4,
+   "order": [
+    "reuse-pool",
+    "warm-pool",
+    "cold-container",
+    "firecracker-snapshot"
+   ],
+   "noisy": false,
+   "host": {
+    "loadPerCpu1m": 0.6770368303571429,
+    "foreignCpuPercent": 655.1000000000004
+   }
+  }
+ ]
+}

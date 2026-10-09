@@ -1,0 +1,82 @@
+{
+ "schemaVersion": 1,
+ "decisionId": "D-cloud-topology",
+ "metricId": "startup-ms",
+ "direction": "lower",
+ "rule": {
+  "kind": "superiority",
+  "alpha": 0.05,
+  "power": 0.8,
+  "noisyBlockPolicy": "exclude"
+ },
+ "delta": {
+  "kind": "ratio",
+  "value": 0.2
+ },
+ "option": "firecracker-snapshot",
+ "baseline": "container-pool",
+ "stratum": {
+  "variant": "isolation"
+ },
+ "outcome": "blocked-by-contract",
+ "n": 0,
+ "margin": 0.1823215567939546,
+ "requiredN": null,
+ "estimate": null,
+ "gates": [
+  {
+   "id": "session-isolation",
+   "ok": false,
+   "evaluated": true
+  },
+  {
+   "id": "oracle-exact",
+   "ok": false,
+   "evaluated": true
+  }
+ ],
+ "host": {
+  "required": "reference",
+  "observed": "local-dev",
+  "eligible": false
+ },
+ "comparisons": [
+  {
+   "option": "firecracker-snapshot",
+   "baseline": "container-pool",
+   "stratum": {
+    "variant": "isolation"
+   },
+   "outcome": "blocked-by-contract",
+   "n": 0,
+   "margin": 0.1823215567939546,
+   "requiredN": null,
+   "estimate": null,
+   "gates": [
+    {
+     "id": "session-isolation",
+     "ok": false,
+     "evaluated": true
+    },
+    {
+     "id": "oracle-exact",
+     "ok": false,
+     "evaluated": true
+    }
+   ],
+   "host": {
+    "required": "reference",
+    "observed": "local-dev",
+    "eligible": false
+   }
+  }
+ ],
+ "inputs": {
+  "runs": [],
+  "considered": [
+   "container-pool-2026-10-09T20-01-19-342Z-147c8e"
+  ],
+  "missing": [],
+  "ledgerSha256": "4200b44689df36ca07e098868d866ee61f61e9f6f27987793397dee84e1136bd"
+ }
+}

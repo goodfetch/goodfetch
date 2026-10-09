@@ -35,3 +35,12 @@ Douze runs de six campagnes ont été relancés en demandant `local-controlled`.
 - **Matin** (Mac en usage léger). Tous les runs sont restés en `local-dev` : l'analyse des photos de macOS, la VM de Docker Desktop et l'affichage dépassaient le CPU étranger autorisé.
 
 Les reruns `local-controlled` restent donc à faire.
+
+### Après-midi du 9 octobre, à la demande du porteur
+
+Les six campagnes ont été relancées dans les conditions d'usage du moment (sans ffmpeg ni Docker, mais avec l'analyse des photos de macOS, l'affichage et la vidéo). Les six runs sont `local-dev` et classés `diagnostic`. Leurs comptes sont exacts : la matrice d'actionnabilité avec garde donne 162/162, l'admission et l'ordonnancement 10/10, le RTT 300 432/432 et l'extraction rendue 21/21.
+
+Lecture indicative, calculée hors du ledger, sans valeur de décision :
+- **Pilotes à 300 ms de latence** (`browser-driver-rtt-300-2026-10-09T10-50-18-619Z-27903b`, 6 blocs propres sur 6). Face à Playwright, les pilotes CDP avec garde mettent 0,68 à 0,81 du temps, Rust et Node à égalité ; Puppeteer avec garde met 1,8 à 2,3 fois plus de temps sur les actions. Cela prolonge la tendance observée à 20 et 100 ms.
+- **Ordonnancement** (`durable-scheduler-2026-10-09T10-48-01-989Z-994cf4`). Les files par domaine donnent 2,7 fois le débit vérifié des petits domaines, comme le 8 octobre.
+

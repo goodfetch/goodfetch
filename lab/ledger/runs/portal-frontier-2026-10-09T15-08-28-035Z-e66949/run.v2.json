@@ -1,0 +1,1477 @@
+{
+ "schemaVersion": 2,
+ "runId": "portal-frontier-2026-10-09T15-08-28-035Z-e66949",
+ "lane": "portal",
+ "campaign": {
+  "id": "portal-frontier",
+  "source": "campaigns/v2/portal/portal-frontier.json",
+  "sha256": "dff221afe75ca98f4afcf2dfd6ff247232b0186a35ae75c73633ae009aee3f12"
+ },
+ "startedAt": "2026-10-09T15:08:28.035Z",
+ "decisionIds": [
+  "D-frontier"
+ ],
+ "provenance": {
+  "git": {
+   "available": true,
+   "sha": "4e8880c287f3f62ac7785302f6acb6d9246ab80f",
+   "dirty": false
+  },
+  "sourceTreeSha256": "a19ed4ada2e4d5559222a13cde31cafbf224641e39480c287a98969a81d0e9c0",
+  "sourceChanges": 0,
+  "binaryChanges": null,
+  "toolchains": {
+   "node": "v25.5.0",
+   "rustc": "rustc 1.93.0 (254b59607 2026-01-19)",
+   "go": "go version go1.27.1 darwin/arm64",
+   "pnpm": "12.9.1"
+  },
+  "integrity": {
+   "status": "uncatalogued",
+   "checked": 0,
+   "mismatches": []
+  }
+ },
+ "host": {
+  "classRequested": "local-controlled",
+  "classGranted": "local-dev",
+  "os": "darwin",
+  "arch": "arm64",
+  "cpu": "Apple M3 Max",
+  "logicalCpus": 14,
+  "memoryBytes": 38654705664,
+  "preflight": {
+   "snapshot": {
+    "os": "darwin",
+    "arch": "arm64",
+    "cpu": "Apple M3 Max",
+    "logicalCpus": 14,
+    "memoryBytes": 38654705664,
+    "loadAverage1m": 9.49462890625,
+    "memoryFreePercent": 53,
+    "thermalWarning": false,
+    "onAC": false,
+    "lowPowerMode": false,
+    "foreignCpuPercent": 228.29999999999993,
+    "foreignTop": [
+     {
+      "command": "ffmpeg",
+      "cpuPercent": 110.4
+     },
+     {
+      "command": "WindowServer",
+      "cpuPercent": 44.4
+     },
+     {
+      "command": "esbuild",
+      "cpuPercent": 9.8
+     },
+     {
+      "command": "coreaudiod",
+      "cpuPercent": 8.4
+     },
+     {
+      "command": "Google Chrome Helper",
+      "cpuPercent": 7.3
+     }
+    ],
+    "cpuGovernor": null,
+    "virtualized": false,
+    "controllerCpuPercent": 34.500000000000014
+   },
+   "gates": [
+    {
+     "class": "local-controlled",
+     "id": "git-clean",
+     "ok": true,
+     "value": true,
+     "limit": "= true"
+    },
+    {
+     "class": "local-controlled",
+     "id": "load-per-cpu-1m",
+     "ok": false,
+     "value": 0.6781877790178571,
+     "limit": "<= 0.35"
+    },
+    {
+     "class": "local-controlled",
+     "id": "memory-free-percent",
+     "ok": true,
+     "value": 53,
+     "limit": ">= 20"
+    },
+    {
+     "class": "local-controlled",
+     "id": "thermal-warning",
+     "ok": true,
+     "value": false,
+     "limit": "= false"
+    },
+    {
+     "class": "local-controlled",
+     "id": "low-power-mode",
+     "ok": true,
+     "value": false,
+     "limit": "= false"
+    },
+    {
+     "class": "local-controlled",
+     "id": "foreign-cpu-percent",
+     "ok": false,
+     "value": 228.29999999999993,
+     "limit": "<= 150"
+    }
+   ]
+  },
+  "postflight": {
+   "snapshot": {
+    "os": "darwin",
+    "arch": "arm64",
+    "cpu": "Apple M3 Max",
+    "logicalCpus": 14,
+    "memoryBytes": 38654705664,
+    "loadAverage1m": 9.49462890625,
+    "memoryFreePercent": 53,
+    "thermalWarning": false,
+    "onAC": false,
+    "lowPowerMode": false,
+    "foreignCpuPercent": 385.1000000000001,
+    "foreignTop": [
+     {
+      "command": "WindowServer",
+      "cpuPercent": 47.1
+     },
+     {
+      "command": "mds_stores",
+      "cpuPercent": 42.3
+     },
+     {
+      "command": "esbuild",
+      "cpuPercent": 40.4
+     },
+     {
+      "command": "ffmpeg",
+      "cpuPercent": 18.9
+     },
+     {
+      "command": "mdworker_shared",
+      "cpuPercent": 16.1
+     }
+    ],
+    "cpuGovernor": null,
+    "virtualized": false,
+    "controllerCpuPercent": 36.900000000000006
+   }
+  }
+ },
+ "status": "complete",
+ "countUnit": "cell",
+ "cells": [
+  {
+   "cellId": "fd0e54644b46-0",
+   "factors": {
+    "scenario": "frontier",
+    "variant": "crawler-trap",
+    "policy": "naive",
+    "block": 0
+   },
+   "status": "failed",
+   "errorCode": null,
+   "counts": {
+    "verified": 0,
+    "failed": 1,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-p50-ms-verified": {
+     "value": null,
+     "unit": "ms",
+     "source": "lane; site oracle counts over the runs of the cell, browser context opening excluded; median of verified runs"
+    },
+    "false-success-count": {
+     "value": 0,
+     "unit": "count",
+     "source": "lane; runs that reported a complete result the site oracle refutes"
+    },
+    "site-logins-per-run": {
+     "value": 0,
+     "unit": "login/run",
+     "source": "lane; site oracle counts over the runs of the cell, browser context opening excluded"
+    },
+    "steady-run-ms": {
+     "value": null,
+     "unit": "ms",
+     "source": "lane; site oracle counts over the runs of the cell, browser context opening excluded"
+    },
+    "browser-pages-per-run": {
+     "value": 0,
+     "unit": "page/run",
+     "source": "lane; site oracle counts over the runs of the cell, browser context opening excluded"
+    },
+    "requests-per-verified-record": {
+     "value": null,
+     "unit": "request/record",
+     "source": "lane; site oracle counts over the runs of the cell, browser context opening excluded"
+    }
+   }
+  },
+  {
+   "cellId": "887e347184e3-1",
+   "factors": {
+    "scenario": "frontier",
+    "variant": "large-table",
+    "policy": "canonical",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-p50-ms-verified": {
+     "value": 5.851292000000058,
+     "unit": "ms",
+     "source": "lane; site oracle counts over the runs of the cell, browser context opening excluded; median of verified runs"
+    },
+    "false-success-count": {
+     "value": 0,
+     "unit": "count",
+     "source": "lane; runs that reported a complete result the site oracle refutes"
+    },
+    "site-logins-per-run": {
+     "value": 0,
+     "unit": "login/run",
+     "source": "lane; site oracle counts over the runs of the cell, browser context opening excluded"
+    },
+    "steady-run-ms": {
+     "value": 5.168332999999961,
+     "unit": "ms",
+     "source": "lane; site oracle counts over the runs of the cell, browser context opening excluded"
+    },
+    "browser-pages-per-run": {
+     "value": 0,
+     "unit": "page/run",
+     "source": "lane; site oracle counts over the runs of the cell, browser context opening excluded"
+    },
+    "requests-per-verified-record": {
+     "value": 0.02,
+     "unit": "request/record",
+     "source": "lane; site oracle counts over the runs of the cell, browser context opening excluded"
+    }
+   }
+  },
+  {
+   "cellId": "7ef53d1d507d-2",
+   "factors": {
+    "scenario": "frontier",
+    "variant": "crawler-trap",
+    "policy": "canonical",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-p50-ms-verified": {
+     "value": 10.816500000000019,
+     "unit": "ms",
+     "source": "lane; site oracle counts over the runs of the cell, browser context opening excluded; median of verified runs"
+    },
+    "false-success-count": {
+     "value": 0,
+     "unit": "count",
+     "source": "lane; runs that reported a complete result the site oracle refutes"
+    },
+    "site-logins-per-run": {
+     "value": 0,
+     "unit": "login/run",
+     "source": "lane; site oracle counts over the runs of the cell, browser context opening excluded"
+    },
+    "steady-run-ms": {
+     "value": 10.06149999999991,
+     "unit": "ms",
+     "source": "lane; site oracle counts over the runs of the cell, browser context opening excluded"
+    },
+    "browser-pages-per-run": {
+     "value": 0,
+     "unit": "page/run",
+     "source": "lane; site oracle counts over the runs of the cell, browser context opening excluded"
+    },
+    "requests-per-verified-record": {
+     "value": 1.1363636363636365,
+     "unit": "request/record",
+     "source": "lane; site oracle counts over the runs of the cell, browser context opening excluded"
+    }
+   }
+  },
+  {
+   "cellId": "22148a77eba0-3",
+   "factors": {
+    "scenario": "frontier",
+    "variant": "large-table",
+    "policy": "naive",
+    "block": 0
+   },
+   "status": "failed",
+   "errorCode": null,
+   "counts": {
+    "verified": 0,
+    "failed": 1,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-p50-ms-verified": {
+     "value": null,
+     "unit": "ms",
+     "source": "lane; site oracle counts over the runs of the cell, browser context opening excluded; median of verified runs"
+    },
+    "false-success-count": {
+     "value": 3,
+     "unit": "count",
+     "source": "lane; runs that reported a complete result the site oracle refutes"
+    },
+    "site-logins-per-run": {
+     "value": 0,
+     "unit": "login/run",
+     "source": "lane; site oracle counts over the runs of the cell, browser context opening excluded"
+    },
+    "steady-run-ms": {
+     "value": null,
+     "unit": "ms",
+     "source": "lane; site oracle counts over the runs of the cell, browser context opening excluded"
+    },
+    "browser-pages-per-run": {
+     "value": 0,
+     "unit": "page/run",
+     "source": "lane; site oracle counts over the runs of the cell, browser context opening excluded"
+    },
+    "requests-per-verified-record": {
+     "value": null,
+     "unit": "request/record",
+     "source": "lane; site oracle counts over the runs of the cell, browser context opening excluded"
+    }
+   }
+  },
+  {
+   "cellId": "d4219869f2c2-4",
+   "factors": {
+    "scenario": "frontier",
+    "variant": "large-table",
+    "policy": "canonical",
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-p50-ms-verified": {
+     "value": 5.357415999999944,
+     "unit": "ms",
+     "source": "lane; site oracle counts over the runs of the cell, browser context opening excluded; median of verified runs"
+    },
+    "false-success-count": {
+     "value": 0,
+     "unit": "count",
+     "source": "lane; runs that reported a complete result the site oracle refutes"
+    },
+    "site-logins-per-run": {
+     "value": 0,
+     "unit": "login/run",
+     "source": "lane; site oracle counts over the runs of the cell, browser context opening excluded"
+    },
+    "steady-run-ms": {
+     "value": 5.1237089999999625,
+     "unit": "ms",
+     "source": "lane; site oracle counts over the runs of the cell, browser context opening excluded"
+    },
+    "browser-pages-per-run": {
+     "value": 0,
+     "unit": "page/run",
+     "source": "lane; site oracle counts over the runs of the cell, browser context opening excluded"
+    },
+    "requests-per-verified-record": {
+     "value": 0.02,
+     "unit": "request/record",
+     "source": "lane; site oracle counts over the runs of the cell, browser context opening excluded"
+    }
+   }
+  },
+  {
+   "cellId": "eef45c057228-5",
+   "factors": {
+    "scenario": "frontier",
+    "variant": "crawler-trap",
+    "policy": "naive",
+    "block": 1
+   },
+   "status": "failed",
+   "errorCode": null,
+   "counts": {
+    "verified": 0,
+    "failed": 1,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-p50-ms-verified": {
+     "value": null,
+     "unit": "ms",
+     "source": "lane; site oracle counts over the runs of the cell, browser context opening excluded; median of verified runs"
+    },
+    "false-success-count": {
+     "value": 0,
+     "unit": "count",
+     "source": "lane; runs that reported a complete result the site oracle refutes"
+    },
+    "site-logins-per-run": {
+     "value": 0,
+     "unit": "login/run",
+     "source": "lane; site oracle counts over the runs of the cell, browser context opening excluded"
+    },
+    "steady-run-ms": {
+     "value": null,
+     "unit": "ms",
+     "source": "lane; site oracle counts over the runs of the cell, browser context opening excluded"
+    },
+    "browser-pages-per-run": {
+     "value": 0,
+     "unit": "page/run",
+     "source": "lane; site oracle counts over the runs of the cell, browser context opening excluded"
+    },
+    "requests-per-verified-record": {
+     "value": null,
+     "unit": "request/record",
+     "source": "lane; site oracle counts over the runs of the cell, browser context opening excluded"
+    }
+   }
+  },
+  {
+   "cellId": "1dbfa00d9e26-6",
+   "factors": {
+    "scenario": "frontier",
+    "variant": "large-table",
+    "policy": "naive",
+    "block": 1
+   },
+   "status": "failed",
+   "errorCode": null,
+   "counts": {
+    "verified": 0,
+    "failed": 1,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-p50-ms-verified": {
+     "value": null,
+     "unit": "ms",
+     "source": "lane; site oracle counts over the runs of the cell, browser context opening excluded; median of verified runs"
+    },
+    "false-success-count": {
+     "value": 3,
+     "unit": "count",
+     "source": "lane; runs that reported a complete result the site oracle refutes"
+    },
+    "site-logins-per-run": {
+     "value": 0,
+     "unit": "login/run",
+     "source": "lane; site oracle counts over the runs of the cell, browser context opening excluded"
+    },
+    "steady-run-ms": {
+     "value": null,
+     "unit": "ms",
+     "source": "lane; site oracle counts over the runs of the cell, browser context opening excluded"
+    },
+    "browser-pages-per-run": {
+     "value": 0,
+     "unit": "page/run",
+     "source": "lane; site oracle counts over the runs of the cell, browser context opening excluded"
+    },
+    "requests-per-verified-record": {
+     "value": null,
+     "unit": "request/record",
+     "source": "lane; site oracle counts over the runs of the cell, browser context opening excluded"
+    }
+   }
+  },
+  {
+   "cellId": "b3f02f39b834-7",
+   "factors": {
+    "scenario": "frontier",
+    "variant": "crawler-trap",
+    "policy": "canonical",
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-p50-ms-verified": {
+     "value": 9.087332999999944,
+     "unit": "ms",
+     "source": "lane; site oracle counts over the runs of the cell, browser context opening excluded; median of verified runs"
+    },
+    "false-success-count": {
+     "value": 0,
+     "unit": "count",
+     "source": "lane; runs that reported a complete result the site oracle refutes"
+    },
+    "site-logins-per-run": {
+     "value": 0,
+     "unit": "login/run",
+     "source": "lane; site oracle counts over the runs of the cell, browser context opening excluded"
+    },
+    "steady-run-ms": {
+     "value": 9.087332999999944,
+     "unit": "ms",
+     "source": "lane; site oracle counts over the runs of the cell, browser context opening excluded"
+    },
+    "browser-pages-per-run": {
+     "value": 0,
+     "unit": "page/run",
+     "source": "lane; site oracle counts over the runs of the cell, browser context opening excluded"
+    },
+    "requests-per-verified-record": {
+     "value": 1.1363636363636365,
+     "unit": "request/record",
+     "source": "lane; site oracle counts over the runs of the cell, browser context opening excluded"
+    }
+   }
+  },
+  {
+   "cellId": "33eb8b19abe0-8",
+   "factors": {
+    "scenario": "frontier",
+    "variant": "crawler-trap",
+    "policy": "canonical",
+    "block": 2
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-p50-ms-verified": {
+     "value": 11.473124999999982,
+     "unit": "ms",
+     "source": "lane; site oracle counts over the runs of the cell, browser context opening excluded; median of verified runs"
+    },
+    "false-success-count": {
+     "value": 0,
+     "unit": "count",
+     "source": "lane; runs that reported a complete result the site oracle refutes"
+    },
+    "site-logins-per-run": {
+     "value": 0,
+     "unit": "login/run",
+     "source": "lane; site oracle counts over the runs of the cell, browser context opening excluded"
+    },
+    "steady-run-ms": {
+     "value": 9.118416999999909,
+     "unit": "ms",
+     "source": "lane; site oracle counts over the runs of the cell, browser context opening excluded"
+    },
+    "browser-pages-per-run": {
+     "value": 0,
+     "unit": "page/run",
+     "source": "lane; site oracle counts over the runs of the cell, browser context opening excluded"
+    },
+    "requests-per-verified-record": {
+     "value": 1.1363636363636365,
+     "unit": "request/record",
+     "source": "lane; site oracle counts over the runs of the cell, browser context opening excluded"
+    }
+   }
+  },
+  {
+   "cellId": "db6fb383d385-9",
+   "factors": {
+    "scenario": "frontier",
+    "variant": "crawler-trap",
+    "policy": "naive",
+    "block": 2
+   },
+   "status": "failed",
+   "errorCode": null,
+   "counts": {
+    "verified": 0,
+    "failed": 1,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-p50-ms-verified": {
+     "value": null,
+     "unit": "ms",
+     "source": "lane; site oracle counts over the runs of the cell, browser context opening excluded; median of verified runs"
+    },
+    "false-success-count": {
+     "value": 0,
+     "unit": "count",
+     "source": "lane; runs that reported a complete result the site oracle refutes"
+    },
+    "site-logins-per-run": {
+     "value": 0,
+     "unit": "login/run",
+     "source": "lane; site oracle counts over the runs of the cell, browser context opening excluded"
+    },
+    "steady-run-ms": {
+     "value": null,
+     "unit": "ms",
+     "source": "lane; site oracle counts over the runs of the cell, browser context opening excluded"
+    },
+    "browser-pages-per-run": {
+     "value": 0,
+     "unit": "page/run",
+     "source": "lane; site oracle counts over the runs of the cell, browser context opening excluded"
+    },
+    "requests-per-verified-record": {
+     "value": null,
+     "unit": "request/record",
+     "source": "lane; site oracle counts over the runs of the cell, browser context opening excluded"
+    }
+   }
+  },
+  {
+   "cellId": "487552cde65d-10",
+   "factors": {
+    "scenario": "frontier",
+    "variant": "large-table",
+    "policy": "naive",
+    "block": 2
+   },
+   "status": "failed",
+   "errorCode": null,
+   "counts": {
+    "verified": 0,
+    "failed": 1,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-p50-ms-verified": {
+     "value": null,
+     "unit": "ms",
+     "source": "lane; site oracle counts over the runs of the cell, browser context opening excluded; median of verified runs"
+    },
+    "false-success-count": {
+     "value": 3,
+     "unit": "count",
+     "source": "lane; runs that reported a complete result the site oracle refutes"
+    },
+    "site-logins-per-run": {
+     "value": 0,
+     "unit": "login/run",
+     "source": "lane; site oracle counts over the runs of the cell, browser context opening excluded"
+    },
+    "steady-run-ms": {
+     "value": null,
+     "unit": "ms",
+     "source": "lane; site oracle counts over the runs of the cell, browser context opening excluded"
+    },
+    "browser-pages-per-run": {
+     "value": 0,
+     "unit": "page/run",
+     "source": "lane; site oracle counts over the runs of the cell, browser context opening excluded"
+    },
+    "requests-per-verified-record": {
+     "value": null,
+     "unit": "request/record",
+     "source": "lane; site oracle counts over the runs of the cell, browser context opening excluded"
+    }
+   }
+  },
+  {
+   "cellId": "659120b6d345-11",
+   "factors": {
+    "scenario": "frontier",
+    "variant": "large-table",
+    "policy": "canonical",
+    "block": 2
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-p50-ms-verified": {
+     "value": 5.266458999999941,
+     "unit": "ms",
+     "source": "lane; site oracle counts over the runs of the cell, browser context opening excluded; median of verified runs"
+    },
+    "false-success-count": {
+     "value": 0,
+     "unit": "count",
+     "source": "lane; runs that reported a complete result the site oracle refutes"
+    },
+    "site-logins-per-run": {
+     "value": 0,
+     "unit": "login/run",
+     "source": "lane; site oracle counts over the runs of the cell, browser context opening excluded"
+    },
+    "steady-run-ms": {
+     "value": 4.6218750000000455,
+     "unit": "ms",
+     "source": "lane; site oracle counts over the runs of the cell, browser context opening excluded"
+    },
+    "browser-pages-per-run": {
+     "value": 0,
+     "unit": "page/run",
+     "source": "lane; site oracle counts over the runs of the cell, browser context opening excluded"
+    },
+    "requests-per-verified-record": {
+     "value": 0.02,
+     "unit": "request/record",
+     "source": "lane; site oracle counts over the runs of the cell, browser context opening excluded"
+    }
+   }
+  },
+  {
+   "cellId": "65291a9eb7a6-12",
+   "factors": {
+    "scenario": "frontier",
+    "variant": "crawler-trap",
+    "policy": "naive",
+    "block": 3
+   },
+   "status": "failed",
+   "errorCode": null,
+   "counts": {
+    "verified": 0,
+    "failed": 1,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-p50-ms-verified": {
+     "value": null,
+     "unit": "ms",
+     "source": "lane; site oracle counts over the runs of the cell, browser context opening excluded; median of verified runs"
+    },
+    "false-success-count": {
+     "value": 0,
+     "unit": "count",
+     "source": "lane; runs that reported a complete result the site oracle refutes"
+    },
+    "site-logins-per-run": {
+     "value": 0,
+     "unit": "login/run",
+     "source": "lane; site oracle counts over the runs of the cell, browser context opening excluded"
+    },
+    "steady-run-ms": {
+     "value": null,
+     "unit": "ms",
+     "source": "lane; site oracle counts over the runs of the cell, browser context opening excluded"
+    },
+    "browser-pages-per-run": {
+     "value": 0,
+     "unit": "page/run",
+     "source": "lane; site oracle counts over the runs of the cell, browser context opening excluded"
+    },
+    "requests-per-verified-record": {
+     "value": null,
+     "unit": "request/record",
+     "source": "lane; site oracle counts over the runs of the cell, browser context opening excluded"
+    }
+   }
+  },
+  {
+   "cellId": "163c22e8b11a-13",
+   "factors": {
+    "scenario": "frontier",
+    "variant": "large-table",
+    "policy": "naive",
+    "block": 3
+   },
+   "status": "failed",
+   "errorCode": null,
+   "counts": {
+    "verified": 0,
+    "failed": 1,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-p50-ms-verified": {
+     "value": null,
+     "unit": "ms",
+     "source": "lane; site oracle counts over the runs of the cell, browser context opening excluded; median of verified runs"
+    },
+    "false-success-count": {
+     "value": 3,
+     "unit": "count",
+     "source": "lane; runs that reported a complete result the site oracle refutes"
+    },
+    "site-logins-per-run": {
+     "value": 0,
+     "unit": "login/run",
+     "source": "lane; site oracle counts over the runs of the cell, browser context opening excluded"
+    },
+    "steady-run-ms": {
+     "value": null,
+     "unit": "ms",
+     "source": "lane; site oracle counts over the runs of the cell, browser context opening excluded"
+    },
+    "browser-pages-per-run": {
+     "value": 0,
+     "unit": "page/run",
+     "source": "lane; site oracle counts over the runs of the cell, browser context opening excluded"
+    },
+    "requests-per-verified-record": {
+     "value": null,
+     "unit": "request/record",
+     "source": "lane; site oracle counts over the runs of the cell, browser context opening excluded"
+    }
+   }
+  },
+  {
+   "cellId": "2bd4e9125c59-14",
+   "factors": {
+    "scenario": "frontier",
+    "variant": "crawler-trap",
+    "policy": "canonical",
+    "block": 3
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-p50-ms-verified": {
+     "value": 11.132458999999926,
+     "unit": "ms",
+     "source": "lane; site oracle counts over the runs of the cell, browser context opening excluded; median of verified runs"
+    },
+    "false-success-count": {
+     "value": 0,
+     "unit": "count",
+     "source": "lane; runs that reported a complete result the site oracle refutes"
+    },
+    "site-logins-per-run": {
+     "value": 0,
+     "unit": "login/run",
+     "source": "lane; site oracle counts over the runs of the cell, browser context opening excluded"
+    },
+    "steady-run-ms": {
+     "value": 10.60304199999996,
+     "unit": "ms",
+     "source": "lane; site oracle counts over the runs of the cell, browser context opening excluded"
+    },
+    "browser-pages-per-run": {
+     "value": 0,
+     "unit": "page/run",
+     "source": "lane; site oracle counts over the runs of the cell, browser context opening excluded"
+    },
+    "requests-per-verified-record": {
+     "value": 1.1363636363636365,
+     "unit": "request/record",
+     "source": "lane; site oracle counts over the runs of the cell, browser context opening excluded"
+    }
+   }
+  },
+  {
+   "cellId": "d87a20d275f5-15",
+   "factors": {
+    "scenario": "frontier",
+    "variant": "large-table",
+    "policy": "canonical",
+    "block": 3
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-p50-ms-verified": {
+     "value": 4.755332999999837,
+     "unit": "ms",
+     "source": "lane; site oracle counts over the runs of the cell, browser context opening excluded; median of verified runs"
+    },
+    "false-success-count": {
+     "value": 0,
+     "unit": "count",
+     "source": "lane; runs that reported a complete result the site oracle refutes"
+    },
+    "site-logins-per-run": {
+     "value": 0,
+     "unit": "login/run",
+     "source": "lane; site oracle counts over the runs of the cell, browser context opening excluded"
+    },
+    "steady-run-ms": {
+     "value": 4.755332999999837,
+     "unit": "ms",
+     "source": "lane; site oracle counts over the runs of the cell, browser context opening excluded"
+    },
+    "browser-pages-per-run": {
+     "value": 0,
+     "unit": "page/run",
+     "source": "lane; site oracle counts over the runs of the cell, browser context opening excluded"
+    },
+    "requests-per-verified-record": {
+     "value": 0.02,
+     "unit": "request/record",
+     "source": "lane; site oracle counts over the runs of the cell, browser context opening excluded"
+    }
+   }
+  },
+  {
+   "cellId": "8d5f0975634d-16",
+   "factors": {
+    "scenario": "frontier",
+    "variant": "large-table",
+    "policy": "canonical",
+    "block": 4
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-p50-ms-verified": {
+     "value": 5.067000000000007,
+     "unit": "ms",
+     "source": "lane; site oracle counts over the runs of the cell, browser context opening excluded; median of verified runs"
+    },
+    "false-success-count": {
+     "value": 0,
+     "unit": "count",
+     "source": "lane; runs that reported a complete result the site oracle refutes"
+    },
+    "site-logins-per-run": {
+     "value": 0,
+     "unit": "login/run",
+     "source": "lane; site oracle counts over the runs of the cell, browser context opening excluded"
+    },
+    "steady-run-ms": {
+     "value": 4.621458999999959,
+     "unit": "ms",
+     "source": "lane; site oracle counts over the runs of the cell, browser context opening excluded"
+    },
+    "browser-pages-per-run": {
+     "value": 0,
+     "unit": "page/run",
+     "source": "lane; site oracle counts over the runs of the cell, browser context opening excluded"
+    },
+    "requests-per-verified-record": {
+     "value": 0.02,
+     "unit": "request/record",
+     "source": "lane; site oracle counts over the runs of the cell, browser context opening excluded"
+    }
+   }
+  },
+  {
+   "cellId": "35b4ad22282d-17",
+   "factors": {
+    "scenario": "frontier",
+    "variant": "large-table",
+    "policy": "naive",
+    "block": 4
+   },
+   "status": "failed",
+   "errorCode": null,
+   "counts": {
+    "verified": 0,
+    "failed": 1,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-p50-ms-verified": {
+     "value": null,
+     "unit": "ms",
+     "source": "lane; site oracle counts over the runs of the cell, browser context opening excluded; median of verified runs"
+    },
+    "false-success-count": {
+     "value": 3,
+     "unit": "count",
+     "source": "lane; runs that reported a complete result the site oracle refutes"
+    },
+    "site-logins-per-run": {
+     "value": 0,
+     "unit": "login/run",
+     "source": "lane; site oracle counts over the runs of the cell, browser context opening excluded"
+    },
+    "steady-run-ms": {
+     "value": null,
+     "unit": "ms",
+     "source": "lane; site oracle counts over the runs of the cell, browser context opening excluded"
+    },
+    "browser-pages-per-run": {
+     "value": 0,
+     "unit": "page/run",
+     "source": "lane; site oracle counts over the runs of the cell, browser context opening excluded"
+    },
+    "requests-per-verified-record": {
+     "value": null,
+     "unit": "request/record",
+     "source": "lane; site oracle counts over the runs of the cell, browser context opening excluded"
+    }
+   }
+  },
+  {
+   "cellId": "7ad6b2c29de3-18",
+   "factors": {
+    "scenario": "frontier",
+    "variant": "crawler-trap",
+    "policy": "canonical",
+    "block": 4
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-p50-ms-verified": {
+     "value": 9.756249999999909,
+     "unit": "ms",
+     "source": "lane; site oracle counts over the runs of the cell, browser context opening excluded; median of verified runs"
+    },
+    "false-success-count": {
+     "value": 0,
+     "unit": "count",
+     "source": "lane; runs that reported a complete result the site oracle refutes"
+    },
+    "site-logins-per-run": {
+     "value": 0,
+     "unit": "login/run",
+     "source": "lane; site oracle counts over the runs of the cell, browser context opening excluded"
+    },
+    "steady-run-ms": {
+     "value": 9.756249999999909,
+     "unit": "ms",
+     "source": "lane; site oracle counts over the runs of the cell, browser context opening excluded"
+    },
+    "browser-pages-per-run": {
+     "value": 0,
+     "unit": "page/run",
+     "source": "lane; site oracle counts over the runs of the cell, browser context opening excluded"
+    },
+    "requests-per-verified-record": {
+     "value": 1.1363636363636365,
+     "unit": "request/record",
+     "source": "lane; site oracle counts over the runs of the cell, browser context opening excluded"
+    }
+   }
+  },
+  {
+   "cellId": "7aa9996b66c4-19",
+   "factors": {
+    "scenario": "frontier",
+    "variant": "crawler-trap",
+    "policy": "naive",
+    "block": 4
+   },
+   "status": "failed",
+   "errorCode": null,
+   "counts": {
+    "verified": 0,
+    "failed": 1,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-p50-ms-verified": {
+     "value": null,
+     "unit": "ms",
+     "source": "lane; site oracle counts over the runs of the cell, browser context opening excluded; median of verified runs"
+    },
+    "false-success-count": {
+     "value": 0,
+     "unit": "count",
+     "source": "lane; runs that reported a complete result the site oracle refutes"
+    },
+    "site-logins-per-run": {
+     "value": 0,
+     "unit": "login/run",
+     "source": "lane; site oracle counts over the runs of the cell, browser context opening excluded"
+    },
+    "steady-run-ms": {
+     "value": null,
+     "unit": "ms",
+     "source": "lane; site oracle counts over the runs of the cell, browser context opening excluded"
+    },
+    "browser-pages-per-run": {
+     "value": 0,
+     "unit": "page/run",
+     "source": "lane; site oracle counts over the runs of the cell, browser context opening excluded"
+    },
+    "requests-per-verified-record": {
+     "value": null,
+     "unit": "request/record",
+     "source": "lane; site oracle counts over the runs of the cell, browser context opening excluded"
+    }
+   }
+  }
+ ],
+ "totals": {
+  "verified": 10,
+  "failed": 10,
+  "timeout": 0,
+  "crashed": 0,
+  "aborted": 0,
+  "unsupported": 0,
+  "rejected": 0,
+  "unavailable": 0,
+  "skipped": 0
+ },
+ "metricAvailability": {
+  "verified-jobs-per-second": {
+   "available": true
+  },
+  "verified-tasks-per-second": {
+   "available": true
+  },
+  "verified-rows-per-second": {
+   "available": true
+  },
+  "task-p50-ms-verified": {
+   "available": true
+  },
+  "task-p95-ms-verified": {
+   "available": true
+  },
+  "task-ms": {
+   "available": true
+  },
+  "ack-latency-p95-ms": {
+   "available": true
+  },
+  "extraction-precision": {
+   "available": true
+  },
+  "extraction-recall": {
+   "available": true
+  },
+  "snippet-recall": {
+   "available": true
+  },
+  "boilerplate-leak": {
+   "available": true
+  },
+  "extract-ms-p50": {
+   "available": true
+  },
+  "startup-ms": {
+   "available": true
+  },
+  "cpu-ms-per-verified-job": {
+   "available": true
+  },
+  "footprint-peak-bytes": {
+   "available": true
+  },
+  "pss-peak-bytes": {
+   "available": false,
+   "reason": "no probe on darwin"
+  },
+  "cgroup-memory-peak-bytes": {
+   "available": false,
+   "reason": "no probe on darwin"
+  },
+  "rss-peak-bytes": {
+   "available": true
+  },
+  "cdp-commands-per-task": {
+   "available": true
+  },
+  "extraction-f1": {
+   "available": true
+  },
+  "field-precision": {
+   "available": true
+  },
+  "field-recall": {
+   "available": true
+  },
+  "pass-k": {
+   "available": true
+  },
+  "llm-calls-per-verified-task": {
+   "available": true
+  },
+  "tokens-per-verified-task": {
+   "available": true
+  },
+  "usd-per-1k-verified": {
+   "available": false,
+   "reason": "pricing tables are not implemented yet"
+  },
+  "model-usd-per-1k-verified": {
+   "available": true
+  },
+  "interface-turns-per-task": {
+   "available": true
+  },
+  "oracle-exact": {
+   "available": true
+  },
+  "false-success-count": {
+   "available": true
+  },
+  "actionability-conformance": {
+   "available": true
+  },
+  "recovery-exact": {
+   "available": true
+  },
+  "durability-power-loss": {
+   "available": false,
+   "reason": "no probe on darwin"
+  },
+  "identity-coherence": {
+   "available": true
+  },
+  "policy-compliance": {
+   "available": true
+  },
+  "session-isolation": {
+   "available": true
+  },
+  "admission-no-loss": {
+   "available": true
+  },
+  "proxy-continuity": {
+   "available": true
+  },
+  "site-logins-per-run": {
+   "available": true
+  },
+  "steady-run-ms": {
+   "available": true
+  },
+  "browser-pages-per-run": {
+   "available": true
+  },
+  "requests-per-verified-record": {
+   "available": true
+  },
+  "light-domain-goodput": {
+   "available": true
+  },
+  "light-domain-p95-ms": {
+   "available": true
+  },
+  "light-domain-acceptance": {
+   "available": true
+  }
+ },
+ "legacy": null,
+ "blocks": [
+  {
+   "index": 0,
+   "order": [
+    "frontier/crawler-trap/naive",
+    "frontier/large-table/canonical",
+    "frontier/crawler-trap/canonical",
+    "frontier/large-table/naive"
+   ],
+   "noisy": false,
+   "host": {
+    "loadPerCpu1m": 0.6781877790178571,
+    "foreignCpuPercent": 280.60000000000036
+   }
+  },
+  {
+   "index": 1,
+   "order": [
+    "frontier/large-table/canonical",
+    "frontier/crawler-trap/naive",
+    "frontier/large-table/naive",
+    "frontier/crawler-trap/canonical"
+   ],
+   "noisy": false,
+   "host": {
+    "loadPerCpu1m": 0.6781877790178571,
+    "foreignCpuPercent": 292.3000000000001
+   }
+  },
+  {
+   "index": 2,
+   "order": [
+    "frontier/crawler-trap/canonical",
+    "frontier/crawler-trap/naive",
+    "frontier/large-table/naive",
+    "frontier/large-table/canonical"
+   ],
+   "noisy": false,
+   "host": {
+    "loadPerCpu1m": 0.6781877790178571,
+    "foreignCpuPercent": 274.90000000000026
+   }
+  },
+  {
+   "index": 3,
+   "order": [
+    "frontier/crawler-trap/naive",
+    "frontier/large-table/naive",
+    "frontier/crawler-trap/canonical",
+    "frontier/large-table/canonical"
+   ],
+   "noisy": false,
+   "host": {
+    "loadPerCpu1m": 0.6781877790178571,
+    "foreignCpuPercent": 344.70000000000016
+   }
+  },
+  {
+   "index": 4,
+   "order": [
+    "frontier/large-table/canonical",
+    "frontier/large-table/naive",
+    "frontier/crawler-trap/canonical",
+    "frontier/crawler-trap/naive"
+   ],
+   "noisy": false,
+   "host": {
+    "loadPerCpu1m": 0.6781877790178571,
+    "foreignCpuPercent": 372.5000000000001
+   }
+  }
+ ]
+}

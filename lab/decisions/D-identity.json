@@ -61,12 +61,12 @@
     },
     {
       "kind": "run",
-      "ref": "access-policy-2026-10-08T17-27-03-497Z-f99eb0",
+      "ref": "access-policy-2026-10-09T16-19-19-822Z-f128cf",
       "note": "robots.txt et challenge en 200"
     },
     {
       "kind": "run",
-      "ref": "tls-fingerprint-2026-10-08T19-32-26-736Z-f42991",
+      "ref": "tls-fingerprint-2026-10-09T16-20-40-847Z-1d6b5d",
       "note": "empreintes TLS et HTTP/2"
     },
     {

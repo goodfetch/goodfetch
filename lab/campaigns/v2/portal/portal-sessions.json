@@ -1,0 +1,35 @@
+{
+  "schemaVersion": 2,
+  "lane": "portal",
+  "decisionIds": [
+    "D-session-model"
+  ],
+  "hostClass": {
+    "requested": "local-controlled",
+    "allowDowngrade": true
+  },
+  "id": "portal-sessions",
+  "config": {
+    "group": "session",
+    "variants": [
+      "login-csrf",
+      "session-expiry",
+      "session-refresh",
+      "session-resume",
+      "resume-revoked"
+    ],
+    "policies": [
+      "status-only",
+      "contract",
+      "relogin-each-run"
+    ],
+    "tiers": [
+      "http",
+      "browser"
+    ],
+    "repeats": 2,
+    "blocks": 5,
+    "seed": 6101,
+    "timeoutMs": 20000
+  }
+}

@@ -1954,9 +1954,9 @@
       }
     },
     "http-incidents-2026-10-08T17-25-00-258Z-206e01": {
-      "role": "selected",
+      "role": "superseded",
       "reason": "incidents HTTP sur sept backends, dont reqwest, wreq et Impit",
-      "supersededBy": null,
+      "supersededBy": "http-incidents-2026-10-09T16-17-14-005Z-41e172",
       "decisionIds": [
         "D-http-transport"
       ],
@@ -1975,9 +1975,9 @@
       }
     },
     "access-policy-2026-10-08T17-27-03-497Z-f99eb0": {
-      "role": "selected",
+      "role": "superseded",
       "reason": "robots.txt et challenge en 200 sur sept backends",
-      "supersededBy": null,
+      "supersededBy": "access-policy-2026-10-09T16-19-19-822Z-f128cf",
       "decisionIds": [
         "D-identity",
         "D-http-transport"
@@ -2681,9 +2681,9 @@
       }
     },
     "tls-fingerprint-2026-10-08T19-32-26-736Z-f42991": {
-      "role": "selected",
+      "role": "superseded",
       "reason": "empreintes TLS (JA4) et HTTP/2 de huit clients, cohérence de session",
-      "supersededBy": null,
+      "supersededBy": "tls-fingerprint-2026-10-09T16-20-40-847Z-1d6b5d",
       "decisionIds": [
         "D-identity",
         "D-http-transport"
@@ -3961,6 +3961,310 @@
           "scope": "all",
           "class": "none",
           "note": "oracle corrigé ensuite"
+        }
+      ],
+      "noisyHost": false,
+      "rerun": {
+        "required": false,
+        "priority": null,
+        "hostClass": null
+      }
+    },
+    "portal-frontier-2026-10-09T15-08-28-035Z-e66949": {
+      "role": "selected",
+      "reason": "frontier à travers pièges (sid, utm, tris, calendrier sans fin) et table modifiée pendant la pagination ; comptes de requêtes du site",
+      "supersededBy": null,
+      "decisionIds": [
+        "D-frontier"
+      ],
+      "validity": [
+        {
+          "scope": "frontier-contract",
+          "class": "A",
+          "note": "oracle du site"
+        },
+        {
+          "scope": "request-counts",
+          "class": "A",
+          "note": "comptés par le site, indépendants de l'hôte"
+        },
+        {
+          "scope": "timing",
+          "class": "none",
+          "note": "local-dev"
+        }
+      ],
+      "noisyHost": false,
+      "rerun": {
+        "required": false,
+        "priority": null,
+        "hostClass": null
+      }
+    },
+    "portal-sessions-2026-10-09T15-08-30-076Z-7ccb85": {
+      "role": "superseded",
+      "reason": "sources du lab modifiées pendant le run (invalid-provenance) ; relancé",
+      "supersededBy": "portal-sessions-2026-10-09T15-26-01-462Z-3f0b51",
+      "decisionIds": [
+        "D-session-model"
+      ],
+      "validity": [
+        {
+          "scope": "all",
+          "class": "none",
+          "note": "provenance invalide"
+        }
+      ],
+      "noisyHost": false,
+      "rerun": {
+        "required": false,
+        "priority": null,
+        "hostClass": null
+      }
+    },
+    "portal-routing-2026-10-09T15-12-56-291Z-1eb2f9": {
+      "role": "selected",
+      "reason": "HTTP, navigateur ou API découverte par route, sur six rendus d'un même listing ; job récurrent de 4 runs",
+      "supersededBy": null,
+      "decisionIds": [
+        "D-adaptive-routing"
+      ],
+      "validity": [
+        {
+          "scope": "routing-contract",
+          "class": "A",
+          "note": "oracle du site"
+        },
+        {
+          "scope": "timing",
+          "class": "C",
+          "note": "local-dev : durées indicatives"
+        }
+      ],
+      "noisyHost": false,
+      "rerun": {
+        "required": true,
+        "priority": "P1",
+        "hostClass": "local-controlled"
+      }
+    },
+    "portal-sessions-2026-10-09T15-26-01-462Z-3f0b51": {
+      "role": "selected",
+      "reason": "sessions longues : CSRF, expiration en 200, refresh, reprise journalisée, révocation pendant l'arrêt ; HTTP et navigateur",
+      "supersededBy": null,
+      "decisionIds": [
+        "D-session-model"
+      ],
+      "validity": [
+        {
+          "scope": "session-contract",
+          "class": "A",
+          "note": "oracle du site"
+        },
+        {
+          "scope": "login-counts",
+          "class": "A",
+          "note": "comptés par le site, indépendants de l'hôte"
+        },
+        {
+          "scope": "timing",
+          "class": "none",
+          "note": "local-dev"
+        }
+      ],
+      "noisyHost": false,
+      "rerun": {
+        "required": false,
+        "priority": null,
+        "hostClass": null
+      }
+    },
+    "interface-arena-journal-2026-10-09T15-11-59-464Z-f3de1a": {
+      "role": "selected",
+      "reason": "cinq interfaces dont le mode code journalisé, trois vrais modèles, 5 blocs",
+      "supersededBy": null,
+      "decisionIds": [
+        "D-agent-interface"
+      ],
+      "validity": [
+        {
+          "scope": "interface-contract",
+          "class": "A",
+          "note": "oracle des fixtures"
+        },
+        {
+          "scope": "model-accounting",
+          "class": "A",
+          "note": "tours et tokens comptés par la gateway"
+        },
+        {
+          "scope": "timing",
+          "class": "none",
+          "note": "latence des modèles, local-dev"
+        }
+      ],
+      "noisyHost": false,
+      "rerun": {
+        "required": false,
+        "priority": null,
+        "hostClass": null
+      }
+    },
+    "http-transport-v2-2026-10-09T15-30-27-630Z-d8bf7a": {
+      "role": "superseded",
+      "reason": "adaptateurs mal configurés : reqwest compilé sans décompression gzip, wreq sans politique de redirection ; Spider refuse la redirection loopback (contrôle SSRF, attendu) ; refait avec l'adaptateur corrigé",
+      "supersededBy": "http-transport-v2-2026-10-09T16-13-29-199Z-130b39",
+      "decisionIds": [
+        "D-http-transport"
+      ],
+      "validity": [
+        {
+          "scope": "all",
+          "class": "none",
+          "note": "configuration d'adaptateur corrigée ensuite"
+        }
+      ],
+      "noisyHost": false,
+      "rerun": {
+        "required": false,
+        "priority": null,
+        "hostClass": null
+      }
+    },
+    "http-open-v2-2026-10-09T15-30-40-832Z-1b2a42": {
+      "role": "superseded",
+      "reason": "six transports en arrivées ouvertes à 250/s sur pages normales (sans redirection ni compression) ; refait avec l'adaptateur corrigé",
+      "supersededBy": "http-open-v2-2026-10-09T16-13-49-759Z-f9b6c9",
+      "decisionIds": [
+        "D-http-transport"
+      ],
+      "validity": [
+        {
+          "scope": "open-loop-contract",
+          "class": "A",
+          "note": "oracle des fixtures"
+        },
+        {
+          "scope": "timing",
+          "class": "C",
+          "note": "local-dev"
+        }
+      ],
+      "noisyHost": false,
+      "rerun": {
+        "required": false,
+        "priority": null,
+        "hostClass": null
+      }
+    },
+    "http-transport-v2-2026-10-09T16-13-29-199Z-130b39": {
+      "role": "selected",
+      "reason": "six transports en boucle fermée sur le catalogue à incidents, adaptateur HTTP corrigé (décompression reqwest, redirections wreq)",
+      "supersededBy": null,
+      "decisionIds": [
+        "D-http-transport"
+      ],
+      "validity": [
+        {
+          "scope": "transport-contract",
+          "class": "A",
+          "note": "oracle des fixtures"
+        },
+        {
+          "scope": "timing",
+          "class": "C",
+          "note": "local-dev"
+        }
+      ],
+      "noisyHost": false,
+      "rerun": {
+        "required": true,
+        "priority": "P1",
+        "hostClass": "local-controlled"
+      }
+    },
+    "http-open-v2-2026-10-09T16-13-49-759Z-f9b6c9": {
+      "role": "selected",
+      "reason": "six transports en arrivées ouvertes à 250/s, adaptateur HTTP corrigé",
+      "supersededBy": null,
+      "decisionIds": [
+        "D-http-transport"
+      ],
+      "validity": [
+        {
+          "scope": "open-loop-contract",
+          "class": "A",
+          "note": "oracle des fixtures"
+        },
+        {
+          "scope": "timing",
+          "class": "C",
+          "note": "local-dev"
+        }
+      ],
+      "noisyHost": false,
+      "rerun": {
+        "required": true,
+        "priority": "P1",
+        "hostClass": "local-controlled"
+      }
+    },
+    "http-incidents-2026-10-09T16-17-14-005Z-41e172": {
+      "role": "selected",
+      "reason": "incidents HTTP, refait avec l'adaptateur HTTP corrigé ; mêmes statuts par backend que le run du 8 octobre",
+      "supersededBy": null,
+      "decisionIds": [
+        "D-http-transport"
+      ],
+      "validity": [
+        {
+          "scope": "incident-contract",
+          "class": "A",
+          "note": "Spider HTTP seul à produire des faux succès ; aucune relance configurée dans les adapters"
+        }
+      ],
+      "noisyHost": false,
+      "rerun": {
+        "required": false,
+        "priority": null,
+        "hostClass": null
+      }
+    },
+    "access-policy-2026-10-09T16-19-19-822Z-f128cf": {
+      "role": "selected",
+      "reason": "robots.txt et challenge en 200, refait avec l'adaptateur HTTP corrigé ; mêmes statuts par backend que le run du 8 octobre",
+      "supersededBy": null,
+      "decisionIds": [
+        "D-identity",
+        "D-http-transport"
+      ],
+      "validity": [
+        {
+          "scope": "access-contract",
+          "class": "A",
+          "note": "aucun backend ne détecte le challenge ; node-http ignore robots.txt"
+        }
+      ],
+      "noisyHost": false,
+      "rerun": {
+        "required": false,
+        "priority": null,
+        "hostClass": null
+      }
+    },
+    "tls-fingerprint-2026-10-09T16-20-40-847Z-1d6b5d": {
+      "role": "selected",
+      "reason": "empreintes TLS et HTTP/2, refait avec l'adaptateur HTTP corrigé ; mêmes statuts par backend que le run du 8 octobre",
+      "supersededBy": null,
+      "decisionIds": [
+        "D-identity",
+        "D-http-transport"
+      ],
+      "validity": [
+        {
+          "scope": "identity-coherence",
+          "class": "A",
+          "note": "Crawlee change de liste de chiffrements en cours de session ; Chrome garde un seul JA4"
         }
       ],
       "noisyHost": false,

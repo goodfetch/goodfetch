@@ -18,6 +18,7 @@ import { readersMatrix, runReadersCell, type ReadersConfig } from '../sqlite-rea
 import { aiCombinations, runAiCell, priceSnapshot, type AiConfig, type AiCell } from '../ai-campaign.ts';
 import { identityCombinations, runIdentityCell, httpTiers, identityVariants, type IdentityConfig, type IdentityCell } from '../identity-campaign.ts';
 import { admissionCombinations, runAdmissionCell, admissionBinary, type AdmissionConfig, type AdmissionCell } from '../admission-campaign.ts';
+import { portalCombinations, runPortalCell, portalPolicies, portalVariants, type PortalConfig, type PortalCell } from '../portal-campaign.ts';
 import { extractionCombinations, runExtractionCell, type ExtractionConfig, type ExtractionCell } from '../extraction-campaign.ts';
 import { isSharedEngine, sharedBuildMetadata } from '../storage-engines.ts';
 
@@ -66,7 +67,7 @@ export const drivers: Record<LaneName, LaneDriver> = {
     runCell: (config, cell, block, _directory, executablePath) => runActionabilityCell(config as ActionabilityConfig, cell as unknown as ActionabilityCell, block, executablePath as string)
   },
   ai: {
-    validate: config => { const c = config as AiConfig; if (!c || !Array.isArray(c.modes) || !c.modes.length || !c.modes.every(m => m === 'agent-each-run' || m === 'compiled-replay') || !Array.isArray(c.variants) || !c.variants.length || !integer(c.warmRuns, 1, 50) || !integer(c.blocks, 1, 10) || !integer(c.timeoutMs, 100, 60_000) || (c.models !== undefined && (!Array.isArray(c.models) || !c.models.length || !c.models.every(m => /^[a-z0-9-]+\/[a-z0-9.-]+$/.test(m)) || typeof c.gateway !== 'string' || !/^https:\/\//.test(c.gateway) || !(typeof c.maxUsd === 'number' && c.maxUsd > 0 && c.maxUsd <= 20))) || (c.interfaces !== undefined && (!c.models || !Array.isArray(c.interfaces) || !c.interfaces.every(i => ['sdk', 'mcp', 'cli', 'code-mode'].includes(i))))) throw new Error('invalid ai campaign'); },
+    validate: config => { const c = config as AiConfig; if (!c || !Array.isArray(c.modes) || !c.modes.length || !c.modes.every(m => m === 'agent-each-run' || m === 'compiled-replay') || !Array.isArray(c.variants) || !c.variants.length || !integer(c.warmRuns, 1, 50) || !integer(c.blocks, 1, 10) || !integer(c.timeoutMs, 100, 60_000) || (c.models !== undefined && (!Array.isArray(c.models) || !c.models.length || !c.models.every(m => /^[a-z0-9-]+\/[a-z0-9.-]+$/.test(m)) || typeof c.gateway !== 'string' || !/^https:\/\//.test(c.gateway) || !(typeof c.maxUsd === 'number' && c.maxUsd > 0 && c.maxUsd <= 20))) || (c.interfaces !== undefined && (!c.models || !Array.isArray(c.interfaces) || !c.interfaces.every(i => ['sdk', 'mcp', 'cli', 'code-mode', 'code-mode-journal'].includes(i))))) throw new Error('invalid ai campaign'); },
     blocks: config => (config as AiConfig).blocks, seed: config => (config as AiConfig).seed,
     combinations: config => aiCombinations(config as AiConfig) as unknown as Json[], label: cell => `${cell.model}/${cell.interface ?? cell.mode}/${cell.variant}`,
     prepare: config => priceSnapshot(config as AiConfig),
@@ -91,6 +92,12 @@ export const drivers: Record<LaneName, LaneDriver> = {
     blocks: config => (config as ExtractionConfig).blocks, seed: config => (config as ExtractionConfig).seed,
     combinations: config => extractionCombinations(config as ExtractionConfig) as unknown as Json[], label: cell => `${cell.renderer ?? 'none'}/${cell.extractor}/${cell.pageType}`,
     runCell: (config, cell, block, directory) => runExtractionCell(config as ExtractionConfig, cell as unknown as ExtractionCell, block, directory) as Promise<Json>
+  },
+  portal: {
+    validate: config => { const c = config as PortalConfig; const group = c?.group; if (!c || !(group in portalPolicies) || !Array.isArray(c.variants) || !c.variants.length || !c.variants.every(v => (portalVariants[group] as readonly string[]).includes(v)) || !Array.isArray(c.policies) || !c.policies.length || !c.policies.every(p => (portalPolicies[group] as readonly string[]).includes(p)) || (c.tiers !== undefined && (!Array.isArray(c.tiers) || !c.tiers.length || !c.tiers.every(t => t === 'http' || t === 'browser'))) || !integer(c.repeats, 1, 50) || !integer(c.blocks, 1, 20) || !integer(c.seed, 0, 2 ** 32 - 1) || !integer(c.timeoutMs, 1000, 120_000) || (c.maxRequests !== undefined && !integer(c.maxRequests, 10, 100_000))) throw new Error('invalid portal campaign'); },
+    blocks: config => (config as PortalConfig).blocks, seed: config => (config as PortalConfig).seed,
+    combinations: config => portalCombinations(config as PortalConfig) as unknown as Json[], label: cell => `${cell.scenario}/${cell.variant}/${cell.policy}${cell.tier ? '/' + cell.tier : ''}`,
+    runCell: (config, cell, block, directory) => runPortalCell(config as PortalConfig, cell as unknown as PortalCell, block, directory) as Promise<Json>
   },
   'sqlite-readers': {
     validate: config => { const c = config as ReadersConfig; if (!c || !integer(c.blocks, 1, 20) || !integer(c.seed, 0, 2 ** 32 - 1) || !Array.isArray(c.engines) || !c.engines.length || !Array.isArray(c.writers) || !Array.isArray(c.readerModes) || !Array.isArray(c.batchRows) || !c.batchRows.every(b => Number.isInteger(c.totalRows / b))) throw new Error('invalid readers campaign'); },

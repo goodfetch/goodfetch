@@ -1,0 +1,100 @@
+{
+  "id": "D-session-model",
+  "title": "Modèle de session authentifiée longue",
+  "question": "Comment le moteur porte-t-il une session authentifiée sur un portail : état de session journalisé et repris, page jugée sur son contrat, ou reconnexion à chaque run ?",
+  "kind": "technical",
+  "status": "open",
+  "options": [
+    {
+      "id": "contract",
+      "description": "Cookies de session dans le journal et repris au redémarrage ; chaque page est jugée sur son contrat (listing authentifié attendu) ; perte de session : refresh déclaré puis login"
+    },
+    {
+      "id": "relogin-each-run",
+      "description": "Même contrat de page, mais aucun état de session repris : login au début de chaque run"
+    },
+    {
+      "id": "status-only",
+      "description": "Cookies repris ; perte de session détectée par le statut HTTP (401/403) ou une redirection vers le login"
+    }
+  ],
+  "baseline": "relogin-each-run",
+  "primaryMetric": {
+    "metricId": "site-logins-per-run",
+    "blockStatistic": "median"
+  },
+  "secondaryMetrics": [
+    "task-p50-ms-verified",
+    "false-success-count"
+  ],
+  "contractGates": [
+    "oracle-exact"
+  ],
+  "delta": {
+    "kind": "ratio",
+    "value": 0.1
+  },
+  "rule": {
+    "kind": "superiority",
+    "alpha": 0.05,
+    "power": 0.8,
+    "noisyBlockPolicy": "exclude"
+  },
+  "hostClass": {
+    "decision": "local-dev",
+    "publication": "local-controlled"
+  },
+  "networkProfiles": [],
+  "campaigns": [
+    "portal-sessions"
+  ],
+  "evidence": [
+    {
+      "kind": "run",
+      "ref": "portal-sessions-2026-10-09T15-26-01-462Z-3f0b51",
+      "note": "cinq situations, trois politiques, deux tiers"
+    },
+    {
+      "kind": "research-doc",
+      "ref": "lab/reports/portal-2026-10-09.md"
+    }
+  ],
+  "verdictRef": "verdicts/D-session-model.json",
+  "adr": "docs/adr/0003-session-model.md",
+  "dependsOn": [
+    "D-identity"
+  ],
+  "notes": "Les logins sont comptés par le site : la métrique ne dépend pas de la charge de l'hôte, d'où une décision possible en local-dev. Le contrat porte sur les données : une page de login servie en 200 à la place d'un rapport ne doit jamais compter comme une page vide.",
+  "analysis": {
+    "lane": "portal",
+    "options": {
+      "contract": {
+        "policy": "contract"
+      },
+      "relogin-each-run": {
+        "policy": "relogin-each-run"
+      },
+      "status-only": {
+        "policy": "status-only"
+      }
+    },
+    "pairBy": [
+      "variant",
+      "tier"
+    ],
+    "stratum": {
+      "variant": "session-resume",
+      "tier": "http"
+    },
+    "strata": [
+      {
+        "variant": "session-resume",
+        "tier": "http"
+      },
+      {
+        "variant": "session-resume",
+        "tier": "browser"
+      }
+    ]
+  }
+}

@@ -1,0 +1,124 @@
+{
+  "id": "D-adaptive-routing",
+  "title": "HTTP adaptatif fondé sur le résultat",
+  "question": "Pour une route nouvelle, comment le moteur choisit-il entre HTTP, navigateur et API découverte sans faux succès et au moindre coût sur les runs suivants (architecture §5.3) ?",
+  "kind": "technical",
+  "status": "open",
+  "options": [
+    {
+      "id": "browser-only",
+      "description": "Toujours le navigateur, page stabilisée (réseau calme, défilement et « load more » jusqu'à stabilité)"
+    },
+    {
+      "id": "sampled-contract",
+      "description": "Premier passage d'une route : HTTP et navigateur sur la première page ; HTTP retenu s'il donne les mêmes enregistrements et liens ; total déclaré vérifié en fin de route, sinon route réapprise en navigateur"
+    },
+    {
+      "id": "api-capture",
+      "description": "Comme sampled-contract ; si le navigateur est requis, plan de rejeu d'API inféré du trafic JSON de l'échantillon (paramètre de page ou chaîne de curseurs), validé contre le navigateur avant usage"
+    },
+    {
+      "id": "heuristic",
+      "description": "HTTP, puis navigateur si la page HTTP ne contient aucun enregistrement"
+    },
+    {
+      "id": "http-only",
+      "description": "HTTP seul"
+    }
+  ],
+  "baseline": "browser-only",
+  "primaryMetric": {
+    "metricId": "steady-run-ms",
+    "blockStatistic": "median"
+  },
+  "secondaryMetrics": [
+    "task-p50-ms-verified",
+    "browser-pages-per-run",
+    "false-success-count"
+  ],
+  "contractGates": [
+    "oracle-exact"
+  ],
+  "delta": {
+    "kind": "ratio",
+    "value": 0.1
+  },
+  "rule": {
+    "kind": "superiority",
+    "alpha": 0.05,
+    "power": 0.8,
+    "noisyBlockPolicy": "exclude"
+  },
+  "hostClass": {
+    "decision": "local-controlled",
+    "publication": "reference"
+  },
+  "networkProfiles": [],
+  "campaigns": [
+    "portal-routing"
+  ],
+  "evidence": [
+    {
+      "kind": "run",
+      "ref": "portal-routing-2026-10-09T15-12-56-291Z-1eb2f9",
+      "note": "six rendus, cinq politiques"
+    },
+    {
+      "kind": "research-doc",
+      "ref": "lab/reports/portal-2026-10-09.md"
+    }
+  ],
+  "verdictRef": "verdicts/D-adaptive-routing.json",
+  "adr": null,
+  "dependsOn": [
+    "D-browser-driver",
+    "D-identity"
+  ],
+  "notes": "Un job récurrent : ce qu'une route a appris est réutilisé aux runs suivants, avec le total déclaré comme événement d'invalidation. Le gate porte sur toutes les variantes d'une option : une seule page où elle rend un résultat faux la bloque.",
+  "analysis": {
+    "lane": "portal",
+    "options": {
+      "browser-only": {
+        "policy": "browser-only"
+      },
+      "sampled-contract": {
+        "policy": "sampled-contract"
+      },
+      "api-capture": {
+        "policy": "api-capture"
+      },
+      "heuristic": {
+        "policy": "heuristic"
+      },
+      "http-only": {
+        "policy": "http-only"
+      }
+    },
+    "pairBy": [
+      "variant"
+    ],
+    "stratum": {
+      "variant": "static"
+    },
+    "strata": [
+      {
+        "variant": "static"
+      },
+      {
+        "variant": "js-shell"
+      },
+      {
+        "variant": "partial-hydration"
+      },
+      {
+        "variant": "stale-html"
+      },
+      {
+        "variant": "graphql"
+      },
+      {
+        "variant": "infinite-scroll"
+      }
+    ]
+  }
+}

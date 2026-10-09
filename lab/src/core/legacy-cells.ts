@@ -5,10 +5,10 @@ export type Counts = { verified: number; failed: number; timeout: number; crashe
 export type CellStatus = 'verified' | 'failed' | 'mixed' | 'timeout' | 'crashed' | 'aborted' | 'unsupported' | 'rejected' | 'unavailable' | 'skipped-gate';
 export type Measure = { value: number | null; unit: string; source: string };
 export type ImportedCell = { cellId: string; factors: Record<string, string | number | boolean | null>; status: CellStatus; errorCode: string | null; counts: Counts; metrics: Record<string, Measure> };
-export type Lane = 'bench' | 'storage' | 'workflow' | 'runtime' | 'actionability' | 'sqlite-readers' | 'extraction' | 'ai' | 'identity' | 'admission' | 'suite';
+export type Lane = 'bench' | 'storage' | 'workflow' | 'runtime' | 'actionability' | 'sqlite-readers' | 'extraction' | 'ai' | 'identity' | 'admission' | 'portal' | 'suite';
 export type Json = Record<string, unknown>;
 
-const factorKeys = ['backend', 'extractor', 'pageType', 'split', 'mode', 'httpTier', 'profile', 'purpose', 'renderer', 'model', 'interface', 'scenario', 'engine', 'format', 'batchSize', 'batchRows', 'writers', 'readerMode', 'payloadBytes', 'concurrency', 'batchJobs', 'fault', 'poolWake', 'runtime', 'variant', 'policy', 'jobs', 'pages', 'delayMs', 'leaseMs', 'block'];
+const factorKeys = ['backend', 'extractor', 'pageType', 'split', 'mode', 'httpTier', 'profile', 'purpose', 'renderer', 'model', 'interface', 'tier', 'scenario', 'engine', 'format', 'batchSize', 'batchRows', 'writers', 'readerMode', 'payloadBytes', 'concurrency', 'batchJobs', 'fault', 'poolWake', 'runtime', 'variant', 'policy', 'jobs', 'pages', 'delayMs', 'leaseMs', 'block'];
 
 export const zero = (): Counts => ({ verified: 0, failed: 0, timeout: 0, crashed: 0, aborted: 0, unsupported: 0, rejected: 0, unavailable: 0, skipped: 0 });
 export const add = (into: Counts, from: Partial<Counts>) => { for (const key of Object.keys(into) as (keyof Counts)[]) into[key] += Number(from[key] ?? 0); return into; };
@@ -57,6 +57,12 @@ export function laneMetrics(lane: Lane, raw: Json): Record<string, Measure> {
   if (lane === 'admission') {
     const source = 'lane; open Poisson arrivals, acknowledgement once journaled, completions observed at the site';
     for (const [id, key, unit] of [['ack-latency-p95-ms', 'ackP95Ms', 'ms'], ['verified-jobs-per-second', 'verifiedJobsPerSecond', 'job/s'], ['light-domain-goodput', 'lightGoodput', 'job/s'], ['light-domain-p95-ms', 'lightP95Ms', 'ms'], ['light-domain-acceptance', 'lightAcceptance', 'ratio']] as const) metrics[id] = measure(raw[key], unit, source);
+  }
+  if (lane === 'portal') {
+    const source = 'lane; site oracle counts over the runs of the cell, browser context opening excluded';
+    metrics['task-p50-ms-verified'] = measure(raw.taskP50MsVerified, 'ms', `${source}; median of verified runs`);
+    metrics['false-success-count'] = measure(raw.falseSuccess, 'count', 'lane; runs that reported a complete result the site oracle refutes');
+    for (const [id, key, unit] of [['site-logins-per-run', 'loginsPerRun', 'login/run'], ['steady-run-ms', 'steadyRunMs', 'ms'], ['browser-pages-per-run', 'browserPagesPerRun', 'page/run'], ['requests-per-verified-record', 'requestsPerVerifiedRecord', 'request/record']] as const) if (raw[key] !== undefined) metrics[id] = measure(raw[key], unit, source);
   }
   if (lane === 'extraction') {
     const source = 'lane; mean over the pages of the cell, WCXB evaluate.py definitions';

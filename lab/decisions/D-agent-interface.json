@@ -20,6 +20,10 @@
     {
       "id": "code-mode",
       "description": "Code mode : recherche d'API et exécution"
+    },
+    {
+      "id": "code-mode-journal",
+      "description": "Code mode avec journal d'effets : une correction est rejouée contre le journal, les actions déjà appliquées au même rang sont sautées, une divergence après un clic envoyé arrête le programme"
     }
   ],
   "baseline": "mcp",
@@ -45,12 +49,13 @@
     "noisyBlockPolicy": "exclude"
   },
   "hostClass": {
-    "decision": "local-controlled",
-    "publication": "reference"
+    "decision": "local-dev",
+    "publication": "local-controlled"
   },
   "networkProfiles": [],
   "campaigns": [
-    "interface-arena"
+    "interface-arena",
+    "interface-arena-journal"
   ],
   "evidence": [
     {
@@ -61,14 +66,23 @@
     {
       "kind": "research-doc",
       "ref": "lab/reports/interface-arena-2026-10-09.md"
+    },
+    {
+      "kind": "run",
+      "ref": "interface-arena-journal-2026-10-09T15-11-59-464Z-f3de1a",
+      "note": "mode code journalisé, 5 blocs"
+    },
+    {
+      "kind": "research-doc",
+      "ref": "lab/reports/code-mode-journal-2026-10-09.md"
     }
   ],
-  "verdictRef": null,
+  "verdictRef": "verdicts/D-agent-interface.json",
   "adr": null,
   "dependsOn": [
     "D-ai-layer"
   ],
-  "notes": "Croiser les interfaces avec découverte, rejeu et réparation ; mêmes tâches, modèle et budget.",
+  "notes": "Croiser les interfaces avec découverte, rejeu et réparation ; mêmes tâches, modèle et budget. Tours et tokens sont comptés par la gateway et ne dépendent pas de la charge de l'hôte : la décision se prend en local-dev ; les durées, qui incluent la latence des modèles, restent hors verdict.",
   "analysis": {
     "lane": "ai",
     "options": {
@@ -83,6 +97,9 @@
       },
       "code-mode": {
         "interface": "code-mode"
+      },
+      "code-mode-journal": {
+        "interface": "code-mode-journal"
       }
     },
     "pairBy": [

@@ -19,25 +19,25 @@
   "variant": "baseline"
  },
  "outcome": "insufficient-n",
- "n": 9,
+ "n": 24,
  "margin": 0.13976194237515863,
- "requiredN": 196,
+ "requiredN": 157,
  "estimate": {
-  "meanLogRatio": 0.1116222260782948,
-  "ratio": 1.1180903954583912,
+  "meanLogRatio": 0.08953601501260529,
+  "ratio": 1.0936667210238158,
   "ci": [
-   -0.296060838561399,
-   0.53506165759892
+   -0.15087100321976335,
+   0.34024373605894603
   ],
   "ratioCi": [
-   0.7437421784395459,
-   1.7075535226587442
+   0.8599586233981397,
+   1.405290068687782
   ],
-  "hodgesLehmannRatio": 1.0894095588038444,
+  "hodgesLehmannRatio": 1.07854777646725,
   "wilcoxon": {
-   "n": 9,
-   "wPlus": 27,
-   "pValue": 0.6343945723573274,
+   "n": 23,
+   "wPlus": 155,
+   "pValue": 0.6140285429768024,
    "method": "normal"
   },
   "interval": "95% block bootstrap"
@@ -50,9 +50,9 @@
   }
  ],
  "host": {
-  "required": "local-controlled",
+  "required": "local-dev",
   "observed": "local-dev",
-  "eligible": false
+  "eligible": true
  },
  "comparisons": [
   {
@@ -62,25 +62,25 @@
     "variant": "baseline"
    },
    "outcome": "insufficient-n",
-   "n": 9,
+   "n": 24,
    "margin": 0.13976194237515863,
-   "requiredN": 196,
+   "requiredN": 157,
    "estimate": {
-    "meanLogRatio": 0.1116222260782948,
-    "ratio": 1.1180903954583912,
+    "meanLogRatio": 0.08953601501260529,
+    "ratio": 1.0936667210238158,
     "ci": [
-     -0.296060838561399,
-     0.53506165759892
+     -0.15087100321976335,
+     0.34024373605894603
     ],
     "ratioCi": [
-     0.7437421784395459,
-     1.7075535226587442
+     0.8599586233981397,
+     1.405290068687782
     ],
-    "hodgesLehmannRatio": 1.0894095588038444,
+    "hodgesLehmannRatio": 1.07854777646725,
     "wilcoxon": {
-     "n": 9,
-     "wPlus": 27,
-     "pValue": 0.6343945723573274,
+     "n": 23,
+     "wPlus": 155,
+     "pValue": 0.6140285429768024,
      "method": "normal"
     },
     "interval": "95% block bootstrap"
@@ -93,9 +93,9 @@
     }
    ],
    "host": {
-    "required": "local-controlled",
+    "required": "local-dev",
     "observed": "local-dev",
-    "eligible": false
+    "eligible": true
    }
   },
   {
@@ -105,25 +105,25 @@
     "variant": "decoy-swap"
    },
    "outcome": "insufficient-n",
-   "n": 9,
+   "n": 24,
    "margin": 0.13976194237515863,
-   "requiredN": 56,
+   "requiredN": 134,
    "estimate": {
-    "meanLogRatio": -0.13886088256432091,
-    "ratio": 0.8703491007714663,
+    "meanLogRatio": 0.051468636029407204,
+    "ratio": 1.0528161652790535,
     "ci": [
-     -0.36899870371399646,
-     0.08284149519761301
+     -0.16595963028709684,
+     0.28432850997620535
     ],
     "ratioCi": [
-     0.6914263067359715,
-     1.0863696001018823
+     0.8470804298929203,
+     1.3288694059125636
     ],
-    "hodgesLehmannRatio": 0.9047619047619048,
+    "hodgesLehmannRatio": 1.0408329997330663,
     "wilcoxon": {
-     "n": 8,
-     "wPlus": 11,
-     "pValue": 0.3621375249479091,
+     "n": 21,
+     "wPlus": 126,
+     "pValue": 0.7269878489257657,
      "method": "normal"
     },
     "interval": "95% block bootstrap"
@@ -136,9 +136,9 @@
     }
    ],
    "host": {
-    "required": "local-controlled",
+    "required": "local-dev",
     "observed": "local-dev",
-    "eligible": false
+    "eligible": true
    }
   },
   {
@@ -147,26 +147,26 @@
    "stratum": {
     "variant": "price-change"
    },
-   "outcome": "insufficient-n",
-   "n": 9,
+   "outcome": "worse",
+   "n": 24,
    "margin": 0.13976194237515863,
-   "requiredN": 16,
+   "requiredN": 9,
    "estimate": {
-    "meanLogRatio": 0.3170115775444992,
-    "ratio": 1.3730184680158515,
+    "meanLogRatio": 0.35492693453121044,
+    "ratio": 1.426076453530181,
     "ci": [
-     0.19757871509441094,
-     0.4364444399945874
+     0.2965803444276511,
+     0.40855149608031116
     ],
     "ratioCi": [
-     1.2184489715207714,
-     1.5471962778709263
+     1.3452506390480603,
+     1.5046367336570023
     ],
-    "hodgesLehmannRatio": 1.3333333333333333,
+    "hodgesLehmannRatio": 1.4907119849998596,
     "wilcoxon": {
-     "n": 9,
-     "wPlus": 44,
-     "pValue": 0.011023462803152029,
+     "n": 24,
+     "wPlus": 299,
+     "pValue": 0.000014046865491224025,
      "method": "normal"
     },
     "interval": "95% block bootstrap"
@@ -179,9 +179,9 @@
     }
    ],
    "host": {
-    "required": "local-controlled",
+    "required": "local-dev",
     "observed": "local-dev",
-    "eligible": false
+    "eligible": true
    }
   },
   {
@@ -190,27 +190,27 @@
    "stratum": {
     "variant": "baseline"
    },
-   "outcome": "insufficient-n",
-   "n": 9,
+   "outcome": "equivalent",
+   "n": 24,
    "margin": 0.13976194237515863,
-   "requiredN": 19,
+   "requiredN": 15,
    "estimate": {
-    "meanLogRatio": 0.012445584063404687,
-    "ratio": 1.0125233526349604,
+    "meanLogRatio": -0.04659499400302778,
+    "ratio": 0.9544738869680057,
     "ci": [
-     -0.12862585046345365,
-     0.13146296374056188
+     -0.12344275672502347,
+     0.024417574366316797
     ],
     "ratioCi": [
-     0.8793028947779511,
-     1.1404956672467412
+     0.883872235537396,
+     1.0247181245853776
     ],
-    "hodgesLehmannRatio": 1.0350983390135313,
+    "hodgesLehmannRatio": 1,
     "wilcoxon": {
-     "n": 6,
-     "wPlus": 13,
-     "pValue": 0.6875,
-     "method": "exact"
+     "n": 14,
+     "wPlus": 37,
+     "pValue": 0.3462544390218394,
+     "method": "normal"
     },
     "interval": "95% block bootstrap"
    },
@@ -222,9 +222,9 @@
     }
    ],
    "host": {
-    "required": "local-controlled",
+    "required": "local-dev",
     "observed": "local-dev",
-    "eligible": false
+    "eligible": true
    }
   },
   {
@@ -234,26 +234,26 @@
     "variant": "decoy-swap"
    },
    "outcome": "equivalent",
-   "n": 9,
+   "n": 24,
    "margin": 0.13976194237515863,
    "requiredN": 5,
    "estimate": {
-    "meanLogRatio": -0.004509475568342047,
-    "ratio": 0.9955006768501812,
+    "meanLogRatio": 0.012132851488524186,
+    "ratio": 1.0122067531078374,
     "ci": [
-     -0.029871548010673186,
-     0.02151201193174625
+     -0.007316750223158027,
+     0.03338958371777576
     ],
     "ratioCi": [
-     0.9705701972143024,
-     1.0217450633956338
+     0.992709952029496,
+     1.0339532721468898
     ],
     "hodgesLehmannRatio": 1,
     "wilcoxon": {
-     "n": 3,
-     "wPlus": 3,
-     "pValue": 1,
-     "method": "exact"
+     "n": 11,
+     "wPlus": 46,
+     "pValue": 0.26521867182380543,
+     "method": "normal"
     },
     "interval": "95% block bootstrap"
    },
@@ -265,9 +265,9 @@
     }
    ],
    "host": {
-    "required": "local-controlled",
+    "required": "local-dev",
     "observed": "local-dev",
-    "eligible": false
+    "eligible": true
    }
   },
   {
@@ -277,18 +277,18 @@
     "variant": "price-change"
    },
    "outcome": "equivalent",
-   "n": 9,
+   "n": 24,
    "margin": 0.13976194237515863,
-   "requiredN": 8,
+   "requiredN": 5,
    "estimate": {
-    "meanLogRatio": -0.04505167867868494,
-    "ratio": 0.9559480784229751,
+    "meanLogRatio": -0.01689437950450685,
+    "ratio": 0.9832475302420375,
     "ci": [
-     -0.13515503603605483,
+     -0.050683138513520555,
      0
     ],
     "ratioCi": [
-     0.8735804647362988,
+     0.9505798249541407,
      1
     ],
     "hodgesLehmannRatio": 1,
@@ -308,9 +308,9 @@
     }
    ],
    "host": {
-    "required": "local-controlled",
+    "required": "local-dev",
     "observed": "local-dev",
-    "eligible": false
+    "eligible": true
    }
   },
   {
@@ -320,7 +320,7 @@
     "variant": "baseline"
    },
    "outcome": "blocked-by-contract",
-   "n": 7,
+   "n": 18,
    "margin": 0.13976194237515863,
    "requiredN": null,
    "estimate": null,
@@ -332,9 +332,9 @@
     }
    ],
    "host": {
-    "required": "local-controlled",
+    "required": "local-dev",
     "observed": "local-dev",
-    "eligible": false
+    "eligible": true
    }
   },
   {
@@ -344,7 +344,7 @@
     "variant": "decoy-swap"
    },
    "outcome": "blocked-by-contract",
-   "n": 6,
+   "n": 16,
    "margin": 0.13976194237515863,
    "requiredN": null,
    "estimate": null,
@@ -356,9 +356,9 @@
     }
    ],
    "host": {
-    "required": "local-controlled",
+    "required": "local-dev",
     "observed": "local-dev",
-    "eligible": false
+    "eligible": true
    }
   },
   {
@@ -368,7 +368,7 @@
     "variant": "price-change"
    },
    "outcome": "blocked-by-contract",
-   "n": 9,
+   "n": 24,
    "margin": 0.13976194237515863,
    "requiredN": null,
    "estimate": null,
@@ -380,20 +380,151 @@
     }
    ],
    "host": {
-    "required": "local-controlled",
+    "required": "local-dev",
     "observed": "local-dev",
-    "eligible": false
+    "eligible": true
+   }
+  },
+  {
+   "option": "code-mode-journal",
+   "baseline": "mcp",
+   "stratum": {
+    "variant": "baseline"
+   },
+   "outcome": "insufficient-n",
+   "n": 15,
+   "margin": 0.13976194237515863,
+   "requiredN": 93,
+   "estimate": {
+    "meanLogRatio": -1.6236397060620402,
+    "ratio": 0.19717971522756553,
+    "ci": [
+     -1.8408885328163604,
+     -1.3671953827662044
+    ],
+    "ratioCi": [
+     0.1586763742858806,
+     0.25482063263289395
+    ],
+    "hodgesLehmannRatio": 0.1815682598006407,
+    "wilcoxon": {
+     "n": 15,
+     "wPlus": 0,
+     "pValue": 0.0006288695648004605,
+     "method": "normal"
+    },
+    "interval": "95% block bootstrap"
+   },
+   "gates": [
+    {
+     "id": "oracle-exact",
+     "ok": true,
+     "evaluated": true
+    }
+   ],
+   "host": {
+    "required": "local-dev",
+    "observed": "local-dev",
+    "eligible": true
+   }
+  },
+  {
+   "option": "code-mode-journal",
+   "baseline": "mcp",
+   "stratum": {
+    "variant": "decoy-swap"
+   },
+   "outcome": "insufficient-n",
+   "n": 15,
+   "margin": 0.13976194237515863,
+   "requiredN": 99,
+   "estimate": {
+    "meanLogRatio": -1.635093073830158,
+    "ratio": 0.19493422717967177,
+    "ci": [
+     -1.8604020774853984,
+     -1.3833172042198711
+    ],
+    "ratioCi": [
+     0.15561005049005666,
+     0.2507453982582213
+    ],
+    "hodgesLehmannRatio": 0.1815682598006407,
+    "wilcoxon": {
+     "n": 15,
+     "wPlus": 0,
+     "pValue": 0.0006877384082055737,
+     "method": "normal"
+    },
+    "interval": "95% block bootstrap"
+   },
+   "gates": [
+    {
+     "id": "oracle-exact",
+     "ok": true,
+     "evaluated": true
+    }
+   ],
+   "host": {
+    "required": "local-dev",
+    "observed": "local-dev",
+    "eligible": true
+   }
+  },
+  {
+   "option": "code-mode-journal",
+   "baseline": "mcp",
+   "stratum": {
+    "variant": "price-change"
+   },
+   "outcome": "better",
+   "n": 15,
+   "margin": 0.13976194237515863,
+   "requiredN": 5,
+   "estimate": {
+    "meanLogRatio": -1.0794334838379909,
+    "ratio": 0.33978796650404464,
+    "ci": [
+     -1.0986122886681096,
+     -1.0410758741777533
+    ],
+    "ratioCi": [
+     0.33333333333333337,
+     0.35307461368293747
+    ],
+    "hodgesLehmannRatio": 0.3333333333333333,
+    "wilcoxon": {
+     "n": 15,
+     "wPlus": 0,
+     "pValue": 0.00018421584606009844,
+     "method": "normal"
+    },
+    "interval": "95% block bootstrap"
+   },
+   "gates": [
+    {
+     "id": "oracle-exact",
+     "ok": true,
+     "evaluated": true
+    }
+   ],
+   "host": {
+    "required": "local-dev",
+    "observed": "local-dev",
+    "eligible": true
    }
   }
  ],
  "inputs": {
   "runs": [
-   "interface-arena-2026-10-08T23-05-03-060Z-3c8d7c"
+   "interface-arena-2026-10-08T23-05-03-060Z-3c8d7c",
+   "interface-arena-journal-2026-10-09T15-11-59-464Z-f3de1a"
   ],
   "considered": [
-   "interface-arena-2026-10-08T23-05-03-060Z-3c8d7c"
+   "interface-arena-2026-10-08T23-05-03-060Z-3c8d7c",
+   "interface-arena-journal-2026-10-09T15-11-59-464Z-f3de1a"
   ],
   "missing": [],
-  "ledgerSha256": "28c8d90555ea2f3ded9ff49d3f403bc7d2415c0bfb365fd76aec887fe059e085"
+  "ledgerSha256": "db19976579e1b4dc376e6225d1362c831d702499f50d138fc910b1db9553b140"
  }
 }

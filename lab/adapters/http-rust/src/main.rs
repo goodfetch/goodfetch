@@ -22,7 +22,7 @@ async fn fetch(url: &str, timeout: Duration, insecure: bool) -> Result<String, S
 
 #[cfg(feature = "wreq")]
 async fn fetch(url: &str, timeout: Duration, insecure: bool) -> Result<String, String> {
-    let client = wreq::Client::builder().timeout(timeout).tls_cert_verification(!insecure).build().map_err(|error| error.to_string())?;
+    let client = wreq::Client::builder().timeout(timeout).redirect(wreq::redirect::Policy::limited(10)).tls_cert_verification(!insecure).build().map_err(|error| error.to_string())?;
     let response = client.get(url).send().await.map_err(|error| error.to_string())?;
     if !response.status().is_success() {
         return Err(format!("HTTP {}", response.status().as_u16()));

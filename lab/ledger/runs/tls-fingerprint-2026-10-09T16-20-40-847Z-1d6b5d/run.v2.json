@@ -1,0 +1,1059 @@
+{
+ "schemaVersion": 2,
+ "runId": "tls-fingerprint-2026-10-09T16-20-40-847Z-1d6b5d",
+ "lane": "actionability",
+ "campaign": {
+  "id": "tls-fingerprint",
+  "source": "campaigns/v2/actionability/tls-fingerprint.json",
+  "sha256": "373a1fde95632bafc6cb55efcf50cd665e26c933208ecc4081dcdc8e7951f3cb"
+ },
+ "startedAt": "2026-10-09T16:20:40.847Z",
+ "decisionIds": [
+  "D-identity",
+  "D-http-transport"
+ ],
+ "provenance": {
+  "git": {
+   "available": true,
+   "sha": "54225361a758f73ccfee4bdb2a43a6ca868295c0",
+   "dirty": true
+  },
+  "sourceTreeSha256": "51b1f5606c7de56efc6924e506faef3b35ca51a1e5acee38688da7dac2533c05",
+  "sourceChanges": 0,
+  "binaryChanges": null,
+  "toolchains": {
+   "node": "v25.5.0",
+   "rustc": "rustc 1.93.0 (254b59607 2026-01-19)",
+   "go": "go version go1.27.1 darwin/arm64",
+   "pnpm": "12.9.1"
+  },
+  "integrity": {
+   "status": "uncatalogued",
+   "checked": 0,
+   "mismatches": []
+  }
+ },
+ "host": {
+  "classRequested": "local-dev",
+  "classGranted": "local-dev",
+  "os": "darwin",
+  "arch": "arm64",
+  "cpu": "Apple M3 Max",
+  "logicalCpus": 14,
+  "memoryBytes": 38654705664,
+  "preflight": {
+   "snapshot": {
+    "os": "darwin",
+    "arch": "arm64",
+    "cpu": "Apple M3 Max",
+    "logicalCpus": 14,
+    "memoryBytes": 38654705664,
+    "loadAverage1m": 11.8193359375,
+    "memoryFreePercent": 46,
+    "thermalWarning": false,
+    "onAC": true,
+    "lowPowerMode": false,
+    "foreignCpuPercent": 552.6000000000004,
+    "foreignTop": [
+     {
+      "command": "rustc",
+      "cpuPercent": 93.6
+     },
+     {
+      "command": "rustc",
+      "cpuPercent": 80.2
+     },
+     {
+      "command": "ffmpeg",
+      "cpuPercent": 76
+     },
+     {
+      "command": "Code Helper (Renderer)",
+      "cpuPercent": 63.9
+     },
+     {
+      "command": "tar",
+      "cpuPercent": 51.4
+     }
+    ],
+    "cpuGovernor": null,
+    "virtualized": false,
+    "controllerCpuPercent": 68.80000000000001
+   },
+   "gates": []
+  },
+  "postflight": {
+   "snapshot": {
+    "os": "darwin",
+    "arch": "arm64",
+    "cpu": "Apple M3 Max",
+    "logicalCpus": 14,
+    "memoryBytes": 38654705664,
+    "loadAverage1m": 21.74609375,
+    "memoryFreePercent": 40,
+    "thermalWarning": false,
+    "onAC": true,
+    "lowPowerMode": false,
+    "foreignCpuPercent": 816.7000000000005,
+    "foreignTop": [
+     {
+      "command": "rustc",
+      "cpuPercent": 389.1
+     },
+     {
+      "command": "rustc",
+      "cpuPercent": 100.9
+     },
+     {
+      "command": "rustc",
+      "cpuPercent": 90.2
+     },
+     {
+      "command": "WindowServer",
+      "cpuPercent": 49.6
+     },
+     {
+      "command": "codex",
+      "cpuPercent": 20.2
+     }
+    ],
+    "cpuGovernor": null,
+    "virtualized": false,
+    "controllerCpuPercent": 52.90000000000001
+   }
+  }
+ },
+ "status": "complete",
+ "countUnit": "cell",
+ "cells": [
+  {
+   "cellId": "9143f6a82aeb-0",
+   "factors": {
+    "backend": "wreq-http",
+    "scenario": "http-catalog",
+    "variant": "tls-fingerprint",
+    "policy": "native",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 21.02075000000002,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "b038f4311fec-1",
+   "factors": {
+    "backend": "spider-http",
+    "scenario": "http-catalog",
+    "variant": "tls-fingerprint",
+    "policy": "native",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 40.65883399999984,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "e57519d38aa4-2",
+   "factors": {
+    "backend": "reqwest-http",
+    "scenario": "http-catalog",
+    "variant": "tls-fingerprint",
+    "policy": "native",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 42.34258299999988,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "82bcb215cfbf-3",
+   "factors": {
+    "backend": "crawlee-http",
+    "scenario": "http-catalog",
+    "variant": "tls-fingerprint",
+    "policy": "native",
+    "block": 0
+   },
+   "status": "failed",
+   "errorCode": null,
+   "counts": {
+    "verified": 0,
+    "failed": 1,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 302.85000000000014,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "1aeeecb6d05a-4",
+   "factors": {
+    "backend": "node-cdp",
+    "scenario": "http-catalog",
+    "variant": "tls-fingerprint",
+    "policy": "native",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 544.8596249999996,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "d0cf7b8042f2-5",
+   "factors": {
+    "backend": "impit-http",
+    "scenario": "http-catalog",
+    "variant": "tls-fingerprint",
+    "policy": "native",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 124.5366670000003,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "a6a07051e5bb-6",
+   "factors": {
+    "backend": "node-http",
+    "scenario": "http-catalog",
+    "variant": "tls-fingerprint",
+    "policy": "native",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 87.39479200000005,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "c0e6473719eb-7",
+   "factors": {
+    "backend": "rust-cdp",
+    "scenario": "http-catalog",
+    "variant": "tls-fingerprint",
+    "policy": "native",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 172.27399999999943,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "9dd190fac10c-8",
+   "factors": {
+    "backend": "spider-http",
+    "scenario": "http-catalog",
+    "variant": "tls-fingerprint",
+    "policy": "native",
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 33.70612500000061,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "15fc14318527-9",
+   "factors": {
+    "backend": "impit-http",
+    "scenario": "http-catalog",
+    "variant": "tls-fingerprint",
+    "policy": "native",
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 59.57841700000063,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "f1a155883987-10",
+   "factors": {
+    "backend": "rust-cdp",
+    "scenario": "http-catalog",
+    "variant": "tls-fingerprint",
+    "policy": "native",
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 150.12516700000015,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "5917aed360da-11",
+   "factors": {
+    "backend": "crawlee-http",
+    "scenario": "http-catalog",
+    "variant": "tls-fingerprint",
+    "policy": "native",
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 278.39966599999934,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "8022a1c7ef3b-12",
+   "factors": {
+    "backend": "wreq-http",
+    "scenario": "http-catalog",
+    "variant": "tls-fingerprint",
+    "policy": "native",
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 10.92608299999847,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "1330dcbd25b6-13",
+   "factors": {
+    "backend": "node-http",
+    "scenario": "http-catalog",
+    "variant": "tls-fingerprint",
+    "policy": "native",
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 88.42625000000044,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "eb5f7511b9b3-14",
+   "factors": {
+    "backend": "node-cdp",
+    "scenario": "http-catalog",
+    "variant": "tls-fingerprint",
+    "policy": "native",
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 368.4634580000002,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "15c95bd63978-15",
+   "factors": {
+    "backend": "reqwest-http",
+    "scenario": "http-catalog",
+    "variant": "tls-fingerprint",
+    "policy": "native",
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 54.183499999999185,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "3995cbbe19eb-16",
+   "factors": {
+    "backend": "crawlee-http",
+    "scenario": "http-catalog",
+    "variant": "tls-fingerprint",
+    "policy": "native",
+    "block": 2
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 550.1137920000001,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "a1e190f89f38-17",
+   "factors": {
+    "backend": "spider-http",
+    "scenario": "http-catalog",
+    "variant": "tls-fingerprint",
+    "policy": "native",
+    "block": 2
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 52.587125000000015,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "bab196f84c46-18",
+   "factors": {
+    "backend": "impit-http",
+    "scenario": "http-catalog",
+    "variant": "tls-fingerprint",
+    "policy": "native",
+    "block": 2
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 84.84295800000109,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "3d07c381c88c-19",
+   "factors": {
+    "backend": "wreq-http",
+    "scenario": "http-catalog",
+    "variant": "tls-fingerprint",
+    "policy": "native",
+    "block": 2
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 11.990417000000889,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "6e3113bc611e-20",
+   "factors": {
+    "backend": "node-http",
+    "scenario": "http-catalog",
+    "variant": "tls-fingerprint",
+    "policy": "native",
+    "block": 2
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 90.8966249999994,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "21a67eaafbcf-21",
+   "factors": {
+    "backend": "rust-cdp",
+    "scenario": "http-catalog",
+    "variant": "tls-fingerprint",
+    "policy": "native",
+    "block": 2
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 276.6363330000004,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "0b0aa236cd3d-22",
+   "factors": {
+    "backend": "node-cdp",
+    "scenario": "http-catalog",
+    "variant": "tls-fingerprint",
+    "policy": "native",
+    "block": 2
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 287.16662499999984,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "78a2ad6c8093-23",
+   "factors": {
+    "backend": "reqwest-http",
+    "scenario": "http-catalog",
+    "variant": "tls-fingerprint",
+    "policy": "native",
+    "block": 2
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 47.00974999999926,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  }
+ ],
+ "totals": {
+  "verified": 23,
+  "failed": 1,
+  "timeout": 0,
+  "crashed": 0,
+  "aborted": 0,
+  "unsupported": 0,
+  "rejected": 0,
+  "unavailable": 0,
+  "skipped": 0
+ },
+ "metricAvailability": {
+  "verified-jobs-per-second": {
+   "available": true
+  },
+  "verified-tasks-per-second": {
+   "available": true
+  },
+  "verified-rows-per-second": {
+   "available": true
+  },
+  "task-p50-ms-verified": {
+   "available": true
+  },
+  "task-p95-ms-verified": {
+   "available": true
+  },
+  "task-ms": {
+   "available": true
+  },
+  "ack-latency-p95-ms": {
+   "available": true
+  },
+  "extraction-precision": {
+   "available": true
+  },
+  "extraction-recall": {
+   "available": true
+  },
+  "snippet-recall": {
+   "available": true
+  },
+  "boilerplate-leak": {
+   "available": true
+  },
+  "extract-ms-p50": {
+   "available": true
+  },
+  "startup-ms": {
+   "available": true
+  },
+  "cpu-ms-per-verified-job": {
+   "available": true
+  },
+  "footprint-peak-bytes": {
+   "available": true
+  },
+  "pss-peak-bytes": {
+   "available": false,
+   "reason": "no probe on darwin"
+  },
+  "cgroup-memory-peak-bytes": {
+   "available": false,
+   "reason": "no probe on darwin"
+  },
+  "rss-peak-bytes": {
+   "available": true
+  },
+  "cdp-commands-per-task": {
+   "available": true
+  },
+  "extraction-f1": {
+   "available": true
+  },
+  "field-precision": {
+   "available": true
+  },
+  "field-recall": {
+   "available": true
+  },
+  "pass-k": {
+   "available": true
+  },
+  "llm-calls-per-verified-task": {
+   "available": true
+  },
+  "tokens-per-verified-task": {
+   "available": true
+  },
+  "usd-per-1k-verified": {
+   "available": false,
+   "reason": "pricing tables are not implemented yet"
+  },
+  "model-usd-per-1k-verified": {
+   "available": true
+  },
+  "interface-turns-per-task": {
+   "available": true
+  },
+  "oracle-exact": {
+   "available": true
+  },
+  "false-success-count": {
+   "available": true
+  },
+  "actionability-conformance": {
+   "available": true
+  },
+  "recovery-exact": {
+   "available": true
+  },
+  "durability-power-loss": {
+   "available": false,
+   "reason": "no probe on darwin"
+  },
+  "identity-coherence": {
+   "available": true
+  },
+  "policy-compliance": {
+   "available": true
+  },
+  "session-isolation": {
+   "available": true
+  },
+  "admission-no-loss": {
+   "available": true
+  },
+  "proxy-continuity": {
+   "available": true
+  },
+  "site-logins-per-run": {
+   "available": true
+  },
+  "steady-run-ms": {
+   "available": true
+  },
+  "browser-pages-per-run": {
+   "available": true
+  },
+  "requests-per-verified-record": {
+   "available": true
+  },
+  "light-domain-goodput": {
+   "available": true
+  },
+  "light-domain-p95-ms": {
+   "available": true
+  },
+  "light-domain-acceptance": {
+   "available": true
+  }
+ },
+ "legacy": null,
+ "blocks": [
+  {
+   "index": 0,
+   "order": [
+    "http-catalog/wreq-http/native/tls-fingerprint",
+    "http-catalog/spider-http/native/tls-fingerprint",
+    "http-catalog/reqwest-http/native/tls-fingerprint",
+    "http-catalog/crawlee-http/native/tls-fingerprint",
+    "http-catalog/node-cdp/native/tls-fingerprint",
+    "http-catalog/impit-http/native/tls-fingerprint",
+    "http-catalog/node-http/native/tls-fingerprint",
+    "http-catalog/rust-cdp/native/tls-fingerprint"
+   ],
+   "noisy": false,
+   "host": {
+    "loadPerCpu1m": 1.2035435267857142,
+    "foreignCpuPercent": 373.5000000000004
+   }
+  },
+  {
+   "index": 1,
+   "order": [
+    "http-catalog/spider-http/native/tls-fingerprint",
+    "http-catalog/impit-http/native/tls-fingerprint",
+    "http-catalog/rust-cdp/native/tls-fingerprint",
+    "http-catalog/crawlee-http/native/tls-fingerprint",
+    "http-catalog/wreq-http/native/tls-fingerprint",
+    "http-catalog/node-http/native/tls-fingerprint",
+    "http-catalog/node-cdp/native/tls-fingerprint",
+    "http-catalog/reqwest-http/native/tls-fingerprint"
+   ],
+   "noisy": false,
+   "host": {
+    "loadPerCpu1m": 1.2035435267857142,
+    "foreignCpuPercent": 1059.799999999999
+   }
+  },
+  {
+   "index": 2,
+   "order": [
+    "http-catalog/crawlee-http/native/tls-fingerprint",
+    "http-catalog/spider-http/native/tls-fingerprint",
+    "http-catalog/impit-http/native/tls-fingerprint",
+    "http-catalog/wreq-http/native/tls-fingerprint",
+    "http-catalog/node-http/native/tls-fingerprint",
+    "http-catalog/rust-cdp/native/tls-fingerprint",
+    "http-catalog/node-cdp/native/tls-fingerprint",
+    "http-catalog/reqwest-http/native/tls-fingerprint"
+   ],
+   "noisy": false,
+   "host": {
+    "loadPerCpu1m": 1.5532924107142858,
+    "foreignCpuPercent": 801.6000000000003
+   }
+  }
+ ]
+}

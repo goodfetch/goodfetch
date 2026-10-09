@@ -49,8 +49,7 @@
     "task-p95-ms-verified"
   ],
   "contractGates": [
-    "oracle-exact",
-    "policy-compliance"
+    "oracle-exact"
   ],
   "delta": {
     "kind": "ratio",
@@ -71,10 +70,17 @@
     "access-policy",
     "http-capacity",
     "http-incidents",
+    "http-open-v2",
     "http-transport-incidents",
+    "http-transport-v2",
     "tls-fingerprint"
   ],
   "evidence": [
+    {
+      "kind": "run",
+      "ref": "http-transport-v2-2026-10-09T16-13-29-199Z-130b39",
+      "note": "six transports, catalogue à incidents, boucle fermée"
+    },
     {
       "kind": "run",
       "ref": "http-transport-2026-10-07T23-52-40-042Z-be9fbc"
@@ -94,24 +100,57 @@
     },
     {
       "kind": "run",
-      "ref": "http-incidents-2026-10-08T17-25-00-258Z-206e01",
+      "ref": "http-incidents-2026-10-09T16-17-14-005Z-41e172",
       "note": "incidents HTTP"
     },
     {
       "kind": "run",
-      "ref": "access-policy-2026-10-08T17-27-03-497Z-f99eb0",
+      "ref": "access-policy-2026-10-09T16-19-19-822Z-f128cf",
       "note": "robots.txt et challenge en 200"
     },
     {
       "kind": "run",
-      "ref": "tls-fingerprint-2026-10-08T19-32-26-736Z-f42991",
+      "ref": "tls-fingerprint-2026-10-09T16-20-40-847Z-1d6b5d",
       "note": "empreintes TLS et HTTP/2"
+    },
+    {
+      "kind": "research-doc",
+      "ref": "lab/reports/http-transport-2026-10-09.md"
     }
   ],
-  "verdictRef": null,
+  "verdictRef": "verdicts/D-http-transport.json",
   "adr": null,
   "dependsOn": [
     "D-identity"
   ],
-  "notes": "Les contrôles SSRF natifs sont conservés ; un refus de redirection loopback n'est jamais contourné pour fabriquer un succès."
+  "notes": "Les contrôles SSRF natifs sont conservés ; un refus de redirection loopback n'est jamais contourné pour fabriquer un succès. Le respect des préférences des sites (robots.txt, Content-Signal, TDMRep) relève de la politique de site du moteur (D-identity, ADR-002), pas de la brique de transport : aucun transport candidat ne l'applique seul, si bien que ce gate bloquait toutes les options, référence comprise. Il est retiré de cette décision le 9 octobre 2026 et reste porté par D-identity. Le verdict de débit ne lit que les runs en boucle fermée : en arrivées ouvertes, le débit vaut le débit offert pour tout transport qui suit.",
+  "analysis": {
+    "lane": "bench",
+    "options": {
+      "reqwest": {
+        "backend": "reqwest-http"
+      },
+      "wreq": {
+        "backend": "wreq-http"
+      },
+      "impit": {
+        "backend": "impit-http"
+      },
+      "spider-http": {
+        "backend": "spider-http"
+      },
+      "crawlee-http-pooled": {
+        "backend": "crawlee-http-pooled"
+      },
+      "node-fetch": {
+        "backend": "node-http"
+      }
+    },
+    "pairBy": [
+      "scenario"
+    ],
+    "stratum": {
+      "scenario": "http-catalog"
+    }
+  }
 }

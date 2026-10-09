@@ -1,0 +1,272 @@
+{
+ "schemaVersion": 1,
+ "decisionId": "D-http-transport",
+ "metricId": "verified-tasks-per-second",
+ "direction": "higher",
+ "rule": {
+  "kind": "non-inferiority",
+  "alpha": 0.05,
+  "power": 0.8,
+  "noisyBlockPolicy": "exclude"
+ },
+ "delta": {
+  "kind": "ratio",
+  "value": 0.1
+ },
+ "option": "wreq",
+ "baseline": "reqwest",
+ "stratum": {
+  "scenario": "http-catalog"
+ },
+ "outcome": "non-inferior",
+ "n": 5,
+ "margin": 0.09531017980432493,
+ "requiredN": 5,
+ "estimate": {
+  "meanLogRatio": 0.0052497077760188336,
+  "ratio": 1.0052635116367261,
+  "ci": [
+   -0.017489587470446162,
+   0.027989003022483833
+  ],
+  "ratioCi": [
+   0.9826624676137883,
+   1.0283843752393893
+  ],
+  "hodgesLehmannRatio": 1.004458764125506,
+  "wilcoxon": {
+   "n": 5,
+   "wPlus": 10,
+   "pValue": 0.625,
+   "method": "exact"
+  },
+  "interval": "90% block bootstrap"
+ },
+ "gates": [
+  {
+   "id": "oracle-exact",
+   "ok": true,
+   "evaluated": true
+  }
+ ],
+ "host": {
+  "required": "local-controlled",
+  "observed": "local-dev",
+  "eligible": false
+ },
+ "comparisons": [
+  {
+   "option": "wreq",
+   "baseline": "reqwest",
+   "stratum": {
+    "scenario": "http-catalog"
+   },
+   "outcome": "non-inferior",
+   "n": 5,
+   "margin": 0.09531017980432493,
+   "requiredN": 5,
+   "estimate": {
+    "meanLogRatio": 0.0052497077760188336,
+    "ratio": 1.0052635116367261,
+    "ci": [
+     -0.017489587470446162,
+     0.027989003022483833
+    ],
+    "ratioCi": [
+     0.9826624676137883,
+     1.0283843752393893
+    ],
+    "hodgesLehmannRatio": 1.004458764125506,
+    "wilcoxon": {
+     "n": 5,
+     "wPlus": 10,
+     "pValue": 0.625,
+     "method": "exact"
+    },
+    "interval": "90% block bootstrap"
+   },
+   "gates": [
+    {
+     "id": "oracle-exact",
+     "ok": true,
+     "evaluated": true
+    }
+   ],
+   "host": {
+    "required": "local-controlled",
+    "observed": "local-dev",
+    "eligible": false
+   }
+  },
+  {
+   "option": "impit",
+   "baseline": "reqwest",
+   "stratum": {
+    "scenario": "http-catalog"
+   },
+   "outcome": "non-inferior",
+   "n": 5,
+   "margin": 0.09531017980432493,
+   "requiredN": 5,
+   "estimate": {
+    "meanLogRatio": -0.043427126187402645,
+    "ratio": 0.9575023283938172,
+    "ci": [
+     -0.07598230228468157,
+     -0.013510675362106844
+    ],
+    "ratioCi": [
+     0.926832609233903,
+     0.9865801841608021
+    ],
+    "hodgesLehmannRatio": 0.9626424383959071,
+    "wilcoxon": {
+     "n": 5,
+     "wPlus": 1,
+     "pValue": 0.125,
+     "method": "exact"
+    },
+    "interval": "90% block bootstrap"
+   },
+   "gates": [
+    {
+     "id": "oracle-exact",
+     "ok": true,
+     "evaluated": true
+    }
+   ],
+   "host": {
+    "required": "local-controlled",
+    "observed": "local-dev",
+    "eligible": false
+   }
+  },
+  {
+   "option": "spider-http",
+   "baseline": "reqwest",
+   "stratum": {
+    "scenario": "http-catalog"
+   },
+   "outcome": "blocked-by-contract",
+   "n": 0,
+   "margin": 0.09531017980432493,
+   "requiredN": null,
+   "estimate": null,
+   "gates": [
+    {
+     "id": "oracle-exact",
+     "ok": false,
+     "evaluated": true
+    }
+   ],
+   "host": {
+    "required": "local-controlled",
+    "observed": "local-dev",
+    "eligible": false
+   }
+  },
+  {
+   "option": "crawlee-http-pooled",
+   "baseline": "reqwest",
+   "stratum": {
+    "scenario": "http-catalog"
+   },
+   "outcome": "insufficient-n",
+   "n": 5,
+   "margin": 0.09531017980432493,
+   "requiredN": 14,
+   "estimate": {
+    "meanLogRatio": -0.4724388861000475,
+    "ratio": 0.6234798162363046,
+    "ci": [
+     -0.5676247171796441,
+     -0.38155315343609164
+    ],
+    "ratioCi": [
+     0.5668703181607803,
+     0.682800091922475
+    ],
+    "hodgesLehmannRatio": 0.620806254944693,
+    "wilcoxon": {
+     "n": 5,
+     "wPlus": 0,
+     "pValue": 0.0625,
+     "method": "exact"
+    },
+    "interval": "90% block bootstrap"
+   },
+   "gates": [
+    {
+     "id": "oracle-exact",
+     "ok": true,
+     "evaluated": true
+    }
+   ],
+   "host": {
+    "required": "local-controlled",
+    "observed": "local-dev",
+    "eligible": false
+   }
+  },
+  {
+   "option": "node-fetch",
+   "baseline": "reqwest",
+   "stratum": {
+    "scenario": "http-catalog"
+   },
+   "outcome": "insufficient-n",
+   "n": 5,
+   "margin": 0.09531017980432493,
+   "requiredN": 14,
+   "estimate": {
+    "meanLogRatio": -0.10474832617114065,
+    "ratio": 0.9005511392216229,
+    "ci": [
+     -0.2134249417815695,
+     -0.02414367236592555
+    ],
+    "ratioCi": [
+     0.8078127908640254,
+     0.9761454545558087
+    ],
+    "hodgesLehmannRatio": 0.9317938839866332,
+    "wilcoxon": {
+     "n": 5,
+     "wPlus": 1,
+     "pValue": 0.125,
+     "method": "exact"
+    },
+    "interval": "90% block bootstrap"
+   },
+   "gates": [
+    {
+     "id": "oracle-exact",
+     "ok": true,
+     "evaluated": true
+    }
+   ],
+   "host": {
+    "required": "local-controlled",
+    "observed": "local-dev",
+    "eligible": false
+   }
+  }
+ ],
+ "inputs": {
+  "runs": [
+   "http-transport-v2-2026-10-09T16-13-29-199Z-130b39"
+  ],
+  "considered": [
+   "http-transport-v2-2026-10-09T16-13-29-199Z-130b39",
+   "http-transport-2026-10-07T23-52-40-042Z-be9fbc",
+   "spider-http-transport-supported-2026-10-08T00-26-16-511Z-7ce401",
+   "http-open-250-2026-10-07T23-58-01-322Z-66a668",
+   "runtime-http-backends-2026-10-07T23-29-49-072Z-2b2b75",
+   "http-incidents-2026-10-09T16-17-14-005Z-41e172",
+   "access-policy-2026-10-09T16-19-19-822Z-f128cf",
+   "tls-fingerprint-2026-10-09T16-20-40-847Z-1d6b5d"
+  ],
+  "missing": [],
+  "ledgerSha256": "db19976579e1b4dc376e6225d1362c831d702499f50d138fc910b1db9553b140"
+ }
+}

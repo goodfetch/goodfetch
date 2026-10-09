@@ -1,0 +1,208 @@
+{
+ "schemaVersion": 1,
+ "decisionId": "D-session-model",
+ "metricId": "site-logins-per-run",
+ "direction": "lower",
+ "rule": {
+  "kind": "superiority",
+  "alpha": 0.05,
+  "power": 0.8,
+  "noisyBlockPolicy": "exclude"
+ },
+ "delta": {
+  "kind": "ratio",
+  "value": 0.1
+ },
+ "option": "contract",
+ "baseline": "relogin-each-run",
+ "stratum": {
+  "variant": "session-resume",
+  "tier": "http"
+ },
+ "outcome": "better",
+ "n": 5,
+ "margin": 0.09531017980432493,
+ "requiredN": 5,
+ "estimate": {
+  "meanLogRatio": -0.6931471805599453,
+  "ratio": 0.5,
+  "ci": [
+   -0.6931471805599453,
+   -0.6931471805599453
+  ],
+  "ratioCi": [
+   0.5,
+   0.5
+  ],
+  "hodgesLehmannRatio": 0.5,
+  "wilcoxon": {
+   "n": 5,
+   "wPlus": 0,
+   "pValue": 0.03688829808010796,
+   "method": "normal"
+  },
+  "interval": "95% block bootstrap"
+ },
+ "gates": [
+  {
+   "id": "oracle-exact",
+   "ok": true,
+   "evaluated": true
+  }
+ ],
+ "host": {
+  "required": "local-dev",
+  "observed": "local-dev",
+  "eligible": true
+ },
+ "comparisons": [
+  {
+   "option": "contract",
+   "baseline": "relogin-each-run",
+   "stratum": {
+    "variant": "session-resume",
+    "tier": "http"
+   },
+   "outcome": "better",
+   "n": 5,
+   "margin": 0.09531017980432493,
+   "requiredN": 5,
+   "estimate": {
+    "meanLogRatio": -0.6931471805599453,
+    "ratio": 0.5,
+    "ci": [
+     -0.6931471805599453,
+     -0.6931471805599453
+    ],
+    "ratioCi": [
+     0.5,
+     0.5
+    ],
+    "hodgesLehmannRatio": 0.5,
+    "wilcoxon": {
+     "n": 5,
+     "wPlus": 0,
+     "pValue": 0.03688829808010796,
+     "method": "normal"
+    },
+    "interval": "95% block bootstrap"
+   },
+   "gates": [
+    {
+     "id": "oracle-exact",
+     "ok": true,
+     "evaluated": true
+    }
+   ],
+   "host": {
+    "required": "local-dev",
+    "observed": "local-dev",
+    "eligible": true
+   }
+  },
+  {
+   "option": "contract",
+   "baseline": "relogin-each-run",
+   "stratum": {
+    "variant": "session-resume",
+    "tier": "browser"
+   },
+   "outcome": "better",
+   "n": 5,
+   "margin": 0.09531017980432493,
+   "requiredN": 5,
+   "estimate": {
+    "meanLogRatio": -0.6931471805599453,
+    "ratio": 0.5,
+    "ci": [
+     -0.6931471805599453,
+     -0.6931471805599453
+    ],
+    "ratioCi": [
+     0.5,
+     0.5
+    ],
+    "hodgesLehmannRatio": 0.5,
+    "wilcoxon": {
+     "n": 5,
+     "wPlus": 0,
+     "pValue": 0.03688829808010796,
+     "method": "normal"
+    },
+    "interval": "95% block bootstrap"
+   },
+   "gates": [
+    {
+     "id": "oracle-exact",
+     "ok": true,
+     "evaluated": true
+    }
+   ],
+   "host": {
+    "required": "local-dev",
+    "observed": "local-dev",
+    "eligible": true
+   }
+  },
+  {
+   "option": "status-only",
+   "baseline": "relogin-each-run",
+   "stratum": {
+    "variant": "session-resume",
+    "tier": "http"
+   },
+   "outcome": "blocked-by-contract",
+   "n": 5,
+   "margin": 0.09531017980432493,
+   "requiredN": null,
+   "estimate": null,
+   "gates": [
+    {
+     "id": "oracle-exact",
+     "ok": false,
+     "evaluated": true
+    }
+   ],
+   "host": {
+    "required": "local-dev",
+    "observed": "local-dev",
+    "eligible": true
+   }
+  },
+  {
+   "option": "status-only",
+   "baseline": "relogin-each-run",
+   "stratum": {
+    "variant": "session-resume",
+    "tier": "browser"
+   },
+   "outcome": "blocked-by-contract",
+   "n": 5,
+   "margin": 0.09531017980432493,
+   "requiredN": null,
+   "estimate": null,
+   "gates": [
+    {
+     "id": "oracle-exact",
+     "ok": false,
+     "evaluated": true
+    }
+   ],
+   "host": {
+    "required": "local-dev",
+    "observed": "local-dev",
+    "eligible": true
+   }
+  }
+ ],
+ "inputs": {
+  "runs": [
+   "portal-sessions-2026-10-09T15-26-01-462Z-3f0b51"
+  ],
+  "considered": [
+   "portal-sessions-2026-10-09T15-26-01-462Z-3f0b51"
+  ],
+  "missing": [],
+  "ledgerSha256": "db19976579e1b4dc376e6225d1362c831d702499f50d138fc910b1db9553b140"
+ }
+}

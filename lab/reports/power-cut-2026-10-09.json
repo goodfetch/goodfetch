@@ -1,0 +1,262 @@
+{
+ "schemaVersion": 1,
+ "method": "SIGKILL of the Docker Desktop VM (com.docker.virtualization) while writers commit; host disk not cut",
+ "image": "node:24.20.0-bookworm-slim",
+ "docker": "29.7.2",
+ "results": [
+  {
+   "trial": 1,
+   "cutAt": "2026-10-09T20:23:33.789Z",
+   "vmPid": 97724,
+   "sinks": [
+    {
+     "format": "sqlite-wal-full",
+     "acknowledged": 1845,
+     "persistedBatches": 1846,
+     "lostAcknowledged": 0,
+     "lostBatches": [],
+     "partialBatches": [],
+     "integrity": "ok"
+    },
+    {
+     "format": "sqlite-wal-normal",
+     "acknowledged": 22203,
+     "persistedBatches": 22204,
+     "lostAcknowledged": 0,
+     "lostBatches": [],
+     "partialBatches": [],
+     "integrity": "ok"
+    },
+    {
+     "format": "jsonl-durable",
+     "acknowledged": 1838,
+     "persistedBatches": 1839,
+     "lostAcknowledged": 0,
+     "lostBatches": [],
+     "partialBatches": [],
+     "integrity": "ok"
+    },
+    {
+     "format": "jsonl-buffered",
+     "acknowledged": 31759,
+     "persistedBatches": 0,
+     "lostAcknowledged": 31759,
+     "lostBatches": [
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7,
+      8,
+      9,
+      10
+     ],
+     "partialBatches": [],
+     "integrity": "ok"
+    },
+    {
+     "format": "duckdb-table",
+     "acknowledged": 1220,
+     "persistedBatches": 1220,
+     "lostAcknowledged": 0,
+     "lostBatches": [],
+     "partialBatches": [],
+     "integrity": "ok"
+    },
+    {
+     "format": "parquet-batch",
+     "acknowledged": 568,
+     "persistedBatches": 568,
+     "lostAcknowledged": 0,
+     "lostBatches": [],
+     "partialBatches": [],
+     "integrity": "ok"
+    },
+    {
+     "format": "postgres",
+     "acknowledged": 0,
+     "persistedBatches": 0,
+     "lostAcknowledged": 0,
+     "lostBatches": [],
+     "partialBatches": [],
+     "integrity": "server recovered"
+    }
+   ]
+  },
+  {
+   "trial": 2,
+   "cutAt": "2026-10-09T20:29:02.960Z",
+   "vmPid": 32844,
+   "sinks": [
+    {
+     "format": "sqlite-wal-full",
+     "acknowledged": 1715,
+     "persistedBatches": 1716,
+     "lostAcknowledged": 0,
+     "lostBatches": [],
+     "partialBatches": [],
+     "integrity": "ok"
+    },
+    {
+     "format": "sqlite-wal-normal",
+     "acknowledged": 20689,
+     "persistedBatches": 20644,
+     "lostAcknowledged": 45,
+     "lostBatches": [
+      20645,
+      20646,
+      20647,
+      20648,
+      20649,
+      20650,
+      20651,
+      20652,
+      20653,
+      20654
+     ],
+     "partialBatches": [],
+     "integrity": "ok"
+    },
+    {
+     "format": "jsonl-durable",
+     "acknowledged": 1693,
+     "persistedBatches": 1693,
+     "lostAcknowledged": 0,
+     "lostBatches": [],
+     "partialBatches": [],
+     "integrity": "ok"
+    },
+    {
+     "format": "jsonl-buffered",
+     "acknowledged": 28312,
+     "persistedBatches": 0,
+     "lostAcknowledged": 28312,
+     "lostBatches": [
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7,
+      8,
+      9,
+      10
+     ],
+     "partialBatches": [],
+     "integrity": "ok"
+    },
+    {
+     "format": "duckdb-table",
+     "acknowledged": 1109,
+     "persistedBatches": 1109,
+     "lostAcknowledged": 0,
+     "lostBatches": [],
+     "partialBatches": [],
+     "integrity": "ok"
+    },
+    {
+     "format": "parquet-batch",
+     "acknowledged": 559,
+     "persistedBatches": 559,
+     "lostAcknowledged": 0,
+     "lostBatches": [],
+     "partialBatches": [],
+     "integrity": "ok"
+    },
+    {
+     "format": "postgres",
+     "acknowledged": 0,
+     "persistedBatches": 0,
+     "lostAcknowledged": 0,
+     "lostBatches": [],
+     "partialBatches": [],
+     "integrity": "server recovered"
+    }
+   ]
+  },
+  {
+   "trial": 3,
+   "cutAt": "2026-10-09T20:34:25.552Z",
+   "vmPid": 47227,
+   "sinks": [
+    {
+     "format": "sqlite-wal-full",
+     "acknowledged": 2132,
+     "persistedBatches": 2133,
+     "lostAcknowledged": 0,
+     "lostBatches": [],
+     "partialBatches": [],
+     "integrity": "ok"
+    },
+    {
+     "format": "sqlite-wal-normal",
+     "acknowledged": 20918,
+     "persistedBatches": 20919,
+     "lostAcknowledged": 0,
+     "lostBatches": [],
+     "partialBatches": [],
+     "integrity": "ok"
+    },
+    {
+     "format": "jsonl-durable",
+     "acknowledged": 1980,
+     "persistedBatches": 1981,
+     "lostAcknowledged": 0,
+     "lostBatches": [],
+     "partialBatches": [],
+     "integrity": "ok"
+    },
+    {
+     "format": "jsonl-buffered",
+     "acknowledged": 26379,
+     "persistedBatches": 0,
+     "lostAcknowledged": 26379,
+     "lostBatches": [
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7,
+      8,
+      9,
+      10
+     ],
+     "partialBatches": [],
+     "integrity": "ok"
+    },
+    {
+     "format": "duckdb-table",
+     "acknowledged": 1086,
+     "persistedBatches": 1087,
+     "lostAcknowledged": 0,
+     "lostBatches": [],
+     "partialBatches": [],
+     "integrity": "ok"
+    },
+    {
+     "format": "parquet-batch",
+     "acknowledged": 587,
+     "persistedBatches": 587,
+     "lostAcknowledged": 0,
+     "lostBatches": [],
+     "partialBatches": [],
+     "integrity": "ok"
+    },
+    {
+     "format": "postgres",
+     "acknowledged": 0,
+     "persistedBatches": 0,
+     "lostAcknowledged": 0,
+     "lostBatches": [],
+     "partialBatches": [],
+     "integrity": "server recovered"
+    }
+   ]
+  }
+ ]
+}

@@ -34,6 +34,8 @@ if (!docker('ps', '-a', '--filter', `name=^${box}$`, '--format', '{{.Names}}')) 
 }
 docker('start', box);
 for (const file of ['writer.mjs', 'verify.mjs']) docker('cp', join(here, file), `${box}:/opt/w/${file}`);
+// The tooling is flushed once, so the cuts only ever hit the data the writers produce.
+docker('exec', box, 'sync');
 
 const results: unknown[] = [];
 for (let trial = 1; trial <= trials; trial++) {
@@ -45,7 +47,7 @@ for (let trial = 1; trial <= trials; trial++) {
   const writers = formats.map(format => { const child = spawn('docker', ['exec', '-e', `DATA_ROOT=${root}`, box, 'node', '/opt/w/writer.mjs', format], { stdio: ['ignore', 'pipe', 'pipe'] }); createInterface({ input: child.stdout }).on('line', line => { const m = line.match(/^ack (\d+)$/); if (m) acked.get(format)!.push(Number(m[1])); }); return child; });
   // PostgreSQL: one transaction per batch, acknowledged after COMMIT returns (synchronous_commit on).
   let pgRunning = true;
-  const pgWriter = (async () => { const c = new (pg().Client)({ connectionString: pgUrl() }); await c.connect(); try { for (let batch = 1; pgRunning; batch++) { const values: unknown[] = []; const rows = Array.from({ length: 50 }, (_, i) => { values.push(`${batch}:${i}`, batch, batch * 1000 + i, 'x'.repeat(256)); return `($${i * 4 + 1},$${i * 4 + 2},$${i * 4 + 3},$${i * 4 + 4})`; }); await c.query('BEGIN'); await c.query(`INSERT INTO ${table} VALUES ${rows.join(',')}`); await c.query('COMMIT'); acked.get('postgres')!.push(batch); } } catch { /* the VM went away */ } finally { c.end().catch(() => {}); } })();
+  const pgWriter = (async () => { const c = new (pg().Client)({ connectionString: pgUrl() }); await c.connect(); try { for (let batch = 1; pgRunning; batch++) { const values: unknown[] = []; const rows = Array.from({ length: 50 }, (_, i) => { values.push(`${batch}:${i}`, batch, batch * 1000 + i, 'x'.repeat(256)); return `($${i * 4 + 1},$${i * 4 + 2},$${i * 4 + 3},$${i * 4 + 4})`; }); await c.query('BEGIN'); await c.query(`INSERT INTO ${table} VALUES ${rows.join(',')}`, values); await c.query('COMMIT'); acked.get('postgres')!.push(batch); } } catch { /* the VM went away */ } finally { c.end().catch(() => {}); } })();
   await sleep(5000);
   const vm = execFileSync('pgrep', ['-f', 'com.docker.virtualization'], { encoding: 'utf8' }).trim().split('\n')[0]!;
   const ackedAtCut = Object.fromEntries([...acked].map(([f, b]) => [f, b.length]));

@@ -42,7 +42,17 @@
   "campaigns": [
     "container-pool"
   ],
-  "evidence": [],
+  "evidence": [
+    {
+      "kind": "run",
+      "ref": "container-pool-2026-10-09T20-01-19-342Z-147c8e",
+      "note": "pool de conteneurs, Docker Desktop"
+    },
+    {
+      "kind": "research-doc",
+      "ref": "lab/reports/sinks-topology-2026-10-09.md"
+    }
+  ],
   "verdictRef": "verdicts/D-cloud-topology.json",
   "adr": null,
   "dependsOn": [],

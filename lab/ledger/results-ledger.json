@@ -1,6 +1,6 @@
 {
  "schemaVersion": 1,
- "classificationSha256": "7c38111b0d5a1d97a7ddda67feccb86f5f2efcfffc8851afb8ca22de44758cbf",
+ "classificationSha256": "fccc52d47fdf797a4f5902ab47d1f95ff8e7af50eec2d8700040a52d1d18116e",
  "entries": [
   {
    "runId": "smoke-2026-10-07T20-20-24-226Z-9ebb47",
@@ -5975,6 +5975,138 @@
     "hostClass": "local-controlled"
    },
    "imported": "ledger/runs/light-engine-paired-2026-10-09T16-29-54-931Z-c62471/run.v2.json"
+  },
+  {
+   "runId": "storage-sinks-2026-10-09T19-55-10-753Z-e5bb86",
+   "lane": "storage",
+   "campaign": "storage-sinks",
+   "startedAt": "2026-10-09T19:55:10.753Z",
+   "status": "complete",
+   "hostClass": "local-dev",
+   "role": "selected",
+   "supersededBy": null,
+   "reason": "SQLite, JSONL, PostgreSQL COPY (Docker local), DuckDB et Parquet, même charge, 5 blocs",
+   "validity": [
+    {
+     "scope": "sink-contract",
+     "class": "A",
+     "note": "oracle de relecture indépendant"
+    },
+    {
+     "scope": "timing",
+     "class": "C",
+     "note": "local-dev ; PostgreSQL dans la VM Docker, les autres sur le disque du Mac"
+    }
+   ],
+   "decisionIds": [
+    "D-sinks"
+   ],
+   "citedIn": [
+    "lab/reports/sinks-topology-2026-10-09.md"
+   ],
+   "integrity": "uncatalogued",
+   "rerun": {
+    "required": true,
+    "priority": "P2",
+    "hostClass": "local-controlled"
+   },
+   "imported": "ledger/runs/storage-sinks-2026-10-09T19-55-10-753Z-e5bb86/run.v2.json"
+  },
+  {
+   "runId": "storage-sinks-crash-2026-10-09T19-55-28-446Z-b1c63c",
+   "lane": "storage",
+   "campaign": "storage-sinks-crash",
+   "startedAt": "2026-10-09T19:55:28.446Z",
+   "status": "complete",
+   "hostClass": "local-dev",
+   "role": "selected",
+   "supersededBy": null,
+   "reason": "crash du writer (SIGKILL) après acquittement, cinq sinks",
+   "validity": [
+    {
+     "scope": "process-crash",
+     "class": "A",
+     "note": "oracle de relecture indépendant"
+    }
+   ],
+   "decisionIds": [
+    "D-sinks"
+   ],
+   "citedIn": [
+    "lab/reports/sinks-topology-2026-10-09.md"
+   ],
+   "integrity": "uncatalogued",
+   "rerun": {
+    "required": false,
+    "priority": null,
+    "hostClass": null
+   },
+   "imported": "ledger/runs/storage-sinks-crash-2026-10-09T19-55-28-446Z-b1c63c/run.v2.json"
+  },
+  {
+   "runId": "container-pool-2026-10-09T20-00-11-969Z-ca61ec",
+   "lane": "topology",
+   "campaign": "container-pool",
+   "startedAt": "2026-10-09T20:00:11.969Z",
+   "status": "complete",
+   "hostClass": "local-dev",
+   "role": "superseded",
+   "supersededBy": "container-pool-2026-10-09T20-01-19-342Z-147c8e",
+   "reason": "mémoire du pool chaud mesurée avant que ses remplaçants aient démarré",
+   "validity": [
+    {
+     "scope": "all",
+     "class": "none",
+     "note": "mesure mémoire corrigée ensuite"
+    }
+   ],
+   "decisionIds": [
+    "D-cloud-topology"
+   ],
+   "citedIn": [],
+   "integrity": "uncatalogued",
+   "rerun": {
+    "required": false,
+    "priority": null,
+    "hostClass": null
+   },
+   "imported": "ledger/runs/container-pool-2026-10-09T20-00-11-969Z-ca61ec/run.v2.json"
+  },
+  {
+   "runId": "container-pool-2026-10-09T20-01-19-342Z-147c8e",
+   "lane": "topology",
+   "campaign": "container-pool",
+   "startedAt": "2026-10-09T20:01:19.342Z",
+   "status": "complete",
+   "hostClass": "local-dev",
+   "role": "selected",
+   "supersededBy": null,
+   "reason": "sessions navigateur par conteneur Docker : froid, pool chaud, pool réutilisé sans remise à zéro ; Firecracker sans KVM",
+   "validity": [
+    {
+     "scope": "isolation-contract",
+     "class": "A",
+     "note": "oracle de cookie entre tenants"
+    },
+    {
+     "scope": "timing",
+     "class": "C",
+     "note": "local-dev, Docker Desktop"
+    }
+   ],
+   "decisionIds": [
+    "D-cloud-topology"
+   ],
+   "citedIn": [
+    "lab/reports/sinks-topology-2026-10-09.md"
+   ],
+   "integrity": "uncatalogued",
+   "rerun": {
+    "required": true,
+    "priority": "P2",
+    "hostClass": "reference"
+   },
+   "imported": "ledger/runs/container-pool-2026-10-09T20-01-19-342Z-147c8e/run.v2.json"
   }
  ]
 }

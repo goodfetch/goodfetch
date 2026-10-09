@@ -1,0 +1,243 @@
+{
+ "schemaVersion": 1,
+ "decisionId": "D-sinks",
+ "metricId": "verified-rows-per-second",
+ "direction": "higher",
+ "rule": {
+  "kind": "non-inferiority",
+  "alpha": 0.05,
+  "power": 0.8,
+  "noisyBlockPolicy": "exclude"
+ },
+ "delta": {
+  "kind": "ratio",
+  "value": 0.1
+ },
+ "option": "parquet-arrow",
+ "baseline": "postgres-copy",
+ "stratum": {
+  "batchSize": 512
+ },
+ "outcome": "worse",
+ "n": 6,
+ "margin": 0.09531017980432493,
+ "requiredN": 5,
+ "estimate": {
+  "meanLogRatio": -0.33135634812137243,
+  "ratio": 0.7179492835726834,
+  "ci": [
+   -0.3801616604242048,
+   -0.2788883243043629
+  ],
+  "ratioCi": [
+   0.6837508648224125,
+   0.7566243950527707
+  ],
+  "hodgesLehmannRatio": 0.7184645624371474,
+  "wilcoxon": {
+   "n": 6,
+   "wPlus": 0,
+   "pValue": 0.03125,
+   "method": "exact"
+  },
+  "interval": "90% block bootstrap"
+ },
+ "gates": [
+  {
+   "id": "oracle-exact",
+   "ok": true,
+   "evaluated": true
+  }
+ ],
+ "host": {
+  "required": "local-controlled",
+  "observed": "local-dev",
+  "eligible": false
+ },
+ "comparisons": [
+  {
+   "option": "parquet-arrow",
+   "baseline": "postgres-copy",
+   "stratum": {
+    "batchSize": 512
+   },
+   "outcome": "worse",
+   "n": 6,
+   "margin": 0.09531017980432493,
+   "requiredN": 5,
+   "estimate": {
+    "meanLogRatio": -0.33135634812137243,
+    "ratio": 0.7179492835726834,
+    "ci": [
+     -0.3801616604242048,
+     -0.2788883243043629
+    ],
+    "ratioCi": [
+     0.6837508648224125,
+     0.7566243950527707
+    ],
+    "hodgesLehmannRatio": 0.7184645624371474,
+    "wilcoxon": {
+     "n": 6,
+     "wPlus": 0,
+     "pValue": 0.03125,
+     "method": "exact"
+    },
+    "interval": "90% block bootstrap"
+   },
+   "gates": [
+    {
+     "id": "oracle-exact",
+     "ok": true,
+     "evaluated": true
+    }
+   ],
+   "host": {
+    "required": "local-controlled",
+    "observed": "local-dev",
+    "eligible": false
+   }
+  },
+  {
+   "option": "parquet-arrow",
+   "baseline": "postgres-copy",
+   "stratum": {
+    "batchSize": 32
+   },
+   "outcome": "insufficient-n",
+   "n": 6,
+   "margin": 0.09531017980432493,
+   "requiredN": 7,
+   "estimate": {
+    "meanLogRatio": -1.6660989863532303,
+    "ratio": 0.1889828542383553,
+    "ci": [
+     -1.7197535759617322,
+     -1.6005292632841925
+    ],
+    "ratioCi": [
+     0.17911027955210385,
+     0.20178968985307477
+    ],
+    "hodgesLehmannRatio": 0.18425548915091505,
+    "wilcoxon": {
+     "n": 6,
+     "wPlus": 0,
+     "pValue": 0.03125,
+     "method": "exact"
+    },
+    "interval": "90% block bootstrap"
+   },
+   "gates": [
+    {
+     "id": "oracle-exact",
+     "ok": true,
+     "evaluated": true
+    }
+   ],
+   "host": {
+    "required": "local-controlled",
+    "observed": "local-dev",
+    "eligible": false
+   }
+  },
+  {
+   "option": "duckdb",
+   "baseline": "postgres-copy",
+   "stratum": {
+    "batchSize": 512
+   },
+   "outcome": "insufficient-n",
+   "n": 6,
+   "margin": 0.09531017980432493,
+   "requiredN": 16,
+   "estimate": {
+    "meanLogRatio": 1.9679877550413807,
+    "ratio": 7.156261838500188,
+    "ci": [
+     1.8688825566791538,
+     2.051186770037406
+    ],
+    "ratioCi": [
+     6.481050145204791,
+     7.777125291003648
+    ],
+    "hodgesLehmannRatio": 7.308942277090739,
+    "wilcoxon": {
+     "n": 6,
+     "wPlus": 21,
+     "pValue": 0.03125,
+     "method": "exact"
+    },
+    "interval": "90% block bootstrap"
+   },
+   "gates": [
+    {
+     "id": "oracle-exact",
+     "ok": true,
+     "evaluated": true
+    }
+   ],
+   "host": {
+    "required": "local-controlled",
+    "observed": "local-dev",
+    "eligible": false
+   }
+  },
+  {
+   "option": "duckdb",
+   "baseline": "postgres-copy",
+   "stratum": {
+    "batchSize": 32
+   },
+   "outcome": "insufficient-n",
+   "n": 6,
+   "margin": 0.09531017980432493,
+   "requiredN": 73,
+   "estimate": {
+    "meanLogRatio": 1.3245467151879533,
+    "ratio": 3.760480399962689,
+    "ci": [
+     1.094840854724204,
+     1.4980944519093293
+    ],
+    "ratioCi": [
+     2.9887070069426436,
+     4.473157127882135
+    ],
+    "hodgesLehmannRatio": 4.017929088494826,
+    "wilcoxon": {
+     "n": 6,
+     "wPlus": 21,
+     "pValue": 0.03125,
+     "method": "exact"
+    },
+    "interval": "90% block bootstrap"
+   },
+   "gates": [
+    {
+     "id": "oracle-exact",
+     "ok": true,
+     "evaluated": true
+    }
+   ],
+   "host": {
+    "required": "local-controlled",
+    "observed": "local-dev",
+    "eligible": false
+   }
+  }
+ ],
+ "inputs": {
+  "runs": [
+   "storage-sinks-2026-10-09T19-55-10-753Z-e5bb86",
+   "storage-sinks-crash-2026-10-09T19-55-28-446Z-b1c63c"
+  ],
+  "considered": [
+   "storage-sinks-2026-10-09T19-55-10-753Z-e5bb86",
+   "storage-sinks-crash-2026-10-09T19-55-28-446Z-b1c63c"
+  ],
+  "missing": [],
+  "ledgerSha256": "4200b44689df36ca07e098868d866ee61f61e9f6f27987793397dee84e1136bd"
+ }
+}

@@ -80,7 +80,7 @@ Rapport généré par `pnpm lab report` depuis `decisions/` et `verdicts/`. Les 
 |  |  | puppeteer-guarded / playwright-native [scenario form, rttMs 300] : blocs insuffisants | 2.32 [2.32 ; 2.32] (95% block bootstrap) | 2 sur 5 requis | local-controlled / requis local-controlled | actionability-conformance ok, false-success-count ok, oracle-exact ok |
 |  |  | puppeteer-guarded / playwright-native [scenario clicks, rttMs 300] : blocs insuffisants | 1.83 [1.83 ; 1.83] (95% block bootstrap) | 2 sur 5 requis | local-controlled / requis local-controlled | actionability-conformance ok, false-success-count ok, oracle-exact ok |
 |  |  | puppeteer-guarded / playwright-native [scenario js-catalog, rttMs 300] : blocs insuffisants | 0.928 [0.927 ; 0.929] (95% block bootstrap) | 2 sur 5 requis | local-controlled / requis local-controlled | actionability-conformance ok, false-success-count ok, oracle-exact ok |
-| D-cloud-topology | deferred | pas encore calculé | | | requis reference | session-isolation, oracle-exact |
+| D-cloud-topology | deferred | firecracker-snapshot / container-pool : bloqué par un contrat |  | 0 | local-dev / requis reference (non éligible) | session-isolation échec, oracle-exact échec |
 | D-core-language | open | rust-tokio / node : option meilleure | 0.514 [0.502 ; 0.528] (95% block bootstrap) | 8 sur 5 requis | local-controlled / requis local-controlled | oracle-exact ok, recovery-exact ok |
 | D-durable-runtime | open | journal-leases-epoch / journal-leases-epoch : contrat tenu |  | 5 | local-dev / requis local-controlled (non éligible) | admission-no-loss ok, recovery-exact ok, oracle-exact ok |
 | D-extraction | open | htmd / html5ever-scraper [] : blocs insuffisants | 0.652 [0.595 ; 0.709] (90% block bootstrap) | 7 sur 60 requis | local-dev / requis local-dev | oracle-exact ok |
@@ -109,7 +109,10 @@ Rapport généré par `pnpm lab report` depuis `decisions/` et `verdicts/`. Les 
 |  |  | contract / relogin-each-run [variant session-resume, tier browser] : option meilleure | 0.5 [0.5 ; 0.5] (95% block bootstrap) | 5 sur 5 requis | local-dev / requis local-dev | oracle-exact ok |
 |  |  | status-only / relogin-each-run [variant session-resume, tier http] : bloqué par un contrat |  | 5 | local-dev / requis local-dev | oracle-exact échec |
 |  |  | status-only / relogin-each-run [variant session-resume, tier browser] : bloqué par un contrat |  | 5 | local-dev / requis local-dev | oracle-exact échec |
-| D-sinks | deferred | pas encore calculé | | | requis local-controlled | oracle-exact, recovery-exact |
+| D-sinks | deferred | parquet-arrow / postgres-copy [batchSize 512] : option moins bonne | 0.718 [0.684 ; 0.757] (90% block bootstrap) | 6 sur 5 requis | local-dev / requis local-controlled (non éligible) | oracle-exact ok |
+|  |  | parquet-arrow / postgres-copy [batchSize 32] : blocs insuffisants | 0.189 [0.179 ; 0.202] (90% block bootstrap) | 6 sur 7 requis | local-dev / requis local-controlled (non éligible) | oracle-exact ok |
+|  |  | duckdb / postgres-copy [batchSize 512] : blocs insuffisants | 7.16 [6.48 ; 7.78] (90% block bootstrap) | 6 sur 16 requis | local-dev / requis local-controlled (non éligible) | oracle-exact ok |
+|  |  | duckdb / postgres-copy [batchSize 32] : blocs insuffisants | 3.76 [2.99 ; 4.47] (90% block bootstrap) | 6 sur 73 requis | local-dev / requis local-controlled (non éligible) | oracle-exact ok |
 | D-storage | decided | pas encore calculé | | | requis local-controlled | oracle-exact, recovery-exact |
 
 Un verdict ne sert une décision que si l'hôte observé atteint la classe requise et que toutes les gates de contrat passent.

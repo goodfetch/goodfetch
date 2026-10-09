@@ -50,7 +50,22 @@
     "storage-sinks",
     "storage-sinks-crash"
   ],
-  "evidence": [],
+  "evidence": [
+    {
+      "kind": "run",
+      "ref": "storage-sinks-2026-10-09T19-55-10-753Z-e5bb86",
+      "note": "débit, cinq sinks"
+    },
+    {
+      "kind": "run",
+      "ref": "storage-sinks-crash-2026-10-09T19-55-28-446Z-b1c63c",
+      "note": "crash du writer après acquittement"
+    },
+    {
+      "kind": "research-doc",
+      "ref": "lab/reports/sinks-topology-2026-10-09.md"
+    }
+  ],
   "verdictRef": "verdicts/D-sinks.json",
   "adr": null,
   "dependsOn": [

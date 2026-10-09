@@ -3687,6 +3687,288 @@
         "priority": null,
         "hostClass": null
       }
+    },
+    "cross-engine-actionability-2026-10-09T14-05-56-552Z-677518": {
+      "role": "selected",
+      "reason": "garde Automan sur plusieurs moteurs via Playwright (conteneur Linux arm64, Chromium, WebKit et Firefox de Playwright)",
+      "supersededBy": null,
+      "decisionIds": [
+        "D-browser-driver"
+      ],
+      "validity": [
+        {
+          "scope": "cross-engine-contract",
+          "class": "A",
+          "note": "oracle des fixtures"
+        },
+        {
+          "scope": "timing",
+          "class": "none",
+          "note": "local-dev"
+        }
+      ],
+      "noisyHost": false,
+      "rerun": {
+        "required": false,
+        "priority": null,
+        "hostClass": null
+      }
+    },
+    "cross-engine-actionability-2026-10-09T13-48-24-832Z-ff561b": {
+      "role": "superseded",
+      "reason": "avant que l'oracle de la molette juge le défilement plutôt qu'un nombre de pixels propre à Chromium",
+      "supersededBy": "cross-engine-actionability-2026-10-09T14-05-56-552Z-677518",
+      "decisionIds": [
+        "D-browser-driver"
+      ],
+      "validity": [
+        {
+          "scope": "all",
+          "class": "none",
+          "note": "oracle corrigé ensuite"
+        }
+      ],
+      "noisyHost": false,
+      "rerun": {
+        "required": false,
+        "priority": null,
+        "hostClass": null
+      }
+    },
+    "cross-engine-primitives-2026-10-09T14-09-14-677Z-63256a": {
+      "role": "selected",
+      "reason": "garde Automan sur plusieurs moteurs via Playwright (conteneur Linux arm64, Chromium, WebKit et Firefox de Playwright)",
+      "supersededBy": null,
+      "decisionIds": [
+        "D-browser-driver"
+      ],
+      "validity": [
+        {
+          "scope": "cross-engine-contract",
+          "class": "A",
+          "note": "oracle des fixtures"
+        },
+        {
+          "scope": "timing",
+          "class": "none",
+          "note": "local-dev"
+        }
+      ],
+      "noisyHost": false,
+      "rerun": {
+        "required": false,
+        "priority": null,
+        "hostClass": null
+      }
+    },
+    "cross-engine-primitives-2026-10-09T13-51-42-316Z-622d24": {
+      "role": "superseded",
+      "reason": "avant que l'oracle de la molette juge le défilement plutôt qu'un nombre de pixels propre à Chromium",
+      "supersededBy": "cross-engine-primitives-2026-10-09T14-09-14-677Z-63256a",
+      "decisionIds": [
+        "D-browser-driver"
+      ],
+      "validity": [
+        {
+          "scope": "all",
+          "class": "none",
+          "note": "oracle corrigé ensuite"
+        }
+      ],
+      "noisyHost": false,
+      "rerun": {
+        "required": false,
+        "priority": null,
+        "hostClass": null
+      }
+    },
+    "cross-engine-navigation-2026-10-09T14-12-41-527Z-cd6a35": {
+      "role": "selected",
+      "reason": "garde Automan sur plusieurs moteurs via Playwright (conteneur Linux arm64, Chromium, WebKit et Firefox de Playwright)",
+      "supersededBy": null,
+      "decisionIds": [
+        "D-browser-driver"
+      ],
+      "validity": [
+        {
+          "scope": "cross-engine-contract",
+          "class": "A",
+          "note": "oracle des fixtures"
+        },
+        {
+          "scope": "timing",
+          "class": "none",
+          "note": "local-dev"
+        }
+      ],
+      "noisyHost": false,
+      "rerun": {
+        "required": false,
+        "priority": null,
+        "hostClass": null
+      }
+    },
+    "cross-engine-navigation-2026-10-09T13-55-10-829Z-13338e": {
+      "role": "superseded",
+      "reason": "avant que l'oracle de la molette juge le défilement plutôt qu'un nombre de pixels propre à Chromium",
+      "supersededBy": "cross-engine-navigation-2026-10-09T14-12-41-527Z-cd6a35",
+      "decisionIds": [
+        "D-browser-driver"
+      ],
+      "validity": [
+        {
+          "scope": "all",
+          "class": "none",
+          "note": "oracle corrigé ensuite"
+        }
+      ],
+      "noisyHost": false,
+      "rerun": {
+        "required": false,
+        "priority": null,
+        "hostClass": null
+      }
+    },
+    "cross-engine-actionability-2026-10-09T13-59-29-588Z-e0a4f2": {
+      "role": "selected",
+      "reason": "garde Automan sur plusieurs moteurs via Playwright (macOS 27, Chromium et WebKit ; Firefox ne démarre pas sur ce système)",
+      "supersededBy": null,
+      "decisionIds": [
+        "D-browser-driver"
+      ],
+      "validity": [
+        {
+          "scope": "cross-engine-contract",
+          "class": "A",
+          "note": "oracle des fixtures"
+        },
+        {
+          "scope": "timing",
+          "class": "none",
+          "note": "local-dev"
+        }
+      ],
+      "noisyHost": false,
+      "rerun": {
+        "required": false,
+        "priority": null,
+        "hostClass": null
+      }
+    },
+    "cross-engine-actionability-2026-10-09T13-33-19-606Z-a958a3": {
+      "role": "superseded",
+      "reason": "avant que l'oracle de la molette juge le défilement plutôt qu'un nombre de pixels propre à Chromium",
+      "supersededBy": "cross-engine-actionability-2026-10-09T13-59-29-588Z-e0a4f2",
+      "decisionIds": [
+        "D-browser-driver"
+      ],
+      "validity": [
+        {
+          "scope": "all",
+          "class": "none",
+          "note": "oracle corrigé ensuite"
+        }
+      ],
+      "noisyHost": false,
+      "rerun": {
+        "required": false,
+        "priority": null,
+        "hostClass": null
+      }
+    },
+    "cross-engine-primitives-2026-10-09T14-02-07-047Z-53b744": {
+      "role": "selected",
+      "reason": "garde Automan sur plusieurs moteurs via Playwright (macOS 27, Chromium et WebKit ; Firefox ne démarre pas sur ce système)",
+      "supersededBy": null,
+      "decisionIds": [
+        "D-browser-driver"
+      ],
+      "validity": [
+        {
+          "scope": "cross-engine-contract",
+          "class": "A",
+          "note": "oracle des fixtures"
+        },
+        {
+          "scope": "timing",
+          "class": "none",
+          "note": "local-dev"
+        }
+      ],
+      "noisyHost": false,
+      "rerun": {
+        "required": false,
+        "priority": null,
+        "hostClass": null
+      }
+    },
+    "cross-engine-primitives-2026-10-09T13-35-52-080Z-8ad7a3": {
+      "role": "superseded",
+      "reason": "avant que l'oracle de la molette juge le défilement plutôt qu'un nombre de pixels propre à Chromium",
+      "supersededBy": "cross-engine-primitives-2026-10-09T14-02-07-047Z-53b744",
+      "decisionIds": [
+        "D-browser-driver"
+      ],
+      "validity": [
+        {
+          "scope": "all",
+          "class": "none",
+          "note": "oracle corrigé ensuite"
+        }
+      ],
+      "noisyHost": false,
+      "rerun": {
+        "required": false,
+        "priority": null,
+        "hostClass": null
+      }
+    },
+    "cross-engine-navigation-2026-10-09T14-04-46-125Z-4d8f3c": {
+      "role": "selected",
+      "reason": "garde Automan sur plusieurs moteurs via Playwright (macOS 27, Chromium et WebKit ; Firefox ne démarre pas sur ce système)",
+      "supersededBy": null,
+      "decisionIds": [
+        "D-browser-driver"
+      ],
+      "validity": [
+        {
+          "scope": "cross-engine-contract",
+          "class": "A",
+          "note": "oracle des fixtures"
+        },
+        {
+          "scope": "timing",
+          "class": "none",
+          "note": "local-dev"
+        }
+      ],
+      "noisyHost": false,
+      "rerun": {
+        "required": false,
+        "priority": null,
+        "hostClass": null
+      }
+    },
+    "cross-engine-navigation-2026-10-09T13-38-34-125Z-aa1179": {
+      "role": "superseded",
+      "reason": "avant que l'oracle de la molette juge le défilement plutôt qu'un nombre de pixels propre à Chromium",
+      "supersededBy": "cross-engine-navigation-2026-10-09T14-04-46-125Z-4d8f3c",
+      "decisionIds": [
+        "D-browser-driver"
+      ],
+      "validity": [
+        {
+          "scope": "all",
+          "class": "none",
+          "note": "oracle corrigé ensuite"
+        }
+      ],
+      "noisyHost": false,
+      "rerun": {
+        "required": false,
+        "priority": null,
+        "hostClass": null
+      }
     }
   }
 }

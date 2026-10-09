@@ -1,6 +1,6 @@
 {
  "schemaVersion": 1,
- "classificationSha256": "abe32a71a195a5e2ea662a6d289da165e0f2f1b20941504487c6fed824ef0e74",
+ "classificationSha256": "52635a9c3c2860cfb6bb7b0dd69e503859231c89564307204e80f12a193065e0",
  "entries": [
   {
    "runId": "smoke-2026-10-07T20-20-24-226Z-9ebb47",
@@ -5125,6 +5125,396 @@
     "hostClass": null
    },
    "imported": "ledger/runs/extraction-rendered-test-2026-10-09T12-36-28-804Z-4a6e50/run.v2.json"
+  },
+  {
+   "runId": "cross-engine-actionability-2026-10-09T13-33-19-606Z-a958a3",
+   "lane": "actionability",
+   "campaign": "cross-engine-actionability",
+   "startedAt": "2026-10-09T13:33:19.606Z",
+   "status": "complete",
+   "hostClass": "local-dev",
+   "role": "superseded",
+   "supersededBy": "cross-engine-actionability-2026-10-09T13-59-29-588Z-e0a4f2",
+   "reason": "avant que l'oracle de la molette juge le défilement plutôt qu'un nombre de pixels propre à Chromium",
+   "validity": [
+    {
+     "scope": "all",
+     "class": "none",
+     "note": "oracle corrigé ensuite"
+    }
+   ],
+   "decisionIds": [
+    "D-browser-driver"
+   ],
+   "citedIn": [],
+   "integrity": "uncatalogued",
+   "rerun": {
+    "required": false,
+    "priority": null,
+    "hostClass": null
+   },
+   "imported": "ledger/runs/cross-engine-actionability-2026-10-09T13-33-19-606Z-a958a3/run.v2.json"
+  },
+  {
+   "runId": "cross-engine-primitives-2026-10-09T13-35-52-080Z-8ad7a3",
+   "lane": "actionability",
+   "campaign": "cross-engine-primitives",
+   "startedAt": "2026-10-09T13:35:52.080Z",
+   "status": "complete",
+   "hostClass": "local-dev",
+   "role": "superseded",
+   "supersededBy": "cross-engine-primitives-2026-10-09T14-02-07-047Z-53b744",
+   "reason": "avant que l'oracle de la molette juge le défilement plutôt qu'un nombre de pixels propre à Chromium",
+   "validity": [
+    {
+     "scope": "all",
+     "class": "none",
+     "note": "oracle corrigé ensuite"
+    }
+   ],
+   "decisionIds": [
+    "D-browser-driver"
+   ],
+   "citedIn": [],
+   "integrity": "uncatalogued",
+   "rerun": {
+    "required": false,
+    "priority": null,
+    "hostClass": null
+   },
+   "imported": "ledger/runs/cross-engine-primitives-2026-10-09T13-35-52-080Z-8ad7a3/run.v2.json"
+  },
+  {
+   "runId": "cross-engine-navigation-2026-10-09T13-38-34-125Z-aa1179",
+   "lane": "actionability",
+   "campaign": "cross-engine-navigation",
+   "startedAt": "2026-10-09T13:38:34.125Z",
+   "status": "complete",
+   "hostClass": "local-dev",
+   "role": "superseded",
+   "supersededBy": "cross-engine-navigation-2026-10-09T14-04-46-125Z-4d8f3c",
+   "reason": "avant que l'oracle de la molette juge le défilement plutôt qu'un nombre de pixels propre à Chromium",
+   "validity": [
+    {
+     "scope": "all",
+     "class": "none",
+     "note": "oracle corrigé ensuite"
+    }
+   ],
+   "decisionIds": [
+    "D-browser-driver"
+   ],
+   "citedIn": [],
+   "integrity": "uncatalogued",
+   "rerun": {
+    "required": false,
+    "priority": null,
+    "hostClass": null
+   },
+   "imported": "ledger/runs/cross-engine-navigation-2026-10-09T13-38-34-125Z-aa1179/run.v2.json"
+  },
+  {
+   "runId": "cross-engine-actionability-2026-10-09T13-48-24-832Z-ff561b",
+   "lane": "actionability",
+   "campaign": "cross-engine-actionability",
+   "startedAt": "2026-10-09T13:48:24.832Z",
+   "status": "complete",
+   "hostClass": "local-dev",
+   "role": "superseded",
+   "supersededBy": "cross-engine-actionability-2026-10-09T14-05-56-552Z-677518",
+   "reason": "avant que l'oracle de la molette juge le défilement plutôt qu'un nombre de pixels propre à Chromium",
+   "validity": [
+    {
+     "scope": "all",
+     "class": "none",
+     "note": "oracle corrigé ensuite"
+    }
+   ],
+   "decisionIds": [
+    "D-browser-driver"
+   ],
+   "citedIn": [],
+   "integrity": "uncatalogued",
+   "rerun": {
+    "required": false,
+    "priority": null,
+    "hostClass": null
+   },
+   "imported": "ledger/runs/cross-engine-actionability-2026-10-09T13-48-24-832Z-ff561b/run.v2.json"
+  },
+  {
+   "runId": "cross-engine-primitives-2026-10-09T13-51-42-316Z-622d24",
+   "lane": "actionability",
+   "campaign": "cross-engine-primitives",
+   "startedAt": "2026-10-09T13:51:42.316Z",
+   "status": "complete",
+   "hostClass": "local-dev",
+   "role": "superseded",
+   "supersededBy": "cross-engine-primitives-2026-10-09T14-09-14-677Z-63256a",
+   "reason": "avant que l'oracle de la molette juge le défilement plutôt qu'un nombre de pixels propre à Chromium",
+   "validity": [
+    {
+     "scope": "all",
+     "class": "none",
+     "note": "oracle corrigé ensuite"
+    }
+   ],
+   "decisionIds": [
+    "D-browser-driver"
+   ],
+   "citedIn": [],
+   "integrity": "uncatalogued",
+   "rerun": {
+    "required": false,
+    "priority": null,
+    "hostClass": null
+   },
+   "imported": "ledger/runs/cross-engine-primitives-2026-10-09T13-51-42-316Z-622d24/run.v2.json"
+  },
+  {
+   "runId": "cross-engine-navigation-2026-10-09T13-55-10-829Z-13338e",
+   "lane": "actionability",
+   "campaign": "cross-engine-navigation",
+   "startedAt": "2026-10-09T13:55:10.829Z",
+   "status": "complete",
+   "hostClass": "local-dev",
+   "role": "superseded",
+   "supersededBy": "cross-engine-navigation-2026-10-09T14-12-41-527Z-cd6a35",
+   "reason": "avant que l'oracle de la molette juge le défilement plutôt qu'un nombre de pixels propre à Chromium",
+   "validity": [
+    {
+     "scope": "all",
+     "class": "none",
+     "note": "oracle corrigé ensuite"
+    }
+   ],
+   "decisionIds": [
+    "D-browser-driver"
+   ],
+   "citedIn": [],
+   "integrity": "uncatalogued",
+   "rerun": {
+    "required": false,
+    "priority": null,
+    "hostClass": null
+   },
+   "imported": "ledger/runs/cross-engine-navigation-2026-10-09T13-55-10-829Z-13338e/run.v2.json"
+  },
+  {
+   "runId": "cross-engine-actionability-2026-10-09T13-59-29-588Z-e0a4f2",
+   "lane": "actionability",
+   "campaign": "cross-engine-actionability",
+   "startedAt": "2026-10-09T13:59:29.588Z",
+   "status": "complete",
+   "hostClass": "local-dev",
+   "role": "selected",
+   "supersededBy": null,
+   "reason": "garde Automan sur plusieurs moteurs via Playwright (macOS 27, Chromium et WebKit ; Firefox ne démarre pas sur ce système)",
+   "validity": [
+    {
+     "scope": "cross-engine-contract",
+     "class": "A",
+     "note": "oracle des fixtures"
+    },
+    {
+     "scope": "timing",
+     "class": "none",
+     "note": "local-dev"
+    }
+   ],
+   "decisionIds": [
+    "D-browser-driver"
+   ],
+   "citedIn": [
+    "lab/reports/cross-engine-2026-10-09.md"
+   ],
+   "integrity": "uncatalogued",
+   "rerun": {
+    "required": false,
+    "priority": null,
+    "hostClass": null
+   },
+   "imported": "ledger/runs/cross-engine-actionability-2026-10-09T13-59-29-588Z-e0a4f2/run.v2.json"
+  },
+  {
+   "runId": "cross-engine-primitives-2026-10-09T14-02-07-047Z-53b744",
+   "lane": "actionability",
+   "campaign": "cross-engine-primitives",
+   "startedAt": "2026-10-09T14:02:07.047Z",
+   "status": "complete",
+   "hostClass": "local-dev",
+   "role": "selected",
+   "supersededBy": null,
+   "reason": "garde Automan sur plusieurs moteurs via Playwright (macOS 27, Chromium et WebKit ; Firefox ne démarre pas sur ce système)",
+   "validity": [
+    {
+     "scope": "cross-engine-contract",
+     "class": "A",
+     "note": "oracle des fixtures"
+    },
+    {
+     "scope": "timing",
+     "class": "none",
+     "note": "local-dev"
+    }
+   ],
+   "decisionIds": [
+    "D-browser-driver"
+   ],
+   "citedIn": [
+    "lab/reports/cross-engine-2026-10-09.md"
+   ],
+   "integrity": "uncatalogued",
+   "rerun": {
+    "required": false,
+    "priority": null,
+    "hostClass": null
+   },
+   "imported": "ledger/runs/cross-engine-primitives-2026-10-09T14-02-07-047Z-53b744/run.v2.json"
+  },
+  {
+   "runId": "cross-engine-navigation-2026-10-09T14-04-46-125Z-4d8f3c",
+   "lane": "actionability",
+   "campaign": "cross-engine-navigation",
+   "startedAt": "2026-10-09T14:04:46.125Z",
+   "status": "complete",
+   "hostClass": "local-dev",
+   "role": "selected",
+   "supersededBy": null,
+   "reason": "garde Automan sur plusieurs moteurs via Playwright (macOS 27, Chromium et WebKit ; Firefox ne démarre pas sur ce système)",
+   "validity": [
+    {
+     "scope": "cross-engine-contract",
+     "class": "A",
+     "note": "oracle des fixtures"
+    },
+    {
+     "scope": "timing",
+     "class": "none",
+     "note": "local-dev"
+    }
+   ],
+   "decisionIds": [
+    "D-browser-driver"
+   ],
+   "citedIn": [
+    "lab/reports/cross-engine-2026-10-09.md"
+   ],
+   "integrity": "uncatalogued",
+   "rerun": {
+    "required": false,
+    "priority": null,
+    "hostClass": null
+   },
+   "imported": "ledger/runs/cross-engine-navigation-2026-10-09T14-04-46-125Z-4d8f3c/run.v2.json"
+  },
+  {
+   "runId": "cross-engine-actionability-2026-10-09T14-05-56-552Z-677518",
+   "lane": "actionability",
+   "campaign": "cross-engine-actionability",
+   "startedAt": "2026-10-09T14:05:56.552Z",
+   "status": "complete",
+   "hostClass": "local-dev",
+   "role": "selected",
+   "supersededBy": null,
+   "reason": "garde Automan sur plusieurs moteurs via Playwright (conteneur Linux arm64, Chromium, WebKit et Firefox de Playwright)",
+   "validity": [
+    {
+     "scope": "cross-engine-contract",
+     "class": "A",
+     "note": "oracle des fixtures"
+    },
+    {
+     "scope": "timing",
+     "class": "none",
+     "note": "local-dev"
+    }
+   ],
+   "decisionIds": [
+    "D-browser-driver"
+   ],
+   "citedIn": [
+    "lab/reports/cross-engine-2026-10-09.md"
+   ],
+   "integrity": "uncatalogued",
+   "rerun": {
+    "required": false,
+    "priority": null,
+    "hostClass": null
+   },
+   "imported": "ledger/runs/cross-engine-actionability-2026-10-09T14-05-56-552Z-677518/run.v2.json"
+  },
+  {
+   "runId": "cross-engine-primitives-2026-10-09T14-09-14-677Z-63256a",
+   "lane": "actionability",
+   "campaign": "cross-engine-primitives",
+   "startedAt": "2026-10-09T14:09:14.677Z",
+   "status": "complete",
+   "hostClass": "local-dev",
+   "role": "selected",
+   "supersededBy": null,
+   "reason": "garde Automan sur plusieurs moteurs via Playwright (conteneur Linux arm64, Chromium, WebKit et Firefox de Playwright)",
+   "validity": [
+    {
+     "scope": "cross-engine-contract",
+     "class": "A",
+     "note": "oracle des fixtures"
+    },
+    {
+     "scope": "timing",
+     "class": "none",
+     "note": "local-dev"
+    }
+   ],
+   "decisionIds": [
+    "D-browser-driver"
+   ],
+   "citedIn": [
+    "lab/reports/cross-engine-2026-10-09.md"
+   ],
+   "integrity": "uncatalogued",
+   "rerun": {
+    "required": false,
+    "priority": null,
+    "hostClass": null
+   },
+   "imported": "ledger/runs/cross-engine-primitives-2026-10-09T14-09-14-677Z-63256a/run.v2.json"
+  },
+  {
+   "runId": "cross-engine-navigation-2026-10-09T14-12-41-527Z-cd6a35",
+   "lane": "actionability",
+   "campaign": "cross-engine-navigation",
+   "startedAt": "2026-10-09T14:12:41.527Z",
+   "status": "complete",
+   "hostClass": "local-dev",
+   "role": "selected",
+   "supersededBy": null,
+   "reason": "garde Automan sur plusieurs moteurs via Playwright (conteneur Linux arm64, Chromium, WebKit et Firefox de Playwright)",
+   "validity": [
+    {
+     "scope": "cross-engine-contract",
+     "class": "A",
+     "note": "oracle des fixtures"
+    },
+    {
+     "scope": "timing",
+     "class": "none",
+     "note": "local-dev"
+    }
+   ],
+   "decisionIds": [
+    "D-browser-driver"
+   ],
+   "citedIn": [
+    "lab/reports/cross-engine-2026-10-09.md"
+   ],
+   "integrity": "uncatalogued",
+   "rerun": {
+    "required": false,
+    "priority": null,
+    "hostClass": null
+   },
+   "imported": "ledger/runs/cross-engine-navigation-2026-10-09T14-12-41-527Z-cd6a35/run.v2.json"
   }
  ]
 }

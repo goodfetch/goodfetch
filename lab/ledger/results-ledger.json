@@ -1,6 +1,6 @@
 {
  "schemaVersion": 1,
- "classificationSha256": "fccc52d47fdf797a4f5902ab47d1f95ff8e7af50eec2d8700040a52d1d18116e",
+ "classificationSha256": "bb36d7ebbfb0c818bbe8441a5c432dab569690f79ef4cffcbf244d6d1521fde4",
  "entries": [
   {
    "runId": "smoke-2026-10-07T20-20-24-226Z-9ebb47",
@@ -3107,6 +3107,9 @@
     "D-extraction"
    ],
    "citedIn": [
+    "lab/reports/extraction-paired-2026-10-09.json",
+    "lab/reports/extraction-paired-2026-10-09.md",
+    "lab/reports/extraction-paired-vs-trafilatura-2026-10-09.json",
     "lab/reports/extraction-quality-2026-10-08.md"
    ],
    "integrity": "uncatalogued",
@@ -6107,6 +6110,103 @@
     "hostClass": "reference"
    },
    "imported": "ledger/runs/container-pool-2026-10-09T20-01-19-342Z-147c8e/run.v2.json"
+  },
+  {
+   "runId": "browser-driver-rtt-0-2026-10-09T22-38-04-681Z-80ec2d",
+   "lane": "bench",
+   "campaign": "browser-driver-rtt-0",
+   "startedAt": "2026-10-09T22:38:04.681Z",
+   "status": "noisy-host",
+   "hostClass": "local-controlled",
+   "role": "diagnostic",
+   "supersededBy": null,
+   "reason": "1 bloc propre sur 8 : le contrôle de bloc comptait la charge de la campagne elle-même ; compilation Swift étrangère intermittente",
+   "validity": [
+    {
+     "scope": "browser-driver-contract",
+     "class": "A",
+     "note": "oracle des fixtures"
+    },
+    {
+     "scope": "timing",
+     "class": "none",
+     "note": "blocs bruités"
+    }
+   ],
+   "decisionIds": [
+    "D-browser-driver"
+   ],
+   "citedIn": [],
+   "integrity": "uncatalogued",
+   "rerun": {
+    "required": true,
+    "priority": "P0",
+    "hostClass": "local-controlled"
+   },
+   "imported": "ledger/runs/browser-driver-rtt-0-2026-10-09T22-38-04-681Z-80ec2d/run.v2.json"
+  },
+  {
+   "runId": "browser-driver-rtt-20-2026-10-09T22-44-56-910Z-d2290c",
+   "lane": "bench",
+   "campaign": "browser-driver-rtt-20",
+   "startedAt": "2026-10-09T22:44:56.910Z",
+   "status": "noisy-host",
+   "hostClass": "local-dev",
+   "role": "diagnostic",
+   "supersededBy": null,
+   "reason": "hôte rétrogradé en local-dev au départ : compilation Swift étrangère, charge par CPU jusqu'à 10,7",
+   "validity": [
+    {
+     "scope": "browser-driver-contract",
+     "class": "A",
+     "note": "oracle des fixtures"
+    },
+    {
+     "scope": "timing",
+     "class": "none",
+     "note": "blocs bruités"
+    }
+   ],
+   "decisionIds": [
+    "D-browser-driver"
+   ],
+   "citedIn": [],
+   "integrity": "uncatalogued",
+   "rerun": {
+    "required": true,
+    "priority": "P0",
+    "hostClass": "local-controlled"
+   },
+   "imported": "ledger/runs/browser-driver-rtt-20-2026-10-09T22-44-56-910Z-d2290c/run.v2.json"
+  },
+  {
+   "runId": "browser-driver-rtt-100-2026-10-09T23-11-43-928Z-24e4bc",
+   "lane": "bench",
+   "campaign": "browser-driver-rtt-100",
+   "startedAt": "2026-10-09T23:11:43.928Z",
+   "status": "interrupted",
+   "hostClass": "local-dev",
+   "role": "diagnostic",
+   "supersededBy": null,
+   "reason": "interrompu volontairement : hôte bruité, contrôle de bloc en cours de correction",
+   "validity": [
+    {
+     "scope": "all",
+     "class": "none",
+     "note": "run incomplet"
+    }
+   ],
+   "decisionIds": [
+    "D-browser-driver"
+   ],
+   "citedIn": [],
+   "integrity": "uncatalogued",
+   "rerun": {
+    "required": true,
+    "priority": "P0",
+    "hostClass": "local-controlled"
+   },
+   "imported": "ledger/imported/browser-driver-rtt-100-2026-10-09T23-11-43-928Z-24e4bc/run.v2.json"
   }
  ]
 }

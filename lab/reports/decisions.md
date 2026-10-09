@@ -28,15 +28,18 @@ Rapport généré par `pnpm lab report` depuis `decisions/` et `verdicts/`. Les 
 |  |  | http-only / browser-only [variant stale-html] : bloqué par un contrat |  | 0 | local-dev / requis local-controlled (non éligible) | oracle-exact échec |
 |  |  | http-only / browser-only [variant graphql] : bloqué par un contrat |  | 0 | local-dev / requis local-controlled (non éligible) | oracle-exact échec |
 |  |  | http-only / browser-only [variant infinite-scroll] : bloqué par un contrat |  | 0 | local-dev / requis local-controlled (non éligible) | oracle-exact échec |
-| D-agent-interface | open | cli / mcp [variant baseline] : blocs insuffisants | 1.12 [0.744 ; 1.71] (95% block bootstrap) | 9 sur 196 requis | local-dev / requis local-controlled (non éligible) | oracle-exact ok |
-|  |  | cli / mcp [variant decoy-swap] : blocs insuffisants | 0.87 [0.691 ; 1.09] (95% block bootstrap) | 9 sur 56 requis | local-dev / requis local-controlled (non éligible) | oracle-exact ok |
-|  |  | cli / mcp [variant price-change] : blocs insuffisants | 1.37 [1.22 ; 1.55] (95% block bootstrap) | 9 sur 16 requis | local-dev / requis local-controlled (non éligible) | oracle-exact ok |
-|  |  | sdk / mcp [variant baseline] : blocs insuffisants | 1.01 [0.879 ; 1.14] (95% block bootstrap) | 9 sur 19 requis | local-dev / requis local-controlled (non éligible) | oracle-exact ok |
-|  |  | sdk / mcp [variant decoy-swap] : équivalentes | 0.996 [0.971 ; 1.02] (95% block bootstrap) | 9 sur 5 requis | local-dev / requis local-controlled (non éligible) | oracle-exact ok |
-|  |  | sdk / mcp [variant price-change] : équivalentes | 0.956 [0.874 ; 1] (95% block bootstrap) | 9 sur 8 requis | local-dev / requis local-controlled (non éligible) | oracle-exact ok |
-|  |  | code-mode / mcp [variant baseline] : bloqué par un contrat |  | 7 | local-dev / requis local-controlled (non éligible) | oracle-exact échec |
-|  |  | code-mode / mcp [variant decoy-swap] : bloqué par un contrat |  | 6 | local-dev / requis local-controlled (non éligible) | oracle-exact échec |
-|  |  | code-mode / mcp [variant price-change] : bloqué par un contrat |  | 9 | local-dev / requis local-controlled (non éligible) | oracle-exact échec |
+| D-agent-interface | open | cli / mcp [variant baseline] : blocs insuffisants | 1.09 [0.86 ; 1.41] (95% block bootstrap) | 24 sur 157 requis | local-dev / requis local-dev | oracle-exact ok |
+|  |  | cli / mcp [variant decoy-swap] : blocs insuffisants | 1.05 [0.847 ; 1.33] (95% block bootstrap) | 24 sur 134 requis | local-dev / requis local-dev | oracle-exact ok |
+|  |  | cli / mcp [variant price-change] : option moins bonne | 1.43 [1.35 ; 1.5] (95% block bootstrap) | 24 sur 9 requis | local-dev / requis local-dev | oracle-exact ok |
+|  |  | sdk / mcp [variant baseline] : équivalentes | 0.954 [0.884 ; 1.02] (95% block bootstrap) | 24 sur 15 requis | local-dev / requis local-dev | oracle-exact ok |
+|  |  | sdk / mcp [variant decoy-swap] : équivalentes | 1.01 [0.993 ; 1.03] (95% block bootstrap) | 24 sur 5 requis | local-dev / requis local-dev | oracle-exact ok |
+|  |  | sdk / mcp [variant price-change] : équivalentes | 0.983 [0.951 ; 1] (95% block bootstrap) | 24 sur 5 requis | local-dev / requis local-dev | oracle-exact ok |
+|  |  | code-mode / mcp [variant baseline] : bloqué par un contrat |  | 18 | local-dev / requis local-dev | oracle-exact échec |
+|  |  | code-mode / mcp [variant decoy-swap] : bloqué par un contrat |  | 16 | local-dev / requis local-dev | oracle-exact échec |
+|  |  | code-mode / mcp [variant price-change] : bloqué par un contrat |  | 24 | local-dev / requis local-dev | oracle-exact échec |
+|  |  | code-mode-journal / mcp [variant baseline] : blocs insuffisants | 0.197 [0.159 ; 0.255] (95% block bootstrap) | 15 sur 93 requis | local-dev / requis local-dev | oracle-exact ok |
+|  |  | code-mode-journal / mcp [variant decoy-swap] : blocs insuffisants | 0.195 [0.156 ; 0.251] (95% block bootstrap) | 15 sur 99 requis | local-dev / requis local-dev | oracle-exact ok |
+|  |  | code-mode-journal / mcp [variant price-change] : option meilleure | 0.34 [0.333 ; 0.353] (95% block bootstrap) | 15 sur 5 requis | local-dev / requis local-dev | oracle-exact ok |
 | D-ai-layer | open | pas encore calculé | | | requis local-controlled | false-success-count, oracle-exact |
 | D-browser-driver | open | rust-cdp-guarded / playwright-native [scenario form, rttMs 0] : option moins bonne | 1.43 [1.41 ; 1.45] (95% block bootstrap) | 7 sur 5 requis | local-controlled / requis local-controlled | actionability-conformance ok, false-success-count ok, oracle-exact ok |
 |  |  | rust-cdp-guarded / playwright-native [scenario clicks, rttMs 0] : option moins bonne | 1.23 [1.21 ; 1.25] (95% block bootstrap) | 7 sur 5 requis | local-controlled / requis local-controlled | actionability-conformance ok, false-success-count ok, oracle-exact ok |
@@ -81,11 +84,11 @@ Rapport généré par `pnpm lab report` depuis `decisions/` et `verdicts/`. Les 
 | D-feature-priority | open | produit : research/market/README.md | | | | |
 | D-frontier | open | naive / canonical [variant crawler-trap] : bloqué par un contrat |  | 0 | local-dev / requis local-dev | oracle-exact échec |
 |  |  | naive / canonical [variant large-table] : bloqué par un contrat |  | 0 | local-dev / requis local-dev | oracle-exact échec |
-| D-http-transport | open | wreq / reqwest [scenario http-catalog] : non inférieure | 1.02 [0.996 ; 1.06] (90% block bootstrap) | 5 sur 5 requis | local-dev / requis local-controlled (non éligible) | oracle-exact ok |
-|  |  | impit / reqwest [scenario http-catalog] : non inférieure | 1.04 [1.01 ; 1.08] (90% block bootstrap) | 5 sur 5 requis | local-dev / requis local-controlled (non éligible) | oracle-exact ok |
-|  |  | spider-http / reqwest [scenario http-catalog] : bloqué par un contrat |  | 5 | local-dev / requis local-controlled (non éligible) | oracle-exact échec |
-|  |  | crawlee-http-pooled / reqwest [scenario http-catalog] : option moins bonne | 0.681 [0.659 ; 0.705] (90% block bootstrap) | 5 sur 5 requis | local-dev / requis local-controlled (non éligible) | oracle-exact ok |
-|  |  | node-fetch / reqwest [scenario http-catalog] : non inférieure | 1.06 [1.02 ; 1.11] (90% block bootstrap) | 5 sur 5 requis | local-dev / requis local-controlled (non éligible) | oracle-exact ok |
+| D-http-transport | open | wreq / reqwest [scenario http-catalog] : non inférieure | 1.01 [0.983 ; 1.03] (90% block bootstrap) | 5 sur 5 requis | local-dev / requis local-controlled (non éligible) | oracle-exact ok |
+|  |  | impit / reqwest [scenario http-catalog] : non inférieure | 0.958 [0.927 ; 0.987] (90% block bootstrap) | 5 sur 5 requis | local-dev / requis local-controlled (non éligible) | oracle-exact ok |
+|  |  | spider-http / reqwest [scenario http-catalog] : bloqué par un contrat |  | 0 | local-dev / requis local-controlled (non éligible) | oracle-exact échec |
+|  |  | crawlee-http-pooled / reqwest [scenario http-catalog] : blocs insuffisants | 0.623 [0.567 ; 0.683] (90% block bootstrap) | 5 sur 14 requis | local-dev / requis local-controlled (non éligible) | oracle-exact ok |
+|  |  | node-fetch / reqwest [scenario http-catalog] : blocs insuffisants | 0.901 [0.808 ; 0.976] (90% block bootstrap) | 5 sur 14 requis | local-dev / requis local-controlled (non éligible) | oracle-exact ok |
 | D-identity | open | impit-chrome / browser-fetch [variant coherent, profile identified, purpose search] : bloqué par un contrat |  | 0 | local-dev / requis local-controlled (non éligible) | identity-coherence échec, policy-compliance ok, false-success-count ok, session-isolation ok, proxy-continuity ok |
 |  |  | impit-chrome / browser-fetch [variant coherent, profile standard, purpose search] : bloqué par un contrat |  | 0 | local-dev / requis local-controlled (non éligible) | identity-coherence échec, policy-compliance ok, false-success-count ok, session-isolation ok, proxy-continuity ok |
 |  |  | node-https / browser-fetch [variant coherent, profile identified, purpose search] : bloqué par un contrat |  | 0 | local-dev / requis local-controlled (non éligible) | identity-coherence échec, policy-compliance ok, false-success-count ok, session-isolation ok, proxy-continuity ok |

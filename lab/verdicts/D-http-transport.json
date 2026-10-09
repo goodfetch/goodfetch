@@ -23,17 +23,17 @@
  "margin": 0.09531017980432493,
  "requiredN": 5,
  "estimate": {
-  "meanLogRatio": 0.023354306315375155,
-  "ratio": 1.0236291535789186,
+  "meanLogRatio": 0.0052497077760188336,
+  "ratio": 1.0052635116367261,
   "ci": [
-   -0.0035735793038574257,
-   0.06068915933498933
+   -0.017489587470446162,
+   0.027989003022483833
   ],
   "ratioCi": [
-   0.9964327983314061,
-   1.0625685733262165
+   0.9826624676137883,
+   1.0283843752393893
   ],
-  "hodgesLehmannRatio": 1.0089573808211845,
+  "hodgesLehmannRatio": 1.004458764125506,
   "wilcoxon": {
    "n": 5,
    "wPlus": 10,
@@ -66,17 +66,17 @@
    "margin": 0.09531017980432493,
    "requiredN": 5,
    "estimate": {
-    "meanLogRatio": 0.023354306315375155,
-    "ratio": 1.0236291535789186,
+    "meanLogRatio": 0.0052497077760188336,
+    "ratio": 1.0052635116367261,
     "ci": [
-     -0.0035735793038574257,
-     0.06068915933498933
+     -0.017489587470446162,
+     0.027989003022483833
     ],
     "ratioCi": [
-     0.9964327983314061,
-     1.0625685733262165
+     0.9826624676137883,
+     1.0283843752393893
     ],
-    "hodgesLehmannRatio": 1.0089573808211845,
+    "hodgesLehmannRatio": 1.004458764125506,
     "wilcoxon": {
      "n": 5,
      "wPlus": 10,
@@ -109,21 +109,21 @@
    "margin": 0.09531017980432493,
    "requiredN": 5,
    "estimate": {
-    "meanLogRatio": 0.038550160549154826,
-    "ratio": 1.0393028590526692,
+    "meanLogRatio": -0.043427126187402645,
+    "ratio": 0.9575023283938172,
     "ci": [
-     0.009798898139230773,
-     0.07413379647263038
+     -0.07598230228468157,
+     -0.013510675362106844
     ],
     "ratioCi": [
-     1.0098470645389315,
-     1.0769508880871559
+     0.926832609233903,
+     0.9865801841608021
     ],
-    "hodgesLehmannRatio": 1.0322213945927805,
+    "hodgesLehmannRatio": 0.9626424383959071,
     "wilcoxon": {
      "n": 5,
-     "wPlus": 15,
-     "pValue": 0.0625,
+     "wPlus": 1,
+     "pValue": 0.125,
      "method": "exact"
     },
     "interval": "90% block bootstrap"
@@ -148,7 +148,7 @@
     "scenario": "http-catalog"
    },
    "outcome": "blocked-by-contract",
-   "n": 5,
+   "n": 0,
    "margin": 0.09531017980432493,
    "requiredN": null,
    "estimate": null,
@@ -171,22 +171,22 @@
    "stratum": {
     "scenario": "http-catalog"
    },
-   "outcome": "worse",
+   "outcome": "insufficient-n",
    "n": 5,
    "margin": 0.09531017980432493,
-   "requiredN": 5,
+   "requiredN": 14,
    "estimate": {
-    "meanLogRatio": -0.3840540378632764,
-    "ratio": 0.6810946212870768,
+    "meanLogRatio": -0.4724388861000475,
+    "ratio": 0.6234798162363046,
     "ci": [
-     -0.41734966675410884,
-     -0.35026313948093996
+     -0.5676247171796441,
+     -0.38155315343609164
     ],
     "ratioCi": [
-     0.6587905225216609,
-     0.704502682855563
+     0.5668703181607803,
+     0.682800091922475
     ],
-    "hodgesLehmannRatio": 0.6810820027019089,
+    "hodgesLehmannRatio": 0.620806254944693,
     "wilcoxon": {
      "n": 5,
      "wPlus": 0,
@@ -214,26 +214,26 @@
    "stratum": {
     "scenario": "http-catalog"
    },
-   "outcome": "non-inferior",
+   "outcome": "insufficient-n",
    "n": 5,
    "margin": 0.09531017980432493,
-   "requiredN": 5,
+   "requiredN": 14,
    "estimate": {
-    "meanLogRatio": 0.06071939799002829,
-    "ratio": 1.062600704456559,
+    "meanLogRatio": -0.10474832617114065,
+    "ratio": 0.9005511392216229,
     "ci": [
-     0.02449995404946722,
-     0.10235533840655216
+     -0.2134249417815695,
+     -0.02414367236592555
     ],
     "ratioCi": [
-     1.0248025440169746,
-     1.1077770375266
+     0.8078127908640254,
+     0.9761454545558087
     ],
-    "hodgesLehmannRatio": 1.057336855818722,
+    "hodgesLehmannRatio": 0.9317938839866332,
     "wilcoxon": {
      "n": 5,
-     "wPlus": 15,
-     "pValue": 0.0625,
+     "wPlus": 1,
+     "pValue": 0.125,
      "method": "exact"
     },
     "interval": "90% block bootstrap"
@@ -254,19 +254,19 @@
  ],
  "inputs": {
   "runs": [
-   "http-open-v2-2026-10-09T15-30-40-832Z-1b2a42"
+   "http-transport-v2-2026-10-09T16-13-29-199Z-130b39"
   ],
   "considered": [
+   "http-transport-v2-2026-10-09T16-13-29-199Z-130b39",
    "http-transport-2026-10-07T23-52-40-042Z-be9fbc",
    "spider-http-transport-supported-2026-10-08T00-26-16-511Z-7ce401",
    "http-open-250-2026-10-07T23-58-01-322Z-66a668",
    "runtime-http-backends-2026-10-07T23-29-49-072Z-2b2b75",
-   "http-incidents-2026-10-08T17-25-00-258Z-206e01",
-   "access-policy-2026-10-08T17-27-03-497Z-f99eb0",
-   "tls-fingerprint-2026-10-08T19-32-26-736Z-f42991",
-   "http-open-v2-2026-10-09T15-30-40-832Z-1b2a42"
+   "http-incidents-2026-10-09T16-17-14-005Z-41e172",
+   "access-policy-2026-10-09T16-19-19-822Z-f128cf",
+   "tls-fingerprint-2026-10-09T16-20-40-847Z-1d6b5d"
   ],
   "missing": [],
-  "ledgerSha256": "d43f4317ddbcd56c96c2940fabdbcba7653d9ca611cbb4d09b9f3889276c92f3"
+  "ledgerSha256": "db19976579e1b4dc376e6225d1362c831d702499f50d138fc910b1db9553b140"
  }
 }

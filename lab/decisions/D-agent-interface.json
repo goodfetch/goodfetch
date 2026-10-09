@@ -66,9 +66,18 @@
     {
       "kind": "research-doc",
       "ref": "lab/reports/interface-arena-2026-10-09.md"
+    },
+    {
+      "kind": "run",
+      "ref": "interface-arena-journal-2026-10-09T15-11-59-464Z-f3de1a",
+      "note": "mode code journalisé, 5 blocs"
+    },
+    {
+      "kind": "research-doc",
+      "ref": "lab/reports/code-mode-journal-2026-10-09.md"
     }
   ],
-  "verdictRef": null,
+  "verdictRef": "verdicts/D-agent-interface.json",
   "adr": null,
   "dependsOn": [
     "D-ai-layer"

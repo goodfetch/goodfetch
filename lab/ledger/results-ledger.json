@@ -1,6 +1,6 @@
 {
  "schemaVersion": 1,
- "classificationSha256": "857380df44d86090133d4441ef0842be13def3969d0eee16a6d4d455e2d93675",
+ "classificationSha256": "c6cd192dab4cde9b003b224f7d5c8ab54df349942b67703debb7cea4f5b665fa",
  "entries": [
   {
    "runId": "smoke-2026-10-07T20-20-24-226Z-9ebb47",
@@ -2810,8 +2810,8 @@
    "startedAt": "2026-10-08T17:25:00.258Z",
    "status": "complete",
    "hostClass": "local-dev",
-   "role": "selected",
-   "supersededBy": null,
+   "role": "superseded",
+   "supersededBy": "http-incidents-2026-10-09T16-17-14-005Z-41e172",
    "reason": "incidents HTTP sur sept backends, dont reqwest, wreq et Impit",
    "validity": [
     {
@@ -2841,8 +2841,8 @@
    "startedAt": "2026-10-08T17:27:03.497Z",
    "status": "complete",
    "hostClass": "local-dev",
-   "role": "selected",
-   "supersededBy": null,
+   "role": "superseded",
+   "supersededBy": "access-policy-2026-10-09T16-19-19-822Z-f128cf",
    "reason": "robots.txt et challenge en 200 sur sept backends",
    "validity": [
     {
@@ -3769,8 +3769,8 @@
    "startedAt": "2026-10-08T19:32:26.736Z",
    "status": "complete",
    "hostClass": "local-dev",
-   "role": "selected",
-   "supersededBy": null,
+   "role": "superseded",
+   "supersededBy": "tls-fingerprint-2026-10-09T16-20-40-847Z-1d6b5d",
    "reason": "empreintes TLS (JA4) et HTTP/2 de huit clients, cohérence de session",
    "validity": [
     {
@@ -5590,32 +5590,44 @@
   },
   {
    "runId": "interface-arena-journal-2026-10-09T15-11-59-464Z-f3de1a",
-   "lane": "bench",
+   "lane": "ai",
    "campaign": "interface-arena-journal",
    "startedAt": "2026-10-09T15:11:59.464Z",
-   "status": "interrupted",
+   "status": "complete",
    "hostClass": "local-dev",
-   "role": "diagnostic",
+   "role": "selected",
    "supersededBy": null,
-   "reason": "en cours au moment de l'import",
+   "reason": "cinq interfaces dont le mode code journalisé, trois vrais modèles, 5 blocs",
    "validity": [
     {
-     "scope": "all",
+     "scope": "interface-contract",
+     "class": "A",
+     "note": "oracle des fixtures"
+    },
+    {
+     "scope": "model-accounting",
+     "class": "A",
+     "note": "tours et tokens comptés par la gateway"
+    },
+    {
+     "scope": "timing",
      "class": "none",
-     "note": "run non terminé"
+     "note": "latence des modèles, local-dev"
     }
    ],
    "decisionIds": [
     "D-agent-interface"
    ],
-   "citedIn": [],
+   "citedIn": [
+    "lab/reports/code-mode-journal-2026-10-09.md"
+   ],
    "integrity": "uncatalogued",
    "rerun": {
     "required": false,
     "priority": null,
     "hostClass": null
    },
-   "imported": "ledger/imported/interface-arena-journal-2026-10-09T15-11-59-464Z-f3de1a/run.v2.json"
+   "imported": "ledger/runs/interface-arena-journal-2026-10-09T15-11-59-464Z-f3de1a/run.v2.json"
   },
   {
    "runId": "portal-routing-2026-10-09T15-12-56-291Z-1eb2f9",
@@ -5701,9 +5713,9 @@
    "startedAt": "2026-10-09T15:30:27.630Z",
    "status": "complete",
    "hostClass": "local-dev",
-   "role": "diagnostic",
-   "supersededBy": null,
-   "reason": "adaptateurs mal configurés : reqwest compilé sans décompression gzip, wreq sans politique de redirection ; Spider refuse la redirection loopback (contrôle SSRF, attendu)",
+   "role": "superseded",
+   "supersededBy": "http-transport-v2-2026-10-09T16-13-29-199Z-130b39",
+   "reason": "adaptateurs mal configurés : reqwest compilé sans décompression gzip, wreq sans politique de redirection ; Spider refuse la redirection loopback (contrôle SSRF, attendu) ; refait avec l'adaptateur corrigé",
    "validity": [
     {
      "scope": "all",
@@ -5719,9 +5731,9 @@
    ],
    "integrity": "uncatalogued",
    "rerun": {
-    "required": true,
-    "priority": "P1",
-    "hostClass": "local-controlled"
+    "required": false,
+    "priority": null,
+    "hostClass": null
    },
    "imported": "ledger/runs/http-transport-v2-2026-10-09T15-30-27-630Z-d8bf7a/run.v2.json"
   },
@@ -5732,9 +5744,81 @@
    "startedAt": "2026-10-09T15:30:40.832Z",
    "status": "complete",
    "hostClass": "local-dev",
+   "role": "superseded",
+   "supersededBy": "http-open-v2-2026-10-09T16-13-49-759Z-f9b6c9",
+   "reason": "six transports en arrivées ouvertes à 250/s sur pages normales (sans redirection ni compression) ; refait avec l'adaptateur corrigé",
+   "validity": [
+    {
+     "scope": "open-loop-contract",
+     "class": "A",
+     "note": "oracle des fixtures"
+    },
+    {
+     "scope": "timing",
+     "class": "C",
+     "note": "local-dev"
+    }
+   ],
+   "decisionIds": [
+    "D-http-transport"
+   ],
+   "citedIn": [
+    "lab/reports/http-transport-2026-10-09.md"
+   ],
+   "integrity": "uncatalogued",
+   "rerun": {
+    "required": false,
+    "priority": null,
+    "hostClass": null
+   },
+   "imported": "ledger/runs/http-open-v2-2026-10-09T15-30-40-832Z-1b2a42/run.v2.json"
+  },
+  {
+   "runId": "http-transport-v2-2026-10-09T16-13-29-199Z-130b39",
+   "lane": "bench",
+   "campaign": "http-transport-v2",
+   "startedAt": "2026-10-09T16:13:29.199Z",
+   "status": "complete",
+   "hostClass": "local-dev",
    "role": "selected",
    "supersededBy": null,
-   "reason": "six transports en arrivées ouvertes à 250/s sur pages normales (sans redirection ni compression)",
+   "reason": "six transports en boucle fermée sur le catalogue à incidents, adaptateur HTTP corrigé (décompression reqwest, redirections wreq)",
+   "validity": [
+    {
+     "scope": "transport-contract",
+     "class": "A",
+     "note": "oracle des fixtures"
+    },
+    {
+     "scope": "timing",
+     "class": "C",
+     "note": "local-dev"
+    }
+   ],
+   "decisionIds": [
+    "D-http-transport"
+   ],
+   "citedIn": [
+    "lab/reports/http-transport-2026-10-09.md"
+   ],
+   "integrity": "uncatalogued",
+   "rerun": {
+    "required": true,
+    "priority": "P1",
+    "hostClass": "local-controlled"
+   },
+   "imported": "ledger/runs/http-transport-v2-2026-10-09T16-13-29-199Z-130b39/run.v2.json"
+  },
+  {
+   "runId": "http-open-v2-2026-10-09T16-13-49-759Z-f9b6c9",
+   "lane": "bench",
+   "campaign": "http-open-v2",
+   "startedAt": "2026-10-09T16:13:49.759Z",
+   "status": "complete",
+   "hostClass": "local-dev",
+   "role": "selected",
+   "supersededBy": null,
+   "reason": "six transports en arrivées ouvertes à 250/s, adaptateur HTTP corrigé",
    "validity": [
     {
      "scope": "open-loop-contract",
@@ -5759,7 +5843,102 @@
     "priority": "P1",
     "hostClass": "local-controlled"
    },
-   "imported": "ledger/runs/http-open-v2-2026-10-09T15-30-40-832Z-1b2a42/run.v2.json"
+   "imported": "ledger/runs/http-open-v2-2026-10-09T16-13-49-759Z-f9b6c9/run.v2.json"
+  },
+  {
+   "runId": "http-incidents-2026-10-09T16-17-14-005Z-41e172",
+   "lane": "actionability",
+   "campaign": "http-incidents",
+   "startedAt": "2026-10-09T16:17:14.005Z",
+   "status": "complete",
+   "hostClass": "local-dev",
+   "role": "selected",
+   "supersededBy": null,
+   "reason": "incidents HTTP, refait avec l'adaptateur HTTP corrigé ; mêmes statuts par backend que le run du 8 octobre",
+   "validity": [
+    {
+     "scope": "incident-contract",
+     "class": "A",
+     "note": "Spider HTTP seul à produire des faux succès ; aucune relance configurée dans les adapters"
+    }
+   ],
+   "decisionIds": [
+    "D-http-transport"
+   ],
+   "citedIn": [
+    "lab/reports/http-transport-2026-10-09.md"
+   ],
+   "integrity": "uncatalogued",
+   "rerun": {
+    "required": false,
+    "priority": null,
+    "hostClass": null
+   },
+   "imported": "ledger/runs/http-incidents-2026-10-09T16-17-14-005Z-41e172/run.v2.json"
+  },
+  {
+   "runId": "access-policy-2026-10-09T16-19-19-822Z-f128cf",
+   "lane": "actionability",
+   "campaign": "access-policy",
+   "startedAt": "2026-10-09T16:19:19.822Z",
+   "status": "complete",
+   "hostClass": "local-dev",
+   "role": "selected",
+   "supersededBy": null,
+   "reason": "robots.txt et challenge en 200, refait avec l'adaptateur HTTP corrigé ; mêmes statuts par backend que le run du 8 octobre",
+   "validity": [
+    {
+     "scope": "access-contract",
+     "class": "A",
+     "note": "aucun backend ne détecte le challenge ; node-http ignore robots.txt"
+    }
+   ],
+   "decisionIds": [
+    "D-identity",
+    "D-http-transport"
+   ],
+   "citedIn": [
+    "lab/reports/http-transport-2026-10-09.md"
+   ],
+   "integrity": "uncatalogued",
+   "rerun": {
+    "required": false,
+    "priority": null,
+    "hostClass": null
+   },
+   "imported": "ledger/runs/access-policy-2026-10-09T16-19-19-822Z-f128cf/run.v2.json"
+  },
+  {
+   "runId": "tls-fingerprint-2026-10-09T16-20-40-847Z-1d6b5d",
+   "lane": "actionability",
+   "campaign": "tls-fingerprint",
+   "startedAt": "2026-10-09T16:20:40.847Z",
+   "status": "complete",
+   "hostClass": "local-dev",
+   "role": "selected",
+   "supersededBy": null,
+   "reason": "empreintes TLS et HTTP/2, refait avec l'adaptateur HTTP corrigé ; mêmes statuts par backend que le run du 8 octobre",
+   "validity": [
+    {
+     "scope": "identity-coherence",
+     "class": "A",
+     "note": "Crawlee change de liste de chiffrements en cours de session ; Chrome garde un seul JA4"
+    }
+   ],
+   "decisionIds": [
+    "D-identity",
+    "D-http-transport"
+   ],
+   "citedIn": [
+    "lab/reports/http-transport-2026-10-09.md"
+   ],
+   "integrity": "uncatalogued",
+   "rerun": {
+    "required": false,
+    "priority": null,
+    "hostClass": null
+   },
+   "imported": "ledger/runs/tls-fingerprint-2026-10-09T16-20-40-847Z-1d6b5d/run.v2.json"
   }
  ]
 }

@@ -23,3 +23,15 @@ Les blocs sont appariés, avec les pilotes entrelacés dans un ordre tiré au so
 | `runtime-native-capacity-2026-10-08T12-46-38-910Z-83d7e0` | D-core-language | strate de décision, Node contre Rust, huit blocs |
 
 Toutes les tâches de ces runs ont été vérifiées par l'oracle. Le verdict principal de D-browser-driver porte sur la strate à 0 ms, déclarée dans la décision ; les autres RTT décrivent la sensibilité à la latence. Le run `runtime-native-capacity` remplace `runtime-native-qualified-2026-10-08T00-11-54-841Z-789d5e`, mesuré en `local-dev`, comme mesure de D-core-language.
+
+## Tentatives du 9 octobre
+
+Douze runs de six campagnes ont été relancés en demandant `local-controlled`. Tous sont classés `diagnostic` ; leurs comptes sont exacts, et leurs seuls échecs sont des délais dépassés et rendus explicites.
+
+- **Nuit** (à partir de 3 h 35, Mac au repos). Les campagnes s'enchaînaient sans pause, si bien que la charge d'un run pesait encore sur la vérification d'hôte du suivant ; trois runs ont été rétrogradés en `local-dev`. Une campagne d'identité s'est bloquée quatre heures sur une cellule après la mise en veille du Mac. Correctifs :
+  - commandes CDP bornées à 60 s et budget de temps par cellule (#42) ;
+  - lancements sous `caffeinate -i` ;
+  - attente du calme avant chaque campagne.
+- **Matin** (Mac en usage léger). Tous les runs sont restés en `local-dev` : l'analyse des photos de macOS, la VM de Docker Desktop et l'affichage dépassaient le CPU étranger autorisé.
+
+Les reruns `local-controlled` restent donc à faire.

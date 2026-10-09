@@ -75,12 +75,17 @@
     {
       "kind": "research-doc",
       "ref": "lab/reports/extraction-quality-2026-10-08.md"
+    },
+    {
+      "kind": "research-doc",
+      "ref": "lab/reports/extraction-paired-2026-10-09.md",
+      "note": "analyse appariée par page, 511 pages : rs-trafilatura meilleur que chaque autre extracteur"
     }
   ],
   "verdictRef": "verdicts/D-extraction.json",
   "adr": null,
   "dependsOn": [],
-  "notes": "La qualité se mesure sur pages réelles figées et par type de page ; la vitesse est secondaire tant que la qualité n'est pas équivalente. Le 9 octobre 2026 : le verdict lit le split test réservé de WCXB, apparié par type de page ; le split de développement, qui a servi au réglage, n'en fait plus partie. Le F1 ne dépend pas de l'hôte : la décision se prend en local-dev. lol-html-streaming n'a pas d'adaptateur et reste sans analyse.",
+  "notes": "La qualité se mesure sur pages réelles figées et par type de page ; la vitesse est secondaire tant que la qualité n'est pas équivalente. Le 9 octobre 2026 : le verdict lit le split test réservé de WCXB, apparié par type de page ; le split de développement, qui a servi au réglage, n'en fait plus partie. Le F1 ne dépend pas de l'hôte : la décision se prend en local-dev. lol-html-streaming n'a pas d'adaptateur et reste sans analyse. Le 9 octobre 2026 : l'analyse appariée par page (tools/extraction-paired.ts) tranche ce que la règle par blocs laisse en insufficient-n : rs-trafilatura bat html5ever-scraper de 0,165 point de F1 (IC 0,144 à 0,186) et Readability ou dom-smoothie d'environ 0,06, sur 511 pages.",
   "analysis": {
     "lane": "extraction",
     "options": {

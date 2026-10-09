@@ -1,0 +1,97 @@
+{
+ "schemaVersion": 1,
+ "runId": "extraction-quality-test-2026-10-08T18-00-46-463Z-751a55",
+ "unit": "page",
+ "metric": "word F1 (lab definition)",
+ "baseline": "rs-trafilatura",
+ "comparisons": [
+  {
+   "extractor": "dom-smoothie",
+   "baseline": "rs-trafilatura",
+   "pages": 511,
+   "meanF1": 0.8234057385248611,
+   "baselineMeanF1": 0.8843049226114846,
+   "meanDifference": -0.06089918408662405,
+   "ci95": [
+    -0.08327288156379276,
+    -0.03845014858909197
+   ],
+   "hodgesLehmann": -0.024350474627673063,
+   "wilcoxon": {
+    "n": 475,
+    "wPlus": 27779,
+    "pValue": 0,
+    "method": "normal"
+   },
+   "wins": 124,
+   "losses": 351,
+   "ties": 36
+  },
+  {
+   "extractor": "htmd",
+   "baseline": "rs-trafilatura",
+   "pages": 511,
+   "meanF1": 0.5231626679325091,
+   "baselineMeanF1": 0.8843049226114846,
+   "meanDifference": -0.36114225467897576,
+   "ci95": [
+    -0.38312777747925464,
+    -0.339493205965871
+   ],
+   "hodgesLehmann": -0.36388342715105904,
+   "wilcoxon": {
+    "n": 505,
+    "wPlus": 3900,
+    "pValue": 0,
+    "method": "normal"
+   },
+   "wins": 23,
+   "losses": 482,
+   "ties": 6
+  },
+  {
+   "extractor": "readability",
+   "baseline": "rs-trafilatura",
+   "pages": 511,
+   "meanF1": 0.8283071587655133,
+   "baselineMeanF1": 0.8843049226114846,
+   "meanDifference": -0.05599776384597171,
+   "ci95": [
+    -0.0775938279160509,
+    -0.03389417310877692
+   ],
+   "hodgesLehmann": -0.02411423198388865,
+   "wilcoxon": {
+    "n": 477,
+    "wPlus": 27977,
+    "pValue": 0,
+    "method": "normal"
+   },
+   "wins": 125,
+   "losses": 352,
+   "ties": 34
+  },
+  {
+   "extractor": "scraper-text",
+   "baseline": "rs-trafilatura",
+   "pages": 511,
+   "meanF1": 0.7194360358590842,
+   "baselineMeanF1": 0.8843049226114846,
+   "meanDifference": -0.1648688867524015,
+   "ci95": [
+    -0.1855585904955312,
+    -0.14399014332979307
+   ],
+   "hodgesLehmann": -0.159839945188942,
+   "wilcoxon": {
+    "n": 507,
+    "wPlus": 12832,
+    "pValue": 0,
+    "method": "normal"
+   },
+   "wins": 38,
+   "losses": 469,
+   "ties": 4
+  }
+ ]
+}

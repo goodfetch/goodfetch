@@ -1,0 +1,97 @@
+{
+ "schemaVersion": 1,
+ "runId": "extraction-quality-test-2026-10-08T18-00-46-463Z-751a55",
+ "unit": "page",
+ "metric": "word F1 (lab definition)",
+ "baseline": "scraper-text",
+ "comparisons": [
+  {
+   "extractor": "dom-smoothie",
+   "baseline": "scraper-text",
+   "pages": 511,
+   "meanF1": 0.8234057385248611,
+   "baselineMeanF1": 0.7194360358590842,
+   "meanDifference": 0.10396970266577753,
+   "ci95": [
+    0.08334279596861438,
+    0.12479702286302248
+   ],
+   "hodgesLehmann": 0.10546806244478263,
+   "wilcoxon": {
+    "n": 504,
+    "wPlus": 101129,
+    "pValue": 0,
+    "method": "normal"
+   },
+   "wins": 409,
+   "losses": 95,
+   "ties": 7
+  },
+  {
+   "extractor": "htmd",
+   "baseline": "scraper-text",
+   "pages": 511,
+   "meanF1": 0.5231626679325091,
+   "baselineMeanF1": 0.7194360358590842,
+   "meanDifference": -0.19627336792657427,
+   "ci95": [
+    -0.20595558306562464,
+    -0.18717655523662974
+   ],
+   "hodgesLehmann": -0.18863280698214135,
+   "wilcoxon": {
+    "n": 507,
+    "wPlus": 3,
+    "pValue": 0,
+    "method": "normal"
+   },
+   "wins": 1,
+   "losses": 506,
+   "ties": 4
+  },
+  {
+   "extractor": "readability",
+   "baseline": "scraper-text",
+   "pages": 511,
+   "meanF1": 0.8283071587655133,
+   "baselineMeanF1": 0.7194360358590842,
+   "meanDifference": 0.10887112290642988,
+   "ci95": [
+    0.08878885127531852,
+    0.12944734923165166
+   ],
+   "hodgesLehmann": 0.1086350195437755,
+   "wilcoxon": {
+    "n": 504,
+    "wPlus": 102686,
+    "pValue": 0,
+    "method": "normal"
+   },
+   "wins": 413,
+   "losses": 91,
+   "ties": 7
+  },
+  {
+   "extractor": "rs-trafilatura",
+   "baseline": "scraper-text",
+   "pages": 511,
+   "meanF1": 0.8843049226114846,
+   "baselineMeanF1": 0.7194360358590842,
+   "meanDifference": 0.1648688867524015,
+   "ci95": [
+    0.14401391195829047,
+    0.18556790628217953
+   ],
+   "hodgesLehmann": 0.159839945188942,
+   "wilcoxon": {
+    "n": 507,
+    "wPlus": 115946,
+    "pValue": 0,
+    "method": "normal"
+   },
+   "wins": 469,
+   "losses": 38,
+   "ties": 4
+  }
+ ]
+}

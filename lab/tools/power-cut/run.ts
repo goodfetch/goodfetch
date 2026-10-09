@@ -20,7 +20,7 @@ const trials = Number(process.argv[2] ?? 3), out = process.argv[3] ?? 'power-cut
 
 // Docker Desktop does not bring a killed VM back on its own: it is restarted, then the daemon must answer container calls.
 async function dockerUp(timeoutMs = 300_000) {
-  execFileSync('docker', ['desktop', 'restart'], { stdio: 'ignore', timeout: 240_000 });
+  try { execFileSync('docker', ['desktop', 'restart'], { stdio: 'ignore', timeout: 600_000 }); } catch { /* the restart may outlive its command; the daemon is polled below */ }
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) { try { docker('ps', '-a', '--format', '{{.Names}}'); return; } catch { await sleep(2000); } }
   throw new Error('Docker did not come back');
@@ -37,11 +37,12 @@ for (const file of ['writer.mjs', 'verify.mjs']) docker('cp', join(here, file), 
 
 const results: unknown[] = [];
 for (let trial = 1; trial <= trials; trial++) {
-  docker('exec', box, 'sh', '-c', 'rm -rf /data && mkdir -p /data');
+  // Each trial writes under its own directory, so nothing has to be cleared between trials.
+  const root = `/data/t${trial}-${Date.now()}`;
   const table = `power_t${trial}_${Date.now()}`;
   const setup = new (pg().Client)({ connectionString: pgUrl() }); await setup.connect(); await setup.query(`CREATE TABLE ${table} (id TEXT PRIMARY KEY, batch INT NOT NULL, value BIGINT NOT NULL, payload TEXT NOT NULL)`); await setup.end();
   const acked = new Map<string, number[]>(formats.concat('postgres').map(f => [f, []]));
-  const writers = formats.map(format => { const child = spawn('docker', ['exec', box, 'node', '/opt/w/writer.mjs', format], { stdio: ['ignore', 'pipe', 'pipe'] }); createInterface({ input: child.stdout }).on('line', line => { const m = line.match(/^ack (\d+)$/); if (m) acked.get(format)!.push(Number(m[1])); }); return child; });
+  const writers = formats.map(format => { const child = spawn('docker', ['exec', '-e', `DATA_ROOT=${root}`, box, 'node', '/opt/w/writer.mjs', format], { stdio: ['ignore', 'pipe', 'pipe'] }); createInterface({ input: child.stdout }).on('line', line => { const m = line.match(/^ack (\d+)$/); if (m) acked.get(format)!.push(Number(m[1])); }); return child; });
   // PostgreSQL: one transaction per batch, acknowledged after COMMIT returns (synchronous_commit on).
   let pgRunning = true;
   const pgWriter = (async () => { const c = new (pg().Client)({ connectionString: pgUrl() }); await c.connect(); try { for (let batch = 1; pgRunning; batch++) { const values: unknown[] = []; const rows = Array.from({ length: 50 }, (_, i) => { values.push(`${batch}:${i}`, batch, batch * 1000 + i, 'x'.repeat(256)); return `($${i * 4 + 1},$${i * 4 + 2},$${i * 4 + 3},$${i * 4 + 4})`; }); await c.query('BEGIN'); await c.query(`INSERT INTO ${table} VALUES ${rows.join(',')}`); await c.query('COMMIT'); acked.get('postgres')!.push(batch); } } catch { /* the VM went away */ } finally { c.end().catch(() => {}); } })();
@@ -54,7 +55,7 @@ for (let trial = 1; trial <= trials; trial++) {
   await sleep(3000); await dockerUp(); docker('start', pgBox, box); await pgReady();
   const sinks: Record<string, unknown>[] = [];
   for (const format of formats) {
-    const found = JSON.parse(docker('exec', box, 'node', '/opt/w/verify.mjs', format)) as { integrity: string; rows: number; complete: number[]; partial: number[] };
+    const found = JSON.parse(docker('exec', '-e', `DATA_ROOT=${root}`, box, 'node', '/opt/w/verify.mjs', format)) as { integrity: string; rows: number; complete: number[]; partial: number[] };
     const present = new Set(found.complete); const lost = acked.get(format)!.filter(b => !present.has(b));
     sinks.push({ format, acknowledged: acked.get(format)!.length, persistedBatches: found.complete.length, lostAcknowledged: lost.length, lostBatches: lost.slice(0, 10), partialBatches: found.partial, integrity: found.integrity });
   }

@@ -1,7 +1,7 @@
 // Runs inside the restarted VM: prints, as JSON, the batches whose 50 rows are all present and intact, and the integrity check.
 import { DatabaseSync } from 'node:sqlite';
 import { readFile, readdir } from 'node:fs/promises';
-const format = process.argv[2]; const dir = `/data/${format}`; let records = [], integrity = 'ok';
+const format = process.argv[2]; const dir = `${process.env.DATA_ROOT ?? '/data'}/${format}`; let records = [], integrity = 'ok';
 try {
   if (format.startsWith('sqlite')) { const db = new DatabaseSync(`${dir}/records.sqlite`); integrity = Object.values(db.prepare('PRAGMA integrity_check').get())[0]; records = db.prepare('SELECT id, value, payload FROM records').all(); db.close(); }
   else if (format.startsWith('jsonl')) { const lines = (await readFile(`${dir}/records.jsonl`, 'utf8')).split('\n').filter(Boolean); for (const line of lines) { try { records.push(JSON.parse(line)); } catch { integrity = 'torn trailing line'; } } }

@@ -2,7 +2,7 @@
 // only once the sink reports the batch committed with the durability its format promises.
 import { DatabaseSync } from 'node:sqlite';
 import { open, rename, mkdir } from 'node:fs/promises';
-const format = process.argv[2]; const dir = `/data/${format}`; await mkdir(dir, { recursive: true });
+const format = process.argv[2]; const dir = `${process.env.DATA_ROOT ?? '/data'}/${format}`; await mkdir(dir, { recursive: true });
 const rows = batch => Array.from({ length: 50 }, (_, i) => ({ id: `${batch}:${i}`, value: batch * 1000 + i, payload: 'x'.repeat(256) }));
 const ack = batch => new Promise(resolve => process.stdout.write(`ack ${batch}\n`, resolve));
 let write;

@@ -1,6 +1,6 @@
 {
  "schemaVersion": 1,
- "classificationSha256": "2c9888ab3af073855fd7f9aed9a915caf2fe811145690ed8ab67f79df847d811",
+ "classificationSha256": "abe32a71a195a5e2ea662a6d289da165e0f2f1b20941504487c6fed824ef0e74",
  "entries": [
   {
    "runId": "smoke-2026-10-07T20-20-24-226Z-9ebb47",
@@ -4914,6 +4914,217 @@
     "hostClass": null
    },
    "imported": "ledger/runs/extraction-rendered-test-2026-10-09T09-48-01-813Z-3956bc/run.v2.json"
+  },
+  {
+   "runId": "browser-actionability-2026-10-09T10-30-44-869Z-4b981d",
+   "lane": "actionability",
+   "campaign": "browser-actionability",
+   "startedAt": "2026-10-09T10:30:44.869Z",
+   "status": "noisy-host",
+   "hostClass": "local-dev",
+   "role": "diagnostic",
+   "supersededBy": null,
+   "reason": "lancé à la demande du porteur le 9 octobre après-midi, Mac en usage (analyse des photos, affichage, vidéo)",
+   "validity": [
+    {
+     "scope": "contract",
+     "class": "A",
+     "note": "comptes exacts"
+    },
+    {
+     "scope": "timing",
+     "class": "B",
+     "note": "local-dev ; indicatif seulement"
+    }
+   ],
+   "decisionIds": [
+    "D-browser-driver"
+   ],
+   "citedIn": [],
+   "integrity": "uncatalogued",
+   "rerun": {
+    "required": false,
+    "priority": null,
+    "hostClass": null
+   },
+   "imported": "ledger/runs/browser-actionability-2026-10-09T10-30-44-869Z-4b981d/run.v2.json"
+  },
+  {
+   "runId": "durable-admission-2026-10-09T10-45-50-403Z-73bb4f",
+   "lane": "admission",
+   "campaign": "durable-admission",
+   "startedAt": "2026-10-09T10:45:50.403Z",
+   "status": "noisy-host",
+   "hostClass": "local-dev",
+   "role": "diagnostic",
+   "supersededBy": null,
+   "reason": "lancé à la demande du porteur le 9 octobre après-midi, Mac en usage (analyse des photos, affichage, vidéo)",
+   "validity": [
+    {
+     "scope": "contract",
+     "class": "A",
+     "note": "comptes exacts"
+    },
+    {
+     "scope": "timing",
+     "class": "B",
+     "note": "local-dev ; indicatif seulement"
+    }
+   ],
+   "decisionIds": [
+    "D-durable-runtime",
+    "D-scheduling"
+   ],
+   "citedIn": [],
+   "integrity": "uncatalogued",
+   "rerun": {
+    "required": false,
+    "priority": null,
+    "hostClass": null
+   },
+   "imported": "ledger/runs/durable-admission-2026-10-09T10-45-50-403Z-73bb4f/run.v2.json"
+  },
+  {
+   "runId": "durable-scheduler-2026-10-09T10-48-01-989Z-994cf4",
+   "lane": "admission",
+   "campaign": "durable-scheduler",
+   "startedAt": "2026-10-09T10:48:01.989Z",
+   "status": "noisy-host",
+   "hostClass": "local-dev",
+   "role": "diagnostic",
+   "supersededBy": null,
+   "reason": "lancé à la demande du porteur le 9 octobre après-midi, Mac en usage (analyse des photos, affichage, vidéo)",
+   "validity": [
+    {
+     "scope": "contract",
+     "class": "A",
+     "note": "comptes exacts"
+    },
+    {
+     "scope": "timing",
+     "class": "B",
+     "note": "local-dev ; indicatif seulement"
+    }
+   ],
+   "decisionIds": [
+    "D-durable-runtime",
+    "D-scheduling"
+   ],
+   "citedIn": [
+    "lab/reports/quiet-host-2026-10-08.md"
+   ],
+   "integrity": "uncatalogued",
+   "rerun": {
+    "required": false,
+    "priority": null,
+    "hostClass": null
+   },
+   "imported": "ledger/runs/durable-scheduler-2026-10-09T10-48-01-989Z-994cf4/run.v2.json"
+  },
+  {
+   "runId": "browser-driver-rtt-300-2026-10-09T10-50-18-619Z-27903b",
+   "lane": "bench",
+   "campaign": "browser-driver-rtt-300",
+   "startedAt": "2026-10-09T10:50:18.619Z",
+   "status": "noisy-host",
+   "hostClass": "local-dev",
+   "role": "diagnostic",
+   "supersededBy": null,
+   "reason": "lancé à la demande du porteur le 9 octobre après-midi, Mac en usage (analyse des photos, affichage, vidéo)",
+   "validity": [
+    {
+     "scope": "contract",
+     "class": "A",
+     "note": "comptes exacts"
+    },
+    {
+     "scope": "timing",
+     "class": "B",
+     "note": "local-dev ; indicatif seulement"
+    }
+   ],
+   "decisionIds": [
+    "D-browser-driver"
+   ],
+   "citedIn": [
+    "lab/reports/quiet-host-2026-10-08.md"
+   ],
+   "integrity": "uncatalogued",
+   "rerun": {
+    "required": false,
+    "priority": null,
+    "hostClass": null
+   },
+   "imported": "ledger/runs/browser-driver-rtt-300-2026-10-09T10-50-18-619Z-27903b/run.v2.json"
+  },
+  {
+   "runId": "identity-coherence-2026-10-09T12-32-42-162Z-b13f9b",
+   "lane": "identity",
+   "campaign": "identity-coherence",
+   "startedAt": "2026-10-09T12:32:42.162Z",
+   "status": "noisy-host",
+   "hostClass": "local-dev",
+   "role": "diagnostic",
+   "supersededBy": null,
+   "reason": "lancé à la demande du porteur le 9 octobre après-midi, Mac en usage (analyse des photos, affichage, vidéo)",
+   "validity": [
+    {
+     "scope": "contract",
+     "class": "A",
+     "note": "comptes exacts"
+    },
+    {
+     "scope": "timing",
+     "class": "B",
+     "note": "local-dev ; indicatif seulement"
+    }
+   ],
+   "decisionIds": [
+    "D-identity"
+   ],
+   "citedIn": [],
+   "integrity": "uncatalogued",
+   "rerun": {
+    "required": false,
+    "priority": null,
+    "hostClass": null
+   },
+   "imported": "ledger/runs/identity-coherence-2026-10-09T12-32-42-162Z-b13f9b/run.v2.json"
+  },
+  {
+   "runId": "extraction-rendered-test-2026-10-09T12-36-28-804Z-4a6e50",
+   "lane": "extraction",
+   "campaign": "extraction-rendered-test",
+   "startedAt": "2026-10-09T12:36:28.804Z",
+   "status": "noisy-host",
+   "hostClass": "local-dev",
+   "role": "diagnostic",
+   "supersededBy": null,
+   "reason": "lancé à la demande du porteur le 9 octobre après-midi, Mac en usage (analyse des photos, affichage, vidéo)",
+   "validity": [
+    {
+     "scope": "contract",
+     "class": "A",
+     "note": "comptes exacts"
+    },
+    {
+     "scope": "timing",
+     "class": "B",
+     "note": "local-dev ; indicatif seulement"
+    }
+   ],
+   "decisionIds": [
+    "D-light-engine",
+    "D-extraction"
+   ],
+   "citedIn": [],
+   "integrity": "uncatalogued",
+   "rerun": {
+    "required": false,
+    "priority": null,
+    "hostClass": null
+   },
+   "imported": "ledger/runs/extraction-rendered-test-2026-10-09T12-36-28-804Z-4a6e50/run.v2.json"
   }
  ]
 }

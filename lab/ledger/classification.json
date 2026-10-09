@@ -3528,6 +3528,165 @@
         "priority": null,
         "hostClass": null
       }
+    },
+    "browser-actionability-2026-10-09T10-30-44-869Z-4b981d": {
+      "role": "diagnostic",
+      "reason": "lancé à la demande du porteur le 9 octobre après-midi, Mac en usage (analyse des photos, affichage, vidéo)",
+      "supersededBy": null,
+      "decisionIds": [
+        "D-browser-driver"
+      ],
+      "validity": [
+        {
+          "scope": "contract",
+          "class": "A",
+          "note": "comptes exacts"
+        },
+        {
+          "scope": "timing",
+          "class": "B",
+          "note": "local-dev ; indicatif seulement"
+        }
+      ],
+      "noisyHost": true,
+      "rerun": {
+        "required": false,
+        "priority": null,
+        "hostClass": null
+      }
+    },
+    "durable-admission-2026-10-09T10-45-50-403Z-73bb4f": {
+      "role": "diagnostic",
+      "reason": "lancé à la demande du porteur le 9 octobre après-midi, Mac en usage (analyse des photos, affichage, vidéo)",
+      "supersededBy": null,
+      "decisionIds": [
+        "D-durable-runtime",
+        "D-scheduling"
+      ],
+      "validity": [
+        {
+          "scope": "contract",
+          "class": "A",
+          "note": "comptes exacts"
+        },
+        {
+          "scope": "timing",
+          "class": "B",
+          "note": "local-dev ; indicatif seulement"
+        }
+      ],
+      "noisyHost": true,
+      "rerun": {
+        "required": false,
+        "priority": null,
+        "hostClass": null
+      }
+    },
+    "durable-scheduler-2026-10-09T10-48-01-989Z-994cf4": {
+      "role": "diagnostic",
+      "reason": "lancé à la demande du porteur le 9 octobre après-midi, Mac en usage (analyse des photos, affichage, vidéo)",
+      "supersededBy": null,
+      "decisionIds": [
+        "D-durable-runtime",
+        "D-scheduling"
+      ],
+      "validity": [
+        {
+          "scope": "contract",
+          "class": "A",
+          "note": "comptes exacts"
+        },
+        {
+          "scope": "timing",
+          "class": "B",
+          "note": "local-dev ; indicatif seulement"
+        }
+      ],
+      "noisyHost": true,
+      "rerun": {
+        "required": false,
+        "priority": null,
+        "hostClass": null
+      }
+    },
+    "browser-driver-rtt-300-2026-10-09T10-50-18-619Z-27903b": {
+      "role": "diagnostic",
+      "reason": "lancé à la demande du porteur le 9 octobre après-midi, Mac en usage (analyse des photos, affichage, vidéo)",
+      "supersededBy": null,
+      "decisionIds": [
+        "D-browser-driver"
+      ],
+      "validity": [
+        {
+          "scope": "contract",
+          "class": "A",
+          "note": "comptes exacts"
+        },
+        {
+          "scope": "timing",
+          "class": "B",
+          "note": "local-dev ; indicatif seulement"
+        }
+      ],
+      "noisyHost": true,
+      "rerun": {
+        "required": false,
+        "priority": null,
+        "hostClass": null
+      }
+    },
+    "identity-coherence-2026-10-09T12-32-42-162Z-b13f9b": {
+      "role": "diagnostic",
+      "reason": "lancé à la demande du porteur le 9 octobre après-midi, Mac en usage (analyse des photos, affichage, vidéo)",
+      "supersededBy": null,
+      "decisionIds": [
+        "D-identity"
+      ],
+      "validity": [
+        {
+          "scope": "contract",
+          "class": "A",
+          "note": "comptes exacts"
+        },
+        {
+          "scope": "timing",
+          "class": "B",
+          "note": "local-dev ; indicatif seulement"
+        }
+      ],
+      "noisyHost": true,
+      "rerun": {
+        "required": false,
+        "priority": null,
+        "hostClass": null
+      }
+    },
+    "extraction-rendered-test-2026-10-09T12-36-28-804Z-4a6e50": {
+      "role": "diagnostic",
+      "reason": "lancé à la demande du porteur le 9 octobre après-midi, Mac en usage (analyse des photos, affichage, vidéo)",
+      "supersededBy": null,
+      "decisionIds": [
+        "D-light-engine",
+        "D-extraction"
+      ],
+      "validity": [
+        {
+          "scope": "contract",
+          "class": "A",
+          "note": "comptes exacts"
+        },
+        {
+          "scope": "timing",
+          "class": "B",
+          "note": "local-dev ; indicatif seulement"
+        }
+      ],
+      "noisyHost": true,
+      "rerun": {
+        "required": false,
+        "priority": null,
+        "hostClass": null
+      }
     }
   }
 }

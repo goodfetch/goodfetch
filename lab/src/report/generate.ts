@@ -10,7 +10,7 @@ type VerdictLike = {
 
 const outcomeLabel: Record<string, string> = {
   better: 'option meilleure', worse: 'option moins bonne', equivalent: 'équivalentes', trivial: 'écart réel mais sous le seuil',
-  'non-inferior': 'non inférieure', inconclusive: 'non concluant', 'blocked-by-contract': 'bloqué par un contrat', 'insufficient-n': 'blocs insuffisants'
+  'non-inferior': 'non inférieure', inconclusive: 'non concluant', 'blocked-by-contract': 'bloqué par un contrat', 'insufficient-n': 'blocs insuffisants', 'contract-met': 'contrat tenu'
 };
 const figure = (value: number) => Number(value.toPrecision(3)).toString();
 

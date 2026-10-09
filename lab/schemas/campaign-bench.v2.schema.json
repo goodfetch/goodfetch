@@ -38,6 +38,7 @@
     },
     "poolWake": { "enum": ["poll", "notify"] },
     "browserHost": { "enum": ["adapter", "harness", "lightpanda"] },
+    "browserHosts": { "type": "array", "minItems": 2, "uniqueItems": true, "items": { "enum": ["harness", "lightpanda"] }, "description": "several harness browsers compared in one run; each backend runs once per host and block, in a shuffled order" },
     "actionPolicies": { "type": "object", "additionalProperties": { "enum": ["native", "guarded"] } }
   }
 }

@@ -111,3 +111,26 @@ test('declared strata each get their own comparison, so opposite effects are not
     ['rust-cdp-guarded', '{"scenario":"form","rttMs":0}', 6], ['rust-cdp-guarded', '{"scenario":"clicks","rttMs":0}', 0],
     ['node-cdp-guarded', '{"scenario":"form","rttMs":0}', 6], ['node-cdp-guarded', '{"scenario":"clicks","rttMs":0}', 0]]);
 });
+
+// A single-option decision is judged on its contract alone: each gate reads its own lane, and one failed recovery cell blocks it.
+async function contractFixture(recoveryStatus: string) {
+  const { mkdtemp, mkdir, writeFile } = await import('node:fs/promises'); const { tmpdir } = await import('node:os'); const { join } = await import('node:path');
+  const root = await mkdtemp(join(tmpdir(), 'automan-contract-')); await mkdir(join(root, 'ledger/imported'), { recursive: true });
+  const runtime = { runId: 'rt-1', lane: 'runtime', host: { classGranted: 'local-dev' }, cells: ['none', 'after-commit'].map((fault, block) => ({ factors: { runtime: 'rust', fault, block }, status: fault === 'none' ? 'verified' : recoveryStatus, metrics: {} })) };
+  const admission = { runId: 'adm-1', lane: 'admission', host: { classGranted: 'local-dev' }, cells: [{ factors: { policy: 'fair-domain', fault: 'crash', block: 0 }, status: 'verified', metrics: {} }] };
+  for (const run of [runtime, admission]) await writeFile(join(root, `ledger/imported/${run.runId}.json`), JSON.stringify(run));
+  await writeFile(join(root, 'ledger/results-ledger.json'), JSON.stringify({ entries: [runtime, admission].map(run => ({ runId: run.runId, imported: `ledger/imported/${run.runId}.json` })) }));
+  const registry = loadRegistry();
+  const decision = { ...registry.decisions.find(d => d.id === 'D-durable-runtime')!, evidence: [{ kind: 'run' as const, ref: 'rt-1' }, { kind: 'run' as const, ref: 'adm-1' }],
+    analysis: { lane: 'runtime', options: { 'journal-leases-epoch': {} }, pairBy: [], stratum: {}, gateLanes: { 'admission-no-loss': 'admission' } } };
+  return { root, registry, decision };
+}
+
+test('a decision with one option gets a contract verdict, gate by gate in each lane', async () => {
+  const met = await contractFixture('verified');
+  const verdict = await evaluateDecision(met.decision, { registry: met.registry, root: met.root });
+  assert.equal(verdict.outcome, 'contract-met');
+  assert.deepEqual(verdict.gates.map(gate => [gate.id, gate.ok]), [['admission-no-loss', true], ['recovery-exact', true], ['oracle-exact', true]]);
+  const broken = await contractFixture('failed');
+  assert.equal((await evaluateDecision(broken.decision, { registry: broken.registry, root: broken.root })).outcome, 'blocked-by-contract');
+});

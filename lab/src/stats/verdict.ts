@@ -8,7 +8,7 @@ import { blockBootstrapCI } from './bootstrap.ts';
 import { wilcoxonSignedRank, hodgesLehmann } from './rank.ts';
 import type { Decision, Registry } from '../core/decisions.ts';
 
-export type Outcome = 'better' | 'worse' | 'equivalent' | 'trivial' | 'non-inferior' | 'inconclusive' | 'blocked-by-contract' | 'insufficient-n';
+export type Outcome = 'better' | 'worse' | 'equivalent' | 'trivial' | 'non-inferior' | 'inconclusive' | 'blocked-by-contract' | 'insufficient-n' | 'contract-met';
 type Rule = { kind: 'superiority' | 'non-inferiority' | 'equivalence'; alpha: number; power: number };
 export type DecideInput = { logRatios: number[]; direction: 'lower' | 'higher'; rule: Rule; delta: number; gates: { id: string; ok: boolean }[]; seed: number; minBlocks?: number };
 
@@ -83,7 +83,21 @@ export async function evaluateDecision(decision: Decision, { registry, root = la
   const runs = evidence.filter(run => run.lane === analysis.lane);
   const baselineId = decision.baseline!;
   const optionIds = decision.options.map(option => option.id).filter(id => id !== baselineId && analysis.options[id]);
-  if (!optionIds.length) throw new Error(`${decision.id}: no analysed option besides the baseline`);
+  // A decision with a single analysed option is a contract decision: its gates are read on that option's cells, lane by lane.
+  if (!optionIds.length) {
+    if (!analysis.options[baselineId]) throw new Error(`${decision.id}: the baseline is not analysed`);
+    const gates = (decision.contractGates ?? []).map(id => {
+      const cells = evidence.filter(run => run.lane === (analysis.gateLanes?.[id] ?? analysis.lane)).flatMap(run => run.cells.filter(cell => sameOption(cell.factors, analysis.options[baselineId]!)));
+      return { id, ok: gatePredicates[id] ? cells.length > 0 && gatePredicates[id]!(cells) : false, evaluated: Boolean(gatePredicates[id]), cells: cells.length };
+    });
+    const used = evidence.filter(run => Object.values(analysis.gateLanes ?? {}).concat(analysis.lane).includes(run.lane));
+    const observed = used.map(run => run.host.classGranted).sort((a, b) => hostRank.indexOf(a) - hostRank.indexOf(b))[0] ?? null;
+    const outcome: Outcome = gates.length && gates.every(gate => gate.ok) ? 'contract-met' : 'blocked-by-contract';
+    const primary = { option: baselineId, baseline: baselineId, stratum: analysis.stratum, outcome, n: used.length, margin: null, requiredN: null, estimate: null, gates,
+      host: { required: decision.hostClass!.decision, observed, eligible: observed !== null && hostRank.indexOf(observed) >= hostRank.indexOf(decision.hostClass!.decision) } };
+    return { schemaVersion: 1, decisionId: decision.id, metricId: decision.primaryMetric.metricId, direction: registry.metrics.find(metric => metric.id === decision.primaryMetric!.metricId)?.direction === 'higher' ? 'higher' : 'lower', rule: decision.rule, delta: decision.delta, ...primary, comparisons: [primary],
+      inputs: { runs: used.map(run => run.runId), considered: evidence.map(run => run.runId), missing, ledgerSha256: createHash('sha256').update(ledgerText).digest('hex') } };
+  }
   const direction = registry.metrics.find(metric => metric.id === decision.primaryMetric!.metricId)?.direction === 'higher' ? 'higher' : 'lower';
   const seed = parseInt(createHash('sha256').update(decision.id).digest('hex').slice(0, 8), 16);
   const required = decision.hostClass!.decision;

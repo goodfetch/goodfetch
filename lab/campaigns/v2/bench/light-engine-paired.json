@@ -6,7 +6,7 @@
     "D-light-engine"
   ],
   "hostClass": {
-    "requested": "local-dev",
+    "requested": "local-controlled",
     "allowDowngrade": true
   },
   "seed": 4242,

@@ -50,9 +50,11 @@ export function storageCombinations(config:StorageConfig):StorageCell[]{return c
 export async function runStorageCell(config:StorageConfig,cell:StorageCell,block:number,directory:string,shared:StorageCellShared):Promise<Record<string,unknown>>{
   const label=`${cell.engine}-${cell.format}-b${cell.batchSize}-w${cell.writers}-r${block}`;
     if(cell.format==='json-snapshot-durable' && cell.writers>1) return {...cell,block,status:'unsupported',reason:'whole-document replacement requires a single writer or interprocess coordination'};
+    if(['postgres-copy','duckdb-table','parquet-batch'].includes(cell.format)&&cell.engine!=='node')return {...cell,block,status:'unsupported',reason:'the additional sinks are implemented in the Node storage worker'};
+    if(cell.format==='duckdb-table'&&cell.writers>1)return {...cell,block,status:'unsupported',reason:'a DuckDB database file has one writing process'};
     if(isSharedEngine(cell.engine)&&!cell.format.startsWith('sqlite'))return {...cell,block,status:'unsupported',reason:'shared synchronous bindings support SQLite only'};
     const cellDirectory=join(directory,label); await mkdir(cellDirectory,{recursive:true});
-    const path=join(cellDirectory,cell.format.startsWith('sqlite')?'records.sqlite':cell.format.startsWith('jsonl')?'records.jsonl':'records.json');
+    const path=join(cellDirectory,cell.format.startsWith('sqlite')?'records.sqlite':cell.format.startsWith('jsonl')?'records.jsonl':cell.format==='duckdb-table'?'records.duckdb':cell.format==='parquet-batch'?'parts':cell.format==='postgres-copy'?'postgres':'records.json');
     const workers: WorkerClient[]=[]; const samplers: ReturnType<typeof sampleProcessGroup>[]=[];
     const attempts: Attempt[]=[]; let flush=Promise.resolve(); const info: unknown[]=[];
     let finalized=false;

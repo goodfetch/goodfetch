@@ -1,7 +1,8 @@
 import { readFile, stat } from 'node:fs/promises';
 import { DatabaseSync } from 'node:sqlite';
+import { pg, pgUrl, pgTable, duckdb } from './sinks.ts';
 
-export const storageFormats = ['jsonl-buffered', 'jsonl-durable', 'json-snapshot-durable', 'sqlite-wal-full', 'sqlite-wal-normal', 'sqlite-delete-full'] as const;
+export const storageFormats = ['jsonl-buffered', 'jsonl-durable', 'json-snapshot-durable', 'sqlite-wal-full', 'sqlite-wal-normal', 'sqlite-delete-full', 'postgres-copy', 'duckdb-table', 'parquet-batch'] as const;
 export type StorageFormat = typeof storageFormats[number];
 export type StorageBatch = { batchId: string; seed: number; rows: number; payloadBytes: number };
 type Record = { id: string; value: number; payload: string };
@@ -10,7 +11,16 @@ type Record = { id: string; value: number; payload: string };
 export async function verifyStorage(path: string, format: StorageFormat, batches: StorageBatch[]) {
   const reasons: string[] = []; let records: Record[] = [];
   try {
-    if (format.startsWith('sqlite')) {
+    if (format === 'postgres-copy') {
+      const client = new (pg().Client)({ connectionString: pgUrl() }); await client.connect();
+      try { records = (await client.query(`SELECT id, value::int AS value, payload FROM ${pgTable(path)}`)).rows as unknown as Record[]; } finally { await client.end(); }
+    } else if (format === 'duckdb-table' || format === 'parquet-batch') {
+      // DuckDB reopens its own file read-only; Parquet parts are read by an in-memory instance.
+      const instance = await duckdb().DuckDBInstance.create(format === 'duckdb-table' ? path : ':memory:', format === 'duckdb-table' ? { access_mode: 'READ_ONLY' } : {}); const connection = await instance.connect();
+      try { const source = format === 'duckdb-table' ? 'records' : `read_parquet('${path.replaceAll("'", "''")}/*.parquet')`; records = (await (await connection.runAndReadAll(`SELECT id, CAST(value AS INTEGER) AS value, payload FROM ${source}`)).getRowObjectsJS()) as unknown as Record[]; }
+      catch (error) { if (!(format === 'parquet-batch' && /No files found/.test(String(error)))) throw error; }
+      finally { connection.closeSync(); instance.closeSync(); }
+    } else if (format.startsWith('sqlite')) {
       const db = new DatabaseSync(path, { readOnly: true });
       try {
         const integrity = db.prepare('PRAGMA integrity_check').all();

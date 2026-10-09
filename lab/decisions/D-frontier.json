@@ -1,0 +1,76 @@
+{
+  "id": "D-frontier",
+  "title": "Canonicalisation et bornes de crawl",
+  "question": "Quelles règles de frontier terminent un crawl à travers pièges et tables changeantes sans perdre ni dupliquer d'enregistrement (architecture §3.1) ?",
+  "kind": "technical",
+  "status": "open",
+  "options": [
+    {
+      "id": "canonical",
+      "description": "Paramètres déclarés par la recette retirés (sid, utm_*), paramètres sans effet appris par signature de page, chemins piégés fermés après trois pages vides, pagination par curseur (rel=next) préférée aux numéros de page"
+    },
+    {
+      "id": "naive",
+      "description": "Clé de déduplication = URL exacte, tous les liens suivis, budget de requêtes"
+    }
+  ],
+  "baseline": "canonical",
+  "primaryMetric": {
+    "metricId": "requests-per-verified-record",
+    "blockStatistic": "median"
+  },
+  "secondaryMetrics": [
+    "false-success-count"
+  ],
+  "contractGates": [
+    "oracle-exact"
+  ],
+  "delta": {
+    "kind": "ratio",
+    "value": 0.1
+  },
+  "rule": {
+    "kind": "superiority",
+    "alpha": 0.05,
+    "power": 0.8,
+    "noisyBlockPolicy": "exclude"
+  },
+  "hostClass": {
+    "decision": "local-dev",
+    "publication": "local-controlled"
+  },
+  "networkProfiles": [],
+  "campaigns": [
+    "portal-frontier"
+  ],
+  "evidence": [],
+  "verdictRef": null,
+  "adr": null,
+  "dependsOn": [],
+  "notes": "Le canonique est la référence : l'option naïve est jugée contre lui, et son gate échoue dès qu'une table modifiée pendant le crawl lui fait perdre des lignes en se déclarant complète. Les requêtes sont comptées par le site, indépendamment de l'hôte.",
+  "analysis": {
+    "lane": "portal",
+    "options": {
+      "canonical": {
+        "policy": "canonical"
+      },
+      "naive": {
+        "policy": "naive"
+      }
+    },
+    "pairBy": [
+      "variant"
+    ],
+    "stratum": {
+      "variant": "crawler-trap"
+    },
+    "strata": [
+      {
+        "variant": "crawler-trap"
+      },
+      {
+        "variant": "large-table"
+      }
+    ]
+  }
+}

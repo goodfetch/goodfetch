@@ -1,0 +1,34 @@
+{
+  "schemaVersion": 2,
+  "lane": "portal",
+  "decisionIds": [
+    "D-adaptive-routing"
+  ],
+  "hostClass": {
+    "requested": "local-controlled",
+    "allowDowngrade": true
+  },
+  "id": "portal-routing",
+  "config": {
+    "group": "routing",
+    "variants": [
+      "static",
+      "js-shell",
+      "partial-hydration",
+      "stale-html",
+      "graphql",
+      "infinite-scroll"
+    ],
+    "policies": [
+      "browser-only",
+      "http-only",
+      "heuristic",
+      "sampled-contract",
+      "api-capture"
+    ],
+    "repeats": 4,
+    "blocks": 5,
+    "seed": 6202,
+    "timeoutMs": 20000
+  }
+}

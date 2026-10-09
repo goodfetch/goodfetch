@@ -1,0 +1,28 @@
+{
+  "schemaVersion": 2,
+  "lane": "portal",
+  "decisionIds": [
+    "D-frontier"
+  ],
+  "hostClass": {
+    "requested": "local-controlled",
+    "allowDowngrade": true
+  },
+  "id": "portal-frontier",
+  "config": {
+    "group": "frontier",
+    "variants": [
+      "crawler-trap",
+      "large-table"
+    ],
+    "policies": [
+      "naive",
+      "canonical"
+    ],
+    "repeats": 3,
+    "blocks": 5,
+    "seed": 6303,
+    "timeoutMs": 20000,
+    "maxRequests": 300
+  }
+}

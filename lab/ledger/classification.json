@@ -3052,6 +3052,164 @@
         "priority": null,
         "hostClass": null
       }
+    },
+    "runtime-native-qualified-2026-10-09T00-41-00-780Z-a4457d": {
+      "role": "selected",
+      "reason": "passage de contrat sous Linux (conteneur Docker sur le Mac, arm64), comptes identiques à la qualification macOS",
+      "supersededBy": null,
+      "decisionIds": [
+        "D-core-language"
+      ],
+      "validity": [
+        {
+          "scope": "linux-contract",
+          "class": "A",
+          "note": "comptes vérifiés par l'oracle"
+        },
+        {
+          "scope": "timing",
+          "class": "none",
+          "note": "conteneur dans une VM, jamais publiable"
+        }
+      ],
+      "noisyHost": false,
+      "rerun": {
+        "required": false,
+        "priority": null,
+        "hostClass": null
+      }
+    },
+    "runtime-recovery-qualified-2026-10-09T00-50-37-703Z-632789": {
+      "role": "selected",
+      "reason": "passage de contrat sous Linux (conteneur Docker sur le Mac, arm64), comptes identiques à la qualification macOS",
+      "supersededBy": null,
+      "decisionIds": [
+        "D-core-language",
+        "D-durable-runtime"
+      ],
+      "validity": [
+        {
+          "scope": "linux-contract",
+          "class": "A",
+          "note": "comptes vérifiés par l'oracle"
+        },
+        {
+          "scope": "timing",
+          "class": "none",
+          "note": "conteneur dans une VM, jamais publiable"
+        }
+      ],
+      "noisyHost": false,
+      "rerun": {
+        "required": false,
+        "priority": null,
+        "hostClass": null
+      }
+    },
+    "browser-actionability-guarded-2026-10-09T00-51-42-342Z-19842f": {
+      "role": "selected",
+      "reason": "passage de contrat sous Linux (conteneur Docker sur le Mac, arm64), comptes identiques à la qualification macOS",
+      "supersededBy": null,
+      "decisionIds": [
+        "D-browser-driver"
+      ],
+      "validity": [
+        {
+          "scope": "linux-contract",
+          "class": "A",
+          "note": "comptes vérifiés par l'oracle"
+        },
+        {
+          "scope": "timing",
+          "class": "none",
+          "note": "conteneur dans une VM, jamais publiable"
+        }
+      ],
+      "noisyHost": false,
+      "rerun": {
+        "required": false,
+        "priority": null,
+        "hostClass": null
+      }
+    },
+    "sqlite-readers-2026-10-09T00-54-43-859Z-d4dfa6": {
+      "role": "selected",
+      "reason": "passage de contrat sous Linux (conteneur Docker sur le Mac, arm64), comptes identiques à la qualification macOS",
+      "supersededBy": null,
+      "decisionIds": [
+        "D-storage"
+      ],
+      "validity": [
+        {
+          "scope": "linux-contract",
+          "class": "A",
+          "note": "comptes vérifiés par l'oracle"
+        },
+        {
+          "scope": "timing",
+          "class": "none",
+          "note": "conteneur dans une VM, jamais publiable"
+        }
+      ],
+      "noisyHost": false,
+      "rerun": {
+        "required": false,
+        "priority": null,
+        "hostClass": null
+      }
+    },
+    "spider-http-transport-supported-2026-10-09T00-55-30-963Z-582f6b": {
+      "role": "selected",
+      "reason": "passage de contrat sous Linux (conteneur Docker sur le Mac, arm64), comptes identiques à la qualification macOS",
+      "supersededBy": null,
+      "decisionIds": [
+        "D-http-transport"
+      ],
+      "validity": [
+        {
+          "scope": "linux-contract",
+          "class": "A",
+          "note": "comptes vérifiés par l'oracle"
+        },
+        {
+          "scope": "timing",
+          "class": "none",
+          "note": "conteneur dans une VM, jamais publiable"
+        }
+      ],
+      "noisyHost": false,
+      "rerun": {
+        "required": false,
+        "priority": null,
+        "hostClass": null
+      }
+    },
+    "runtime-http-backends-2026-10-09T00-55-32-223Z-35f7fa": {
+      "role": "selected",
+      "reason": "passage de contrat sous Linux (conteneur Docker sur le Mac, arm64), comptes identiques à la qualification macOS",
+      "supersededBy": null,
+      "decisionIds": [
+        "D-http-transport",
+        "D-core-language"
+      ],
+      "validity": [
+        {
+          "scope": "linux-contract",
+          "class": "A",
+          "note": "comptes vérifiés par l'oracle"
+        },
+        {
+          "scope": "timing",
+          "class": "none",
+          "note": "conteneur dans une VM, jamais publiable"
+        }
+      ],
+      "noisyHost": false,
+      "rerun": {
+        "required": false,
+        "priority": null,
+        "hostClass": null
+      }
     }
   }
 }

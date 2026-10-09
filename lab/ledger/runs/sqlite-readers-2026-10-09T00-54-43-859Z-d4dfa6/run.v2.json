@@ -1,0 +1,4299 @@
+{
+ "schemaVersion": 2,
+ "runId": "sqlite-readers-2026-10-09T00-54-43-859Z-d4dfa6",
+ "lane": "sqlite-readers",
+ "campaign": {
+  "id": "sqlite-readers",
+  "source": "/repo/lab/campaigns/v2/sqlite-readers/sqlite-readers.json",
+  "sha256": "a45c696d23efdb1629e42f73d64806f6cf965ce1a0c68be6317aafc5472263d4"
+ },
+ "startedAt": "2026-10-09T00:54:43.859Z",
+ "decisionIds": [
+  "D-storage"
+ ],
+ "provenance": {
+  "git": {
+   "available": false,
+   "sha": null,
+   "dirty": null
+  },
+  "sourceTreeSha256": "bb0d5216d6deb076b90ff2d1eb23672abf35acd0938c99a85280c758a76301cb",
+  "sourceChanges": 0,
+  "binaryChanges": 0,
+  "toolchains": {
+   "node": "v25.5.0",
+   "rustc": "rustc 1.93.0 (254b59607 2026-01-19)",
+   "go": "go version go1.27.1 linux/arm64",
+   "pnpm": "12.9.1"
+  },
+  "integrity": {
+   "status": "uncatalogued",
+   "checked": 0,
+   "mismatches": []
+  }
+ },
+ "host": {
+  "classRequested": "local-controlled",
+  "classGranted": "local-dev",
+  "os": "linux",
+  "arch": "arm64",
+  "cpu": "unknown",
+  "logicalCpus": 14,
+  "memoryBytes": 8320954368,
+  "preflight": {
+   "snapshot": {
+    "os": "linux",
+    "arch": "arm64",
+    "cpu": "unknown",
+    "logicalCpus": 14,
+    "memoryBytes": 8320954368,
+    "loadAverage1m": 3.65,
+    "memoryFreePercent": 56,
+    "thermalWarning": null,
+    "onAC": true,
+    "lowPowerMode": false,
+    "foreignCpuPercent": 0,
+    "foreignTop": [],
+    "cpuGovernor": null,
+    "virtualized": null,
+    "controllerCpuPercent": 0
+   },
+   "gates": [
+    {
+     "class": "local-controlled",
+     "id": "git-clean",
+     "ok": false,
+     "value": false,
+     "limit": "= true"
+    },
+    {
+     "class": "local-controlled",
+     "id": "load-per-cpu-1m",
+     "ok": true,
+     "value": 0.26071428571428573,
+     "limit": "<= 0.35"
+    },
+    {
+     "class": "local-controlled",
+     "id": "memory-free-percent",
+     "ok": true,
+     "value": 56,
+     "limit": ">= 20"
+    },
+    {
+     "class": "local-controlled",
+     "id": "thermal-warning",
+     "ok": false,
+     "value": null,
+     "limit": "= false"
+    },
+    {
+     "class": "local-controlled",
+     "id": "low-power-mode",
+     "ok": true,
+     "value": false,
+     "limit": "= false"
+    },
+    {
+     "class": "local-controlled",
+     "id": "foreign-cpu-percent",
+     "ok": true,
+     "value": 0,
+     "limit": "<= 150"
+    }
+   ]
+  },
+  "postflight": {
+   "snapshot": {
+    "os": "linux",
+    "arch": "arm64",
+    "cpu": "unknown",
+    "logicalCpus": 14,
+    "memoryBytes": 8320954368,
+    "loadAverage1m": 3.19,
+    "memoryFreePercent": 52,
+    "thermalWarning": null,
+    "onAC": true,
+    "lowPowerMode": false,
+    "foreignCpuPercent": 0,
+    "foreignTop": [],
+    "cpuGovernor": null,
+    "virtualized": null,
+    "controllerCpuPercent": 0
+   }
+  }
+ },
+ "status": "complete",
+ "countUnit": "cell",
+ "cells": [
+  {
+   "cellId": "9bee2fea9d55-0",
+   "factors": {
+    "engine": "rust-sync",
+    "batchRows": 100,
+    "writers": 4,
+    "readerMode": "held",
+    "payloadBytes": 512,
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-rows-per-second": {
+     "value": 67801.57189427296,
+     "unit": "row/s",
+     "source": "legacy-summary"
+    },
+    "pss-peak-bytes": {
+     "value": 136974336,
+     "unit": "B",
+     "source": "lane; Linux /proc stat and smaps_rollup over the process tree; CPU of exited children is only covered by a per-run cgroup scope"
+    }
+   }
+  },
+  {
+   "cellId": "fe6818ef768a-1",
+   "factors": {
+    "engine": "node-shared",
+    "batchRows": 100,
+    "writers": 1,
+    "readerMode": "short",
+    "payloadBytes": 512,
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-rows-per-second": {
+     "value": 112389.87096539332,
+     "unit": "row/s",
+     "source": "legacy-summary"
+    },
+    "pss-peak-bytes": {
+     "value": 214478848,
+     "unit": "B",
+     "source": "lane; Linux /proc stat and smaps_rollup over the process tree; CPU of exited children is only covered by a per-run cgroup scope"
+    }
+   }
+  },
+  {
+   "cellId": "7cbd9cd351b4-2",
+   "factors": {
+    "engine": "go-sync",
+    "batchRows": 1000,
+    "writers": 1,
+    "readerMode": "none",
+    "payloadBytes": 512,
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-rows-per-second": {
+     "value": 204698.08720892557,
+     "unit": "row/s",
+     "source": "legacy-summary"
+    },
+    "pss-peak-bytes": {
+     "value": 254791680,
+     "unit": "B",
+     "source": "lane; Linux /proc stat and smaps_rollup over the process tree; CPU of exited children is only covered by a per-run cgroup scope"
+    }
+   }
+  },
+  {
+   "cellId": "b4d272d1777f-3",
+   "factors": {
+    "engine": "go-sync",
+    "batchRows": 1000,
+    "writers": 1,
+    "readerMode": "short",
+    "payloadBytes": 512,
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-rows-per-second": {
+     "value": 214477.93055608496,
+     "unit": "row/s",
+     "source": "legacy-summary"
+    },
+    "pss-peak-bytes": {
+     "value": 278306816,
+     "unit": "B",
+     "source": "lane; Linux /proc stat and smaps_rollup over the process tree; CPU of exited children is only covered by a per-run cgroup scope"
+    }
+   }
+  },
+  {
+   "cellId": "ff94f8bfd2fa-4",
+   "factors": {
+    "engine": "rust-sync",
+    "batchRows": 100,
+    "writers": 4,
+    "readerMode": "short",
+    "payloadBytes": 512,
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-rows-per-second": {
+     "value": 131784.88400859895,
+     "unit": "row/s",
+     "source": "legacy-summary"
+    },
+    "pss-peak-bytes": {
+     "value": 369917952,
+     "unit": "B",
+     "source": "lane; Linux /proc stat and smaps_rollup over the process tree; CPU of exited children is only covered by a per-run cgroup scope"
+    }
+   }
+  },
+  {
+   "cellId": "c219b88eddbf-5",
+   "factors": {
+    "engine": "go-sync",
+    "batchRows": 100,
+    "writers": 4,
+    "readerMode": "held",
+    "payloadBytes": 512,
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-rows-per-second": {
+     "value": 95040.30646033223,
+     "unit": "row/s",
+     "source": "legacy-summary"
+    },
+    "pss-peak-bytes": {
+     "value": 395489280,
+     "unit": "B",
+     "source": "lane; Linux /proc stat and smaps_rollup over the process tree; CPU of exited children is only covered by a per-run cgroup scope"
+    }
+   }
+  },
+  {
+   "cellId": "2f24494d69a7-6",
+   "factors": {
+    "engine": "node-shared",
+    "batchRows": 1000,
+    "writers": 4,
+    "readerMode": "none",
+    "payloadBytes": 512,
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-rows-per-second": {
+     "value": 164342.82741683096,
+     "unit": "row/s",
+     "source": "legacy-summary"
+    },
+    "pss-peak-bytes": {
+     "value": 525750272,
+     "unit": "B",
+     "source": "lane; Linux /proc stat and smaps_rollup over the process tree; CPU of exited children is only covered by a per-run cgroup scope"
+    }
+   }
+  },
+  {
+   "cellId": "c547261275e6-7",
+   "factors": {
+    "engine": "node-shared",
+    "batchRows": 100,
+    "writers": 1,
+    "readerMode": "none",
+    "payloadBytes": 512,
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-rows-per-second": {
+     "value": 174898.35235694158,
+     "unit": "row/s",
+     "source": "legacy-summary"
+    },
+    "pss-peak-bytes": {
+     "value": 469536768,
+     "unit": "B",
+     "source": "lane; Linux /proc stat and smaps_rollup over the process tree; CPU of exited children is only covered by a per-run cgroup scope"
+    }
+   }
+  },
+  {
+   "cellId": "3b14581f5edc-8",
+   "factors": {
+    "engine": "rust-sync",
+    "batchRows": 100,
+    "writers": 1,
+    "readerMode": "held",
+    "payloadBytes": 512,
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-rows-per-second": {
+     "value": 175888.4833595989,
+     "unit": "row/s",
+     "source": "legacy-summary"
+    },
+    "pss-peak-bytes": {
+     "value": 463093760,
+     "unit": "B",
+     "source": "lane; Linux /proc stat and smaps_rollup over the process tree; CPU of exited children is only covered by a per-run cgroup scope"
+    }
+   }
+  },
+  {
+   "cellId": "158aa7e3caad-9",
+   "factors": {
+    "engine": "node-shared",
+    "batchRows": 1000,
+    "writers": 1,
+    "readerMode": "none",
+    "payloadBytes": 512,
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-rows-per-second": {
+     "value": 182999.75194955693,
+     "unit": "row/s",
+     "source": "legacy-summary"
+    },
+    "pss-peak-bytes": {
+     "value": 510140416,
+     "unit": "B",
+     "source": "lane; Linux /proc stat and smaps_rollup over the process tree; CPU of exited children is only covered by a per-run cgroup scope"
+    }
+   }
+  },
+  {
+   "cellId": "d838c0309af2-10",
+   "factors": {
+    "engine": "node-shared",
+    "batchRows": 1000,
+    "writers": 4,
+    "readerMode": "held",
+    "payloadBytes": 512,
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-rows-per-second": {
+     "value": 237568.92746920948,
+     "unit": "row/s",
+     "source": "legacy-summary"
+    },
+    "pss-peak-bytes": {
+     "value": 578781184,
+     "unit": "B",
+     "source": "lane; Linux /proc stat and smaps_rollup over the process tree; CPU of exited children is only covered by a per-run cgroup scope"
+    }
+   }
+  },
+  {
+   "cellId": "2f5fdad93995-11",
+   "factors": {
+    "engine": "go-sync",
+    "batchRows": 1000,
+    "writers": 1,
+    "readerMode": "held",
+    "payloadBytes": 512,
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-rows-per-second": {
+     "value": 337161.96549617115,
+     "unit": "row/s",
+     "source": "legacy-summary"
+    },
+    "pss-peak-bytes": {
+     "value": 471830528,
+     "unit": "B",
+     "source": "lane; Linux /proc stat and smaps_rollup over the process tree; CPU of exited children is only covered by a per-run cgroup scope"
+    }
+   }
+  },
+  {
+   "cellId": "081a351ab4a2-12",
+   "factors": {
+    "engine": "node-shared",
+    "batchRows": 100,
+    "writers": 1,
+    "readerMode": "held",
+    "payloadBytes": 512,
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-rows-per-second": {
+     "value": 150986.8113445112,
+     "unit": "row/s",
+     "source": "legacy-summary"
+    },
+    "pss-peak-bytes": {
+     "value": 495869952,
+     "unit": "B",
+     "source": "lane; Linux /proc stat and smaps_rollup over the process tree; CPU of exited children is only covered by a per-run cgroup scope"
+    }
+   }
+  },
+  {
+   "cellId": "027d923422b5-13",
+   "factors": {
+    "engine": "rust-sync",
+    "batchRows": 1000,
+    "writers": 4,
+    "readerMode": "none",
+    "payloadBytes": 512,
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-rows-per-second": {
+     "value": 326964.0598246628,
+     "unit": "row/s",
+     "source": "legacy-summary"
+    },
+    "pss-peak-bytes": {
+     "value": 478617600,
+     "unit": "B",
+     "source": "lane; Linux /proc stat and smaps_rollup over the process tree; CPU of exited children is only covered by a per-run cgroup scope"
+    }
+   }
+  },
+  {
+   "cellId": "a62ec474e561-14",
+   "factors": {
+    "engine": "rust-sync",
+    "batchRows": 1000,
+    "writers": 1,
+    "readerMode": "short",
+    "payloadBytes": 512,
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-rows-per-second": {
+     "value": 336498.2288678593,
+     "unit": "row/s",
+     "source": "legacy-summary"
+    },
+    "pss-peak-bytes": {
+     "value": 464957440,
+     "unit": "B",
+     "source": "lane; Linux /proc stat and smaps_rollup over the process tree; CPU of exited children is only covered by a per-run cgroup scope"
+    }
+   }
+  },
+  {
+   "cellId": "3d1609d68aff-15",
+   "factors": {
+    "engine": "go-sync",
+    "batchRows": 100,
+    "writers": 1,
+    "readerMode": "held",
+    "payloadBytes": 512,
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-rows-per-second": {
+     "value": 181900.47628083086,
+     "unit": "row/s",
+     "source": "legacy-summary"
+    },
+    "pss-peak-bytes": {
+     "value": 471232512,
+     "unit": "B",
+     "source": "lane; Linux /proc stat and smaps_rollup over the process tree; CPU of exited children is only covered by a per-run cgroup scope"
+    }
+   }
+  },
+  {
+   "cellId": "54dc8d71e0fd-16",
+   "factors": {
+    "engine": "node-shared",
+    "batchRows": 100,
+    "writers": 4,
+    "readerMode": "held",
+    "payloadBytes": 512,
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-rows-per-second": {
+     "value": 85055.0047792179,
+     "unit": "row/s",
+     "source": "legacy-summary"
+    },
+    "pss-peak-bytes": {
+     "value": 565366784,
+     "unit": "B",
+     "source": "lane; Linux /proc stat and smaps_rollup over the process tree; CPU of exited children is only covered by a per-run cgroup scope"
+    }
+   }
+  },
+  {
+   "cellId": "79777ec60f69-17",
+   "factors": {
+    "engine": "rust-sync",
+    "batchRows": 1000,
+    "writers": 4,
+    "readerMode": "held",
+    "payloadBytes": 512,
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-rows-per-second": {
+     "value": 227775.09592383262,
+     "unit": "row/s",
+     "source": "legacy-summary"
+    },
+    "pss-peak-bytes": {
+     "value": 482967552,
+     "unit": "B",
+     "source": "lane; Linux /proc stat and smaps_rollup over the process tree; CPU of exited children is only covered by a per-run cgroup scope"
+    }
+   }
+  },
+  {
+   "cellId": "af17598b4f3b-18",
+   "factors": {
+    "engine": "rust-sync",
+    "batchRows": 1000,
+    "writers": 4,
+    "readerMode": "short",
+    "payloadBytes": 512,
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-rows-per-second": {
+     "value": 213800.4288315115,
+     "unit": "row/s",
+     "source": "legacy-summary"
+    },
+    "pss-peak-bytes": {
+     "value": 483098624,
+     "unit": "B",
+     "source": "lane; Linux /proc stat and smaps_rollup over the process tree; CPU of exited children is only covered by a per-run cgroup scope"
+    }
+   }
+  },
+  {
+   "cellId": "caefcf6d46af-19",
+   "factors": {
+    "engine": "node-shared",
+    "batchRows": 100,
+    "writers": 4,
+    "readerMode": "none",
+    "payloadBytes": 512,
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-rows-per-second": {
+     "value": 120447.16038402414,
+     "unit": "row/s",
+     "source": "legacy-summary"
+    },
+    "pss-peak-bytes": {
+     "value": 568143872,
+     "unit": "B",
+     "source": "lane; Linux /proc stat and smaps_rollup over the process tree; CPU of exited children is only covered by a per-run cgroup scope"
+    }
+   }
+  },
+  {
+   "cellId": "498b4b235167-20",
+   "factors": {
+    "engine": "rust-sync",
+    "batchRows": 100,
+    "writers": 1,
+    "readerMode": "short",
+    "payloadBytes": 512,
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-rows-per-second": {
+     "value": 212134.1263887603,
+     "unit": "row/s",
+     "source": "legacy-summary"
+    },
+    "pss-peak-bytes": {
+     "value": 463581184,
+     "unit": "B",
+     "source": "lane; Linux /proc stat and smaps_rollup over the process tree; CPU of exited children is only covered by a per-run cgroup scope"
+    }
+   }
+  },
+  {
+   "cellId": "6e2dcd4e7e9c-21",
+   "factors": {
+    "engine": "rust-sync",
+    "batchRows": 1000,
+    "writers": 1,
+    "readerMode": "held",
+    "payloadBytes": 512,
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-rows-per-second": {
+     "value": 395401.4026075947,
+     "unit": "row/s",
+     "source": "legacy-summary"
+    },
+    "pss-peak-bytes": {
+     "value": 466493440,
+     "unit": "B",
+     "source": "lane; Linux /proc stat and smaps_rollup over the process tree; CPU of exited children is only covered by a per-run cgroup scope"
+    }
+   }
+  },
+  {
+   "cellId": "df20fd7ec1eb-22",
+   "factors": {
+    "engine": "go-sync",
+    "batchRows": 100,
+    "writers": 1,
+    "readerMode": "none",
+    "payloadBytes": 512,
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-rows-per-second": {
+     "value": 170296.97146902123,
+     "unit": "row/s",
+     "source": "legacy-summary"
+    },
+    "pss-peak-bytes": {
+     "value": 472350720,
+     "unit": "B",
+     "source": "lane; Linux /proc stat and smaps_rollup over the process tree; CPU of exited children is only covered by a per-run cgroup scope"
+    }
+   }
+  },
+  {
+   "cellId": "f59d1793ac42-23",
+   "factors": {
+    "engine": "go-sync",
+    "batchRows": 1000,
+    "writers": 4,
+    "readerMode": "none",
+    "payloadBytes": 512,
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-rows-per-second": {
+     "value": 343788.13463178556,
+     "unit": "row/s",
+     "source": "legacy-summary"
+    },
+    "pss-peak-bytes": {
+     "value": 491073536,
+     "unit": "B",
+     "source": "lane; Linux /proc stat and smaps_rollup over the process tree; CPU of exited children is only covered by a per-run cgroup scope"
+    }
+   }
+  },
+  {
+   "cellId": "c6bef8230054-24",
+   "factors": {
+    "engine": "node-shared",
+    "batchRows": 1000,
+    "writers": 1,
+    "readerMode": "short",
+    "payloadBytes": 512,
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-rows-per-second": {
+     "value": 238235.12323660904,
+     "unit": "row/s",
+     "source": "legacy-summary"
+    },
+    "pss-peak-bytes": {
+     "value": 507969536,
+     "unit": "B",
+     "source": "lane; Linux /proc stat and smaps_rollup over the process tree; CPU of exited children is only covered by a per-run cgroup scope"
+    }
+   }
+  },
+  {
+   "cellId": "446447aafda7-25",
+   "factors": {
+    "engine": "rust-sync",
+    "batchRows": 100,
+    "writers": 1,
+    "readerMode": "none",
+    "payloadBytes": 512,
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-rows-per-second": {
+     "value": 223310.47308655665,
+     "unit": "row/s",
+     "source": "legacy-summary"
+    },
+    "pss-peak-bytes": {
+     "value": 463585280,
+     "unit": "B",
+     "source": "lane; Linux /proc stat and smaps_rollup over the process tree; CPU of exited children is only covered by a per-run cgroup scope"
+    }
+   }
+  },
+  {
+   "cellId": "8770ce3be6c3-26",
+   "factors": {
+    "engine": "go-sync",
+    "batchRows": 1000,
+    "writers": 4,
+    "readerMode": "short",
+    "payloadBytes": 512,
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-rows-per-second": {
+     "value": 42174.40231926235,
+     "unit": "row/s",
+     "source": "legacy-summary"
+    },
+    "pss-peak-bytes": {
+     "value": 495902720,
+     "unit": "B",
+     "source": "lane; Linux /proc stat and smaps_rollup over the process tree; CPU of exited children is only covered by a per-run cgroup scope"
+    }
+   }
+  },
+  {
+   "cellId": "8a036d36560f-27",
+   "factors": {
+    "engine": "go-sync",
+    "batchRows": 100,
+    "writers": 1,
+    "readerMode": "short",
+    "payloadBytes": 512,
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-rows-per-second": {
+     "value": 58693.568257168576,
+     "unit": "row/s",
+     "source": "legacy-summary"
+    },
+    "pss-peak-bytes": {
+     "value": 472698880,
+     "unit": "B",
+     "source": "lane; Linux /proc stat and smaps_rollup over the process tree; CPU of exited children is only covered by a per-run cgroup scope"
+    }
+   }
+  },
+  {
+   "cellId": "847ac9b26451-28",
+   "factors": {
+    "engine": "node-shared",
+    "batchRows": 1000,
+    "writers": 1,
+    "readerMode": "held",
+    "payloadBytes": 512,
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-rows-per-second": {
+     "value": 127454.98108837592,
+     "unit": "row/s",
+     "source": "legacy-summary"
+    },
+    "pss-peak-bytes": {
+     "value": 509345792,
+     "unit": "B",
+     "source": "lane; Linux /proc stat and smaps_rollup over the process tree; CPU of exited children is only covered by a per-run cgroup scope"
+    }
+   }
+  },
+  {
+   "cellId": "e23354982e9a-29",
+   "factors": {
+    "engine": "node-shared",
+    "batchRows": 100,
+    "writers": 4,
+    "readerMode": "short",
+    "payloadBytes": 512,
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-rows-per-second": {
+     "value": 72746.3411966218,
+     "unit": "row/s",
+     "source": "legacy-summary"
+    },
+    "pss-peak-bytes": {
+     "value": 566566912,
+     "unit": "B",
+     "source": "lane; Linux /proc stat and smaps_rollup over the process tree; CPU of exited children is only covered by a per-run cgroup scope"
+    }
+   }
+  },
+  {
+   "cellId": "9be890be4404-30",
+   "factors": {
+    "engine": "go-sync",
+    "batchRows": 100,
+    "writers": 4,
+    "readerMode": "none",
+    "payloadBytes": 512,
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-rows-per-second": {
+     "value": 93271.35816896037,
+     "unit": "row/s",
+     "source": "legacy-summary"
+    },
+    "pss-peak-bytes": {
+     "value": 493002752,
+     "unit": "B",
+     "source": "lane; Linux /proc stat and smaps_rollup over the process tree; CPU of exited children is only covered by a per-run cgroup scope"
+    }
+   }
+  },
+  {
+   "cellId": "b4778e8956ee-31",
+   "factors": {
+    "engine": "rust-sync",
+    "batchRows": 100,
+    "writers": 4,
+    "readerMode": "none",
+    "payloadBytes": 512,
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-rows-per-second": {
+     "value": 55273.080653638186,
+     "unit": "row/s",
+     "source": "legacy-summary"
+    },
+    "pss-peak-bytes": {
+     "value": 470581248,
+     "unit": "B",
+     "source": "lane; Linux /proc stat and smaps_rollup over the process tree; CPU of exited children is only covered by a per-run cgroup scope"
+    }
+   }
+  },
+  {
+   "cellId": "1c54e9901678-32",
+   "factors": {
+    "engine": "rust-sync",
+    "batchRows": 1000,
+    "writers": 1,
+    "readerMode": "none",
+    "payloadBytes": 512,
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-rows-per-second": {
+     "value": 156152.02375459753,
+     "unit": "row/s",
+     "source": "legacy-summary"
+    },
+    "pss-peak-bytes": {
+     "value": 466546688,
+     "unit": "B",
+     "source": "lane; Linux /proc stat and smaps_rollup over the process tree; CPU of exited children is only covered by a per-run cgroup scope"
+    }
+   }
+  },
+  {
+   "cellId": "80e606bc732e-33",
+   "factors": {
+    "engine": "go-sync",
+    "batchRows": 100,
+    "writers": 4,
+    "readerMode": "short",
+    "payloadBytes": 512,
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-rows-per-second": {
+     "value": 55758.430086549815,
+     "unit": "row/s",
+     "source": "legacy-summary"
+    },
+    "pss-peak-bytes": {
+     "value": 490373120,
+     "unit": "B",
+     "source": "lane; Linux /proc stat and smaps_rollup over the process tree; CPU of exited children is only covered by a per-run cgroup scope"
+    }
+   }
+  },
+  {
+   "cellId": "872fffbf911a-34",
+   "factors": {
+    "engine": "node-shared",
+    "batchRows": 1000,
+    "writers": 4,
+    "readerMode": "short",
+    "payloadBytes": 512,
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-rows-per-second": {
+     "value": 104090.75326672918,
+     "unit": "row/s",
+     "source": "legacy-summary"
+    },
+    "pss-peak-bytes": {
+     "value": 577589248,
+     "unit": "B",
+     "source": "lane; Linux /proc stat and smaps_rollup over the process tree; CPU of exited children is only covered by a per-run cgroup scope"
+    }
+   }
+  },
+  {
+   "cellId": "f52dff7b0c81-35",
+   "factors": {
+    "engine": "go-sync",
+    "batchRows": 1000,
+    "writers": 4,
+    "readerMode": "held",
+    "payloadBytes": 512,
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-rows-per-second": {
+     "value": 225139.1278901875,
+     "unit": "row/s",
+     "source": "legacy-summary"
+    },
+    "pss-peak-bytes": {
+     "value": 493281280,
+     "unit": "B",
+     "source": "lane; Linux /proc stat and smaps_rollup over the process tree; CPU of exited children is only covered by a per-run cgroup scope"
+    }
+   }
+  },
+  {
+   "cellId": "7e2b898439d6-36",
+   "factors": {
+    "engine": "go-sync",
+    "batchRows": 100,
+    "writers": 4,
+    "readerMode": "held",
+    "payloadBytes": 512,
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-rows-per-second": {
+     "value": 68487.69629666474,
+     "unit": "row/s",
+     "source": "legacy-summary"
+    },
+    "pss-peak-bytes": {
+     "value": 479047680,
+     "unit": "B",
+     "source": "lane; Linux /proc stat and smaps_rollup over the process tree; CPU of exited children is only covered by a per-run cgroup scope"
+    }
+   }
+  },
+  {
+   "cellId": "34a41968f6c7-37",
+   "factors": {
+    "engine": "go-sync",
+    "batchRows": 1000,
+    "writers": 4,
+    "readerMode": "held",
+    "payloadBytes": 512,
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-rows-per-second": {
+     "value": 363377.2508810753,
+     "unit": "row/s",
+     "source": "legacy-summary"
+    },
+    "pss-peak-bytes": {
+     "value": 487858176,
+     "unit": "B",
+     "source": "lane; Linux /proc stat and smaps_rollup over the process tree; CPU of exited children is only covered by a per-run cgroup scope"
+    }
+   }
+  },
+  {
+   "cellId": "70f72cdd9ea2-38",
+   "factors": {
+    "engine": "rust-sync",
+    "batchRows": 1000,
+    "writers": 4,
+    "readerMode": "held",
+    "payloadBytes": 512,
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-rows-per-second": {
+     "value": 274551.73530624976,
+     "unit": "row/s",
+     "source": "legacy-summary"
+    },
+    "pss-peak-bytes": {
+     "value": 477392896,
+     "unit": "B",
+     "source": "lane; Linux /proc stat and smaps_rollup over the process tree; CPU of exited children is only covered by a per-run cgroup scope"
+    }
+   }
+  },
+  {
+   "cellId": "871b2e069de2-39",
+   "factors": {
+    "engine": "rust-sync",
+    "batchRows": 100,
+    "writers": 1,
+    "readerMode": "held",
+    "payloadBytes": 512,
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-rows-per-second": {
+     "value": 124688.2389763198,
+     "unit": "row/s",
+     "source": "legacy-summary"
+    },
+    "pss-peak-bytes": {
+     "value": 466272256,
+     "unit": "B",
+     "source": "lane; Linux /proc stat and smaps_rollup over the process tree; CPU of exited children is only covered by a per-run cgroup scope"
+    }
+   }
+  },
+  {
+   "cellId": "ef3c63a133a9-40",
+   "factors": {
+    "engine": "rust-sync",
+    "batchRows": 100,
+    "writers": 4,
+    "readerMode": "none",
+    "payloadBytes": 512,
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-rows-per-second": {
+     "value": 71881.06368718286,
+     "unit": "row/s",
+     "source": "legacy-summary"
+    },
+    "pss-peak-bytes": {
+     "value": 470880256,
+     "unit": "B",
+     "source": "lane; Linux /proc stat and smaps_rollup over the process tree; CPU of exited children is only covered by a per-run cgroup scope"
+    }
+   }
+  },
+  {
+   "cellId": "b987e8c68c09-41",
+   "factors": {
+    "engine": "rust-sync",
+    "batchRows": 100,
+    "writers": 4,
+    "readerMode": "short",
+    "payloadBytes": 512,
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-rows-per-second": {
+     "value": 73462.53806682193,
+     "unit": "row/s",
+     "source": "legacy-summary"
+    },
+    "pss-peak-bytes": {
+     "value": 470253568,
+     "unit": "B",
+     "source": "lane; Linux /proc stat and smaps_rollup over the process tree; CPU of exited children is only covered by a per-run cgroup scope"
+    }
+   }
+  },
+  {
+   "cellId": "21a7b6095b41-42",
+   "factors": {
+    "engine": "go-sync",
+    "batchRows": 1000,
+    "writers": 1,
+    "readerMode": "short",
+    "payloadBytes": 512,
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-rows-per-second": {
+     "value": 114421.24911585536,
+     "unit": "row/s",
+     "source": "legacy-summary"
+    },
+    "pss-peak-bytes": {
+     "value": 471015424,
+     "unit": "B",
+     "source": "lane; Linux /proc stat and smaps_rollup over the process tree; CPU of exited children is only covered by a per-run cgroup scope"
+    }
+   }
+  },
+  {
+   "cellId": "3d227f7af095-43",
+   "factors": {
+    "engine": "node-shared",
+    "batchRows": 100,
+    "writers": 1,
+    "readerMode": "none",
+    "payloadBytes": 512,
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-rows-per-second": {
+     "value": 54909.00441181438,
+     "unit": "row/s",
+     "source": "legacy-summary"
+    },
+    "pss-peak-bytes": {
+     "value": 489476096,
+     "unit": "B",
+     "source": "lane; Linux /proc stat and smaps_rollup over the process tree; CPU of exited children is only covered by a per-run cgroup scope"
+    }
+   }
+  },
+  {
+   "cellId": "aa423ee85385-44",
+   "factors": {
+    "engine": "rust-sync",
+    "batchRows": 1000,
+    "writers": 1,
+    "readerMode": "none",
+    "payloadBytes": 512,
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-rows-per-second": {
+     "value": 156735.205666002,
+     "unit": "row/s",
+     "source": "legacy-summary"
+    },
+    "pss-peak-bytes": {
+     "value": 467488768,
+     "unit": "B",
+     "source": "lane; Linux /proc stat and smaps_rollup over the process tree; CPU of exited children is only covered by a per-run cgroup scope"
+    }
+   }
+  },
+  {
+   "cellId": "eb30ede0b8b1-45",
+   "factors": {
+    "engine": "rust-sync",
+    "batchRows": 100,
+    "writers": 1,
+    "readerMode": "none",
+    "payloadBytes": 512,
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-rows-per-second": {
+     "value": 113159.14067852471,
+     "unit": "row/s",
+     "source": "legacy-summary"
+    },
+    "pss-peak-bytes": {
+     "value": 466010112,
+     "unit": "B",
+     "source": "lane; Linux /proc stat and smaps_rollup over the process tree; CPU of exited children is only covered by a per-run cgroup scope"
+    }
+   }
+  },
+  {
+   "cellId": "010a4ffcec49-46",
+   "factors": {
+    "engine": "node-shared",
+    "batchRows": 1000,
+    "writers": 4,
+    "readerMode": "short",
+    "payloadBytes": 512,
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-rows-per-second": {
+     "value": 271559.5473866836,
+     "unit": "row/s",
+     "source": "legacy-summary"
+    },
+    "pss-peak-bytes": {
+     "value": 570486784,
+     "unit": "B",
+     "source": "lane; Linux /proc stat and smaps_rollup over the process tree; CPU of exited children is only covered by a per-run cgroup scope"
+    }
+   }
+  },
+  {
+   "cellId": "536df12d9d5e-47",
+   "factors": {
+    "engine": "node-shared",
+    "batchRows": 1000,
+    "writers": 4,
+    "readerMode": "held",
+    "payloadBytes": 512,
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-rows-per-second": {
+     "value": 264587.7237496008,
+     "unit": "row/s",
+     "source": "legacy-summary"
+    },
+    "pss-peak-bytes": {
+     "value": 570519552,
+     "unit": "B",
+     "source": "lane; Linux /proc stat and smaps_rollup over the process tree; CPU of exited children is only covered by a per-run cgroup scope"
+    }
+   }
+  },
+  {
+   "cellId": "0fcb7417da04-48",
+   "factors": {
+    "engine": "go-sync",
+    "batchRows": 1000,
+    "writers": 1,
+    "readerMode": "held",
+    "payloadBytes": 512,
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-rows-per-second": {
+     "value": 343774.1296535319,
+     "unit": "row/s",
+     "source": "legacy-summary"
+    },
+    "pss-peak-bytes": {
+     "value": 470523904,
+     "unit": "B",
+     "source": "lane; Linux /proc stat and smaps_rollup over the process tree; CPU of exited children is only covered by a per-run cgroup scope"
+    }
+   }
+  },
+  {
+   "cellId": "49be58cafe72-49",
+   "factors": {
+    "engine": "go-sync",
+    "batchRows": 100,
+    "writers": 4,
+    "readerMode": "short",
+    "payloadBytes": 512,
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-rows-per-second": {
+     "value": 145874.29342936957,
+     "unit": "row/s",
+     "source": "legacy-summary"
+    },
+    "pss-peak-bytes": {
+     "value": 495583232,
+     "unit": "B",
+     "source": "lane; Linux /proc stat and smaps_rollup over the process tree; CPU of exited children is only covered by a per-run cgroup scope"
+    }
+   }
+  },
+  {
+   "cellId": "53c2f39dde45-50",
+   "factors": {
+    "engine": "node-shared",
+    "batchRows": 100,
+    "writers": 4,
+    "readerMode": "none",
+    "payloadBytes": 512,
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-rows-per-second": {
+     "value": 149837.25660500553,
+     "unit": "row/s",
+     "source": "legacy-summary"
+    },
+    "pss-peak-bytes": {
+     "value": 567697408,
+     "unit": "B",
+     "source": "lane; Linux /proc stat and smaps_rollup over the process tree; CPU of exited children is only covered by a per-run cgroup scope"
+    }
+   }
+  },
+  {
+   "cellId": "9248fbd78696-51",
+   "factors": {
+    "engine": "go-sync",
+    "batchRows": 1000,
+    "writers": 1,
+    "readerMode": "none",
+    "payloadBytes": 512,
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-rows-per-second": {
+     "value": 247431.52927806386,
+     "unit": "row/s",
+     "source": "legacy-summary"
+    },
+    "pss-peak-bytes": {
+     "value": 475369472,
+     "unit": "B",
+     "source": "lane; Linux /proc stat and smaps_rollup over the process tree; CPU of exited children is only covered by a per-run cgroup scope"
+    }
+   }
+  },
+  {
+   "cellId": "c827b95df561-52",
+   "factors": {
+    "engine": "go-sync",
+    "batchRows": 100,
+    "writers": 4,
+    "readerMode": "none",
+    "payloadBytes": 512,
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-rows-per-second": {
+     "value": 128803.71353346892,
+     "unit": "row/s",
+     "source": "legacy-summary"
+    },
+    "pss-peak-bytes": {
+     "value": 494612480,
+     "unit": "B",
+     "source": "lane; Linux /proc stat and smaps_rollup over the process tree; CPU of exited children is only covered by a per-run cgroup scope"
+    }
+   }
+  },
+  {
+   "cellId": "dda48bb9a62c-53",
+   "factors": {
+    "engine": "node-shared",
+    "batchRows": 100,
+    "writers": 4,
+    "readerMode": "held",
+    "payloadBytes": 512,
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-rows-per-second": {
+     "value": 104049.89842941525,
+     "unit": "row/s",
+     "source": "legacy-summary"
+    },
+    "pss-peak-bytes": {
+     "value": 564056064,
+     "unit": "B",
+     "source": "lane; Linux /proc stat and smaps_rollup over the process tree; CPU of exited children is only covered by a per-run cgroup scope"
+    }
+   }
+  },
+  {
+   "cellId": "b9d067bcaea1-54",
+   "factors": {
+    "engine": "rust-sync",
+    "batchRows": 100,
+    "writers": 4,
+    "readerMode": "held",
+    "payloadBytes": 512,
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-rows-per-second": {
+     "value": 125648.65282636603,
+     "unit": "row/s",
+     "source": "legacy-summary"
+    },
+    "pss-peak-bytes": {
+     "value": 469794816,
+     "unit": "B",
+     "source": "lane; Linux /proc stat and smaps_rollup over the process tree; CPU of exited children is only covered by a per-run cgroup scope"
+    }
+   }
+  },
+  {
+   "cellId": "2afec5c97d35-55",
+   "factors": {
+    "engine": "go-sync",
+    "batchRows": 1000,
+    "writers": 4,
+    "readerMode": "short",
+    "payloadBytes": 512,
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-rows-per-second": {
+     "value": 255871.63636452032,
+     "unit": "row/s",
+     "source": "legacy-summary"
+    },
+    "pss-peak-bytes": {
+     "value": 494854144,
+     "unit": "B",
+     "source": "lane; Linux /proc stat and smaps_rollup over the process tree; CPU of exited children is only covered by a per-run cgroup scope"
+    }
+   }
+  },
+  {
+   "cellId": "c7322ce67b60-56",
+   "factors": {
+    "engine": "rust-sync",
+    "batchRows": 1000,
+    "writers": 1,
+    "readerMode": "short",
+    "payloadBytes": 512,
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-rows-per-second": {
+     "value": 222358.9436335817,
+     "unit": "row/s",
+     "source": "legacy-summary"
+    },
+    "pss-peak-bytes": {
+     "value": 468963328,
+     "unit": "B",
+     "source": "lane; Linux /proc stat and smaps_rollup over the process tree; CPU of exited children is only covered by a per-run cgroup scope"
+    }
+   }
+  },
+  {
+   "cellId": "4c97e595ec55-57",
+   "factors": {
+    "engine": "rust-sync",
+    "batchRows": 100,
+    "writers": 1,
+    "readerMode": "short",
+    "payloadBytes": 512,
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-rows-per-second": {
+     "value": 209677.26082874398,
+     "unit": "row/s",
+     "source": "legacy-summary"
+    },
+    "pss-peak-bytes": {
+     "value": 468434944,
+     "unit": "B",
+     "source": "lane; Linux /proc stat and smaps_rollup over the process tree; CPU of exited children is only covered by a per-run cgroup scope"
+    }
+   }
+  },
+  {
+   "cellId": "f044841ad72e-58",
+   "factors": {
+    "engine": "go-sync",
+    "batchRows": 100,
+    "writers": 1,
+    "readerMode": "short",
+    "payloadBytes": 512,
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-rows-per-second": {
+     "value": 153565.5084496636,
+     "unit": "row/s",
+     "source": "legacy-summary"
+    },
+    "pss-peak-bytes": {
+     "value": 473931776,
+     "unit": "B",
+     "source": "lane; Linux /proc stat and smaps_rollup over the process tree; CPU of exited children is only covered by a per-run cgroup scope"
+    }
+   }
+  },
+  {
+   "cellId": "8888ddd644a1-59",
+   "factors": {
+    "engine": "rust-sync",
+    "batchRows": 1000,
+    "writers": 1,
+    "readerMode": "held",
+    "payloadBytes": 512,
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-rows-per-second": {
+     "value": 316753.5422645041,
+     "unit": "row/s",
+     "source": "legacy-summary"
+    },
+    "pss-peak-bytes": {
+     "value": 466345984,
+     "unit": "B",
+     "source": "lane; Linux /proc stat and smaps_rollup over the process tree; CPU of exited children is only covered by a per-run cgroup scope"
+    }
+   }
+  },
+  {
+   "cellId": "418d58298a0a-60",
+   "factors": {
+    "engine": "node-shared",
+    "batchRows": 1000,
+    "writers": 1,
+    "readerMode": "short",
+    "payloadBytes": 512,
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-rows-per-second": {
+     "value": 134799.1806248627,
+     "unit": "row/s",
+     "source": "legacy-summary"
+    },
+    "pss-peak-bytes": {
+     "value": 508960768,
+     "unit": "B",
+     "source": "lane; Linux /proc stat and smaps_rollup over the process tree; CPU of exited children is only covered by a per-run cgroup scope"
+    }
+   }
+  },
+  {
+   "cellId": "9a2233bc6138-61",
+   "factors": {
+    "engine": "node-shared",
+    "batchRows": 100,
+    "writers": 4,
+    "readerMode": "short",
+    "payloadBytes": 512,
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-rows-per-second": {
+     "value": 94425.44401234448,
+     "unit": "row/s",
+     "source": "legacy-summary"
+    },
+    "pss-peak-bytes": {
+     "value": 565358592,
+     "unit": "B",
+     "source": "lane; Linux /proc stat and smaps_rollup over the process tree; CPU of exited children is only covered by a per-run cgroup scope"
+    }
+   }
+  },
+  {
+   "cellId": "526536706e7c-62",
+   "factors": {
+    "engine": "node-shared",
+    "batchRows": 1000,
+    "writers": 4,
+    "readerMode": "none",
+    "payloadBytes": 512,
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-rows-per-second": {
+     "value": 130716.84024519664,
+     "unit": "row/s",
+     "source": "legacy-summary"
+    },
+    "pss-peak-bytes": {
+     "value": 577466368,
+     "unit": "B",
+     "source": "lane; Linux /proc stat and smaps_rollup over the process tree; CPU of exited children is only covered by a per-run cgroup scope"
+    }
+   }
+  },
+  {
+   "cellId": "88ba9aa503ab-63",
+   "factors": {
+    "engine": "rust-sync",
+    "batchRows": 1000,
+    "writers": 4,
+    "readerMode": "short",
+    "payloadBytes": 512,
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-rows-per-second": {
+     "value": 131370.10293566197,
+     "unit": "row/s",
+     "source": "legacy-summary"
+    },
+    "pss-peak-bytes": {
+     "value": 481927168,
+     "unit": "B",
+     "source": "lane; Linux /proc stat and smaps_rollup over the process tree; CPU of exited children is only covered by a per-run cgroup scope"
+    }
+   }
+  },
+  {
+   "cellId": "3a6a557e4652-64",
+   "factors": {
+    "engine": "node-shared",
+    "batchRows": 1000,
+    "writers": 1,
+    "readerMode": "none",
+    "payloadBytes": 512,
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-rows-per-second": {
+     "value": 160537.83546175231,
+     "unit": "row/s",
+     "source": "legacy-summary"
+    },
+    "pss-peak-bytes": {
+     "value": 505098240,
+     "unit": "B",
+     "source": "lane; Linux /proc stat and smaps_rollup over the process tree; CPU of exited children is only covered by a per-run cgroup scope"
+    }
+   }
+  },
+  {
+   "cellId": "2845c868a040-65",
+   "factors": {
+    "engine": "node-shared",
+    "batchRows": 1000,
+    "writers": 1,
+    "readerMode": "held",
+    "payloadBytes": 512,
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-rows-per-second": {
+     "value": 151682.78972557207,
+     "unit": "row/s",
+     "source": "legacy-summary"
+    },
+    "pss-peak-bytes": {
+     "value": 512159744,
+     "unit": "B",
+     "source": "lane; Linux /proc stat and smaps_rollup over the process tree; CPU of exited children is only covered by a per-run cgroup scope"
+    }
+   }
+  },
+  {
+   "cellId": "0f1f3310d65c-66",
+   "factors": {
+    "engine": "node-shared",
+    "batchRows": 100,
+    "writers": 1,
+    "readerMode": "short",
+    "payloadBytes": 512,
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-rows-per-second": {
+     "value": 114998.99886182114,
+     "unit": "row/s",
+     "source": "legacy-summary"
+    },
+    "pss-peak-bytes": {
+     "value": 490545152,
+     "unit": "B",
+     "source": "lane; Linux /proc stat and smaps_rollup over the process tree; CPU of exited children is only covered by a per-run cgroup scope"
+    }
+   }
+  },
+  {
+   "cellId": "1f3196b43d1d-67",
+   "factors": {
+    "engine": "go-sync",
+    "batchRows": 1000,
+    "writers": 4,
+    "readerMode": "none",
+    "payloadBytes": 512,
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-rows-per-second": {
+     "value": 271103.7310651822,
+     "unit": "row/s",
+     "source": "legacy-summary"
+    },
+    "pss-peak-bytes": {
+     "value": 490950656,
+     "unit": "B",
+     "source": "lane; Linux /proc stat and smaps_rollup over the process tree; CPU of exited children is only covered by a per-run cgroup scope"
+    }
+   }
+  },
+  {
+   "cellId": "a4f99c0dcee1-68",
+   "factors": {
+    "engine": "rust-sync",
+    "batchRows": 1000,
+    "writers": 4,
+    "readerMode": "none",
+    "payloadBytes": 512,
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-rows-per-second": {
+     "value": 265780.4549620556,
+     "unit": "row/s",
+     "source": "legacy-summary"
+    },
+    "pss-peak-bytes": {
+     "value": 483651584,
+     "unit": "B",
+     "source": "lane; Linux /proc stat and smaps_rollup over the process tree; CPU of exited children is only covered by a per-run cgroup scope"
+    }
+   }
+  },
+  {
+   "cellId": "24e0ea0b61b3-69",
+   "factors": {
+    "engine": "go-sync",
+    "batchRows": 100,
+    "writers": 1,
+    "readerMode": "held",
+    "payloadBytes": 512,
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-rows-per-second": {
+     "value": 131807.90832783384,
+     "unit": "row/s",
+     "source": "legacy-summary"
+    },
+    "pss-peak-bytes": {
+     "value": 477138944,
+     "unit": "B",
+     "source": "lane; Linux /proc stat and smaps_rollup over the process tree; CPU of exited children is only covered by a per-run cgroup scope"
+    }
+   }
+  },
+  {
+   "cellId": "804e78e632fd-70",
+   "factors": {
+    "engine": "go-sync",
+    "batchRows": 100,
+    "writers": 1,
+    "readerMode": "none",
+    "payloadBytes": 512,
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-rows-per-second": {
+     "value": 187231.40338708312,
+     "unit": "row/s",
+     "source": "legacy-summary"
+    },
+    "pss-peak-bytes": {
+     "value": 473133056,
+     "unit": "B",
+     "source": "lane; Linux /proc stat and smaps_rollup over the process tree; CPU of exited children is only covered by a per-run cgroup scope"
+    }
+   }
+  },
+  {
+   "cellId": "0cf40483c47a-71",
+   "factors": {
+    "engine": "node-shared",
+    "batchRows": 100,
+    "writers": 1,
+    "readerMode": "held",
+    "payloadBytes": 512,
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-rows-per-second": {
+     "value": 101244.00950664152,
+     "unit": "row/s",
+     "source": "legacy-summary"
+    },
+    "pss-peak-bytes": {
+     "value": 490549248,
+     "unit": "B",
+     "source": "lane; Linux /proc stat and smaps_rollup over the process tree; CPU of exited children is only covered by a per-run cgroup scope"
+    }
+   }
+  },
+  {
+   "cellId": "f2a41b81833d-72",
+   "factors": {
+    "engine": "rust-sync",
+    "batchRows": 1000,
+    "writers": 4,
+    "readerMode": "none",
+    "payloadBytes": 512,
+    "block": 2
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-rows-per-second": {
+     "value": 263293.94365428487,
+     "unit": "row/s",
+     "source": "legacy-summary"
+    },
+    "pss-peak-bytes": {
+     "value": 478969856,
+     "unit": "B",
+     "source": "lane; Linux /proc stat and smaps_rollup over the process tree; CPU of exited children is only covered by a per-run cgroup scope"
+    }
+   }
+  },
+  {
+   "cellId": "5ba4e7e9f107-73",
+   "factors": {
+    "engine": "node-shared",
+    "batchRows": 100,
+    "writers": 4,
+    "readerMode": "short",
+    "payloadBytes": 512,
+    "block": 2
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-rows-per-second": {
+     "value": 143173.3437434568,
+     "unit": "row/s",
+     "source": "legacy-summary"
+    },
+    "pss-peak-bytes": {
+     "value": 566616064,
+     "unit": "B",
+     "source": "lane; Linux /proc stat and smaps_rollup over the process tree; CPU of exited children is only covered by a per-run cgroup scope"
+    }
+   }
+  },
+  {
+   "cellId": "1151f4833a83-74",
+   "factors": {
+    "engine": "rust-sync",
+    "batchRows": 100,
+    "writers": 1,
+    "readerMode": "none",
+    "payloadBytes": 512,
+    "block": 2
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-rows-per-second": {
+     "value": 183119.351980458,
+     "unit": "row/s",
+     "source": "legacy-summary"
+    },
+    "pss-peak-bytes": {
+     "value": 466046976,
+     "unit": "B",
+     "source": "lane; Linux /proc stat and smaps_rollup over the process tree; CPU of exited children is only covered by a per-run cgroup scope"
+    }
+   }
+  },
+  {
+   "cellId": "2faeb83db3b3-75",
+   "factors": {
+    "engine": "rust-sync",
+    "batchRows": 100,
+    "writers": 1,
+    "readerMode": "held",
+    "payloadBytes": 512,
+    "block": 2
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-rows-per-second": {
+     "value": 79359.68322152075,
+     "unit": "row/s",
+     "source": "legacy-summary"
+    },
+    "pss-peak-bytes": {
+     "value": 463687680,
+     "unit": "B",
+     "source": "lane; Linux /proc stat and smaps_rollup over the process tree; CPU of exited children is only covered by a per-run cgroup scope"
+    }
+   }
+  },
+  {
+   "cellId": "b177c856e3dd-76",
+   "factors": {
+    "engine": "node-shared",
+    "batchRows": 100,
+    "writers": 1,
+    "readerMode": "held",
+    "payloadBytes": 512,
+    "block": 2
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-rows-per-second": {
+     "value": 123411.7167554074,
+     "unit": "row/s",
+     "source": "legacy-summary"
+    },
+    "pss-peak-bytes": {
+     "value": 489574400,
+     "unit": "B",
+     "source": "lane; Linux /proc stat and smaps_rollup over the process tree; CPU of exited children is only covered by a per-run cgroup scope"
+    }
+   }
+  },
+  {
+   "cellId": "1508615c7251-77",
+   "factors": {
+    "engine": "rust-sync",
+    "batchRows": 100,
+    "writers": 4,
+    "readerMode": "short",
+    "payloadBytes": 512,
+    "block": 2
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-rows-per-second": {
+     "value": 185669.64004029226,
+     "unit": "row/s",
+     "source": "legacy-summary"
+    },
+    "pss-peak-bytes": {
+     "value": 471678976,
+     "unit": "B",
+     "source": "lane; Linux /proc stat and smaps_rollup over the process tree; CPU of exited children is only covered by a per-run cgroup scope"
+    }
+   }
+  },
+  {
+   "cellId": "c525443e132d-78",
+   "factors": {
+    "engine": "go-sync",
+    "batchRows": 100,
+    "writers": 4,
+    "readerMode": "short",
+    "payloadBytes": 512,
+    "block": 2
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-rows-per-second": {
+     "value": 147396.6069687949,
+     "unit": "row/s",
+     "source": "legacy-summary"
+    },
+    "pss-peak-bytes": {
+     "value": 493858816,
+     "unit": "B",
+     "source": "lane; Linux /proc stat and smaps_rollup over the process tree; CPU of exited children is only covered by a per-run cgroup scope"
+    }
+   }
+  },
+  {
+   "cellId": "8fa29073edfe-79",
+   "factors": {
+    "engine": "rust-sync",
+    "batchRows": 1000,
+    "writers": 1,
+    "readerMode": "held",
+    "payloadBytes": 512,
+    "block": 2
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-rows-per-second": {
+     "value": 345165.5918446235,
+     "unit": "row/s",
+     "source": "legacy-summary"
+    },
+    "pss-peak-bytes": {
+     "value": 468832256,
+     "unit": "B",
+     "source": "lane; Linux /proc stat and smaps_rollup over the process tree; CPU of exited children is only covered by a per-run cgroup scope"
+    }
+   }
+  },
+  {
+   "cellId": "77888b94e24c-80",
+   "factors": {
+    "engine": "rust-sync",
+    "batchRows": 1000,
+    "writers": 4,
+    "readerMode": "held",
+    "payloadBytes": 512,
+    "block": 2
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-rows-per-second": {
+     "value": 345497.5759994965,
+     "unit": "row/s",
+     "source": "legacy-summary"
+    },
+    "pss-peak-bytes": {
+     "value": 473473024,
+     "unit": "B",
+     "source": "lane; Linux /proc stat and smaps_rollup over the process tree; CPU of exited children is only covered by a per-run cgroup scope"
+    }
+   }
+  },
+  {
+   "cellId": "d7739d24717d-81",
+   "factors": {
+    "engine": "go-sync",
+    "batchRows": 1000,
+    "writers": 1,
+    "readerMode": "none",
+    "payloadBytes": 512,
+    "block": 2
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-rows-per-second": {
+     "value": 247631.61831385794,
+     "unit": "row/s",
+     "source": "legacy-summary"
+    },
+    "pss-peak-bytes": {
+     "value": 473911296,
+     "unit": "B",
+     "source": "lane; Linux /proc stat and smaps_rollup over the process tree; CPU of exited children is only covered by a per-run cgroup scope"
+    }
+   }
+  },
+  {
+   "cellId": "e03e764c4edb-82",
+   "factors": {
+    "engine": "rust-sync",
+    "batchRows": 1000,
+    "writers": 1,
+    "readerMode": "none",
+    "payloadBytes": 512,
+    "block": 2
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-rows-per-second": {
+     "value": 340955.8597368727,
+     "unit": "row/s",
+     "source": "legacy-summary"
+    },
+    "pss-peak-bytes": {
+     "value": 466042880,
+     "unit": "B",
+     "source": "lane; Linux /proc stat and smaps_rollup over the process tree; CPU of exited children is only covered by a per-run cgroup scope"
+    }
+   }
+  },
+  {
+   "cellId": "a488b5bc1ea7-83",
+   "factors": {
+    "engine": "rust-sync",
+    "batchRows": 1000,
+    "writers": 4,
+    "readerMode": "short",
+    "payloadBytes": 512,
+    "block": 2
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-rows-per-second": {
+     "value": 284667.7504796015,
+     "unit": "row/s",
+     "source": "legacy-summary"
+    },
+    "pss-peak-bytes": {
+     "value": 479707136,
+     "unit": "B",
+     "source": "lane; Linux /proc stat and smaps_rollup over the process tree; CPU of exited children is only covered by a per-run cgroup scope"
+    }
+   }
+  },
+  {
+   "cellId": "6ed51323a80e-84",
+   "factors": {
+    "engine": "rust-sync",
+    "batchRows": 100,
+    "writers": 4,
+    "readerMode": "held",
+    "payloadBytes": 512,
+    "block": 2
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-rows-per-second": {
+     "value": 85252.37199738192,
+     "unit": "row/s",
+     "source": "legacy-summary"
+    },
+    "pss-peak-bytes": {
+     "value": 469929984,
+     "unit": "B",
+     "source": "lane; Linux /proc stat and smaps_rollup over the process tree; CPU of exited children is only covered by a per-run cgroup scope"
+    }
+   }
+  },
+  {
+   "cellId": "376c12f8e897-85",
+   "factors": {
+    "engine": "node-shared",
+    "batchRows": 100,
+    "writers": 1,
+    "readerMode": "short",
+    "payloadBytes": 512,
+    "block": 2
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-rows-per-second": {
+     "value": 145320.56451790372,
+     "unit": "row/s",
+     "source": "legacy-summary"
+    },
+    "pss-peak-bytes": {
+     "value": 494051328,
+     "unit": "B",
+     "source": "lane; Linux /proc stat and smaps_rollup over the process tree; CPU of exited children is only covered by a per-run cgroup scope"
+    }
+   }
+  },
+  {
+   "cellId": "f8b507af7464-86",
+   "factors": {
+    "engine": "go-sync",
+    "batchRows": 1000,
+    "writers": 1,
+    "readerMode": "held",
+    "payloadBytes": 512,
+    "block": 2
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-rows-per-second": {
+     "value": 256496.5773737325,
+     "unit": "row/s",
+     "source": "legacy-summary"
+    },
+    "pss-peak-bytes": {
+     "value": 471003136,
+     "unit": "B",
+     "source": "lane; Linux /proc stat and smaps_rollup over the process tree; CPU of exited children is only covered by a per-run cgroup scope"
+    }
+   }
+  },
+  {
+   "cellId": "6d66df1cd095-87",
+   "factors": {
+    "engine": "node-shared",
+    "batchRows": 1000,
+    "writers": 4,
+    "readerMode": "short",
+    "payloadBytes": 512,
+    "block": 2
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-rows-per-second": {
+     "value": 200515.49274801963,
+     "unit": "row/s",
+     "source": "legacy-summary"
+    },
+    "pss-peak-bytes": {
+     "value": 575893504,
+     "unit": "B",
+     "source": "lane; Linux /proc stat and smaps_rollup over the process tree; CPU of exited children is only covered by a per-run cgroup scope"
+    }
+   }
+  },
+  {
+   "cellId": "1a20b7517aa1-88",
+   "factors": {
+    "engine": "go-sync",
+    "batchRows": 100,
+    "writers": 4,
+    "readerMode": "none",
+    "payloadBytes": 512,
+    "block": 2
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-rows-per-second": {
+     "value": 159805.2038487215,
+     "unit": "row/s",
+     "source": "legacy-summary"
+    },
+    "pss-peak-bytes": {
+     "value": 496103424,
+     "unit": "B",
+     "source": "lane; Linux /proc stat and smaps_rollup over the process tree; CPU of exited children is only covered by a per-run cgroup scope"
+    }
+   }
+  },
+  {
+   "cellId": "0dbefd910098-89",
+   "factors": {
+    "engine": "go-sync",
+    "batchRows": 100,
+    "writers": 1,
+    "readerMode": "held",
+    "payloadBytes": 512,
+    "block": 2
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-rows-per-second": {
+     "value": 143410.83223336082,
+     "unit": "row/s",
+     "source": "legacy-summary"
+    },
+    "pss-peak-bytes": {
+     "value": 473780224,
+     "unit": "B",
+     "source": "lane; Linux /proc stat and smaps_rollup over the process tree; CPU of exited children is only covered by a per-run cgroup scope"
+    }
+   }
+  },
+  {
+   "cellId": "52521a5bd0d9-90",
+   "factors": {
+    "engine": "rust-sync",
+    "batchRows": 1000,
+    "writers": 1,
+    "readerMode": "short",
+    "payloadBytes": 512,
+    "block": 2
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-rows-per-second": {
+     "value": 293718.55427331507,
+     "unit": "row/s",
+     "source": "legacy-summary"
+    },
+    "pss-peak-bytes": {
+     "value": 470839296,
+     "unit": "B",
+     "source": "lane; Linux /proc stat and smaps_rollup over the process tree; CPU of exited children is only covered by a per-run cgroup scope"
+    }
+   }
+  },
+  {
+   "cellId": "e89e1933cb7a-91",
+   "factors": {
+    "engine": "go-sync",
+    "batchRows": 100,
+    "writers": 1,
+    "readerMode": "none",
+    "payloadBytes": 512,
+    "block": 2
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-rows-per-second": {
+     "value": 156950.32491813082,
+     "unit": "row/s",
+     "source": "legacy-summary"
+    },
+    "pss-peak-bytes": {
+     "value": 470695936,
+     "unit": "B",
+     "source": "lane; Linux /proc stat and smaps_rollup over the process tree; CPU of exited children is only covered by a per-run cgroup scope"
+    }
+   }
+  },
+  {
+   "cellId": "168d4869eaec-92",
+   "factors": {
+    "engine": "go-sync",
+    "batchRows": 1000,
+    "writers": 4,
+    "readerMode": "short",
+    "payloadBytes": 512,
+    "block": 2
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-rows-per-second": {
+     "value": 71896.15723465633,
+     "unit": "row/s",
+     "source": "legacy-summary"
+    },
+    "pss-peak-bytes": {
+     "value": 494145536,
+     "unit": "B",
+     "source": "lane; Linux /proc stat and smaps_rollup over the process tree; CPU of exited children is only covered by a per-run cgroup scope"
+    }
+   }
+  },
+  {
+   "cellId": "7c13f0a1afbd-93",
+   "factors": {
+    "engine": "node-shared",
+    "batchRows": 1000,
+    "writers": 4,
+    "readerMode": "held",
+    "payloadBytes": 512,
+    "block": 2
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-rows-per-second": {
+     "value": 119625.6467906769,
+     "unit": "row/s",
+     "source": "legacy-summary"
+    },
+    "pss-peak-bytes": {
+     "value": 577921024,
+     "unit": "B",
+     "source": "lane; Linux /proc stat and smaps_rollup over the process tree; CPU of exited children is only covered by a per-run cgroup scope"
+    }
+   }
+  },
+  {
+   "cellId": "1a6e4dd8a58e-94",
+   "factors": {
+    "engine": "node-shared",
+    "batchRows": 100,
+    "writers": 4,
+    "readerMode": "none",
+    "payloadBytes": 512,
+    "block": 2
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-rows-per-second": {
+     "value": 84318.55947009813,
+     "unit": "row/s",
+     "source": "legacy-summary"
+    },
+    "pss-peak-bytes": {
+     "value": 569454592,
+     "unit": "B",
+     "source": "lane; Linux /proc stat and smaps_rollup over the process tree; CPU of exited children is only covered by a per-run cgroup scope"
+    }
+   }
+  },
+  {
+   "cellId": "8e5f0c82b61d-95",
+   "factors": {
+    "engine": "rust-sync",
+    "batchRows": 100,
+    "writers": 4,
+    "readerMode": "none",
+    "payloadBytes": 512,
+    "block": 2
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-rows-per-second": {
+     "value": 28571.612424653624,
+     "unit": "row/s",
+     "source": "legacy-summary"
+    },
+    "pss-peak-bytes": {
+     "value": 472088576,
+     "unit": "B",
+     "source": "lane; Linux /proc stat and smaps_rollup over the process tree; CPU of exited children is only covered by a per-run cgroup scope"
+    }
+   }
+  },
+  {
+   "cellId": "79866c4ed89d-96",
+   "factors": {
+    "engine": "node-shared",
+    "batchRows": 1000,
+    "writers": 1,
+    "readerMode": "none",
+    "payloadBytes": 512,
+    "block": 2
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-rows-per-second": {
+     "value": 115002.37417009698,
+     "unit": "row/s",
+     "source": "legacy-summary"
+    },
+    "pss-peak-bytes": {
+     "value": 512036864,
+     "unit": "B",
+     "source": "lane; Linux /proc stat and smaps_rollup over the process tree; CPU of exited children is only covered by a per-run cgroup scope"
+    }
+   }
+  },
+  {
+   "cellId": "641002342bfc-97",
+   "factors": {
+    "engine": "go-sync",
+    "batchRows": 1000,
+    "writers": 4,
+    "readerMode": "held",
+    "payloadBytes": 512,
+    "block": 2
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-rows-per-second": {
+     "value": 125565.26884440513,
+     "unit": "row/s",
+     "source": "legacy-summary"
+    },
+    "pss-peak-bytes": {
+     "value": 493809664,
+     "unit": "B",
+     "source": "lane; Linux /proc stat and smaps_rollup over the process tree; CPU of exited children is only covered by a per-run cgroup scope"
+    }
+   }
+  },
+  {
+   "cellId": "ecf05543786a-98",
+   "factors": {
+    "engine": "node-shared",
+    "batchRows": 1000,
+    "writers": 1,
+    "readerMode": "held",
+    "payloadBytes": 512,
+    "block": 2
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-rows-per-second": {
+     "value": 161289.0015391297,
+     "unit": "row/s",
+     "source": "legacy-summary"
+    },
+    "pss-peak-bytes": {
+     "value": 508350464,
+     "unit": "B",
+     "source": "lane; Linux /proc stat and smaps_rollup over the process tree; CPU of exited children is only covered by a per-run cgroup scope"
+    }
+   }
+  },
+  {
+   "cellId": "77c69901b3c4-99",
+   "factors": {
+    "engine": "node-shared",
+    "batchRows": 1000,
+    "writers": 1,
+    "readerMode": "short",
+    "payloadBytes": 512,
+    "block": 2
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-rows-per-second": {
+     "value": 243521.39486125403,
+     "unit": "row/s",
+     "source": "legacy-summary"
+    },
+    "pss-peak-bytes": {
+     "value": 503390208,
+     "unit": "B",
+     "source": "lane; Linux /proc stat and smaps_rollup over the process tree; CPU of exited children is only covered by a per-run cgroup scope"
+    }
+   }
+  },
+  {
+   "cellId": "aafe65b5aa49-100",
+   "factors": {
+    "engine": "go-sync",
+    "batchRows": 1000,
+    "writers": 1,
+    "readerMode": "short",
+    "payloadBytes": 512,
+    "block": 2
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-rows-per-second": {
+     "value": 221089.96829268066,
+     "unit": "row/s",
+     "source": "legacy-summary"
+    },
+    "pss-peak-bytes": {
+     "value": 474144768,
+     "unit": "B",
+     "source": "lane; Linux /proc stat and smaps_rollup over the process tree; CPU of exited children is only covered by a per-run cgroup scope"
+    }
+   }
+  },
+  {
+   "cellId": "3458fe94c683-101",
+   "factors": {
+    "engine": "node-shared",
+    "batchRows": 100,
+    "writers": 1,
+    "readerMode": "none",
+    "payloadBytes": 512,
+    "block": 2
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-rows-per-second": {
+     "value": 94086.66515016557,
+     "unit": "row/s",
+     "source": "legacy-summary"
+    },
+    "pss-peak-bytes": {
+     "value": 492916736,
+     "unit": "B",
+     "source": "lane; Linux /proc stat and smaps_rollup over the process tree; CPU of exited children is only covered by a per-run cgroup scope"
+    }
+   }
+  },
+  {
+   "cellId": "8fa79ea5ca8a-102",
+   "factors": {
+    "engine": "node-shared",
+    "batchRows": 1000,
+    "writers": 4,
+    "readerMode": "none",
+    "payloadBytes": 512,
+    "block": 2
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-rows-per-second": {
+     "value": 122097.71490046073,
+     "unit": "row/s",
+     "source": "legacy-summary"
+    },
+    "pss-peak-bytes": {
+     "value": 579166208,
+     "unit": "B",
+     "source": "lane; Linux /proc stat and smaps_rollup over the process tree; CPU of exited children is only covered by a per-run cgroup scope"
+    }
+   }
+  },
+  {
+   "cellId": "1bc1a679c95f-103",
+   "factors": {
+    "engine": "go-sync",
+    "batchRows": 100,
+    "writers": 4,
+    "readerMode": "held",
+    "payloadBytes": 512,
+    "block": 2
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-rows-per-second": {
+     "value": 57206.03057965948,
+     "unit": "row/s",
+     "source": "legacy-summary"
+    },
+    "pss-peak-bytes": {
+     "value": 488255488,
+     "unit": "B",
+     "source": "lane; Linux /proc stat and smaps_rollup over the process tree; CPU of exited children is only covered by a per-run cgroup scope"
+    }
+   }
+  },
+  {
+   "cellId": "6c8544a4be5f-104",
+   "factors": {
+    "engine": "go-sync",
+    "batchRows": 1000,
+    "writers": 4,
+    "readerMode": "none",
+    "payloadBytes": 512,
+    "block": 2
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-rows-per-second": {
+     "value": 219466.94578842004,
+     "unit": "row/s",
+     "source": "legacy-summary"
+    },
+    "pss-peak-bytes": {
+     "value": 494821376,
+     "unit": "B",
+     "source": "lane; Linux /proc stat and smaps_rollup over the process tree; CPU of exited children is only covered by a per-run cgroup scope"
+    }
+   }
+  },
+  {
+   "cellId": "a4a9271998ea-105",
+   "factors": {
+    "engine": "node-shared",
+    "batchRows": 100,
+    "writers": 4,
+    "readerMode": "held",
+    "payloadBytes": 512,
+    "block": 2
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-rows-per-second": {
+     "value": 42891.34819033314,
+     "unit": "row/s",
+     "source": "legacy-summary"
+    },
+    "pss-peak-bytes": {
+     "value": 566435840,
+     "unit": "B",
+     "source": "lane; Linux /proc stat and smaps_rollup over the process tree; CPU of exited children is only covered by a per-run cgroup scope"
+    }
+   }
+  },
+  {
+   "cellId": "008b61f14276-106",
+   "factors": {
+    "engine": "rust-sync",
+    "batchRows": 100,
+    "writers": 1,
+    "readerMode": "short",
+    "payloadBytes": 512,
+    "block": 2
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-rows-per-second": {
+     "value": 98435.99538081292,
+     "unit": "row/s",
+     "source": "legacy-summary"
+    },
+    "pss-peak-bytes": {
+     "value": 468205568,
+     "unit": "B",
+     "source": "lane; Linux /proc stat and smaps_rollup over the process tree; CPU of exited children is only covered by a per-run cgroup scope"
+    }
+   }
+  },
+  {
+   "cellId": "3b3fa0e90b53-107",
+   "factors": {
+    "engine": "go-sync",
+    "batchRows": 100,
+    "writers": 1,
+    "readerMode": "short",
+    "payloadBytes": 512,
+    "block": 2
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-rows-per-second": {
+     "value": 50691.90819120956,
+     "unit": "row/s",
+     "source": "legacy-summary"
+    },
+    "pss-peak-bytes": {
+     "value": 474075136,
+     "unit": "B",
+     "source": "lane; Linux /proc stat and smaps_rollup over the process tree; CPU of exited children is only covered by a per-run cgroup scope"
+    }
+   }
+  }
+ ],
+ "totals": {
+  "verified": 108,
+  "failed": 0,
+  "timeout": 0,
+  "crashed": 0,
+  "aborted": 0,
+  "unsupported": 0,
+  "rejected": 0,
+  "unavailable": 0,
+  "skipped": 0
+ },
+ "metricAvailability": {
+  "verified-jobs-per-second": {
+   "available": true
+  },
+  "verified-tasks-per-second": {
+   "available": true
+  },
+  "verified-rows-per-second": {
+   "available": true
+  },
+  "task-p50-ms-verified": {
+   "available": true
+  },
+  "task-p95-ms-verified": {
+   "available": true
+  },
+  "task-ms": {
+   "available": true
+  },
+  "ack-latency-p95-ms": {
+   "available": true
+  },
+  "extraction-precision": {
+   "available": true
+  },
+  "extraction-recall": {
+   "available": true
+  },
+  "snippet-recall": {
+   "available": true
+  },
+  "boilerplate-leak": {
+   "available": true
+  },
+  "extract-ms-p50": {
+   "available": true
+  },
+  "startup-ms": {
+   "available": true
+  },
+  "cpu-ms-per-verified-job": {
+   "available": true
+  },
+  "footprint-peak-bytes": {
+   "available": false,
+   "reason": "no probe on linux"
+  },
+  "pss-peak-bytes": {
+   "available": true
+  },
+  "cgroup-memory-peak-bytes": {
+   "available": false,
+   "reason": "requires a per-run systemd scope on the reference host; the parser exists but the engine does not create the scope yet"
+  },
+  "rss-peak-bytes": {
+   "available": true
+  },
+  "cdp-commands-per-task": {
+   "available": true
+  },
+  "extraction-f1": {
+   "available": true
+  },
+  "field-precision": {
+   "available": true
+  },
+  "field-recall": {
+   "available": true
+  },
+  "pass-k": {
+   "available": true
+  },
+  "llm-calls-per-verified-task": {
+   "available": true
+  },
+  "tokens-per-verified-task": {
+   "available": true
+  },
+  "usd-per-1k-verified": {
+   "available": false,
+   "reason": "pricing tables are not implemented yet"
+  },
+  "model-usd-per-1k-verified": {
+   "available": true
+  },
+  "interface-turns-per-task": {
+   "available": true
+  },
+  "oracle-exact": {
+   "available": true
+  },
+  "false-success-count": {
+   "available": true
+  },
+  "actionability-conformance": {
+   "available": true
+  },
+  "recovery-exact": {
+   "available": true
+  },
+  "durability-power-loss": {
+   "available": false,
+   "reason": "requires the VM hard-reset harness"
+  },
+  "identity-coherence": {
+   "available": true
+  },
+  "policy-compliance": {
+   "available": true
+  },
+  "session-isolation": {
+   "available": true
+  },
+  "admission-no-loss": {
+   "available": true
+  },
+  "proxy-continuity": {
+   "available": true
+  },
+  "light-domain-goodput": {
+   "available": true
+  },
+  "light-domain-p95-ms": {
+   "available": true
+  },
+  "light-domain-acceptance": {
+   "available": true
+  }
+ },
+ "legacy": null,
+ "blocks": [
+  {
+   "index": 0,
+   "order": [
+    "cell-22",
+    "cell-2",
+    "cell-25",
+    "cell-27",
+    "cell-20",
+    "cell-34",
+    "cell-7",
+    "cell-0",
+    "cell-16",
+    "cell-1",
+    "cell-11",
+    "cell-29",
+    "cell-4",
+    "cell-19",
+    "cell-15",
+    "cell-28",
+    "cell-10",
+    "cell-23",
+    "cell-21",
+    "cell-6",
+    "cell-14",
+    "cell-17",
+    "cell-24",
+    "cell-31",
+    "cell-3",
+    "cell-12",
+    "cell-33",
+    "cell-26",
+    "cell-5",
+    "cell-8",
+    "cell-30",
+    "cell-18",
+    "cell-13",
+    "cell-32",
+    "cell-9",
+    "cell-35"
+   ],
+   "noisy": false,
+   "host": {
+    "loadPerCpu1m": 0.27785714285714286,
+    "foreignCpuPercent": 0
+   }
+  },
+  {
+   "index": 1,
+   "order": [
+    "cell-34",
+    "cell-35",
+    "cell-23",
+    "cell-16",
+    "cell-18",
+    "cell-20",
+    "cell-27",
+    "cell-0",
+    "cell-13",
+    "cell-12",
+    "cell-9",
+    "cell-11",
+    "cell-29",
+    "cell-32",
+    "cell-6",
+    "cell-25",
+    "cell-30",
+    "cell-10",
+    "cell-22",
+    "cell-33",
+    "cell-15",
+    "cell-14",
+    "cell-26",
+    "cell-17",
+    "cell-3",
+    "cell-8",
+    "cell-7",
+    "cell-21",
+    "cell-1",
+    "cell-5",
+    "cell-2",
+    "cell-31",
+    "cell-19",
+    "cell-28",
+    "cell-24",
+    "cell-4"
+   ],
+   "noisy": false,
+   "host": {
+    "loadPerCpu1m": 0.23357142857142857,
+    "foreignCpuPercent": 0
+   }
+  },
+  {
+   "index": 2,
+   "order": [
+    "cell-19",
+    "cell-8",
+    "cell-12",
+    "cell-16",
+    "cell-4",
+    "cell-20",
+    "cell-32",
+    "cell-17",
+    "cell-23",
+    "cell-25",
+    "cell-13",
+    "cell-21",
+    "cell-22",
+    "cell-2",
+    "cell-29",
+    "cell-9",
+    "cell-30",
+    "cell-28",
+    "cell-15",
+    "cell-24",
+    "cell-33",
+    "cell-11",
+    "cell-6",
+    "cell-18",
+    "cell-1",
+    "cell-35",
+    "cell-5",
+    "cell-3",
+    "cell-27",
+    "cell-0",
+    "cell-7",
+    "cell-34",
+    "cell-31",
+    "cell-10",
+    "cell-14",
+    "cell-26"
+   ],
+   "noisy": false,
+   "host": {
+    "loadPerCpu1m": 0.22785714285714284,
+    "foreignCpuPercent": 0
+   }
+  }
+ ]
+}

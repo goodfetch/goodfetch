@@ -24,8 +24,7 @@
     "footprint-peak-bytes"
   ],
   "contractGates": [
-    "oracle-exact",
-    "false-success-count"
+    "oracle-exact"
   ],
   "delta": {
     "kind": "ratio",
@@ -54,6 +53,11 @@
   "evidence": [
     {
       "kind": "run",
+      "ref": "light-engine-paired-2026-10-09T16-29-54-931Z-c62471",
+      "note": "Chrome et Lightpanda dans un même run, mêmes pilotes et scénarios"
+    },
+    {
+      "kind": "run",
       "ref": "light-engine-actionability-2026-10-08T18-17-53-360Z-1d5ca3"
     },
     {
@@ -80,13 +84,52 @@
     {
       "kind": "research-doc",
       "ref": "lab/reports/frozen-pages-2026-10-08.md"
+    },
+    {
+      "kind": "research-doc",
+      "ref": "lab/reports/light-engine-paired-2026-10-09.md"
     }
   ],
-  "verdictRef": null,
+  "verdictRef": "verdicts/D-light-engine.json",
   "adr": null,
   "dependsOn": [
     "D-browser-driver",
     "D-extraction"
   ],
-  "notes": "Priorité basse : chaque tier supplémentaire multiplie la matrice d'actionnabilité."
+  "notes": "Priorité basse : chaque tier supplémentaire multiplie la matrice d'actionnabilité. Le 9 octobre 2026 : le gate false-success-count est retiré, car la matrice d'actionnabilité sur Lightpanda ne porte pas l'hôte comme facteur et ne peut pas être attribuée à une option ; ses résultats restent dans leur propre run. Le gate oracle-exact porte sur toute la matrice : un scénario incompatible bloque l'option, ce qui appelle un routage par capacités plutôt qu'un moteur par défaut.",
+  "analysis": {
+    "lane": "bench",
+    "options": {
+      "lightpanda": {
+        "browserHost": "lightpanda"
+      },
+      "chrome-headless-shell": {
+        "browserHost": "harness"
+      }
+    },
+    "pairBy": [
+      "backend",
+      "scenario"
+    ],
+    "stratum": {
+      "scenario": "js-catalog"
+    },
+    "strata": [
+      {
+        "scenario": "http-catalog"
+      },
+      {
+        "scenario": "js-catalog"
+      },
+      {
+        "scenario": "form"
+      },
+      {
+        "scenario": "clicks"
+      },
+      {
+        "scenario": "shadow"
+      }
+    ]
+  }
 }

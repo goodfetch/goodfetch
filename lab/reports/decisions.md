@@ -40,7 +40,10 @@ Rapport généré par `pnpm lab report` depuis `decisions/` et `verdicts/`. Les 
 |  |  | code-mode-journal / mcp [variant baseline] : blocs insuffisants | 0.197 [0.159 ; 0.255] (95% block bootstrap) | 15 sur 93 requis | local-dev / requis local-dev | oracle-exact ok |
 |  |  | code-mode-journal / mcp [variant decoy-swap] : blocs insuffisants | 0.195 [0.156 ; 0.251] (95% block bootstrap) | 15 sur 99 requis | local-dev / requis local-dev | oracle-exact ok |
 |  |  | code-mode-journal / mcp [variant price-change] : option meilleure | 0.34 [0.333 ; 0.353] (95% block bootstrap) | 15 sur 5 requis | local-dev / requis local-dev | oracle-exact ok |
-| D-ai-layer | open | pas encore calculé | | | requis local-controlled | false-success-count, oracle-exact |
+| D-ai-layer | open | compiled-replay / agent-each-run [variant baseline] : option meilleure | 0.201 [0.197 ; 0.206] (95% block bootstrap) | 12 sur 5 requis | local-dev / requis local-dev | oracle-exact ok |
+|  |  | compiled-replay / agent-each-run [variant relabel] : option meilleure | 0.332 [0.328 ; 0.337] (95% block bootstrap) | 12 sur 5 requis | local-dev / requis local-dev | oracle-exact ok |
+|  |  | compiled-replay / agent-each-run [variant decoy-swap] : option meilleure | 0.343 [0.338 ; 0.353] (95% block bootstrap) | 12 sur 5 requis | local-dev / requis local-dev | oracle-exact ok |
+|  |  | compiled-replay / agent-each-run [variant price-change] : option meilleure | 0.167 [0.166 ; 0.169] (95% block bootstrap) | 12 sur 5 requis | local-dev / requis local-dev | oracle-exact ok |
 | D-browser-driver | open | rust-cdp-guarded / playwright-native [scenario form, rttMs 0] : option moins bonne | 1.43 [1.41 ; 1.45] (95% block bootstrap) | 7 sur 5 requis | local-controlled / requis local-controlled | actionability-conformance ok, false-success-count ok, oracle-exact ok |
 |  |  | rust-cdp-guarded / playwright-native [scenario clicks, rttMs 0] : option moins bonne | 1.23 [1.21 ; 1.25] (95% block bootstrap) | 7 sur 5 requis | local-controlled / requis local-controlled | actionability-conformance ok, false-success-count ok, oracle-exact ok |
 |  |  | rust-cdp-guarded / playwright-native [scenario js-catalog, rttMs 0] : option meilleure | 0.317 [0.31 ; 0.323] (95% block bootstrap) | 7 sur 5 requis | local-controlled / requis local-controlled | actionability-conformance ok, false-success-count ok, oracle-exact ok |
@@ -79,8 +82,9 @@ Rapport généré par `pnpm lab report` depuis `decisions/` et `verdicts/`. Les 
 |  |  | puppeteer-guarded / playwright-native [scenario js-catalog, rttMs 300] : blocs insuffisants | 0.928 [0.927 ; 0.929] (95% block bootstrap) | 2 sur 5 requis | local-controlled / requis local-controlled | actionability-conformance ok, false-success-count ok, oracle-exact ok |
 | D-cloud-topology | deferred | pas encore calculé | | | requis reference | session-isolation, oracle-exact |
 | D-core-language | open | rust-tokio / node : option meilleure | 0.514 [0.502 ; 0.528] (95% block bootstrap) | 8 sur 5 requis | local-controlled / requis local-controlled | oracle-exact ok, recovery-exact ok |
-| D-durable-runtime | open | pas encore calculé | | | requis local-controlled | admission-no-loss, recovery-exact, oracle-exact |
-| D-extraction | open | pas encore calculé | | | requis local-controlled | oracle-exact |
+| D-durable-runtime | open | journal-leases-epoch / journal-leases-epoch : contrat tenu |  | 5 | local-dev / requis local-controlled (non éligible) | admission-no-loss ok, recovery-exact ok, oracle-exact ok |
+| D-extraction | open | htmd / html5ever-scraper [] : blocs insuffisants | 0.652 [0.595 ; 0.709] (90% block bootstrap) | 7 sur 60 requis | local-dev / requis local-dev | oracle-exact ok |
+|  |  | trafilatura-class / html5ever-scraper [] : blocs insuffisants | 1.3 [1.23 ; 1.38] (90% block bootstrap) | 7 sur 28 requis | local-dev / requis local-dev | oracle-exact ok |
 | D-feature-priority | open | produit : research/market/README.md | | | | |
 | D-frontier | open | naive / canonical [variant crawler-trap] : bloqué par un contrat |  | 0 | local-dev / requis local-dev | oracle-exact échec |
 |  |  | naive / canonical [variant large-table] : bloqué par un contrat |  | 0 | local-dev / requis local-dev | oracle-exact échec |
@@ -93,7 +97,11 @@ Rapport généré par `pnpm lab report` depuis `decisions/` et `verdicts/`. Les 
 |  |  | impit-chrome / browser-fetch [variant coherent, profile standard, purpose search] : bloqué par un contrat |  | 0 | local-dev / requis local-controlled (non éligible) | identity-coherence échec, policy-compliance ok, false-success-count ok, session-isolation ok, proxy-continuity ok |
 |  |  | node-https / browser-fetch [variant coherent, profile identified, purpose search] : bloqué par un contrat |  | 0 | local-dev / requis local-controlled (non éligible) | identity-coherence échec, policy-compliance ok, false-success-count ok, session-isolation ok, proxy-continuity ok |
 |  |  | node-https / browser-fetch [variant coherent, profile standard, purpose search] : bloqué par un contrat |  | 0 | local-dev / requis local-controlled (non éligible) | identity-coherence échec, policy-compliance ok, false-success-count ok, session-isolation ok, proxy-continuity ok |
-| D-light-engine | open | pas encore calculé | | | requis local-controlled | oracle-exact, false-success-count |
+| D-light-engine | open | lightpanda / chrome-headless-shell [scenario http-catalog] : bloqué par un contrat |  | 20 | local-dev / requis local-controlled (non éligible) | oracle-exact échec |
+|  |  | lightpanda / chrome-headless-shell [scenario js-catalog] : bloqué par un contrat |  | 20 | local-dev / requis local-controlled (non éligible) | oracle-exact échec |
+|  |  | lightpanda / chrome-headless-shell [scenario form] : bloqué par un contrat |  | 20 | local-dev / requis local-controlled (non éligible) | oracle-exact échec |
+|  |  | lightpanda / chrome-headless-shell [scenario clicks] : bloqué par un contrat |  | 20 | local-dev / requis local-controlled (non éligible) | oracle-exact échec |
+|  |  | lightpanda / chrome-headless-shell [scenario shadow] : bloqué par un contrat |  | 0 | local-dev / requis local-controlled (non éligible) | oracle-exact échec |
 | D-pricing | open | produit : research/2026-10-07-commercial-landscape.md, research/market/README.md | | | | |
 | D-scheduling | open | fair-domain / fifo-global : option meilleure | 2.84 [2.71 ; 2.99] (95% block bootstrap) | 5 sur 5 requis | local-dev / requis local-controlled (non éligible) | admission-no-loss ok, oracle-exact ok |
 | D-segment | open | produit : research/2026-10-07-direction-automan.md, research/market/README.md | | | | |

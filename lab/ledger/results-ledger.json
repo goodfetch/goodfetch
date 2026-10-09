@@ -1,6 +1,6 @@
 {
  "schemaVersion": 1,
- "classificationSha256": "c6cd192dab4cde9b003b224f7d5c8ab54df349942b67703debb7cea4f5b665fa",
+ "classificationSha256": "7c38111b0d5a1d97a7ddda67feccb86f5f2efcfffc8851afb8ca22de44758cbf",
  "entries": [
   {
    "runId": "smoke-2026-10-07T20-20-24-226Z-9ebb47",
@@ -5939,6 +5939,42 @@
     "hostClass": null
    },
    "imported": "ledger/runs/tls-fingerprint-2026-10-09T16-20-40-847Z-1d6b5d/run.v2.json"
+  },
+  {
+   "runId": "light-engine-paired-2026-10-09T16-29-54-931Z-c62471",
+   "lane": "bench",
+   "campaign": "light-engine-paired",
+   "startedAt": "2026-10-09T16:29:54.931Z",
+   "status": "complete",
+   "hostClass": "local-dev",
+   "role": "selected",
+   "supersededBy": null,
+   "reason": "Chrome et Lightpanda appariés dans un même run, quatre pilotes, cinq scénarios",
+   "validity": [
+    {
+     "scope": "compatibility-contract",
+     "class": "A",
+     "note": "oracle des fixtures"
+    },
+    {
+     "scope": "timing",
+     "class": "C",
+     "note": "local-dev"
+    }
+   ],
+   "decisionIds": [
+    "D-light-engine"
+   ],
+   "citedIn": [
+    "lab/reports/light-engine-paired-2026-10-09.md"
+   ],
+   "integrity": "uncatalogued",
+   "rerun": {
+    "required": true,
+    "priority": "P2",
+    "hostClass": "local-controlled"
+   },
+   "imported": "ledger/runs/light-engine-paired-2026-10-09T16-29-54-931Z-c62471/run.v2.json"
   }
  ]
 }

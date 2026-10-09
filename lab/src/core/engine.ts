@@ -79,7 +79,11 @@ export async function runEngine(campaign: BenchCampaign, options: EngineOptions 
   let network: { link: string; profile: { rttMs: number }; calibration: Calibration } | undefined;
   let proxy: Awaited<ReturnType<typeof startLatencyProxy>> | null = null;
   // A driver-browser profile needs a browser the harness launched, so the shaped link sits between driver and browser.
-  const harnessBrowser = campaign.browserHost === 'harness' || campaign.browserHost === 'lightpanda' || campaign.network?.link === 'driver-browser';
+  // browserHosts compares harness browsers inside one run: the host becomes a factor and a part of each cell id.
+  const hosts: (string | undefined)[] = campaign.browserHosts ?? [campaign.browserHost];
+  const isHarness = (host: string | undefined) => host === 'harness' || host === 'lightpanda' || campaign.network?.link === 'driver-browser';
+  const unitKey = (backend: string, host: string | undefined) => campaign.browserHosts ? `${backend}@${host}` : backend;
+  const hostFactor = (host: string | undefined) => host === 'lightpanda' ? 'lightpanda' : isHarness(host) ? 'harness' : 'adapter';
   if (campaign.network) {
     const calibration = await calibrate(campaign.network.rttMs);
     Object.assign(context.availability, networkAvailability(loadRegistry().metrics, calibration));
@@ -99,13 +103,15 @@ export async function runEngine(campaign: BenchCampaign, options: EngineOptions 
   const sample = (pid: number) => probes['proc_pid_rusage-v4'] ? sampleRuntimeResources(pid, 100) : probes['smaps_rollup'] ? sampleLinuxResources(pid, 100) : sampleProcessGroup(pid);
   try {
     for (let block = 0; block < campaign.blocks; block++) {
-      const order = shuffle(campaign.backends, campaign.seed + block);
-      for (const backend of order) {
+      const units = campaign.backends.flatMap(backend => hosts.map(host => ({ backend, host, key: unitKey(backend, host) })));
+      const order = shuffle(units.map(unit => unit.key), campaign.seed + block);
+      for (const key of order) {
+        const { backend, host } = units.find(unit => unit.key === key)!;
         const spec = options.command?.(backend) ?? commandFor(backend as BackendName, campaign.timeoutMs, executablePath);
         // The harness browser is sampled with the adapter, so browser CPU and memory count for every driver alike.
         let hosted: HostedBrowser | undefined, driverProxy: Awaited<ReturnType<typeof startLatencyProxy>> | undefined, browserSampler: { stop(): unknown } | undefined, cdpEndpoint: string | undefined;
-        if (harnessBrowser) {
-          try { hosted = campaign.browserHost === 'lightpanda' ? await launchLightpanda(lightpandaPath(labRoot)) : await launchBrowser(executablePath ?? browserPath()); } catch (error) { throw new LabError('E_STARTUP', `harness browser: ${(error as Error).message}`, { cause: error }); }
+        if (isHarness(host)) {
+          try { hosted = host === 'lightpanda' ? await launchLightpanda(lightpandaPath(labRoot)) : await launchBrowser(executablePath ?? browserPath()); } catch (error) { throw new LabError('E_STARTUP', `harness browser: ${(error as Error).message}`, { cause: error }); }
           browserSampler = sample(hosted.pid);
           if (campaign.network?.link === 'driver-browser') driverProxy = await startLatencyProxy({ host: '127.0.0.1', port: hosted.port, rttMs: campaign.network.rttMs });
           cdpEndpoint = driverProxy ? throughProxy(hosted.wsEndpoint, driverProxy) : hosted.wsEndpoint;
@@ -113,7 +119,7 @@ export async function runEngine(campaign: BenchCampaign, options: EngineOptions 
         const slot = new WorkerSlot(spec, { executablePath, headless: true, concurrency: campaign.concurrency, poolWake: campaign.poolWake, ...(cdpEndpoint ? { cdpEndpoint } : {}) }, campaign.maxRestarts, campaign.concurrency, sample);
         try {
           for (const scenario of campaign.scenarios) {
-            const cellId = `${backend}:${scenario}`;
+            const cellId = `${key}:${scenario}`;
             const make = (phase: AttemptV2['phase'], index: number, status: AttemptStatus, errorCodeValue: ErrorCode | null, reasons: string[], queueMs: number | null = null): AttemptV2 => ({
               attemptId: `${cellId}:b${block}:${phase}:${index}`, cellId, block, phase, index,
               seed: campaign.seed + block * 1_000_003 + index + (phase === 'measure' ? 10000 : phase === 'warmup' ? 1000 : 0),
@@ -160,8 +166,8 @@ export async function runEngine(campaign: BenchCampaign, options: EngineOptions 
           const resources = [...await slot.close() as unknown[], ...(browserSampler ? [await browserSampler.stop()] : [])];
           await driverProxy?.close(); await hosted?.close();
           // One slot per backend and block: its samples and startups belong to that block's cells exactly.
-          startups.set(`${backend}:b${block}`, slot.startupMs);
-          for (const scenario of campaign.scenarios) cellResources.set(`${backend}:${scenario}:b${block}`, resources);
+          startups.set(`${key}:b${block}`, slot.startupMs);
+          for (const scenario of campaign.scenarios) cellResources.set(`${key}:${scenario}:b${block}`, resources);
         }
       }
       await context.sampleBlock(block, order);
@@ -169,9 +175,9 @@ export async function runEngine(campaign: BenchCampaign, options: EngineOptions 
   } finally { await proxy?.close(); if (ownsOracle) await oracle.close(); }
   await writes;
   // One cell per backend, scenario and block, so verdicts can pair blocks.
-  const cells = Array.from({ length: campaign.blocks }, (_, block) => block).flatMap(block => campaign.backends.flatMap(backend => campaign.scenarios.map(scenario => summarizeCell(`${backend}:${scenario}`, block,
-    { backend, scenario, block, policy: policyOf(backend), rttMs: campaign.network?.rttMs ?? 0, browserHost: campaign.browserHost === 'lightpanda' ? 'lightpanda' : harnessBrowser ? 'harness' : 'adapter' },
-    attempts, windows, cellResources.get(`${backend}:${scenario}:b${block}`) ?? [], startups.get(`${backend}:b${block}`) ?? [], harnessBrowser, measureOf))));
+  const cells = Array.from({ length: campaign.blocks }, (_, block) => block).flatMap(block => campaign.backends.flatMap(backend => hosts.flatMap(host => campaign.scenarios.map(scenario => { const key = unitKey(backend, host); return summarizeCell(`${key}:${scenario}`, block,
+    { backend, scenario, block, policy: policyOf(backend), rttMs: campaign.network?.rttMs ?? 0, browserHost: hostFactor(host) },
+    attempts, windows, cellResources.get(`${key}:${scenario}:b${block}`) ?? [], startups.get(`${key}:b${block}`) ?? [], isHarness(host), measureOf); }))));
   const run = await context.close({ lane: 'bench', campaign, decisionIds: campaign.decisionIds, countUnit: 'attempt', cells, binaryChanges: null, network });
   return { directory, run, attempts };
 }

@@ -78,10 +78,21 @@
       "ref": "lab/reports/admission-2026-10-08.md"
     }
   ],
-  "verdictRef": null,
+  "verdictRef": "verdicts/D-durable-runtime.json",
   "adr": null,
   "dependsOn": [
     "D-storage"
   ],
-  "notes": "La durabilité au-delà d'un crash de processus exige un hard reset de VM ; sans lui, le contrat est libellé crash de processus uniquement."
+  "notes": "La durabilité au-delà d'un crash de processus exige un hard reset de VM ; sans lui, le contrat est libellé crash de processus uniquement. Une seule conception est analysée : le verdict est un verdict de contrat (admission sans perte, reprise exacte sous pannes injectées, oracle exact), lu dans les lanes runtime et admission ; le langage du noyau est tranché à part par D-core-language.",
+  "analysis": {
+    "lane": "runtime",
+    "options": {
+      "journal-leases-epoch": {}
+    },
+    "pairBy": [],
+    "stratum": {},
+    "gateLanes": {
+      "admission-no-loss": "admission"
+    }
+  }
 }

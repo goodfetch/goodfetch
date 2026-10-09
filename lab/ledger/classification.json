@@ -4273,6 +4273,32 @@
         "priority": null,
         "hostClass": null
       }
+    },
+    "light-engine-paired-2026-10-09T16-29-54-931Z-c62471": {
+      "role": "selected",
+      "reason": "Chrome et Lightpanda appariés dans un même run, quatre pilotes, cinq scénarios",
+      "supersededBy": null,
+      "decisionIds": [
+        "D-light-engine"
+      ],
+      "validity": [
+        {
+          "scope": "compatibility-contract",
+          "class": "A",
+          "note": "oracle des fixtures"
+        },
+        {
+          "scope": "timing",
+          "class": "C",
+          "note": "local-dev"
+        }
+      ],
+      "noisyHost": false,
+      "rerun": {
+        "required": true,
+        "priority": "P2",
+        "hostClass": "local-controlled"
+      }
     }
   }
 }

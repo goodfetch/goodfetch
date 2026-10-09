@@ -46,8 +46,8 @@
     "noisyBlockPolicy": "exclude"
   },
   "hostClass": {
-    "decision": "local-controlled",
-    "publication": "reference"
+    "decision": "local-dev",
+    "publication": "local-controlled"
   },
   "networkProfiles": [],
   "campaigns": [
@@ -65,21 +65,41 @@
     },
     {
       "kind": "run",
-      "ref": "extraction-quality-dev-2026-10-08T17-58-37-038Z-ee347f",
-      "note": "WCXB développement"
-    },
-    {
-      "kind": "run",
       "ref": "extraction-rendered-test-2026-10-08T20-14-39-618Z-9f5f67",
       "note": "extraction après rendu identique au HTML brut sur pages figées"
     },
     {
       "kind": "research-doc",
       "ref": "lab/reports/frozen-pages-2026-10-08.md"
+    },
+    {
+      "kind": "research-doc",
+      "ref": "lab/reports/extraction-quality-2026-10-08.md"
     }
   ],
-  "verdictRef": null,
+  "verdictRef": "verdicts/D-extraction.json",
   "adr": null,
   "dependsOn": [],
-  "notes": "La qualité se mesure sur pages réelles figées et par type de page ; la vitesse est secondaire tant que la qualité n'est pas équivalente."
+  "notes": "La qualité se mesure sur pages réelles figées et par type de page ; la vitesse est secondaire tant que la qualité n'est pas équivalente. Le 9 octobre 2026 : le verdict lit le split test réservé de WCXB, apparié par type de page ; le split de développement, qui a servi au réglage, n'en fait plus partie. Le F1 ne dépend pas de l'hôte : la décision se prend en local-dev. lol-html-streaming n'a pas d'adaptateur et reste sans analyse.",
+  "analysis": {
+    "lane": "extraction",
+    "options": {
+      "trafilatura-class": {
+        "extractor": "rs-trafilatura",
+        "renderer": null
+      },
+      "htmd": {
+        "extractor": "htmd",
+        "renderer": null
+      },
+      "html5ever-scraper": {
+        "extractor": "scraper-text",
+        "renderer": null
+      }
+    },
+    "pairBy": [
+      "pageType"
+    ],
+    "stratum": {}
+  }
 }

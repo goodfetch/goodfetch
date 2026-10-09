@@ -1,6 +1,6 @@
 {
  "schemaVersion": 1,
- "classificationSha256": "52635a9c3c2860cfb6bb7b0dd69e503859231c89564307204e80f12a193065e0",
+ "classificationSha256": "857380df44d86090133d4441ef0842be13def3969d0eee16a6d4d455e2d93675",
  "entries": [
   {
    "runId": "smoke-2026-10-07T20-20-24-226Z-9ebb47",
@@ -5515,6 +5515,251 @@
     "hostClass": null
    },
    "imported": "ledger/runs/cross-engine-navigation-2026-10-09T14-12-41-527Z-cd6a35/run.v2.json"
+  },
+  {
+   "runId": "portal-frontier-2026-10-09T15-08-28-035Z-e66949",
+   "lane": "portal",
+   "campaign": "portal-frontier",
+   "startedAt": "2026-10-09T15:08:28.035Z",
+   "status": "complete",
+   "hostClass": "local-dev",
+   "role": "selected",
+   "supersededBy": null,
+   "reason": "frontier à travers pièges (sid, utm, tris, calendrier sans fin) et table modifiée pendant la pagination ; comptes de requêtes du site",
+   "validity": [
+    {
+     "scope": "frontier-contract",
+     "class": "A",
+     "note": "oracle du site"
+    },
+    {
+     "scope": "request-counts",
+     "class": "A",
+     "note": "comptés par le site, indépendants de l'hôte"
+    },
+    {
+     "scope": "timing",
+     "class": "none",
+     "note": "local-dev"
+    }
+   ],
+   "decisionIds": [
+    "D-frontier"
+   ],
+   "citedIn": [
+    "lab/reports/portal-2026-10-09.md"
+   ],
+   "integrity": "uncatalogued",
+   "rerun": {
+    "required": false,
+    "priority": null,
+    "hostClass": null
+   },
+   "imported": "ledger/runs/portal-frontier-2026-10-09T15-08-28-035Z-e66949/run.v2.json"
+  },
+  {
+   "runId": "portal-sessions-2026-10-09T15-08-30-076Z-7ccb85",
+   "lane": "portal",
+   "campaign": "portal-sessions",
+   "startedAt": "2026-10-09T15:08:30.076Z",
+   "status": "invalid-provenance",
+   "hostClass": "local-dev",
+   "role": "superseded",
+   "supersededBy": "portal-sessions-2026-10-09T15-26-01-462Z-3f0b51",
+   "reason": "sources du lab modifiées pendant le run (invalid-provenance) ; relancé",
+   "validity": [
+    {
+     "scope": "all",
+     "class": "none",
+     "note": "provenance invalide"
+    }
+   ],
+   "decisionIds": [
+    "D-session-model"
+   ],
+   "citedIn": [
+    "lab/reports/portal-2026-10-09.md"
+   ],
+   "integrity": "uncatalogued",
+   "rerun": {
+    "required": false,
+    "priority": null,
+    "hostClass": null
+   },
+   "imported": "ledger/runs/portal-sessions-2026-10-09T15-08-30-076Z-7ccb85/run.v2.json"
+  },
+  {
+   "runId": "interface-arena-journal-2026-10-09T15-11-59-464Z-f3de1a",
+   "lane": "bench",
+   "campaign": "interface-arena-journal",
+   "startedAt": "2026-10-09T15:11:59.464Z",
+   "status": "interrupted",
+   "hostClass": "local-dev",
+   "role": "diagnostic",
+   "supersededBy": null,
+   "reason": "en cours au moment de l'import",
+   "validity": [
+    {
+     "scope": "all",
+     "class": "none",
+     "note": "run non terminé"
+    }
+   ],
+   "decisionIds": [
+    "D-agent-interface"
+   ],
+   "citedIn": [],
+   "integrity": "uncatalogued",
+   "rerun": {
+    "required": false,
+    "priority": null,
+    "hostClass": null
+   },
+   "imported": "ledger/imported/interface-arena-journal-2026-10-09T15-11-59-464Z-f3de1a/run.v2.json"
+  },
+  {
+   "runId": "portal-routing-2026-10-09T15-12-56-291Z-1eb2f9",
+   "lane": "portal",
+   "campaign": "portal-routing",
+   "startedAt": "2026-10-09T15:12:56.291Z",
+   "status": "complete",
+   "hostClass": "local-dev",
+   "role": "selected",
+   "supersededBy": null,
+   "reason": "HTTP, navigateur ou API découverte par route, sur six rendus d'un même listing ; job récurrent de 4 runs",
+   "validity": [
+    {
+     "scope": "routing-contract",
+     "class": "A",
+     "note": "oracle du site"
+    },
+    {
+     "scope": "timing",
+     "class": "C",
+     "note": "local-dev : durées indicatives"
+    }
+   ],
+   "decisionIds": [
+    "D-adaptive-routing"
+   ],
+   "citedIn": [
+    "lab/reports/portal-2026-10-09.md"
+   ],
+   "integrity": "uncatalogued",
+   "rerun": {
+    "required": true,
+    "priority": "P1",
+    "hostClass": "local-controlled"
+   },
+   "imported": "ledger/runs/portal-routing-2026-10-09T15-12-56-291Z-1eb2f9/run.v2.json"
+  },
+  {
+   "runId": "portal-sessions-2026-10-09T15-26-01-462Z-3f0b51",
+   "lane": "portal",
+   "campaign": "portal-sessions",
+   "startedAt": "2026-10-09T15:26:01.462Z",
+   "status": "complete",
+   "hostClass": "local-dev",
+   "role": "selected",
+   "supersededBy": null,
+   "reason": "sessions longues : CSRF, expiration en 200, refresh, reprise journalisée, révocation pendant l'arrêt ; HTTP et navigateur",
+   "validity": [
+    {
+     "scope": "session-contract",
+     "class": "A",
+     "note": "oracle du site"
+    },
+    {
+     "scope": "login-counts",
+     "class": "A",
+     "note": "comptés par le site, indépendants de l'hôte"
+    },
+    {
+     "scope": "timing",
+     "class": "none",
+     "note": "local-dev"
+    }
+   ],
+   "decisionIds": [
+    "D-session-model"
+   ],
+   "citedIn": [
+    "lab/reports/portal-2026-10-09.md"
+   ],
+   "integrity": "uncatalogued",
+   "rerun": {
+    "required": false,
+    "priority": null,
+    "hostClass": null
+   },
+   "imported": "ledger/runs/portal-sessions-2026-10-09T15-26-01-462Z-3f0b51/run.v2.json"
+  },
+  {
+   "runId": "http-transport-v2-2026-10-09T15-30-27-630Z-d8bf7a",
+   "lane": "bench",
+   "campaign": "http-transport-v2",
+   "startedAt": "2026-10-09T15:30:27.630Z",
+   "status": "complete",
+   "hostClass": "local-dev",
+   "role": "diagnostic",
+   "supersededBy": null,
+   "reason": "adaptateurs mal configurés : reqwest compilé sans décompression gzip, wreq sans politique de redirection ; Spider refuse la redirection loopback (contrôle SSRF, attendu)",
+   "validity": [
+    {
+     "scope": "all",
+     "class": "none",
+     "note": "configuration d'adaptateur corrigée ensuite"
+    }
+   ],
+   "decisionIds": [
+    "D-http-transport"
+   ],
+   "citedIn": [
+    "lab/reports/http-transport-2026-10-09.md"
+   ],
+   "integrity": "uncatalogued",
+   "rerun": {
+    "required": true,
+    "priority": "P1",
+    "hostClass": "local-controlled"
+   },
+   "imported": "ledger/runs/http-transport-v2-2026-10-09T15-30-27-630Z-d8bf7a/run.v2.json"
+  },
+  {
+   "runId": "http-open-v2-2026-10-09T15-30-40-832Z-1b2a42",
+   "lane": "bench",
+   "campaign": "http-open-v2",
+   "startedAt": "2026-10-09T15:30:40.832Z",
+   "status": "complete",
+   "hostClass": "local-dev",
+   "role": "selected",
+   "supersededBy": null,
+   "reason": "six transports en arrivées ouvertes à 250/s sur pages normales (sans redirection ni compression)",
+   "validity": [
+    {
+     "scope": "open-loop-contract",
+     "class": "A",
+     "note": "oracle des fixtures"
+    },
+    {
+     "scope": "timing",
+     "class": "C",
+     "note": "local-dev"
+    }
+   ],
+   "decisionIds": [
+    "D-http-transport"
+   ],
+   "citedIn": [
+    "lab/reports/http-transport-2026-10-09.md"
+   ],
+   "integrity": "uncatalogued",
+   "rerun": {
+    "required": true,
+    "priority": "P1",
+    "hostClass": "local-controlled"
+   },
+   "imported": "ledger/runs/http-open-v2-2026-10-09T15-30-40-832Z-1b2a42/run.v2.json"
   }
  ]
 }

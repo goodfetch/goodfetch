@@ -48,9 +48,19 @@
   "campaigns": [
     "portal-sessions"
   ],
-  "evidence": [],
-  "verdictRef": null,
-  "adr": null,
+  "evidence": [
+    {
+      "kind": "run",
+      "ref": "portal-sessions-2026-10-09T15-26-01-462Z-3f0b51",
+      "note": "cinq situations, trois politiques, deux tiers"
+    },
+    {
+      "kind": "research-doc",
+      "ref": "lab/reports/portal-2026-10-09.md"
+    }
+  ],
+  "verdictRef": "verdicts/D-session-model.json",
+  "adr": "docs/adr/0003-session-model.md",
   "dependsOn": [
     "D-identity"
   ],

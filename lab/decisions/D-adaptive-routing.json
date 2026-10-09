@@ -57,8 +57,18 @@
   "campaigns": [
     "portal-routing"
   ],
-  "evidence": [],
-  "verdictRef": null,
+  "evidence": [
+    {
+      "kind": "run",
+      "ref": "portal-routing-2026-10-09T15-12-56-291Z-1eb2f9",
+      "note": "six rendus, cinq politiques"
+    },
+    {
+      "kind": "research-doc",
+      "ref": "lab/reports/portal-2026-10-09.md"
+    }
+  ],
+  "verdictRef": "verdicts/D-adaptive-routing.json",
   "adr": null,
   "dependsOn": [
     "D-browser-driver",

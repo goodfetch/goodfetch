@@ -3969,6 +3969,183 @@
         "priority": null,
         "hostClass": null
       }
+    },
+    "portal-frontier-2026-10-09T15-08-28-035Z-e66949": {
+      "role": "selected",
+      "reason": "frontier à travers pièges (sid, utm, tris, calendrier sans fin) et table modifiée pendant la pagination ; comptes de requêtes du site",
+      "supersededBy": null,
+      "decisionIds": [
+        "D-frontier"
+      ],
+      "validity": [
+        {
+          "scope": "frontier-contract",
+          "class": "A",
+          "note": "oracle du site"
+        },
+        {
+          "scope": "request-counts",
+          "class": "A",
+          "note": "comptés par le site, indépendants de l'hôte"
+        },
+        {
+          "scope": "timing",
+          "class": "none",
+          "note": "local-dev"
+        }
+      ],
+      "noisyHost": false,
+      "rerun": {
+        "required": false,
+        "priority": null,
+        "hostClass": null
+      }
+    },
+    "portal-sessions-2026-10-09T15-08-30-076Z-7ccb85": {
+      "role": "superseded",
+      "reason": "sources du lab modifiées pendant le run (invalid-provenance) ; relancé",
+      "supersededBy": "portal-sessions-2026-10-09T15-26-01-462Z-3f0b51",
+      "decisionIds": [
+        "D-session-model"
+      ],
+      "validity": [
+        {
+          "scope": "all",
+          "class": "none",
+          "note": "provenance invalide"
+        }
+      ],
+      "noisyHost": false,
+      "rerun": {
+        "required": false,
+        "priority": null,
+        "hostClass": null
+      }
+    },
+    "portal-routing-2026-10-09T15-12-56-291Z-1eb2f9": {
+      "role": "selected",
+      "reason": "HTTP, navigateur ou API découverte par route, sur six rendus d'un même listing ; job récurrent de 4 runs",
+      "supersededBy": null,
+      "decisionIds": [
+        "D-adaptive-routing"
+      ],
+      "validity": [
+        {
+          "scope": "routing-contract",
+          "class": "A",
+          "note": "oracle du site"
+        },
+        {
+          "scope": "timing",
+          "class": "C",
+          "note": "local-dev : durées indicatives"
+        }
+      ],
+      "noisyHost": false,
+      "rerun": {
+        "required": true,
+        "priority": "P1",
+        "hostClass": "local-controlled"
+      }
+    },
+    "portal-sessions-2026-10-09T15-26-01-462Z-3f0b51": {
+      "role": "selected",
+      "reason": "sessions longues : CSRF, expiration en 200, refresh, reprise journalisée, révocation pendant l'arrêt ; HTTP et navigateur",
+      "supersededBy": null,
+      "decisionIds": [
+        "D-session-model"
+      ],
+      "validity": [
+        {
+          "scope": "session-contract",
+          "class": "A",
+          "note": "oracle du site"
+        },
+        {
+          "scope": "login-counts",
+          "class": "A",
+          "note": "comptés par le site, indépendants de l'hôte"
+        },
+        {
+          "scope": "timing",
+          "class": "none",
+          "note": "local-dev"
+        }
+      ],
+      "noisyHost": false,
+      "rerun": {
+        "required": false,
+        "priority": null,
+        "hostClass": null
+      }
+    },
+    "interface-arena-journal-2026-10-09T15-11-59-464Z-f3de1a": {
+      "role": "diagnostic",
+      "reason": "en cours au moment de l'import",
+      "supersededBy": null,
+      "decisionIds": [
+        "D-agent-interface"
+      ],
+      "validity": [
+        {
+          "scope": "all",
+          "class": "none",
+          "note": "run non terminé"
+        }
+      ],
+      "noisyHost": false,
+      "rerun": {
+        "required": false,
+        "priority": null,
+        "hostClass": null
+      }
+    },
+    "http-transport-v2-2026-10-09T15-30-27-630Z-d8bf7a": {
+      "role": "diagnostic",
+      "reason": "adaptateurs mal configurés : reqwest compilé sans décompression gzip, wreq sans politique de redirection ; Spider refuse la redirection loopback (contrôle SSRF, attendu)",
+      "supersededBy": null,
+      "decisionIds": [
+        "D-http-transport"
+      ],
+      "validity": [
+        {
+          "scope": "all",
+          "class": "none",
+          "note": "configuration d'adaptateur corrigée ensuite"
+        }
+      ],
+      "noisyHost": false,
+      "rerun": {
+        "required": true,
+        "priority": "P1",
+        "hostClass": "local-controlled"
+      }
+    },
+    "http-open-v2-2026-10-09T15-30-40-832Z-1b2a42": {
+      "role": "selected",
+      "reason": "six transports en arrivées ouvertes à 250/s sur pages normales (sans redirection ni compression)",
+      "supersededBy": null,
+      "decisionIds": [
+        "D-http-transport"
+      ],
+      "validity": [
+        {
+          "scope": "open-loop-contract",
+          "class": "A",
+          "note": "oracle des fixtures"
+        },
+        {
+          "scope": "timing",
+          "class": "C",
+          "note": "local-dev"
+        }
+      ],
+      "noisyHost": false,
+      "rerun": {
+        "required": true,
+        "priority": "P1",
+        "hostClass": "local-controlled"
+      }
     }
   }
 }

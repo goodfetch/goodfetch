@@ -43,8 +43,18 @@
   "campaigns": [
     "portal-frontier"
   ],
-  "evidence": [],
-  "verdictRef": null,
+  "evidence": [
+    {
+      "kind": "run",
+      "ref": "portal-frontier-2026-10-09T15-08-28-035Z-e66949",
+      "note": "pièges et table changeante"
+    },
+    {
+      "kind": "research-doc",
+      "ref": "lab/reports/portal-2026-10-09.md"
+    }
+  ],
+  "verdictRef": "verdicts/D-frontier.json",
   "adr": null,
   "dependsOn": [],
   "notes": "Le canonique est la référence : l'option naïve est jugée contre lui, et son gate échoue dès qu'une table modifiée pendant le crawl lui fait perdre des lignes en se déclarant complète. Les requêtes sont comptées par le site, indépendamment de l'hôte.",

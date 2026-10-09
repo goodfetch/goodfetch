@@ -49,8 +49,7 @@
     "task-p95-ms-verified"
   ],
   "contractGates": [
-    "oracle-exact",
-    "policy-compliance"
+    "oracle-exact"
   ],
   "delta": {
     "kind": "ratio",
@@ -108,14 +107,23 @@
       "kind": "run",
       "ref": "tls-fingerprint-2026-10-08T19-32-26-736Z-f42991",
       "note": "empreintes TLS et HTTP/2"
+    },
+    {
+      "kind": "run",
+      "ref": "http-open-v2-2026-10-09T15-30-40-832Z-1b2a42",
+      "note": "six transports, arrivées ouvertes à 250/s"
+    },
+    {
+      "kind": "research-doc",
+      "ref": "lab/reports/http-transport-2026-10-09.md"
     }
   ],
-  "verdictRef": null,
+  "verdictRef": "verdicts/D-http-transport.json",
   "adr": null,
   "dependsOn": [
     "D-identity"
   ],
-  "notes": "Les contrôles SSRF natifs sont conservés ; un refus de redirection loopback n'est jamais contourné pour fabriquer un succès.",
+  "notes": "Les contrôles SSRF natifs sont conservés ; un refus de redirection loopback n'est jamais contourné pour fabriquer un succès. Le respect des préférences des sites (robots.txt, Content-Signal, TDMRep) relève de la politique de site du moteur (D-identity, ADR-002), pas de la brique de transport : aucun transport candidat ne l'applique seul, si bien que ce gate bloquait toutes les options, référence comprise. Il est retiré de cette décision le 9 octobre 2026 et reste porté par D-identity.",
   "analysis": {
     "lane": "bench",
     "options": {
@@ -143,9 +151,6 @@
     ],
     "stratum": {
       "scenario": "http-catalog"
-    },
-    "gateLanes": {
-      "policy-compliance": "actionability"
     }
   }
 }

@@ -1,0 +1,96 @@
+{
+ "schemaVersion": 1,
+ "decisionId": "D-frontier",
+ "metricId": "requests-per-verified-record",
+ "direction": "lower",
+ "rule": {
+  "kind": "superiority",
+  "alpha": 0.05,
+  "power": 0.8,
+  "noisyBlockPolicy": "exclude"
+ },
+ "delta": {
+  "kind": "ratio",
+  "value": 0.1
+ },
+ "option": "naive",
+ "baseline": "canonical",
+ "stratum": {
+  "variant": "crawler-trap"
+ },
+ "outcome": "blocked-by-contract",
+ "n": 0,
+ "margin": 0.09531017980432493,
+ "requiredN": null,
+ "estimate": null,
+ "gates": [
+  {
+   "id": "oracle-exact",
+   "ok": false,
+   "evaluated": true
+  }
+ ],
+ "host": {
+  "required": "local-dev",
+  "observed": "local-dev",
+  "eligible": true
+ },
+ "comparisons": [
+  {
+   "option": "naive",
+   "baseline": "canonical",
+   "stratum": {
+    "variant": "crawler-trap"
+   },
+   "outcome": "blocked-by-contract",
+   "n": 0,
+   "margin": 0.09531017980432493,
+   "requiredN": null,
+   "estimate": null,
+   "gates": [
+    {
+     "id": "oracle-exact",
+     "ok": false,
+     "evaluated": true
+    }
+   ],
+   "host": {
+    "required": "local-dev",
+    "observed": "local-dev",
+    "eligible": true
+   }
+  },
+  {
+   "option": "naive",
+   "baseline": "canonical",
+   "stratum": {
+    "variant": "large-table"
+   },
+   "outcome": "blocked-by-contract",
+   "n": 0,
+   "margin": 0.09531017980432493,
+   "requiredN": null,
+   "estimate": null,
+   "gates": [
+    {
+     "id": "oracle-exact",
+     "ok": false,
+     "evaluated": true
+    }
+   ],
+   "host": {
+    "required": "local-dev",
+    "observed": "local-dev",
+    "eligible": true
+   }
+  }
+ ],
+ "inputs": {
+  "runs": [],
+  "considered": [
+   "portal-frontier-2026-10-09T15-08-28-035Z-e66949"
+  ],
+  "missing": [],
+  "ledgerSha256": "d43f4317ddbcd56c96c2940fabdbcba7653d9ca611cbb4d09b9f3889276c92f3"
+ }
+}

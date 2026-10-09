@@ -60,6 +60,11 @@
     {
       "kind": "run",
       "ref": "storage-process-crash-2026-10-07T21-30-54-410Z-718212"
+    },
+    {
+      "kind": "research-doc",
+      "ref": "lab/reports/sinks-topology-2026-10-09.md",
+      "note": "coupure simulée de la VM Docker : WAL synchronous=FULL sans perte, NORMAL perd des commits acquittés"
     }
   ],
   "verdictRef": null,

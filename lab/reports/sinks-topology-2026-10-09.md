@@ -56,26 +56,39 @@ Le navigateur est `chromedp/headless-shell:151.0.7922.109`, image épinglée par
 - **Réutiliser un conteneur sans le remettre à zéro fait fuir la session d'un tenant vers le suivant**, à chaque fois. Un pool doit jeter ou réinitialiser, contexte navigateur compris, avant de servir un autre tenant. La lane le vérifie, et ce contrat doit rester un gate.
 - Firecracker exige `/dev/kvm`, que la VM de Docker Desktop n'expose pas. La comparaison des deux topologies attend un hôte Linux avec KVM ; le pool de conteneurs est la seule option mesurée.
 
-## Coupure de courant simulée : en cours, interrompue
+## Coupure de courant simulée
 
 Le test se déroule ainsi :
-1. Des writers tournent **dans** la VM Linux de Docker, un par format : SQLite FULL et NORMAL, JSONL avec et sans `fsync`, DuckDB, Parquet ; PostgreSQL tourne dans la même VM, écrit depuis le Mac.
+1. Des writers tournent **dans** la VM Linux de Docker, un par format, par batches de 50 lignes. PostgreSQL tourne dans la même VM et est écrit depuis le Mac.
 2. Chaque acquittement suit un commit et est noté côté Mac.
-3. La VM est tuée par `SIGKILL` (`com.docker.virtualization`), ce qui revient à couper le courant de la machine invitée.
+3. Après 5 s d'écriture, la VM est tuée par `SIGKILL` (`com.docker.virtualization`), ce qui revient à couper le courant de la machine invitée : ce que Linux n'avait pas vidé sur son disque virtuel est perdu.
 4. Après le redémarrage de Docker, chaque batch acquitté doit être présent et entier.
 
-Le disque du Mac n'est pas coupé : le test prouve la discipline de synchronisation de chaque sink dans la machine invitée, pas le comportement du disque physique.
+Le disque du Mac n'est pas coupé : le test prouve la discipline de synchronisation de chaque sink dans la machine invitée, pas le comportement du disque physique. Le porteur a lancé lui-même les trois coupures, depuis son terminal ; les données brutes sont dans [`power-cut-2026-10-09.json`](power-cut-2026-10-09.json).
 
-Deux coupures ont eu lieu, sans mesure exploitable, à cause de défauts de mon script corrigés ensuite :
-- le redémarrage de Docker n'était pas attendu ;
-- l'insertion PostgreSQL ne passait pas ses valeurs ;
-- les fichiers de DuckDB installés juste avant la coupure étaient perdus.
+| Sink | Batches acquittés (3 coupures) | Acquittés perdus | Batches partiels | Intégrité |
+| --- | --- | --- | --- | --- |
+| SQLite WAL `synchronous=FULL` | 5 692 | **0** | 0 | ok |
+| SQLite WAL `synchronous=NORMAL` | 63 810 | **45** (à la 2ᵉ coupure) | 0 | ok |
+| JSONL + `fsync` | 5 511 | **0** | 0 | ok |
+| JSONL sans `fsync` | 86 450 | **86 450, soit tout** | 0 | ok |
+| DuckDB | 3 415 | **0** | 0 | ok |
+| Parquet, un fichier par batch | 1 714 | **0** | 0 | ok |
+| PostgreSQL `COPY` | non mesuré | — | — | le serveur se rétablit par son WAL |
 
-Elles montrent pourtant que la coupure est réelle :
-- le `package.json` de DuckDB, écrit par `npm install` sans `fsync` juste avant la première coupure, est revenu à **0 octet** ;
-- PostgreSQL a redémarré en `database system was not properly shut down; automatic recovery in progress` et a rejoué son WAL jusqu'à l'enregistrement tronqué.
+### Lecture
 
-Les essais mesurés sont **en attente** : chaque coupure arrête aussi le stack Supabase local qui tourne dans Docker. Le script corrigé (`tools/power-cut/run.ts`) est prêt pour 3 essais dès que ce stack peut être coupé.
+- **Chaque sink tient exactement la promesse de sa configuration.**
+  - SQLite en `synchronous=FULL`, JSONL synchronisé, DuckDB et Parquet (fichier temporaire, `fsync`, renommage, `fsync` du répertoire) ne perdent aucun batch acquitté.
+  - SQLite en `NORMAL` en perd 45 à une coupure sur trois : ce mode ne synchronise pas le WAL à chaque commit. Il résiste au crash de l'application, pas à la coupure de courant, comme le dit sa documentation.
+  - JSONL sans `fsync` perd tout ce que le noyau gardait en cache.
+- **Aucun batch partiel et aucune base corrompue**, même pour les sinks qui perdent des données : SQLite passe `integrity_check`, et chaque batch revient entier ou pas du tout.
+- La coupure est réelle. Le `package.json` de DuckDB, écrit sans `fsync` par `npm install` juste avant une première coupure préliminaire, est revenu à 0 octet. PostgreSQL, lui, redémarre en *automatic recovery* et rejoue son WAL.
+- **PostgreSQL n'est pas mesuré** : le script ne passait pas les valeurs de l'insertion, si bien que chaque transaction échouait sans acquittement. C'est corrigé, et l'essai reste à refaire.
+
+### Ce que cela dit pour l'architecture
+
+L'architecture exige le WAL `synchronous=FULL` pour l'état local (D-storage) et un acquittement seulement après une écriture durable. La coupure le confirme : `NORMAL` ou un JSONL non synchronisé suffisent contre un crash du processus, déjà testé, mais pas contre une coupure. Tout mode « rapide » doit être affiché comme non durable face à une panne de la machine.
 
 ## Verdicts
 

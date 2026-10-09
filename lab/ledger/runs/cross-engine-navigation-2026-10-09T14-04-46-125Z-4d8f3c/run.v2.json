@@ -1,0 +1,4208 @@
+{
+ "schemaVersion": 2,
+ "runId": "cross-engine-navigation-2026-10-09T14-04-46-125Z-4d8f3c",
+ "lane": "actionability",
+ "campaign": {
+  "id": "cross-engine-navigation",
+  "source": "campaigns/v2/actionability/cross-engine-navigation.json",
+  "sha256": "2979f0201efa48dd7fc48eb07e732e96c41770d7b37d57af0ad43afed0e74668"
+ },
+ "startedAt": "2026-10-09T14:04:46.125Z",
+ "decisionIds": [
+  "D-browser-driver"
+ ],
+ "provenance": {
+  "git": {
+   "available": true,
+   "sha": "110e1969d0057f40029a141fae0f385ecd52c00e",
+   "dirty": false
+  },
+  "sourceTreeSha256": "f26af35c8ff7281002046919819bba0472688d32a5d9aac500148d7635f92422",
+  "sourceChanges": 0,
+  "binaryChanges": null,
+  "toolchains": {
+   "node": "v25.5.0",
+   "rustc": "rustc 1.93.0 (254b59607 2026-01-19)",
+   "go": "go version go1.27.1 darwin/arm64",
+   "pnpm": "12.9.1"
+  },
+  "integrity": {
+   "status": "uncatalogued",
+   "checked": 0,
+   "mismatches": []
+  }
+ },
+ "host": {
+  "classRequested": "local-dev",
+  "classGranted": "local-dev",
+  "os": "darwin",
+  "arch": "arm64",
+  "cpu": "Apple M3 Max",
+  "logicalCpus": 14,
+  "memoryBytes": 38654705664,
+  "preflight": {
+   "snapshot": {
+    "os": "darwin",
+    "arch": "arm64",
+    "cpu": "Apple M3 Max",
+    "logicalCpus": 14,
+    "memoryBytes": 38654705664,
+    "loadAverage1m": 8.640625,
+    "memoryFreePercent": 41,
+    "thermalWarning": false,
+    "onAC": true,
+    "lowPowerMode": false,
+    "foreignCpuPercent": 332.5000000000003,
+    "foreignTop": [
+     {
+      "command": "com.apple.Virtualization.VirtualMachine",
+      "cpuPercent": 120.6
+     },
+     {
+      "command": "ffmpeg",
+      "cpuPercent": 109.1
+     },
+     {
+      "command": "WindowServer",
+      "cpuPercent": 41.5
+     },
+     {
+      "command": "Opera Helper (Renderer)",
+      "cpuPercent": 10.5
+     },
+     {
+      "command": "coreaudiod",
+      "cpuPercent": 8.7
+     }
+    ],
+    "cpuGovernor": null,
+    "virtualized": false,
+    "controllerCpuPercent": 37.00000000000001
+   },
+   "gates": []
+  },
+  "postflight": {
+   "snapshot": {
+    "os": "darwin",
+    "arch": "arm64",
+    "cpu": "Apple M3 Max",
+    "logicalCpus": 14,
+    "memoryBytes": 38654705664,
+    "loadAverage1m": 8.62939453125,
+    "memoryFreePercent": 41,
+    "thermalWarning": false,
+    "onAC": true,
+    "lowPowerMode": false,
+    "foreignCpuPercent": 294.90000000000026,
+    "foreignTop": [
+     {
+      "command": "ffmpeg",
+      "cpuPercent": 88.3
+     },
+     {
+      "command": "com.apple.Virtualization.VirtualMachine",
+      "cpuPercent": 49.9
+     },
+     {
+      "command": "WindowServer",
+      "cpuPercent": 39.2
+     },
+     {
+      "command": "launchservicesd",
+      "cpuPercent": 8.5
+     },
+     {
+      "command": "coreaudiod",
+      "cpuPercent": 8.4
+     }
+    ],
+    "cpuGovernor": null,
+    "virtualized": false,
+    "controllerCpuPercent": 25.1
+   }
+  }
+ },
+ "status": "complete",
+ "countUnit": "cell",
+ "cells": [
+  {
+   "cellId": "855f5ddeb2ee-0",
+   "factors": {
+    "backend": "playwright",
+    "scenario": "navigation",
+    "variant": "popup",
+    "policy": "guarded",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 730.426459,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "72781eb1e2cd-1",
+   "factors": {
+    "backend": "playwright-webkit",
+    "scenario": "navigation",
+    "variant": "cross-frame",
+    "policy": "native",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 389.1701250000001,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "0a5c18ff30e9-2",
+   "factors": {
+    "backend": "playwright-firefox",
+    "scenario": "navigation",
+    "variant": "history",
+    "policy": "guarded",
+    "block": 0
+   },
+   "status": "crashed",
+   "errorCode": "E_STARTUP",
+   "counts": {
+    "verified": 0,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 1,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": null,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "0d227b56da22-3",
+   "factors": {
+    "backend": "playwright-webkit",
+    "scenario": "navigation",
+    "variant": "spa",
+    "policy": "native",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 372.4902919999995,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "2d3256c21b98-4",
+   "factors": {
+    "backend": "playwright-firefox",
+    "scenario": "navigation",
+    "variant": "download",
+    "policy": "guarded",
+    "block": 0
+   },
+   "status": "crashed",
+   "errorCode": "E_STARTUP",
+   "counts": {
+    "verified": 0,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 1,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": null,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "6f17032a022c-5",
+   "factors": {
+    "backend": "playwright-firefox",
+    "scenario": "navigation",
+    "variant": "upload",
+    "policy": "guarded",
+    "block": 0
+   },
+   "status": "crashed",
+   "errorCode": "E_STARTUP",
+   "counts": {
+    "verified": 0,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 1,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": null,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "1d9eb18732d7-6",
+   "factors": {
+    "backend": "playwright-webkit",
+    "scenario": "navigation",
+    "variant": "download",
+    "policy": "native",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 379.60712499999954,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "e78763f63a24-7",
+   "factors": {
+    "backend": "playwright",
+    "scenario": "navigation",
+    "variant": "cross-frame",
+    "policy": "guarded",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 392.9996250000004,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "f21096235231-8",
+   "factors": {
+    "backend": "playwright-firefox",
+    "scenario": "navigation",
+    "variant": "popup",
+    "policy": "guarded",
+    "block": 0
+   },
+   "status": "crashed",
+   "errorCode": "E_STARTUP",
+   "counts": {
+    "verified": 0,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 1,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": null,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "2d41204e1f09-9",
+   "factors": {
+    "backend": "playwright",
+    "scenario": "navigation",
+    "variant": "frame",
+    "policy": "native",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 318.39324999999917,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "55e3c652267b-10",
+   "factors": {
+    "backend": "playwright-firefox",
+    "scenario": "navigation",
+    "variant": "frame",
+    "policy": "guarded",
+    "block": 0
+   },
+   "status": "crashed",
+   "errorCode": "E_STARTUP",
+   "counts": {
+    "verified": 0,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 1,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": null,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "47c7cd4a1ca1-11",
+   "factors": {
+    "backend": "playwright-firefox",
+    "scenario": "navigation",
+    "variant": "upload",
+    "policy": "native",
+    "block": 0
+   },
+   "status": "crashed",
+   "errorCode": "E_STARTUP",
+   "counts": {
+    "verified": 0,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 1,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": null,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "3892704fbac8-12",
+   "factors": {
+    "backend": "playwright-webkit",
+    "scenario": "navigation",
+    "variant": "popup",
+    "policy": "guarded",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 491.5539579999986,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "ac25fe4a9482-13",
+   "factors": {
+    "backend": "playwright-webkit",
+    "scenario": "navigation",
+    "variant": "cross-frame",
+    "policy": "guarded",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 453.8601669999989,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "2c1337909ac1-14",
+   "factors": {
+    "backend": "playwright",
+    "scenario": "navigation",
+    "variant": "cross-frame",
+    "policy": "native",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 309.4723749999994,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "1ea9fffb8d98-15",
+   "factors": {
+    "backend": "playwright-webkit",
+    "scenario": "navigation",
+    "variant": "history",
+    "policy": "guarded",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 344.9481250000008,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "8f145050df15-16",
+   "factors": {
+    "backend": "playwright-webkit",
+    "scenario": "navigation",
+    "variant": "popup",
+    "policy": "native",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 466.6641670000008,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "9a2e8b821633-17",
+   "factors": {
+    "backend": "playwright",
+    "scenario": "navigation",
+    "variant": "frame",
+    "policy": "guarded",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 357.2998749999988,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "3b1906d059be-18",
+   "factors": {
+    "backend": "playwright-firefox",
+    "scenario": "navigation",
+    "variant": "download",
+    "policy": "native",
+    "block": 0
+   },
+   "status": "crashed",
+   "errorCode": "E_STARTUP",
+   "counts": {
+    "verified": 0,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 1,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": null,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "52be987e537b-19",
+   "factors": {
+    "backend": "playwright",
+    "scenario": "navigation",
+    "variant": "download",
+    "policy": "native",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 340.67508400000224,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "552e82aee5a6-20",
+   "factors": {
+    "backend": "playwright",
+    "scenario": "navigation",
+    "variant": "upload",
+    "policy": "guarded",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 295.60162500000297,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "adc77a9c9987-21",
+   "factors": {
+    "backend": "playwright",
+    "scenario": "navigation",
+    "variant": "spa",
+    "policy": "guarded",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 350.93658399999913,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "0aab1b30a479-22",
+   "factors": {
+    "backend": "playwright",
+    "scenario": "navigation",
+    "variant": "upload",
+    "policy": "native",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 463.8831250000003,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "27657f167b31-23",
+   "factors": {
+    "backend": "playwright-firefox",
+    "scenario": "navigation",
+    "variant": "cross-frame",
+    "policy": "native",
+    "block": 0
+   },
+   "status": "crashed",
+   "errorCode": "E_STARTUP",
+   "counts": {
+    "verified": 0,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 1,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": null,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "9c84f91ea2d7-24",
+   "factors": {
+    "backend": "playwright-webkit",
+    "scenario": "navigation",
+    "variant": "history",
+    "policy": "native",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 523.976791000001,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "519343b166b9-25",
+   "factors": {
+    "backend": "playwright-webkit",
+    "scenario": "navigation",
+    "variant": "frame",
+    "policy": "guarded",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 422.3747919999987,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "7e1f58cf0ce4-26",
+   "factors": {
+    "backend": "playwright-firefox",
+    "scenario": "navigation",
+    "variant": "cross-frame",
+    "policy": "guarded",
+    "block": 0
+   },
+   "status": "crashed",
+   "errorCode": "E_STARTUP",
+   "counts": {
+    "verified": 0,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 1,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": null,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "52846e3e2c9b-27",
+   "factors": {
+    "backend": "playwright",
+    "scenario": "navigation",
+    "variant": "popup",
+    "policy": "native",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 461.22329199999876,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "21865828e4b2-28",
+   "factors": {
+    "backend": "playwright-firefox",
+    "scenario": "navigation",
+    "variant": "history",
+    "policy": "native",
+    "block": 0
+   },
+   "status": "crashed",
+   "errorCode": "E_STARTUP",
+   "counts": {
+    "verified": 0,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 1,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": null,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "5f3804047634-29",
+   "factors": {
+    "backend": "playwright-firefox",
+    "scenario": "navigation",
+    "variant": "popup",
+    "policy": "native",
+    "block": 0
+   },
+   "status": "crashed",
+   "errorCode": "E_STARTUP",
+   "counts": {
+    "verified": 0,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 1,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": null,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "24dda4786e7c-30",
+   "factors": {
+    "backend": "playwright-firefox",
+    "scenario": "navigation",
+    "variant": "frame",
+    "policy": "native",
+    "block": 0
+   },
+   "status": "crashed",
+   "errorCode": "E_STARTUP",
+   "counts": {
+    "verified": 0,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 1,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": null,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "1f72f84b21f0-31",
+   "factors": {
+    "backend": "playwright-webkit",
+    "scenario": "navigation",
+    "variant": "upload",
+    "policy": "guarded",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 394.4927499999976,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "a6f1dab82ae3-32",
+   "factors": {
+    "backend": "playwright-webkit",
+    "scenario": "navigation",
+    "variant": "spa",
+    "policy": "guarded",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 373.1053329999995,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "0dc9bbceea41-33",
+   "factors": {
+    "backend": "playwright",
+    "scenario": "navigation",
+    "variant": "spa",
+    "policy": "native",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 269.1380419999987,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "2b2e3cf5120e-34",
+   "factors": {
+    "backend": "playwright",
+    "scenario": "navigation",
+    "variant": "history",
+    "policy": "native",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 225.15674999999828,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "daf48d008853-35",
+   "factors": {
+    "backend": "playwright-webkit",
+    "scenario": "navigation",
+    "variant": "frame",
+    "policy": "native",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 413.87616700000217,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "bca758f9d595-36",
+   "factors": {
+    "backend": "playwright",
+    "scenario": "navigation",
+    "variant": "download",
+    "policy": "guarded",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 305.80404199999975,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "a7b29eb22d39-37",
+   "factors": {
+    "backend": "playwright",
+    "scenario": "navigation",
+    "variant": "history",
+    "policy": "guarded",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 205.79404200000135,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "ada69ddc4916-38",
+   "factors": {
+    "backend": "playwright-webkit",
+    "scenario": "navigation",
+    "variant": "download",
+    "policy": "guarded",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 372.6338340000002,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "28b5419c1764-39",
+   "factors": {
+    "backend": "playwright-firefox",
+    "scenario": "navigation",
+    "variant": "spa",
+    "policy": "guarded",
+    "block": 0
+   },
+   "status": "crashed",
+   "errorCode": "E_STARTUP",
+   "counts": {
+    "verified": 0,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 1,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": null,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "53820c3f4bb8-40",
+   "factors": {
+    "backend": "playwright-webkit",
+    "scenario": "navigation",
+    "variant": "upload",
+    "policy": "native",
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 282.45579200000066,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "eaabe0527579-41",
+   "factors": {
+    "backend": "playwright-firefox",
+    "scenario": "navigation",
+    "variant": "spa",
+    "policy": "native",
+    "block": 0
+   },
+   "status": "crashed",
+   "errorCode": "E_STARTUP",
+   "counts": {
+    "verified": 0,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 1,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": null,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "3af5b453ff91-42",
+   "factors": {
+    "backend": "playwright-firefox",
+    "scenario": "navigation",
+    "variant": "popup",
+    "policy": "guarded",
+    "block": 1
+   },
+   "status": "crashed",
+   "errorCode": "E_STARTUP",
+   "counts": {
+    "verified": 0,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 1,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": null,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "6704cfd31ac7-43",
+   "factors": {
+    "backend": "playwright-firefox",
+    "scenario": "navigation",
+    "variant": "frame",
+    "policy": "guarded",
+    "block": 1
+   },
+   "status": "crashed",
+   "errorCode": "E_STARTUP",
+   "counts": {
+    "verified": 0,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 1,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": null,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "ec1f0132572d-44",
+   "factors": {
+    "backend": "playwright-webkit",
+    "scenario": "navigation",
+    "variant": "download",
+    "policy": "guarded",
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 379.5451249999969,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "dde73b44b5df-45",
+   "factors": {
+    "backend": "playwright-webkit",
+    "scenario": "navigation",
+    "variant": "frame",
+    "policy": "native",
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 417.53504200000316,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "71920e88000f-46",
+   "factors": {
+    "backend": "playwright",
+    "scenario": "navigation",
+    "variant": "popup",
+    "policy": "native",
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 420.05774999999994,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "3d00b61c98ed-47",
+   "factors": {
+    "backend": "playwright",
+    "scenario": "navigation",
+    "variant": "history",
+    "policy": "guarded",
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 203.96054200000071,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "6a4cd609610b-48",
+   "factors": {
+    "backend": "playwright",
+    "scenario": "navigation",
+    "variant": "upload",
+    "policy": "native",
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 235.05558399999427,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "120dc1ad683c-49",
+   "factors": {
+    "backend": "playwright",
+    "scenario": "navigation",
+    "variant": "cross-frame",
+    "policy": "native",
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 293.3433329999971,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "e38bf5de0367-50",
+   "factors": {
+    "backend": "playwright",
+    "scenario": "navigation",
+    "variant": "spa",
+    "policy": "native",
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 272.1402079999971,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "78d839ab2f96-51",
+   "factors": {
+    "backend": "playwright-firefox",
+    "scenario": "navigation",
+    "variant": "history",
+    "policy": "guarded",
+    "block": 1
+   },
+   "status": "crashed",
+   "errorCode": "E_STARTUP",
+   "counts": {
+    "verified": 0,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 1,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": null,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "dc530f9057f9-52",
+   "factors": {
+    "backend": "playwright-firefox",
+    "scenario": "navigation",
+    "variant": "spa",
+    "policy": "native",
+    "block": 1
+   },
+   "status": "crashed",
+   "errorCode": "E_STARTUP",
+   "counts": {
+    "verified": 0,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 1,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": null,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "f54ecbf2dbea-53",
+   "factors": {
+    "backend": "playwright-firefox",
+    "scenario": "navigation",
+    "variant": "download",
+    "policy": "native",
+    "block": 1
+   },
+   "status": "crashed",
+   "errorCode": "E_STARTUP",
+   "counts": {
+    "verified": 0,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 1,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": null,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "802319501a3f-54",
+   "factors": {
+    "backend": "playwright-webkit",
+    "scenario": "navigation",
+    "variant": "frame",
+    "policy": "guarded",
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 410.71408299999894,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "839b89cc0a5c-55",
+   "factors": {
+    "backend": "playwright-firefox",
+    "scenario": "navigation",
+    "variant": "frame",
+    "policy": "native",
+    "block": 1
+   },
+   "status": "crashed",
+   "errorCode": "E_STARTUP",
+   "counts": {
+    "verified": 0,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 1,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": null,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "7e7273f0c49c-56",
+   "factors": {
+    "backend": "playwright-firefox",
+    "scenario": "navigation",
+    "variant": "cross-frame",
+    "policy": "native",
+    "block": 1
+   },
+   "status": "crashed",
+   "errorCode": "E_STARTUP",
+   "counts": {
+    "verified": 0,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 1,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": null,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "d5b34b3c2d9c-57",
+   "factors": {
+    "backend": "playwright",
+    "scenario": "navigation",
+    "variant": "spa",
+    "policy": "guarded",
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 503.7671249999985,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "b87acd4e7846-58",
+   "factors": {
+    "backend": "playwright",
+    "scenario": "navigation",
+    "variant": "popup",
+    "policy": "guarded",
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 460.27395799999795,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "b04b56a0f24e-59",
+   "factors": {
+    "backend": "playwright-firefox",
+    "scenario": "navigation",
+    "variant": "popup",
+    "policy": "native",
+    "block": 1
+   },
+   "status": "crashed",
+   "errorCode": "E_STARTUP",
+   "counts": {
+    "verified": 0,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 1,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": null,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "bd56c522552f-60",
+   "factors": {
+    "backend": "playwright-webkit",
+    "scenario": "navigation",
+    "variant": "history",
+    "policy": "guarded",
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 316.10749999999825,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "260a72c4ee0c-61",
+   "factors": {
+    "backend": "playwright-webkit",
+    "scenario": "navigation",
+    "variant": "popup",
+    "policy": "guarded",
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 489.30425000000105,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "6ae01dfcce4e-62",
+   "factors": {
+    "backend": "playwright",
+    "scenario": "navigation",
+    "variant": "frame",
+    "policy": "guarded",
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 335.9953749999986,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "33bfdcf76aae-63",
+   "factors": {
+    "backend": "playwright-webkit",
+    "scenario": "navigation",
+    "variant": "cross-frame",
+    "policy": "native",
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 377.4418749999968,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "44a6760a5aad-64",
+   "factors": {
+    "backend": "playwright",
+    "scenario": "navigation",
+    "variant": "download",
+    "policy": "guarded",
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 297.84904200000165,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "764fb095383a-65",
+   "factors": {
+    "backend": "playwright",
+    "scenario": "navigation",
+    "variant": "download",
+    "policy": "native",
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 258.2362910000011,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "0ca1de23d05e-66",
+   "factors": {
+    "backend": "playwright-firefox",
+    "scenario": "navigation",
+    "variant": "cross-frame",
+    "policy": "guarded",
+    "block": 1
+   },
+   "status": "crashed",
+   "errorCode": "E_STARTUP",
+   "counts": {
+    "verified": 0,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 1,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": null,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "e017e31e8d43-67",
+   "factors": {
+    "backend": "playwright-firefox",
+    "scenario": "navigation",
+    "variant": "history",
+    "policy": "native",
+    "block": 1
+   },
+   "status": "crashed",
+   "errorCode": "E_STARTUP",
+   "counts": {
+    "verified": 0,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 1,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": null,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "68b003fb5d7d-68",
+   "factors": {
+    "backend": "playwright-webkit",
+    "scenario": "navigation",
+    "variant": "cross-frame",
+    "policy": "guarded",
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 410.02708300000086,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "58bfd712d506-69",
+   "factors": {
+    "backend": "playwright-webkit",
+    "scenario": "navigation",
+    "variant": "popup",
+    "policy": "native",
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 438.4973339999997,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "e37939e332e0-70",
+   "factors": {
+    "backend": "playwright-webkit",
+    "scenario": "navigation",
+    "variant": "download",
+    "policy": "native",
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 359.29866700000275,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "0d8489cec9d2-71",
+   "factors": {
+    "backend": "playwright-firefox",
+    "scenario": "navigation",
+    "variant": "download",
+    "policy": "guarded",
+    "block": 1
+   },
+   "status": "crashed",
+   "errorCode": "E_STARTUP",
+   "counts": {
+    "verified": 0,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 1,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": null,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "9306889b32ca-72",
+   "factors": {
+    "backend": "playwright",
+    "scenario": "navigation",
+    "variant": "history",
+    "policy": "native",
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 204.02629100000195,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "4b6b8af25afa-73",
+   "factors": {
+    "backend": "playwright",
+    "scenario": "navigation",
+    "variant": "cross-frame",
+    "policy": "guarded",
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 328.5549170000013,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "69f108c15107-74",
+   "factors": {
+    "backend": "playwright-webkit",
+    "scenario": "navigation",
+    "variant": "spa",
+    "policy": "guarded",
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 417.95579200000066,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "0878cc12eac1-75",
+   "factors": {
+    "backend": "playwright",
+    "scenario": "navigation",
+    "variant": "frame",
+    "policy": "native",
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 298.58366700000624,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "6586bc226a7a-76",
+   "factors": {
+    "backend": "playwright-firefox",
+    "scenario": "navigation",
+    "variant": "spa",
+    "policy": "guarded",
+    "block": 1
+   },
+   "status": "crashed",
+   "errorCode": "E_STARTUP",
+   "counts": {
+    "verified": 0,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 1,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": null,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "1282678dc8b8-77",
+   "factors": {
+    "backend": "playwright-webkit",
+    "scenario": "navigation",
+    "variant": "upload",
+    "policy": "native",
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 290.38533400000597,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "acacde5a4204-78",
+   "factors": {
+    "backend": "playwright-firefox",
+    "scenario": "navigation",
+    "variant": "upload",
+    "policy": "native",
+    "block": 1
+   },
+   "status": "crashed",
+   "errorCode": "E_STARTUP",
+   "counts": {
+    "verified": 0,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 1,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": null,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "7514816e1dc5-79",
+   "factors": {
+    "backend": "playwright-webkit",
+    "scenario": "navigation",
+    "variant": "upload",
+    "policy": "guarded",
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 402.52120899999863,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "319c81bcd8f2-80",
+   "factors": {
+    "backend": "playwright-webkit",
+    "scenario": "navigation",
+    "variant": "history",
+    "policy": "native",
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 276.2752090000067,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "6d2c800bb836-81",
+   "factors": {
+    "backend": "playwright",
+    "scenario": "navigation",
+    "variant": "upload",
+    "policy": "guarded",
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 307.6492089999956,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "1000704ef2bb-82",
+   "factors": {
+    "backend": "playwright-webkit",
+    "scenario": "navigation",
+    "variant": "spa",
+    "policy": "native",
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 399.08499999999185,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "2fa13e212747-83",
+   "factors": {
+    "backend": "playwright-firefox",
+    "scenario": "navigation",
+    "variant": "upload",
+    "policy": "guarded",
+    "block": 1
+   },
+   "status": "crashed",
+   "errorCode": "E_STARTUP",
+   "counts": {
+    "verified": 0,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 1,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": null,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "89874242bf1c-84",
+   "factors": {
+    "backend": "playwright-firefox",
+    "scenario": "navigation",
+    "variant": "upload",
+    "policy": "native",
+    "block": 2
+   },
+   "status": "crashed",
+   "errorCode": "E_STARTUP",
+   "counts": {
+    "verified": 0,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 1,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": null,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "59de87460a50-85",
+   "factors": {
+    "backend": "playwright",
+    "scenario": "navigation",
+    "variant": "download",
+    "policy": "guarded",
+    "block": 2
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 392.17854100000113,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "6c2e14d1b778-86",
+   "factors": {
+    "backend": "playwright-firefox",
+    "scenario": "navigation",
+    "variant": "history",
+    "policy": "native",
+    "block": 2
+   },
+   "status": "crashed",
+   "errorCode": "E_STARTUP",
+   "counts": {
+    "verified": 0,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 1,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": null,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "df1a46982a2e-87",
+   "factors": {
+    "backend": "playwright-webkit",
+    "scenario": "navigation",
+    "variant": "popup",
+    "policy": "guarded",
+    "block": 2
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 490.81220799998846,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "7c35bc987341-88",
+   "factors": {
+    "backend": "playwright",
+    "scenario": "navigation",
+    "variant": "spa",
+    "policy": "guarded",
+    "block": 2
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 319.98712499999965,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "02d57b45554a-89",
+   "factors": {
+    "backend": "playwright-webkit",
+    "scenario": "navigation",
+    "variant": "history",
+    "policy": "guarded",
+    "block": 2
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 283.22108400000434,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "0e78ea99c4ec-90",
+   "factors": {
+    "backend": "playwright-firefox",
+    "scenario": "navigation",
+    "variant": "download",
+    "policy": "native",
+    "block": 2
+   },
+   "status": "crashed",
+   "errorCode": "E_STARTUP",
+   "counts": {
+    "verified": 0,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 1,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": null,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "8bbd5a66883d-91",
+   "factors": {
+    "backend": "playwright-firefox",
+    "scenario": "navigation",
+    "variant": "spa",
+    "policy": "guarded",
+    "block": 2
+   },
+   "status": "crashed",
+   "errorCode": "E_STARTUP",
+   "counts": {
+    "verified": 0,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 1,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": null,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "21b8db873650-92",
+   "factors": {
+    "backend": "playwright-webkit",
+    "scenario": "navigation",
+    "variant": "cross-frame",
+    "policy": "guarded",
+    "block": 2
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 412.7211249999964,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "c5919d73c6d4-93",
+   "factors": {
+    "backend": "playwright-webkit",
+    "scenario": "navigation",
+    "variant": "download",
+    "policy": "native",
+    "block": 2
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 407.7557499999966,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "674d44724338-94",
+   "factors": {
+    "backend": "playwright-firefox",
+    "scenario": "navigation",
+    "variant": "cross-frame",
+    "policy": "native",
+    "block": 2
+   },
+   "status": "crashed",
+   "errorCode": "E_STARTUP",
+   "counts": {
+    "verified": 0,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 1,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": null,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "d231829f1c1d-95",
+   "factors": {
+    "backend": "playwright",
+    "scenario": "navigation",
+    "variant": "history",
+    "policy": "native",
+    "block": 2
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 329.85870900000737,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "c18c4a9fec02-96",
+   "factors": {
+    "backend": "playwright-firefox",
+    "scenario": "navigation",
+    "variant": "cross-frame",
+    "policy": "guarded",
+    "block": 2
+   },
+   "status": "crashed",
+   "errorCode": "E_STARTUP",
+   "counts": {
+    "verified": 0,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 1,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": null,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "6dd13069824d-97",
+   "factors": {
+    "backend": "playwright",
+    "scenario": "navigation",
+    "variant": "upload",
+    "policy": "native",
+    "block": 2
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 226.93483299999207,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "e230db7b8cc2-98",
+   "factors": {
+    "backend": "playwright-webkit",
+    "scenario": "navigation",
+    "variant": "frame",
+    "policy": "native",
+    "block": 2
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 384.26529200001096,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "dcffee4a97b3-99",
+   "factors": {
+    "backend": "playwright-webkit",
+    "scenario": "navigation",
+    "variant": "cross-frame",
+    "policy": "native",
+    "block": 2
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 376.9433330000029,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "f45517f50809-100",
+   "factors": {
+    "backend": "playwright-firefox",
+    "scenario": "navigation",
+    "variant": "history",
+    "policy": "guarded",
+    "block": 2
+   },
+   "status": "crashed",
+   "errorCode": "E_STARTUP",
+   "counts": {
+    "verified": 0,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 1,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": null,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "59af5e4b8292-101",
+   "factors": {
+    "backend": "playwright",
+    "scenario": "navigation",
+    "variant": "spa",
+    "policy": "native",
+    "block": 2
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 321.3767919999955,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "f90e8f1c0f51-102",
+   "factors": {
+    "backend": "playwright-firefox",
+    "scenario": "navigation",
+    "variant": "frame",
+    "policy": "guarded",
+    "block": 2
+   },
+   "status": "crashed",
+   "errorCode": "E_STARTUP",
+   "counts": {
+    "verified": 0,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 1,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": null,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "29fa1539ca81-103",
+   "factors": {
+    "backend": "playwright-webkit",
+    "scenario": "navigation",
+    "variant": "frame",
+    "policy": "guarded",
+    "block": 2
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 418.1056669999962,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "3ff962e4f9ca-104",
+   "factors": {
+    "backend": "playwright-firefox",
+    "scenario": "navigation",
+    "variant": "spa",
+    "policy": "native",
+    "block": 2
+   },
+   "status": "crashed",
+   "errorCode": "E_STARTUP",
+   "counts": {
+    "verified": 0,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 1,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": null,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "05921d178258-105",
+   "factors": {
+    "backend": "playwright-webkit",
+    "scenario": "navigation",
+    "variant": "download",
+    "policy": "guarded",
+    "block": 2
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 382.50754200000665,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "0484af9cb715-106",
+   "factors": {
+    "backend": "playwright-webkit",
+    "scenario": "navigation",
+    "variant": "popup",
+    "policy": "native",
+    "block": 2
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 464.3873750000057,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "193b48d532ae-107",
+   "factors": {
+    "backend": "playwright-webkit",
+    "scenario": "navigation",
+    "variant": "history",
+    "policy": "native",
+    "block": 2
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 280.28654200000165,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "db895bcfec48-108",
+   "factors": {
+    "backend": "playwright",
+    "scenario": "navigation",
+    "variant": "popup",
+    "policy": "guarded",
+    "block": 2
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 479.57779100000334,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "c08105483b90-109",
+   "factors": {
+    "backend": "playwright-webkit",
+    "scenario": "navigation",
+    "variant": "spa",
+    "policy": "guarded",
+    "block": 2
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 368.64274999999907,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "f2e4da3d2b18-110",
+   "factors": {
+    "backend": "playwright",
+    "scenario": "navigation",
+    "variant": "frame",
+    "policy": "guarded",
+    "block": 2
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 333.96479199999885,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "19dea9b41d03-111",
+   "factors": {
+    "backend": "playwright-firefox",
+    "scenario": "navigation",
+    "variant": "download",
+    "policy": "guarded",
+    "block": 2
+   },
+   "status": "crashed",
+   "errorCode": "E_STARTUP",
+   "counts": {
+    "verified": 0,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 1,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": null,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "18f04e5cb3d7-112",
+   "factors": {
+    "backend": "playwright",
+    "scenario": "navigation",
+    "variant": "popup",
+    "policy": "native",
+    "block": 2
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 427.7913750000007,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "89df21c41c9d-113",
+   "factors": {
+    "backend": "playwright-webkit",
+    "scenario": "navigation",
+    "variant": "spa",
+    "policy": "native",
+    "block": 2
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 399.9632500000007,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "195eea3dd193-114",
+   "factors": {
+    "backend": "playwright",
+    "scenario": "navigation",
+    "variant": "history",
+    "policy": "guarded",
+    "block": 2
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 222.2403340000019,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "4f21056af150-115",
+   "factors": {
+    "backend": "playwright-firefox",
+    "scenario": "navigation",
+    "variant": "upload",
+    "policy": "guarded",
+    "block": 2
+   },
+   "status": "crashed",
+   "errorCode": "E_STARTUP",
+   "counts": {
+    "verified": 0,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 1,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": null,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "b7034d96e9ef-116",
+   "factors": {
+    "backend": "playwright",
+    "scenario": "navigation",
+    "variant": "cross-frame",
+    "policy": "guarded",
+    "block": 2
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 376.33287500000733,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "3577e2c0cc1f-117",
+   "factors": {
+    "backend": "playwright-firefox",
+    "scenario": "navigation",
+    "variant": "frame",
+    "policy": "native",
+    "block": 2
+   },
+   "status": "crashed",
+   "errorCode": "E_STARTUP",
+   "counts": {
+    "verified": 0,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 1,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": null,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "d978ef1f2a8b-118",
+   "factors": {
+    "backend": "playwright",
+    "scenario": "navigation",
+    "variant": "download",
+    "policy": "native",
+    "block": 2
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 419.21362500000396,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "4551c9bc672c-119",
+   "factors": {
+    "backend": "playwright",
+    "scenario": "navigation",
+    "variant": "cross-frame",
+    "policy": "native",
+    "block": 2
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 410.5837080000056,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "80bc105dcd38-120",
+   "factors": {
+    "backend": "playwright",
+    "scenario": "navigation",
+    "variant": "frame",
+    "policy": "native",
+    "block": 2
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 257.93258400000923,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "fb27951c791d-121",
+   "factors": {
+    "backend": "playwright-firefox",
+    "scenario": "navigation",
+    "variant": "popup",
+    "policy": "native",
+    "block": 2
+   },
+   "status": "crashed",
+   "errorCode": "E_STARTUP",
+   "counts": {
+    "verified": 0,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 1,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": null,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "926749ec7f59-122",
+   "factors": {
+    "backend": "playwright-webkit",
+    "scenario": "navigation",
+    "variant": "upload",
+    "policy": "guarded",
+    "block": 2
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 513.9287079999922,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "951cd8b89db2-123",
+   "factors": {
+    "backend": "playwright-firefox",
+    "scenario": "navigation",
+    "variant": "popup",
+    "policy": "guarded",
+    "block": 2
+   },
+   "status": "crashed",
+   "errorCode": "E_STARTUP",
+   "counts": {
+    "verified": 0,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 1,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": null,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "6e033d6af805-124",
+   "factors": {
+    "backend": "playwright-webkit",
+    "scenario": "navigation",
+    "variant": "upload",
+    "policy": "native",
+    "block": 2
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 287.390790999998,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  },
+  {
+   "cellId": "f78bbba37416-125",
+   "factors": {
+    "backend": "playwright",
+    "scenario": "navigation",
+    "variant": "upload",
+    "policy": "guarded",
+    "block": 2
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "task-ms": {
+     "value": 327.36004200000025,
+     "unit": "ms",
+     "source": "legacy-summary; startup separated"
+    }
+   }
+  }
+ ],
+ "totals": {
+  "verified": 84,
+  "failed": 0,
+  "timeout": 0,
+  "crashed": 42,
+  "aborted": 0,
+  "unsupported": 0,
+  "rejected": 0,
+  "unavailable": 0,
+  "skipped": 0
+ },
+ "metricAvailability": {
+  "verified-jobs-per-second": {
+   "available": true
+  },
+  "verified-tasks-per-second": {
+   "available": true
+  },
+  "verified-rows-per-second": {
+   "available": true
+  },
+  "task-p50-ms-verified": {
+   "available": true
+  },
+  "task-p95-ms-verified": {
+   "available": true
+  },
+  "task-ms": {
+   "available": true
+  },
+  "ack-latency-p95-ms": {
+   "available": true
+  },
+  "extraction-precision": {
+   "available": true
+  },
+  "extraction-recall": {
+   "available": true
+  },
+  "snippet-recall": {
+   "available": true
+  },
+  "boilerplate-leak": {
+   "available": true
+  },
+  "extract-ms-p50": {
+   "available": true
+  },
+  "startup-ms": {
+   "available": true
+  },
+  "cpu-ms-per-verified-job": {
+   "available": true
+  },
+  "footprint-peak-bytes": {
+   "available": true
+  },
+  "pss-peak-bytes": {
+   "available": false,
+   "reason": "no probe on darwin"
+  },
+  "cgroup-memory-peak-bytes": {
+   "available": false,
+   "reason": "no probe on darwin"
+  },
+  "rss-peak-bytes": {
+   "available": true
+  },
+  "cdp-commands-per-task": {
+   "available": true
+  },
+  "extraction-f1": {
+   "available": true
+  },
+  "field-precision": {
+   "available": true
+  },
+  "field-recall": {
+   "available": true
+  },
+  "pass-k": {
+   "available": true
+  },
+  "llm-calls-per-verified-task": {
+   "available": true
+  },
+  "tokens-per-verified-task": {
+   "available": true
+  },
+  "usd-per-1k-verified": {
+   "available": false,
+   "reason": "pricing tables are not implemented yet"
+  },
+  "model-usd-per-1k-verified": {
+   "available": true
+  },
+  "interface-turns-per-task": {
+   "available": true
+  },
+  "oracle-exact": {
+   "available": true
+  },
+  "false-success-count": {
+   "available": true
+  },
+  "actionability-conformance": {
+   "available": true
+  },
+  "recovery-exact": {
+   "available": true
+  },
+  "durability-power-loss": {
+   "available": false,
+   "reason": "no probe on darwin"
+  },
+  "identity-coherence": {
+   "available": true
+  },
+  "policy-compliance": {
+   "available": true
+  },
+  "session-isolation": {
+   "available": true
+  },
+  "admission-no-loss": {
+   "available": true
+  },
+  "proxy-continuity": {
+   "available": true
+  },
+  "light-domain-goodput": {
+   "available": true
+  },
+  "light-domain-p95-ms": {
+   "available": true
+  },
+  "light-domain-acceptance": {
+   "available": true
+  }
+ },
+ "legacy": null,
+ "blocks": [
+  {
+   "index": 0,
+   "order": [
+    "navigation/playwright/guarded/popup",
+    "navigation/playwright-webkit/native/cross-frame",
+    "navigation/playwright-firefox/guarded/history",
+    "navigation/playwright-webkit/native/spa",
+    "navigation/playwright-firefox/guarded/download",
+    "navigation/playwright-firefox/guarded/upload",
+    "navigation/playwright-webkit/native/download",
+    "navigation/playwright/guarded/cross-frame",
+    "navigation/playwright-firefox/guarded/popup",
+    "navigation/playwright/native/frame",
+    "navigation/playwright-firefox/guarded/frame",
+    "navigation/playwright-firefox/native/upload",
+    "navigation/playwright-webkit/guarded/popup",
+    "navigation/playwright-webkit/guarded/cross-frame",
+    "navigation/playwright/native/cross-frame",
+    "navigation/playwright-webkit/guarded/history",
+    "navigation/playwright-webkit/native/popup",
+    "navigation/playwright/guarded/frame",
+    "navigation/playwright-firefox/native/download",
+    "navigation/playwright/native/download",
+    "navigation/playwright/guarded/upload",
+    "navigation/playwright/guarded/spa",
+    "navigation/playwright/native/upload",
+    "navigation/playwright-firefox/native/cross-frame",
+    "navigation/playwright-webkit/native/history",
+    "navigation/playwright-webkit/guarded/frame",
+    "navigation/playwright-firefox/guarded/cross-frame",
+    "navigation/playwright/native/popup",
+    "navigation/playwright-firefox/native/history",
+    "navigation/playwright-firefox/native/popup",
+    "navigation/playwright-firefox/native/frame",
+    "navigation/playwright-webkit/guarded/upload",
+    "navigation/playwright-webkit/guarded/spa",
+    "navigation/playwright/native/spa",
+    "navigation/playwright/native/history",
+    "navigation/playwright-webkit/native/frame",
+    "navigation/playwright/guarded/download",
+    "navigation/playwright/guarded/history",
+    "navigation/playwright-webkit/guarded/download",
+    "navigation/playwright-firefox/guarded/spa",
+    "navigation/playwright-webkit/native/upload",
+    "navigation/playwright-firefox/native/spa"
+   ],
+   "noisy": false,
+   "host": {
+    "loadPerCpu1m": 0.6039690290178571,
+    "foreignCpuPercent": 366.7000000000005
+   }
+  },
+  {
+   "index": 1,
+   "order": [
+    "navigation/playwright-firefox/guarded/popup",
+    "navigation/playwright-firefox/guarded/frame",
+    "navigation/playwright-webkit/guarded/download",
+    "navigation/playwright-webkit/native/frame",
+    "navigation/playwright/native/popup",
+    "navigation/playwright/guarded/history",
+    "navigation/playwright/native/upload",
+    "navigation/playwright/native/cross-frame",
+    "navigation/playwright/native/spa",
+    "navigation/playwright-firefox/guarded/history",
+    "navigation/playwright-firefox/native/spa",
+    "navigation/playwright-firefox/native/download",
+    "navigation/playwright-webkit/guarded/frame",
+    "navigation/playwright-firefox/native/frame",
+    "navigation/playwright-firefox/native/cross-frame",
+    "navigation/playwright/guarded/spa",
+    "navigation/playwright/guarded/popup",
+    "navigation/playwright-firefox/native/popup",
+    "navigation/playwright-webkit/guarded/history",
+    "navigation/playwright-webkit/guarded/popup",
+    "navigation/playwright/guarded/frame",
+    "navigation/playwright-webkit/native/cross-frame",
+    "navigation/playwright/guarded/download",
+    "navigation/playwright/native/download",
+    "navigation/playwright-firefox/guarded/cross-frame",
+    "navigation/playwright-firefox/native/history",
+    "navigation/playwright-webkit/guarded/cross-frame",
+    "navigation/playwright-webkit/native/popup",
+    "navigation/playwright-webkit/native/download",
+    "navigation/playwright-firefox/guarded/download",
+    "navigation/playwright/native/history",
+    "navigation/playwright/guarded/cross-frame",
+    "navigation/playwright-webkit/guarded/spa",
+    "navigation/playwright/native/frame",
+    "navigation/playwright-firefox/guarded/spa",
+    "navigation/playwright-webkit/native/upload",
+    "navigation/playwright-firefox/native/upload",
+    "navigation/playwright-webkit/guarded/upload",
+    "navigation/playwright-webkit/native/history",
+    "navigation/playwright/guarded/upload",
+    "navigation/playwright-webkit/native/spa",
+    "navigation/playwright-firefox/guarded/upload"
+   ],
+   "noisy": false,
+   "host": {
+    "loadPerCpu1m": 0.5822405133928571,
+    "foreignCpuPercent": 478.70000000000044
+   }
+  },
+  {
+   "index": 2,
+   "order": [
+    "navigation/playwright-firefox/native/upload",
+    "navigation/playwright/guarded/download",
+    "navigation/playwright-firefox/native/history",
+    "navigation/playwright-webkit/guarded/popup",
+    "navigation/playwright/guarded/spa",
+    "navigation/playwright-webkit/guarded/history",
+    "navigation/playwright-firefox/native/download",
+    "navigation/playwright-firefox/guarded/spa",
+    "navigation/playwright-webkit/guarded/cross-frame",
+    "navigation/playwright-webkit/native/download",
+    "navigation/playwright-firefox/native/cross-frame",
+    "navigation/playwright/native/history",
+    "navigation/playwright-firefox/guarded/cross-frame",
+    "navigation/playwright/native/upload",
+    "navigation/playwright-webkit/native/frame",
+    "navigation/playwright-webkit/native/cross-frame",
+    "navigation/playwright-firefox/guarded/history",
+    "navigation/playwright/native/spa",
+    "navigation/playwright-firefox/guarded/frame",
+    "navigation/playwright-webkit/guarded/frame",
+    "navigation/playwright-firefox/native/spa",
+    "navigation/playwright-webkit/guarded/download",
+    "navigation/playwright-webkit/native/popup",
+    "navigation/playwright-webkit/native/history",
+    "navigation/playwright/guarded/popup",
+    "navigation/playwright-webkit/guarded/spa",
+    "navigation/playwright/guarded/frame",
+    "navigation/playwright-firefox/guarded/download",
+    "navigation/playwright/native/popup",
+    "navigation/playwright-webkit/native/spa",
+    "navigation/playwright/guarded/history",
+    "navigation/playwright-firefox/guarded/upload",
+    "navigation/playwright/guarded/cross-frame",
+    "navigation/playwright-firefox/native/frame",
+    "navigation/playwright/native/download",
+    "navigation/playwright/native/cross-frame",
+    "navigation/playwright/native/frame",
+    "navigation/playwright-firefox/native/popup",
+    "navigation/playwright-webkit/guarded/upload",
+    "navigation/playwright-firefox/guarded/popup",
+    "navigation/playwright-webkit/native/upload",
+    "navigation/playwright/guarded/upload"
+   ],
+   "noisy": false,
+   "host": {
+    "loadPerCpu1m": 0.6163853236607143,
+    "foreignCpuPercent": 292.6000000000001
+   }
+  }
+ ]
+}

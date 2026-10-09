@@ -1,0 +1,37 @@
+{
+  "schemaVersion": 2,
+  "lane": "actionability",
+  "decisionIds": [
+    "D-browser-driver"
+  ],
+  "hostClass": {
+    "requested": "local-dev",
+    "allowDowngrade": true
+  },
+  "id": "cross-engine-navigation",
+  "config": {
+    "blocks": 3,
+    "seed": 7373,
+    "scenario": "navigation",
+    "backends": [
+      "playwright",
+      "playwright-webkit",
+      "playwright-firefox"
+    ],
+    "variants": [
+      "spa",
+      "history",
+      "popup",
+      "frame",
+      "cross-frame",
+      "upload",
+      "download"
+    ],
+    "policies": [
+      "native",
+      "guarded"
+    ],
+    "timeoutMs": 3000,
+    "outerTimeoutMs": 20000
+  }
+}

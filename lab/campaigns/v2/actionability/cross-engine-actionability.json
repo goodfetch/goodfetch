@@ -1,0 +1,38 @@
+{
+  "schemaVersion": 2,
+  "lane": "actionability",
+  "decisionIds": [
+    "D-browser-driver"
+  ],
+  "hostClass": {
+    "requested": "local-dev",
+    "allowDowngrade": true
+  },
+  "id": "cross-engine-actionability",
+  "config": {
+    "blocks": 3,
+    "seed": 7171,
+    "backends": [
+      "playwright",
+      "playwright-webkit",
+      "playwright-firefox"
+    ],
+    "variants": [
+      "normal",
+      "overlay",
+      "delayed",
+      "hidden",
+      "moving",
+      "rerender",
+      "never-enabled",
+      "never-uncovered",
+      "ambiguous"
+    ],
+    "policies": [
+      "native",
+      "guarded"
+    ],
+    "timeoutMs": 800,
+    "outerTimeoutMs": 20000
+  }
+}

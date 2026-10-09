@@ -4,7 +4,7 @@ import type { WorkerCommand } from './worker-client.ts';
 export const labRoot = fileURLToPath(new URL('../', import.meta.url));
 // The shared SQLite build is a .dylib on macOS and a .so on Linux; artifacts and hashes use the platform's file name.
 export const sqliteLibrary = process.platform === 'darwin' ? 'libautoman_sqlite.dylib' : 'libautoman_sqlite.so';
-export const backendNames = ['node-http', 'crawlee-http', 'crawlee-http-pooled', 'crawlee-playwright', 'playwright', 'puppeteer', 'stagehand', 'stagehand-batch', 'crawlee-stagehand', 'spider-http', 'spider-chrome', 'spider-smart', 'node-cdp', 'rust-cdp', 'reqwest-http', 'wreq-http', 'impit-http', 'rs-trafilatura', 'dom-smoothie', 'scraper-text', 'htmd', 'readability'] as const;
+export const backendNames = ['node-http', 'crawlee-http', 'crawlee-http-pooled', 'crawlee-playwright', 'playwright', 'playwright-firefox', 'playwright-webkit', 'puppeteer', 'stagehand', 'stagehand-batch', 'crawlee-stagehand', 'spider-http', 'spider-chrome', 'spider-smart', 'node-cdp', 'rust-cdp', 'reqwest-http', 'wreq-http', 'impit-http', 'rs-trafilatura', 'dom-smoothie', 'scraper-text', 'htmd', 'readability'] as const;
 export type BackendName = typeof backendNames[number];
 export function commandFor(backend: BackendName, timeoutMs: number, executablePath?: string): WorkerCommand {
   if (backend.startsWith('spider')) return { command: join(labRoot, 'adapters/rust/target', backend === 'spider-http' ? 'http' : backend === 'spider-chrome' ? 'chrome' : 'smart', 'release/automan-lab-spider'), args: [backend], cwd: labRoot, timeoutMs, env:{...process.env,...(executablePath?{CHROME_BIN:executablePath}:{})} };

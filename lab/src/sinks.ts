@@ -6,7 +6,7 @@ import { join } from 'node:path';
 import { labRoot } from './registry.ts';
 
 const load = createRequire(join(labRoot, 'adapters/node/package.json'));
-export type PgClient = { connect(): Promise<void>; query(sql: string, values?: unknown[]): Promise<{ rows: Record<string, unknown>[] }>; end(): Promise<void> };
+export type PgClient = { connect(): Promise<void>; on(event: 'error', listener: (error: Error) => void): void; query(sql: string, values?: unknown[]): Promise<{ rows: Record<string, unknown>[] }>; end(): Promise<void> };
 export const pg = () => load('pg') as { Client: new (options: { connectionString: string }) => PgClient };
 export const copyFrom = () => (load('pg-copy-streams') as { from: (sql: string) => NodeJS.WritableStream }).from;
 type DuckValue = { getRowObjectsJS(): Promise<Record<string, unknown>[]> };

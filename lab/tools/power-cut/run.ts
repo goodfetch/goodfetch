@@ -45,9 +45,10 @@ for (let trial = 1; trial <= trials; trial++) {
   const setup = new (pg().Client)({ connectionString: pgUrl() }); await setup.connect(); await setup.query(`CREATE TABLE ${table} (id TEXT PRIMARY KEY, batch INT NOT NULL, value BIGINT NOT NULL, payload TEXT NOT NULL)`); await setup.end();
   const acked = new Map<string, number[]>(formats.concat('postgres').map(f => [f, []]));
   const writers = formats.map(format => { const child = spawn('docker', ['exec', '-e', `DATA_ROOT=${root}`, box, 'node', '/opt/w/writer.mjs', format], { stdio: ['ignore', 'pipe', 'pipe'] }); createInterface({ input: child.stdout }).on('line', line => { const m = line.match(/^ack (\d+)$/); if (m) acked.get(format)!.push(Number(m[1])); }); return child; });
-  // PostgreSQL: one transaction per batch, acknowledged after COMMIT returns (synchronous_commit on).
+  // PostgreSQL: one transaction per batch, acknowledged after COMMIT returns (synchronous_commit on). The cut drops the
+  // connection; its error event is expected and must not end the run.
   let pgRunning = true;
-  const pgWriter = (async () => { const c = new (pg().Client)({ connectionString: pgUrl() }); await c.connect(); try { for (let batch = 1; pgRunning; batch++) { const values: unknown[] = []; const rows = Array.from({ length: 50 }, (_, i) => { values.push(`${batch}:${i}`, batch, batch * 1000 + i, 'x'.repeat(256)); return `($${i * 4 + 1},$${i * 4 + 2},$${i * 4 + 3},$${i * 4 + 4})`; }); await c.query('BEGIN'); await c.query(`INSERT INTO ${table} VALUES ${rows.join(',')}`, values); await c.query('COMMIT'); acked.get('postgres')!.push(batch); } } catch { /* the VM went away */ } finally { c.end().catch(() => {}); } })();
+  const pgWriter = (async () => { const c = new (pg().Client)({ connectionString: pgUrl() }); c.on('error', () => {}); await c.connect(); try { for (let batch = 1; pgRunning; batch++) { const values: unknown[] = []; const rows = Array.from({ length: 50 }, (_, i) => { values.push(`${batch}:${i}`, batch, batch * 1000 + i, 'x'.repeat(256)); return `($${i * 4 + 1},$${i * 4 + 2},$${i * 4 + 3},$${i * 4 + 4})`; }); await c.query('BEGIN'); await c.query(`INSERT INTO ${table} VALUES ${rows.join(',')}`, values); await c.query('COMMIT'); acked.get('postgres')!.push(batch); } } catch { /* the VM went away */ } finally { c.end().catch(() => {}); } })();
   await sleep(5000);
   const vm = execFileSync('pgrep', ['-f', 'com.docker.virtualization'], { encoding: 'utf8' }).trim().split('\n')[0]!;
   const ackedAtCut = Object.fromEntries([...acked].map(([f, b]) => [f, b.length]));

@@ -97,7 +97,10 @@
     "browser-driver-rtt-300",
     "browser-actionability-extended",
     "browser-driver-primitives",
-    "browser-navigation-frames-files"
+    "browser-navigation-frames-files",
+    "cross-engine-actionability",
+    "cross-engine-primitives",
+    "cross-engine-navigation"
   ],
   "evidence": [
     {

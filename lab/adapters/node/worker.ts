@@ -15,13 +15,13 @@ let browser: Browser | undefined, puppeteerBrowser: PuppeteerBrowser | undefined
 let stagehandBrowser: StagehandBrowser | undefined, stagehand: Stagehand | undefined;
 let crawlee: typeof import('crawlee') | undefined;
 let options: { executablePath?: string; headless?: boolean } = {}; let connected = false;
-const capabilities = backend.includes('http') ? ['http-catalog'] : ['http-catalog', 'js-catalog', 'form', 'clicks','actionability', ...(backend === 'puppeteer' ? [] : ['shadow']), ...(['playwright', 'puppeteer'].includes(backend) ? ['primitives', 'navigation'] : [])];
+const capabilities = backend.includes('http') ? ['http-catalog'] : ['http-catalog', 'js-catalog', 'form', 'clicks','actionability', ...(backend === 'puppeteer' ? [] : ['shadow']), ...(backend.startsWith('playwright') || backend === 'puppeteer' ? ['primitives', 'navigation'] : [])];
 function version(packageName: string) { return JSON.parse(readFileSync(require.resolve(`${packageName}/package.json`), 'utf8')).version as string; }
 function config() { return new crawlee!.Configuration({ persistStorage: false, storageClient: new crawlee!.MemoryStorage({ persistStorage: false }) }); }
 const adapter: Adapter = {
   info() { return { backend, protocol: 1, capabilities, runtime: process.version, maxConcurrency: backend === 'stagehand-batch' ? 1 : 128,
     lifecycle: backend === 'node-http' ? 'native fetch; shared process connection pool' : backend === 'crawlee-http' ? 'crawler per task' : backend === 'crawlee-playwright' ? 'crawler and browser per task' : 'browser per block; page per task',
-    versions: { ...(backend.startsWith('crawlee') ? {crawlee:version('crawlee')} : {}), ...(['playwright','crawlee-playwright'].includes(backend) ? {playwright:version('playwright')} : {}), ...(backend.startsWith('stagehand') ? {stagehand:'4.1.0'} : {}), ...(backend==='puppeteer' ? {puppeteer:version('puppeteer-core')} : {}) } }; },
+    versions: { ...(backend.startsWith('crawlee') ? {crawlee:version('crawlee')} : {}), ...(backend.startsWith('playwright') || backend === 'crawlee-playwright' ? {playwright:version('playwright')} : {}), ...(backend.startsWith('stagehand') ? {stagehand:'4.1.0'} : {}), ...(backend==='puppeteer' ? {puppeteer:version('puppeteer-core')} : {}) } }; },
   async prepare(input) {
     // Lab scheduler options belong to the adapter, not to native launch schemas.
     // Chromium refuses its sandbox as root, the usual user in a Linux container; Playwright already launches without it.
@@ -35,6 +35,11 @@ const adapter: Adapter = {
       connected = true; return;
     }
     if (backend === 'playwright') { const {chromium}=await import('playwright'); browser = await chromium.launch(options); }
+    // Firefox and WebKit through Playwright, with the engines Playwright pins under lab/.browsers (they have no CDP).
+    if (backend === 'playwright-firefox' || backend === 'playwright-webkit') {
+      process.env.PLAYWRIGHT_BROWSERS_PATH ??= join(new URL('../..', import.meta.url).pathname, '.browsers');
+      const {firefox,webkit}=await import('playwright'); browser = await (backend === 'playwright-firefox' ? firefox : webkit).launch({ headless: options.headless });
+    }
     if (backend === 'puppeteer') { const {default:puppeteer}=await import('puppeteer-core'); puppeteerBrowser = await puppeteer.launch(options); }
     if (backend.startsWith('stagehand')) {
       const {localBrowser,Stagehand}=await import('@browserbasehq/stagehand');

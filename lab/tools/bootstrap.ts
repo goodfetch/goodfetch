@@ -5,7 +5,7 @@ async function run(command: string, args: string[], env = process.env) {
   await new Promise<void>((resolve,reject) => { const child=spawn(command,args,{cwd:labRoot,env,stdio:'inherit'}); child.on('error',reject); child.on('exit',code=>code===0?resolve():reject(new Error(`${command} exited ${code}`))); });
 }
 await run('pnpm',['install','--frozen-lockfile']);
-await run('pnpm',['--filter','@automan-lab/node-adapters','exec','playwright','install','chromium'],{...process.env,PLAYWRIGHT_BROWSERS_PATH:join(labRoot,'.browsers')});
+await run('pnpm',['--filter','@automan-lab/node-adapters','exec','playwright','install','chromium','firefox','webkit'],{...process.env,PLAYWRIGHT_BROWSERS_PATH:join(labRoot,'.browsers')});
 for (const mode of ['http','chrome','smart']) {
   const args=['build','--release','--locked','--manifest-path','adapters/rust/Cargo.toml','--target-dir',`adapters/rust/target/${mode}`];
   if (mode!=='http') args.push('--features',mode);

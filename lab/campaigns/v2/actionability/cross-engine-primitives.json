@@ -1,0 +1,40 @@
+{
+  "schemaVersion": 2,
+  "lane": "actionability",
+  "decisionIds": [
+    "D-browser-driver"
+  ],
+  "hostClass": {
+    "requested": "local-dev",
+    "allowDowngrade": true
+  },
+  "id": "cross-engine-primitives",
+  "config": {
+    "blocks": 3,
+    "seed": 7272,
+    "scenario": "primitives",
+    "backends": [
+      "playwright",
+      "playwright-webkit",
+      "playwright-firefox"
+    ],
+    "variants": [
+      "hover",
+      "dblclick",
+      "contextmenu",
+      "drag",
+      "wheel",
+      "keyboard",
+      "contenteditable",
+      "unicode",
+      "moved",
+      "retarget"
+    ],
+    "policies": [
+      "native",
+      "guarded"
+    ],
+    "timeoutMs": 1500,
+    "outerTimeoutMs": 20000
+  }
+}

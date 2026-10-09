@@ -18,13 +18,11 @@ const docker = (...args: string[]) => execFileSync('docker', args, { encoding: '
 const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 const trials = Number(process.argv[2] ?? 3), out = process.argv[3] ?? 'power-cut.json';
 
-async function dockerUp(timeoutMs = 240_000) {
-  const deadline = Date.now() + timeoutMs; let kicked = false;
-  while (Date.now() < deadline) {
-    try { docker('info', '--format', '{{.ServerVersion}}'); return; } catch { /* daemon not back yet */ }
-    if (!kicked && Date.now() > deadline - timeoutMs + 45_000) { kicked = true; try { execFileSync('docker', ['desktop', 'start'], { stdio: 'ignore', timeout: 120_000 }); } catch { execFileSync('open', ['-a', 'Docker']); } }
-    await sleep(2000);
-  }
+// Docker Desktop does not bring a killed VM back on its own: it is restarted, then the daemon must answer container calls.
+async function dockerUp(timeoutMs = 300_000) {
+  execFileSync('docker', ['desktop', 'restart'], { stdio: 'ignore', timeout: 240_000 });
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) { try { docker('ps', '-a', '--format', '{{.Names}}'); return; } catch { await sleep(2000); } }
   throw new Error('Docker did not come back');
 }
 async function pgReady() { for (let i = 0; i < 90; i++) { try { docker('exec', pgBox, 'pg_isready', '-U', 'postgres', '-d', 'lab'); const c = new (pg().Client)({ connectionString: pgUrl() }); await c.connect(); await c.end(); return; } catch { await sleep(1000); } } throw new Error('PostgreSQL did not come back'); }

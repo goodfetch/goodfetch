@@ -24,7 +24,8 @@ const adapter: Adapter = {
     versions: { ...(backend.startsWith('crawlee') ? {crawlee:version('crawlee')} : {}), ...(['playwright','crawlee-playwright'].includes(backend) ? {playwright:version('playwright')} : {}), ...(backend.startsWith('stagehand') ? {stagehand:'4.1.0'} : {}), ...(backend==='puppeteer' ? {puppeteer:version('puppeteer-core')} : {}) } }; },
   async prepare(input) {
     // Lab scheduler options belong to the adapter, not to native launch schemas.
-    options = {executablePath:input.executablePath,headless:input.headless??true};
+    // Chromium refuses its sandbox as root, the usual user in a Linux container; Playwright already launches without it.
+    options = {executablePath:input.executablePath,headless:input.headless??true,...(process.platform==='linux'&&process.getuid?.()===0?{args:['--no-sandbox']}:{})};
     if (backend.startsWith('crawlee')) { crawlee = await import('crawlee'); crawlee.log.setLevel(crawlee.log.LEVELS.ERROR); }
     // A harness browser is shared by every driver of the campaign: connect to it instead of launching one.
     if (input.cdpEndpoint) {

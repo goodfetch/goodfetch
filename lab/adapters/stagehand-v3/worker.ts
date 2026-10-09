@@ -10,10 +10,11 @@ class NoModel extends LLMClient {
   async createChatCompletion<T>(): Promise<T> { throw new Error('model calls disabled in deterministic lab'); }
 }
 console.log = console.info = console.warn = (...args: unknown[]) => console.error(...args);
-let options: { executablePath?: string; headless?: boolean; viewport?:{width:number;height:number} } = {};
+let options: { executablePath?: string; headless?: boolean; viewport?:{width:number;height:number}; args?: string[] } = {};
 const adapter: Adapter = {
   info() { return { backend: 'crawlee-stagehand', protocol: 1, capabilities: ['http-catalog','js-catalog','form','clicks','shadow','actionability'], versions: { '@crawlee/stagehand': '3.18.2', stagehand: '3.7.3', playwright: '1.63.0' }, inference: 'disabled at model boundary' }; },
-  async prepare(input) { options = {executablePath:input.executablePath,headless:input.headless??true,viewport:{width:1280,height:720}}; },
+  // Chromium refuses its sandbox as root, the usual user in a Linux container.
+  async prepare(input) { options = {executablePath:input.executablePath,headless:input.headless??true,viewport:{width:1280,height:720},...(process.platform==='linux'&&process.getuid?.()===0?{args:['--no-sandbox']}:{})}; },
   async run(task): Promise<AdapterOutput> {
     if (!['http-catalog','js-catalog','form','clicks','shadow','actionability'].includes(task.scenario)) return { status: 'unsupported' };
     const records: {id:string;price:number}[] = [], failures: string[] = []; const start = performance.now(); const taskMetrics:Record<string,number>={};

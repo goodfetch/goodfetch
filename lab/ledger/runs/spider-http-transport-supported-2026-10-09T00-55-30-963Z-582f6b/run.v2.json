@@ -1,0 +1,519 @@
+{
+ "schemaVersion": 2,
+ "runId": "spider-http-transport-supported-2026-10-09T00-55-30-963Z-582f6b",
+ "lane": "bench",
+ "campaign": {
+  "id": "spider-http-transport-supported",
+  "source": "/repo/lab/campaigns/v2/bench/spider-http-transport-supported.json",
+  "sha256": "979eee3f8910c894974265517cd3f9020e29e124cbc1cc5a3685d5b4b4a96570"
+ },
+ "startedAt": "2026-10-09T00:55:30.963Z",
+ "decisionIds": [
+  "D-http-transport"
+ ],
+ "provenance": {
+  "git": {
+   "available": false,
+   "sha": null,
+   "dirty": null
+  },
+  "sourceTreeSha256": "bb0d5216d6deb076b90ff2d1eb23672abf35acd0938c99a85280c758a76301cb",
+  "sourceChanges": 0,
+  "binaryChanges": null,
+  "toolchains": {
+   "node": "v25.5.0",
+   "rustc": "rustc 1.93.0 (254b59607 2026-01-19)",
+   "go": "go version go1.27.1 linux/arm64",
+   "pnpm": "12.9.1"
+  },
+  "integrity": {
+   "status": "uncatalogued",
+   "checked": 0,
+   "mismatches": []
+  }
+ },
+ "host": {
+  "classRequested": "local-controlled",
+  "classGranted": "local-dev",
+  "os": "linux",
+  "arch": "arm64",
+  "cpu": "unknown",
+  "logicalCpus": 14,
+  "memoryBytes": 8320954368,
+  "preflight": {
+   "snapshot": {
+    "os": "linux",
+    "arch": "arm64",
+    "cpu": "unknown",
+    "logicalCpus": 14,
+    "memoryBytes": 8320954368,
+    "loadAverage1m": 3.19,
+    "memoryFreePercent": 52,
+    "thermalWarning": null,
+    "onAC": true,
+    "lowPowerMode": false,
+    "foreignCpuPercent": 0,
+    "foreignTop": [],
+    "cpuGovernor": null,
+    "virtualized": null,
+    "controllerCpuPercent": 0
+   },
+   "gates": [
+    {
+     "class": "local-controlled",
+     "id": "git-clean",
+     "ok": false,
+     "value": false,
+     "limit": "= true"
+    },
+    {
+     "class": "local-controlled",
+     "id": "load-per-cpu-1m",
+     "ok": true,
+     "value": 0.22785714285714284,
+     "limit": "<= 0.35"
+    },
+    {
+     "class": "local-controlled",
+     "id": "memory-free-percent",
+     "ok": true,
+     "value": 52,
+     "limit": ">= 20"
+    },
+    {
+     "class": "local-controlled",
+     "id": "thermal-warning",
+     "ok": false,
+     "value": null,
+     "limit": "= false"
+    },
+    {
+     "class": "local-controlled",
+     "id": "low-power-mode",
+     "ok": true,
+     "value": false,
+     "limit": "= false"
+    },
+    {
+     "class": "local-controlled",
+     "id": "foreign-cpu-percent",
+     "ok": true,
+     "value": 0,
+     "limit": "<= 150"
+    }
+   ]
+  },
+  "postflight": {
+   "snapshot": {
+    "os": "linux",
+    "arch": "arm64",
+    "cpu": "unknown",
+    "logicalCpus": 14,
+    "memoryBytes": 8320954368,
+    "loadAverage1m": 3.19,
+    "memoryFreePercent": 52,
+    "thermalWarning": null,
+    "onAC": true,
+    "lowPowerMode": false,
+    "foreignCpuPercent": 0,
+    "foreignTop": [],
+    "cpuGovernor": null,
+    "virtualized": null,
+    "controllerCpuPercent": 0
+   }
+  }
+ },
+ "status": "complete",
+ "countUnit": "attempt",
+ "cells": [
+  {
+   "cellId": "spider-http:http-catalog:b0",
+   "factors": {
+    "backend": "spider-http",
+    "scenario": "http-catalog",
+    "block": 0,
+    "policy": "native",
+    "rttMs": 0,
+    "browserHost": "adapter"
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 20,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-tasks-per-second": {
+     "value": 100.64581061814874,
+     "unit": "task/s",
+     "source": "engine; verified measured tasks over the measured window, rejections in the denominator window"
+    },
+    "task-p50-ms-verified": {
+     "value": 19.192374999984168,
+     "unit": "ms",
+     "source": "engine; run RPC only"
+    },
+    "task-p95-ms-verified": {
+     "value": 68.42095800000243,
+     "unit": "ms",
+     "source": "engine; run RPC only, nearest rank"
+    },
+    "cpu-ms-per-verified-job": {
+     "value": 9.5,
+     "unit": "ms/job",
+     "source": "engine; adapter process tree over all phases"
+    },
+    "footprint-peak-bytes": {
+     "value": null,
+     "unit": "B",
+     "source": "unavailable: no probe on linux"
+    },
+    "pss-peak-bytes": {
+     "value": 15835136,
+     "unit": "B",
+     "source": "engine; adapter process tree, Pss_Anon plus SwapPss"
+    },
+    "rss-peak-bytes": {
+     "value": null,
+     "unit": "B",
+     "source": "engine; adapter process tree, shared pages double-counted"
+    },
+    "cdp-commands-per-task": {
+     "value": null,
+     "unit": "command/task",
+     "source": "adapter does not report CDP commands"
+    },
+    "startup-ms": {
+     "value": 17.71987499995157,
+     "unit": "ms",
+     "source": "engine; adapter start and prepare, browser launch included"
+    }
+   }
+  },
+  {
+   "cellId": "spider-http:http-catalog:b1",
+   "factors": {
+    "backend": "spider-http",
+    "scenario": "http-catalog",
+    "block": 1,
+    "policy": "native",
+    "rttMs": 0,
+    "browserHost": "adapter"
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 20,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-tasks-per-second": {
+     "value": 102.53272930163183,
+     "unit": "task/s",
+     "source": "engine; verified measured tasks over the measured window, rejections in the denominator window"
+    },
+    "task-p50-ms-verified": {
+     "value": 19.836750000016764,
+     "unit": "ms",
+     "source": "engine; run RPC only"
+    },
+    "task-p95-ms-verified": {
+     "value": 65.37537499994505,
+     "unit": "ms",
+     "source": "engine; run RPC only, nearest rank"
+    },
+    "cpu-ms-per-verified-job": {
+     "value": 8.5,
+     "unit": "ms/job",
+     "source": "engine; adapter process tree over all phases"
+    },
+    "footprint-peak-bytes": {
+     "value": null,
+     "unit": "B",
+     "source": "unavailable: no probe on linux"
+    },
+    "pss-peak-bytes": {
+     "value": 14934016,
+     "unit": "B",
+     "source": "engine; adapter process tree, Pss_Anon plus SwapPss"
+    },
+    "rss-peak-bytes": {
+     "value": null,
+     "unit": "B",
+     "source": "engine; adapter process tree, shared pages double-counted"
+    },
+    "cdp-commands-per-task": {
+     "value": null,
+     "unit": "command/task",
+     "source": "adapter does not report CDP commands"
+    },
+    "startup-ms": {
+     "value": 3.1648329999297857,
+     "unit": "ms",
+     "source": "engine; adapter start and prepare, browser launch included"
+    }
+   }
+  },
+  {
+   "cellId": "spider-http:http-catalog:b2",
+   "factors": {
+    "backend": "spider-http",
+    "scenario": "http-catalog",
+    "block": 2,
+    "policy": "native",
+    "rttMs": 0,
+    "browserHost": "adapter"
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 20,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-tasks-per-second": {
+     "value": 102.3126059361631,
+     "unit": "task/s",
+     "source": "engine; verified measured tasks over the measured window, rejections in the denominator window"
+    },
+    "task-p50-ms-verified": {
+     "value": 19.66470899991691,
+     "unit": "ms",
+     "source": "engine; run RPC only"
+    },
+    "task-p95-ms-verified": {
+     "value": 67.11945900006685,
+     "unit": "ms",
+     "source": "engine; run RPC only, nearest rank"
+    },
+    "cpu-ms-per-verified-job": {
+     "value": 9,
+     "unit": "ms/job",
+     "source": "engine; adapter process tree over all phases"
+    },
+    "footprint-peak-bytes": {
+     "value": null,
+     "unit": "B",
+     "source": "unavailable: no probe on linux"
+    },
+    "pss-peak-bytes": {
+     "value": 15912960,
+     "unit": "B",
+     "source": "engine; adapter process tree, Pss_Anon plus SwapPss"
+    },
+    "rss-peak-bytes": {
+     "value": null,
+     "unit": "B",
+     "source": "engine; adapter process tree, shared pages double-counted"
+    },
+    "cdp-commands-per-task": {
+     "value": null,
+     "unit": "command/task",
+     "source": "adapter does not report CDP commands"
+    },
+    "startup-ms": {
+     "value": 2.556791999959387,
+     "unit": "ms",
+     "source": "engine; adapter start and prepare, browser launch included"
+    }
+   }
+  }
+ ],
+ "totals": {
+  "verified": 60,
+  "failed": 0,
+  "timeout": 0,
+  "crashed": 0,
+  "aborted": 0,
+  "unsupported": 0,
+  "rejected": 0,
+  "unavailable": 0,
+  "skipped": 0
+ },
+ "metricAvailability": {
+  "verified-jobs-per-second": {
+   "available": true
+  },
+  "verified-tasks-per-second": {
+   "available": true
+  },
+  "verified-rows-per-second": {
+   "available": true
+  },
+  "task-p50-ms-verified": {
+   "available": true
+  },
+  "task-p95-ms-verified": {
+   "available": true
+  },
+  "task-ms": {
+   "available": true
+  },
+  "ack-latency-p95-ms": {
+   "available": true
+  },
+  "extraction-precision": {
+   "available": true
+  },
+  "extraction-recall": {
+   "available": true
+  },
+  "snippet-recall": {
+   "available": true
+  },
+  "boilerplate-leak": {
+   "available": true
+  },
+  "extract-ms-p50": {
+   "available": true
+  },
+  "startup-ms": {
+   "available": true
+  },
+  "cpu-ms-per-verified-job": {
+   "available": true
+  },
+  "footprint-peak-bytes": {
+   "available": false,
+   "reason": "no probe on linux"
+  },
+  "pss-peak-bytes": {
+   "available": true
+  },
+  "cgroup-memory-peak-bytes": {
+   "available": false,
+   "reason": "requires a per-run systemd scope on the reference host; the parser exists but the engine does not create the scope yet"
+  },
+  "rss-peak-bytes": {
+   "available": true
+  },
+  "cdp-commands-per-task": {
+   "available": true
+  },
+  "extraction-f1": {
+   "available": true
+  },
+  "field-precision": {
+   "available": true
+  },
+  "field-recall": {
+   "available": true
+  },
+  "pass-k": {
+   "available": true
+  },
+  "llm-calls-per-verified-task": {
+   "available": true
+  },
+  "tokens-per-verified-task": {
+   "available": true
+  },
+  "usd-per-1k-verified": {
+   "available": false,
+   "reason": "pricing tables are not implemented yet"
+  },
+  "model-usd-per-1k-verified": {
+   "available": true
+  },
+  "interface-turns-per-task": {
+   "available": true
+  },
+  "oracle-exact": {
+   "available": true
+  },
+  "false-success-count": {
+   "available": true
+  },
+  "actionability-conformance": {
+   "available": true
+  },
+  "recovery-exact": {
+   "available": true
+  },
+  "durability-power-loss": {
+   "available": false,
+   "reason": "requires the VM hard-reset harness"
+  },
+  "identity-coherence": {
+   "available": true
+  },
+  "policy-compliance": {
+   "available": true
+  },
+  "session-isolation": {
+   "available": true
+  },
+  "admission-no-loss": {
+   "available": true
+  },
+  "proxy-continuity": {
+   "available": true
+  },
+  "light-domain-goodput": {
+   "available": true
+  },
+  "light-domain-p95-ms": {
+   "available": true
+  },
+  "light-domain-acceptance": {
+   "available": true
+  }
+ },
+ "legacy": null,
+ "blocks": [
+  {
+   "index": 0,
+   "order": [
+    "spider-http"
+   ],
+   "noisy": false,
+   "host": {
+    "loadPerCpu1m": 0.22785714285714284,
+    "foreignCpuPercent": 0
+   }
+  },
+  {
+   "index": 1,
+   "order": [
+    "spider-http"
+   ],
+   "noisy": false,
+   "host": {
+    "loadPerCpu1m": 0.22785714285714284,
+    "foreignCpuPercent": 0
+   }
+  },
+  {
+   "index": 2,
+   "order": [
+    "spider-http"
+   ],
+   "noisy": false,
+   "host": {
+    "loadPerCpu1m": 0.22785714285714284,
+    "foreignCpuPercent": 0
+   }
+  }
+ ]
+}

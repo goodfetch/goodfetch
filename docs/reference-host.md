@@ -51,3 +51,8 @@ Le parseur existe (`lab/src/core/metrics/linux.ts`). La création du scope par l
 3. `pnpm lab preflight reference` doit accorder la classe `reference`.
 4. Lancer la suite de contrat (`pnpm lab suite campaigns/v2/suites/qualification-current.json`), qui doit reproduire les comptes attendus.
 5. Lancer les reruns de priorité 0 listés dans le ledger (`rerun.priority`), puis les priorités 1 et 2.
+
+## Répétition dans un conteneur
+
+`lab/docker/linux.Dockerfile` construit une image Linux à partir des seules sources commitées. Le 9 octobre 2026, cette image a passé le bootstrap, la CI et toute la suite de contrat ([rapport](../lab/reports/linux-container-2026-10-09.md)). Un conteneur dans une machine virtuelle reste de classe `local-dev` : il valide le chemin Linux, pas les durées.
+

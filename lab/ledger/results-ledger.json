@@ -1,6 +1,6 @@
 {
  "schemaVersion": 1,
- "classificationSha256": "a6c2bafe9c184f271cd0a293a1cf247fe284840902357c1392f3f3a42ae228c1",
+ "classificationSha256": "c32688d042219290c59c404d48407b763df0a171cfd795bdfc392f32492dac39",
  "entries": [
   {
    "runId": "smoke-2026-10-07T20-20-24-226Z-9ebb47",
@@ -4282,6 +4282,224 @@
     "hostClass": null
    },
    "imported": "ledger/runs/interface-arena-2026-10-08T23-05-03-060Z-3c8d7c/run.v2.json"
+  },
+  {
+   "runId": "runtime-native-qualified-2026-10-09T00-41-00-780Z-a4457d",
+   "lane": "runtime",
+   "campaign": "runtime-native-qualified",
+   "startedAt": "2026-10-09T00:41:00.780Z",
+   "status": "complete",
+   "hostClass": "local-dev",
+   "role": "selected",
+   "supersededBy": null,
+   "reason": "passage de contrat sous Linux (conteneur Docker sur le Mac, arm64), comptes identiques à la qualification macOS",
+   "validity": [
+    {
+     "scope": "linux-contract",
+     "class": "A",
+     "note": "comptes vérifiés par l'oracle"
+    },
+    {
+     "scope": "timing",
+     "class": "none",
+     "note": "conteneur dans une VM, jamais publiable"
+    }
+   ],
+   "decisionIds": [
+    "D-core-language"
+   ],
+   "citedIn": [
+    "lab/reports/linux-container-2026-10-09.md"
+   ],
+   "integrity": "uncatalogued",
+   "rerun": {
+    "required": false,
+    "priority": null,
+    "hostClass": null
+   },
+   "imported": "ledger/runs/runtime-native-qualified-2026-10-09T00-41-00-780Z-a4457d/run.v2.json"
+  },
+  {
+   "runId": "runtime-recovery-qualified-2026-10-09T00-50-37-703Z-632789",
+   "lane": "runtime",
+   "campaign": "runtime-recovery-qualified",
+   "startedAt": "2026-10-09T00:50:37.703Z",
+   "status": "complete",
+   "hostClass": "local-dev",
+   "role": "selected",
+   "supersededBy": null,
+   "reason": "passage de contrat sous Linux (conteneur Docker sur le Mac, arm64), comptes identiques à la qualification macOS",
+   "validity": [
+    {
+     "scope": "linux-contract",
+     "class": "A",
+     "note": "comptes vérifiés par l'oracle"
+    },
+    {
+     "scope": "timing",
+     "class": "none",
+     "note": "conteneur dans une VM, jamais publiable"
+    }
+   ],
+   "decisionIds": [
+    "D-core-language",
+    "D-durable-runtime"
+   ],
+   "citedIn": [
+    "lab/reports/linux-container-2026-10-09.md"
+   ],
+   "integrity": "uncatalogued",
+   "rerun": {
+    "required": false,
+    "priority": null,
+    "hostClass": null
+   },
+   "imported": "ledger/runs/runtime-recovery-qualified-2026-10-09T00-50-37-703Z-632789/run.v2.json"
+  },
+  {
+   "runId": "browser-actionability-guarded-2026-10-09T00-51-42-342Z-19842f",
+   "lane": "actionability",
+   "campaign": "browser-actionability-guarded",
+   "startedAt": "2026-10-09T00:51:42.342Z",
+   "status": "complete",
+   "hostClass": "local-dev",
+   "role": "selected",
+   "supersededBy": null,
+   "reason": "passage de contrat sous Linux (conteneur Docker sur le Mac, arm64), comptes identiques à la qualification macOS",
+   "validity": [
+    {
+     "scope": "linux-contract",
+     "class": "A",
+     "note": "comptes vérifiés par l'oracle"
+    },
+    {
+     "scope": "timing",
+     "class": "none",
+     "note": "conteneur dans une VM, jamais publiable"
+    }
+   ],
+   "decisionIds": [
+    "D-browser-driver"
+   ],
+   "citedIn": [
+    "lab/reports/linux-container-2026-10-09.md"
+   ],
+   "integrity": "uncatalogued",
+   "rerun": {
+    "required": false,
+    "priority": null,
+    "hostClass": null
+   },
+   "imported": "ledger/runs/browser-actionability-guarded-2026-10-09T00-51-42-342Z-19842f/run.v2.json"
+  },
+  {
+   "runId": "sqlite-readers-2026-10-09T00-54-43-859Z-d4dfa6",
+   "lane": "sqlite-readers",
+   "campaign": "sqlite-readers",
+   "startedAt": "2026-10-09T00:54:43.859Z",
+   "status": "complete",
+   "hostClass": "local-dev",
+   "role": "selected",
+   "supersededBy": null,
+   "reason": "passage de contrat sous Linux (conteneur Docker sur le Mac, arm64), comptes identiques à la qualification macOS",
+   "validity": [
+    {
+     "scope": "linux-contract",
+     "class": "A",
+     "note": "comptes vérifiés par l'oracle"
+    },
+    {
+     "scope": "timing",
+     "class": "none",
+     "note": "conteneur dans une VM, jamais publiable"
+    }
+   ],
+   "decisionIds": [
+    "D-storage"
+   ],
+   "citedIn": [
+    "lab/reports/linux-container-2026-10-09.md"
+   ],
+   "integrity": "uncatalogued",
+   "rerun": {
+    "required": false,
+    "priority": null,
+    "hostClass": null
+   },
+   "imported": "ledger/runs/sqlite-readers-2026-10-09T00-54-43-859Z-d4dfa6/run.v2.json"
+  },
+  {
+   "runId": "spider-http-transport-supported-2026-10-09T00-55-30-963Z-582f6b",
+   "lane": "bench",
+   "campaign": "spider-http-transport-supported",
+   "startedAt": "2026-10-09T00:55:30.963Z",
+   "status": "complete",
+   "hostClass": "local-dev",
+   "role": "selected",
+   "supersededBy": null,
+   "reason": "passage de contrat sous Linux (conteneur Docker sur le Mac, arm64), comptes identiques à la qualification macOS",
+   "validity": [
+    {
+     "scope": "linux-contract",
+     "class": "A",
+     "note": "comptes vérifiés par l'oracle"
+    },
+    {
+     "scope": "timing",
+     "class": "none",
+     "note": "conteneur dans une VM, jamais publiable"
+    }
+   ],
+   "decisionIds": [
+    "D-http-transport"
+   ],
+   "citedIn": [
+    "lab/reports/linux-container-2026-10-09.md"
+   ],
+   "integrity": "uncatalogued",
+   "rerun": {
+    "required": false,
+    "priority": null,
+    "hostClass": null
+   },
+   "imported": "ledger/runs/spider-http-transport-supported-2026-10-09T00-55-30-963Z-582f6b/run.v2.json"
+  },
+  {
+   "runId": "runtime-http-backends-2026-10-09T00-55-32-223Z-35f7fa",
+   "lane": "runtime",
+   "campaign": "runtime-http-backends",
+   "startedAt": "2026-10-09T00:55:32.223Z",
+   "status": "complete",
+   "hostClass": "local-dev",
+   "role": "selected",
+   "supersededBy": null,
+   "reason": "passage de contrat sous Linux (conteneur Docker sur le Mac, arm64), comptes identiques à la qualification macOS",
+   "validity": [
+    {
+     "scope": "linux-contract",
+     "class": "A",
+     "note": "comptes vérifiés par l'oracle"
+    },
+    {
+     "scope": "timing",
+     "class": "none",
+     "note": "conteneur dans une VM, jamais publiable"
+    }
+   ],
+   "decisionIds": [
+    "D-http-transport",
+    "D-core-language"
+   ],
+   "citedIn": [
+    "lab/reports/linux-container-2026-10-09.md"
+   ],
+   "integrity": "uncatalogued",
+   "rerun": {
+    "required": false,
+    "priority": null,
+    "hostClass": null
+   },
+   "imported": "ledger/runs/runtime-http-backends-2026-10-09T00-55-32-223Z-35f7fa/run.v2.json"
   }
  ]
 }

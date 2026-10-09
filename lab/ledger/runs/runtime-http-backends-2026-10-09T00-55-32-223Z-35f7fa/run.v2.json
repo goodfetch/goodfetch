@@ -1,0 +1,1354 @@
+{
+ "schemaVersion": 2,
+ "runId": "runtime-http-backends-2026-10-09T00-55-32-223Z-35f7fa",
+ "lane": "runtime",
+ "campaign": {
+  "id": "runtime-http-backends",
+  "source": "/repo/lab/campaigns/v2/runtime/runtime-http-backends.json",
+  "sha256": "db954b6deb1f99adfcd63cf3008c44511faaa39854bea0346e70e7847bb80e1f"
+ },
+ "startedAt": "2026-10-09T00:55:32.223Z",
+ "decisionIds": [
+  "D-http-transport",
+  "D-core-language"
+ ],
+ "provenance": {
+  "git": {
+   "available": false,
+   "sha": null,
+   "dirty": null
+  },
+  "sourceTreeSha256": "bb0d5216d6deb076b90ff2d1eb23672abf35acd0938c99a85280c758a76301cb",
+  "sourceChanges": 0,
+  "binaryChanges": 0,
+  "toolchains": {
+   "node": "v25.5.0",
+   "rustc": "rustc 1.93.0 (254b59607 2026-01-19)",
+   "go": "go version go1.27.1 linux/arm64",
+   "pnpm": "12.9.1"
+  },
+  "integrity": {
+   "status": "uncatalogued",
+   "checked": 0,
+   "mismatches": []
+  }
+ },
+ "host": {
+  "classRequested": "local-controlled",
+  "classGranted": "local-dev",
+  "os": "linux",
+  "arch": "arm64",
+  "cpu": "unknown",
+  "logicalCpus": 14,
+  "memoryBytes": 8320954368,
+  "preflight": {
+   "snapshot": {
+    "os": "linux",
+    "arch": "arm64",
+    "cpu": "unknown",
+    "logicalCpus": 14,
+    "memoryBytes": 8320954368,
+    "loadAverage1m": 3.19,
+    "memoryFreePercent": 52,
+    "thermalWarning": null,
+    "onAC": true,
+    "lowPowerMode": false,
+    "foreignCpuPercent": 0,
+    "foreignTop": [],
+    "cpuGovernor": null,
+    "virtualized": null,
+    "controllerCpuPercent": 0
+   },
+   "gates": [
+    {
+     "class": "local-controlled",
+     "id": "git-clean",
+     "ok": false,
+     "value": false,
+     "limit": "= true"
+    },
+    {
+     "class": "local-controlled",
+     "id": "load-per-cpu-1m",
+     "ok": true,
+     "value": 0.22785714285714284,
+     "limit": "<= 0.35"
+    },
+    {
+     "class": "local-controlled",
+     "id": "memory-free-percent",
+     "ok": true,
+     "value": 52,
+     "limit": ">= 20"
+    },
+    {
+     "class": "local-controlled",
+     "id": "thermal-warning",
+     "ok": false,
+     "value": null,
+     "limit": "= false"
+    },
+    {
+     "class": "local-controlled",
+     "id": "low-power-mode",
+     "ok": true,
+     "value": false,
+     "limit": "= false"
+    },
+    {
+     "class": "local-controlled",
+     "id": "foreign-cpu-percent",
+     "ok": true,
+     "value": 0,
+     "limit": "<= 150"
+    }
+   ]
+  },
+  "postflight": {
+   "snapshot": {
+    "os": "linux",
+    "arch": "arm64",
+    "cpu": "unknown",
+    "logicalCpus": 14,
+    "memoryBytes": 8320954368,
+    "loadAverage1m": 1.73,
+    "memoryFreePercent": 52,
+    "thermalWarning": null,
+    "onAC": true,
+    "lowPowerMode": false,
+    "foreignCpuPercent": 0,
+    "foreignTop": [],
+    "cpuGovernor": null,
+    "virtualized": null,
+    "controllerCpuPercent": 0
+   }
+  }
+ },
+ "status": "complete",
+ "countUnit": "cell",
+ "cells": [
+  {
+   "cellId": "ab0457a549e4-0",
+   "factors": {
+    "backend": "crawlee-http-pooled",
+    "concurrency": 16,
+    "batchJobs": 4,
+    "poolWake": "notify",
+    "runtime": "node",
+    "jobs": 1536,
+    "pages": 16,
+    "delayMs": 4,
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-jobs-per-second": {
+     "value": 26.206278231203527,
+     "unit": "job/s",
+     "source": "legacy-summary; work plus finalization"
+    },
+    "pss-peak-bytes": {
+     "value": 729821184,
+     "unit": "B",
+     "source": "lane; Linux /proc stat and smaps_rollup over the process tree; CPU of exited children is only covered by a per-run cgroup scope"
+    },
+    "cpu-ms-per-verified-job": {
+     "value": 46.23046875,
+     "unit": "ms/job",
+     "source": "legacy-summary; sampled proc_pid_rusage V4 over the coordinator tree"
+    }
+   }
+  },
+  {
+   "cellId": "cf97ef9002e0-1",
+   "factors": {
+    "concurrency": 4,
+    "batchJobs": 4,
+    "runtime": "node",
+    "jobs": 384,
+    "pages": 16,
+    "delayMs": 4,
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-jobs-per-second": {
+     "value": 36.14986277055983,
+     "unit": "job/s",
+     "source": "legacy-summary; work plus finalization"
+    },
+    "pss-peak-bytes": {
+     "value": 227360768,
+     "unit": "B",
+     "source": "lane; Linux /proc stat and smaps_rollup over the process tree; CPU of exited children is only covered by a per-run cgroup scope"
+    },
+    "cpu-ms-per-verified-job": {
+     "value": 11.484375,
+     "unit": "ms/job",
+     "source": "legacy-summary; sampled proc_pid_rusage V4 over the coordinator tree"
+    }
+   }
+  },
+  {
+   "cellId": "ea863c3f23a1-2",
+   "factors": {
+    "concurrency": 16,
+    "batchJobs": 4,
+    "runtime": "rust",
+    "jobs": 1536,
+    "pages": 16,
+    "delayMs": 4,
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-jobs-per-second": {
+     "value": 151.1883182115906,
+     "unit": "job/s",
+     "source": "legacy-summary; work plus finalization"
+    },
+    "pss-peak-bytes": {
+     "value": 164564992,
+     "unit": "B",
+     "source": "lane; Linux /proc stat and smaps_rollup over the process tree; CPU of exited children is only covered by a per-run cgroup scope"
+    },
+    "cpu-ms-per-verified-job": {
+     "value": 2.1744791666666665,
+     "unit": "ms/job",
+     "source": "legacy-summary; sampled proc_pid_rusage V4 over the coordinator tree"
+    }
+   }
+  },
+  {
+   "cellId": "773b1aec090a-3",
+   "factors": {
+    "backend": "spider-http",
+    "concurrency": 16,
+    "batchJobs": 4,
+    "runtime": "node",
+    "jobs": 1536,
+    "pages": 16,
+    "delayMs": 4,
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-jobs-per-second": {
+     "value": 149.7720345457985,
+     "unit": "job/s",
+     "source": "legacy-summary; work plus finalization"
+    },
+    "pss-peak-bytes": {
+     "value": 234889216,
+     "unit": "B",
+     "source": "lane; Linux /proc stat and smaps_rollup over the process tree; CPU of exited children is only covered by a per-run cgroup scope"
+    },
+    "cpu-ms-per-verified-job": {
+     "value": 16.106770833333332,
+     "unit": "ms/job",
+     "source": "legacy-summary; sampled proc_pid_rusage V4 over the coordinator tree"
+    }
+   }
+  },
+  {
+   "cellId": "da74a8448a1b-4",
+   "factors": {
+    "backend": "spider-http",
+    "concurrency": 4,
+    "batchJobs": 4,
+    "runtime": "node",
+    "jobs": 384,
+    "pages": 16,
+    "delayMs": 4,
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-jobs-per-second": {
+     "value": 40.82728788929509,
+     "unit": "job/s",
+     "source": "legacy-summary; work plus finalization"
+    },
+    "pss-peak-bytes": {
+     "value": 124731392,
+     "unit": "B",
+     "source": "lane; Linux /proc stat and smaps_rollup over the process tree; CPU of exited children is only covered by a per-run cgroup scope"
+    },
+    "cpu-ms-per-verified-job": {
+     "value": 16.328125,
+     "unit": "ms/job",
+     "source": "legacy-summary; sampled proc_pid_rusage V4 over the coordinator tree"
+    }
+   }
+  },
+  {
+   "cellId": "58dba231c030-5",
+   "factors": {
+    "concurrency": 16,
+    "batchJobs": 4,
+    "runtime": "node",
+    "jobs": 1536,
+    "pages": 16,
+    "delayMs": 4,
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-jobs-per-second": {
+     "value": 171.96942332599843,
+     "unit": "job/s",
+     "source": "legacy-summary; work plus finalization"
+    },
+    "pss-peak-bytes": {
+     "value": 289636352,
+     "unit": "B",
+     "source": "lane; Linux /proc stat and smaps_rollup over the process tree; CPU of exited children is only covered by a per-run cgroup scope"
+    },
+    "cpu-ms-per-verified-job": {
+     "value": 3.0729166666666665,
+     "unit": "ms/job",
+     "source": "legacy-summary; sampled proc_pid_rusage V4 over the coordinator tree"
+    }
+   }
+  },
+  {
+   "cellId": "13d55199bec9-6",
+   "factors": {
+    "concurrency": 4,
+    "batchJobs": 4,
+    "runtime": "rust",
+    "jobs": 384,
+    "pages": 16,
+    "delayMs": 4,
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-jobs-per-second": {
+     "value": 41.84374888071036,
+     "unit": "job/s",
+     "source": "legacy-summary; work plus finalization"
+    },
+    "pss-peak-bytes": {
+     "value": 23527424,
+     "unit": "B",
+     "source": "lane; Linux /proc stat and smaps_rollup over the process tree; CPU of exited children is only covered by a per-run cgroup scope"
+    },
+    "cpu-ms-per-verified-job": {
+     "value": 2.4739583333333335,
+     "unit": "ms/job",
+     "source": "legacy-summary; sampled proc_pid_rusage V4 over the coordinator tree"
+    }
+   }
+  },
+  {
+   "cellId": "fb05e0fffdbe-7",
+   "factors": {
+    "backend": "crawlee-http-pooled",
+    "concurrency": 4,
+    "batchJobs": 4,
+    "poolWake": "notify",
+    "runtime": "node",
+    "jobs": 384,
+    "pages": 16,
+    "delayMs": 4,
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-jobs-per-second": {
+     "value": 18.329354579698283,
+     "unit": "job/s",
+     "source": "legacy-summary; work plus finalization"
+    },
+    "pss-peak-bytes": {
+     "value": 586387456,
+     "unit": "B",
+     "source": "lane; Linux /proc stat and smaps_rollup over the process tree; CPU of exited children is only covered by a per-run cgroup scope"
+    },
+    "cpu-ms-per-verified-job": {
+     "value": 63.958333333333336,
+     "unit": "ms/job",
+     "source": "legacy-summary; sampled proc_pid_rusage V4 over the coordinator tree"
+    }
+   }
+  },
+  {
+   "cellId": "51fc1eb559cd-8",
+   "factors": {
+    "backend": "spider-http",
+    "concurrency": 4,
+    "batchJobs": 4,
+    "runtime": "node",
+    "jobs": 384,
+    "pages": 16,
+    "delayMs": 4,
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-jobs-per-second": {
+     "value": 41.57337053330366,
+     "unit": "job/s",
+     "source": "legacy-summary; work plus finalization"
+    },
+    "pss-peak-bytes": {
+     "value": 125661184,
+     "unit": "B",
+     "source": "lane; Linux /proc stat and smaps_rollup over the process tree; CPU of exited children is only covered by a per-run cgroup scope"
+    },
+    "cpu-ms-per-verified-job": {
+     "value": 13.984375,
+     "unit": "ms/job",
+     "source": "legacy-summary; sampled proc_pid_rusage V4 over the coordinator tree"
+    }
+   }
+  },
+  {
+   "cellId": "eb8f903ceb48-9",
+   "factors": {
+    "concurrency": 4,
+    "batchJobs": 4,
+    "runtime": "rust",
+    "jobs": 384,
+    "pages": 16,
+    "delayMs": 4,
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-jobs-per-second": {
+     "value": 43.371023313554836,
+     "unit": "job/s",
+     "source": "legacy-summary; work plus finalization"
+    },
+    "pss-peak-bytes": {
+     "value": 23642112,
+     "unit": "B",
+     "source": "lane; Linux /proc stat and smaps_rollup over the process tree; CPU of exited children is only covered by a per-run cgroup scope"
+    },
+    "cpu-ms-per-verified-job": {
+     "value": 2.3177083333333335,
+     "unit": "ms/job",
+     "source": "legacy-summary; sampled proc_pid_rusage V4 over the coordinator tree"
+    }
+   }
+  },
+  {
+   "cellId": "b191438a7fb3-10",
+   "factors": {
+    "concurrency": 4,
+    "batchJobs": 4,
+    "runtime": "node",
+    "jobs": 384,
+    "pages": 16,
+    "delayMs": 4,
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-jobs-per-second": {
+     "value": 43.167552144096504,
+     "unit": "job/s",
+     "source": "legacy-summary; work plus finalization"
+    },
+    "pss-peak-bytes": {
+     "value": 228327424,
+     "unit": "B",
+     "source": "lane; Linux /proc stat and smaps_rollup over the process tree; CPU of exited children is only covered by a per-run cgroup scope"
+    },
+    "cpu-ms-per-verified-job": {
+     "value": 5.833333333333333,
+     "unit": "ms/job",
+     "source": "legacy-summary; sampled proc_pid_rusage V4 over the coordinator tree"
+    }
+   }
+  },
+  {
+   "cellId": "eb157ff79a9c-11",
+   "factors": {
+    "backend": "crawlee-http-pooled",
+    "concurrency": 4,
+    "batchJobs": 4,
+    "poolWake": "notify",
+    "runtime": "node",
+    "jobs": 384,
+    "pages": 16,
+    "delayMs": 4,
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-jobs-per-second": {
+     "value": 22.784853434027198,
+     "unit": "job/s",
+     "source": "legacy-summary; work plus finalization"
+    },
+    "pss-peak-bytes": {
+     "value": 589582336,
+     "unit": "B",
+     "source": "lane; Linux /proc stat and smaps_rollup over the process tree; CPU of exited children is only covered by a per-run cgroup scope"
+    },
+    "cpu-ms-per-verified-job": {
+     "value": 48.776041666666664,
+     "unit": "ms/job",
+     "source": "legacy-summary; sampled proc_pid_rusage V4 over the coordinator tree"
+    }
+   }
+  },
+  {
+   "cellId": "10a904c3606f-12",
+   "factors": {
+    "backend": "spider-http",
+    "concurrency": 16,
+    "batchJobs": 4,
+    "runtime": "node",
+    "jobs": 1536,
+    "pages": 16,
+    "delayMs": 4,
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-jobs-per-second": {
+     "value": 117.74950111496952,
+     "unit": "job/s",
+     "source": "legacy-summary; work plus finalization"
+    },
+    "pss-peak-bytes": {
+     "value": 222760960,
+     "unit": "B",
+     "source": "lane; Linux /proc stat and smaps_rollup over the process tree; CPU of exited children is only covered by a per-run cgroup scope"
+    },
+    "cpu-ms-per-verified-job": {
+     "value": 13.463541666666666,
+     "unit": "ms/job",
+     "source": "legacy-summary; sampled proc_pid_rusage V4 over the coordinator tree"
+    }
+   }
+  },
+  {
+   "cellId": "5c447bf09f17-13",
+   "factors": {
+    "backend": "crawlee-http-pooled",
+    "concurrency": 16,
+    "batchJobs": 4,
+    "poolWake": "notify",
+    "runtime": "node",
+    "jobs": 1536,
+    "pages": 16,
+    "delayMs": 4,
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-jobs-per-second": {
+     "value": 37.6192591269059,
+     "unit": "job/s",
+     "source": "legacy-summary; work plus finalization"
+    },
+    "pss-peak-bytes": {
+     "value": 709550080,
+     "unit": "B",
+     "source": "lane; Linux /proc stat and smaps_rollup over the process tree; CPU of exited children is only covered by a per-run cgroup scope"
+    },
+    "cpu-ms-per-verified-job": {
+     "value": 33.854166666666664,
+     "unit": "ms/job",
+     "source": "legacy-summary; sampled proc_pid_rusage V4 over the coordinator tree"
+    }
+   }
+  },
+  {
+   "cellId": "a65d564c7447-14",
+   "factors": {
+    "concurrency": 16,
+    "batchJobs": 4,
+    "runtime": "rust",
+    "jobs": 1536,
+    "pages": 16,
+    "delayMs": 4,
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-jobs-per-second": {
+     "value": 184.33976113391046,
+     "unit": "job/s",
+     "source": "legacy-summary; work plus finalization"
+    },
+    "pss-peak-bytes": {
+     "value": 176377856,
+     "unit": "B",
+     "source": "lane; Linux /proc stat and smaps_rollup over the process tree; CPU of exited children is only covered by a per-run cgroup scope"
+    },
+    "cpu-ms-per-verified-job": {
+     "value": 0.9830729166666666,
+     "unit": "ms/job",
+     "source": "legacy-summary; sampled proc_pid_rusage V4 over the coordinator tree"
+    }
+   }
+  },
+  {
+   "cellId": "7d8b9965999a-15",
+   "factors": {
+    "concurrency": 16,
+    "batchJobs": 4,
+    "runtime": "node",
+    "jobs": 1536,
+    "pages": 16,
+    "delayMs": 4,
+    "block": 1
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-jobs-per-second": {
+     "value": 176.7243587090298,
+     "unit": "job/s",
+     "source": "legacy-summary; work plus finalization"
+    },
+    "pss-peak-bytes": {
+     "value": 289861632,
+     "unit": "B",
+     "source": "lane; Linux /proc stat and smaps_rollup over the process tree; CPU of exited children is only covered by a per-run cgroup scope"
+    },
+    "cpu-ms-per-verified-job": {
+     "value": 2.7604166666666665,
+     "unit": "ms/job",
+     "source": "legacy-summary; sampled proc_pid_rusage V4 over the coordinator tree"
+    }
+   }
+  },
+  {
+   "cellId": "e729bf7c07aa-16",
+   "factors": {
+    "backend": "spider-http",
+    "concurrency": 4,
+    "batchJobs": 4,
+    "runtime": "node",
+    "jobs": 384,
+    "pages": 16,
+    "delayMs": 4,
+    "block": 2
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-jobs-per-second": {
+     "value": 40.9460215523511,
+     "unit": "job/s",
+     "source": "legacy-summary; work plus finalization"
+    },
+    "pss-peak-bytes": {
+     "value": 123047936,
+     "unit": "B",
+     "source": "lane; Linux /proc stat and smaps_rollup over the process tree; CPU of exited children is only covered by a per-run cgroup scope"
+    },
+    "cpu-ms-per-verified-job": {
+     "value": 15.078125,
+     "unit": "ms/job",
+     "source": "legacy-summary; sampled proc_pid_rusage V4 over the coordinator tree"
+    }
+   }
+  },
+  {
+   "cellId": "a770c0bd91bd-17",
+   "factors": {
+    "backend": "crawlee-http-pooled",
+    "concurrency": 4,
+    "batchJobs": 4,
+    "poolWake": "notify",
+    "runtime": "node",
+    "jobs": 384,
+    "pages": 16,
+    "delayMs": 4,
+    "block": 2
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-jobs-per-second": {
+     "value": 27.877293878907118,
+     "unit": "job/s",
+     "source": "legacy-summary; work plus finalization"
+    },
+    "pss-peak-bytes": {
+     "value": 610594816,
+     "unit": "B",
+     "source": "lane; Linux /proc stat and smaps_rollup over the process tree; CPU of exited children is only covered by a per-run cgroup scope"
+    },
+    "cpu-ms-per-verified-job": {
+     "value": 38.541666666666664,
+     "unit": "ms/job",
+     "source": "legacy-summary; sampled proc_pid_rusage V4 over the coordinator tree"
+    }
+   }
+  },
+  {
+   "cellId": "a87dffd43e81-18",
+   "factors": {
+    "concurrency": 4,
+    "batchJobs": 4,
+    "runtime": "rust",
+    "jobs": 384,
+    "pages": 16,
+    "delayMs": 4,
+    "block": 2
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-jobs-per-second": {
+     "value": 37.85326850800883,
+     "unit": "job/s",
+     "source": "legacy-summary; work plus finalization"
+    },
+    "pss-peak-bytes": {
+     "value": 31383552,
+     "unit": "B",
+     "source": "lane; Linux /proc stat and smaps_rollup over the process tree; CPU of exited children is only covered by a per-run cgroup scope"
+    },
+    "cpu-ms-per-verified-job": {
+     "value": 3.3854166666666665,
+     "unit": "ms/job",
+     "source": "legacy-summary; sampled proc_pid_rusage V4 over the coordinator tree"
+    }
+   }
+  },
+  {
+   "cellId": "d4cdcb9822ed-19",
+   "factors": {
+    "concurrency": 16,
+    "batchJobs": 4,
+    "runtime": "rust",
+    "jobs": 1536,
+    "pages": 16,
+    "delayMs": 4,
+    "block": 2
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-jobs-per-second": {
+     "value": 173.90766622250388,
+     "unit": "job/s",
+     "source": "legacy-summary; work plus finalization"
+    },
+    "pss-peak-bytes": {
+     "value": 174710784,
+     "unit": "B",
+     "source": "lane; Linux /proc stat and smaps_rollup over the process tree; CPU of exited children is only covered by a per-run cgroup scope"
+    },
+    "cpu-ms-per-verified-job": {
+     "value": 1.2239583333333333,
+     "unit": "ms/job",
+     "source": "legacy-summary; sampled proc_pid_rusage V4 over the coordinator tree"
+    }
+   }
+  },
+  {
+   "cellId": "c86a24a8b91a-20",
+   "factors": {
+    "concurrency": 4,
+    "batchJobs": 4,
+    "runtime": "node",
+    "jobs": 384,
+    "pages": 16,
+    "delayMs": 4,
+    "block": 2
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-jobs-per-second": {
+     "value": 42.65608832644782,
+     "unit": "job/s",
+     "source": "legacy-summary; work plus finalization"
+    },
+    "pss-peak-bytes": {
+     "value": 227287040,
+     "unit": "B",
+     "source": "lane; Linux /proc stat and smaps_rollup over the process tree; CPU of exited children is only covered by a per-run cgroup scope"
+    },
+    "cpu-ms-per-verified-job": {
+     "value": 5.3125,
+     "unit": "ms/job",
+     "source": "legacy-summary; sampled proc_pid_rusage V4 over the coordinator tree"
+    }
+   }
+  },
+  {
+   "cellId": "4296478ed864-21",
+   "factors": {
+    "concurrency": 16,
+    "batchJobs": 4,
+    "runtime": "node",
+    "jobs": 1536,
+    "pages": 16,
+    "delayMs": 4,
+    "block": 2
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-jobs-per-second": {
+     "value": 174.23478280045455,
+     "unit": "job/s",
+     "source": "legacy-summary; work plus finalization"
+    },
+    "pss-peak-bytes": {
+     "value": 287727616,
+     "unit": "B",
+     "source": "lane; Linux /proc stat and smaps_rollup over the process tree; CPU of exited children is only covered by a per-run cgroup scope"
+    },
+    "cpu-ms-per-verified-job": {
+     "value": 2.9036458333333335,
+     "unit": "ms/job",
+     "source": "legacy-summary; sampled proc_pid_rusage V4 over the coordinator tree"
+    }
+   }
+  },
+  {
+   "cellId": "53c64cd734d9-22",
+   "factors": {
+    "backend": "crawlee-http-pooled",
+    "concurrency": 16,
+    "batchJobs": 4,
+    "poolWake": "notify",
+    "runtime": "node",
+    "jobs": 1536,
+    "pages": 16,
+    "delayMs": 4,
+    "block": 2
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-jobs-per-second": {
+     "value": 38.35726746958243,
+     "unit": "job/s",
+     "source": "legacy-summary; work plus finalization"
+    },
+    "pss-peak-bytes": {
+     "value": 712921088,
+     "unit": "B",
+     "source": "lane; Linux /proc stat and smaps_rollup over the process tree; CPU of exited children is only covered by a per-run cgroup scope"
+    },
+    "cpu-ms-per-verified-job": {
+     "value": 31.42578125,
+     "unit": "ms/job",
+     "source": "legacy-summary; sampled proc_pid_rusage V4 over the coordinator tree"
+    }
+   }
+  },
+  {
+   "cellId": "59e2436f4166-23",
+   "factors": {
+    "backend": "spider-http",
+    "concurrency": 16,
+    "batchJobs": 4,
+    "runtime": "node",
+    "jobs": 1536,
+    "pages": 16,
+    "delayMs": 4,
+    "block": 2
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-jobs-per-second": {
+     "value": 166.19727934781042,
+     "unit": "job/s",
+     "source": "legacy-summary; work plus finalization"
+    },
+    "pss-peak-bytes": {
+     "value": 219353088,
+     "unit": "B",
+     "source": "lane; Linux /proc stat and smaps_rollup over the process tree; CPU of exited children is only covered by a per-run cgroup scope"
+    },
+    "cpu-ms-per-verified-job": {
+     "value": 12.259114583333334,
+     "unit": "ms/job",
+     "source": "legacy-summary; sampled proc_pid_rusage V4 over the coordinator tree"
+    }
+   }
+  }
+ ],
+ "totals": {
+  "verified": 24,
+  "failed": 0,
+  "timeout": 0,
+  "crashed": 0,
+  "aborted": 0,
+  "unsupported": 0,
+  "rejected": 0,
+  "unavailable": 0,
+  "skipped": 0
+ },
+ "metricAvailability": {
+  "verified-jobs-per-second": {
+   "available": true
+  },
+  "verified-tasks-per-second": {
+   "available": true
+  },
+  "verified-rows-per-second": {
+   "available": true
+  },
+  "task-p50-ms-verified": {
+   "available": true
+  },
+  "task-p95-ms-verified": {
+   "available": true
+  },
+  "task-ms": {
+   "available": true
+  },
+  "ack-latency-p95-ms": {
+   "available": true
+  },
+  "extraction-precision": {
+   "available": true
+  },
+  "extraction-recall": {
+   "available": true
+  },
+  "snippet-recall": {
+   "available": true
+  },
+  "boilerplate-leak": {
+   "available": true
+  },
+  "extract-ms-p50": {
+   "available": true
+  },
+  "startup-ms": {
+   "available": true
+  },
+  "cpu-ms-per-verified-job": {
+   "available": true
+  },
+  "footprint-peak-bytes": {
+   "available": false,
+   "reason": "no probe on linux"
+  },
+  "pss-peak-bytes": {
+   "available": true
+  },
+  "cgroup-memory-peak-bytes": {
+   "available": false,
+   "reason": "requires a per-run systemd scope on the reference host; the parser exists but the engine does not create the scope yet"
+  },
+  "rss-peak-bytes": {
+   "available": true
+  },
+  "cdp-commands-per-task": {
+   "available": true
+  },
+  "extraction-f1": {
+   "available": true
+  },
+  "field-precision": {
+   "available": true
+  },
+  "field-recall": {
+   "available": true
+  },
+  "pass-k": {
+   "available": true
+  },
+  "llm-calls-per-verified-task": {
+   "available": true
+  },
+  "tokens-per-verified-task": {
+   "available": true
+  },
+  "usd-per-1k-verified": {
+   "available": false,
+   "reason": "pricing tables are not implemented yet"
+  },
+  "model-usd-per-1k-verified": {
+   "available": true
+  },
+  "interface-turns-per-task": {
+   "available": true
+  },
+  "oracle-exact": {
+   "available": true
+  },
+  "false-success-count": {
+   "available": true
+  },
+  "actionability-conformance": {
+   "available": true
+  },
+  "recovery-exact": {
+   "available": true
+  },
+  "durability-power-loss": {
+   "available": false,
+   "reason": "requires the VM hard-reset harness"
+  },
+  "identity-coherence": {
+   "available": true
+  },
+  "policy-compliance": {
+   "available": true
+  },
+  "session-isolation": {
+   "available": true
+  },
+  "admission-no-loss": {
+   "available": true
+  },
+  "proxy-continuity": {
+   "available": true
+  },
+  "light-domain-goodput": {
+   "available": true
+  },
+  "light-domain-p95-ms": {
+   "available": true
+  },
+  "light-domain-acceptance": {
+   "available": true
+  }
+ },
+ "legacy": null,
+ "blocks": [
+  {
+   "index": 0,
+   "order": [
+    "cell-7",
+    "cell-0",
+    "cell-5",
+    "cell-6",
+    "cell-2",
+    "cell-4",
+    "cell-1",
+    "cell-3"
+   ],
+   "noisy": false,
+   "host": {
+    "loadPerCpu1m": 0.1464285714285714,
+    "foreignCpuPercent": 0
+   }
+  },
+  {
+   "index": 1,
+   "order": [
+    "cell-2",
+    "cell-1",
+    "cell-0",
+    "cell-3",
+    "cell-6",
+    "cell-7",
+    "cell-5",
+    "cell-4"
+   ],
+   "noisy": false,
+   "host": {
+    "loadPerCpu1m": 0.19285714285714287,
+    "foreignCpuPercent": 0
+   }
+  },
+  {
+   "index": 2,
+   "order": [
+    "cell-2",
+    "cell-3",
+    "cell-1",
+    "cell-5",
+    "cell-0",
+    "cell-4",
+    "cell-7",
+    "cell-6"
+   ],
+   "noisy": false,
+   "host": {
+    "loadPerCpu1m": 0.12357142857142857,
+    "foreignCpuPercent": 0
+   }
+  }
+ ]
+}

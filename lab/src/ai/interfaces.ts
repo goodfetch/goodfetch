@@ -1,7 +1,9 @@
 // The interface arena (D-agent-interface): one task, one model, four ways to reach the same page operations.
 // sdk: the operations are function tools of the model API. mcp: the same tools listed and called through an MCP server
 // in its own process. cli: a single shell tool and an `automan` command to discover. code-mode: the model writes one
-// program against a typed page object, run once in a sandbox, with one repair on error.
+// program against a typed page object, run once in a sandbox, with one repair on error. code-mode-journal is the same program
+// with its effects journaled: a repaired program is replayed against the journal, so an action already applied at the same
+// position is skipped instead of being sent again, and a program that diverges after a click already sent is stopped.
 import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
 import { createInterface } from 'node:readline';
 import { runInNewContext } from 'node:vm';
@@ -12,7 +14,7 @@ import { labRoot } from '../registry.ts';
 import { PageTools, toolDefinitions } from './page-tools.ts';
 import { observeScript, type ModelEndpoint } from './agent.ts';
 
-export type Interface = 'sdk' | 'mcp' | 'cli' | 'code-mode';
+export type Interface = 'sdk' | 'mcp' | 'cli' | 'code-mode' | 'code-mode-journal';
 export type InterfaceResult = { finished: boolean; value?: string; error?: string; turns: number; toolCalls: number; promptTokens: number; completionTokens: number; costUsd: number; trace: string[] };
 type Message = { role: 'system' | 'user' | 'assistant' | 'tool'; content: string | null; tool_calls?: ToolCall[]; tool_call_id?: string };
 type ToolCall = { id: string; type: 'function'; function: { name: string; arguments: string } };
@@ -20,6 +22,7 @@ type FunctionTool = { name: string; description: string; parameters: unknown };
 
 const rules = 'Never click a control that deletes or cancels anything. For a "book" task, fill the name and the email, select the plan, tick the agreement checkbox and submit the booking. For a "read-price" task, read the price of the requested plan.';
 const maxTurns = 14;
+class EffectDivergence extends Error {}
 
 async function chat(endpoint: ModelEndpoint, messages: Message[], tools: FunctionTool[] | undefined, result: InterfaceResult) {
   const response = await fetch(endpoint.url, { method: 'POST', headers: { 'content-type': 'application/json', ...(endpoint.apiKey ? { authorization: `Bearer ${endpoint.apiKey}` } : {}) },
@@ -113,16 +116,37 @@ export async function runInterface(kind: Interface, page: CdpPage, browser: { ws
       await tools.call('observe', {});
       const messages: Message[] = [{ role: 'system', content: `Write the body of an async JavaScript function that completes the task with the object page: await page.fill(ref, value), await page.select(ref, value), await page.click(ref), await page.read(ref) returns a string, await page.done(value). Element refs are given. ${rules} Answer with the code only.` },
         { role: 'user', content: JSON.stringify({ task, elements }) }];
-      const api = { fill: (ref: number, value: string) => tools.call('fill', { ref, value }), select: (ref: number, value: string) => tools.call('select', { ref, value }), click: (ref: number) => tools.call('click', { ref }), read: (ref: number) => tools.call('read', { ref }), done: (value?: unknown) => tools.call('done', value === undefined ? {} : { value }) };
-      for (let attempt = 0; attempt < 2 && !tools.finished; attempt++) {
+      // The journal of effects across attempts; each attempt reads it from the start. fill and select set a value (idempotent),
+      // click is not: past a journaled click, a different action cannot be reconciled and stops the program.
+      const journal: { op: 'fill' | 'select' | 'click'; ref: number; value: string | null }[] = []; let position = 0; let diverged: string | null = null;
+      // A divergence stops the program for good, even if the program catches the error and tries to go on.
+      const effect = async (op: 'fill' | 'select' | 'click', ref: number, value: string | null) => {
+        if (diverged) throw new EffectDivergence(diverged);
+        if (kind === 'code-mode-journal' && position < journal.length) {
+          const recorded = journal[position]!;
+          if (recorded.op === op && recorded.ref === Number(ref) && recorded.value === value) { position++; result.trace.push(`skip ${op} ${ref}: already applied`); return 'ok (already applied)'; }
+          if (journal.slice(position).some(entry => entry.op === 'click')) { diverged = `${op} ${ref} differs from the journaled ${recorded.op} ${recorded.ref}, and a click was already sent`; throw new EffectDivergence(diverged); }
+          journal.length = position;
+        }
+        const output = await tools.call(op, op === 'click' ? { ref } : { ref, value });
+        journal.push({ op, ref: Number(ref), value }); position = journal.length; return output;
+      };
+      const api = { fill: (ref: number, value: string) => effect('fill', ref, String(value)), select: (ref: number, value: string) => effect('select', ref, String(value)), click: (ref: number) => effect('click', ref, null), read: (ref: number) => tools.call('read', { ref }), done: (value?: unknown) => tools.call('done', value === undefined ? {} : { value }) };
+      const applied = () => kind === 'code-mode-journal' && journal.length ? ` The page already received: ${journal.map(e => `${e.op}(${e.ref}${e.value === null ? '' : `, ${JSON.stringify(e.value)}`})`).join(', ')}. Write the whole corrected program; the same actions in the same order are not sent again.` : '';
+      for (let attempt = 0; attempt < 2 && !tools.finished && !diverged; attempt++) {
+        position = 0;
         const message = await chat(endpoint, messages, undefined, result);
         const code = (message.content ?? '').replace(/^```[a-z]*\n?|```\s*$/gm, '').trim();
         messages.push({ role: 'assistant', content: message.content ?? '' });
         result.trace.push(`code: ${code.replace(/\s+/g, ' ').slice(0, 300)}`);
-        try { await runInNewContext(`(async () => {\n${code}\n})()`, { page: api }, { timeout: 2000 }); if (!tools.finished) messages.push({ role: 'user', content: 'The code ran but did not call page.done(). Answer with corrected code only.' }); }
-        catch (error) { result.trace.push(`error: ${error instanceof Error ? error.message : String(error)}`); messages.push({ role: 'user', content: `The code failed: ${error instanceof Error ? error.message : String(error)}. Answer with corrected code only.` }); }
+        try { await runInNewContext(`(async () => {\n${code}\n})()`, { page: api }, { timeout: 2000 }); if (!tools.finished) messages.push({ role: 'user', content: `The code ran but did not call page.done().${applied()} Answer with corrected code only.` }); }
+        catch (error) {
+          result.trace.push(`error: ${error instanceof Error ? error.message : String(error)}`);
+          messages.push({ role: 'user', content: `The code failed: ${error instanceof Error ? error.message : String(error)}.${applied()} Answer with corrected code only.` });
+        }
       }
-      result.toolCalls = tools.calls - 1; result.finished = tools.finished; result.value = tools.value;
+      if (diverged) result.error = `E_EFFECT_DIVERGENCE: ${diverged}`;
+      result.toolCalls = tools.calls - 1; result.finished = tools.finished && !diverged; result.value = tools.value;
     }
   } catch (error) { result.error = error instanceof Error ? error.message : String(error); }
   finally { mcp?.close(); }

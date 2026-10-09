@@ -64,27 +64,27 @@ Le test se déroule ainsi :
 3. Après 5 s d'écriture, la VM est tuée par `SIGKILL` (`com.docker.virtualization`), ce qui revient à couper le courant de la machine invitée : ce que Linux n'avait pas vidé sur son disque virtuel est perdu.
 4. Après le redémarrage de Docker, chaque batch acquitté doit être présent et entier.
 
-Le disque du Mac n'est pas coupé : le test prouve la discipline de synchronisation de chaque sink dans la machine invitée, pas le comportement du disque physique. Le porteur a lancé lui-même les trois coupures, depuis son terminal ; les données brutes sont dans [`power-cut-2026-10-09.json`](power-cut-2026-10-09.json).
+Le disque du Mac n'est pas coupé : le test prouve la discipline de synchronisation de chaque sink dans la machine invitée, pas le comportement du disque physique. Il y a eu deux séries de trois coupures. Le porteur a lancé la première depuis son terminal ; je n'avais pas l'autorisation de couper la VM tant que son stack Supabase y tournait. Une fois ce stack arrêté, j'ai lancé la seconde, qui mesure aussi PostgreSQL. Données brutes : [`power-cut-2026-10-09.json`](power-cut-2026-10-09.json) et [`power-cut-pg-2026-10-09.json`](power-cut-pg-2026-10-09.json).
 
-| Sink | Batches acquittés (3 coupures) | Acquittés perdus | Batches partiels | Intégrité |
+| Sink | Batches acquittés (6 coupures) | Acquittés perdus | Batches partiels | Intégrité |
 | --- | --- | --- | --- | --- |
-| SQLite WAL `synchronous=FULL` | 5 692 | **0** | 0 | ok |
-| SQLite WAL `synchronous=NORMAL` | 63 810 | **45** (à la 2ᵉ coupure) | 0 | ok |
-| JSONL + `fsync` | 5 511 | **0** | 0 | ok |
-| JSONL sans `fsync` | 86 450 | **86 450, soit tout** | 0 | ok |
-| DuckDB | 3 415 | **0** | 0 | ok |
-| Parquet, un fichier par batch | 1 714 | **0** | 0 | ok |
-| PostgreSQL `COPY` | non mesuré | — | — | le serveur se rétablit par son WAL |
+| SQLite WAL `synchronous=FULL` | 9 108 | **0** | 0 | ok |
+| SQLite WAL `synchronous=NORMAL` | 108 803 | **96** (45 puis 51, à une coupure de chaque série) | 0 | ok |
+| JSONL + `fsync` | 8 774 | **0** | 0 | ok |
+| JSONL sans `fsync` | 134 498 | **134 498, soit tout** | 0 | ok |
+| DuckDB | 5 402 | **0** | 0 | ok |
+| Parquet, un fichier par batch | 2 755 | **0** | 0 | ok |
+| PostgreSQL (3 coupures de la seconde série) | 2 324 | **0** | 0 | le serveur se rétablit par son WAL |
 
 ### Lecture
 
 - **Chaque sink tient exactement la promesse de sa configuration.**
-  - SQLite en `synchronous=FULL`, JSONL synchronisé, DuckDB et Parquet (fichier temporaire, `fsync`, renommage, `fsync` du répertoire) ne perdent aucun batch acquitté.
-  - SQLite en `NORMAL` en perd 45 à une coupure sur trois : ce mode ne synchronise pas le WAL à chaque commit. Il résiste au crash de l'application, pas à la coupure de courant, comme le dit sa documentation.
+  - SQLite en `synchronous=FULL`, JSONL synchronisé, DuckDB, Parquet (fichier temporaire, `fsync`, renommage, `fsync` du répertoire) et PostgreSQL avec `synchronous_commit` ne perdent aucun batch acquitté.
+  - SQLite en `NORMAL` perd des commits acquittés à une coupure sur trois, dans chaque série : ce mode ne synchronise pas le WAL à chaque commit. Il résiste au crash de l'application, pas à la coupure de courant, comme le dit sa documentation.
   - JSONL sans `fsync` perd tout ce que le noyau gardait en cache.
-- **Aucun batch partiel et aucune base corrompue**, même pour les sinks qui perdent des données : SQLite passe `integrity_check`, et chaque batch revient entier ou pas du tout.
-- La coupure est réelle. Le `package.json` de DuckDB, écrit sans `fsync` par `npm install` juste avant une première coupure préliminaire, est revenu à 0 octet. PostgreSQL, lui, redémarre en *automatic recovery* et rejoue son WAL.
-- **PostgreSQL n'est pas mesuré** : le script ne passait pas les valeurs de l'insertion, si bien que chaque transaction échouait sans acquittement. C'est corrigé, et l'essai reste à refaire.
+- **Aucun batch partiel et aucune base corrompue**, même pour les sinks qui perdent des données : SQLite passe `integrity_check`, PostgreSQL rejoue son WAL, et chaque batch revient entier ou pas du tout.
+- La coupure est réelle. Le `package.json` de DuckDB, écrit sans `fsync` par `npm install` juste avant une coupure préliminaire, est revenu à 0 octet.
+- Deux défauts du script sont corrigés en cours de route. La première série ne passait pas les valeurs de l'insertion PostgreSQL, si bien que PostgreSQL n'y est pas mesuré. Ensuite, l'erreur de connexion attendue au moment de la coupure arrêtait tout le script ; elle est maintenant ignorée.
 
 ### Ce que cela dit pour l'architecture
 

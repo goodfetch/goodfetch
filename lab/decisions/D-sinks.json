@@ -64,6 +64,11 @@
     {
       "kind": "research-doc",
       "ref": "lab/reports/sinks-topology-2026-10-09.md"
+    },
+    {
+      "kind": "research-doc",
+      "ref": "lab/reports/power-cut-pg-2026-10-09.json",
+      "note": "coupures simulées : PostgreSQL ne perd aucun commit acquitté"
     }
   ],
   "verdictRef": "verdicts/D-sinks.json",

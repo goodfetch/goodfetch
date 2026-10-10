@@ -11,11 +11,11 @@ ADR 0016 made the costly security controls switchable. At the owner's request th
 
 | Control | When switched off |
 | --- | --- |
-| Actionability guard (ADR 0018) | actions are marked unguarded in Provenance |
+| Actionability guard (ADR 0019) | actions are marked unguarded in Provenance |
 | Page check (ADR 0006) | pages are reported as unchecked |
-| Sample comparison of fetch tiers (ADR 0019) | Provenance records the forced tier |
-| Browser-fetch for identity consistency (ADR 0019) | the Session's HTTP goes through reqwest or wreq, and Provenance records the identity change |
-| Backoff on 429, 503 and `Retry-After` (ADR 0020) | the run records that it ignored them |
+| Sample comparison of fetch tiers (ADR 0020) | Provenance records the forced tier |
+| Browser-fetch for identity consistency (ADR 0020) | the Session's HTTP goes through reqwest or wreq, and Provenance records the identity change |
+| Backoff on 429, 503 and `Retry-After` (ADR 0021) | the run records that it ignored them |
 | Target fingerprint check before the first Effect (ADR 0009) | Effects are marked unverified in the Effect journal |
 | Success checks (ADR 0013) | results are `needs-review`, never a success |
 

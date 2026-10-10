@@ -1,0 +1,17 @@
+{
+ "file_id": "0030",
+ "url": "https://fixtures.test/markdown/mixed/product",
+ "_internal": {
+  "page_type": {
+   "primary": "mixed"
+  },
+  "case": "product",
+  "source": "automan-curated"
+ },
+ "ground_truth": {
+  "main_content": "# Desk Lamp\n\n**Price:** 39 €\n\n## Specifications\n\n| Power | 8 W |\n| --- | --- |\n| Colour | Black |\n\n## In the box\n\n- Lamp\n- USB cable\n",
+  "main_markdown": "# Desk Lamp\n\n**Price:** 39 €\n\n## Specifications\n\n| Power | 8 W |\n| --- | --- |\n| Colour | Black |\n\n## In the box\n\n- Lamp\n- USB cable\n",
+  "with": [],
+  "without": []
+ }
+}

@@ -1,0 +1,17 @@
+{
+ "file_id": "0001",
+ "url": "https://fixtures.test/markdown/headings/levels",
+ "_internal": {
+  "page_type": {
+   "primary": "headings"
+  },
+  "case": "levels",
+  "source": "automan-curated"
+ },
+ "ground_truth": {
+  "main_content": "# Title one\n\nIntro.\n\n## Second level\n\nText.\n\n### Third level\n\n#### Fourth level\n\n##### Fifth level\n\n###### Sixth level\n",
+  "main_markdown": "# Title one\n\nIntro.\n\n## Second level\n\nText.\n\n### Third level\n\n#### Fourth level\n\n##### Fifth level\n\n###### Sixth level\n",
+  "with": [],
+  "without": []
+ }
+}

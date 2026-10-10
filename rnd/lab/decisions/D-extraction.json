@@ -11,7 +11,7 @@
     },
     {
       "id": "lol-html-streaming",
-      "description": "lol_html in streaming mode"
+      "description": "lol_html in streaming mode: boilerplate removal by tag, ARIA role and class/id tokens, main/article scoping, no content scoring"
     },
     {
       "id": "htmd",
@@ -20,6 +20,14 @@
     {
       "id": "trafilatura-class",
       "description": "trafilatura-style main-content extractor"
+    },
+    {
+      "id": "dom-smoothie",
+      "description": "dom_smoothie, Rust port of Mozilla Readability"
+    },
+    {
+      "id": "readability",
+      "description": "Mozilla Readability on linkedom (Node)"
     }
   ],
   "baseline": "html5ever-scraper",
@@ -55,7 +63,10 @@
     "extraction-quality-t1",
     "extraction-quality-test",
     "parsing-representative",
-    "extraction-rendered-test"
+    "extraction-rendered-test",
+    "extraction-rerun-wcxb-test",
+    "extraction-rerun-wmb",
+    "parsing-fields-wcxb-test"
   ],
   "evidence": [
     {
@@ -85,26 +96,48 @@
   "verdictRef": "verdicts/D-extraction.json",
   "adr": null,
   "dependsOn": [],
-  "notes": "Quality is measured on frozen real pages and per page type; speed is secondary as long as quality is not equivalent. On October 9, 2026: the verdict reads the WCXB held-out test split, paired by page type; the development split, which was used for tuning, is no longer part of it. F1 does not depend on the host: the decision is made in local-dev. lol-html-streaming has no adapter and remains unanalyzed. On October 9, 2026: the per-page paired analysis (tools/extraction-paired.ts) settles what the block rule leaves as insufficient-n: rs-trafilatura beats html5ever-scraper by 0.165 F1 points (CI 0.144 to 0.186) and Readability or dom-smoothie by about 0.06, over 511 pages.",
+  "notes": "Quality is measured on frozen real pages and per page type; speed is secondary as long as quality is not equivalent. On October 9, 2026: the verdict reads the WCXB held-out test split, paired by page type; the development split, which was used for tuning, is no longer part of it. F1 does not depend on the host: the decision is made in local-dev. lol-html-streaming has no adapter and remains unanalyzed. On October 9, 2026: the per-page paired analysis (tools/extraction-paired.ts) settles what the block rule leaves as insufficient-n: rs-trafilatura beats html5ever-scraper by 0.165 F1 points (CI 0.144 to 0.186) and Readability or dom-smoothie by about 0.06, over 511 pages. On October 10, 2026, declared before the re-run: every candidate, lol-html included, is re-run on the WCXB held-out test split and on WebMainBench (545-page subset), with the pages spread over 64 shards per corpus (stratified by page type) so that the block verdict pairs 64 blocks; the primary stratum is WCXB, WebMainBench is a second stratum. The per-page paired analysis (tools/extraction-paired.ts) stays the robustness check. lol-html-fields against scraper-fields (tools/extraction-fields.ts) gives field precision and recall and the per-page time ratio for selector and field extraction.",
   "analysis": {
     "lane": "extraction",
     "options": {
       "trafilatura-class": {
         "extractor": "rs-trafilatura",
-        "renderer": null
+        "renderer": "none"
       },
       "htmd": {
         "extractor": "htmd",
-        "renderer": null
+        "renderer": "none"
+      },
+      "lol-html-streaming": {
+        "extractor": "lol-html",
+        "renderer": "none"
+      },
+      "dom-smoothie": {
+        "extractor": "dom-smoothie",
+        "renderer": "none"
+      },
+      "readability": {
+        "extractor": "readability",
+        "renderer": "none"
       },
       "html5ever-scraper": {
         "extractor": "scraper-text",
-        "renderer": null
+        "renderer": "none"
       }
     },
     "pairBy": [
-      "pageType"
+      "shard"
     ],
-    "stratum": {}
+    "stratum": {
+      "corpus": "wcxb"
+    },
+    "strata": [
+      {
+        "corpus": "wcxb"
+      },
+      {
+        "corpus": "webmainbench"
+      }
+    ]
   }
 }

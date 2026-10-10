@@ -1,0 +1,17 @@
+{
+ "file_id": "0024",
+ "url": "https://fixtures.test/markdown/code/blank-lines",
+ "_internal": {
+  "page_type": {
+   "primary": "code"
+  },
+  "case": "blank-lines",
+  "source": "automan-curated"
+ },
+ "ground_truth": {
+  "main_content": "```\nfirst()\n\nsecond()\n\n\nthird()\n```\n",
+  "main_markdown": "```\nfirst()\n\nsecond()\n\n\nthird()\n```\n",
+  "with": [],
+  "without": []
+ }
+}

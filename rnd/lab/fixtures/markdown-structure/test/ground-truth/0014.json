@@ -1,0 +1,17 @@
+{
+ "file_id": "0014",
+ "url": "https://fixtures.test/markdown/tables/pipe-in-cell",
+ "_internal": {
+  "page_type": {
+   "primary": "tables"
+  },
+  "case": "pipe-in-cell",
+  "source": "automan-curated"
+ },
+ "ground_truth": {
+  "main_content": "| Operator | Meaning |\n| --- | --- |\n| a \\| b | either |\n| a && b | both |\n",
+  "main_markdown": "| Operator | Meaning |\n| --- | --- |\n| a \\| b | either |\n| a && b | both |\n",
+  "with": [],
+  "without": []
+ }
+}

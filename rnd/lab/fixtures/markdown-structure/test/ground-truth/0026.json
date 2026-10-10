@@ -1,0 +1,17 @@
+{
+ "file_id": "0026",
+ "url": "https://fixtures.test/markdown/mixed/article",
+ "_internal": {
+  "page_type": {
+   "primary": "mixed"
+  },
+  "case": "article",
+  "source": "automan-curated"
+ },
+ "ground_truth": {
+  "main_content": "# Guide\n\nShort intro with a [reference](https://example.test/ref).\n\n## Install\n\n1. Download\n2. Run `setup`\n\n```sh\n./setup --all\n```\n\n## Options\n\n| Flag | Effect |\n| --- | --- |\n| --all | everything |\n",
+  "main_markdown": "# Guide\n\nShort intro with a [reference](https://example.test/ref).\n\n## Install\n\n1. Download\n2. Run `setup`\n\n```sh\n./setup --all\n```\n\n## Options\n\n| Flag | Effect |\n| --- | --- |\n| --all | everything |\n",
+  "with": [],
+  "without": []
+ }
+}

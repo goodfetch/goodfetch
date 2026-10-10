@@ -1,7 +1,9 @@
 // Main-content extraction quality on the WCXB corpus (CC-BY-4.0): word-level F1 against the ground truth, share of
 // required snippets found and of boilerplate snippets leaked, as defined by the corpus's own evaluate.py.
 import { readFile, readdir, writeFile } from 'node:fs/promises';
-import { join } from 'node:path';
+import { existsSync } from 'node:fs';
+import { basename, join } from 'node:path';
+import { scoreMarkdown, elementTypes, f1Of, type Counts } from './extraction-markdown.ts';
 import { WorkerClient } from './worker-client.ts';
 import { commandFor, labRoot, type BackendName } from './registry.ts';
 import { quantiles } from './statistics.ts';
@@ -14,9 +16,16 @@ import { browserPath } from './environment.ts';
 import { CdpConnection, CdpPage } from '../adapters/cdp-node/cdp.ts';
 
 export type Renderer = 'none' | 'chrome' | 'lightpanda';
-export type ExtractionConfig = { split: 'dev' | 'test'; extractors: BackendName[]; pageTypes: string[]; blocks: number; seed: number; corpus?: string; renderers?: Renderer[]; renderTimeoutMs?: number };
-export type ExtractionCell = { extractor: BackendName; pageType: string; renderer: Renderer };
+// shards: the pages of the selected types are spread over that many shards (stratified by type) and a cell is one extractor
+// over one shard, so that the verdict pairs enough blocks; pageType is then 'all'. markdown: the cell also scores the
+// output as Markdown against ground_truth.main_markdown (src/extraction-markdown.ts). task 'fields': the output is a JSON
+// record of structural fields, compared afterwards between parsers (tools/extraction-fields.ts); no F1 is computed.
+export type ExtractionConfig = { split: 'dev' | 'test'; extractors: BackendName[]; pageTypes: string[]; blocks: number; seed: number; corpus?: string; renderers?: Renderer[]; renderTimeoutMs?: number; shards?: number; markdown?: boolean; task?: 'main-content' | 'fields' };
+export type ExtractionCell = { extractor: BackendName; pageType: string; renderer: Renderer; corpus: string; shard?: number };
 export const corpusRoot = (config: ExtractionConfig) => join(labRoot, config.corpus ?? 'corpora/wcxb');
+export const corpusName = (config: ExtractionConfig) => basename(config.corpus ?? 'corpora/wcxb');
+// A corpus page is stored gzipped (WCXB, WebMainBench) or plain (the curated fixtures, kept readable in git).
+export const pagePath = (config: ExtractionConfig, fileId: string) => { const plain = join(corpusRoot(config), config.split, 'html', `${fileId}.html`); return existsSync(plain) ? plain : `${plain}.gz`; };
 
 // Python's \w on str is Unicode letters, digits and underscore; this is its JavaScript equivalent.
 export const tokenize = (text: string) => (text.toLowerCase().match(/[\p{L}\p{N}_]+/gu) ?? []);
@@ -31,18 +40,29 @@ export function wordF1(predicted: string, reference: string) {
 }
 export const snippetRate = (text: string, snippets: string[]) => snippets.length ? snippets.filter(snippet => text.toLowerCase().includes(snippet.toLowerCase())).length / snippets.length : 1;
 
-type Truth = { fileId: string; url: string; pageType: string; mainContent: string; with: string[]; without: string[] };
+type Truth = { fileId: string; url: string; pageType: string; mainContent: string; mainMarkdown: string | null; with: string[]; without: string[] };
 export async function loadTruth(config: ExtractionConfig): Promise<Truth[]> {
   const directory = join(corpusRoot(config), config.split, 'ground-truth');
   const files = (await readdir(directory)).filter(name => name.endsWith('.json')).sort();
   return Promise.all(files.map(async name => {
-    const data = JSON.parse(await readFile(join(directory, name), 'utf8')) as { file_id: string; url: string; _internal?: { page_type?: { primary?: string } | string }; ground_truth: { main_content: string; with?: string[]; without?: string[] } };
+    const data = JSON.parse(await readFile(join(directory, name), 'utf8')) as { file_id: string; url: string; _internal?: { page_type?: { primary?: string } | string }; ground_truth: { main_content: string; main_markdown?: string; with?: string[]; without?: string[] } };
     const raw = typeof data._internal?.page_type === 'string' ? data._internal.page_type : data._internal?.page_type?.primary ?? 'article';
-    return { fileId: data.file_id, url: data.url, pageType: raw === 'category' ? 'collection' : raw, mainContent: data.ground_truth.main_content ?? '', with: data.ground_truth.with ?? [], without: data.ground_truth.without ?? [] };
+    return { fileId: data.file_id, url: data.url, pageType: raw === 'category' ? 'collection' : raw, mainContent: data.ground_truth.main_content ?? '', mainMarkdown: data.ground_truth.main_markdown ?? null, with: data.ground_truth.with ?? [], without: data.ground_truth.without ?? [] };
   }));
 }
 
-export function extractionCombinations(config: ExtractionConfig): ExtractionCell[] { return (config.renderers ?? ['none']).flatMap(renderer => config.extractors.flatMap(extractor => config.pageTypes.map(pageType => ({ extractor, pageType, renderer })))); }
+export function extractionCombinations(config: ExtractionConfig): ExtractionCell[] {
+  const corpus = corpusName(config);
+  if (config.shards) { const shards = config.shards; return (config.renderers ?? ['none']).flatMap(renderer => config.extractors.flatMap(extractor => Array.from({ length: shards }, (_, shard) => ({ extractor, pageType: 'all', renderer, corpus, shard })))); }
+  return (config.renderers ?? ['none']).flatMap(renderer => config.extractors.flatMap(extractor => config.pageTypes.map(pageType => ({ extractor, pageType, renderer, corpus }))));
+}
+// Pages of a cell: one page type, or one shard. Shards take the selected pages grouped by type, in file order, round-robin.
+export async function cellPages(config: ExtractionConfig, cell: Pick<ExtractionCell, 'pageType' | 'shard'>) {
+  const truth = await loadTruth(config);
+  if (cell.shard === undefined) return truth.filter(page => page.pageType === cell.pageType);
+  const selected = config.pageTypes.flatMap(type => truth.filter(page => page.pageType === type));
+  return selected.filter((_, index) => index % config.shards! === cell.shard);
+}
 
 // A browser whose every request goes to the replay proxy: Chrome cannot resolve or reach any other host, Lightpanda blocks every
 // address but loopback, so a frozen page loads only what the archive holds.
@@ -81,11 +101,12 @@ async function renderPages(renderer: Exclude<Renderer, 'none'>, pages: Truth[], 
 
 // One cell: one extractor over every page of one type in the split, through a single adapter process.
 export async function runExtractionCell(config: ExtractionConfig, cell: ExtractionCell, block: number, directory: string): Promise<Record<string, unknown>> {
-  const pages = (await loadTruth(config)).filter(page => page.pageType === cell.pageType);
+  const pages = await cellPages(config, cell);
   const scratch = await mkdtemp(join(tmpdir(), 'automan-render-'));
   const render = cell.renderer === 'none' ? null : await renderPages(cell.renderer, pages, config, scratch);
   const worker = new WorkerClient(commandFor(cell.extractor, 60_000)); const predictions: Record<string, string> = {};
   const scores: { f1: number; precision: number; recall: number; withRate: number; leak: number; ms: number }[] = []; let errors = 0;
+  const timings: Record<string, number> = {}; const markdown: Record<string, ReturnType<typeof scoreMarkdown>> = {}; const fields = config.task === 'fields';
   try {
     await worker.call('hello', {}); await worker.call('prepare', {});
     for (const page of pages) {
@@ -93,15 +114,25 @@ export async function runExtractionCell(config: ExtractionConfig, cell: Extracti
       // A page the engine failed to render scores zero: the extractor never sees it.
       const rendered = render?.rendered.get(page.fileId);
       if (rendered && !rendered.path) { predictions[page.fileId] = ''; scores.push({ ...wordF1('', page.mainContent), withRate: snippetRate('', page.with), leak: 0, ms: 0 }); continue; }
-      try { const output = await worker.call('run', { path: rendered?.path ?? join(corpusRoot(config), config.split, 'html', `${page.fileId}.html.gz`), url: page.url }) as { text?: string; metrics?: { extractMs?: number } }; text = output.text ?? ''; ms = output.metrics?.extractMs ?? 0; }
+      try { const output = await worker.call('run', { path: rendered?.path ?? pagePath(config, page.fileId), url: page.url }) as { text?: string; metrics?: { extractMs?: number } }; text = output.text ?? ''; ms = output.metrics?.extractMs ?? 0; }
       catch { errors++; }
-      predictions[page.fileId] = text;
-      scores.push({ ...wordF1(text, page.mainContent), withRate: snippetRate(text, page.with), leak: page.without.length ? snippetRate(text, page.without) : 0, ms });
+      predictions[page.fileId] = text; timings[page.fileId] = ms;
+      if (config.markdown) { if (page.mainMarkdown === null) throw new Error(`${page.fileId}: the ground truth has no main_markdown`); markdown[page.fileId] = scoreMarkdown(text, page.mainMarkdown); }
+      scores.push(fields ? { f1: 0, precision: 0, recall: 0, withRate: 0, leak: 0, ms } : { ...wordF1(text, page.mainContent), withRate: snippetRate(text, page.with), leak: page.without.length ? snippetRate(text, page.without) : 0, ms });
     }
   } finally { await worker.close(); await rm(scratch, { recursive: true, force: true }); }
-  await writeFile(join(directory, `predictions-${cell.renderer === 'none' ? '' : `${cell.renderer}-`}${cell.extractor}-${cell.pageType}-b${block}.json`), JSON.stringify(predictions));
-  const mean = (key: keyof (typeof scores)[number]) => scores.length ? scores.reduce((sum, score) => sum + score[key], 0) / scores.length : null;
+  const suffix = `${cell.renderer === 'none' ? '' : `${cell.renderer}-`}${cell.extractor}-${cell.pageType}${cell.shard === undefined ? '' : `-s${String(cell.shard).padStart(2, '0')}`}-b${block}.json`;
+  await writeFile(join(directory, `predictions-${suffix}`), JSON.stringify(predictions));
+  await writeFile(join(directory, `timings-${suffix}`), JSON.stringify(timings));
+  if (config.markdown) await writeFile(join(directory, `markdown-${suffix}`), JSON.stringify(markdown));
+  const mean = (key: keyof (typeof scores)[number]) => scores.length && !(fields && key !== 'ms') ? scores.reduce((sum, score) => sum + score[key], 0) / scores.length : null;
+  // Markdown: per-page structure F1 averaged over the pages whose ground truth has structure; per-type F1 pooled over the cell.
+  const pageScores = Object.values(markdown);
+  const structured = pageScores.map(score => score.structureF1).filter((value): value is number => value !== null);
+  const pooled = (type: (typeof elementTypes)[number]) => { const sum = pageScores.reduce<Counts>((acc, score) => ({ matched: acc.matched + score.counts[type].matched, predicted: acc.predicted + score.counts[type].predicted, expected: acc.expected + score.counts[type].expected }), { matched: 0, predicted: 0, expected: 0 }); return sum.expected ? f1Of(sum) : null; };
+  const markdownStats = config.markdown ? { structuredPages: structured.length, mdStructureF1: structured.length ? structured.reduce((a, b) => a + b, 0) / structured.length : null,
+    mdHeadingF1: pooled('heading'), mdListF1: pooled('list'), mdTableF1: pooled('table'), mdCodeF1: pooled('code'), mdLinkF1: pooled('link') } : {};
   const renderStats = render ? { renderOk: [...render.rendered.values()].filter(r => r.status === 'ok').length, renderTimeouts: [...render.rendered.values()].filter(r => r.status === 'timeout').length, renderErrors: [...render.rendered.values()].filter(r => r.status === 'error').length,
     renderMsP50: quantiles([...render.rendered.values()].filter(r => r.status === 'ok').map(r => r.loadMs)).p50, archiveHits: render.hits, refusedRequests: render.misses, refusedTunnels: render.tunnels, renderedBytes: render.renderedBytes, renderFailures: [...render.rendered.values()].filter(r => r.error).map(r => r.error).slice(0, 10) } : {};
-  return { ...cell, block, status: 'verified', pages: pages.length, ...renderStats, extractErrors: errors, meanF1: mean('f1'), meanPrecision: mean('precision'), meanRecall: mean('recall'), snippetRecall: mean('withRate'), boilerplateLeak: mean('leak'), extractMsP50: quantiles(scores.map(score => score.ms)).p50 };
+  return { ...cell, block, status: 'verified', pages: pages.length, ...renderStats, extractErrors: errors, ...markdownStats, meanF1: mean('f1'), meanPrecision: mean('precision'), meanRecall: mean('recall'), snippetRecall: mean('withRate'), boilerplateLeak: mean('leak'), extractMsP50: quantiles(scores.map(score => score.ms)).p50 };
 }

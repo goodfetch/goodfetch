@@ -1,0 +1,17 @@
+{
+ "file_id": "0015",
+ "url": "https://fixtures.test/markdown/tables/with-links",
+ "_internal": {
+  "page_type": {
+   "primary": "tables"
+  },
+  "case": "with-links",
+  "source": "automan-curated"
+ },
+ "ground_truth": {
+  "main_content": "Mirrors:\n\n| Region | Link |\n| --- | --- |\n| EU | [eu mirror](https://eu.example.test/) |\n| US | [us mirror](https://us.example.test/) |\n",
+  "main_markdown": "Mirrors:\n\n| Region | Link |\n| --- | --- |\n| EU | [eu mirror](https://eu.example.test/) |\n| US | [us mirror](https://us.example.test/) |\n",
+  "with": [],
+  "without": []
+ }
+}

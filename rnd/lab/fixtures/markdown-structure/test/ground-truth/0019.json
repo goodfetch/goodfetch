@@ -1,0 +1,17 @@
+{
+ "file_id": "0019",
+ "url": "https://fixtures.test/markdown/links/in-list",
+ "_internal": {
+  "page_type": {
+   "primary": "links"
+  },
+  "case": "in-list",
+  "source": "automan-curated"
+ },
+ "ground_truth": {
+  "main_content": "- [One](https://example.test/one)\n- [Two](https://example.test/two)\n",
+  "main_markdown": "- [One](https://example.test/one)\n- [Two](https://example.test/two)\n",
+  "with": [],
+  "without": []
+ }
+}

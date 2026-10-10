@@ -1,0 +1,17 @@
+{
+ "file_id": "0027",
+ "url": "https://fixtures.test/markdown/mixed/blockquote-list",
+ "_internal": {
+  "page_type": {
+   "primary": "mixed"
+  },
+  "case": "blockquote-list",
+  "source": "automan-curated"
+ },
+ "ground_truth": {
+  "main_content": "> Remember:\n>\n> - back up\n> - test restores\n\nThen go.\n",
+  "main_markdown": "> Remember:\n>\n> - back up\n> - test restores\n\nThen go.\n",
+  "with": [],
+  "without": []
+ }
+}

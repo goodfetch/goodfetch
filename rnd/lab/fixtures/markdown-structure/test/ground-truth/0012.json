@@ -1,0 +1,17 @@
+{
+ "file_id": "0012",
+ "url": "https://fixtures.test/markdown/tables/no-thead",
+ "_internal": {
+  "page_type": {
+   "primary": "tables"
+  },
+  "case": "no-thead",
+  "source": "automan-curated"
+ },
+ "ground_truth": {
+  "main_content": "| Key | Value |\n| --- | --- |\n| alpha | 1 |\n| beta | 2 |\n",
+  "main_markdown": "| Key | Value |\n| --- | --- |\n| alpha | 1 |\n| beta | 2 |\n",
+  "with": [],
+  "without": []
+ }
+}

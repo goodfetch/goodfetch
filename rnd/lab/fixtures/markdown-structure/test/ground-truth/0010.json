@@ -1,0 +1,17 @@
+{
+ "file_id": "0010",
+ "url": "https://fixtures.test/markdown/lists/inline-markup",
+ "_internal": {
+  "page_type": {
+   "primary": "lists"
+  },
+  "case": "inline-markup",
+  "source": "automan-curated"
+ },
+ "ground_truth": {
+  "main_content": "- **Bold** start\n- Has [a link](/docs)\n- Has `code` inside\n",
+  "main_markdown": "- **Bold** start\n- Has [a link](/docs)\n- Has `code` inside\n",
+  "with": [],
+  "without": []
+ }
+}

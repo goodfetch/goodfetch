@@ -1,0 +1,17 @@
+{
+ "file_id": "0022",
+ "url": "https://fixtures.test/markdown/code/pre-only",
+ "_internal": {
+  "page_type": {
+   "primary": "code"
+  },
+  "case": "pre-only",
+  "source": "automan-curated"
+ },
+ "ground_truth": {
+  "main_content": "```\n$ cargo build --release\n   Compiling lab v0.1.0\n```\n\nDone.\n",
+  "main_markdown": "```\n$ cargo build --release\n   Compiling lab v0.1.0\n```\n\nDone.\n",
+  "with": [],
+  "without": []
+ }
+}

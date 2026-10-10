@@ -1,0 +1,17 @@
+{
+ "file_id": "0018",
+ "url": "https://fixtures.test/markdown/links/titled-and-formatted",
+ "_internal": {
+  "page_type": {
+   "primary": "links"
+  },
+  "case": "titled-and-formatted",
+  "source": "automan-curated"
+ },
+ "ground_truth": {
+  "main_content": "See [the *spec*](https://example.test/spec \"The spec\") and [**FAQ**](https://example.test/faq).\n",
+  "main_markdown": "See [the *spec*](https://example.test/spec \"The spec\") and [**FAQ**](https://example.test/faq).\n",
+  "with": [],
+  "without": []
+ }
+}

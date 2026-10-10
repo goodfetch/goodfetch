@@ -1,0 +1,17 @@
+{
+ "file_id": "0028",
+ "url": "https://fixtures.test/markdown/mixed/list-with-code",
+ "_internal": {
+  "page_type": {
+   "primary": "mixed"
+  },
+  "case": "list-with-code",
+  "source": "automan-curated"
+ },
+ "ground_truth": {
+  "main_content": "1. Create the file:\n\n   ```\n   touch a.txt\n   ```\n\n2. Check it.\n",
+  "main_markdown": "1. Create the file:\n\n   ```\n   touch a.txt\n   ```\n\n2. Check it.\n",
+  "with": [],
+  "without": []
+ }
+}

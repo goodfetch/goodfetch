@@ -1,0 +1,17 @@
+{
+ "file_id": "0016",
+ "url": "https://fixtures.test/markdown/links/absolute-relative",
+ "_internal": {
+  "page_type": {
+   "primary": "links"
+  },
+  "case": "absolute-relative",
+  "source": "automan-curated"
+ },
+ "ground_truth": {
+  "main_content": "Read the [first page](https://example.test/a), then [the second](/b) and [the third](c.html).\n",
+  "main_markdown": "Read the [first page](https://example.test/a), then [the second](/b) and [the third](c.html).\n",
+  "with": [],
+  "without": []
+ }
+}

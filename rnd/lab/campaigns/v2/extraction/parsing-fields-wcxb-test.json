@@ -1,0 +1,32 @@
+{
+  "schemaVersion": 2,
+  "id": "parsing-fields-wcxb-test",
+  "lane": "extraction",
+  "decisionIds": [
+    "D-extraction"
+  ],
+  "hostClass": {
+    "requested": "local-controlled",
+    "allowDowngrade": true
+  },
+  "config": {
+    "split": "test",
+    "extractors": [
+      "scraper-fields",
+      "lol-html-fields"
+    ],
+    "pageTypes": [
+      "article",
+      "collection",
+      "documentation",
+      "forum",
+      "listing",
+      "product",
+      "service"
+    ],
+    "shards": 64,
+    "task": "fields",
+    "blocks": 1,
+    "seed": 1818
+  }
+}

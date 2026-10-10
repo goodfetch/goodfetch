@@ -1,0 +1,35 @@
+{
+  "schemaVersion": 2,
+  "id": "extraction-rerun-wcxb-test",
+  "lane": "extraction",
+  "decisionIds": [
+    "D-extraction"
+  ],
+  "hostClass": {
+    "requested": "local-controlled",
+    "allowDowngrade": true
+  },
+  "config": {
+    "split": "test",
+    "extractors": [
+      "rs-trafilatura",
+      "dom-smoothie",
+      "readability",
+      "scraper-text",
+      "htmd",
+      "lol-html"
+    ],
+    "pageTypes": [
+      "article",
+      "collection",
+      "documentation",
+      "forum",
+      "listing",
+      "product",
+      "service"
+    ],
+    "shards": 64,
+    "blocks": 1,
+    "seed": 1414
+  }
+}

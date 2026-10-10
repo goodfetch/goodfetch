@@ -1,0 +1,17 @@
+{
+ "file_id": "0025",
+ "url": "https://fixtures.test/markdown/code/backticks-inside",
+ "_internal": {
+  "page_type": {
+   "primary": "code"
+  },
+  "case": "backticks-inside",
+  "source": "automan-curated"
+ },
+ "ground_truth": {
+  "main_content": "Markdown sample:\n\n````\n```js\nlet a = 1;\n```\n````\n",
+  "main_markdown": "Markdown sample:\n\n````\n```js\nlet a = 1;\n```\n````\n",
+  "with": [],
+  "without": []
+ }
+}

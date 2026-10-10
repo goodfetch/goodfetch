@@ -1,0 +1,17 @@
+{
+ "file_id": "0003",
+ "url": "https://fixtures.test/markdown/headings/sectioned",
+ "_internal": {
+  "page_type": {
+   "primary": "headings"
+  },
+  "case": "sectioned",
+  "source": "automan-curated"
+ },
+ "ground_truth": {
+  "main_content": "# Release notes\n\n## Fixes\n\nSeveral fixes.\n\n## Features\n\nTwo features.\n\n### Streaming\n\nNow streams.\n",
+  "main_markdown": "# Release notes\n\n## Fixes\n\nSeveral fixes.\n\n## Features\n\nTwo features.\n\n### Streaming\n\nNow streams.\n",
+  "with": [],
+  "without": []
+ }
+}

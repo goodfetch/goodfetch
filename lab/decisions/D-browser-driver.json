@@ -147,6 +147,30 @@
       "kind": "run",
       "ref": "browser-driver-primitives-2026-10-08T16-56-23-563Z-6a0bbd",
       "note": "primitives, garde v2"
+    },
+    {
+      "kind": "run",
+      "ref": "browser-driver-rtt-0-2026-10-09T23-21-22-913Z-2bbed1",
+      "note": "pilotes à 0 ms, Mac calme, 8 blocs propres sur 8"
+    },
+    {
+      "kind": "run",
+      "ref": "browser-driver-rtt-20-2026-10-09T23-53-33-623Z-3dd31a",
+      "note": "pilotes à 20 ms, Mac calme, 7 blocs propres sur 8"
+    },
+    {
+      "kind": "run",
+      "ref": "browser-driver-rtt-100-2026-10-10T00-17-31-377Z-ae1e25",
+      "note": "pilotes à 100 ms, Mac calme, 5 blocs propres sur 6 ; Playwright natif 2 timeouts sur le catalogue JS"
+    },
+    {
+      "kind": "run",
+      "ref": "browser-driver-rtt-300-2026-10-10T03-02-31-508Z-5366fd",
+      "note": "pilotes à 300 ms, Mac calme, 4 blocs propres sur 6"
+    },
+    {
+      "kind": "research-doc",
+      "ref": "lab/reports/quiet-host-2026-10-10.md"
     }
   ],
   "verdictRef": "verdicts/D-browser-driver.json",

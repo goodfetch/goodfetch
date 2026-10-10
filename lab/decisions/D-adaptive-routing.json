@@ -60,12 +60,16 @@
   "evidence": [
     {
       "kind": "run",
-      "ref": "portal-routing-2026-10-09T15-12-56-291Z-1eb2f9",
-      "note": "six rendus, cinq politiques"
+      "ref": "portal-routing-2026-10-10T02-47-13-937Z-4adc3c",
+      "note": "six rendus, cinq politiques ; Mac calme"
     },
     {
       "kind": "research-doc",
       "ref": "lab/reports/portal-2026-10-09.md"
+    },
+    {
+      "kind": "research-doc",
+      "ref": "lab/reports/quiet-host-2026-10-10.md"
     }
   ],
   "verdictRef": "verdicts/D-adaptive-routing.json",

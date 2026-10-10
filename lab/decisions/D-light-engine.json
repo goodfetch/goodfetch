@@ -53,8 +53,8 @@
   "evidence": [
     {
       "kind": "run",
-      "ref": "light-engine-paired-2026-10-09T16-29-54-931Z-c62471",
-      "note": "Chrome et Lightpanda dans un même run, mêmes pilotes et scénarios"
+      "ref": "light-engine-paired-2026-10-10T02-55-16-672Z-17bf22",
+      "note": "Chrome et Lightpanda dans un même run, mêmes pilotes et scénarios ; Mac calme"
     },
     {
       "kind": "run",
@@ -88,6 +88,10 @@
     {
       "kind": "research-doc",
       "ref": "lab/reports/light-engine-paired-2026-10-09.md"
+    },
+    {
+      "kind": "research-doc",
+      "ref": "lab/reports/quiet-host-2026-10-10.md"
     }
   ],
   "verdictRef": "verdicts/D-light-engine.json",

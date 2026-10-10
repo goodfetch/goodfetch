@@ -50,17 +50,21 @@
   "evidence": [
     {
       "kind": "run",
-      "ref": "durable-admission-2026-10-08T19-43-14-860Z-b8ad5b",
-      "note": "sans surcharge"
+      "ref": "durable-admission-2026-10-10T02-46-32-139Z-ef1b25",
+      "note": "sans surcharge ; Mac calme"
     },
     {
       "kind": "run",
-      "ref": "durable-scheduler-2026-10-08T19-43-56-509Z-dfabee",
-      "note": "domaine lourd en surcharge"
+      "ref": "durable-scheduler-2026-10-10T02-45-45-825Z-edc50c",
+      "note": "domaine lourd en surcharge ; Mac calme"
     },
     {
       "kind": "research-doc",
       "ref": "lab/reports/admission-2026-10-08.md"
+    },
+    {
+      "kind": "research-doc",
+      "ref": "lab/reports/quiet-host-2026-10-10.md"
     }
   ],
   "verdictRef": null,

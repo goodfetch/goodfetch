@@ -8,7 +8,7 @@ export type ImportedCell = { cellId: string; factors: Record<string, string | nu
 export type Lane = 'bench' | 'storage' | 'workflow' | 'runtime' | 'actionability' | 'sqlite-readers' | 'extraction' | 'ai' | 'identity' | 'admission' | 'portal' | 'topology' | 'suite';
 export type Json = Record<string, unknown>;
 
-const factorKeys = ['backend', 'extractor', 'pageType', 'split', 'mode', 'httpTier', 'profile', 'purpose', 'renderer', 'model', 'interface', 'tier', 'scenario', 'engine', 'format', 'batchSize', 'batchRows', 'writers', 'readerMode', 'payloadBytes', 'concurrency', 'batchJobs', 'fault', 'poolWake', 'runtime', 'variant', 'policy', 'jobs', 'pages', 'delayMs', 'leaseMs', 'block'];
+const factorKeys = ['backend', 'extractor', 'pageType', 'corpus', 'shard', 'split', 'mode', 'httpTier', 'profile', 'purpose', 'renderer', 'model', 'interface', 'tier', 'scenario', 'engine', 'format', 'batchSize', 'batchRows', 'writers', 'readerMode', 'payloadBytes', 'concurrency', 'batchJobs', 'fault', 'poolWake', 'runtime', 'variant', 'policy', 'jobs', 'pages', 'delayMs', 'leaseMs', 'block'];
 
 export const zero = (): Counts => ({ verified: 0, failed: 0, timeout: 0, crashed: 0, aborted: 0, unsupported: 0, rejected: 0, unavailable: 0, skipped: 0 });
 export const add = (into: Counts, from: Partial<Counts>) => { for (const key of Object.keys(into) as (keyof Counts)[]) into[key] += Number(from[key] ?? 0); return into; };
@@ -73,6 +73,8 @@ export function laneMetrics(lane: Lane, raw: Json): Record<string, Measure> {
   if (lane === 'extraction') {
     const source = 'lane; mean over the pages of the cell, WCXB evaluate.py definitions';
     for (const [id, key, unit] of [['extraction-f1', 'meanF1', 'ratio'], ['extraction-precision', 'meanPrecision', 'ratio'], ['extraction-recall', 'meanRecall', 'ratio'], ['snippet-recall', 'snippetRecall', 'ratio'], ['boilerplate-leak', 'boilerplateLeak', 'ratio'], ['extract-ms-p50', 'extractMsP50', 'ms']] as const) metrics[id] = measure(raw[key], unit, source);
+    const markdown = 'lane; Markdown structure oracle (src/extraction-markdown.ts) against ground_truth.main_markdown';
+    for (const [id, key] of [['markdown-structure-f1', 'mdStructureF1'], ['markdown-heading-f1', 'mdHeadingF1'], ['markdown-list-f1', 'mdListF1'], ['markdown-table-f1', 'mdTableF1'], ['markdown-code-f1', 'mdCodeF1'], ['markdown-link-f1', 'mdLinkF1']] as const) if (raw[key] !== undefined) metrics[id] = measure(raw[key], 'ratio', markdown);
   }
   if (num(resources.peakRssBytes) !== null) metrics['rss-peak-bytes'] = measure(resources.peakRssBytes, 'B', `legacy-summary; ${str(resources.method) ?? 'sampled RSS'}`);
   if (num(resources.peakPssBytes) !== null) metrics['pss-peak-bytes'] = measure(resources.peakPssBytes, 'B', `lane; ${str(resources.method) ?? 'Linux smaps_rollup'}`);

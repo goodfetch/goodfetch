@@ -1,0 +1,35 @@
+{
+  "schemaVersion": 2,
+  "id": "markdown-wmb",
+  "lane": "extraction",
+  "decisionIds": [
+    "D-markdown"
+  ],
+  "hostClass": {
+    "requested": "local-controlled",
+    "allowDowngrade": true
+  },
+  "config": {
+    "split": "test",
+    "corpus": "corpora/webmainbench",
+    "extractors": [
+      "rs-trafilatura-htmd",
+      "rs-trafilatura-md",
+      "rs-trafilatura-html2md",
+      "rs-trafilatura-fast-html2md",
+      "rs-trafilatura-mdka",
+      "dom-smoothie-md",
+      "lol-html-htmd",
+      "htmd"
+    ],
+    "pageTypes": [
+      "simple",
+      "mid",
+      "hard"
+    ],
+    "shards": 64,
+    "markdown": true,
+    "blocks": 1,
+    "seed": 1616
+  }
+}

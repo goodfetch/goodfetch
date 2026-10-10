@@ -1,0 +1,17 @@
+{
+ "file_id": "0013",
+ "url": "https://fixtures.test/markdown/tables/inline-and-entities",
+ "_internal": {
+  "page_type": {
+   "primary": "tables"
+  },
+  "case": "inline-and-entities",
+  "source": "automan-curated"
+ },
+ "ground_truth": {
+  "main_content": "| Item | Note |\n| --- | --- |\n| **Fish** & chips | Served *hot* |\n| A<B | `x > 1` |\n",
+  "main_markdown": "| Item | Note |\n| --- | --- |\n| **Fish** & chips | Served *hot* |\n| A<B | `x > 1` |\n",
+  "with": [],
+  "without": []
+ }
+}

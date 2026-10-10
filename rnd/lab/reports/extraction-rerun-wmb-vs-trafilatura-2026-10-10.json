@@ -1,0 +1,265 @@
+{
+ "schemaVersion": 2,
+ "runId": "extraction-rerun-wmb-2026-10-10T15-14-27-287Z-8ec849",
+ "unit": "page",
+ "metric": "word F1 (lab definition)",
+ "baseline": "rs-trafilatura",
+ "extractors": {
+  "dom-smoothie": {
+   "pages": 545,
+   "meanScore": 0.8458911937410936,
+   "byPageType": {
+    "hard": {
+     "pages": 164,
+     "mean": 0.801895253216699
+    },
+    "mid": {
+     "pages": 218,
+     "mean": 0.8341151780315302
+    },
+    "simple": {
+     "pages": 163,
+     "mean": 0.9059065659538855
+    }
+   },
+   "timing": {
+    "pages": 545,
+    "p50Ms": 1.955334,
+    "p95Ms": 7.893459,
+    "totalMs": 1707.6261629999992
+   }
+  },
+  "htmd": {
+   "pages": 545,
+   "meanScore": 0.3704630213641791,
+   "byPageType": {
+    "hard": {
+     "pages": 164,
+     "mean": 0.285936068589029
+    },
+    "mid": {
+     "pages": 218,
+     "mean": 0.3560787831547384
+    },
+    "simple": {
+     "pages": 163,
+     "mean": 0.47474635992112874
+    }
+   },
+   "timing": {
+    "pages": 545,
+    "p50Ms": 1.377083,
+    "p95Ms": 4.6058330000000005,
+    "totalMs": 1116.5586730000002
+   }
+  },
+  "lol-html": {
+   "pages": 545,
+   "meanScore": 0.7460431057635997,
+   "byPageType": {
+    "hard": {
+     "pages": 164,
+     "mean": 0.6557702523753451
+    },
+    "mid": {
+     "pages": 218,
+     "mean": 0.7571216002979638
+    },
+    "simple": {
+     "pages": 163,
+     "mean": 0.8220531434763761
+    }
+   },
+   "timing": {
+    "pages": 545,
+    "p50Ms": 0.787333,
+    "p95Ms": 2.9965420000000003,
+    "totalMs": 662.1152789999995
+   }
+  },
+  "readability": {
+   "pages": 545,
+   "meanScore": 0.8473436370409725,
+   "byPageType": {
+    "hard": {
+     "pages": 164,
+     "mean": 0.7995823716685356
+    },
+    "mid": {
+     "pages": 218,
+     "mean": 0.8399488294634201
+    },
+    "simple": {
+     "pages": 163,
+     "mean": 0.905287904359903
+    }
+   },
+   "timing": {
+    "pages": 545,
+    "p50Ms": 12.63695899999999,
+    "p95Ms": 66.10637499999999,
+    "totalMs": 14475.941077000012
+   }
+  },
+  "rs-trafilatura": {
+   "pages": 545,
+   "meanScore": 0.8204883018509322,
+   "byPageType": {
+    "hard": {
+     "pages": 164,
+     "mean": 0.7507215667179047
+    },
+    "mid": {
+     "pages": 218,
+     "mean": 0.8228622794175419
+    },
+    "simple": {
+     "pages": 163,
+     "mean": 0.8875080408220707
+    }
+   },
+   "timing": {
+    "pages": 545,
+    "p50Ms": 10.287958,
+    "p95Ms": 43.314125000000004,
+    "totalMs": 9753.152042
+   }
+  },
+  "scraper-text": {
+   "pages": 545,
+   "meanScore": 0.5792546306350881,
+   "byPageType": {
+    "hard": {
+     "pages": 164,
+     "mean": 0.4827723908119511
+    },
+    "mid": {
+     "pages": 218,
+     "mean": 0.5788777938352605
+    },
+    "simple": {
+     "pages": 163,
+     "mean": 0.6768327763612029
+    }
+   },
+   "timing": {
+    "pages": 545,
+    "p50Ms": 0.9633750000000001,
+    "p95Ms": 3.302708,
+    "totalMs": 803.584584
+   }
+  }
+ },
+ "comparisons": [
+  {
+   "extractor": "dom-smoothie",
+   "baseline": "rs-trafilatura",
+   "pages": 545,
+   "meanScore": 0.8458911937410936,
+   "baselineMeanScore": 0.8204883018509322,
+   "meanDifference": 0.02540289189016081,
+   "ci95": [
+    0.0075519990178844225,
+    0.044301762219683224
+   ],
+   "hodgesLehmann": 0.003940034363175693,
+   "wilcoxon": {
+    "n": 485,
+    "wPlus": 69543,
+    "pValue": 0.0005874780311183603,
+    "method": "normal"
+   },
+   "wins": 261,
+   "losses": 224,
+   "ties": 60
+  },
+  {
+   "extractor": "htmd",
+   "baseline": "rs-trafilatura",
+   "pages": 545,
+   "meanScore": 0.3704630213641791,
+   "baselineMeanScore": 0.8204883018509322,
+   "meanDifference": -0.45002528048675244,
+   "ci95": [
+    -0.4762246907590212,
+    -0.42243441064453147
+   ],
+   "hodgesLehmann": -0.46309819337876734,
+   "wilcoxon": {
+    "n": 545,
+    "wPlus": 4602,
+    "pValue": 0,
+    "method": "normal"
+   },
+   "wins": 28,
+   "losses": 517,
+   "ties": 0
+  },
+  {
+   "extractor": "lol-html",
+   "baseline": "rs-trafilatura",
+   "pages": 545,
+   "meanScore": 0.7460431057635997,
+   "baselineMeanScore": 0.8204883018509322,
+   "meanDifference": -0.07444519608733197,
+   "ci95": [
+    -0.09838039657602456,
+    -0.05076720379852504
+   ],
+   "hodgesLehmann": -0.019086217552438223,
+   "wilcoxon": {
+    "n": 530,
+    "wPlus": 39291,
+    "pValue": 0,
+    "method": "normal"
+   },
+   "wins": 158,
+   "losses": 372,
+   "ties": 15
+  },
+  {
+   "extractor": "readability",
+   "baseline": "rs-trafilatura",
+   "pages": 545,
+   "meanScore": 0.8473436370409725,
+   "baselineMeanScore": 0.8204883018509322,
+   "meanDifference": 0.026855335190039815,
+   "ci95": [
+    0.008995060733295607,
+    0.04512535392433791
+   ],
+   "hodgesLehmann": 0.003911244518509938,
+   "wilcoxon": {
+    "n": 487,
+    "wPlus": 70069,
+    "pValue": 0.0006060052596146281,
+    "method": "normal"
+   },
+   "wins": 262,
+   "losses": 225,
+   "ties": 58
+  },
+  {
+   "extractor": "scraper-text",
+   "baseline": "rs-trafilatura",
+   "pages": 545,
+   "meanScore": 0.5792546306350881,
+   "baselineMeanScore": 0.8204883018509322,
+   "meanDifference": -0.24123367121584405,
+   "ci95": [
+    -0.2684136258658851,
+    -0.2142036616199637
+   ],
+   "hodgesLehmann": -0.23364784649315148,
+   "wilcoxon": {
+    "n": 537,
+    "wPlus": 14012,
+    "pValue": 0,
+    "method": "normal"
+   },
+   "wins": 57,
+   "losses": 480,
+   "ties": 8
+  }
+ ]
+}

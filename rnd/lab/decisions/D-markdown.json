@@ -1,0 +1,141 @@
+{
+  "id": "D-markdown",
+  "title": "HTML to Markdown conversion",
+  "question": "Which converter should turn the extracted main content into Markdown, judged on headings, lists, tables and code blocks?",
+  "kind": "technical",
+  "status": "open",
+  "options": [
+    {
+      "id": "htmd",
+      "description": "htmd on rs-trafilatura's content HTML"
+    },
+    {
+      "id": "trafilatura-native",
+      "description": "rs-trafilatura's own Markdown output (quick_html2md)"
+    },
+    {
+      "id": "html2md",
+      "description": "html2md on rs-trafilatura's content HTML"
+    },
+    {
+      "id": "fast-html2md",
+      "description": "fast_html2md's lol_html rewriter (the converter spider_transformations uses) on rs-trafilatura's content HTML"
+    },
+    {
+      "id": "mdka",
+      "description": "mdka on rs-trafilatura's content HTML"
+    },
+    {
+      "id": "dom-smoothie-markdown",
+      "description": "dom_smoothie's own Markdown text mode, with its own content selection"
+    },
+    {
+      "id": "lol-html-htmd",
+      "description": "the lol-html streaming selection, then htmd"
+    },
+    {
+      "id": "htmd-whole-page",
+      "description": "htmd on the whole page, no content selection"
+    }
+  ],
+  "baseline": "htmd",
+  "primaryMetric": {
+    "metricId": "markdown-structure-f1",
+    "blockStatistic": "median"
+  },
+  "secondaryMetrics": [
+    "markdown-heading-f1",
+    "markdown-list-f1",
+    "markdown-table-f1",
+    "markdown-code-f1",
+    "markdown-link-f1",
+    "extraction-f1"
+  ],
+  "contractGates": [
+    "oracle-exact"
+  ],
+  "delta": {
+    "kind": "ratio",
+    "value": 0.05
+  },
+  "rule": {
+    "kind": "superiority",
+    "alpha": 0.05,
+    "power": 0.8,
+    "noisyBlockPolicy": "exclude"
+  },
+  "hostClass": {
+    "decision": "local-dev",
+    "publication": "local-controlled"
+  },
+  "networkProfiles": [],
+  "campaigns": [
+    "markdown-wmb",
+    "markdown-fixtures"
+  ],
+  "evidence": [
+    {
+      "kind": "run",
+      "ref": "markdown-wmb-2026-10-10T15-15-30-344Z-d7971d",
+      "note": "WebMainBench Markdown structure"
+    },
+    {
+      "kind": "run",
+      "ref": "markdown-fixtures-2026-10-10T15-13-30-714Z-1256be",
+      "note": "curated Markdown fixtures"
+    },
+    {
+      "kind": "research-doc",
+      "ref": "lab/reports/extraction-rerun-2026-10-10.md"
+    }
+  ],
+  "verdictRef": "verdicts/D-markdown.json",
+  "adr": null,
+  "dependsOn": [
+    "D-extraction"
+  ],
+  "notes": "Declared on October 10, 2026, before any measurement. Oracle: src/extraction-markdown.ts reduces both the output and the ground-truth Markdown, with the same GFM parser, to heading texts, list item texts, table cell texts (pipe or HTML tables) and code block contents, and scores them by multiset matching; the page score is the micro F1 over those four types, averaged over the pages whose ground truth has structure. Links are scored apart. The verdict reads WebMainBench's 545 pages with calibrated Markdown ground truth (64 shards, stratified by difficulty); 30 curated fixtures (six categories, hand-written expected Markdown) test each converter alone. The converters receive the same input, rs-trafilatura's content HTML, so that only the conversion differs; dom-smoothie, lol-html and whole-page htmd also differ in content selection.",
+  "analysis": {
+    "lane": "extraction",
+    "options": {
+      "htmd": {
+        "extractor": "rs-trafilatura-htmd",
+        "renderer": "none"
+      },
+      "trafilatura-native": {
+        "extractor": "rs-trafilatura-md",
+        "renderer": "none"
+      },
+      "html2md": {
+        "extractor": "rs-trafilatura-html2md",
+        "renderer": "none"
+      },
+      "fast-html2md": {
+        "extractor": "rs-trafilatura-fast-html2md",
+        "renderer": "none"
+      },
+      "mdka": {
+        "extractor": "rs-trafilatura-mdka",
+        "renderer": "none"
+      },
+      "dom-smoothie-markdown": {
+        "extractor": "dom-smoothie-md",
+        "renderer": "none"
+      },
+      "lol-html-htmd": {
+        "extractor": "lol-html-htmd",
+        "renderer": "none"
+      },
+      "htmd-whole-page": {
+        "extractor": "htmd",
+        "renderer": "none"
+      }
+    },
+    "pairBy": [
+      "shard"
+    ],
+    "stratum": {
+      "corpus": "webmainbench"
+    }
+  }
+}

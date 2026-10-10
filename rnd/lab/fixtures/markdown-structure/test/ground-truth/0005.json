@@ -1,0 +1,17 @@
+{
+ "file_id": "0005",
+ "url": "https://fixtures.test/markdown/headings/with-break",
+ "_internal": {
+  "page_type": {
+   "primary": "headings"
+  },
+  "case": "with-break",
+  "source": "automan-curated"
+ },
+ "ground_truth": {
+  "main_content": "## First line second line\n\nAfter.\n\n### Plain\n\nEnd.\n",
+  "main_markdown": "## First line second line\n\nAfter.\n\n### Plain\n\nEnd.\n",
+  "with": [],
+  "without": []
+ }
+}

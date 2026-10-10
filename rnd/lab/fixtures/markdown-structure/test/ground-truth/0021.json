@@ -1,0 +1,17 @@
+{
+ "file_id": "0021",
+ "url": "https://fixtures.test/markdown/code/fenced-language",
+ "_internal": {
+  "page_type": {
+   "primary": "code"
+  },
+  "case": "fenced-language",
+  "source": "automan-curated"
+ },
+ "ground_truth": {
+  "main_content": "Example:\n\n```rust\nfn main() {\n    println!(\"hi\");\n}\n```\n",
+  "main_markdown": "Example:\n\n```rust\nfn main() {\n    println!(\"hi\");\n}\n```\n",
+  "with": [],
+  "without": []
+ }
+}

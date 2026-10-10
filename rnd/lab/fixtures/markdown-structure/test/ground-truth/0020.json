@@ -1,0 +1,17 @@
+{
+ "file_id": "0020",
+ "url": "https://fixtures.test/markdown/links/parentheses-in-url",
+ "_internal": {
+  "page_type": {
+   "primary": "links"
+  },
+  "case": "parentheses-in-url",
+  "source": "automan-curated"
+ },
+ "ground_truth": {
+  "main_content": "The [Rust article](https://en.example.test/wiki/Rust_(language)) explains it.\n",
+  "main_markdown": "The [Rust article](https://en.example.test/wiki/Rust_(language)) explains it.\n",
+  "with": [],
+  "without": []
+ }
+}

@@ -1,0 +1,17 @@
+{
+ "file_id": "0023",
+ "url": "https://fixtures.test/markdown/code/html-entities",
+ "_internal": {
+  "page_type": {
+   "primary": "code"
+  },
+  "case": "html-entities",
+  "source": "automan-curated"
+ },
+ "ground_truth": {
+  "main_content": "```html\n<div class=\"a\">\n  <p>x &amp; y</p>\n</div>\n```\n",
+  "main_markdown": "```html\n<div class=\"a\">\n  <p>x &amp; y</p>\n</div>\n```\n",
+  "with": [],
+  "without": []
+ }
+}

@@ -1,0 +1,2965 @@
+{
+ "schemaVersion": 2,
+ "runId": "markdown-fixtures-2026-10-10T15-13-30-714Z-1256be",
+ "lane": "extraction",
+ "campaign": {
+  "id": "markdown-fixtures",
+  "source": "campaigns/v2/extraction/markdown-fixtures.json",
+  "sha256": "a19787e0910182d8ee7c350d0bf1e3ff9f7f4897116c0c4fbe906b8b07ad95c5"
+ },
+ "startedAt": "2026-10-10T15:13:30.714Z",
+ "decisionIds": [
+  "D-markdown"
+ ],
+ "provenance": {
+  "git": {
+   "available": true,
+   "sha": "504c8439e1fb7683f92dd1cf868681158def8055",
+   "dirty": false
+  },
+  "sourceTreeSha256": "e7cabb4003acfe7c169c8e122a80c4b1db0563da66e148325b32a43d18441f7f",
+  "sourceChanges": 0,
+  "binaryChanges": null,
+  "toolchains": {
+   "node": "v25.5.0",
+   "rustc": "rustc 1.93.0 (254b59607 2026-01-19)",
+   "go": null,
+   "pnpm": "12.9.1"
+  },
+  "integrity": {
+   "status": "uncatalogued",
+   "checked": 0,
+   "mismatches": []
+  }
+ },
+ "host": {
+  "classRequested": "local-controlled",
+  "classGranted": "local-dev",
+  "os": "darwin",
+  "arch": "arm64",
+  "cpu": "Apple M3 Max",
+  "logicalCpus": 14,
+  "memoryBytes": 38654705664,
+  "preflight": {
+   "snapshot": {
+    "os": "darwin",
+    "arch": "arm64",
+    "cpu": "Apple M3 Max",
+    "logicalCpus": 14,
+    "memoryBytes": 38654705664,
+    "loadAverage1m": 16.70361328125,
+    "memoryFreePercent": 57,
+    "thermalWarning": false,
+    "onAC": true,
+    "lowPowerMode": false,
+    "foreignCpuPercent": 669.6000000000003,
+    "foreignTop": [
+     {
+      "command": "node",
+      "cpuPercent": 212.6
+     },
+     {
+      "command": "node",
+      "cpuPercent": 114.1
+     },
+     {
+      "command": "ffmpeg",
+      "cpuPercent": 83.4
+     },
+     {
+      "command": "mds_stores",
+      "cpuPercent": 80.3
+     },
+     {
+      "command": "WindowServer",
+      "cpuPercent": 45.6
+     }
+    ],
+    "cpuGovernor": null,
+    "virtualized": false,
+    "controllerCpuPercent": 26.3
+   },
+   "gates": [
+    {
+     "class": "local-controlled",
+     "id": "git-clean",
+     "ok": true,
+     "value": true,
+     "limit": "= true"
+    },
+    {
+     "class": "local-controlled",
+     "id": "load-per-cpu-1m",
+     "ok": false,
+     "value": 1.193115234375,
+     "limit": "<= 0.35"
+    },
+    {
+     "class": "local-controlled",
+     "id": "memory-free-percent",
+     "ok": true,
+     "value": 57,
+     "limit": ">= 20"
+    },
+    {
+     "class": "local-controlled",
+     "id": "thermal-warning",
+     "ok": true,
+     "value": false,
+     "limit": "= false"
+    },
+    {
+     "class": "local-controlled",
+     "id": "low-power-mode",
+     "ok": true,
+     "value": false,
+     "limit": "= false"
+    },
+    {
+     "class": "local-controlled",
+     "id": "foreign-cpu-percent",
+     "ok": false,
+     "value": 669.6000000000003,
+     "limit": "<= 150"
+    }
+   ]
+  },
+  "postflight": {
+   "snapshot": {
+    "os": "darwin",
+    "arch": "arm64",
+    "cpu": "Apple M3 Max",
+    "logicalCpus": 14,
+    "memoryBytes": 38654705664,
+    "loadAverage1m": 16.70361328125,
+    "memoryFreePercent": 58,
+    "thermalWarning": false,
+    "onAC": true,
+    "lowPowerMode": false,
+    "foreignCpuPercent": 625.6000000000004,
+    "foreignTop": [
+     {
+      "command": "node",
+      "cpuPercent": 188.2
+     },
+     {
+      "command": "node",
+      "cpuPercent": 163.8
+     },
+     {
+      "command": "mds_stores",
+      "cpuPercent": 87.4
+     },
+     {
+      "command": "xtask",
+      "cpuPercent": 59
+     },
+     {
+      "command": "WindowServer",
+      "cpuPercent": 46.4
+     }
+    ],
+    "cpuGovernor": null,
+    "virtualized": false,
+    "controllerCpuPercent": 24.00000000000001
+   }
+  }
+ },
+ "status": "complete",
+ "countUnit": "cell",
+ "cells": [
+  {
+   "cellId": "c996ee016303-0",
+   "factors": {
+    "extractor": "conv-fast-html2md",
+    "pageType": "links",
+    "corpus": "markdown-structure",
+    "renderer": "none",
+    "pages": 5,
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "extraction-f1": {
+     "value": 0.872577779642997,
+     "unit": "ratio",
+     "source": "lane; mean over the pages of the cell, WCXB evaluate.py definitions"
+    },
+    "extraction-precision": {
+     "value": 0.7920047216210898,
+     "unit": "ratio",
+     "source": "lane; mean over the pages of the cell, WCXB evaluate.py definitions"
+    },
+    "extraction-recall": {
+     "value": 0.9733333333333334,
+     "unit": "ratio",
+     "source": "lane; mean over the pages of the cell, WCXB evaluate.py definitions"
+    },
+    "snippet-recall": {
+     "value": 1,
+     "unit": "ratio",
+     "source": "lane; mean over the pages of the cell, WCXB evaluate.py definitions"
+    },
+    "boilerplate-leak": {
+     "value": 0,
+     "unit": "ratio",
+     "source": "lane; mean over the pages of the cell, WCXB evaluate.py definitions"
+    },
+    "extract-ms-p50": {
+     "value": 0.066084,
+     "unit": "ms",
+     "source": "lane; mean over the pages of the cell, WCXB evaluate.py definitions"
+    },
+    "markdown-structure-f1": {
+     "value": 1,
+     "unit": "ratio",
+     "source": "lane; Markdown structure oracle (src/extraction-markdown.ts) against ground_truth.main_markdown"
+    },
+    "markdown-heading-f1": {
+     "value": null,
+     "unit": "ratio",
+     "source": "lane; Markdown structure oracle (src/extraction-markdown.ts) against ground_truth.main_markdown"
+    },
+    "markdown-list-f1": {
+     "value": 1,
+     "unit": "ratio",
+     "source": "lane; Markdown structure oracle (src/extraction-markdown.ts) against ground_truth.main_markdown"
+    },
+    "markdown-table-f1": {
+     "value": null,
+     "unit": "ratio",
+     "source": "lane; Markdown structure oracle (src/extraction-markdown.ts) against ground_truth.main_markdown"
+    },
+    "markdown-code-f1": {
+     "value": null,
+     "unit": "ratio",
+     "source": "lane; Markdown structure oracle (src/extraction-markdown.ts) against ground_truth.main_markdown"
+    },
+    "markdown-link-f1": {
+     "value": 1,
+     "unit": "ratio",
+     "source": "lane; Markdown structure oracle (src/extraction-markdown.ts) against ground_truth.main_markdown"
+    }
+   }
+  },
+  {
+   "cellId": "4646a1f03711-1",
+   "factors": {
+    "extractor": "conv-quick-html2md",
+    "pageType": "headings",
+    "corpus": "markdown-structure",
+    "renderer": "none",
+    "pages": 5,
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "extraction-f1": {
+     "value": 1,
+     "unit": "ratio",
+     "source": "lane; mean over the pages of the cell, WCXB evaluate.py definitions"
+    },
+    "extraction-precision": {
+     "value": 1,
+     "unit": "ratio",
+     "source": "lane; mean over the pages of the cell, WCXB evaluate.py definitions"
+    },
+    "extraction-recall": {
+     "value": 1,
+     "unit": "ratio",
+     "source": "lane; mean over the pages of the cell, WCXB evaluate.py definitions"
+    },
+    "snippet-recall": {
+     "value": 1,
+     "unit": "ratio",
+     "source": "lane; mean over the pages of the cell, WCXB evaluate.py definitions"
+    },
+    "boilerplate-leak": {
+     "value": 0,
+     "unit": "ratio",
+     "source": "lane; mean over the pages of the cell, WCXB evaluate.py definitions"
+    },
+    "extract-ms-p50": {
+     "value": 0.0535,
+     "unit": "ms",
+     "source": "lane; mean over the pages of the cell, WCXB evaluate.py definitions"
+    },
+    "markdown-structure-f1": {
+     "value": 0.9,
+     "unit": "ratio",
+     "source": "lane; Markdown structure oracle (src/extraction-markdown.ts) against ground_truth.main_markdown"
+    },
+    "markdown-heading-f1": {
+     "value": 0.9411764705882353,
+     "unit": "ratio",
+     "source": "lane; Markdown structure oracle (src/extraction-markdown.ts) against ground_truth.main_markdown"
+    },
+    "markdown-list-f1": {
+     "value": null,
+     "unit": "ratio",
+     "source": "lane; Markdown structure oracle (src/extraction-markdown.ts) against ground_truth.main_markdown"
+    },
+    "markdown-table-f1": {
+     "value": null,
+     "unit": "ratio",
+     "source": "lane; Markdown structure oracle (src/extraction-markdown.ts) against ground_truth.main_markdown"
+    },
+    "markdown-code-f1": {
+     "value": null,
+     "unit": "ratio",
+     "source": "lane; Markdown structure oracle (src/extraction-markdown.ts) against ground_truth.main_markdown"
+    },
+    "markdown-link-f1": {
+     "value": 1,
+     "unit": "ratio",
+     "source": "lane; Markdown structure oracle (src/extraction-markdown.ts) against ground_truth.main_markdown"
+    }
+   }
+  },
+  {
+   "cellId": "d4686b2d0e28-2",
+   "factors": {
+    "extractor": "conv-quick-html2md",
+    "pageType": "mixed",
+    "corpus": "markdown-structure",
+    "renderer": "none",
+    "pages": 5,
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "extraction-f1": {
+     "value": 1,
+     "unit": "ratio",
+     "source": "lane; mean over the pages of the cell, WCXB evaluate.py definitions"
+    },
+    "extraction-precision": {
+     "value": 1,
+     "unit": "ratio",
+     "source": "lane; mean over the pages of the cell, WCXB evaluate.py definitions"
+    },
+    "extraction-recall": {
+     "value": 1,
+     "unit": "ratio",
+     "source": "lane; mean over the pages of the cell, WCXB evaluate.py definitions"
+    },
+    "snippet-recall": {
+     "value": 1,
+     "unit": "ratio",
+     "source": "lane; mean over the pages of the cell, WCXB evaluate.py definitions"
+    },
+    "boilerplate-leak": {
+     "value": 0,
+     "unit": "ratio",
+     "source": "lane; mean over the pages of the cell, WCXB evaluate.py definitions"
+    },
+    "extract-ms-p50": {
+     "value": 0.03675,
+     "unit": "ms",
+     "source": "lane; mean over the pages of the cell, WCXB evaluate.py definitions"
+    },
+    "markdown-structure-f1": {
+     "value": 1,
+     "unit": "ratio",
+     "source": "lane; Markdown structure oracle (src/extraction-markdown.ts) against ground_truth.main_markdown"
+    },
+    "markdown-heading-f1": {
+     "value": 1,
+     "unit": "ratio",
+     "source": "lane; Markdown structure oracle (src/extraction-markdown.ts) against ground_truth.main_markdown"
+    },
+    "markdown-list-f1": {
+     "value": 1,
+     "unit": "ratio",
+     "source": "lane; Markdown structure oracle (src/extraction-markdown.ts) against ground_truth.main_markdown"
+    },
+    "markdown-table-f1": {
+     "value": 1,
+     "unit": "ratio",
+     "source": "lane; Markdown structure oracle (src/extraction-markdown.ts) against ground_truth.main_markdown"
+    },
+    "markdown-code-f1": {
+     "value": 1,
+     "unit": "ratio",
+     "source": "lane; Markdown structure oracle (src/extraction-markdown.ts) against ground_truth.main_markdown"
+    },
+    "markdown-link-f1": {
+     "value": 1,
+     "unit": "ratio",
+     "source": "lane; Markdown structure oracle (src/extraction-markdown.ts) against ground_truth.main_markdown"
+    }
+   }
+  },
+  {
+   "cellId": "24a656cb741e-3",
+   "factors": {
+    "extractor": "conv-quick-html2md",
+    "pageType": "lists",
+    "corpus": "markdown-structure",
+    "renderer": "none",
+    "pages": 5,
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "extraction-f1": {
+     "value": 0.9666666666666668,
+     "unit": "ratio",
+     "source": "lane; mean over the pages of the cell, WCXB evaluate.py definitions"
+    },
+    "extraction-precision": {
+     "value": 0.9666666666666668,
+     "unit": "ratio",
+     "source": "lane; mean over the pages of the cell, WCXB evaluate.py definitions"
+    },
+    "extraction-recall": {
+     "value": 0.9666666666666668,
+     "unit": "ratio",
+     "source": "lane; mean over the pages of the cell, WCXB evaluate.py definitions"
+    },
+    "snippet-recall": {
+     "value": 1,
+     "unit": "ratio",
+     "source": "lane; mean over the pages of the cell, WCXB evaluate.py definitions"
+    },
+    "boilerplate-leak": {
+     "value": 0,
+     "unit": "ratio",
+     "source": "lane; mean over the pages of the cell, WCXB evaluate.py definitions"
+    },
+    "extract-ms-p50": {
+     "value": 0.020208999999999998,
+     "unit": "ms",
+     "source": "lane; mean over the pages of the cell, WCXB evaluate.py definitions"
+    },
+    "markdown-structure-f1": {
+     "value": 1,
+     "unit": "ratio",
+     "source": "lane; Markdown structure oracle (src/extraction-markdown.ts) against ground_truth.main_markdown"
+    },
+    "markdown-heading-f1": {
+     "value": null,
+     "unit": "ratio",
+     "source": "lane; Markdown structure oracle (src/extraction-markdown.ts) against ground_truth.main_markdown"
+    },
+    "markdown-list-f1": {
+     "value": 1,
+     "unit": "ratio",
+     "source": "lane; Markdown structure oracle (src/extraction-markdown.ts) against ground_truth.main_markdown"
+    },
+    "markdown-table-f1": {
+     "value": null,
+     "unit": "ratio",
+     "source": "lane; Markdown structure oracle (src/extraction-markdown.ts) against ground_truth.main_markdown"
+    },
+    "markdown-code-f1": {
+     "value": null,
+     "unit": "ratio",
+     "source": "lane; Markdown structure oracle (src/extraction-markdown.ts) against ground_truth.main_markdown"
+    },
+    "markdown-link-f1": {
+     "value": 1,
+     "unit": "ratio",
+     "source": "lane; Markdown structure oracle (src/extraction-markdown.ts) against ground_truth.main_markdown"
+    }
+   }
+  },
+  {
+   "cellId": "02bb096679e5-4",
+   "factors": {
+    "extractor": "conv-fast-html2md",
+    "pageType": "headings",
+    "corpus": "markdown-structure",
+    "renderer": "none",
+    "pages": 5,
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "extraction-f1": {
+     "value": 0.8190547473469675,
+     "unit": "ratio",
+     "source": "lane; mean over the pages of the cell, WCXB evaluate.py definitions"
+    },
+    "extraction-precision": {
+     "value": 0.7267144293614882,
+     "unit": "ratio",
+     "source": "lane; mean over the pages of the cell, WCXB evaluate.py definitions"
+    },
+    "extraction-recall": {
+     "value": 0.9555555555555555,
+     "unit": "ratio",
+     "source": "lane; mean over the pages of the cell, WCXB evaluate.py definitions"
+    },
+    "snippet-recall": {
+     "value": 1,
+     "unit": "ratio",
+     "source": "lane; mean over the pages of the cell, WCXB evaluate.py definitions"
+    },
+    "boilerplate-leak": {
+     "value": 0,
+     "unit": "ratio",
+     "source": "lane; mean over the pages of the cell, WCXB evaluate.py definitions"
+    },
+    "extract-ms-p50": {
+     "value": 0.043708000000000004,
+     "unit": "ms",
+     "source": "lane; mean over the pages of the cell, WCXB evaluate.py definitions"
+    },
+    "markdown-structure-f1": {
+     "value": 0.7666666666666667,
+     "unit": "ratio",
+     "source": "lane; Markdown structure oracle (src/extraction-markdown.ts) against ground_truth.main_markdown"
+    },
+    "markdown-heading-f1": {
+     "value": 0.8235294117647058,
+     "unit": "ratio",
+     "source": "lane; Markdown structure oracle (src/extraction-markdown.ts) against ground_truth.main_markdown"
+    },
+    "markdown-list-f1": {
+     "value": null,
+     "unit": "ratio",
+     "source": "lane; Markdown structure oracle (src/extraction-markdown.ts) against ground_truth.main_markdown"
+    },
+    "markdown-table-f1": {
+     "value": null,
+     "unit": "ratio",
+     "source": "lane; Markdown structure oracle (src/extraction-markdown.ts) against ground_truth.main_markdown"
+    },
+    "markdown-code-f1": {
+     "value": null,
+     "unit": "ratio",
+     "source": "lane; Markdown structure oracle (src/extraction-markdown.ts) against ground_truth.main_markdown"
+    },
+    "markdown-link-f1": {
+     "value": 1,
+     "unit": "ratio",
+     "source": "lane; Markdown structure oracle (src/extraction-markdown.ts) against ground_truth.main_markdown"
+    }
+   }
+  },
+  {
+   "cellId": "2b8c5be1f95f-5",
+   "factors": {
+    "extractor": "conv-mdka",
+    "pageType": "code",
+    "corpus": "markdown-structure",
+    "renderer": "none",
+    "pages": 5,
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "extraction-f1": {
+     "value": 1,
+     "unit": "ratio",
+     "source": "lane; mean over the pages of the cell, WCXB evaluate.py definitions"
+    },
+    "extraction-precision": {
+     "value": 1,
+     "unit": "ratio",
+     "source": "lane; mean over the pages of the cell, WCXB evaluate.py definitions"
+    },
+    "extraction-recall": {
+     "value": 1,
+     "unit": "ratio",
+     "source": "lane; mean over the pages of the cell, WCXB evaluate.py definitions"
+    },
+    "snippet-recall": {
+     "value": 1,
+     "unit": "ratio",
+     "source": "lane; mean over the pages of the cell, WCXB evaluate.py definitions"
+    },
+    "boilerplate-leak": {
+     "value": 0,
+     "unit": "ratio",
+     "source": "lane; mean over the pages of the cell, WCXB evaluate.py definitions"
+    },
+    "extract-ms-p50": {
+     "value": 0.0315,
+     "unit": "ms",
+     "source": "lane; mean over the pages of the cell, WCXB evaluate.py definitions"
+    },
+    "markdown-structure-f1": {
+     "value": 1,
+     "unit": "ratio",
+     "source": "lane; Markdown structure oracle (src/extraction-markdown.ts) against ground_truth.main_markdown"
+    },
+    "markdown-heading-f1": {
+     "value": null,
+     "unit": "ratio",
+     "source": "lane; Markdown structure oracle (src/extraction-markdown.ts) against ground_truth.main_markdown"
+    },
+    "markdown-list-f1": {
+     "value": null,
+     "unit": "ratio",
+     "source": "lane; Markdown structure oracle (src/extraction-markdown.ts) against ground_truth.main_markdown"
+    },
+    "markdown-table-f1": {
+     "value": null,
+     "unit": "ratio",
+     "source": "lane; Markdown structure oracle (src/extraction-markdown.ts) against ground_truth.main_markdown"
+    },
+    "markdown-code-f1": {
+     "value": 1,
+     "unit": "ratio",
+     "source": "lane; Markdown structure oracle (src/extraction-markdown.ts) against ground_truth.main_markdown"
+    },
+    "markdown-link-f1": {
+     "value": null,
+     "unit": "ratio",
+     "source": "lane; Markdown structure oracle (src/extraction-markdown.ts) against ground_truth.main_markdown"
+    }
+   }
+  },
+  {
+   "cellId": "8fdc2c1d67d3-6",
+   "factors": {
+    "extractor": "conv-quick-html2md",
+    "pageType": "tables",
+    "corpus": "markdown-structure",
+    "renderer": "none",
+    "pages": 5,
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "extraction-f1": {
+     "value": 0.9384615384615385,
+     "unit": "ratio",
+     "source": "lane; mean over the pages of the cell, WCXB evaluate.py definitions"
+    },
+    "extraction-precision": {
+     "value": 1,
+     "unit": "ratio",
+     "source": "lane; mean over the pages of the cell, WCXB evaluate.py definitions"
+    },
+    "extraction-recall": {
+     "value": 0.9058823529411765,
+     "unit": "ratio",
+     "source": "lane; mean over the pages of the cell, WCXB evaluate.py definitions"
+    },
+    "snippet-recall": {
+     "value": 1,
+     "unit": "ratio",
+     "source": "lane; mean over the pages of the cell, WCXB evaluate.py definitions"
+    },
+    "boilerplate-leak": {
+     "value": 0,
+     "unit": "ratio",
+     "source": "lane; mean over the pages of the cell, WCXB evaluate.py definitions"
+    },
+    "extract-ms-p50": {
+     "value": 0.02675,
+     "unit": "ms",
+     "source": "lane; mean over the pages of the cell, WCXB evaluate.py definitions"
+    },
+    "markdown-structure-f1": {
+     "value": 1,
+     "unit": "ratio",
+     "source": "lane; Markdown structure oracle (src/extraction-markdown.ts) against ground_truth.main_markdown"
+    },
+    "markdown-heading-f1": {
+     "value": null,
+     "unit": "ratio",
+     "source": "lane; Markdown structure oracle (src/extraction-markdown.ts) against ground_truth.main_markdown"
+    },
+    "markdown-list-f1": {
+     "value": null,
+     "unit": "ratio",
+     "source": "lane; Markdown structure oracle (src/extraction-markdown.ts) against ground_truth.main_markdown"
+    },
+    "markdown-table-f1": {
+     "value": 1,
+     "unit": "ratio",
+     "source": "lane; Markdown structure oracle (src/extraction-markdown.ts) against ground_truth.main_markdown"
+    },
+    "markdown-code-f1": {
+     "value": null,
+     "unit": "ratio",
+     "source": "lane; Markdown structure oracle (src/extraction-markdown.ts) against ground_truth.main_markdown"
+    },
+    "markdown-link-f1": {
+     "value": 0,
+     "unit": "ratio",
+     "source": "lane; Markdown structure oracle (src/extraction-markdown.ts) against ground_truth.main_markdown"
+    }
+   }
+  },
+  {
+   "cellId": "df7a1f730092-7",
+   "factors": {
+    "extractor": "conv-html2md",
+    "pageType": "code",
+    "corpus": "markdown-structure",
+    "renderer": "none",
+    "pages": 5,
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "extraction-f1": {
+     "value": 0.7986749482401656,
+     "unit": "ratio",
+     "source": "lane; mean over the pages of the cell, WCXB evaluate.py definitions"
+    },
+    "extraction-precision": {
+     "value": 0.6705128205128205,
+     "unit": "ratio",
+     "source": "lane; mean over the pages of the cell, WCXB evaluate.py definitions"
+    },
+    "extraction-recall": {
+     "value": 1,
+     "unit": "ratio",
+     "source": "lane; mean over the pages of the cell, WCXB evaluate.py definitions"
+    },
+    "snippet-recall": {
+     "value": 1,
+     "unit": "ratio",
+     "source": "lane; mean over the pages of the cell, WCXB evaluate.py definitions"
+    },
+    "boilerplate-leak": {
+     "value": 0,
+     "unit": "ratio",
+     "source": "lane; mean over the pages of the cell, WCXB evaluate.py definitions"
+    },
+    "extract-ms-p50": {
+     "value": 0.022083,
+     "unit": "ms",
+     "source": "lane; mean over the pages of the cell, WCXB evaluate.py definitions"
+    },
+    "markdown-structure-f1": {
+     "value": 0.6,
+     "unit": "ratio",
+     "source": "lane; Markdown structure oracle (src/extraction-markdown.ts) against ground_truth.main_markdown"
+    },
+    "markdown-heading-f1": {
+     "value": null,
+     "unit": "ratio",
+     "source": "lane; Markdown structure oracle (src/extraction-markdown.ts) against ground_truth.main_markdown"
+    },
+    "markdown-list-f1": {
+     "value": null,
+     "unit": "ratio",
+     "source": "lane; Markdown structure oracle (src/extraction-markdown.ts) against ground_truth.main_markdown"
+    },
+    "markdown-table-f1": {
+     "value": null,
+     "unit": "ratio",
+     "source": "lane; Markdown structure oracle (src/extraction-markdown.ts) against ground_truth.main_markdown"
+    },
+    "markdown-code-f1": {
+     "value": 0.6,
+     "unit": "ratio",
+     "source": "lane; Markdown structure oracle (src/extraction-markdown.ts) against ground_truth.main_markdown"
+    },
+    "markdown-link-f1": {
+     "value": null,
+     "unit": "ratio",
+     "source": "lane; Markdown structure oracle (src/extraction-markdown.ts) against ground_truth.main_markdown"
+    }
+   }
+  },
+  {
+   "cellId": "3eabcacd28f7-8",
+   "factors": {
+    "extractor": "conv-fast-html2md",
+    "pageType": "mixed",
+    "corpus": "markdown-structure",
+    "renderer": "none",
+    "pages": 5,
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "extraction-f1": {
+     "value": 0.8797625716953448,
+     "unit": "ratio",
+     "source": "lane; mean over the pages of the cell, WCXB evaluate.py definitions"
+    },
+    "extraction-precision": {
+     "value": 0.7952781954887218,
+     "unit": "ratio",
+     "source": "lane; mean over the pages of the cell, WCXB evaluate.py definitions"
+    },
+    "extraction-recall": {
+     "value": 0.9916666666666668,
+     "unit": "ratio",
+     "source": "lane; mean over the pages of the cell, WCXB evaluate.py definitions"
+    },
+    "snippet-recall": {
+     "value": 1,
+     "unit": "ratio",
+     "source": "lane; mean over the pages of the cell, WCXB evaluate.py definitions"
+    },
+    "boilerplate-leak": {
+     "value": 0,
+     "unit": "ratio",
+     "source": "lane; mean over the pages of the cell, WCXB evaluate.py definitions"
+    },
+    "extract-ms-p50": {
+     "value": 0.040083,
+     "unit": "ms",
+     "source": "lane; mean over the pages of the cell, WCXB evaluate.py definitions"
+    },
+    "markdown-structure-f1": {
+     "value": 0.5511904761904762,
+     "unit": "ratio",
+     "source": "lane; Markdown structure oracle (src/extraction-markdown.ts) against ground_truth.main_markdown"
+    },
+    "markdown-heading-f1": {
+     "value": 1,
+     "unit": "ratio",
+     "source": "lane; Markdown structure oracle (src/extraction-markdown.ts) against ground_truth.main_markdown"
+    },
+    "markdown-list-f1": {
+     "value": 0.888888888888889,
+     "unit": "ratio",
+     "source": "lane; Markdown structure oracle (src/extraction-markdown.ts) against ground_truth.main_markdown"
+    },
+    "markdown-table-f1": {
+     "value": 0,
+     "unit": "ratio",
+     "source": "lane; Markdown structure oracle (src/extraction-markdown.ts) against ground_truth.main_markdown"
+    },
+    "markdown-code-f1": {
+     "value": 0,
+     "unit": "ratio",
+     "source": "lane; Markdown structure oracle (src/extraction-markdown.ts) against ground_truth.main_markdown"
+    },
+    "markdown-link-f1": {
+     "value": 1,
+     "unit": "ratio",
+     "source": "lane; Markdown structure oracle (src/extraction-markdown.ts) against ground_truth.main_markdown"
+    }
+   }
+  },
+  {
+   "cellId": "85e19a29ff39-9",
+   "factors": {
+    "extractor": "conv-mdka",
+    "pageType": "mixed",
+    "corpus": "markdown-structure",
+    "renderer": "none",
+    "pages": 5,
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "extraction-f1": {
+     "value": 1,
+     "unit": "ratio",
+     "source": "lane; mean over the pages of the cell, WCXB evaluate.py definitions"
+    },
+    "extraction-precision": {
+     "value": 1,
+     "unit": "ratio",
+     "source": "lane; mean over the pages of the cell, WCXB evaluate.py definitions"
+    },
+    "extraction-recall": {
+     "value": 1,
+     "unit": "ratio",
+     "source": "lane; mean over the pages of the cell, WCXB evaluate.py definitions"
+    },
+    "snippet-recall": {
+     "value": 1,
+     "unit": "ratio",
+     "source": "lane; mean over the pages of the cell, WCXB evaluate.py definitions"
+    },
+    "boilerplate-leak": {
+     "value": 0,
+     "unit": "ratio",
+     "source": "lane; mean over the pages of the cell, WCXB evaluate.py definitions"
+    },
+    "extract-ms-p50": {
+     "value": 0.05175,
+     "unit": "ms",
+     "source": "lane; mean over the pages of the cell, WCXB evaluate.py definitions"
+    },
+    "markdown-structure-f1": {
+     "value": 0.9428571428571428,
+     "unit": "ratio",
+     "source": "lane; Markdown structure oracle (src/extraction-markdown.ts) against ground_truth.main_markdown"
+    },
+    "markdown-heading-f1": {
+     "value": 1,
+     "unit": "ratio",
+     "source": "lane; Markdown structure oracle (src/extraction-markdown.ts) against ground_truth.main_markdown"
+    },
+    "markdown-list-f1": {
+     "value": 1,
+     "unit": "ratio",
+     "source": "lane; Markdown structure oracle (src/extraction-markdown.ts) against ground_truth.main_markdown"
+    },
+    "markdown-table-f1": {
+     "value": 0.6666666666666666,
+     "unit": "ratio",
+     "source": "lane; Markdown structure oracle (src/extraction-markdown.ts) against ground_truth.main_markdown"
+    },
+    "markdown-code-f1": {
+     "value": 1,
+     "unit": "ratio",
+     "source": "lane; Markdown structure oracle (src/extraction-markdown.ts) against ground_truth.main_markdown"
+    },
+    "markdown-link-f1": {
+     "value": 1,
+     "unit": "ratio",
+     "source": "lane; Markdown structure oracle (src/extraction-markdown.ts) against ground_truth.main_markdown"
+    }
+   }
+  },
+  {
+   "cellId": "cd434ce44a64-10",
+   "factors": {
+    "extractor": "conv-html2md",
+    "pageType": "mixed",
+    "corpus": "markdown-structure",
+    "renderer": "none",
+    "pages": 5,
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "extraction-f1": {
+     "value": 0.8893856209150327,
+     "unit": "ratio",
+     "source": "lane; mean over the pages of the cell, WCXB evaluate.py definitions"
+    },
+    "extraction-precision": {
+     "value": 0.8052503052503053,
+     "unit": "ratio",
+     "source": "lane; mean over the pages of the cell, WCXB evaluate.py definitions"
+    },
+    "extraction-recall": {
+     "value": 1,
+     "unit": "ratio",
+     "source": "lane; mean over the pages of the cell, WCXB evaluate.py definitions"
+    },
+    "snippet-recall": {
+     "value": 1,
+     "unit": "ratio",
+     "source": "lane; mean over the pages of the cell, WCXB evaluate.py definitions"
+    },
+    "boilerplate-leak": {
+     "value": 0,
+     "unit": "ratio",
+     "source": "lane; mean over the pages of the cell, WCXB evaluate.py definitions"
+    },
+    "extract-ms-p50": {
+     "value": 0.056125,
+     "unit": "ms",
+     "source": "lane; mean over the pages of the cell, WCXB evaluate.py definitions"
+    },
+    "markdown-structure-f1": {
+     "value": 1,
+     "unit": "ratio",
+     "source": "lane; Markdown structure oracle (src/extraction-markdown.ts) against ground_truth.main_markdown"
+    },
+    "markdown-heading-f1": {
+     "value": 1,
+     "unit": "ratio",
+     "source": "lane; Markdown structure oracle (src/extraction-markdown.ts) against ground_truth.main_markdown"
+    },
+    "markdown-list-f1": {
+     "value": 1,
+     "unit": "ratio",
+     "source": "lane; Markdown structure oracle (src/extraction-markdown.ts) against ground_truth.main_markdown"
+    },
+    "markdown-table-f1": {
+     "value": 1,
+     "unit": "ratio",
+     "source": "lane; Markdown structure oracle (src/extraction-markdown.ts) against ground_truth.main_markdown"
+    },
+    "markdown-code-f1": {
+     "value": 1,
+     "unit": "ratio",
+     "source": "lane; Markdown structure oracle (src/extraction-markdown.ts) against ground_truth.main_markdown"
+    },
+    "markdown-link-f1": {
+     "value": 1,
+     "unit": "ratio",
+     "source": "lane; Markdown structure oracle (src/extraction-markdown.ts) against ground_truth.main_markdown"
+    }
+   }
+  },
+  {
+   "cellId": "033a04619958-11",
+   "factors": {
+    "extractor": "conv-htmd",
+    "pageType": "headings",
+    "corpus": "markdown-structure",
+    "renderer": "none",
+    "pages": 5,
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "extraction-f1": {
+     "value": 0.8867796150718352,
+     "unit": "ratio",
+     "source": "lane; mean over the pages of the cell, WCXB evaluate.py definitions"
+    },
+    "extraction-precision": {
+     "value": 0.7989366515837103,
+     "unit": "ratio",
+     "source": "lane; mean over the pages of the cell, WCXB evaluate.py definitions"
+    },
+    "extraction-recall": {
+     "value": 1,
+     "unit": "ratio",
+     "source": "lane; mean over the pages of the cell, WCXB evaluate.py definitions"
+    },
+    "snippet-recall": {
+     "value": 1,
+     "unit": "ratio",
+     "source": "lane; mean over the pages of the cell, WCXB evaluate.py definitions"
+    },
+    "boilerplate-leak": {
+     "value": 0,
+     "unit": "ratio",
+     "source": "lane; mean over the pages of the cell, WCXB evaluate.py definitions"
+    },
+    "extract-ms-p50": {
+     "value": 0.049125,
+     "unit": "ms",
+     "source": "lane; mean over the pages of the cell, WCXB evaluate.py definitions"
+    },
+    "markdown-structure-f1": {
+     "value": 0.9,
+     "unit": "ratio",
+     "source": "lane; Markdown structure oracle (src/extraction-markdown.ts) against ground_truth.main_markdown"
+    },
+    "markdown-heading-f1": {
+     "value": 0.9411764705882353,
+     "unit": "ratio",
+     "source": "lane; Markdown structure oracle (src/extraction-markdown.ts) against ground_truth.main_markdown"
+    },
+    "markdown-list-f1": {
+     "value": null,
+     "unit": "ratio",
+     "source": "lane; Markdown structure oracle (src/extraction-markdown.ts) against ground_truth.main_markdown"
+    },
+    "markdown-table-f1": {
+     "value": null,
+     "unit": "ratio",
+     "source": "lane; Markdown structure oracle (src/extraction-markdown.ts) against ground_truth.main_markdown"
+    },
+    "markdown-code-f1": {
+     "value": null,
+     "unit": "ratio",
+     "source": "lane; Markdown structure oracle (src/extraction-markdown.ts) against ground_truth.main_markdown"
+    },
+    "markdown-link-f1": {
+     "value": 1,
+     "unit": "ratio",
+     "source": "lane; Markdown structure oracle (src/extraction-markdown.ts) against ground_truth.main_markdown"
+    }
+   }
+  },
+  {
+   "cellId": "cd3320ff9b3f-12",
+   "factors": {
+    "extractor": "conv-mdka",
+    "pageType": "links",
+    "corpus": "markdown-structure",
+    "renderer": "none",
+    "pages": 5,
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "extraction-f1": {
+     "value": 1,
+     "unit": "ratio",
+     "source": "lane; mean over the pages of the cell, WCXB evaluate.py definitions"
+    },
+    "extraction-precision": {
+     "value": 1,
+     "unit": "ratio",
+     "source": "lane; mean over the pages of the cell, WCXB evaluate.py definitions"
+    },
+    "extraction-recall": {
+     "value": 1,
+     "unit": "ratio",
+     "source": "lane; mean over the pages of the cell, WCXB evaluate.py definitions"
+    },
+    "snippet-recall": {
+     "value": 1,
+     "unit": "ratio",
+     "source": "lane; mean over the pages of the cell, WCXB evaluate.py definitions"
+    },
+    "boilerplate-leak": {
+     "value": 0,
+     "unit": "ratio",
+     "source": "lane; mean over the pages of the cell, WCXB evaluate.py definitions"
+    },
+    "extract-ms-p50": {
+     "value": 0.019042000000000003,
+     "unit": "ms",
+     "source": "lane; mean over the pages of the cell, WCXB evaluate.py definitions"
+    },
+    "markdown-structure-f1": {
+     "value": 1,
+     "unit": "ratio",
+     "source": "lane; Markdown structure oracle (src/extraction-markdown.ts) against ground_truth.main_markdown"
+    },
+    "markdown-heading-f1": {
+     "value": null,
+     "unit": "ratio",
+     "source": "lane; Markdown structure oracle (src/extraction-markdown.ts) against ground_truth.main_markdown"
+    },
+    "markdown-list-f1": {
+     "value": 1,
+     "unit": "ratio",
+     "source": "lane; Markdown structure oracle (src/extraction-markdown.ts) against ground_truth.main_markdown"
+    },
+    "markdown-table-f1": {
+     "value": null,
+     "unit": "ratio",
+     "source": "lane; Markdown structure oracle (src/extraction-markdown.ts) against ground_truth.main_markdown"
+    },
+    "markdown-code-f1": {
+     "value": null,
+     "unit": "ratio",
+     "source": "lane; Markdown structure oracle (src/extraction-markdown.ts) against ground_truth.main_markdown"
+    },
+    "markdown-link-f1": {
+     "value": 1,
+     "unit": "ratio",
+     "source": "lane; Markdown structure oracle (src/extraction-markdown.ts) against ground_truth.main_markdown"
+    }
+   }
+  },
+  {
+   "cellId": "832963a02165-13",
+   "factors": {
+    "extractor": "conv-mdka",
+    "pageType": "tables",
+    "corpus": "markdown-structure",
+    "renderer": "none",
+    "pages": 5,
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "extraction-f1": {
+     "value": 1,
+     "unit": "ratio",
+     "source": "lane; mean over the pages of the cell, WCXB evaluate.py definitions"
+    },
+    "extraction-precision": {
+     "value": 1,
+     "unit": "ratio",
+     "source": "lane; mean over the pages of the cell, WCXB evaluate.py definitions"
+    },
+    "extraction-recall": {
+     "value": 1,
+     "unit": "ratio",
+     "source": "lane; mean over the pages of the cell, WCXB evaluate.py definitions"
+    },
+    "snippet-recall": {
+     "value": 1,
+     "unit": "ratio",
+     "source": "lane; mean over the pages of the cell, WCXB evaluate.py definitions"
+    },
+    "boilerplate-leak": {
+     "value": 0,
+     "unit": "ratio",
+     "source": "lane; mean over the pages of the cell, WCXB evaluate.py definitions"
+    },
+    "extract-ms-p50": {
+     "value": 0.034958,
+     "unit": "ms",
+     "source": "lane; mean over the pages of the cell, WCXB evaluate.py definitions"
+    },
+    "markdown-structure-f1": {
+     "value": 1,
+     "unit": "ratio",
+     "source": "lane; Markdown structure oracle (src/extraction-markdown.ts) against ground_truth.main_markdown"
+    },
+    "markdown-heading-f1": {
+     "value": null,
+     "unit": "ratio",
+     "source": "lane; Markdown structure oracle (src/extraction-markdown.ts) against ground_truth.main_markdown"
+    },
+    "markdown-list-f1": {
+     "value": null,
+     "unit": "ratio",
+     "source": "lane; Markdown structure oracle (src/extraction-markdown.ts) against ground_truth.main_markdown"
+    },
+    "markdown-table-f1": {
+     "value": 1,
+     "unit": "ratio",
+     "source": "lane; Markdown structure oracle (src/extraction-markdown.ts) against ground_truth.main_markdown"
+    },
+    "markdown-code-f1": {
+     "value": null,
+     "unit": "ratio",
+     "source": "lane; Markdown structure oracle (src/extraction-markdown.ts) against ground_truth.main_markdown"
+    },
+    "markdown-link-f1": {
+     "value": 1,
+     "unit": "ratio",
+     "source": "lane; Markdown structure oracle (src/extraction-markdown.ts) against ground_truth.main_markdown"
+    }
+   }
+  },
+  {
+   "cellId": "be5d174e963d-14",
+   "factors": {
+    "extractor": "conv-mdka",
+    "pageType": "lists",
+    "corpus": "markdown-structure",
+    "renderer": "none",
+    "pages": 5,
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "extraction-f1": {
+     "value": 1,
+     "unit": "ratio",
+     "source": "lane; mean over the pages of the cell, WCXB evaluate.py definitions"
+    },
+    "extraction-precision": {
+     "value": 1,
+     "unit": "ratio",
+     "source": "lane; mean over the pages of the cell, WCXB evaluate.py definitions"
+    },
+    "extraction-recall": {
+     "value": 1,
+     "unit": "ratio",
+     "source": "lane; mean over the pages of the cell, WCXB evaluate.py definitions"
+    },
+    "snippet-recall": {
+     "value": 1,
+     "unit": "ratio",
+     "source": "lane; mean over the pages of the cell, WCXB evaluate.py definitions"
+    },
+    "boilerplate-leak": {
+     "value": 0,
+     "unit": "ratio",
+     "source": "lane; mean over the pages of the cell, WCXB evaluate.py definitions"
+    },
+    "extract-ms-p50": {
+     "value": 0.024666999999999998,
+     "unit": "ms",
+     "source": "lane; mean over the pages of the cell, WCXB evaluate.py definitions"
+    },
+    "markdown-structure-f1": {
+     "value": 1,
+     "unit": "ratio",
+     "source": "lane; Markdown structure oracle (src/extraction-markdown.ts) against ground_truth.main_markdown"
+    },
+    "markdown-heading-f1": {
+     "value": null,
+     "unit": "ratio",
+     "source": "lane; Markdown structure oracle (src/extraction-markdown.ts) against ground_truth.main_markdown"
+    },
+    "markdown-list-f1": {
+     "value": 1,
+     "unit": "ratio",
+     "source": "lane; Markdown structure oracle (src/extraction-markdown.ts) against ground_truth.main_markdown"
+    },
+    "markdown-table-f1": {
+     "value": null,
+     "unit": "ratio",
+     "source": "lane; Markdown structure oracle (src/extraction-markdown.ts) against ground_truth.main_markdown"
+    },
+    "markdown-code-f1": {
+     "value": null,
+     "unit": "ratio",
+     "source": "lane; Markdown structure oracle (src/extraction-markdown.ts) against ground_truth.main_markdown"
+    },
+    "markdown-link-f1": {
+     "value": 1,
+     "unit": "ratio",
+     "source": "lane; Markdown structure oracle (src/extraction-markdown.ts) against ground_truth.main_markdown"
+    }
+   }
+  },
+  {
+   "cellId": "2697e4e8357f-15",
+   "factors": {
+    "extractor": "conv-htmd",
+    "pageType": "links",
+    "corpus": "markdown-structure",
+    "renderer": "none",
+    "pages": 5,
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "extraction-f1": {
+     "value": 0.8909618405844467,
+     "unit": "ratio",
+     "source": "lane; mean over the pages of the cell, WCXB evaluate.py definitions"
+    },
+    "extraction-precision": {
+     "value": 0.8044681634155317,
+     "unit": "ratio",
+     "source": "lane; mean over the pages of the cell, WCXB evaluate.py definitions"
+    },
+    "extraction-recall": {
+     "value": 1,
+     "unit": "ratio",
+     "source": "lane; mean over the pages of the cell, WCXB evaluate.py definitions"
+    },
+    "snippet-recall": {
+     "value": 1,
+     "unit": "ratio",
+     "source": "lane; mean over the pages of the cell, WCXB evaluate.py definitions"
+    },
+    "boilerplate-leak": {
+     "value": 0,
+     "unit": "ratio",
+     "source": "lane; mean over the pages of the cell, WCXB evaluate.py definitions"
+    },
+    "extract-ms-p50": {
+     "value": 0.043667,
+     "unit": "ms",
+     "source": "lane; mean over the pages of the cell, WCXB evaluate.py definitions"
+    },
+    "markdown-structure-f1": {
+     "value": 1,
+     "unit": "ratio",
+     "source": "lane; Markdown structure oracle (src/extraction-markdown.ts) against ground_truth.main_markdown"
+    },
+    "markdown-heading-f1": {
+     "value": null,
+     "unit": "ratio",
+     "source": "lane; Markdown structure oracle (src/extraction-markdown.ts) against ground_truth.main_markdown"
+    },
+    "markdown-list-f1": {
+     "value": 1,
+     "unit": "ratio",
+     "source": "lane; Markdown structure oracle (src/extraction-markdown.ts) against ground_truth.main_markdown"
+    },
+    "markdown-table-f1": {
+     "value": null,
+     "unit": "ratio",
+     "source": "lane; Markdown structure oracle (src/extraction-markdown.ts) against ground_truth.main_markdown"
+    },
+    "markdown-code-f1": {
+     "value": null,
+     "unit": "ratio",
+     "source": "lane; Markdown structure oracle (src/extraction-markdown.ts) against ground_truth.main_markdown"
+    },
+    "markdown-link-f1": {
+     "value": 1,
+     "unit": "ratio",
+     "source": "lane; Markdown structure oracle (src/extraction-markdown.ts) against ground_truth.main_markdown"
+    }
+   }
+  },
+  {
+   "cellId": "8bb7fd8fca2a-16",
+   "factors": {
+    "extractor": "conv-quick-html2md",
+    "pageType": "links",
+    "corpus": "markdown-structure",
+    "renderer": "none",
+    "pages": 5,
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "extraction-f1": {
+     "value": 0.9617142857142857,
+     "unit": "ratio",
+     "source": "lane; mean over the pages of the cell, WCXB evaluate.py definitions"
+    },
+    "extraction-precision": {
+     "value": 0.9692307692307691,
+     "unit": "ratio",
+     "source": "lane; mean over the pages of the cell, WCXB evaluate.py definitions"
+    },
+    "extraction-recall": {
+     "value": 0.9566666666666667,
+     "unit": "ratio",
+     "source": "lane; mean over the pages of the cell, WCXB evaluate.py definitions"
+    },
+    "snippet-recall": {
+     "value": 1,
+     "unit": "ratio",
+     "source": "lane; mean over the pages of the cell, WCXB evaluate.py definitions"
+    },
+    "boilerplate-leak": {
+     "value": 0,
+     "unit": "ratio",
+     "source": "lane; mean over the pages of the cell, WCXB evaluate.py definitions"
+    },
+    "extract-ms-p50": {
+     "value": 0.016125,
+     "unit": "ms",
+     "source": "lane; mean over the pages of the cell, WCXB evaluate.py definitions"
+    },
+    "markdown-structure-f1": {
+     "value": 1,
+     "unit": "ratio",
+     "source": "lane; Markdown structure oracle (src/extraction-markdown.ts) against ground_truth.main_markdown"
+    },
+    "markdown-heading-f1": {
+     "value": null,
+     "unit": "ratio",
+     "source": "lane; Markdown structure oracle (src/extraction-markdown.ts) against ground_truth.main_markdown"
+    },
+    "markdown-list-f1": {
+     "value": 1,
+     "unit": "ratio",
+     "source": "lane; Markdown structure oracle (src/extraction-markdown.ts) against ground_truth.main_markdown"
+    },
+    "markdown-table-f1": {
+     "value": null,
+     "unit": "ratio",
+     "source": "lane; Markdown structure oracle (src/extraction-markdown.ts) against ground_truth.main_markdown"
+    },
+    "markdown-code-f1": {
+     "value": null,
+     "unit": "ratio",
+     "source": "lane; Markdown structure oracle (src/extraction-markdown.ts) against ground_truth.main_markdown"
+    },
+    "markdown-link-f1": {
+     "value": 0.9,
+     "unit": "ratio",
+     "source": "lane; Markdown structure oracle (src/extraction-markdown.ts) against ground_truth.main_markdown"
+    }
+   }
+  },
+  {
+   "cellId": "a9a1dcbfc1ca-17",
+   "factors": {
+    "extractor": "conv-htmd",
+    "pageType": "tables",
+    "corpus": "markdown-structure",
+    "renderer": "none",
+    "pages": 5,
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "extraction-f1": {
+     "value": 0.8342599742599741,
+     "unit": "ratio",
+     "source": "lane; mean over the pages of the cell, WCXB evaluate.py definitions"
+    },
+    "extraction-precision": {
+     "value": 0.7192673992673992,
+     "unit": "ratio",
+     "source": "lane; mean over the pages of the cell, WCXB evaluate.py definitions"
+    },
+    "extraction-recall": {
+     "value": 1,
+     "unit": "ratio",
+     "source": "lane; mean over the pages of the cell, WCXB evaluate.py definitions"
+    },
+    "snippet-recall": {
+     "value": 1,
+     "unit": "ratio",
+     "source": "lane; mean over the pages of the cell, WCXB evaluate.py definitions"
+    },
+    "boilerplate-leak": {
+     "value": 0,
+     "unit": "ratio",
+     "source": "lane; mean over the pages of the cell, WCXB evaluate.py definitions"
+    },
+    "extract-ms-p50": {
+     "value": 0.0515,
+     "unit": "ms",
+     "source": "lane; mean over the pages of the cell, WCXB evaluate.py definitions"
+    },
+    "markdown-structure-f1": {
+     "value": 1,
+     "unit": "ratio",
+     "source": "lane; Markdown structure oracle (src/extraction-markdown.ts) against ground_truth.main_markdown"
+    },
+    "markdown-heading-f1": {
+     "value": null,
+     "unit": "ratio",
+     "source": "lane; Markdown structure oracle (src/extraction-markdown.ts) against ground_truth.main_markdown"
+    },
+    "markdown-list-f1": {
+     "value": null,
+     "unit": "ratio",
+     "source": "lane; Markdown structure oracle (src/extraction-markdown.ts) against ground_truth.main_markdown"
+    },
+    "markdown-table-f1": {
+     "value": 1,
+     "unit": "ratio",
+     "source": "lane; Markdown structure oracle (src/extraction-markdown.ts) against ground_truth.main_markdown"
+    },
+    "markdown-code-f1": {
+     "value": null,
+     "unit": "ratio",
+     "source": "lane; Markdown structure oracle (src/extraction-markdown.ts) against ground_truth.main_markdown"
+    },
+    "markdown-link-f1": {
+     "value": 1,
+     "unit": "ratio",
+     "source": "lane; Markdown structure oracle (src/extraction-markdown.ts) against ground_truth.main_markdown"
+    }
+   }
+  },
+  {
+   "cellId": "dbc3ddb29c09-18",
+   "factors": {
+    "extractor": "conv-html2md",
+    "pageType": "headings",
+    "corpus": "markdown-structure",
+    "renderer": "none",
+    "pages": 5,
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "extraction-f1": {
+     "value": 0.8867796150718352,
+     "unit": "ratio",
+     "source": "lane; mean over the pages of the cell, WCXB evaluate.py definitions"
+    },
+    "extraction-precision": {
+     "value": 0.7989366515837103,
+     "unit": "ratio",
+     "source": "lane; mean over the pages of the cell, WCXB evaluate.py definitions"
+    },
+    "extraction-recall": {
+     "value": 1,
+     "unit": "ratio",
+     "source": "lane; mean over the pages of the cell, WCXB evaluate.py definitions"
+    },
+    "snippet-recall": {
+     "value": 1,
+     "unit": "ratio",
+     "source": "lane; mean over the pages of the cell, WCXB evaluate.py definitions"
+    },
+    "boilerplate-leak": {
+     "value": 0,
+     "unit": "ratio",
+     "source": "lane; mean over the pages of the cell, WCXB evaluate.py definitions"
+    },
+    "extract-ms-p50": {
+     "value": 0.0405,
+     "unit": "ms",
+     "source": "lane; mean over the pages of the cell, WCXB evaluate.py definitions"
+    },
+    "markdown-structure-f1": {
+     "value": 1,
+     "unit": "ratio",
+     "source": "lane; Markdown structure oracle (src/extraction-markdown.ts) against ground_truth.main_markdown"
+    },
+    "markdown-heading-f1": {
+     "value": 1,
+     "unit": "ratio",
+     "source": "lane; Markdown structure oracle (src/extraction-markdown.ts) against ground_truth.main_markdown"
+    },
+    "markdown-list-f1": {
+     "value": null,
+     "unit": "ratio",
+     "source": "lane; Markdown structure oracle (src/extraction-markdown.ts) against ground_truth.main_markdown"
+    },
+    "markdown-table-f1": {
+     "value": null,
+     "unit": "ratio",
+     "source": "lane; Markdown structure oracle (src/extraction-markdown.ts) against ground_truth.main_markdown"
+    },
+    "markdown-code-f1": {
+     "value": null,
+     "unit": "ratio",
+     "source": "lane; Markdown structure oracle (src/extraction-markdown.ts) against ground_truth.main_markdown"
+    },
+    "markdown-link-f1": {
+     "value": 1,
+     "unit": "ratio",
+     "source": "lane; Markdown structure oracle (src/extraction-markdown.ts) against ground_truth.main_markdown"
+    }
+   }
+  },
+  {
+   "cellId": "f528e6216a64-19",
+   "factors": {
+    "extractor": "conv-html2md",
+    "pageType": "links",
+    "corpus": "markdown-structure",
+    "renderer": "none",
+    "pages": 5,
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "extraction-f1": {
+     "value": 0.8769912523491525,
+     "unit": "ratio",
+     "source": "lane; mean over the pages of the cell, WCXB evaluate.py definitions"
+    },
+    "extraction-precision": {
+     "value": 0.7995146030440148,
+     "unit": "ratio",
+     "source": "lane; mean over the pages of the cell, WCXB evaluate.py definitions"
+    },
+    "extraction-recall": {
+     "value": 0.9733333333333334,
+     "unit": "ratio",
+     "source": "lane; mean over the pages of the cell, WCXB evaluate.py definitions"
+    },
+    "snippet-recall": {
+     "value": 1,
+     "unit": "ratio",
+     "source": "lane; mean over the pages of the cell, WCXB evaluate.py definitions"
+    },
+    "boilerplate-leak": {
+     "value": 0,
+     "unit": "ratio",
+     "source": "lane; mean over the pages of the cell, WCXB evaluate.py definitions"
+    },
+    "extract-ms-p50": {
+     "value": 0.022875,
+     "unit": "ms",
+     "source": "lane; mean over the pages of the cell, WCXB evaluate.py definitions"
+    },
+    "markdown-structure-f1": {
+     "value": 1,
+     "unit": "ratio",
+     "source": "lane; Markdown structure oracle (src/extraction-markdown.ts) against ground_truth.main_markdown"
+    },
+    "markdown-heading-f1": {
+     "value": null,
+     "unit": "ratio",
+     "source": "lane; Markdown structure oracle (src/extraction-markdown.ts) against ground_truth.main_markdown"
+    },
+    "markdown-list-f1": {
+     "value": 1,
+     "unit": "ratio",
+     "source": "lane; Markdown structure oracle (src/extraction-markdown.ts) against ground_truth.main_markdown"
+    },
+    "markdown-table-f1": {
+     "value": null,
+     "unit": "ratio",
+     "source": "lane; Markdown structure oracle (src/extraction-markdown.ts) against ground_truth.main_markdown"
+    },
+    "markdown-code-f1": {
+     "value": null,
+     "unit": "ratio",
+     "source": "lane; Markdown structure oracle (src/extraction-markdown.ts) against ground_truth.main_markdown"
+    },
+    "markdown-link-f1": {
+     "value": 1,
+     "unit": "ratio",
+     "source": "lane; Markdown structure oracle (src/extraction-markdown.ts) against ground_truth.main_markdown"
+    }
+   }
+  },
+  {
+   "cellId": "ed012c6bca3b-20",
+   "factors": {
+    "extractor": "conv-htmd",
+    "pageType": "code",
+    "corpus": "markdown-structure",
+    "renderer": "none",
+    "pages": 5,
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "extraction-f1": {
+     "value": 0.7986749482401656,
+     "unit": "ratio",
+     "source": "lane; mean over the pages of the cell, WCXB evaluate.py definitions"
+    },
+    "extraction-precision": {
+     "value": 0.6705128205128205,
+     "unit": "ratio",
+     "source": "lane; mean over the pages of the cell, WCXB evaluate.py definitions"
+    },
+    "extraction-recall": {
+     "value": 1,
+     "unit": "ratio",
+     "source": "lane; mean over the pages of the cell, WCXB evaluate.py definitions"
+    },
+    "snippet-recall": {
+     "value": 1,
+     "unit": "ratio",
+     "source": "lane; mean over the pages of the cell, WCXB evaluate.py definitions"
+    },
+    "boilerplate-leak": {
+     "value": 0,
+     "unit": "ratio",
+     "source": "lane; mean over the pages of the cell, WCXB evaluate.py definitions"
+    },
+    "extract-ms-p50": {
+     "value": 0.034916,
+     "unit": "ms",
+     "source": "lane; mean over the pages of the cell, WCXB evaluate.py definitions"
+    },
+    "markdown-structure-f1": {
+     "value": 0.8,
+     "unit": "ratio",
+     "source": "lane; Markdown structure oracle (src/extraction-markdown.ts) against ground_truth.main_markdown"
+    },
+    "markdown-heading-f1": {
+     "value": null,
+     "unit": "ratio",
+     "source": "lane; Markdown structure oracle (src/extraction-markdown.ts) against ground_truth.main_markdown"
+    },
+    "markdown-list-f1": {
+     "value": null,
+     "unit": "ratio",
+     "source": "lane; Markdown structure oracle (src/extraction-markdown.ts) against ground_truth.main_markdown"
+    },
+    "markdown-table-f1": {
+     "value": null,
+     "unit": "ratio",
+     "source": "lane; Markdown structure oracle (src/extraction-markdown.ts) against ground_truth.main_markdown"
+    },
+    "markdown-code-f1": {
+     "value": 0.888888888888889,
+     "unit": "ratio",
+     "source": "lane; Markdown structure oracle (src/extraction-markdown.ts) against ground_truth.main_markdown"
+    },
+    "markdown-link-f1": {
+     "value": null,
+     "unit": "ratio",
+     "source": "lane; Markdown structure oracle (src/extraction-markdown.ts) against ground_truth.main_markdown"
+    }
+   }
+  },
+  {
+   "cellId": "024abaf54be9-21",
+   "factors": {
+    "extractor": "conv-fast-html2md",
+    "pageType": "code",
+    "corpus": "markdown-structure",
+    "renderer": "none",
+    "pages": 5,
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "extraction-f1": {
+     "value": 0.7894372294372294,
+     "unit": "ratio",
+     "source": "lane; mean over the pages of the cell, WCXB evaluate.py definitions"
+    },
+    "extraction-precision": {
+     "value": 0.675,
+     "unit": "ratio",
+     "source": "lane; mean over the pages of the cell, WCXB evaluate.py definitions"
+    },
+    "extraction-recall": {
+     "value": 0.9666666666666668,
+     "unit": "ratio",
+     "source": "lane; mean over the pages of the cell, WCXB evaluate.py definitions"
+    },
+    "snippet-recall": {
+     "value": 1,
+     "unit": "ratio",
+     "source": "lane; mean over the pages of the cell, WCXB evaluate.py definitions"
+    },
+    "boilerplate-leak": {
+     "value": 0,
+     "unit": "ratio",
+     "source": "lane; mean over the pages of the cell, WCXB evaluate.py definitions"
+    },
+    "extract-ms-p50": {
+     "value": 0.035792,
+     "unit": "ms",
+     "source": "lane; mean over the pages of the cell, WCXB evaluate.py definitions"
+    },
+    "markdown-structure-f1": {
+     "value": 0,
+     "unit": "ratio",
+     "source": "lane; Markdown structure oracle (src/extraction-markdown.ts) against ground_truth.main_markdown"
+    },
+    "markdown-heading-f1": {
+     "value": null,
+     "unit": "ratio",
+     "source": "lane; Markdown structure oracle (src/extraction-markdown.ts) against ground_truth.main_markdown"
+    },
+    "markdown-list-f1": {
+     "value": null,
+     "unit": "ratio",
+     "source": "lane; Markdown structure oracle (src/extraction-markdown.ts) against ground_truth.main_markdown"
+    },
+    "markdown-table-f1": {
+     "value": null,
+     "unit": "ratio",
+     "source": "lane; Markdown structure oracle (src/extraction-markdown.ts) against ground_truth.main_markdown"
+    },
+    "markdown-code-f1": {
+     "value": 0,
+     "unit": "ratio",
+     "source": "lane; Markdown structure oracle (src/extraction-markdown.ts) against ground_truth.main_markdown"
+    },
+    "markdown-link-f1": {
+     "value": null,
+     "unit": "ratio",
+     "source": "lane; Markdown structure oracle (src/extraction-markdown.ts) against ground_truth.main_markdown"
+    }
+   }
+  },
+  {
+   "cellId": "546ab3320b3f-22",
+   "factors": {
+    "extractor": "conv-htmd",
+    "pageType": "lists",
+    "corpus": "markdown-structure",
+    "renderer": "none",
+    "pages": 5,
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "extraction-f1": {
+     "value": 0.8525396825396825,
+     "unit": "ratio",
+     "source": "lane; mean over the pages of the cell, WCXB evaluate.py definitions"
+    },
+    "extraction-precision": {
+     "value": 0.745897435897436,
+     "unit": "ratio",
+     "source": "lane; mean over the pages of the cell, WCXB evaluate.py definitions"
+    },
+    "extraction-recall": {
+     "value": 1,
+     "unit": "ratio",
+     "source": "lane; mean over the pages of the cell, WCXB evaluate.py definitions"
+    },
+    "snippet-recall": {
+     "value": 1,
+     "unit": "ratio",
+     "source": "lane; mean over the pages of the cell, WCXB evaluate.py definitions"
+    },
+    "boilerplate-leak": {
+     "value": 0,
+     "unit": "ratio",
+     "source": "lane; mean over the pages of the cell, WCXB evaluate.py definitions"
+    },
+    "extract-ms-p50": {
+     "value": 0.030750000000000003,
+     "unit": "ms",
+     "source": "lane; mean over the pages of the cell, WCXB evaluate.py definitions"
+    },
+    "markdown-structure-f1": {
+     "value": 1,
+     "unit": "ratio",
+     "source": "lane; Markdown structure oracle (src/extraction-markdown.ts) against ground_truth.main_markdown"
+    },
+    "markdown-heading-f1": {
+     "value": null,
+     "unit": "ratio",
+     "source": "lane; Markdown structure oracle (src/extraction-markdown.ts) against ground_truth.main_markdown"
+    },
+    "markdown-list-f1": {
+     "value": 1,
+     "unit": "ratio",
+     "source": "lane; Markdown structure oracle (src/extraction-markdown.ts) against ground_truth.main_markdown"
+    },
+    "markdown-table-f1": {
+     "value": null,
+     "unit": "ratio",
+     "source": "lane; Markdown structure oracle (src/extraction-markdown.ts) against ground_truth.main_markdown"
+    },
+    "markdown-code-f1": {
+     "value": null,
+     "unit": "ratio",
+     "source": "lane; Markdown structure oracle (src/extraction-markdown.ts) against ground_truth.main_markdown"
+    },
+    "markdown-link-f1": {
+     "value": 1,
+     "unit": "ratio",
+     "source": "lane; Markdown structure oracle (src/extraction-markdown.ts) against ground_truth.main_markdown"
+    }
+   }
+  },
+  {
+   "cellId": "6417e1c7a97f-23",
+   "factors": {
+    "extractor": "conv-fast-html2md",
+    "pageType": "tables",
+    "corpus": "markdown-structure",
+    "renderer": "none",
+    "pages": 5,
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "extraction-f1": {
+     "value": 0.8418790218790217,
+     "unit": "ratio",
+     "source": "lane; mean over the pages of the cell, WCXB evaluate.py definitions"
+    },
+    "extraction-precision": {
+     "value": 0.7295238095238095,
+     "unit": "ratio",
+     "source": "lane; mean over the pages of the cell, WCXB evaluate.py definitions"
+    },
+    "extraction-recall": {
+     "value": 1,
+     "unit": "ratio",
+     "source": "lane; mean over the pages of the cell, WCXB evaluate.py definitions"
+    },
+    "snippet-recall": {
+     "value": 1,
+     "unit": "ratio",
+     "source": "lane; mean over the pages of the cell, WCXB evaluate.py definitions"
+    },
+    "boilerplate-leak": {
+     "value": 0,
+     "unit": "ratio",
+     "source": "lane; mean over the pages of the cell, WCXB evaluate.py definitions"
+    },
+    "extract-ms-p50": {
+     "value": 0.051625000000000004,
+     "unit": "ms",
+     "source": "lane; mean over the pages of the cell, WCXB evaluate.py definitions"
+    },
+    "markdown-structure-f1": {
+     "value": 0,
+     "unit": "ratio",
+     "source": "lane; Markdown structure oracle (src/extraction-markdown.ts) against ground_truth.main_markdown"
+    },
+    "markdown-heading-f1": {
+     "value": null,
+     "unit": "ratio",
+     "source": "lane; Markdown structure oracle (src/extraction-markdown.ts) against ground_truth.main_markdown"
+    },
+    "markdown-list-f1": {
+     "value": null,
+     "unit": "ratio",
+     "source": "lane; Markdown structure oracle (src/extraction-markdown.ts) against ground_truth.main_markdown"
+    },
+    "markdown-table-f1": {
+     "value": 0,
+     "unit": "ratio",
+     "source": "lane; Markdown structure oracle (src/extraction-markdown.ts) against ground_truth.main_markdown"
+    },
+    "markdown-code-f1": {
+     "value": null,
+     "unit": "ratio",
+     "source": "lane; Markdown structure oracle (src/extraction-markdown.ts) against ground_truth.main_markdown"
+    },
+    "markdown-link-f1": {
+     "value": 1,
+     "unit": "ratio",
+     "source": "lane; Markdown structure oracle (src/extraction-markdown.ts) against ground_truth.main_markdown"
+    }
+   }
+  },
+  {
+   "cellId": "380fe78e1d36-24",
+   "factors": {
+    "extractor": "conv-mdka",
+    "pageType": "headings",
+    "corpus": "markdown-structure",
+    "renderer": "none",
+    "pages": 5,
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "extraction-f1": {
+     "value": 1,
+     "unit": "ratio",
+     "source": "lane; mean over the pages of the cell, WCXB evaluate.py definitions"
+    },
+    "extraction-precision": {
+     "value": 1,
+     "unit": "ratio",
+     "source": "lane; mean over the pages of the cell, WCXB evaluate.py definitions"
+    },
+    "extraction-recall": {
+     "value": 1,
+     "unit": "ratio",
+     "source": "lane; mean over the pages of the cell, WCXB evaluate.py definitions"
+    },
+    "snippet-recall": {
+     "value": 1,
+     "unit": "ratio",
+     "source": "lane; mean over the pages of the cell, WCXB evaluate.py definitions"
+    },
+    "boilerplate-leak": {
+     "value": 0,
+     "unit": "ratio",
+     "source": "lane; mean over the pages of the cell, WCXB evaluate.py definitions"
+    },
+    "extract-ms-p50": {
+     "value": 0.033708,
+     "unit": "ms",
+     "source": "lane; mean over the pages of the cell, WCXB evaluate.py definitions"
+    },
+    "markdown-structure-f1": {
+     "value": 0.9,
+     "unit": "ratio",
+     "source": "lane; Markdown structure oracle (src/extraction-markdown.ts) against ground_truth.main_markdown"
+    },
+    "markdown-heading-f1": {
+     "value": 0.9411764705882353,
+     "unit": "ratio",
+     "source": "lane; Markdown structure oracle (src/extraction-markdown.ts) against ground_truth.main_markdown"
+    },
+    "markdown-list-f1": {
+     "value": null,
+     "unit": "ratio",
+     "source": "lane; Markdown structure oracle (src/extraction-markdown.ts) against ground_truth.main_markdown"
+    },
+    "markdown-table-f1": {
+     "value": null,
+     "unit": "ratio",
+     "source": "lane; Markdown structure oracle (src/extraction-markdown.ts) against ground_truth.main_markdown"
+    },
+    "markdown-code-f1": {
+     "value": null,
+     "unit": "ratio",
+     "source": "lane; Markdown structure oracle (src/extraction-markdown.ts) against ground_truth.main_markdown"
+    },
+    "markdown-link-f1": {
+     "value": 1,
+     "unit": "ratio",
+     "source": "lane; Markdown structure oracle (src/extraction-markdown.ts) against ground_truth.main_markdown"
+    }
+   }
+  },
+  {
+   "cellId": "8e14c1d89b8a-25",
+   "factors": {
+    "extractor": "conv-html2md",
+    "pageType": "tables",
+    "corpus": "markdown-structure",
+    "renderer": "none",
+    "pages": 5,
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "extraction-f1": {
+     "value": 0.8418790218790217,
+     "unit": "ratio",
+     "source": "lane; mean over the pages of the cell, WCXB evaluate.py definitions"
+    },
+    "extraction-precision": {
+     "value": 0.7295238095238095,
+     "unit": "ratio",
+     "source": "lane; mean over the pages of the cell, WCXB evaluate.py definitions"
+    },
+    "extraction-recall": {
+     "value": 1,
+     "unit": "ratio",
+     "source": "lane; mean over the pages of the cell, WCXB evaluate.py definitions"
+    },
+    "snippet-recall": {
+     "value": 1,
+     "unit": "ratio",
+     "source": "lane; mean over the pages of the cell, WCXB evaluate.py definitions"
+    },
+    "boilerplate-leak": {
+     "value": 0,
+     "unit": "ratio",
+     "source": "lane; mean over the pages of the cell, WCXB evaluate.py definitions"
+    },
+    "extract-ms-p50": {
+     "value": 0.060833,
+     "unit": "ms",
+     "source": "lane; mean over the pages of the cell, WCXB evaluate.py definitions"
+    },
+    "markdown-structure-f1": {
+     "value": 0.9333333333333332,
+     "unit": "ratio",
+     "source": "lane; Markdown structure oracle (src/extraction-markdown.ts) against ground_truth.main_markdown"
+    },
+    "markdown-heading-f1": {
+     "value": null,
+     "unit": "ratio",
+     "source": "lane; Markdown structure oracle (src/extraction-markdown.ts) against ground_truth.main_markdown"
+    },
+    "markdown-list-f1": {
+     "value": null,
+     "unit": "ratio",
+     "source": "lane; Markdown structure oracle (src/extraction-markdown.ts) against ground_truth.main_markdown"
+    },
+    "markdown-table-f1": {
+     "value": 0.9333333333333333,
+     "unit": "ratio",
+     "source": "lane; Markdown structure oracle (src/extraction-markdown.ts) against ground_truth.main_markdown"
+    },
+    "markdown-code-f1": {
+     "value": null,
+     "unit": "ratio",
+     "source": "lane; Markdown structure oracle (src/extraction-markdown.ts) against ground_truth.main_markdown"
+    },
+    "markdown-link-f1": {
+     "value": 1,
+     "unit": "ratio",
+     "source": "lane; Markdown structure oracle (src/extraction-markdown.ts) against ground_truth.main_markdown"
+    }
+   }
+  },
+  {
+   "cellId": "559df61d0ed7-26",
+   "factors": {
+    "extractor": "conv-htmd",
+    "pageType": "mixed",
+    "corpus": "markdown-structure",
+    "renderer": "none",
+    "pages": 5,
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "extraction-f1": {
+     "value": 0.8688922622812566,
+     "unit": "ratio",
+     "source": "lane; mean over the pages of the cell, WCXB evaluate.py definitions"
+    },
+    "extraction-precision": {
+     "value": 0.8008058608058608,
+     "unit": "ratio",
+     "source": "lane; mean over the pages of the cell, WCXB evaluate.py definitions"
+    },
+    "extraction-recall": {
+     "value": 0.9625,
+     "unit": "ratio",
+     "source": "lane; mean over the pages of the cell, WCXB evaluate.py definitions"
+    },
+    "snippet-recall": {
+     "value": 1,
+     "unit": "ratio",
+     "source": "lane; mean over the pages of the cell, WCXB evaluate.py definitions"
+    },
+    "boilerplate-leak": {
+     "value": 0,
+     "unit": "ratio",
+     "source": "lane; mean over the pages of the cell, WCXB evaluate.py definitions"
+    },
+    "extract-ms-p50": {
+     "value": 0.05,
+     "unit": "ms",
+     "source": "lane; mean over the pages of the cell, WCXB evaluate.py definitions"
+    },
+    "markdown-structure-f1": {
+     "value": 0.975,
+     "unit": "ratio",
+     "source": "lane; Markdown structure oracle (src/extraction-markdown.ts) against ground_truth.main_markdown"
+    },
+    "markdown-heading-f1": {
+     "value": 1,
+     "unit": "ratio",
+     "source": "lane; Markdown structure oracle (src/extraction-markdown.ts) against ground_truth.main_markdown"
+    },
+    "markdown-list-f1": {
+     "value": 1,
+     "unit": "ratio",
+     "source": "lane; Markdown structure oracle (src/extraction-markdown.ts) against ground_truth.main_markdown"
+    },
+    "markdown-table-f1": {
+     "value": 0.8571428571428571,
+     "unit": "ratio",
+     "source": "lane; Markdown structure oracle (src/extraction-markdown.ts) against ground_truth.main_markdown"
+    },
+    "markdown-code-f1": {
+     "value": 1,
+     "unit": "ratio",
+     "source": "lane; Markdown structure oracle (src/extraction-markdown.ts) against ground_truth.main_markdown"
+    },
+    "markdown-link-f1": {
+     "value": 1,
+     "unit": "ratio",
+     "source": "lane; Markdown structure oracle (src/extraction-markdown.ts) against ground_truth.main_markdown"
+    }
+   }
+  },
+  {
+   "cellId": "f826a76a450b-27",
+   "factors": {
+    "extractor": "conv-quick-html2md",
+    "pageType": "code",
+    "corpus": "markdown-structure",
+    "renderer": "none",
+    "pages": 5,
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "extraction-f1": {
+     "value": 1,
+     "unit": "ratio",
+     "source": "lane; mean over the pages of the cell, WCXB evaluate.py definitions"
+    },
+    "extraction-precision": {
+     "value": 1,
+     "unit": "ratio",
+     "source": "lane; mean over the pages of the cell, WCXB evaluate.py definitions"
+    },
+    "extraction-recall": {
+     "value": 1,
+     "unit": "ratio",
+     "source": "lane; mean over the pages of the cell, WCXB evaluate.py definitions"
+    },
+    "snippet-recall": {
+     "value": 1,
+     "unit": "ratio",
+     "source": "lane; mean over the pages of the cell, WCXB evaluate.py definitions"
+    },
+    "boilerplate-leak": {
+     "value": 0,
+     "unit": "ratio",
+     "source": "lane; mean over the pages of the cell, WCXB evaluate.py definitions"
+    },
+    "extract-ms-p50": {
+     "value": 0.012707999999999999,
+     "unit": "ms",
+     "source": "lane; mean over the pages of the cell, WCXB evaluate.py definitions"
+    },
+    "markdown-structure-f1": {
+     "value": 0.8,
+     "unit": "ratio",
+     "source": "lane; Markdown structure oracle (src/extraction-markdown.ts) against ground_truth.main_markdown"
+    },
+    "markdown-heading-f1": {
+     "value": null,
+     "unit": "ratio",
+     "source": "lane; Markdown structure oracle (src/extraction-markdown.ts) against ground_truth.main_markdown"
+    },
+    "markdown-list-f1": {
+     "value": null,
+     "unit": "ratio",
+     "source": "lane; Markdown structure oracle (src/extraction-markdown.ts) against ground_truth.main_markdown"
+    },
+    "markdown-table-f1": {
+     "value": null,
+     "unit": "ratio",
+     "source": "lane; Markdown structure oracle (src/extraction-markdown.ts) against ground_truth.main_markdown"
+    },
+    "markdown-code-f1": {
+     "value": 0.8000000000000002,
+     "unit": "ratio",
+     "source": "lane; Markdown structure oracle (src/extraction-markdown.ts) against ground_truth.main_markdown"
+    },
+    "markdown-link-f1": {
+     "value": null,
+     "unit": "ratio",
+     "source": "lane; Markdown structure oracle (src/extraction-markdown.ts) against ground_truth.main_markdown"
+    }
+   }
+  },
+  {
+   "cellId": "df742313e857-28",
+   "factors": {
+    "extractor": "conv-html2md",
+    "pageType": "lists",
+    "corpus": "markdown-structure",
+    "renderer": "none",
+    "pages": 5,
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "extraction-f1": {
+     "value": 0.8229100529100528,
+     "unit": "ratio",
+     "source": "lane; mean over the pages of the cell, WCXB evaluate.py definitions"
+    },
+    "extraction-precision": {
+     "value": 0.7192307692307691,
+     "unit": "ratio",
+     "source": "lane; mean over the pages of the cell, WCXB evaluate.py definitions"
+    },
+    "extraction-recall": {
+     "value": 0.9666666666666668,
+     "unit": "ratio",
+     "source": "lane; mean over the pages of the cell, WCXB evaluate.py definitions"
+    },
+    "snippet-recall": {
+     "value": 1,
+     "unit": "ratio",
+     "source": "lane; mean over the pages of the cell, WCXB evaluate.py definitions"
+    },
+    "boilerplate-leak": {
+     "value": 0,
+     "unit": "ratio",
+     "source": "lane; mean over the pages of the cell, WCXB evaluate.py definitions"
+    },
+    "extract-ms-p50": {
+     "value": 0.028249999999999997,
+     "unit": "ms",
+     "source": "lane; mean over the pages of the cell, WCXB evaluate.py definitions"
+    },
+    "markdown-structure-f1": {
+     "value": 1,
+     "unit": "ratio",
+     "source": "lane; Markdown structure oracle (src/extraction-markdown.ts) against ground_truth.main_markdown"
+    },
+    "markdown-heading-f1": {
+     "value": null,
+     "unit": "ratio",
+     "source": "lane; Markdown structure oracle (src/extraction-markdown.ts) against ground_truth.main_markdown"
+    },
+    "markdown-list-f1": {
+     "value": 1,
+     "unit": "ratio",
+     "source": "lane; Markdown structure oracle (src/extraction-markdown.ts) against ground_truth.main_markdown"
+    },
+    "markdown-table-f1": {
+     "value": null,
+     "unit": "ratio",
+     "source": "lane; Markdown structure oracle (src/extraction-markdown.ts) against ground_truth.main_markdown"
+    },
+    "markdown-code-f1": {
+     "value": null,
+     "unit": "ratio",
+     "source": "lane; Markdown structure oracle (src/extraction-markdown.ts) against ground_truth.main_markdown"
+    },
+    "markdown-link-f1": {
+     "value": 1,
+     "unit": "ratio",
+     "source": "lane; Markdown structure oracle (src/extraction-markdown.ts) against ground_truth.main_markdown"
+    }
+   }
+  },
+  {
+   "cellId": "23d26be25671-29",
+   "factors": {
+    "extractor": "conv-fast-html2md",
+    "pageType": "lists",
+    "corpus": "markdown-structure",
+    "renderer": "none",
+    "pages": 5,
+    "block": 0
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 1,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "extraction-f1": {
+     "value": 0.8134897630549803,
+     "unit": "ratio",
+     "source": "lane; mean over the pages of the cell, WCXB evaluate.py definitions"
+    },
+    "extraction-precision": {
+     "value": 0.7166666666666666,
+     "unit": "ratio",
+     "source": "lane; mean over the pages of the cell, WCXB evaluate.py definitions"
+    },
+    "extraction-recall": {
+     "value": 0.9484848484848485,
+     "unit": "ratio",
+     "source": "lane; mean over the pages of the cell, WCXB evaluate.py definitions"
+    },
+    "snippet-recall": {
+     "value": 1,
+     "unit": "ratio",
+     "source": "lane; mean over the pages of the cell, WCXB evaluate.py definitions"
+    },
+    "boilerplate-leak": {
+     "value": 0,
+     "unit": "ratio",
+     "source": "lane; mean over the pages of the cell, WCXB evaluate.py definitions"
+    },
+    "extract-ms-p50": {
+     "value": 0.04275,
+     "unit": "ms",
+     "source": "lane; mean over the pages of the cell, WCXB evaluate.py definitions"
+    },
+    "markdown-structure-f1": {
+     "value": 0.9,
+     "unit": "ratio",
+     "source": "lane; Markdown structure oracle (src/extraction-markdown.ts) against ground_truth.main_markdown"
+    },
+    "markdown-heading-f1": {
+     "value": null,
+     "unit": "ratio",
+     "source": "lane; Markdown structure oracle (src/extraction-markdown.ts) against ground_truth.main_markdown"
+    },
+    "markdown-list-f1": {
+     "value": 0.9375,
+     "unit": "ratio",
+     "source": "lane; Markdown structure oracle (src/extraction-markdown.ts) against ground_truth.main_markdown"
+    },
+    "markdown-table-f1": {
+     "value": null,
+     "unit": "ratio",
+     "source": "lane; Markdown structure oracle (src/extraction-markdown.ts) against ground_truth.main_markdown"
+    },
+    "markdown-code-f1": {
+     "value": null,
+     "unit": "ratio",
+     "source": "lane; Markdown structure oracle (src/extraction-markdown.ts) against ground_truth.main_markdown"
+    },
+    "markdown-link-f1": {
+     "value": 1,
+     "unit": "ratio",
+     "source": "lane; Markdown structure oracle (src/extraction-markdown.ts) against ground_truth.main_markdown"
+    }
+   }
+  }
+ ],
+ "totals": {
+  "verified": 30,
+  "failed": 0,
+  "timeout": 0,
+  "crashed": 0,
+  "aborted": 0,
+  "unsupported": 0,
+  "rejected": 0,
+  "unavailable": 0,
+  "skipped": 0
+ },
+ "metricAvailability": {
+  "verified-jobs-per-second": {
+   "available": true
+  },
+  "verified-tasks-per-second": {
+   "available": true
+  },
+  "verified-rows-per-second": {
+   "available": true
+  },
+  "task-p50-ms-verified": {
+   "available": true
+  },
+  "task-p95-ms-verified": {
+   "available": true
+  },
+  "task-ms": {
+   "available": true
+  },
+  "ack-latency-p95-ms": {
+   "available": true
+  },
+  "extraction-precision": {
+   "available": true
+  },
+  "extraction-recall": {
+   "available": true
+  },
+  "snippet-recall": {
+   "available": true
+  },
+  "boilerplate-leak": {
+   "available": true
+  },
+  "extract-ms-p50": {
+   "available": true
+  },
+  "startup-ms": {
+   "available": true
+  },
+  "cpu-ms-per-verified-job": {
+   "available": true
+  },
+  "footprint-peak-bytes": {
+   "available": true
+  },
+  "pss-peak-bytes": {
+   "available": false,
+   "reason": "no probe on darwin"
+  },
+  "cgroup-memory-peak-bytes": {
+   "available": false,
+   "reason": "no probe on darwin"
+  },
+  "rss-peak-bytes": {
+   "available": true
+  },
+  "cdp-commands-per-task": {
+   "available": true
+  },
+  "extraction-f1": {
+   "available": true
+  },
+  "markdown-structure-f1": {
+   "available": true
+  },
+  "markdown-heading-f1": {
+   "available": true
+  },
+  "markdown-list-f1": {
+   "available": true
+  },
+  "markdown-table-f1": {
+   "available": true
+  },
+  "markdown-code-f1": {
+   "available": true
+  },
+  "markdown-link-f1": {
+   "available": true
+  },
+  "field-precision": {
+   "available": true
+  },
+  "field-recall": {
+   "available": true
+  },
+  "pass-k": {
+   "available": true
+  },
+  "llm-calls-per-verified-task": {
+   "available": true
+  },
+  "tokens-per-verified-task": {
+   "available": true
+  },
+  "usd-per-1k-verified": {
+   "available": false,
+   "reason": "pricing tables are not implemented yet"
+  },
+  "model-usd-per-1k-verified": {
+   "available": true
+  },
+  "interface-turns-per-task": {
+   "available": true
+  },
+  "oracle-exact": {
+   "available": true
+  },
+  "false-success-count": {
+   "available": true
+  },
+  "actionability-conformance": {
+   "available": true
+  },
+  "recovery-exact": {
+   "available": true
+  },
+  "durability-power-loss": {
+   "available": false,
+   "reason": "no probe on darwin"
+  },
+  "identity-coherence": {
+   "available": true
+  },
+  "policy-compliance": {
+   "available": true
+  },
+  "session-isolation": {
+   "available": true
+  },
+  "admission-no-loss": {
+   "available": true
+  },
+  "proxy-continuity": {
+   "available": true
+  },
+  "site-logins-per-run": {
+   "available": true
+  },
+  "steady-run-ms": {
+   "available": true
+  },
+  "browser-pages-per-run": {
+   "available": true
+  },
+  "requests-per-verified-record": {
+   "available": true
+  },
+  "light-domain-goodput": {
+   "available": true
+  },
+  "light-domain-p95-ms": {
+   "available": true
+  },
+  "light-domain-acceptance": {
+   "available": true
+  }
+ },
+ "legacy": null,
+ "blocks": [
+  {
+   "index": 0,
+   "order": [
+    "markdown-structure/none/conv-fast-html2md/links",
+    "markdown-structure/none/conv-quick-html2md/headings",
+    "markdown-structure/none/conv-quick-html2md/mixed",
+    "markdown-structure/none/conv-quick-html2md/lists",
+    "markdown-structure/none/conv-fast-html2md/headings",
+    "markdown-structure/none/conv-mdka/code",
+    "markdown-structure/none/conv-quick-html2md/tables",
+    "markdown-structure/none/conv-html2md/code",
+    "markdown-structure/none/conv-fast-html2md/mixed",
+    "markdown-structure/none/conv-mdka/mixed",
+    "markdown-structure/none/conv-html2md/mixed",
+    "markdown-structure/none/conv-htmd/headings",
+    "markdown-structure/none/conv-mdka/links",
+    "markdown-structure/none/conv-mdka/tables",
+    "markdown-structure/none/conv-mdka/lists",
+    "markdown-structure/none/conv-htmd/links",
+    "markdown-structure/none/conv-quick-html2md/links",
+    "markdown-structure/none/conv-htmd/tables",
+    "markdown-structure/none/conv-html2md/headings",
+    "markdown-structure/none/conv-html2md/links",
+    "markdown-structure/none/conv-htmd/code",
+    "markdown-structure/none/conv-fast-html2md/code",
+    "markdown-structure/none/conv-htmd/lists",
+    "markdown-structure/none/conv-fast-html2md/tables",
+    "markdown-structure/none/conv-mdka/headings",
+    "markdown-structure/none/conv-html2md/tables",
+    "markdown-structure/none/conv-htmd/mixed",
+    "markdown-structure/none/conv-quick-html2md/code",
+    "markdown-structure/none/conv-html2md/lists",
+    "markdown-structure/none/conv-fast-html2md/lists"
+   ],
+   "noisy": false,
+   "host": {
+    "loadPerCpu1m": 1.193115234375,
+    "foreignCpuPercent": 621.0000000000005
+   }
+  }
+ ]
+}

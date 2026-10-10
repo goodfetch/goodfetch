@@ -1,0 +1,13 @@
+{
+ "name": "WebMainBench (545-page subset with calibrated Markdown ground truth)",
+ "source": "https://huggingface.co/datasets/opendatalab/WebMainBench",
+ "revision": "5da0972e9b58d0c7891ae75053ced97c268f52e3",
+ "file": "WebMainBench_545.jsonl",
+ "bytes": 109097918,
+ "sha256": "0efaa4b49a45e320a27fe6e5a0b6aad5b57259fc3321ac3448519cacc74c537e",
+ "license": "Apache-2.0",
+ "attribution": "OpenDataLab, WebMainBench, introduced in 'Dripper: Token-Efficient Main HTML Extraction with a Lightweight LM', arXiv:2511.23119",
+ "fetch": "curl -L --create-dirs -o corpora/webmainbench-source/WebMainBench_545.jsonl https://huggingface.co/datasets/opendatalab/WebMainBench/resolve/5da0972e9b58d0c7891ae75053ced97c268f52e3/WebMainBench_545.jsonl",
+ "prepare": "node tools/prepare-webmainbench.ts corpora/webmainbench-source/WebMainBench_545.jsonl",
+ "layout": "corpora/webmainbench/test/{html/NNNN.html.gz,ground-truth/NNNN.json}: NNNN is the 1-based line number; ground_truth.main_markdown is groundtruth_content verbatim, main_content the same text with link and image targets removed; the page type is meta.level (simple, mid, hard). The full 7,809-page file is not used: its ground truth is tag-level, not Markdown."
+}

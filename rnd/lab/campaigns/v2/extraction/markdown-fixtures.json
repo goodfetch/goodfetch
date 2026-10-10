@@ -1,0 +1,34 @@
+{
+  "schemaVersion": 2,
+  "id": "markdown-fixtures",
+  "lane": "extraction",
+  "decisionIds": [
+    "D-markdown"
+  ],
+  "hostClass": {
+    "requested": "local-controlled",
+    "allowDowngrade": true
+  },
+  "config": {
+    "split": "test",
+    "corpus": "fixtures/markdown-structure",
+    "extractors": [
+      "conv-htmd",
+      "conv-html2md",
+      "conv-fast-html2md",
+      "conv-mdka",
+      "conv-quick-html2md"
+    ],
+    "pageTypes": [
+      "headings",
+      "lists",
+      "tables",
+      "links",
+      "code",
+      "mixed"
+    ],
+    "markdown": true,
+    "blocks": 1,
+    "seed": 1717
+  }
+}

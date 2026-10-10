@@ -1,0 +1,32 @@
+{
+  "schemaVersion": 2,
+  "id": "extraction-rerun-wmb",
+  "lane": "extraction",
+  "decisionIds": [
+    "D-extraction"
+  ],
+  "hostClass": {
+    "requested": "local-controlled",
+    "allowDowngrade": true
+  },
+  "config": {
+    "split": "test",
+    "corpus": "corpora/webmainbench",
+    "extractors": [
+      "rs-trafilatura",
+      "dom-smoothie",
+      "readability",
+      "scraper-text",
+      "htmd",
+      "lol-html"
+    ],
+    "pageTypes": [
+      "simple",
+      "mid",
+      "hard"
+    ],
+    "shards": 64,
+    "blocks": 1,
+    "seed": 1515
+  }
+}

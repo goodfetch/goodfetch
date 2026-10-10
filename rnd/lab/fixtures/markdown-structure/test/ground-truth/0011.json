@@ -1,0 +1,17 @@
+{
+ "file_id": "0011",
+ "url": "https://fixtures.test/markdown/tables/simple",
+ "_internal": {
+  "page_type": {
+   "primary": "tables"
+  },
+  "case": "simple",
+  "source": "automan-curated"
+ },
+ "ground_truth": {
+  "main_content": "| Name | Price |\n| --- | --- |\n| Tea | 3 |\n| Coffee | 4 |\n",
+  "main_markdown": "| Name | Price |\n| --- | --- |\n| Tea | 3 |\n| Coffee | 4 |\n",
+  "with": [],
+  "without": []
+ }
+}

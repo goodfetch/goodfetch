@@ -1,0 +1,17 @@
+{
+ "file_id": "0006",
+ "url": "https://fixtures.test/markdown/lists/unordered",
+ "_internal": {
+  "page_type": {
+   "primary": "lists"
+  },
+  "case": "unordered",
+  "source": "automan-curated"
+ },
+ "ground_truth": {
+  "main_content": "Fruits:\n\n- Apple\n- Banana\n- Cherry\n",
+  "main_markdown": "Fruits:\n\n- Apple\n- Banana\n- Cherry\n",
+  "with": [],
+  "without": []
+ }
+}

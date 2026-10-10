@@ -1,6 +1,6 @@
 {
  "schemaVersion": 1,
- "classificationSha256": "6dae5c1e4a8ea011d4f49224bf09913c070bc064b1666206432da9a3cf042f3c",
+ "classificationSha256": "d35a45097cbca958f504e31b1a646dbb63abce7aa6dd204ef70041e004556a20",
  "entries": [
   {
    "runId": "smoke-2026-10-07T20-20-24-226Z-9ebb47",
@@ -3088,8 +3088,8 @@
    "startedAt": "2026-10-08T18:00:46.463Z",
    "status": "complete",
    "hostClass": "local-dev",
-   "role": "selected",
-   "supersededBy": null,
+   "role": "superseded",
+   "supersededBy": "extraction-rerun-wcxb-test-2026-10-10T15-13-38-928Z-b8a0cb",
    "reason": "WCXB extraction quality, held-out test set",
    "validity": [
     {
@@ -6649,6 +6649,188 @@
     "hostClass": "reference"
    },
    "imported": "ledger/runs/browser-driver-rtt-300-2026-10-10T03-02-31-508Z-5366fd/run.v2.json"
+  },
+  {
+   "runId": "markdown-fixtures-2026-10-10T15-13-30-714Z-1256be",
+   "lane": "extraction",
+   "campaign": "markdown-fixtures",
+   "startedAt": "2026-10-10T15:13:30.714Z",
+   "status": "noisy-host",
+   "hostClass": "local-dev",
+   "role": "selected",
+   "supersededBy": null,
+   "reason": "30 curated Markdown fixtures, converters alone",
+   "validity": [
+    {
+     "scope": "quality",
+     "class": "A",
+     "note": "hand-written expected Markdown"
+    }
+   ],
+   "decisionIds": [
+    "D-markdown"
+   ],
+   "citedIn": [
+    "lab/reports/extraction-rerun-2026-10-10.md"
+   ],
+   "integrity": "uncatalogued",
+   "rerun": {
+    "required": false,
+    "priority": null,
+    "hostClass": null
+   },
+   "imported": "ledger/runs/markdown-fixtures-2026-10-10T15-13-30-714Z-1256be/run.v2.json"
+  },
+  {
+   "runId": "extraction-rerun-wcxb-test-2026-10-10T15-13-38-928Z-b8a0cb",
+   "lane": "extraction",
+   "campaign": "extraction-rerun-wcxb-test",
+   "startedAt": "2026-10-10T15:13:38.928Z",
+   "status": "noisy-host",
+   "hostClass": "local-dev",
+   "role": "selected",
+   "supersededBy": null,
+   "reason": "WCXB held-out test, every extractor including lol-html, 64 shards",
+   "validity": [
+    {
+     "scope": "quality",
+     "class": "A",
+     "note": "word F1 identical to the October 8 run for the unchanged extractors"
+    },
+    {
+     "scope": "timings",
+     "class": "C",
+     "note": "local-dev: preflight refused local-controlled (load 1.27 per CPU, foreign CPU 637%)"
+    }
+   ],
+   "decisionIds": [
+    "D-extraction"
+   ],
+   "citedIn": [
+    "lab/reports/extraction-rerun-2026-10-10.md",
+    "lab/reports/extraction-rerun-wcxb-2026-10-10.json",
+    "lab/reports/extraction-rerun-wcxb-vs-trafilatura-2026-10-10.json"
+   ],
+   "integrity": "uncatalogued",
+   "rerun": {
+    "required": false,
+    "priority": null,
+    "hostClass": null
+   },
+   "imported": "ledger/runs/extraction-rerun-wcxb-test-2026-10-10T15-13-38-928Z-b8a0cb/run.v2.json"
+  },
+  {
+   "runId": "extraction-rerun-wmb-2026-10-10T15-14-27-287Z-8ec849",
+   "lane": "extraction",
+   "campaign": "extraction-rerun-wmb",
+   "startedAt": "2026-10-10T15:14:27.287Z",
+   "status": "noisy-host",
+   "hostClass": "local-dev",
+   "role": "selected",
+   "supersededBy": null,
+   "reason": "WebMainBench 545-page subset, every extractor, 64 shards",
+   "validity": [
+    {
+     "scope": "quality",
+     "class": "A",
+     "note": "word F1 against the calibrated ground truth"
+    },
+    {
+     "scope": "timings",
+     "class": "C",
+     "note": "local-dev: preflight refused local-controlled (load 1.27 per CPU, foreign CPU 637%)"
+    }
+   ],
+   "decisionIds": [
+    "D-extraction"
+   ],
+   "citedIn": [
+    "lab/reports/extraction-rerun-2026-10-10.md",
+    "lab/reports/extraction-rerun-wmb-2026-10-10.json",
+    "lab/reports/extraction-rerun-wmb-vs-trafilatura-2026-10-10.json"
+   ],
+   "integrity": "uncatalogued",
+   "rerun": {
+    "required": false,
+    "priority": null,
+    "hostClass": null
+   },
+   "imported": "ledger/runs/extraction-rerun-wmb-2026-10-10T15-14-27-287Z-8ec849/run.v2.json"
+  },
+  {
+   "runId": "markdown-wmb-2026-10-10T15-15-30-344Z-d7971d",
+   "lane": "extraction",
+   "campaign": "markdown-wmb",
+   "startedAt": "2026-10-10T15:15:30.344Z",
+   "status": "noisy-host",
+   "hostClass": "local-dev",
+   "role": "selected",
+   "supersededBy": null,
+   "reason": "WebMainBench Markdown structure, converters and chains, 64 shards",
+   "validity": [
+    {
+     "scope": "quality",
+     "class": "A",
+     "note": "Markdown structure oracle declared before measurement"
+    },
+    {
+     "scope": "timings",
+     "class": "C",
+     "note": "local-dev: preflight refused local-controlled (load 1.27 per CPU, foreign CPU 637%)"
+    }
+   ],
+   "decisionIds": [
+    "D-markdown"
+   ],
+   "citedIn": [
+    "lab/reports/extraction-rerun-2026-10-10.md",
+    "lab/reports/markdown-wmb-2026-10-10.json",
+    "lab/reports/markdown-wmb-wordf1-2026-10-10.json"
+   ],
+   "integrity": "uncatalogued",
+   "rerun": {
+    "required": false,
+    "priority": null,
+    "hostClass": null
+   },
+   "imported": "ledger/runs/markdown-wmb-2026-10-10T15-15-30-344Z-d7971d/run.v2.json"
+  },
+  {
+   "runId": "parsing-fields-wcxb-test-2026-10-10T15-17-10-238Z-d929b5",
+   "lane": "extraction",
+   "campaign": "parsing-fields-wcxb-test",
+   "startedAt": "2026-10-10T15:17:10.238Z",
+   "status": "noisy-host",
+   "hostClass": "local-dev",
+   "role": "selected",
+   "supersededBy": null,
+   "reason": "Field agreement and speed, lol-html against scraper, WCXB test",
+   "validity": [
+    {
+     "scope": "quality",
+     "class": "A",
+     "note": "agreement with the html5ever tree"
+    },
+    {
+     "scope": "timings",
+     "class": "C",
+     "note": "local-dev: preflight refused local-controlled (load 1.27 per CPU, foreign CPU 637%)"
+    }
+   ],
+   "decisionIds": [
+    "D-extraction"
+   ],
+   "citedIn": [
+    "lab/reports/extraction-rerun-2026-10-10.md",
+    "lab/reports/parsing-fields-2026-10-10.json"
+   ],
+   "integrity": "uncatalogued",
+   "rerun": {
+    "required": false,
+    "priority": null,
+    "hostClass": null
+   },
+   "imported": "ledger/runs/parsing-fields-wcxb-test-2026-10-10T15-17-10-238Z-d929b5/run.v2.json"
   }
  ]
 }

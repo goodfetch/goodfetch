@@ -1,0 +1,17 @@
+{
+ "file_id": "0007",
+ "url": "https://fixtures.test/markdown/lists/ordered-start",
+ "_internal": {
+  "page_type": {
+   "primary": "lists"
+  },
+  "case": "ordered-start",
+  "source": "automan-curated"
+ },
+ "ground_truth": {
+  "main_content": "Steps:\n\n3. Open the file\n4. Edit the line\n5. Save it\n",
+  "main_markdown": "Steps:\n\n3. Open the file\n4. Edit the line\n5. Save it\n",
+  "with": [],
+  "without": []
+ }
+}

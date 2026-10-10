@@ -1,0 +1,17 @@
+{
+ "file_id": "0009",
+ "url": "https://fixtures.test/markdown/lists/paragraph-items",
+ "_internal": {
+  "page_type": {
+   "primary": "lists"
+  },
+  "case": "paragraph-items",
+  "source": "automan-curated"
+ },
+ "ground_truth": {
+  "main_content": "- First point.\n\n- Second point, longer.\n\nDone.\n",
+  "main_markdown": "- First point.\n\n- Second point, longer.\n\nDone.\n",
+  "with": [],
+  "without": []
+ }
+}

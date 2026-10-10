@@ -1,0 +1,17 @@
+{
+ "file_id": "0004",
+ "url": "https://fixtures.test/markdown/headings/entities-unicode",
+ "_internal": {
+  "page_type": {
+   "primary": "headings"
+  },
+  "case": "entities-unicode",
+  "source": "automan-curated"
+ },
+ "ground_truth": {
+  "main_content": "# Café — Menü\n\nTexte.\n\n## « Prix » 10 €\n\nFin.\n\n## 数据 提取\n\n内容。\n",
+  "main_markdown": "# Café — Menü\n\nTexte.\n\n## « Prix » 10 €\n\nFin.\n\n## 数据 提取\n\n内容。\n",
+  "with": [],
+  "without": []
+ }
+}

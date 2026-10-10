@@ -1,0 +1,17 @@
+{
+ "file_id": "0008",
+ "url": "https://fixtures.test/markdown/lists/nested",
+ "_internal": {
+  "page_type": {
+   "primary": "lists"
+  },
+  "case": "nested",
+  "source": "automan-curated"
+ },
+ "ground_truth": {
+  "main_content": "1. Prepare\n   - Fetch sources\n   - Check hashes\n     - SHA-256 only\n2. Build\n",
+  "main_markdown": "1. Prepare\n   - Fetch sources\n   - Check hashes\n     - SHA-256 only\n2. Build\n",
+  "with": [],
+  "without": []
+ }
+}

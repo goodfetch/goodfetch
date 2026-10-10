@@ -2192,9 +2192,9 @@
       }
     },
     "extraction-quality-test-2026-10-08T18-00-46-463Z-751a55": {
-      "role": "selected",
+      "role": "superseded",
       "reason": "WCXB extraction quality, held-out test set",
-      "supersededBy": null,
+      "supersededBy": "extraction-rerun-wcxb-test-2026-10-10T15-13-38-928Z-b8a0cb",
       "decisionIds": [
         "D-extraction"
       ],
@@ -4778,6 +4778,131 @@
           "scope": "all",
           "class": "none",
           "note": "interrupted before the series was resumed"
+        }
+      ],
+      "noisyHost": true,
+      "rerun": {
+        "required": false,
+        "priority": null,
+        "hostClass": null
+      }
+    },
+    "extraction-rerun-wcxb-test-2026-10-10T15-13-38-928Z-b8a0cb": {
+      "role": "selected",
+      "reason": "WCXB held-out test, every extractor including lol-html, 64 shards",
+      "supersededBy": null,
+      "decisionIds": [
+        "D-extraction"
+      ],
+      "validity": [
+        {
+          "scope": "quality",
+          "class": "A",
+          "note": "word F1 identical to the October 8 run for the unchanged extractors"
+        },
+        {
+          "scope": "timings",
+          "class": "C",
+          "note": "local-dev: preflight refused local-controlled (load 1.27 per CPU, foreign CPU 637%)"
+        }
+      ],
+      "noisyHost": true,
+      "rerun": {
+        "required": false,
+        "priority": null,
+        "hostClass": null
+      }
+    },
+    "extraction-rerun-wmb-2026-10-10T15-14-27-287Z-8ec849": {
+      "role": "selected",
+      "reason": "WebMainBench 545-page subset, every extractor, 64 shards",
+      "supersededBy": null,
+      "decisionIds": [
+        "D-extraction"
+      ],
+      "validity": [
+        {
+          "scope": "quality",
+          "class": "A",
+          "note": "word F1 against the calibrated ground truth"
+        },
+        {
+          "scope": "timings",
+          "class": "C",
+          "note": "local-dev: preflight refused local-controlled (load 1.27 per CPU, foreign CPU 637%)"
+        }
+      ],
+      "noisyHost": true,
+      "rerun": {
+        "required": false,
+        "priority": null,
+        "hostClass": null
+      }
+    },
+    "markdown-wmb-2026-10-10T15-15-30-344Z-d7971d": {
+      "role": "selected",
+      "reason": "WebMainBench Markdown structure, converters and chains, 64 shards",
+      "supersededBy": null,
+      "decisionIds": [
+        "D-markdown"
+      ],
+      "validity": [
+        {
+          "scope": "quality",
+          "class": "A",
+          "note": "Markdown structure oracle declared before measurement"
+        },
+        {
+          "scope": "timings",
+          "class": "C",
+          "note": "local-dev: preflight refused local-controlled (load 1.27 per CPU, foreign CPU 637%)"
+        }
+      ],
+      "noisyHost": true,
+      "rerun": {
+        "required": false,
+        "priority": null,
+        "hostClass": null
+      }
+    },
+    "markdown-fixtures-2026-10-10T15-13-30-714Z-1256be": {
+      "role": "selected",
+      "reason": "30 curated Markdown fixtures, converters alone",
+      "supersededBy": null,
+      "decisionIds": [
+        "D-markdown"
+      ],
+      "validity": [
+        {
+          "scope": "quality",
+          "class": "A",
+          "note": "hand-written expected Markdown"
+        }
+      ],
+      "noisyHost": true,
+      "rerun": {
+        "required": false,
+        "priority": null,
+        "hostClass": null
+      }
+    },
+    "parsing-fields-wcxb-test-2026-10-10T15-17-10-238Z-d929b5": {
+      "role": "selected",
+      "reason": "Field agreement and speed, lol-html against scraper, WCXB test",
+      "supersededBy": null,
+      "decisionIds": [
+        "D-extraction"
+      ],
+      "validity": [
+        {
+          "scope": "quality",
+          "class": "A",
+          "note": "agreement with the html5ever tree"
+        },
+        {
+          "scope": "timings",
+          "class": "C",
+          "note": "local-dev: preflight refused local-controlled (load 1.27 per CPU, foreign CPU 637%)"
         }
       ],
       "noisyHost": true,

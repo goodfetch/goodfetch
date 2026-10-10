@@ -10,4 +10,5 @@ The engine enforces each run's domain policy on every request type (navigation, 
 ## Consequences
 
 - An injection classifier on pages can be switched on (Firecrawl's precedent).
-- Where secrets are stored is decided in [Security and compliance model](https://github.com/Jbmanllr/automan/issues/73).
+- Secrets are stored behind Secret references and Secret providers (ADR 0015). A run may switch redaction off, which lifts the guarantee above for logs, traces, HAR files, screenshots and recordings kept as outputs only (ADR 0016).
+- A raw CDP client can switch off browser-protocol interception, so a Session with raw CDP attached is held to the domain policy at the network layer instead (ADR 0017).

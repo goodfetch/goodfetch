@@ -88,3 +88,7 @@ The following request favors a **measurement lab before the console**: isolated 
 
 - [Contract and method: workflow and shared SQLite](2026-10-08-workflow-and-shared-sqlite.md).
 - [Executed results: 153 qualified cells](../lab/reports/workflow-2026-10-08.md), with Node/Rust sync/Go, idempotent recovery and comparison of the Crawlee pool wake-up.
+
+## 9. Model-provider libraries — October 10, 2026
+
+- [Rust model-provider libraries](2026-10-10-rust-llm-libraries.md): aisdk, Rig, genai, async-openai, graniet/llm, liter-llm, adk-rust, official vendor crates and the long tail, compared with Automan's journaled, counted and capped model calls; options for issue 72 Q18.

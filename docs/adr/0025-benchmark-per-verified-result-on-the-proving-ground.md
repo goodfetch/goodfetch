@@ -19,7 +19,7 @@ Every figure Automan publishes about its performance comes in three views: raw t
   - The cost of every switchable control is published (ADR 0023).
   - Power-cut-safe and fast run state are both measured on the reference host; a large gap may reopen the separate-log option (ADR 0002).
   - The missing blocks of the fair per-domain admission verdict are measured; only a measurable slowdown on single-domain crawls reopens ADR 0004.
-  - Startup and binding overhead are measured on the Linux reference host, where the binding prototype measured only macOS and Linux arm64 (ADR 0024).
+  - Startup and binding overhead are measured on the Linux reference host (ADR 0024).
 - **Proving ground.**
   - **Pages.** Millions of pages generated from a seed. It covers, among others:
     - CSS class churn, honeypot links and every kind of CAPTCHA and protection

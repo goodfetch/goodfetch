@@ -236,13 +236,13 @@ All durations come from a Mac M3 Max (macOS 27). None is publishable as is.
 - **Measured on WCXB.** Held-out test split, 511 pages, paired analysis **per page** ([per-page analysis](lab/reports/extraction-paired-2026-10-09.md), [re-run of October 10](lab/reports/extraction-rerun-2026-10-10.md)):
   - rs-trafilatura reaches an F1 of 0.884;
   - it beats the html5ever reference by **0.165** (CI 0.144 to 0.186), and Readability or dom-smoothie by about 0.06;
-  - but 504 of the 511 ground truths were drafted from rs-trafilatura's output.
-- **Measured on WebMainBench.** 545 pages with human Markdown ground truth ([re-run](lab/reports/extraction-rerun-2026-10-10.md)):
+  - but 504 of the 511 ground-truth files are tagged `rs-trafilatura-draft` (the README describes drafting by Claude, then human review), and WCXB and rs-trafilatura have the same author.
+- **Measured on WebMainBench.** 545 pages with manually calibrated Markdown ground truth ([re-run](lab/reports/extraction-rerun-2026-10-10.md)):
   - Readability (0.847) and dom-smoothie (0.846) slightly beat rs-trafilatura (0.820), by +0.027 and +0.025 (CIs above zero, median page nearly tied);
   - dom-smoothie is 5 to 6 times faster per page than rs-trafilatura (local-dev host).
 - **lol-html.** It builds no tree and cannot score content.
   - Its streaming boilerplate removal reaches 0.716 F1 on WCXB, the level of all body text (0.719), and 0.746 on WebMainBench.
-  - To read fields (title, meta, h1, links, images), it takes 0.27 of scraper's time per page, with 99.6% or more agreement. The differences come from html5ever's tree normalization: cloned `<a>` elements and newline normalization.
+  - To read fields (title, meta, h1, links, images), it takes 0.27 of scraper's time per page (local-dev host, under load), with 99.6% or more agreement. The differences come from html5ever's tree normalization: cloned `<a>` elements and newline normalization.
 - **Markdown, measured for the first time** (structure oracle on headings, lists, table cells and code blocks):
   - on WebMainBench, with the same content HTML from rs-trafilatura, mdka (0.455) and html2md (0.444) beat htmd (0.410) per page;
   - rs-trafilatura's own Markdown (0.357), fast_html2md (0.352) and dom-smoothie's Markdown mode (0.331) fall below it.

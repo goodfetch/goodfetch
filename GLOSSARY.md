@@ -33,3 +33,25 @@ _Avoid_: scraping, spidering, scraper
 **Automation**:
 Driving a browser session through actions toward an objective.
 _Avoid_: scraping, scraper, bot
+
+## Execution
+
+**Run**:
+One execution by the engine, with its own inputs, state, limits and usage. The unit of isolation, resumption and counting.
+_Avoid_: job, execution, session (for a whole run)
+
+**Recipe**:
+A portable package of user code, described by a manifest, that runs the same locally or on Automan Cloud and can be published.
+_Avoid_: actor, app, pack, script
+
+**Usage**:
+The raw quantities a run consumed, such as requests, browser time or LLM tokens, without any price.
+_Avoid_: cost, consumption, credits
+
+**Limit**:
+A cap on a run's usage; reaching it stops the run cleanly.
+_Avoid_: budget, quota
+
+**Tenant**:
+A customer of Automan Cloud. The engine never knows tenants.
+_Avoid_: account, organization, user (for a customer)

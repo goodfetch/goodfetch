@@ -1,0 +1,16 @@
+# Session pages are judged by a Page check, never by the HTTP status alone
+
+Every page fetched in a session is judged against a Page check declared by the run's code: the expected page is a success, a recognized login page is a lost session, anything else stops the work item with `E_PAGE_CHECK`. Without a declared Page check, a built-in detector (a password field, a redirect to a known login URL) applies and the pages it judged are reported as weakly checked. In the lab, a portal answering `200` with its login form after expiry produced 20 false successes out of 20 for a client trusting the status, and none with the Page check. Decided in [Adopt collection decisions](https://github.com/Jbmanllr/automan/issues/71).
+
+## Considered Options
+
+- **Blocked status codes** (Crawlee's `[401, 403, 429]` plus three challenge selectors): rejected as the only signal; it lets the `200` login page through. No surveyed competitor detects a lost login from page content: Crawlee, Scrapy, Spider, Firecrawl and Stagehand have nothing (Browserbase tells users to write their own checks), and Browser Use and Skyvern leave it to an LLM's reading of the page. Evidence: [frontier and sessions research](https://github.com/Jbmanllr/automan/blob/research/frontier-sessions-competitors/rnd/research/2026-10-10-frontier-sessions-competitors.md).
+- **The R&D's "recipe contract"**: renamed Page check, because a Recipe is a publishable package and a short SDK script needs the same protection.
+- **Logging in again on every run**: rejected. It is exact but costs a login per resume; resuming the session state from the run's journal halved logins in the lab.
+
+## Consequences
+
+- Session state lives in run state (ADR 0002) and is revalidated on the first page after a resume.
+- Recovery goes, in order: the declared refresh, a scripted login with a credentials reference, an AI agent login, then a pause for a human through an interactive live view in the Console or CLI. Each step consumes the shared attempt budget, at most two recoveries per page, and every step is logged.
+- MFA: the engine generates authenticator-app (TOTP) codes, reads email or SMS codes through a user-configured source, and pauses for a human on push approvals or hardware keys. Where secrets live is decided in [Security and compliance model](https://github.com/Jbmanllr/automan/issues/73); agent mechanics in [Adopt AI and agent decisions](https://github.com/Jbmanllr/automan/issues/72).
+- The session pool scores, rotates and retires sessions (Crawlee's model) and adds account rotation, which no surveyed competitor offers. Each session binds one identity profile and one proxy, whose kinds and rotation rules are decided in [Adopt site-access decisions](https://github.com/Jbmanllr/automan/issues/76).

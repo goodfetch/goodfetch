@@ -2,11 +2,13 @@
 
 The frontier applies the fixed URL rules competitors use, then learns three more from what it fetches: query parameters that do not change the page (by page signature), trap paths to close, and cursor pagination preferred over offset. Every run reports a completeness of complete, incomplete or unverified, and a run stopped by a Limit is never complete. In the lab, the naive frontier ran out of budget on a trap site where the learned one finished in 75 requests, and offset pagination over a table modified during the crawl lost rows while reporting success 15 times out of 15. Decided in [Adopt collection decisions](https://github.com/Jbmanllr/automan/issues/71).
 
+Competitor evidence: [frontier and sessions research](https://github.com/Jbmanllr/automan/blob/research/frontier-sessions-competitors/rnd/research/2026-10-10-frontier-sessions-competitors.md).
+
 ## Considered Options
 
-- **Fixed rules only**: rejected. None of the nine competitors surveyed (Crawlee, Scrapy, Spider, Firecrawl, Crawl4AI, Stagehand, Browser Use, Skyvern, Apify) learns traps or no-effect parameters. Their fixed rules differ (Crawlee strips `utm_*` and sorts parameters, Firecrawl merges `www`, scheme, trailing slash and `index.html`, Crawl4AI also strips `gclid` and `fbclid`); Automan applies all of them first, and learns on top.
+- **Fixed rules only**: rejected. None of the nine competitors surveyed (Crawlee, Scrapy, Spider, Firecrawl, Crawl4AI, Stagehand, Browser Use, Skyvern, Apify) learns traps or no-effect parameters. Their fixed rules differ (Crawlee strips `utm_*` and sorts parameters, Firecrawl merges `www`, scheme, trailing slash, `index.html` and `index.php`, Crawl4AI also strips `gclid` and `fbclid`); Automan applies all of them first, and learns on top.
 - **Canonicalization declared only by the run's code**: kept as an override, not as the only mechanism. It suffices for a known site, not for discovery.
-- **Success or failure only, as competitors report**: rejected. Crawlee's `run()` returns statistics without a stop reason, a limit stop on Apify ends as `SUCCEEDED`, and Firecrawl reports `completed` at its page limit; only Scrapy's `finish_reason` names a limit, and it still reports a depth cutoff as finished.
+- **Success or failure only, as competitors report**: rejected. Crawlee's `run()` returns statistics without a stop reason and only logs a limit stop, and Firecrawl reports `completed` at its page limit; only Scrapy's `finish_reason` names a limit, and it still reports a depth cutoff as finished.
 
 ## Consequences
 

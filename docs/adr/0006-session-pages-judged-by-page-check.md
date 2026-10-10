@@ -4,7 +4,7 @@ Every page fetched in a session is judged against a Page check declared by the r
 
 ## Considered Options
 
-- **Blocked status codes** (Crawlee's `[401, 403, 429]` plus three challenge selectors): rejected as the only signal; it lets the `200` login page through. No surveyed competitor detects a lost login from page content: Crawlee, Scrapy, Spider and Firecrawl have nothing, and Stagehand, Browser Use and Skyvern leave it to an LLM's reading of the page.
+- **Blocked status codes** (Crawlee's `[401, 403, 429]` plus three challenge selectors): rejected as the only signal; it lets the `200` login page through. No surveyed competitor detects a lost login from page content: Crawlee, Scrapy, Spider, Firecrawl and Stagehand have nothing (Browserbase tells users to write their own checks), and Browser Use and Skyvern leave it to an LLM's reading of the page. Evidence: [frontier and sessions research](https://github.com/Jbmanllr/automan/blob/research/frontier-sessions-competitors/rnd/research/2026-10-10-frontier-sessions-competitors.md).
 - **The R&D's "recipe contract"**: renamed Page check, because a Recipe is a publishable package and a short SDK script needs the same protection.
 - **Logging in again on every run**: rejected. It is exact but costs a login per resume; resuming the session state from the run's journal halved logins in the lab.
 

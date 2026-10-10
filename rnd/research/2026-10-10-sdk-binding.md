@@ -8,8 +8,8 @@ Research of October 10, 2026, for ticket [#63](https://github.com/Jbmanllr/autom
   - **In-process native bindings:** Rspack, lightningcss, SWC and nodejs-polars use napi-rs; Polars, pydantic-core and tokenizers use PyO3. Temporal's Rust core uses Neon for Node and PyO3 for Python.
   - **Sidecar or daemon binaries:** Playwright's driver (Python, Java, .NET), esbuild, Browser Use's `sdk-server` and agent-browser.
   - **WASM:** Restate's TypeScript SDK, Prisma's query compiler and Biome's JS API. Each leaves I/O to the host: Restate's core states it "does not perform I/O", and Prisma's compiler returns plans that TypeScript executes.
-- **Callback cost is not the deciding factor for a per-page handler (measured, §3).** On a heavily loaded M3 Max, three passes gave these medians for one engine-to-handler call:
-  - **Small payload (64 B):** the ranges overlap. Node took 26–40 µs in-process and 31–150 µs over stdio JSON-RPC; Python took 83–119 µs in-process and 68–118 µs over stdio. Waking the other thread or process dominates both paths.
+- **Callback cost is not the deciding factor for a per-page handler (measured, §3 and §3.1).** On a heavily loaded M3 Max, one engine-to-handler call measured as follows:
+  - **Small payload (64 B):** in-process is about **2x faster**, but the gap is tens of microseconds. The paired re-run (§3.1, 8 blocks) gives an in-process/RPC time ratio of **0.47** for Node (95% CI 0.38–0.65; medians 26 µs vs 54 µs) and **0.64** for Python (CI 0.53–0.84; 99 µs vs 120 µs). The first, unpaired passes had suggested overlapping ranges; pairing removes the load drift that hid the difference.
   - **Large payloads:** moving the HTML costs more than the call. Inline JSON over a pipe took 0.57–0.83 ms at 100 KB and 4.2–7.6 ms at 1 MB. In-process took 0.14–0.40 ms and 0.6–3.3 ms.
   - **Scale:** all of this is small next to a page fetch or render, and large pages should cross the boundary by reference.
   - **The real multiplier is a chatty API,** such as one call per `click`. That is why esbuild, Rspack and Lightning CSS all document ways to reduce JS callbacks.
@@ -85,16 +85,41 @@ Plain calls and startup (measured, ranges across passes):
 
 **Reading (inference from these numbers).**
 
-1. **For small calls, the process boundary added nothing measurable on this host.**
-   - **Node:** in-process 26–40 µs against stdio 31–150 µs.
-   - **Python:** in-process 83–119 µs against stdio 68–118 µs.
-   - **Why:** both paths are dominated by waking another thread or process: a Tokio worker and the JS or Python loop must wake each other. An in-process call is not free.
-   - **With 16 calls in flight,** pipelined stdio matched or beat the napi path at 64 B, because one read carries many messages.
+1. **For small calls, the process boundary costs about 2x, or roughly 25–30 µs per call.** This is corrected by the paired re-run (§3.1); the unpaired passes above had overlapping ranges and suggested no measurable difference.
+   - **Node:** paired ratio 0.47 (CI 0.38–0.65): 26 µs in-process against 54 µs over stdio.
+   - **Python:** paired ratio 0.64 (CI 0.53–0.84): 99 µs against 120 µs.
+   - **Why both are tens of microseconds:** both paths are dominated by waking another thread or process, so an in-process call is not free either.
+   - **With 16 calls in flight at 64 B,** the two are equivalent (ratio 1.04, CI 0.48–3.11), because one pipe read carries many messages.
+   - **Scale:** 28 µs per page is about 3% of one core at 1,000 pages per second. It matters for chatty APIs (item 3), not for one call per page.
 2. **Large payloads are where the boundary costs.**
    - **Inline JSON over a pipe** cost about 2–4x the in-process path at 100 KB: 0.57–0.83 ms against 0.14–0.40 ms. At 1 MB it cost 4.2–7.6 ms against 0.6–3.3 ms.
    - **In-process is not free either:** a 1 MB string still costs milliseconds to transcode.
    - **The fix is the same in both models:** pass page content by reference rather than inline. Candidates: an artifact id or file path the handler reads on demand, binary framing, or a `Buffer` in-process.
 3. **Per-page handler cost is minor; chatty APIs are not.** One call per page is small next to network and render time. A handler that makes many fine-grained calls back into the engine, such as one per `click` or `evaluate`, pays one round trip each. That is the case for batching and coarse operations: Stagehand's `experimentalBatch`, Rspack's loader composition (§4).
+
+### 3.1 Paired re-run (2026-10-10)
+
+The passes above were unpaired, so load drift between them could hide a difference. This re-run uses the lab's paired-block design. There are **8 blocks**, and each runs the four runners (napi, PyO3, Node stdio, Python stdio) in a **fresh random order**, recording other processes' CPU before each runner. For each block it computes the ratio *in-process time / RPC time* (below 1 means in-process is faster), then reports the median across blocks with a bootstrap 95% CI (10,000 resamples). The code is unchanged and committed next to this note in [`2026-10-10-sdk-binding-bench/`](2026-10-10-sdk-binding-bench/), with the raw per-block results.
+
+- **Host:** M3 Max (14 cores), macOS. The host was very busy: other processes used 405–1,294% CPU before each runner, and the load average was 350–900 (iOS Simulator, Xcode, two VMs). This host would be class `local-dev` in the lab, so absolute durations are indicative only. The paired ratios cancel most of the shared load drift, but they do not replace a quiet Linux reference host before anything becomes a gate.
+
+| Comparison (p50 per call, or throughput) | In-process (median) | stdio JSON-RPC (median) | Ratio in-process/RPC | 95% CI |
+| --- | ---: | ---: | ---: | --- |
+| Node handler call, 64 B | 26 µs | 54 µs | **0.47** | 0.38–0.65 |
+| Python handler call, 64 B | 99 µs | 120 µs | **0.64** | 0.53–0.84 |
+| Node handler call, 100 KB inline | 245 µs | 685 µs | **0.31** | 0.19–0.38 |
+| Python handler call, 100 KB inline | 155 µs | 497 µs | **0.22** | 0.08–0.46 |
+| Node handler call, 1 MB inline | 1.93 ms | 5.83 ms | **0.29** | 0.21–0.49 |
+| Python handler call, 1 MB inline | 0.62 ms | 9.44 ms | **0.08** | 0.03–0.15 |
+| Node, 16 concurrent handlers, 64 B | 133k calls/s | 120k calls/s | 1.04 (equivalent) | 0.48–3.11 |
+| Node, 16 concurrent handlers, 100 KB inline | 5.6k calls/s | 1.4k calls/s | **0.31** | 0.22–0.44 |
+
+Sidecar spawn to first reply: median 73 ms for Node and 198 ms for Python over the 8 blocks.
+
+**What changes:**
+- **Small calls:** the boundary costs about 2x, or 25–30 µs per call. That corrects the "nothing measurable" reading of the unpaired passes.
+- **Inline pages over a pipe:** they cost 3–12x more than in-process, so passing pages by reference is a requirement, not an optimization. The RPC numbers above send the HTML inline in JSON; a by-reference design was not measured.
+- **What stays:** the conclusions of §1 and §6 hold. 28 µs per page call is small next to fetch and render time. The decisive constraints remain the engine's state (single SQLite writer), crash isolation and the release matrix. For a sidecar or daemon design, the paired data adds two firm requirements: **pages by reference** and **coarse or batched operations** instead of chatty per-action calls.
 
 ## 4. Case studies
 

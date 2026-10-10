@@ -1,0 +1,17 @@
+{"meta":"pre","block":2,"runner":"napi","foreign_cpu":1156,"load1":819.96}
+{"node":"v24.19.0","arch":"arm64"}
+{"bench":"js_noop_baseline","n":5000000,"mean_ns":0.7601334}
+{"bench":"napi_sync_noop","n":5000000,"mean_ns":104.8948832}
+{"bench":"napi_take_string_64","n":1000000,"mean_ns":238.807625}
+{"bench":"napi_take_buffer_64","n":1000000,"mean_ns":182.316667}
+{"bench":"napi_take_string_100000","n":20000,"mean_ns":84050.25625}
+{"bench":"napi_take_buffer_100000","n":20000,"mean_ns":106.0104}
+{"bench":"napi_take_string_1000000","n":2000,"mean_ns":580455.5625}
+{"bench":"napi_take_buffer_1000000","n":2000,"mean_ns":84.2085}
+{"bench":"js_await_async_fn_baseline","n":200000,"mean_ns":130.222625,"p50_ns":84,"p99_ns":958}
+{"bench":"napi_async_fn_tokio_roundtrip","n":200000,"mean_ns":10072.384775,"p50_ns":9833,"p99_ns":22625}
+{"bench":"rust_calls_js_handler_seq_64","iterations":50000,"meanNs":12378.43112,"p50Ns":10792,"p99Ns":27166,"maxNs":6563125}
+{"bench":"rust_calls_js_handler_seq_100000","iterations":10000,"meanNs":122969.5022,"p50Ns":112709,"p99Ns":186125,"maxNs":3179000}
+{"bench":"rust_calls_js_handler_seq_1000000","iterations":2000,"meanNs":1168531.643,"p50Ns":1088458,"p99Ns":2282375,"maxNs":3467416}
+{"bench":"rust_calls_js_handler_c16_64","calls_per_s":234768.34013941424}
+{"bench":"rust_calls_js_handler_c16_100000","calls_per_s":10806.28409929026}

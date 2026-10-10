@@ -1,0 +1,7 @@
+{"meta":"pre","block":7,"runner":"stdio_node","foreign_cpu":1191,"load1":927.62}
+{"bench":"node_stdio_spawn_to_first_reply","ms":92.026417}
+{"bench":"node_stdio_seq_64","mean_ns":189088.89686,"n":50000,"p50_ns":53167,"p99_ns":1834917}
+{"bench":"node_stdio_seq_100000","mean_ns":907557.9769,"n":10000,"p50_ns":672958,"p99_ns":5465250}
+{"bench":"node_stdio_seq_1000000","mean_ns":4644871.211,"n":2000,"p50_ns":4238708,"p99_ns":9115709}
+{"bench":"node_stdio_c16_64","calls_per_s":158535.21389125177}
+{"bench":"node_stdio_c16_100000","calls_per_s":2463.2453389740417}

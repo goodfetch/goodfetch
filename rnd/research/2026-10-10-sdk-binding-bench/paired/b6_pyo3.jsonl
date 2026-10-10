@@ -1,0 +1,15 @@
+{"meta":"pre","block":6,"runner":"pyo3","foreign_cpu":1282,"load1":879.40}
+{"python": "3.13.11", "machine": "arm64"}
+{"bench": "py_noop_baseline", "n": 2000000, "mean_ns": 47.175896}
+{"bench": "pyo3_sync_noop", "n": 2000000, "mean_ns": 65.4373545}
+{"bench": "pyo3_take_string_64", "n": 1000000, "mean_ns": 90.506958}
+{"bench": "pyo3_take_bytes_64", "n": 1000000, "mean_ns": 76.594541}
+{"bench": "pyo3_take_string_100000", "n": 20000, "mean_ns": 113.69375}
+{"bench": "pyo3_take_bytes_100000", "n": 20000, "mean_ns": 96.10415}
+{"bench": "pyo3_take_string_1000000", "n": 2000, "mean_ns": 105.1665}
+{"bench": "pyo3_take_bytes_1000000", "n": 2000, "mean_ns": 96.1455}
+{"bench": "py_await_coroutine_baseline", "n": 200000, "mean_ns": 2568.01823, "p50_ns": 1709, "p99_ns": 3500}
+{"bench": "pyo3_async_fn_tokio_roundtrip", "n": 200000, "mean_ns": 234597.587825, "p50_ns": 80458, "p99_ns": 2785125}
+{"bench": "rust_calls_py_handler_seq_64", "n": 50000, "mean_ns": 1673583.8791, "p50_ns": 476584, "p99_ns": 23356041}
+{"bench": "rust_calls_py_handler_seq_100000", "n": 10000, "mean_ns": 1598535.316, "p50_ns": 595000, "p99_ns": 16454459}
+{"bench": "rust_calls_py_handler_seq_1000000", "n": 2000, "mean_ns": 1337657.0515, "p50_ns": 981459, "p99_ns": 6992125}

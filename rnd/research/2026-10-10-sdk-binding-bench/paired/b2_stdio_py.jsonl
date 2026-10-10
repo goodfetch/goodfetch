@@ -1,0 +1,7 @@
+{"meta":"pre","block":2,"runner":"stdio_py","foreign_cpu":1294,"load1":992.85}
+{"bench":"py_stdio_spawn_to_first_reply","ms":269.704417}
+{"bench":"py_stdio_seq_64","mean_ns":927957.1085,"n":50000,"p50_ns":149459,"p99_ns":16763959}
+{"bench":"py_stdio_seq_100000","mean_ns":460605.0881,"n":10000,"p50_ns":417542,"p99_ns":1346542}
+{"bench":"py_stdio_seq_1000000","mean_ns":77689425.4995,"n":2000,"p50_ns":42216291,"p99_ns":404530292}
+{"bench":"py_stdio_c16_64","calls_per_s":6615.10813700618}
+{"bench":"py_stdio_c16_100000","calls_per_s":256.8525235259574}

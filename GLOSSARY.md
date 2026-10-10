@@ -24,6 +24,10 @@ _Avoid_: dashboard, inspector, app
 A closed component kept outside the open-source framework, used by Automan Cloud and licensed under contract to vetted customers, that holds a capability whose public release would itself create legal exposure.
 _Avoid_: enterprise edition, premium module, closed core
 
+**Browser host**:
+The Automan process that runs beside a browser and carries out a Session's operations for an engine running elsewhere.
+_Avoid_: worker, agent, sidecar
+
 ## Pillars
 
 **Extraction**:
@@ -79,8 +83,16 @@ A run's statement of whether its results cover everything in scope: complete, in
 _Avoid_: success, done, finished (for coverage)
 
 **Session**:
-A reusable browsing identity of a run: its cookies, login state, identity profile and proxy, shared across the pages fetched under it.
+A reusable browsing identity of a run: its cookies, login state, Access mode, Identity profile and proxy, shared across the pages fetched under it.
 _Avoid_: login, profile, context
+
+**Access mode**:
+How a Session presents itself to sites, fixed when it opens: standard (an ordinary browser), identified (a declared, signed agent) or stealth (masked).
+_Avoid_: profile, access profile, stealth level
+
+**Identity profile**:
+The consistent set of values a Session presents to sites, such as its user agent, network and browser fingerprints, signing key, language and time zone, fixed for the Session's life.
+_Avoid_: fingerprint (alone), persona, profile (alone)
 
 **Session pool**:
 The sessions a run keeps, scoring, rotating and retiring them as they fail.

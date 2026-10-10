@@ -41,7 +41,7 @@ One piece of work the engine carries out from start to finish, with its own inpu
 _Avoid_: job, execution, session (for a whole run)
 
 **Effect**:
-An action of a run that changes something outside Automan, such as submitting a form or placing an order. A resumed run checks whether an effect already happened instead of repeating it, and reports it as uncertain when it cannot tell.
+An action of a run that changes something on a website or third-party service, such as submitting a form or placing an order. A resumed run checks whether an effect already happened instead of repeating it, and reports it as uncertain when it cannot tell.
 _Avoid_: side effect, mutation, write
 
 **Recipe**:

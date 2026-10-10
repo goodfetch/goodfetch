@@ -37,7 +37,7 @@ _Avoid_: scraping, scraper, bot
 ## Execution
 
 **Run**:
-One execution by the engine, with its own inputs, state, limits and usage. The unit of isolation, resumption and counting.
+One piece of work the engine carries out from start to finish, with its own inputs, state, limits and usage. The unit of isolation, resumption and counting.
 _Avoid_: job, execution, session (for a whole run)
 
 **Recipe**:

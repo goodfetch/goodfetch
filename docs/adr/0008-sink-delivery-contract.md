@@ -13,4 +13,5 @@ Competitor evidence: [storage and sinks research](https://github.com/Jbmanllr/au
 ## Consequences
 
 - The results stream numbers records in commit order and never drops one: a slow consumer slows delivery or resumes from its last number, unlike Spider's broadcast channel, which drops pages.
+- Webhook signatures follow the Standard Webhooks specification (ADR 0017).
 - Further sinks and integrations are catalogued in [Export connectors and integrations catalog](https://github.com/Jbmanllr/automan/issues/88).

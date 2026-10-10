@@ -1,0 +1,16 @@
+# Security is on by default; compliance is off by default and switchable
+
+Automan must stay competitive with Crawlee and Spider, which ignore robots.txt by default, and ship stealth and a challenge solver, while helping the users who want to be compliant. So the two kinds of control get opposite defaults. Security controls, which protect the user (Secret references, field encryption of run state, SSRF checks, the browser sandbox, endpoint authentication, release signing, redaction), are on by default. Compliance controls, which limit what the user may collect (robots.txt, AI-use signals, personal-data notices), are off or advisory by default, can be switched on per run, and never block stealth or the challenge solver. Every security control that costs speed or resources can be switched off per run; the V1 benchmark publishes what each one costs, and switching one off is recorded in the audit log. Controls with no run-time cost stay on: secrets never reach a model, endpoints require a token, releases are signed. Decided in [Security and compliance model](https://github.com/Jbmanllr/automan/issues/73).
+
+## Considered Options
+
+- **Respecting robots.txt by default** (Firecrawl, and Scrapy's project template): rejected, because it would block collection that Crawlee and Spider, which ignore robots.txt by default, allow.
+- **Honouring the signals of the declared Purpose by default, but not robots.txt**: rejected for the same reason; nothing is enforced until the user switches it on.
+- **A logged confirmation before stealth on personal data for AI training**, the R&D's working view after the CNIL guidance: reduced to a notice, under this rule.
+
+## Consequences
+
+- Every run declares a Purpose: `search` by default, or `ai-input`, `ai-train` or `collect`. The engine always reads robots.txt, Content Signals, IETF aipref (honoured even while still a draft) and TDMRep, and records them with the Purpose in Provenance. One `respect_site_preferences` switch turns on robots.txt with its crawl-delay and the signals that apply to the Purpose. Ignoring them while the switch is on is an explicit, recorded override.
+- A run or a schema can mark fields as personal. The engine then shows the relevant notice once (such as the CNIL measure for AI training) and records it, applies a dataset's retention period itself, offers an erasure operation across a run's Datasets, Baselines and checkpoints, and flags personal columns in exports. Nothing is blocked.
+- An audit log, separate from the Effect journal, records each use of a Secret reference (never its value), confirmations, every override (preferences ignored, stealth on, sandbox off, security switches off, private addresses allowed), raw CDP attaches, Human pause actions and endpoint authentication failures. It is append-only and hash-chained so that an edit or a deletion shows, exported as JSONL and as OpenTelemetry events, and kept as long as the user decides; the docs note that the EU AI Act asks deployers of high-risk systems to keep logs for at least six months.
+- Later tickets inherit this rule, in particular [Stealth and challenge-solving catalog](https://github.com/Jbmanllr/automan/issues/78) and [Adopt site-access decisions](https://github.com/Jbmanllr/automan/issues/76).

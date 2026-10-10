@@ -163,3 +163,29 @@ _Avoid_: verification, fact-check
 **Human pause**:
 The state of a Session's work items while they wait for a person to complete a login, MFA, a CAPTCHA, a confirmation or a review.
 _Avoid_: manual step, HITL
+
+## Security and compliance
+
+**Secret reference**:
+The name by which a run points to a credential, such as a password, a TOTP seed or an API key, without ever holding its value.
+_Avoid_: secret (for the reference), credential ID, variable
+
+**Secret provider**:
+Whatever turns a Secret reference into its value at the moment of use: the environment, the OS keychain, an encrypted local file, the caller, or an external vault.
+_Avoid_: vault (for every provider), secret store, credential manager
+
+**Provenance**:
+The record of how a Record was obtained: where and when it was fetched, under which Session and identity, by which extractor, Plan or model, and under which site preferences.
+_Avoid_: lineage, metadata, source (alone)
+
+**Purpose**:
+What a run declares its results are for (search, AI input, AI training, or plain collection), against which site preferences are judged.
+_Avoid_: use case, intent, mode
+
+**Site preferences**:
+What a site states about how it may be crawled and used, such as its robots.txt and its AI-use signals.
+_Avoid_: robots (for all of them), policy, rules
+
+**Audit log**:
+The tamper-evident record of a run's security and compliance events, such as secret uses, confirmations and overrides. The Effect journal prevents repeated Effects; the Audit log answers who did what.
+_Avoid_: journal (alone), event log, history

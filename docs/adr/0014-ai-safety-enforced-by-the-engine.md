@@ -10,4 +10,4 @@ The engine enforces each run's domain policy on every request type (navigation, 
 ## Consequences
 
 - An injection classifier on pages can be switched on (Firecrawl's precedent).
-- Where secrets are stored is decided in [Security and compliance model](https://github.com/Jbmanllr/automan/issues/73).
+- Secrets are stored behind Secret references and Secret providers (ADR 0015); a Session with raw CDP attached is contained at the network layer instead (ADR 0017).

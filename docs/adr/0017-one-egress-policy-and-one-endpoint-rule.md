@@ -1,0 +1,18 @@
+# One egress policy for every request, one rule for every listening endpoint
+
+The engine sorts outgoing connections into two classes. Addresses a page can reach (start URLs, redirects, discovered links, browser subresources, workers, WebSockets) may not reach private, loopback, link-local, cloud-metadata or IPv4-mapped ranges, checked on the IP resolved at connect time so DNS rebinding cannot slip through, unless a run allowlists them for tests or an intranet. Endpoints the operator configures (sinks, webhooks, model providers such as Ollama on localhost, vaults, proxies) may use private ranges locally, and a "no private endpoints" policy that Automan Cloud switches on forbids it. Every endpoint the engine opens (MCP Streamable HTTP, the JSON-RPC daemon, the Console, the live view, raw CDP) binds to loopback by default, checks `Host` and `Origin`, and requires a per-launch random token; remote exposure needs TLS and a token, and OAuth 2.1 for remote MCP as the MCP specification defines. The engine reaches its own browsers over a pipe, never a debugging port. Decided in [Security and compliance model](https://github.com/Jbmanllr/automan/issues/73).
+
+## Considered Options
+
+- **Refusing private addresses on redirects only, by host name** (Spider): rejected. It never checks the start URL and does not resolve DNS. Firecrawl shows what slips through: SSRF through redirects (CVE-2024-56800), through webhook URLs (CVE-2025-57818) and through a redirect bypass (CVE-2026-32857).
+- **One class for every connection**: rejected. Blocking private ranges for operator endpoints would break local models and local sinks; allowing them for pages would let a page reach cloud metadata.
+- **Exposing Chrome's debugging port for raw CDP**: rejected. Since Chrome 136, Chrome refuses that port on the default profile because infostealers used it to take cookies.
+- **Endpoints without Origin checks or tokens on loopback**: rejected. MCP Inspector's remote code execution (CVE-2025-49596) and the TypeScript MCP SDK's rebinding protection being off by default (CVE-2025-66414) came from trusting loopback.
+
+## Consequences
+
+- Webhooks follow the Standard Webhooks specification: `webhook-id` carries the delivery ID of ADR 0008, the run epoch goes in a signed header, HMAC-SHA256 (`v1`) is the default and ed25519 (`v1a`) an option, several signatures allow secret rotation, receivers reject timestamps more than five minutes off, and the three SDKs ship verification helpers.
+- A raw CDP client can switch off the engine's interception (ADR 0014), so a Session with raw CDP attached sends its traffic through an engine-owned egress proxy that enforces the SSRF and domain policy at the network layer and only tunnels, leaving the TLS fingerprint unchanged. While a raw client is attached, the engine refuses to type secrets, results are marked unguarded in Provenance, and the Session never goes back to a Session pool by itself, though it can be saved explicitly. The raw CDP token is per Session, short-lived and revocable, and every attach is audited.
+- Chromium's sandbox stays on: the engine never passes `--no-sandbox` by default, and the official images run as a non-root user with a published seccomp profile. Playwright's image runs as root, which disables the sandbox, and its docs warn against it for untrusted sites.
+- The resolved-IP check, the egress proxy and the sandbox can be switched off per run under ADR 0016, and each switch is audited. Endpoint tokens cannot be switched off.
+- How the Console is served is still open in the map; it follows this rule.

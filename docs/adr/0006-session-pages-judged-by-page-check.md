@@ -1,6 +1,6 @@
 # Session pages are judged by a Page check, never by the HTTP status alone
 
-Every page fetched in a session is judged against a Page check declared by the run's code: the expected page is a success, a recognized login page is a lost session, anything else stops the item with `E_CONTRACT`. Without a declared Page check, a built-in detector (a password field, a redirect to a known login URL) applies and the pages it judged are reported as weakly checked. In the lab, a portal answering `200` with its login form after expiry produced 20 false successes out of 20 for a client trusting the status, and none with the Page check. Decided in [Adopt collection decisions](https://github.com/Jbmanllr/automan/issues/71).
+Every page fetched in a session is judged against a Page check declared by the run's code: the expected page is a success, a recognized login page is a lost session, anything else stops the work item with `E_PAGE_CHECK`. Without a declared Page check, a built-in detector (a password field, a redirect to a known login URL) applies and the pages it judged are reported as weakly checked. In the lab, a portal answering `200` with its login form after expiry produced 20 false successes out of 20 for a client trusting the status, and none with the Page check. Decided in [Adopt collection decisions](https://github.com/Jbmanllr/automan/issues/71).
 
 ## Considered Options
 

@@ -1,6 +1,6 @@
 # Every sink follows one delivery contract, exactly-once where the destination can enforce it
 
-Committed results leave the engine through sinks (PostgreSQL, S3-compatible stores, GCS, Azure Blob, signed webhooks) and exports (JSON, JSONL, CSV, XLSX, XML, Parquet). Every delivery carries a stable delivery ID and the run epoch and is retried with backoff. Where the destination can compare and set (PostgreSQL through a fencing table, object stores through conditional writes) the write is exactly-once and a stale epoch is rejected, as ADR 0003 requires; webhooks are at-least-once with the ID for deduplication. Decided in [Adopt collection decisions](https://github.com/Jbmanllr/automan/issues/71).
+Committed results leave the engine through sinks (PostgreSQL, S3-compatible stores, GCS, Azure Blob, signed webhooks) and exports (JSON, JSONL, CSV, XLSX, XML, Parquet). Every delivery carries a stable delivery ID and the run epoch and is retried with backoff. Where the destination can compare and set (PostgreSQL through a fencing table, object stores that support conditional writes) the write is exactly-once and a stale epoch is rejected, as ADR 0003 requires. Elsewhere (webhooks, object stores without conditional writes) delivery is at-least-once: the receiver deduplicates on the delivery ID and rejects a run epoch lower than the highest it has seen, which the documentation and the webhook signature make explicit. Decided in [Adopt collection decisions](https://github.com/Jbmanllr/automan/issues/71).
 
 ## Considered Options
 

@@ -67,7 +67,7 @@ _Avoid_: account, organization, user (for a customer)
 ## Collection
 
 **Frontier**:
-The URLs a run has discovered but not yet visited, with the record of those already visited and the rules that decide when two URLs are the same page.
+The URLs a run has discovered but not yet visited, with the list of those already visited and the rules that decide when two URLs are the same page.
 _Avoid_: queue, request list, to-do list
 
 **Completeness**:
@@ -76,7 +76,7 @@ _Avoid_: success, done, finished (for coverage)
 
 **Session**:
 A reusable browsing identity of a run: its cookies, login state, identity profile and proxy, shared across the pages fetched under it.
-_Avoid_: login, profile, context, session (for a whole run)
+_Avoid_: login, profile, context
 
 **Session pool**:
 The sessions a run keeps, scoring, rotating and retiring them as they fail.
@@ -91,8 +91,8 @@ The append-only collection of a run's Records.
 _Avoid_: results table, output, items
 
 **Record**:
-One item of structured data in a Dataset.
-_Avoid_: item, row, document
+One unit of structured data in a Dataset.
+_Avoid_: row, document, item (an item is a unit of work)
 
 **Key-value store**:
 A run's named storage for files, blobs and the user's own state.
@@ -103,8 +103,8 @@ A file the engine writes from a run's results in a chosen format.
 _Avoid_: dump, download
 
 **Sink**:
-A destination outside the engine that receives a run's committed results while the run is going.
-_Avoid_: output, destination, pipeline
+A system outside the engine that receives a run's committed results while the run is in progress.
+_Avoid_: output, pipeline, connector
 
 **Baseline**:
 A previous run that a run's results are compared with to report what changed.

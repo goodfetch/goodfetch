@@ -312,21 +312,7 @@ These are lab defects found along the way, all fixed. To keep in mind going forw
 
 ---
 
-## 7. What remains to be done
-
-| Work | For which decision | What is needed |
-| --- | --- | --- |
-| Exact reference for D-browser-driver, then recomputation | Browser driver | Owner's decision |
-| Bare-metal Linux reference host | All publishable claims, per-cgroup memory | A machine ([preparation](plan/reference-host.md)) |
-| Firecracker | Cloud topology | Linux with KVM |
-| Additional blocks on a quiet Mac | Scheduler, routing, code mode | One night of an idle Mac |
-| Interviews | Segment, pricing, priorities, sinks | The owner ([guide](research/market/interview-guide.md)) |
-| Stealth profile | ADR-002, `stealth` catalog | The owner |
-| Markdown quality, WebMainBench, lol-html | Extraction | Campaigns to add |
-
----
-
-## 8. Map of the `rnd/` folder
+## 7. Map of the `rnd/` folder
 
 | Folder | Contents | Status |
 | --- | --- | --- |

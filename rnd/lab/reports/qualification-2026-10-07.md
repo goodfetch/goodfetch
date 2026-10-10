@@ -1,14 +1,14 @@
-# Automan Lab — résultats et décisions à tester
+# Automan Lab — results and decisions to test
 
-Relevé du **7 octobre 2026**, sur Apple M3 Max, 14 CPU logiques, 36 GiB de RAM, macOS 27 arm64. Le laboratoire est installé et exécutable. Crawlee, Spider Rust, Stagehand v4, son batch, l'intégration **`@crawlee/stagehand` avec Stagehand v3**, Playwright et Puppeteer ont été lancés localement. Les écritures JSON/JSONL et SQLite ont des workers Node et Rust indépendants.
+Snapshot of **October 7, 2026**, on an Apple M3 Max, 14 logical CPUs, 36 GiB of RAM, macOS 27 arm64. The laboratory is installed and runnable. Crawlee, Spider Rust, Stagehand v4, its batch, the **`@crawlee/stagehand` integration with Stagehand v3**, Playwright and Puppeteer were run locally. The JSON/JSONL and SQLite writes have independent Node and Rust workers.
 
-Les premiers résultats soutiennent trois directions : **éviter le browser lorsqu'HTTP suffit ; réutiliser les ressources ; batcher les écritures derrière une admission bornée**. Ils permettent de proposer le prochain prototype Automan, sans encore choisir son langage sur la seule performance ni annoncer un scraper universellement supérieur.
+The first results support three directions: **avoid the browser when HTTP is enough; reuse resources; batch writes behind bounded admission**. They make it possible to propose the next Automan prototype, without yet choosing its language on performance alone or announcing a universally superior scraper.
 
-## Preuves et reproduction
+## Evidence and reproduction
 
-Les rapports HTML, manifests et échantillons bruts retenus sont regroupés dans l'[index des expériences](index.html). Une copie de ces preuves se trouve dans `evidence/` ; les bases/fichiers de stockage complets restent dans les dossiers locaux `lab/results/` indiqués par l'index. Les tentatives intermédiaires de construction sont conservées, mais ne sont pas utilisées pour les tableaux ci-dessous.
+The retained HTML reports, manifests and raw samples are gathered in the [experiment index](index.html). A copy of this evidence is in `evidence/`; the complete storage databases/files remain in the local `lab/results/` folders indicated by the index. The intermediate build attempts are kept, but are not used for the tables below.
 
-Versions exécutées : **Node 25.5.0, pnpm 12.9.1, Rust 1.93.0, Crawlee 3.18.2, Spider 2.53.9, Playwright 1.63.0, Puppeteer 25.12.0, Stagehand 4.1.0 et 3.7.3, SQLx 0.8.6**. Chrome for Testing **153.0.8010.12** est fourni explicitement aux adapters. Locks, SHA des sources, navigateur et exécutables sont enregistrés. Aucun changement de source n'a été détecté pendant les expériences retenues.
+Versions run: **Node 25.5.0, pnpm 12.9.1, Rust 1.93.0, Crawlee 3.18.2, Spider 2.53.9, Playwright 1.63.0, Puppeteer 25.12.0, Stagehand 4.1.0 and 3.7.3, SQLx 0.8.6**. Chrome for Testing **153.0.8010.12** is provided explicitly to the adapters. Locks, source SHAs, browser and executables are recorded. No source change was detected during the retained experiments.
 
 ```sh
 cd /Users/jb/Dev/automan/lab
@@ -27,111 +27,111 @@ pnpm storage campaigns/storage-contention.json
 pnpm storage campaigns/storage-process-crash.json
 ```
 
-Exécuter les campagnes séparément, sur une machine disponible. Les chiffres restent exploratoires : le corpus est petit, le réseau local, l'état thermique et les applications du laptop ne sont pas contrôlés comme sur une machine réservée.
+Run the campaigns separately, on an available machine. The figures remain exploratory: the corpus is small, the network is local, and the laptop's thermal state and applications are not controlled as they would be on a reserved machine.
 
-## Qualification des moteurs
+## Engine qualification
 
-La campagne commune a enregistré **270 tentatives : 245 vérifiées, 23 unsupported, 2 en échec**. Elle teste catalogue HTTP, catalogue JS, formulaire, 50 clics et shadow ouvert ; normal, retard, overlay et remplacement DOM passent d'abord le gate de conformité. Les 35 cellules conformes ont ensuite chacune un warmup et deux mesures. Ce petit nombre sert surtout à détecter les problèmes d'intégration.
+The common campaign recorded **270 attempts: 245 verified, 23 unsupported, 2 failed**. It tests HTTP catalog, JS catalog, form, 50 clicks and open shadow; normal, delay, overlay and DOM replacement first pass the compliance gate. The 35 compliant cells then each get one warmup and two measurements. This small number mainly serves to detect integration problems.
 
-**Spider Chrome et Spider Smart ont échoué sur le catalogue JavaScript** : les six records attendus sont absents. Les mesures de ces cellules sont bloquées. Leurs résultats HTTP passent. C'est une non-qualification de ces configurations/adapters sur cette fixture ; une enquête ciblée reste nécessaire avant d'attribuer la cause à la bibliothèque, au browser ou à la configuration de récupération du DOM. Il n'y a pas de fallback silencieux qui convertirait l'échec en succès.
+**Spider Chrome and Spider Smart failed on the JavaScript catalog**: the six expected records are missing. The measurements for these cells are blocked. Their HTTP results pass. This is a non-qualification of these configurations/adapters on this fixture; a targeted investigation is still needed before attributing the cause to the library, the browser or the DOM retrieval configuration. There is no silent fallback that would convert the failure into a success.
 
-Les autres capacités absentes sont déclarées : HTTP seul ne traite pas formulaires/shadow ; Spider est ici un adapter de collecte, sans implémentation des actions ; Puppeteer shadow n'est pas implémenté dans cet adapter. Une capacité absente de l'adapter ne constitue pas une affirmation d'incapacité générale du projet upstream.
+The other missing capabilities are declared: HTTP-only does not handle forms/shadow; Spider is used here as a collection adapter, without an implementation of actions; Puppeteer shadow is not implemented in this adapter. A capability missing from the adapter is not a claim of general incapability of the upstream project.
 
-Les pages interactives mesurent leur **viewport réel 1280×720** et le lab le vérifie. Le site de test conserve les effets des interactions et l'oracle contrôle leur ordre, leurs valeurs et les événements trusted. Les selectors sont connus : découverte et raisonnement IA ne sont pas dans cette série.
+The interactive pages measure their **real 1280×720 viewport** and the lab checks it. The test site keeps the effects of the interactions and the oracle checks their order, their values and the trusted events. The selectors are known: AI discovery and reasoning are not part of this series.
 
-## HTTP : cycles de vie et charge
+## HTTP: lifecycles and load
 
-Catalogue de **16 pages / 32 records par tâche**, délai serveur de 2 ms/page, concurrence de quatre tâches, trois blocs de 24 mesures. Tous les backends ont vérifié **72/72 tâches**. Le débit concerne les catalogues complets vérifiés, et non les pages.
+Catalog of **16 pages / 32 records per task**, server delay of 2 ms/page, concurrency of four tasks, three blocks of 24 measurements. All backends verified **72/72 tasks**. Throughput concerns complete verified catalogs, not pages.
 
-| Configuration | Tâches vérifiées/s | p50 tâche, ms | p95 tâche, ms |
+| Configuration | Verified tasks/s | p50 task, ms | p95 task, ms |
 | --- | ---: | ---: | ---: |
-| Fetch Node + parser spécialisé | 88,7 | 44,0 | 50,9 |
-| Spider HTTP, Website par tâche | 92,1 | 42,7 | 45,8 |
-| Crawlee HTTP, crawler neuf par tâche | 18,3 | 193,8 | 413,2 |
-| Crawlee HTTP, crawler/queue partagés par bloc | 25,4 | 81,8 | 542,1 |
+| Node fetch + specialized parser | 88.7 | 44.0 | 50.9 |
+| Spider HTTP, Website per task | 92.1 | 42.7 | 45.8 |
+| Crawlee HTTP, new crawler per task | 18.3 | 193.8 | 413.2 |
+| Crawlee HTTP, crawler/queue shared per block | 25.4 | 81.8 | 542.1 |
 
-Source : [rapport HTTP](evidence/http-lifecycle-2026-10-07T21-29-31-257Z-2b0754/report.html), [bruts](evidence/http-lifecycle-2026-10-07T21-29-31-257Z-2b0754/attempts.jsonl). Les backends minimalistes font moins de travail d'orchestration et n'ont pas le même parser. Le faible écart Node/Spider ici ne démontre aucun avantage intrinsèque de langage. Le gain du pool Crawlee accompagne une queue partagée et une concurrence interne différente ; ce n'est pas une isolation du seul coût d'instanciation. Sa queue idle présente aussi une latence élevée : le run C1 de qualification prenait environ 500 ms pour un petit catalogue. Les réglages de réveil du pool méritent une expérience distincte.
+Source: [HTTP report](evidence/http-lifecycle-2026-10-07T21-29-31-257Z-2b0754/report.html), [raw data](evidence/http-lifecycle-2026-10-07T21-29-31-257Z-2b0754/attempts.jsonl). The minimalist backends do less orchestration work and do not have the same parser. The small Node/Spider gap here demonstrates no intrinsic language advantage. The Crawlee pool's gain comes with a shared queue and a different internal concurrency; it does not isolate the instantiation cost alone. Its idle queue also shows high latency: the qualification C1 run took about 500 ms for a small catalog. The pool's wake-up settings deserve a separate experiment.
 
-Le stress à arrivées indépendantes offre **20 tâches/s**, avec catalogue de huit pages, délai de 10 ms/page et quatre tâches actives au maximum. Deux blocs proposent chacun 40 tâches. Node et Spider HTTP vérifient **80/80** ; Crawlee neuf vérifie **72/80** et rejette huit arrivées faute de capacité, sans erreur sur les tâches admises. Le débit vérifié, drain inclus, est respectivement 19,60 / 19,56 / 16,91 tâches/s. Source : [rapport de charge ouverte](evidence/arrival-stress-2026-10-07T21-31-09-975Z-ba6970/report.html).
+The independent-arrival stress test offers **20 tasks/s**, with an eight-page catalog, a delay of 10 ms/page and at most four active tasks. Two blocks each offer 40 tasks. Node and Spider HTTP verify **80/80**; new-crawler Crawlee verifies **72/80** and rejects eight arrivals for lack of capacity, without error on the admitted tasks. The verified throughput, drain included, is respectively 19.60 / 19.56 / 16.91 tasks/s. Source: [open-load report](evidence/arrival-stress-2026-10-07T21-31-09-975Z-ba6970/report.html).
 
-Les **rejets restent au dénominateur**. Le générateur ne ralentit pas artificiellement pour attendre un backend occupé. Les arrivées concernent des tâches complètes ; aucune queue illimitée n'absorbe discrètement la surcharge. Ces deux points de charge ne constituent pas encore une courbe de capacité ni un test prolongé.
+**Rejections stay in the denominator.** The generator does not artificially slow down to wait for a busy backend. Arrivals concern complete tasks; no unbounded queue quietly absorbs the overload. These two load points do not yet constitute a capacity curve or a sustained test.
 
-## Primitives navigateur
+## Browser primitives
 
-La campagne répétée utilise trois blocs, cinq mesures par scénario et backend, des séquences de 50 clics, les mutations de conformité et le même viewport réel. Elle vérifie **690 tâches sur toutes les phases, dont 345 mesures**, et déclare trois cellules shadow Puppeteer unsupported. Les mesures contiennent **4 500 clics contrôlés**, et toutes les phases en contiennent 9 000. Aucun échec n'a été observé dans cette campagne.
+The repeated campaign uses three blocks, five measurements per scenario and backend, sequences of 50 clicks, the compliance mutations and the same real viewport. It verifies **690 tasks across all phases, including 345 measurements**, and declares three Puppeteer shadow cells unsupported. The measurements contain **4,500 controlled clicks**, and all phases together contain 9,000. No failure was observed in this campaign.
 
-| Backend, 15 mesures par cellule | p50 catalogue JS, ms | p50 formulaire, ms | p50 tâche de 50 clics, ms |
+| Backend, 15 measurements per cell | p50 JS catalog, ms | p50 form, ms | p50 50-click task, ms |
 | --- | ---: | ---: | ---: |
-| Playwright | 149,0 | 346,6 | 2 714,6 |
-| Puppeteer | 74,6 | 298,8 | 3 449,2 |
-| Stagehand v4 | 138,9 | 213,5 | 945,5 |
-| Stagehand v4 batch | 130,9 | 215,8 | 939,4 |
-| Crawlee + Playwright | 862,8 | 975,3 | 3 317,8 |
-| Crawlee + Stagehand v3 | 882,9 | 765,0 | 3 209,3 |
+| Playwright | 149.0 | 346.6 | 2,714.6 |
+| Puppeteer | 74.6 | 298.8 | 3,449.2 |
+| Stagehand v4 | 138.9 | 213.5 | 945.5 |
+| Stagehand v4 batch | 130.9 | 215.8 | 939.4 |
+| Crawlee + Playwright | 862.8 | 975.3 | 3,317.8 |
+| Crawlee + Stagehand v3 | 882.9 | 765.0 | 3,209.3 |
 
-Source : [rapport navigateur](evidence/browser-primitives-2026-10-07T21-33-08-604Z-f6b1a0/report.html), [bruts](evidence/browser-primitives-2026-10-07T21-33-08-604Z-f6b1a0/attempts.jsonl). Le temps commence au lancement de la tâche et inclut navigation, contrôles, actions, RPC et oracle ; il ne mesure pas le clic isolé. Les variantes se succèdent selon le même cycle prédéfini. Avec 15 valeurs, le p95 empirique utilisé par le rapport est le maximum observé : ce n'est pas une estimation fiable d'une queue de distribution en production.
+Source: [browser report](evidence/browser-primitives-2026-10-07T21-33-08-604Z-f6b1a0/report.html), [raw data](evidence/browser-primitives-2026-10-07T21-33-08-604Z-f6b1a0/attempts.jsonl). The time starts at task launch and includes navigation, checks, actions, RPC and oracle; it does not measure the isolated click. The variants follow one another according to the same predefined cycle. With 15 values, the empirical p95 used by the report is the observed maximum: it is not a reliable estimate of a distribution tail in production.
 
-Stagehand v4 est plus rapide que Playwright sur cette séquence locale de clics. **Le batch n'apporte pas de gain net supplémentaire démontré ici** : les médianes sont proches et leurs variations ne donnent pas une preuve statistique. Les autres opérations montrent aussi que la vitesse dépend de la tâche ; aucun classement global ne doit remplacer ces cellules.
+Stagehand v4 is faster than Playwright on this local click sequence. **Batching brings no additional net gain demonstrated here**: the medians are close and their variations do not provide statistical proof. The other operations also show that speed depends on the task; no global ranking should replace these cells.
 
-Stagehand v4 utilise ses primitives Page/Locator sans modèle ; son batch ne s'applique qu'aux clics. `@crawlee/stagehand` est une piste **v3**, avec browser/crawler neuf par tâche et Page Playwright. Elle reste distincte de v4. Un client modèle qui échoue à tout appel est utilisé dans cette piste pour détecter une inférence accidentelle.
+Stagehand v4 uses its Page/Locator primitives without a model; its batch applies only to clicks. `@crawlee/stagehand` is a **v3** track, with a new browser/crawler per task and a Playwright Page. It remains distinct from v4. A model client that fails on every call is used in this track to detect accidental inference.
 
-Les garanties natives restent différentes. Playwright effectue notamment ses contrôles d'actionnabilité ; les postconditions communes du lab prouvent ces fixtures, sans rendre les SDK universellement équivalents. Stagehand v4 utilise une extension près du browser ; Playwright emploie déjà CDP pour Chromium. La question utile porte donc sur **placement, trajets RPC et garanties**, pas sur la présence du seul acronyme CDP. [Code Chromium Playwright](https://github.com/microsoft/playwright/blob/v1.63.0/packages/playwright-core/src/server/chromium/crBrowser.ts), [migration Stagehand v4](https://docs.stagehand.dev/v4/migrations/playwright).
+The native guarantees remain different. Playwright notably performs its actionability checks; the lab's common postconditions prove these fixtures, without making the SDKs universally equivalent. Stagehand v4 uses an extension close to the browser; Playwright already uses CDP for Chromium. The useful question is therefore about **placement, RPC round trips and guarantees**, not about the mere presence of the CDP acronym. [Playwright Chromium code](https://github.com/microsoft/playwright/blob/v1.63.0/packages/playwright-core/src/server/chromium/crBrowser.ts), [Stagehand v4 migration](https://docs.stagehand.dev/v4/migrations/playwright).
 
-Le résultat publié Stagehand v4 sur Wikipedia avec RTT distant ne constitue pas une prédiction pour ce lab local. Notre série ne reproduit ni son corpus ni sa topologie. Injecter des RTT contrôlées et comparer SDK distant, worker co-localisé et extension sera nécessaire pour qualifier le bénéfice du batch. Voir l'[audit sourcé](../../research/2026-10-07-lab-engine-evidence.md).
+The published Stagehand v4 result on Wikipedia with remote RTT is not a prediction for this local lab. Our series reproduces neither its corpus nor its topology. Injecting controlled RTTs and comparing a remote SDK, a co-located worker and an extension will be needed to qualify the benefit of batching. See the [sourced audit](../../research/2026-10-07-lab-engine-evidence.md).
 
-## Écriture : contrats, batching et concurrence
+## Writing: contracts, batching and concurrency
 
-**80/80 cellules de contention passent**, avec 96 960 records relus et vérifiés. Chaque cellule a un sink neuf ; huit producteurs alimentent un ou quatre **vrais processus écrivains** partageant le même fichier/base. Deux blocs, 24 batches par bloc, payload de 512 bytes, batches de 1 ou 100 records. JSONL buffered, JSONL fsync, SQLite WAL FULL/NORMAL et DELETE FULL restent des contrats distincts.
+**80/80 contention cells pass**, with 96,960 records read back and verified. Each cell has a new sink; eight producers feed one or four **real writer processes** sharing the same file/database. Two blocks, 24 batches per block, 512-byte payload, batches of 1 or 100 records. Buffered JSONL, fsync JSONL, SQLite WAL FULL/NORMAL and DELETE FULL remain distinct contracts.
 
-**Les SQLite exécutés diffèrent : Node 3.53.4, Rust 3.46.0.** Node utilise DatabaseSync ; Rust SQLx utilise son thread/driver asynchrone et une connexion par writer. Ces différences empêchent d'attribuer les chiffres au seul langage. Les données, transactions, valeurs effectives des PRAGMAs et options de compilation sont enregistrées.
+**The SQLite versions run differ: Node 3.53.4, Rust 3.46.0.** Node uses DatabaseSync; Rust SQLx uses its asynchronous thread/driver and one connection per writer. These differences prevent attributing the figures to the language alone. The data, transactions, effective PRAGMA values and compilation options are recorded.
 
-| Pipeline, un writer | Batch 1, records/s | Batch 100, records/s |
+| Pipeline, one writer | Batch 1, records/s | Batch 100, records/s |
 | --- | ---: | ---: |
-| Node JSONL buffered | 5 990 | 312 830 |
-| Rust JSONL buffered | 13 769 | 919 313 |
-| Node JSONL fsync/batch | 231 | 21 647 |
-| Rust JSONL fsync/batch | 243 | 22 950 |
-| Node SQLite WAL FULL | 5 337 | 164 624 |
-| Rust SQLite WAL FULL | 6 396 | 76 490 |
-| Node SQLite WAL NORMAL | 7 326 | 194 998 |
-| Rust SQLite WAL NORMAL | 8 767 | 84 617 |
-| Node SQLite DELETE FULL | 2 531 | 123 827 |
-| Rust SQLite DELETE FULL | 2 248 | 66 887 |
+| Node JSONL buffered | 5,990 | 312,830 |
+| Rust JSONL buffered | 13,769 | 919,313 |
+| Node JSONL fsync/batch | 231 | 21,647 |
+| Rust JSONL fsync/batch | 243 | 22,950 |
+| Node SQLite WAL FULL | 5,337 | 164,624 |
+| Rust SQLite WAL FULL | 6,396 | 76,490 |
+| Node SQLite WAL NORMAL | 7,326 | 194,998 |
+| Rust SQLite WAL NORMAL | 8,767 | 84,617 |
+| Node SQLite DELETE FULL | 2,531 | 123,827 |
+| Rust SQLite DELETE FULL | 2,248 | 66,887 |
 
-Source : [rapport stockage](evidence/storage-contention-2026-10-07T21-30-24-424Z-6bec59/report.html), [détails et oracles](evidence/storage-contention-2026-10-07T21-30-24-424Z-6bec59/summary.json). Débits agrégés par records vérifiés / somme des fenêtres d'écriture. Les fenêtres sont courtes ; pas de classement statistique ni de débit soutenu démontré. Les cellules les plus grandes contiennent seulement 2 400 records : elles ne qualifient pas le comportement continu des checkpoints ou des grands fichiers. Construction des records, encodage JSON, RPC, sink et journalisation des acks sont inclus ; startup et fermeture/oracle sont séparés. La réécriture du snapshot JSON croissant ajoute encore un coût distinct. Ce ne sont pas des microbenchmarks purs d'encodeurs.
+Source: [storage report](evidence/storage-contention-2026-10-07T21-30-24-424Z-6bec59/report.html), [details and oracles](evidence/storage-contention-2026-10-07T21-30-24-424Z-6bec59/summary.json). Throughput aggregated as verified records / sum of write windows. The windows are short; no statistical ranking or sustained throughput is demonstrated. The largest cells contain only 2,400 records: they do not qualify the continuous behavior of checkpoints or large files. Record construction, JSON encoding, RPC, sink and ack logging are included; startup and close/oracle are separate. Rewriting the growing JSON snapshot adds yet another distinct cost. These are not pure encoder microbenchmarks.
 
-Le batching a un effet majeur dans ces configurations. **Quatre writers SQLite n'améliorent pas ces cellules** : WAL FULL batch 100 passe de 164 624 à 110 816 records/s côté Node et de 76 490 à 39 597 côté Rust. SQLite conserve un seul écrivain actif par base ; multiplier les producteurs et multiplier les connexions ne sont pas la même chose. [Documentation officielle WAL](https://www.sqlite.org/wal.html).
+Batching has a major effect in these configurations. **Four SQLite writers do not improve these cells**: WAL FULL batch 100 goes from 164,624 to 110,816 records/s on the Node side and from 76,490 to 39,597 on the Rust side. SQLite keeps a single active writer per database; multiplying producers and multiplying connections are not the same thing. [Official WAL documentation](https://www.sqlite.org/wal.html).
 
-Le smoke stockage qualifie aussi le snapshot JSON synchronisé avec rename et sync du dossier : **44 cellules passent, 4 sont unsupported** parce que plusieurs writers remplaceraient le même document sans coordination. Les trois formats ne rendent pas les mêmes services : export séquentiel, publication d'un document complet, état transactionnel interrogeable.
+The storage smoke test also qualifies the synchronized JSON snapshot with rename and directory sync: **44 cells pass, 4 are unsupported** because several writers would replace the same document without coordination. The three formats do not provide the same services: sequential export, publication of a complete document, queryable transactional state.
 
-Le probe crash conserve **2 048 records dans 8/8 cellules**, après SIGKILL envoyé après les acquittements. Le système et ses caches restent actifs. Cela vérifie un crash de processus, sans prouver tenue après coupure électrique ni reprise après interruption au milieu d'une transaction. Le lab n'active pas F_FULLFSYNC et n'établit pas une égalité physique des garanties fsync/SQLite sur macOS. [Recherche stockage](../../research/2026-10-07-lab-storage-engineering.md).
+The crash probe keeps **2,048 records in 8/8 cells**, after a SIGKILL sent after the acknowledgements. The system and its caches remain active. This verifies a process crash, without proving durability after a power cut or recovery after an interruption in the middle of a transaction. The lab does not enable F_FULLFSYNC and does not establish physical equality of fsync/SQLite guarantees on macOS. [Storage research](../../research/2026-10-07-lab-storage-engineering.md).
 
-## Proposition d'architecture issue de ces mesures
+## Architecture proposal derived from these measurements
 
-| Couche | Proposition à prototyper | Preuve encore nécessaire |
+| Layer | Proposal to prototype | Evidence still needed |
 | --- | --- | --- |
-| Admission et scheduler | Queue bornée, budgets par domaine/job, annulation explicite | Fairness, priorité, saturation et propagation de la lenteur du sink |
-| Acquisition | HTTP natif en premier, validation de la sortie, upgrade browser si nécessaire | HTTP2/TLS/proxy, contenu authentifié, corpus indépendant, coût des upgrades |
-| Browser | Pools de browsers/pages près du worker, plan déterministe avec postconditions | Isolation entre tenants, crash CDP, frames/OOPIF, RTT et grands DOM |
-| IA | Découvrir/compiler/réparer hors du rejeu normal, limites de coût et validation | Même modèle/budget, dérive sémantique, échec du cache, holdout |
-| Sink | Writer unique batché ; JSONL export, SQLite WAL pour état local | Backpressure intégré, readers/checkpoints, fenêtre de commit et latence max du batch |
-| Durabilité | Leases/checkpoints et écriture idempotente avant ack | Crash entre effet/commit/ack, duplication, reprise et journal d'acks |
-| Interfaces | SDK/CLI/MCP pilotant le moteur ; console web et app macOS | Un vrai workflow HTTP durable commun, puis qualification navigateur |
+| Admission and scheduler | Bounded queue, per-domain/job budgets, explicit cancellation | Fairness, priority, saturation and propagation of sink slowness |
+| Acquisition | Native HTTP first, output validation, browser upgrade if needed | HTTP2/TLS/proxy, authenticated content, independent corpus, cost of upgrades |
+| Browser | Browser/page pools near the worker, deterministic plan with postconditions | Isolation between tenants, CDP crash, frames/OOPIF, RTT and large DOMs |
+| AI | Discover/compile/repair outside normal replay, cost limits and validation | Same model/budget, semantic drift, cache failure, holdout |
+| Sink | Single batched writer; JSONL export, SQLite WAL for local state | Integrated backpressure, readers/checkpoints, commit window and max batch latency |
+| Durability | Leases/checkpoints and idempotent write before ack | Crash between effect/commit/ack, duplication, recovery and ack log |
+| Interfaces | SDK/CLI/MCP driving the engine; web console and macOS app | A real common durable HTTP workflow, then browser qualification |
 
-**Rust/Tokio reste le candidat pour le noyau portable**, pas un gagnant démontré. Conserver des backends Node pour compatibilité est cohérent ; un pilote Rust/CDP devra battre une baseline Node co-localisée à garanties égales pour justifier son coût. Le sink Rust actuel SQLx n'est pas automatiquement plus rapide que Node SQLite. Ajouter une baseline Rust avec binding synchrone et **le même build SQLite**, puis Go, serait une comparaison de runtimes plus défendable.
+**Rust/Tokio remains the candidate for the portable core**, not a demonstrated winner. Keeping Node backends for compatibility is consistent; a Rust/CDP driver will have to beat a co-located Node baseline at equal guarantees to justify its cost. The current Rust SQLx sink is not automatically faster than Node SQLite. Adding a Rust baseline with a synchronous binding and **the same SQLite build**, then Go, would be a more defensible runtime comparison.
 
-Le prochain livrable décisif est un prototype **acquisition → extraction → validation → writer batché → commit → ack**, avec queue bornée et reprise idempotente. Ce lab mesure aujourd'hui acquisition et écriture dans des pistes séparées ; il n'implémente pas encore ce workflow durable Automan. Sa latence et sa consommation intégrées restent à démontrer avant de figer l'architecture.
+The next decisive deliverable is an **acquisition → extraction → validation → batched writer → commit → ack** prototype, with a bounded queue and idempotent recovery. This lab currently measures acquisition and writing in separate tracks; it does not yet implement this durable Automan workflow. Its integrated latency and consumption remain to be demonstrated before freezing the architecture.
 
-## Couverture restante et concurrents
+## Remaining coverage and competitors
 
-La [matrice de couverture](../docs/coverage-matrix.md) détaille les primitives futures : frames, fichiers, captures, AX/snapshots complets, session reuse/isolation, réseau dégradé, sink plein, readers/checkpoints, CPU/I/O, charge C16/64 et reprise. Des fixtures iframe/download existent déjà, sans adapters qualifiés annoncés.
+The [coverage matrix](../docs/coverage-matrix.md) details the future primitives: frames, files, captures, complete AX/snapshots, session reuse/isolation, degraded network, full sink, readers/checkpoints, CPU/I/O, C16/64 load and recovery. iframe/download fixtures already exist, without announced qualified adapters.
 
-Priorité de comparaison : **Chromey/chromiumoxide et chromedp/rod** pour isoler les pilotes ; **Crawlee Adaptive/Impit, Scrapy, Colly, Scrapling, Crawl4AI** pour acquisition/pools ; **agent-browser, Browser Use, Skyvern, Magnitude, AgentQL** pour agents/perception. Firecrawl, Browserbase, Browserless, Steel, Spider Cloud, Zyte et les services de collecte demandent une série de topologie/coût distincte. La [shortlist sourcée](../../research/2026-10-07-lab-competitor-shortlist.md) donne les raisons et les sources ; leur présence dans cette liste ne signifie pas qu'ils sont déjà installés.
+Comparison priority: **Chromey/chromiumoxide and chromedp/rod** to isolate the drivers; **Crawlee Adaptive/Impit, Scrapy, Colly, Scrapling, Crawl4AI** for acquisition/pools; **agent-browser, Browser Use, Skyvern, Magnitude, AgentQL** for agents/perception. Firecrawl, Browserbase, Browserless, Steel, Spider Cloud, Zyte and the collection services require a separate topology/cost series. The [sourced shortlist](../../research/2026-10-07-lab-competitor-shortlist.md) gives the reasons and the sources; their presence in this list does not mean they are already installed.
 
-## Vérification du laboratoire
+## Laboratory verification
 
-Vérifications finales : **14/14 tests unitaires, 1/1 intégration réelle Stagehand**, `pnpm check`, les deux `cargo fmt --check` et `pnpm run doctor` passent. Doctor reçoit les réponses des 12 backends et des deux writers ; il ne remplace pas leur qualification métier. Les 108 liens locaux contrôlés existent, les 161 fichiers de preuves correspondent à leurs SHA, et l'index HTML a été rendu et son filtre stockage vérifié. Voir le [relevé de vérification](verification-2026-10-07.json).
+Final checks: **14/14 unit tests, 1/1 real Stagehand integration**, `pnpm check`, both `cargo fmt --check` and `pnpm run doctor` pass. Doctor receives responses from the 12 backends and the two writers; it does not replace their functional qualification. The 108 local links checked exist, the 161 evidence files match their SHAs, and the HTML index was rendered and its storage filter verified. See the [verification record](verification-2026-10-07.json).
 
-Les tests automatisés exercent les contrats : données manquantes/dupliquées/fausses, faux succès d'un worker, corruption/hors ordre du protocole, timeout et descendants récalcitrants, saturation et deadline, reopen des sinks et dénominateurs statistiques. Une intégration réelle Stagehand vérifie clics avec overlay et dimensions de la page. Les performances n'ont pas de seuil fragile dans les tests unitaires.
+The automated tests exercise the contracts: missing/duplicate/wrong data, false success of a worker, protocol corruption/out-of-order messages, timeout and recalcitrant descendants, saturation and deadline, sink reopen and statistical denominators. A real Stagehand integration checks clicks with overlay and page dimensions. Performance has no fragile threshold in the unit tests.
 
-Les références et prescriptions de méthode sont dans les [bonnes pratiques d'ingénierie des tests](../../research/2026-10-07-lab-testing-engineering.md) et la [recherche stockage](../../research/2026-10-07-lab-storage-engineering.md). Les scripts permettent de répéter ces expériences et d'ajouter un adapter incorrect comme contrôle négatif avant de considérer ses temps.
+The references and method prescriptions are in the [test engineering best practices](../../research/2026-10-07-lab-testing-engineering.md) and the [storage research](../../research/2026-10-07-lab-storage-engineering.md). The scripts make it possible to repeat these experiments and to add an incorrect adapter as a negative control before considering its timings.

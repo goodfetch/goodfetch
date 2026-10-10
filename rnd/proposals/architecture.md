@@ -1,344 +1,344 @@
-# Architecture proposée d'Automan
+# Proposed Automan architecture
 
-**7 octobre 2026 — proposition de conception, aucune implémentation à ce stade.** Ce document développe l'[ADR langage/runtime](../adr/0001-runtime-language.md). Les APIs exemples et les objectifs de qualification sont décrits séparément dans [api.md](api.md) et dans les [gates du plan R&D](../plan/rd-plan.md#7-gates-de-promotion-sans-chiffres-inventés).
+**October 7, 2026 — design proposal, no implementation at this stage.** This document expands on the [language/runtime ADR](../adr/0001-runtime-language.md). The example APIs and the qualification objectives are described separately in [api.md](api.md) and in the [R&D plan gates](../plan/rd-plan.md#7-promotion-gates-without-invented-figures).
 
-## 1. Principes et décisions
+## 1. Principles and decisions
 
-### 1.1 Un moteur canonique, des surfaces idiomatiques
+### 1.1 One canonical engine, idiomatic surfaces
 
-Rust/Tokio possède les contrats d'exécution : plans, état, frontier, admission, reprises, sessions, validation et coûts. Il est utilisable comme bibliothèque et comme exécutable. Les SDK TypeScript/Python, la CLI et les apps consomment le même moteur. Les modèles de protocole sont générés ; les façades restent idiomatiques, documentées et courtes.
+Rust/Tokio owns the execution contracts: plans, state, frontier, admission, resumes, sessions, validation and costs. It is usable as a library and as an executable. The TypeScript/Python SDKs, the CLI and the apps consume the same engine. The protocol models are generated; the facades remain idiomatic, documented and short.
 
-Ce choix vise distribution native, contrôle des ressources et unité sémantique. Il ne prouve pas un avantage sur le temps total d'un workflow dominé par réseau, Chromium ou modèles. Un moteur TS/Node avec Playwright est une alternative crédible, tout comme Go pour la distribution et le réseau. Les bénéfices du choix Rust doivent être mesurés sur le produit complet. [ADR proposé](../adr/0001-runtime-language.md), [Rust](https://rust-lang.org/), [Tokio](https://tokio.rs/).
+This choice aims at native distribution, resource control and semantic unity. It does not prove an advantage on the total time of a workflow dominated by the network, Chromium or models. A TS/Node engine with Playwright is a credible alternative, as is Go for distribution and networking. The benefits of the Rust choice must be measured on the complete product. [Proposed ADR](../adr/0001-runtime-language.md), [Rust](https://rust-lang.org/), [Tokio](https://tokio.rs/).
 
-### 1.2 Modules profonds, processus justifiés
+### 1.2 Deep modules, justified processes
 
-| Module | Responsabilité et contrat | Frontière de processus proposée |
+| Module | Responsibility and contract | Proposed process boundary |
 | --- | --- | --- |
-| Contrôle | Créer/inspecter/annuler un run, gérer versions, identités et capacités | Daemon local ; API de contrôle cloud |
-| Frontier | Déduplication, découverte, priorité, leases, délais, fin de crawl | Dans le moteur ; état partagé cloud |
-| Exécuteur | Interpréter le plan, journaliser les étapes, conditions et résultats | Worker Rust |
-| Admission | Réserver ressources, budgets et capacité avant dispatch | Locale au moteur, crédits globaux accordés par contrôle cloud |
-| Accès au site | HTTP, parsing, CDP, Playwright ; informations et erreurs normalisées | HTTP dans worker ; Chromium et compatibilité Playwright séparés |
-| Sessions/pools | Ownership, identité, santé, disponibilité, retrait et réutilisation | Manager dans worker ; Chromium isolé selon périmètre |
-| Décision/agent | Modèles, décisions typées, outils et budgets, compilation | Module facultatif ; providers locaux/distants |
-| Validation/réparation | Vérifier résultat, diagnostiquer dérive, qualifier version candidate | Même exécuteur ; runs de test séparés |
-| Données | Datasets, artefacts, caches, export, provenance et outbox | SQLite + fichiers local ; PostgreSQL + objets cloud |
-| Observabilité | Journal structuré, spans, compteurs, traces expurgées | Même module ; exporteur facultatif |
+| Control | Create/inspect/cancel a run, manage versions, identities and capabilities | Local daemon; cloud control API |
+| Frontier | Deduplication, discovery, priority, leases, delays, crawl completion | In the engine; shared cloud state |
+| Executor | Interpret the plan, journal steps, conditions and results | Rust worker |
+| Admission | Reserve resources, budgets and capacity before dispatch | Local to the engine, global credits granted by cloud control |
+| Site access | HTTP, parsing, CDP, Playwright; normalized information and errors | HTTP in the worker; Chromium and Playwright compatibility separate |
+| Sessions/pools | Ownership, identity, health, availability, retirement and reuse | Manager in the worker; Chromium isolated depending on scope |
+| Decision/agent | Models, typed decisions, tools and budgets, compilation | Optional module; local/remote providers |
+| Validation/repair | Verify the result, diagnose drift, qualify a candidate version | Same executor; separate test runs |
+| Data | Datasets, artifacts, caches, export, provenance and outbox | SQLite + local files; PostgreSQL + cloud objects |
+| Observability | Structured journal, spans, counters, redacted traces | Same module; optional exporter |
 
-Une tâche async, un onglet, un processus et une machine sont quatre unités différentes. Un worker peut traiter plusieurs requêtes HTTP et posséder plusieurs processus Chromium ; le nombre de workers ne définit donc pas seul la concurrence. L'architecture évite un service indépendant pour chaque module et un second scheduler à l'intérieur d'un adaptateur.
+An async task, a tab, a process and a machine are four different units. A worker can process several HTTP requests and own several Chromium processes; the number of workers therefore does not by itself define concurrency. The architecture avoids an independent service for each module and a second scheduler inside an adapter.
 
-### 1.3 Réutiliser des composants, conserver les contrats
+### 1.3 Reuse components, keep the contracts
 
-Les projets existants servent de référence et de dépendances ciblées. Le moteur Spider complet ne devient pas le propriétaire caché de la frontier Automan ; Crawlee peut orchestrer un adaptateur Automan dans une intégration externe, mais alors **Crawlee possède la file**. Un backend Stagehand expose ses limites de version et de cache. Il ne réimplémente pas les pools de la plateforme.
+Existing projects serve as references and targeted dependencies. The complete Spider engine does not become the hidden owner of the Automan frontier; Crawlee can orchestrate an Automan adapter in an external integration, but then **Crawlee owns the queue**. A Stagehand backend exposes its version and cache limits. It does not reimplement the platform's pools.
 
-| Composant | Choix proposé | Pourquoi / qualification restante |
+| Component | Proposed choice | Why / remaining qualification |
 | --- | --- | --- |
-| Async/types | Tokio, Serde ; JSON Schema généré à partir des types partagés | Schémas de wire versionnés, limitations communes explicitement testées ; Schemars candidat de génération |
-| HTTP | Reqwest comme baseline ; adapter Impit/wreq ou transport spécialisé facultatif | Streaming, TLS, pools et timeouts ; compatibilité, empreinte, licence et gain propres aux transports spécialisés |
-| Parsing | Parser DOM HTML5 pour CSS ; réécriture/filtrage streaming quand utile | DOM pour relations/locators ; streaming pour volume ; XPath à qualifier séparément |
-| Chromium/CDP | Chromey et Chromiumoxide à qualifier derrière le contrat navigateur | Sélection finale par conformité et maintenance, pas par annonce de débit |
-| Compatibilité | Worker Playwright dédié et versionné | Référence pour attentes, actions et moteurs Firefox/WebKit lorsque requis |
-| État | SQLite WAL local ; PostgreSQL cloud | Transactions, contraintes uniques et leases ; les mêmes états métier, des implémentations de stockage adaptées |
-| Artefacts | Fichiers locaux ou stockage objet compatible S3 | Flux bornés, checksums, références et politiques de rétention |
-| Observabilité | tracing + export OpenTelemetry | Corrélation run/étape/tentative/provider ; conventions GenAI versionnées car encore en développement |
+| Async/types | Tokio, Serde; JSON Schema generated from the shared types | Versioned wire schemas, common limitations explicitly tested; Schemars as generation candidate |
+| HTTP | Reqwest as baseline; optional Impit/wreq adapter or specialized transport | Streaming, TLS, pools and timeouts; compatibility, footprint, license and gain specific to specialized transports |
+| Parsing | HTML5 DOM parser for CSS; streaming rewriting/filtering when useful | DOM for relations/locators; streaming for volume; XPath to be qualified separately |
+| Chromium/CDP | Chromey and Chromiumoxide to be qualified behind the browser contract | Final selection by conformance and maintenance, not by throughput claims |
+| Compatibility | Dedicated and versioned Playwright worker | Reference for waits, actions and Firefox/WebKit engines when required |
+| State | Local SQLite WAL; cloud PostgreSQL | Transactions, unique constraints and leases; the same business states, adapted storage implementations |
+| Artifacts | Local files or S3-compatible object storage | Bounded streams, checksums, references and retention policies |
+| Observability | tracing + OpenTelemetry export | Run/step/attempt/provider correlation; versioned GenAI conventions because they are still in development |
 
-Sources des candidats : [Reqwest](https://docs.rs/reqwest/latest/reqwest/), [Impit](https://github.com/apify/impit), [html5ever](https://github.com/servo/html5ever), [scraper](https://github.com/rust-scraper/scraper), [lol-html](https://github.com/cloudflare/lol-html), [Schemars](https://github.com/GREsau/schemars), [Chromey](https://github.com/spider-rs/chromey), [Chromiumoxide](https://github.com/mattsse/chromiumoxide), [conventions GenAI](https://opentelemetry.io/docs/specs/semconv/gen-ai/gen-ai-spans/). Une bibliothèque CSS ne suffit pas à annoncer une implémentation XPath complète.
+Candidate sources: [Reqwest](https://docs.rs/reqwest/latest/reqwest/), [Impit](https://github.com/apify/impit), [html5ever](https://github.com/servo/html5ever), [scraper](https://github.com/rust-scraper/scraper), [lol-html](https://github.com/cloudflare/lol-html), [Schemars](https://github.com/GREsau/schemars), [Chromey](https://github.com/spider-rs/chromey), [Chromiumoxide](https://github.com/mattsse/chromiumoxide), [GenAI conventions](https://opentelemetry.io/docs/specs/semconv/gen-ai/gen-ai-spans/). A CSS library is not enough to announce a complete XPath implementation.
 
-## 2. Modèle de domaine et d'état
+## 2. Domain and state model
 
-### 2.1 Objets persistés
+### 2.1 Persisted objects
 
-| Objet | Éléments contractuels |
+| Object | Contractual elements |
 | --- | --- |
-| Workspace | Propriétaire, membres, politiques, quotas et namespaces de données |
-| WorkflowVersion | Identifiant/version immuables, entrée/sortie, plan ou package de code, validations, capacités et budgets |
-| Run | Version fixée, paramètres, périmètre d'identité, politiques, état et limites |
-| RunTask | Activation durable d'un run/étape autonome, dependencies/timer, lease/epoch et classe de ressources ; distincte d'une URL de frontier |
-| CrawlRequest | URL/méthode/payload, contexte, clé de déduplication, découverte, priorité, délai, lease et résultat |
-| StepAttempt | Étape/tentative, observation utilisée, commande, timestamps, coût, preuve et statut |
-| Session | Identité, domaine, cookies/stockage autorisés, backend propriétaire, lease et santé |
-| Worker | Version, capacités, placement, état, crédits de capacité et heartbeat |
-| DatasetCommit | Clé idempotente, schéma/version, données ou référence durable, provenance, validation |
-| Artifact | Type, taille, digest, emplacement, droits et rétention |
-| RepairCandidate | Version de base, raison, patch, tests, coûts, version candidate et statut de promotion |
+| Workspace | Owner, members, policies, quotas and data namespaces |
+| WorkflowVersion | Immutable identifier/version, input/output, plan or code package, validations, capabilities and budgets |
+| Run | Pinned version, parameters, identity scope, policies, state and limits |
+| RunTask | Durable activation of an autonomous run/step, dependencies/timer, lease/epoch and resource class; distinct from a frontier URL |
+| CrawlRequest | URL/method/payload, context, deduplication key, discovery, priority, delay, lease and result |
+| StepAttempt | Step/attempt, observation used, command, timestamps, cost, proof and status |
+| Session | Identity, domain, authorized cookies/storage, owning backend, lease and health |
+| Worker | Version, capabilities, placement, state, capacity credits and heartbeat |
+| DatasetCommit | Idempotent key, schema/version, data or durable reference, provenance, validation |
+| Artifact | Type, size, digest, location, rights and retention |
+| RepairCandidate | Base version, reason, patch, tests, costs, candidate version and promotion status |
 
-Un run fixe sa version et ses politiques au démarrage. Une réparation promue sert les prochains runs ; elle ne modifie pas silencieusement le plan d'un run déjà en cours. Une reprise explicite peut basculer de version avec événement et nouvelle tentative identifiables.
+A run pins its version and its policies at startup. A promoted repair serves the next runs; it does not silently modify the plan of a run already in progress. An explicit resume can switch versions with an identifiable event and new attempt.
 
-Un workflow autonome sans crawl possède aussi des activations durables : démarrage, étape prête, timer expiré ou attente résolue. L'exécuteur les journalise et les workers les prennent par lease/epoch, sous la même admission que les requêtes de collecte. La frontier possède découverte/déduplication d'URL ; elle n'est pas utilisée artificiellement pour stocker une attente humaine ou une action métier. Une seule activation propriétaire agit sur une session mutante ; un DAG peut paralléliser des branches indépendantes selon leur scope. Crash ou perte du worker relit le journal et réconcilie l'effet avant nouvelle attribution, avec les mêmes limites de fencing.
+An autonomous workflow without crawling also has durable activations: start, step ready, timer expired or wait resolved. The executor journals them and the workers take them by lease/epoch, under the same admission as the collection requests. The frontier owns URL discovery/deduplication; it is not used artificially to store a human wait or a business action. A single owning activation acts on a mutating session; a DAG can parallelize independent branches according to their scope. A crash or loss of the worker rereads the journal and reconciles the effect before a new assignment, with the same fencing limits.
 
-### 2.2 États distincts
+### 2.2 Distinct states
 
-**Run** : `queued → running`, avec `waiting` (timer, capacité, authentification ou décision humaine) et `retrying` non terminaux. États terminaux : `succeeded`, `partial`, `failed`, `needs_review`, `effect_unknown`, `cancelled`.
+**Run**: `queued → running`, with non-terminal `waiting` (timer, capacity, authentication or human decision) and `retrying`. Terminal states: `succeeded`, `partial`, `failed`, `needs_review`, `effect_unknown`, `cancelled`.
 
-- `succeeded` : tous les critères requis du workflow ont passé.
-- `partial` : données utilisables, mais une partie du contrat n'est pas satisfaite ; la partie manquante est décrite.
-- `needs_review` : décision ou validation non concluante ; les interfaces indiquent ce qui manque.
-- `effect_unknown` : une action a peut-être eu lieu, mais son effet n'est pas confirmé ; aucune répétition automatique non idempotente.
-- `failed` : objectif non atteint avec cause connue ; `cancelled` : exécution arrêtée, sans effacer les résultats déjà commis. Une annulation avec effet externe incertain conserve `effect_unknown` et la demande d'annulation dans l'historique.
+- `succeeded`: all the required criteria of the workflow have passed.
+- `partial`: usable data, but part of the contract is not satisfied; the missing part is described.
+- `needs_review`: inconclusive decision or validation; the interfaces indicate what is missing.
+- `effect_unknown`: an action may have taken place, but its effect is not confirmed; no automatic non-idempotent repetition.
+- `failed`: objective not reached, with a known cause; `cancelled`: execution stopped, without erasing results already committed. A cancellation with an uncertain external effect keeps `effect_unknown` and the cancellation request in the history.
 
-**Requête de frontier** : `ready`, `leased`, `running`, `delayed`, `handled`, `dead_letter`, `cancelled`. `handled` signifie acquittement, pas succès métier. Les compteurs distinguent requêtes traitées, résultats valides, rejets et doublons.
+**Frontier request**: `ready`, `leased`, `running`, `delayed`, `handled`, `dead_letter`, `cancelled`. `handled` means acknowledgment, not business success. The counters distinguish handled requests, valid results, rejections and duplicates.
 
-**Étape** : `pending`, `running`, `committed`, `failed`, `effect_unknown`. **Validation** : `passed`, `failed`, `inconclusive`, `not_checked`. Un transport HTTP réussi ou un clic sans exception retourne un statut technique ; il ne transforme pas un run en succès vérifié.
+**Step**: `pending`, `running`, `committed`, `failed`, `effect_unknown`. **Validation**: `passed`, `failed`, `inconclusive`, `not_checked`. A successful HTTP transport or a click without an exception returns a technical status; it does not turn a run into a verified success.
 
-`resume` agit sur une attente non terminale. Après `needs_review` ou `effect_unknown` terminal, une commande de réconciliation ajoute une résolution et sa preuve sans réécrire l'historique ; une continuation crée un nouveau run lié au précédent. Elle épingle version, paramètres, résultat de réconciliation et checkpoints réutilisables après revalidation. Aucun effet inconnu non résolu n'est répété ; données soumises à fraîcheur et sessions expirées ne sont pas réutilisées aveuglément.
+`resume` acts on a non-terminal wait. After a terminal `needs_review` or `effect_unknown`, a reconciliation command adds a resolution and its proof without rewriting history; a continuation creates a new run linked to the previous one. It pins the version, parameters, reconciliation result and reusable checkpoints after revalidation. No unresolved unknown effect is repeated; data subject to freshness and expired sessions are not blindly reused.
 
-## 3. Frontier, reprise et transactions
+## 3. Frontier, resume and transactions
 
-### 3.1 Frontier complète
+### 3.1 Complete frontier
 
-- Queues nommées et persistantes ; priorités stables, FIFO et stratégie profondeur/largeur configurables, admission par domaine et tenant.
-- Canonicalisation configurable : fragments, query strings, paramètres fonctionnels, méthode et corps. Une URL seule n'identifie pas toujours la requête ; les variations de langue, d'identité et de données requièrent un scope distinct.
-- Déduplication dans le scope déclaré, profondeur, nombre de pages, domaine/path/query allow/deny, robots/sitemaps, liens et redirections, découverte depuis DOM/HTML/XHR/JS lorsque activée.
-- Dates de prochaine collecte, délais, horaires et récurrence ; recrawl crée une nouvelle fenêtre de collecte plutôt que de rester bloqué par la déduplication historique.
-- Leases renouvelables, heartbeat, délais explicites, retries, dead-letter inspection et requeue contrôlé, import/export/checkpoint.
-- Fin de crawl calculée sur demandes actives + leases + délais + producteurs de découverte connus. Un message « file vide » ne prouve pas qu'un producteur ne découvrira plus rien.
-- Quotas et files d'attente bornés ; arrêter ou suspendre la découverte lorsque le stockage ou la sortie sature.
+- Named and persistent queues; stable priorities, configurable FIFO and depth/breadth strategy, admission per domain and tenant.
+- Configurable canonicalization: fragments, query strings, functional parameters, method and body. A URL alone does not always identify the request; variations in language, identity and data require a distinct scope.
+- Deduplication within the declared scope, depth, number of pages, domain/path/query allow/deny, robots/sitemaps, links and redirects, discovery from DOM/HTML/XHR/JS when enabled.
+- Next collection dates, delays, schedules and recurrence; a recrawl creates a new collection window rather than remaining blocked by historical deduplication.
+- Renewable leases, heartbeat, explicit delays, retries, dead-letter inspection and controlled requeue, import/export/checkpoint.
+- Crawl completion computed on active requests + leases + delays + known discovery producers. An "empty queue" message does not prove that a producer will not discover anything more.
+- Bounded quotas and queues; stop or suspend discovery when storage or output saturates.
 
-La réutilisation d'une queue existante et son mode de reprise sont explicites : le défaut ne purge pas l'état d'un run repris. Les enseignements Crawlee/Spider, dont l'écart entre disque de visites et frontier durable, sont sourcés dans la [matrice de collecte](../research/2026-10-07-crawl-capability-matrix.md).
+The reuse of an existing queue and its resume mode are explicit: the default does not purge the state of a resumed run. The Crawlee/Spider lessons, including the gap between a visits disk and a durable frontier, are sourced in the [collection matrix](../research/2026-10-07-crawl-capability-matrix.md).
 
-### 3.2 Protocole de prise en charge
+### 3.2 Claim protocol
 
-1. Admission vérifie les quotas et capacités, puis la transaction attribue une requête avec propriétaire, expiration et **epoch monotone de lease**.
-2. Le worker ne garde pas une transaction SQL ouverte pendant une navigation. Il renouvelle sa lease et contrôle sa validité avant les nouvelles commandes.
-3. Il produit des résultats provisoires, puis les valide selon le contrat.
-4. Une transaction publie le résultat idempotent, la découverte suivante, l'événement d'achèvement et l'acquittement si ces éléments résident dans le même store.
-5. Un commit utilisant un ancien epoch est rejeté. Le worker perdant arrête ses nouvelles actions ; la session concernée est mise en quarantaine si un effet peut rester actif.
+1. Admission checks quotas and capacities, then the transaction assigns a request with an owner, an expiration and a **monotonic lease epoch**.
+2. The worker does not keep an SQL transaction open during a navigation. It renews its lease and checks its validity before new commands.
+3. It produces provisional results, then validates them according to the contract.
+4. A transaction publishes the idempotent result, the next discovery, the completion event and the acknowledgment if these elements reside in the same store.
+5. A commit using an old epoch is rejected. The losing worker stops its new actions; the affected session is quarantined if an effect may remain active.
 
-Les appels de handler `emit`/`discover` confirment seulement le staging sous requête/tentative/epoch. Le moteur publie les sorties après fin réussie du handler et validation. Un échec abandonne la visibilité du staging, ou applique une politique explicite de sous-ensemble partiel validé avec outcome distinct ; il ne publie pas des liens ou lignes provisoires comme un succès complet. Les callbacks qui écrivent directement dans un système tiers n'obtiennent pas cette atomicité.
+The handler calls `emit`/`discover` only confirm staging under request/attempt/epoch. The engine publishes the outputs after successful completion of the handler and validation. A failure abandons the visibility of the staging, or applies an explicit policy of a validated partial subset with a distinct outcome; it does not publish provisional links or rows as a complete success. Callbacks that write directly to a third-party system do not get this atomicity.
 
-**Le fencing empêche les écritures internes périmées ; il n'annule pas un clic déjà transmis à un site tiers.** Une partition réseau peut laisser un ancien worker vivant. La réattribution d'une session mutante requiert arrêt/isolement confirmé ou réconciliation, et ne suffit jamais à garantir l'effet externe exactement une fois.
+**Fencing prevents stale internal writes; it does not cancel a click already transmitted to a third-party site.** A network partition can leave an old worker alive. Reassigning a mutating session requires a confirmed stop/isolation or a reconciliation, and is never enough to guarantee the external effect exactly once.
 
-PostgreSQL peut attribuer des éléments avec `FOR UPDATE SKIP LOCKED` puis mise à jour de lease dans une transaction courte. Ce mécanisme convient à un accès de type queue mais n'assure pas l'ordre global de traitement, la fairness ou la reprise à lui seul. Le scheduler porte ces contrats. [SELECT PostgreSQL](https://www.postgresql.org/docs/current/sql-select.html).
+PostgreSQL can assign items with `FOR UPDATE SKIP LOCKED` followed by a lease update in a short transaction. This mechanism suits queue-like access but does not by itself ensure global processing order, fairness or resume. The scheduler carries these contracts. [PostgreSQL SELECT](https://www.postgresql.org/docs/current/sql-select.html).
 
-SQLite WAL s'utilise sur un même hôte avec un seul writer à un instant donné ; un writer dédié sérialise/batche les transactions bornées. Les payloads volumineux ne passent pas tous dans le journal. Il n'est pas proposé comme base partagée sur filesystem réseau pour un cluster. [SQLite WAL](https://sqlite.org/wal.html).
+SQLite WAL is used on a single host with a single writer at any given time; a dedicated writer serializes/batches the bounded transactions. Large payloads do not all go through the journal. It is not proposed as a shared database on a network filesystem for a cluster. [SQLite WAL](https://sqlite.org/wal.html).
 
-### 3.3 Dataset et artefacts sans fausse atomicité
+### 3.3 Dataset and artifacts without false atomicity
 
-La clé de commit inclut run, requête, version du pipeline et identité métier ou ordinal stable. La déduplication de transport et l'upsert métier sont deux politiques distinctes : deux produits différents ayant le même prix ne doivent pas être fusionnés.
+The commit key includes run, request, pipeline version and business identity or stable ordinal. Transport deduplication and business upsert are two distinct policies: two different products with the same price must not be merged.
 
-Un blob est écrit, confirmé durable et vérifié par digest avant la transaction qui publie sa référence. Un upload abandonné reste un artefact provisoire récupérable par politique de rétention ; aucune transaction SQL ne prétend englober un object store externe. Une outbox transactionnelle livre ensuite webhooks et exports avec identifiant d'événement, retry et déduplication côté destination.
+A blob is written, confirmed durable and verified by digest before the transaction that publishes its reference. An abandoned upload remains a provisional artifact recoverable by retention policy; no SQL transaction claims to encompass an external object store. A transactional outbox then delivers webhooks and exports with an event identifier, retry and destination-side deduplication.
 
-Pour une destination externe non transactionnelle, livrer une fois ou rejouer après crash relève de son contrat d'idempotence. Les utilisateurs voient la position d'export, les rejets et les doublons détectés. L'acquittement n'est pas différé indéfiniment par un export vers un système indisponible : l'outbox possède son propre état.
+For a non-transactional external destination, delivering once or replaying after a crash depends on its idempotency contract. Users see the export position, the rejections and the detected duplicates. Acknowledgment is not deferred indefinitely by an export to an unavailable system: the outbox has its own state.
 
-### 3.4 Retry, réparation et effet incertain
+### 3.4 Retry, repair and uncertain effect
 
-Une politique distingue transport temporaire, throttling `Retry-After`, navigateur perdu, authentification expirée, blocage, données invalides, drift de locator, absence métier et effet inconnu. Elle fixe maximum de **tentatives**, délais/backoff avec jitter, timeout global et plafond de coût. Rotation de proxy/session et appel de réparation consomment le même budget total ; aucun retry invisible par étage ne multiplie librement les tentatives.
+A policy distinguishes temporary transport failure, `Retry-After` throttling, lost browser, expired authentication, blocking, invalid data, locator drift, business absence and unknown effect. It sets the maximum number of **attempts**, delays/backoff with jitter, global timeout and cost cap. Proxy/session rotation and repair calls consume the same total budget; no invisible per-layer retry freely multiplies attempts.
 
-Les limites se composent : le transport peut retenter une opération sûre, mais annonce ses tentatives au run ; le workflow décide de la reprise métier. Un résultat d'un provider est journalisé ; un replay d'historique ne réappelle pas ce provider si l'étape est commise et réutilisable. Le contrat évite la construction d'un moteur universel rejouant du code arbitraire.
+Limits compose: the transport can retry a safe operation, but reports its attempts to the run; the workflow decides on business resumption. A provider's result is journaled; a history replay does not call this provider again if the step is committed and reusable. The contract avoids building a universal engine that replays arbitrary code.
 
-La littérature opérationnelle Temporal explicite le crash après un effet et avant l'enregistrement : une activity peut être exécutée plusieurs fois, même si son achèvement est observé une seule fois. Automan reprend cette distinction, sans intégrer Temporal comme dépendance obligatoire. [Activity Definition](https://docs.temporal.io/activity-definition).
+Temporal's operational literature makes explicit the crash after an effect and before the recording: an activity can be executed several times, even if its completion is observed only once. Automan adopts this distinction, without integrating Temporal as a mandatory dependency. [Activity Definition](https://docs.temporal.io/activity-definition).
 
-**Pourquoi pas Temporal obligatoire ?** Il est adapté aux orchestration longues et multi-services ; il ajoute un service, des contraintes de replay et une exploitation qui ne sont pas nécessaires à une collecte locale. Automan propose un exécuteur de plans borné avec état transactionnel ; un connecteur Temporal peut lancer et suivre un run comme activité idempotente. Si les futurs workflows généraux excèdent ce contrat, la décision devra être réexaminée plutôt que de reproduire tout Temporal.
+**Why not mandatory Temporal?** It is suited to long-running, multi-service orchestrations; it adds a service, replay constraints and operations that are not necessary for local collection. Automan proposes a bounded plan executor with transactional state; a Temporal connector can launch and follow a run as an idempotent activity. If future general workflows exceed this contract, the decision will have to be re-examined rather than reproducing all of Temporal.
 
-## 4. Pools, workers, concurrence et autoscaling
+## 4. Pools, workers, concurrency and autoscaling
 
-### 4.1 Pools indépendants mais admission commune
+### 4.1 Independent pools but common admission
 
-| Pool | Cycle de vie et fonctions requises |
+| Pool | Lifecycle and required functions |
 | --- | --- |
-| Workers | Registration version/capabilities, heartbeat, capacité, sélection par région/backend, drainage, rolling update, arrêt et reprise |
-| HTTP | Connexions keep-alive, protocoles disponibles, DNS, timeouts et quotas par origine/proxy ; fermeture et taille bornées |
-| Processus navigateurs | Launch/attach, warmup, santé, limite mémoire/pages/âge, retrait, crash replacement et drainage |
-| Contextes/pages | Identité, storage state, fenêtres/onglets, quotas, ownership, fermeture des pages orphelines |
-| Sessions | Cookies/stockage, succès/erreurs, expiration, domaine/identité/proxy cohérents, refresh, quarantine et retirement |
-| Proxies | Config/provider, sticky session, pays/région si fourni, santé et score, cooldown, rotation raisonnée, quotas et coût |
-| Modèles | Providers/modèles, connexions, limites requêtes/tokens, circuit breakers, retries et coût |
+| Workers | Version/capabilities registration, heartbeat, capacity, selection by region/backend, draining, rolling update, stop and resume |
+| HTTP | Keep-alive connections, available protocols, DNS, timeouts and quotas per origin/proxy; bounded closing and size |
+| Browser processes | Launch/attach, warmup, health, memory/page/age limit, retirement, crash replacement and draining |
+| Contexts/pages | Identity, storage state, windows/tabs, quotas, ownership, closing of orphan pages |
+| Sessions | Cookies/storage, successes/errors, expiration, consistent domain/identity/proxy, refresh, quarantine and retirement |
+| Proxies | Config/provider, sticky session, country/region if provided, health and score, cooldown, reasoned rotation, quotas and cost |
+| Models | Providers/models, connections, request/token limits, circuit breakers, retries and cost |
 
-Configuration globale et surcharges par workflow/run/domaine. Hooks avant/après création et navigation, extensions déclarées et instrumentation ; aucun hook ne peut contourner les limites globales. Les ressources privées d'une identité ne sont pas recyclées vers une autre sans remise à zéro qualifiée.
+Global configuration and overrides per workflow/run/domain. Hooks before/after creation and navigation, declared extensions and instrumentation; no hook can bypass the global limits. The private resources of one identity are not recycled to another without a qualified reset.
 
-### 4.2 Admission et contrôles
+### 4.2 Admission and controls
 
-Une unité de travail annonce sa classe de ressources. L'admission calcule les crédits disponibles à partir de limites **workspace → run → worker → domaine → pool**. Ces limites ne portent pas toutes la même unité : requêtes HTTP actives, onglets, CPU, bytes en vol et tokens sont comptés séparément.
+A unit of work announces its resource class. Admission computes the available credits from the **workspace → run → worker → domain → pool** limits. These limits do not all carry the same unit: active HTTP requests, tabs, CPU, bytes in flight and tokens are counted separately.
 
-Réserver atomiquement les budgets compatibles ou utiliser un ordre d'acquisition fixe et borné ; ne pas conserver un onglet pendant une attente arbitraire de quota modèle. Des réservations de coût précèdent un appel coûteux, puis sont rapprochées de l'usage réel. Un appel déjà envoyé peut dépasser le plafond estimé selon le provider ; cela apparaît dans le relevé et le moteur bloque les suivants. La concurrence cloud globale repose sur crédits attribués, pas sur une limite seulement répétée dans chaque worker.
+Atomically reserve compatible budgets or use a fixed and bounded acquisition order; do not hold a tab during an arbitrary wait for a model quota. Cost reservations precede an expensive call, then are reconciled with actual usage. A call already sent may exceed the estimated cap depending on the provider; this appears in the statement and the engine blocks subsequent ones. Global cloud concurrency relies on allocated credits, not on a limit merely repeated in each worker.
 
-Backpressure de bout en bout : découverte → queue → HTTP → parsing → modèle → sink. Chaque flux est borné en items **et en octets**. Les gros documents ont taille maximale, parsing/extraction segmentés et politique explicite de rejet ou résultat partiel. La pression du sink réduit l'admission même si le CPU est libre.
+End-to-end backpressure: discovery → queue → HTTP → parsing → model → sink. Each flow is bounded in items **and in bytes**. Large documents have a maximum size, segmented parsing/extraction and an explicit rejection or partial-result policy. Sink pressure reduces admission even if the CPU is free.
 
-### 4.3 Trois niveaux d'autoscaling
+### 4.3 Three levels of autoscaling
 
-1. **Concurrence du worker** : contrôleur utilisant CPU, mémoire disponible du groupe de processus, latences, sockets/pages, tâches bloquées et retard du sink ; hausse progressive, baisse rapide, hystérésis et cooldown.
-2. **Crawl par domaine** : adaptation au RTT, erreurs, rate limits et règles de politeness ; quota maximal fixé même si d'autres domaines sont rapides.
-3. **Flotte cloud** : nombre/type de workers à partir du backlog admissible, temps d'attente, crédits navigateur/modèle et capacité régionale. Scale-down draine puis arrête ; il ne tue pas un effet non confirmé pour économiser une instance.
+1. **Worker concurrency**: controller using CPU, available memory of the process group, latencies, sockets/pages, blocked tasks and sink lag; gradual increase, fast decrease, hysteresis and cooldown.
+2. **Per-domain crawl**: adaptation to RTT, errors, rate limits and politeness rules; maximum quota fixed even if other domains are fast.
+3. **Cloud fleet**: number/type of workers based on the admissible backlog, wait time, browser/model credits and regional capacity. Scale-down drains then stops; it does not kill an unconfirmed effect to save an instance.
 
-La queue peut être grande alors qu'un quota fournisseur empêche toute progression : augmenter les workers dans ce cas augmente le coût, pas le débit utile. Exposer concurrence désirée, admise et active, avec la cause de limitation. Le contrôleur fournit un mode fixe pour reproduire les benchmarks.
+The queue can be large while a provider quota prevents any progress: increasing workers in this case increases cost, not useful throughput. Expose desired, admitted and active concurrency, with the cause of the limitation. The controller provides a fixed mode to reproduce benchmarks.
 
-### 4.4 Placement et isolation
+### 4.4 Placement and isolation
 
-Les workers navigateurs cloud sont proches de Chromium et regroupent les opérations dépendantes explicitement déclarées. Plusieurs pages peuvent partager un processus lorsque l'isolation et la santé le permettent ; des identités ou tâches non fiables peuvent nécessiter processus/container séparés. Le benchmark compte tous les processus, y compris Node et Chromium.
+Cloud browser workers are close to Chromium and group explicitly declared dependent operations. Several pages can share a process when isolation and health allow it; untrusted identities or tasks may require separate processes/containers. The benchmark counts all processes, including Node and Chromium.
 
-Dans le cloud, le package de code utilisateur ne s'exécute pas dans le processus du contrôle. Containers/processus isolés, capacités filesystem/réseau limitées, référence de secrets et quotas ; la frontière d'isolation exacte se choisit selon la menace et le coût mesurés. Un simple `eval` ou timeout n'est pas un sandbox.
+In the cloud, the user code package does not run in the control process. Isolated containers/processes, limited filesystem/network capabilities, secret references and quotas; the exact isolation boundary is chosen according to the measured threat and cost. A simple `eval` or timeout is not a sandbox.
 
-## 5. Moyens d'accès et choix adaptatif
+## 5. Access methods and adaptive choice
 
-### 5.1 HTTP et parsing
+### 5.1 HTTP and parsing
 
-GET/POST et autres méthodes déclarées, headers, cookies, auth, redirects, compression, encodages, keep-alive, protocoles négociés, certificats, proxies, limites de réponse, streaming et téléchargements. Parsing CSS/XPath une fois qualifiés, JSON/JSON-LD, tables, liens, métadonnées, Markdown, nettoyage de contenu, extraction incrémentale et normalisation typée.
+GET/POST and other declared methods, headers, cookies, auth, redirects, compression, encodings, keep-alive, negotiated protocols, certificates, proxies, response limits, streaming and downloads. CSS/XPath parsing once qualified, JSON/JSON-LD, tables, links, metadata, Markdown, content cleaning, incremental extraction and typed normalization.
 
-Les clients HTTP spécialisés en fingerprinting sont des options de transport, avec profil cohérent, version et capacités déclarés. Fingerprint, proxy, CAPTCHA ou comportement humain simulé ne constituent pas une garantie d'accès à tout site. Une intégration fournisseur CAPTCHA/handoff peut exister sans être confondue avec un moteur universel de contournement.
+HTTP clients specialized in fingerprinting are transport options, with a consistent profile, declared version and capabilities. Fingerprint, proxy, CAPTCHA or simulated human behavior do not constitute a guarantee of access to every site. A CAPTCHA/handoff provider integration can exist without being confused with a universal bypass engine.
 
-### 5.2 Navigateur et contrat d'actionability
+### 5.2 Browser and actionability contract
 
-Le contrat public couvre launch/connect, plusieurs contextes lorsque le backend le permet, storage state/cookies, pages/popups, navigation, URL/history, CSS/XPath/role/text/test-id locators, frames/OOPIF, shadow DOM, entrées clavier/pointeur/touch, formulaires, scroll, drag/drop, upload/download, dialogs, captures/PDF, évaluations explicites, réseau/route/headers/proxy, console/erreurs et événements.
+The public contract covers launch/connect, multiple contexts when the backend allows it, storage state/cookies, pages/popups, navigation, URL/history, CSS/XPath/role/text/test-id locators, frames/OOPIF, shadow DOM, keyboard/pointer/touch input, forms, scroll, drag/drop, upload/download, dialogs, captures/PDF, explicit evaluations, network/route/headers/proxy, console/errors and events.
 
-Ces fonctions ne sont pas supposées disponibles identiquement sur tous les backends. `capabilities()` et le manifeste de workflow déclarent les exigences ; un manque échoue avant l'action ou choisit un autre backend **avant la création de la session**. Pas de changement de pilote propriétaire au milieu d'une session active sans reprise qualifiée.
+These functions are not assumed to be identically available on all backends. `capabilities()` and the workflow manifest declare the requirements; a gap fails before the action or chooses another backend **before the session is created**. No change of owning driver in the middle of an active session without a qualified resume.
 
-Pour une action, vérifier unicité, présence, visibilité, stabilité et réception des événements selon sa nature ; retrouver le locator au moment d'agir, pas conserver indéfiniment un pointeur DOM. Les attentes ciblent URL, élément, response, download ou postcondition, plutôt qu'un sleep arbitraire ou un `networkidle` universel. [Actionability Playwright](https://playwright.dev/docs/actionability), [locators](https://playwright.dev/docs/locators).
+For an action, check uniqueness, presence, visibility, stability and event reception according to its nature; re-resolve the locator at the moment of acting, rather than keeping a DOM pointer indefinitely. Waits target a URL, element, response, download or postcondition, rather than an arbitrary sleep or a universal `networkidle`. [Playwright actionability](https://playwright.dev/docs/actionability), [locators](https://playwright.dev/docs/locators).
 
-Les références d'observation portent session/page/frame et génération du document. Navigation ou remplacement de frame invalide les références obsolètes ; une page fermée ne retargete pas automatiquement le voisin. Une ambiguïté retourne les candidats et une erreur typée. Le backend garde une table d'état et une séquence d'événements pour diagnostiquer races de navigation et popups.
+Observation references carry session/page/frame and document generation. Navigation or frame replacement invalidates stale references; a closed page does not automatically retarget its neighbor. An ambiguity returns the candidates and a typed error. The backend keeps a state table and an event sequence to diagnose navigation and popup races.
 
-**Qualification du driver natif** : CDP transporte les commandes ; Chromey/Chromiumoxide ne prouvent pas à eux seuls ce contrat. Chrome ne garantit pas la compatibilité CDP en tant qu'API publique tierce : versions de Chrome qualifiées, tests de compatibilité et matrice backend sont nécessaires. `connectOverCDP` de Playwright est une voie d'attachement dont la fidélité documentée est inférieure à sa connexion propre. [CDP](https://chromedevtools.github.io/devtools-protocol/), [BrowserType](https://playwright.dev/docs/api/class-browsertype#browser-type-connect-over-cdp).
+**Native driver qualification**: CDP carries the commands; Chromey/Chromiumoxide do not by themselves prove this contract. Chrome does not guarantee CDP compatibility as a third-party public API: qualified Chrome versions, compatibility tests and a backend matrix are necessary. Playwright's `connectOverCDP` is an attachment path whose documented fidelity is lower than that of its own connection. [CDP](https://chromedevtools.github.io/devtools-protocol/), [BrowserType](https://playwright.dev/docs/api/class-browsertype#browser-type-connect-over-cdp).
 
-### 5.3 HTTP adaptatif fondé sur le résultat
+### 5.3 Result-based adaptive HTTP
 
-Le routage `auto` part d'une connaissance versionnée du domaine/path et du contrat d'extraction. Une page clairement JavaScript ou un workflow interactif connu peut aller directement au navigateur. Pour un nouveau cas, le moteur observe les raisons de sélection ; il ne parcourt pas systématiquement tous les backends.
+`auto` routing starts from versioned knowledge of the domain/path and of the extraction contract. A clearly JavaScript page or a known interactive workflow can go directly to the browser. For a new case, the engine observes the selection reasons; it does not systematically go through all backends.
 
-Sur un échantillon **en lecture** ou une fixture sans effets externes, comparer HTTP et navigateur sur : champs/identités, complétude, pagination, liens découverts, artefacts attendus et freshness. Stager les sorties de chaque tentative avant commit. Le navigateur devient requis si l'HTTP ne satisfait pas le contrat. Une taille HTML, un framework JS détecté ou deux datasets vides ne suffisent pas à démontrer l'équivalence.
+On a **read-only** sample or a fixture without external effects, compare HTTP and browser on: fields/identities, completeness, pagination, discovered links, expected artifacts and freshness. Stage the outputs of each attempt before commit. The browser becomes required if HTTP does not satisfy the contract. An HTML size, a detected JS framework or two empty datasets are not enough to demonstrate equivalence.
 
-Une recette sans oracles de complétude ne peut apprendre qu'une compatibilité technique ou une confiance heuristique, explicitement affichée. Les informations apprises ont un scope, une durée et des événements d'invalidation. Les tâches mutantes ne sont pas exécutées en doublon pour comparer des backends.
+A recipe without completeness oracles can only learn technical compatibility or heuristic confidence, explicitly displayed. Learned information has a scope, a duration and invalidation events. Mutating tasks are not executed in duplicate to compare backends.
 
-Sources de prior art et écarts : [AdaptivePlaywrightCrawler](https://github.com/apify/crawlee/blob/v3.18.2/packages/playwright-crawler/src/internals/adaptive-playwright-crawler.ts), [matrice Crawlee/Spider](../research/2026-10-07-crawl-capability-matrix.md).
+Prior art sources and gaps: [AdaptivePlaywrightCrawler](https://github.com/apify/crawlee/blob/v3.18.2/packages/playwright-crawler/src/internals/adaptive-playwright-crawler.ts), [Crawlee/Spider matrix](../research/2026-10-07-crawl-capability-matrix.md).
 
-### 5.4 Placement, batch et helper de page
+### 5.4 Placement, batching and page helper
 
-Le worker envoie des opérations groupées lorsque dépendances, état attendu et limite de temps sont connus. Une décision basée sur une nouvelle observation reste une frontière de batch. Journaliser les opérations et valider leur résultat ; un batch n'est pas une transaction sur le site.
+The worker sends grouped operations when dependencies, expected state and time limit are known. A decision based on a new observation remains a batch boundary. Journal the operations and validate their result; a batch is not a transaction on the site.
 
-Un petit helper JavaScript dans le contexte isolé du navigateur, ou une extension facultative, peut réaliser snapshots et opérations locales. Il n'est ni la source de vérité de la frontier ni un second exécuteur durable. Un runtime principal dans une extension, à la Stagehand v4, est une alternative de topologie : qualification séparée de distribution, multi-contextes, lifecycle, protocole, batch et coût. L'évaluation compare des workers placés à distances égales du navigateur, pas simplement Rust contre TypeScript. [Architecture Stagehand](https://github.com/browserbase/stagehand/blob/main/CONTRIBUTING.md), [protocole](https://github.com/browserbase/stagehand/blob/main/packages/protocol/README.md), [expérience de latence publiée et limites](../research/2026-10-07-stagehand-cdp-latency.md).
+A small JavaScript helper in the browser's isolated context, or an optional extension, can perform snapshots and local operations. It is neither the source of truth of the frontier nor a second durable executor. A main runtime in an extension, à la Stagehand v4, is a topology alternative: separate qualification of distribution, multi-context, lifecycle, protocol, batching and cost. The evaluation compares workers placed at equal distances from the browser, not simply Rust versus TypeScript. [Stagehand architecture](https://github.com/browserbase/stagehand/blob/main/CONTRIBUTING.md), [protocol](https://github.com/browserbase/stagehand/blob/main/packages/protocol/README.md), [published latency experiment and limits](../research/2026-10-07-stagehand-cdp-latency.md).
 
-## 6. Plans, code utilisateur et agents
+## 6. Plans, user code and agents
 
-### 6.1 Plan exécutable borné
+### 6.1 Bounded executable plan
 
-Le plan porte : schéma/version, paramètres, secrets référencés, capacités, ressources, entrées/sorties, étapes et dépendances, conditions, boucles bornées, checkpoints, pré/postconditions, stratégie d'erreur et politique de réparation.
+The plan carries: schema/version, parameters, referenced secrets, capabilities, resources, inputs/outputs, steps and dependencies, conditions, bounded loops, checkpoints, pre/postconditions, error strategy and repair policy.
 
-Opérations standard : HTTP, navigate, resolve, act, wait, extract, validate, discover, persist, branch, bounded repeat, invoke workflow/tool et handoff. Chaque opération déclare sa nature : lecture, écriture idempotente ou effet non idempotent. Une étape commise a une sortie journalisée ; elle peut être réutilisée lors de la reprise si sa durée de validité et son contrat le permettent. Une extraction devant être fraîche est refaite lors d'un **nouveau run**, même si son plan est connu.
+Standard operations: HTTP, navigate, resolve, act, wait, extract, validate, discover, persist, branch, bounded repeat, invoke workflow/tool and handoff. Each operation declares its nature: read, idempotent write or non-idempotent effect. A committed step has a journaled output; it can be reused during a resume if its validity period and its contract allow it. An extraction that must be fresh is redone during a **new run**, even if its plan is known.
 
-Deux notions sont distinctes : rejouer l'historique d'un run pour reprendre son orchestration ; réexécuter le plan pour collecter de nouvelles données. Le cache d'une sortie historique ne rend pas les données fraîches pour un nouveau run.
+Two notions are distinct: replaying a run's history to resume its orchestration; re-executing the plan to collect new data. The cache of a historical output does not make the data fresh for a new run.
 
-La compilation couvre les opérations représentables et leurs paramètres ; pas de promesse de transformer tout programme JavaScript/Python ou toute démonstration en plan correct. Des extensions de code restent possibles, avec contrat de retry et d'effet déclaré.
+Compilation covers representable operations and their parameters; there is no promise to transform any JavaScript/Python program or any demonstration into a correct plan. Code extensions remain possible, with a declared retry and effect contract.
 
-### 6.2 Handlers SDK et packages distribuables
+### 6.2 SDK handlers and distributable packages
 
-Un callback TypeScript/Python fourni à la SDK s'exécute dans ce langage ; il ne peut pas être sérialisé comme une fonction opaque vers un worker Rust. En mode local attaché, un pont transporte appels/résultats avec backpressure et annulation ; la disparition du client suspend ou échoue la tâche selon son contrat. La reprise d'un callback arbitraire est au niveau de la tâche, avec réexécution possible, pas à une ligne de code quelconque.
+A TypeScript/Python callback provided to the SDK runs in that language; it cannot be serialized as an opaque function to a Rust worker. In attached local mode, a bridge carries calls/results with backpressure and cancellation; the disappearance of the client suspends or fails the task according to its contract. Resuming an arbitrary callback happens at the task level, with possible re-execution, not at an arbitrary line of code.
 
-Le cloud accepte un package contenant code, manifestes, lockfiles et entrypoint ou un plan portable. Un host de handlers Node/Python isolé reçoit les tâches du worker ; le moteur garde frontier, leases et résultat. Le manifeste fixe runtime, versions, schémas, dépendances, capacités, ressources et tests. Le build produit une version immuable et son digest. SDK thin ne signifie donc pas que le code utilisateur n'a jamais besoin de Node/Python.
+The cloud accepts a package containing code, manifests, lockfiles and an entrypoint, or a portable plan. An isolated Node/Python handler host receives the tasks from the worker; the engine keeps frontier, leases and result. The manifest pins runtime, versions, schemas, dependencies, capabilities, resources and tests. The build produces an immutable version and its digest. A thin SDK therefore does not mean that user code never needs Node/Python.
 
-Un adaptateur Crawlee peut utiliser Automan uniquement pour une session ou une extraction. Dans ce mode, Automan n'ajoute pas un second propriétaire de queue. Le contrat de commit/export externe reste celui de l'intégration.
+A Crawlee adapter can use Automan only for a session or an extraction. In this mode, Automan does not add a second queue owner. The external commit/export contract remains that of the integration.
 
-### 6.3 Perception et décisions typées
+### 6.3 Perception and typed decisions
 
-Une observation assemble DOM réduit/AX tree, éléments ciblés, données réseau pertinentes et capture visuelle facultative. Elle est bornée, horodatée, expurgée et liée à la génération du document. Les champs ont une provenance ; une capture seule n'identifie pas toujours le bon compte ou la bonne ligne.
+An observation assembles a reduced DOM/AX tree, targeted elements, relevant network data and an optional visual capture. It is bounded, timestamped, redacted and tied to the document generation. Fields have provenance; a capture alone does not always identify the right account or the right row.
 
-Une décision renvoie une cible parmi des candidats, une extraction conforme à un schéma, une branche ou une proposition d'étape. Les candidats non ambigus et les règles déterministes passent sans modèle. Des modèles de décision compacts peuvent constituer une option à qualifier ; Jev/TypeSafe étudié dans les PR Stagehand ne devient pas une dépendance stable par supposition.
+A decision returns a target among candidates, an extraction conforming to a schema, a branch or a step proposal. Unambiguous candidates and deterministic rules pass without a model. Compact decision models may constitute an option to be qualified; Jev/TypeSafe, studied in the Stagehand PRs, does not become a stable dependency by assumption.
 
-Résolution proposée : locator principal → alternatives déterministes et identité → comparaison structurelle → modèle typé → vision/agent selon politique. Une similarité n'est pas une probabilité de succès. Ne pas choisir silencieusement le premier ex aequo. Un locator qui correspond encore au mauvais élément doit échouer par validation d'identité ou de postcondition.
+Proposed resolution: primary locator → deterministic alternatives and identity → structural comparison → typed model → vision/agent according to policy. A similarity is not a probability of success. Do not silently choose the first tie. A locator that still matches the wrong element must fail through identity or postcondition validation.
 
-### 6.4 Agent Automan facultatif et agents externes
+### 6.4 Optional Automan agent and external agents
 
-L'agent intégré possède objectif, outils déclarés, état/mémoire bornés, décisions enregistrées, budgets d'actions/tokens/coût/temps et condition terminale. Il utilise les mêmes outils qu'un agent externe. L'utilisateur peut choisir modèle/provider, apporter sa clé ou appeler un provider local ; mode déterministe fonctionnel sans provider.
+The built-in agent has an objective, declared tools, bounded state/memory, recorded decisions, action/token/cost/time budgets and a terminal condition. It uses the same tools as an external agent. The user can choose the model/provider, bring their own key or call a local provider; deterministic mode is functional without a provider.
 
-Les observations de page sont des données non fiables, distinctes de l'objectif et des capacités accordées. Les appels d'outils sont validés par schéma, scope de domaine, effet et budget. Un modèle ne peut pas élargir ses permissions parce qu'un texte de page le demande. Les outils de code arbitraire sont exclus des profils MCP standards et restent une capacité explicite pour code de confiance.
+Page observations are untrusted data, distinct from the objective and from the granted capabilities. Tool calls are validated by schema, domain scope, effect and budget. A model cannot broaden its permissions because a page text asks it to. Arbitrary code tools are excluded from the standard MCP profiles and remain an explicit capability for trusted code.
 
-Un message `done` du modèle est une proposition d'arrêt ; il ne valide pas automatiquement l'objectif. L'exécution peut finir `needs_review` si les conditions sont insuffisantes. Le moteur distingue vérifications mécaniques (schéma, URL, identité, nombre de lignes, état serveur) et jugement par modèle (plausibilité) dans la provenance du verdict.
+A `done` message from the model is a stop proposal; it does not automatically validate the objective. Execution can end in `needs_review` if the conditions are insufficient. The engine distinguishes mechanical checks (schema, URL, identity, number of rows, server state) and model judgment (plausibility) in the provenance of the verdict.
 
-## 7. Vérification, caches et autoréparation
+## 7. Verification, caches and self-repair
 
-### 7.1 Vérification multi-niveaux
+### 7.1 Multi-level verification
 
-| Niveau | Exemples | Ce qu'il ne prouve pas seul |
+| Level | Examples | What it does not prove on its own |
 | --- | --- | --- |
-| Transport | Statut, MIME, téléchargement complet et checksum | L'identité du document ou la couverture du site |
-| Structure | Schéma, type, devise/date/unité, champs requis | La vérité des valeurs |
-| Identité | Compte, SKU, période, domaine, document attendu | La complétude de toutes les pages |
-| Complétude | Pagination terminée, count oracle, absence de trou/doublon, partition parcourue | Données fraîches sans contrat de date |
-| Fraîcheur | Horodatage/source, TTL, version, invalidation | Un plan non cassé |
-| Effet | État externe relu, reçu métier, version/transaction observée | Effet unique si le site n'offre ni identifiant ni idempotence |
-| Jugement probabiliste | Pertinence et plausibilité évaluées par modèle | Preuve indépendante d'identité ou d'effet |
+| Transport | Status, MIME, complete download and checksum | The identity of the document or the coverage of the site |
+| Structure | Schema, type, currency/date/unit, required fields | The truth of the values |
+| Identity | Account, SKU, period, domain, expected document | The completeness of all pages |
+| Completeness | Pagination completed, count oracle, absence of gaps/duplicates, partition traversed | Fresh data without a date contract |
+| Freshness | Timestamp/source, TTL, version, invalidation | An unbroken plan |
+| Effect | External state reread, business receipt, observed version/transaction | A single effect if the site offers neither an identifier nor idempotence |
+| Probabilistic judgment | Relevance and plausibility evaluated by a model | Independent proof of identity or effect |
 
-Le validateur critique est défini avant la réparation. Une proposition IA ne peut supprimer une exigence ou diminuer son seuil pour se déclarer réparée. Un changement du contrat métier est une nouvelle version explicitement examinée, pas un patch automatique du locator.
+The critical validator is defined before the repair. An AI proposal cannot remove a requirement or lower its threshold to declare itself repaired. A change to the business contract is a new, explicitly reviewed version, not an automatic locator patch.
 
-### 7.2 Trois caches, trois invalidations
+### 7.2 Three caches, three invalidations
 
-| Cache | Valeur stockée | Scope et invalidation |
+| Cache | Stored value | Scope and invalidation |
 | --- | --- | --- |
-| Perception/décision | Snapshot réduit, candidats, décision typée | Session/identité, URL, document/frame generation, langue/viewport, instruction, modèle/prompt et contraintes |
-| Plan | Plan paramétré qualifié et alternatives | Version workflow, structure attendue, backend/capacités, contrat d'identité et tests ; dérive/régression invalide |
-| Données | Résultat extrait, éventuellement HTTP response | Requête + scope d'identité + schéma/pipeline ; freshness/TTL explicite, contournement et revalidation |
+| Perception/decision | Reduced snapshot, candidates, typed decision | Session/identity, URL, document/frame generation, language/viewport, instruction, model/prompt and constraints |
+| Plan | Qualified parameterized plan and alternatives | Workflow version, expected structure, backend/capabilities, identity contract and tests; drift/regression invalidates |
+| Data | Extracted result, possibly HTTP response | Request + identity scope + schema/pipeline; explicit freshness/TTL, bypass and revalidation |
 
-Les secrets ne sont pas les clés visibles de cache. Les scopes sensibles utilisent identifiants internes et séparation d'accès ; aucune mutualisation implicite entre tenants/comptes. Les caches sont locaux/autohébergeables, exportables lorsque permis, inspectables et invalidables. Leur disponibilité n'exige pas Browserbase ou Automan cloud. Comparaison des caches concurrents : [matrice agents](../research/2026-10-07-agent-capability-matrix.md).
+Secrets are not visible cache keys. Sensitive scopes use internal identifiers and access separation; no implicit pooling between tenants/accounts. Caches are local/self-hostable, exportable when permitted, inspectable and invalidatable. Their availability does not require Browserbase or Automan cloud. Comparison of competing caches: [agent matrix](../research/2026-10-07-agent-capability-matrix.md).
 
-### 7.3 Cycle d'autoréparation
+### 7.3 Self-repair cycle
 
 ```mermaid
 flowchart LR
-    RUN[Plan connu] --> V[Verification]
-    V -->|passe| OK[Commit]
-    V -->|derive| D[Diagnostic / preuve]
-    D --> P[Patch candidat borne]
-    P --> T[Tests hors effets + regressions]
-    T -->|qualifie| C[Canary / nouvelle version]
-    C -->|conforme a la politique| PROMOTE[Promotion pour prochains runs]
-    T -->|echec ou ambigu| REVIEW[Needs review]
-    C -->|regression| ROLLBACK[Rollback de version]
+    RUN[Known plan] --> V[Verification]
+    V -->|passes| OK[Commit]
+    V -->|drift| D[Diagnosis / evidence]
+    D --> P[Bounded candidate patch]
+    P --> T[Effect-free tests + regressions]
+    T -->|qualified| C[Canary / new version]
+    C -->|compliant with policy| PROMOTE[Promotion for next runs]
+    T -->|failure or ambiguous| REVIEW[Needs review]
+    C -->|regression| ROLLBACK[Version rollback]
 ```
 
-1. Détecter locator invalide, données incohérentes, pagination incomplète, changement de page ou postcondition échouée, même sans exception.
-2. Capturer preuve minimale et classer la cause. Un `429`, une session expirée ou une donnée réellement absente n'appelle pas nécessairement une modification du plan.
-3. Essayer alternatives déterministes, puis produire un patch borné : locator, mapping, attente ou pagination ; limiter tentatives et coût. Conserver version de base, motif et diff.
-4. Tester sur observations/fixtures et variantes déjà connues ; les mocks déterminent des comportements mais ne prouvent pas le fonctionnement du site réel. Les étapes mutantes ne sont pas répétées pour tester sans stratégie d'effet définie.
-5. Vérifier résultat sur canary autorisé. Promouvoir automatiquement les réparations de lecture lorsque la politique et tous les validateurs le permettent ; sinon demander une décision avec une proposition concrète.
-6. Suivre taux de correction, régressions et coût ; rollback explicite. Un rollback de code ne révoque pas un effet externe déjà produit.
+1. Detect an invalid locator, inconsistent data, incomplete pagination, a page change or a failed postcondition, even without an exception.
+2. Capture minimal evidence and classify the cause. A `429`, an expired session or genuinely absent data does not necessarily call for a modification of the plan.
+3. Try deterministic alternatives, then produce a bounded patch: locator, mapping, wait or pagination; limit attempts and cost. Keep the base version, reason and diff.
+4. Test on observations/fixtures and already known variants; mocks determine behaviors but do not prove that the real site works. Mutating steps are not repeated for testing without a defined effect strategy.
+5. Verify the result on an authorized canary. Automatically promote read repairs when the policy and all validators allow it; otherwise request a decision with a concrete proposal.
+6. Track correction rate, regressions and cost; explicit rollback. A code rollback does not revoke an external effect already produced.
 
-Une réparation en cours peut débloquer une tentative du run avec événement et version épinglée ; les autres runs en cours ne changent pas silencieusement. L'historique garde l'échec initial, le coût et les données de validation. Aucun « auto repair 100 % » n'est promis.
+A repair in progress can unblock an attempt of the run with an event and a pinned version; the other runs in progress do not change silently. The history keeps the initial failure, the cost and the validation data. No "100% auto repair" is promised.
 
-## 8. Interfaces, protocole et cloud
+## 8. Interfaces, protocol and cloud
 
-### 8.1 Contrats de transport
+### 8.1 Transport contracts
 
-- **Bibliothèque Rust** : appels typés internes pour exécution embarquée.
-- **RPC privé** : schéma Automan versionné ; stdio pour SDK/CLI éphémère, IPC local authentifié pour app/daemon, canal sécurisé pour contrôle des workers distants. Handshake version/capacités, IDs, deadlines, annulation et événements ; stdout réservé aux messages, logs sur stderr.
-- **API publique** : HTTPS REST pour ressources/actions durables, SSE pour événements et progression reprenables par curseur ; artefacts par upload/download autorisés. Un run lancé reste inspectable si la connexion disparaît.
-- **MCP** : adaptateur du contrat public, stdio et Streamable HTTP conformes à la version négociée. Le protocole MCP et le RPC privé Automan n'ont pas une sémantique supposée identique.
+- **Rust library**: internal typed calls for embedded execution.
+- **Private RPC**: versioned Automan schema; stdio for ephemeral SDK/CLI, authenticated local IPC for app/daemon, secure channel for controlling remote workers. Version/capabilities handshake, IDs, deadlines, cancellation and events; stdout reserved for messages, logs on stderr.
+- **Public API**: HTTPS REST for durable resources/actions, SSE for events and progress resumable by cursor; artifacts via authorized upload/download. A launched run remains inspectable if the connection disappears.
+- **MCP**: adapter of the public contract, stdio and Streamable HTTP conforming to the negotiated version. The MCP protocol and the Automan private RPC are not assumed to have identical semantics.
 
-Le protocole MCP courant consulté est 2026-07-28 ; ses règles de version/capabilities par requête et d'absence de requêtes JSON-RPC initiées par le serveur ne sont pas remplacées par le handshake bidirectionnel privé. Les anciennes révisions nécessitent leur adaptation propre. [Transports MCP](https://modelcontextprotocol.io/specification/2026-07-28/basic/transports), [options de plateforme](../research/2026-10-07-product-platform-options.md).
+The current MCP protocol consulted is 2026-07-28; its per-request version/capabilities rules and the absence of server-initiated JSON-RPC requests are not replaced by the private bidirectional handshake. Older revisions require their own adaptation. [MCP transports](https://modelcontextprotocol.io/specification/2026-07-28/basic/transports), [platform options](../research/2026-10-07-product-platform-options.md).
 
-Les clients demandent une projection, une pagination et un curseur plutôt que de recevoir toutes les pages et screenshots à chaque poll. Erreurs typées et compatibles, unknown fields supportés selon version, capacité obligatoire validée avant dispatch. Backpressure/annulation et perte de connexion ont des tests de contrat inter-SDK.
+Clients request a projection, pagination and a cursor rather than receiving all pages and screenshots on each poll. Typed and compatible errors, unknown fields supported according to version, mandatory capability validated before dispatch. Backpressure/cancellation and connection loss have cross-SDK contract tests.
 
-L'API HTTP du daemon local écoute sur loopback, utilise une credential locale par utilisateur et valide Host, Origin et protection CSRF pour les commandes navigateur. Seules les origines de console autorisées et les clients authentifiés accèdent au contrôle ; un token n'est pas codé en dur dans le bundle JS. CORS ou « localhost » ne sont pas une authentification. La distribution de credentials à la console locale est un échange scoped/éphémère contrôlé par le daemon ; tests avec page hostile et DNS rebinding avant livraison.
+The local daemon's HTTP API listens on loopback, uses a per-user local credential and validates Host, Origin and CSRF protection for browser commands. Only authorized console origins and authenticated clients access control; a token is not hard-coded in the JS bundle. CORS or "localhost" are not authentication. Distributing credentials to the local console is a scoped/ephemeral exchange controlled by the daemon; tests with a hostile page and DNS rebinding before delivery.
 
-### 8.2 Web et macOS
+### 8.2 Web and macOS
 
-**Console React/shadcn avec Vite proposée** : SPA opérationnelle, servie par le daemon local ou CDN en cloud, consommant API/SSE. Cette surface n'exige pas SSR pour inspecter des runs. Next.js demeure une option pour le site public/docs ou un besoin concret de SSR/BFF ; son export statique est également possible. Aucun scheduler/secret provider/driver n'est réimplémenté dans le frontend. [Options sourcées](../research/2026-10-07-product-platform-options.md).
+**Proposed React/shadcn console with Vite**: operational SPA, served by the local daemon or by a CDN in the cloud, consuming API/SSE. This surface does not require SSR to inspect runs. Next.js remains an option for the public site/docs or a concrete SSR/BFF need; its static export is also possible. No scheduler/secret provider/driver is reimplemented in the frontend. [Sourced options](../research/2026-10-07-product-platform-options.md).
 
-**App macOS native** : SwiftUI pour navigation/vues, AppKit pour intégrations système nécessaires, moteur comme sidecar/daemon commun. Contrôle de démarrage/arrêt, Keychain pour références/credentials locaux, sélection des fichiers, notifications et keyboard commands natives. Le travail peut survivre à la fermeture de fenêtre selon mode explicite. Packaging signé/notarisé et lifecycle des mises à jour qualifiés ; lancement permanent en arrière-plan activé explicitement selon le mécanisme macOS. Pas de binding FFI obligatoire tant qu'une mesure ne démontre son utilité.
+**Native macOS app**: SwiftUI for navigation/views, AppKit for the necessary system integrations, engine as a common sidecar/daemon. Start/stop control, Keychain for local references/credentials, file selection, native notifications and keyboard commands. Work can survive the closing of a window depending on an explicit mode. Signed/notarized packaging and update lifecycle qualified; permanent background launch enabled explicitly according to the macOS mechanism. No mandatory FFI binding as long as a measurement does not demonstrate its usefulness.
 
-### 8.3 Cloud et autohébergement
+### 8.3 Cloud and self-hosting
 
-Le cloud ajoute API d'organisations, auth/roles, contrôle multi-tenant, flotte/scheduling, observabilité conservée, quotas/facturation, object store et connecteurs. Les workers utilisent les mêmes plans/types/runtime que le local, avec capabilities effectives visibles. L'autohébergement permet workers, état, sorties et providers propres ; une licence cloud n'est pas requise pour l'exécution du framework.
+The cloud adds organization APIs, auth/roles, multi-tenant control, fleet/scheduling, retained observability, quotas/billing, object store and connectors. The workers use the same plans/types/runtime as local, with visible effective capabilities. Self-hosting allows one's own workers, state, outputs and providers; a cloud license is not required to run the framework.
 
-Les secrets sont référencés dans le plan et résolus au moment autorisé ; jamais inscrits dans le package portable, logs ou capture par défaut. Les sessions authentifiées ont scope tenant/identité et contrôle d'accès explicite. L'import/export de session est une opération distincte de l'export du plan. Traces et captures ont rétention, expurgation et droits propres.
+Secrets are referenced in the plan and resolved at the authorized moment; never written into the portable package, logs or captures by default. Authenticated sessions have a tenant/identity scope and explicit access control. Session import/export is an operation distinct from plan export. Traces and captures have their own retention, redaction and rights.
 
-Scheduling et webhooks : cron/timezone explicites, retard/doublon documenté, clé de run planifié, politique de chevauchement (skip, queue, parallèle autorisé), outbox et signature des livraisons. La même recette peut tourner localement et dans le cloud, à condition que secrets/capacités et connectivité nécessaires y existent.
+Scheduling and webhooks: explicit cron/timezone, documented delay/duplicate, scheduled run key, overlap policy (skip, queue, parallel allowed), outbox and signing of deliveries. The same recipe can run locally and in the cloud, provided that the necessary secrets/capabilities and connectivity exist there.
 
-Le registre de packages porte provenance, versions immuables, schémas, permissions, tests et coûts attendus. Le moteur ouvert reste indépendant de ce registre. La distribution d'un package contenant une dépendance à licence spécifique doit conserver ses conditions ; un processus séparé ne constitue pas en soi une conclusion sur les obligations de distribution.
+The package registry carries provenance, immutable versions, schemas, permissions, tests and expected costs. The open engine remains independent of this registry. Distributing a package containing a dependency with a specific license must preserve its conditions; a separate process does not in itself constitute a conclusion about distribution obligations.
 
-### 8.4 Mesure et facturation
+### 8.4 Metering and billing
 
-Comptabiliser tentative/run/tenant : worker CPU/mémoire/temps, navigateur actif, bytes/proxy, modèles/input/output/cache tokens, stockage et exports. Réserver avant exécution, enregistrer usage réel, dédupliquer événements de facturation avec identifiant stable ; échecs et réparations ne disparaissent pas du coût.
+Account per attempt/run/tenant: worker CPU/memory/time, active browser, bytes/proxy, models/input/output/cache tokens, storage and exports. Reserve before execution, record actual usage, deduplicate billing events with a stable identifier; failures and repairs do not disappear from the cost.
 
-Le dashboard affiche budget prévu, réservé et consommé, unités et estimation de coût avec source/version de tarif. L'exécution locale peut exposer les unités sans inventer un prix. Des secondes de navigateur sans succès métier restent consommées ; une offre facturée au résultat exige un contrat métier spécifique.
+The dashboard displays planned, reserved and consumed budget, units and cost estimate with the pricing source/version. Local execution can expose the units without inventing a price. Browser seconds without business success remain consumed; a result-billed offering requires a specific business contract.
 
-## 9. Risques, arbitrages et gates
+## 9. Risks, trade-offs and gates
 
-| Risque réel | Conséquence | Réponse et preuve requise |
+| Real risk | Consequence | Response and required proof |
 | --- | --- | --- |
-| CDP natif incomplet ou version Chrome changeante | Gain apparent au prix d'actions incorrectes | Suite actionability/frames/network/downloads, versions supportées, backend Playwright disponible |
-| Queue et résultats non atomiques | Duplications/pertes après crash | Crash tests avant/après chaque commit, clés idempotentes, outbox et artefacts stagers |
-| Session partagée ou vieux worker vivant | Mauvais compte, double mutation | Ownership exclusif, epoch, isolation/quarantine et réconciliation externe |
-| HTTP considéré suffisant sur HTML trompeur | Données partielles silencieuses | Comparaison des résultats et découverte, oracles de couverture, flags heuristiques visibles |
-| Réparation surfit ou affaiblit validateurs | Scraper apparemment réparé mais faux | Contrat immuable, fixtures de régression, canary, provenance et rollback |
-| Callback/package non durable | Reprise prétendue impossible en réalité | Contrat plan vs callback, retries au bon niveau, hosts isolés et tests de crash |
-| Concurrence globale ignorée par un module | OOM, quotas dépassés ou coût accru | Admission commune, credits et tests multi-workers/multi-tenants |
-| Multiplication de services/adapters avant preuves | Maintenance coûteuse | Modules dans un moteur ; adapters promus sur un besoin et un test qualifié |
-| Confusion OSS/cloud/licences | Dépendance propriétaire implicite | Inventaire des composants et fonctionnalités, providers remplaçables, distribution documentée |
+| Incomplete native CDP or changing Chrome version | Apparent gain at the price of incorrect actions | Actionability/frames/network/downloads suite, supported versions, Playwright backend available |
+| Non-atomic queue and results | Duplications/losses after a crash | Crash tests before/after each commit, idempotent keys, outbox and staged artifacts |
+| Shared session or old worker still alive | Wrong account, double mutation | Exclusive ownership, epoch, isolation/quarantine and external reconciliation |
+| HTTP considered sufficient on misleading HTML | Silent partial data | Comparison of results and discovery, coverage oracles, visible heuristic flags |
+| Repair overfits or weakens validators | Scraper apparently repaired but wrong | Immutable contract, regression fixtures, canary, provenance and rollback |
+| Non-durable callback/package | Claimed resume impossible in reality | Plan vs. callback contract, retries at the right level, isolated hosts and crash tests |
+| Global concurrency ignored by a module | OOM, quotas exceeded or increased cost | Common admission, credits and multi-worker/multi-tenant tests |
+| Multiplication of services/adapters before proof | Costly maintenance | Modules in one engine; adapters promoted on a need and a qualified test |
+| OSS/cloud/license confusion | Implicit proprietary dependency | Inventory of components and features, replaceable providers, documented distribution |
 
-Les décisions sont **proposées**. Leur implémentation se construit par lots testables ; les gates et limites de mesure sont définis dans le [plan R&D](../plan/rd-plan.md#7-gates-de-promotion-sans-chiffres-inventés). L'architecture promet des contrats à réaliser, pas une fiabilité ni une performance déjà observées.
+The decisions are **proposed**. Their implementation is built in testable batches; the gates and measurement limits are defined in the [R&D plan](../plan/rd-plan.md#7-promotion-gates-without-invented-figures). The architecture promises contracts to be delivered, not reliability or performance already observed.

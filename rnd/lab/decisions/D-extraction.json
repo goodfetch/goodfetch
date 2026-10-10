@@ -1,25 +1,25 @@
 {
   "id": "D-extraction",
-  "title": "Parsing et extraction",
-  "question": "Quelle combinaison de parser, conversion Markdown et extraction de contenu principal adopter ?",
+  "title": "Parsing and extraction",
+  "question": "Which combination of parser, Markdown conversion and main-content extraction should be adopted?",
   "kind": "technical",
   "status": "open",
   "options": [
     {
       "id": "html5ever-scraper",
-      "description": "html5ever et scraper pour les sélecteurs"
+      "description": "html5ever and scraper for selectors"
     },
     {
       "id": "lol-html-streaming",
-      "description": "lol_html en streaming"
+      "description": "lol_html in streaming mode"
     },
     {
       "id": "htmd",
-      "description": "htmd pour HTML vers Markdown"
+      "description": "htmd for HTML to Markdown"
     },
     {
       "id": "trafilatura-class",
-      "description": "extracteur de contenu principal de type trafilatura"
+      "description": "trafilatura-style main-content extractor"
     }
   ],
   "baseline": "html5ever-scraper",
@@ -61,12 +61,12 @@
     {
       "kind": "run",
       "ref": "extraction-quality-test-2026-10-08T18-00-46-463Z-751a55",
-      "note": "WCXB test réservé"
+      "note": "WCXB held-out test"
     },
     {
       "kind": "run",
       "ref": "extraction-rendered-test-2026-10-08T20-14-39-618Z-9f5f67",
-      "note": "extraction après rendu identique au HTML brut sur pages figées"
+      "note": "extraction after rendering identical to raw HTML on frozen pages"
     },
     {
       "kind": "research-doc",
@@ -79,13 +79,13 @@
     {
       "kind": "research-doc",
       "ref": "lab/reports/extraction-paired-2026-10-09.md",
-      "note": "analyse appariée par page, 511 pages : rs-trafilatura meilleur que chaque autre extracteur"
+      "note": "per-page paired analysis, 511 pages: rs-trafilatura better than every other extractor"
     }
   ],
   "verdictRef": "verdicts/D-extraction.json",
   "adr": null,
   "dependsOn": [],
-  "notes": "La qualité se mesure sur pages réelles figées et par type de page ; la vitesse est secondaire tant que la qualité n'est pas équivalente. Le 9 octobre 2026 : le verdict lit le split test réservé de WCXB, apparié par type de page ; le split de développement, qui a servi au réglage, n'en fait plus partie. Le F1 ne dépend pas de l'hôte : la décision se prend en local-dev. lol-html-streaming n'a pas d'adaptateur et reste sans analyse. Le 9 octobre 2026 : l'analyse appariée par page (tools/extraction-paired.ts) tranche ce que la règle par blocs laisse en insufficient-n : rs-trafilatura bat html5ever-scraper de 0,165 point de F1 (IC 0,144 à 0,186) et Readability ou dom-smoothie d'environ 0,06, sur 511 pages.",
+  "notes": "Quality is measured on frozen real pages and per page type; speed is secondary as long as quality is not equivalent. On October 9, 2026: the verdict reads the WCXB held-out test split, paired by page type; the development split, which was used for tuning, is no longer part of it. F1 does not depend on the host: the decision is made in local-dev. lol-html-streaming has no adapter and remains unanalyzed. On October 9, 2026: the per-page paired analysis (tools/extraction-paired.ts) settles what the block rule leaves as insufficient-n: rs-trafilatura beats html5ever-scraper by 0.165 F1 points (CI 0.144 to 0.186) and Readability or dom-smoothie by about 0.06, over 511 pages.",
   "analysis": {
     "lane": "extraction",
     "options": {

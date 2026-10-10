@@ -1,51 +1,51 @@
-# Qualification intégrée — clôturée le 8 octobre 2026
+# Integrated qualification — closed on October 8, 2026
 
-Objectif conservé : poursuivre ensemble acquisition HTTP, interactions navigateur,
-écriture SQLite, exécution durable et comparaison du workflow Rust complet.
-Les chiffres du 7/8 octobre restent des preuves exploratoires, pas des seuils à battre.
+Retained objective: pursue together HTTP acquisition, browser interactions,
+SQLite writing, durable execution and comparison of the complete Rust workflow.
+The figures of October 7/8 remain exploratory evidence, not thresholds to beat.
 
-Interfaces déjà demandées et retenues : protocole public JSONL des adapters/writers,
-workflow acquisition → extraction → validation → queue bornée → commit → ACK,
-oracle indépendant de records et d'effets navigateur. Ces interfaces couvrent
-l'exactitude et la reprise ; elles ne prouvent ni durabilité après coupure électrique,
-ni compatibilité avec tous les sites, ni un déploiement cloud distribué.
+Interfaces already requested and retained: public JSONL protocol for adapters/writers,
+workflow acquisition → extraction → validation → bounded queue → commit → ACK,
+independent oracle for records and browser effects. These interfaces cover
+correctness and recovery; they prove neither durability after a power cut,
+nor compatibility with all sites, nor a distributed cloud deployment.
 
-## Gates de cette continuation
+## Gates of this continuation
 
-- [x] Runtime : coordinateur natif Rust/Tokio, acquisition HTTP native, validation,
-  batching borné et ledger durable ; comparaison Node à topologie et SQLite communs.
-  [30/30 cellules, 3 blocs, sources/binaires inchangés](../results/runtime-native-sustained-2026-10-07T23-21-59-298Z-bf6ecb/summary.json).
-  La configuration Rust est maintenant partagée par Arc ; la requalification conserve 30/30 cellules. La série initiale reste disponible.
-- [x] HTTP : campagnes répétées plus longues, concurrence et délai paramétrés,
-  comparaison native/Spider/Crawlee avec exactitude, saturation et rejets visibles.
-- [x] Browser : Stagehand v4, batch, Playwright, Puppeteer et @crawlee/stagehand ;
-  contrôles d'actionnabilité natifs sans masquer les incidents par des waits communs,
-  effets trusted exacts et variantes retard/overlay/mutation.
-- [x] SQLite : taille de batch, vrais writers, lecteurs concurrents et checkpoints,
-  même artefact, garanties de commit explicites, relecture indépendante.
-- [x] Durabilité : ledger Node/Rust, rejeu, fencing, crash avant/après commit et ACK,
-  reprise d'un nouveau coordinateur, faux succès rejeté et borne respectée.
-  [42/42 cellules de reprise](../results/runtime-recovery-2026-10-07T23-37-26-683Z-fcaced/summary.json)
-  et [57 tests sans skip ni échec](../reports/qualification-current-tests.log).
-- [x] Métrologie : startup/travail/drain/oracle séparés, quantiles bruts, processus
-  inclus explicitement, sources/binaires figés et échecs conservés.
-- [x] Livraison : commandes reproductibles, rapport transversal, preuves et
-  recommandations distinguant observations, hypothèses et limites.
+- [x] Runtime: native Rust/Tokio coordinator, native HTTP acquisition, validation,
+  bounded batching and durable ledger; Node comparison with common topology and SQLite.
+  [30/30 cells, 3 blocks, sources/binaries unchanged](../results/runtime-native-sustained-2026-10-07T23-21-59-298Z-bf6ecb/summary.json).
+  The Rust configuration is now shared via Arc; the requalification keeps 30/30 cells. The initial series remains available.
+- [x] HTTP: longer repeated campaigns, parameterized concurrency and delay,
+  native/Spider/Crawlee comparison with correctness, saturation and visible rejections.
+- [x] Browser: Stagehand v4, batch, Playwright, Puppeteer and @crawlee/stagehand;
+  native actionability checks without masking incidents with common waits,
+  exact trusted effects and delay/overlay/mutation variants.
+- [x] SQLite: batch size, real writers, concurrent readers and checkpoints,
+  same artifact, explicit commit guarantees, independent re-reading.
+- [x] Durability: Node/Rust ledger, replay, fencing, crash before/after commit and ACK,
+  takeover by a new coordinator, false success rejected and bound respected.
+  [42/42 recovery cells](../results/runtime-recovery-2026-10-07T23-37-26-683Z-fcaced/summary.json)
+  and [57 tests without skip or failure](../reports/qualification-current-tests.log).
+- [x] Metrology: startup/work/drain/oracle separated, raw quantiles, processes
+  explicitly included, sources/binaries frozen and failures kept.
+- [x] Delivery: reproducible commands, cross-cutting report, evidence and
+  recommendations distinguishing observations, hypotheses and limits.
 
-Les gates sont closes pour le périmètre exécuté, avec les échecs natifs des comparateurs et les limites maintenus dans le rapport. Elles ne prouvent pas toute l'architecture future.
+The gates are closed for the executed scope, with the comparators' native failures and the limits kept in the report. They do not prove the whole future architecture.
 
-Preuves transversales : [rapport](../reports/integrated-2026-10-08.md), [première suite complète](../results/qualification-integrated-2026-10-07T23-21-58-974Z-6b64b0/summary.json), [requalification complète](../results/qualification-current-2026-10-08T00-11-54-553Z-21d1f2/summary.json), [audit des contrats](../reports/integrated-verification.json), [audit des sources](../reports/integrated-source-audit.json), [reproduction](../reports/qualification-reproduce.md).
+Cross-cutting evidence: [report](../reports/integrated-2026-10-08.md), [first complete suite](../results/qualification-integrated-2026-10-07T23-21-58-974Z-6b64b0/summary.json), [complete requalification](../results/qualification-current-2026-10-08T00-11-54-553Z-21d1f2/summary.json), [contract audit](../reports/integrated-verification.json), [source audit](../reports/integrated-source-audit.json), [reproduction](../reports/qualification-reproduce.md).
 
-## Corrections issues des campagnes, avant clôture
+## Fixes arising from the campaigns, before closure
 
-- [x] Partager la configuration immuable du coordinateur Rust, puis remesurer
-  les mêmes cellules Node/Rust ; conserver la série initiale.
-- [x] Corriger les deux observations de stabilité sur de vraies frames RAF,
-  couvrir le clic mobile par le worker public et requalifier les guards.
-- [x] Initialiser une seule fois le schéma/WAL avant l'ouverture des writers
-  concurrents ; ajouter le contrat W4 et relancer les 108 cellules SQLite.
-- [x] Tester les autres variantes HTTP Spider sans effacer les trois refus de
-  redirection loopback liés à son contrôle SSRF natif.
+- [x] Share the immutable configuration of the Rust coordinator, then remeasure
+  the same Node/Rust cells; keep the initial series.
+- [x] Fix the two stability observations on real RAF frames,
+  cover the mobile click via the public worker and requalify the guards.
+- [x] Initialize the schema/WAL only once before opening the concurrent
+  writers; add the W4 contract and rerun the 108 SQLite cells.
+- [x] Test the other Spider HTTP variants without erasing the three loopback
+  redirect refusals linked to its native SSRF check.
 
 
-Résultats corrigés : runtime 30/30, reprise 42/42, guards 162/162, readers SQLite 108/108 (3 456 000 lignes) et Spider hors redirection loopback 60/60. La redirection demeure un refus de la politique SSRF native ; aucun contournement. Les diagnostics rouge/vert du guard et du startup W4 sont liés depuis le rapport.
+Corrected results: runtime 30/30, recovery 42/42, guards 162/162, SQLite readers 108/108 (3,456,000 rows) and Spider excluding loopback redirect 60/60. The redirect remains a refusal by the native SSRF policy; no workaround. The red/green diagnostics of the guard and of the W4 startup are linked from the report.

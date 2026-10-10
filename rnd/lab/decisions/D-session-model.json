@@ -1,21 +1,21 @@
 {
   "id": "D-session-model",
-  "title": "Modèle de session authentifiée longue",
-  "question": "Comment le moteur porte-t-il une session authentifiée sur un portail : état de session journalisé et repris, page jugée sur son contrat, ou reconnexion à chaque run ?",
+  "title": "Long-lived authenticated session model",
+  "question": "How does the engine carry an authenticated session on a portal: journaled and restored session state, page judged against its contract, or re-login on every run?",
   "kind": "technical",
   "status": "open",
   "options": [
     {
       "id": "contract",
-      "description": "Cookies de session dans le journal et repris au redémarrage ; chaque page est jugée sur son contrat (listing authentifié attendu) ; perte de session : refresh déclaré puis login"
+      "description": "Session cookies in the journal and restored on restart; each page is judged against its contract (authenticated listing expected); session loss: declared refresh, then login"
     },
     {
       "id": "relogin-each-run",
-      "description": "Même contrat de page, mais aucun état de session repris : login au début de chaque run"
+      "description": "Same page contract, but no session state restored: login at the start of each run"
     },
     {
       "id": "status-only",
-      "description": "Cookies repris ; perte de session détectée par le statut HTTP (401/403) ou une redirection vers le login"
+      "description": "Cookies restored; session loss detected by HTTP status (401/403) or a redirect to the login"
     }
   ],
   "baseline": "relogin-each-run",
@@ -52,7 +52,7 @@
     {
       "kind": "run",
       "ref": "portal-sessions-2026-10-09T15-26-01-462Z-3f0b51",
-      "note": "cinq situations, trois politiques, deux tiers"
+      "note": "five situations, three policies, two tiers"
     },
     {
       "kind": "research-doc",
@@ -64,7 +64,7 @@
   "dependsOn": [
     "D-identity"
   ],
-  "notes": "Les logins sont comptés par le site : la métrique ne dépend pas de la charge de l'hôte, d'où une décision possible en local-dev. Le contrat porte sur les données : une page de login servie en 200 à la place d'un rapport ne doit jamais compter comme une page vide.",
+  "notes": "Logins are counted by the site: the metric does not depend on host load, hence a decision is possible in local-dev. The contract is about the data: a login page served as 200 in place of a report must never count as an empty page.",
   "analysis": {
     "lane": "portal",
     "options": {

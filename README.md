@@ -1,9 +1,9 @@
 # Automan
 
-Projet de moteur de scraping et d'automatisation web.
+Web scraping and automation engine project.
 
-La phase de R&D pré-PRD est terminée. Son **rapport final**, [`rnd/README.md`](rnd/README.md), compare le stack proposé avant les tests et le stack recommandé après, avec les preuves et les questions encore ouvertes. Le dossier [`rnd/`](rnd/) contient aussi les propositions d'origine, le plan, les ADR proposés, les recherches sourcées et le [laboratoire](rnd/lab/README.md) qui a mesuré chaque choix.
+The pre-PRD R&D phase is complete. Its **final report**, [`rnd/README.md`](rnd/README.md), compares the stack proposed before the tests with the stack recommended after them, along with the evidence and the questions still open. The [`rnd/`](rnd/) folder also contains the original proposals, the plan, the proposed ADRs, the sourced research and the [lab](rnd/lab/README.md) that measured each choice.
 
-`docs/` est réservé à la documentation définitive du produit. `docs/agents/` configure les skills d'ingénierie ; les ADR adoptés iront dans `docs/adr/`.
+`docs/` is reserved for the product's final documentation. `docs/agents/` configures the engineering skills; adopted ADRs will go in `docs/adr/`.
 
-Le dépôt est un dépôt Git dédié depuis le 8 octobre 2026. Les sorties de campagnes (`rnd/lab/results/`), dépendances, navigateurs, toolchains et builds natifs ne sont pas versionnés ; les preuves retenues restent suivies dans `rnd/lab/ledger/` et `rnd/lab/reports/`.
+The repository has been a dedicated Git repository since October 8, 2026. Campaign outputs (`rnd/lab/results/`), dependencies, browsers, toolchains and native builds are not versioned; the retained evidence remains tracked in `rnd/lab/ledger/` and `rnd/lab/reports/`.

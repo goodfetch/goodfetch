@@ -1,90 +1,90 @@
-# Index des recherches concurrentielles et benchmarks
+# Index of competitive research and benchmarks
 
-**Recherches du 7 octobre 2026.** Cet index réunit les notes de marché, analyses techniques, audits de benchmarks publiés et conclusions utilisés pour concevoir Automan. Les rapports contiennent leurs sources, versions/commits inspectés et limites.
+**Research of October 7, 2026.** This index brings together the market notes, technical analyses, audits of published benchmarks and conclusions used to design Automan. The reports contain their sources, inspected versions/commits and limitations.
 
-**Statut des benchmarks :** les notes initiales analysent les protocoles et résultats publics. La phase suivante a construit le [lab local](../lab/README.md) et exécuté des campagnes contrôlées de crawl, primitives navigateur et stockage. Ces mesures exploratoires qualifient des configurations sur des fixtures ; elles ne constituent pas un classement de tous les acteurs recensés ni une preuve de supériorité universelle.
+**Benchmark status:** the initial notes analyze public protocols and results. The following phase built the [local lab](../lab/README.md) and ran controlled campaigns on crawling, browser primitives and storage. These exploratory measurements qualify configurations on fixtures; they constitute neither a ranking of all the players listed nor proof of universal superiority.
 
-## 1. Parcours de lecture recommandé
+## 1. Recommended reading path
 
-1. [Cartographie commerciale](2026-10-07-commercial-landscape.md) pour le marché et les modèles de service.
-2. [Comparaison Stagehand / Crawlee / Spider](2026-10-07-stagehand-crawlee-spider-comparison.md) pour les différences de contrats et les chevauchements.
-3. [Matrice crawl, pools et workers](2026-10-07-crawl-capability-matrix.md) et [matrice agents, plans et réparation](2026-10-07-agent-capability-matrix.md) pour les capacités consolidées.
-4. [Audit des benchmarks publics](2026-10-07-benchmark-audit-followup.md) pour interpréter les chiffres existants.
-5. [Performance et protocole de preuve](2026-10-07-benchmark-and-runtime.md) pour les comparaisons à exécuter ensuite.
+1. [Commercial mapping](2026-10-07-commercial-landscape.md) for the market and service models.
+2. [Stagehand / Crawlee / Spider comparison](2026-10-07-stagehand-crawlee-spider-comparison.md) for differences in contracts and overlaps.
+3. [Crawl, pools and workers matrix](2026-10-07-crawl-capability-matrix.md) and [agents, plans and repair matrix](2026-10-07-agent-capability-matrix.md) for the consolidated capabilities.
+4. [Audit of public benchmarks](2026-10-07-benchmark-audit-followup.md) to interpret existing figures.
+5. [Performance and evidence protocol](2026-10-07-benchmark-and-runtime.md) for the comparisons to run next.
 
-Les propositions produit actuelles se trouvent dans le [rapport consolidé](../proposals/proposition-automan.md) et le [plan R&D](../plan/rd-plan.md). Elles s'appuient sur ces recherches, sans transformer leurs conclusions en performances déjà démontrées.
+The current product proposals are in the [consolidated report](../proposals/proposition-automan.md) and the [R&D plan](../plan/rd-plan.md). They build on this research, without turning its conclusions into already demonstrated performance.
 
-## 2. Marché et familles de concurrents
+## 2. Market and competitor families
 
-| Rapport | Contenu |
+| Report | Content |
 | --- | --- |
-| [Paysage commercial](2026-10-07-commercial-landscape.md) | 64 acteurs, produits ou familles : navigateurs hébergés, agents, collecte/extraction, proxies, plateformes de données et RPA ; Browserbase, Apify, Spider, Browser Use, ScrapingBee, Firecrawl et acteurs de niche ; offres, unités de prix observées et frontières OSS/cloud |
-| [Frameworks navigateur et agents](2026-10-07-browser-frameworks.md) | Stagehand, Browser Use, Skyvern, Magnitude, AgentQL, agent-browser, recorder/replay et alternatives ; versions, architectures, licences et limites |
-| [Moteurs de crawl](2026-10-07-crawl-engines.md) | Crawlee, Spider, Scrapy, Colly, Crawl4AI, Firecrawl, Scrapling et autres moteurs ; HTTP/browser, scheduling, workers, persistance et extraction |
-| [Plateformes et services](2026-10-07-product-platform-options.md) | Console React/shadcn, Vite/Next, macOS native, daemon/SDK/MCP, local/cloud et exploitation/monétisation ; références Apify, Browserbase, Spider et Firecrawl |
-| [Recherche et direction initialement consolidées](2026-10-07-direction-automan.md) | Synthèse des investigations de marché et mécanismes retenus ; prolongée par le dossier de conception actuel |
+| [Commercial landscape](2026-10-07-commercial-landscape.md) | 64 players, products or families: hosted browsers, agents, collection/extraction, proxies, data platforms and RPA; Browserbase, Apify, Spider, Browser Use, ScrapingBee, Firecrawl and niche players; offerings, observed price units and OSS/cloud boundaries |
+| [Browser and agent frameworks](2026-10-07-browser-frameworks.md) | Stagehand, Browser Use, Skyvern, Magnitude, AgentQL, agent-browser, recorder/replay and alternatives; versions, architectures, licenses and limitations |
+| [Crawl engines](2026-10-07-crawl-engines.md) | Crawlee, Spider, Scrapy, Colly, Crawl4AI, Firecrawl, Scrapling and other engines; HTTP/browser, scheduling, workers, persistence and extraction |
+| [Platforms and services](2026-10-07-product-platform-options.md) | React/shadcn console, Vite/Next, native macOS, daemon/SDK/MCP, local/cloud and operations/monetization; Apify, Browserbase, Spider and Firecrawl references |
+| [Initially consolidated research and direction](2026-10-07-direction-automan.md) | Synthesis of the market investigations and mechanisms adopted; extended by the current design dossier |
 
-**Périmètre :** couverture large, sans prétention d'exhaustivité mondiale ni audit de chaque option de chaque dépôt. Tous les acteurs recensés n'ont pas été approfondis au même niveau. Les fonctions d'un service commercial ne sont pas présumées présentes dans son dépôt public.
+**Scope:** broad coverage, with no claim to worldwide exhaustiveness nor an audit of every option of every repository. Not all the players listed were examined to the same depth. The features of a commercial service are not presumed to be present in its public repository.
 
-## 3. Analyses techniques détaillées
+## 3. Detailed technical analyses
 
-| Rapport | Questions traitées |
+| Report | Questions addressed |
 | --- | --- |
-| [Stagehand / Crawlee / Spider : comparaison approfondie](2026-10-07-stagehand-crawlee-spider-comparison.md) | Déterminisme/IA, HTTP adaptatif, stockage, sessions, concurrence, intégration StagehandCrawler, limites des comparaisons et recommandations |
-| [Matrice crawl, ressources et workers](2026-10-07-crawl-capability-matrix.md) | Frontier, découverte, recrawl, queues, leases, retries, pools, autoscaling, workers, sorties et licences ; approfondissements Katana et StormCrawler |
-| [Matrice agents, plans et réparation](2026-10-07-agent-capability-matrix.md) | Primitives navigateur, perception/vision, références, agents, compilation, cache, validation, réparation, CLI/MCP et frontières de licence/cloud |
-| [Contrats Stagehand et alternatives](2026-10-07-stagehand-alternatives-followup.md) | Stagehand publié 4.1.0 : appels, cache, self-heal et différences Playwright ; alternatives, replay et qualité des résultats |
-| [Contrats Crawlee et Spider](2026-10-07-crawlee-spider-contracts-followup.md) | Queues/retries/stockage TS et Python, intégration Stagehand, modes Spider, visited versus frontier, workers et agent Rust publié |
-| [Moteurs, workers et navigateurs](2026-10-07-engines-workers-browsers.md) | Tableau des langages, runtimes, processus, pilotes et navigateurs réellement utilisés |
-| [Langage et architecture : niveau de consensus](2026-10-07-language-architecture-evidence.md) | Convergences observées, absence de consensus universel, langage SDK versus moteur et topologie |
-| [ADR du runtime](../adr/0001-runtime-language.md) | Proposition Rust/Tokio avec SDK et CDP ; alternatives, conséquences et qualification requise |
-| [ADR-002 accès, identité et stealth](../adr/0002-access-identity-stealth.md) | Profils `identified` (défaut), `standard` et `stealth` complet en opt-in ; répartition open source/cloud, niveaux CAPTCHA, garde-fous et qualification |
-| [Témoignages Reddit audités](2026-10-07-reddit-evidence-followup.md) | Threads/commentaires identifiés, sessions/coûts/fiabilité ; témoignages distingués des preuves comparatives |
+| [Stagehand / Crawlee / Spider: in-depth comparison](2026-10-07-stagehand-crawlee-spider-comparison.md) | Determinism/AI, adaptive HTTP, storage, sessions, concurrency, StagehandCrawler integration, limits of the comparisons and recommendations |
+| [Crawl, resources and workers matrix](2026-10-07-crawl-capability-matrix.md) | Frontier, discovery, recrawl, queues, leases, retries, pools, autoscaling, workers, outputs and licenses; deep dives on Katana and StormCrawler |
+| [Agents, plans and repair matrix](2026-10-07-agent-capability-matrix.md) | Browser primitives, perception/vision, references, agents, compilation, cache, validation, repair, CLI/MCP and license/cloud boundaries |
+| [Stagehand contracts and alternatives](2026-10-07-stagehand-alternatives-followup.md) | Published Stagehand 4.1.0: calls, cache, self-heal and differences from Playwright; alternatives, replay and result quality |
+| [Crawlee and Spider contracts](2026-10-07-crawlee-spider-contracts-followup.md) | TS and Python queues/retries/storage, Stagehand integration, Spider modes, visited versus frontier, workers and published Rust agent |
+| [Engines, workers and browsers](2026-10-07-engines-workers-browsers.md) | Table of the languages, runtimes, processes, drivers and browsers actually used |
+| [Language and architecture: level of consensus](2026-10-07-language-architecture-evidence.md) | Observed convergences, absence of universal consensus, SDK language versus engine and topology |
+| [Runtime ADR](../adr/0001-runtime-language.md) | Rust/Tokio proposal with SDK and CDP; alternatives, consequences and required qualification |
+| [ADR-002 access, identity and stealth](../adr/0002-access-identity-stealth.md) | `identified` (default), `standard` and full opt-in `stealth` profiles; open source/cloud split, CAPTCHA tiers, safeguards and qualification |
+| [Audited Reddit testimonials](2026-10-07-reddit-evidence-followup.md) | Identified threads/comments, sessions/costs/reliability; testimonials distinguished from comparative evidence |
 
-## 3 bis. Demande marché
+## 3a. Market demand
 
-| Document | Contenu |
+| Document | Content |
 | --- | --- |
-| [Synthèse demande marché](market/README.md) | 421 signaux publics codés (GitHub, Reddit, HN, avis, rapports 2025–2026), classement des douleurs, besoins par segment, signaux de prix, forces et ratés des concurrents ; rattachés aux décisions D-segment, D-pricing et D-feature-priority. Volonté de payer non mesurée : entretiens à mener |
+| [Market demand synthesis](market/README.md) | 421 coded public signals (GitHub, Reddit, HN, reviews, 2025–2026 reports), ranking of pain points, needs by segment, price signals, competitors' strengths and misses; linked to the decisions D-segment, D-pricing and D-feature-priority. Willingness to pay not measured: interviews to be conducted |
 
-## 4. Benchmarks : documents et niveau de preuve
+## 4. Benchmarks: documents and level of evidence
 
-| Document | Benchmarks ou mesures examinés | Statut dans cette recherche |
+| Document | Benchmarks or measurements examined | Status in this research |
 | --- | --- | --- |
-| [Audit des benchmarks publics](2026-10-07-benchmark-audit-followup.md) | Spider versus Colly, package Node `crawler` et wget ; benchmark d'agents Stagehand 3.2.1 / Browser Use / Sentinel ; benchmark de crawlers Markdown/RAG ; évaluations Stagehand | Inspection des méthodes, code et résultats publics, commits épinglés ; expression Node vérifiée et totaux JSON recalculés ; tâches de benchmark non exécutées |
-| [Stagehand, CDP et latence](2026-10-07-stagehand-cdp-latency.md) | Parcours publié de 50 actions, batch Stagehand v4 versus Playwright, RTT et placement | Lecture du résultat des mainteneurs ; un run publié, non reproduit ; aucune généralisation à toutes les tâches |
-| [Performance, runtime et protocole de preuve](2026-10-07-benchmark-and-runtime.md) | Benchmark Lightpanda ; publications sur mémoire/compilation/réparation ; BrowserGym/WebArena/WorkArena ; coût, fiabilité et métriques | Analyse de sources et proposition de protocole ; chiffres illustratifs explicitement identifiés ; aucun benchmark Automan exécuté |
-| [Moteurs de crawl](2026-10-07-crawl-engines.md) | Arguments et microbenchmarks de transports/moteurs, notamment Impit et Spider | Chiffres et configurations des sources analysés ; aucune preuve d'un gain global Automan |
+| [Audit of public benchmarks](2026-10-07-benchmark-audit-followup.md) | Spider versus Colly, the Node `crawler` package and wget; Stagehand 3.2.1 / Browser Use / Sentinel agent benchmark; Markdown/RAG crawler benchmark; Stagehand evaluations | Inspection of public methods, code and results, pinned commits; Node expression verified and JSON totals recalculated; benchmark tasks not run |
+| [Stagehand, CDP and latency](2026-10-07-stagehand-cdp-latency.md) | Published 50-action flow, Stagehand v4 batch versus Playwright, RTT and placement | Reading of the maintainers' result; one published run, not reproduced; no generalization to all tasks |
+| [Performance, runtime and evidence protocol](2026-10-07-benchmark-and-runtime.md) | Lightpanda benchmark; publications on memory/compilation/repair; BrowserGym/WebArena/WorkArena; cost, reliability and metrics | Source analysis and protocol proposal; illustrative figures explicitly identified; no Automan benchmark run |
+| [Crawl engines](2026-10-07-crawl-engines.md) | Arguments and microbenchmarks of transports/engines, notably Impit and Spider | Figures and configurations from the sources analyzed; no proof of an overall Automan gain |
 
-**Interprétation centrale :** les expériences ne rendent pas toutes le même service. Un crawl HTTP, une conversion Markdown et un agent multi-étape ne se classent pas à partir d'un seul tableau de pages par seconde. Le dossier cherche à identifier les asymétries et les preuves manquantes, plutôt qu'à déclarer un vainqueur universel.
+**Central interpretation:** the experiments do not all provide the same service. An HTTP crawl, a Markdown conversion and a multi-step agent cannot be ranked from a single pages-per-second table. The dossier seeks to identify asymmetries and missing evidence, rather than to declare a universal winner.
 
-## 5. Validation et notes de contexte
+## 5. Validation and context notes
 
-| Document | Rôle |
+| Document | Role |
 | --- | --- |
-| [Usages de Stagehand](stagehand-usage.md) | Note de contexte complémentaire sur les modes d'utilisation |
+| [Stagehand usage](stagehand-usage.md) | Complementary context note on usage modes |
 
-## 6. Actualité des conclusions
+## 6. Currency of the conclusions
 
-Les premières notes de marché et de frameworks conservaient une hypothèse de petite équipe/sortie en 3–6 mois. Leur notice d'ouverture précise que cette contrainte a été retirée. Pour les choix Automan, privilégier le [dossier consolidé actuel](../proposals/proposition-automan.md), l'[architecture](../proposals/architecture.md) et le [plan R&D](../plan/rd-plan.md). Les documents initiaux restent utiles pour les sources et le raisonnement historique.
+The first market and framework notes kept a small-team/release-in-3–6-months hypothesis. Their opening notice specifies that this constraint has been removed. For Automan choices, favor the [current consolidated dossier](../proposals/proposition-automan.md), the [architecture](../proposals/architecture.md) and the [R&D plan](../plan/rd-plan.md). The initial documents remain useful for sources and historical reasoning.
 
-Les données de prix, versions et offres sont datées du relevé ; une décision ultérieure doit revalider les éléments susceptibles d'avoir changé. Les compteurs `sources_reviewed` désignent des résultats de recherche demandés, avec doublons/écartés, et ne sont pas un nombre de sources indépendantes expérimentalement validées.
+Price data, versions and offerings are dated as of the survey; a later decision must revalidate items likely to have changed. The `sources_reviewed` counters refer to requested search results, including duplicates/discarded items, and are not a number of independent, experimentally validated sources.
 
-## 7. Proposition de laboratoire comparatif
+## 7. Comparative lab proposal
 
-La demande suivante privilégie un **lab de mesure avant la console** : installation isolée des concurrents, primitives, stress tests et choix du moteur/driver/placement fondés sur des preuves. Le rapport initial a été suivi d'une [implémentation exécutable](../lab/README.md). Les notes de versions/concurrents ci-dessous décrivent leur phase de recherche préalable ; les mesures et limites actuelles sont distinguées dans le lab.
+The following request favors a **measurement lab before the console**: isolated installation of competitors, primitives, stress tests and evidence-based choice of engine/driver/placement. The initial report was followed by an [executable implementation](../lab/README.md). The version/competitor notes below describe their prior research phase; current measurements and limitations are distinguished in the lab.
 
-| Document | Rôle |
+| Document | Role |
 | --- | --- |
-| [Versions et preuves du trio](2026-10-07-lab-engine-evidence.md) | Crawlee, Spider-rs et Stagehand revérifiés ; compatibilité v3/v4, features, placement et limites des chiffres publiés |
-| [Shortlist des concurrents](2026-10-07-lab-competitor-shortlist.md) | Témoins Playwright/Puppeteer/CDP Rust/Go, crawlers, agents, navigateurs alternatifs et services ; local/cloud et licences distingués |
-| [Ingénierie des tests du lab](2026-10-07-lab-testing-engineering.md) | 26 sources primaires : oracles, conformance, isolation, charge ouverte/fermée, statistiques, fautes, reproductibilité et CI |
-| [Ingénierie du stockage](2026-10-07-lab-storage-engineering.md) | 16 sources primaires : JSON/JSONL, SQLite WAL FULL/NORMAL, batching, producteurs versus writers, sync, integrity et crashes |
-| [Lab opérationnel](../lab/README.md) | Installation, backends, commandes, protocole, campagnes, outputs et limites de preuve |
-| [Résultats locaux et architecture à prototyper](../lab/reports/qualification-2026-10-07.md) | Campagnes exécutées, débits vérifiés, batching/contention, échecs explicites et limites des conclusions de langage |
-| [Couverture expérimentale](../lab/docs/coverage-matrix.md) | Code opérationnel versus backlog ; gates avant adoption d'une architecture |
+| [Trio versions and evidence](2026-10-07-lab-engine-evidence.md) | Crawlee, Spider-rs and Stagehand re-verified; v3/v4 compatibility, features, placement and limits of the published figures |
+| [Competitor shortlist](2026-10-07-lab-competitor-shortlist.md) | Playwright/Puppeteer/CDP Rust/Go baselines, crawlers, agents, alternative browsers and services; local/cloud and licenses distinguished |
+| [Lab test engineering](2026-10-07-lab-testing-engineering.md) | 26 primary sources: oracles, conformance, isolation, open/closed load, statistics, faults, reproducibility and CI |
+| [Storage engineering](2026-10-07-lab-storage-engineering.md) | 16 primary sources: JSON/JSONL, SQLite WAL FULL/NORMAL, batching, producers versus writers, sync, integrity and crashes |
+| [Operational lab](../lab/README.md) | Installation, backends, commands, protocol, campaigns, outputs and limits of evidence |
+| [Local results and architecture to prototype](../lab/reports/qualification-2026-10-07.md) | Campaigns run, verified throughput, batching/contention, explicit failures and limits of the language conclusions |
+| [Experimental coverage](../lab/docs/coverage-matrix.md) | Operational code versus backlog; gates before adopting an architecture |
 
-## 8. Qualification intégrée — 8 octobre 2026
+## 8. Integrated qualification — October 8, 2026
 
-- [Contrat et méthode : workflow et SQLite commun](2026-10-08-workflow-and-shared-sqlite.md).
-- [Résultats exécutés : 153 cellules qualifiées](../lab/reports/workflow-2026-10-08.md), avec Node/Rust sync/Go, reprise idempotente et comparaison du réveil du pool Crawlee.
+- [Contract and method: workflow and shared SQLite](2026-10-08-workflow-and-shared-sqlite.md).
+- [Executed results: 153 qualified cells](../lab/reports/workflow-2026-10-08.md), with Node/Rust sync/Go, idempotent recovery and comparison of the Crawlee pool wake-up.

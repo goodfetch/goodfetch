@@ -1,6 +1,6 @@
 {
  "schemaVersion": 1,
- "classificationSha256": "7079f42027900d4d434def402f8332c4e16cf345106e2ef592e7888d539326ff",
+ "classificationSha256": "6dae5c1e4a8ea011d4f49224bf09913c070bc064b1666206432da9a3cf042f3c",
  "entries": [
   {
    "runId": "smoke-2026-10-07T20-20-24-226Z-9ebb47",
@@ -11,12 +11,12 @@
    "hostClass": "local-dev",
    "role": "smoke",
    "supersededBy": null,
-   "reason": "première mise en route des adapters, avant hashes de sources et viewport commun",
+   "reason": "first bring-up of the adapters, before source hashes and a common viewport",
    "validity": [
     {
      "scope": "all",
      "class": "none",
-     "note": "build initial"
+     "note": "initial build"
     }
    ],
    "decisionIds": [],
@@ -38,12 +38,12 @@
    "hostClass": "local-dev",
    "role": "smoke",
    "supersededBy": null,
-   "reason": "mise en route des backends Stagehand, build initial",
+   "reason": "bring-up of the Stagehand backends, initial build",
    "validity": [
     {
      "scope": "all",
      "class": "none",
-     "note": "build initial"
+     "note": "initial build"
     }
    ],
    "decisionIds": [],
@@ -65,12 +65,12 @@
    "hostClass": "local-dev",
    "role": "smoke",
    "supersededBy": null,
-   "reason": "mise en route complète des backends, build initial",
+   "reason": "full bring-up of the backends, initial build",
    "validity": [
     {
      "scope": "all",
      "class": "none",
-     "note": "build initial"
+     "note": "initial build"
     }
    ],
    "decisionIds": [],
@@ -92,12 +92,12 @@
    "hostClass": "local-dev",
    "role": "superseded",
    "supersededBy": "storage-smoke-2026-10-07T21-30-06-119Z-3b617d",
-   "reason": "premier smoke stockage sans provenance, 47 cellules au lieu de 48",
+   "reason": "first storage smoke without provenance, 47 cells instead of 48",
    "validity": [
     {
      "scope": "all",
      "class": "none",
-     "note": "sans provenance"
+     "note": "without provenance"
     }
    ],
    "decisionIds": [
@@ -121,12 +121,12 @@
    "hostClass": "local-dev",
    "role": "superseded",
    "supersededBy": "http-lifecycle-2026-10-07T21-29-31-257Z-2b0754",
-   "reason": "stress HTTP sans backend pooled, remplacé par http-lifecycle",
+   "reason": "HTTP stress without a pooled backend, superseded by http-lifecycle",
    "validity": [
     {
      "scope": "all",
      "class": "none",
-     "note": "remplacé"
+     "note": "superseded"
     }
    ],
    "decisionIds": [
@@ -150,12 +150,12 @@
    "hostClass": "local-dev",
    "role": "superseded",
    "supersededBy": "arrival-stress-2026-10-07T21-31-09-975Z-ba6970",
-   "reason": "arrivées ouvertes, build initial",
+   "reason": "open arrivals, initial build",
    "validity": [
     {
      "scope": "all",
      "class": "none",
-     "note": "remplacé"
+     "note": "superseded"
     }
    ],
    "decisionIds": [
@@ -179,12 +179,12 @@
    "hostClass": "local-dev",
    "role": "superseded",
    "supersededBy": "storage-process-crash-2026-10-07T21-30-54-410Z-718212",
-   "reason": "crash après acquittement sans provenance",
+   "reason": "crash after acknowledgment without provenance",
    "validity": [
     {
      "scope": "all",
      "class": "none",
-     "note": "sans provenance"
+     "note": "without provenance"
     }
    ],
    "decisionIds": [
@@ -208,12 +208,12 @@
    "hostClass": "local-dev",
    "role": "superseded",
    "supersededBy": "storage-contention-2026-10-07T21-30-24-424Z-6bec59",
-   "reason": "contention stockage sans provenance",
+   "reason": "storage contention without provenance",
    "validity": [
     {
      "scope": "all",
      "class": "none",
-     "note": "sans provenance"
+     "note": "without provenance"
     }
    ],
    "decisionIds": [
@@ -237,12 +237,12 @@
    "hostClass": "local-dev",
    "role": "superseded",
    "supersededBy": "browser-primitives-2026-10-07T21-33-08-604Z-f6b1a0",
-   "reason": "primitives navigateur sans provenance",
+   "reason": "browser primitives without provenance",
    "validity": [
     {
      "scope": "all",
      "class": "none",
-     "note": "sans provenance"
+     "note": "without provenance"
     }
    ],
    "decisionIds": [
@@ -266,12 +266,12 @@
    "hostClass": "local-dev",
    "role": "superseded",
    "supersededBy": "qualification-2026-10-07T21-25-08-753Z-61ffef",
-   "reason": "qualification commune avant changements des workers",
+   "reason": "common qualification before the worker changes",
    "validity": [
     {
      "scope": "all",
      "class": "none",
-     "note": "sources modifiées ensuite"
+     "note": "sources modified afterwards"
     }
    ],
    "decisionIds": [
@@ -296,12 +296,12 @@
    "hostClass": "local-dev",
    "role": "superseded",
    "supersededBy": "qualification-2026-10-07T21-25-08-753Z-61ffef",
-   "reason": "qualification commune avant changements des workers",
+   "reason": "common qualification before the worker changes",
    "validity": [
     {
      "scope": "all",
      "class": "none",
-     "note": "sources modifiées ensuite"
+     "note": "sources modified afterwards"
     }
    ],
    "decisionIds": [
@@ -326,17 +326,17 @@
    "hostClass": "local-dev",
    "role": "selected",
    "supersededBy": null,
-   "reason": "gates de capacité des moteurs ; échecs Spider Chrome/Smart sur catalogue JS",
+   "reason": "engine capability gates; Spider Chrome/Smart failures on the JS catalog",
    "validity": [
     {
      "scope": "capability-gates",
      "class": "A",
-     "note": "conformité et échecs explicites, versions de l'époque"
+     "note": "conformance and explicit failures, versions of the time"
     },
     {
      "scope": "timings",
      "class": "C",
-     "note": "Mac partagé non contrôlé ; chiffres absolus non publiables"
+     "note": "uncontrolled shared Mac; absolute figures not publishable"
     }
    ],
    "decisionIds": [
@@ -363,17 +363,17 @@
    "hostClass": "local-dev",
    "role": "selected",
    "supersededBy": null,
-   "reason": "cycle de vie HTTP neuf ou poolé",
+   "reason": "fresh or pooled HTTP lifecycle",
    "validity": [
     {
      "scope": "ordering",
      "class": "B",
-     "note": "écart d'orchestration Crawlee, même hôte"
+     "note": "Crawlee orchestration gap, same host"
     },
     {
      "scope": "absolute",
      "class": "C",
-     "note": "Mac partagé non contrôlé ; chiffres absolus non publiables"
+     "note": "uncontrolled shared Mac; absolute figures not publishable"
     }
    ],
    "decisionIds": [
@@ -400,12 +400,12 @@
    "hostClass": "local-dev",
    "role": "selected",
    "supersededBy": null,
-   "reason": "six contrats d'écriture, snapshot multi-writers non supporté",
+   "reason": "six write contracts, multi-writer snapshot not supported",
    "validity": [
     {
      "scope": "contracts",
      "class": "A",
-     "note": "oracles de relecture"
+     "note": "read-back oracles"
     }
    ],
    "decisionIds": [
@@ -431,17 +431,17 @@
    "hostClass": "local-dev",
    "role": "selected",
    "supersededBy": null,
-   "reason": "batching et writers multiples, SQLite Node 3.53.4 contre Rust SQLx 3.46.0",
+   "reason": "batching and multiple writers, Node SQLite 3.53.4 versus Rust SQLx 3.46.0",
    "validity": [
     {
      "scope": "batching",
      "class": "B",
-     "note": "effet du batching ; builds SQLite différents"
+     "note": "batching effect; different SQLite builds"
     },
     {
      "scope": "absolute",
      "class": "C",
-     "note": "Mac partagé non contrôlé ; chiffres absolus non publiables"
+     "note": "uncontrolled shared Mac; absolute figures not publishable"
     }
    ],
    "decisionIds": [
@@ -468,12 +468,12 @@
    "hostClass": "local-dev",
    "role": "selected",
    "supersededBy": null,
-   "reason": "SIGKILL après acquittement, crash de processus seulement",
+   "reason": "SIGKILL after acknowledgment, process crash only",
    "validity": [
     {
      "scope": "process-crash",
      "class": "A",
-     "note": "ne prouve pas la coupure électrique"
+     "note": "does not prove the power-loss case"
     }
    ],
    "decisionIds": [
@@ -500,17 +500,17 @@
    "hostClass": "local-dev",
    "role": "selected",
    "supersededBy": null,
-   "reason": "arrivées ouvertes à débit fixe",
+   "reason": "open arrivals at a fixed rate",
    "validity": [
     {
      "scope": "rejections-in-denominator",
      "class": "A",
-     "note": "contrat de comptage"
+     "note": "counting contract"
     },
     {
      "scope": "throughput",
      "class": "B",
-     "note": "Mac partagé non contrôlé ; chiffres absolus non publiables"
+     "note": "uncontrolled shared Mac; absolute figures not publishable"
     }
    ],
    "decisionIds": [
@@ -537,12 +537,12 @@
    "hostClass": "local-dev",
    "role": "selected",
    "supersededBy": null,
-   "reason": "primitives navigateur à disponibilité commune",
+   "reason": "browser primitives with common availability",
    "validity": [
     {
      "scope": "timings",
      "class": "B",
-     "note": "conditions communes, sans garanties natives ; à relire avec la matrice d'actionnabilité"
+     "note": "common conditions, without native guarantees; to be read alongside the actionability matrix"
     }
    ],
    "decisionIds": [
@@ -569,12 +569,12 @@
    "hostClass": "local-dev",
    "role": "diagnostic",
    "supersededBy": null,
-   "reason": "SQLite commun 3.46.0 sans le correctif WAL-reset, exclu de la sélection",
+   "reason": "common SQLite 3.46.0 without the WAL-reset fix, excluded from selection",
    "validity": [
     {
      "scope": "all",
      "class": "none",
-     "note": "build SQLite exclu"
+     "note": "SQLite build excluded"
     }
    ],
    "decisionIds": [
@@ -599,17 +599,17 @@
    "hostClass": "local-dev",
    "role": "selected",
    "supersededBy": null,
-   "reason": "SQLite commun 3.53.4 : Node, Rust sync et Go sur le même artefact",
+   "reason": "common SQLite 3.53.4: Node, sync Rust and Go on the same artifact",
    "validity": [
     {
      "scope": "single-writer",
      "class": "B",
-     "note": "plusieurs writers moins bons, même hôte"
+     "note": "multiple writers worse, same host"
     },
     {
      "scope": "absolute",
      "class": "C",
-     "note": "Mac partagé non contrôlé ; chiffres absolus non publiables"
+     "note": "uncontrolled shared Mac; absolute figures not publishable"
     }
    ],
    "decisionIds": [
@@ -639,17 +639,17 @@
    "hostClass": "local-dev",
    "role": "selected",
    "supersededBy": null,
-   "reason": "gros batches sur SQLite commun",
+   "reason": "large batches on common SQLite",
    "validity": [
     {
      "scope": "relative",
      "class": "B",
-     "note": "Rust et Go devant Node sur ce workload"
+     "note": "Rust and Go ahead of Node on this workload"
     },
     {
      "scope": "absolute",
      "class": "C",
-     "note": "Mac partagé non contrôlé ; chiffres absolus non publiables"
+     "note": "uncontrolled shared Mac; absolute figures not publishable"
     }
    ],
    "decisionIds": [
@@ -679,17 +679,17 @@
    "hostClass": "local-dev",
    "role": "selected",
    "supersededBy": null,
-   "reason": "workflow HTTP durable complet, backends Node",
+   "reason": "full durable HTTP workflow, Node backends",
    "validity": [
     {
      "scope": "pipeline-contract",
      "class": "A",
-     "note": "acquittement après commit vérifié"
+     "note": "acknowledgment after commit verified"
     },
     {
      "scope": "throughput",
      "class": "B",
-     "note": "Mac partagé non contrôlé ; chiffres absolus non publiables"
+     "note": "uncontrolled shared Mac; absolute figures not publishable"
     }
    ],
    "decisionIds": [
@@ -719,12 +719,12 @@
    "hostClass": "local-dev",
    "role": "selected",
    "supersededBy": null,
-   "reason": "crash du writer avant et après commit",
+   "reason": "writer crash before and after commit",
    "validity": [
     {
      "scope": "recovery",
      "class": "A",
-     "note": "reprise exacte, crash de processus"
+     "note": "exact recovery, process crash"
     }
    ],
    "decisionIds": [
@@ -754,12 +754,12 @@
    "hostClass": "local-dev",
    "role": "diagnostic",
    "supersededBy": null,
-   "reason": "notify appelé avant initialisation, campagne interrompue et exclue",
+   "reason": "notify called before initialization, campaign interrupted and excluded",
    "validity": [
     {
      "scope": "all",
      "class": "none",
-     "note": "bug d'intégration du lab"
+     "note": "lab integration bug"
     }
    ],
    "decisionIds": [
@@ -783,17 +783,17 @@
    "hostClass": "local-dev",
    "role": "selected",
    "supersededBy": null,
-   "reason": "réveil du pool Crawlee, poll contre notify",
+   "reason": "Crawlee pool wake-up, poll versus notify",
    "validity": [
     {
      "scope": "functional",
      "class": "A",
-     "note": "notify après premier handler"
+     "note": "notify after the first handler"
     },
     {
      "scope": "throughput",
      "class": "B",
-     "note": "Mac partagé non contrôlé ; chiffres absolus non publiables"
+     "note": "uncontrolled shared Mac; absolute figures not publishable"
     }
    ],
    "decisionIds": [
@@ -822,12 +822,12 @@
    "hostClass": "local-dev",
    "role": "diagnostic",
    "supersededBy": null,
-   "reason": "suite interrompue : unité CPU erronée dans la première sonde",
+   "reason": "suite interrupted: wrong CPU unit in the first probe",
    "validity": [
     {
      "scope": "all",
      "class": "none",
-     "note": "métriques CPU invalides"
+     "note": "invalid CPU metrics"
     }
    ],
    "decisionIds": [
@@ -853,12 +853,12 @@
    "hostClass": "local-dev",
    "role": "diagnostic",
    "supersededBy": null,
-   "reason": "série native démarrée dans la suite interrompue",
+   "reason": "native series started within the interrupted suite",
    "validity": [
     {
      "scope": "all",
      "class": "none",
-     "note": "suite interrompue"
+     "note": "interrupted suite"
     }
    ],
    "decisionIds": [
@@ -882,12 +882,12 @@
    "hostClass": "local-dev",
    "role": "orchestrator",
    "supersededBy": null,
-   "reason": "première suite intégrée complète",
+   "reason": "first complete integrated suite",
    "validity": [
     {
      "scope": "orchestration",
      "class": "none",
-     "note": "agrège les campagnes"
+     "note": "aggregates the campaigns"
     }
    ],
    "decisionIds": [],
@@ -913,12 +913,12 @@
    "hostClass": "local-dev",
    "role": "diagnostic",
    "supersededBy": null,
-   "reason": "première série native Node/Rust avant le partage Arc de la configuration",
+   "reason": "first native Node/Rust series before the configuration was shared via Arc",
    "validity": [
     {
      "scope": "relative",
      "class": "B",
-     "note": "série initiale, non causale pour l'effet Arc"
+     "note": "initial series, not causal for the Arc effect"
     }
    ],
    "decisionIds": [
@@ -946,17 +946,17 @@
    "hostClass": "local-dev",
    "role": "selected",
    "supersededBy": null,
-   "reason": "backends HTTP dans le workflow durable, hôte chargé pendant le bloc 2",
+   "reason": "HTTP backends in the durable workflow, host loaded during block 2",
    "validity": [
     {
      "scope": "pipeline-contract",
      "class": "A",
-     "note": "comptes exacts"
+     "note": "exact counts"
     },
     {
      "scope": "throughput",
      "class": "none",
-     "note": "hôte bruité"
+     "note": "noisy host"
     }
    ],
    "decisionIds": [
@@ -984,12 +984,12 @@
    "hostClass": "local-dev",
    "role": "superseded",
    "supersededBy": "runtime-recovery-qualified-2026-10-08T00-20-09-515Z-ad3e70",
-   "reason": "série initiale de reprise, requalifiée ensuite",
+   "reason": "initial recovery series, requalified afterwards",
    "validity": [
     {
      "scope": "recovery",
      "class": "A",
-     "note": "mêmes invariants"
+     "note": "same invariants"
     }
    ],
    "decisionIds": [
@@ -1016,17 +1016,17 @@
    "hostClass": "local-dev",
    "role": "selected",
    "supersededBy": null,
-   "reason": "matrice d'actionnabilité : colonne native retenue, colonne gardée remplacée par b21a28",
+   "reason": "actionability matrix: native column kept, guarded column superseded by b21a28",
    "validity": [
     {
      "scope": "native-matrix",
      "class": "A",
-     "note": "Playwright 27/27, Puppeteer et Stagehand non conformes sur plusieurs variantes"
+     "note": "Playwright 27/27, Puppeteer and Stagehand non-conformant on several variants"
     },
     {
      "scope": "guarded",
      "class": "none",
-     "note": "garde initiale avec faux succès"
+     "note": "initial guard with false successes"
     }
    ],
    "decisionIds": [
@@ -1053,12 +1053,12 @@
    "hostClass": "local-dev",
    "role": "diagnostic",
    "supersededBy": null,
-   "reason": "course d'initialisation schéma/WAL avec quatre writers",
+   "reason": "schema/WAL initialization race with four writers",
    "validity": [
     {
      "scope": "all",
      "class": "none",
-     "note": "bug du lab corrigé"
+     "note": "lab bug fixed"
     }
    ],
    "decisionIds": [
@@ -1085,17 +1085,17 @@
    "hostClass": "local-dev",
    "role": "selected",
    "supersededBy": null,
-   "reason": "transports HTTP : redirect, gzip, chunked, grandes réponses ; refus SSRF loopback de Spider",
+   "reason": "HTTP transports: redirect, gzip, chunked, large responses; Spider's loopback SSRF refusal",
    "validity": [
     {
      "scope": "contracts",
      "class": "A",
-     "note": "refus par politique, non contourné"
+     "note": "refusal by policy, not bypassed"
     },
     {
      "scope": "timings",
      "class": "C",
-     "note": "Mac partagé non contrôlé ; chiffres absolus non publiables"
+     "note": "uncontrolled shared Mac; absolute figures not publishable"
     }
    ],
    "decisionIds": [
@@ -1122,12 +1122,12 @@
    "hostClass": "local-dev",
    "role": "selected",
    "supersededBy": null,
-   "reason": "arrivées ouvertes à 20 tâches/s",
+   "reason": "open arrivals at 20 tasks/s",
    "validity": [
     {
      "scope": "capacity",
      "class": "B",
-     "note": "Mac partagé non contrôlé ; chiffres absolus non publiables"
+     "note": "uncontrolled shared Mac; absolute figures not publishable"
     }
    ],
    "decisionIds": [
@@ -1154,12 +1154,12 @@
    "hostClass": "local-dev",
    "role": "selected",
    "supersededBy": null,
-   "reason": "arrivées ouvertes à 100 tâches/s",
+   "reason": "open arrivals at 100 tasks/s",
    "validity": [
     {
      "scope": "capacity",
      "class": "B",
-     "note": "Mac partagé non contrôlé ; chiffres absolus non publiables"
+     "note": "uncontrolled shared Mac; absolute figures not publishable"
     }
    ],
    "decisionIds": [
@@ -1186,12 +1186,12 @@
    "hostClass": "local-dev",
    "role": "selected",
    "supersededBy": null,
-   "reason": "arrivées ouvertes à 250 tâches/s",
+   "reason": "open arrivals at 250 tasks/s",
    "validity": [
     {
      "scope": "capacity",
      "class": "B",
-     "note": "Mac partagé non contrôlé ; chiffres absolus non publiables"
+     "note": "uncontrolled shared Mac; absolute figures not publishable"
     }
    ],
    "decisionIds": [
@@ -1218,12 +1218,12 @@
    "hostClass": "local-dev",
    "role": "orchestrator",
    "supersededBy": null,
-   "reason": "requalification après corrections",
+   "reason": "requalification after fixes",
    "validity": [
     {
      "scope": "orchestration",
      "class": "none",
-     "note": "agrège les campagnes"
+     "note": "aggregates the campaigns"
     }
    ],
    "decisionIds": [],
@@ -1249,17 +1249,17 @@
    "hostClass": "local-dev",
    "role": "selected",
    "supersededBy": null,
-   "reason": "workflow natif Node contre Rust, configuration partagée par Arc",
+   "reason": "native Node versus Rust workflow, configuration shared via Arc",
    "validity": [
     {
      "scope": "relative",
      "class": "B",
-     "note": "CPU et footprint moindres pour Rust, débit proche"
+     "note": "lower CPU and footprint for Rust, similar throughput"
     },
     {
      "scope": "absolute",
      "class": "C",
-     "note": "Mac partagé non contrôlé ; chiffres absolus non publiables"
+     "note": "uncontrolled shared Mac; absolute figures not publishable"
     }
    ],
    "decisionIds": [
@@ -1287,12 +1287,12 @@
    "hostClass": "local-dev",
    "role": "selected",
    "supersededBy": null,
-   "reason": "reprise Node et Rust : crashes avant/après commit et ACK, nouveau coordinateur",
+   "reason": "Node and Rust recovery: crashes before/after commit and ACK, new coordinator",
    "validity": [
     {
      "scope": "recovery",
      "class": "A",
-     "note": "crash de processus, darwin seulement"
+     "note": "process crash, darwin only"
     }
    ],
    "decisionIds": [
@@ -1320,17 +1320,17 @@
    "hostClass": "local-dev",
    "role": "selected",
    "supersededBy": null,
-   "reason": "garde d'actionnabilité corrigée, 162 cellules",
+   "reason": "fixed actionability guard, 162 cells",
    "validity": [
     {
      "scope": "guarded-conformance",
      "class": "A",
-     "note": "sur ce corpus"
+     "note": "on this corpus"
     },
     {
      "scope": "timings",
      "class": "B",
-     "note": "garde commune ; RTT nul"
+     "note": "common guard; zero RTT"
     }
    ],
    "decisionIds": [
@@ -1357,17 +1357,17 @@
    "hostClass": "local-dev",
    "role": "selected",
    "supersededBy": null,
-   "reason": "lecteurs longs et courts, checkpoints PASSIVE et TRUNCATE",
+   "reason": "long and short readers, PASSIVE and TRUNCATE checkpoints",
    "validity": [
     {
      "scope": "invariants",
      "class": "A",
-     "note": "snapshot long, WAL tronqué après libération"
+     "note": "long snapshot, WAL truncated after release"
     },
     {
      "scope": "throughput",
      "class": "C",
-     "note": "Mac partagé non contrôlé ; chiffres absolus non publiables"
+     "note": "uncontrolled shared Mac; absolute figures not publishable"
     }
    ],
    "decisionIds": [
@@ -1394,12 +1394,12 @@
    "hostClass": "local-dev",
    "role": "selected",
    "supersededBy": null,
-   "reason": "Spider sur les variantes HTTP supportées",
+   "reason": "Spider on the supported HTTP variants",
    "validity": [
     {
      "scope": "contracts",
      "class": "A",
-     "note": "60 lignes vérifiées"
+     "note": "60 verified rows"
     }
    ],
    "decisionIds": [
@@ -1426,17 +1426,17 @@
    "hostClass": "local-dev",
    "role": "diagnostic",
    "supersededBy": null,
-   "reason": "premier run v2 de bout en bout ; sondes de ressources arrêtées après la fin de l'adapter, bug corrigé avant 471f40",
+   "reason": "first end-to-end v2 run; resource probes stopped after the adapter finished, bug fixed before 471f40",
    "validity": [
     {
      "scope": "contracts",
      "class": "A",
-     "note": "40 tentatives vérifiées"
+     "note": "40 verified attempts"
     },
     {
      "scope": "resources",
      "class": "none",
-     "note": "métriques de ressources nulles par bug"
+     "note": "resource metrics zero due to a bug"
     }
    ],
    "decisionIds": [
@@ -1460,17 +1460,17 @@
    "hostClass": "local-dev",
    "role": "diagnostic",
    "supersededBy": null,
-   "reason": "contrôle de bout en bout du moteur v2 après correction des sondes ; local-dev, sources non commitées",
+   "reason": "end-to-end check of the v2 engine after the probe fix; local-dev, uncommitted sources",
    "validity": [
     {
      "scope": "contracts",
      "class": "A",
-     "note": "40 tentatives vérifiées"
+     "note": "40 verified attempts"
     },
     {
      "scope": "timings",
      "class": "C",
-     "note": "local-dev, hôte chargé"
+     "note": "local-dev, loaded host"
     }
    ],
    "decisionIds": [
@@ -1494,12 +1494,12 @@
    "hostClass": "local-dev",
    "role": "diagnostic",
    "supersededBy": null,
-   "reason": "contrôle de non-régression de l'exécuteur de cellule storage extrait en P3 : mêmes comptes que le smoke historique",
+   "reason": "non-regression check of the storage cell executor extracted in P3: same counts as the historical smoke",
    "validity": [
     {
      "scope": "contracts",
      "class": "A",
-     "note": "44 vérifiées, 4 non supportées, comme 3b617d"
+     "note": "44 verified, 4 unsupported, like 3b617d"
     }
    ],
    "decisionIds": [
@@ -1523,17 +1523,17 @@
    "hostClass": "local-dev",
    "role": "diagnostic",
    "supersededBy": null,
-   "reason": "suite de parité P3 : campagne v2 en données, mêmes comptes vérifiés que la qualification du 8 octobre",
+   "reason": "P3 parity suite: v2 campaign as data, same verified counts as the October 8 qualification",
    "validity": [
     {
      "scope": "contracts",
      "class": "A",
-     "note": "parité des comptes, sources non commitées"
+     "note": "count parity, uncommitted sources"
     },
     {
      "scope": "timings",
      "class": "C",
-     "note": "local-dev, hôte chargé"
+     "note": "local-dev, loaded host"
     }
    ],
    "decisionIds": [
@@ -1557,17 +1557,17 @@
    "hostClass": "local-dev",
    "role": "diagnostic",
    "supersededBy": null,
-   "reason": "suite de parité P3 : campagne v2 en données, mêmes comptes vérifiés que la qualification du 8 octobre",
+   "reason": "P3 parity suite: v2 campaign as data, same verified counts as the October 8 qualification",
    "validity": [
     {
      "scope": "contracts",
      "class": "A",
-     "note": "parité des comptes, sources non commitées"
+     "note": "count parity, uncommitted sources"
     },
     {
      "scope": "timings",
      "class": "C",
-     "note": "local-dev, hôte chargé"
+     "note": "local-dev, loaded host"
     }
    ],
    "decisionIds": [
@@ -1592,17 +1592,17 @@
    "hostClass": "local-dev",
    "role": "diagnostic",
    "supersededBy": null,
-   "reason": "suite de parité P3 : campagne v2 en données, mêmes comptes vérifiés que la qualification du 8 octobre",
+   "reason": "P3 parity suite: v2 campaign as data, same verified counts as the October 8 qualification",
    "validity": [
     {
      "scope": "contracts",
      "class": "A",
-     "note": "parité des comptes, sources non commitées"
+     "note": "count parity, uncommitted sources"
     },
     {
      "scope": "timings",
      "class": "C",
-     "note": "local-dev, hôte chargé"
+     "note": "local-dev, loaded host"
     }
    ],
    "decisionIds": [
@@ -1626,17 +1626,17 @@
    "hostClass": "local-dev",
    "role": "diagnostic",
    "supersededBy": null,
-   "reason": "suite de parité P3 : campagne v2 en données, mêmes comptes vérifiés que la qualification du 8 octobre",
+   "reason": "P3 parity suite: v2 campaign as data, same verified counts as the October 8 qualification",
    "validity": [
     {
      "scope": "contracts",
      "class": "A",
-     "note": "parité des comptes, sources non commitées"
+     "note": "count parity, uncommitted sources"
     },
     {
      "scope": "timings",
      "class": "C",
-     "note": "local-dev, hôte chargé"
+     "note": "local-dev, loaded host"
     }
    ],
    "decisionIds": [
@@ -1660,17 +1660,17 @@
    "hostClass": "local-dev",
    "role": "diagnostic",
    "supersededBy": null,
-   "reason": "suite de parité P3 : campagne v2 en données, mêmes comptes vérifiés que la qualification du 8 octobre",
+   "reason": "P3 parity suite: v2 campaign as data, same verified counts as the October 8 qualification",
    "validity": [
     {
      "scope": "contracts",
      "class": "A",
-     "note": "parité des comptes, sources non commitées"
+     "note": "count parity, uncommitted sources"
     },
     {
      "scope": "timings",
      "class": "C",
-     "note": "local-dev, hôte chargé"
+     "note": "local-dev, loaded host"
     }
    ],
    "decisionIds": [
@@ -1694,17 +1694,17 @@
    "hostClass": "local-dev",
    "role": "diagnostic",
    "supersededBy": null,
-   "reason": "suite de parité P3 : campagne v2 en données, mêmes comptes vérifiés que la qualification du 8 octobre",
+   "reason": "P3 parity suite: v2 campaign as data, same verified counts as the October 8 qualification",
    "validity": [
     {
      "scope": "contracts",
      "class": "A",
-     "note": "parité des comptes, sources non commitées"
+     "note": "count parity, uncommitted sources"
     },
     {
      "scope": "timings",
      "class": "C",
-     "note": "local-dev, hôte chargé"
+     "note": "local-dev, loaded host"
     }
    ],
    "decisionIds": [
@@ -1729,17 +1729,17 @@
    "hostClass": "local-dev",
    "role": "diagnostic",
    "supersededBy": null,
-   "reason": "smoke du lien driver-browser à 20 ms, quatre pilotes sur le navigateur du harnais ; calibration hors tolérance avant la correction du proxy",
+   "reason": "smoke of the driver-browser link at 20 ms, four drivers on the harness browser; calibration out of tolerance before the proxy fix",
    "validity": [
     {
      "scope": "contracts",
      "class": "A",
-     "note": "60 tentatives vérifiées, sources non commitées"
+     "note": "60 verified attempts, uncommitted sources"
     },
     {
      "scope": "timings",
      "class": "none",
-     "note": "métriques de temps indisponibles par calibration"
+     "note": "timing metrics unavailable due to calibration"
     }
    ],
    "decisionIds": [
@@ -1763,17 +1763,17 @@
    "hostClass": "local-dev",
    "role": "diagnostic",
    "supersededBy": null,
-   "reason": "smoke du lien driver-browser à 20 ms, quatre pilotes sur le navigateur du harnais",
+   "reason": "smoke of the driver-browser link at 20 ms, four drivers on the harness browser",
    "validity": [
     {
      "scope": "contracts",
      "class": "A",
-     "note": "60 tentatives vérifiées, sources non commitées"
+     "note": "60 verified attempts, uncommitted sources"
     },
     {
      "scope": "timings",
      "class": "C",
-     "note": "local-dev, un bloc, hôte chargé"
+     "note": "local-dev, one block, loaded host"
     }
    ],
    "decisionIds": [
@@ -1797,12 +1797,12 @@
    "hostClass": "local-dev",
    "role": "diagnostic",
    "supersededBy": null,
-   "reason": "matrice gardée historique rejouée après la refonte des scripts de page partagés",
+   "reason": "historical guarded matrix replayed after the rework of the shared page scripts",
    "validity": [
     {
      "scope": "guarded-conformance",
      "class": "A",
-     "note": "162 cellules vérifiées comme b21a28, sources non commitées"
+     "note": "162 verified cells like b21a28, uncommitted sources"
     }
    ],
    "decisionIds": [
@@ -1826,12 +1826,12 @@
    "hostClass": "local-dev",
    "role": "diagnostic",
    "supersededBy": null,
-   "reason": "matrice étendue, garde v1 ; sources modifiées pendant le run",
+   "reason": "extended matrix, guard v1; sources modified during the run",
    "validity": [
     {
      "scope": "all",
      "class": "none",
-     "note": "provenance invalide"
+     "note": "invalid provenance"
     }
    ],
    "decisionIds": [
@@ -1855,17 +1855,17 @@
    "hostClass": "local-dev",
    "role": "diagnostic",
    "supersededBy": null,
-   "reason": "primitives avec la garde v1 : les pilotes gardés cliquent le leurre et le contrôle substitué",
+   "reason": "primitives with guard v1: the guarded drivers click the decoy and the substituted control",
    "validity": [
     {
      "scope": "guard-gap",
      "class": "A",
-     "note": "démontre le trou de la garde v1 sur moved et retarget"
+     "note": "demonstrates the guard v1 hole on moved and retarget"
     },
     {
      "scope": "provenance",
      "class": "none",
-     "note": "fichier de test ajouté pendant le run"
+     "note": "test file added during the run"
     }
    ],
    "decisionIds": [
@@ -1891,12 +1891,12 @@
    "hostClass": "local-dev",
    "role": "superseded",
    "supersededBy": "browser-actionability-extended-2026-10-08T12-05-27-529Z-49432b",
-   "reason": "garde v2 avant le correctif d'échantillonnage : moving expire chez node-cdp",
+   "reason": "guard v2 before the sampling fix: moving times out on node-cdp",
    "validity": [
     {
      "scope": "all",
      "class": "none",
-     "note": "remplacé"
+     "note": "superseded"
     }
    ],
    "decisionIds": [
@@ -1920,12 +1920,12 @@
    "hostClass": "local-dev",
    "role": "superseded",
    "supersededBy": "browser-driver-primitives-2026-10-08T12-14-55-485Z-4b6074",
-   "reason": "primitives, garde v2 avant le correctif d'échantillonnage",
+   "reason": "primitives, guard v2 before the sampling fix",
    "validity": [
     {
      "scope": "all",
      "class": "none",
-     "note": "remplacé"
+     "note": "superseded"
     }
    ],
    "decisionIds": [
@@ -1949,12 +1949,12 @@
    "hostClass": "local-dev",
    "role": "superseded",
    "supersededBy": "browser-actionability-extended-2026-10-08T16-46-59-186Z-c5a02a",
-   "reason": "matrice d'actionnabilité étendue aux pilotes CDP, garde v2 avec échantillonnage par frame ou timer",
+   "reason": "actionability matrix extended to the CDP drivers, guard v2 with per-frame or timer sampling",
    "validity": [
     {
      "scope": "guarded-conformance",
      "class": "A",
-     "note": "tous les pilotes gardés 27/27 ; natifs sans garanties en échec comme attendu"
+     "note": "all guarded drivers 27/27; natives without guarantees failing as expected"
     }
    ],
    "decisionIds": [
@@ -1980,12 +1980,12 @@
    "hostClass": "local-dev",
    "role": "superseded",
    "supersededBy": "browser-driver-primitives-2026-10-08T16-56-23-563Z-6a0bbd",
-   "reason": "dix primitives, garde v2 : interception au moment du geste",
+   "reason": "ten primitives, guard v2: interception at the moment of the gesture",
    "validity": [
     {
      "scope": "primitives-conformance",
      "class": "A",
-     "note": "pilotes gardés et Playwright natif 30/30 ; natifs sans interception échouent moved et retarget"
+     "note": "guarded drivers and native Playwright 30/30; natives without interception fail moved and retarget"
     }
    ],
    "decisionIds": [
@@ -2011,12 +2011,12 @@
    "hostClass": "local-dev",
    "role": "diagnostic",
    "supersededBy": null,
-   "reason": "suite de qualification interrompue volontairement pour libérer la machine",
+   "reason": "qualification suite deliberately interrupted to free the machine",
    "validity": [
     {
      "scope": "all",
      "class": "none",
-     "note": "suite interrompue"
+     "note": "interrupted suite"
     }
    ],
    "decisionIds": [
@@ -2040,22 +2040,22 @@
    "hostClass": "local-controlled",
    "role": "selected",
    "supersededBy": null,
-   "reason": "pilotes navigateur sur le navigateur du harnais, lien driver-browser à 0 ms ; bloc 0 bruité, exclu par la règle",
+   "reason": "browser drivers on the harness browser, driver-browser link at 0 ms; block 0 noisy, excluded by the rule",
    "validity": [
     {
      "scope": "contracts",
      "class": "A",
-     "note": "toutes les tâches vérifiées par l'oracle"
+     "note": "all tasks verified by the oracle"
     },
     {
      "scope": "relative",
      "class": "B",
-     "note": "blocs appariés sur Mac au repos, seuils local-controlled ajustés le 8 octobre"
+     "note": "paired blocks on an idle Mac, local-controlled thresholds adjusted on October 8"
     },
     {
      "scope": "absolute",
      "class": "C",
-     "note": "chiffres absolus non publiables avant l'hôte de référence"
+     "note": "absolute figures not publishable before the reference host"
     }
    ],
    "decisionIds": [
@@ -2081,22 +2081,22 @@
    "hostClass": "local-controlled",
    "role": "selected",
    "supersededBy": null,
-   "reason": "capacité du runtime durable, strate de décision (16 jobs concurrents, lots de 1), Node contre Rust",
+   "reason": "durable runtime capacity, decision stratum (16 concurrent jobs, batches of 1), Node versus Rust",
    "validity": [
     {
      "scope": "contracts",
      "class": "A",
-     "note": "jobs vérifiés et commités"
+     "note": "jobs verified and committed"
     },
     {
      "scope": "relative",
      "class": "B",
-     "note": "huit blocs appariés sur Mac au repos, seuils local-controlled ajustés"
+     "note": "eight paired blocks on an idle Mac, local-controlled thresholds adjusted"
     },
     {
      "scope": "absolute",
      "class": "C",
-     "note": "chiffres absolus non publiables avant l'hôte de référence"
+     "note": "absolute figures not publishable before the reference host"
     }
    ],
    "decisionIds": [
@@ -2122,22 +2122,22 @@
    "hostClass": "local-controlled",
    "role": "selected",
    "supersededBy": null,
-   "reason": "pilotes navigateur, lien driver-browser à 20 ms",
+   "reason": "browser drivers, driver-browser link at 20 ms",
    "validity": [
     {
      "scope": "contracts",
      "class": "A",
-     "note": "toutes les tâches vérifiées par l'oracle"
+     "note": "all tasks verified by the oracle"
     },
     {
      "scope": "relative",
      "class": "B",
-     "note": "blocs appariés sur Mac au repos, seuils local-controlled ajustés le 8 octobre"
+     "note": "paired blocks on an idle Mac, local-controlled thresholds adjusted on October 8"
     },
     {
      "scope": "absolute",
      "class": "C",
-     "note": "chiffres absolus non publiables avant l'hôte de référence"
+     "note": "absolute figures not publishable before the reference host"
     }
    ],
    "decisionIds": [
@@ -2163,22 +2163,22 @@
    "hostClass": "local-controlled",
    "role": "selected",
    "supersededBy": null,
-   "reason": "pilotes navigateur, lien driver-browser à 100 ms",
+   "reason": "browser drivers, driver-browser link at 100 ms",
    "validity": [
     {
      "scope": "contracts",
      "class": "A",
-     "note": "toutes les tâches vérifiées par l'oracle"
+     "note": "all tasks verified by the oracle"
     },
     {
      "scope": "relative",
      "class": "B",
-     "note": "blocs appariés sur Mac au repos, seuils local-controlled ajustés le 8 octobre"
+     "note": "paired blocks on an idle Mac, local-controlled thresholds adjusted on October 8"
     },
     {
      "scope": "absolute",
      "class": "C",
-     "note": "chiffres absolus non publiables avant l'hôte de référence"
+     "note": "absolute figures not publishable before the reference host"
     }
    ],
    "decisionIds": [
@@ -2204,22 +2204,22 @@
    "hostClass": "local-controlled",
    "role": "selected",
    "supersededBy": null,
-   "reason": "pilotes navigateur, lien driver-browser à 300 ms",
+   "reason": "browser drivers, driver-browser link at 300 ms",
    "validity": [
     {
      "scope": "contracts",
      "class": "A",
-     "note": "toutes les tâches vérifiées par l'oracle"
+     "note": "all tasks verified by the oracle"
     },
     {
      "scope": "relative",
      "class": "B",
-     "note": "blocs appariés sur Mac au repos, seuils local-controlled ajustés le 8 octobre"
+     "note": "paired blocks on an idle Mac, local-controlled thresholds adjusted on October 8"
     },
     {
      "scope": "absolute",
      "class": "C",
-     "note": "chiffres absolus non publiables avant l'hôte de référence"
+     "note": "absolute figures not publishable before the reference host"
     }
    ],
    "decisionIds": [
@@ -2245,17 +2245,17 @@
    "hostClass": "local-dev",
    "role": "diagnostic",
    "supersededBy": null,
-   "reason": "suite de qualification rejouée sur sources commitées : comptes publiés reproduits",
+   "reason": "qualification suite replayed on committed sources: published counts reproduced",
    "validity": [
     {
      "scope": "contracts",
      "class": "A",
-     "note": "comptes identiques aux runs publiés"
+     "note": "counts identical to the published runs"
     },
     {
      "scope": "timings",
      "class": "C",
-     "note": "local-dev, machine en usage"
+     "note": "local-dev, machine in use"
     }
    ],
    "decisionIds": [
@@ -2279,17 +2279,17 @@
    "hostClass": "local-controlled",
    "role": "diagnostic",
    "supersededBy": null,
-   "reason": "suite de qualification rejouée sur sources commitées : comptes publiés reproduits",
+   "reason": "qualification suite replayed on committed sources: published counts reproduced",
    "validity": [
     {
      "scope": "contracts",
      "class": "A",
-     "note": "comptes identiques aux runs publiés"
+     "note": "counts identical to the published runs"
     },
     {
      "scope": "timings",
      "class": "C",
-     "note": "local-dev, machine en usage"
+     "note": "local-dev, machine in use"
     }
    ],
    "decisionIds": [
@@ -2313,17 +2313,17 @@
    "hostClass": "local-controlled",
    "role": "diagnostic",
    "supersededBy": null,
-   "reason": "suite de qualification rejouée sur sources commitées : comptes publiés reproduits",
+   "reason": "qualification suite replayed on committed sources: published counts reproduced",
    "validity": [
     {
      "scope": "contracts",
      "class": "A",
-     "note": "comptes identiques aux runs publiés"
+     "note": "counts identical to the published runs"
     },
     {
      "scope": "timings",
      "class": "C",
-     "note": "local-dev, machine en usage"
+     "note": "local-dev, machine in use"
     }
    ],
    "decisionIds": [
@@ -2347,17 +2347,17 @@
    "hostClass": "local-dev",
    "role": "diagnostic",
    "supersededBy": null,
-   "reason": "suite de qualification rejouée sur sources commitées : comptes publiés reproduits",
+   "reason": "qualification suite replayed on committed sources: published counts reproduced",
    "validity": [
     {
      "scope": "contracts",
      "class": "A",
-     "note": "comptes identiques aux runs publiés"
+     "note": "counts identical to the published runs"
     },
     {
      "scope": "timings",
      "class": "C",
-     "note": "local-dev, machine en usage"
+     "note": "local-dev, machine in use"
     }
    ],
    "decisionIds": [
@@ -2381,17 +2381,17 @@
    "hostClass": "local-dev",
    "role": "diagnostic",
    "supersededBy": null,
-   "reason": "suite de qualification rejouée sur sources commitées : comptes publiés reproduits",
+   "reason": "qualification suite replayed on committed sources: published counts reproduced",
    "validity": [
     {
      "scope": "contracts",
      "class": "A",
-     "note": "comptes identiques aux runs publiés"
+     "note": "counts identical to the published runs"
     },
     {
      "scope": "timings",
      "class": "C",
-     "note": "local-dev, machine en usage"
+     "note": "local-dev, machine in use"
     }
    ],
    "decisionIds": [
@@ -2415,17 +2415,17 @@
    "hostClass": "local-dev",
    "role": "diagnostic",
    "supersededBy": null,
-   "reason": "suite de qualification rejouée sur sources commitées : comptes publiés reproduits",
+   "reason": "qualification suite replayed on committed sources: published counts reproduced",
    "validity": [
     {
      "scope": "contracts",
      "class": "A",
-     "note": "comptes identiques aux runs publiés"
+     "note": "counts identical to the published runs"
     },
     {
      "scope": "timings",
      "class": "C",
-     "note": "local-dev, machine en usage"
+     "note": "local-dev, machine in use"
     }
    ],
    "decisionIds": [
@@ -2449,12 +2449,12 @@
    "hostClass": "local-dev",
    "role": "diagnostic",
    "supersededBy": null,
-   "reason": "première matrice de navigation : clics perdus vers l'iframe hors processus, pilotes sans capacité comptés en échec",
+   "reason": "first navigation matrix: clicks lost toward the out-of-process iframe, drivers lacking the capability counted as failures",
    "validity": [
     {
      "scope": "all",
      "class": "none",
-     "note": "défauts du pilote et de la lane, corrigés"
+     "note": "driver and lane defects, fixed"
     }
    ],
    "decisionIds": [
@@ -2480,12 +2480,12 @@
    "hostClass": "local-dev",
    "role": "selected",
    "supersededBy": null,
-   "reason": "matrice navigation, iframes et fichiers : SPA, historique, popup, iframes de même origine et d'une autre origine, envoi et téléchargement",
+   "reason": "navigation, iframes and files matrix: SPA, history, popup, same-origin and cross-origin iframes, upload and download",
    "validity": [
     {
      "scope": "navigation-conformance",
      "class": "A",
-     "note": "quatre pilotes 21/21 en natif et en gardé ; Stagehand et Crawlee non pris en charge"
+     "note": "four drivers 21/21 in native and guarded mode; Stagehand and Crawlee not supported"
     }
    ],
    "decisionIds": [
@@ -2511,12 +2511,12 @@
    "hostClass": "local-dev",
    "role": "selected",
    "supersededBy": null,
-   "reason": "matrice d'actionnabilité étendue, garde v2 avec détection des gestes perdus",
+   "reason": "extended actionability matrix, guard v2 with lost-gesture detection",
    "validity": [
     {
      "scope": "guarded-conformance",
      "class": "A",
-     "note": "tous les pilotes gardés 27/27"
+     "note": "all guarded drivers 27/27"
     }
    ],
    "decisionIds": [
@@ -2542,12 +2542,12 @@
    "hostClass": "local-dev",
    "role": "selected",
    "supersededBy": null,
-   "reason": "dix primitives, garde v2 avec détection des gestes perdus",
+   "reason": "ten primitives, guard v2 with lost-gesture detection",
    "validity": [
     {
      "scope": "primitives-conformance",
      "class": "A",
-     "note": "pilotes gardés et Playwright natif 30/30"
+     "note": "guarded drivers and native Playwright 30/30"
     }
    ],
    "decisionIds": [
@@ -2573,12 +2573,12 @@
    "hostClass": "local-dev",
    "role": "superseded",
    "supersededBy": "http-incidents-2026-10-08T17-07-35-305Z-73011e",
-   "reason": "même matrice sur sources non commitées",
+   "reason": "same matrix on uncommitted sources",
    "validity": [
     {
      "scope": "all",
      "class": "none",
-     "note": "sources non commitées"
+     "note": "uncommitted sources"
     }
    ],
    "decisionIds": [
@@ -2604,12 +2604,12 @@
    "hostClass": "local-dev",
    "role": "diagnostic",
    "supersededBy": null,
-   "reason": "même matrice sur sources non commitées",
+   "reason": "same matrix on uncommitted sources",
    "validity": [
     {
      "scope": "all",
      "class": "none",
-     "note": "sources non commitées"
+     "note": "uncommitted sources"
     }
    ],
    "decisionIds": [
@@ -2633,12 +2633,12 @@
    "hostClass": "local-dev",
    "role": "superseded",
    "supersededBy": "http-incidents-2026-10-08T17-25-00-258Z-206e01",
-   "reason": "incidents HTTP : 429, 503, réponse tronquée ou coupée, boucle de redirections, serveur lent",
+   "reason": "HTTP incidents: 429, 503, truncated or cut-off response, redirect loop, slow server",
    "validity": [
     {
      "scope": "incident-contract",
      "class": "A",
-     "note": "Spider HTTP seul à produire des faux succès ; aucune relance configurée dans les adapters"
+     "note": "Spider HTTP the only one producing false successes; no retry configured in the adapters"
     }
    ],
    "decisionIds": [
@@ -2664,12 +2664,12 @@
    "hostClass": "local-dev",
    "role": "diagnostic",
    "supersededBy": null,
-   "reason": "matrice d'accès avant correction de la fixture de challenge ou sur sources non commitées",
+   "reason": "access matrix before the challenge fixture fix or on uncommitted sources",
    "validity": [
     {
      "scope": "all",
      "class": "none",
-     "note": "fixture incomplète ou sources non commitées"
+     "note": "incomplete fixture or uncommitted sources"
     }
    ],
    "decisionIds": [
@@ -2693,12 +2693,12 @@
    "hostClass": "local-dev",
    "role": "diagnostic",
    "supersededBy": null,
-   "reason": "matrice d'accès avant correction de la fixture de challenge ou sur sources non commitées",
+   "reason": "access matrix before the challenge fixture fix or on uncommitted sources",
    "validity": [
     {
      "scope": "all",
      "class": "none",
-     "note": "fixture incomplète ou sources non commitées"
+     "note": "incomplete fixture or uncommitted sources"
     }
    ],
    "decisionIds": [
@@ -2722,12 +2722,12 @@
    "hostClass": "local-dev",
    "role": "superseded",
    "supersededBy": "access-policy-2026-10-08T17-27-03-497Z-f99eb0",
-   "reason": "robots.txt et page de challenge servie en 200 (ADR-002)",
+   "reason": "robots.txt and challenge page served as 200 (ADR-002)",
    "validity": [
     {
      "scope": "access-contract",
      "class": "A",
-     "note": "aucun backend ne détecte le challenge ; node-http ignore robots.txt"
+     "note": "no backend detects the challenge; node-http ignores robots.txt"
     }
    ],
    "decisionIds": [
@@ -2754,12 +2754,12 @@
    "hostClass": "local-dev",
    "role": "diagnostic",
    "supersededBy": null,
-   "reason": "même matrice sur sources non commitées",
+   "reason": "same matrix on uncommitted sources",
    "validity": [
     {
      "scope": "all",
      "class": "none",
-     "note": "sources non commitées"
+     "note": "uncommitted sources"
     }
    ],
    "decisionIds": [
@@ -2783,12 +2783,12 @@
    "hostClass": "local-dev",
    "role": "diagnostic",
    "supersededBy": null,
-   "reason": "même matrice sur sources non commitées",
+   "reason": "same matrix on uncommitted sources",
    "validity": [
     {
      "scope": "all",
      "class": "none",
-     "note": "sources non commitées"
+     "note": "uncommitted sources"
     }
    ],
    "decisionIds": [
@@ -2812,12 +2812,12 @@
    "hostClass": "local-dev",
    "role": "superseded",
    "supersededBy": "http-incidents-2026-10-09T16-17-14-005Z-41e172",
-   "reason": "incidents HTTP sur sept backends, dont reqwest, wreq et Impit",
+   "reason": "HTTP incidents on seven backends, including reqwest, wreq and Impit",
    "validity": [
     {
      "scope": "incident-contract",
      "class": "A",
-     "note": "Spider HTTP seul à produire des faux succès ; aucune relance configurée dans les adapters"
+     "note": "Spider HTTP the only one producing false successes; no retry configured in the adapters"
     }
    ],
    "decisionIds": [
@@ -2843,12 +2843,12 @@
    "hostClass": "local-dev",
    "role": "superseded",
    "supersededBy": "access-policy-2026-10-09T16-19-19-822Z-f128cf",
-   "reason": "robots.txt et challenge en 200 sur sept backends",
+   "reason": "robots.txt and challenge served as 200 on seven backends",
    "validity": [
     {
      "scope": "access-contract",
      "class": "A",
-     "note": "aucun backend ne détecte le challenge ; node-http ignore robots.txt"
+     "note": "no backend detects the challenge; node-http ignores robots.txt"
     }
    ],
    "decisionIds": [
@@ -2875,12 +2875,12 @@
    "hostClass": "local-dev",
    "role": "diagnostic",
    "supersededBy": null,
-   "reason": "mise au point de la fixture TLS ou sources non commitées",
+   "reason": "TLS fixture development or uncommitted sources",
    "validity": [
     {
      "scope": "all",
      "class": "none",
-     "note": "fixture en cours de mise au point"
+     "note": "fixture still under development"
     }
    ],
    "decisionIds": [
@@ -2904,12 +2904,12 @@
    "hostClass": "local-dev",
    "role": "diagnostic",
    "supersededBy": null,
-   "reason": "mise au point de la fixture TLS ou sources non commitées",
+   "reason": "TLS fixture development or uncommitted sources",
    "validity": [
     {
      "scope": "all",
      "class": "none",
-     "note": "fixture en cours de mise au point"
+     "note": "fixture still under development"
     }
    ],
    "decisionIds": [
@@ -2933,12 +2933,12 @@
    "hostClass": "local-dev",
    "role": "superseded",
    "supersededBy": "tls-fingerprint-2026-10-08T19-32-26-736Z-f42991",
-   "reason": "empreintes TLS (JA4) et HTTP/2 de huit clients, cohérence de session ; JA4 comptait le GREASE des algorithmes de signature",
+   "reason": "TLS (JA4) and HTTP/2 fingerprints of eight clients, session consistency; JA4 counted the GREASE of the signature algorithms",
    "validity": [
     {
      "scope": "identity-coherence",
      "class": "A",
-     "note": "Crawlee change d'empreinte en cours de session ; Chrome varie entre lancements"
+     "note": "Crawlee changes fingerprint mid-session; Chrome varies between launches"
     }
    ],
    "decisionIds": [
@@ -2965,12 +2965,12 @@
    "hostClass": "local-dev",
    "role": "diagnostic",
    "supersededBy": null,
-   "reason": "même matrice sur sources non commitées",
+   "reason": "same matrix on uncommitted sources",
    "validity": [
     {
      "scope": "all",
      "class": "none",
-     "note": "sources non commitées"
+     "note": "uncommitted sources"
     }
    ],
    "decisionIds": [
@@ -2994,12 +2994,12 @@
    "hostClass": "local-dev",
    "role": "selected",
    "supersededBy": null,
-   "reason": "erreur d'écriture, verrou tenu et verrou affamé dans les runtimes Node et Rust",
+   "reason": "write error, held lock and starved lock in the Node and Rust runtimes",
    "validity": [
     {
      "scope": "recovery",
      "class": "A",
-     "note": "reprise exacte sur les trois pannes, dans les deux runtimes"
+     "note": "exact recovery on all three faults, in both runtimes"
     }
    ],
    "decisionIds": [
@@ -3025,12 +3025,12 @@
    "hostClass": "local-dev",
    "role": "diagnostic",
    "supersededBy": null,
-   "reason": "même campagne sur sources non commitées",
+   "reason": "same campaign on uncommitted sources",
    "validity": [
     {
      "scope": "all",
      "class": "none",
-     "note": "sources non commitées"
+     "note": "uncommitted sources"
     }
    ],
    "decisionIds": [
@@ -3054,17 +3054,17 @@
    "hostClass": "local-dev",
    "role": "selected",
    "supersededBy": null,
-   "reason": "qualité d'extraction WCXB, jeu de développement",
+   "reason": "WCXB extraction quality, development set",
    "validity": [
     {
      "scope": "quality",
      "class": "A",
-     "note": "scores identiques à evaluate.py"
+     "note": "scores identical to evaluate.py"
     },
     {
      "scope": "timings",
      "class": "C",
-     "note": "local-dev, machine en usage"
+     "note": "local-dev, machine in use"
     }
    ],
    "decisionIds": [
@@ -3090,17 +3090,17 @@
    "hostClass": "local-dev",
    "role": "selected",
    "supersededBy": null,
-   "reason": "qualité d'extraction WCXB, jeu de test réservé",
+   "reason": "WCXB extraction quality, held-out test set",
    "validity": [
     {
      "scope": "quality",
      "class": "A",
-     "note": "scores identiques à evaluate.py"
+     "note": "scores identical to evaluate.py"
     },
     {
      "scope": "timings",
      "class": "C",
-     "note": "local-dev, machine en usage"
+     "note": "local-dev, machine in use"
     }
    ],
    "decisionIds": [
@@ -3129,12 +3129,12 @@
    "hostClass": "local-dev",
    "role": "diagnostic",
    "supersededBy": null,
-   "reason": "même campagne sur sources non commitées",
+   "reason": "same campaign on uncommitted sources",
    "validity": [
     {
      "scope": "all",
      "class": "none",
-     "note": "sources non commitées"
+     "note": "uncommitted sources"
     }
    ],
    "decisionIds": [
@@ -3158,12 +3158,12 @@
    "hostClass": "local-dev",
    "role": "diagnostic",
    "supersededBy": null,
-   "reason": "même campagne sur sources non commitées",
+   "reason": "same campaign on uncommitted sources",
    "validity": [
     {
      "scope": "all",
      "class": "none",
-     "note": "sources non commitées"
+     "note": "uncommitted sources"
     }
    ],
    "decisionIds": [
@@ -3187,12 +3187,12 @@
    "hostClass": "local-dev",
    "role": "diagnostic",
    "supersededBy": null,
-   "reason": "même campagne sur sources non commitées",
+   "reason": "same campaign on uncommitted sources",
    "validity": [
     {
      "scope": "all",
      "class": "none",
-     "note": "sources non commitées"
+     "note": "uncommitted sources"
     }
    ],
    "decisionIds": [
@@ -3216,12 +3216,12 @@
    "hostClass": "local-dev",
    "role": "diagnostic",
    "supersededBy": null,
-   "reason": "même campagne sur sources non commitées",
+   "reason": "same campaign on uncommitted sources",
    "validity": [
     {
      "scope": "all",
      "class": "none",
-     "note": "sources non commitées"
+     "note": "uncommitted sources"
     }
    ],
    "decisionIds": [
@@ -3245,12 +3245,12 @@
    "hostClass": "local-dev",
    "role": "diagnostic",
    "supersededBy": null,
-   "reason": "même campagne sur sources non commitées",
+   "reason": "same campaign on uncommitted sources",
    "validity": [
     {
      "scope": "all",
      "class": "none",
-     "note": "sources non commitées"
+     "note": "uncommitted sources"
     }
    ],
    "decisionIds": [
@@ -3274,12 +3274,12 @@
    "hostClass": "local-dev",
    "role": "selected",
    "supersededBy": null,
-   "reason": "compatibilité de Lightpanda 1.0.0 avec les pilotes, scénarios et oracles du lab",
+   "reason": "compatibility of Lightpanda 1.0.0 with the lab's drivers, scenarios and oracles",
    "validity": [
     {
      "scope": "engine-compatibility",
      "class": "A",
-     "note": "faux succès sous garde sur calque et cible ambiguë ; iframes, popups, téléchargement absents"
+     "note": "false successes under guard on overlay and ambiguous target; iframes, popups, download missing"
     }
    ],
    "decisionIds": [
@@ -3305,12 +3305,12 @@
    "hostClass": "local-dev",
    "role": "selected",
    "supersededBy": null,
-   "reason": "compatibilité de Lightpanda 1.0.0 avec les pilotes, scénarios et oracles du lab",
+   "reason": "compatibility of Lightpanda 1.0.0 with the lab's drivers, scenarios and oracles",
    "validity": [
     {
      "scope": "engine-compatibility",
      "class": "A",
-     "note": "faux succès sous garde sur calque et cible ambiguë ; iframes, popups, téléchargement absents"
+     "note": "false successes under guard on overlay and ambiguous target; iframes, popups, download missing"
     }
    ],
    "decisionIds": [
@@ -3336,12 +3336,12 @@
    "hostClass": "local-dev",
    "role": "selected",
    "supersededBy": null,
-   "reason": "compatibilité de Lightpanda 1.0.0 avec les pilotes, scénarios et oracles du lab",
+   "reason": "compatibility of Lightpanda 1.0.0 with the lab's drivers, scenarios and oracles",
    "validity": [
     {
      "scope": "engine-compatibility",
      "class": "A",
-     "note": "faux succès sous garde sur calque et cible ambiguë ; iframes, popups, téléchargement absents"
+     "note": "false successes under guard on overlay and ambiguous target; iframes, popups, download missing"
     }
    ],
    "decisionIds": [
@@ -3367,12 +3367,12 @@
    "hostClass": "local-dev",
    "role": "selected",
    "supersededBy": null,
-   "reason": "compatibilité de Lightpanda 1.0.0 avec les pilotes, scénarios et oracles du lab",
+   "reason": "compatibility of Lightpanda 1.0.0 with the lab's drivers, scenarios and oracles",
    "validity": [
     {
      "scope": "engine-compatibility",
      "class": "A",
-     "note": "faux succès sous garde sur calque et cible ambiguë ; iframes, popups, téléchargement absents"
+     "note": "false successes under guard on overlay and ambiguous target; iframes, popups, download missing"
     }
    ],
    "decisionIds": [
@@ -3398,12 +3398,12 @@
    "hostClass": "local-dev",
    "role": "selected",
    "supersededBy": null,
-   "reason": "compatibilité de Lightpanda 1.0.0 avec les pilotes, scénarios et oracles du lab",
+   "reason": "compatibility of Lightpanda 1.0.0 with the lab's drivers, scenarios and oracles",
    "validity": [
     {
      "scope": "engine-compatibility",
      "class": "A",
-     "note": "faux succès sous garde sur calque et cible ambiguë ; iframes, popups, téléchargement absents"
+     "note": "false successes under guard on overlay and ambiguous target; iframes, popups, download missing"
     }
    ],
    "decisionIds": [
@@ -3429,12 +3429,12 @@
    "hostClass": "local-dev",
    "role": "diagnostic",
    "supersededBy": null,
-   "reason": "version précédente du rejeu ou sources non commitées",
+   "reason": "previous version of the replay or uncommitted sources",
    "validity": [
     {
      "scope": "all",
      "class": "none",
-     "note": "rejeu validé étape par étape ou sources non commitées"
+     "note": "replay validated step by step or uncommitted sources"
     }
    ],
    "decisionIds": [
@@ -3458,12 +3458,12 @@
    "hostClass": "local-dev",
    "role": "diagnostic",
    "supersededBy": null,
-   "reason": "version précédente du rejeu ou sources non commitées",
+   "reason": "previous version of the replay or uncommitted sources",
    "validity": [
     {
      "scope": "all",
      "class": "none",
-     "note": "rejeu validé étape par étape ou sources non commitées"
+     "note": "replay validated step by step or uncommitted sources"
     }
    ],
    "decisionIds": [
@@ -3487,12 +3487,12 @@
    "hostClass": "local-dev",
    "role": "diagnostic",
    "supersededBy": null,
-   "reason": "version précédente du rejeu ou sources non commitées",
+   "reason": "previous version of the replay or uncommitted sources",
    "validity": [
     {
      "scope": "all",
      "class": "none",
-     "note": "rejeu validé étape par étape ou sources non commitées"
+     "note": "replay validated step by step or uncommitted sources"
     }
    ],
    "decisionIds": [
@@ -3516,17 +3516,17 @@
    "hostClass": "local-dev",
    "role": "selected",
    "supersededBy": null,
-   "reason": "couche IA : agent à chaque exécution contre rejeu compilé, dérive silencieuse, faux modèle",
+   "reason": "AI layer: agent on every execution versus compiled replay, silent drift, fake model",
    "validity": [
     {
      "scope": "replay-contract",
      "class": "A",
-     "note": "zéro faux succès, comptage de tokens identique côté modèle"
+     "note": "zero false successes, identical token count on the model side"
     },
     {
      "scope": "cost",
      "class": "B",
-     "note": "faux modèle, table de prix datée"
+     "note": "fake model, dated price table"
     }
    ],
    "decisionIds": [
@@ -3552,12 +3552,12 @@
    "hostClass": "local-dev",
    "role": "diagnostic",
    "supersededBy": "identity-coherence-2026-10-08T19-08-09-611Z-deb797",
-   "reason": "oracle d'avant la correction des chargements de favicon, ou run interrompu",
+   "reason": "oracle from before the favicon-load fix, or interrupted run",
    "validity": [
     {
      "scope": "all",
      "class": "none",
-     "note": "oracle corrigé ensuite"
+     "note": "oracle fixed afterwards"
     }
    ],
    "decisionIds": [
@@ -3581,12 +3581,12 @@
    "hostClass": "local-dev",
    "role": "diagnostic",
    "supersededBy": "policy-fixtures-2026-10-08T19-11-08-127Z-31838d",
-   "reason": "oracle d'avant la correction des chargements de favicon, ou run interrompu",
+   "reason": "oracle from before the favicon-load fix, or interrupted run",
    "validity": [
     {
      "scope": "all",
      "class": "none",
-     "note": "oracle corrigé ensuite"
+     "note": "oracle fixed afterwards"
     }
    ],
    "decisionIds": [
@@ -3610,17 +3610,17 @@
    "hostClass": "local-dev",
    "role": "superseded",
    "supersededBy": "identity-coherence-2026-10-08T19-32-36-456Z-419b62",
-   "reason": "identité : cohérence entre tiers HTTP et navigateur, rotation et révocation de clé, trois tiers HTTP ; JA4 comptait le GREASE des algorithmes de signature",
+   "reason": "identity: consistency between HTTP and browser tiers, key rotation and revocation, three HTTP tiers; JA4 counted the GREASE of the signature algorithms",
    "validity": [
     {
      "scope": "identity-contract",
      "class": "A",
-     "note": "oracle du site, signatures vérifiées par web-bot-auth"
+     "note": "site oracle, signatures verified by web-bot-auth"
     },
     {
      "scope": "timing",
      "class": "B",
-     "note": "local-dev, Mac en usage"
+     "note": "local-dev, Mac in use"
     }
    ],
    "decisionIds": [
@@ -3644,7 +3644,7 @@
    "hostClass": "local-dev",
    "role": "selected",
    "supersededBy": null,
-   "reason": "identité : préférences des sites par profil et finalité, signaux d'arrêt",
+   "reason": "identity: site preferences by profile and purpose, stop signals",
    "validity": [
     {
      "scope": "policy-contract",
@@ -3675,12 +3675,12 @@
    "hostClass": "local-dev",
    "role": "superseded",
    "supersededBy": "session-isolation-2026-10-08T19-34-55-558Z-f91765",
-   "reason": "identité : deux sessions simultanées, cookies et stockage séparés ; JA4 comptait le GREASE des algorithmes de signature",
+   "reason": "identity: two simultaneous sessions, separate cookies and storage; JA4 counted the GREASE of the signature algorithms",
    "validity": [
     {
      "scope": "isolation-contract",
      "class": "A",
-     "note": "témoins par session"
+     "note": "per-session markers"
     }
    ],
    "decisionIds": [
@@ -3704,17 +3704,17 @@
    "hostClass": "local-dev",
    "role": "superseded",
    "supersededBy": "durable-admission-2026-10-08T19-43-14-860Z-b8ad5b",
-   "reason": "admission sous arrivées ouvertes sans surcharge, deux politiques de file ; avant la journalisation du départ des travaux",
+   "reason": "admission under open arrivals without overload, two queue policies; before job departures were journaled",
    "validity": [
     {
      "scope": "admission-contract",
      "class": "A",
-     "note": "aucune perte, bornes et limites par domaine observées de l'extérieur"
+     "note": "no loss, bounds and per-domain limits observed from the outside"
     },
     {
      "scope": "ack-latency",
      "class": "B",
-     "note": "local-dev, Mac en usage"
+     "note": "local-dev, Mac in use"
     }
    ],
    "decisionIds": [
@@ -3739,17 +3739,17 @@
    "hostClass": "local-dev",
    "role": "superseded",
    "supersededBy": "durable-scheduler-2026-10-08T19-43-56-509Z-dfabee",
-   "reason": "domaine lourd en surcharge à côté de trois petits domaines, file globale contre file par domaine ; avant la journalisation du départ des travaux",
+   "reason": "heavy domain overloaded alongside three small domains, global queue versus per-domain queue; before job departures were journaled",
    "validity": [
     {
      "scope": "admission-contract",
      "class": "A",
-     "note": "aucune perte, refus explicites jamais exécutés"
+     "note": "no loss, explicit rejections never executed"
     },
     {
      "scope": "fairness",
      "class": "B",
-     "note": "local-dev ; le débit des petits domaines dépend du calendrier d'arrivées, pas de l'hôte"
+     "note": "local-dev; small-domain throughput depends on the arrival schedule, not on the host"
     }
    ],
    "decisionIds": [
@@ -3774,12 +3774,12 @@
    "hostClass": "local-dev",
    "role": "superseded",
    "supersededBy": "tls-fingerprint-2026-10-09T16-20-40-847Z-1d6b5d",
-   "reason": "empreintes TLS (JA4) et HTTP/2 de huit clients, cohérence de session",
+   "reason": "TLS (JA4) and HTTP/2 fingerprints of eight clients, session consistency",
    "validity": [
     {
      "scope": "identity-coherence",
      "class": "A",
-     "note": "Crawlee change de liste de chiffrements en cours de session ; Chrome garde un seul JA4"
+     "note": "Crawlee changes cipher list mid-session; Chrome keeps a single JA4"
     }
    ],
    "decisionIds": [
@@ -3806,17 +3806,17 @@
    "hostClass": "local-dev",
    "role": "selected",
    "supersededBy": null,
-   "reason": "identité : cohérence entre tiers HTTP et navigateur, rotation et révocation de clé, trois tiers HTTP",
+   "reason": "identity: consistency between HTTP and browser tiers, key rotation and revocation, three HTTP tiers",
    "validity": [
     {
      "scope": "identity-contract",
      "class": "A",
-     "note": "oracle du site, signatures vérifiées par web-bot-auth"
+     "note": "site oracle, signatures verified by web-bot-auth"
     },
     {
      "scope": "timing",
      "class": "B",
-     "note": "local-dev, Mac en usage"
+     "note": "local-dev, Mac in use"
     }
    ],
    "decisionIds": [
@@ -3842,12 +3842,12 @@
    "hostClass": "local-dev",
    "role": "selected",
    "supersededBy": null,
-   "reason": "identité : deux sessions simultanées, cookies et stockage séparés",
+   "reason": "identity: two simultaneous sessions, separate cookies and storage",
    "validity": [
     {
      "scope": "isolation-contract",
      "class": "A",
-     "note": "témoins par session"
+     "note": "per-session markers"
     }
    ],
    "decisionIds": [
@@ -3873,12 +3873,12 @@
    "hostClass": "local-dev",
    "role": "selected",
    "supersededBy": null,
-   "reason": "identité : proxies amont collants, bascule sur panne dans le budget, arrêt explicite à l'épuisement",
+   "reason": "identity: sticky upstream proxies, failover within budget, explicit stop on exhaustion",
    "validity": [
     {
      "scope": "proxy-contract",
      "class": "A",
-     "note": "juge sur les tunnels relevés par les proxies de la fixture"
+     "note": "judged on the tunnels recorded by the fixture's proxies"
     }
    ],
    "decisionIds": [
@@ -3904,17 +3904,17 @@
    "hostClass": "local-dev",
    "role": "superseded",
    "supersededBy": "durable-admission-2026-10-10T02-46-32-139Z-ef1b25",
-   "reason": "admission sous arrivées ouvertes sans surcharge, deux politiques de file",
+   "reason": "admission under open arrivals without overload, two queue policies",
    "validity": [
     {
      "scope": "admission-contract",
      "class": "A",
-     "note": "aucune perte, bornes et limites par domaine observées de l'extérieur"
+     "note": "no loss, bounds and per-domain limits observed from the outside"
     },
     {
      "scope": "ack-latency",
      "class": "B",
-     "note": "local-dev, Mac en usage"
+     "note": "local-dev, Mac in use"
     }
    ],
    "decisionIds": [
@@ -3941,17 +3941,17 @@
    "hostClass": "local-dev",
    "role": "superseded",
    "supersededBy": "durable-scheduler-2026-10-10T02-45-45-825Z-edc50c",
-   "reason": "domaine lourd en surcharge à côté de trois petits domaines, file globale contre file par domaine",
+   "reason": "heavy domain overloaded alongside three small domains, global queue versus per-domain queue",
    "validity": [
     {
      "scope": "admission-contract",
      "class": "A",
-     "note": "aucune perte, refus explicites jamais exécutés"
+     "note": "no loss, explicit rejections never executed"
     },
     {
      "scope": "fairness",
      "class": "B",
-     "note": "local-dev ; le débit des petits domaines dépend du calendrier d'arrivées, pas de l'hôte"
+     "note": "local-dev; small-domain throughput depends on the arrival schedule, not on the host"
     }
    ],
    "decisionIds": [
@@ -3978,12 +3978,12 @@
    "hostClass": "local-dev",
    "role": "diagnostic",
    "supersededBy": "durable-admission-recovery-2026-10-08T19-50-26-865Z-f4c814",
-   "reason": "crash par minuterie : aucune soumission en vol, chemin idempotent non exercé",
+   "reason": "timer-triggered crash: no in-flight submission, idempotent path not exercised",
    "validity": [
     {
      "scope": "all",
      "class": "none",
-     "note": "harnais corrigé ensuite"
+     "note": "harness fixed afterwards"
     }
    ],
    "decisionIds": [
@@ -4007,12 +4007,12 @@
    "hostClass": "local-dev",
    "role": "diagnostic",
    "supersededBy": "durable-admission-recovery-2026-10-08T19-50-26-865Z-f4c814",
-   "reason": "faute portée par une soumission refusée : un bloc sans crash",
+   "reason": "fault carried by a rejected submission: one block without a crash",
    "validity": [
     {
      "scope": "all",
      "class": "none",
-     "note": "harnais corrigé ensuite"
+     "note": "harness fixed afterwards"
     }
    ],
    "decisionIds": [
@@ -4036,12 +4036,12 @@
    "hostClass": "local-dev",
    "role": "selected",
    "supersededBy": null,
-   "reason": "admission : crash après commit et avant l'accusé, reprise du journal, renvoi idempotent",
+   "reason": "admission: crash after commit and before the acknowledgment, journal recovery, idempotent resubmission",
    "validity": [
     {
      "scope": "recovery-contract",
      "class": "A",
-     "note": "aucune perte, accusé dupliqué sans double entrée, limite par domaine tenue après la reprise"
+     "note": "no loss, duplicated acknowledgment without a double entry, per-domain limit held after recovery"
     }
    ],
    "decisionIds": [
@@ -4067,12 +4067,12 @@
    "hostClass": "local-dev",
    "role": "diagnostic",
    "supersededBy": "extraction-rendered-test-2026-10-08T20-14-39-618Z-9f5f67",
-   "reason": "une page sans URL faisait échouer la cellule article",
+   "reason": "a page without a URL made the article cell fail",
    "validity": [
     {
      "scope": "all",
      "class": "none",
-     "note": "harnais corrigé ensuite"
+     "note": "harness fixed afterwards"
     }
    ],
    "decisionIds": [
@@ -4097,12 +4097,12 @@
    "hostClass": "local-dev",
    "role": "diagnostic",
    "supersededBy": "extraction-rendered-test-2026-10-08T20-14-39-618Z-9f5f67",
-   "reason": "hôtes HSTS préchargés refusés : 47 pages non rendues par Chrome",
+   "reason": "HSTS-preloaded hosts refused: 47 pages not rendered by Chrome",
    "validity": [
     {
      "scope": "all",
      "class": "none",
-     "note": "harnais corrigé ensuite"
+     "note": "harness fixed afterwards"
     }
    ],
    "decisionIds": [
@@ -4127,12 +4127,12 @@
    "hostClass": "local-dev",
    "role": "diagnostic",
    "supersededBy": "extraction-rendered-test-2026-10-08T20-14-39-618Z-9f5f67",
-   "reason": "fichiers de prédictions écrasés d'un moteur à l'autre",
+   "reason": "prediction files overwritten from one engine to the next",
    "validity": [
     {
      "scope": "all",
      "class": "none",
-     "note": "harnais corrigé ensuite"
+     "note": "harness fixed afterwards"
     }
    ],
    "decisionIds": [
@@ -4157,17 +4157,17 @@
    "hostClass": "local-dev",
    "role": "selected",
    "supersededBy": null,
-   "reason": "pages réelles figées (WCXB test) rendues par Chrome et Lightpanda via le proxy d'archive, extraction rs-trafilatura",
+   "reason": "frozen real pages (WCXB test) rendered by Chrome and Lightpanda through the archive proxy, rs-trafilatura extraction",
    "validity": [
     {
      "scope": "render-contract",
      "class": "A",
-     "note": "511 pages, aucune requête hors archive"
+     "note": "511 pages, no request outside the archive"
     },
     {
      "scope": "render-time",
      "class": "B",
-     "note": "local-dev, Mac en usage"
+     "note": "local-dev, Mac in use"
     }
    ],
    "decisionIds": [
@@ -4194,17 +4194,17 @@
    "hostClass": "local-dev",
    "role": "selected",
    "supersededBy": null,
-   "reason": "couche IA avec trois vrais modèles par la passerelle Vercel AI : agent à chaque exécution contre rejeu compilé, dérive silencieuse",
+   "reason": "AI layer with three real models through the Vercel AI gateway: agent on every execution versus compiled replay, silent drift",
    "validity": [
     {
      "scope": "replay-contract",
      "class": "A",
-     "note": "zéro faux succès sur trois modèles"
+     "note": "zero false successes across three models"
     },
     {
      "scope": "cost",
      "class": "A",
-     "note": "coût de la passerelle recoupé avec un instantané daté des prix"
+     "note": "gateway cost cross-checked against a dated price snapshot"
     }
    ],
    "decisionIds": [
@@ -4230,12 +4230,12 @@
    "hostClass": "local-dev",
    "role": "diagnostic",
    "supersededBy": "interface-arena-2026-10-08T23-05-03-060Z-3c8d7c",
-   "reason": "surface sans messages de statut, réservation jugée avant la confirmation, mode code sans trace",
+   "reason": "surface without status messages, booking judged before confirmation, code mode without a trace",
    "validity": [
     {
      "scope": "all",
      "class": "none",
-     "note": "surface et harnais corrigés ensuite"
+     "note": "surface and harness fixed afterwards"
     }
    ],
    "decisionIds": [
@@ -4259,17 +4259,17 @@
    "hostClass": "local-dev",
    "role": "selected",
    "supersededBy": null,
-   "reason": "arène des interfaces : même tâche par MCP, outils de fonction, CLI et code, trois vrais modèles",
+   "reason": "interface arena: same task via MCP, function tools, CLI and code, three real models",
    "validity": [
     {
      "scope": "interface-contract",
      "class": "A",
-     "note": "oracle de la page, faux succès comptés"
+     "note": "page oracle, false successes counted"
     },
     {
      "scope": "cost",
      "class": "A",
-     "note": "coût de la passerelle par appel"
+     "note": "gateway cost per call"
     }
    ],
    "decisionIds": [
@@ -4295,17 +4295,17 @@
    "hostClass": "local-dev",
    "role": "selected",
    "supersededBy": null,
-   "reason": "passage de contrat sous Linux (conteneur Docker sur le Mac, arm64), comptes identiques à la qualification macOS",
+   "reason": "contract pass on Linux (Docker container on the Mac, arm64), counts identical to the macOS qualification",
    "validity": [
     {
      "scope": "linux-contract",
      "class": "A",
-     "note": "comptes vérifiés par l'oracle"
+     "note": "counts verified by the oracle"
     },
     {
      "scope": "timing",
      "class": "none",
-     "note": "conteneur dans une VM, jamais publiable"
+     "note": "container in a VM, never publishable"
     }
    ],
    "decisionIds": [
@@ -4331,17 +4331,17 @@
    "hostClass": "local-dev",
    "role": "selected",
    "supersededBy": null,
-   "reason": "passage de contrat sous Linux (conteneur Docker sur le Mac, arm64), comptes identiques à la qualification macOS",
+   "reason": "contract pass on Linux (Docker container on the Mac, arm64), counts identical to the macOS qualification",
    "validity": [
     {
      "scope": "linux-contract",
      "class": "A",
-     "note": "comptes vérifiés par l'oracle"
+     "note": "counts verified by the oracle"
     },
     {
      "scope": "timing",
      "class": "none",
-     "note": "conteneur dans une VM, jamais publiable"
+     "note": "container in a VM, never publishable"
     }
    ],
    "decisionIds": [
@@ -4368,17 +4368,17 @@
    "hostClass": "local-dev",
    "role": "selected",
    "supersededBy": null,
-   "reason": "passage de contrat sous Linux (conteneur Docker sur le Mac, arm64), comptes identiques à la qualification macOS",
+   "reason": "contract pass on Linux (Docker container on the Mac, arm64), counts identical to the macOS qualification",
    "validity": [
     {
      "scope": "linux-contract",
      "class": "A",
-     "note": "comptes vérifiés par l'oracle"
+     "note": "counts verified by the oracle"
     },
     {
      "scope": "timing",
      "class": "none",
-     "note": "conteneur dans une VM, jamais publiable"
+     "note": "container in a VM, never publishable"
     }
    ],
    "decisionIds": [
@@ -4404,17 +4404,17 @@
    "hostClass": "local-dev",
    "role": "selected",
    "supersededBy": null,
-   "reason": "passage de contrat sous Linux (conteneur Docker sur le Mac, arm64), comptes identiques à la qualification macOS",
+   "reason": "contract pass on Linux (Docker container on the Mac, arm64), counts identical to the macOS qualification",
    "validity": [
     {
      "scope": "linux-contract",
      "class": "A",
-     "note": "comptes vérifiés par l'oracle"
+     "note": "counts verified by the oracle"
     },
     {
      "scope": "timing",
      "class": "none",
-     "note": "conteneur dans une VM, jamais publiable"
+     "note": "container in a VM, never publishable"
     }
    ],
    "decisionIds": [
@@ -4440,17 +4440,17 @@
    "hostClass": "local-dev",
    "role": "selected",
    "supersededBy": null,
-   "reason": "passage de contrat sous Linux (conteneur Docker sur le Mac, arm64), comptes identiques à la qualification macOS",
+   "reason": "contract pass on Linux (Docker container on the Mac, arm64), counts identical to the macOS qualification",
    "validity": [
     {
      "scope": "linux-contract",
      "class": "A",
-     "note": "comptes vérifiés par l'oracle"
+     "note": "counts verified by the oracle"
     },
     {
      "scope": "timing",
      "class": "none",
-     "note": "conteneur dans une VM, jamais publiable"
+     "note": "container in a VM, never publishable"
     }
    ],
    "decisionIds": [
@@ -4476,17 +4476,17 @@
    "hostClass": "local-dev",
    "role": "selected",
    "supersededBy": null,
-   "reason": "passage de contrat sous Linux (conteneur Docker sur le Mac, arm64), comptes identiques à la qualification macOS",
+   "reason": "contract pass on Linux (Docker container on the Mac, arm64), counts identical to the macOS qualification",
    "validity": [
     {
      "scope": "linux-contract",
      "class": "A",
-     "note": "comptes vérifiés par l'oracle"
+     "note": "counts verified by the oracle"
     },
     {
      "scope": "timing",
      "class": "none",
-     "note": "conteneur dans une VM, jamais publiable"
+     "note": "container in a VM, never publishable"
     }
    ],
    "decisionIds": [
@@ -4513,17 +4513,17 @@
    "hostClass": "local-controlled",
    "role": "diagnostic",
    "supersededBy": null,
-   "reason": "tentative sur Mac calme de la nuit du 9 octobre : la charge du run précédent pesait encore sur la vérification d'hôte",
+   "reason": "quiet-Mac attempt on the night of October 9: the load from the previous run was still weighing on the host check",
    "validity": [
     {
      "scope": "contract",
      "class": "A",
-     "note": "comptes exacts, échecs explicites seulement"
+     "note": "exact counts, explicit failures only"
     },
     {
      "scope": "timing",
      "class": "none",
-     "note": "classe local-dev, pas local-controlled"
+     "note": "local-dev class, not local-controlled"
     }
    ],
    "decisionIds": [
@@ -4547,17 +4547,17 @@
    "hostClass": "local-dev",
    "role": "diagnostic",
    "supersededBy": null,
-   "reason": "tentative sur Mac calme de la nuit du 9 octobre : la charge du run précédent pesait encore sur la vérification d'hôte",
+   "reason": "quiet-Mac attempt on the night of October 9: the load from the previous run was still weighing on the host check",
    "validity": [
     {
      "scope": "contract",
      "class": "A",
-     "note": "comptes exacts, échecs explicites seulement"
+     "note": "exact counts, explicit failures only"
     },
     {
      "scope": "timing",
      "class": "none",
-     "note": "classe local-dev, pas local-controlled"
+     "note": "local-dev class, not local-controlled"
     }
    ],
    "decisionIds": [
@@ -4582,17 +4582,17 @@
    "hostClass": "local-dev",
    "role": "diagnostic",
    "supersededBy": null,
-   "reason": "tentative sur Mac calme de la nuit du 9 octobre : la charge du run précédent pesait encore sur la vérification d'hôte",
+   "reason": "quiet-Mac attempt on the night of October 9: the load from the previous run was still weighing on the host check",
    "validity": [
     {
      "scope": "contract",
      "class": "A",
-     "note": "comptes exacts, échecs explicites seulement"
+     "note": "exact counts, explicit failures only"
     },
     {
      "scope": "timing",
      "class": "none",
-     "note": "classe local-dev, pas local-controlled"
+     "note": "local-dev class, not local-controlled"
     }
    ],
    "decisionIds": [
@@ -4617,17 +4617,17 @@
    "hostClass": "local-dev",
    "role": "diagnostic",
    "supersededBy": null,
-   "reason": "tentative sur Mac calme de la nuit du 9 octobre : la charge du run précédent pesait encore sur la vérification d'hôte",
+   "reason": "quiet-Mac attempt on the night of October 9: the load from the previous run was still weighing on the host check",
    "validity": [
     {
      "scope": "contract",
      "class": "A",
-     "note": "comptes exacts, échecs explicites seulement"
+     "note": "exact counts, explicit failures only"
     },
     {
      "scope": "timing",
      "class": "none",
-     "note": "classe local-dev, pas local-controlled"
+     "note": "local-dev class, not local-controlled"
     }
    ],
    "decisionIds": [
@@ -4651,17 +4651,17 @@
    "hostClass": "local-dev",
    "role": "diagnostic",
    "supersededBy": null,
-   "reason": "tentative de la nuit : bloquée quatre heures sur une cellule après la mise en veille, arrêtée",
+   "reason": "overnight attempt: stuck for four hours on one cell after sleep, stopped",
    "validity": [
     {
      "scope": "contract",
      "class": "A",
-     "note": "comptes exacts, échecs explicites seulement"
+     "note": "exact counts, explicit failures only"
     },
     {
      "scope": "timing",
      "class": "none",
-     "note": "classe local-dev, pas local-controlled"
+     "note": "local-dev class, not local-controlled"
     }
    ],
    "decisionIds": [
@@ -4685,17 +4685,17 @@
    "hostClass": "local-controlled",
    "role": "diagnostic",
    "supersededBy": null,
-   "reason": "tentative sur Mac calme de la nuit du 9 octobre : la charge du run précédent pesait encore sur la vérification d'hôte",
+   "reason": "quiet-Mac attempt on the night of October 9: the load from the previous run was still weighing on the host check",
    "validity": [
     {
      "scope": "contract",
      "class": "A",
-     "note": "comptes exacts, échecs explicites seulement"
+     "note": "exact counts, explicit failures only"
     },
     {
      "scope": "timing",
      "class": "none",
-     "note": "classe local-dev, pas local-controlled"
+     "note": "local-dev class, not local-controlled"
     }
    ],
    "decisionIds": [
@@ -4720,17 +4720,17 @@
    "hostClass": "local-dev",
    "role": "diagnostic",
    "supersededBy": null,
-   "reason": "tentative du 9 octobre au matin : Mac au-dessus des seuils (analyse des photos, VM Docker, affichage)",
+   "reason": "attempt on the morning of October 9: Mac above the thresholds (photo analysis, Docker VM, display)",
    "validity": [
     {
      "scope": "contract",
      "class": "A",
-     "note": "comptes exacts, échecs explicites seulement"
+     "note": "exact counts, explicit failures only"
     },
     {
      "scope": "timing",
      "class": "none",
-     "note": "classe local-dev, pas local-controlled"
+     "note": "local-dev class, not local-controlled"
     }
    ],
    "decisionIds": [
@@ -4754,17 +4754,17 @@
    "hostClass": "local-dev",
    "role": "diagnostic",
    "supersededBy": null,
-   "reason": "tentative du 9 octobre au matin : Mac au-dessus des seuils (analyse des photos, VM Docker, affichage)",
+   "reason": "attempt on the morning of October 9: Mac above the thresholds (photo analysis, Docker VM, display)",
    "validity": [
     {
      "scope": "contract",
      "class": "A",
-     "note": "comptes exacts, échecs explicites seulement"
+     "note": "exact counts, explicit failures only"
     },
     {
      "scope": "timing",
      "class": "none",
-     "note": "classe local-dev, pas local-controlled"
+     "note": "local-dev class, not local-controlled"
     }
    ],
    "decisionIds": [
@@ -4789,17 +4789,17 @@
    "hostClass": "local-dev",
    "role": "diagnostic",
    "supersededBy": null,
-   "reason": "tentative du 9 octobre au matin : Mac au-dessus des seuils (analyse des photos, VM Docker, affichage)",
+   "reason": "attempt on the morning of October 9: Mac above the thresholds (photo analysis, Docker VM, display)",
    "validity": [
     {
      "scope": "contract",
      "class": "A",
-     "note": "comptes exacts, échecs explicites seulement"
+     "note": "exact counts, explicit failures only"
     },
     {
      "scope": "timing",
      "class": "none",
-     "note": "classe local-dev, pas local-controlled"
+     "note": "local-dev class, not local-controlled"
     }
    ],
    "decisionIds": [
@@ -4824,17 +4824,17 @@
    "hostClass": "local-dev",
    "role": "diagnostic",
    "supersededBy": null,
-   "reason": "tentative du 9 octobre au matin : Mac au-dessus des seuils (analyse des photos, VM Docker, affichage)",
+   "reason": "attempt on the morning of October 9: Mac above the thresholds (photo analysis, Docker VM, display)",
    "validity": [
     {
      "scope": "contract",
      "class": "A",
-     "note": "comptes exacts, échecs explicites seulement"
+     "note": "exact counts, explicit failures only"
     },
     {
      "scope": "timing",
      "class": "none",
-     "note": "classe local-dev, pas local-controlled"
+     "note": "local-dev class, not local-controlled"
     }
    ],
    "decisionIds": [
@@ -4858,17 +4858,17 @@
    "hostClass": "local-dev",
    "role": "diagnostic",
    "supersededBy": null,
-   "reason": "tentative du 9 octobre au matin : Mac au-dessus des seuils (analyse des photos, VM Docker, affichage)",
+   "reason": "attempt on the morning of October 9: Mac above the thresholds (photo analysis, Docker VM, display)",
    "validity": [
     {
      "scope": "contract",
      "class": "A",
-     "note": "comptes exacts, échecs explicites seulement"
+     "note": "exact counts, explicit failures only"
     },
     {
      "scope": "timing",
      "class": "none",
-     "note": "classe local-dev, pas local-controlled"
+     "note": "local-dev class, not local-controlled"
     }
    ],
    "decisionIds": [
@@ -4892,17 +4892,17 @@
    "hostClass": "local-dev",
    "role": "diagnostic",
    "supersededBy": null,
-   "reason": "tentative du 9 octobre au matin : Mac au-dessus des seuils (analyse des photos, VM Docker, affichage)",
+   "reason": "attempt on the morning of October 9: Mac above the thresholds (photo analysis, Docker VM, display)",
    "validity": [
     {
      "scope": "contract",
      "class": "A",
-     "note": "comptes exacts, échecs explicites seulement"
+     "note": "exact counts, explicit failures only"
     },
     {
      "scope": "timing",
      "class": "none",
-     "note": "classe local-dev, pas local-controlled"
+     "note": "local-dev class, not local-controlled"
     }
    ],
    "decisionIds": [
@@ -4927,17 +4927,17 @@
    "hostClass": "local-dev",
    "role": "diagnostic",
    "supersededBy": null,
-   "reason": "lancé à la demande du porteur le 9 octobre après-midi, Mac en usage (analyse des photos, affichage, vidéo)",
+   "reason": "launched at the project owner's request on the afternoon of October 9, Mac in use (photo analysis, display, video)",
    "validity": [
     {
      "scope": "contract",
      "class": "A",
-     "note": "comptes exacts"
+     "note": "exact counts"
     },
     {
      "scope": "timing",
      "class": "B",
-     "note": "local-dev ; indicatif seulement"
+     "note": "local-dev; indicative only"
     }
    ],
    "decisionIds": [
@@ -4961,17 +4961,17 @@
    "hostClass": "local-dev",
    "role": "diagnostic",
    "supersededBy": null,
-   "reason": "lancé à la demande du porteur le 9 octobre après-midi, Mac en usage (analyse des photos, affichage, vidéo)",
+   "reason": "launched at the project owner's request on the afternoon of October 9, Mac in use (photo analysis, display, video)",
    "validity": [
     {
      "scope": "contract",
      "class": "A",
-     "note": "comptes exacts"
+     "note": "exact counts"
     },
     {
      "scope": "timing",
      "class": "B",
-     "note": "local-dev ; indicatif seulement"
+     "note": "local-dev; indicative only"
     }
    ],
    "decisionIds": [
@@ -4996,17 +4996,17 @@
    "hostClass": "local-dev",
    "role": "diagnostic",
    "supersededBy": null,
-   "reason": "lancé à la demande du porteur le 9 octobre après-midi, Mac en usage (analyse des photos, affichage, vidéo)",
+   "reason": "launched at the project owner's request on the afternoon of October 9, Mac in use (photo analysis, display, video)",
    "validity": [
     {
      "scope": "contract",
      "class": "A",
-     "note": "comptes exacts"
+     "note": "exact counts"
     },
     {
      "scope": "timing",
      "class": "B",
-     "note": "local-dev ; indicatif seulement"
+     "note": "local-dev; indicative only"
     }
    ],
    "decisionIds": [
@@ -5033,17 +5033,17 @@
    "hostClass": "local-dev",
    "role": "diagnostic",
    "supersededBy": null,
-   "reason": "lancé à la demande du porteur le 9 octobre après-midi, Mac en usage (analyse des photos, affichage, vidéo)",
+   "reason": "launched at the project owner's request on the afternoon of October 9, Mac in use (photo analysis, display, video)",
    "validity": [
     {
      "scope": "contract",
      "class": "A",
-     "note": "comptes exacts"
+     "note": "exact counts"
     },
     {
      "scope": "timing",
      "class": "B",
-     "note": "local-dev ; indicatif seulement"
+     "note": "local-dev; indicative only"
     }
    ],
    "decisionIds": [
@@ -5069,17 +5069,17 @@
    "hostClass": "local-dev",
    "role": "diagnostic",
    "supersededBy": null,
-   "reason": "lancé à la demande du porteur le 9 octobre après-midi, Mac en usage (analyse des photos, affichage, vidéo)",
+   "reason": "launched at the project owner's request on the afternoon of October 9, Mac in use (photo analysis, display, video)",
    "validity": [
     {
      "scope": "contract",
      "class": "A",
-     "note": "comptes exacts"
+     "note": "exact counts"
     },
     {
      "scope": "timing",
      "class": "B",
-     "note": "local-dev ; indicatif seulement"
+     "note": "local-dev; indicative only"
     }
    ],
    "decisionIds": [
@@ -5103,17 +5103,17 @@
    "hostClass": "local-dev",
    "role": "diagnostic",
    "supersededBy": null,
-   "reason": "lancé à la demande du porteur le 9 octobre après-midi, Mac en usage (analyse des photos, affichage, vidéo)",
+   "reason": "launched at the project owner's request on the afternoon of October 9, Mac in use (photo analysis, display, video)",
    "validity": [
     {
      "scope": "contract",
      "class": "A",
-     "note": "comptes exacts"
+     "note": "exact counts"
     },
     {
      "scope": "timing",
      "class": "B",
-     "note": "local-dev ; indicatif seulement"
+     "note": "local-dev; indicative only"
     }
    ],
    "decisionIds": [
@@ -5138,12 +5138,12 @@
    "hostClass": "local-dev",
    "role": "superseded",
    "supersededBy": "cross-engine-actionability-2026-10-09T13-59-29-588Z-e0a4f2",
-   "reason": "avant que l'oracle de la molette juge le défilement plutôt qu'un nombre de pixels propre à Chromium",
+   "reason": "before the wheel oracle judged scrolling rather than a Chromium-specific pixel count",
    "validity": [
     {
      "scope": "all",
      "class": "none",
-     "note": "oracle corrigé ensuite"
+     "note": "oracle fixed afterwards"
     }
    ],
    "decisionIds": [
@@ -5167,12 +5167,12 @@
    "hostClass": "local-dev",
    "role": "superseded",
    "supersededBy": "cross-engine-primitives-2026-10-09T14-02-07-047Z-53b744",
-   "reason": "avant que l'oracle de la molette juge le défilement plutôt qu'un nombre de pixels propre à Chromium",
+   "reason": "before the wheel oracle judged scrolling rather than a Chromium-specific pixel count",
    "validity": [
     {
      "scope": "all",
      "class": "none",
-     "note": "oracle corrigé ensuite"
+     "note": "oracle fixed afterwards"
     }
    ],
    "decisionIds": [
@@ -5196,12 +5196,12 @@
    "hostClass": "local-dev",
    "role": "superseded",
    "supersededBy": "cross-engine-navigation-2026-10-09T14-04-46-125Z-4d8f3c",
-   "reason": "avant que l'oracle de la molette juge le défilement plutôt qu'un nombre de pixels propre à Chromium",
+   "reason": "before the wheel oracle judged scrolling rather than a Chromium-specific pixel count",
    "validity": [
     {
      "scope": "all",
      "class": "none",
-     "note": "oracle corrigé ensuite"
+     "note": "oracle fixed afterwards"
     }
    ],
    "decisionIds": [
@@ -5225,12 +5225,12 @@
    "hostClass": "local-dev",
    "role": "superseded",
    "supersededBy": "cross-engine-actionability-2026-10-09T14-05-56-552Z-677518",
-   "reason": "avant que l'oracle de la molette juge le défilement plutôt qu'un nombre de pixels propre à Chromium",
+   "reason": "before the wheel oracle judged scrolling rather than a Chromium-specific pixel count",
    "validity": [
     {
      "scope": "all",
      "class": "none",
-     "note": "oracle corrigé ensuite"
+     "note": "oracle fixed afterwards"
     }
    ],
    "decisionIds": [
@@ -5254,12 +5254,12 @@
    "hostClass": "local-dev",
    "role": "superseded",
    "supersededBy": "cross-engine-primitives-2026-10-09T14-09-14-677Z-63256a",
-   "reason": "avant que l'oracle de la molette juge le défilement plutôt qu'un nombre de pixels propre à Chromium",
+   "reason": "before the wheel oracle judged scrolling rather than a Chromium-specific pixel count",
    "validity": [
     {
      "scope": "all",
      "class": "none",
-     "note": "oracle corrigé ensuite"
+     "note": "oracle fixed afterwards"
     }
    ],
    "decisionIds": [
@@ -5283,12 +5283,12 @@
    "hostClass": "local-dev",
    "role": "superseded",
    "supersededBy": "cross-engine-navigation-2026-10-09T14-12-41-527Z-cd6a35",
-   "reason": "avant que l'oracle de la molette juge le défilement plutôt qu'un nombre de pixels propre à Chromium",
+   "reason": "before the wheel oracle judged scrolling rather than a Chromium-specific pixel count",
    "validity": [
     {
      "scope": "all",
      "class": "none",
-     "note": "oracle corrigé ensuite"
+     "note": "oracle fixed afterwards"
     }
    ],
    "decisionIds": [
@@ -5312,12 +5312,12 @@
    "hostClass": "local-dev",
    "role": "selected",
    "supersededBy": null,
-   "reason": "garde Automan sur plusieurs moteurs via Playwright (macOS 27, Chromium et WebKit ; Firefox ne démarre pas sur ce système)",
+   "reason": "Automan guard on several engines via Playwright (macOS 27, Chromium and WebKit; Firefox does not start on this system)",
    "validity": [
     {
      "scope": "cross-engine-contract",
      "class": "A",
-     "note": "oracle des fixtures"
+     "note": "fixture oracle"
     },
     {
      "scope": "timing",
@@ -5348,12 +5348,12 @@
    "hostClass": "local-dev",
    "role": "selected",
    "supersededBy": null,
-   "reason": "garde Automan sur plusieurs moteurs via Playwright (macOS 27, Chromium et WebKit ; Firefox ne démarre pas sur ce système)",
+   "reason": "Automan guard on several engines via Playwright (macOS 27, Chromium and WebKit; Firefox does not start on this system)",
    "validity": [
     {
      "scope": "cross-engine-contract",
      "class": "A",
-     "note": "oracle des fixtures"
+     "note": "fixture oracle"
     },
     {
      "scope": "timing",
@@ -5384,12 +5384,12 @@
    "hostClass": "local-dev",
    "role": "selected",
    "supersededBy": null,
-   "reason": "garde Automan sur plusieurs moteurs via Playwright (macOS 27, Chromium et WebKit ; Firefox ne démarre pas sur ce système)",
+   "reason": "Automan guard on several engines via Playwright (macOS 27, Chromium and WebKit; Firefox does not start on this system)",
    "validity": [
     {
      "scope": "cross-engine-contract",
      "class": "A",
-     "note": "oracle des fixtures"
+     "note": "fixture oracle"
     },
     {
      "scope": "timing",
@@ -5420,12 +5420,12 @@
    "hostClass": "local-dev",
    "role": "selected",
    "supersededBy": null,
-   "reason": "garde Automan sur plusieurs moteurs via Playwright (conteneur Linux arm64, Chromium, WebKit et Firefox de Playwright)",
+   "reason": "Automan guard on several engines via Playwright (Linux arm64 container, Playwright's Chromium, WebKit and Firefox)",
    "validity": [
     {
      "scope": "cross-engine-contract",
      "class": "A",
-     "note": "oracle des fixtures"
+     "note": "fixture oracle"
     },
     {
      "scope": "timing",
@@ -5456,12 +5456,12 @@
    "hostClass": "local-dev",
    "role": "selected",
    "supersededBy": null,
-   "reason": "garde Automan sur plusieurs moteurs via Playwright (conteneur Linux arm64, Chromium, WebKit et Firefox de Playwright)",
+   "reason": "Automan guard on several engines via Playwright (Linux arm64 container, Playwright's Chromium, WebKit and Firefox)",
    "validity": [
     {
      "scope": "cross-engine-contract",
      "class": "A",
-     "note": "oracle des fixtures"
+     "note": "fixture oracle"
     },
     {
      "scope": "timing",
@@ -5492,12 +5492,12 @@
    "hostClass": "local-dev",
    "role": "selected",
    "supersededBy": null,
-   "reason": "garde Automan sur plusieurs moteurs via Playwright (conteneur Linux arm64, Chromium, WebKit et Firefox de Playwright)",
+   "reason": "Automan guard on several engines via Playwright (Linux arm64 container, Playwright's Chromium, WebKit and Firefox)",
    "validity": [
     {
      "scope": "cross-engine-contract",
      "class": "A",
-     "note": "oracle des fixtures"
+     "note": "fixture oracle"
     },
     {
      "scope": "timing",
@@ -5528,17 +5528,17 @@
    "hostClass": "local-dev",
    "role": "selected",
    "supersededBy": null,
-   "reason": "frontier à travers pièges (sid, utm, tris, calendrier sans fin) et table modifiée pendant la pagination ; comptes de requêtes du site",
+   "reason": "frontier through traps (sid, utm, sorts, endless calendar) and a table modified during pagination; site request counts",
    "validity": [
     {
      "scope": "frontier-contract",
      "class": "A",
-     "note": "oracle du site"
+     "note": "site oracle"
     },
     {
      "scope": "request-counts",
      "class": "A",
-     "note": "comptés par le site, indépendants de l'hôte"
+     "note": "counted by the site, independent of the host"
     },
     {
      "scope": "timing",
@@ -5569,12 +5569,12 @@
    "hostClass": "local-dev",
    "role": "superseded",
    "supersededBy": "portal-sessions-2026-10-09T15-26-01-462Z-3f0b51",
-   "reason": "sources du lab modifiées pendant le run (invalid-provenance) ; relancé",
+   "reason": "lab sources modified during the run (invalid-provenance); rerun",
    "validity": [
     {
      "scope": "all",
      "class": "none",
-     "note": "provenance invalide"
+     "note": "invalid provenance"
     }
    ],
    "decisionIds": [
@@ -5600,22 +5600,22 @@
    "hostClass": "local-dev",
    "role": "selected",
    "supersededBy": null,
-   "reason": "cinq interfaces dont le mode code journalisé, trois vrais modèles, 5 blocs",
+   "reason": "five interfaces including journaled code mode, three real models, 5 blocks",
    "validity": [
     {
      "scope": "interface-contract",
      "class": "A",
-     "note": "oracle des fixtures"
+     "note": "fixture oracle"
     },
     {
      "scope": "model-accounting",
      "class": "A",
-     "note": "tours et tokens comptés par la gateway"
+     "note": "turns and tokens counted by the gateway"
     },
     {
      "scope": "timing",
      "class": "none",
-     "note": "latence des modèles, local-dev"
+     "note": "model latency, local-dev"
     }
    ],
    "decisionIds": [
@@ -5641,17 +5641,17 @@
    "hostClass": "local-dev",
    "role": "superseded",
    "supersededBy": "portal-routing-2026-10-10T02-47-13-937Z-4adc3c",
-   "reason": "HTTP, navigateur ou API découverte par route, sur six rendus d'un même listing ; job récurrent de 4 runs",
+   "reason": "HTTP, browser or discovered API per route, on six renderings of the same listing; recurring job of 4 runs",
    "validity": [
     {
      "scope": "routing-contract",
      "class": "A",
-     "note": "oracle du site"
+     "note": "site oracle"
     },
     {
      "scope": "timing",
      "class": "C",
-     "note": "local-dev : durées indicatives"
+     "note": "local-dev: indicative durations"
     }
    ],
    "decisionIds": [
@@ -5677,17 +5677,17 @@
    "hostClass": "local-dev",
    "role": "selected",
    "supersededBy": null,
-   "reason": "sessions longues : CSRF, expiration en 200, refresh, reprise journalisée, révocation pendant l'arrêt ; HTTP et navigateur",
+   "reason": "long sessions: CSRF, expiry served as 200, refresh, journaled resumption, revocation during shutdown; HTTP and browser",
    "validity": [
     {
      "scope": "session-contract",
      "class": "A",
-     "note": "oracle du site"
+     "note": "site oracle"
     },
     {
      "scope": "login-counts",
      "class": "A",
-     "note": "comptés par le site, indépendants de l'hôte"
+     "note": "counted by the site, independent of the host"
     },
     {
      "scope": "timing",
@@ -5718,12 +5718,12 @@
    "hostClass": "local-dev",
    "role": "superseded",
    "supersededBy": "http-transport-v2-2026-10-09T16-13-29-199Z-130b39",
-   "reason": "adaptateurs mal configurés : reqwest compilé sans décompression gzip, wreq sans politique de redirection ; Spider refuse la redirection loopback (contrôle SSRF, attendu) ; refait avec l'adaptateur corrigé",
+   "reason": "misconfigured adapters: reqwest compiled without gzip decompression, wreq without a redirect policy; Spider refuses the loopback redirect (SSRF check, expected); redone with the fixed adapter",
    "validity": [
     {
      "scope": "all",
      "class": "none",
-     "note": "configuration d'adaptateur corrigée ensuite"
+     "note": "adapter configuration fixed afterwards"
     }
    ],
    "decisionIds": [
@@ -5749,12 +5749,12 @@
    "hostClass": "local-dev",
    "role": "superseded",
    "supersededBy": "http-open-v2-2026-10-09T16-13-49-759Z-f9b6c9",
-   "reason": "six transports en arrivées ouvertes à 250/s sur pages normales (sans redirection ni compression) ; refait avec l'adaptateur corrigé",
+   "reason": "six transports under open arrivals at 250/s on normal pages (no redirect or compression); redone with the fixed adapter",
    "validity": [
     {
      "scope": "open-loop-contract",
      "class": "A",
-     "note": "oracle des fixtures"
+     "note": "fixture oracle"
     },
     {
      "scope": "timing",
@@ -5785,12 +5785,12 @@
    "hostClass": "local-dev",
    "role": "superseded",
    "supersededBy": "http-transport-v2-2026-10-10T02-45-30-587Z-b23a72",
-   "reason": "six transports en boucle fermée sur le catalogue à incidents, adaptateur HTTP corrigé (décompression reqwest, redirections wreq)",
+   "reason": "six transports in a closed loop on the incident catalog, HTTP adapter fixed (reqwest decompression, wreq redirects)",
    "validity": [
     {
      "scope": "transport-contract",
      "class": "A",
-     "note": "oracle des fixtures"
+     "note": "fixture oracle"
     },
     {
      "scope": "timing",
@@ -5821,12 +5821,12 @@
    "hostClass": "local-dev",
    "role": "selected",
    "supersededBy": null,
-   "reason": "six transports en arrivées ouvertes à 250/s, adaptateur HTTP corrigé",
+   "reason": "six transports under open arrivals at 250/s, HTTP adapter fixed",
    "validity": [
     {
      "scope": "open-loop-contract",
      "class": "A",
-     "note": "oracle des fixtures"
+     "note": "fixture oracle"
     },
     {
      "scope": "timing",
@@ -5857,12 +5857,12 @@
    "hostClass": "local-dev",
    "role": "selected",
    "supersededBy": null,
-   "reason": "incidents HTTP, refait avec l'adaptateur HTTP corrigé ; mêmes statuts par backend que le run du 8 octobre",
+   "reason": "HTTP incidents, redone with the fixed HTTP adapter; same statuses per backend as the October 8 run",
    "validity": [
     {
      "scope": "incident-contract",
      "class": "A",
-     "note": "Spider HTTP seul à produire des faux succès ; aucune relance configurée dans les adapters"
+     "note": "Spider HTTP the only one producing false successes; no retry configured in the adapters"
     }
    ],
    "decisionIds": [
@@ -5888,12 +5888,12 @@
    "hostClass": "local-dev",
    "role": "selected",
    "supersededBy": null,
-   "reason": "robots.txt et challenge en 200, refait avec l'adaptateur HTTP corrigé ; mêmes statuts par backend que le run du 8 octobre",
+   "reason": "robots.txt and challenge served as 200, redone with the fixed HTTP adapter; same statuses per backend as the October 8 run",
    "validity": [
     {
      "scope": "access-contract",
      "class": "A",
-     "note": "aucun backend ne détecte le challenge ; node-http ignore robots.txt"
+     "note": "no backend detects the challenge; node-http ignores robots.txt"
     }
    ],
    "decisionIds": [
@@ -5920,12 +5920,12 @@
    "hostClass": "local-dev",
    "role": "selected",
    "supersededBy": null,
-   "reason": "empreintes TLS et HTTP/2, refait avec l'adaptateur HTTP corrigé ; mêmes statuts par backend que le run du 8 octobre",
+   "reason": "TLS and HTTP/2 fingerprints, redone with the fixed HTTP adapter; same statuses per backend as the October 8 run",
    "validity": [
     {
      "scope": "identity-coherence",
      "class": "A",
-     "note": "Crawlee change de liste de chiffrements en cours de session ; Chrome garde un seul JA4"
+     "note": "Crawlee changes cipher list mid-session; Chrome keeps a single JA4"
     }
    ],
    "decisionIds": [
@@ -5952,12 +5952,12 @@
    "hostClass": "local-dev",
    "role": "superseded",
    "supersededBy": "light-engine-paired-2026-10-10T02-55-16-672Z-17bf22",
-   "reason": "Chrome et Lightpanda appariés dans un même run, quatre pilotes, cinq scénarios",
+   "reason": "Chrome and Lightpanda paired in the same run, four drivers, five scenarios",
    "validity": [
     {
      "scope": "compatibility-contract",
      "class": "A",
-     "note": "oracle des fixtures"
+     "note": "fixture oracle"
     },
     {
      "scope": "timing",
@@ -5988,17 +5988,17 @@
    "hostClass": "local-dev",
    "role": "selected",
    "supersededBy": null,
-   "reason": "SQLite, JSONL, PostgreSQL COPY (Docker local), DuckDB et Parquet, même charge, 5 blocs",
+   "reason": "SQLite, JSONL, PostgreSQL COPY (local Docker), DuckDB and Parquet, same load, 5 blocks",
    "validity": [
     {
      "scope": "sink-contract",
      "class": "A",
-     "note": "oracle de relecture indépendant"
+     "note": "independent read-back oracle"
     },
     {
      "scope": "timing",
      "class": "C",
-     "note": "local-dev ; PostgreSQL dans la VM Docker, les autres sur le disque du Mac"
+     "note": "local-dev; PostgreSQL in the Docker VM, the others on the Mac's disk"
     }
    ],
    "decisionIds": [
@@ -6024,12 +6024,12 @@
    "hostClass": "local-dev",
    "role": "selected",
    "supersededBy": null,
-   "reason": "crash du writer (SIGKILL) après acquittement, cinq sinks",
+   "reason": "writer crash (SIGKILL) after acknowledgment, five sinks",
    "validity": [
     {
      "scope": "process-crash",
      "class": "A",
-     "note": "oracle de relecture indépendant"
+     "note": "independent read-back oracle"
     }
    ],
    "decisionIds": [
@@ -6055,12 +6055,12 @@
    "hostClass": "local-dev",
    "role": "superseded",
    "supersededBy": "container-pool-2026-10-09T20-01-19-342Z-147c8e",
-   "reason": "mémoire du pool chaud mesurée avant que ses remplaçants aient démarré",
+   "reason": "warm pool memory measured before its replacements had started",
    "validity": [
     {
      "scope": "all",
      "class": "none",
-     "note": "mesure mémoire corrigée ensuite"
+     "note": "memory measurement fixed afterwards"
     }
    ],
    "decisionIds": [
@@ -6084,12 +6084,12 @@
    "hostClass": "local-dev",
    "role": "selected",
    "supersededBy": null,
-   "reason": "sessions navigateur par conteneur Docker : froid, pool chaud, pool réutilisé sans remise à zéro ; Firecracker sans KVM",
+   "reason": "browser sessions per Docker container: cold, warm pool, pool reused without reset; Firecracker without KVM",
    "validity": [
     {
      "scope": "isolation-contract",
      "class": "A",
-     "note": "oracle de cookie entre tenants"
+     "note": "cross-tenant cookie oracle"
     },
     {
      "scope": "timing",
@@ -6120,17 +6120,17 @@
    "hostClass": "local-controlled",
    "role": "diagnostic",
    "supersededBy": null,
-   "reason": "1 bloc propre sur 8 : le contrôle de bloc comptait la charge de la campagne elle-même ; compilation Swift étrangère intermittente",
+   "reason": "1 clean block out of 8: the block check counted the load of the campaign itself; intermittent unrelated Swift compilation",
    "validity": [
     {
      "scope": "browser-driver-contract",
      "class": "A",
-     "note": "oracle des fixtures"
+     "note": "fixture oracle"
     },
     {
      "scope": "timing",
      "class": "none",
-     "note": "blocs bruités"
+     "note": "noisy blocks"
     }
    ],
    "decisionIds": [
@@ -6154,17 +6154,17 @@
    "hostClass": "local-dev",
    "role": "diagnostic",
    "supersededBy": null,
-   "reason": "hôte rétrogradé en local-dev au départ : compilation Swift étrangère, charge par CPU jusqu'à 10,7",
+   "reason": "host downgraded to local-dev at start: unrelated Swift compilation, per-CPU load up to 10.7",
    "validity": [
     {
      "scope": "browser-driver-contract",
      "class": "A",
-     "note": "oracle des fixtures"
+     "note": "fixture oracle"
     },
     {
      "scope": "timing",
      "class": "none",
-     "note": "blocs bruités"
+     "note": "noisy blocks"
     }
    ],
    "decisionIds": [
@@ -6188,12 +6188,12 @@
    "hostClass": "local-dev",
    "role": "diagnostic",
    "supersededBy": null,
-   "reason": "interrompu volontairement : hôte bruité, contrôle de bloc en cours de correction",
+   "reason": "deliberately interrupted: noisy host, block check being fixed",
    "validity": [
     {
      "scope": "all",
      "class": "none",
-     "note": "run incomplet"
+     "note": "incomplete run"
     }
    ],
    "decisionIds": [
@@ -6217,12 +6217,12 @@
    "hostClass": "local-dev",
    "role": "diagnostic",
    "supersededBy": null,
-   "reason": "interrompu avant la reprise de la série",
+   "reason": "interrupted before the series was resumed",
    "validity": [
     {
      "scope": "all",
      "class": "none",
-     "note": "interrompu avant la reprise de la série"
+     "note": "interrupted before the series was resumed"
     }
    ],
    "decisionIds": [
@@ -6246,7 +6246,7 @@
    "hostClass": "local-controlled",
    "role": "selected",
    "supersededBy": null,
-   "reason": "pilotes à 0 ms, Mac calme, 8 blocs propres sur 8",
+   "reason": "drivers at 0 ms, quiet Mac, 8 clean blocks out of 8",
    "validity": [
     {
      "scope": "contract",
@@ -6256,7 +6256,7 @@
     {
      "scope": "timing",
      "class": "B",
-     "note": "local-controlled, Mac calme, blocs bruités exclus"
+     "note": "local-controlled, quiet Mac, noisy blocks excluded"
     }
    ],
    "decisionIds": [
@@ -6282,12 +6282,12 @@
    "hostClass": "local-dev",
    "role": "diagnostic",
    "supersededBy": null,
-   "reason": "rétrogradé en local-dev : démarré juste après le run précédent, charge moyenne encore haute ; refait",
+   "reason": "downgraded to local-dev: started right after the previous run, load average still high; redone",
    "validity": [
     {
      "scope": "all",
      "class": "none",
-     "note": "rétrogradé en local-dev : démarré juste après le run précédent, charge moyenne encore haute ; refait"
+     "note": "downgraded to local-dev: started right after the previous run, load average still high; redone"
     }
    ],
    "decisionIds": [
@@ -6311,12 +6311,12 @@
    "hostClass": "local-dev",
    "role": "diagnostic",
    "supersededBy": null,
-   "reason": "interrompu pour relancer la série avec une attente avant chaque campagne",
+   "reason": "interrupted to restart the series with a wait before each campaign",
    "validity": [
     {
      "scope": "all",
      "class": "none",
-     "note": "interrompu pour relancer la série avec une attente avant chaque campagne"
+     "note": "interrupted to restart the series with a wait before each campaign"
     }
    ],
    "decisionIds": [
@@ -6340,7 +6340,7 @@
    "hostClass": "local-controlled",
    "role": "selected",
    "supersededBy": null,
-   "reason": "pilotes à 20 ms, Mac calme, 7 blocs propres sur 8",
+   "reason": "drivers at 20 ms, quiet Mac, 7 clean blocks out of 8",
    "validity": [
     {
      "scope": "contract",
@@ -6350,7 +6350,7 @@
     {
      "scope": "timing",
      "class": "B",
-     "note": "local-controlled, Mac calme, blocs bruités exclus"
+     "note": "local-controlled, quiet Mac, noisy blocks excluded"
     }
    ],
    "decisionIds": [
@@ -6376,7 +6376,7 @@
    "hostClass": "local-controlled",
    "role": "selected",
    "supersededBy": null,
-   "reason": "pilotes à 100 ms, Mac calme, 5 blocs propres sur 6 ; Playwright natif 2 timeouts sur le catalogue JS",
+   "reason": "drivers at 100 ms, quiet Mac, 5 clean blocks out of 6; native Playwright 2 timeouts on the JS catalog",
    "validity": [
     {
      "scope": "contract",
@@ -6386,7 +6386,7 @@
     {
      "scope": "timing",
      "class": "B",
-     "note": "local-controlled, Mac calme, blocs bruités exclus"
+     "note": "local-controlled, quiet Mac, noisy blocks excluded"
     }
    ],
    "decisionIds": [
@@ -6412,12 +6412,12 @@
    "hostClass": "local-dev",
    "role": "diagnostic",
    "supersededBy": null,
-   "reason": "rétrogradé en local-dev au départ (Chrome du porteur au seuil) ; refait",
+   "reason": "downgraded to local-dev at start (project owner's Chrome at the threshold); redone",
    "validity": [
     {
      "scope": "all",
      "class": "none",
-     "note": "rétrogradé en local-dev au départ (Chrome du porteur au seuil) ; refait"
+     "note": "downgraded to local-dev at start (project owner's Chrome at the threshold); redone"
     }
    ],
    "decisionIds": [
@@ -6441,7 +6441,7 @@
    "hostClass": "local-controlled",
    "role": "selected",
    "supersededBy": null,
-   "reason": "six transports, catalogue à incidents, Mac calme",
+   "reason": "six transports, incident catalog, quiet Mac",
    "validity": [
     {
      "scope": "contract",
@@ -6451,7 +6451,7 @@
     {
      "scope": "timing",
      "class": "B",
-     "note": "local-controlled, Mac calme, blocs bruités exclus"
+     "note": "local-controlled, quiet Mac, noisy blocks excluded"
     }
    ],
    "decisionIds": [
@@ -6477,7 +6477,7 @@
    "hostClass": "local-controlled",
    "role": "selected",
    "supersededBy": null,
-   "reason": "domaine lourd en surcharge, Mac calme",
+   "reason": "heavy domain overloaded, quiet Mac",
    "validity": [
     {
      "scope": "contract",
@@ -6487,7 +6487,7 @@
     {
      "scope": "timing",
      "class": "B",
-     "note": "local-controlled, Mac calme, blocs bruités exclus"
+     "note": "local-controlled, quiet Mac, noisy blocks excluded"
     }
    ],
    "decisionIds": [
@@ -6514,7 +6514,7 @@
    "hostClass": "local-controlled",
    "role": "selected",
    "supersededBy": null,
-   "reason": "admission sans surcharge, Mac calme",
+   "reason": "admission without overload, quiet Mac",
    "validity": [
     {
      "scope": "contract",
@@ -6524,7 +6524,7 @@
     {
      "scope": "timing",
      "class": "B",
-     "note": "local-controlled, Mac calme, blocs bruités exclus"
+     "note": "local-controlled, quiet Mac, noisy blocks excluded"
     }
    ],
    "decisionIds": [
@@ -6551,7 +6551,7 @@
    "hostClass": "local-controlled",
    "role": "selected",
    "supersededBy": null,
-   "reason": "routage HTTP, navigateur, API, Mac calme",
+   "reason": "HTTP, browser, API routing, quiet Mac",
    "validity": [
     {
      "scope": "contract",
@@ -6561,7 +6561,7 @@
     {
      "scope": "timing",
      "class": "B",
-     "note": "local-controlled, Mac calme, blocs bruités exclus"
+     "note": "local-controlled, quiet Mac, noisy blocks excluded"
     }
    ],
    "decisionIds": [
@@ -6587,7 +6587,7 @@
    "hostClass": "local-controlled",
    "role": "selected",
    "supersededBy": null,
-   "reason": "Chrome et Lightpanda appariés, Mac calme",
+   "reason": "Chrome and Lightpanda paired, quiet Mac",
    "validity": [
     {
      "scope": "contract",
@@ -6597,7 +6597,7 @@
     {
      "scope": "timing",
      "class": "B",
-     "note": "local-controlled, Mac calme, blocs bruités exclus"
+     "note": "local-controlled, quiet Mac, noisy blocks excluded"
     }
    ],
    "decisionIds": [
@@ -6623,7 +6623,7 @@
    "hostClass": "local-controlled",
    "role": "selected",
    "supersededBy": null,
-   "reason": "pilotes à 300 ms, Mac calme, 4 blocs propres sur 6",
+   "reason": "drivers at 300 ms, quiet Mac, 4 clean blocks out of 6",
    "validity": [
     {
      "scope": "contract",
@@ -6633,7 +6633,7 @@
     {
      "scope": "timing",
      "class": "B",
-     "note": "local-controlled, Mac calme, blocs bruités exclus"
+     "note": "local-controlled, quiet Mac, noisy blocks excluded"
     }
    ],
    "decisionIds": [

@@ -1,232 +1,232 @@
-# Piste « demande marché » : synthèse pour le registre de décisions
+# "Market demand" track: synthesis for the decision register
 
-**Statut :** v1, recherche documentaire terminée ; entretiens non commencés. **Date :** 2026-10-08.
-**Portée :** ce que des développeurs, des équipes et des acheteurs disent publiquement de leurs douleurs, de leurs besoins, de leurs budgets et des outils concurrents (scraping, automatisation navigateur, agents LLM), de janvier 2025 à octobre 2026.
-**Ce que cette piste ne fournit pas :** une mesure de la volonté de payer, de la taille du marché adressable par Automan ou de la prévalence d'une douleur chez les clients. Ces points relèvent des entretiens et des tests de prix ([pricing-signals.md](pricing-signals.md), §5).
+**Status:** v1, desk research complete; interviews not started. **Date:** 2026-10-08.
+**Scope:** what developers, teams and buyers say publicly about their pains, needs, budgets and competing tools (scraping, browser automation, LLM agents), from January 2025 to October 2026.
+**What this track does not provide:** a measure of willingness to pay, of the market addressable by Automan or of the prevalence of a pain among customers. These points fall under interviews and price tests ([pricing-signals.md](pricing-signals.md), §5).
 
-| Fichier | Contenu |
+| File | Content |
 | --- | --- |
-| [corpus.jsonl](corpus.jsonl) | 421 items canoniques codés et sourcés : une ligne JSON par item |
-| [codebook.md](codebook.md) | 30 codes feuilles, protocole de codage, accord inter-codeurs, contrôle des sources, règles d'exclusion |
-| [pains-ranking.md](pains-ranking.md) | Classement des douleurs par effectif brut et par score pondéré, variantes de sensibilité, items représentatifs |
-| [segments-and-needs.md](segments-and-needs.md) | Besoins par segment, nouveaux usages LLM et agents, exigences acheteurs et conformité |
-| [pricing-signals.md](pricing-signals.md) | Budgets et prix observés, unités acceptées ou rejetées, lecture pour `D-pricing` |
-| [competitors-strengths-gaps.md](competitors-strengths-gaps.md) | Concurrent par concurrent : ce qui est salué, reproché, et les raisons de changement |
-| [interview-guide.md](interview-guide.md) | Guide d'entretien « switch » (JTBD) : recrutement par segment, chronologie du changement, quatre forces, codage |
-| [pricing-questionnaire.md](pricing-questionnaire.md) | Questionnaire Van Westendorp et Gabor-Granger sur le résultat vérifié, unité préférée et plafond |
-| [recruitment.md](recruitment.md) | Recrutement des entretiens : canaux, annonces prêtes à publier, message direct, suivi anonymisé |
+| [corpus.jsonl](corpus.jsonl) | 421 coded and sourced canonical items: one JSON line per item |
+| [codebook.md](codebook.md) | 30 leaf codes, coding protocol, inter-coder agreement, source check, exclusion rules |
+| [pains-ranking.md](pains-ranking.md) | Ranking of pains by raw count and by weighted score, sensitivity variants, representative items |
+| [segments-and-needs.md](segments-and-needs.md) | Needs by segment, new LLM and agent uses, buyer and compliance requirements |
+| [pricing-signals.md](pricing-signals.md) | Observed budgets and prices, accepted or rejected units, reading for `D-pricing` |
+| [competitors-strengths-gaps.md](competitors-strengths-gaps.md) | Competitor by competitor: what is praised, what is criticized, and the reasons for switching |
+| [interview-guide.md](interview-guide.md) | "Switch" (JTBD) interview guide: recruitment by segment, timeline of the switch, four forces, coding |
+| [pricing-questionnaire.md](pricing-questionnaire.md) | Van Westendorp and Gabor-Granger questionnaire on the verified result, preferred unit and ceiling |
+| [recruitment.md](recruitment.md) | Interview recruitment: channels, ready-to-publish announcements, direct message, anonymized tracking |
 
-## 1. Constats clés
+## 1. Key findings
 
-Chaque constat indique les décisions du registre (`lab/decisions/`) qu'il éclaire, ses preuves (identifiants de `corpus.jsonl`) et sa robustesse. Un constat **éclaire** une décision ; il ne la tranche pas. Les décisions techniques se tranchent par les campagnes du labo. Les décisions produit (`D-segment`, `D-pricing`, `D-feature-priority`) se tranchent après entretiens.
+Each finding indicates the register decisions (`lab/decisions/`) it informs, its evidence (identifiers from `corpus.jsonl`) and its robustness. A finding **informs** a decision; it does not settle it. Technical decisions are settled by the lab campaigns. Product decisions (`D-segment`, `D-pricing`, `D-feature-priority`) are settled after interviews.
 
-### C1. L'accès est la première douleur, et la continuité de session passe avant la furtivité
+### C1. Access is the top pain, and session continuity comes before stealth
 `D-identity` · `D-browser-driver` · `D-feature-priority`
 
-- **Rang.** `access-antibot-ip` est premier dans les quatre variantes du classement : 76 items, W 92,4, soit au moins 1,8 fois le deuxième.
-- **La continuité de session compte plus que l'empreinte.** Réutiliser une session connectée réelle supprime plus de blocages que le travail sur l'empreinte (`reddit-27`, `reddit-9`, `reddit-55`). Ce qui trahit l'automatisation, ce sont les drapeaux d'automatisation et le profil vierge, pas le mode headless (`reddit-9`).
-- **Les barrières courantes sont simples.** Selon Zyte, le WAF seul (31 %) et WAF + JS (environ 20 %) dominent ; la pile complète ne touche que 3,3 % des sites (`reviews-reports-43` `[P]`).
-- **Pour Automan.** La priorité est un profil d'identité porté par la session et persistant (option `session-identity-profile` de `D-identity`), plus que la furtivité lourde. Pour `D-browser-driver` : le pilote doit savoir s'attacher en CDP à un Chrome existant, sachant que Chrome 136 et plus bloque le profil par défaut (`github-19`).
+- **Rank.** `access-antibot-ip` is first in all four ranking variants: 76 items, W 92.4, i.e. at least 1.8 times the second.
+- **Session continuity matters more than the fingerprint.** Reusing a real logged-in session removes more blocks than work on the fingerprint (`reddit-27`, `reddit-9`, `reddit-55`). What gives automation away is automation flags and a blank profile, not headless mode (`reddit-9`).
+- **Common barriers are simple.** According to Zyte, WAF alone (31%) and WAF + JS (about 20%) dominate; the full stack affects only 3.3% of sites (`reviews-reports-43` `[P]`).
+- **For Automan.** The priority is a persistent identity profile carried by the session (option `session-identity-profile` of `D-identity`), more than heavy stealth. For `D-browser-driver`: the driver must be able to attach via CDP to an existing Chrome, given that Chrome 136 and later block the default profile (`github-19`).
 
-### C2. Les sessions authentifiées doivent tenir dans le temps, et les identifiants rester hors du LLM
+### C2. Authenticated sessions must hold over time, and credentials must stay out of the LLM
 `D-identity` · `D-agent-interface` · `D-segment`
 
-- **Volume.** 32 items, 4e en W.
-- **Persistance.** Elle casse d'une version à l'autre (`github-19`, `github-43`, `github-99`, `github-28`).
-- **Attentes.**
-  - Des sessions de plusieurs mois et une passation humaine → agent pour la 2FA (`hn-34`).
-  - Des identifiants résolus côté outil, jamais vus par le modèle (`demand-use-cases-38`, `hn-35`, `demand-use-cases-68` `[P]`).
-- **Signal d'usage.** 14 % des requêtes d'agents mesurées par HUMAN visent des pages de compte ou d'authentification (`demand-use-cases-41`).
-- **Pour Automan.** Ajouter à `D-identity` une porte de contrat « identifiant jamais exposé au modèle ». C'est aussi l'argument principal pour l'option `b2b-portals` de `D-segment`.
+- **Volume.** 32 items, 4th in W.
+- **Persistence.** It breaks from one version to the next (`github-19`, `github-43`, `github-99`, `github-28`).
+- **Expectations.**
+  - Sessions lasting several months and a human → agent handoff for 2FA (`hn-34`).
+  - Credentials resolved on the tool side, never seen by the model (`demand-use-cases-38`, `hn-35`, `demand-use-cases-68` `[P]`).
+- **Usage signal.** 14% of the agent requests measured by HUMAN target account or authentication pages (`demand-use-cases-41`).
+- **For Automan.** Add to `D-identity` a contract gate "credential never exposed to the model". It is also the main argument for the `b2b-portals` option of `D-segment`.
 
-### C3. Le coût en tokens et la lenteur des agents sont réels, mais leur poids est gonflé par des sources promotionnelles
+### C3. Token cost and agent slowness are real, but their weight is inflated by promotional sources
 `D-agent-interface` · `D-ai-layer`
 
-- **Rang.** `agent-token-latency-cost` est 2e en W (44 items), mais tombe au 5e rang sans les items promo ou affiliés.
-- **Preuves indépendantes.**
-  - Tokens multipliés par 6 entre deux versions de Playwright MCP (`github-106`), par 2 entre deux versions de Browser Use (`github-22`).
-  - 11,7 k tokens de définitions d'outils par requête (`hn-98`).
-  - Un formulaire de 6 champs prend 4 à 5 minutes (`github-98`).
-- **Le coût vient du harnais plus que du modèle.** Avec le même modèle, 1,50 $ contre environ 10 $ par tâche (`hn-89` `[P]`). Le pixel peut coûter moins cher que le DOM dans 4 tâches sur 5 (`reddit-61`).
-- **Pour Automan.** Ce constat confirme les métriques `tokens-per-verified-task` et `interface-turns-per-task` déjà prévues. Il demande aussi un contrôle de **stabilité entre versions** de la taille des sorties.
+- **Rank.** `agent-token-latency-cost` is 2nd in W (44 items), but drops to 5th place without promo or affiliated items.
+- **Independent evidence.**
+  - Tokens multiplied by 6 between two versions of Playwright MCP (`github-106`), by 2 between two versions of Browser Use (`github-22`).
+  - 11.7k tokens of tool definitions per request (`hn-98`).
+  - A 6-field form takes 4 to 5 minutes (`github-98`).
+- **The cost comes from the harness more than from the model.** With the same model, $1.50 versus about $10 per task (`hn-89` `[P]`). Pixels can cost less than the DOM in 4 tasks out of 5 (`reddit-61`).
+- **For Automan.** This finding confirms the `tokens-per-verified-task` and `interface-turns-per-task` metrics already planned. It also calls for a check of the **stability across versions** of output size.
 
-### C4. La demande « compiler une fois, rejouer sans LLM, réparer sur casse » est constante depuis 2025
+### C4. Demand for "compile once, replay without an LLM, repair on breakage" has been constant since 2025
 `D-ai-layer` · `D-feature-priority`
 
-- **Volume.** 30 items `agent-deterministic-replay` (6e en n). Les demandes vont de janvier 2025 (`github-39`, `hn-0`) à septembre 2026 (`hn-87`), et apparaissent dans des offres de mission (`demand-use-cases-19`).
-- **Lock-in.** Le cache de Stagehand est lié aux sessions Browserbase et ne sert à rien en local (`hn-87`, `hn-88`, `github-42`).
-- **Point faible.** Le gain de coût annoncé (de 0,50-3 $ à 0,01-0,05 $ par tâche, `reddit-62`) est une affirmation d'éditeur `[P]`. Sans les items promo, le code passe du 9e au 13e rang en W.
-- **Pour Automan.** C'est le meilleur appui marché de l'option `compiled-replay` de `D-ai-layer` et de la revendication `C-replay-without-llm`. Le cache doit être **local et versionnable**. Le gain de coût reste à démontrer par le labo.
+- **Volume.** 30 `agent-deterministic-replay` items (6th in n). The requests range from January 2025 (`github-39`, `hn-0`) to September 2026 (`hn-87`), and appear in job postings (`demand-use-cases-19`).
+- **Lock-in.** Stagehand's cache is tied to Browserbase sessions and is useless locally (`hn-87`, `hn-88`, `github-42`).
+- **Weak point.** The announced cost gain (from $0.50-3 to $0.01-0.05 per task, `reddit-62`) is a vendor claim `[P]`. Without the promo items, the code drops from 9th to 13th place in W.
+- **For Automan.** This is the best market support for the `compiled-replay` option of `D-ai-layer` and for the `C-replay-without-llm` claim. The cache must be **local and versionable**. The cost gain remains to be demonstrated by the lab.
 
-### C5. L'interface agent n'a pas de gagnant : MCP et CLI coexistent
+### C5. The agent interface has no winner: MCP and CLI coexist
 `D-agent-interface`
 
-- **Volume.** 37 items `integ-mcp-agent-tooling` (3e en W, sans promo et avec plafond ; 4e après correction des dates Reddit).
-- **Arguments CLI.** Des utilisateurs avancés passent à Playwright CLI avec une compétence pour économiser le contexte (`hn-49`, `hn-50`).
-- **Arguments MCP.** MCP garde l'avantage pour les non-développeurs, l'OAuth multi-tenant, l'isolement des identifiants et l'audit (`hn-51`). Il présente aussi des risques d'intégration : sortie standard qui corrompt le protocole (`github-112`), capture d'écran qui casse le contexte (`github-24`).
-- **Hôtes.** Claude Code (65,5 %) et Copilot (58,7 %) dominent (`reviews-reports-54`).
-- **Pour Automan.** Le marché ne tranche pas `D-agent-interface`. Les mesures du labo (tours et tokens par tâche vérifiée) sont donc le bon arbitre. Il faut tester au moins la combinaison Claude Code avec MCP réduit, avec CLI, et avec code mode.
+- **Volume.** 37 `integ-mcp-agent-tooling` items (3rd in W, without promo and with cap; 4th after correcting the Reddit dates).
+- **CLI arguments.** Advanced users switch to Playwright CLI with a skill to save context (`hn-49`, `hn-50`).
+- **MCP arguments.** MCP keeps the advantage for non-developers, multi-tenant OAuth, credential isolation and audit (`hn-51`). It also presents integration risks: standard output that corrupts the protocol (`github-112`), screenshot that breaks the context (`github-24`).
+- **Hosts.** Claude Code (65.5%) and Copilot (58.7%) dominate (`reviews-reports-54`).
+- **For Automan.** The market does not settle `D-agent-interface`. The lab's measurements (turns and tokens per verified task) are therefore the right arbiter. At least the combination of Claude Code with reduced MCP, with CLI, and with code mode must be tested.
 
-### C6. Les faux succès silencieux sont une douleur récente et transverse
+### C6. Silent false successes are a recent and cross-cutting pain
 `D-feature-priority` · `D-extraction` · `D-ai-layer`
 
-- **Rang.** 17 items `silent-false-success`, 18e en n mais 10e en W : récents et engagés.
-- **Exemples.**
-  - Blocage renvoyé en 500 (`github-80`), handler exécuté sur une page de challenge (`github-93`), file marquée traitée sans exécution (`github-91`).
-  - Clics « ok » ignorés (`reddit-1`), fin déclarée trop tôt (`github-30`).
-  - Sélecteurs qui renvoient des chaînes vides après une refonte (`hn-101` `[P]`), diff de prix inversé vu comme inchangé (`demand-use-cases-40`).
-- **Confiance.** 48 % des développeurs ne font confiance à l'IA que s'ils peuvent vérifier ; 78,7 % jugent l'attribution des sources importante (`reviews-reports-51`).
-- **Pour Automan.** La porte `false-success-count` et la revendication `C-zero-false-success` répondent directement à une plainte du marché. C'est un argument de positionnement candidat. Pour `D-extraction`, la qualité doit être **mesurable** : rappel, tableaux, provenance (`github-83`, `github-66`, `demand-use-cases-61` `[P]`).
+- **Rank.** 17 `silent-false-success` items, 18th in n but 10th in W: recent and engaged.
+- **Examples.**
+  - Block returned as a 500 (`github-80`), handler executed on a challenge page (`github-93`), queue marked processed without execution (`github-91`).
+  - Clicks reported as "ok" but ignored (`reddit-1`), completion declared too early (`github-30`).
+  - Selectors that return empty strings after a redesign (`hn-101` `[P]`), inverted price diff seen as unchanged (`demand-use-cases-40`).
+- **Trust.** 48% of developers trust AI only if they can verify; 78.7% consider source attribution important (`reviews-reports-51`).
+- **For Automan.** The `false-success-count` gate and the `C-zero-false-success` claim respond directly to a market complaint. It is a candidate positioning argument. For `D-extraction`, quality must be **measurable**: recall, tables, provenance (`github-83`, `github-66`, `demand-use-cases-61` `[P]`).
 
-### C7. Les acheteurs détestent les factures imprévisibles et demandent le paiement au résultat réussi
+### C7. Buyers hate unpredictable bills and ask to pay per successful result
 `D-pricing`
 
-- **Rang.** `cost-unpredictable-runaway` est 5e en W et 2e sans promo (28 items). Le signal ne dépend pas des agrégats d'avis.
-- **Rejeté.**
-  - Multiplicateurs de crédits (`reviews-reports-13`, `reviews-reports-19` `[P]`).
-  - Échecs facturés (`reviews-reports-10` `[P]`, `reviews-reports-31`).
-  - Absence de plafond : facture environ 40 fois l'attendu (`reviews-reports-23`), boucle de retry à 40 $ (`reddit-57`).
-  - Bande passante (`reviews-reports-12`), crédits qui expirent (`reviews-reports-30`).
-- **Demandé.**
-  - Paiement au résultat réussi (`reviews-reports-28`, `demand-use-cases-64` `[P]`), au lead ou à l'enregistrement (`demand-use-cases-16`, `demand-use-cases-18`).
-  - Plafonds par tâche (`reddit-58`), paiement à l'usage (`hn-32`).
-- **Pour Automan.** C'est l'appui le plus net du corpus à l'option `verified-result` de `D-pricing` et à `C-cost-per-1k-verified`. **Le montant reste inconnu** (cf. C10).
+- **Rank.** `cost-unpredictable-runaway` is 5th in W and 2nd without promo (28 items). The signal does not depend on review aggregates.
+- **Rejected.**
+  - Credit multipliers (`reviews-reports-13`, `reviews-reports-19` `[P]`).
+  - Billed failures (`reviews-reports-10` `[P]`, `reviews-reports-31`).
+  - No cap: a bill about 40 times what was expected (`reviews-reports-23`), a $40 retry loop (`reddit-57`).
+  - Bandwidth (`reviews-reports-12`), expiring credits (`reviews-reports-30`).
+- **Requested.**
+  - Payment per successful result (`reviews-reports-28`, `demand-use-cases-64` `[P]`), per lead or per record (`demand-use-cases-16`, `demand-use-cases-18`).
+  - Per-task caps (`reddit-58`), pay-as-you-go (`hn-32`).
+- **For Automan.** This is the corpus's clearest support for the `verified-result` option of `D-pricing` and for `C-cost-per-1k-verified`. **The amount remains unknown** (see C10).
 
-### C8. Les exploitants de sites forment une contrainte de premier rang, et les défauts de politesse comptent
+### C8. Site operators form a first-rank constraint, and politeness defaults matter
 `D-identity` · `D-feature-priority`
 
-- **Rang.** 25 items `compliance-site-owner-politeness`, entre le 4e et le 7e rang selon la variante. Les engagements sont les plus forts du corpus : 462 et 357 points HN (`hn-125`, `hn-126`), 44 et 49 sur GitHub (`github-0`, `github-1`).
-- **Les défauts sont mis en cause.** Les défauts de Scrapy ont mis des sites à terre (`github-1`). Les IP partagées de navigateurs cloud sont bloquées en bloc (`demand-use-cases-31`, `hn-110`). Des acheteurs veulent maîtriser l'étiquette de crawl (`hn-62` `[P]`).
-- **Pour Automan.** Ce constat confirme les profils `identified` et `standard` de l'ADR-002, avec robots.txt et throttling **actifs par défaut**. C'est aussi un argument pour les acheteurs entreprise (C9).
+- **Rank.** 25 `compliance-site-owner-politeness` items, between 4th and 7th place depending on the variant. Engagement is the strongest in the corpus: 462 and 357 HN points (`hn-125`, `hn-126`), 44 and 49 on GitHub (`github-0`, `github-1`).
+- **Defaults are blamed.** Scrapy's defaults took sites down (`github-1`). Shared IPs of cloud browsers are blocked wholesale (`demand-use-cases-31`, `hn-110`). Buyers want to control crawl etiquette (`hn-62` `[P]`).
+- **For Automan.** This finding confirms the `identified` and `standard` profiles of ADR-002, with robots.txt and throttling **enabled by default**. It is also an argument for enterprise buyers (C9).
 
-### C9. Pour l'entreprise, la conformité est le premier critère d'achat, et une partie ne coûte presque rien si elle est conçue tôt
+### C9. For enterprises, compliance is the top purchase criterion, and part of it costs almost nothing if designed early
 `D-segment` · `D-feature-priority`
 
-- **Rang.** La conformité est le premier code du segment `enterprise` (15 items sur 29).
-- **Exigences.** SOC 2, DPA, rétention, sous-traitants (`demand-use-cases-62` `[P]`, `demand-use-cases-64` `[P]`). Provenance par enregistrement et EU AI Act (`demand-use-cases-63` `[P]`, `demand-use-cases-39`). BAA et conservation nulle (`hn-25`, `hn-31`, `hn-91`). Exécution locale (`demand-use-cases-10`, `hn-92`).
-- **Ordre des priorités.** L'acheteur qui a du budget parle de conformité avant la qualité (`demand-use-cases-59`).
-- **Pour Automan.** Le journal d'audit par action et la provenance par enregistrement relèvent de l'architecture, pas de la certification. Ils sont peu coûteux s'ils sont prévus dès le départ. SOC 2 est hors périmètre tant que `D-segment` n'a pas retenu l'entreprise.
+- **Rank.** Compliance is the top code of the `enterprise` segment (15 items out of 29).
+- **Requirements.** SOC 2, DPA, retention, subprocessors (`demand-use-cases-62` `[P]`, `demand-use-cases-64` `[P]`). Per-record provenance and EU AI Act (`demand-use-cases-63` `[P]`, `demand-use-cases-39`). BAA and zero retention (`hn-25`, `hn-31`, `hn-91`). Local execution (`demand-use-cases-10`, `hn-92`).
+- **Order of priorities.** The buyer with a budget talks about compliance before quality (`demand-use-cases-59`).
+- **For Automan.** The per-action audit log and per-record provenance are a matter of architecture, not certification. They are inexpensive if planned from the start. SOC 2 is out of scope as long as `D-segment` has not chosen enterprise.
 
-### C10. Segments : les développeurs d'agents parlent le plus, les portails B2B affichent les prix les plus élevés, et aucun n'est prouvé
+### C10. Segments: agent developers talk the most, B2B portals show the highest prices, and none is proven
 `D-segment` · `D-pricing`
 
-- **Développeurs d'agents.** 44 % du corpus (186 items), mais une volonté de payer faible et une forte pression du DIY via les agents de code (`hn-71`, `demand-use-cases-27`). 6,4 % seulement changent d'outil pour le coût (`reviews-reports-53`).
-- **Portails B2B.** Les seuls prix élevés, 2 500 $/mois (`hn-33`) et les volumes de clients d'Intuned (`demand-use-cases-26`), viennent d'éditeurs `[P]`.
-- **Veille prix e-commerce.** Bimodale : moins de 30 $/mois chez les PME (`reddit-43`) ; croissance la plus rapide selon Mordor (`demand-use-cases-45`).
-- **Équipes data.** Budgets réels en proxy et infrastructure, mais 46,7 % font tout en interne (`reviews-reports-38` `[P]`).
-- **Pour Automan.** Hypothèse à tester en entretiens, pas une conclusion : l'**adoption** passerait par les développeurs d'agents (OSS, MCP, CLI), la **monétisation** par des charges de travail à résultat vérifié (portails, données). Voir [segments-and-needs.md](segments-and-needs.md), §5.
+- **Agent developers.** 44% of the corpus (186 items), but low willingness to pay and strong DIY pressure via coding agents (`hn-71`, `demand-use-cases-27`). Only 6.4% switch tools for cost (`reviews-reports-53`).
+- **B2B portals.** The only high prices, $2,500/month (`hn-33`) and Intuned's customer volumes (`demand-use-cases-26`), come from vendors `[P]`.
+- **E-commerce price monitoring.** Bimodal: less than $30/month among SMBs (`reddit-43`); fastest growth according to Mordor (`demand-use-cases-45`).
+- **Data teams.** Real budgets for proxies and infrastructure, but 46.7% do everything in-house (`reviews-reports-38` `[P]`).
+- **For Automan.** A hypothesis to test in interviews, not a conclusion: **adoption** would come through agent developers (OSS, MCP, CLI), **monetization** through verified-result workloads (portals, data). See [segments-and-needs.md](segments-and-needs.md), §5.
 
-### C11. Changer d'outil : on va vers l'hébergé pour la fiabilité et on en part pour le prix ; l'auto-hébergement doit être complet
+### C11. Switching tools: people move to hosted for reliability and leave it for price; self-hosting must be complete
 `D-pricing` · `D-segment`
 
-- **Vers l'hébergé.** Quand la gestion des proxys devient un travail à temps plein (`reddit-3`, `reddit-6`, `reviews-reports-14`).
-- **Hors de l'hébergé.** Pour le prix (`hn-58`, `hn-56`, `hn-63`).
-- **Auto-hébergement.** 20 items `selfhost-parity-lockin`. L'OSS est perçu comme une rampe vers le cloud (`github-42`). Il manque l'anti-bot en auto-hébergé (`reviews-reports-31`), la vue en direct (`github-101`), les proxys (`github-52`).
-- **Pour Automan.** La frontière entre open source et payant doit être lisible. **Retirer l'anti-bot ou le cache de la version auto-hébergée est précisément ce qui est reproché.**
+- **Toward hosted.** When proxy management becomes a full-time job (`reddit-3`, `reddit-6`, `reviews-reports-14`).
+- **Away from hosted.** For price (`hn-58`, `hn-56`, `hn-63`).
+- **Self-hosting.** 20 `selfhost-parity-lockin` items. OSS is perceived as an on-ramp to the cloud (`github-42`). Self-hosted versions lack anti-bot (`reviews-reports-31`), live view (`github-101`), proxies (`github-52`).
+- **For Automan.** The boundary between open source and paid must be legible. **Removing anti-bot or the cache from the self-hosted version is precisely what is criticized.**
 
-### C12. Performance mémoire et reprise : peu exprimées, donc nécessaires mais pas différenciantes
+### C12. Memory performance and resumption: rarely expressed, therefore necessary but not differentiating
 `D-browser-driver` · `D-feature-priority`
 
-- **Rang.** `perf-memory-concurrency` (15 items, 22e en W) et `durability-resume` (5 items, dernier) sont en bas du classement.
-- **La mémoire ne se plaint qu'à volume.** OOM vers 18-20 sessions (`reddit-60`), plus de 20 Go avec Chrome for Testing (`github-104`). Le coût du LLM domine celui du navigateur dans les workflows d'agents (`hn-14`).
-- **La reprise apparaît comme exigence** de cahier des charges (`demand-use-cases-1`, `demand-use-cases-10`, `github-5`).
-- **Pour Automan.** Pour `D-browser-driver`, un gain de vitesse ou de mémoire **ne suffit pas comme argument**. La conformité d'actionnabilité et la stabilité des sessions comptent davantage. La décision `D-durable-runtime` reste une affaire de correction, pas de positionnement.
+- **Rank.** `perf-memory-concurrency` (15 items, 22nd in W) and `durability-resume` (5 items, last) are at the bottom of the ranking.
+- **Memory only draws complaints at volume.** OOM around 18-20 sessions (`reddit-60`), more than 20 GB with Chrome for Testing (`github-104`). LLM cost dominates browser cost in agent workflows (`hn-14`).
+- **Resumption appears as a requirement** in specifications (`demand-use-cases-1`, `demand-use-cases-10`, `github-5`).
+- **For Automan.** For `D-browser-driver`, a speed or memory gain **is not enough as an argument**. Actionability compliance and session stability matter more. The `D-durable-runtime` decision remains a matter of correctness, not positioning.
 
-## 2. Matrice décisions × constats
+## 2. Decisions × findings matrix
 
-| Décision | Constats | Ce que la piste marché apporte | Ce qui reste à mesurer |
+| Decision | Findings | What the market track contributes | What remains to be measured |
 | --- | --- | --- | --- |
-| `D-segment` | C2, C9, C10, C11 | Volume de voix, douleurs par segment, signaux de prix (biaisés) | Entretiens : budget réel, urgence, cycle d'achat ; au moins 5 par segment candidat |
-| `D-pricing` | C7, C10, C11 | Unités rejetées ou acceptées ; `verified-result` le mieux aligné | Montant : entretiens, test de prix sur page d'atterrissage, PoC payant |
-| `D-feature-priority` | C1, C4, C6, C8, C9, C12 | Backlog classé par douleur (`pains-ranking.md` §2, variante sans promo) | Pondération par segment une fois `D-segment` tranché |
-| `D-browser-driver` | C1, C12 | Rattachement CDP à un Chrome réel, stabilité des profils ; vitesse peu différenciante | Campagnes d'actionnabilité déjà prévues |
-| `D-ai-layer` | C3, C4, C6 | Demande constante de rejeu compilé ; cache local exigé | `usd-per-1k-verified`, faux succès |
-| `D-agent-interface` | C2, C3, C5 | Pas de gagnant marché ; hôtes dominants ; exigences sur les identifiants | `interface-turns-per-task`, tokens par tâche vérifiée |
-| `D-identity` | C1, C2, C8 | Continuité de session avant furtivité ; défauts polis ; identifiants hors LLM | `identity-coherence`, `policy-compliance` |
-| `D-extraction` | C6 | Qualité mesurable : rappel, tableaux, provenance, diffs justes | `extraction-f1`, précision et rappel par champ |
+| `D-segment` | C2, C9, C10, C11 | Volume of voices, pains by segment, price signals (biased) | Interviews: real budget, urgency, purchase cycle; at least 5 per candidate segment |
+| `D-pricing` | C7, C10, C11 | Rejected or accepted units; `verified-result` best aligned | Amount: interviews, landing-page price test, paid PoC |
+| `D-feature-priority` | C1, C4, C6, C8, C9, C12 | Backlog ranked by pain (`pains-ranking.md` §2, no-promo variant) | Weighting by segment once `D-segment` is settled |
+| `D-browser-driver` | C1, C12 | CDP attachment to a real Chrome, profile stability; speed not very differentiating | Actionability campaigns already planned |
+| `D-ai-layer` | C3, C4, C6 | Constant demand for compiled replay; local cache required | `usd-per-1k-verified`, false successes |
+| `D-agent-interface` | C2, C3, C5 | No market winner; dominant hosts; requirements on credentials | `interface-turns-per-task`, tokens per verified task |
+| `D-identity` | C1, C2, C8 | Session continuity before stealth; polite defaults; credentials out of the LLM | `identity-coherence`, `policy-compliance` |
+| `D-extraction` | C6 | Measurable quality: recall, tables, provenance, correct diffs | `extraction-f1`, per-field precision and recall |
 
-## 3. Méthode
+## 3. Method
 
-1. **Collecte.** Cinq collecteurs indépendants, en lecture seule :
-   - **GitHub** : 12 dépôts et des recherches par mot-clé ;
-   - **Reddit** : via un site tiers d'instantanés ;
-   - **HN** : API Algolia ;
-   - **Avis et rapports** : Trustpilot, synthèses G2, miroirs Capterra, Gartner, Product Hunt, rapports d'éditeurs ;
-   - **Demande et cas d'usage** : Upwork, Workana, études de cas, guides d'achat.
+1. **Collection.** Five independent, read-only collectors:
+   - **GitHub**: 12 repositories and keyword searches;
+   - **Reddit**: via a third-party snapshot site;
+   - **HN**: Algolia API;
+   - **Reviews and reports**: Trustpilot, G2 summaries, Capterra mirrors, Gartner, Product Hunt, vendor reports;
+   - **Demand and use cases**: Upwork, Workana, case studies, buying guides.
 
-   Les collecteurs ont remonté 465 items selon leurs notes. Le workflow a transmis 429 items canoniques.
-2. **Codage.** Un premier codeur LLM attribue 1 à 3 codes parmi 30 feuilles ([codebook.md](codebook.md)). Un second codeur indépendant recode un échantillon stratifié de 120 items.
-3. **Contrôle de sources** sur 60 items : URL, date, fidélité du résumé. Les 8 échecs sont exclus, ce qui laisse **421 items**.
-4. **Classement.**
-   - Effectif brut n et score pondéré `W = Σ (1 + ln(1 + engagement)) × 0,5^(âge_mois / 6)` au 2026-10-08.
-   - Variantes : sans promo ni affiliés, engagement plafonné à 50, correction du biais de date Reddit.
+   The collectors surfaced 465 items according to their notes. The workflow passed on 429 canonical items.
+2. **Coding.** A first LLM coder assigns 1 to 3 codes among 30 leaves ([codebook.md](codebook.md)). A second, independent coder recodes a stratified sample of 120 items.
+3. **Source check** on 60 items: URL, date, fidelity of the summary. The 8 failures are excluded, which leaves **421 items**.
+4. **Ranking.**
+   - Raw count n and weighted score `W = Σ (1 + ln(1 + engagement)) × 0.5^(age_months / 6)` as of 2026-10-08.
+   - Variants: without promo or affiliates, engagement capped at 50, correction of the Reddit date bias.
 
-Répartition du corpus final :
+Breakdown of the final corpus:
 
-- **Sources** : HN 127, issues GitHub 113, Reddit 68, rapports 29, billets 28, avis 26, offres de mission 23, discussions GitHub 6, autre 1.
-- **Nature** : `pain` 138, `feature-request` 83, `use-case` 65, `pricing-signal` 51, `statistic` 50, `switching` 21, `praise` 13.
-- **Période** : de 2024-11 (un seul item) à 2026-10 ; 262 items datent de 2026.
-- **Promo** : 98 items `promo` ou `vendor_affiliated`, conservés et marqués.
+- **Sources**: HN 127, GitHub issues 113, Reddit 68, reports 29, blog posts 28, reviews 26, job postings 23, GitHub discussions 6, other 1.
+- **Kind**: `pain` 138, `feature-request` 83, `use-case` 65, `pricing-signal` 51, `statistic` 50, `switching` 21, `praise` 13.
+- **Period**: from 2024-11 (a single item) to 2026-10; 262 items date from 2026.
+- **Promo**: 98 `promo` or `vendor_affiliated` items, kept and flagged.
 
-## 4. Accord inter-codeurs et contrôle des sources
+## 4. Inter-coder agreement and source check
 
-| Contrôle | Résultat |
+| Check | Result |
 | --- | --- |
-| Accord sur le code primaire (n = 120) | **83,3 %** (100/120), sans correction du hasard |
-| Jaccard moyen sur l'ensemble des codes (n = 120) | **0,838** |
-| Sources vérifiées | 60 : **52 réussies, 8 échecs (13,3 %), exclus** |
-| Motifs d'échec | 7 dates : 5 dates d'instantané Reddit postérieures au post, de 4 à environ 102 jours (`reddit-5`, `reddit-10`, `reddit-23`, `reddit-69`, `reddit-71`), et 2 mois d'avis invérifiables (`reviews-reports-4`, `reviews-reports-6`) ; 1 résumé infidèle (`github-4` : un contournement existait) |
-| Réserves sur les items conservés | 8 notes `check_note`, par exemple généralisation à partir d'un seul auteur (`github-94`) ou qualificatif non établi (`demand-use-cases-4`, `demand-use-cases-15`) |
-| Biais résiduel | Les dates Reddit sont des dates d'instantané : jusqu'à environ 3 mois de décalage, poids de récence jusqu'à environ 1,5 fois trop fort. Corrigé en test : mêmes dix codes de douleur en tête, permutation des rangs 3 à 5 |
+| Agreement on the primary code (n = 120) | **83.3%** (100/120), without chance correction |
+| Mean Jaccard over the full set of codes (n = 120) | **0.838** |
+| Sources verified | 60: **52 passed, 8 failed (13.3%), excluded** |
+| Failure reasons | 7 dates: 5 Reddit snapshot dates later than the post, by 4 to about 102 days (`reddit-5`, `reddit-10`, `reddit-23`, `reddit-69`, `reddit-71`), and 2 unverifiable review months (`reviews-reports-4`, `reviews-reports-6`); 1 unfaithful summary (`github-4`: a workaround existed) |
+| Caveats on retained items | 8 `check_note` notes, for example generalization from a single author (`github-94`) or an unestablished qualifier (`demand-use-cases-4`, `demand-use-cases-15`) |
+| Residual bias | Reddit dates are snapshot dates: up to about 3 months of offset, recency weight up to about 1.5 times too strong. Corrected in a test: same top ten pain codes, ranks 3 to 5 permuted |
 
-**Lecture.** L'accord suffit pour classer des familles de douleurs. Il ne départage pas deux codes à moins d'environ 15 % d'écart de score. Le taux d'échec de 13,3 % concerne surtout les **dates** et non le contenu : 1 seul résumé infidèle sur 60.
+**Reading.** The agreement is sufficient to rank pain families. It does not separate two codes less than about 15% apart in score. The 13.3% failure rate mostly concerns **dates**, not content: only 1 unfaithful summary out of 60.
 
-## 5. Couverture et trous
+## 5. Coverage and gaps
 
-D'après les notes des collecteurs :
+According to the collectors' notes:
 
 - **GitHub.**
-  - L'API de recherche plafonne à 30 résultats par requête, donc la longue traîne manque.
-  - Les commentaires n'ont pas été lus en profondeur.
-  - Il y a peu de discussions explicites de prix, et Scrapling et Spider ont peu d'engagement.
-  - Les issues Playwright ont été filtrées sur le scraping, la mémoire et les agents.
+  - The search API caps at 30 results per query, so the long tail is missing.
+  - Comments were not read in depth.
+  - There are few explicit price discussions, and Scrapling and Spider have little engagement.
+  - Playwright issues were filtered on scraping, memory and agents.
 - **Reddit.**
-  - Aucun accès direct (403, refus du domaine, Anubis), et aucun contournement tenté.
-  - Tout passe par des instantanés tiers. La couverture va de mars à septembre 2026 seulement, sans 2025.
-  - L'engagement correspond aux commentaires capturés, sans les votes. Les sous-reddits ne sont pas tagués.
-  - r/dataengineering est peu couvert. Il y a peu de plaintes directes sur les prix d'Apify, Browserbase ou Bright Data.
+  - No direct access (403, domain refusal, Anubis), and no workaround attempted.
+  - Everything goes through third-party snapshots. Coverage runs from March to September 2026 only, with no 2025.
+  - Engagement corresponds to the captured comments, without votes. Subreddits are not tagged.
+  - r/dataengineering is poorly covered. There are few direct complaints about Apify, Browserbase or Bright Data prices.
 - **HN.**
-  - Steel et Kernel sont quasi absents. Aucun item Apify : les fils trouvés étaient promotionnels.
-  - Crawl4AI est peu discuté. Les fils de septembre-octobre 2026 sont encore petits.
-- **Avis et rapports.**
-  - Les pages G2 et capterra.com étaient inaccessibles : on a utilisé la synthèse IA de G2 et des miroirs régionaux de Capterra.
-  - Les pages Trustpilot de Firecrawl, ScrapingBee et ScraperAPI étaient inaccessibles. Les avis indépendants sur Firecrawl sont minces.
-  - Les synthèses écrites par des concurrents (Thunderbit) sont marquées `[P]`.
-  - Le PDF Bright Data 2026 était illisible : seuls les titres sont cités. L'enquête Apify ne publie pas la taille de son échantillon.
-  - Plusieurs items non datés ont été écartés.
-- **Demande.**
-  - Les offres Upwork penchent vers septembre-octobre 2026 et vers les bas budgets.
-  - G2, Capterra, LinkedIn et X n'ont pas été couverts.
-  - Les études de cas sont surtout des éditeurs. La volonté de payer exprimée par des utilisateurs finaux est mince.
-  - Les segments relèvent du jugement du codeur.
-- **Absent de toute la piste :**
-  - les entretiens ;
-  - les communautés fermées (Discord, Slack) ;
-  - les voix des achats en entreprise, hors guides d'éditeurs ;
-  - les sources non anglophones, hormis deux cas cités en anglais (Turquie, Brésil) ;
-  - les marchés asiatiques.
+  - Steel and Kernel are almost absent. No Apify items: the threads found were promotional.
+  - Crawl4AI is little discussed. The September-October 2026 threads are still small.
+- **Reviews and reports.**
+  - The G2 and capterra.com pages were inaccessible: G2's AI summary and regional Capterra mirrors were used instead.
+  - The Trustpilot pages of Firecrawl, ScrapingBee and ScraperAPI were inaccessible. Independent reviews of Firecrawl are thin.
+  - Summaries written by competitors (Thunderbit) are flagged `[P]`.
+  - The Bright Data 2026 PDF was unreadable: only the titles are cited. The Apify survey does not publish its sample size.
+  - Several undated items were discarded.
+- **Demand.**
+  - Upwork postings skew toward September-October 2026 and toward low budgets.
+  - G2, Capterra, LinkedIn and X were not covered.
+  - Case studies come mostly from vendors. Willingness to pay expressed by end users is thin.
+  - Segments are a matter of the coder's judgment.
+- **Absent from the entire track:**
+  - interviews;
+  - closed communities (Discord, Slack);
+  - enterprise procurement voices, outside vendor guides;
+  - non-English sources, except two cases cited in English (Turkey, Brazil);
+  - Asian markets.
 
-## 6. Limites
+## 6. Limits
 
-1. **Voix publique ≠ marché.** Les développeurs d'agents sont surreprésentés (44 %) parce que leurs outils ont des trackers publics et que HN les discute. Les acheteurs entreprise et les équipes data parlent peu en public.
-2. **Engagement hétérogène.** Réactions, points, commentaires et nombres d'avis ne sont pas comparables entre eux. W est ordinal, et les agrégats d'avis pèsent lourd (68 % du poids de `dx-setup-docs`).
-3. **Sources promotionnelles.** Les statistiques de marché sont à 66 % promo ou affiliées. Les prix élevés et les gains annoncés viennent d'éditeurs.
-4. **Codage par LLM.** Le premier codeur est un LLM et l'accord avec le second codeur est bon, mais aucune validation humaine de l'échantillon n'est documentée dans cette synthèse. Le détail des désaccords n'est pas disponible.
-5. **Recherche documentaire ≠ volonté de payer.** Aucun chiffre de ce dossier ne doit servir de prix Automan sans entretiens ni test (`D-pricing`, note du registre).
-6. **Instantané daté.** Corpus figé au 2026-10-08, avec une demi-vie de 6 mois. Une mise à jour suppose un nouveau codage et un nouveau contrôle (codebook §6).
+1. **Public voice ≠ market.** Agent developers are overrepresented (44%) because their tools have public trackers and HN discusses them. Enterprise buyers and data teams speak little in public.
+2. **Heterogeneous engagement.** Reactions, points, comments and review counts are not comparable with one another. W is ordinal, and review aggregates weigh heavily (68% of the weight of `dx-setup-docs`).
+3. **Promotional sources.** Market statistics are 66% promo or affiliated. High prices and announced gains come from vendors.
+4. **LLM coding.** The first coder is an LLM and agreement with the second coder is good, but no human validation of the sample is documented in this synthesis. The detail of the disagreements is not available.
+5. **Desk research ≠ willingness to pay.** No figure in this dossier should serve as an Automan price without interviews or a test (`D-pricing`, register note).
+6. **Dated snapshot.** Corpus frozen as of 2026-10-08, with a 6-month half-life. An update requires new coding and a new check (codebook §6).
 
-## 7. Prochaines actions de la piste
+## 7. Next actions for the track
 
-1. **Entretiens** : guide dérivé de C1 à C12. Au moins 5 entretiens par segment candidat de `D-segment` ; questions de budget ventilé et de seuils de prix sur un « résultat vérifié » défini.
-2. **Test de prix** : page d'atterrissage comparant `verified-result` et un abonnement plafonné.
-3. **Rafraîchissement trimestriel** : même protocole, en ajoutant les sources manquantes (§5).
+1. **Interviews**: guide derived from C1 to C12. At least 5 interviews per candidate segment of `D-segment`; questions on the budget breakdown and price thresholds for a defined "verified result".
+2. **Price test**: landing page comparing `verified-result` and a capped subscription.
+3. **Quarterly refresh**: same protocol, adding the missing sources (§5).

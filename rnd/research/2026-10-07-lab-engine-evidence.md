@@ -1,146 +1,146 @@
-# Laboratoire Automan — audit des trois moteurs demandés
+# Automan Lab — audit of the three requested engines
 
-Relevé du **7 octobre 2026**. « Crawell » est interprété comme **Crawlee** ; « Spider rs » désigne la crate Rust OSS **`spider` du dépôt spider-rs**, distincte de l'API commerciale Spider Cloud.
+Snapshot taken on **October 7, 2026**. "Crawell" is interpreted as **Crawlee**; "Spider rs" designates the OSS Rust crate **`spider` from the spider-rs repository**, distinct from the commercial Spider Cloud API.
 
-**Conclusion :** les trois outils doivent entrer dans le lab, avec des configurations séparées. Spider est une référence de collecte Rust HTTP/Chrome ; Crawlee une référence d'orchestration de crawl ; Stagehand une référence de pilotage et de perception de navigateur. Leurs fonctions communes permettent des expériences, leurs fonctions différentes empêchent un classement global honnête sans définir le résultat attendu.
+**Conclusion:** all three tools should enter the lab, with separate configurations. Spider is a reference for Rust HTTP/Chrome collection; Crawlee a reference for crawl orchestration; Stagehand a reference for browser driving and perception. Their common functions allow experiments; their different functions prevent an honest global ranking without defining the expected result.
 
-Cette note complète les [contrats Crawlee/Spider](2026-10-07-crawlee-spider-contracts-followup.md), l'[audit Stagehand](2026-10-07-stagehand-alternatives-followup.md) et la [clarification CDP](2026-10-07-stagehand-cdp-latency.md). Elle revérifie les registres et des sources officielles ; **aucune dépendance installée, aucun moteur lancé, aucun benchmark exécuté**.
+This note complements the [Crawlee/Spider contracts](2026-10-07-crawlee-spider-contracts-followup.md), the [Stagehand audit](2026-10-07-stagehand-alternatives-followup.md) and the [CDP clarification](2026-10-07-stagehand-cdp-latency.md). It re-verifies the registries and official sources; **no dependency installed, no engine launched, no benchmark run**.
 
-## 1. Versions stables revérifiées et séparation indispensable
+## 1. Re-verified stable versions and indispensable separation
 
-| Composant | Version stable constatée | Contrat utile au lab | Source officielle exacte |
+| Component | Stable version found | Contract useful to the lab | Exact official source |
 |---|---|---|---|
-| Crawlee TypeScript | **3.18.2** | SDK Node.js, HTTP et browser crawlers | [registre npm](https://registry.npmjs.org/crawlee/3.18.2) |
-| Adapter `@crawlee/stagehand` | **3.18.2** | Peer Stagehand **`^3.0.0`**, Playwright `*` | [manifest npm](https://registry.npmjs.org/@crawlee%2Fstagehand/3.18.2) |
-| Stagehand TypeScript | **4.1.0** | Pilote/runtime v4, Node **`>=22.18.0`** | [manifest npm](https://registry.npmjs.org/@browserbasehq%2Fstagehand/4.1.0) |
-| Stagehand branche v3 | **3.7.3**, tag `v3-latest` | Candidat épinglé pour tester l'adapter Crawlee actuel | [registre global](https://registry.npmjs.org/@browserbasehq%2Fstagehand), [manifest 3.7.3](https://registry.npmjs.org/@browserbasehq%2Fstagehand/3.7.3) |
-| Crawlee Python | **1.10.4** | Python **`>=3.10`** ; extra Stagehand **`>=3.19.5,<4.0.0`** | [PyPI exact](https://pypi.org/pypi/crawlee/1.10.4/json) |
-| Spider Rust | **2.53.9** | HTTP natif, features browser/smart/disk/distribution | [crates.io exact](https://crates.io/api/v1/crates/spider/2.53.9) |
-| `spider_agent` | **2.53.9** | Agent Rust facultatif, features par capacité | [crates.io exact](https://crates.io/api/v1/crates/spider_agent/2.53.9) |
-| Playwright | **1.63.0** | Baseline indépendante pour le navigateur | [manifest npm](https://registry.npmjs.org/playwright/1.63.0) |
-| Puppeteer | **25.12.0** | Autre baseline CDP facultative | [manifest npm](https://registry.npmjs.org/puppeteer/25.12.0) |
+| Crawlee TypeScript | **3.18.2** | Node.js SDK, HTTP and browser crawlers | [npm registry](https://registry.npmjs.org/crawlee/3.18.2) |
+| `@crawlee/stagehand` adapter | **3.18.2** | Peer Stagehand **`^3.0.0`**, Playwright `*` | [npm manifest](https://registry.npmjs.org/@crawlee%2Fstagehand/3.18.2) |
+| Stagehand TypeScript | **4.1.0** | v4 driver/runtime, Node **`>=22.18.0`** | [npm manifest](https://registry.npmjs.org/@browserbasehq%2Fstagehand/4.1.0) |
+| Stagehand v3 branch | **3.7.3**, tag `v3-latest` | Pinned candidate for testing the current Crawlee adapter | [global registry](https://registry.npmjs.org/@browserbasehq%2Fstagehand), [3.7.3 manifest](https://registry.npmjs.org/@browserbasehq%2Fstagehand/3.7.3) |
+| Crawlee Python | **1.10.4** | Python **`>=3.10`**; Stagehand extra **`>=3.19.5,<4.0.0`** | [exact PyPI](https://pypi.org/pypi/crawlee/1.10.4/json) |
+| Spider Rust | **2.53.9** | Native HTTP, browser/smart/disk/distribution features | [exact crates.io](https://crates.io/api/v1/crates/spider/2.53.9) |
+| `spider_agent` | **2.53.9** | Optional Rust agent, per-capability features | [exact crates.io](https://crates.io/api/v1/crates/spider_agent/2.53.9) |
+| Playwright | **1.63.0** | Independent baseline for the browser | [npm manifest](https://registry.npmjs.org/playwright/1.63.0) |
+| Puppeteer | **25.12.0** | Other optional CDP baseline | [npm manifest](https://registry.npmjs.org/puppeteer/25.12.0) |
 
-Les numéros npm et Python Stagehand décrivent des paquets différents : `3.7.3` npm n'est pas `3.19.5` Python. Le npm Crawlee 3.18.2 est publié le 29 septembre ; Stagehand 4.1.0 le 9 septembre ; Spider 2.53.9 le 5 septembre, selon leurs registres.
+The Stagehand npm and Python numbers describe different packages: npm `3.7.3` is not Python `3.19.5`. npm Crawlee 3.18.2 was published on September 29; Stagehand 4.1.0 on September 9; Spider 2.53.9 on September 5, according to their registries.
 
-**Ne pas forcer Stagehand v4 dans `@crawlee/stagehand` 3.18.2.** Ce peer exclut v4. Créer une lane Stagehand v4 autonome et, si utile, une lane d'intégration Crawlee + Stagehand v3. Une dépendance qui s'installe avec `--force` ne prouve pas la compatibilité des objets ou du runtime. [Source versionnée de l'adapter](https://github.com/apify/crawlee/blob/v3.18.2/packages/stagehand-crawler/package.json).
+**Do not force Stagehand v4 into `@crawlee/stagehand` 3.18.2.** This peer excludes v4. Create a standalone Stagehand v4 lane and, if useful, a Crawlee + Stagehand v3 integration lane. A dependency that installs with `--force` does not prove compatibility of the objects or of the runtime. [Versioned adapter source](https://github.com/apify/crawlee/blob/v3.18.2/packages/stagehand-crawler/package.json).
 
-## 2. Stagehand : CDP, placement, garanties et coût
+## 2. Stagehand: CDP, placement, guarantees and cost
 
-### Le chiffre qui motive le lab
+### The figure that motivates the lab
 
-Le billet v4 rapporte **un parcours Wikipedia de 50 actions**, toutes réalisées dans les deux variantes : batch Stagehand **14 221,7 ms**, Playwright **22 650,3 ms**, soit **1,59× le débit**, avec RTT client–browser **42,2 ms**. Les médianes annoncées sont `waitForSelector` 237,6 contre 493,2 ms, `click` 323,1 contre 628,1 ms et `goBack` 17,5 contre 139,5 ms. Les auteurs demandent explicitement de considérer cela comme **un run, pas un benchmark général**. [Billet officiel v4, 10 août 2026](https://www.browserbase.com/blog/stagehand-v4).
+The v4 blog post reports **a 50-action Wikipedia journey**, all performed in both variants: Stagehand batch **14,221.7 ms**, Playwright **22,650.3 ms**, i.e. **1.59× the throughput**, with a client–browser RTT of **42.2 ms**. The announced medians are `waitForSelector` 237.6 vs 493.2 ms, `click` 323.1 vs 628.1 ms and `goBack` 17.5 vs 139.5 ms. The authors explicitly ask that this be considered **one run, not a general benchmark**. [Official v4 blog post, August 10, 2026](https://www.browserbase.com/blog/stagehand-v4).
 
-Le gain annoncé concerne une séquence déterministe/batch et son transport distant. Il ne démontre pas le débit d'extraction LLM, le coût total d'un agent, l'autoscaling de crawlers ou une fiabilité sur tous les sites. Le billet ne donne pas à lui seul un corpus reproductible, une distribution de runs, des p95 ni un protocole détaillé de postconditions identiques.
+The announced gain concerns a deterministic/batch sequence and its remote transport. It does not demonstrate LLM extraction throughput, the total cost of an agent, crawler autoscaling or reliability on all sites. The blog post alone does not provide a reproducible corpus, a distribution of runs, p95s or a detailed protocol of identical postconditions.
 
-Playwright **utilise déjà CDP pour Chromium** : `CRBrowser` et `CRConnection` sont dans son backend. L'opposition pertinente est donc pilote, placement de l'exécution, nombre de RPC et contrôles réalisés. Les modes `connect()` Playwright et `connectOverCDP()` sont eux-mêmes distincts ; la réserve de fidélité des docs vise ce dernier mode d'attachement. [Code Chromium officiel](https://github.com/microsoft/playwright/blob/v1.63.0/packages/playwright-core/src/server/chromium/crBrowser.ts), [référence d'attachement](https://playwright.dev/docs/api/class-browsertype#browser-type-connect-over-cdp).
+Playwright **already uses CDP for Chromium**: `CRBrowser` and `CRConnection` are in its backend. The relevant opposition is therefore driver, placement of execution, number of RPCs and checks performed. Playwright's `connect()` and `connectOverCDP()` modes are themselves distinct; the fidelity caveat in the docs targets the latter attachment mode. [Official Chromium code](https://github.com/microsoft/playwright/blob/v1.63.0/packages/playwright-core/src/server/chromium/crBrowser.ts), [attachment reference](https://playwright.dev/docs/api/class-browsertype#browser-type-connect-over-cdp).
 
-### Ce qui a changé en v4
+### What changed in v4
 
-Stagehand v4 place suivi des targets/frames et dispatch CDP dans une extension Chrome, notamment son service worker. Le SDK est un client RPC ; l'extension est proche de l'état navigateur. `experimentalBatch()` exécute un callback JavaScript dans ce worker : une série évite ainsi un trajet SDK–browser par opération. Le callback doit être autonome, avec données JSON explicites ; une fermeture Node.js n'est pas transportée. Un batch n'est pas une transaction et son timeout n'annule pas un effet déjà produit. [Référence `experimentalBatch`](https://docs.stagehand.dev/v4/reference/stagehand).
+Stagehand v4 places target/frame tracking and CDP dispatch in a Chrome extension, notably its service worker. The SDK is an RPC client; the extension is close to the browser state. `experimentalBatch()` executes a JavaScript callback in this worker: a series thus avoids one SDK–browser trip per operation. The callback must be self-contained, with explicit JSON data; a Node.js closure is not transported. A batch is not a transaction and its timeout does not cancel an effect already produced. [`experimentalBatch` reference](https://docs.stagehand.dev/v4/reference/stagehand).
 
-V4 n'a plus de dépendance Playwright et ne reçoit plus une Playwright `Page`. La migration décrit une seule BrowserContext par browser, l'absence d'auto-waiting Playwright, de locators `getBy*`, d'assertions web-first et de route interception. `goto()` attend `domcontentloaded` par défaut ; un selector est résolu une fois. Une durée moindre peut donc acheter moins de garanties. [Migration Playwright officielle](https://docs.stagehand.dev/v4/migrations/playwright).
+V4 no longer has a Playwright dependency and no longer receives a Playwright `Page`. The migration describes a single BrowserContext per browser, and the absence of Playwright auto-waiting, `getBy*` locators, web-first assertions and route interception. `goto()` waits for `domcontentloaded` by default; a selector is resolved once. A shorter duration can therefore buy fewer guarantees. [Official Playwright migration](https://docs.stagehand.dev/v4/migrations/playwright).
 
-Un clic Playwright vérifie notamment visibilité, stabilité, réception des événements et enabled ; ses assertions réessaient. Même ces contrôles n'établissent pas que la bonne entité métier a été modifiée. Il faut deux mesures : **opération native telle que fournie**, puis **opération avec le contrat commun et l'oracle du lab**. [Actionability Playwright](https://playwright.dev/docs/actionability).
+A Playwright click notably checks visibility, stability, event reception and enabled state; its assertions retry. Even these checks do not establish that the right business entity was modified. Two measurements are needed: **native operation as provided**, then **operation with the common contract and the lab's oracle**. [Playwright actionability](https://playwright.dev/docs/actionability).
 
-### Voies déterministes et voies IA
+### Deterministic paths and AI paths
 
-| Voie Stagehand v4 | Inférence sur le chemin normal | Conditions/limites à mesurer |
+| Stagehand v4 path | Inference on the normal path | Conditions/limits to measure |
 |---|---|---|
-| `page`, `locator`, snapshot, capture | Aucune résolution LLM nécessaire | Browser/extension requis ; établir les postconditions indépendamment |
-| `observe(instruction)` | Résolution modèle, hors cache admissible | Actions candidates retournées, pas objectif exécuté |
-| `act(instruction)` | Interprétation puis action, hors cache | Succès technique distinct de vérité métier ; appels additionnels possibles |
-| `act(Action)` | Rejeu direct sans inférence initiale | En stable 4.1.0, **configuration modèle/gateway vérifiée avant la branche directe** ; réparation peut appeler le modèle |
-| `extract(instruction,schema)` | En stable 4.1.0, génération puis appel de complétude | Le deuxième appel reçoit instruction et sortie, pas le snapshot source ; conformité au schéma distincte de vérité |
+| `page`, `locator`, snapshot, capture | No LLM resolution needed | Browser/extension required; establish postconditions independently |
+| `observe(instruction)` | Model resolution, barring an eligible cache hit | Candidate actions returned, not goal executed |
+| `act(instruction)` | Interpretation then action, barring cache | Technical success distinct from business truth; additional calls possible |
+| `act(Action)` | Direct replay without initial inference | In stable 4.1.0, **model/gateway configuration checked before the direct branch**; repair may call the model |
+| `extract(instruction,schema)` | In stable 4.1.0, generation then completeness call | The second call receives instruction and output, not the source snapshot; schema conformance distinct from truth |
 
-Ces détails ont été revérifiés dans le **[tarball stable 4.1.0](https://registry.npmjs.org/@browserbasehq/stagehand/-/stagehand-4.1.0.tgz)** ouvert en mémoire, sans installation : `dist/extension/service-worker.js`, fonctions `act$2`, `extract$1` et `buildCacheContext`, et types `dist/index.d.mts`. Le contrôleur lève `An LLM was not configured during Stagehand initialization` lorsque `act` n'a ni modèle ni gateway, avant le rejeu. Les primitives déterministes Page/Locator restent une voie distincte.
+These details were re-verified in the **[stable 4.1.0 tarball](https://registry.npmjs.org/@browserbasehq/stagehand/-/stagehand-4.1.0.tgz)** opened in memory, without installation: `dist/extension/service-worker.js`, functions `act$2`, `extract$1` and `buildCacheContext`, and types `dist/index.d.mts`. The controller throws `An LLM was not configured during Stagehand initialization` when `act` has neither model nor gateway, before replay. The deterministic Page/Locator primitives remain a distinct path.
 
-Un navigateur local peut utiliser une configuration modèle BYOK ou un callback `generate()`, éventuellement relié à un modèle auto-hébergé. **Le gateway Browserbase n'est pas la seule voie IA**, mais une extension locale ne signifie pas que l'inférence est locale. Publier endpoint, modèle, révision, disponibilité et latence de cette dépendance. [Configuration officielle](https://docs.stagehand.dev/v4/reference/stagehand).
+A local browser can use a BYOK model configuration or a `generate()` callback, possibly connected to a self-hosted model. **The Browserbase gateway is not the only AI path**, but a local extension does not mean that inference is local. Publish the endpoint, model, revision, availability and latency of this dependency. [Official configuration](https://docs.stagehand.dev/v4/reference/stagehand).
 
-`agent()` a été retiré en v4 ; le SDK expose des outils, l'orchestration revient au code ou à un agent externe. La compilation d'un script puis son exécution sans modèle n'est donc pas exclusive à Automan. [Migration v3 officielle](https://docs.stagehand.dev/v4/migrations/v3).
+`agent()` was removed in v4; the SDK exposes tools, and orchestration falls to the code or to an external agent. Compiling a script and then executing it without a model is therefore not exclusive to Automan. [Official v3 migration](https://docs.stagehand.dev/v4/migrations/v3).
 
-### Cache et données fraîches
+### Cache and fresh data
 
-Le cache standard est un service Browserbase : session Browserbase et clé nécessaires ; le navigateur local seul n'en bénéficie pas. Les docs courantes l'annoncent actif par défaut, mais `buildCacheContext` stable 4.1.0 contient **`defaultCaching: initParams.cache ?? false`**. Fixer explicitement `cache`, contrôler les métadonnées et séparer tests locaux et cloud. [Cache officiel](https://docs.stagehand.dev/v4/best-practices/caching), [source distribuée exacte](https://registry.npmjs.org/@browserbasehq/stagehand/-/stagehand-4.1.0.tgz).
+The standard cache is a Browserbase service: Browserbase session and key required; the local browser alone does not benefit from it. The current docs announce it as enabled by default, but stable 4.1.0 `buildCacheContext` contains **`defaultCaching: initParams.cache ?? false`**. Set `cache` explicitly, check the metadata and separate local and cloud tests. [Official cache](https://docs.stagehand.dev/v4/best-practices/caching), [exact distributed source](https://registry.npmjs.org/@browserbasehq/stagehand/-/stagehand-4.1.0.tgz).
 
-Dans le runtime inspecté, `act` conserve des actions, `observe` une liste de candidats, et `extract` une **sortie structurée**. Un HIT extract retourne cette valeur. La requête cache contient URL, arbres AX, instruction/options et schéma ; le modèle est omis. Cela ne prouve ni données systématiquement anciennes, ni fraîcheur universelle : matching/TTL du serveur non public restent à exercer. [Module public correspondant](https://github.com/browserbase/stagehand/blob/fdd179582b6b1f9e43c3d18ad27917cf2e66631e/packages/extension/services/cacheService.ts).
+In the inspected runtime, `act` stores actions, `observe` a list of candidates, and `extract` a **structured output**. An extract HIT returns this value. The cache request contains URL, AX trees, instruction/options and schema; the model is omitted. This proves neither systematically stale data nor universal freshness: the server's non-public matching/TTL remain to be exercised. [Corresponding public module](https://github.com/browserbase/stagehand/blob/fdd179582b6b1f9e43c3d18ad27917cf2e66631e/packages/extension/services/cacheService.ts).
 
-Test décisif : même URL, même layout, prix changé ; vérifier valeur retournée et HIT/MISS avec un oracle serveur. Comptabiliser toutes les captures, appels cache, inférences de réparation, tentatives échouées et tokens. « Zéro token sur HIT » n'est pas « zéro coût » : browser, réseau, validations et service subsistent.
+Decisive test: same URL, same layout, changed price; verify the returned value and HIT/MISS with a server oracle. Account for all captures, cache calls, repair inferences, failed attempts and tokens. "Zero tokens on HIT" is not "zero cost": browser, network, validations and service remain.
 
-## 3. Crawlee : baseline d'orchestration, deux runtimes
+## 3. Crawlee: orchestration baseline, two runtimes
 
-Crawlee TS est écrit en TypeScript et exécuté dans Node.js ; Python est une implémentation distincte. Tous deux proposent concurrence async, pools et crawlers HTTP/navigateur. TS apporte Playwright et Puppeteer ; Python dispose de son intégration Playwright et d'adapters propres. Ne pas extrapoler la surface ou les mesures de l'un à l'autre. [Introduction TS](https://crawlee.dev/js/docs/introduction), [architecture Python](https://crawlee.dev/python/docs/guides/architecture-overview).
+Crawlee TS is written in TypeScript and executed in Node.js; Python is a distinct implementation. Both offer async concurrency, pools and HTTP/browser crawlers. TS brings Playwright and Puppeteer; Python has its own Playwright integration and its own adapters. Do not extrapolate the surface or the measurements of one to the other. [TS introduction](https://crawlee.dev/js/docs/introduction), [Python architecture](https://crawlee.dev/python/docs/guides/architecture-overview).
 
-`AutoscaledPool` ajuste des tâches async selon les ressources, tandis que `BrowserPool` gère browsers/pages. Un worker async de cet autoscale n'est pas par définition un processus distribué. La file `RequestQueue` déduplique par `uniqueKey`, peut ajouter/reclaim/mark handled des requêtes et se branche sur le stockage réellement choisi. [Pool officiel](https://crawlee.dev/js/api/core/class/AutoscaledPool), [queue officielle](https://crawlee.dev/js/api/core/class/RequestQueue).
+`AutoscaledPool` adjusts async tasks according to resources, while `BrowserPool` manages browsers/pages. An async worker of this autoscaling is not by definition a distributed process. The `RequestQueue` deduplicates by `uniqueKey`, can add/reclaim/mark handled requests and plugs into the storage actually chosen. [Official pool](https://crawlee.dev/js/api/core/class/AutoscaledPool), [official queue](https://crawlee.dev/js/api/core/class/RequestQueue).
 
-**Persistance de requêtes n'est pas workflow transactionnel.** Rejouer un handler après crash peut répéter un effet externe ou une sortie déjà écrite avant acquittement. La proposition Automan doit définir ses leases, checkpoints, idempotency keys et validation d'état ; la présence de Crawlee n'établit pas une exécution exactement une fois. Cette conséquence doit être qualifiée avec un kill test et un sink contrôlé. [Cycle BasicCrawler versionné](https://github.com/apify/crawlee/blob/v3.18.2/packages/basic-crawler/src/internals/basic-crawler.ts).
+**Request persistence is not a transactional workflow.** Replaying a handler after a crash can repeat an external effect or an output already written before acknowledgment. The Automan proposal must define its leases, checkpoints, idempotency keys and state validation; the presence of Crawlee does not establish exactly-once execution. This consequence must be qualified with a kill test and a controlled sink. [Versioned BasicCrawler lifecycle](https://github.com/apify/crawlee/blob/v3.18.2/packages/basic-crawler/src/internals/basic-crawler.ts).
 
-`AdaptivePlaywrightCrawler` est une référence particulièrement utile : il compare des sorties du handler HTTP et browser, avec `resultChecker`/`resultComparator`, puis apprend un choix. Le comparateur par défaut concerne les dataset items ; sa validité dépend de ce que produit le handler. Des listes vides ne prouvent pas des liens découverts identiques. [Source adaptative 3.18.2](https://github.com/apify/crawlee/blob/v3.18.2/packages/playwright-crawler/src/internals/adaptive-playwright-crawler.ts).
+`AdaptivePlaywrightCrawler` is a particularly useful reference: it compares the outputs of the HTTP and browser handlers, with `resultChecker`/`resultComparator`, then learns a choice. The default comparator concerns dataset items; its validity depends on what the handler produces. Empty lists do not prove identical discovered links. [Adaptive source 3.18.2](https://github.com/apify/crawlee/blob/v3.18.2/packages/playwright-crawler/src/internals/adaptive-playwright-crawler.ts).
 
-Le HTTP TS peut utiliser **Impit, transport natif Rust** : « SDK TypeScript » ne signifie pas « toutes les opérations réseau en JavaScript ». Ce point justifie une baseline Crawlee HTTP qualifiée, en précisant client TLS/HTTP, parser et compression. [Guide officiel Impit](https://crawlee.dev/js/docs/guides/impit-http-client).
+TS HTTP can use **Impit, a native Rust transport**: "TypeScript SDK" does not mean "all network operations in JavaScript". This point justifies a qualified Crawlee HTTP baseline, specifying the TLS/HTTP client, parser and compression. [Official Impit guide](https://crawlee.dev/js/docs/guides/impit-http-client).
 
-L'adapter TS Stagehand 3.18.2 démarre Stagehand et attache Playwright via CDP. Le plugin avertit que fingerprinting reste partiel car Stagehand contrôle le lancement. Python 1.10.4 utilise `AsyncStagehand`, une session et son URL CDP ; ses limitations de contextes/pages/proxies doivent être traitées séparément. [Plugin TS figé](https://github.com/apify/crawlee/blob/v3.18.2/packages/stagehand-crawler/src/internals/stagehand-plugin.ts), [manifest Python figé](https://github.com/apify/crawlee-python/blob/v1.10.4/pyproject.toml), [guide Python](https://crawlee.dev/python/docs/guides/stagehand-crawler).
+The TS Stagehand adapter 3.18.2 starts Stagehand and attaches Playwright via CDP. The plugin warns that fingerprinting remains partial because Stagehand controls the launch. Python 1.10.4 uses `AsyncStagehand`, a session and its CDP URL; its limitations on contexts/pages/proxies must be handled separately. [Pinned TS plugin](https://github.com/apify/crawlee/blob/v3.18.2/packages/stagehand-crawler/src/internals/stagehand-plugin.ts), [pinned Python manifest](https://github.com/apify/crawlee-python/blob/v1.10.4/pyproject.toml), [Python guide](https://crawlee.dev/python/docs/guides/stagehand-crawler).
 
-## 4. Spider-rs : ce qui existe dans la crate publiée
+## 4. Spider-rs: what exists in the published crate
 
-Source 2.53.9 liée au SHA **`e4b53c5b582357e46433fa9ba3d91f930fb67cb4`**. Le manifeste inspecté utilise Rust/Tokio, HTTP `reqwest 0.13`, et **Chromey facultatif** pour CDP. Les versions de dépendances sont des plages : un futur `Cargo.lock` doit fixer la résolution transitive. [Manifest exact](https://github.com/spider-rs/spider/blob/e4b53c5b582357e46433fa9ba3d91f930fb67cb4/spider/Cargo.toml).
+Source 2.53.9 tied to SHA **`e4b53c5b582357e46433fa9ba3d91f930fb67cb4`**. The inspected manifest uses Rust/Tokio, HTTP `reqwest 0.13`, and **optional Chromey** for CDP. Dependency versions are ranges: a future `Cargo.lock` must pin the transitive resolution. [Exact manifest](https://github.com/spider-rs/spider/blob/e4b53c5b582357e46433fa9ba3d91f930fb67cb4/spider/Cargo.toml).
 
-| Lane proposée | Capacités/activation | Ce qu'elle ne prouve pas seule |
+| Proposed lane | Capabilities/activation | What it does not prove on its own |
 |---|---|---|
-| HTTP | `basic`, acquisition/parsing HTTP | Contenu exécuté par JavaScript |
-| Chrome | `chrome`, Chromey, Chrome/Chromium local ou CDP | Garanties complètes des locators Playwright |
-| Smart | `smart` implique `chrome` et `chrome_intercept` | Choix toujours optimal selon le résultat métier |
-| Agent | `spider_agent`/`agent_chrome`, modèle configuré | Succès indépendant du modèle |
-| Disk | `disk`/SQLx, ensembles SQLite | Queue pending durable et workflows transactionnels |
-| Distributed | `decentralized` + `spider_worker` | Worker browser rendu ou orchestration distribuée générale |
+| HTTP | `basic`, HTTP acquisition/parsing | JavaScript-executed content |
+| Chrome | `chrome`, Chromey, local Chrome/Chromium or CDP | Full guarantees of Playwright locators |
+| Smart | `smart` implies `chrome` and `chrome_intercept` | Always-optimal choice relative to the business result |
+| Agent | `spider_agent`/`agent_chrome`, configured model | Success independent of the model |
+| Disk | `disk`/SQLx, SQLite sets | Durable pending queue and transactional workflows |
+| Distributed | `decentralized` + `spider_worker` | Browser-rendering worker or general distributed orchestration |
 
-Ne pas activer `full` ou toutes les features pour une baseline minimale. Le défaut inclut `basic`, `io_uring`, `tcp_fastopen`, `splice`, `numa`, `zero_copy` ; plusieurs optimisations sont dépendantes de plateforme. La documentation docs.rs agrège de nombreuses features : elle ne décrit pas automatiquement le binaire installé sur macOS. [Liste officielle features](https://crates.io/api/v1/crates/spider/2.53.9).
+Do not enable `full` or all features for a minimal baseline. The default includes `basic`, `io_uring`, `tcp_fastopen`, `splice`, `numa`, `zero_copy`; several optimizations are platform-dependent. The docs.rs documentation aggregates many features: it does not automatically describe the binary installed on macOS. [Official features list](https://crates.io/api/v1/crates/spider/2.53.9).
 
-Smart emploie des signaux HTML pour décider un upgrade, et peut ouvrir Chrome paresseusement. Spider propose aussi des backends parallèles et un `QualityValidator` facultatifs : la validation ne doit pas être réduite à « présence de JS ». Mesurer taux d'upgrade, travail doublé et qualité du résultat demandé. [Chemin smart figé](https://github.com/spider-rs/spider/blob/e4b53c5b582357e46433fa9ba3d91f930fb67cb4/spider/src/page.rs#L8305), [hook qualité](https://github.com/spider-rs/spider/blob/e4b53c5b582357e46433fa9ba3d91f930fb67cb4/spider/src/website.rs#L14248).
+Smart uses HTML signals to decide an upgrade, and can open Chrome lazily. Spider also offers optional parallel backends and a `QualityValidator`: validation must not be reduced to "presence of JS". Measure upgrade rate, doubled work and quality of the requested result. [Pinned smart path](https://github.com/spider-rs/spider/blob/e4b53c5b582357e46433fa9ba3d91f930fb67cb4/spider/src/page.rs#L8305), [quality hook](https://github.com/spider-rs/spider/blob/e4b53c5b582357e46433fa9ba3d91f930fb67cb4/spider/src/website.rs#L14248).
 
-`setup_semaphore()` choisit un handle adaptatif fourni, un sémaphore partagé ou une limite configurée/défaut. Cela ne prouve pas que chaque exécution ajuste automatiquement CPU/RAM comme Crawlee. Le navigateur normal est réutilisé au cours du crawl : ne pas lui opposer une baseline qui lance Chromium à chaque URL. [Sémaphore](https://github.com/spider-rs/spider/blob/e4b53c5b582357e46433fa9ba3d91f930fb67cb4/spider/src/website.rs#L6956), [cycle browser](https://github.com/spider-rs/spider/blob/e4b53c5b582357e46433fa9ba3d91f930fb67cb4/spider/src/website.rs#L9180).
+`setup_semaphore()` chooses a provided adaptive handle, a shared semaphore or a configured/default limit. This does not prove that each execution automatically adjusts to CPU/RAM like Crawlee. The normal browser is reused during the crawl: do not set against it a baseline that launches Chromium for each URL. [Semaphore](https://github.com/spider-rs/spider/blob/e4b53c5b582357e46433fa9ba3d91f930fb67cb4/spider/src/website.rs#L6956), [browser lifecycle](https://github.com/spider-rs/spider/blob/e4b53c5b582357e46433fa9ba3d91f930fb67cb4/spider/src/website.rs#L9180).
 
-### Durabilité et distribution à ne pas surestimer
+### Durability and distribution not to overestimate
 
-La base `disk` contient tables `resources` et `signatures`, sans états pending/running/done ni leases d'étapes. `persist` vaut false par défaut et le Drop efface le fichier lorsqu'il n'est pas conservé. Cette persistance sert des ensembles de visites/signatures ; un frontier après crash exige un contrat supplémentaire. [Schéma et Drop exacts](https://github.com/spider-rs/spider/blob/e4b53c5b582357e46433fa9ba3d91f930fb67cb4/spider/src/features/disk.rs).
+The `disk` database contains `resources` and `signatures` tables, without pending/running/done states or step leases. `persist` defaults to false and Drop deletes the file when it is not kept. This persistence serves visit/signature sets; a frontier after a crash requires an additional contract. [Exact schema and Drop](https://github.com/spider-rs/spider/blob/e4b53c5b582357e46433fa9ba3d91f930fb67cb4/spider/src/features/disk.rs).
 
-`Website::queue()` est un canal Tokio **broadcast en mémoire** ; `persist_links()` change le statut de l'objet pour poursuivre des passes. Le flux de pages doit être consommé vers un sink et son retard observé. Ce n'est pas un journal de résultats durable. [Queue publiée](https://github.com/spider-rs/spider/blob/e4b53c5b582357e46433fa9ba3d91f930fb67cb4/spider/src/website.rs#L14692).
+`Website::queue()` is an **in-memory broadcast** Tokio channel; `persist_links()` changes the object's status to continue passes. The page stream must be consumed into a sink and its lag observed. It is not a durable results journal. [Published queue](https://github.com/spider-rs/spider/blob/e4b53c5b582357e46433fa9ba3d91f930fb67cb4/spider/src/website.rs#L14692).
 
-Le worker OSS utilise Warp 0.4/Hyper 1/Tokio et ses handlers fetch/parsing HTTP ; son manifeste n'active pas Chrome. Le mot worker ne suffit donc pas pour promettre rendu distribué, leases ou restauration d'un job. L'infrastructure privée Spider Cloud est une autre surface. [Manifest worker](https://github.com/spider-rs/spider/blob/e4b53c5b582357e46433fa9ba3d91f930fb67cb4/spider_worker/Cargo.toml), [handlers worker](https://github.com/spider-rs/spider/blob/e4b53c5b582357e46433fa9ba3d91f930fb67cb4/spider_worker/src/main.rs).
+The OSS worker uses Warp 0.4/Hyper 1/Tokio and its HTTP fetch/parsing handlers; its manifest does not enable Chrome. The word worker is therefore not enough to promise distributed rendering, leases or job restoration. Spider Cloud's private infrastructure is another surface. [Worker manifest](https://github.com/spider-rs/spider/blob/e4b53c5b582357e46433fa9ba3d91f930fb67cb4/spider_worker/Cargo.toml), [worker handlers](https://github.com/spider-rs/spider/blob/e4b53c5b582357e46433fa9ba3d91f930fb67cb4/spider_worker/src/main.rs).
 
-Le benchmark public Spider oppose Spider, Colly, le paquet Node **`crawler`**, wget : **Crawlee et Stagehand n'y figurent pas**. Démarrage/concurrence/sorties ont des asymétries et les volumes corrects ne sont pas assertionnés. Ne pas utiliser ses multiplicateurs pour choisir le runtime Automan. [Protocole source figé](https://github.com/spider-rs/spider/blob/fb0f270d77e19442de59350d9dbbacf52f1804b4/benches/BENCHMARKS.md), [audit détaillé local](2026-10-07-benchmark-audit-followup.md).
+The public Spider benchmark pits Spider, Colly, the Node package **`crawler`** and wget against each other: **Crawlee and Stagehand are not included**. Startup/concurrency/outputs have asymmetries and correct volumes are not asserted. Do not use its multipliers to choose the Automan runtime. [Pinned source protocol](https://github.com/spider-rs/spider/blob/fb0f270d77e19442de59350d9dbbacf52f1804b4/benches/BENCHMARKS.md), [detailed local audit](2026-10-07-benchmark-audit-followup.md).
 
-## 5. Installation reproductible proposée, à réaliser pendant l'implémentation
+## 5. Proposed reproducible installation, to be carried out during implementation
 
-**Ne pas installer les trois dans un seul projet de dépendances.** Préparer des adaptateurs isolés sous un répertoire `lab/`, chacun exposant le contrat du harness et ses versions. Utiliser les packages publiés ; clones upstream seulement pour un profil explicitement expérimental.
+**Do not install all three in a single dependency project.** Prepare isolated adapters under a `lab/` directory, each exposing the harness contract and its versions. Use the published packages; upstream clones only for an explicitly experimental profile.
 
-1. **Crawlee TS 3.18.2 + Playwright 1.63.0** : packages/workspaces isolés, versions exactes, `pnpm-lock.yaml`, installation par `pnpm install --frozen-lockfile` pour reproduire. L'alternative npm est `package-lock.json` + `npm ci` ; choisir un gestionnaire et sa version exacte pour le lab. HTTP et browser explicitement sélectionnés ; le backend HTTP et le parser sont enregistrés.
-2. **Stagehand TS 4.1.0 autonome** : lock séparé, Node exact respectant `>=22.18.0`, bundle d'extension du package. Lane sans modèle via Page/Locator, puis lane modèle/cache séparée. Fixer `cache` et `selfHeal` explicitement.
-3. **Crawlee + Stagehand v3 facultatif** : lock séparé, `@crawlee/stagehand@3.18.2` et `@browserbasehq/stagehand@3.7.3`, avec peers résolus et smoke test avant qualification. Pas de mélange v3/v4.
-4. **Spider `=2.53.9`** : `Cargo.lock`, toolchain Rust exacte après qualification, build `--release --locked`, features publiées. Profils HTTP, Chrome, Smart compilés/contrôlés séparément ; relever `cargo tree -e features`.
-5. **Python facultatif** : environnement isolé, Crawlee `==1.10.4`, lock avec hashes et versions exactes des extras. La baseline TS reste distincte de Python.
+1. **Crawlee TS 3.18.2 + Playwright 1.63.0**: isolated packages/workspaces, exact versions, `pnpm-lock.yaml`, installation via `pnpm install --frozen-lockfile` to reproduce. The npm alternative is `package-lock.json` + `npm ci`; choose one manager and its exact version for the lab. HTTP and browser explicitly selected; the HTTP backend and the parser are recorded.
+2. **Standalone Stagehand TS 4.1.0**: separate lock, exact Node satisfying `>=22.18.0`, the package's extension bundle. Model-free lane via Page/Locator, then a separate model/cache lane. Set `cache` and `selfHeal` explicitly.
+3. **Optional Crawlee + Stagehand v3**: separate lock, `@crawlee/stagehand@3.18.2` and `@browserbasehq/stagehand@3.7.3`, with resolved peers and a smoke test before qualification. No mixing of v3/v4.
+4. **Spider `=2.53.9`**: `Cargo.lock`, exact Rust toolchain after qualification, `--release --locked` build, published features. HTTP, Chrome and Smart profiles compiled/checked separately; record `cargo tree -e features`.
+5. **Optional Python**: isolated environment, Crawlee `==1.10.4`, lock with hashes and exact versions of the extras. The TS baseline remains distinct from Python.
 
-Cargo peut unifier les features d'une même dépendance dans un build de workspace : une lane HTTP ne doit pas hériter silencieusement de Chrome/Smart parce que le harness compile tous les adapters ensemble. Utiliser projets ou invocations contrôlés et vérifier le graphe effectivement construit. [Règles Cargo officielles](https://doc.rust-lang.org/cargo/reference/features.html#feature-unification).
+Cargo can unify the features of a single dependency in a workspace build: an HTTP lane must not silently inherit Chrome/Smart because the harness compiles all the adapters together. Use controlled projects or invocations and verify the graph actually built. [Official Cargo rules](https://doc.rust-lang.org/cargo/reference/features.html#feature-unification).
 
-### Le navigateur doit également être figé
+### The browser must also be pinned
 
-Épingler **l'exécutable Chrome/Chromium et sa version exacte**, plateforme/architecture, checksum et flags. Fournir le même `executablePath` aux comparateurs du profil commun. Garder un second profil « navigateur fourni/recommandé par l'outil » si ce choix influence les capacités ; ses résultats ne sont pas fusionnés avec le profil commun.
+Pin **the Chrome/Chromium executable and its exact version**, platform/architecture, checksum and flags. Provide the same `executablePath` to the comparators of the common profile. Keep a second "tool-provided/recommended browser" profile if that choice influences capabilities; its results are not merged with the common profile.
 
-Stagehand stable recherche un Chrome existant et, sur macOS, peut préférer **Canary** à Stable ; l'autodétection fausserait le contrôle du navigateur. Son manifeste d'extension annonce un minimum Chrome 116, mais le SDK utilise `Extensions.loadUnpacked` et signale une erreur si cette commande manque. Ce minimum n'est donc pas une preuve de compatibilité de toutes les builds. Exiger une préqualification extension/loadUnpacked, frames, screenshot et clic ; ensuite figer la build. [Tarball exact, SDK et manifest d'extension](https://registry.npmjs.org/@browserbasehq/stagehand/-/stagehand-4.1.0.tgz).
+Stable Stagehand looks for an existing Chrome and, on macOS, may prefer **Canary** over Stable; autodetection would undermine control of the browser. Its extension manifest announces a minimum of Chrome 116, but the SDK uses `Extensions.loadUnpacked` and reports an error if this command is missing. This minimum is therefore not proof of compatibility with all builds. Require a prequalification of extension/loadUnpacked, frames, screenshot and click; then pin the build. [Exact tarball, SDK and extension manifest](https://registry.npmjs.org/@browserbasehq/stagehand/-/stagehand-4.1.0.tgz).
 
-Normaliser l'isolation : Stagehand v4 fournit **un contexte par browser**. Dans une expérience d'isolation de sessions/tenants, utiliser un browser par identité aussi chez les baselines, ou publier séparément le coût d'une stratégie multi-contextes disponible ailleurs. Un browser partagé multi-onglets et plusieurs browsers isolés ne rendent pas le même service.
+Normalize isolation: Stagehand v4 provides **one context per browser**. In a session/tenant isolation experiment, use one browser per identity for the baselines too, or separately publish the cost of a multi-context strategy available elsewhere. A shared multi-tab browser and several isolated browsers do not provide the same service.
 
-### Données à enregistrer dans chaque résultat
+### Data to record in each result
 
-Version package + lock hash + features ; runtime/compiler ; browser/extension/flags ; machine/OS ; placement client/driver/browser ; modèle/endpoint ; cache HIT/MISS ; URL corpus/seed ; concurrence et limites ; nombre de commandes/captures/inférences ; états finaux vérifiés ; tentatives et erreurs ; CPU/RSS du **groupe de processus**, bytes et coût total.
+Package version + lock hash + features; runtime/compiler; browser/extension/flags; machine/OS; client/driver/browser placement; model/endpoint; cache HIT/MISS; corpus URL/seed; concurrency and limits; number of commands/captures/inferences; verified final states; attempts and errors; CPU/RSS of the **process group**, bytes and total cost.
 
-Les projets sont actuellement des candidats. Un lock est une preuve de résolution reproductible, pas une preuve de compatibilité : qualification locale indispensable, puis tests communs avant toute décision Rust/TypeScript ou CDP/Playwright.
+The projects are currently candidates. A lock is proof of reproducible resolution, not proof of compatibility: local qualification is indispensable, then common tests before any Rust/TypeScript or CDP/Playwright decision.
 
-## 6. Expériences qui départageront ces moteurs
+## 6. Experiments that will decide between these engines
 
-- **Transport/browser déterministe** : Playwright, Stagehand Page/Locator, Stagehand batch, Spider/Chromey sur mêmes primitives et même oracle ; local puis RTT contrôlées, placement du driver enregistré.
-- **Collecte** : Spider HTTP/Chrome/Smart et Crawlee HTTP/Playwright/adaptatif sur corpus connu, mêmes URL autorisées, contenu et ressources ; aucune IA obligatoire.
-- **Perception/IA** : Stagehand observe/act/extract et `spider_agent`, même modèle/budget si possible, extraction exacte, faux succès et nombre réel d'appels.
-- **Répétition et dérive** : première décision, rejeu, données fraîches, mutation DOM sémantiquement trompeuse et réparation bornée ; pas seulement taux de HIT.
-- **Incident/reprise** : kill après sortie/avant acquittement, lenteur sink, perte CDP, crash browser et identité expirée ; travail perdu/doublons explicitement comptés.
+- **Deterministic transport/browser**: Playwright, Stagehand Page/Locator, Stagehand batch, Spider/Chromey on the same primitives and the same oracle; local, then controlled RTTs, driver placement recorded.
+- **Collection**: Spider HTTP/Chrome/Smart and Crawlee HTTP/Playwright/adaptive on a known corpus, same authorized URLs, content and resources; no mandatory AI.
+- **Perception/AI**: Stagehand observe/act/extract and `spider_agent`, same model/budget if possible, exact extraction, false successes and real number of calls.
+- **Repetition and drift**: first decision, replay, fresh data, semantically misleading DOM mutation and bounded repair; not just HIT rate.
+- **Incident/resumption**: kill after output/before acknowledgment, slow sink, CDP loss, browser crash and expired identity; lost work/duplicates explicitly counted.
 
-**Décision proposée :** Rust/Tokio reste une hypothèse cohérente pour un runtime commun et portable. Ce lab doit déterminer quelles couches en bénéficient, quels composants réutiliser et quelles garanties posséder. Une extension placée près du browser, un worker Node co-localisé et un driver Rust distant peuvent inverser un classement fondé seulement sur le langage.
+**Proposed decision:** Rust/Tokio remains a coherent hypothesis for a common and portable runtime. This lab must determine which layers benefit from it, which components to reuse and which guarantees to own. An extension placed close to the browser, a co-located Node worker and a remote Rust driver can reverse a ranking based only on language.

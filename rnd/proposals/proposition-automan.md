@@ -1,118 +1,118 @@
-# Automan : proposition de framework et de plateforme
+# Automan: framework and platform proposal
 
-**Dossier de conception du 7 octobre 2026. Statut : proposition.** Aucun moteur Automan, service hébergé ou benchmark Automan n'est encore implémenté. La maquette jointe illustre le produit avec des données simulées.
+**Design dossier of October 7, 2026. Status: proposal.** No Automan engine, hosted service or Automan benchmark is implemented yet. The attached mockup illustrates the product with simulated data.
 
-## 1. Direction recommandée
+## 1. Recommended direction
 
-Construire **un moteur d'automatisation web commun, avec une frontier de crawl durable, plusieurs moyens d'accès au site, des plans réutilisables et une vérification explicite des résultats**. Ce moteur sert la console web, les SDK, la CLI, MCP, l'app macOS et le service hébergé.
+Build **a common web automation engine, with a durable crawl frontier, several means of accessing the site, reusable plans and explicit verification of results**. This engine serves the web console, the SDKs, the CLI, MCP, the macOS app and the hosted service.
 
-La consolidation recherchée est la réunion des capacités et de leurs contrats, plutôt qu'une fusion des dépôts Crawlee, Spider et Stagehand. Ces projets ont des modèles d'état, de reprise et de sessions différents ; empiler leurs schedulers et leurs caches introduirait des responsabilités concurrentes. Le détail des différences vérifiées est dans les matrices de [collecte](../research/2026-10-07-crawl-capability-matrix.md) et d'[automatisation/agents](../research/2026-10-07-agent-capability-matrix.md).
+The consolidation sought is the union of capabilities and their contracts, rather than a merger of the Crawlee, Spider and Stagehand repositories. These projects have different state, recovery and session models; stacking their schedulers and caches would introduce competing responsibilities. The details of the verified differences are in the [collection](../research/2026-10-07-crawl-capability-matrix.md) and [automation/agents](../research/2026-10-07-agent-capability-matrix.md) matrices.
 
-**Choix proposés : Rust + Tokio pour le moteur ; HTTP natif et Chromium/CDP pour l'exécution ; Playwright pour la référence et les capacités de compatibilité ; TypeScript et Python pour les SDK ; React/shadcn pour le web ; SwiftUI/AppKit pour macOS.** Rust et CDP se complètent : le premier est un langage/runtime hôte, le second un protocole de pilotage du navigateur. Ni ce choix ni les recherches ne démontrent une supériorité de performance Automan.
+**Proposed choices: Rust + Tokio for the engine; native HTTP and Chromium/CDP for execution; Playwright for the reference and compatibility capabilities; TypeScript and Python for the SDKs; React/shadcn for the web; SwiftUI/AppKit for macOS.** Rust and CDP complement each other: the first is a host language/runtime, the second a browser control protocol. Neither this choice nor the research demonstrates Automan performance superiority.
 
-L'ambition produit inclut l'ensemble des fonctions demandées. Les étapes de développement sont ordonnées par dépendance et preuve, sans hypothèse de petite équipe ni échéance arbitraire.
+The product ambition includes all the requested functions. The development stages are ordered by dependency and evidence, without assuming a small team or an arbitrary deadline.
 
-## 2. Ce que prendre chez chaque référence
+## 2. What to take from each reference
 
-| Référence | Mécanismes pertinents | Consolidation proposée | Limite à corriger ou qualifier |
+| Reference | Relevant mechanisms | Proposed consolidation | Limitation to correct or qualify |
 | --- | --- | --- | --- |
-| Crawlee | Frontier, autoscaling, pools, routage, sessions, proxies, stockage, crawling adaptatif | Orchestration générale et contraintes de ressources ; comparaison HTTP/navigateur fondée sur le résultat | Résultats et acquittement ne forment pas automatiquement une transaction ; custom handlers réexécutables ; intégration Stagehand publiée encore liée à v3 |
-| Spider-rs | Chemin HTTP natif, crawling concurrent, streaming, découverte, politiques réseau, rendu à la demande | Collecte légère, parsing et flux bornés ; workers proches du navigateur | Disque de visites ≠ frontier durable ; qualité HTML ≠ correction métier ; autoscaling de ressources à construire/qualifier |
-| Stagehand v4 | Primitives naturelles et déterministes, observations, plans d'actions, placement près de Chrome, batching | API `observe/act/extract`, décisions amorties, opérations groupées côté worker | Cache cloud ≠ cache local portable ; résolution de cible ≠ preuve de résultat ; couverture du pilote différente de Playwright |
-| Playwright | Locators, actionability, attentes, événements, frames, téléchargements, réseau, moteurs multiples | Suite de conformité et backend de compatibilité | Une connexion CDP externe n'a pas la même fidélité que son protocole propre ; coût d'un worker Node à mesurer |
-| Scrapy / Colly / StormCrawler | Frontier, politiques de crawl, pipelines, throttling, stockage/distribution | Complétude, politeness, règles de découverte, reprise et pipelines | Leur architecture ne doit pas imposer un cluster aux usages locaux |
-| Browser Use / Skyvern / Magnitude | Boucles d'agent, perception multimodale, workflows, décisions réutilisées | Agent facultatif, décisions typées, escalade DOM → modèle → vision | Prompts, modèles et décisions ont un coût ; validation d'un modèle ≠ vérité indépendante |
-| Scrapling / Imprint / OpenAdapt Flow | Localisation adaptative, enregistrement, replay, preuves et tests de dérive | Autoréparation versionnée, trace causale, plans paramétrés et tests | Heuristiques de similarité ≠ probabilité ; généralisation et maturité à démontrer |
-| Crawl4AI / Firecrawl / Katana | Extraction de contenu, formats, dispatch, découverte de liens/API | Markdown/HTML/JSON, extraction par règles ou modèles, découverte avancée | Distinguer SDK, moteur open source et fonctions de service propriétaire |
+| Crawlee | Frontier, autoscaling, pools, routing, sessions, proxies, storage, adaptive crawling | General orchestration and resource constraints; HTTP/browser comparison based on the result | Results and acknowledgement do not automatically form a transaction; re-executable custom handlers; published Stagehand integration still tied to v3 |
+| Spider-rs | Native HTTP path, concurrent crawling, streaming, discovery, network policies, on-demand rendering | Lightweight collection, parsing and bounded streams; workers close to the browser | On-disk visit record ≠ durable frontier; HTML quality ≠ business correctness; resource autoscaling to build/qualify |
+| Stagehand v4 | Natural and deterministic primitives, observations, action plans, placement near Chrome, batching | `observe/act/extract` API, amortized decisions, grouped operations on the worker side | Cloud cache ≠ portable local cache; target resolution ≠ proof of result; driver coverage different from Playwright's |
+| Playwright | Locators, actionability, waits, events, frames, downloads, network, multiple engines | Conformance suite and compatibility backend | An external CDP connection does not have the same fidelity as its own protocol; cost of a Node worker to be measured |
+| Scrapy / Colly / StormCrawler | Frontier, crawl policies, pipelines, throttling, storage/distribution | Completeness, politeness, discovery rules, recovery and pipelines | Their architecture must not impose a cluster on local uses |
+| Browser Use / Skyvern / Magnitude | Agent loops, multimodal perception, workflows, reused decisions | Optional agent, typed decisions, DOM → model → vision escalation | Prompts, models and decisions have a cost; a model's validation ≠ independent truth |
+| Scrapling / Imprint / OpenAdapt Flow | Adaptive localization, recording, replay, evidence and drift tests | Versioned self-repair, causal trace, parameterized plans and tests | Similarity heuristics ≠ probability; generalization and maturity to be demonstrated |
+| Crawl4AI / Firecrawl / Katana | Content extraction, formats, dispatch, link/API discovery | Markdown/HTML/JSON, rule- or model-based extraction, advanced discovery | Distinguish SDK, open-source engine and proprietary service functions |
 
-Sources et versions détaillées : [comparaison inspectée](../research/2026-10-07-stagehand-crawlee-spider-comparison.md), [contrats Crawlee/Spider](../research/2026-10-07-crawlee-spider-contracts-followup.md), [contrats Stagehand/alternatives](../research/2026-10-07-stagehand-alternatives-followup.md), [paysage commercial](../research/2026-10-07-commercial-landscape.md). Ce paysage répertorie 64 acteurs/familles de produits ; il ne constitue pas une vérification exhaustive de chaque fonction de chaque acteur. Les matrices complètent le catalogue par les mécanismes qui influencent la conception.
+Detailed sources and versions: [inspected comparison](../research/2026-10-07-stagehand-crawlee-spider-comparison.md), [Crawlee/Spider contracts](../research/2026-10-07-crawlee-spider-contracts-followup.md), [Stagehand/alternatives contracts](../research/2026-10-07-stagehand-alternatives-followup.md), [commercial landscape](../research/2026-10-07-commercial-landscape.md). This landscape lists 64 players/product families; it does not constitute an exhaustive verification of every function of every player. The matrices complement the catalog with the mechanisms that influence the design.
 
-## 3. Architecture d'ensemble
+## 3. Overall architecture
 
 ```mermaid
 flowchart TB
-    UI[Console React / shadcn] --> API[API de controle versionnee]
-    MAC[App SwiftUI / AppKit] --> API
-    SDK[SDK TS / Python - CLI - MCP] --> API
-    API --> CORE[Moteur Rust / Tokio]
-    CORE --> FRONTIER[Frontier - leases - priorites - quotas]
-    CORE --> EXEC[Plans - journal - reprise - verification]
+    UI[React / shadcn console] --> API[Versioned control API]
+    MAC[SwiftUI / AppKit app] --> API
+    SDK[TS / Python SDK - CLI - MCP] --> API
+    API --> CORE[Rust / Tokio engine]
+    CORE --> FRONTIER[Frontier - leases - priorities - quotas]
+    CORE --> EXEC[Plans - log - recovery - verification]
     FRONTIER --> EXEC
-    EXEC --> ADMIT[Admission commune et budgets]
-    ADMIT --> HTTP[HTTP natif / parsing]
-    ADMIT --> BROWSER[Worker navigateur CDP ou Playwright]
-    ADMIT --> MODELS[Modeles / agent / compilation / reparation]
-    EXEC --> STORE[Datasets - artefacts - caches distincts]
-    CORE --> STATE[SQLite local / PostgreSQL cloud]
-    CLOUD[Service heberge : identites - flotte - facturation] --> API
+    EXEC --> ADMIT[Shared admission and budgets]
+    ADMIT --> HTTP[Native HTTP / parsing]
+    ADMIT --> BROWSER[CDP or Playwright browser worker]
+    ADMIT --> MODELS[Models / agent / compilation / repair]
+    EXEC --> STORE[Datasets - artifacts - separate caches]
+    CORE --> STATE[Local SQLite / cloud PostgreSQL]
+    CLOUD[Hosted service: identities - fleet - billing] --> API
 ```
 
-Le noyau commence comme **un ensemble de modules dans un exécutable**, avec un processus navigateur séparé et des workers isolés lorsque nécessaire. Le cloud ajoute gestion de flotte, multi-tenant et exploitation. Il utilise la même sémantique d'exécution. Les SDK ne réimplémentent pas le scheduler ou la réparation.
+The core starts as **a set of modules in one executable**, with a separate browser process and isolated workers when necessary. The cloud adds fleet management, multi-tenancy and operations. It uses the same execution semantics. The SDKs do not reimplement the scheduler or repair.
 
-Les quatre formes d'automatisation sont des politiques explicites d'un même moteur :
+The four forms of automation are explicit policies of a single engine:
 
-1. **Déterministe** : requêtes, sélecteurs, étapes et validations déclarés ; aucun modèle nécessaire.
-2. **Assistée par IA** : une instruction résout une cible ou une extraction précise ; l'appel et son coût sont visibles.
-3. **Agent** : une boucle choisit ses prochains outils avec limites et état terminal vérifié ; elle peut être externe.
-4. **Compilation et réparation** : une démonstration ou un agent produit un plan paramétré, qualifié puis rejoué ; la dérive déclenche une réparation contrôlée.
+1. **Deterministic**: declared requests, selectors, steps and validations; no model needed.
+2. **AI-assisted**: an instruction resolves a precise target or extraction; the call and its cost are visible.
+3. **Agent**: a loop chooses its next tools with limits and a verified terminal state; it can be external.
+4. **Compilation and repair**: a demonstration or an agent produces a parameterized plan, qualified then replayed; drift triggers a controlled repair.
 
-Le chemin connu utilise le moyen suffisant : API autorisée ou HTTP, navigateur déterministe, résolution sémantique, puis agent/vision lorsque requis. Il s'agit d'une politique de coût et de capacité, pas d'un ordre universel : un workflow authentifié connu peut aller directement au navigateur.
+The known path uses the sufficient means: authorized API or HTTP, deterministic browser, semantic resolution, then agent/vision when required. This is a cost and capability policy, not a universal order: a known authenticated workflow can go directly to the browser.
 
-## 4. Choix techniques et alternatives
+## 4. Technical choices and alternatives
 
-| Décision proposée | Pourquoi dans ce produit | Alternative réelle et condition de réexamen |
+| Proposed decision | Why in this product | Real alternative and condition for re-examination |
 | --- | --- | --- |
-| Moteur canonique Rust/Tokio | Bibliothèque et binaire distribuables, ressources maîtrisées, sémantique commune aux clients | TS/Node est très viable pour Playwright et extensions ; le choisir si maintenance du pilote natif domine sans avantage utile mesuré |
-| Chromium/CDP natif + backend Playwright | Chemin natif pour HTTP/Chrome, référence robuste pour les interactions et compatibilité | Extension comme runtime principal, à la Stagehand, si ses gains de placement justifient lifecycle/distribution et limites Chromium |
-| Rust worker près de Chromium | Limiter les allers-retours distants et réutiliser les sessions | SDK pilotant directement chaque clic distant : simple mais coût RTT à mesurer ; un petit helper de page/extension peut grouper le travail sans devenir un second moteur |
-| SQLite local, PostgreSQL cloud | Transaction sur état, résultat et acquittement ; leases inspectables | Broker spécialisé si la capacité mesurée ou la topologie l'exige ; un broker n'est pas une seconde source de vérité |
-| Console React/shadcn avec Vite | Console opérationnelle servie localement et en cloud, contrat API commun sans besoin de SSR | Next.js pertinent pour site public/docs, SSR/BFF justifié ou export statique ; aucun moteur de crawl dans le frontend |
-| App macOS SwiftUI/AppKit, daemon séparé | Interface réellement native, moteur partagé et isolation du lifecycle | FFI Rust si une mesure justifie IPC ; WebView/Tauri ne satisfait pas seul l'objectif d'interface native |
-| Apache-2.0 proposé pour le framework | Adoption des développeurs et construction de services autour | Copyleft possible si l'objectif de diffusion change ; les dépendances gardent leurs licences propres |
+| Canonical Rust/Tokio engine | Distributable library and binary, controlled resources, semantics shared by all clients | TS/Node is very viable for Playwright and extensions; choose it if maintenance of the native driver dominates without a measured useful advantage |
+| Native Chromium/CDP + Playwright backend | Native path for HTTP/Chrome, robust reference for interactions and compatibility | Extension as the main runtime, à la Stagehand, if its placement gains justify the lifecycle/distribution and Chromium limits |
+| Rust worker near Chromium | Limit remote round trips and reuse sessions | SDK directly driving each remote click: simple, but RTT cost to be measured; a small page helper/extension can group the work without becoming a second engine |
+| Local SQLite, cloud PostgreSQL | Transaction over state, result and acknowledgement; inspectable leases | Specialized broker if measured capacity or topology requires it; a broker is not a second source of truth |
+| React/shadcn console with Vite | Operational console served locally and in the cloud, common API contract with no need for SSR | Next.js relevant for a public site/docs, justified SSR/BFF or static export; no crawl engine in the frontend |
+| SwiftUI/AppKit macOS app, separate daemon | Truly native interface, shared engine and lifecycle isolation | Rust FFI if a measurement justifies it over IPC; WebView/Tauri alone does not meet the native interface goal |
+| Apache-2.0 proposed for the framework | Developer adoption and building services around it | Copyleft possible if the distribution goal changes; dependencies keep their own licenses |
 
-Les décisions sont détaillées dans [l'architecture](architecture.md) et les [options de plateforme sourcées](../research/2026-10-07-product-platform-options.md). Le choix Rust précédent reste un [ADR proposé](../adr/0001-runtime-language.md), développé ici. Il n'existe pas de consensus universel établi sur le « meilleur langage ».
+The decisions are detailed in [the architecture](architecture.md) and the [sourced platform options](../research/2026-10-07-product-platform-options.md). The earlier Rust choice remains a [proposed ADR](../adr/0001-runtime-language.md), expanded here. There is no established universal consensus on the "best language".
 
-## 5. L'API et l'expérience produit
+## 5. The API and the product experience
 
-L'API donne un usage court pour l'extraction ponctuelle et des contrôles précis pour la production : même session, même run, mêmes traces. Une URL, un schéma et une politique suffisent au cas simple ; un workflow versionné fixe découverte, étapes, validation et budgets pour le cas récurrent. Les instructions en langage naturel restent une option explicite, pas une condition de chaque opération.
+The API provides short usage for one-off extraction and precise controls for production: same session, same run, same traces. A URL, a schema and a policy are enough for the simple case; a versioned workflow fixes discovery, steps, validation and budgets for the recurring case. Natural-language instructions remain an explicit option, not a condition of every operation.
 
-La console permet de créer, tester, exécuter et diagnostiquer avant d'ouvrir les paramètres avancés. Son objet central est le **run avec sa chronologie, ses données et ses preuves**. Les pools et workers ont des vues dédiées à l'exploitation ; les éléments internes du driver ne sont pas montrés dans le parcours de création. [Contrats et exemples d'API](api.md), [design des interfaces](product-design.md), [maquette interactive](design/automan-console.html).
+The console makes it possible to create, test, run and diagnose before opening the advanced settings. Its central object is the **run with its timeline, its data and its evidence**. Pools and workers have dedicated operations views; the driver's internals are not shown in the creation flow. [API contracts and examples](api.md), [interface design](product-design.md), [interactive mockup](design/automan-console.html).
 
-Le PRD sera rédigé après les décisions du [plan R&D](../plan/rd-plan.md). Le [glossaire](../../GLOSSARY.md) évite notamment de confondre workflow, run, agent, pool et session.
+The PRD will be written after the decisions of the [R&D plan](../plan/rd-plan.md). The [glossary](../GLOSSARY.md) notably avoids confusing workflow, run, agent, pool and session.
 
-La **documentation complète est un livrable du développement**, à produire avec chaque capacité : quickstarts, concepts, guides, références exhaustives, exemples, exploitation, migration et diagnostic. Son [plan de couverture](documentation-plan.md) décrit le travail futur ; les exemples du présent dossier restent des propositions d'API.
+The **complete documentation is a development deliverable**, to be produced with each capability: quickstarts, concepts, guides, exhaustive references, examples, operations, migration and diagnostics. Its [coverage plan](documentation-plan.md) describes the future work; the examples in this dossier remain API proposals.
 
-## 6. La différenciation à construire
+## 6. The differentiation to build
 
-Les concurrents possèdent déjà plusieurs mécanismes recherchés : HTTP adaptatif, cache d'actions, code caching, agents, auto-localisation et replay. Automan doit rendre leur réunion plus utile :
+Competitors already have several of the sought mechanisms: adaptive HTTP, action cache, code caching, agents, self-localization and replay. Automan must make their combination more useful:
 
-- **Une seule sémantique locale/cloud** : portabilité des plans, résultats, sessions autorisées et diagnostics.
-- **Fiabilité observable** : erreur de complétude ou d'identité détectée même sans exception ; aucun succès annoncé pour un effet inconnu.
-- **IA amortie** : création et réparation coûtent ; les replays connus restent déterministes et sont instrumentés.
-- **Pilotage des ressources commun** : CPU, mémoire, HTTP, navigateurs, requêtes par domaine, tokens et budgets ne se concurrencent pas dans des schedulers cachés.
-- **Adoption agentique simple** : outils typés, CLI JSON, MCP standard, schémas et capacités négociés, résultats paginés/référencés.
+- **A single local/cloud semantics**: portability of plans, results, authorized sessions and diagnostics.
+- **Observable reliability**: completeness or identity errors detected even without an exception; no success announced for an unknown effect.
+- **Amortized AI**: creation and repair have a cost; known replays remain deterministic and are instrumented.
+- **Shared resource control**: CPU, memory, HTTP, browsers, requests per domain, tokens and budgets do not compete in hidden schedulers.
+- **Simple agentic adoption**: typed tools, JSON CLI, standard MCP, negotiated schemas and capabilities, paginated/referenced results.
 
-Ce sont des objectifs de conception, pas encore un avantage établi. La mesure principale sera le coût et la latence par résultat **réellement vérifié**, avec la couverture, la fraîcheur et les échecs publiés. [Protocole de preuve existant](../research/2026-10-07-benchmark-and-runtime.md), [gates de promotion](../plan/rd-plan.md#7-gates-de-promotion-sans-chiffres-inventés).
+These are design goals, not yet an established advantage. The main measure will be cost and latency per **actually verified** result, with coverage, freshness and failures published. [Existing evidence protocol](../research/2026-10-07-benchmark-and-runtime.md), [promotion gates](../plan/rd-plan.md#7-promotion-gates-without-invented-figures).
 
-## 7. Framework ouvert et services monétisables
+## 7. Open framework and monetizable services
 
-Le framework ouvert contient l'exécution utile : frontier durable, HTTP/navigateur, pools, plans, agents facultatifs, réparation, CLI/MCP, stockage local, instrumentation et exécution de workers autohébergés. Les fonctions fondamentales ne nécessitent pas une clé cloud Automan. Les modèles et proxies peuvent être apportés par l'utilisateur.
+The open framework contains the useful execution: durable frontier, HTTP/browser, pools, plans, optional agents, repair, CLI/MCP, local storage, instrumentation and execution of self-hosted workers. The fundamental functions do not require an Automan cloud key. Models and proxies can be brought by the user.
 
-Le service vend l'exploitation : navigateurs et workers hébergés, scheduling récurrent, stockage et rétention, proxies intégrés, distribution géographique, gestion d'organisations et d'identités, capacité réservée, diagnostics conservés, intégrations et maintenance des workflows. Un registre/marketplace de packages peut ensuite distribuer des automatisations versionnées ; chaque package déclare ses entrées, sorties, capacités et coûts.
+The service sells operations: hosted browsers and workers, recurring scheduling, storage and retention, integrated proxies, geographic distribution, organization and identity management, reserved capacity, retained diagnostics, integrations and workflow maintenance. A package registry/marketplace can then distribute versioned automations; each package declares its inputs, outputs, capabilities and costs.
 
-La facturation doit exposer les ressources réellement consommées, y compris échecs et réparations : unités de worker, secondes de navigateur, trafic/proxy, stockage et consommation de modèle séparables. Vendre des « résultats vérifiés » peut constituer une offre métier après définition du validateur et de la complétude ; ce n'est pas une unité universelle adaptée à tous les crawls. Aucun prix ou marge n'est calculable avec les seules recherches actuelles.
+Billing must expose the resources actually consumed, including failures and repairs: worker units, browser seconds, traffic/proxy, storage and model consumption, each separable. Selling "verified results" can constitute a business offering once the validator and completeness have been defined; it is not a universal unit suited to all crawls. No price or margin can be calculated from the current research alone.
 
-## 8. Ordre concret de construction
+## 8. Concrete build order
 
-1. **Console web et première boucle réelle** : créer un workflow HTTP, obtenir un run durable, inspecter résultats/traces, arrêter/reprendre et exporter. Le vertical slice comprend déjà le moteur et son API.
-2. **Frontier, pools et workers complets** : reprise après crash, sessions, proxies, concurrence et autoscaling, stockage et pipelines.
-3. **Navigateur déterministe** : actionability, réseau, frames, téléchargements, contextes et qualification CDP/Playwright.
-4. **Primitives IA et agents** : observe/act/extract, multimodalité, outils externes, quotas, caches et évaluation.
-5. **Plans compilés et autoréparation** : recorder, paramètres, validations, mutations de site, tests, canary et rollback.
-6. **Parité des surfaces et cloud** : CLI/MCP précoce pour intégrer et tester ; macOS native après stabilisation des contrats ; flotte cloud, organisations, scheduling et facturation.
+1. **Web console and first real loop**: create an HTTP workflow, obtain a durable run, inspect results/traces, stop/resume and export. The vertical slice already includes the engine and its API.
+2. **Complete frontier, pools and workers**: recovery after a crash, sessions, proxies, concurrency and autoscaling, storage and pipelines.
+3. **Deterministic browser**: actionability, network, frames, downloads, contexts and CDP/Playwright qualification.
+4. **AI primitives and agents**: observe/act/extract, multimodality, external tools, quotas, caches and evaluation.
+5. **Compiled plans and self-repair**: recorder, parameters, validations, site mutations, tests, canary and rollback.
+6. **Surface parity and cloud**: early CLI/MCP for integration and testing; native macOS after the contracts stabilize; cloud fleet, organizations, scheduling and billing.
 
-Ces lots peuvent se chevaucher lorsque leurs contrats sont stables. Le détail n'est pas une checklist de promesses : chaque capacité est livrée avec une preuve de comportement, et chaque adaptation de backend conserve ses limites visibles.
+These batches can overlap when their contracts are stable. The detail is not a checklist of promises: each capability is delivered with behavioral evidence, and each backend adaptation keeps its limits visible.
 
-## 9. Vérification du dossier
+## 9. Dossier verification
 
-Les contrats ont fait l'objet d'une revue indépendante et de corrections ; les liens internes et l'exemple JSON ont été contrôlés. La maquette a été inspectée dans un navigateur sur desktop et mobile, avec interactions simulées. Ces vérifications portent sur le dossier et le design ; la qualification du moteur reste à réaliser.
+The contracts underwent an independent review and corrections; the internal links and the JSON example were checked. The mockup was inspected in a browser on desktop and mobile, with simulated interactions. These checks concern the dossier and the design; the engine's qualification remains to be done.

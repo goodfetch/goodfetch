@@ -1,180 +1,180 @@
-# Aller du lab au PRD v2 : comment utiliser les skills de Matt Pocock et OpenSpec
+# Going from the lab to PRD v2: how to use Matt Pocock's skills and OpenSpec
 
-**Date :** 8 octobre 2026.
+**Date:** October 8, 2026.
 
-**Mise à jour du 8 octobre :** OpenSpec a été retiré du dépôt après cette étude. Seuls les skills de Matt Pocock sont utilisés. Les sections sur OpenSpec restent comme trace de la comparaison.
+**Update of October 8:** OpenSpec was removed from the repository after this study. Only Matt Pocock's skills are used. The sections on OpenSpec remain as a record of the comparison.
 
-**Question :** Automan n'a presque pas de code produit. Il y a des recherches, deux ADR, un glossaire et un laboratoire de mesure. Que recommandent les skills de Matt Pocock et OpenSpec pour arriver à un PRD solide, puis à l'implémentation ?
+**Question:** Automan has almost no product code. There is research, two ADRs, a glossary and a measurement laboratory. What do Matt Pocock's skills and OpenSpec recommend for arriving at a solid PRD, then at implementation?
 
-**Sources :**
-- Les `SKILL.md` installés dans `~/.agents/skills/`. Comparés le 8 octobre avec `mattpocock/skills@main`, ils sont identiques.
-- Les pages de documentation `https://github.com/mattpocock/skills/blob/main/docs/...`.
-- OpenSpec 1.14.1 : `docs/` et `docs-lab/` du dépôt `Fission-AI/OpenSpec` (tag `v1.14.1`), le schéma `spec-driven` intégré, et les skills générés dans `.claude/skills/openspec-*`.
-- L'état du dépôt sur `origin/main` (`8d518cd`).
+**Sources:**
+- The `SKILL.md` files installed in `~/.agents/skills/`. Compared on October 8 with `mattpocock/skills@main`, they are identical.
+- The documentation pages `https://github.com/mattpocock/skills/blob/main/docs/...`.
+- OpenSpec 1.14.1: `docs/` and `docs-lab/` from the `Fission-AI/OpenSpec` repository (tag `v1.14.1`), the built-in `spec-driven` schema, and the skills generated in `.claude/skills/openspec-*`.
+- The state of the repository on `origin/main` (`8d518cd`).
 
-Sauf mention contraire, les citations sont des extraits courts des sources. Les passages marqués **[Interprétation]** donnent mon analyse.
-
----
-
-## 1. Ce qu'il faut retenir
-
-1. **Les deux outils font des choses différentes, au même moment.**
-   - Chez Matt Pocock, le PRD s'appelle désormais **spec** : `to-prd` a été renommé `to-spec`. Ses skills vont de l'idée floue au spec, puis aux tickets.
-   - OpenSpec dit explicitement ne pas être un outil de PRD : « A 40-page PRD is a different artifact with a different job » (`docs/existing-projects.md`). Une spec OpenSpec est un **contrat de comportement par changement**. Elle n'a de sens qu'une fois l'implémentation commencée.
-2. **Avant le PRD, ce sont les skills de Matt qui pilotent.** OpenSpec n'apporte presque rien à ce stade, sauf `/opsx:explore`, qui fait doublon avec le grilling.
-3. **Le bon point d'entrée est `/wayfinder`.** Il est fait pour un effort « too big for one session » dont « the route… [is] still unclear ». Il s'arrête quand la carte est dégagée et passe la main à `/to-spec #<map>` (`ask-matt/SKILL.md`, rubrique « On-ramps »).
-4. **Vos outils existants font déjà une partie du travail de wayfinder.** Le registre `lab/decisions/D-*.json`, avec ses verdicts calculés, couvre une bonne partie de ce qu'une carte wayfinder apporte. Il ne faut pas créer un second registre : la carte doit **pointer** vers les décisions du lab, pas les recopier (§4).
-5. **Trois points sont à régler avant de commencer** (§3) :
-   - le PRD v1 a été produit par un skill obsolète ;
-   - les tickets de phase sont marqués `ready-for-agent` alors qu'ils tiennent en une ligne ;
-   - les labels `wayfinder:*` n'existent pas sur GitHub.
-6. **Le chemin critique, c'est le produit, pas les benchmarks.**
-   - `D-pricing` et `D-feature-priority` dépendent de `D-segment`.
-   - Aucun entretien n'a eu lieu (#11).
-   - Un PRD v2 sans segment choisi aurait le même défaut que le v1 : 80 user stories, sans aucune priorité.
+Unless otherwise stated, quotations are short excerpts from the sources. Passages marked **[Interpretation]** give my analysis.
 
 ---
 
-## 2. Le parcours prévu par chaque outil
+## 1. Key takeaways
+
+1. **The two tools do different things, at the same moment.**
+   - In Matt Pocock's set, the PRD is now called a **spec**: `to-prd` was renamed `to-spec`. His skills go from the vague idea to the spec, then to tickets.
+   - OpenSpec explicitly says it is not a PRD tool: "A 40-page PRD is a different artifact with a different job" (`docs/existing-projects.md`). An OpenSpec spec is a **per-change behavior contract**. It only makes sense once implementation has started.
+2. **Before the PRD, Matt's skills lead.** OpenSpec brings almost nothing at this stage, except `/opsx:explore`, which duplicates grilling.
+3. **The right entry point is `/wayfinder`.** It is made for an effort "too big for one session" where "the route… [is] still unclear". It stops when the map is clear and hands over to `/to-spec #<map>` (`ask-matt/SKILL.md`, "On-ramps" section).
+4. **Your existing tools already do part of wayfinder's work.** The `lab/decisions/D-*.json` registry, with its computed verdicts, covers a good part of what a wayfinder map provides. A second registry must not be created: the map must **point** to the lab's decisions, not copy them (§4).
+5. **Three points must be settled before starting** (§3):
+   - PRD v1 was produced by an obsolete skill;
+   - the phase tickets are labeled `ready-for-agent` even though they fit on one line;
+   - the `wayfinder:*` labels do not exist on GitHub.
+6. **The critical path is the product, not the benchmarks.**
+   - `D-pricing` and `D-feature-priority` depend on `D-segment`.
+   - No interview has taken place (#11).
+   - A PRD v2 without a chosen segment would have the same flaw as v1: 80 user stories, with no priority at all.
+
+---
+
+## 2. The path each tool lays out
 
 ### Matt Pocock
 
-Source : `ask-matt/SKILL.md`, `docs/engineering/*.md`.
+Source: `ask-matt/SKILL.md`, `docs/engineering/*.md`.
 
 ```
-[cartographie : /wayfinder] → /grill-with-docs → (détour /prototype) → /to-spec → /to-tickets → /implement | /implement-spec → /retro
+[mapping: /wayfinder] → /grill-with-docs → (/prototype detour) → /to-spec → /to-tickets → /implement | /implement-spec → /retro
 ```
 
-| Skill | Ce qu'il fait | Ce qu'il produit | Rôle pour Automan maintenant |
+| Skill | What it does | What it produces | Role for Automan now |
 |---|---|---|---|
-| `wayfinder` | Carte des décisions : « producing decisions, not deliverables ». Une seule décision tranchée par session (sauf recherche). | Une issue `wayfinder:map` et des sous-issues `wayfinder:{research,prototype,grilling,task}`, avec blocages natifs GitHub | **Point d'entrée** |
-| `grill-with-docs` | Interview qui pose toutes les questions en suspens à la fois. Les faits, c'est à l'agent de les trouver ; les décisions reviennent à l'utilisateur. | `GLOSSARY.md` et ADR, créés au fil de l'eau. Le reste ne vit que dans la conversation. | Trancher les tickets `grilling`, puis combler les dernières lacunes avant le spec |
-| `research` | Agent en arrière-plan qui cherche un **fait externe** dans des sources primaires | Un fichier Markdown sourcé | Tickets `research` |
-| `prototype` | Répond à **une** question de conception. Jetable, sans tests. | Une branche `prototype/<nom>` | Rare : votre lab va plus loin qu'un prototype (§4) |
-| `to-spec` | Synthèse **sans interview** de la conversation et de la carte. Il propose d'abord les points de test (« seams »). | **Une issue GitHub** : problème, solution, user stories, décisions d'implémentation, tests, hors périmètre | **Produit le PRD v2** |
-| `to-tickets` | Découpe en tranches verticales, une par fenêtre de contexte, avec blocages et sous-issues | Issues `ready-for-agent` | Après le PRD v2 |
-| `domain-modeling` | Un ADR ne se justifie que si la décision est difficile à défaire, surprenante sans contexte **et** issue d'un vrai compromis | `docs/adr/NNNN-*.md`, statut `proposed`/`accepted`… | Un ADR par décision tranchée |
+| `wayfinder` | Decision map: "producing decisions, not deliverables". A single decision settled per session (except research). | A `wayfinder:map` issue and `wayfinder:{research,prototype,grilling,task}` sub-issues, with native GitHub blocking | **Entry point** |
+| `grill-with-docs` | Interview that asks all the pending questions at once. Facts are for the agent to find; decisions belong to the user. | `GLOSSARY.md` and ADRs, created along the way. The rest lives only in the conversation. | Settle the `grilling` tickets, then fill the last gaps before the spec |
+| `research` | Background agent that looks for an **external fact** in primary sources | A sourced Markdown file | `research` tickets |
+| `prototype` | Answers **one** design question. Throwaway, without tests. | A `prototype/<name>` branch | Rare: your lab goes further than a prototype (§4) |
+| `to-spec` | **Interview-free** synthesis of the conversation and the map. It first proposes the test points ("seams"). | **A GitHub issue**: problem, solution, user stories, implementation decisions, tests, out of scope | **Produces PRD v2** |
+| `to-tickets` | Splits into vertical slices, one per context window, with blocking relationships and sub-issues | `ready-for-agent` issues | After PRD v2 |
+| `domain-modeling` | An ADR is only justified if the decision is hard to undo, surprising without context **and** the result of a real trade-off | `docs/adr/NNNN-*.md`, status `proposed`/`accepted`… | One ADR per settled decision |
 
-**Points des docs à respecter :**
-- **Une seule fenêtre de contexte.** Enchaîner grill, to-spec et to-tickets sans compacter ni effacer le contexte, dans une limite d'environ 150k tokens.
-- **Le spec est jetable** une fois le travail livré : « Your `GLOSSARY.md` and ADRs are the files meant to last ».
-- **Erreurs connues avec wayfinder** (`docs/engineering/wayfinder.md`) :
-  - L'agent écrit du code de production depuis la carte, par exemple en notant « this map carries execution » dans ses Notes.
-  - Une carte de 27 tickets qui finit par se périmer. Le conseil : « scope the map to a bounded destination… Wayfinder is "prototypemaxxing", not "planmaxxing" ».
-- **Bug connu de grill-with-docs.** Lancé dans un autre orchestrateur de spec, il n'écrit pas ses fichiers, sans le signaler. Il ne faut donc pas le lancer à l'intérieur de `/opsx:explore`.
-- **Label `ready-for-agent` posé par `to-spec`.** Un agent autonome qui surveille ce label essaierait d'implémenter tout le spec. Il faut retirer le label après `/to-tickets`.
+**Points from the docs to respect:**
+- **A single context window.** Chain grill, to-spec and to-tickets without compacting or clearing the context, within a limit of about 150k tokens.
+- **The spec is disposable** once the work is delivered: "Your `GLOSSARY.md` and ADRs are the files meant to last".
+- **Known wayfinder mistakes** (`docs/engineering/wayfinder.md`):
+  - The agent writes production code from the map, for example by noting "this map carries execution" in its Notes.
+  - A 27-ticket map that ends up going stale. The advice: "scope the map to a bounded destination… Wayfinder is 'prototypemaxxing', not 'planmaxxing'".
+- **Known grill-with-docs bug.** When launched inside another spec orchestrator, it does not write its files, and does not report it. It must therefore not be launched inside `/opsx:explore`.
+- **`ready-for-agent` label set by `to-spec`.** An autonomous agent watching this label would try to implement the whole spec. The label must be removed after `/to-tickets`.
 
 ### OpenSpec 1.14.1
 
-Sources : `docs/concepts.md`, `docs/workflows.md`, `docs/existing-projects.md`, `schemas/spec-driven/schema.yaml`.
+Sources: `docs/concepts.md`, `docs/workflows.md`, `docs/existing-projects.md`, `schemas/spec-driven/schema.yaml`.
 
-- **Le modèle :**
-  - `openspec/specs/` décrit le comportement actuel du système.
-  - `openspec/changes/<nom>/` contient un changement proposé : `proposal.md` → `specs/` (deltas `ADDED/MODIFIED/REMOVED/RENAMED`) + `design.md` → `tasks.md`.
-  - L'archivage fusionne les deltas dans `specs/`.
-- **Ce qu'une spec ne contient pas :** pas de choix de bibliothèque ni de détail interne. « If the implementation can change without changing externally visible behavior, it likely does not belong in the spec ». Les choix techniques vont dans `design.md` et dans les ADR.
-- **Projet sans code (greenfield) :**
-  - `specs/` démarre vide et se remplit au fil des changements : « Resist the urge to back-fill everything ».
-  - Les PRD et recherches existants sont de la **matière première pour explore**, pas des specs à convertir.
-  - En 1.14.1, l'archivage crée bien la spec principale d'une nouvelle capacité (correction du bug #1222).
-- **Avant le PRD :** `/opsx:explore` (« when you're not sure, explore before you propose »).
-  - Il n'écrit rien sans votre accord.
-  - `/opsx:onboard` est un tutoriel. Il cherche une petite tâche de code et n'a pas d'intérêt ici.
-- **Schéma personnalisé :** on peut en forker un, par exemple `research-first` (research → proposal → tasks). Mais un artefact `prd` ou `research` n'est **jamais fusionné** dans `specs/`.
-- **Stores (bêta) :** planification hors du dépôt ou multi-dépôts. Inutile pour Automan.
-- **Suivi des tâches :** aucune intégration avec un outil de tickets. La convention est un changement = une branche = une PR.
+- **The model:**
+  - `openspec/specs/` describes the current behavior of the system.
+  - `openspec/changes/<name>/` contains a proposed change: `proposal.md` → `specs/` (`ADDED/MODIFIED/REMOVED/RENAMED` deltas) + `design.md` → `tasks.md`.
+  - Archiving merges the deltas into `specs/`.
+- **What a spec does not contain:** no library choice or internal detail. "If the implementation can change without changing externally visible behavior, it likely does not belong in the spec". Technical choices go in `design.md` and in the ADRs.
+- **Project without code (greenfield):**
+  - `specs/` starts empty and fills up as changes come in: "Resist the urge to back-fill everything".
+  - Existing PRDs and research are **raw material for explore**, not specs to convert.
+  - In 1.14.1, archiving does create the main spec of a new capability (fix for bug #1222).
+- **Before the PRD:** `/opsx:explore` ("when you're not sure, explore before you propose").
+  - It writes nothing without your agreement.
+  - `/opsx:onboard` is a tutorial. It looks for a small coding task and is of no interest here.
+- **Custom schema:** one can be forked, for example `research-first` (research → proposal → tasks). But a `prd` or `research` artifact is **never merged** into `specs/`.
+- **Stores (beta):** planning outside the repository or across multiple repositories. Useless for Automan.
+- **Task tracking:** no integration with a ticketing tool. The convention is one change = one branch = one PR.
 
-**[Interprétation]** Après le PRD, OpenSpec apporte ce qui manque à Matt : une **spec de comportement durable**. Le spec de Matt est un instantané jetable, alors qu'OpenSpec tient la vérité à jour dans `openspec/specs/`. Les deux outils se complètent, à condition que chacun ait son propre rôle (§5).
+**[Interpretation]** After the PRD, OpenSpec brings what Matt's set lacks: a **durable behavior spec**. Matt's spec is a disposable snapshot, whereas OpenSpec keeps the truth up to date in `openspec/specs/`. The two tools complement each other, provided each has its own role (§5).
 
 ---
 
-## 3. Ce qui dans le dépôt freine le parcours
+## 3. What in the repository slows down the path
 
-| # | Problème | Source | Correction proposée |
+| # | Problem | Source | Proposed fix |
 |---|---|---|---|
-| 1 | `issues/prd.md` (PRD v1) a le format de `write-a-prd`. Ce skill vient d'un dépôt d'atelier de Matt (`ai-engineer-workshop-2026-project`), qui est **remplacé** par `to-spec`. Il écrit `issues/*.md` et interdit GitHub. | `~/.agents/.skill-lock.json` | Marquer le v1 « superseded — matière source pour le v2 ». Ne plus utiliser `write-a-prd` ni `prd-to-issues`. |
-| 2 | Le PRD v1 fige Rust, React/shadcn, macOS et le périmètre « Crawlee+Spider+Stagehand » avant les décisions correspondantes. `D-core-language` est encore ouverte. | `issues/prd.md:9`, `lab/decisions/D-core-language.json` | Le v2 doit découler des verdicts, pas l'inverse. |
-| 3 | Trois endroits possibles pour les specs : les GitHub Issues (`AGENTS.md`), `issues/prd.md` et `openspec/specs/`. | `AGENTS.md`, `openspec/` | Répartir explicitement (§5). |
-| 4 | Les issues #6 à #9 tiennent en une ligne mais portent `ready-for-agent`. | `gh issue list` | Retirer le label : ce sont des chantiers du lab, pas des tâches entièrement spécifiées. |
-| 5 | Les labels `wayfinder:map`, `:research`, `:prototype`, `:grilling` et `:task` n'existent pas. Le skill de configuration ne les crée pas. | `docs/engineering/setup-matt-pocock-skills.md` | Les créer avant la première exécution. |
-| 6 | `D-storage` est « decided » sans verdict ni ADR. L'ADR-001 est « proposé » alors que `D-core-language` n'a pas de verdict valable. | `lab/decisions/D-storage.json`, `docs/rd-plan.md:76` | Aligner avant de cartographier. |
-| 7 | `roadmap-validation.md` commence par « console + API », alors que `rd-plan.md` (approuvé) commence par le lab et les décisions. | `docs/roadmap-validation.md:9` | Signaler que `roadmap-validation.md` est dépassée, ou l'aligner. |
-| 8 | Le guide d'entretien annoncé par `rd-plan.md:71` n'est pas dans le dépôt. | `research/market/pricing-signals.md` §5 | C'est le premier livrable produit à faire. |
+| 1 | `issues/prd.md` (PRD v1) has the format of `write-a-prd`. This skill comes from one of Matt's workshop repositories (`ai-engineer-workshop-2026-project`) and is **superseded** by `to-spec`. It writes `issues/*.md` and forbids GitHub. | `~/.agents/.skill-lock.json` | Mark v1 "superseded — source material for v2". Stop using `write-a-prd` and `prd-to-issues`. |
+| 2 | PRD v1 freezes Rust, React/shadcn, macOS and the "Crawlee+Spider+Stagehand" scope before the corresponding decisions. `D-core-language` is still open. | `issues/prd.md:9`, `lab/decisions/D-core-language.json` | v2 must follow from the verdicts, not the other way around. |
+| 3 | Three possible places for specs: GitHub Issues (`AGENTS.md`), `issues/prd.md` and `openspec/specs/`. | `AGENTS.md`, `openspec/` | Assign them explicitly (§5). |
+| 4 | Issues #6 to #9 fit on one line but carry `ready-for-agent`. | `gh issue list` | Remove the label: these are lab workstreams, not fully specified tasks. |
+| 5 | The labels `wayfinder:map`, `:research`, `:prototype`, `:grilling` and `:task` do not exist. The setup skill does not create them. | `docs/engineering/setup-matt-pocock-skills.md` | Create them before the first run. |
+| 6 | `D-storage` is "decided" without a verdict or ADR. ADR-001 is "proposed" even though `D-core-language` has no valid verdict. | `lab/decisions/D-storage.json`, `docs/rd-plan.md:76` | Align before mapping. |
+| 7 | `roadmap-validation.md` starts with "console + API", whereas `rd-plan.md` (approved) starts with the lab and the decisions. | `docs/roadmap-validation.md:9` | Flag that `roadmap-validation.md` is outdated, or align it. |
+| 8 | The interview guide announced by `rd-plan.md:71` is not in the repository. | `research/market/pricing-signals.md` §5 | It is the first product deliverable to produce. |
 
 ---
 
-## 4. Faire tenir ensemble wayfinder et le lab
+## 4. Making wayfinder and the lab fit together
 
-**[Interprétation]** Votre lab ne correspond à aucun skill de Matt :
-- ce n'est pas un `prototype`, qui serait jetable et sans tests ;
-- construire le lab, c'est « faire », ce qui va contre la règle « Plan, don't do » de wayfinder.
+**[Interpretation]** Your lab does not correspond to any of Matt's skills:
+- it is not a `prototype`, which would be disposable and without tests;
+- building the lab is "doing", which goes against wayfinder's "Plan, don't do" rule.
 
-La séparation la plus nette est la suivante.
+The cleanest separation is the following.
 
-| Couche | Rôle | Où ça vit |
+| Layer | Role | Where it lives |
 |---|---|---|
-| **Décisions** | Ce qu'il faut trancher avant le PRD v2 | Carte wayfinder : une issue `wayfinder:map` et une sous-issue par décision `D-*` ouverte |
-| **Preuves** | Mesures et verdicts calculés | `lab/decisions/`, `lab/verdicts/`, `lab/reports/`. **Reste la source de vérité.** |
-| **Construction du lab** | Phases P5 à P9 du harnais | Issues ordinaires (#5 à #9), traitées **hors** wayfinder, dans des sessions normales |
+| **Decisions** | What must be settled before PRD v2 | Wayfinder map: a `wayfinder:map` issue and one sub-issue per open `D-*` decision |
+| **Evidence** | Measurements and computed verdicts | `lab/decisions/`, `lab/verdicts/`, `lab/reports/`. **Remains the source of truth.** |
+| **Lab construction** | Harness phases P5 to P9 | Ordinary issues (#5 to #9), handled **outside** wayfinder, in normal sessions |
 
-**La carte wayfinder :**
-- **Destination, bornée :** « PRD v2 d'Automan pour le segment retenu, chaque décision bloquante tranchée par un verdict ou un ADR ».
-- **Notes :** « Les campagnes du lab s'exécutent hors de la carte. Un ticket se résout quand `lab/verdicts/D-x.json` est éligible ou qu'un ADR est accepté. La carte ne porte aucune exécution. »
-- **Les tickets, par type :**
-  - `grilling` : `D-segment` en premier, puis `D-pricing` et `D-feature-priority`, bloquées par `D-segment`. Aussi les décisions qui se règlent en discutant : `D-ai-layer`, la portée de `D-identity`, `D-agent-interface` côté produit.
-  - `task` (avec un humain) : les entretiens JTBD (#11), le test de prix, le PoC payant. Les tickets techniques dont le verdict attend une campagne du lab (`D-browser-driver`, `D-core-language`, `D-http-transport`, `D-durable-runtime`…) pointent vers leur fichier `D-*.json`, sans le recopier.
-  - `research` : les faits externes qui manquent encore. Par exemple, les conditions juridiques de l'ADR-002, ou une tarification concurrente à jour.
-- **Blocages :** les dépendances natives entre issues reprennent les `dependsOn` du registre `D-*`.
-- **Taille :** environ 15 décisions, en dessous des 27 tickets cités comme point de rupture. Si une décision technique n'influence pas le PRD (stockage, sinks…), elle passe dans « Out of scope », pas dans un ticket.
+**The wayfinder map:**
+- **Destination, bounded:** "Automan PRD v2 for the chosen segment, each blocking decision settled by a verdict or an ADR".
+- **Notes:** "The lab campaigns run outside the map. A ticket is resolved when `lab/verdicts/D-x.json` is eligible or an ADR is accepted. The map carries no execution."
+- **Tickets, by type:**
+  - `grilling`: `D-segment` first, then `D-pricing` and `D-feature-priority`, blocked by `D-segment`. Also the decisions that get settled through discussion: `D-ai-layer`, the scope of `D-identity`, `D-agent-interface` on the product side.
+  - `task` (with a human): the JTBD interviews (#11), the price test, the paid PoC. The technical tickets whose verdict awaits a lab campaign (`D-browser-driver`, `D-core-language`, `D-http-transport`, `D-durable-runtime`…) point to their `D-*.json` file, without copying it.
+  - `research`: the external facts still missing. For example, the legal conditions of ADR-002, or up-to-date competitor pricing.
+- **Blocking:** native dependencies between issues mirror the `dependsOn` of the `D-*` registry.
+- **Size:** about 15 decisions, below the 27 tickets cited as the breaking point. If a technical decision does not influence the PRD (storage, sinks…), it goes into "Out of scope", not into a ticket.
 
-**Résoudre un ticket :**
-1. Une session tranche **une** décision : grilling, ou lecture d'un verdict.
-2. `domain-modeling` écrit l'ADR si les trois conditions sont remplies (difficile à défaire, surprenant, vrai compromis). Le statut du `D-*.json` est mis à jour en même temps.
-3. Un commentaire est posté sur le ticket, le ticket est fermé, puis une ligne est ajoutée dans « Decisions so far ».
+**Resolving a ticket:**
+1. A session settles **one** decision: grilling, or reading a verdict.
+2. `domain-modeling` writes the ADR if the three conditions are met (hard to undo, surprising, real trade-off). The status of the `D-*.json` is updated at the same time.
+3. A comment is posted on the ticket, the ticket is closed, then a line is added to "Decisions so far".
 
 ---
 
-## 5. Répartir les rôles entre Matt et OpenSpec
+## 5. Dividing roles between Matt and OpenSpec
 
-| Phase | Outil | Artefact qui fait foi |
+| Phase | Tool | Authoritative artifact |
 |---|---|---|
-| Recherche et mesure (aujourd'hui) | `wayfinder`, `grill-with-docs`, `research`, plus le lab | Carte GitHub, `lab/decisions/`, ADR, `GLOSSARY.md` |
-| PRD v2 | `/to-spec #<map>` dans la **même fenêtre** qu'un dernier `grill-with-docs` | **Issue GitHub** : le PRD v2. `issues/prd.md` est archivé comme source. |
-| Découpage | `/to-tickets` | Sous-issues GitHub (retirer `ready-for-agent` du PRD) |
-| Implémentation, par ticket | `/opsx:propose` (ou `new`/`continue` au début), puis `/opsx:apply`, puis `/opsx:archive` après merge | `openspec/changes/` pendant le travail, `openspec/specs/` ensuite. Le ticket et la PR pointent vers le changement. |
+| Research and measurement (today) | `wayfinder`, `grill-with-docs`, `research`, plus the lab | GitHub map, `lab/decisions/`, ADRs, `GLOSSARY.md` |
+| PRD v2 | `/to-spec #<map>` in the **same window** as a final `grill-with-docs` | **GitHub issue**: PRD v2. `issues/prd.md` is archived as a source. |
+| Splitting | `/to-tickets` | GitHub sub-issues (remove `ready-for-agent` from the PRD) |
+| Implementation, per ticket | `/opsx:propose` (or `new`/`continue` at the start), then `/opsx:apply`, then `/opsx:archive` after merge | `openspec/changes/` during the work, `openspec/specs/` afterwards. The ticket and the PR point to the change. |
 
-**[Interprétation]** Pourquoi cette répartition :
-- Les deux outils sont d'accord : le PRD n'est pas une spec OpenSpec.
-- Le spec de Matt est jetable, alors que `openspec/specs/` dure.
-- Chaque ticket devient un changement OpenSpec, ce qui donne une revue en trois temps : proposition, delta, code (`docs/team-workflow.md`).
-- `/implement` de Matt et `/opsx:apply` font doublon. **Choisissez-en un.** Je recommande `/opsx:apply`, qui garde la trace dans la spec. En contrepartie, la TDD aux points de test se perd, sauf si vous ajoutez `rules.tasks` dans la config.
+**[Interpretation]** Why this split:
+- Both tools agree: the PRD is not an OpenSpec spec.
+- Matt's spec is disposable, whereas `openspec/specs/` lasts.
+- Each ticket becomes an OpenSpec change, which gives a three-step review: proposal, delta, code (`docs/team-workflow.md`).
+- Matt's `/implement` and `/opsx:apply` overlap. **Choose one.** I recommend `/opsx:apply`, which keeps the record in the spec. The trade-off is that TDD at the test points is lost, unless you add `rules.tasks` in the config.
 
-**Ajouts possibles à `openspec/config.yaml` plus tard** (courts, comme le recommandent les docs) :
-- `rules.proposal` : citer l'issue du ticket, ainsi que la preuve du lab ou l'ADR qui justifie le changement.
-- `rules.design` : citer l'identifiant de l'ADR ; un ADR `proposed` n'engage à rien.
-- `rules.tasks` : chaque groupe commence par un test au point de test convenu dans le spec.
+**Possible additions to `openspec/config.yaml` later** (short, as the docs recommend):
+- `rules.proposal`: cite the ticket's issue, as well as the lab evidence or the ADR that justifies the change.
+- `rules.design`: cite the ADR identifier; a `proposed` ADR commits to nothing.
+- `rules.tasks`: each group starts with a test at the test point agreed in the spec.
 
-**Variante plus simple :** tout faire avec Matt (`to-tickets` → `implement`), sans OpenSpec. Vous perdez seulement la spec de comportement durable. Choisissez cette variante si vous ne voulez pas maintenir `openspec/specs/`.
+**Simpler variant:** do everything with Matt (`to-tickets` → `implement`), without OpenSpec. You only lose the durable behavior spec. Choose this variant if you do not want to maintain `openspec/specs/`.
 
 ---
 
-## 6. Plan d'action
+## 6. Action plan
 
-1. **Ménage, en une session :**
-   - créer les labels `wayfinder:*` ;
-   - retirer `ready-for-agent` des issues #6 à #9 ;
-   - retirer le PRD v1 `issues/prd.md` (supprimé le 8 octobre) ;
-   - noter la répartition du §5 dans `AGENTS.md` ;
-   - corriger `D-storage` (verdict ou ADR).
-2. **`/wayfinder`** avec la destination du §4, en une session. Le premier grilling, en largeur, doit confirmer qu'il reste bien des zones floues. Sinon, passer directement à l'étape 4.
-3. **Résoudre la carte, un ticket par session**, en commençant par `D-segment`.
-   - Préparer le guide d'entretien. `/to-questionnaire` peut le rédiger à partir de `research/market/`.
-   - Pendant ce temps, le lab avance P6 à P9 dans des sessions séparées.
-4. **Quand la carte est dégagée,** enchaîner dans une seule fenêtre de contexte : `/grill-with-docs` (dernières lacunes), puis `/to-spec #<map>` (PRD v2), puis `/to-tickets`.
-5. **Implémenter** ticket par ticket avec OpenSpec (ou `/implement`), puis `/retro`.
+1. **Cleanup, in one session:**
+   - create the `wayfinder:*` labels;
+   - remove `ready-for-agent` from issues #6 to #9;
+   - retire PRD v1 `issues/prd.md` (deleted on October 8);
+   - record the §5 split in `AGENTS.md`;
+   - fix `D-storage` (verdict or ADR).
+2. **`/wayfinder`** with the destination from §4, in one session. The first grilling, breadth-first, must confirm that fuzzy areas really remain. Otherwise, go directly to step 4.
+3. **Resolve the map, one ticket per session**, starting with `D-segment`.
+   - Prepare the interview guide. `/to-questionnaire` can draft it from `research/market/`.
+   - Meanwhile, the lab advances P6 to P9 in separate sessions.
+4. **When the map is clear,** chain in a single context window: `/grill-with-docs` (last gaps), then `/to-spec #<map>` (PRD v2), then `/to-tickets`.
+5. **Implement** ticket by ticket with OpenSpec (or `/implement`), then `/retro`.
 
-## 7. Limites de cette analyse
+## 7. Limitations of this analysis
 
-- Une partie des docs OpenSpec 1.14.1 sur openspec.dev ne sont que des plans de page : `explore`, `existing codebases`, la FAQ. `https://openspec.dev/docs/existing-projects` renvoie une 404. J'ai cité à la place la version GitHub `docs/`.
-- Les skills `in-progress` de Matt (`chief-of-staff`, `claude-handoff`, `loop-me`…) peuvent changer à tout moment. Ce plan ne s'appuie pas sur eux.
-- Les docs de Matt conseillent de ne pas versionner les fichiers de recherche (« ADRs yes. Everything else archive or delete »). Automan a choisi de garder `research/`. Ce choix reste valable, mais ces fichiers ne sont relus automatiquement par aucun skill : il faut les donner explicitement au grilling.
+- Part of the OpenSpec 1.14.1 docs on openspec.dev are only page outlines: `explore`, `existing codebases`, the FAQ. `https://openspec.dev/docs/existing-projects` returns a 404. I cited the GitHub `docs/` version instead.
+- Matt's `in-progress` skills (`chief-of-staff`, `claude-handoff`, `loop-me`…) can change at any time. This plan does not rely on them.
+- Matt's docs advise against versioning research files ("ADRs yes. Everything else archive or delete"). Automan chose to keep `research/`. This choice remains valid, but no skill automatically rereads these files: they must be given explicitly to the grilling.

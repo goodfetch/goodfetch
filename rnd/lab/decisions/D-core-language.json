@@ -1,27 +1,27 @@
 {
   "id": "D-core-language",
-  "title": "Langage du noyau portable",
-  "question": "Quel runtime porte le noyau d'exécution durable (acquisition, validation, écriture, reprise) ?",
+  "title": "Portable core language",
+  "question": "Which runtime carries the durable execution core (acquisition, validation, writing, recovery)?",
   "kind": "technical",
   "status": "open",
   "options": [
     {
       "id": "rust-tokio",
-      "description": "Noyau Rust/Tokio natif",
+      "description": "Native Rust/Tokio core",
       "adapters": [
         "workflow-rust"
       ]
     },
     {
       "id": "node",
-      "description": "Noyau Node/TypeScript",
+      "description": "Node/TypeScript core",
       "adapters": [
         "workflow-node"
       ]
     },
     {
       "id": "go",
-      "description": "Noyau Go (témoin)"
+      "description": "Go core (control)"
     }
   ],
   "baseline": "node",
@@ -70,13 +70,13 @@
     {
       "kind": "run",
       "ref": "runtime-native-capacity-2026-10-08T12-46-38-910Z-83d7e0",
-      "note": "remplace 789d5e (local-dev) comme mesure de la strate de décision"
+      "note": "replaces 789d5e (local-dev) as the measurement of the decision stratum"
     }
   ],
   "verdictRef": "verdicts/D-core-language.json",
   "adr": "adr/0001-runtime-language.md",
   "dependsOn": [],
-  "notes": "Débit attendu proche entre runtimes quand le travail attend le réseau ; le critère principal est donc le coût CPU par job vérifié, avec mémoire en métrique secondaire. Exiger un profil sans délai serveur pour ne pas masquer l'écart de calcul.",
+  "notes": "Throughput is expected to be close across runtimes when the work waits on the network; the primary criterion is therefore CPU cost per verified job, with memory as a secondary metric. Require a profile with no server delay so as not to mask the compute gap.",
   "analysis": {
     "lane": "runtime",
     "options": {

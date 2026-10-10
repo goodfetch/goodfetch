@@ -1,17 +1,17 @@
 {
   "id": "D-scheduling",
-  "title": "Admission et ordonnancement multi-domaines",
-  "question": "Sous arrivées continues, une file bornée par domaine avec tour de rôle protège-t-elle les petits domaines quand un domaine en surcharge, mieux qu'une file globale ?",
+  "title": "Multi-domain admission and scheduling",
+  "question": "Under continuous arrivals, does a bounded per-domain queue with round-robin protect small domains when one domain is overloaded, better than a global queue?",
   "kind": "technical",
   "status": "open",
   "options": [
     {
       "id": "fifo-global",
-      "description": "Une file globale bornée ; le répartiteur prend le plus ancien travail dont le domaine a une place libre"
+      "description": "A bounded global queue; the dispatcher takes the oldest work item whose domain has a free slot"
     },
     {
       "id": "fair-domain",
-      "description": "Une file bornée par domaine sous un plafond global ; le répartiteur sert les domaines à tour de rôle"
+      "description": "One bounded queue per domain under a global cap; the dispatcher serves domains in round-robin"
     }
   ],
   "baseline": "fifo-global",
@@ -51,12 +51,12 @@
     {
       "kind": "run",
       "ref": "durable-admission-2026-10-10T02-46-32-139Z-ef1b25",
-      "note": "sans surcharge ; Mac calme"
+      "note": "no overload; quiet Mac"
     },
     {
       "kind": "run",
       "ref": "durable-scheduler-2026-10-10T02-45-45-825Z-edc50c",
-      "note": "domaine lourd en surcharge ; Mac calme"
+      "note": "heavy domain overloaded; quiet Mac"
     },
     {
       "kind": "research-doc",
@@ -89,5 +89,5 @@
       "scenario": "flood"
     }
   },
-  "notes": "Les deux politiques respectent la même limite de requêtes simultanées par domaine ; seule la répartition de la file d'attente change."
+  "notes": "Both policies respect the same per-domain concurrent request limit; only how the waiting queue is distributed changes."
 }

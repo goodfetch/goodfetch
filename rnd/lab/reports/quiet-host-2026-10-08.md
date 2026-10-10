@@ -1,46 +1,46 @@
-# Mesures sur Mac au repos du 8 octobre 2026
+# Measurements on an idle Mac, October 8, 2026
 
-Campagnes de vitesse et de ressources exécutées en classe `local-controlled`, sur des sources commitées. Les estimations, intervalles et verdicts sont calculés par `pnpm lab verdict` et rendus dans [decisions.md](decisions.md). Ce rapport ne recopie aucun chiffre mesuré.
+Speed and resource campaigns executed in class `local-controlled`, on committed sources. The estimates, intervals and verdicts are computed by `pnpm lab verdict` and rendered in [decisions.md](decisions.md). This report does not copy any measured figure.
 
-## Hôte
+## Host
 
-Ce jour-là, un Mac au repos ne passait pas les premiers seuils de `local-controlled`. Deux causes : la maintenance de macOS lancée dès que la machine est inactive (Spotlight, Siri, file provider), et l'app d'agent qui pilote la campagne. Les seuils ont donc été ajustés et commités avant les mesures (`hosts/local-controlled.json`) :
+That day, an idle Mac did not pass the first `local-controlled` thresholds. Two causes: the macOS maintenance launched as soon as the machine is inactive (Spotlight, Siri, file provider), and the agent app driving the campaign. The thresholds were therefore adjusted and committed before the measurements (`hosts/local-controlled.json`):
 
-- l'app d'agent qui pilote le run est consignée à part (`controllerCpuPercent`) au lieu de compter comme charge étrangère ;
-- le CPU étranger autorisé passe à 150 % et la charge par CPU à 0,35 ;
-- le branchement secteur n'est plus exigé, le mode basse consommation restant interdit.
+- the agent app driving the run is recorded separately (`controllerCpuPercent`) instead of counting as foreign load;
+- the allowed foreign CPU rises to 150% and the load per CPU to 0.35;
+- being plugged into mains power is no longer required, low-power mode remaining forbidden.
 
-Les blocs sont appariés, avec les pilotes entrelacés dans un ordre tiré au sort à chaque bloc : un bruit de fond lent touche toutes les options d'un bloc et s'annule dans le ratio. Tout bloc où le contrôle d'hôte échoue est exclu de l'estimation. Les chiffres absolus restent non publiables jusqu'aux reruns sur l'hôte de référence.
+The blocks are paired, with the drivers interleaved in an order randomized at each block: slow background noise affects all the options of a block and cancels out in the ratio. Any block where the host check fails is excluded from the estimate. The absolute figures remain unpublishable until the reruns on the reference host.
 
 ## Runs
 
-| Run | Décision | Contenu |
+| Run | Decision | Content |
 | --- | --- | --- |
-| `browser-driver-rtt-0-2026-10-08T12-39-53-109Z-63890b` | D-browser-driver | lien driver-browser à 0 ms ; bloc 0 bruité, exclu |
-| `browser-driver-rtt-20-2026-10-08T12-50-54-854Z-96969e` | D-browser-driver | lien driver-browser à 20 ms |
-| `browser-driver-rtt-100-2026-10-08T13-14-24-301Z-331916` | D-browser-driver | lien driver-browser à 100 ms |
-| `browser-driver-rtt-300-2026-10-08T14-00-36-292Z-657a67` | D-browser-driver | lien driver-browser à 300 ms |
-| `runtime-native-capacity-2026-10-08T12-46-38-910Z-83d7e0` | D-core-language | strate de décision, Node contre Rust, huit blocs |
+| `browser-driver-rtt-0-2026-10-08T12-39-53-109Z-63890b` | D-browser-driver | driver-browser link at 0 ms; block 0 noisy, excluded |
+| `browser-driver-rtt-20-2026-10-08T12-50-54-854Z-96969e` | D-browser-driver | driver-browser link at 20 ms |
+| `browser-driver-rtt-100-2026-10-08T13-14-24-301Z-331916` | D-browser-driver | driver-browser link at 100 ms |
+| `browser-driver-rtt-300-2026-10-08T14-00-36-292Z-657a67` | D-browser-driver | driver-browser link at 300 ms |
+| `runtime-native-capacity-2026-10-08T12-46-38-910Z-83d7e0` | D-core-language | decision stratum, Node versus Rust, eight blocks |
 
-Toutes les tâches de ces runs ont été vérifiées par l'oracle. Le verdict principal de D-browser-driver porte sur la strate à 0 ms, déclarée dans la décision ; les autres RTT décrivent la sensibilité à la latence. Le run `runtime-native-capacity` remplace `runtime-native-qualified-2026-10-08T00-11-54-841Z-789d5e`, mesuré en `local-dev`, comme mesure de D-core-language.
+All tasks of these runs were verified by the oracle. The main verdict of D-browser-driver covers the 0 ms stratum, declared in the decision; the other RTTs describe sensitivity to latency. The `runtime-native-capacity` run replaces `runtime-native-qualified-2026-10-08T00-11-54-841Z-789d5e`, measured in `local-dev`, as the measurement for D-core-language.
 
-## Tentatives du 9 octobre
+## Attempts of October 9
 
-Douze runs de six campagnes ont été relancés en demandant `local-controlled`. Tous sont classés `diagnostic` ; leurs comptes sont exacts, et leurs seuls échecs sont des délais dépassés et rendus explicites.
+Twelve runs from six campaigns were relaunched requesting `local-controlled`. All are classified `diagnostic`; their counts are exact, and their only failures are deadlines exceeded and made explicit.
 
-- **Nuit** (à partir de 3 h 35, Mac au repos). Les campagnes s'enchaînaient sans pause, si bien que la charge d'un run pesait encore sur la vérification d'hôte du suivant ; trois runs ont été rétrogradés en `local-dev`. Une campagne d'identité s'est bloquée quatre heures sur une cellule après la mise en veille du Mac. Correctifs :
-  - commandes CDP bornées à 60 s et budget de temps par cellule (#42) ;
-  - lancements sous `caffeinate -i` ;
-  - attente du calme avant chaque campagne.
-- **Matin** (Mac en usage léger). Tous les runs sont restés en `local-dev` : l'analyse des photos de macOS, la VM de Docker Desktop et l'affichage dépassaient le CPU étranger autorisé.
+- **Night** (from 3:35 a.m., idle Mac). The campaigns followed one another without a pause, so the load of one run still weighed on the host check of the next; three runs were downgraded to `local-dev`. An identity campaign got stuck for four hours on one cell after the Mac went to sleep. Fixes:
+  - CDP commands bounded at 60 s and a time budget per cell (#42);
+  - launches under `caffeinate -i`;
+  - waiting for quiet before each campaign.
+- **Morning** (Mac in light use). All runs remained in `local-dev`: macOS photo analysis, the Docker Desktop VM and the display exceeded the allowed foreign CPU.
 
-Les reruns `local-controlled` restent donc à faire.
+The `local-controlled` reruns therefore remain to be done.
 
-### Après-midi du 9 octobre, à la demande du porteur
+### Afternoon of October 9, at the project owner's request
 
-Les six campagnes ont été relancées dans les conditions d'usage du moment (sans ffmpeg ni Docker, mais avec l'analyse des photos de macOS, l'affichage et la vidéo). Les six runs sont `local-dev` et classés `diagnostic`. Leurs comptes sont exacts : la matrice d'actionnabilité avec garde donne 162/162, l'admission et l'ordonnancement 10/10, le RTT 300 432/432 et l'extraction rendue 21/21.
+The six campaigns were relaunched under the usage conditions of the moment (without ffmpeg or Docker, but with macOS photo analysis, the display and video). The six runs are `local-dev` and classified `diagnostic`. Their counts are exact: the actionability matrix with the guard gives 162/162, admission and scheduling 10/10, RTT 300 432/432 and rendered extraction 21/21.
 
-Lecture indicative, calculée hors du ledger, sans valeur de décision :
-- **Pilotes à 300 ms de latence** (`browser-driver-rtt-300-2026-10-09T10-50-18-619Z-27903b`, 6 blocs propres sur 6). Face à Playwright, les pilotes CDP avec garde mettent 0,68 à 0,81 du temps, Rust et Node à égalité ; Puppeteer avec garde met 1,8 à 2,3 fois plus de temps sur les actions. Cela prolonge la tendance observée à 20 et 100 ms.
-- **Ordonnancement** (`durable-scheduler-2026-10-09T10-48-01-989Z-994cf4`). Les files par domaine donnent 2,7 fois le débit vérifié des petits domaines, comme le 8 octobre.
+Indicative reading, computed outside the ledger, with no decision value:
+- **Drivers at 300 ms of latency** (`browser-driver-rtt-300-2026-10-09T10-50-18-619Z-27903b`, 6 clean blocks out of 6). Against Playwright, the guarded CDP drivers take 0.68 to 0.81 of the time, Rust and Node tied; guarded Puppeteer takes 1.8 to 2.3 times longer on actions. This extends the trend observed at 20 and 100 ms.
+- **Scheduling** (`durable-scheduler-2026-10-09T10-48-01-989Z-994cf4`). Per-domain queues give 2.7 times the verified throughput of small domains, as on October 8.
 

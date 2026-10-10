@@ -1,7 +1,7 @@
 {
   "id": "D-sinks",
-  "title": "Sinks additionnels",
-  "question": "Quels sinks au-delà de SQLite et JSONL justifient une implémentation ?",
+  "title": "Additional sinks",
+  "question": "Which sinks beyond SQLite and JSONL justify an implementation?",
   "kind": "technical",
   "status": "deferred",
   "options": [
@@ -19,7 +19,7 @@
     },
     {
       "id": "object-store",
-      "description": "stockage objet multipart"
+      "description": "multipart object storage"
     }
   ],
   "baseline": "postgres-copy",
@@ -54,12 +54,12 @@
     {
       "kind": "run",
       "ref": "storage-sinks-2026-10-09T19-55-10-753Z-e5bb86",
-      "note": "débit, cinq sinks"
+      "note": "throughput, five sinks"
     },
     {
       "kind": "run",
       "ref": "storage-sinks-crash-2026-10-09T19-55-28-446Z-b1c63c",
-      "note": "crash du writer après acquittement"
+      "note": "writer crash after acknowledgment"
     },
     {
       "kind": "research-doc",
@@ -68,7 +68,7 @@
     {
       "kind": "research-doc",
       "ref": "lab/reports/power-cut-pg-2026-10-09.json",
-      "note": "coupures simulées : PostgreSQL ne perd aucun commit acquitté"
+      "note": "simulated power cuts: PostgreSQL loses no acknowledged commit"
     }
   ],
   "verdictRef": "verdicts/D-sinks.json",
@@ -76,7 +76,7 @@
   "dependsOn": [
     "D-feature-priority"
   ],
-  "notes": "Ouverte seulement pour les sinks demandés par les clients. Le 9 octobre 2026 : mesuré à l'avance pour avoir les chiffres prêts, PostgreSQL dans un conteneur Docker local ; l'adoption reste subordonnée à la demande. Le crash du writer après acquittement (storage-sinks-crash) est dans les preuves, si bien qu'oracle-exact couvre la reprise : une ligne acquittée absente fait échouer la cellule.",
+  "notes": "Open only for sinks requested by customers. On October 9, 2026: measured in advance to have the figures ready, PostgreSQL in a local Docker container; adoption remains subject to demand. The writer crash after acknowledgment (storage-sinks-crash) is in the evidence, so oracle-exact covers recovery: a missing acknowledged row fails the cell.",
   "analysis": {
     "lane": "storage",
     "options": {

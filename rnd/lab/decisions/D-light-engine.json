@@ -1,13 +1,13 @@
 {
   "id": "D-light-engine",
-  "title": "Moteur de rendu léger",
-  "question": "Un moteur léger hors processus apporte-t-il un gain suffisant sur un corpus compatible ?",
+  "title": "Lightweight rendering engine",
+  "question": "Does an out-of-process lightweight engine bring a sufficient gain on a compatible corpus?",
   "kind": "technical",
   "status": "open",
   "options": [
     {
       "id": "lightpanda",
-      "description": "Lightpanda hors processus (AGPL, jamais lié)"
+      "description": "Lightpanda out of process (AGPL, never linked)"
     },
     {
       "id": "chrome-headless-shell",
@@ -54,7 +54,7 @@
     {
       "kind": "run",
       "ref": "light-engine-paired-2026-10-10T02-55-16-672Z-17bf22",
-      "note": "Chrome et Lightpanda dans un même run, mêmes pilotes et scénarios ; Mac calme"
+      "note": "Chrome and Lightpanda in the same run, same drivers and scenarios; quiet Mac"
     },
     {
       "kind": "run",
@@ -79,7 +79,7 @@
     {
       "kind": "run",
       "ref": "extraction-rendered-test-2026-10-08T20-14-39-618Z-9f5f67",
-      "note": "pages réelles figées : Lightpanda rend les 511 pages"
+      "note": "frozen real pages: Lightpanda renders all 511 pages"
     },
     {
       "kind": "research-doc",
@@ -100,7 +100,7 @@
     "D-browser-driver",
     "D-extraction"
   ],
-  "notes": "Priorité basse : chaque tier supplémentaire multiplie la matrice d'actionnabilité. Le 9 octobre 2026 : le gate false-success-count est retiré, car la matrice d'actionnabilité sur Lightpanda ne porte pas l'hôte comme facteur et ne peut pas être attribuée à une option ; ses résultats restent dans leur propre run. Le gate oracle-exact porte sur toute la matrice : un scénario incompatible bloque l'option, ce qui appelle un routage par capacités plutôt qu'un moteur par défaut.",
+  "notes": "Low priority: each additional tier multiplies the actionability matrix. On October 9, 2026: the false-success-count gate is removed, because the actionability matrix on Lightpanda does not carry the host as a factor and cannot be attributed to an option; its results remain in their own run. The oracle-exact gate covers the whole matrix: one incompatible scenario blocks the option, which calls for capability-based routing rather than a default engine.",
   "analysis": {
     "lane": "bench",
     "options": {

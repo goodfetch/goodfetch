@@ -1,32 +1,32 @@
-# Audit des benchmarks publics : Stagehand, Crawlee et Spider-rs
+# Audit of public benchmarks: Stagehand, Crawlee and Spider-rs
 
-Relevé du 7 octobre 2026. Ce document examine des sources et des scripts ; il ne présente pas un benchmark comparatif exécuté par nous. La seule vérification locale est une petite expression Node qui confirme le traitement des arguments et la concaténation des URL du stub Spider. Les commentaires sur les défauts concernent le code épinglé ci-dessous, sans présumer quel code a servi aux anciennes mesures publiées.
+Survey of October 7, 2026. This document examines sources and scripts; it does not present a comparative benchmark run by us. The only local check is a small Node expression that confirms the argument handling and URL concatenation of the Spider stub. The comments on defects concern the code pinned below, without presuming which code was used for the older published measurements.
 
 ## Conclusion
 
-**Aucun des benchmarks examinés ne permet de classer Stagehand, Crawlee et Spider-rs pour toutes les tâches d'Automan.** Le benchmark Spider compare une bibliothèque Rust à Colly, au paquet Node `crawler` et à wget ; Crawlee et Stagehand n'y figurent pas. Un benchmark d'agents compare Stagehand 3.2.1 à Browser Use et Sentinel sur quelques tâches. Un benchmark de crawlers mesure surtout des sorties Markdown et leur utilité pour un pipeline de recherche documentaire. Ces expériences portent sur des contrats différents.
+**None of the benchmarks examined makes it possible to rank Stagehand, Crawlee and Spider-rs for all of Automan's tasks.** The Spider benchmark compares a Rust library with Colly, the Node `crawler` package and wget; Crawlee and Stagehand do not appear in it. An agent benchmark compares Stagehand 3.2.1 with Browser Use and Sentinel on a few tasks. A crawler benchmark mainly measures Markdown outputs and their usefulness for a document retrieval pipeline. These experiments concern different contracts.
 
-Les résultats publiés restent utiles pour formuler des hypothèses. Ils ne démontrent ni « Rust est toujours plus rapide », ni « un script bat toujours un agent », ni une fiabilité actuelle de Stagehand 4.1.0. Un classement honnête exige des pages, sorties et états finaux équivalents, ainsi que les coûts des tentatives ratées.
+The published results remain useful for formulating hypotheses. They demonstrate neither "Rust is always faster", nor "a script always beats an agent", nor the current reliability of Stagehand 4.1.0. An honest ranking requires equivalent pages, outputs and final states, as well as the costs of failed attempts.
 
-## 1. Spider : lire le script avant de citer les multiplicateurs
+## 1. Spider: read the script before quoting the multipliers
 
-Sources épinglées au commit **`fb0f270d77e19442de59350d9dbbacf52f1804b4`**, correspondant à `main` lors du relevé : [protocole publié](https://github.com/spider-rs/spider/blob/fb0f270d77e19442de59350d9dbbacf52f1804b4/benches/BENCHMARKS.md), [harness crawl.rs](https://github.com/spider-rs/spider/blob/fb0f270d77e19442de59350d9dbbacf52f1804b4/benches/crawl.rs), [stub Go](https://github.com/spider-rs/spider/blob/fb0f270d77e19442de59350d9dbbacf52f1804b4/benches/go_colly.rs), [stub Node](https://github.com/spider-rs/spider/blob/fb0f270d77e19442de59350d9dbbacf52f1804b4/benches/node_crawler.rs).
+Sources pinned at commit **`fb0f270d77e19442de59350d9dbbacf52f1804b4`**, corresponding to `main` at the time of the survey: [published protocol](https://github.com/spider-rs/spider/blob/fb0f270d77e19442de59350d9dbbacf52f1804b4/benches/BENCHMARKS.md), [crawl.rs harness](https://github.com/spider-rs/spider/blob/fb0f270d77e19442de59350d9dbbacf52f1804b4/benches/crawl.rs), [Go stub](https://github.com/spider-rs/spider/blob/fb0f270d77e19442de59350d9dbbacf52f1804b4/benches/go_colly.rs), [Node stub](https://github.com/spider-rs/spider/blob/fb0f270d77e19442de59350d9dbbacf52f1804b4/benches/node_crawler.rs).
 
-Le tableau publié annonce notamment un crawl de 185 pages en 73 ms pour Rust, 32 s pour Go et 15 s pour Node sur un Mac M1 Max. Il décrit des machines et un site distant, mais le harness actuel ne garantit pas que chaque concurrent termine avec les mêmes URL et le même contenu. Ce sont des chiffres du fournisseur, pas des mesures que nous avons reproduites.
+The published table notably announces a crawl of 185 pages in 73 ms for Rust, 32 s for Go and 15 s for Node on a Mac M1 Max. It describes machines and a remote site, but the current harness does not guarantee that each competitor finishes with the same URLs and the same content. These are the vendor's figures, not measurements we have reproduced.
 
-### Asymétries visibles
+### Visible asymmetries
 
-- **Bibliothèques comparées :** `spider`, Colly, le paquet Node `crawler`, wget. La ligne Node ne désigne pas Crawlee, Playwright ou Stagehand.
-- **Chronométrage :** Spider est appelé dans le processus avec un runtime Tokio créé avant la mesure ; Go, Node et wget sont lancés dans un processus à chaque itération. En mode décentralisé, le worker est démarré avant le chronométrage. Cette expérience peut mesurer le rendement d'une exécution chaude, mais ne constitue pas une comparaison équivalente des démarrages ou du coût total des workers.
-- **Travail accompli :** le harness n'assertionne ni le nombre de pages valides, ni l'égalité des URL, ni la qualité du contenu. Les sorties des commandes sont recueillies sans assertion sur leur code de succès. Un run qui fait moins de travail peut donc sembler rapide.
-- **Concurrence Go :** le stub appelle `colly.NewCollector()` sans activer `colly.Async()`. La [source de Colly](https://github.com/gocolly/colly/blob/master/colly.go) expose explicitement cette option ; l'exécution générée n'active pas la concurrence asynchrone dans le programme. Des variables d'environnement de Colly pourraient modifier la configuration, mais elles ne sont pas fixées par ce harness. Cette ligne ne représente donc pas une optimisation comparable de Colly.
-- **Réseau :** des sites distants, le cache, les limitations serveur et les blocages affectent les résultats. Les politiques de liens et de ressources des stubs ne constituent pas une spécification commune vérifiée.
+- **Libraries compared:** `spider`, Colly, the Node `crawler` package, wget. The Node row does not refer to Crawlee, Playwright or Stagehand.
+- **Timing:** Spider is called in-process with a Tokio runtime created before the measurement; Go, Node and wget are launched in a process at each iteration. In decentralized mode, the worker is started before timing. This experiment can measure the throughput of a warm run, but does not constitute an equivalent comparison of startups or of the total cost of workers.
+- **Work done:** the harness asserts neither the number of valid pages, nor URL equality, nor content quality. Command outputs are collected without any assertion on their success code. A run that does less work can therefore appear fast.
+- **Go concurrency:** the stub calls `colly.NewCollector()` without enabling `colly.Async()`. The [Colly source](https://github.com/gocolly/colly/blob/master/colly.go) explicitly exposes this option; the generated run does not enable asynchronous concurrency in the program. Colly environment variables could change the configuration, but they are not set by this harness. This row therefore does not represent a comparable optimization of Colly.
+- **Network:** remote sites, caching, server rate limits and blocks affect the results. The link and resource policies of the stubs do not constitute a verified common specification.
 
-### Deux problèmes dans le stub Node actuel
+### Two problems in the current Node stub
 
-Le programme est lancé avec `node ./node-crawler.js <url>`, mais prend `argv.slice(1)[0]` comme URL de base. Dans cette invocation habituelle, cela donne le chemin du script. Il construit aussi les liens par concaténation `base + href`, même lorsque `href` est déjà une URL absolue.
+The program is launched with `node ./node-crawler.js <url>`, but takes `argv.slice(1)[0]` as the base URL. In this usual invocation, that yields the script path. It also builds links by `base + href` concatenation, even when `href` is already an absolute URL.
 
-Vérification locale limitée, sans lancer de crawl :
+Limited local check, without running a crawl:
 
 ```js
 const argv = ['/usr/bin/node', './node-crawler.js', 'https://fixture.invalid'];
@@ -35,58 +35,58 @@ argv.slice(1)[0]; // './node-crawler.js'
 // 'https://fixture.invalidhttps://fixture.invalid/page'
 ```
 
-**Conclusion permise :** corriger et instrumenter ces stubs avant toute reproduction comparative. Ces observations ne prouvent pas que les anciennes mesures utilisaient exactement ce code, et ne permettent pas de conclure à une intention de tromper. Elles empêchent de reprendre aujourd'hui le tableau comme preuve d'une supériorité de Spider sur Crawlee ou Stagehand.
+**Permitted conclusion:** fix and instrument these stubs before any comparative reproduction. These observations do not prove that the older measurements used exactly this code, and do not allow concluding that there was an intent to deceive. They prevent reusing the table today as proof of Spider's superiority over Crawlee or Stagehand.
 
-## 2. Agents : un résultat Stagehand 3.2.1 n'est pas un résultat Stagehand 4
+## 2. Agents: a Stagehand 3.2.1 result is not a Stagehand 4 result
 
-Le dépôt [browser-agent-benchmark](https://github.com/ArasHuseyin/browser-agent-benchmark) compare le produit de son auteur, Sentinel, à Browser Use et Stagehand. L'auteur déclare ce conflit d'intérêt. Audit épinglé au commit **`8672aaa405ad371d947a2e84f850f20464cb6350`** : [méthodologie](https://github.com/ArasHuseyin/browser-agent-benchmark/blob/8672aaa405ad371d947a2e84f850f20464cb6350/METHODOLOGY.md), [résultats agrégés](https://github.com/ArasHuseyin/browser-agent-benchmark/blob/8672aaa405ad371d947a2e84f850f20464cb6350/results/aggregated/summary.json), [limites](https://github.com/ArasHuseyin/browser-agent-benchmark/blob/8672aaa405ad371d947a2e84f850f20464cb6350/docs/limitations.md).
+The [browser-agent-benchmark](https://github.com/ArasHuseyin/browser-agent-benchmark) repository compares its author's product, Sentinel, with Browser Use and Stagehand. The author declares this conflict of interest. Audit pinned at commit **`8672aaa405ad371d947a2e84f850f20464cb6350`**: [methodology](https://github.com/ArasHuseyin/browser-agent-benchmark/blob/8672aaa405ad371d947a2e84f850f20464cb6350/METHODOLOGY.md), [aggregated results](https://github.com/ArasHuseyin/browser-agent-benchmark/blob/8672aaa405ad371d947a2e84f850f20464cb6350/results/aggregated/summary.json), [limitations](https://github.com/ArasHuseyin/browser-agent-benchmark/blob/8672aaa405ad371d947a2e84f850f20464cb6350/docs/limitations.md).
 
-Les résultats JSON sont datés du **23 avril 2026**, utilisent `gemini-3-flash-preview` et donnent, après agrégation directe des champs :
+The JSON results are dated **April 23, 2026**, use `gemini-3-flash-preview` and give, after direct aggregation of the fields:
 
-| Configuration déclarée | Tâches | Tentatives | Succès | Échantillons de durée et de tokens présents |
+| Declared configuration | Tasks | Attempts | Successes | Duration and token samples present |
 | --- | ---: | ---: | ---: | ---: |
 | Browser Use 0.12.6 | 9 | 45 | 45 | 45 |
 | Sentinel 4.1.2 | 9 | 45 | 45 | 45 |
 | Stagehand 3.2.1 | 9 | 45 | 39 | 39 |
 | Stagehand hybrid 3.2.1 | 4 | 20 | 18 | 18 |
 
-Les totaux sont calculés à partir du JSON, pas estimés depuis un graphique. Ils n'ont pas été reproduits par l'exécution des tâches. L'ancienne prose de `METHODOLOGY.md` présente encore une série différente, notamment 32/45 pour Stagehand. Il faut donc identifier précisément le fichier et la série cités.
+The totals are calculated from the JSON, not estimated from a chart. They were not reproduced by running the tasks. The older prose of `METHODOLOGY.md` still presents a different series, notably 32/45 for Stagehand. The file and the series cited must therefore be identified precisely.
 
-Les durées et tokens agrégés ne couvrent ici que les succès. La méthodologie reconnaît l'exclusion des runs échoués des statistiques de coût, notamment des tentatives très consommatrices. Le coût moyen affiché ne suffit donc pas à calculer **le coût total par succès**, qui doit inclure toutes les tentatives. Les p95 calculés avec cinq runs par tâche sont aussi très peu informatifs.
+The aggregated durations and tokens here cover only successes. The methodology acknowledges that failed runs are excluded from the cost statistics, including very resource-intensive attempts. The displayed average cost is therefore not enough to calculate **the total cost per success**, which must include all attempts. The p95 values computed with five runs per task are also very uninformative.
 
-La documentation dit que les données brutes sont commitées. Pourtant, à ce SHA, l'arbre `results/raw/` ne contient que `.gitkeep` ; seuls les résumés sont visibles dans `results/aggregated/`. Cela empêche de recalculer depuis ce dépôt les distributions de toutes les tentatives. Cela ne prouve pas que des logs n'existent nulle part ailleurs.
+The documentation says the raw data is committed. Yet at this SHA, the `results/raw/` tree contains only `.gitkeep`; only the summaries are visible in `results/aggregated/`. This prevents recalculating the distributions of all attempts from this repository. It does not prove that logs do not exist anywhere else.
 
-Enfin, les modes diffèrent : Stagehand est utilisé avec des primitives et une variante hybrid, Browser Use avec une boucle autonome. La comparaison a un intérêt de cas d'usage, mais ne sépare pas proprement toutes les variables. Les tâches et versions d'avril ne déterminent pas le résultat d'octobre pour Stagehand 4, un autre modèle, des workflows récurrents ou un crawl massif.
+Finally, the modes differ: Stagehand is used with primitives and a hybrid variant, Browser Use with an autonomous loop. The comparison has use-case value, but does not cleanly separate all variables. April's tasks and versions do not determine October's result for Stagehand 4, another model, recurring workflows or a massive crawl.
 
-## 3. Crawlers Markdown/RAG : autre objectif, autre configuration
+## 3. Markdown/RAG crawlers: different objective, different configuration
 
-Le dépôt [llm-crawler-benchmarks](https://github.com/AIMLPM/llm-crawler-benchmarks) est maintenu par les développeurs de markcrawl, l'un des outils comparés ; l'intérêt produit est déclaré. Audit au commit **`02d513cf491732450c30b26b71a7e06a6ca4d49e`** : [méthodologie effective](https://github.com/AIMLPM/llm-crawler-benchmarks/blob/02d513cf491732450c30b26b71a7e06a6ca4d49e/reports/METHODOLOGY.md), [runner Crawlee](https://github.com/AIMLPM/llm-crawler-benchmarks/blob/02d513cf491732450c30b26b71a7e06a6ca4d49e/runners/crawlee_runner.py), [worker](https://github.com/AIMLPM/llm-crawler-benchmarks/blob/02d513cf491732450c30b26b71a7e06a6ca4d49e/crawlee_worker.py).
+The [llm-crawler-benchmarks](https://github.com/AIMLPM/llm-crawler-benchmarks) repository is maintained by the developers of markcrawl, one of the tools compared; the product interest is declared. Audit at commit **`02d513cf491732450c30b26b71a7e06a6ca4d49e`**: [effective methodology](https://github.com/AIMLPM/llm-crawler-benchmarks/blob/02d513cf491732450c30b26b71a7e06a6ca4d49e/reports/METHODOLOGY.md), [Crawlee runner](https://github.com/AIMLPM/llm-crawler-benchmarks/blob/02d513cf491732450c30b26b71a7e06a6ca4d49e/runners/crawlee_runner.py), [worker](https://github.com/AIMLPM/llm-crawler-benchmarks/blob/02d513cf491732450c30b26b71a7e06a6ca4d49e/crawlee_worker.py).
 
-Le pipeline examine le crawl, la conversion Markdown, le contenu, la récupération documentaire et les réponses. Cela mesure une finalité utile, mais pas une interaction authentifiée ou la sécurité d'un clic. Les différentes versions de la documentation décrivent des corpus et étapes successifs ; éviter de mélanger leurs tableaux comme une seule expérience.
+The pipeline examines the crawl, Markdown conversion, content, document retrieval and answers. This measures a useful end goal, but not an authenticated interaction or the safety of a click. The different versions of the documentation describe successive corpora and stages; avoid mixing their tables as if they were a single experiment.
 
-La configuration Crawlee étudiée utilise **Python et Playwright**, avec un sous-processus par appel pour contourner une difficulté de boucle événementielle décrite par le runner. Ce démarrage est compris dans la durée. Elle ne représente ni Crawlee TypeScript, ni `HttpCrawler`, ni `CheerioCrawler`, ni toutes les configurations de pool de navigateurs. Des baselines HTTP et des configurations avec navigateur rendent également des services différents.
+The Crawlee configuration studied uses **Python and Playwright**, with one subprocess per call to work around an event loop difficulty described by the runner. This startup is included in the duration. It represents neither Crawlee TypeScript, nor `HttpCrawler`, nor `CheerioCrawler`, nor all browser pool configurations. HTTP baselines and browser configurations also provide different services.
 
-Le texte méthodologique distingue les répétitions du crawl de vitesse et les mesures de qualité documentaire, dont certaines restent sur une seule série. Une vérification de pertinence par modèle n'est pas un oracle indépendant de vérité. **Spider et Stagehand ne sont pas comparés dans cette expérience** ; aucun classement du trio n'en découle.
+The methodological text distinguishes repetitions of the speed crawl from document quality measurements, some of which remain on a single series. A model-based relevance check is not an independent oracle of truth. **Spider and Stagehand are not compared in this experiment**; no ranking of the trio follows from it.
 
-## 4. Évaluations Stagehand et anecdotes Reddit
+## 4. Stagehand evaluations and Reddit anecdotes
 
-La page [Stagehand evals](https://www.stagehand.dev/evals) décrit une évaluation de modèles, affichée comme actualisée le **10 juillet 2026**. Elle ne constitue pas une comparaison Stagehand/Crawlee/Spider. Les modèles, versions et objectifs doivent accompagner toute reprise de métriques.
+The [Stagehand evals](https://www.stagehand.dev/evals) page describes a model evaluation, displayed as updated on **July 10, 2026**. It does not constitute a Stagehand/Crawlee/Spider comparison. Models, versions and objectives must accompany any reuse of metrics.
 
-Les [témoignages Reddit audités](2026-10-07-reddit-evidence-followup.md) signalent des problèmes de sessions, de coût et de succès apparent. Ils ne fournissent pas un protocole commun du trio. Un retour d'avril 2025 annonçant plus de 500 000 tokens pour un agent ne décrit pas automatiquement Stagehand 4 actuel. Un gain d'une stack Browserbase + Stagehand ne peut pas être attribué au SDK seul.
+The [audited Reddit testimonials](2026-10-07-reddit-evidence-followup.md) report problems with sessions, cost and apparent success. They do not provide a common protocol for the trio. An April 2025 report announcing more than 500,000 tokens for an agent does not automatically describe the current Stagehand 4. A gain from a Browserbase + Stagehand stack cannot be attributed to the SDK alone.
 
-## 5. Ce qu'Automan doit publier pour prouver son avantage
+## 5. What Automan must publish to prove its advantage
 
-Le protocole général reste détaillé dans [benchmark et runtime](2026-10-07-benchmark-and-runtime.md). Cette recherche précise les comparateurs à isoler :
+The general protocol remains detailed in [benchmark and runtime](2026-10-07-benchmark-and-runtime.md). This research specifies the comparators to isolate:
 
-| Contrat | Comparateurs pertinents | Résultat vérifié |
+| Contract | Relevant comparators | Verified result |
 | --- | --- | --- |
-| Crawl HTTP | Spider HTTP, Crawlee HTTP/Cheerio, Scrapy, Colly async, Automan HTTP | Même ensemble d'URL, contenu attendu, couverture, erreurs |
-| Crawl avec rendu | Spider Chrome, Crawlee Playwright, Crawl4AI, Automan CDP | Même contenu après JavaScript, ressources et isolation déclarées |
-| Actions connues | Playwright, Stagehand page/locator, agent-browser CLI, plans Automan | État final observé, effets uniques, reprises sûres |
-| Découverte sémantique | Stagehand act/observe/extract, Browser Use, Skyvern, spider_agent, Automan | Même modèle si compatible, même budget et oracle de tâche |
-| Exécution répétée avec dérive | Cache/replay Stagehand, heuristiques Scrapling, workflows Automan | Succès après mutations contrôlées, faux succès, données périmées |
-| Incident et reprise | Framework + stockage réellement configurés | Pas de travail perdu non déclaré, pas de doublons d'effets, diagnostic exploitable |
+| HTTP crawl | Spider HTTP, Crawlee HTTP/Cheerio, Scrapy, Colly async, Automan HTTP | Same set of URLs, expected content, coverage, errors |
+| Rendered crawl | Spider Chrome, Crawlee Playwright, Crawl4AI, Automan CDP | Same content after JavaScript, declared resources and isolation |
+| Known actions | Playwright, Stagehand page/locator, agent-browser CLI, Automan plans | Observed final state, unique effects, safe recoveries |
+| Semantic discovery | Stagehand act/observe/extract, Browser Use, Skyvern, spider_agent, Automan | Same model if compatible, same budget and task oracle |
+| Repeated execution with drift | Stagehand cache/replay, Scrapling heuristics, Automan workflows | Success after controlled mutations, false successes, stale data |
+| Incident and recovery | Framework + storage actually configured | No undeclared lost work, no duplicate effects, actionable diagnosis |
 
-Publier séparément démarrage froid et chaud, décision initiale et replay, temps navigateur et LLM, volume réellement validé, mémoire totale processus enfants comprise, p50/p95 avec assez d'échantillons, coût total de toutes les tentatives par succès et traces anonymisées. Fixer les versions, machines, sites autorisés, caches, proxies, concurrence, politiques robots et délais. Un classement sans ces contrats confond souvent moins de travail avec plus de performance.
+Publish separately cold and warm startup, initial decision and replay, browser and LLM time, volume actually validated, total memory including child processes, p50/p95 with enough samples, total cost of all attempts per success and anonymized traces. Pin versions, machines, authorized sites, caches, proxies, concurrency, robots policies and delays. A ranking without these contracts often confuses less work with more performance.
 
-**Décision d'architecture :** conserver Rust comme hypothèse de runtime commun, tout en exigeant des gains mesurés par sous-système. Les benchmarks existants justifient une expérience comparative ; ils ne constituent pas sa conclusion.
+**Architecture decision:** keep Rust as the common runtime hypothesis, while requiring measured gains per subsystem. Existing benchmarks justify a comparative experiment; they do not constitute its conclusion.

@@ -1,29 +1,29 @@
 {
   "id": "D-agent-interface",
-  "title": "Interface pour agents",
-  "question": "Quelle interface les agents utilisent-ils le plus efficacement : MCP, CLI, SDK ou code mode ?",
+  "title": "Agent interface",
+  "question": "Which interface do agents use most effectively: MCP, CLI, SDK or code mode?",
   "kind": "technical",
   "status": "open",
   "options": [
     {
       "id": "mcp",
-      "description": "Serveur MCP, profil réduit"
+      "description": "MCP server, reduced profile"
     },
     {
       "id": "cli",
-      "description": "CLI JSON/NDJSON"
+      "description": "JSON/NDJSON CLI"
     },
     {
       "id": "sdk",
-      "description": "SDK typé et code généré"
+      "description": "Typed SDK and generated code"
     },
     {
       "id": "code-mode",
-      "description": "Code mode : recherche d'API et exécution"
+      "description": "Code mode: API search and execution"
     },
     {
       "id": "code-mode-journal",
-      "description": "Code mode avec journal d'effets : une correction est rejouée contre le journal, les actions déjà appliquées au même rang sont sautées, une divergence après un clic envoyé arrête le programme"
+      "description": "Code mode with an effect journal: a correction is replayed against the journal, actions already applied at the same position are skipped, a divergence after a sent click stops the program"
     }
   ],
   "baseline": "mcp",
@@ -61,7 +61,7 @@
     {
       "kind": "run",
       "ref": "interface-arena-2026-10-08T23-05-03-060Z-3c8d7c",
-      "note": "MCP, outils de fonction, CLI et code avec trois vrais modèles"
+      "note": "MCP, function tools, CLI and code with three real models"
     },
     {
       "kind": "research-doc",
@@ -70,7 +70,7 @@
     {
       "kind": "run",
       "ref": "interface-arena-journal-2026-10-09T15-11-59-464Z-f3de1a",
-      "note": "mode code journalisé, 5 blocs"
+      "note": "journaled code mode, 5 blocks"
     },
     {
       "kind": "research-doc",
@@ -82,7 +82,7 @@
   "dependsOn": [
     "D-ai-layer"
   ],
-  "notes": "Croiser les interfaces avec découverte, rejeu et réparation ; mêmes tâches, modèle et budget. Tours et tokens sont comptés par la gateway et ne dépendent pas de la charge de l'hôte : la décision se prend en local-dev ; les durées, qui incluent la latence des modèles, restent hors verdict.",
+  "notes": "Cross the interfaces with discovery, replay and repair; same tasks, model and budget. Turns and tokens are counted by the gateway and do not depend on host load: the decision is made in local-dev; durations, which include model latency, stay out of the verdict.",
   "analysis": {
     "lane": "ai",
     "options": {

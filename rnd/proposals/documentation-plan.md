@@ -1,162 +1,162 @@
-# Documentation complète à produire avec Automan
+# Complete documentation to produce with Automan
 
-**Exigence et plan de travail — 7 octobre 2026.** Ce document décrit la future documentation du produit. Il ne constitue pas une documentation d'utilisation d'Automan, dont l'implémentation n'existe pas encore. Les exemples d'API du dossier sont des propositions.
+**Requirement and work plan — October 7, 2026.** This document describes the product's future documentation. It is not user documentation for Automan, whose implementation does not yet exist. The API examples in the dossier are proposals.
 
-## 1. Niveau attendu
+## 1. Expected level
 
-Prévoir une documentation comparable en couverture à [Stagehand](https://docs.stagehand.dev/v4/first-steps/introduction), [Crawlee](https://crawlee.dev/js/docs/introduction) et [Spider](https://docs.rs/spider/latest/spider/), avec une distinction claire entre démarrage, concepts, guides, références et exploitation. Une collection de README et d'exemples heureux ne suffit pas à couvrir queues, workers, pools, reprise, IA et service.
+Plan documentation comparable in coverage to [Stagehand](https://docs.stagehand.dev/v4/first-steps/introduction), [Crawlee](https://crawlee.dev/js/docs/introduction) and [Spider](https://docs.rs/spider/latest/spider/), with a clear distinction between getting started, concepts, guides, references and operations. A collection of READMEs and happy-path examples is not enough to cover queues, workers, pools, recovery, AI and service.
 
-Les interfaces web et macOS ont leurs guides. Les développeurs disposent d'une référence complète par SDK et d'un contrat partagé ; les intégrateurs agents disposent de CLI/MCP documentés et d'exemples d'orchestration externe. Les opérateurs disposent des limites et procédures de diagnostic/reprise.
+The web and macOS interfaces have their guides. Developers have a complete reference per SDK and a shared contract; agent integrators have documented CLI/MCP and examples of external orchestration. Operators have the limits and the diagnosis/recovery procedures.
 
-**Règle de livraison proposée : chaque capacité implémentée et qualifiée est accompagnée de ses docs et exemples vérifiés.** Les capacités futures restent dans le plan/version de développement, sans apparaître comme disponibles dans la documentation stable.
+**Proposed delivery rule: each implemented and qualified capability is accompanied by its verified docs and examples.** Future capabilities remain in the development plan/version, without appearing as available in the stable documentation.
 
-## 2. Arborescence cible
+## 2. Target structure
 
 ```text
-Découvrir
-  Pourquoi Automan, cas d'usage, architecture, capacités et limites
-  Choisir déterministe, assisté, agent ou plan compilé
-  Framework open source, autohébergement et service hébergé
+Discover
+  Why Automan, use cases, architecture, capabilities and limits
+  Choose deterministic, assisted, agent or compiled plan
+  Open source framework, self-hosting and hosted service
 
-Démarrer
-  Installer et vérifier l'environnement
-  Premier workflow depuis le web
-  Première extraction TypeScript / Python
-  Premier crawl HTTP puis navigateur
-  CLI et première intégration MCP
-  Installer/utiliser l'app macOS native
-  Exécuter localement, puis dans le cloud
+Get started
+  Install and verify the environment
+  First workflow from the web
+  First TypeScript / Python extraction
+  First HTTP crawl, then browser
+  CLI and first MCP integration
+  Install/use the native macOS app
+  Run locally, then in the cloud
 
 Concepts
-  Workflow / plan / version / run / tentative
-  Frontier / requête / déduplication / découverte / recrawl
-  Worker / processus / tâche async / navigateur / contexte / page
-  Session / identité / proxy / capabilities / ownership
-  Validation / complétude / fraîcheur / effet inconnu
-  Lease / reprise / idempotence / journal / outbox
-  Admission / concurrence / budgets / backpressure / autoscaling
-  Caches perception / plan / données
+  Workflow / plan / version / run / attempt
+  Frontier / request / deduplication / discovery / recrawl
+  Worker / process / async task / browser / context / page
+  Session / identity / proxy / capabilities / ownership
+  Validation / completeness / freshness / unknown effect
+  Lease / recovery / idempotence / journal / outbox
+  Admission / concurrency / budgets / backpressure / autoscaling
+  Perception / plan / data caches
 
-Guides de collecte
-  HTTP, TLS, headers, cookies, auth, redirects et téléchargements
-  CSS / XPath / JSON / JSON-LD / Markdown / tableaux / nettoyage
-  Seeds, routers, labels, liens, XHR/JS et sitemaps
-  Scope, robots, profondeur, budgets et canonicalisation
-  Pagination, infinite scroll, virtualisation et complétude
-  HTTP adaptatif et qualification de l'équivalence
-  Streaming, gros documents, formats et normalisation
-  Datasets, append/upsert, exports, provenance et changements
+Collection guides
+  HTTP, TLS, headers, cookies, auth, redirects and downloads
+  CSS / XPath / JSON / JSON-LD / Markdown / tables / cleaning
+  Seeds, routers, labels, links, XHR/JS and sitemaps
+  Scope, robots, depth, budgets and canonicalization
+  Pagination, infinite scroll, virtualization and completeness
+  Adaptive HTTP and equivalence qualification
+  Streaming, large documents, formats and normalization
+  Datasets, append/upsert, exports, provenance and changes
 
-Guides navigateur
-  Launch/connect local et distant, backends et versions
-  Locators, attentes, actionability et références invalidées
-  Pages/popups, frames/OOPIF, shadow DOM et navigation
-  Entrées, formulaires, upload/download, dialogs, screenshot/PDF
-  Réseau, interception, événements et code de confiance
-  Authentification, identités, stockage et handoff
-  Sessions, proxies/fingerprints et limitations d'accès
+Browser guides
+  Local and remote launch/connect, backends and versions
+  Locators, waits, actionability and invalidated references
+  Pages/popups, frames/OOPIF, shadow DOM and navigation
+  Inputs, forms, upload/download, dialogs, screenshot/PDF
+  Network, interception, events and trusted code
+  Authentication, identities, storage and handoff
+  Sessions, proxies/fingerprints and access restrictions
 
-Guides IA et agents
-  Providers, modèles locaux/distant et BYOK
-  Observe/act/extract et décisions typées
-  DOM/AX, vision, projections et contrôle des observations
-  Agent intégré et orchestration externe
-  Outils et permissions, mémoire, limites et coûts
-  Recorder, paramètres et compilation de plans
-  Replay, validation et freshness
-  Détection de dérive, repair, tests, canary et rollback
+AI and agent guides
+  Providers, local/remote models and BYOK
+  Observe/act/extract and typed decisions
+  DOM/AX, vision, projections and observation control
+  Integrated agent and external orchestration
+  Tools and permissions, memory, limits and costs
+  Recorder, parameters and plan compilation
+  Replay, validation and freshness
+  Drift detection, repair, tests, canary and rollback
 
-Exploiter
-  Queues persistantes, priorités, leases, délais et dead-letter
-  Retries, backoff, timeouts, effet inconnu et réconciliation
-  Pools HTTP, navigateurs, contextes/pages, sessions, proxies, modèles
-  Workers, heartbeat, capacités, régions, drainage et updates
-  Concurrence, contrôleurs autoscale et causes de limitation
-  Stockage, sauvegarde/restauration, rétention et migration
-  Scheduling, timezone, overlap, webhooks et outbox
-  Logs, traces, métriques, coût et redaction
-  Déployer localement, container, autohébergement et flotte cloud
+Operate
+  Persistent queues, priorities, leases, delays and dead-letter
+  Retries, backoff, timeouts, unknown effect and reconciliation
+  HTTP pools, browsers, contexts/pages, sessions, proxies, models
+  Workers, heartbeat, capacities, regions, draining and updates
+  Concurrency, autoscale controllers and causes of limitation
+  Storage, backup/restore, retention and migration
+  Scheduling, timezone, overlap, webhooks and outbox
+  Logs, traces, metrics, cost and redaction
+  Deploy locally, container, self-hosting and cloud fleet
 
-Références
-  TypeScript / Python / Rust public
-  CLI, options, stdout/stderr, NDJSON et codes de sortie
-  MCP, transports/révisions, outils/profils/resources et auth
-  API REST, événements/SSE/cursors et protocole privé lorsque public
-  Schémas workflow/plan/package/configuration
-  Erreurs, statuts, capabilities, limites et defaults effectifs
-  Matrice backends / navigateurs / OS / versions
+References
+  Public TypeScript / Python / Rust
+  CLI, options, stdout/stderr, NDJSON and exit codes
+  MCP, transports/revisions, tools/profiles/resources and auth
+  REST API, events/SSE/cursors and private protocol when public
+  Workflow/plan/package/configuration schemas
+  Errors, statuses, capabilities, limits and effective defaults
+  Backends / browsers / OS / versions matrix
 
-Interfaces et service
-  Console, création, runs, données, repair et exploitation
-  macOS : lifecycle, fichiers, credentials et travail en arrière-plan
-  Cloud : organisations, rôles, secrets, flotte, quotas et usage
-  Facturation : unités, échecs, retries/réparations et estimations
-  Packages, registre, versions et provenance
+Interfaces and service
+  Console, creation, runs, data, repair and operations
+  macOS: lifecycle, files, credentials and background work
+  Cloud: organizations, roles, secrets, fleet, quotas and usage
+  Billing: units, failures, retries/repairs and estimates
+  Packages, registry, versions and provenance
 
-Exemples et intégrations
-  Catalogue, export authentifié, changements et contenu RAG
-  Plans sans IA, création assistée puis replay, auto repair
-  TypeScript/Python, SDK cloud et callbacks/packages
-  Agents via MCP/CLI/SDK, connecteurs et sinks
-  Intégrations Crawlee/Playwright et frontières de queue/session
+Examples and integrations
+  Catalog, authenticated export, changes and RAG content
+  Plans without AI, assisted creation then replay, auto repair
+  TypeScript/Python, cloud SDK and callbacks/packages
+  Agents via MCP/CLI/SDK, connectors and sinks
+  Crawlee/Playwright integrations and queue/session boundaries
 
-Maintenir et contribuer
-  Contribution, architecture interne et plugin/backend contract
-  Fixtures, benchmarks reproductibles et méthode de qualification
-  Changelog, versions, migrations, dépréciations et support
-  Diagnostic, problèmes connus et limitations publiées
+Maintain and contribute
+  Contribution, internal architecture and plugin/backend contract
+  Fixtures, reproducible benchmarks and qualification method
+  Changelog, versions, migrations, deprecations and support
+  Diagnostics, known issues and published limitations
 ```
 
-Cette navigation est une cible à affiner après les premiers tests d'usage. L'exhaustivité est suivie par la matrice de capacités, pas par le nombre de pages.
+This navigation is a target to be refined after the first usability tests. Completeness is tracked by the capability matrix, not by the number of pages.
 
-## 3. Contrat d'une page de référence
+## 3. Contract for a reference page
 
-Pour chaque méthode, commande, configuration et outil : purpose, signature/schéma, paramètres requis et facultatifs, unités, defaults **effectifs**, résultat, erreurs, permissions, capabilities et versions. Inclure retry/timeout/annulation, effets possibles, ressources engagées, comportement local/cloud et cache/freshness lorsqu'ils s'appliquent.
+For each method, command, configuration and tool: purpose, signature/schema, required and optional parameters, units, **effective** defaults, result, errors, permissions, capabilities and versions. Include retry/timeout/cancellation, possible effects, resources engaged, local/cloud behavior and cache/freshness when they apply.
 
-Montrer au moins un exemple minimal et un cas d'erreur pertinent ; un exemple de configuration de pool doit préciser la ressource comptée. Indiquer ce qui dépend du backend/provider plutôt que de promettre une parité générale.
+Show at least one minimal example and one relevant error case; a pool configuration example must specify the resource counted. Indicate what depends on the backend/provider rather than promising general parity.
 
-Les références générées ne remplacent pas les explications des garanties. Par exemple, un type `maxConcurrency` n'explique pas si la limite compte tâches, onglets ou requêtes HTTP ; les concepts et guides portent cette distinction.
+Generated references do not replace explanations of the guarantees. For example, a `maxConcurrency` type does not explain whether the limit counts tasks, tabs or HTTP requests; the concepts and guides carry this distinction.
 
-## 4. Contrat d'un guide
+## 4. Contract for a guide
 
-Chaque guide part d'un objectif concret, précise les prérequis, choisit un workflow de référence et termine par résultat observable et diagnostic des échecs possibles. Le lecteur voit ce qu'il peut vérifier, quelles données sont persistées et quels coûts/effets peuvent être engagés.
+Each guide starts from a concrete objective, specifies the prerequisites, chooses a reference workflow and ends with an observable result and a diagnosis of possible failures. The reader sees what they can verify, what data is persisted and what costs/effects may be incurred.
 
-Les guides déterministes fonctionnent sans clé de modèle. Les guides agentiques distinguent provider de test et exécution réelle, affichent budgets et provenance, et décrivent les arrêts `partial`, `needs_review` ou `effect_unknown`. Les guides de réparation montrent aussi un candidat rejeté, pas uniquement un succès.
+Deterministic guides work without a model key. Agentic guides distinguish a test provider from real execution, display budgets and provenance, and describe `partial`, `needs_review` or `effect_unknown` stops. Repair guides also show a rejected candidate, not only a success.
 
-## 5. Source, génération et versions
+## 5. Source, generation and versions
 
-- Rédiger guides/concepts dans le dépôt et réviser avec les changements de comportement.
-- Générer les références depuis types/schémas publics et métadonnées CLI/MCP ; vérifier les facades idiomatiques des SDK.
-- Publier stable, versions supportées et développement, avec bandeau de version et matrice de compatibilité.
-- Lier changelog et migration à chaque changement incompatible ; conserver les URLs documentées ou prévoir redirects.
-- Documenter les valeurs defaults de la version distribuée, pas seulement celles d'une branche `main` ou d'une page marketing.
-- Relier chaque capacité à ses pages, exemples et tests. Un changement de contrat vérifie ces consommateurs.
+- Write guides/concepts in the repository and revise them along with behavior changes.
+- Generate references from public types/schemas and CLI/MCP metadata; verify the SDKs' idiomatic facades.
+- Publish stable, supported versions and development, with a version banner and a compatibility matrix.
+- Link changelog and migration to each breaking change; keep documented URLs or provide redirects.
+- Document the default values of the distributed version, not only those of a `main` branch or a marketing page.
+- Link each capability to its pages, examples and tests. A contract change checks these consumers.
 
-Le site de docs pourra utiliser un générateur maintenu avec recherche, navigation, blocs TypeScript/Python/Rust/CLI et export statique ; sa sélection sera faite lorsque les premiers contenus et contraintes de publication existent. Ne pas choisir une seconde plateforme d'exécution du moteur pour les besoins du site de documentation.
+The docs site may use a maintained generator with search, navigation, TypeScript/Python/Rust/CLI blocks and static export; its selection will be made once the first content and publication constraints exist. Do not choose a second engine execution platform for the needs of the documentation site.
 
-## 6. Vérification et critères de livraison
+## 6. Verification and delivery criteria
 
-| Exigence | Preuve attendue |
+| Requirement | Expected evidence |
 | --- | --- |
-| Couverture | Chaque capacité livrée reliée à concept/guide/référence pertinents ; aucun paramètre ou erreur public non documenté |
-| Exactitude | Références générées vérifiées contre schémas et defaults distribués |
-| Exemples | Quickstarts et exemples déterministes exécutés sur fixtures contrôlées en CI |
-| IA | Contrats/budgets testés avec provider simulé ; exemples réels qualifiés séparément avec modèle/version/coût identifiés |
-| CLI/MCP | Commandes de quickstart exécutées ; sortie JSON/erreurs/tool schemas et révision protocole vérifiés |
-| Reprise | Guides crash/lease/session/effet inconnu reliés à tests de comportement, pas à slogans |
-| Web/macOS | Parcours et captures mis à jour pour la version livrée ; états de panne couverts |
-| Compatibilité | Backends/versions/OS supportés distingués des expérimentaux et des capacités non disponibles |
-| Publication | Build du site, liens locaux/external essentiels et navigation/search contrôlés |
-| Migration | Exemple avant/après et recovery des données lorsque le changement le nécessite |
+| Coverage | Each delivered capability linked to the relevant concept/guide/reference; no undocumented public parameter or error |
+| Accuracy | Generated references verified against the distributed schemas and defaults |
+| Examples | Quickstarts and deterministic examples run on controlled fixtures in CI |
+| AI | Contracts/budgets tested with a simulated provider; real examples qualified separately with identified model/version/cost |
+| CLI/MCP | Quickstart commands run; JSON output/errors/tool schemas and protocol revision verified |
+| Recovery | Crash/lease/session/unknown effect guides linked to behavior tests, not to slogans |
+| Web/macOS | Flows and screenshots updated for the delivered version; failure states covered |
+| Compatibility | Supported backends/versions/OS distinguished from experimental ones and from unavailable capabilities |
+| Publication | Site build, essential local/external links and navigation/search checked |
+| Migration | Before/after example and data recovery when the change requires it |
 
-La documentation ne garantit pas une vitesse ni un succès universel. Les benchmarks publiés fournissent paramètres, baselines, fixtures, qualité, coûts, résultats défavorables et limites.
+The documentation does not guarantee speed or universal success. Published benchmarks provide parameters, baselines, fixtures, quality, costs, unfavorable results and limits.
 
-## 7. Travail à intégrer aux lots
+## 7. Work to integrate into the increments
 
-**Dès le premier lot** : introduction, installation, concepts initiaux, quickstart HTTP/web, états de run, référence API minimale et erreurs. Les pages futures sont dans le backlog, pas annoncées stables.
+**From the first increment**: introduction, installation, initial concepts, HTTP/web quickstart, run states, minimal API reference and errors. Future pages are in the backlog, not announced as stable.
 
-**À chaque lot** : guides de la capacité livrée, référence/erreurs/capabilities, exemple reproductible, migration si nécessaire et troubleshooting. Queues/pools/autoscaling et agents/repair ont leurs lots de documentation explicites, avec la même exigence que la feature.
+**At each increment**: guides for the delivered capability, reference/errors/capabilities, reproducible example, migration if necessary and troubleshooting. Queues/pools/autoscaling and agents/repair have their explicit documentation increments, with the same requirement as the feature.
 
-**Avant la première publication du framework** : parcours SDK/CLI/MCP locaux, autohébergement supporté, licensing/composants, contribution, matrice de compatibilité, protocole de benchmark et liens cohérents.
+**Before the first framework release**: local SDK/CLI/MCP flows, supported self-hosting, licensing/components, contribution, compatibility matrix, benchmark protocol and consistent links.
 
-**Avant le service et l'app macOS** : docs installation/lifecycle/credentials et local-cloud pour macOS ; organisations, schedules, quotas, rétention, usage/facturation et limites pour cloud. Le lancement d'une surface comprend sa documentation.
+**Before the service and the macOS app**: installation/lifecycle/credentials and local-cloud docs for macOS; organizations, schedules, quotas, retention, usage/billing and limits for the cloud. Launching a surface includes its documentation.

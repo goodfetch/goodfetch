@@ -1,11 +1,11 @@
-# Pannes étendues du runtime durable, 8 octobre 2026
+# Extended durable runtime faults, October 8, 2026
 
-Contrat de D-durable-runtime, exécuté en `local-dev` sur sources commitées. Run retenu : `runtime-faults-extended-2026-10-08T17-49-02-487Z-54a5e6`. Runtimes Node et Rust, 24 jobs par cellule, 3 blocs. Le contrat reste celui de la reprise : chaque job vérifié une fois, avec ses enregistrements exacts, sans perte ni doublon.
+Contract of D-durable-runtime, executed in `local-dev` on committed sources. Retained run: `runtime-faults-extended-2026-10-08T17-49-02-487Z-54a5e6`. Node and Rust runtimes, 24 jobs per cell, 3 blocks. The contract remains the recovery contract: each job verified once, with its exact records, without loss or duplicate.
 
-| Panne | Ce qui se passe | Node | Rust |
+| Fault | What happens | Node | Rust |
 | --- | --- | --- | --- |
-| `write-error` | la transaction de commit échoue sans crash (erreur d'E/S simulée) | 1 redémarrage, 24/24 vérifiés | 1 redémarrage, 24/24 vérifiés |
-| `lock-held` | une autre connexion tient le verrou d'écriture 0,5 s, sous le délai d'attente de 5 s | aucun redémarrage, 24/24 | aucun redémarrage, 24/24 |
-| `lock-starved` | le verrou est tenu 6 s, au-delà du délai d'attente | 1 redémarrage, 24/24 vérifiés | 1 redémarrage, 24/24 vérifiés |
+| `write-error` | the commit transaction fails without a crash (simulated I/O error) | 1 restart, 24/24 verified | 1 restart, 24/24 verified |
+| `lock-held` | another connection holds the write lock for 0.5 s, under the 5 s busy timeout | no restart, 24/24 | no restart, 24/24 |
+| `lock-starved` | the lock is held for 6 s, beyond the busy timeout | 1 restart, 24/24 verified | 1 restart, 24/24 verified |
 
-Les deux runtimes tiennent le contrat sur les trois pannes, sur les trois blocs. Ces pannes complètent les crashs de processus déjà couverts (avant et après commit, pendant et après l'acquittement, coordinateur arrêté). La durabilité au-delà d'un crash de processus (coupure d'une VM) reste hors de portée de cette matrice.
+Both runtimes hold the contract on all three faults, across all three blocks. These faults complement the process crashes already covered (before and after commit, during and after acknowledgment, coordinator stopped). Durability beyond a process crash (VM power cut) remains out of scope for this matrix.

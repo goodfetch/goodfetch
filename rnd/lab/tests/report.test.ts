@@ -30,6 +30,6 @@ test('a decision with several options shows each comparison with its own outcome
     { ...verdict(0.512), option: 'rust-cdp-guarded', baseline: 'playwright-native' },
     { ...verdict(0.9), outcome: 'blocked-by-contract', estimate: null, option: 'puppeteer-guarded', baseline: 'playwright-native', gates: [{ id: 'false-success-count', ok: false, evaluated: true }] }] };
   const report = renderDecisionsReport(registry, [multi]);
-  assert.match(report, /rust-cdp-guarded \/ playwright-native.*option meilleure.*0\.512/);
-  assert.match(report, /puppeteer-guarded \/ playwright-native.*bloqué par un contrat.*false-success-count échec/);
+  assert.match(report, /rust-cdp-guarded \/ playwright-native.*option better.*0\.512/);
+  assert.match(report, /puppeteer-guarded \/ playwright-native.*blocked by a contract.*false-success-count failed/);
 });

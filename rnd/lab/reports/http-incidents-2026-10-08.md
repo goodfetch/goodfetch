@@ -1,20 +1,20 @@
-# Incidents HTTP du 8 octobre 2026
+# HTTP incidents of October 8, 2026
 
-Matrice de contrat de D-http-transport, exécutée en `local-dev` sur sources commitées. Run retenu : `http-incidents-2026-10-08T17-25-00-258Z-206e01` (il remplace `http-incidents-2026-10-08T17-07-35-305Z-73011e`, mêmes résultats pour les quatre premiers backends). 7 backends, 7 variantes, 3 blocs. Les adapters sont ceux du lab, tels que configurés pour les benchmarks : aucun ne relance une requête échouée.
+Contract matrix of D-http-transport, executed in `local-dev` on committed sources. Retained run: `http-incidents-2026-10-08T17-25-00-258Z-206e01` (it replaces `http-incidents-2026-10-08T17-07-35-305Z-73011e`, same results for the first four backends). 7 backends, 7 variants, 3 blocks. The adapters are the lab's, as configured for the benchmarks: none of them retries a failed request.
 
-| Backend | Normal | 429 + Retry-After | 503 unique | Tronqué | Coupé | Boucle de redirections | Serveur lent |
+| Backend | Normal | 429 + Retry-After | Single 503 | Truncated | Cut off | Redirect loop | Slow server |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| node-http (fetch) | ok | erreur, sans relance | erreur, sans relance | erreur explicite | erreur explicite | erreur explicite | erreur explicite |
-| crawlee-http | ok | erreur, sans relance | erreur, sans relance | erreur explicite | erreur explicite | erreur explicite | données complètes, échéance ignorée |
-| crawlee-http-pooled | ok | erreur, sans relance | erreur, sans relance | erreur explicite | erreur explicite | erreur explicite | données complètes, échéance ignorée |
-| spider-http | ok | **faux succès** | **faux succès** | **faux succès** | **faux succès** | **faux succès** | **faux succès** |
-| reqwest-http | ok | erreur, sans relance | erreur, sans relance | erreur explicite | erreur explicite | erreur explicite | erreur explicite |
-| wreq-http | ok | erreur, sans relance | erreur, sans relance | erreur explicite | erreur explicite | erreur explicite | erreur explicite |
-| impit-http | ok | erreur, sans relance | erreur, sans relance | erreur explicite | erreur explicite | erreur explicite | erreur explicite |
+| node-http (fetch) | ok | error, no retry | error, no retry | explicit error | explicit error | explicit error | explicit error |
+| crawlee-http | ok | error, no retry | error, no retry | explicit error | explicit error | explicit error | complete data, deadline ignored |
+| crawlee-http-pooled | ok | error, no retry | error, no retry | explicit error | explicit error | explicit error | complete data, deadline ignored |
+| spider-http | ok | **false success** | **false success** | **false success** | **false success** | **false success** | **false success** |
+| reqwest-http | ok | error, no retry | error, no retry | explicit error | explicit error | explicit error | explicit error |
+| wreq-http | ok | error, no retry | error, no retry | explicit error | explicit error | explicit error | explicit error |
+| impit-http | ok | error, no retry | error, no retry | explicit error | explicit error | explicit error | explicit error |
 
-- Spider HTTP abandonne la page en incident et rend le reste comme un succès : il manque des enregistrements, sans aucune erreur. C'est le seul backend qui produit des faux succès.
-- Aucun backend ne respecte `Retry-After` ni ne relance après un 503 : la politique de relance reste à construire dans le moteur, et ces deux variantes en sont le contrat.
-- reqwest, wreq et Impit se comportent comme `fetch` : erreurs explicites, aucune relance. Ce sont des briques de transport ; la relance appartient au moteur.
-- Crawlee n'applique pas l'échéance de tâche à ses requêtes HTTP : il attend la réponse lente et la rend complète.
+- Spider HTTP drops the page with the incident and returns the rest as a success: records are missing, without any error. It is the only backend that produces false successes.
+- No backend honors `Retry-After` or retries after a 503: the retry policy remains to be built in the engine, and these two variants are its contract.
+- reqwest, wreq and Impit behave like `fetch`: explicit errors, no retry. They are transport building blocks; retrying belongs to the engine.
+- Crawlee does not apply the task deadline to its HTTP requests: it waits for the slow response and returns it complete.
 
-Un premier run (`http-incidents-2026-10-08T17-03-09-936Z-726cb0`) donnait les mêmes résultats, avec des raisons moins précises, sur des sources non commitées.
+A first run (`http-incidents-2026-10-08T17-03-09-936Z-726cb0`) gave the same results, with less precise reasons, on uncommitted sources.

@@ -1,6 +1,6 @@
 {
   "id": "C-cost-per-1k-verified",
-  "statement": "Le coût complet pour mille résultats vérifiés est inférieur à celui d'un agent LLM exécuté à chaque run.",
+  "statement": "The full cost per thousand verified results is lower than that of an LLM agent executed on every run.",
   "decisionId": "D-ai-layer",
   "metricId": "usd-per-1k-verified",
   "comparator": {
@@ -13,5 +13,5 @@
   "publicationHostClass": "reference",
   "status": "candidate",
   "evidence": [],
-  "notes": "Inclut découverte, réparations et échecs, amorti sur un nombre de runs déclaré avant mesure."
+  "notes": "Includes discovery, repairs and failures, amortized over a number of runs declared before measurement."
 }

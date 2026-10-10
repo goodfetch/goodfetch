@@ -1,29 +1,29 @@
-# Empreintes TLS et HTTP/2 du 8 octobre 2026
+# TLS and HTTP/2 fingerprints of October 8, 2026
 
-Contrat de l'ADR-002 sur la cohérence d'identité, exécuté en `local-dev` sur sources commitées. Run retenu : `tls-fingerprint-2026-10-08T19-32-26-736Z-f42991`, après correction du calcul JA4 (voir la fin du rapport). 8 clients, 3 blocs. Un relais TCP lit le ClientHello de chaque connexion et calcule son JA4 ; le serveur HTTP/2 relève les réglages, l'ordre des pseudo-en-têtes et l'ordre des en-têtes. Le contrat : un client garde la même identité TLS et HTTP/2 pendant toute une session.
+ADR-002 contract on identity consistency, executed in `local-dev` on committed sources. Retained run: `tls-fingerprint-2026-10-08T19-32-26-736Z-f42991`, after fixing the JA4 computation (see the end of the report). 8 clients, 3 blocks. A TCP relay reads the ClientHello of each connection and computes its JA4; the HTTP/2 server records the settings, the pseudo-header order and the header order. The contract: a client keeps the same TLS and HTTP/2 identity throughout a session.
 
-| Client | JA4 | Comme Chrome (version, compte, chiffrements) | Réglages HTTP/2 de Chrome | Sessions cohérentes |
+| Client | JA4 | Like Chrome (version, count, ciphers) | Chrome's HTTP/2 settings | Consistent sessions |
 | --- | --- | --- | --- | --- |
-| node-cdp | `t13d1518h2_8daaf6152771_4980c97edce0` | oui | oui | 3/3 |
-| rust-cdp | `t13d1518h2_8daaf6152771_4980c97edce0` | oui | oui | 3/3 |
-| impit-http | `t13d1516h2_8daaf6152771_afc95f72a295` | chiffrements identiques | non | 3/3 |
-| crawlee-http | `t13d1513h2_8daaf6152771_ff9cead5a15b` puis `t13d2313h2_24fc43eb1c96_ff9cead5a15b` | chiffrements identiques, puis une autre liste | non | 2/3 |
-| wreq-http | `t13d2811h2_257f3020b3a2_78e6aca7449b` | non | non | 3/3 |
-| reqwest-http | `t13d1011h2_61a7ad8aa9b6_3a8073edd8ef` | non | non | 3/3 |
-| spider-http | `t13d1011h2_61a7ad8aa9b6_3a8073edd8ef` | non | non | 3/3 |
-| node-http | `t13d5212h1_b262b3658495_8e6e362c5eac` | non | — | 3/3 |
-- **Chrome** présente un seul JA4, le même pour les deux pilotes CDP, d'une connexion, d'un contexte et d'un lancement à l'autre. L'ordre de ses 18 extensions est tiré au sort à chaque connexion, ce que JA4 neutralise en les triant.
-- **Impit**, en émulation Chrome, présente les mêmes chiffrements que Chrome, mais deux extensions de moins, et une taille de table d'en-têtes HTTP/2 différente : son profil est antérieur à ce Chrome.
-- **Crawlee** (got-scraping) imite les chiffrements de Chrome, mais **change d'empreinte TLS au milieu d'une session** dans un bloc sur trois : il passe de 15 à 23 suites de chiffrement. C'est l'incohérence que l'ADR-002 interdit.
-- **wreq** sans émulation configurée présente une empreinte BoringSSL générique. reqwest et Spider partagent la même empreinte rustls. node-http (fetch) reste en HTTP/1.1.
+| node-cdp | `t13d1518h2_8daaf6152771_4980c97edce0` | yes | yes | 3/3 |
+| rust-cdp | `t13d1518h2_8daaf6152771_4980c97edce0` | yes | yes | 3/3 |
+| impit-http | `t13d1516h2_8daaf6152771_afc95f72a295` | identical ciphers | no | 3/3 |
+| crawlee-http | `t13d1513h2_8daaf6152771_ff9cead5a15b` then `t13d2313h2_24fc43eb1c96_ff9cead5a15b` | identical ciphers, then another list | no | 2/3 |
+| wreq-http | `t13d2811h2_257f3020b3a2_78e6aca7449b` | no | no | 3/3 |
+| reqwest-http | `t13d1011h2_61a7ad8aa9b6_3a8073edd8ef` | no | no | 3/3 |
+| spider-http | `t13d1011h2_61a7ad8aa9b6_3a8073edd8ef` | no | no | 3/3 |
+| node-http | `t13d5212h1_b262b3658495_8e6e362c5eac` | no | — | 3/3 |
+- **Chrome** presents a single JA4, the same for both CDP drivers, from one connection, context and launch to the next. The order of its 18 extensions is randomized on each connection, which JA4 neutralizes by sorting them.
+- **Impit**, in Chrome emulation, presents the same ciphers as Chrome, but two fewer extensions, and a different HTTP/2 header table size: its profile predates this Chrome.
+- **Crawlee** (got-scraping) imitates Chrome's ciphers, but **changes TLS fingerprint in the middle of a session** in one block out of three: it goes from 15 to 23 cipher suites. This is the inconsistency that ADR-002 forbids.
+- **wreq** without configured emulation presents a generic BoringSSL fingerprint. reqwest and Spider share the same rustls fingerprint. node-http (fetch) stays on HTTP/1.1.
 
-## Correction du 8 octobre au soir
+## Correction of the evening of October 8
 
-La première version de ce rapport s'appuyait sur `tls-fingerprint-2026-10-08T17-42-02-124Z-1dec60`. Elle concluait que Chrome change de JA4 d'un lancement à l'autre sous l'effet de ses expériences. C'était un défaut du calcul :
-- Chrome place en tête de ses algorithmes de signature une valeur GREASE, tirée à nouveau pour chaque connexion ;
-- le JA4 du lab l'ignorait dans les chiffrements et les extensions, mais pas dans les algorithmes de signature.
+The first version of this report relied on `tls-fingerprint-2026-10-08T17-42-02-124Z-1dec60`. It concluded that Chrome changes JA4 from one launch to the next under the effect of its experiments. That was a computation defect:
+- Chrome places a GREASE value at the head of its signature algorithms, drawn again for each connection;
+- the lab's JA4 ignored it in the ciphers and extensions, but not in the signature algorithms.
 
-Le défaut est corrigé (`fixtures/tls-fingerprint.ts`, avec un test). Le run précédent est classé `superseded`. Le constat sur Crawlee tient : la liste de chiffrements elle-même change.
+The defect is fixed (`fixtures/tls-fingerprint.ts`, with a test). The previous run is classified `superseded`. The finding on Crawlee holds: the cipher list itself changes.
 
-Le relais calcule aussi une empreinte de base sans `pre_shared_key`. Une poignée de main reprise (session TLS réutilisée) ajoute en effet cette extension, et elle est comparée à la première poignée de main du même client.
+The relay also computes a base fingerprint without `pre_shared_key`. A resumed handshake (reused TLS session) does add this extension, and it is compared with the first handshake of the same client.
 

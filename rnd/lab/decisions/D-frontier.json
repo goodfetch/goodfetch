@@ -1,17 +1,17 @@
 {
   "id": "D-frontier",
-  "title": "Canonicalisation et bornes de crawl",
-  "question": "Quelles règles de frontier terminent un crawl à travers pièges et tables changeantes sans perdre ni dupliquer d'enregistrement (architecture §3.1) ?",
+  "title": "Canonicalization and crawl bounds",
+  "question": "Which frontier rules terminate a crawl through traps and changing tables without losing or duplicating any record (architecture §3.1)?",
   "kind": "technical",
   "status": "open",
   "options": [
     {
       "id": "canonical",
-      "description": "Paramètres déclarés par la recette retirés (sid, utm_*), paramètres sans effet appris par signature de page, chemins piégés fermés après trois pages vides, pagination par curseur (rel=next) préférée aux numéros de page"
+      "description": "Parameters declared by the recipe removed (sid, utm_*), no-effect parameters learned by page signature, trapped paths closed after three empty pages, cursor pagination (rel=next) preferred over page numbers"
     },
     {
       "id": "naive",
-      "description": "Clé de déduplication = URL exacte, tous les liens suivis, budget de requêtes"
+      "description": "Deduplication key = exact URL, all links followed, request budget"
     }
   ],
   "baseline": "canonical",
@@ -47,7 +47,7 @@
     {
       "kind": "run",
       "ref": "portal-frontier-2026-10-09T15-08-28-035Z-e66949",
-      "note": "pièges et table changeante"
+      "note": "traps and changing table"
     },
     {
       "kind": "research-doc",
@@ -57,7 +57,7 @@
   "verdictRef": "verdicts/D-frontier.json",
   "adr": null,
   "dependsOn": [],
-  "notes": "Le canonique est la référence : l'option naïve est jugée contre lui, et son gate échoue dès qu'une table modifiée pendant le crawl lui fait perdre des lignes en se déclarant complète. Les requêtes sont comptées par le site, indépendamment de l'hôte.",
+  "notes": "The canonical option is the reference: the naive option is judged against it, and its gate fails as soon as a table modified during the crawl makes it lose rows while declaring itself complete. Requests are counted by the site, independently of the host.",
   "analysis": {
     "lane": "portal",
     "options": {

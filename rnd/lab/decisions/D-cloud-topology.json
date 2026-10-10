@@ -1,17 +1,17 @@
 {
   "id": "D-cloud-topology",
-  "title": "Topologie d'exécution cloud",
-  "question": "Quelle topologie d'exécution des navigateurs hébergés adopter ?",
+  "title": "Cloud execution topology",
+  "question": "Which execution topology should be adopted for hosted browsers?",
   "kind": "technical",
   "status": "deferred",
   "options": [
     {
       "id": "firecracker-snapshot",
-      "description": "microVM avec snapshot après démarrage du navigateur"
+      "description": "microVM with a snapshot taken after browser startup"
     },
     {
       "id": "container-pool",
-      "description": "pool de conteneurs chauds"
+      "description": "warm container pool"
     }
   ],
   "baseline": "container-pool",
@@ -46,7 +46,7 @@
     {
       "kind": "run",
       "ref": "container-pool-2026-10-09T20-01-19-342Z-147c8e",
-      "note": "pool de conteneurs, Docker Desktop"
+      "note": "container pool, Docker Desktop"
     },
     {
       "kind": "research-doc",
@@ -56,7 +56,7 @@
   "verdictRef": "verdicts/D-cloud-topology.json",
   "adr": null,
   "dependsOn": [],
-  "notes": "Reportée après la stack locale ; inclut l'endurance multi-tenant. Le 9 octobre 2026 : le pool de conteneurs est mesuré localement dans Docker Desktop (image chromedp/headless-shell épinglée), avec un conteneur froid par session et un pool réutilisé sans remise à zéro comme cas négatif. Firecracker exige /dev/kvm, absent de la VM Docker Desktop : ses cellules sont unsupported et la comparaison attend un hôte Linux avec KVM.",
+  "notes": "Deferred until after the local stack; includes multi-tenant endurance. On October 9, 2026: the container pool is measured locally in Docker Desktop (pinned chromedp/headless-shell image), with one cold container per session and a pool reused without reset as the negative case. Firecracker requires /dev/kvm, which is absent from the Docker Desktop VM: its cells are unsupported and the comparison awaits a Linux host with KVM.",
   "analysis": {
     "lane": "topology",
     "options": {

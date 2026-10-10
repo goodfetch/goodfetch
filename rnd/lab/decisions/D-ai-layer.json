@@ -1,17 +1,17 @@
 {
   "id": "D-ai-layer",
-  "title": "Couche IA, compilation et réparation",
-  "question": "Le rejeu de plans compilés et la réparation bornée réduisent-ils le coût par tâche vérifiée sans faux succès ?",
+  "title": "AI layer, compilation and repair",
+  "question": "Do compiled-plan replay and bounded repair reduce the cost per verified task without false successes?",
   "kind": "technical",
   "status": "open",
   "options": [
     {
       "id": "compiled-replay",
-      "description": "Découverte LLM puis plan compilé rejoué sans LLM, réparation bornée"
+      "description": "LLM discovery, then a compiled plan replayed without an LLM, bounded repair"
     },
     {
       "id": "agent-each-run",
-      "description": "Agent LLM à chaque run"
+      "description": "LLM agent on every run"
     }
   ],
   "baseline": "agent-each-run",
@@ -52,12 +52,12 @@
     {
       "kind": "run",
       "ref": "ai-replay-repair-2026-10-08T18-36-20-202Z-8f0ce3",
-      "note": "rejeu compilé et dérive silencieuse, faux modèle"
+      "note": "compiled replay and silent drift, fake model"
     },
     {
       "kind": "run",
       "ref": "ai-real-models-2026-10-08T22-15-04-120Z-d70ce2",
-      "note": "trois vrais modèles, rejeu compilé et dérive silencieuse"
+      "note": "three real models, compiled replay and silent drift"
     },
     {
       "kind": "research-doc",
@@ -69,7 +69,7 @@
   "dependsOn": [
     "D-browser-driver"
   ],
-  "notes": "Faux provider d'abord pour les contrats et les budgets, puis modèles réels avec plafond de coût déclaré par campagne. Le 9 octobre 2026 : la métrique principale devient la dépense de modèle seule (model-usd-per-1k-verified), la seule que la lane mesure ; le temps machine reste secondaire. Le gate false-success-count, défini sur les variantes négatives de l'actionnabilité, ne s'applique pas à cette lane : une cellule IA échoue dès qu'un run déclare un succès que l'oracle réfute, si bien qu'oracle-exact porte ce contrat. Les tokens et la dépense sont comptés par le fournisseur : la décision se prend en local-dev.",
+  "notes": "Fake provider first for contracts and budgets, then real models with a cost cap declared per campaign. On October 9, 2026: the primary metric becomes model spend alone (model-usd-per-1k-verified), the only one the lane measures; machine time remains secondary. The false-success-count gate, defined on the negative actionability variants, does not apply to this lane: an AI cell fails as soon as a run declares a success that the oracle refutes, so oracle-exact carries this contract. Tokens and spend are counted by the provider: the decision is made in local-dev.",
   "analysis": {
     "lane": "ai",
     "options": {

@@ -1,47 +1,47 @@
-# Prototype du workflow durable
+# Durable workflow prototype
 
-Le lab exécute maintenant acquisition HTTP et extraction, validation indépendante, queue de résultats bornée, écriture batchée, commit atomique et acquittement persistant. Ce prototype Node établit le contrat à comparer ; il ne choisit pas le runtime du futur noyau portable.
+The lab now runs HTTP acquisition and extraction, independent validation, a bounded result queue, batched writing, atomic commit and persistent acknowledgment. This Node prototype establishes the contract to compare; it does not choose the runtime of the future portable core.
 
 ```sh
 cd /Users/jb/Dev/automan/lab
-# Utiliser le Node qualifié : 25.5.0, puis vérifier node --version.
+# Use the qualified Node: 25.5.0, then check node --version.
 pnpm workflow campaigns/workflow-throughput.json
 pnpm workflow campaigns/workflow-recovery.json
 pnpm workflow campaigns/workflow-pool-wakeup.json
 ```
 
-## Contrat observable
+## Observable contract
 
-Les jobs soumis sont persistés dans SQLite, avec leur tâche complète. Un même identifiant ne peut pas désigner une tâche différente. `claim` attribue une lease et un token neuf ; un token périmé ne peut pas committer après une nouvelle attribution. La validation des records appartient au coordinateur et à son oracle privé.
+Submitted jobs are persisted in SQLite, with their complete task. The same identifier cannot designate a different task. `claim` assigns a lease and a fresh token; an expired token cannot commit after a new assignment. Record validation belongs to the coordinator and its private oracle.
 
-Chaque producteur attend l'ack de son résultat avant de prendre un autre job. Au plus `concurrency` jobs restent actifs et leurs résultats peuvent attendre le writer. La queue de résultats et le batch en cours partagent cette même borne. Le backlog durable correspond au corpus fini soumis, borné séparément par les budgets du runner ; ce prototype n'implémente pas encore une admission continue du backlog.
+Each producer waits for the ack of its result before taking another job. At most `concurrency` jobs remain active and their results may wait for the writer. The result queue and the in-progress batch share this same bound. The durable backlog corresponds to the finite submitted corpus, bounded separately by the runner's budgets; this prototype does not yet implement continuous backlog admission.
 
-Un seul batch peut être en cours. Il part quand `batchJobs` résultats sont disponibles ou quand `maxBatchWaitMs` expire. `batchJobs` doit rester inférieur ou égal à `concurrency`. Le batch de résultats et les états `committed` des jobs sont enregistrés dans une même transaction. Ensuite, une seconde transaction enregistre les acks à partir des receipts retournés. Aucun job n'est annoncé terminé avant cet ack.
+Only one batch can be in progress. It is sent when `batchJobs` results are available or when `maxBatchWaitMs` expires. `batchJobs` must remain less than or equal to `concurrency`. The result batch and the `committed` states of the jobs are recorded in the same transaction. Then a second transaction records the acks from the returned receipts. No job is announced as finished before this ack.
 
-Le sink utilise WAL, `synchronous=FULL`, `foreign_keys=ON`, `busy_timeout=5000`, `wal_autocheckpoint=1000`. Les PRAGMAs effectifs et la version SQLite sont conservés dans le résumé. L'oracle final rouvre la base, vérifie les IDs/prix/doublons/omissions et contrôle l'intégrité structurelle et les clés étrangères.
+The sink uses WAL, `synchronous=FULL`, `foreign_keys=ON`, `busy_timeout=5000`, `wal_autocheckpoint=1000`. The effective PRAGMAs and the SQLite version are kept in the summary. The final oracle reopens the database, checks the IDs/prices/duplicates/omissions and verifies structural integrity and foreign keys.
 
-## Reprise et erreurs
+## Recovery and errors
 
-Après un crash avant le commit, aucun résultat partiel du batch ne reste visible. Après expiration de la lease, le job est repris avec un nouveau token. Après un commit dont la réponse est perdue, le coordinateur valide les records persistés puis acquitte le receipt existant. Un rejeu identique retourne ce receipt ; un rejeu avec des records différents échoue. Un job déjà acquitté n'est pas acquis une seconde fois lorsque le même corpus est soumis à nouveau.
+After a crash before the commit, no partial result of the batch remains visible. After the lease expires, the job is taken over with a new token. After a commit whose response is lost, the coordinator validates the persisted records then acknowledges the existing receipt. An identical replay returns this receipt; a replay with different records fails. An already acknowledged job is not acquired a second time when the same corpus is submitted again.
 
-Un résultat incomplet ou incorrect est enregistré comme `failed`, avec la raison, sans insertion dans `results`. Les erreurs d'acquisition et pertes de worker interrompent la génération ; la reprise entière est limitée par `restartLimit`. Il n'y a pas de boucle de retry illimitée.
+An incomplete or incorrect result is recorded as `failed`, with the reason, without insertion into `results`. Acquisition errors and worker losses interrupt the generation; full recovery is limited by `restartLimit`. There is no unlimited retry loop.
 
-Les campagnes de reprise injectent SIGKILL dans le writer, pendant la transaction ou après COMMIT et avant la réponse. Deux tests fonctionnels arrêtent aussi un coordinateur et ses workers appartenant au test, puis lancent un **nouveau processus coordinateur** : après claim et entre commit et ack. Le serveur de fixtures et l'oracle indépendant restent disponibles à l'extérieur de ces processus.
+The recovery campaigns inject SIGKILL into the writer, during the transaction or after COMMIT and before the response. Two functional tests also stop a coordinator and its workers belonging to the test, then launch a **new coordinator process**: after claim and between commit and ack. The fixture server and the independent oracle remain available outside these processes.
 
-## Mesures
+## Measurements
 
-Chaque cellule crée une base et des fixtures neuves. Les combinaisons sont randomisées par bloc. Le démarrage est séparé ; `workMs` inclut acquisition, extraction, validation, attente de queue, commit, ack, reprise éventuelle et drain des workers. Le débit utile compte les jobs validés après réouverture et inclut aussi `finalizationMs`. Le débit incluant le démarrage est également fourni.
+Each cell creates a fresh database and fresh fixtures. The combinations are randomized per block. Startup is separate; `workMs` includes acquisition, extraction, validation, queue wait, commit, ack, any recovery and worker drain. Useful throughput counts the jobs validated after reopening and also includes `finalizationMs`. Throughput including startup is also provided.
 
-La latence d'ack va de la première prise de lease à l'ack, y compris les retries du writer. Acquisition et extraction restent une mesure combinée. Les timings des jobs réconciliés sont inclus dans les événements lorsque leur première prise de lease appartient au même coordinateur ; la latence traversant un arrêt complet du coordinateur n'est pas encore mesurée. Les tests de redémarrage de coordinateur qualifient un résultat fonctionnel.
+Ack latency runs from the first lease acquisition to the ack, including writer retries. Acquisition and extraction remain a combined measurement. The timings of reconciled jobs are included in the events when their first lease acquisition belongs to the same coordinator; latency spanning a complete coordinator stop is not measured yet. The coordinator restart tests qualify a functional result.
 
-Le RSS couvre **le coordinateur, les fixtures, l'oracle et ses descendants**, contrairement à la piste de stockage qui mesure seulement les processus écrivains. L'échantillonnage à 250 ms peut manquer des pics. Les événements sont réellement écrits pendant la mesure : l'instrumentation et les échanges JSONL font partie du coût du prototype.
+RSS covers **the coordinator, the fixtures, the oracle and its descendants**, unlike the storage lane, which measures only the writer processes. Sampling at 250 ms can miss peaks. The events are actually written during the measurement: the instrumentation and the JSONL exchanges are part of the prototype's cost.
 
-Les dossiers contiennent manifest, sources figées, résumé, rapport HTML et, par cellule, événements, tentatives et état relu. Le CLI échoue si une cellule échoue ou si des sources/exécutables changent pendant la campagne.
+The folders contain the manifest, frozen sources, summary, HTML report and, per cell, events, attempts and re-read state. The CLI fails if a cell fails or if sources/executables change during the campaign.
 
-## Limites qui restent à tester
+## Limits that remain to be tested
 
-Le schéma n'a pas de migration ; réutiliser uniquement une base créée par cette version du prototype. Les leases utilisent l'horloge murale et n'ont pas de heartbeat. Les données de fixture et leur oracle ne sont pas un système de découverte durable. Les tests de reprise concernent des lectures HTTP idempotentes ; ils ne prouvent pas l'exécution exactement une fois d'un clic, paiement ou effet externe.
+The schema has no migration; only reuse a database created by this version of the prototype. Leases use the wall clock and have no heartbeat. The fixture data and their oracle are not a durable discovery system. The recovery tests concern idempotent HTTP reads; they do not prove exactly-once execution of a click, payment or external effect.
 
-Restent notamment : disque plein, cancellation, crash pendant l'ack, arrêt arbitraire répété, heartbeat, lecteurs concurrents durables, scheduling multi-domaines, workers distribués, sorties externes/outbox, grand corpus streaming, CPU/I/O, noyaux intégrés Rust et Go, backend Chromium et plans déterministes. Aucun test de coupure électrique n'est exécuté.
+Remaining in particular: full disk, cancellation, crash during the ack, repeated arbitrary stops, heartbeat, durable concurrent readers, multi-domain scheduling, distributed workers, external outputs/outbox, large streaming corpus, CPU/I/O, integrated Rust and Go cores, Chromium backend and deterministic plans. No power-cut test is executed.
 
-Pour Crawlee pooled, `poolWakeModes` permet de comparer `poll` et `notify` dans une campagne distincte. `notify` utilise l’API publique après l’ajout de nouvelles requêtes, dès qu’un premier handler a démontré la fin de l’initialisation native. Le mode historique `poll` reste le défaut.
+For pooled Crawlee, `poolWakeModes` makes it possible to compare `poll` and `notify` in a separate campaign. `notify` uses the public API after new requests are added, as soon as a first handler has demonstrated the end of native initialization. The historical `poll` mode remains the default.

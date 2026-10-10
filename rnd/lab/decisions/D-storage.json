@@ -1,21 +1,21 @@
 {
   "id": "D-storage",
-  "title": "Stockage local et contrats d'écriture",
-  "question": "Quel sink et quel contrat d'écriture servent l'état local et les exports ?",
+  "title": "Local storage and write contracts",
+  "question": "Which sink and which write contract serve local state and exports?",
   "kind": "technical",
   "status": "decided",
   "options": [
     {
       "id": "sqlite-wal-full-single-writer",
-      "description": "SQLite WAL FULL, writer unique, transactions batchées"
+      "description": "SQLite WAL FULL, single writer, batched transactions"
     },
     {
       "id": "sqlite-wal-normal",
-      "description": "SQLite WAL NORMAL pour données re-dérivables"
+      "description": "SQLite WAL NORMAL for re-derivable data"
     },
     {
       "id": "jsonl-zstd",
-      "description": "JSONL compressé pour exports"
+      "description": "Compressed JSONL for exports"
     }
   ],
   "baseline": "sqlite-wal-full-single-writer",
@@ -64,11 +64,11 @@
     {
       "kind": "research-doc",
       "ref": "lab/reports/sinks-topology-2026-10-09.md",
-      "note": "coupure simulée de la VM Docker : WAL synchronous=FULL sans perte, NORMAL perd des commits acquittés"
+      "note": "simulated power cut of the Docker VM: WAL synchronous=FULL with no loss, NORMAL loses acknowledged commits"
     }
   ],
   "verdictRef": null,
   "adr": null,
   "dependsOn": [],
-  "notes": "Base décidée : writer unique, lots bornés en taille et en temps, transactions de lecture courtes, initialisation du schéma une seule fois. Les reruns servent la publication et les réglages fins."
+  "notes": "Baseline decided: single writer, batches bounded in size and time, short read transactions, schema initialized only once. The reruns serve publication and fine tuning."
 }

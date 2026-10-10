@@ -1,39 +1,39 @@
-# Pages réelles figées (T1) : rendu par Chrome et Lightpanda, 8 octobre 2026
+# Frozen real pages (T1): rendering by Chrome and Lightpanda, October 8, 2026
 
-Run retenu : `extraction-rendered-test-2026-10-08T20-14-39-618Z-9f5f67`, en `local-dev` sur sources commitées, Mac en usage. Les 511 pages réelles du jeu de test WCXB (CC-BY-4.0) sont chargées par Chrome et par Lightpanda, puis leur DOM rendu passe à rs-trafilatura. Le résultat est comparé à l'extraction sur le HTML brut et à la vérité terrain de WCXB.
+Retained run: `extraction-rendered-test-2026-10-08T20-14-39-618Z-9f5f67`, in `local-dev` on committed sources, Mac in use. The 511 real pages of the WCXB test set (CC-BY-4.0) are loaded by Chrome and by Lightpanda, then their rendered DOM goes to rs-trafilatura. The result is compared with extraction on the raw HTML and with the WCXB ground truth.
 
-## Comment les pages restent figées
+## How the pages stay frozen
 
-- **Le proxy d'archive** (`fixtures/replay-proxy.ts`) sert chaque page à son hôte et à son chemin d'origine. Il refuse toute autre requête et la compte : sous-ressource absente de l'archive, tunnel HTTPS vers un hôte non archivé.
-- **Les hôtes HSTS préchargés.** Chrome charge toujours en HTTPS les hôtes de sa liste HSTS préchargée. Le proxy termine donc TLS lui-même pour les hôtes archivés, avec le certificat local du lab, que Chrome reçoit l'ordre d'accepter.
-- **Chrome** passe tout par ce proxy (`--proxy-server`, sans exception pour le loopback). Il ne peut résoudre aucun autre hôte (`--host-resolver-rules`) et ne passe pas de lui-même en HTTPS.
-- **Lightpanda** passe par `--http-proxy` et bloque toute adresse sauf le loopback (`--block-cidrs`).
+- **The archive proxy** (`fixtures/replay-proxy.ts`) serves each page at its original host and path. It refuses any other request and counts it: subresource missing from the archive, HTTPS tunnel to a non-archived host.
+- **Preloaded HSTS hosts.** Chrome always loads the hosts in its HSTS preload list over HTTPS. The proxy therefore terminates TLS itself for the archived hosts, with the lab's local certificate, which Chrome is instructed to accept.
+- **Chrome** sends everything through this proxy (`--proxy-server`, with no loopback exception). It cannot resolve any other host (`--host-resolver-rules`) and does not switch to HTTPS on its own.
+- **Lightpanda** goes through `--http-proxy` and blocks every address except loopback (`--block-cidrs`).
 
-Les deux moteurs voient donc les mêmes octets, et aucune requête ne quitte la machine.
+Both engines therefore see the same bytes, and no request leaves the machine.
 
-## Résultats
+## Results
 
-| Moteur | Pages rendues | F1 (moyenne par page) | Snippets requis trouvés | Boilerplate qui fuit | Pages servies par l'archive | Requêtes refusées | Tunnels refusés | Chargement médian (ms) |
+| Engine | Pages rendered | F1 (mean per page) | Required snippets found | Leaking boilerplate | Pages served by the archive | Refused requests | Refused tunnels | Median load (ms) |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| aucun (HTML brut) | 511/511 | 0.884 | 0.858 | 0.099 | — | — | — | — |
+| none (raw HTML) | 511/511 | 0.884 | 0.858 | 0.099 | — | — | — | — |
 | Chrome | 511/511 | 0.884 | 0.858 | 0.099 | 511 | 8181 | 5413 | 286 |
 | Lightpanda | 511/511 | 0.884 | 0.858 | 0.099 | 511 | 319 | 130 | 211 |
 
-- **Le rendu ne change rien à l'extraction sur ces pages.** Les 1 022 textes extraits après rendu sont identiques, page par page, à ceux du HTML brut. La sérialisation du DOM diffère pourtant : Chrome produit moins d'octets que l'archive. Les pages WCXB sont des instantanés pris après rendu, et sans réseau leurs scripts n'ajoutent pas de contenu principal.
-- **Lightpanda rend les 511 pages**, sans échec ni dépassement de délai. Il ne demande presque aucune sous-ressource (319 requêtes refusées contre 8 181 pour Chrome), ce qui explique en partie un chargement plus court. Les durées viennent d'un Mac en usage et restent indicatives.
-- **Ce que cela dit pour les décisions :**
-  - `D-light-engine` : sur des pages statiques réelles, Lightpanda lit autant que Chrome. Ses limites relevées sur les fixtures restent valables : faux succès sous garde, pas de frames, de popups ni de téléchargements.
-  - `D-extraction` : un rendu navigateur n'est pas nécessaire pour extraire le contenu principal d'une page déjà rendue. Il le reste pour une page qui construit son contenu en JavaScript, ce que ce corpus ne contient pas.
+- **Rendering changes nothing for extraction on these pages.** The 1,022 texts extracted after rendering are identical, page by page, to those from the raw HTML. The DOM serialization differs, however: Chrome produces fewer bytes than the archive. The WCXB pages are snapshots taken after rendering, and without a network their scripts add no main content.
+- **Lightpanda renders all 511 pages**, without failure or timeout. It requests almost no subresources (319 refused requests versus 8,181 for Chrome), which partly explains a shorter load. The durations come from a Mac in use and remain indicative.
+- **What this says for the decisions:**
+  - `D-light-engine`: on real static pages, Lightpanda reads as much as Chrome. Its limits identified on the fixtures remain valid: false success under the guard, no frames, popups or downloads.
+  - `D-extraction`: browser rendering is not necessary to extract the main content of an already-rendered page. It remains necessary for a page that builds its content in JavaScript, which this corpus does not contain.
 
-## Défauts du harnais trouvés en route
+## Harness defects found along the way
 
-Les runs concernés sont classés `diagnostic`.
+The affected runs are classified `diagnostic`.
 
-- **Page sans URL.** Une page du corpus n'a pas d'URL ; elle faisait échouer toute la cellule « article ». Elle est servie sur un hôte réservé (`<id>.wcxb.invalid`).
-- **Montée en HTTPS de Chrome.** Chrome passait de lui-même en HTTPS sur les navigations HTTP (HTTPS-Upgrades), et chargeait en HTTPS les 47 pages d'hôtes HSTS préchargés. La première fonction est désactivée ; le proxy sert désormais HTTPS pour les hôtes archivés.
-- **Prédictions écrasées.** Les fichiers de prédictions des cellules rendues portaient le même nom que ceux du HTML brut et s'écrasaient. Ils sont désormais nommés par moteur.
+- **Page without a URL.** One page of the corpus has no URL; it made the whole "article" cell fail. It is served on a reserved host (`<id>.wcxb.invalid`).
+- **Chrome's HTTPS upgrade.** Chrome switched to HTTPS on its own on HTTP navigations (HTTPS-Upgrades), and loaded the 47 pages of preloaded HSTS hosts over HTTPS. The first feature is disabled; the proxy now serves HTTPS for the archived hosts.
+- **Overwritten predictions.** The prediction files of the rendered cells had the same name as those of the raw HTML and overwrote each other. They are now named by engine.
 
-## Limites
+## Limitations
 
-- Les pages WCXB ne contiennent que le document : aucune sous-ressource n'est archivée. Une vraie archive Web Page Replay, avec scripts, styles et requêtes de données, est nécessaire pour mesurer les pages qui se construisent en JavaScript.
-- Le rerun en `local-controlled` est inscrit au ledger pour les durées.
+- The WCXB pages contain only the document: no subresource is archived. A real Web Page Replay archive, with scripts, styles and data requests, is necessary to measure pages that build themselves in JavaScript.
+- The rerun in `local-controlled` is recorded in the ledger for the durations.

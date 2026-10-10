@@ -1,20 +1,20 @@
-# API proposée : courte à l'usage, explicite en production
+# Proposed API: short in use, explicit in production
 
-**Proposition du 7 octobre 2026. Tous les exemples sont des contrats à implémenter, pas du code disponible.** Les noms finaux et les schémas devront passer une revue d'ergonomie et des tests inter-SDK. Les domaines `.example` ci-dessous sont fictifs.
+**Proposal of October 7, 2026. All examples are contracts to implement, not available code.** The final names and schemas will need to go through an ergonomics review and cross-SDK tests. The `.example` domains below are fictitious.
 
-## 1. Règles de conception
+## 1. Design rules
 
-1. Un cas simple tient dans quelques lignes ; les paramètres avancés se regroupent dans des politiques réutilisables.
-2. Déterministe sans configuration de modèle. Une instruction naturelle est un appel IA explicite, avec coût et provenance.
-3. Même run, types et sémantique local/cloud. Pas d'objet interne Playwright/Chromey dans le contrat portable.
-4. Référence de plan ≠ données en cache ; extraction fraîche par défaut pour un nouveau run.
-5. Chaque opération renvoie son statut technique ; un run possède un résultat et un verdict de validation distincts.
-6. Streaming, pagination, deadlines et annulation dès le contrat initial.
-7. Les politiques coûteuses — escalation IA, réparation, proxy — sont visibles dans le plan et le journal.
+1. A simple case fits in a few lines; advanced parameters are grouped into reusable policies.
+2. Deterministic without model configuration. A natural-language instruction is an explicit AI call, with cost and provenance.
+3. Same run, types and semantics locally and in the cloud. No internal Playwright/Chromey object in the portable contract.
+4. Plan reference ≠ cached data; fresh extraction by default for a new run.
+5. Each operation returns its technical status; a run has a result and a validation verdict that are distinct.
+6. Streaming, pagination, deadlines and cancellation from the initial contract.
+7. Costly policies — AI escalation, repair, proxy — are visible in the plan and the log.
 
-## 2. Extraction ponctuelle
+## 2. One-off extraction
 
-Une extraction par sélecteurs n'utilise pas de LLM. `access: "auto"` sélectionne HTTP ou navigateur selon capacités/historique et validation, sans introduire une boucle d'agent. Le schéma apporte des types ; les validateurs portent le contrat métier.
+A selector-based extraction does not use an LLM. `access: "auto"` selects HTTP or browser according to capabilities/history and validation, without introducing an agent loop. The schema provides types; the validators carry the business contract.
 
 ```ts
 import { automan } from "@automan/sdk";
@@ -37,14 +37,14 @@ console.log(result.data, result.validation, result.runId);
 await client.close();
 ```
 
-Le SDK transforme le schéma supporté vers JSON Schema et vérifie les restrictions. Une refinement JavaScript arbitraire n'est pas automatiquement portable ; elle demeure un validateur de code dans un package ou se représente par une règle standard. Python expose modèles Pydantic/JSON Schema avec la même limite contractuelle.
+The SDK converts the supported schema to JSON Schema and checks the restrictions. An arbitrary JavaScript refinement is not automatically portable; it remains a code validator in a package or is expressed as a standard rule. Python exposes Pydantic/JSON Schema models with the same contractual limit.
 
-Une extraction assistée diffère explicitement :
+An assisted extraction is explicitly different:
 
 ```ts
 const result = await client.extract({
   url: "https://catalogue.example/products/p-17",
-  instruction: "Extrais le SKU et le prix unitaire TTC affichés.",
+  instruction: "Extract the displayed SKU and unit price including VAT.",
   schema: Product,
   access: "browser",
   model: "extraction-default",
@@ -52,9 +52,9 @@ const result = await client.extract({
 });
 ```
 
-`model` est un alias de provider configuré ; aucune version de modèle n'est implicitement présentée comme portable ou éternelle. Si le provider manque, l'appel IA échoue avec une erreur de configuration avant d'engager un coût. Une erreur ne déclenche pas une réparation payante par défaut dans une extraction ponctuelle.
+`model` is a configured provider alias; no model version is implicitly presented as portable or permanent. If the provider is missing, the AI call fails with a configuration error before incurring any cost. An error does not trigger a paid repair by default in a one-off extraction.
 
-## 3. Navigateur : déterministe et naturel dans la même session
+## 3. Browser: deterministic and natural in the same session
 
 ```ts
 const session = await client.browser.open({
@@ -67,15 +67,15 @@ try {
   const page = await session.newPage();
   await page.goto("https://supplier.example/exports");
 
-  // Déterministe : locator retrouvé au moment d'agir, sans modèle.
+  // Deterministic: locator re-resolved at the moment of acting, without a model.
   const download = await page.expectDownload({ timeoutMs: 30_000 });
-  await page.locator({ role: "button", name: "Exporter" }).click();
+  await page.locator({ role: "button", name: "Export" }).click();
   const file = await download.result();
   await file.save({ destination: "artifacts", name: "export.csv" });
 
-  // IA explicite : résolution typée, puis exécution et postcondition.
+  // Explicit AI: typed resolution, then execution and postcondition.
   const actions = await page.observe({
-    instruction: "Trouve le bouton pour exporter le mois précédent.",
+    instruction: "Find the button to export the previous month.",
     model: "decision-default",
   });
   await page.act(actions.requireUnique(), {
@@ -86,15 +86,15 @@ try {
 }
 ```
 
-`observe` retourne des candidats et leurs références document/page/frame, jamais une cible silencieusement choisie parmi plusieurs. `act(Action)` exécute une action déjà résolue sans inférence. `act({ instruction, model, expect })` est un raccourci assisté distinct. Le contrat des effets dépend du workflow : cliquer sur « Valider la commande » n'hérite pas de la politique de retry d'une lecture.
+`observe` returns candidates and their document/page/frame references, never a target silently chosen among several. `act(Action)` executes an already resolved action without inference. `act({ instruction, model, expect })` is a separate assisted shortcut. The effects contract depends on the workflow: clicking "Confirm order" does not inherit the retry policy of a read.
 
-`expectDownload` acquitte l'installation de l'attente avant de retourner son handle : elle précède le clic pour capturer aussi un téléchargement immédiat. Le handle porte deadline, résultat et annulation. Les attentes d'autres événements susceptibles de survenir pendant une action suivent le même contrat d'enregistrement.
+`expectDownload` acknowledges that the wait is installed before returning its handle: it precedes the click so as to also capture an immediate download. The handle carries a deadline, a result and cancellation. Waits for other events that may occur during an action follow the same registration contract.
 
-Une session possède un backend propriétaire. En cas de capability manquante, choisir le backend adéquat à l'ouverture ; une session active ne passe pas arbitrairement de CDP à Playwright. Les accès directs au driver natif sont des extensions de code non portables, identifiées comme telles.
+A session has an owning backend. If a capability is missing, choose the appropriate backend when opening the session; an active session does not arbitrarily switch from CDP to Playwright. Direct access to the native driver is a non-portable code extension, identified as such.
 
-## 4. Crawl : recette portable ou handler de code
+## 4. Crawl: portable recipe or code handler
 
-### 4.1 Recette portable
+### 4.1 Portable recipe
 
 ```ts
 const run = await client.crawl({
@@ -114,9 +114,9 @@ for await (const event of run.events()) {
 const outcome = await run.result();
 ```
 
-Valeurs de concurrence **illustratives**, pas des valeurs optimales ni une promesse de capacité. Les limites par ressource sont bornées par les quotas globaux. La reprise charge la queue existante, sans purge implicite. Le dataset upsert requiert une identité stable déclarée ; un dataset append avec clé de commit est une autre politique.
+The concurrency values are **illustrative**, not optimal values or a capacity promise. Per-resource limits are bounded by global quotas. Resuming loads the existing queue, without an implicit purge. The upsert dataset requires a declared stable identity; an append dataset with a commit key is a different policy.
 
-### 4.2 Handler TypeScript local
+### 4.2 Local TypeScript handler
 
 ```ts
 const run = await client.crawl({
@@ -133,11 +133,11 @@ const run = await client.crawl({
 });
 ```
 
-Ce callback demeure dans le processus Node du client attaché. Il ne se sérialise pas en JSON vers Rust et n'est pas repris au milieu de ses lignes après crash. Pour le cloud, `automan package build` crée un package versionné avec runtime/handler, dépendances, schémas, permissions et tests ; le moteur lui confie des unités de travail dans un host isolé. Les handlers doivent respecter leur contrat de retry et éviter des mutations non idempotentes cachées dans une collecte.
+This callback stays in the Node process of the attached client. It is not serialized as JSON to Rust and is not resumed in the middle of its lines after a crash. For the cloud, `automan package build` creates a versioned package with runtime/handler, dependencies, schemas, permissions and tests; the engine hands it work units in an isolated host. Handlers must respect their retry contract and avoid hidden non-idempotent mutations in a collection.
 
-`emit` et `discover` acquittent le **staging**, rattaché à requête/tentative/epoch de lease. Le moteur publie données et nouvelles requêtes avec l'acquittement après réussite du handler et validation. Un handler échoué ne publie pas silencieusement ses sorties provisoires. Une politique de résultats partiels explicite peut publier un sous-ensemble validé et son état partiel ; les effets externes directs du callback restent hors de cette transaction.
+`emit` and `discover` acknowledge **staging**, tied to the request/attempt/lease epoch. The engine publishes data and new requests together with the acknowledgement after the handler succeeds and validation passes. A failed handler does not silently publish its provisional outputs. An explicit partial-results policy can publish a validated subset and its partial state; the callback's direct external effects remain outside this transaction.
 
-## 5. Workflow versionné et réparation
+## 5. Versioned workflow and repair
 
 ```ts
 const workflow = await client.workflows.create({
@@ -160,13 +160,13 @@ const run = await workflow.run({ month: "2026-09" });
 const outcome = await run.result();
 ```
 
-`validated-auto` exige les tests et les validateurs requis ; sinon la réparation reste candidate `needs_review`. Les modes proposés sont `off`, `suggest`, `validated-auto`. Un workflow avec effets non idempotents ne devient pas répétable parce qu'un locator est réparé. Les valeurs limites sont illustratives ; le plafond global du run s'applique aussi à la réparation.
+`validated-auto` requires the tests and the required validators; otherwise the repair remains a `needs_review` candidate. The proposed modes are `off`, `suggest`, `validated-auto`. A workflow with non-idempotent effects does not become repeatable because a locator is repaired. The limit values are illustrative; the run's global cap also applies to repair.
 
-La compilation est un objet durable distinct :
+Compilation is a separate durable object:
 
 ```ts
 const candidate = await client.workflows.compile({
-  goal: "Télécharger l'export du mois demandé depuis le portail fournisseur.",
+  goal: "Download the requested month's export from the supplier portal.",
   parameters: ExportInput,
   identity: "supplier-readonly",
   model: "planner-default",
@@ -177,13 +177,13 @@ const report = await candidate.test({ suite: "supplier-export-regressions" });
 if (report.qualified) await candidate.publish();
 ```
 
-Une publication fixe une nouvelle version. Le run de test affiche données/preuves/coût et refus de qualification éventuel. `qualified` signifie que les exigences de cette suite passent, pas que tous les sites futurs fonctionneront. Un recorder peut produire le même type de candidat à partir d'une démonstration, avec expurgation et paramètres revus.
+A publication fixes a new version. The test run displays data/evidence/cost and any qualification refusal. `qualified` means that this suite's requirements pass, not that all future sites will work. A recorder can produce the same type of candidate from a demonstration, with redaction and reviewed parameters.
 
-## 6. Agent intégré ou externe
+## 6. Built-in or external agent
 
 ```ts
 const run = await client.agent.run({
-  goal: "Trouve et récupère les fiches des trois modèles demandés.",
+  goal: "Find and retrieve the spec sheets of the three requested models.",
   input: { models: ["A17", "B20", "C42"] },
   tools: ["browser.read", "browser.navigate", "extract", "artifacts.write"],
   domains: ["catalogue.example"],
@@ -193,9 +193,9 @@ const run = await client.agent.run({
 });
 ```
 
-Un agent externe appelle les outils par SDK, CLI ou MCP et peut obtenir une description compacte des capacités, puis les détails à la demande. Aucun framework d'agent n'est obligatoire. La mémoire de site/plan réutilisable est séparée de l'état conversationnel du run. Le résultat terminal est décidé par le contrat et les validateurs, pas uniquement par le texte de l'agent.
+An external agent calls the tools via SDK, CLI or MCP and can obtain a compact description of the capabilities, then the details on demand. No agent framework is mandatory. Reusable site/plan memory is separate from the run's conversational state. The terminal result is decided by the contract and the validators, not solely by the agent's text.
 
-## 7. Forme commune des résultats et erreurs
+## 7. Common shape of results and errors
 
 ```json
 {
@@ -213,13 +213,13 @@ Un agent externe appelle les outils par SDK, CLI ou MCP et peut obtenir une desc
 }
 ```
 
-Données et chiffres de démonstration uniquement. Les résultats contiennent aussi périmètre d'identité, timestamps/freshness, backend/capabilities, avertissements et checks non concluants. Les secrets et observations volumineuses sont exclus de l'enveloppe par défaut.
+Demo data and figures only. Results also contain the identity scope, timestamps/freshness, backend/capabilities, warnings and inconclusive checks. Secrets and voluminous observations are excluded from the envelope by default.
 
-Erreurs proposées : `CAPABILITY_UNAVAILABLE`, `TARGET_AMBIGUOUS`, `REFERENCE_STALE`, `PAGE_GONE`, `AUTH_REQUIRED`, `RATE_LIMITED`, `BUDGET_EXCEEDED`, `DATA_INCOMPLETE`, `VALIDATION_FAILED`, `LEASE_LOST`, `EFFECT_UNKNOWN`, `CLIENT_HANDLER_DISCONNECTED`. Chaque erreur indique retryabilité, effet possible, preuve, prochaine action et tentative. Une erreur inconnue d'une version nouvelle reste représentable par son code et ses détails compatibles.
+Proposed errors: `CAPABILITY_UNAVAILABLE`, `TARGET_AMBIGUOUS`, `REFERENCE_STALE`, `PAGE_GONE`, `AUTH_REQUIRED`, `RATE_LIMITED`, `BUDGET_EXCEEDED`, `DATA_INCOMPLETE`, `VALIDATION_FAILED`, `LEASE_LOST`, `EFFECT_UNKNOWN`, `CLIENT_HANDLER_DISCONNECTED`. Each error indicates retryability, possible effect, evidence, next action and attempt. An unknown error from a newer version remains representable by its code and its compatible details.
 
-`run.events({ after })` reprend par curseur. Si l'historique demandé a expiré, `EVENT_CURSOR_EXPIRED` fournit un snapshot et un nouveau point de reprise ; le client ne prétend pas avoir reçu les événements manquants. `run.cancel()` est idempotent ; son acquittement de demande ne signifie pas que toutes les opérations ont déjà cessé.
+`run.events({ after })` resumes from a cursor. If the requested history has expired, `EVENT_CURSOR_EXPIRED` provides a snapshot and a new resumption point; the client does not pretend to have received the missing events. `run.cancel()` is idempotent; its acknowledgement of the request does not mean that all operations have already stopped.
 
-Un run `waiting` peut reprendre avec `runs.resume` après résolution de son attente. Un run terminal garde son historique : `runs.reconcile` y attache une résolution d'effet prouvée, puis `runs.fork({ fromRun, resolution })` crée un nouveau run si une continuation est nécessaire. Les checkpoints sont revalidés selon leur freshness et les effets confirmés ne sont pas répétés. Un effet inconnu sans résolution autorisée interdit le fork des étapes mutantes concernées.
+A `waiting` run can resume with `runs.resume` once its wait is resolved. A terminal run keeps its history: `runs.reconcile` attaches a proven effect resolution to it, then `runs.fork({ fromRun, resolution })` creates a new run if a continuation is needed. Checkpoints are revalidated according to their freshness and confirmed effects are not repeated. An unknown effect without an authorized resolution forbids forking the affected mutating steps.
 
 ## 8. CLI
 
@@ -235,35 +235,35 @@ automan serve --local
 automan mcp --stdio --profile read
 ```
 
-Les chemins sont des paramètres exemples. `--json` réserve stdout aux données ; logs/diagnostics sur stderr. `--events` produit des événements NDJSON bornés et un état terminal. Codes de sortie proposés : 0 succès vérifié/commande administrative réussie, 1 échec, 2 partiel, 3 décision requise, 4 effet inconnu, 130 interruption utilisateur. Les scripts peuvent choisir comportement terminal ou détaché ; le run survit à la CLI lorsque le daemon en possède l'exécution.
+The paths are example parameters. `--json` reserves stdout for data; logs/diagnostics go to stderr. `--events` produces bounded NDJSON events and a terminal state. Proposed exit codes: 0 verified success/successful administrative command, 1 failure, 2 partial, 3 decision required, 4 unknown effect, 130 user interruption. Scripts can choose to wait for the terminal state or to detach; the run outlives the CLI when the daemon owns its execution.
 
-Installation par binaires signés/packagés, résolution des versions compatibles, `doctor`, version/capabilities et mise à jour explicite. L'installation de navigateurs/profiles est observable ; aucun `cargo` obligatoire sur les plateformes binaires supportées.
+Installation via signed/packaged binaries, resolution of compatible versions, `doctor`, version/capabilities and explicit updates. Installation of browsers/profiles is observable; no mandatory `cargo` on supported binary platforms.
 
 ## 9. MCP
 
-Profils proposés : `read`, `browser`, `workflows`, `operator`. Le catalogue annoncé dépend des capacités/permissions disponibles. Les noms sont stables et les schemas d'entrée/sortie explicites.
+Proposed profiles: `read`, `browser`, `workflows`, `operator`. The advertised catalog depends on the available capabilities/permissions. Names are stable and input/output schemas explicit.
 
-| Outil | But et résultat |
+| Tool | Purpose and result |
 | --- | --- |
-| `automan_capabilities` | Capacités disponibles, limitations, schémas détaillés à la demande |
-| `automan_extract` | Extraction ponctuelle avec schéma/politique et résultat référencé |
-| `automan_browser_open` | Session/page scoped et backend qualifié |
-| `automan_browser_observe` | Observation bornée avec références et génération |
-| `automan_browser_act` | Action typée et postcondition ; permissions d'effet vérifiées |
-| `automan_workflow_run` | Run durable d'une version ou référence explicite |
-| `automan_run_inspect` | État, checks, coûts et prochains événements paginés |
-| `automan_run_cancel` | Demande d'annulation idempotente |
-| `automan_dataset_read` | Projection/pagination et provenance |
-| `automan_repair_propose` | Candidat borné rattaché au run en échec, jamais promotion implicite |
+| `automan_capabilities` | Available capabilities, limitations, detailed schemas on demand |
+| `automan_extract` | One-off extraction with schema/policy and referenced result |
+| `automan_browser_open` | Scoped session/page and qualified backend |
+| `automan_browser_observe` | Bounded observation with references and generation |
+| `automan_browser_act` | Typed action and postcondition; effect permissions checked |
+| `automan_workflow_run` | Durable run of a version or explicit reference |
+| `automan_run_inspect` | State, checks, costs and paginated next events |
+| `automan_run_cancel` | Idempotent cancellation request |
+| `automan_dataset_read` | Projection/pagination and provenance |
+| `automan_repair_propose` | Bounded candidate attached to the failed run, never implicit promotion |
 
-Le mode stdio sert les agents locaux, Streamable HTTP les usages distants. L'adaptateur suit la version MCP négociée, l'autorisation et le modèle d'outils de la spécification courante ; la bidirectionnalité du RPC interne Automan ne définit pas celle de MCP. Les événements du run sont des données inspectables via outil/ressource compatible, pas des requêtes JSON-RPC arbitrairement initiées par le serveur. [MCP transports 2026-07-28](https://modelcontextprotocol.io/specification/2026-07-28/basic/transports), [autorisation](https://modelcontextprotocol.io/specification/2026-07-28/basic/authorization).
+stdio mode serves local agents, Streamable HTTP remote uses. The adapter follows the negotiated MCP version, the authorization and the tool model of the current specification; the bidirectionality of Automan's internal RPC does not define that of MCP. Run events are data inspectable via a compatible tool/resource, not JSON-RPC requests arbitrarily initiated by the server. [MCP transports 2026-07-28](https://modelcontextprotocol.io/specification/2026-07-28/basic/transports), [authorization](https://modelcontextprotocol.io/specification/2026-07-28/basic/authorization).
 
-Pas de `eval`/code arbitraire dans le profil standard. Une capacité avancée explicite peut servir du code de confiance avec ses permissions propres. Les ressources/artefacts ont références, scopes et durée d'accès. Les annotations d'outil aident le client, mais ne remplacent pas l'application des permissions par le moteur.
+No `eval`/arbitrary code in the standard profile. An explicit advanced capability can serve trusted code with its own permissions. Resources/artifacts have references, scopes and access duration. Tool annotations help the client, but do not replace permission enforcement by the engine.
 
-## 10. API cloud et ergonomie avancée
+## 10. Cloud API and advanced ergonomics
 
-Ressources REST : workflows/versions/packages, runs/steps/events, queues/requests, datasets/exports, artifacts, identities/sessions, pools/workers, schedules, repairs, usage et workspace roles. Commandes non ambiguës : start, cancel, pause admission, drain worker, propose/test/promote repair, rotate/retire session. Les opérations durables retournent identifiant et état inspectable.
+REST resources: workflows/versions/packages, runs/steps/events, queues/requests, datasets/exports, artifacts, identities/sessions, pools/workers, schedules, repairs, usage and workspace roles. Unambiguous commands: start, cancel, pause admission, drain worker, propose/test/promote repair, rotate/retire session. Durable operations return an identifier and an inspectable state.
 
-Idempotency keys pour création de run et commandes répétables ; version/ETag pour changements concurrents de configuration ; cursors pour listes/events ; dates/units explicites. Les secrets sont des références. La console et macOS utilisent ces contrats au lieu d'ajouter des comportements invisibles propres à leur interface.
+Idempotency keys for run creation and repeatable commands; version/ETag for concurrent configuration changes; cursors for lists/events; explicit dates/units. Secrets are references. The console and macOS app use these contracts instead of adding invisible behaviors specific to their interface.
 
-Les paramètres avancés de pools, hooks, plugins et schedulers sont décrits par schémas et presets importables. Une configuration faible complexité reste lisible ; l'utilisateur peut exporter la configuration effective, voir les surcharges et la cause exacte qui limite son run.
+Advanced parameters for pools, hooks, plugins and schedulers are described by schemas and importable presets. A low-complexity configuration remains readable; the user can export the effective configuration, see the overrides and the exact cause limiting their run.

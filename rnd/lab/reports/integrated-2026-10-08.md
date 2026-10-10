@@ -1,92 +1,92 @@
-# Qualification transversale Automan — 8 octobre 2026
+# Automan cross-cutting qualification — October 8, 2026
 
-**Rust/Tokio reste le candidat pour le noyau portable.** Node/TypeScript est le témoin expérimental et la voie de compatibilité. Le workflow natif Rust atteint un débit proche de Node avec moins de CPU et de footprint mesurés ; aucune de ces campagnes ne qualifie encore un pilote Chromium/CDP Rust.
+**Rust/Tokio remains the candidate for the portable core.** Node/TypeScript is the experimental control and the compatibility path. The native Rust workflow reaches throughput close to Node's with less measured CPU and footprint; none of these campaigns yet qualifies a Rust Chromium/CDP driver.
 
-Le prototype exécute **acquisition → extraction → validation → queue bornée → writer batché → commit → ACK**, séparément dans Node et Rust. Le writer est un processus dédié. Les deux ledgers chargent la même bibliothèque SQLite 3.53.4 et le même shim SQL C générique, en WAL FULL ; leur logique de jobs est indépendante. L'extraction est spécialisée pour le corpus du lab.
+The prototype executes **acquisition → extraction → validation → bounded queue → batched writer → commit → ACK**, separately in Node and Rust. The writer is a dedicated process. Both ledgers load the same SQLite 3.53.4 library and the same generic C SQL shim, in WAL FULL; their job logic is independent. Extraction is specialized for the lab corpus.
 
-La première suite couvre les cinq domaines demandés, y compris les transports et la saturation. Une seconde suite requalifie les corrections de configuration Rust, stabilité des clics et initialisation SQLite. Les campagnes sont séquentielles ; les données et diagnostics initiaux restent conservés.
+The first suite covers the five requested domains, including transports and saturation. A second suite requalifies the Rust configuration, click-stability and SQLite-initialization fixes. The campaigns are sequential; the initial data and diagnostics remain preserved.
 
-[Première suite](../results/qualification-integrated-2026-10-07T23-21-58-974Z-6b64b0/summary.json), [requalification](../results/qualification-current-2026-10-08T00-11-54-553Z-21d1f2/summary.json). Sources/binaires inchangés pendant les campagnes retenues. [Analyse reproductible](integrated-analysis.json), [catalogue SHA-256](integrated-evidence-catalog.json), [audit des sources](integrated-source-audit.json), [audit des contrats](integrated-verification.json).
+[First suite](../results/qualification-integrated-2026-10-07T23-21-58-974Z-6b64b0/summary.json), [requalification](../results/qualification-current-2026-10-08T00-11-54-553Z-21d1f2/summary.json). Sources/binaries unchanged during the retained campaigns. [Reproducible analysis](integrated-analysis.json), [SHA-256 catalog](integrated-evidence-catalog.json), [source audit](integrated-source-audit.json), [contract audit](integrated-verification.json).
 
-## Runtime complet : Rust conserve son intérêt
+## Full runtime: Rust keeps its appeal
 
-**30/30 cellules vérifiées**, trois blocs randomisés, **47,232 jobs / 1,511,424 records**. C × 192 jobs par cellule, 16 pages × 2 records/job, délai serveur 4 ms/page, C1/4/16, batch 1/4 avec B ≤ C. Fenêtres de travail d'environ quinze secondes. Débit pondéré = jobs exacts / temps travail + finalisation. Le débit complet ajoute startup et oracle externe.
+**30/30 cells verified**, three randomized blocks, **47,232 jobs / 1,511,424 records**. C × 192 jobs per cell, 16 pages × 2 records/job, server delay 4 ms/page, C1/4/16, batch 1/4 with B ≤ C. Work windows of about fifteen seconds. Weighted throughput = exact jobs / work time + finalization. Full throughput adds startup and the external oracle.
 
-| C | Jobs/batch | Node jobs/s | Rust jobs/s | Node complet/s | Rust complet/s | Node CPU ms/job | Rust CPU ms/job |
+| C | Jobs/batch | Node jobs/s | Rust jobs/s | Node full/s | Rust full/s | Node CPU ms/job | Rust CPU ms/job |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| 1 | 1 | 11,39 | 11,88 | 11,20 | 11,83 | 9,48 | 2,63 |
-| 4 | 1 | 47,48 | 48,90 | 46,54 | 48,55 | 4,61 | 1,77 |
-| 4 | 4 | 45,29 | 46,94 | 44,41 | 46,57 | 4,18 | 1,44 |
-| 16 | 1 | 197,70 | 196,66 | 190,93 | 192,48 | 2,78 | 1,42 |
-| 16 | 4 | 189,11 | 195,58 | 182,96 | 191,46 | 2,52 | 1,23 |
+| 1 | 1 | 11.39 | 11.88 | 11.20 | 11.83 | 9.48 | 2.63 |
+| 4 | 1 | 47.48 | 48.90 | 46.54 | 48.55 | 4.61 | 1.77 |
+| 4 | 4 | 45.29 | 46.94 | 44.41 | 46.57 | 4.18 | 1.44 |
+| 16 | 1 | 197.70 | 196.66 | 190.93 | 192.48 | 2.78 | 1.42 |
+| 16 | 4 | 189.11 | 195.58 | 182.96 | 191.46 | 2.52 | 1.23 |
 
-À C16/B1 : environ 197 jobs/s pour les deux implémentations ; Rust utilise 1,42 ms CPU/job contre 2,78 pour Node, soit environ 49 % de CPU mesuré en moins. Footprint maximal échantillonné par cellule : Rust 136–178 MiB, Node 314–325 MiB. Cela soutient Rust pour l'efficacité à garanties testées comparables, sans prouver un scraper universellement plus rapide.
+At C16/B1: about 197 jobs/s for both implementations; Rust uses 1.42 ms CPU/job versus 2.78 for Node, i.e. about 49% less measured CPU. Maximum sampled footprint per cell: Rust 136–178 MiB, Node 314–325 MiB. This supports Rust for efficiency at comparable tested guarantees, without proving a universally faster scraper.
 
-La copie de tout le corpus de configuration par producteur Rust a été remplacée par un partage immuable `Arc`. La première série C16/B1 donnait 205,55 Rust / 205,30 Node jobs/s et 204–248 / 306–327 MiB de footprint. Les deux séries ont été réalisées à des moments différents sur un Mac partagé : le changement est réel dans le code, mais cette différence de mémoire et de débit n'est pas un essai causal isolé du seul `Arc`. La première série et son binaire sont préservés. Le batching B4 du workflow complet ne gagne pas systématiquement sur B1 : acquisitions, taille réelle des batches et drain comptent aussi.
+Copying the entire configuration corpus per Rust producer was replaced by immutable `Arc` sharing. The first C16/B1 series gave 205.55 Rust / 205.30 Node jobs/s and 204–248 / 306–327 MiB of footprint. The two series were run at different times on a shared Mac: the change is real in the code, but this memory and throughput difference is not an isolated causal test of the `Arc` alone. The first series and its binary are preserved. B4 batching of the full workflow does not systematically beat B1: acquisitions, actual batch size and drain also matter.
 
-[résumé](../results/runtime-native-qualified-2026-10-08T00-11-54-841Z-789d5e/summary.json), [manifest](../results/runtime-native-qualified-2026-10-08T00-11-54-841Z-789d5e/manifest.json)
+[summary](../results/runtime-native-qualified-2026-10-08T00-11-54-841Z-789d5e/summary.json), [manifest](../results/runtime-native-qualified-2026-10-08T00-11-54-841Z-789d5e/manifest.json)
 
-[Première série native](../results/runtime-native-sustained-2026-10-07T23-21-59-298Z-bf6ecb/summary.json), [binaire Rust précédent](evidence-integrated/artifacts/automan-workflow-rust-before-arc).
+[First native series](../results/runtime-native-sustained-2026-10-07T23-21-59-298Z-bf6ecb/summary.json), [previous Rust binary](evidence-integrated/artifacts/automan-workflow-rust-before-arc).
 
-## Acquisition HTTP : comparer les cycles de vie et la saturation
+## HTTP acquisition: comparing lifecycles and saturation
 
-**24/24 cellules**, 23,040 jobs / 737,280 records dans le workflow durable. Le runtime est Node lorsqu'un backend externe est utilisé ; les ressources comprennent alors ses descendants. Rust natif est une autre implémentation complète. Un pool partagé et un crawler neuf par tâche ont des coûts différents.
+**24/24 cells**, 23,040 jobs / 737,280 records in the durable workflow. The runtime is Node when an external backend is used; resources then include its descendants. Native Rust is another complete implementation. A shared pool and a fresh crawler per task have different costs.
 
-| Runtime/backend | C | Jobs/s pondéré | Min–max par bloc | CPU ms/job |
+| Runtime/backend | C | Weighted jobs/s | Min–max per block | CPU ms/job |
 | --- | --- | --- | --- | --- |
-| node/crawlee-http-pooled | 16 | 20,13 | 9,56–49,83 | 43,55 |
-| node/crawlee-http-pooled | 4 | 26,17 | 20,44–31,04 | 45,29 |
-| node/native | 16 | 154,58 | 109,57–195,40 | 4,45 |
-| node/native | 4 | 47,63 | 47,47–47,95 | 5,14 |
-| node/spider-http | 16 | 187,89 | 186,79–189,20 | 5,36 |
-| node/spider-http | 4 | 37,07 | 26,02–47,07 | 9,22 |
-| rust/native | 16 | 142,19 | 90,66–198,77 | 2,02 |
-| rust/native | 4 | 49,82 | 49,71–50,05 | 1,55 |
+| node/crawlee-http-pooled | 16 | 20.13 | 9.56–49.83 | 43.55 |
+| node/crawlee-http-pooled | 4 | 26.17 | 20.44–31.04 | 45.29 |
+| node/native | 16 | 154.58 | 109.57–195.40 | 4.45 |
+| node/native | 4 | 47.63 | 47.47–47.95 | 5.14 |
+| node/spider-http | 16 | 187.89 | 186.79–189.20 | 5.36 |
+| node/spider-http | 4 | 37.07 | 26.02–47.07 | 9.22 |
+| rust/native | 16 | 142.19 | 90.66–198.77 | 2.02 |
+| rust/native | 4 | 49.82 | 49.71–50.05 | 1.55 |
 
-Des écarts importants entre blocs apparaissent, particulièrement pour Crawlee pooled et certaines cellules C16. Le diagnostic du host indique d'autres activités lourdes ; il documente un facteur de confusion possible et ne prouve pas la cause de chaque ralentissement. Aucune pénalité générale de runtime ne peut être déduite de ces seules variations.
+Large gaps between blocks appear, particularly for Crawlee pooled and some C16 cells. The host diagnostic indicates other heavy activity; it documents a possible confounding factor and does not prove the cause of each slowdown. No general runtime penalty can be inferred from these variations alone.
 
-[résumé](../results/runtime-http-backends-2026-10-07T23-29-49-072Z-2b2b75/summary.json), [manifest](../results/runtime-http-backends-2026-10-07T23-29-49-072Z-2b2b75/manifest.json)
+[summary](../results/runtime-http-backends-2026-10-07T23-29-49-072Z-2b2b75/summary.json), [manifest](../results/runtime-http-backends-2026-10-07T23-29-49-072Z-2b2b75/manifest.json)
 
-[Diagnostic de charge](host-load-2026-10-08.json).
+[Load diagnostic](host-load-2026-10-08.json).
 
-Les campagnes open-loop offrent 20/100/250 tâches/s, concurrence 4, trois fenêtres de 12 s, huit pages avec 3 ms de délai. Elles concernent l'acquisition seule, sans ledger durable. Une tâche refusée compte dans le dénominateur ; les tâches admises peuvent finir après la fenêtre. `queueMs` mesure le retard du générateur, sans queue métier cachée.
+The open-loop campaigns offer 20/100/250 tasks/s, concurrency 4, three 12 s windows, eight pages with a 3 ms delay. They concern acquisition alone, without a durable ledger. A refused task counts in the denominator; admitted tasks may finish after the window. `queueMs` measures generator lag, with no hidden business queue.
 
-| Offert/s | Backend | Exactes | Offertes | Rejetées | Exactes/s | p95 succès ms |
+| Offered/s | Backend | Exact | Offered | Rejected | Exact/s | p95 success ms |
 | --- | --- | --- | --- | --- | --- | --- |
-| 20 | node-http | 719 | 720 | 1 | 20,00 | 40,90 |
-| 20 | spider-http | 720 | 720 | 0 | 20,03 | 44,96 |
-| 20 | crawlee-http | 563 | 720 | 157 | 15,50 | 453,23 |
-| 20 | crawlee-http-pooled | 717 | 720 | 3 | 19,82 | 142,47 |
-| 100 | node-http | 3593 | 3600 | 7 | 99,61 | 32,64 |
-| 100 | spider-http | 3590 | 3600 | 10 | 99,55 | 33,14 |
-| 100 | crawlee-http | 844 | 3600 | 2756 | 23,27 | 215,84 |
-| 100 | crawlee-http-pooled | 2433 | 3600 | 1167 | 67,29 | 72,69 |
-| 250 | node-http | 4330 | 9000 | 4670 | 120,12 | 32,84 |
-| 250 | spider-http | 4331 | 9000 | 4669 | 120,10 | 33,18 |
-| 250 | crawlee-http | 982 | 9000 | 8018 | 27,05 | 187,58 |
-| 250 | crawlee-http-pooled | 2559 | 9000 | 6441 | 70,80 | 72,76 |
+| 20 | node-http | 719 | 720 | 1 | 20.00 | 40.90 |
+| 20 | spider-http | 720 | 720 | 0 | 20.03 | 44.96 |
+| 20 | crawlee-http | 563 | 720 | 157 | 15.50 | 453.23 |
+| 20 | crawlee-http-pooled | 717 | 720 | 3 | 19.82 | 142.47 |
+| 100 | node-http | 3593 | 3600 | 7 | 99.61 | 32.64 |
+| 100 | spider-http | 3590 | 3600 | 10 | 99.55 | 33.14 |
+| 100 | crawlee-http | 844 | 3600 | 2756 | 23.27 | 215.84 |
+| 100 | crawlee-http-pooled | 2433 | 3600 | 1167 | 67.29 | 72.69 |
+| 250 | node-http | 4330 | 9000 | 4670 | 120.12 | 32.84 |
+| 250 | spider-http | 4331 | 9000 | 4669 | 120.10 | 33.18 |
+| 250 | crawlee-http | 982 | 9000 | 8018 | 27.05 | 187.58 |
+| 250 | crawlee-http-pooled | 2559 | 9000 | 6441 | 70.80 | 72.76 |
 
-Node fetch et Spider HTTP constituent de bons chemins simples sur ce corpus. Le pool évite certains coûts d'un crawler neuf par tâche, sans effacer ses garanties et frais d'orchestration. Les rejets à 250/s exposent une capacité bornée ; une faible latence sur les seuls succès ne signifie pas que toute la charge a été servie.
+Node fetch and Spider HTTP are good simple paths on this corpus. The pool avoids some of the costs of a fresh crawler per task, without erasing its guarantees and orchestration overhead. The rejections at 250/s expose bounded capacity; low latency on successes alone does not mean the entire load was served.
 
-[résumé](../results/http-open-20-2026-10-07T23-52-50-976Z-19b9fb/summary.json), [manifest](../results/http-open-20-2026-10-07T23-52-50-976Z-19b9fb/manifest.json)
+[summary](../results/http-open-20-2026-10-07T23-52-50-976Z-19b9fb/summary.json), [manifest](../results/http-open-20-2026-10-07T23-52-50-976Z-19b9fb/manifest.json)
 
-[résumé](../results/http-open-100-2026-10-07T23-55-27-645Z-9f6596/summary.json), [manifest](../results/http-open-100-2026-10-07T23-55-27-645Z-9f6596/manifest.json)
+[summary](../results/http-open-100-2026-10-07T23-55-27-645Z-9f6596/summary.json), [manifest](../results/http-open-100-2026-10-07T23-55-27-645Z-9f6596/manifest.json)
 
-[résumé](../results/http-open-250-2026-10-07T23-58-01-322Z-66a668/summary.json), [manifest](../results/http-open-250-2026-10-07T23-58-01-322Z-66a668/manifest.json)
+[summary](../results/http-open-250-2026-10-07T23-58-01-322Z-66a668/summary.json), [manifest](../results/http-open-250-2026-10-07T23-58-01-322Z-66a668/manifest.json)
 
-Transport : Node/Crawlee neuf/Crawlee pooled vérifient chacun 15 conformités et 45 mesures dans la première série. Spider refuse les trois redirections loopback : sa politique SSRF native bloque les sauts vers une adresse privée, même si le départ local est intentionnel. Ce n'est pas une preuve qu'il ne sait pas suivre les redirections publiques. La politique n'a pas été contournée ; le [source Spider 2.53.9 conservé](evidence-integrated/artifacts/spider-2.53.9-website.rs) contient `is_ssrf_redirect` et `ssrf_limited_policy`. La série séparée normal/gzip/chunked/grande réponse donne **60/60 lignes vérifiées** (45 mesures normales ; les variantes sont des contrôles de conformité).
+Transport: Node/fresh Crawlee/pooled Crawlee each verify 15 conformance checks and 45 measurements in the first series. Spider refuses the three loopback redirects: its native SSRF policy blocks hops to a private address, even when the local start is intentional. This is not proof that it cannot follow public redirects. The policy was not bypassed; the [preserved Spider 2.53.9 source](evidence-integrated/artifacts/spider-2.53.9-website.rs) contains `is_ssrf_redirect` and `ssrf_limited_policy`. The separate normal/gzip/chunked/large-response series gives **60/60 rows verified** (45 normal measurements; the variants are conformance checks).
 
-[résumé](../results/http-transport-2026-10-07T23-52-40-042Z-be9fbc/summary.json), [manifest](../results/http-transport-2026-10-07T23-52-40-042Z-be9fbc/manifest.json)
+[summary](../results/http-transport-2026-10-07T23-52-40-042Z-be9fbc/summary.json), [manifest](../results/http-transport-2026-10-07T23-52-40-042Z-be9fbc/manifest.json)
 
-[résumé](../results/spider-http-transport-supported-2026-10-08T00-26-16-511Z-7ce401/summary.json), [manifest](../results/spider-http-transport-supported-2026-10-08T00-26-16-511Z-7ce401/manifest.json)
+[summary](../results/spider-http-transport-supported-2026-10-08T00-26-16-511Z-7ce401/summary.json), [manifest](../results/spider-http-transport-supported-2026-10-08T00-26-16-511Z-7ce401/manifest.json)
 
-## Navigateur : le gain brut de Stagehand exige des garanties explicites
+## Browser: Stagehand's raw gain requires explicit guarantees
 
-Six backends × neuf variantes × trois blocs. La politique native n'ajoute que l'attente d'initialisation du document. Le guard commun impose unicité, visibilité, activation, stabilité sur deux intervalles entre trois observations RAF espacées d'au moins 16 ms, puis hit-test. L'oracle vérifie cible, ordre, phase et événement trusted. Pour les trois variantes négatives, il exige refus + zéro effet ; une cellule vérifiée n'implique donc pas toujours un clic.
+Six backends × nine variants × three blocks. The native policy adds only the wait for document initialization. The common guard enforces uniqueness, visibility, enablement, stability over two intervals between three RAF observations spaced at least 16 ms apart, then hit-test. The oracle verifies target, order, phase and trusted event. For the three negative variants, it requires refusal + zero effect; a verified cell therefore does not always imply a click.
 
-Le guard initial avait quatre faux succès sur cible mobile. Un test public répété les a reproduits ; la correction a passé seize interactions puis la nouvelle matrice. La première tentative limitée à déplacer l'observation dans RAF a encore échoué : son log diagnostique reste conservé.
+The initial guard had four false successes on a moving target. A repeated public test reproduced them; the fix passed sixteen interactions and then the new matrix. The first attempt, limited to moving the observation into RAF, still failed: its diagnostic log remains preserved.
 
-| Backend | Natif : conformes/27 | Guard corrigé : conformes/27 | Variantes natives non conformes |
+| Backend | Native: conformant/27 | Fixed guard: conformant/27 | Non-conformant native variants |
 | --- | --- | --- | --- |
 | stagehand-batch | 3 | 27 | ambiguous, never-uncovered, hidden, moving, never-enabled, overlay, rerender, delayed |
 | playwright | 27 | 27 | — |
@@ -95,97 +95,97 @@ Le guard initial avait quatre faux succès sur cible mobile. Un test public rép
 | crawlee-playwright | 27 | 27 | — |
 | puppeteer | 16 | 27 | rerender, overlay, never-uncovered, ambiguous |
 
-| Backend gardé | p50 tâche normale ms | p50 cible mobile ms | p50 startup normal ms |
+| Guarded backend | p50 normal task ms | p50 moving target ms | p50 normal startup ms |
 | --- | --- | --- | --- |
-| puppeteer | 180,85 | 340,61 | 505,58 |
-| crawlee-playwright | 1 008,81 | 1 288,09 | 519,98 |
-| stagehand | 185,36 | 338,87 | 834,62 |
-| stagehand-batch | 179,87 | 359,75 | 856,81 |
-| playwright | 323,78 | 489,70 | 530,72 |
-| crawlee-stagehand | 792,72 | 974,65 | 855,28 |
+| puppeteer | 180.85 | 340.61 | 505.58 |
+| crawlee-playwright | 1,008.81 | 1,288.09 | 519.98 |
+| stagehand | 185.36 | 338.87 | 834.62 |
+| stagehand-batch | 179.87 | 359.75 | 856.81 |
+| playwright | 323.78 | 489.70 | 530.72 |
+| crawlee-stagehand | 792.72 | 974.65 | 855.28 |
 
-Le résultat historique de 50 clics (Stagehand 0,95 s / Playwright 2,71 s) utilisait des conditions communes de disponibilité. La nouvelle matrice montre pourquoi il ne faut pas le transformer en remplacement immédiat de Playwright : les primitives natives Stagehand testées échouent souvent sur overlay, activation, mutation et ambiguïté. Playwright, Crawlee/Playwright et l'extension Crawlee/Stagehand v3 passent cette matrice native ; le handler de l'extension utilise une page Playwright attachée par CDP.
+The historical 50-click result (Stagehand 0.95 s / Playwright 2.71 s) used common availability conditions. The new matrix shows why it should not be turned into an immediate replacement for Playwright: the tested native Stagehand primitives often fail on overlay, enablement, mutation and ambiguity. Playwright, Crawlee/Playwright and the Crawlee/Stagehand v3 extension pass this native matrix; the extension's handler uses a Playwright page attached via CDP.
 
-Le guard corrigé fournit une autre configuration explicitement testée ; il ne prouve pas toutes les garanties de Playwright ni la suppression de la course entre garde et clic. Les refus et les clics réussis ont des latences distinctes. Stagehand v4 n'expose pas le même timeout de locator : budget des guards/Playwright/Puppeteer 800 ms, deadline extérieure Stagehand 8 s. Les startups sont séparés. Aucun appel LLM n'est effectué ; observe/act/extract et self-heal restent hors mesure.
+The fixed guard provides another explicitly tested configuration; it does not prove all of Playwright's guarantees nor the removal of the race between guard and click. Refusals and successful clicks have distinct latencies. Stagehand v4 does not expose the same locator timeout: guards/Playwright/Puppeteer budget 800 ms, Stagehand outer deadline 8 s. Startups are separated. No LLM call is made; observe/act/extract and self-heal remain unmeasured.
 
-[résumé](../results/browser-actionability-2026-10-07T23-38-33-163Z-ccad1f/summary.json), [manifest](../results/browser-actionability-2026-10-07T23-38-33-163Z-ccad1f/manifest.json)
+[summary](../results/browser-actionability-2026-10-07T23-38-33-163Z-ccad1f/summary.json), [manifest](../results/browser-actionability-2026-10-07T23-38-33-163Z-ccad1f/manifest.json)
 
-[résumé](../results/browser-actionability-2026-10-08T00-21-16-186Z-b21a28/summary.json), [manifest](../results/browser-actionability-2026-10-08T00-21-16-186Z-b21a28/manifest.json)
+[summary](../results/browser-actionability-2026-10-08T00-21-16-186Z-b21a28/summary.json), [manifest](../results/browser-actionability-2026-10-08T00-21-16-186Z-b21a28/manifest.json)
 
-[Contrat navigateur](../docs/browser-actionability.md), [régression rouge](qualification-guard-red.log), [tentative RAF encore en échec](qualification-guard-green.log), [régression corrigée](qualification-guard-calibrated-green.log).
+[Browser contract](../docs/browser-actionability.md), [red regression](qualification-guard-red.log), [RAF attempt still failing](qualification-guard-green.log), [fixed regression](qualification-guard-calibrated-green.log).
 
-## SQLite : batches, writers, readers et checkpoints
+## SQLite: batches, writers, readers and checkpoints
 
-**108/108 cellules vérifiées**, **3,456,000 records**. Node N-API, Rust FFI synchrone et Go/cgo chargent le même artefact C : W1/4, B100/1000, lecteurs absents/courts/longs, trois blocs. Chaque cellule contient 32 000 lignes de 512 octets, WAL FULL, huit producteurs. Les fenêtres d'écriture sont courtes ; l'oracle relit chaque record et l'intégrité après fermeture.
+**108/108 cells verified**, **3,456,000 records**. Node N-API, synchronous Rust FFI and Go/cgo load the same C artifact: W1/4, B100/1000, readers absent/short/long, three blocks. Each cell contains 32,000 rows of 512 bytes, WAL FULL, eight producers. The write windows are short; the oracle rereads every record and integrity after closing.
 
-| Binding | Writers | Batch lignes | Lignes/s écriture | Lignes/s cycle complet | p95 RPC ACK ms |
+| Binding | Writers | Batch rows | Write rows/s | Full-cycle rows/s | p95 RPC ACK ms |
 | --- | --- | --- | --- | --- | --- |
-| go-sync | 1 | 100 | 208 926 | 113 184 | 8,61 |
-| go-sync | 1 | 1000 | 244 607 | 116 784 | 42,30 |
-| go-sync | 4 | 100 | 196 643 | 101 639 | 13,09 |
-| go-sync | 4 | 1000 | 242 298 | 117 333 | 127,11 |
-| node-shared | 1 | 100 | 166 064 | 82 091 | 13,11 |
-| node-shared | 1 | 1000 | 207 894 | 86 986 | 58,52 |
-| node-shared | 4 | 100 | 189 052 | 83 242 | 13,43 |
-| node-shared | 4 | 1000 | 183 632 | 83 065 | 140,92 |
-| rust-sync | 1 | 100 | 197 406 | 108 411 | 8,44 |
-| rust-sync | 1 | 1000 | 268 954 | 126 678 | 37,31 |
-| rust-sync | 4 | 100 | 178 049 | 96 881 | 20,76 |
-| rust-sync | 4 | 1000 | 269 638 | 125 840 | 104,07 |
+| go-sync | 1 | 100 | 208,926 | 113,184 | 8.61 |
+| go-sync | 1 | 1000 | 244,607 | 116,784 | 42.30 |
+| go-sync | 4 | 100 | 196,643 | 101,639 | 13.09 |
+| go-sync | 4 | 1000 | 242,298 | 117,333 | 127.11 |
+| node-shared | 1 | 100 | 166,064 | 82,091 | 13.11 |
+| node-shared | 1 | 1000 | 207,894 | 86,986 | 58.52 |
+| node-shared | 4 | 100 | 189,052 | 83,242 | 13.43 |
+| node-shared | 4 | 1000 | 183,632 | 83,065 | 140.92 |
+| rust-sync | 1 | 100 | 197,406 | 108,411 | 8.44 |
+| rust-sync | 1 | 1000 | 268,954 | 126,678 | 37.31 |
+| rust-sync | 4 | 100 | 178,049 | 96,881 | 20.76 |
+| rust-sync | 4 | 1000 | 269,638 | 125,840 | 104.07 |
 
-B1000 augmente le débit W1 dans les trois bindings. W4 n’est pas systématiquement plus lent : Node/B100 gagne dans cette série courte et Rust/B1000 est proche de W1. Les gros batches W4 augmentent toutefois nettement la latence RPC p95, sans gain de débit cohérent ; les résultats historiques et cette série motivent le writer unique comme base, pas une règle universelle.
+B1000 increases W1 throughput in all three bindings. W4 is not systematically slower: Node/B100 wins in this short series and Rust/B1000 is close to W1. Large W4 batches do, however, markedly increase p95 RPC latency, with no consistent throughput gain; the historical results and this series motivate the single writer as the baseline, not a universal rule.
 
-Les 31 échecs de démarrage de la première matrice Rust/Go W4 surviennent avant insertion. Le schéma et le mode WAL étaient créés simultanément. L'initialisation commune est maintenant effectuée une seule fois avant d'ouvrir les vrais writers concurrents ; le test W4 avec reader long est passé de rouge à vert. Les writers restent indépendants pendant la fenêtre mesurée : la correction ne sérialise pas artificiellement leurs écritures.
+The 31 startup failures of the first Rust/Go W4 matrix occur before insertion. The schema and WAL mode were being created simultaneously. Common initialization is now performed once before opening the real concurrent writers; the W4 test with a long reader went from red to green. The writers remain independent during the measured window: the fix does not artificially serialize their writes.
 
-Un reader long doit continuer à voir zéro ligne pendant les inserts. PASSIVE laisse alors des frames non checkpointées ; après libération, TRUNCATE réussit avec WAL à zéro. Les lecteurs courts effectuent des transactions de 2 ms toutes les 10 ms, avec compte croissant borné. Tous ces invariants sont contrôlés dans l'audit. Un writer dédié et des transactions batchées restent le point de départ soutenu par ces expériences ; plusieurs writers ne suppriment pas le verrou d'écriture unique de SQLite. [SQLite WAL](https://www.sqlite.org/wal.html).
+A long reader must keep seeing zero rows during the inserts. PASSIVE then leaves non-checkpointed frames; after release, TRUNCATE succeeds with the WAL at zero. Short readers run 2 ms transactions every 10 ms, with a bounded increasing count. All these invariants are checked in the audit. A dedicated writer and batched transactions remain the starting point supported by these experiments; several writers do not remove SQLite's single write lock. [SQLite WAL](https://www.sqlite.org/wal.html).
 
-Les p95 RPC viennent des ACKs bruts. Les mesures CPU/footprint de cette piste incluent le coordinateur déjà vivant, dont les compteurs initiaux sont soustraits ; ses allocations antérieures empêchent de classer la mémoire intrinsèque des langages. Les résultats JSON/JSONL, snapshot durable, NORMAL/FULL et SQLx historiques restent dans les rapports antérieurs, avec leurs contrats et builds séparés.
+The p95 RPC values come from the raw ACKs. The CPU/footprint measurements for this track include the already-running coordinator, whose initial counters are subtracted; its earlier allocations prevent ranking the languages' intrinsic memory. The historical JSON/JSONL, durable snapshot, NORMAL/FULL and SQLx results remain in the earlier reports, with their separate contracts and builds.
 
-[résumé](../results/sqlite-readers-2026-10-08T00-25-35-434Z-92d4f3/summary.json), [manifest](../results/sqlite-readers-2026-10-08T00-25-35-434Z-92d4f3/manifest.json)
+[summary](../results/sqlite-readers-2026-10-08T00-25-35-434Z-92d4f3/summary.json), [manifest](../results/sqlite-readers-2026-10-08T00-25-35-434Z-92d4f3/manifest.json)
 
-[Contrat readers/checkpoints](../docs/sqlite-readers.md), [diagnostic des 31 échecs](sqlite-initialization-diagnostics.json), [régression rouge](qualification-writers-red.log), [six cas corrigés](qualification-writers-green.log), [écritures historiques](workflow-2026-10-08.md).
+[Readers/checkpoints contract](../docs/sqlite-readers.md), [diagnostic of the 31 failures](sqlite-initialization-diagnostics.json), [red regression](qualification-writers-red.log), [six fixed cases](qualification-writers-green.log), [historical writes](workflow-2026-10-08.md).
 
-## Durabilité : deux runtimes, mêmes invariants observables
+## Durability: two runtimes, same observable invariants
 
-**42/42 cellules vérifiées**, 1,008 jobs / 8,064 records, 42 redémarrages de writer et 12 redémarrages de coordinateur. SIGKILL avant commit, après commit, pendant ACK, après ACK ; nouveau coordinateur après claim ou commit ; trois fautes répétées avec writer ralenti. La série initiale avait également 42/42 cellules vérifiées.
+**42/42 cells verified**, 1,008 jobs / 8,064 records, 42 writer restarts and 12 coordinator restarts. SIGKILL before commit, after commit, during ACK, after ACK; new coordinator after claim or commit; three repeated faults with a slowed writer. The initial series also had 42/42 cells verified.
 
-| Runtime/cas | Cellules | Redémarrages writer | Redémarrages coord. | Jobs/s cycle complet | p50 reprise coord. ms |
+| Runtime/case | Cells | Writer restarts | Coord. restarts | Full-cycle jobs/s | p50 coord. recovery ms |
 | --- | --- | --- | --- | --- | --- |
-| node/native/4/2/after-ack/0 | 3 | 3 | 0 | 17,22 | — |
-| node/native/4/2/after-commit/0 | 3 | 3 | 0 | 17,36 | — |
-| node/native/4/2/batch-committed/0 | 3 | 0 | 3 | 17,30 | 282,57 |
-| node/native/4/2/before-commit+during-ack+after-ack/20 | 3 | 9 | 0 | 6,78 | — |
-| node/native/4/2/before-commit/0 | 3 | 3 | 0 | 17,42 | — |
-| node/native/4/2/during-ack/0 | 3 | 3 | 0 | 17,32 | — |
-| node/native/4/2/job-claimed/0 | 3 | 0 | 3 | 17,11 | 1 057,86 |
-| rust/native/4/2/after-ack/0 | 3 | 3 | 0 | 21,23 | — |
-| rust/native/4/2/after-commit/0 | 3 | 3 | 0 | 21,09 | — |
-| rust/native/4/2/batch-committed/0 | 3 | 0 | 3 | 20,32 | 59,95 |
-| rust/native/4/2/before-commit+during-ack+after-ack/20 | 3 | 9 | 0 | 7,21 | — |
-| rust/native/4/2/before-commit/0 | 3 | 3 | 0 | 20,95 | — |
-| rust/native/4/2/during-ack/0 | 3 | 3 | 0 | 21,18 | — |
-| rust/native/4/2/job-claimed/0 | 3 | 0 | 3 | 20,60 | 1 017,54 |
+| node/native/4/2/after-ack/0 | 3 | 3 | 0 | 17.22 | — |
+| node/native/4/2/after-commit/0 | 3 | 3 | 0 | 17.36 | — |
+| node/native/4/2/batch-committed/0 | 3 | 0 | 3 | 17.30 | 282.57 |
+| node/native/4/2/before-commit+during-ack+after-ack/20 | 3 | 9 | 0 | 6.78 | — |
+| node/native/4/2/before-commit/0 | 3 | 3 | 0 | 17.42 | — |
+| node/native/4/2/during-ack/0 | 3 | 3 | 0 | 17.32 | — |
+| node/native/4/2/job-claimed/0 | 3 | 0 | 3 | 17.11 | 1,057.86 |
+| rust/native/4/2/after-ack/0 | 3 | 3 | 0 | 21.23 | — |
+| rust/native/4/2/after-commit/0 | 3 | 3 | 0 | 21.09 | — |
+| rust/native/4/2/batch-committed/0 | 3 | 0 | 3 | 20.32 | 59.95 |
+| rust/native/4/2/before-commit+during-ack+after-ack/20 | 3 | 9 | 0 | 7.21 | — |
+| rust/native/4/2/before-commit/0 | 3 | 3 | 0 | 20.95 | — |
+| rust/native/4/2/during-ack/0 | 3 | 3 | 0 | 21.18 | — |
+| rust/native/4/2/job-claimed/0 | 3 | 0 | 3 | 20.60 | 1,017.54 |
 
-Les résultats et le receipt sont commités avant ACK, puis ACK est enregistré dans une transaction distincte. Le rejeu d'un job déjà commité réutilise le receipt ; les anciens tokens de lease sont rejetés. L'oracle externe rouvre la base après arrêt et compare chaque record. Les checkpoints au moment du crash attestent un claim sans résultat ou un commit avec résultats avant la reprise.
+Results and the receipt are committed before ACK, then ACK is recorded in a separate transaction. Replaying an already-committed job reuses the receipt; old lease tokens are rejected. The external oracle reopens the database after shutdown and compares every record. The checkpoints at crash time attest a claim without results or a commit with results before recovery.
 
-Pour la reprise de coordinateur, les débits utilisent le temps complet extérieur : le temps de travail du processus repris seul omettrait une partie de l'incident. La queue de résultats reste bornée par C même avec writer lent. Ces essais prouvent les invariants du prototype sur crashes de processus ; ils ne qualifient pas coupure électrique, effet externe exactly-once, heartbeat ou cluster cloud.
+For coordinator recovery, throughputs use the full external time: the work time of the recovered process alone would omit part of the incident. The result queue remains bounded by C even with a slow writer. These tests prove the prototype's invariants under process crashes; they do not qualify power loss, exactly-once external effects, heartbeat or cloud cluster.
 
-[résumé](../results/runtime-recovery-qualified-2026-10-08T00-20-09-515Z-ad3e70/summary.json), [manifest](../results/runtime-recovery-qualified-2026-10-08T00-20-09-515Z-ad3e70/manifest.json)
+[summary](../results/runtime-recovery-qualified-2026-10-08T00-20-09-515Z-ad3e70/summary.json), [manifest](../results/runtime-recovery-qualified-2026-10-08T00-20-09-515Z-ad3e70/manifest.json)
 
-[Workflow et reproduction](../docs/runtime-workflow.md).
+[Workflow and reproduction](../docs/runtime-workflow.md).
 
-## Vérification, reproductibilité et choix encore ouverts
+## Verification, reproducibility and choices still open
 
-L’audit post-campagne passe **510 contrôles**, dont effets trusted/refus, bornes, redémarrages, checkpoints et sources figées. Il complète les oracles de records exécutés dans les campagnes.
+The post-campaign audit passes **510 checks**, including trusted/refusal effects, bounds, restarts, checkpoints and frozen sources. It complements the record oracles executed in the campaigns.
 
-Les **57 tests de contrat passent**, zéro échec/skip, dont faux succès, protocole/timeout, reprise des deux runtimes, fencing, calibration CPU macOS, clic mobile et startup W4. TypeScript et format Rust passent ; le binaire Rust actuel a été reconstruit avant requalification. [Log des tests](qualification-current-tests.log), [build](qualification-current-build.log).
+The **57 contract tests pass**, zero failures/skips, including false success, protocol/timeout, recovery of both runtimes, fencing, macOS CPU calibration, moving-target click and W4 startup. TypeScript and Rust formatting pass; the current Rust binary was rebuilt before requalification. [Test log](qualification-current-tests.log), [build](qualification-current-build.log).
 
-Les manifests fixent versions, seeds, environnement, SHA des sources et binaires. Les sources sont copiées avant les essais et auditées à nouveau après. Le catalogue référence les preuves originales sans exporter les inputs privés de l'oracle ; les bases et exports complets restent dans les dossiers de résultats. L'analyse agrège les événements bruts pour les quantiles, sans moyenner des p95 de blocs. Les erreurs des comparateurs et les erreurs initiales du lab restent distinguées.
+The manifests pin versions, seeds, environment, and SHAs of sources and binaries. The sources are copied before the tests and audited again afterwards. The catalog references the original evidence without exporting the oracle's private inputs; the full databases and exports remain in the results folders. The analysis aggregates raw events for quantiles, without averaging per-block p95s. Comparator errors and the lab's initial errors remain distinguished.
 
-La sonde macOS est calibrée contre getrusage et convertit les compteurs Mach avec `mach_timebase_info`. Elle mesure le coordinateur natif et descendants, exclut fixture/oracle dans la piste native, échantillonne à 100 ms et peut manquer des pics ou fins de processus. Le RSS peut compter des pages partagées plusieurs fois ; footprint et octets I/O sont des indicateurs distincts. La première série aux unités CPU erronées a été interrompue et exclue. Un timer de fermeture de 400 ms a été corrigé avant les campagnes retenues.
+The macOS probe is calibrated against getrusage and converts Mach counters with `mach_timebase_info`. It measures the native coordinator and descendants, excludes fixture/oracle in the native track, samples at 100 ms and may miss spikes or process exits. RSS may count shared pages several times; footprint and I/O bytes are distinct indicators. The first series with erroneous CPU units was interrupted and excluded. A 400 ms close timer was fixed before the retained campaigns.
 
-Le lab soutient aujourd'hui : poursuivre Rust pour le noyau HTTP durable ; conserver Node pour référence et compatibilité ; préférer un chemin HTTP simple lorsque le rendu n'est pas nécessaire ; garder Playwright comme référence d'interaction robuste et évaluer Stagehand avec ses garanties explicites ; commencer SQLite avec un writer et des transactions batchées. Ce sont des directions de prototype fondées sur ce corpus, pas une architecture finale figée.
+The lab currently supports: continuing with Rust for the durable HTTP core; keeping Node for reference and compatibility; preferring a simple HTTP path when rendering is not needed; keeping Playwright as the robust interaction reference and evaluating Stagehand with its explicit guarantees; starting SQLite with one writer and batched transactions. These are prototype directions grounded in this corpus, not a frozen final architecture.
 
-Il reste à qualifier un pilote Rust/CDP co-localisé face à Node, Linux dédié, TLS/HTTP2/proxies/429 et retry, parsing général/streaming, corpus holdout, sessions multi-tenant, admission continue/heartbeat, sinks supplémentaires et perception/LLM avec budgets identiques. Les prochaines expériences doivent lever ces incertitudes précises avant toute promesse de performance universelle.
+It remains to qualify a co-located Rust/CDP driver against Node, dedicated Linux, TLS/HTTP2/proxies/429 and retry, general/streaming parsing, a holdout corpus, multi-tenant sessions, continuous admission/heartbeat, additional sinks and perception/LLM with identical budgets. The next experiments must resolve these specific uncertainties before any promise of universal performance.
 
-[Matrice de couverture](../docs/coverage-matrix.md), [gates et preuves](../docs/qualification-next.md), [index de toutes les expériences](index.html).
+[Coverage matrix](../docs/coverage-matrix.md), [gates and evidence](../docs/qualification-next.md), [index of all experiments](index.html).

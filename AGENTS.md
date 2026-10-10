@@ -1,6 +1,6 @@
 # Automan
 
-Projet de framework de scraping et d'automatisation web : propositions dans `docs/`, recherches sourcées dans `research/`, laboratoire comparatif exécutable dans `lab/` (voir `lab/README.md`).
+Projet de framework de scraping et d'automatisation web. Toute la phase de R&D (propositions d'avant les tests, plan, ADR proposés, recherches sourcées, laboratoire comparatif et rapport final) vit dans `rnd/` : commencer par `rnd/README.md`. Le laboratoire exécutable est `rnd/lab/` (voir `rnd/lab/README.md`) ; ses commandes se lancent depuis ce dossier. `docs/` est réservé à la documentation définitive du produit.
 
 ## Agent skills
 
@@ -14,4 +14,4 @@ Les cinq rôles canoniques, avec les libellés par défaut (`needs-triage`, `nee
 
 ### Domain docs
 
-Single-context : `GLOSSARY.md` à la racine et ADR dans `docs/adr/`. See `docs/agents/domain.md`.
+Single-context : `GLOSSARY.md` à la racine et ADR définitifs dans `docs/adr/`. Les ADR proposés pendant la R&D sont dans `rnd/adr/`. See `docs/agents/domain.md`.

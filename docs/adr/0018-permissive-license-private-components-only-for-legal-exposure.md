@@ -1,0 +1,21 @@
+# Permissive license; private components only for legal exposure
+
+Automan ships under `MIT OR Apache-2.0` across the whole repository (the Rust crate, the TypeScript and Python SDKs, the CLI, the MCP server, the agent skills, the Console and `rnd/lab`), and accepts that competitors may host the engine, as Hyperbrowser hosts Browser Use and Apify runs Scrapy. The engine is single-tenant and knows no prices (ADR 0001), so the open code is not a cloud: Automan Cloud sells operations (fleet and isolation, managed proxies, hosted models, managed solving, multi-tenant Console screens, the marketplace and billing), as Crawlee, Spider and Stagehand do with their clouds. An engine capability leaves the public framework only to become a **Private component**, and only when publishing it would itself create legal exposure, never to sell it; the public engine always keeps the interface the Private component plugs into. Contributors sign off each commit under the Developer Certificate of Origin, with no CLA, and a trademark policy, not the code license, keeps the name off forks and hosted copies. Decided in [Open-core boundary and license](https://github.com/Jbmanllr/automan/issues/77), on the evidence of [License and open-core models of comparable projects](https://github.com/Jbmanllr/automan/issues/66) and [Legal exposure of stealth and challenge-solving tooling](https://github.com/Jbmanllr/automan/issues/65).
+
+## Considered Options
+
+- **AGPL-3.0 engine with permissive SDKs** (Firecrawl, Skyvern): rejected. It deters hosted copies, but anyone embedding the Rust crate in closed software must publish their source, which breaks the crate surface and agent embedding; Firecrawl had to move its SDKs to MIT for the same reason.
+- **AGPL plus a commercial license** (Lightpanda): rejected. It needs a CLA from the first outside contribution and sells the license rather than operations.
+- **FSL or BUSL** (Sentry, HashiCorp): rejected. Neither is an open-source license, and in this market the companies that would build on Automan are the profile that formed the OpenTofu, OpenSearch and Valkey forks.
+- **Holding engine features back for paying customers** (Lightpanda's multi-context tabs and sandboxing): rejected. It contradicts ADR 0001, under which anything the cloud does can be reproduced locally.
+- **`Apache-2.0` alone or `MIT` alone**: rejected for the dual expression, the Rust convention, which keeps Apache's patent grant available and MIT's GPLv2 compatibility.
+- **A CLA**: rejected. Under a permissive license Automan can already use contributed code inside a Private component, so a CLA only adds friction; the DCO records where each line came from, the first defense for stealth-related code.
+
+## Consequences
+
+- The Console's source is public under the framework license; cloud-only screens belong to Automan Cloud's own codebase.
+- The [Stealth and challenge-solving catalog](https://github.com/Jbmanllr/automan/issues/78) places each stealth item, including the challenge solver, by this rule. The legal research rates a solver bundled in the public repository High in the US (DMCA §1201 trafficking) and a vetted Private component Medium to High.
+- Lightpanda (AGPL-3.0-only) runs only out of process. Camoufox (MPL-2.0 with an LGPL-3.0-or-later part) and Patchright ship as separate browser downloads. No Crawl4AI code is copied in, because its added attribution clause reaches public uses.
+- Every release carries a third-party notice inventory, generated per ecosystem and checked in CI against a license allowlist; a dependency outside the allowlist blocks the release.
+- A trademark policy published with the license allows "built with" and "compatible with" uses and forbids forks and hosted services from using the name. Filing the mark belongs to [Product name: keep Automan or rename](https://github.com/Jbmanllr/automan/issues/83).
+- The copyright holder named in the license files is "The Automan contributors", renamed with the product if [Product name: keep Automan or rename](https://github.com/Jbmanllr/automan/issues/83) changes it.

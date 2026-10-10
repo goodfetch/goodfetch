@@ -1,0 +1,19 @@
+[package]
+name = "automan_napi"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[lib]
+path = "src/lib.rs"
+crate-type = ["cdylib"]
+
+[dependencies]
+engine-core = { path = "../engine-core" }
+napi = { version = "=3.14.2", default-features = false, features = ["napi9", "tokio_rt", "async", "serde-json"] }
+napi-derive = "=3.6.12"
+tokio = { workspace = true }
+serde_json = { workspace = true }
+
+[build-dependencies]
+napi-build = "=2.6.0"

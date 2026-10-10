@@ -23,17 +23,17 @@
  "margin": 0.09531017980432493,
  "requiredN": 5,
  "estimate": {
-  "meanLogRatio": 0.0052497077760188336,
-  "ratio": 1.0052635116367261,
+  "meanLogRatio": 0.008448048138478381,
+  "ratio": 1.0084838335985993,
   "ci": [
-   -0.017489587470446162,
-   0.027989003022483833
+   -0.02574547638643525,
+   0.03549185603423102
   ],
   "ratioCi": [
-   0.9826624676137883,
-   1.0283843752393893
+   0.9745831124590766,
+   1.036129209892887
   ],
-  "hodgesLehmannRatio": 1.004458764125506,
+  "hodgesLehmannRatio": 1.0212244895826783,
   "wilcoxon": {
    "n": 5,
    "wPlus": 10,
@@ -51,8 +51,8 @@
  ],
  "host": {
   "required": "local-controlled",
-  "observed": "local-dev",
-  "eligible": false
+  "observed": "local-controlled",
+  "eligible": true
  },
  "comparisons": [
   {
@@ -66,17 +66,17 @@
    "margin": 0.09531017980432493,
    "requiredN": 5,
    "estimate": {
-    "meanLogRatio": 0.0052497077760188336,
-    "ratio": 1.0052635116367261,
+    "meanLogRatio": 0.008448048138478381,
+    "ratio": 1.0084838335985993,
     "ci": [
-     -0.017489587470446162,
-     0.027989003022483833
+     -0.02574547638643525,
+     0.03549185603423102
     ],
     "ratioCi": [
-     0.9826624676137883,
-     1.0283843752393893
+     0.9745831124590766,
+     1.036129209892887
     ],
-    "hodgesLehmannRatio": 1.004458764125506,
+    "hodgesLehmannRatio": 1.0212244895826783,
     "wilcoxon": {
      "n": 5,
      "wPlus": 10,
@@ -94,8 +94,8 @@
    ],
    "host": {
     "required": "local-controlled",
-    "observed": "local-dev",
-    "eligible": false
+    "observed": "local-controlled",
+    "eligible": true
    }
   },
   {
@@ -109,21 +109,21 @@
    "margin": 0.09531017980432493,
    "requiredN": 5,
    "estimate": {
-    "meanLogRatio": -0.043427126187402645,
-    "ratio": 0.9575023283938172,
+    "meanLogRatio": 0.01566163555208693,
+    "ratio": 1.015784921746429,
     "ci": [
-     -0.07598230228468157,
-     -0.013510675362106844
+     -0.010637494525856458,
+     0.03991082282781441
     ],
     "ratioCi": [
-     0.926832609233903,
-     0.9865801841608021
+     0.9894188835348499,
+     1.0407179617692017
     ],
-    "hodgesLehmannRatio": 0.9626424383959071,
+    "hodgesLehmannRatio": 1.0131013145985015,
     "wilcoxon": {
      "n": 5,
-     "wPlus": 1,
-     "pValue": 0.125,
+     "wPlus": 11,
+     "pValue": 0.4375,
      "method": "exact"
     },
     "interval": "90% block bootstrap"
@@ -137,8 +137,8 @@
    ],
    "host": {
     "required": "local-controlled",
-    "observed": "local-dev",
-    "eligible": false
+    "observed": "local-controlled",
+    "eligible": true
    }
   },
   {
@@ -171,22 +171,22 @@
    "stratum": {
     "scenario": "http-catalog"
    },
-   "outcome": "insufficient-n",
+   "outcome": "worse",
    "n": 5,
    "margin": 0.09531017980432493,
-   "requiredN": 14,
+   "requiredN": 5,
    "estimate": {
-    "meanLogRatio": -0.4724388861000475,
-    "ratio": 0.6234798162363046,
+    "meanLogRatio": -0.15457387160674568,
+    "ratio": 0.8567801980744486,
     "ci": [
-     -0.5676247171796441,
-     -0.38155315343609164
+     -0.181519946023951,
+     -0.12762779718954045
     ],
     "ratioCi": [
-     0.5668703181607803,
-     0.682800091922475
+     0.8340016101214867,
+     0.8801809239979299
     ],
-    "hodgesLehmannRatio": 0.620806254944693,
+    "hodgesLehmannRatio": 0.8617775685550169,
     "wilcoxon": {
      "n": 5,
      "wPlus": 0,
@@ -204,8 +204,8 @@
    ],
    "host": {
     "required": "local-controlled",
-    "observed": "local-dev",
-    "eligible": false
+    "observed": "local-controlled",
+    "eligible": true
    }
   },
   {
@@ -214,26 +214,26 @@
    "stratum": {
     "scenario": "http-catalog"
    },
-   "outcome": "insufficient-n",
+   "outcome": "non-inferior",
    "n": 5,
    "margin": 0.09531017980432493,
-   "requiredN": 14,
+   "requiredN": 5,
    "estimate": {
-    "meanLogRatio": -0.10474832617114065,
-    "ratio": 0.9005511392216229,
+    "meanLogRatio": 0.003465216225469031,
+    "ratio": 1.0034712270281185,
     "ci": [
-     -0.2134249417815695,
-     -0.02414367236592555
+     -0.014669430324067995,
+     0.0220659569737033
     ],
     "ratioCi": [
-     0.8078127908640254,
-     0.9761454545558087
+     0.9854376415683246,
+     1.0223112108004428
     ],
-    "hodgesLehmannRatio": 0.9317938839866332,
+    "hodgesLehmannRatio": 1.0038252427322556,
     "wilcoxon": {
      "n": 5,
-     "wPlus": 1,
-     "pValue": 0.125,
+     "wPlus": 8,
+     "pValue": 1,
      "method": "exact"
     },
     "interval": "90% block bootstrap"
@@ -247,17 +247,17 @@
    ],
    "host": {
     "required": "local-controlled",
-    "observed": "local-dev",
-    "eligible": false
+    "observed": "local-controlled",
+    "eligible": true
    }
   }
  ],
  "inputs": {
   "runs": [
-   "http-transport-v2-2026-10-09T16-13-29-199Z-130b39"
+   "http-transport-v2-2026-10-10T02-45-30-587Z-b23a72"
   ],
   "considered": [
-   "http-transport-v2-2026-10-09T16-13-29-199Z-130b39",
+   "http-transport-v2-2026-10-10T02-45-30-587Z-b23a72",
    "http-transport-2026-10-07T23-52-40-042Z-be9fbc",
    "spider-http-transport-supported-2026-10-08T00-26-16-511Z-7ce401",
    "http-open-250-2026-10-07T23-58-01-322Z-66a668",
@@ -267,6 +267,6 @@
    "tls-fingerprint-2026-10-09T16-20-40-847Z-1d6b5d"
   ],
   "missing": [],
-  "ledgerSha256": "21e68a32a71cbcbc731b65a66234d4f3c5b53b3b3725e40b8ec3425203e5d054"
+  "ledgerSha256": "c41fd3053d3f8a75aecee7a523e3721acc8fa94840b14271c5b7458214ee6b56"
  }
 }

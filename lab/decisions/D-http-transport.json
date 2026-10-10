@@ -78,8 +78,8 @@
   "evidence": [
     {
       "kind": "run",
-      "ref": "http-transport-v2-2026-10-09T16-13-29-199Z-130b39",
-      "note": "six transports, catalogue à incidents, boucle fermée"
+      "ref": "http-transport-v2-2026-10-10T02-45-30-587Z-b23a72",
+      "note": "six transports, catalogue à incidents, boucle fermée ; Mac calme"
     },
     {
       "kind": "run",
@@ -116,6 +116,10 @@
     {
       "kind": "research-doc",
       "ref": "lab/reports/http-transport-2026-10-09.md"
+    },
+    {
+      "kind": "research-doc",
+      "ref": "lab/reports/quiet-host-2026-10-10.md"
     }
   ],
   "verdictRef": "verdicts/D-http-transport.json",

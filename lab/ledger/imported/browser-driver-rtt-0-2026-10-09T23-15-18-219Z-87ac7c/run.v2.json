@@ -1,0 +1,81 @@
+{
+ "schemaVersion": 2,
+ "runId": "browser-driver-rtt-0-2026-10-09T23-15-18-219Z-87ac7c",
+ "lane": "bench",
+ "campaign": {
+  "id": "browser-driver-rtt-0",
+  "source": null
+ },
+ "startedAt": "2026-10-09T23:15:18.219Z",
+ "decisionIds": [
+  "D-browser-driver"
+ ],
+ "provenance": {
+  "git": {
+   "available": false,
+   "sha": null,
+   "dirty": null
+  },
+  "sourceTreeSha256": null,
+  "sourceChanges": null,
+  "binaryChanges": null,
+  "toolchains": {
+   "node": null,
+   "browser": null
+  },
+  "integrity": {
+   "status": "uncatalogued",
+   "checked": 0,
+   "mismatches": []
+  }
+ },
+ "host": {
+  "classRequested": null,
+  "classGranted": "local-dev",
+  "os": null,
+  "arch": null,
+  "cpu": null,
+  "logicalCpus": null,
+  "memoryBytes": null,
+  "preflight": null,
+  "postflight": null
+ },
+ "status": "interrupted",
+ "countUnit": "step",
+ "cells": [],
+ "totals": {
+  "verified": 0,
+  "failed": 0,
+  "timeout": 0,
+  "crashed": 0,
+  "aborted": 0,
+  "unsupported": 0,
+  "rejected": 0,
+  "unavailable": 0,
+  "skipped": 0
+ },
+ "metricAvailability": {
+  "pss-peak-bytes": {
+   "available": false,
+   "reason": "linux-only probe; legacy run on unknown OS"
+  },
+  "cgroup-memory-peak-bytes": {
+   "available": false,
+   "reason": "linux-only probe; legacy run on unknown OS"
+  },
+  "cpu-ms-per-verified-job": {
+   "available": false,
+   "reason": "CPU was not instrumented in this legacy lane"
+  },
+  "footprint-peak-bytes": {
+   "available": false,
+   "reason": "footprint was not instrumented in this legacy lane"
+  }
+ },
+ "legacy": {
+  "shape": "interrupted",
+  "sourceDir": "results/browser-driver-rtt-0-2026-10-09T23-15-18-219Z-87ac7c",
+  "errorCodeInferred": false,
+  "note": null
+ }
+}

@@ -2771,9 +2771,9 @@
       }
     },
     "durable-admission-2026-10-08T19-43-14-860Z-b8ad5b": {
-      "role": "selected",
+      "role": "superseded",
       "reason": "admission sous arrivées ouvertes sans surcharge, deux politiques de file",
-      "supersededBy": null,
+      "supersededBy": "durable-admission-2026-10-10T02-46-32-139Z-ef1b25",
       "decisionIds": [
         "D-durable-runtime",
         "D-scheduling"
@@ -2792,15 +2792,15 @@
       ],
       "noisyHost": false,
       "rerun": {
-        "required": true,
-        "priority": "P1",
-        "hostClass": "local-controlled"
+        "required": false,
+        "priority": null,
+        "hostClass": null
       }
     },
     "durable-scheduler-2026-10-08T19-43-56-509Z-dfabee": {
-      "role": "selected",
+      "role": "superseded",
       "reason": "domaine lourd en surcharge à côté de trois petits domaines, file globale contre file par domaine",
-      "supersededBy": null,
+      "supersededBy": "durable-scheduler-2026-10-10T02-45-45-825Z-edc50c",
       "decisionIds": [
         "D-durable-runtime",
         "D-scheduling"
@@ -2819,9 +2819,9 @@
       ],
       "noisyHost": false,
       "rerun": {
-        "required": true,
-        "priority": "P1",
-        "hostClass": "local-controlled"
+        "required": false,
+        "priority": null,
+        "hostClass": null
       }
     },
     "durable-admission-recovery-2026-10-08T19-50-26-865Z-f4c814": {
@@ -4023,9 +4023,9 @@
       }
     },
     "portal-routing-2026-10-09T15-12-56-291Z-1eb2f9": {
-      "role": "selected",
+      "role": "superseded",
       "reason": "HTTP, navigateur ou API découverte par route, sur six rendus d'un même listing ; job récurrent de 4 runs",
-      "supersededBy": null,
+      "supersededBy": "portal-routing-2026-10-10T02-47-13-937Z-4adc3c",
       "decisionIds": [
         "D-adaptive-routing"
       ],
@@ -4043,9 +4043,9 @@
       ],
       "noisyHost": false,
       "rerun": {
-        "required": true,
-        "priority": "P1",
-        "hostClass": "local-controlled"
+        "required": false,
+        "priority": null,
+        "hostClass": null
       }
     },
     "portal-sessions-2026-10-09T15-26-01-462Z-3f0b51": {
@@ -4158,9 +4158,9 @@
       }
     },
     "http-transport-v2-2026-10-09T16-13-29-199Z-130b39": {
-      "role": "selected",
+      "role": "superseded",
       "reason": "six transports en boucle fermée sur le catalogue à incidents, adaptateur HTTP corrigé (décompression reqwest, redirections wreq)",
-      "supersededBy": null,
+      "supersededBy": "http-transport-v2-2026-10-10T02-45-30-587Z-b23a72",
       "decisionIds": [
         "D-http-transport"
       ],
@@ -4178,9 +4178,9 @@
       ],
       "noisyHost": false,
       "rerun": {
-        "required": true,
-        "priority": "P1",
-        "hostClass": "local-controlled"
+        "required": false,
+        "priority": null,
+        "hostClass": null
       }
     },
     "http-open-v2-2026-10-09T16-13-49-759Z-f9b6c9": {
@@ -4275,9 +4275,9 @@
       }
     },
     "light-engine-paired-2026-10-09T16-29-54-931Z-c62471": {
-      "role": "selected",
+      "role": "superseded",
       "reason": "Chrome et Lightpanda appariés dans un même run, quatre pilotes, cinq scénarios",
-      "supersededBy": null,
+      "supersededBy": "light-engine-paired-2026-10-10T02-55-16-672Z-17bf22",
       "decisionIds": [
         "D-light-engine"
       ],
@@ -4295,9 +4295,9 @@
       ],
       "noisyHost": false,
       "rerun": {
-        "required": true,
-        "priority": "P2",
-        "hostClass": "local-controlled"
+        "required": false,
+        "priority": null,
+        "hostClass": null
       }
     },
     "storage-sinks-2026-10-09T19-55-10-753Z-e5bb86": {
@@ -4465,6 +4465,326 @@
         "required": true,
         "priority": "P0",
         "hostClass": "local-controlled"
+      }
+    },
+    "browser-driver-rtt-0-2026-10-09T23-21-22-913Z-2bbed1": {
+      "role": "selected",
+      "reason": "pilotes à 0 ms, Mac calme, 8 blocs propres sur 8",
+      "supersededBy": null,
+      "decisionIds": [
+        "D-browser-driver"
+      ],
+      "validity": [
+        {
+          "scope": "contract",
+          "class": "A",
+          "note": "oracle"
+        },
+        {
+          "scope": "timing",
+          "class": "B",
+          "note": "local-controlled, Mac calme, blocs bruités exclus"
+        }
+      ],
+      "noisyHost": false,
+      "rerun": {
+        "required": true,
+        "priority": "P2",
+        "hostClass": "reference"
+      }
+    },
+    "browser-driver-rtt-20-2026-10-09T23-53-33-623Z-3dd31a": {
+      "role": "selected",
+      "reason": "pilotes à 20 ms, Mac calme, 7 blocs propres sur 8",
+      "supersededBy": null,
+      "decisionIds": [
+        "D-browser-driver"
+      ],
+      "validity": [
+        {
+          "scope": "contract",
+          "class": "A",
+          "note": "oracle"
+        },
+        {
+          "scope": "timing",
+          "class": "B",
+          "note": "local-controlled, Mac calme, blocs bruités exclus"
+        }
+      ],
+      "noisyHost": false,
+      "rerun": {
+        "required": true,
+        "priority": "P2",
+        "hostClass": "reference"
+      }
+    },
+    "browser-driver-rtt-100-2026-10-10T00-17-31-377Z-ae1e25": {
+      "role": "selected",
+      "reason": "pilotes à 100 ms, Mac calme, 5 blocs propres sur 6 ; Playwright natif 2 timeouts sur le catalogue JS",
+      "supersededBy": null,
+      "decisionIds": [
+        "D-browser-driver"
+      ],
+      "validity": [
+        {
+          "scope": "contract",
+          "class": "A",
+          "note": "oracle"
+        },
+        {
+          "scope": "timing",
+          "class": "B",
+          "note": "local-controlled, Mac calme, blocs bruités exclus"
+        }
+      ],
+      "noisyHost": false,
+      "rerun": {
+        "required": true,
+        "priority": "P2",
+        "hostClass": "reference"
+      }
+    },
+    "browser-driver-rtt-300-2026-10-10T03-02-31-508Z-5366fd": {
+      "role": "selected",
+      "reason": "pilotes à 300 ms, Mac calme, 4 blocs propres sur 6",
+      "supersededBy": null,
+      "decisionIds": [
+        "D-browser-driver"
+      ],
+      "validity": [
+        {
+          "scope": "contract",
+          "class": "A",
+          "note": "oracle"
+        },
+        {
+          "scope": "timing",
+          "class": "B",
+          "note": "local-controlled, Mac calme, blocs bruités exclus"
+        }
+      ],
+      "noisyHost": false,
+      "rerun": {
+        "required": true,
+        "priority": "P2",
+        "hostClass": "reference"
+      }
+    },
+    "http-transport-v2-2026-10-10T02-45-30-587Z-b23a72": {
+      "role": "selected",
+      "reason": "six transports, catalogue à incidents, Mac calme",
+      "supersededBy": null,
+      "decisionIds": [
+        "D-http-transport"
+      ],
+      "validity": [
+        {
+          "scope": "contract",
+          "class": "A",
+          "note": "oracle"
+        },
+        {
+          "scope": "timing",
+          "class": "B",
+          "note": "local-controlled, Mac calme, blocs bruités exclus"
+        }
+      ],
+      "noisyHost": false,
+      "rerun": {
+        "required": true,
+        "priority": "P2",
+        "hostClass": "reference"
+      }
+    },
+    "durable-scheduler-2026-10-10T02-45-45-825Z-edc50c": {
+      "role": "selected",
+      "reason": "domaine lourd en surcharge, Mac calme",
+      "supersededBy": null,
+      "decisionIds": [
+        "D-scheduling",
+        "D-durable-runtime"
+      ],
+      "validity": [
+        {
+          "scope": "contract",
+          "class": "A",
+          "note": "oracle"
+        },
+        {
+          "scope": "timing",
+          "class": "B",
+          "note": "local-controlled, Mac calme, blocs bruités exclus"
+        }
+      ],
+      "noisyHost": false,
+      "rerun": {
+        "required": true,
+        "priority": "P2",
+        "hostClass": "reference"
+      }
+    },
+    "durable-admission-2026-10-10T02-46-32-139Z-ef1b25": {
+      "role": "selected",
+      "reason": "admission sans surcharge, Mac calme",
+      "supersededBy": null,
+      "decisionIds": [
+        "D-scheduling",
+        "D-durable-runtime"
+      ],
+      "validity": [
+        {
+          "scope": "contract",
+          "class": "A",
+          "note": "oracle"
+        },
+        {
+          "scope": "timing",
+          "class": "B",
+          "note": "local-controlled, Mac calme, blocs bruités exclus"
+        }
+      ],
+      "noisyHost": false,
+      "rerun": {
+        "required": true,
+        "priority": "P2",
+        "hostClass": "reference"
+      }
+    },
+    "portal-routing-2026-10-10T02-47-13-937Z-4adc3c": {
+      "role": "selected",
+      "reason": "routage HTTP, navigateur, API, Mac calme",
+      "supersededBy": null,
+      "decisionIds": [
+        "D-adaptive-routing"
+      ],
+      "validity": [
+        {
+          "scope": "contract",
+          "class": "A",
+          "note": "oracle"
+        },
+        {
+          "scope": "timing",
+          "class": "B",
+          "note": "local-controlled, Mac calme, blocs bruités exclus"
+        }
+      ],
+      "noisyHost": false,
+      "rerun": {
+        "required": true,
+        "priority": "P2",
+        "hostClass": "reference"
+      }
+    },
+    "light-engine-paired-2026-10-10T02-55-16-672Z-17bf22": {
+      "role": "selected",
+      "reason": "Chrome et Lightpanda appariés, Mac calme",
+      "supersededBy": null,
+      "decisionIds": [
+        "D-light-engine"
+      ],
+      "validity": [
+        {
+          "scope": "contract",
+          "class": "A",
+          "note": "oracle"
+        },
+        {
+          "scope": "timing",
+          "class": "B",
+          "note": "local-controlled, Mac calme, blocs bruités exclus"
+        }
+      ],
+      "noisyHost": false,
+      "rerun": {
+        "required": true,
+        "priority": "P2",
+        "hostClass": "reference"
+      }
+    },
+    "browser-driver-rtt-300-2026-10-10T01-04-50-782Z-3343c8": {
+      "role": "diagnostic",
+      "reason": "rétrogradé en local-dev au départ (Chrome du porteur au seuil) ; refait",
+      "supersededBy": null,
+      "decisionIds": [
+        "D-browser-driver"
+      ],
+      "validity": [
+        {
+          "scope": "all",
+          "class": "none",
+          "note": "rétrogradé en local-dev au départ (Chrome du porteur au seuil) ; refait"
+        }
+      ],
+      "noisyHost": true,
+      "rerun": {
+        "required": false,
+        "priority": null,
+        "hostClass": null
+      }
+    },
+    "browser-driver-rtt-20-2026-10-09T23-28-21-184Z-83a4db": {
+      "role": "diagnostic",
+      "reason": "rétrogradé en local-dev : démarré juste après le run précédent, charge moyenne encore haute ; refait",
+      "supersededBy": null,
+      "decisionIds": [
+        "D-browser-driver"
+      ],
+      "validity": [
+        {
+          "scope": "all",
+          "class": "none",
+          "note": "rétrogradé en local-dev : démarré juste après le run précédent, charge moyenne encore haute ; refait"
+        }
+      ],
+      "noisyHost": true,
+      "rerun": {
+        "required": false,
+        "priority": null,
+        "hostClass": null
+      }
+    },
+    "browser-driver-rtt-100-2026-10-09T23-52-12-693Z-6ed03d": {
+      "role": "diagnostic",
+      "reason": "interrompu pour relancer la série avec une attente avant chaque campagne",
+      "supersededBy": null,
+      "decisionIds": [
+        "D-browser-driver"
+      ],
+      "validity": [
+        {
+          "scope": "all",
+          "class": "none",
+          "note": "interrompu pour relancer la série avec une attente avant chaque campagne"
+        }
+      ],
+      "noisyHost": true,
+      "rerun": {
+        "required": false,
+        "priority": null,
+        "hostClass": null
+      }
+    },
+    "browser-driver-rtt-0-2026-10-09T23-15-18-219Z-87ac7c": {
+      "role": "diagnostic",
+      "reason": "interrompu avant la reprise de la série",
+      "supersededBy": null,
+      "decisionIds": [
+        "D-browser-driver"
+      ],
+      "validity": [
+        {
+          "scope": "all",
+          "class": "none",
+          "note": "interrompu avant la reprise de la série"
+        }
+      ],
+      "noisyHost": true,
+      "rerun": {
+        "required": false,
+        "priority": null,
+        "hostClass": null
       }
     }
   }

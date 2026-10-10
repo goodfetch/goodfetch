@@ -1,0 +1,5538 @@
+{
+ "schemaVersion": 2,
+ "runId": "browser-driver-rtt-100-2026-10-10T00-17-31-377Z-ae1e25",
+ "lane": "bench",
+ "campaign": {
+  "id": "browser-driver-rtt-100",
+  "source": "campaigns/v2/bench/browser-driver-rtt-100.json",
+  "sha256": "312317a5f6780317baf66b57a2d7034a9ef220b4c1fe301bd794c90c69cf881c"
+ },
+ "startedAt": "2026-10-10T00:17:31.377Z",
+ "decisionIds": [
+  "D-browser-driver"
+ ],
+ "provenance": {
+  "git": {
+   "available": true,
+   "sha": "eb092a18776cd673249eba3aa6fe6f5979a8a9a5",
+   "dirty": false
+  },
+  "sourceTreeSha256": "c4f508d694ae0e54035a44f195c52f41bdd8618c274e5c7bebd466ee706894c7",
+  "sourceChanges": 0,
+  "binaryChanges": null,
+  "toolchains": {
+   "node": "v25.5.0",
+   "rustc": "rustc 1.93.0 (254b59607 2026-01-19)",
+   "go": "go version go1.27.1 darwin/arm64",
+   "pnpm": "12.9.1"
+  },
+  "integrity": {
+   "status": "uncatalogued",
+   "checked": 0,
+   "mismatches": []
+  }
+ },
+ "host": {
+  "classRequested": "local-controlled",
+  "classGranted": "local-controlled",
+  "os": "darwin",
+  "arch": "arm64",
+  "cpu": "Apple M3 Max",
+  "logicalCpus": 14,
+  "memoryBytes": 38654705664,
+  "preflight": {
+   "snapshot": {
+    "os": "darwin",
+    "arch": "arm64",
+    "cpu": "Apple M3 Max",
+    "logicalCpus": 14,
+    "memoryBytes": 38654705664,
+    "loadAverage1m": 3.63623046875,
+    "memoryFreePercent": 58,
+    "thermalWarning": false,
+    "onAC": true,
+    "lowPowerMode": false,
+    "foreignCpuPercent": 91.19999999999997,
+    "foreignTop": [
+     {
+      "command": "WindowServer",
+      "cpuPercent": 46
+     },
+     {
+      "command": "Google Chrome Helper",
+      "cpuPercent": 10.8
+     },
+     {
+      "command": "coreaudiod",
+      "cpuPercent": 8.6
+     },
+     {
+      "command": "Google Chrome Helper (Renderer)",
+      "cpuPercent": 8.4
+     },
+     {
+      "command": "corespeechd",
+      "cpuPercent": 5.9
+     }
+    ],
+    "cpuGovernor": null,
+    "virtualized": false,
+    "controllerCpuPercent": 15.799999999999997
+   },
+   "gates": [
+    {
+     "class": "local-controlled",
+     "id": "git-clean",
+     "ok": true,
+     "value": true,
+     "limit": "= true"
+    },
+    {
+     "class": "local-controlled",
+     "id": "load-per-cpu-1m",
+     "ok": true,
+     "value": 0.25973074776785715,
+     "limit": "<= 0.35"
+    },
+    {
+     "class": "local-controlled",
+     "id": "memory-free-percent",
+     "ok": true,
+     "value": 58,
+     "limit": ">= 20"
+    },
+    {
+     "class": "local-controlled",
+     "id": "thermal-warning",
+     "ok": true,
+     "value": false,
+     "limit": "= false"
+    },
+    {
+     "class": "local-controlled",
+     "id": "low-power-mode",
+     "ok": true,
+     "value": false,
+     "limit": "= false"
+    },
+    {
+     "class": "local-controlled",
+     "id": "foreign-cpu-percent",
+     "ok": true,
+     "value": 91.19999999999997,
+     "limit": "<= 150"
+    }
+   ]
+  },
+  "postflight": {
+   "snapshot": {
+    "os": "darwin",
+    "arch": "arm64",
+    "cpu": "Apple M3 Max",
+    "logicalCpus": 14,
+    "memoryBytes": 38654705664,
+    "loadAverage1m": 3.375,
+    "memoryFreePercent": 61,
+    "thermalWarning": false,
+    "onAC": true,
+    "lowPowerMode": false,
+    "foreignCpuPercent": 152.89999999999986,
+    "foreignTop": [
+     {
+      "command": "Google Chrome Helper (Renderer)",
+      "cpuPercent": 45.1
+     },
+     {
+      "command": "Google Chrome Helper",
+      "cpuPercent": 37.6
+     },
+     {
+      "command": "WindowServer",
+      "cpuPercent": 25.6
+     },
+     {
+      "command": "coreaudiod",
+      "cpuPercent": 8.3
+     },
+     {
+      "command": "corespeechd",
+      "cpuPercent": 6.7
+     }
+    ],
+    "cpuGovernor": null,
+    "virtualized": false,
+    "controllerCpuPercent": 15.599999999999996
+   }
+  }
+ },
+ "status": "noisy-host",
+ "countUnit": "attempt",
+ "cells": [
+  {
+   "cellId": "rust-cdp:js-catalog:b0",
+   "factors": {
+    "backend": "rust-cdp",
+    "scenario": "js-catalog",
+    "block": 0,
+    "policy": "guarded",
+    "rttMs": 100,
+    "browserHost": "harness"
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 8,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-tasks-per-second": {
+     "value": 0.7307767871745354,
+     "unit": "task/s",
+     "source": "engine; verified measured tasks over the measured window, rejections in the denominator window"
+    },
+    "task-p50-ms-verified": {
+     "value": 1367.3505409999998,
+     "unit": "ms",
+     "source": "engine; run RPC only"
+    },
+    "task-p95-ms-verified": {
+     "value": 1372.3293329999997,
+     "unit": "ms",
+     "source": "engine; run RPC only, nearest rank"
+    },
+    "cpu-ms-per-verified-job": {
+     "value": 1334.7753923750001,
+     "unit": "ms/job",
+     "source": "engine; adapter process tree over all phases"
+    },
+    "footprint-peak-bytes": {
+     "value": 1271594568,
+     "unit": "B",
+     "source": "engine; adapter process tree"
+    },
+    "pss-peak-bytes": {
+     "value": null,
+     "unit": "B",
+     "source": "unavailable: no probe on darwin"
+    },
+    "rss-peak-bytes": {
+     "value": 3069952000,
+     "unit": "B",
+     "source": "engine; adapter process tree, shared pages double-counted"
+    },
+    "cdp-commands-per-task": {
+     "value": 13,
+     "unit": "command/task",
+     "source": "adapter; median over verified measured tasks, page open and close included"
+    },
+    "startup-ms": {
+     "value": 223.6660409999995,
+     "unit": "ms",
+     "source": "engine; adapter start and connection to the harness browser, browser launch excluded"
+    }
+   }
+  },
+  {
+   "cellId": "rust-cdp:form:b0",
+   "factors": {
+    "backend": "rust-cdp",
+    "scenario": "form",
+    "block": 0,
+    "policy": "guarded",
+    "rttMs": 100,
+    "browserHost": "harness"
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 8,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-tasks-per-second": {
+     "value": 0.3165699992438926,
+     "unit": "task/s",
+     "source": "engine; verified measured tasks over the measured window, rejections in the denominator window"
+    },
+    "task-p50-ms-verified": {
+     "value": 3151.153333999995,
+     "unit": "ms",
+     "source": "engine; run RPC only"
+    },
+    "task-p95-ms-verified": {
+     "value": 3169.240084000001,
+     "unit": "ms",
+     "source": "engine; run RPC only, nearest rank"
+    },
+    "cpu-ms-per-verified-job": {
+     "value": 1334.7753923750001,
+     "unit": "ms/job",
+     "source": "engine; adapter process tree over all phases"
+    },
+    "footprint-peak-bytes": {
+     "value": 1271594568,
+     "unit": "B",
+     "source": "engine; adapter process tree"
+    },
+    "pss-peak-bytes": {
+     "value": null,
+     "unit": "B",
+     "source": "unavailable: no probe on darwin"
+    },
+    "rss-peak-bytes": {
+     "value": 3069952000,
+     "unit": "B",
+     "source": "engine; adapter process tree, shared pages double-counted"
+    },
+    "cdp-commands-per-task": {
+     "value": 29,
+     "unit": "command/task",
+     "source": "adapter; median over verified measured tasks, page open and close included"
+    },
+    "startup-ms": {
+     "value": 223.6660409999995,
+     "unit": "ms",
+     "source": "engine; adapter start and connection to the harness browser, browser launch excluded"
+    }
+   }
+  },
+  {
+   "cellId": "rust-cdp:clicks:b0",
+   "factors": {
+    "backend": "rust-cdp",
+    "scenario": "clicks",
+    "block": 0,
+    "policy": "guarded",
+    "rttMs": 100,
+    "browserHost": "harness"
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 8,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-tasks-per-second": {
+     "value": 0.19574861654359405,
+     "unit": "task/s",
+     "source": "engine; verified measured tasks over the measured window, rejections in the denominator window"
+    },
+    "task-p50-ms-verified": {
+     "value": 5110.661416999996,
+     "unit": "ms",
+     "source": "engine; run RPC only"
+    },
+    "task-p95-ms-verified": {
+     "value": 5119.021833999999,
+     "unit": "ms",
+     "source": "engine; run RPC only, nearest rank"
+    },
+    "cpu-ms-per-verified-job": {
+     "value": 1334.7753923750001,
+     "unit": "ms/job",
+     "source": "engine; adapter process tree over all phases"
+    },
+    "footprint-peak-bytes": {
+     "value": 1271594568,
+     "unit": "B",
+     "source": "engine; adapter process tree"
+    },
+    "pss-peak-bytes": {
+     "value": null,
+     "unit": "B",
+     "source": "unavailable: no probe on darwin"
+    },
+    "rss-peak-bytes": {
+     "value": 3069952000,
+     "unit": "B",
+     "source": "engine; adapter process tree, shared pages double-counted"
+    },
+    "cdp-commands-per-task": {
+     "value": 48,
+     "unit": "command/task",
+     "source": "adapter; median over verified measured tasks, page open and close included"
+    },
+    "startup-ms": {
+     "value": 223.6660409999995,
+     "unit": "ms",
+     "source": "engine; adapter start and connection to the harness browser, browser launch excluded"
+    }
+   }
+  },
+  {
+   "cellId": "node-cdp:js-catalog:b0",
+   "factors": {
+    "backend": "node-cdp",
+    "scenario": "js-catalog",
+    "block": 0,
+    "policy": "guarded",
+    "rttMs": 100,
+    "browserHost": "harness"
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 8,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-tasks-per-second": {
+     "value": 0.7269621014775285,
+     "unit": "task/s",
+     "source": "engine; verified measured tasks over the measured window, rejections in the denominator window"
+    },
+    "task-p50-ms-verified": {
+     "value": 1372.5990000000456,
+     "unit": "ms",
+     "source": "engine; run RPC only"
+    },
+    "task-p95-ms-verified": {
+     "value": 1394.399000000034,
+     "unit": "ms",
+     "source": "engine; run RPC only, nearest rank"
+    },
+    "cpu-ms-per-verified-job": {
+     "value": 1532.1198667500003,
+     "unit": "ms/job",
+     "source": "engine; adapter process tree over all phases"
+    },
+    "footprint-peak-bytes": {
+     "value": 1281981712,
+     "unit": "B",
+     "source": "engine; adapter process tree"
+    },
+    "pss-peak-bytes": {
+     "value": null,
+     "unit": "B",
+     "source": "unavailable: no probe on darwin"
+    },
+    "rss-peak-bytes": {
+     "value": 3076784128,
+     "unit": "B",
+     "source": "engine; adapter process tree, shared pages double-counted"
+    },
+    "cdp-commands-per-task": {
+     "value": 13,
+     "unit": "command/task",
+     "source": "adapter; median over verified measured tasks, page open and close included"
+    },
+    "startup-ms": {
+     "value": 265.0877080000355,
+     "unit": "ms",
+     "source": "engine; adapter start and connection to the harness browser, browser launch excluded"
+    }
+   }
+  },
+  {
+   "cellId": "node-cdp:form:b0",
+   "factors": {
+    "backend": "node-cdp",
+    "scenario": "form",
+    "block": 0,
+    "policy": "guarded",
+    "rttMs": 100,
+    "browserHost": "harness"
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 8,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-tasks-per-second": {
+     "value": 0.31668373646986003,
+     "unit": "task/s",
+     "source": "engine; verified measured tasks over the measured window, rejections in the denominator window"
+    },
+    "task-p50-ms-verified": {
+     "value": 3152.0249169999734,
+     "unit": "ms",
+     "source": "engine; run RPC only"
+    },
+    "task-p95-ms-verified": {
+     "value": 3165.292084000015,
+     "unit": "ms",
+     "source": "engine; run RPC only, nearest rank"
+    },
+    "cpu-ms-per-verified-job": {
+     "value": 1532.1198667500003,
+     "unit": "ms/job",
+     "source": "engine; adapter process tree over all phases"
+    },
+    "footprint-peak-bytes": {
+     "value": 1281981712,
+     "unit": "B",
+     "source": "engine; adapter process tree"
+    },
+    "pss-peak-bytes": {
+     "value": null,
+     "unit": "B",
+     "source": "unavailable: no probe on darwin"
+    },
+    "rss-peak-bytes": {
+     "value": 3076784128,
+     "unit": "B",
+     "source": "engine; adapter process tree, shared pages double-counted"
+    },
+    "cdp-commands-per-task": {
+     "value": 29,
+     "unit": "command/task",
+     "source": "adapter; median over verified measured tasks, page open and close included"
+    },
+    "startup-ms": {
+     "value": 265.0877080000355,
+     "unit": "ms",
+     "source": "engine; adapter start and connection to the harness browser, browser launch excluded"
+    }
+   }
+  },
+  {
+   "cellId": "node-cdp:clicks:b0",
+   "factors": {
+    "backend": "node-cdp",
+    "scenario": "clicks",
+    "block": 0,
+    "policy": "guarded",
+    "rttMs": 100,
+    "browserHost": "harness"
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 8,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-tasks-per-second": {
+     "value": 0.19397598368797742,
+     "unit": "task/s",
+     "source": "engine; verified measured tasks over the measured window, rejections in the denominator window"
+    },
+    "task-p50-ms-verified": {
+     "value": 5162.825584000035,
+     "unit": "ms",
+     "source": "engine; run RPC only"
+    },
+    "task-p95-ms-verified": {
+     "value": 5170.247250000015,
+     "unit": "ms",
+     "source": "engine; run RPC only, nearest rank"
+    },
+    "cpu-ms-per-verified-job": {
+     "value": 1532.1198667500003,
+     "unit": "ms/job",
+     "source": "engine; adapter process tree over all phases"
+    },
+    "footprint-peak-bytes": {
+     "value": 1281981712,
+     "unit": "B",
+     "source": "engine; adapter process tree"
+    },
+    "pss-peak-bytes": {
+     "value": null,
+     "unit": "B",
+     "source": "unavailable: no probe on darwin"
+    },
+    "rss-peak-bytes": {
+     "value": 3076784128,
+     "unit": "B",
+     "source": "engine; adapter process tree, shared pages double-counted"
+    },
+    "cdp-commands-per-task": {
+     "value": 48,
+     "unit": "command/task",
+     "source": "adapter; median over verified measured tasks, page open and close included"
+    },
+    "startup-ms": {
+     "value": 265.0877080000355,
+     "unit": "ms",
+     "source": "engine; adapter start and connection to the harness browser, browser launch excluded"
+    }
+   }
+  },
+  {
+   "cellId": "puppeteer:js-catalog:b0",
+   "factors": {
+    "backend": "puppeteer",
+    "scenario": "js-catalog",
+    "block": 0,
+    "policy": "guarded",
+    "rttMs": 100,
+    "browserHost": "harness"
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 8,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-tasks-per-second": {
+     "value": 0.6381138291111755,
+     "unit": "task/s",
+     "source": "engine; verified measured tasks over the measured window, rejections in the denominator window"
+    },
+    "task-p50-ms-verified": {
+     "value": 1564.8381249999948,
+     "unit": "ms",
+     "source": "engine; run RPC only"
+    },
+    "task-p95-ms-verified": {
+     "value": 1574.1558749999967,
+     "unit": "ms",
+     "source": "engine; run RPC only, nearest rank"
+    },
+    "cpu-ms-per-verified-job": {
+     "value": 1763.7663038750002,
+     "unit": "ms/job",
+     "source": "engine; adapter process tree over all phases"
+    },
+    "footprint-peak-bytes": {
+     "value": 1249818120,
+     "unit": "B",
+     "source": "engine; adapter process tree"
+    },
+    "pss-peak-bytes": {
+     "value": null,
+     "unit": "B",
+     "source": "unavailable: no probe on darwin"
+    },
+    "rss-peak-bytes": {
+     "value": 2944253952,
+     "unit": "B",
+     "source": "engine; adapter process tree, shared pages double-counted"
+    },
+    "cdp-commands-per-task": {
+     "value": null,
+     "unit": "command/task",
+     "source": "adapter does not report CDP commands"
+    },
+    "startup-ms": {
+     "value": 795.7867909999914,
+     "unit": "ms",
+     "source": "engine; adapter start and connection to the harness browser, browser launch excluded"
+    }
+   }
+  },
+  {
+   "cellId": "puppeteer:form:b0",
+   "factors": {
+    "backend": "puppeteer",
+    "scenario": "form",
+    "block": 0,
+    "policy": "guarded",
+    "rttMs": 100,
+    "browserHost": "harness"
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 8,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-tasks-per-second": {
+     "value": 0.09675246559750407,
+     "unit": "task/s",
+     "source": "engine; verified measured tasks over the measured window, rejections in the denominator window"
+    },
+    "task-p50-ms-verified": {
+     "value": 10327.191374999995,
+     "unit": "ms",
+     "source": "engine; run RPC only"
+    },
+    "task-p95-ms-verified": {
+     "value": 10364.733042000007,
+     "unit": "ms",
+     "source": "engine; run RPC only, nearest rank"
+    },
+    "cpu-ms-per-verified-job": {
+     "value": 1763.7663038750002,
+     "unit": "ms/job",
+     "source": "engine; adapter process tree over all phases"
+    },
+    "footprint-peak-bytes": {
+     "value": 1249818120,
+     "unit": "B",
+     "source": "engine; adapter process tree"
+    },
+    "pss-peak-bytes": {
+     "value": null,
+     "unit": "B",
+     "source": "unavailable: no probe on darwin"
+    },
+    "rss-peak-bytes": {
+     "value": 2944253952,
+     "unit": "B",
+     "source": "engine; adapter process tree, shared pages double-counted"
+    },
+    "cdp-commands-per-task": {
+     "value": null,
+     "unit": "command/task",
+     "source": "adapter does not report CDP commands"
+    },
+    "startup-ms": {
+     "value": 795.7867909999914,
+     "unit": "ms",
+     "source": "engine; adapter start and connection to the harness browser, browser launch excluded"
+    }
+   }
+  },
+  {
+   "cellId": "puppeteer:clicks:b0",
+   "factors": {
+    "backend": "puppeteer",
+    "scenario": "clicks",
+    "block": 0,
+    "policy": "guarded",
+    "rttMs": 100,
+    "browserHost": "harness"
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 8,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-tasks-per-second": {
+     "value": 0.0784165221428621,
+     "unit": "task/s",
+     "source": "engine; verified measured tasks over the measured window, rejections in the denominator window"
+    },
+    "task-p50-ms-verified": {
+     "value": 12739.433708000026,
+     "unit": "ms",
+     "source": "engine; run RPC only"
+    },
+    "task-p95-ms-verified": {
+     "value": 12799.217666000011,
+     "unit": "ms",
+     "source": "engine; run RPC only, nearest rank"
+    },
+    "cpu-ms-per-verified-job": {
+     "value": 1763.7663038750002,
+     "unit": "ms/job",
+     "source": "engine; adapter process tree over all phases"
+    },
+    "footprint-peak-bytes": {
+     "value": 1249818120,
+     "unit": "B",
+     "source": "engine; adapter process tree"
+    },
+    "pss-peak-bytes": {
+     "value": null,
+     "unit": "B",
+     "source": "unavailable: no probe on darwin"
+    },
+    "rss-peak-bytes": {
+     "value": 2944253952,
+     "unit": "B",
+     "source": "engine; adapter process tree, shared pages double-counted"
+    },
+    "cdp-commands-per-task": {
+     "value": null,
+     "unit": "command/task",
+     "source": "adapter does not report CDP commands"
+    },
+    "startup-ms": {
+     "value": 795.7867909999914,
+     "unit": "ms",
+     "source": "engine; adapter start and connection to the harness browser, browser launch excluded"
+    }
+   }
+  },
+  {
+   "cellId": "playwright:js-catalog:b0",
+   "factors": {
+    "backend": "playwright",
+    "scenario": "js-catalog",
+    "block": 0,
+    "policy": "native",
+    "rttMs": 100,
+    "browserHost": "harness"
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 8,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-tasks-per-second": {
+     "value": 0.5822917626307754,
+     "unit": "task/s",
+     "source": "engine; verified measured tasks over the measured window, rejections in the denominator window"
+    },
+    "task-p50-ms-verified": {
+     "value": 1717.588124999951,
+     "unit": "ms",
+     "source": "engine; run RPC only"
+    },
+    "task-p95-ms-verified": {
+     "value": 1729.6720830000122,
+     "unit": "ms",
+     "source": "engine; run RPC only, nearest rank"
+    },
+    "cpu-ms-per-verified-job": {
+     "value": 2824.5450473749997,
+     "unit": "ms/job",
+     "source": "engine; adapter process tree over all phases"
+    },
+    "footprint-peak-bytes": {
+     "value": 1143130328,
+     "unit": "B",
+     "source": "engine; adapter process tree"
+    },
+    "pss-peak-bytes": {
+     "value": null,
+     "unit": "B",
+     "source": "unavailable: no probe on darwin"
+    },
+    "rss-peak-bytes": {
+     "value": 1987117056,
+     "unit": "B",
+     "source": "engine; adapter process tree, shared pages double-counted"
+    },
+    "cdp-commands-per-task": {
+     "value": null,
+     "unit": "command/task",
+     "source": "adapter does not report CDP commands"
+    },
+    "startup-ms": {
+     "value": 787.3304159999825,
+     "unit": "ms",
+     "source": "engine; adapter start and connection to the harness browser, browser launch excluded"
+    }
+   }
+  },
+  {
+   "cellId": "playwright:form:b0",
+   "factors": {
+    "backend": "playwright",
+    "scenario": "form",
+    "block": 0,
+    "policy": "native",
+    "rttMs": 100,
+    "browserHost": "harness"
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 8,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-tasks-per-second": {
+     "value": 0.22357465671221255,
+     "unit": "task/s",
+     "source": "engine; verified measured tasks over the measured window, rejections in the denominator window"
+    },
+    "task-p50-ms-verified": {
+     "value": 4456.947166999977,
+     "unit": "ms",
+     "source": "engine; run RPC only"
+    },
+    "task-p95-ms-verified": {
+     "value": 4497.977375000017,
+     "unit": "ms",
+     "source": "engine; run RPC only, nearest rank"
+    },
+    "cpu-ms-per-verified-job": {
+     "value": 2824.5450473749997,
+     "unit": "ms/job",
+     "source": "engine; adapter process tree over all phases"
+    },
+    "footprint-peak-bytes": {
+     "value": 1143130328,
+     "unit": "B",
+     "source": "engine; adapter process tree"
+    },
+    "pss-peak-bytes": {
+     "value": null,
+     "unit": "B",
+     "source": "unavailable: no probe on darwin"
+    },
+    "rss-peak-bytes": {
+     "value": 1987117056,
+     "unit": "B",
+     "source": "engine; adapter process tree, shared pages double-counted"
+    },
+    "cdp-commands-per-task": {
+     "value": null,
+     "unit": "command/task",
+     "source": "adapter does not report CDP commands"
+    },
+    "startup-ms": {
+     "value": 787.3304159999825,
+     "unit": "ms",
+     "source": "engine; adapter start and connection to the harness browser, browser launch excluded"
+    }
+   }
+  },
+  {
+   "cellId": "playwright:clicks:b0",
+   "factors": {
+    "backend": "playwright",
+    "scenario": "clicks",
+    "block": 0,
+    "policy": "native",
+    "rttMs": 100,
+    "browserHost": "harness"
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 8,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-tasks-per-second": {
+     "value": 0.1436484710749543,
+     "unit": "task/s",
+     "source": "engine; verified measured tasks over the measured window, rejections in the denominator window"
+    },
+    "task-p50-ms-verified": {
+     "value": 6942.476917000022,
+     "unit": "ms",
+     "source": "engine; run RPC only"
+    },
+    "task-p95-ms-verified": {
+     "value": 7007.891499999969,
+     "unit": "ms",
+     "source": "engine; run RPC only, nearest rank"
+    },
+    "cpu-ms-per-verified-job": {
+     "value": 2824.5450473749997,
+     "unit": "ms/job",
+     "source": "engine; adapter process tree over all phases"
+    },
+    "footprint-peak-bytes": {
+     "value": 1143130328,
+     "unit": "B",
+     "source": "engine; adapter process tree"
+    },
+    "pss-peak-bytes": {
+     "value": null,
+     "unit": "B",
+     "source": "unavailable: no probe on darwin"
+    },
+    "rss-peak-bytes": {
+     "value": 1987117056,
+     "unit": "B",
+     "source": "engine; adapter process tree, shared pages double-counted"
+    },
+    "cdp-commands-per-task": {
+     "value": null,
+     "unit": "command/task",
+     "source": "adapter does not report CDP commands"
+    },
+    "startup-ms": {
+     "value": 787.3304159999825,
+     "unit": "ms",
+     "source": "engine; adapter start and connection to the harness browser, browser launch excluded"
+    }
+   }
+  },
+  {
+   "cellId": "rust-cdp:js-catalog:b1",
+   "factors": {
+    "backend": "rust-cdp",
+    "scenario": "js-catalog",
+    "block": 1,
+    "policy": "guarded",
+    "rttMs": 100,
+    "browserHost": "harness"
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 8,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-tasks-per-second": {
+     "value": 0.7312716753495013,
+     "unit": "task/s",
+     "source": "engine; verified measured tasks over the measured window, rejections in the denominator window"
+    },
+    "task-p50-ms-verified": {
+     "value": 1364.2108330000192,
+     "unit": "ms",
+     "source": "engine; run RPC only"
+    },
+    "task-p95-ms-verified": {
+     "value": 1378.5253329999978,
+     "unit": "ms",
+     "source": "engine; run RPC only, nearest rank"
+    },
+    "cpu-ms-per-verified-job": {
+     "value": 1486.552908375,
+     "unit": "ms/job",
+     "source": "engine; adapter process tree over all phases"
+    },
+    "footprint-peak-bytes": {
+     "value": 1288731992,
+     "unit": "B",
+     "source": "engine; adapter process tree"
+    },
+    "pss-peak-bytes": {
+     "value": null,
+     "unit": "B",
+     "source": "unavailable: no probe on darwin"
+    },
+    "rss-peak-bytes": {
+     "value": 3060973568,
+     "unit": "B",
+     "source": "engine; adapter process tree, shared pages double-counted"
+    },
+    "cdp-commands-per-task": {
+     "value": 13,
+     "unit": "command/task",
+     "source": "adapter; median over verified measured tasks, page open and close included"
+    },
+    "startup-ms": {
+     "value": 218.333416999958,
+     "unit": "ms",
+     "source": "engine; adapter start and connection to the harness browser, browser launch excluded"
+    }
+   }
+  },
+  {
+   "cellId": "rust-cdp:form:b1",
+   "factors": {
+    "backend": "rust-cdp",
+    "scenario": "form",
+    "block": 1,
+    "policy": "guarded",
+    "rttMs": 100,
+    "browserHost": "harness"
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 8,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-tasks-per-second": {
+     "value": 0.3155710936375839,
+     "unit": "task/s",
+     "source": "engine; verified measured tasks over the measured window, rejections in the denominator window"
+    },
+    "task-p50-ms-verified": {
+     "value": 3161.185541999992,
+     "unit": "ms",
+     "source": "engine; run RPC only"
+    },
+    "task-p95-ms-verified": {
+     "value": 3196.137040999951,
+     "unit": "ms",
+     "source": "engine; run RPC only, nearest rank"
+    },
+    "cpu-ms-per-verified-job": {
+     "value": 1486.552908375,
+     "unit": "ms/job",
+     "source": "engine; adapter process tree over all phases"
+    },
+    "footprint-peak-bytes": {
+     "value": 1288731992,
+     "unit": "B",
+     "source": "engine; adapter process tree"
+    },
+    "pss-peak-bytes": {
+     "value": null,
+     "unit": "B",
+     "source": "unavailable: no probe on darwin"
+    },
+    "rss-peak-bytes": {
+     "value": 3060973568,
+     "unit": "B",
+     "source": "engine; adapter process tree, shared pages double-counted"
+    },
+    "cdp-commands-per-task": {
+     "value": 29,
+     "unit": "command/task",
+     "source": "adapter; median over verified measured tasks, page open and close included"
+    },
+    "startup-ms": {
+     "value": 218.333416999958,
+     "unit": "ms",
+     "source": "engine; adapter start and connection to the harness browser, browser launch excluded"
+    }
+   }
+  },
+  {
+   "cellId": "rust-cdp:clicks:b1",
+   "factors": {
+    "backend": "rust-cdp",
+    "scenario": "clicks",
+    "block": 1,
+    "policy": "guarded",
+    "rttMs": 100,
+    "browserHost": "harness"
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 8,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-tasks-per-second": {
+     "value": 0.19496666265035362,
+     "unit": "task/s",
+     "source": "engine; verified measured tasks over the measured window, rejections in the denominator window"
+    },
+    "task-p50-ms-verified": {
+     "value": 5121.828333000012,
+     "unit": "ms",
+     "source": "engine; run RPC only"
+    },
+    "task-p95-ms-verified": {
+     "value": 5159.511749999947,
+     "unit": "ms",
+     "source": "engine; run RPC only, nearest rank"
+    },
+    "cpu-ms-per-verified-job": {
+     "value": 1486.552908375,
+     "unit": "ms/job",
+     "source": "engine; adapter process tree over all phases"
+    },
+    "footprint-peak-bytes": {
+     "value": 1288731992,
+     "unit": "B",
+     "source": "engine; adapter process tree"
+    },
+    "pss-peak-bytes": {
+     "value": null,
+     "unit": "B",
+     "source": "unavailable: no probe on darwin"
+    },
+    "rss-peak-bytes": {
+     "value": 3060973568,
+     "unit": "B",
+     "source": "engine; adapter process tree, shared pages double-counted"
+    },
+    "cdp-commands-per-task": {
+     "value": 48,
+     "unit": "command/task",
+     "source": "adapter; median over verified measured tasks, page open and close included"
+    },
+    "startup-ms": {
+     "value": 218.333416999958,
+     "unit": "ms",
+     "source": "engine; adapter start and connection to the harness browser, browser launch excluded"
+    }
+   }
+  },
+  {
+   "cellId": "node-cdp:js-catalog:b1",
+   "factors": {
+    "backend": "node-cdp",
+    "scenario": "js-catalog",
+    "block": 1,
+    "policy": "guarded",
+    "rttMs": 100,
+    "browserHost": "harness"
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 8,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-tasks-per-second": {
+     "value": 0.7253597740111261,
+     "unit": "task/s",
+     "source": "engine; verified measured tasks over the measured window, rejections in the denominator window"
+    },
+    "task-p50-ms-verified": {
+     "value": 1371.0969999999506,
+     "unit": "ms",
+     "source": "engine; run RPC only"
+    },
+    "task-p95-ms-verified": {
+     "value": 1398.1452910000226,
+     "unit": "ms",
+     "source": "engine; run RPC only, nearest rank"
+    },
+    "cpu-ms-per-verified-job": {
+     "value": 1564.206387375,
+     "unit": "ms/job",
+     "source": "engine; adapter process tree over all phases"
+    },
+    "footprint-peak-bytes": {
+     "value": 1263090984,
+     "unit": "B",
+     "source": "engine; adapter process tree"
+    },
+    "pss-peak-bytes": {
+     "value": null,
+     "unit": "B",
+     "source": "unavailable: no probe on darwin"
+    },
+    "rss-peak-bytes": {
+     "value": 3077210112,
+     "unit": "B",
+     "source": "engine; adapter process tree, shared pages double-counted"
+    },
+    "cdp-commands-per-task": {
+     "value": 13,
+     "unit": "command/task",
+     "source": "adapter; median over verified measured tasks, page open and close included"
+    },
+    "startup-ms": {
+     "value": 275.8523329999298,
+     "unit": "ms",
+     "source": "engine; adapter start and connection to the harness browser, browser launch excluded"
+    }
+   }
+  },
+  {
+   "cellId": "node-cdp:form:b1",
+   "factors": {
+    "backend": "node-cdp",
+    "scenario": "form",
+    "block": 1,
+    "policy": "guarded",
+    "rttMs": 100,
+    "browserHost": "harness"
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 8,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-tasks-per-second": {
+     "value": 0.3140715936600846,
+     "unit": "task/s",
+     "source": "engine; verified measured tasks over the measured window, rejections in the denominator window"
+    },
+    "task-p50-ms-verified": {
+     "value": 3179.5248330000322,
+     "unit": "ms",
+     "source": "engine; run RPC only"
+    },
+    "task-p95-ms-verified": {
+     "value": 3217.3587919999845,
+     "unit": "ms",
+     "source": "engine; run RPC only, nearest rank"
+    },
+    "cpu-ms-per-verified-job": {
+     "value": 1564.206387375,
+     "unit": "ms/job",
+     "source": "engine; adapter process tree over all phases"
+    },
+    "footprint-peak-bytes": {
+     "value": 1263090984,
+     "unit": "B",
+     "source": "engine; adapter process tree"
+    },
+    "pss-peak-bytes": {
+     "value": null,
+     "unit": "B",
+     "source": "unavailable: no probe on darwin"
+    },
+    "rss-peak-bytes": {
+     "value": 3077210112,
+     "unit": "B",
+     "source": "engine; adapter process tree, shared pages double-counted"
+    },
+    "cdp-commands-per-task": {
+     "value": 29,
+     "unit": "command/task",
+     "source": "adapter; median over verified measured tasks, page open and close included"
+    },
+    "startup-ms": {
+     "value": 275.8523329999298,
+     "unit": "ms",
+     "source": "engine; adapter start and connection to the harness browser, browser launch excluded"
+    }
+   }
+  },
+  {
+   "cellId": "node-cdp:clicks:b1",
+   "factors": {
+    "backend": "node-cdp",
+    "scenario": "clicks",
+    "block": 1,
+    "policy": "guarded",
+    "rttMs": 100,
+    "browserHost": "harness"
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 8,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-tasks-per-second": {
+     "value": 0.19483677539204844,
+     "unit": "task/s",
+     "source": "engine; verified measured tasks over the measured window, rejections in the denominator window"
+    },
+    "task-p50-ms-verified": {
+     "value": 5128.547499999986,
+     "unit": "ms",
+     "source": "engine; run RPC only"
+    },
+    "task-p95-ms-verified": {
+     "value": 5152.74141700007,
+     "unit": "ms",
+     "source": "engine; run RPC only, nearest rank"
+    },
+    "cpu-ms-per-verified-job": {
+     "value": 1564.206387375,
+     "unit": "ms/job",
+     "source": "engine; adapter process tree over all phases"
+    },
+    "footprint-peak-bytes": {
+     "value": 1263090984,
+     "unit": "B",
+     "source": "engine; adapter process tree"
+    },
+    "pss-peak-bytes": {
+     "value": null,
+     "unit": "B",
+     "source": "unavailable: no probe on darwin"
+    },
+    "rss-peak-bytes": {
+     "value": 3077210112,
+     "unit": "B",
+     "source": "engine; adapter process tree, shared pages double-counted"
+    },
+    "cdp-commands-per-task": {
+     "value": 48,
+     "unit": "command/task",
+     "source": "adapter; median over verified measured tasks, page open and close included"
+    },
+    "startup-ms": {
+     "value": 275.8523329999298,
+     "unit": "ms",
+     "source": "engine; adapter start and connection to the harness browser, browser launch excluded"
+    }
+   }
+  },
+  {
+   "cellId": "puppeteer:js-catalog:b1",
+   "factors": {
+    "backend": "puppeteer",
+    "scenario": "js-catalog",
+    "block": 1,
+    "policy": "guarded",
+    "rttMs": 100,
+    "browserHost": "harness"
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 8,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-tasks-per-second": {
+     "value": 0.6378702307017773,
+     "unit": "task/s",
+     "source": "engine; verified measured tasks over the measured window, rejections in the denominator window"
+    },
+    "task-p50-ms-verified": {
+     "value": 1567.5190410000505,
+     "unit": "ms",
+     "source": "engine; run RPC only"
+    },
+    "task-p95-ms-verified": {
+     "value": 1575.06570799998,
+     "unit": "ms",
+     "source": "engine; run RPC only, nearest rank"
+    },
+    "cpu-ms-per-verified-job": {
+     "value": 1919.0516846250002,
+     "unit": "ms/job",
+     "source": "engine; adapter process tree over all phases"
+    },
+    "footprint-peak-bytes": {
+     "value": 1238185480,
+     "unit": "B",
+     "source": "engine; adapter process tree"
+    },
+    "pss-peak-bytes": {
+     "value": null,
+     "unit": "B",
+     "source": "unavailable: no probe on darwin"
+    },
+    "rss-peak-bytes": {
+     "value": 2929065984,
+     "unit": "B",
+     "source": "engine; adapter process tree, shared pages double-counted"
+    },
+    "cdp-commands-per-task": {
+     "value": null,
+     "unit": "command/task",
+     "source": "adapter does not report CDP commands"
+    },
+    "startup-ms": {
+     "value": 754.0156669999706,
+     "unit": "ms",
+     "source": "engine; adapter start and connection to the harness browser, browser launch excluded"
+    }
+   }
+  },
+  {
+   "cellId": "puppeteer:form:b1",
+   "factors": {
+    "backend": "puppeteer",
+    "scenario": "form",
+    "block": 1,
+    "policy": "guarded",
+    "rttMs": 100,
+    "browserHost": "harness"
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 8,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-tasks-per-second": {
+     "value": 0.09644313027203123,
+     "unit": "task/s",
+     "source": "engine; verified measured tasks over the measured window, rejections in the denominator window"
+    },
+    "task-p50-ms-verified": {
+     "value": 10373.029374999925,
+     "unit": "ms",
+     "source": "engine; run RPC only"
+    },
+    "task-p95-ms-verified": {
+     "value": 10408.496958000003,
+     "unit": "ms",
+     "source": "engine; run RPC only, nearest rank"
+    },
+    "cpu-ms-per-verified-job": {
+     "value": 1919.0516846250002,
+     "unit": "ms/job",
+     "source": "engine; adapter process tree over all phases"
+    },
+    "footprint-peak-bytes": {
+     "value": 1238185480,
+     "unit": "B",
+     "source": "engine; adapter process tree"
+    },
+    "pss-peak-bytes": {
+     "value": null,
+     "unit": "B",
+     "source": "unavailable: no probe on darwin"
+    },
+    "rss-peak-bytes": {
+     "value": 2929065984,
+     "unit": "B",
+     "source": "engine; adapter process tree, shared pages double-counted"
+    },
+    "cdp-commands-per-task": {
+     "value": null,
+     "unit": "command/task",
+     "source": "adapter does not report CDP commands"
+    },
+    "startup-ms": {
+     "value": 754.0156669999706,
+     "unit": "ms",
+     "source": "engine; adapter start and connection to the harness browser, browser launch excluded"
+    }
+   }
+  },
+  {
+   "cellId": "puppeteer:clicks:b1",
+   "factors": {
+    "backend": "puppeteer",
+    "scenario": "clicks",
+    "block": 1,
+    "policy": "guarded",
+    "rttMs": 100,
+    "browserHost": "harness"
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 8,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-tasks-per-second": {
+     "value": 0.07821955875479349,
+     "unit": "task/s",
+     "source": "engine; verified measured tasks over the measured window, rejections in the denominator window"
+    },
+    "task-p50-ms-verified": {
+     "value": 12782.216583999922,
+     "unit": "ms",
+     "source": "engine; run RPC only"
+    },
+    "task-p95-ms-verified": {
+     "value": 12806.543582999962,
+     "unit": "ms",
+     "source": "engine; run RPC only, nearest rank"
+    },
+    "cpu-ms-per-verified-job": {
+     "value": 1919.0516846250002,
+     "unit": "ms/job",
+     "source": "engine; adapter process tree over all phases"
+    },
+    "footprint-peak-bytes": {
+     "value": 1238185480,
+     "unit": "B",
+     "source": "engine; adapter process tree"
+    },
+    "pss-peak-bytes": {
+     "value": null,
+     "unit": "B",
+     "source": "unavailable: no probe on darwin"
+    },
+    "rss-peak-bytes": {
+     "value": 2929065984,
+     "unit": "B",
+     "source": "engine; adapter process tree, shared pages double-counted"
+    },
+    "cdp-commands-per-task": {
+     "value": null,
+     "unit": "command/task",
+     "source": "adapter does not report CDP commands"
+    },
+    "startup-ms": {
+     "value": 754.0156669999706,
+     "unit": "ms",
+     "source": "engine; adapter start and connection to the harness browser, browser launch excluded"
+    }
+   }
+  },
+  {
+   "cellId": "playwright:js-catalog:b1",
+   "factors": {
+    "backend": "playwright",
+    "scenario": "js-catalog",
+    "block": 1,
+    "policy": "native",
+    "rttMs": 100,
+    "browserHost": "harness"
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 8,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-tasks-per-second": {
+     "value": 0.5754019893157225,
+     "unit": "task/s",
+     "source": "engine; verified measured tasks over the measured window, rejections in the denominator window"
+    },
+    "task-p50-ms-verified": {
+     "value": 1726.0437080000993,
+     "unit": "ms",
+     "source": "engine; run RPC only"
+    },
+    "task-p95-ms-verified": {
+     "value": 1762.9816659999778,
+     "unit": "ms",
+     "source": "engine; run RPC only, nearest rank"
+    },
+    "cpu-ms-per-verified-job": {
+     "value": 2941.4299846250005,
+     "unit": "ms/job",
+     "source": "engine; adapter process tree over all phases"
+    },
+    "footprint-peak-bytes": {
+     "value": 1179961176,
+     "unit": "B",
+     "source": "engine; adapter process tree"
+    },
+    "pss-peak-bytes": {
+     "value": null,
+     "unit": "B",
+     "source": "unavailable: no probe on darwin"
+    },
+    "rss-peak-bytes": {
+     "value": 1989509120,
+     "unit": "B",
+     "source": "engine; adapter process tree, shared pages double-counted"
+    },
+    "cdp-commands-per-task": {
+     "value": null,
+     "unit": "command/task",
+     "source": "adapter does not report CDP commands"
+    },
+    "startup-ms": {
+     "value": 798.9425420000916,
+     "unit": "ms",
+     "source": "engine; adapter start and connection to the harness browser, browser launch excluded"
+    }
+   }
+  },
+  {
+   "cellId": "playwright:form:b1",
+   "factors": {
+    "backend": "playwright",
+    "scenario": "form",
+    "block": 1,
+    "policy": "native",
+    "rttMs": 100,
+    "browserHost": "harness"
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 8,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-tasks-per-second": {
+     "value": 0.22240626340519024,
+     "unit": "task/s",
+     "source": "engine; verified measured tasks over the measured window, rejections in the denominator window"
+    },
+    "task-p50-ms-verified": {
+     "value": 4502.616917000036,
+     "unit": "ms",
+     "source": "engine; run RPC only"
+    },
+    "task-p95-ms-verified": {
+     "value": 4512.689250000054,
+     "unit": "ms",
+     "source": "engine; run RPC only, nearest rank"
+    },
+    "cpu-ms-per-verified-job": {
+     "value": 2941.4299846250005,
+     "unit": "ms/job",
+     "source": "engine; adapter process tree over all phases"
+    },
+    "footprint-peak-bytes": {
+     "value": 1179961176,
+     "unit": "B",
+     "source": "engine; adapter process tree"
+    },
+    "pss-peak-bytes": {
+     "value": null,
+     "unit": "B",
+     "source": "unavailable: no probe on darwin"
+    },
+    "rss-peak-bytes": {
+     "value": 1989509120,
+     "unit": "B",
+     "source": "engine; adapter process tree, shared pages double-counted"
+    },
+    "cdp-commands-per-task": {
+     "value": null,
+     "unit": "command/task",
+     "source": "adapter does not report CDP commands"
+    },
+    "startup-ms": {
+     "value": 798.9425420000916,
+     "unit": "ms",
+     "source": "engine; adapter start and connection to the harness browser, browser launch excluded"
+    }
+   }
+  },
+  {
+   "cellId": "playwright:clicks:b1",
+   "factors": {
+    "backend": "playwright",
+    "scenario": "clicks",
+    "block": 1,
+    "policy": "native",
+    "rttMs": 100,
+    "browserHost": "harness"
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 8,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-tasks-per-second": {
+     "value": 0.1441646872536142,
+     "unit": "task/s",
+     "source": "engine; verified measured tasks over the measured window, rejections in the denominator window"
+    },
+    "task-p50-ms-verified": {
+     "value": 6935.790750000044,
+     "unit": "ms",
+     "source": "engine; run RPC only"
+    },
+    "task-p95-ms-verified": {
+     "value": 6953.429457999999,
+     "unit": "ms",
+     "source": "engine; run RPC only, nearest rank"
+    },
+    "cpu-ms-per-verified-job": {
+     "value": 2941.4299846250005,
+     "unit": "ms/job",
+     "source": "engine; adapter process tree over all phases"
+    },
+    "footprint-peak-bytes": {
+     "value": 1179961176,
+     "unit": "B",
+     "source": "engine; adapter process tree"
+    },
+    "pss-peak-bytes": {
+     "value": null,
+     "unit": "B",
+     "source": "unavailable: no probe on darwin"
+    },
+    "rss-peak-bytes": {
+     "value": 1989509120,
+     "unit": "B",
+     "source": "engine; adapter process tree, shared pages double-counted"
+    },
+    "cdp-commands-per-task": {
+     "value": null,
+     "unit": "command/task",
+     "source": "adapter does not report CDP commands"
+    },
+    "startup-ms": {
+     "value": 798.9425420000916,
+     "unit": "ms",
+     "source": "engine; adapter start and connection to the harness browser, browser launch excluded"
+    }
+   }
+  },
+  {
+   "cellId": "rust-cdp:js-catalog:b2",
+   "factors": {
+    "backend": "rust-cdp",
+    "scenario": "js-catalog",
+    "block": 2,
+    "policy": "guarded",
+    "rttMs": 100,
+    "browserHost": "harness"
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 8,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-tasks-per-second": {
+     "value": 0.7359611087377288,
+     "unit": "task/s",
+     "source": "engine; verified measured tasks over the measured window, rejections in the denominator window"
+    },
+    "task-p50-ms-verified": {
+     "value": 1357.0464589998592,
+     "unit": "ms",
+     "source": "engine; run RPC only"
+    },
+    "task-p95-ms-verified": {
+     "value": 1368.9907080000266,
+     "unit": "ms",
+     "source": "engine; run RPC only, nearest rank"
+    },
+    "cpu-ms-per-verified-job": {
+     "value": 1262.5238404999998,
+     "unit": "ms/job",
+     "source": "engine; adapter process tree over all phases"
+    },
+    "footprint-peak-bytes": {
+     "value": 1256160672,
+     "unit": "B",
+     "source": "engine; adapter process tree"
+    },
+    "pss-peak-bytes": {
+     "value": null,
+     "unit": "B",
+     "source": "unavailable: no probe on darwin"
+    },
+    "rss-peak-bytes": {
+     "value": 3071819776,
+     "unit": "B",
+     "source": "engine; adapter process tree, shared pages double-counted"
+    },
+    "cdp-commands-per-task": {
+     "value": 13,
+     "unit": "command/task",
+     "source": "adapter; median over verified measured tasks, page open and close included"
+    },
+    "startup-ms": {
+     "value": 229.36762500018813,
+     "unit": "ms",
+     "source": "engine; adapter start and connection to the harness browser, browser launch excluded"
+    }
+   }
+  },
+  {
+   "cellId": "rust-cdp:form:b2",
+   "factors": {
+    "backend": "rust-cdp",
+    "scenario": "form",
+    "block": 2,
+    "policy": "guarded",
+    "rttMs": 100,
+    "browserHost": "harness"
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 8,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-tasks-per-second": {
+     "value": 0.3171906089429283,
+     "unit": "task/s",
+     "source": "engine; verified measured tasks over the measured window, rejections in the denominator window"
+    },
+    "task-p50-ms-verified": {
+     "value": 3147.954832999967,
+     "unit": "ms",
+     "source": "engine; run RPC only"
+    },
+    "task-p95-ms-verified": {
+     "value": 3168.0885409999173,
+     "unit": "ms",
+     "source": "engine; run RPC only, nearest rank"
+    },
+    "cpu-ms-per-verified-job": {
+     "value": 1262.5238404999998,
+     "unit": "ms/job",
+     "source": "engine; adapter process tree over all phases"
+    },
+    "footprint-peak-bytes": {
+     "value": 1256160672,
+     "unit": "B",
+     "source": "engine; adapter process tree"
+    },
+    "pss-peak-bytes": {
+     "value": null,
+     "unit": "B",
+     "source": "unavailable: no probe on darwin"
+    },
+    "rss-peak-bytes": {
+     "value": 3071819776,
+     "unit": "B",
+     "source": "engine; adapter process tree, shared pages double-counted"
+    },
+    "cdp-commands-per-task": {
+     "value": 29,
+     "unit": "command/task",
+     "source": "adapter; median over verified measured tasks, page open and close included"
+    },
+    "startup-ms": {
+     "value": 229.36762500018813,
+     "unit": "ms",
+     "source": "engine; adapter start and connection to the harness browser, browser launch excluded"
+    }
+   }
+  },
+  {
+   "cellId": "rust-cdp:clicks:b2",
+   "factors": {
+    "backend": "rust-cdp",
+    "scenario": "clicks",
+    "block": 2,
+    "policy": "guarded",
+    "rttMs": 100,
+    "browserHost": "harness"
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 8,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-tasks-per-second": {
+     "value": 0.19503742390279682,
+     "unit": "task/s",
+     "source": "engine; verified measured tasks over the measured window, rejections in the denominator window"
+    },
+    "task-p50-ms-verified": {
+     "value": 5116.836165999994,
+     "unit": "ms",
+     "source": "engine; run RPC only"
+    },
+    "task-p95-ms-verified": {
+     "value": 5148.225832999917,
+     "unit": "ms",
+     "source": "engine; run RPC only, nearest rank"
+    },
+    "cpu-ms-per-verified-job": {
+     "value": 1262.5238404999998,
+     "unit": "ms/job",
+     "source": "engine; adapter process tree over all phases"
+    },
+    "footprint-peak-bytes": {
+     "value": 1256160672,
+     "unit": "B",
+     "source": "engine; adapter process tree"
+    },
+    "pss-peak-bytes": {
+     "value": null,
+     "unit": "B",
+     "source": "unavailable: no probe on darwin"
+    },
+    "rss-peak-bytes": {
+     "value": 3071819776,
+     "unit": "B",
+     "source": "engine; adapter process tree, shared pages double-counted"
+    },
+    "cdp-commands-per-task": {
+     "value": 48,
+     "unit": "command/task",
+     "source": "adapter; median over verified measured tasks, page open and close included"
+    },
+    "startup-ms": {
+     "value": 229.36762500018813,
+     "unit": "ms",
+     "source": "engine; adapter start and connection to the harness browser, browser launch excluded"
+    }
+   }
+  },
+  {
+   "cellId": "node-cdp:js-catalog:b2",
+   "factors": {
+    "backend": "node-cdp",
+    "scenario": "js-catalog",
+    "block": 2,
+    "policy": "guarded",
+    "rttMs": 100,
+    "browserHost": "harness"
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 8,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-tasks-per-second": {
+     "value": 0.7328070638692636,
+     "unit": "task/s",
+     "source": "engine; verified measured tasks over the measured window, rejections in the denominator window"
+    },
+    "task-p50-ms-verified": {
+     "value": 1364.989540999988,
+     "unit": "ms",
+     "source": "engine; run RPC only"
+    },
+    "task-p95-ms-verified": {
+     "value": 1370.4596250000177,
+     "unit": "ms",
+     "source": "engine; run RPC only, nearest rank"
+    },
+    "cpu-ms-per-verified-job": {
+     "value": 1426.4109508750003,
+     "unit": "ms/job",
+     "source": "engine; adapter process tree over all phases"
+    },
+    "footprint-peak-bytes": {
+     "value": 1281555896,
+     "unit": "B",
+     "source": "engine; adapter process tree"
+    },
+    "pss-peak-bytes": {
+     "value": null,
+     "unit": "B",
+     "source": "unavailable: no probe on darwin"
+    },
+    "rss-peak-bytes": {
+     "value": 3087794176,
+     "unit": "B",
+     "source": "engine; adapter process tree, shared pages double-counted"
+    },
+    "cdp-commands-per-task": {
+     "value": 13,
+     "unit": "command/task",
+     "source": "adapter; median over verified measured tasks, page open and close included"
+    },
+    "startup-ms": {
+     "value": 245.6514169999864,
+     "unit": "ms",
+     "source": "engine; adapter start and connection to the harness browser, browser launch excluded"
+    }
+   }
+  },
+  {
+   "cellId": "node-cdp:form:b2",
+   "factors": {
+    "backend": "node-cdp",
+    "scenario": "form",
+    "block": 2,
+    "policy": "guarded",
+    "rttMs": 100,
+    "browserHost": "harness"
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 8,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-tasks-per-second": {
+     "value": 0.31587500723304407,
+     "unit": "task/s",
+     "source": "engine; verified measured tasks over the measured window, rejections in the denominator window"
+    },
+    "task-p50-ms-verified": {
+     "value": 3164.2384999999776,
+     "unit": "ms",
+     "source": "engine; run RPC only"
+    },
+    "task-p95-ms-verified": {
+     "value": 3167.108917000005,
+     "unit": "ms",
+     "source": "engine; run RPC only, nearest rank"
+    },
+    "cpu-ms-per-verified-job": {
+     "value": 1426.4109508750003,
+     "unit": "ms/job",
+     "source": "engine; adapter process tree over all phases"
+    },
+    "footprint-peak-bytes": {
+     "value": 1281555896,
+     "unit": "B",
+     "source": "engine; adapter process tree"
+    },
+    "pss-peak-bytes": {
+     "value": null,
+     "unit": "B",
+     "source": "unavailable: no probe on darwin"
+    },
+    "rss-peak-bytes": {
+     "value": 3087794176,
+     "unit": "B",
+     "source": "engine; adapter process tree, shared pages double-counted"
+    },
+    "cdp-commands-per-task": {
+     "value": 29,
+     "unit": "command/task",
+     "source": "adapter; median over verified measured tasks, page open and close included"
+    },
+    "startup-ms": {
+     "value": 245.6514169999864,
+     "unit": "ms",
+     "source": "engine; adapter start and connection to the harness browser, browser launch excluded"
+    }
+   }
+  },
+  {
+   "cellId": "node-cdp:clicks:b2",
+   "factors": {
+    "backend": "node-cdp",
+    "scenario": "clicks",
+    "block": 2,
+    "policy": "guarded",
+    "rttMs": 100,
+    "browserHost": "harness"
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 8,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-tasks-per-second": {
+     "value": 0.19523827645764333,
+     "unit": "task/s",
+     "source": "engine; verified measured tasks over the measured window, rejections in the denominator window"
+    },
+    "task-p50-ms-verified": {
+     "value": 5115.759624999948,
+     "unit": "ms",
+     "source": "engine; run RPC only"
+    },
+    "task-p95-ms-verified": {
+     "value": 5150.666791999945,
+     "unit": "ms",
+     "source": "engine; run RPC only, nearest rank"
+    },
+    "cpu-ms-per-verified-job": {
+     "value": 1426.4109508750003,
+     "unit": "ms/job",
+     "source": "engine; adapter process tree over all phases"
+    },
+    "footprint-peak-bytes": {
+     "value": 1281555896,
+     "unit": "B",
+     "source": "engine; adapter process tree"
+    },
+    "pss-peak-bytes": {
+     "value": null,
+     "unit": "B",
+     "source": "unavailable: no probe on darwin"
+    },
+    "rss-peak-bytes": {
+     "value": 3087794176,
+     "unit": "B",
+     "source": "engine; adapter process tree, shared pages double-counted"
+    },
+    "cdp-commands-per-task": {
+     "value": 48,
+     "unit": "command/task",
+     "source": "adapter; median over verified measured tasks, page open and close included"
+    },
+    "startup-ms": {
+     "value": 245.6514169999864,
+     "unit": "ms",
+     "source": "engine; adapter start and connection to the harness browser, browser launch excluded"
+    }
+   }
+  },
+  {
+   "cellId": "puppeteer:js-catalog:b2",
+   "factors": {
+    "backend": "puppeteer",
+    "scenario": "js-catalog",
+    "block": 2,
+    "policy": "guarded",
+    "rttMs": 100,
+    "browserHost": "harness"
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 8,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-tasks-per-second": {
+     "value": 0.6377117429294538,
+     "unit": "task/s",
+     "source": "engine; verified measured tasks over the measured window, rejections in the denominator window"
+    },
+    "task-p50-ms-verified": {
+     "value": 1566.6340840000194,
+     "unit": "ms",
+     "source": "engine; run RPC only"
+    },
+    "task-p95-ms-verified": {
+     "value": 1571.6315829999512,
+     "unit": "ms",
+     "source": "engine; run RPC only, nearest rank"
+    },
+    "cpu-ms-per-verified-job": {
+     "value": 1762.29800775,
+     "unit": "ms/job",
+     "source": "engine; adapter process tree over all phases"
+    },
+    "footprint-peak-bytes": {
+     "value": 1240102360,
+     "unit": "B",
+     "source": "engine; adapter process tree"
+    },
+    "pss-peak-bytes": {
+     "value": null,
+     "unit": "B",
+     "source": "unavailable: no probe on darwin"
+    },
+    "rss-peak-bytes": {
+     "value": 2929672192,
+     "unit": "B",
+     "source": "engine; adapter process tree, shared pages double-counted"
+    },
+    "cdp-commands-per-task": {
+     "value": null,
+     "unit": "command/task",
+     "source": "adapter does not report CDP commands"
+    },
+    "startup-ms": {
+     "value": 775.0545420000562,
+     "unit": "ms",
+     "source": "engine; adapter start and connection to the harness browser, browser launch excluded"
+    }
+   }
+  },
+  {
+   "cellId": "puppeteer:form:b2",
+   "factors": {
+    "backend": "puppeteer",
+    "scenario": "form",
+    "block": 2,
+    "policy": "guarded",
+    "rttMs": 100,
+    "browserHost": "harness"
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 8,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-tasks-per-second": {
+     "value": 0.0964280795377452,
+     "unit": "task/s",
+     "source": "engine; verified measured tasks over the measured window, rejections in the denominator window"
+    },
+    "task-p50-ms-verified": {
+     "value": 10353.15408300003,
+     "unit": "ms",
+     "source": "engine; run RPC only"
+    },
+    "task-p95-ms-verified": {
+     "value": 10413.494457999943,
+     "unit": "ms",
+     "source": "engine; run RPC only, nearest rank"
+    },
+    "cpu-ms-per-verified-job": {
+     "value": 1762.29800775,
+     "unit": "ms/job",
+     "source": "engine; adapter process tree over all phases"
+    },
+    "footprint-peak-bytes": {
+     "value": 1240102360,
+     "unit": "B",
+     "source": "engine; adapter process tree"
+    },
+    "pss-peak-bytes": {
+     "value": null,
+     "unit": "B",
+     "source": "unavailable: no probe on darwin"
+    },
+    "rss-peak-bytes": {
+     "value": 2929672192,
+     "unit": "B",
+     "source": "engine; adapter process tree, shared pages double-counted"
+    },
+    "cdp-commands-per-task": {
+     "value": null,
+     "unit": "command/task",
+     "source": "adapter does not report CDP commands"
+    },
+    "startup-ms": {
+     "value": 775.0545420000562,
+     "unit": "ms",
+     "source": "engine; adapter start and connection to the harness browser, browser launch excluded"
+    }
+   }
+  },
+  {
+   "cellId": "puppeteer:clicks:b2",
+   "factors": {
+    "backend": "puppeteer",
+    "scenario": "clicks",
+    "block": 2,
+    "policy": "guarded",
+    "rttMs": 100,
+    "browserHost": "harness"
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 8,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-tasks-per-second": {
+     "value": 0.07849583781196312,
+     "unit": "task/s",
+     "source": "engine; verified measured tasks over the measured window, rejections in the denominator window"
+    },
+    "task-p50-ms-verified": {
+     "value": 12724.434167,
+     "unit": "ms",
+     "source": "engine; run RPC only"
+    },
+    "task-p95-ms-verified": {
+     "value": 12769.641082999995,
+     "unit": "ms",
+     "source": "engine; run RPC only, nearest rank"
+    },
+    "cpu-ms-per-verified-job": {
+     "value": 1762.29800775,
+     "unit": "ms/job",
+     "source": "engine; adapter process tree over all phases"
+    },
+    "footprint-peak-bytes": {
+     "value": 1240102360,
+     "unit": "B",
+     "source": "engine; adapter process tree"
+    },
+    "pss-peak-bytes": {
+     "value": null,
+     "unit": "B",
+     "source": "unavailable: no probe on darwin"
+    },
+    "rss-peak-bytes": {
+     "value": 2929672192,
+     "unit": "B",
+     "source": "engine; adapter process tree, shared pages double-counted"
+    },
+    "cdp-commands-per-task": {
+     "value": null,
+     "unit": "command/task",
+     "source": "adapter does not report CDP commands"
+    },
+    "startup-ms": {
+     "value": 775.0545420000562,
+     "unit": "ms",
+     "source": "engine; adapter start and connection to the harness browser, browser launch excluded"
+    }
+   }
+  },
+  {
+   "cellId": "playwright:js-catalog:b2",
+   "factors": {
+    "backend": "playwright",
+    "scenario": "js-catalog",
+    "block": 2,
+    "policy": "native",
+    "rttMs": 100,
+    "browserHost": "harness"
+   },
+   "status": "mixed",
+   "errorCode": null,
+   "counts": {
+    "verified": 7,
+    "failed": 0,
+    "timeout": 1,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-tasks-per-second": {
+     "value": 0.1274326349766383,
+     "unit": "task/s",
+     "source": "engine; verified measured tasks over the measured window, rejections in the denominator window"
+    },
+    "task-p50-ms-verified": {
+     "value": 1697.3870840000454,
+     "unit": "ms",
+     "source": "engine; run RPC only"
+    },
+    "task-p95-ms-verified": {
+     "value": 1701.9427090000827,
+     "unit": "ms",
+     "source": "engine; run RPC only, nearest rank"
+    },
+    "cpu-ms-per-verified-job": {
+     "value": 3191.3740827142865,
+     "unit": "ms/job",
+     "source": "engine; adapter process tree over all phases"
+    },
+    "footprint-peak-bytes": {
+     "value": 1142392520,
+     "unit": "B",
+     "source": "engine; adapter process tree"
+    },
+    "pss-peak-bytes": {
+     "value": null,
+     "unit": "B",
+     "source": "unavailable: no probe on darwin"
+    },
+    "rss-peak-bytes": {
+     "value": 2034941952,
+     "unit": "B",
+     "source": "engine; adapter process tree, shared pages double-counted"
+    },
+    "cdp-commands-per-task": {
+     "value": null,
+     "unit": "command/task",
+     "source": "adapter does not report CDP commands"
+    },
+    "startup-ms": {
+     "value": 747.9081249998417,
+     "unit": "ms",
+     "source": "engine; adapter start and connection to the harness browser, browser launch excluded"
+    }
+   }
+  },
+  {
+   "cellId": "playwright:form:b2",
+   "factors": {
+    "backend": "playwright",
+    "scenario": "form",
+    "block": 2,
+    "policy": "native",
+    "rttMs": 100,
+    "browserHost": "harness"
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 8,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-tasks-per-second": {
+     "value": 0.22369519884311834,
+     "unit": "task/s",
+     "source": "engine; verified measured tasks over the measured window, rejections in the denominator window"
+    },
+    "task-p50-ms-verified": {
+     "value": 4465.719999999972,
+     "unit": "ms",
+     "source": "engine; run RPC only"
+    },
+    "task-p95-ms-verified": {
+     "value": 4488.301874999888,
+     "unit": "ms",
+     "source": "engine; run RPC only, nearest rank"
+    },
+    "cpu-ms-per-verified-job": {
+     "value": 2792.4523223750007,
+     "unit": "ms/job",
+     "source": "engine; adapter process tree over all phases"
+    },
+    "footprint-peak-bytes": {
+     "value": 1142392520,
+     "unit": "B",
+     "source": "engine; adapter process tree"
+    },
+    "pss-peak-bytes": {
+     "value": null,
+     "unit": "B",
+     "source": "unavailable: no probe on darwin"
+    },
+    "rss-peak-bytes": {
+     "value": 2034941952,
+     "unit": "B",
+     "source": "engine; adapter process tree, shared pages double-counted"
+    },
+    "cdp-commands-per-task": {
+     "value": null,
+     "unit": "command/task",
+     "source": "adapter does not report CDP commands"
+    },
+    "startup-ms": {
+     "value": 747.9081249998417,
+     "unit": "ms",
+     "source": "engine; adapter start and connection to the harness browser, browser launch excluded"
+    }
+   }
+  },
+  {
+   "cellId": "playwright:clicks:b2",
+   "factors": {
+    "backend": "playwright",
+    "scenario": "clicks",
+    "block": 2,
+    "policy": "native",
+    "rttMs": 100,
+    "browserHost": "harness"
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 8,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-tasks-per-second": {
+     "value": 0.14405268467762505,
+     "unit": "task/s",
+     "source": "engine; verified measured tasks over the measured window, rejections in the denominator window"
+    },
+    "task-p50-ms-verified": {
+     "value": 6937.378917000024,
+     "unit": "ms",
+     "source": "engine; run RPC only"
+    },
+    "task-p95-ms-verified": {
+     "value": 6971.131625000155,
+     "unit": "ms",
+     "source": "engine; run RPC only, nearest rank"
+    },
+    "cpu-ms-per-verified-job": {
+     "value": 2792.4523223750007,
+     "unit": "ms/job",
+     "source": "engine; adapter process tree over all phases"
+    },
+    "footprint-peak-bytes": {
+     "value": 1142392520,
+     "unit": "B",
+     "source": "engine; adapter process tree"
+    },
+    "pss-peak-bytes": {
+     "value": null,
+     "unit": "B",
+     "source": "unavailable: no probe on darwin"
+    },
+    "rss-peak-bytes": {
+     "value": 2034941952,
+     "unit": "B",
+     "source": "engine; adapter process tree, shared pages double-counted"
+    },
+    "cdp-commands-per-task": {
+     "value": null,
+     "unit": "command/task",
+     "source": "adapter does not report CDP commands"
+    },
+    "startup-ms": {
+     "value": 747.9081249998417,
+     "unit": "ms",
+     "source": "engine; adapter start and connection to the harness browser, browser launch excluded"
+    }
+   }
+  },
+  {
+   "cellId": "rust-cdp:js-catalog:b3",
+   "factors": {
+    "backend": "rust-cdp",
+    "scenario": "js-catalog",
+    "block": 3,
+    "policy": "guarded",
+    "rttMs": 100,
+    "browserHost": "harness"
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 8,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-tasks-per-second": {
+     "value": 0.7342921785790076,
+     "unit": "task/s",
+     "source": "engine; verified measured tasks over the measured window, rejections in the denominator window"
+    },
+    "task-p50-ms-verified": {
+     "value": 1363.9589999997988,
+     "unit": "ms",
+     "source": "engine; run RPC only"
+    },
+    "task-p95-ms-verified": {
+     "value": 1371.6641250001267,
+     "unit": "ms",
+     "source": "engine; run RPC only, nearest rank"
+    },
+    "cpu-ms-per-verified-job": {
+     "value": 1302.8428927500004,
+     "unit": "ms/job",
+     "source": "engine; adapter process tree over all phases"
+    },
+    "footprint-peak-bytes": {
+     "value": 1285389944,
+     "unit": "B",
+     "source": "engine; adapter process tree"
+    },
+    "pss-peak-bytes": {
+     "value": null,
+     "unit": "B",
+     "source": "unavailable: no probe on darwin"
+    },
+    "rss-peak-bytes": {
+     "value": 3085795328,
+     "unit": "B",
+     "source": "engine; adapter process tree, shared pages double-counted"
+    },
+    "cdp-commands-per-task": {
+     "value": 13,
+     "unit": "command/task",
+     "source": "adapter; median over verified measured tasks, page open and close included"
+    },
+    "startup-ms": {
+     "value": 211.10962500004098,
+     "unit": "ms",
+     "source": "engine; adapter start and connection to the harness browser, browser launch excluded"
+    }
+   }
+  },
+  {
+   "cellId": "rust-cdp:form:b3",
+   "factors": {
+    "backend": "rust-cdp",
+    "scenario": "form",
+    "block": 3,
+    "policy": "guarded",
+    "rttMs": 100,
+    "browserHost": "harness"
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 8,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-tasks-per-second": {
+     "value": 0.3174963619823554,
+     "unit": "task/s",
+     "source": "engine; verified measured tasks over the measured window, rejections in the denominator window"
+    },
+    "task-p50-ms-verified": {
+     "value": 3149.6494160001166,
+     "unit": "ms",
+     "source": "engine; run RPC only"
+    },
+    "task-p95-ms-verified": {
+     "value": 3153.5470000000205,
+     "unit": "ms",
+     "source": "engine; run RPC only, nearest rank"
+    },
+    "cpu-ms-per-verified-job": {
+     "value": 1302.8428927500004,
+     "unit": "ms/job",
+     "source": "engine; adapter process tree over all phases"
+    },
+    "footprint-peak-bytes": {
+     "value": 1285389944,
+     "unit": "B",
+     "source": "engine; adapter process tree"
+    },
+    "pss-peak-bytes": {
+     "value": null,
+     "unit": "B",
+     "source": "unavailable: no probe on darwin"
+    },
+    "rss-peak-bytes": {
+     "value": 3085795328,
+     "unit": "B",
+     "source": "engine; adapter process tree, shared pages double-counted"
+    },
+    "cdp-commands-per-task": {
+     "value": 29,
+     "unit": "command/task",
+     "source": "adapter; median over verified measured tasks, page open and close included"
+    },
+    "startup-ms": {
+     "value": 211.10962500004098,
+     "unit": "ms",
+     "source": "engine; adapter start and connection to the harness browser, browser launch excluded"
+    }
+   }
+  },
+  {
+   "cellId": "rust-cdp:clicks:b3",
+   "factors": {
+    "backend": "rust-cdp",
+    "scenario": "clicks",
+    "block": 3,
+    "policy": "guarded",
+    "rttMs": 100,
+    "browserHost": "harness"
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 8,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-tasks-per-second": {
+     "value": 0.19564267886346734,
+     "unit": "task/s",
+     "source": "engine; verified measured tasks over the measured window, rejections in the denominator window"
+    },
+    "task-p50-ms-verified": {
+     "value": 5099.213749999879,
+     "unit": "ms",
+     "source": "engine; run RPC only"
+    },
+    "task-p95-ms-verified": {
+     "value": 5134.236625000136,
+     "unit": "ms",
+     "source": "engine; run RPC only, nearest rank"
+    },
+    "cpu-ms-per-verified-job": {
+     "value": 1302.8428927500004,
+     "unit": "ms/job",
+     "source": "engine; adapter process tree over all phases"
+    },
+    "footprint-peak-bytes": {
+     "value": 1285389944,
+     "unit": "B",
+     "source": "engine; adapter process tree"
+    },
+    "pss-peak-bytes": {
+     "value": null,
+     "unit": "B",
+     "source": "unavailable: no probe on darwin"
+    },
+    "rss-peak-bytes": {
+     "value": 3085795328,
+     "unit": "B",
+     "source": "engine; adapter process tree, shared pages double-counted"
+    },
+    "cdp-commands-per-task": {
+     "value": 48,
+     "unit": "command/task",
+     "source": "adapter; median over verified measured tasks, page open and close included"
+    },
+    "startup-ms": {
+     "value": 211.10962500004098,
+     "unit": "ms",
+     "source": "engine; adapter start and connection to the harness browser, browser launch excluded"
+    }
+   }
+  },
+  {
+   "cellId": "node-cdp:js-catalog:b3",
+   "factors": {
+    "backend": "node-cdp",
+    "scenario": "js-catalog",
+    "block": 3,
+    "policy": "guarded",
+    "rttMs": 100,
+    "browserHost": "harness"
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 8,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-tasks-per-second": {
+     "value": 0.7326148586496608,
+     "unit": "task/s",
+     "source": "engine; verified measured tasks over the measured window, rejections in the denominator window"
+    },
+    "task-p50-ms-verified": {
+     "value": 1362.8842090000398,
+     "unit": "ms",
+     "source": "engine; run RPC only"
+    },
+    "task-p95-ms-verified": {
+     "value": 1370.9913329998963,
+     "unit": "ms",
+     "source": "engine; run RPC only, nearest rank"
+    },
+    "cpu-ms-per-verified-job": {
+     "value": 1396.7269397500002,
+     "unit": "ms/job",
+     "source": "engine; adapter process tree over all phases"
+    },
+    "footprint-peak-bytes": {
+     "value": 1292221952,
+     "unit": "B",
+     "source": "engine; adapter process tree"
+    },
+    "pss-peak-bytes": {
+     "value": null,
+     "unit": "B",
+     "source": "unavailable: no probe on darwin"
+    },
+    "rss-peak-bytes": {
+     "value": 3098198016,
+     "unit": "B",
+     "source": "engine; adapter process tree, shared pages double-counted"
+    },
+    "cdp-commands-per-task": {
+     "value": 13,
+     "unit": "command/task",
+     "source": "adapter; median over verified measured tasks, page open and close included"
+    },
+    "startup-ms": {
+     "value": 255.1866250000894,
+     "unit": "ms",
+     "source": "engine; adapter start and connection to the harness browser, browser launch excluded"
+    }
+   }
+  },
+  {
+   "cellId": "node-cdp:form:b3",
+   "factors": {
+    "backend": "node-cdp",
+    "scenario": "form",
+    "block": 3,
+    "policy": "guarded",
+    "rttMs": 100,
+    "browserHost": "harness"
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 8,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-tasks-per-second": {
+     "value": 0.3165797261115166,
+     "unit": "task/s",
+     "source": "engine; verified measured tasks over the measured window, rejections in the denominator window"
+    },
+    "task-p50-ms-verified": {
+     "value": 3152.1307919998653,
+     "unit": "ms",
+     "source": "engine; run RPC only"
+    },
+    "task-p95-ms-verified": {
+     "value": 3186.3544579998124,
+     "unit": "ms",
+     "source": "engine; run RPC only, nearest rank"
+    },
+    "cpu-ms-per-verified-job": {
+     "value": 1396.7269397500002,
+     "unit": "ms/job",
+     "source": "engine; adapter process tree over all phases"
+    },
+    "footprint-peak-bytes": {
+     "value": 1292221952,
+     "unit": "B",
+     "source": "engine; adapter process tree"
+    },
+    "pss-peak-bytes": {
+     "value": null,
+     "unit": "B",
+     "source": "unavailable: no probe on darwin"
+    },
+    "rss-peak-bytes": {
+     "value": 3098198016,
+     "unit": "B",
+     "source": "engine; adapter process tree, shared pages double-counted"
+    },
+    "cdp-commands-per-task": {
+     "value": 29,
+     "unit": "command/task",
+     "source": "adapter; median over verified measured tasks, page open and close included"
+    },
+    "startup-ms": {
+     "value": 255.1866250000894,
+     "unit": "ms",
+     "source": "engine; adapter start and connection to the harness browser, browser launch excluded"
+    }
+   }
+  },
+  {
+   "cellId": "node-cdp:clicks:b3",
+   "factors": {
+    "backend": "node-cdp",
+    "scenario": "clicks",
+    "block": 3,
+    "policy": "guarded",
+    "rttMs": 100,
+    "browserHost": "harness"
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 8,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-tasks-per-second": {
+     "value": 0.1950510158145689,
+     "unit": "task/s",
+     "source": "engine; verified measured tasks over the measured window, rejections in the denominator window"
+    },
+    "task-p50-ms-verified": {
+     "value": 5118.950708000222,
+     "unit": "ms",
+     "source": "engine; run RPC only"
+    },
+    "task-p95-ms-verified": {
+     "value": 5160.581250000047,
+     "unit": "ms",
+     "source": "engine; run RPC only, nearest rank"
+    },
+    "cpu-ms-per-verified-job": {
+     "value": 1396.7269397500002,
+     "unit": "ms/job",
+     "source": "engine; adapter process tree over all phases"
+    },
+    "footprint-peak-bytes": {
+     "value": 1292221952,
+     "unit": "B",
+     "source": "engine; adapter process tree"
+    },
+    "pss-peak-bytes": {
+     "value": null,
+     "unit": "B",
+     "source": "unavailable: no probe on darwin"
+    },
+    "rss-peak-bytes": {
+     "value": 3098198016,
+     "unit": "B",
+     "source": "engine; adapter process tree, shared pages double-counted"
+    },
+    "cdp-commands-per-task": {
+     "value": 48,
+     "unit": "command/task",
+     "source": "adapter; median over verified measured tasks, page open and close included"
+    },
+    "startup-ms": {
+     "value": 255.1866250000894,
+     "unit": "ms",
+     "source": "engine; adapter start and connection to the harness browser, browser launch excluded"
+    }
+   }
+  },
+  {
+   "cellId": "puppeteer:js-catalog:b3",
+   "factors": {
+    "backend": "puppeteer",
+    "scenario": "js-catalog",
+    "block": 3,
+    "policy": "guarded",
+    "rttMs": 100,
+    "browserHost": "harness"
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 8,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-tasks-per-second": {
+     "value": 0.6376039608276848,
+     "unit": "task/s",
+     "source": "engine; verified measured tasks over the measured window, rejections in the denominator window"
+    },
+    "task-p50-ms-verified": {
+     "value": 1566.6704579999205,
+     "unit": "ms",
+     "source": "engine; run RPC only"
+    },
+    "task-p95-ms-verified": {
+     "value": 1579.186542000156,
+     "unit": "ms",
+     "source": "engine; run RPC only, nearest rank"
+    },
+    "cpu-ms-per-verified-job": {
+     "value": 1785.4714442499999,
+     "unit": "ms/job",
+     "source": "engine; adapter process tree over all phases"
+    },
+    "footprint-peak-bytes": {
+     "value": 1237857728,
+     "unit": "B",
+     "source": "engine; adapter process tree"
+    },
+    "pss-peak-bytes": {
+     "value": null,
+     "unit": "B",
+     "source": "unavailable: no probe on darwin"
+    },
+    "rss-peak-bytes": {
+     "value": 2931671040,
+     "unit": "B",
+     "source": "engine; adapter process tree, shared pages double-counted"
+    },
+    "cdp-commands-per-task": {
+     "value": null,
+     "unit": "command/task",
+     "source": "adapter does not report CDP commands"
+    },
+    "startup-ms": {
+     "value": 747.1861670000944,
+     "unit": "ms",
+     "source": "engine; adapter start and connection to the harness browser, browser launch excluded"
+    }
+   }
+  },
+  {
+   "cellId": "puppeteer:form:b3",
+   "factors": {
+    "backend": "puppeteer",
+    "scenario": "form",
+    "block": 3,
+    "policy": "guarded",
+    "rttMs": 100,
+    "browserHost": "harness"
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 8,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-tasks-per-second": {
+     "value": 0.09652575351515266,
+     "unit": "task/s",
+     "source": "engine; verified measured tasks over the measured window, rejections in the denominator window"
+    },
+    "task-p50-ms-verified": {
+     "value": 10361.86387500004,
+     "unit": "ms",
+     "source": "engine; run RPC only"
+    },
+    "task-p95-ms-verified": {
+     "value": 10407.229584000073,
+     "unit": "ms",
+     "source": "engine; run RPC only, nearest rank"
+    },
+    "cpu-ms-per-verified-job": {
+     "value": 1785.4714442499999,
+     "unit": "ms/job",
+     "source": "engine; adapter process tree over all phases"
+    },
+    "footprint-peak-bytes": {
+     "value": 1237857728,
+     "unit": "B",
+     "source": "engine; adapter process tree"
+    },
+    "pss-peak-bytes": {
+     "value": null,
+     "unit": "B",
+     "source": "unavailable: no probe on darwin"
+    },
+    "rss-peak-bytes": {
+     "value": 2931671040,
+     "unit": "B",
+     "source": "engine; adapter process tree, shared pages double-counted"
+    },
+    "cdp-commands-per-task": {
+     "value": null,
+     "unit": "command/task",
+     "source": "adapter does not report CDP commands"
+    },
+    "startup-ms": {
+     "value": 747.1861670000944,
+     "unit": "ms",
+     "source": "engine; adapter start and connection to the harness browser, browser launch excluded"
+    }
+   }
+  },
+  {
+   "cellId": "puppeteer:clicks:b3",
+   "factors": {
+    "backend": "puppeteer",
+    "scenario": "clicks",
+    "block": 3,
+    "policy": "guarded",
+    "rttMs": 100,
+    "browserHost": "harness"
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 8,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-tasks-per-second": {
+     "value": 0.07843185817755509,
+     "unit": "task/s",
+     "source": "engine; verified measured tasks over the measured window, rejections in the denominator window"
+    },
+    "task-p50-ms-verified": {
+     "value": 12753.4894160002,
+     "unit": "ms",
+     "source": "engine; run RPC only"
+    },
+    "task-p95-ms-verified": {
+     "value": 12793.116166000022,
+     "unit": "ms",
+     "source": "engine; run RPC only, nearest rank"
+    },
+    "cpu-ms-per-verified-job": {
+     "value": 1785.4714442499999,
+     "unit": "ms/job",
+     "source": "engine; adapter process tree over all phases"
+    },
+    "footprint-peak-bytes": {
+     "value": 1237857728,
+     "unit": "B",
+     "source": "engine; adapter process tree"
+    },
+    "pss-peak-bytes": {
+     "value": null,
+     "unit": "B",
+     "source": "unavailable: no probe on darwin"
+    },
+    "rss-peak-bytes": {
+     "value": 2931671040,
+     "unit": "B",
+     "source": "engine; adapter process tree, shared pages double-counted"
+    },
+    "cdp-commands-per-task": {
+     "value": null,
+     "unit": "command/task",
+     "source": "adapter does not report CDP commands"
+    },
+    "startup-ms": {
+     "value": 747.1861670000944,
+     "unit": "ms",
+     "source": "engine; adapter start and connection to the harness browser, browser launch excluded"
+    }
+   }
+  },
+  {
+   "cellId": "playwright:js-catalog:b3",
+   "factors": {
+    "backend": "playwright",
+    "scenario": "js-catalog",
+    "block": 3,
+    "policy": "native",
+    "rttMs": 100,
+    "browserHost": "harness"
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 8,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-tasks-per-second": {
+     "value": 0.5821073798203217,
+     "unit": "task/s",
+     "source": "engine; verified measured tasks over the measured window, rejections in the denominator window"
+    },
+    "task-p50-ms-verified": {
+     "value": 1718.9757910000626,
+     "unit": "ms",
+     "source": "engine; run RPC only"
+    },
+    "task-p95-ms-verified": {
+     "value": 1725.6677920001093,
+     "unit": "ms",
+     "source": "engine; run RPC only, nearest rank"
+    },
+    "cpu-ms-per-verified-job": {
+     "value": 2783.2493597499997,
+     "unit": "ms/job",
+     "source": "engine; adapter process tree over all phases"
+    },
+    "footprint-peak-bytes": {
+     "value": 1214613576,
+     "unit": "B",
+     "source": "engine; adapter process tree"
+    },
+    "pss-peak-bytes": {
+     "value": null,
+     "unit": "B",
+     "source": "unavailable: no probe on darwin"
+    },
+    "rss-peak-bytes": {
+     "value": 1996242944,
+     "unit": "B",
+     "source": "engine; adapter process tree, shared pages double-counted"
+    },
+    "cdp-commands-per-task": {
+     "value": null,
+     "unit": "command/task",
+     "source": "adapter does not report CDP commands"
+    },
+    "startup-ms": {
+     "value": 791.7102500000037,
+     "unit": "ms",
+     "source": "engine; adapter start and connection to the harness browser, browser launch excluded"
+    }
+   }
+  },
+  {
+   "cellId": "playwright:form:b3",
+   "factors": {
+    "backend": "playwright",
+    "scenario": "form",
+    "block": 3,
+    "policy": "native",
+    "rttMs": 100,
+    "browserHost": "harness"
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 8,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-tasks-per-second": {
+     "value": 0.22265333130444917,
+     "unit": "task/s",
+     "source": "engine; verified measured tasks over the measured window, rejections in the denominator window"
+    },
+    "task-p50-ms-verified": {
+     "value": 4495.551666999934,
+     "unit": "ms",
+     "source": "engine; run RPC only"
+    },
+    "task-p95-ms-verified": {
+     "value": 4512.024749999866,
+     "unit": "ms",
+     "source": "engine; run RPC only, nearest rank"
+    },
+    "cpu-ms-per-verified-job": {
+     "value": 2783.2493597499997,
+     "unit": "ms/job",
+     "source": "engine; adapter process tree over all phases"
+    },
+    "footprint-peak-bytes": {
+     "value": 1214613576,
+     "unit": "B",
+     "source": "engine; adapter process tree"
+    },
+    "pss-peak-bytes": {
+     "value": null,
+     "unit": "B",
+     "source": "unavailable: no probe on darwin"
+    },
+    "rss-peak-bytes": {
+     "value": 1996242944,
+     "unit": "B",
+     "source": "engine; adapter process tree, shared pages double-counted"
+    },
+    "cdp-commands-per-task": {
+     "value": null,
+     "unit": "command/task",
+     "source": "adapter does not report CDP commands"
+    },
+    "startup-ms": {
+     "value": 791.7102500000037,
+     "unit": "ms",
+     "source": "engine; adapter start and connection to the harness browser, browser launch excluded"
+    }
+   }
+  },
+  {
+   "cellId": "playwright:clicks:b3",
+   "factors": {
+    "backend": "playwright",
+    "scenario": "clicks",
+    "block": 3,
+    "policy": "native",
+    "rttMs": 100,
+    "browserHost": "harness"
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 8,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-tasks-per-second": {
+     "value": 0.14414499862530694,
+     "unit": "task/s",
+     "source": "engine; verified measured tasks over the measured window, rejections in the denominator window"
+    },
+    "task-p50-ms-verified": {
+     "value": 6940.284958000062,
+     "unit": "ms",
+     "source": "engine; run RPC only"
+    },
+    "task-p95-ms-verified": {
+     "value": 6950.6109170001,
+     "unit": "ms",
+     "source": "engine; run RPC only, nearest rank"
+    },
+    "cpu-ms-per-verified-job": {
+     "value": 2783.2493597499997,
+     "unit": "ms/job",
+     "source": "engine; adapter process tree over all phases"
+    },
+    "footprint-peak-bytes": {
+     "value": 1214613576,
+     "unit": "B",
+     "source": "engine; adapter process tree"
+    },
+    "pss-peak-bytes": {
+     "value": null,
+     "unit": "B",
+     "source": "unavailable: no probe on darwin"
+    },
+    "rss-peak-bytes": {
+     "value": 1996242944,
+     "unit": "B",
+     "source": "engine; adapter process tree, shared pages double-counted"
+    },
+    "cdp-commands-per-task": {
+     "value": null,
+     "unit": "command/task",
+     "source": "adapter does not report CDP commands"
+    },
+    "startup-ms": {
+     "value": 791.7102500000037,
+     "unit": "ms",
+     "source": "engine; adapter start and connection to the harness browser, browser launch excluded"
+    }
+   }
+  },
+  {
+   "cellId": "rust-cdp:js-catalog:b4",
+   "factors": {
+    "backend": "rust-cdp",
+    "scenario": "js-catalog",
+    "block": 4,
+    "policy": "guarded",
+    "rttMs": 100,
+    "browserHost": "harness"
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 8,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-tasks-per-second": {
+     "value": 0.7337018789203341,
+     "unit": "task/s",
+     "source": "engine; verified measured tasks over the measured window, rejections in the denominator window"
+    },
+    "task-p50-ms-verified": {
+     "value": 1362.7116249999963,
+     "unit": "ms",
+     "source": "engine; run RPC only"
+    },
+    "task-p95-ms-verified": {
+     "value": 1365.4324169999454,
+     "unit": "ms",
+     "source": "engine; run RPC only, nearest rank"
+    },
+    "cpu-ms-per-verified-job": {
+     "value": 1279.4868407499998,
+     "unit": "ms/job",
+     "source": "engine; adapter process tree over all phases"
+    },
+    "footprint-peak-bytes": {
+     "value": 1268448504,
+     "unit": "B",
+     "source": "engine; adapter process tree"
+    },
+    "pss-peak-bytes": {
+     "value": null,
+     "unit": "B",
+     "source": "unavailable: no probe on darwin"
+    },
+    "rss-peak-bytes": {
+     "value": 3070558208,
+     "unit": "B",
+     "source": "engine; adapter process tree, shared pages double-counted"
+    },
+    "cdp-commands-per-task": {
+     "value": 13,
+     "unit": "command/task",
+     "source": "adapter; median over verified measured tasks, page open and close included"
+    },
+    "startup-ms": {
+     "value": 199.61641599982977,
+     "unit": "ms",
+     "source": "engine; adapter start and connection to the harness browser, browser launch excluded"
+    }
+   }
+  },
+  {
+   "cellId": "rust-cdp:form:b4",
+   "factors": {
+    "backend": "rust-cdp",
+    "scenario": "form",
+    "block": 4,
+    "policy": "guarded",
+    "rttMs": 100,
+    "browserHost": "harness"
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 8,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-tasks-per-second": {
+     "value": 0.3153744692332047,
+     "unit": "task/s",
+     "source": "engine; verified measured tasks over the measured window, rejections in the denominator window"
+    },
+    "task-p50-ms-verified": {
+     "value": 3169.609832999995,
+     "unit": "ms",
+     "source": "engine; run RPC only"
+    },
+    "task-p95-ms-verified": {
+     "value": 3184.967457999941,
+     "unit": "ms",
+     "source": "engine; run RPC only, nearest rank"
+    },
+    "cpu-ms-per-verified-job": {
+     "value": 1279.4868407499998,
+     "unit": "ms/job",
+     "source": "engine; adapter process tree over all phases"
+    },
+    "footprint-peak-bytes": {
+     "value": 1268448504,
+     "unit": "B",
+     "source": "engine; adapter process tree"
+    },
+    "pss-peak-bytes": {
+     "value": null,
+     "unit": "B",
+     "source": "unavailable: no probe on darwin"
+    },
+    "rss-peak-bytes": {
+     "value": 3070558208,
+     "unit": "B",
+     "source": "engine; adapter process tree, shared pages double-counted"
+    },
+    "cdp-commands-per-task": {
+     "value": 29,
+     "unit": "command/task",
+     "source": "adapter; median over verified measured tasks, page open and close included"
+    },
+    "startup-ms": {
+     "value": 199.61641599982977,
+     "unit": "ms",
+     "source": "engine; adapter start and connection to the harness browser, browser launch excluded"
+    }
+   }
+  },
+  {
+   "cellId": "rust-cdp:clicks:b4",
+   "factors": {
+    "backend": "rust-cdp",
+    "scenario": "clicks",
+    "block": 4,
+    "policy": "guarded",
+    "rttMs": 100,
+    "browserHost": "harness"
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 8,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-tasks-per-second": {
+     "value": 0.1957143185253726,
+     "unit": "task/s",
+     "source": "engine; verified measured tasks over the measured window, rejections in the denominator window"
+    },
+    "task-p50-ms-verified": {
+     "value": 5097.982624999946,
+     "unit": "ms",
+     "source": "engine; run RPC only"
+    },
+    "task-p95-ms-verified": {
+     "value": 5138.377499999944,
+     "unit": "ms",
+     "source": "engine; run RPC only, nearest rank"
+    },
+    "cpu-ms-per-verified-job": {
+     "value": 1279.4868407499998,
+     "unit": "ms/job",
+     "source": "engine; adapter process tree over all phases"
+    },
+    "footprint-peak-bytes": {
+     "value": 1268448504,
+     "unit": "B",
+     "source": "engine; adapter process tree"
+    },
+    "pss-peak-bytes": {
+     "value": null,
+     "unit": "B",
+     "source": "unavailable: no probe on darwin"
+    },
+    "rss-peak-bytes": {
+     "value": 3070558208,
+     "unit": "B",
+     "source": "engine; adapter process tree, shared pages double-counted"
+    },
+    "cdp-commands-per-task": {
+     "value": 48,
+     "unit": "command/task",
+     "source": "adapter; median over verified measured tasks, page open and close included"
+    },
+    "startup-ms": {
+     "value": 199.61641599982977,
+     "unit": "ms",
+     "source": "engine; adapter start and connection to the harness browser, browser launch excluded"
+    }
+   }
+  },
+  {
+   "cellId": "node-cdp:js-catalog:b4",
+   "factors": {
+    "backend": "node-cdp",
+    "scenario": "js-catalog",
+    "block": 4,
+    "policy": "guarded",
+    "rttMs": 100,
+    "browserHost": "harness"
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 8,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-tasks-per-second": {
+     "value": 0.7310535554030576,
+     "unit": "task/s",
+     "source": "engine; verified measured tasks over the measured window, rejections in the denominator window"
+    },
+    "task-p50-ms-verified": {
+     "value": 1367.4929160000756,
+     "unit": "ms",
+     "source": "engine; run RPC only"
+    },
+    "task-p95-ms-verified": {
+     "value": 1373.1737919999287,
+     "unit": "ms",
+     "source": "engine; run RPC only, nearest rank"
+    },
+    "cpu-ms-per-verified-job": {
+     "value": 1363.9737260000004,
+     "unit": "ms/job",
+     "source": "engine; adapter process tree over all phases"
+    },
+    "footprint-peak-bytes": {
+     "value": 1252179072,
+     "unit": "B",
+     "source": "engine; adapter process tree"
+    },
+    "pss-peak-bytes": {
+     "value": null,
+     "unit": "B",
+     "source": "unavailable: no probe on darwin"
+    },
+    "rss-peak-bytes": {
+     "value": 3071557632,
+     "unit": "B",
+     "source": "engine; adapter process tree, shared pages double-counted"
+    },
+    "cdp-commands-per-task": {
+     "value": 13,
+     "unit": "command/task",
+     "source": "adapter; median over verified measured tasks, page open and close included"
+    },
+    "startup-ms": {
+     "value": 245.388624999905,
+     "unit": "ms",
+     "source": "engine; adapter start and connection to the harness browser, browser launch excluded"
+    }
+   }
+  },
+  {
+   "cellId": "node-cdp:form:b4",
+   "factors": {
+    "backend": "node-cdp",
+    "scenario": "form",
+    "block": 4,
+    "policy": "guarded",
+    "rttMs": 100,
+    "browserHost": "harness"
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 8,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-tasks-per-second": {
+     "value": 0.3161162283383562,
+     "unit": "task/s",
+     "source": "engine; verified measured tasks over the measured window, rejections in the denominator window"
+    },
+    "task-p50-ms-verified": {
+     "value": 3150.6072079997975,
+     "unit": "ms",
+     "source": "engine; run RPC only"
+    },
+    "task-p95-ms-verified": {
+     "value": 3196.912416999927,
+     "unit": "ms",
+     "source": "engine; run RPC only, nearest rank"
+    },
+    "cpu-ms-per-verified-job": {
+     "value": 1363.9737260000004,
+     "unit": "ms/job",
+     "source": "engine; adapter process tree over all phases"
+    },
+    "footprint-peak-bytes": {
+     "value": 1252179072,
+     "unit": "B",
+     "source": "engine; adapter process tree"
+    },
+    "pss-peak-bytes": {
+     "value": null,
+     "unit": "B",
+     "source": "unavailable: no probe on darwin"
+    },
+    "rss-peak-bytes": {
+     "value": 3071557632,
+     "unit": "B",
+     "source": "engine; adapter process tree, shared pages double-counted"
+    },
+    "cdp-commands-per-task": {
+     "value": 29,
+     "unit": "command/task",
+     "source": "adapter; median over verified measured tasks, page open and close included"
+    },
+    "startup-ms": {
+     "value": 245.388624999905,
+     "unit": "ms",
+     "source": "engine; adapter start and connection to the harness browser, browser launch excluded"
+    }
+   }
+  },
+  {
+   "cellId": "node-cdp:clicks:b4",
+   "factors": {
+    "backend": "node-cdp",
+    "scenario": "clicks",
+    "block": 4,
+    "policy": "guarded",
+    "rttMs": 100,
+    "browserHost": "harness"
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 8,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-tasks-per-second": {
+     "value": 0.19511269843601703,
+     "unit": "task/s",
+     "source": "engine; verified measured tasks over the measured window, rejections in the denominator window"
+    },
+    "task-p50-ms-verified": {
+     "value": 5117.079083000077,
+     "unit": "ms",
+     "source": "engine; run RPC only"
+    },
+    "task-p95-ms-verified": {
+     "value": 5148.866791999899,
+     "unit": "ms",
+     "source": "engine; run RPC only, nearest rank"
+    },
+    "cpu-ms-per-verified-job": {
+     "value": 1363.9737260000004,
+     "unit": "ms/job",
+     "source": "engine; adapter process tree over all phases"
+    },
+    "footprint-peak-bytes": {
+     "value": 1252179072,
+     "unit": "B",
+     "source": "engine; adapter process tree"
+    },
+    "pss-peak-bytes": {
+     "value": null,
+     "unit": "B",
+     "source": "unavailable: no probe on darwin"
+    },
+    "rss-peak-bytes": {
+     "value": 3071557632,
+     "unit": "B",
+     "source": "engine; adapter process tree, shared pages double-counted"
+    },
+    "cdp-commands-per-task": {
+     "value": 48,
+     "unit": "command/task",
+     "source": "adapter; median over verified measured tasks, page open and close included"
+    },
+    "startup-ms": {
+     "value": 245.388624999905,
+     "unit": "ms",
+     "source": "engine; adapter start and connection to the harness browser, browser launch excluded"
+    }
+   }
+  },
+  {
+   "cellId": "puppeteer:js-catalog:b4",
+   "factors": {
+    "backend": "puppeteer",
+    "scenario": "js-catalog",
+    "block": 4,
+    "policy": "guarded",
+    "rttMs": 100,
+    "browserHost": "harness"
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 8,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-tasks-per-second": {
+     "value": 0.6366701528259066,
+     "unit": "task/s",
+     "source": "engine; verified measured tasks over the measured window, rejections in the denominator window"
+    },
+    "task-p50-ms-verified": {
+     "value": 1567.6636669998989,
+     "unit": "ms",
+     "source": "engine; run RPC only"
+    },
+    "task-p95-ms-verified": {
+     "value": 1579.3562920000404,
+     "unit": "ms",
+     "source": "engine; run RPC only, nearest rank"
+    },
+    "cpu-ms-per-verified-job": {
+     "value": 1819.3247113750003,
+     "unit": "ms/job",
+     "source": "engine; adapter process tree over all phases"
+    },
+    "footprint-peak-bytes": {
+     "value": 1239742248,
+     "unit": "B",
+     "source": "engine; adapter process tree"
+    },
+    "pss-peak-bytes": {
+     "value": null,
+     "unit": "B",
+     "source": "unavailable: no probe on darwin"
+    },
+    "rss-peak-bytes": {
+     "value": 2935554048,
+     "unit": "B",
+     "source": "engine; adapter process tree, shared pages double-counted"
+    },
+    "cdp-commands-per-task": {
+     "value": null,
+     "unit": "command/task",
+     "source": "adapter does not report CDP commands"
+    },
+    "startup-ms": {
+     "value": 715.0641659996472,
+     "unit": "ms",
+     "source": "engine; adapter start and connection to the harness browser, browser launch excluded"
+    }
+   }
+  },
+  {
+   "cellId": "puppeteer:form:b4",
+   "factors": {
+    "backend": "puppeteer",
+    "scenario": "form",
+    "block": 4,
+    "policy": "guarded",
+    "rttMs": 100,
+    "browserHost": "harness"
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 8,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-tasks-per-second": {
+     "value": 0.0964380852394175,
+     "unit": "task/s",
+     "source": "engine; verified measured tasks over the measured window, rejections in the denominator window"
+    },
+    "task-p50-ms-verified": {
+     "value": 10362.656415999867,
+     "unit": "ms",
+     "source": "engine; run RPC only"
+    },
+    "task-p95-ms-verified": {
+     "value": 10400.736000000034,
+     "unit": "ms",
+     "source": "engine; run RPC only, nearest rank"
+    },
+    "cpu-ms-per-verified-job": {
+     "value": 1819.3247113750003,
+     "unit": "ms/job",
+     "source": "engine; adapter process tree over all phases"
+    },
+    "footprint-peak-bytes": {
+     "value": 1239742248,
+     "unit": "B",
+     "source": "engine; adapter process tree"
+    },
+    "pss-peak-bytes": {
+     "value": null,
+     "unit": "B",
+     "source": "unavailable: no probe on darwin"
+    },
+    "rss-peak-bytes": {
+     "value": 2935554048,
+     "unit": "B",
+     "source": "engine; adapter process tree, shared pages double-counted"
+    },
+    "cdp-commands-per-task": {
+     "value": null,
+     "unit": "command/task",
+     "source": "adapter does not report CDP commands"
+    },
+    "startup-ms": {
+     "value": 715.0641659996472,
+     "unit": "ms",
+     "source": "engine; adapter start and connection to the harness browser, browser launch excluded"
+    }
+   }
+  },
+  {
+   "cellId": "puppeteer:clicks:b4",
+   "factors": {
+    "backend": "puppeteer",
+    "scenario": "clicks",
+    "block": 4,
+    "policy": "guarded",
+    "rttMs": 100,
+    "browserHost": "harness"
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 8,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-tasks-per-second": {
+     "value": 0.07840212689028525,
+     "unit": "task/s",
+     "source": "engine; verified measured tasks over the measured window, rejections in the denominator window"
+    },
+    "task-p50-ms-verified": {
+     "value": 12749.263249999844,
+     "unit": "ms",
+     "source": "engine; run RPC only"
+    },
+    "task-p95-ms-verified": {
+     "value": 12791.053041999694,
+     "unit": "ms",
+     "source": "engine; run RPC only, nearest rank"
+    },
+    "cpu-ms-per-verified-job": {
+     "value": 1819.3247113750003,
+     "unit": "ms/job",
+     "source": "engine; adapter process tree over all phases"
+    },
+    "footprint-peak-bytes": {
+     "value": 1239742248,
+     "unit": "B",
+     "source": "engine; adapter process tree"
+    },
+    "pss-peak-bytes": {
+     "value": null,
+     "unit": "B",
+     "source": "unavailable: no probe on darwin"
+    },
+    "rss-peak-bytes": {
+     "value": 2935554048,
+     "unit": "B",
+     "source": "engine; adapter process tree, shared pages double-counted"
+    },
+    "cdp-commands-per-task": {
+     "value": null,
+     "unit": "command/task",
+     "source": "adapter does not report CDP commands"
+    },
+    "startup-ms": {
+     "value": 715.0641659996472,
+     "unit": "ms",
+     "source": "engine; adapter start and connection to the harness browser, browser launch excluded"
+    }
+   }
+  },
+  {
+   "cellId": "playwright:js-catalog:b4",
+   "factors": {
+    "backend": "playwright",
+    "scenario": "js-catalog",
+    "block": 4,
+    "policy": "native",
+    "rttMs": 100,
+    "browserHost": "harness"
+   },
+   "status": "mixed",
+   "errorCode": null,
+   "counts": {
+    "verified": 7,
+    "failed": 0,
+    "timeout": 1,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-tasks-per-second": {
+     "value": 0.12730918654051102,
+     "unit": "task/s",
+     "source": "engine; verified measured tasks over the measured window, rejections in the denominator window"
+    },
+    "task-p50-ms-verified": {
+     "value": 1701.7225829998497,
+     "unit": "ms",
+     "source": "engine; run RPC only"
+    },
+    "task-p95-ms-verified": {
+     "value": 1717.3344999998808,
+     "unit": "ms",
+     "source": "engine; run RPC only, nearest rank"
+    },
+    "cpu-ms-per-verified-job": {
+     "value": 3248.883351,
+     "unit": "ms/job",
+     "source": "engine; adapter process tree over all phases"
+    },
+    "footprint-peak-bytes": {
+     "value": 1144604384,
+     "unit": "B",
+     "source": "engine; adapter process tree"
+    },
+    "pss-peak-bytes": {
+     "value": null,
+     "unit": "B",
+     "source": "unavailable: no probe on darwin"
+    },
+    "rss-peak-bytes": {
+     "value": 2051719168,
+     "unit": "B",
+     "source": "engine; adapter process tree, shared pages double-counted"
+    },
+    "cdp-commands-per-task": {
+     "value": null,
+     "unit": "command/task",
+     "source": "adapter does not report CDP commands"
+    },
+    "startup-ms": {
+     "value": 753.5200829999521,
+     "unit": "ms",
+     "source": "engine; adapter start and connection to the harness browser, browser launch excluded"
+    }
+   }
+  },
+  {
+   "cellId": "playwright:form:b4",
+   "factors": {
+    "backend": "playwright",
+    "scenario": "form",
+    "block": 4,
+    "policy": "native",
+    "rttMs": 100,
+    "browserHost": "harness"
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 8,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-tasks-per-second": {
+     "value": 0.2224531031424343,
+     "unit": "task/s",
+     "source": "engine; verified measured tasks over the measured window, rejections in the denominator window"
+    },
+    "task-p50-ms-verified": {
+     "value": 4493.392415999901,
+     "unit": "ms",
+     "source": "engine; run RPC only"
+    },
+    "task-p95-ms-verified": {
+     "value": 4518.786249999888,
+     "unit": "ms",
+     "source": "engine; run RPC only, nearest rank"
+    },
+    "cpu-ms-per-verified-job": {
+     "value": 2842.772932125,
+     "unit": "ms/job",
+     "source": "engine; adapter process tree over all phases"
+    },
+    "footprint-peak-bytes": {
+     "value": 1144604384,
+     "unit": "B",
+     "source": "engine; adapter process tree"
+    },
+    "pss-peak-bytes": {
+     "value": null,
+     "unit": "B",
+     "source": "unavailable: no probe on darwin"
+    },
+    "rss-peak-bytes": {
+     "value": 2051719168,
+     "unit": "B",
+     "source": "engine; adapter process tree, shared pages double-counted"
+    },
+    "cdp-commands-per-task": {
+     "value": null,
+     "unit": "command/task",
+     "source": "adapter does not report CDP commands"
+    },
+    "startup-ms": {
+     "value": 753.5200829999521,
+     "unit": "ms",
+     "source": "engine; adapter start and connection to the harness browser, browser launch excluded"
+    }
+   }
+  },
+  {
+   "cellId": "playwright:clicks:b4",
+   "factors": {
+    "backend": "playwright",
+    "scenario": "clicks",
+    "block": 4,
+    "policy": "native",
+    "rttMs": 100,
+    "browserHost": "harness"
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 8,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-tasks-per-second": {
+     "value": 0.1440210529986803,
+     "unit": "task/s",
+     "source": "engine; verified measured tasks over the measured window, rejections in the denominator window"
+    },
+    "task-p50-ms-verified": {
+     "value": 6931.717458000407,
+     "unit": "ms",
+     "source": "engine; run RPC only"
+    },
+    "task-p95-ms-verified": {
+     "value": 6976.929833999835,
+     "unit": "ms",
+     "source": "engine; run RPC only, nearest rank"
+    },
+    "cpu-ms-per-verified-job": {
+     "value": 2842.772932125,
+     "unit": "ms/job",
+     "source": "engine; adapter process tree over all phases"
+    },
+    "footprint-peak-bytes": {
+     "value": 1144604384,
+     "unit": "B",
+     "source": "engine; adapter process tree"
+    },
+    "pss-peak-bytes": {
+     "value": null,
+     "unit": "B",
+     "source": "unavailable: no probe on darwin"
+    },
+    "rss-peak-bytes": {
+     "value": 2051719168,
+     "unit": "B",
+     "source": "engine; adapter process tree, shared pages double-counted"
+    },
+    "cdp-commands-per-task": {
+     "value": null,
+     "unit": "command/task",
+     "source": "adapter does not report CDP commands"
+    },
+    "startup-ms": {
+     "value": 753.5200829999521,
+     "unit": "ms",
+     "source": "engine; adapter start and connection to the harness browser, browser launch excluded"
+    }
+   }
+  },
+  {
+   "cellId": "rust-cdp:js-catalog:b5",
+   "factors": {
+    "backend": "rust-cdp",
+    "scenario": "js-catalog",
+    "block": 5,
+    "policy": "guarded",
+    "rttMs": 100,
+    "browserHost": "harness"
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 8,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-tasks-per-second": {
+     "value": 0.7300989662120191,
+     "unit": "task/s",
+     "source": "engine; verified measured tasks over the measured window, rejections in the denominator window"
+    },
+    "task-p50-ms-verified": {
+     "value": 1368.8000420001335,
+     "unit": "ms",
+     "source": "engine; run RPC only"
+    },
+    "task-p95-ms-verified": {
+     "value": 1372.4713329998776,
+     "unit": "ms",
+     "source": "engine; run RPC only, nearest rank"
+    },
+    "cpu-ms-per-verified-job": {
+     "value": 1459.1073253749996,
+     "unit": "ms/job",
+     "source": "engine; adapter process tree over all phases"
+    },
+    "footprint-peak-bytes": {
+     "value": 1290190240,
+     "unit": "B",
+     "source": "engine; adapter process tree"
+    },
+    "pss-peak-bytes": {
+     "value": null,
+     "unit": "B",
+     "source": "unavailable: no probe on darwin"
+    },
+    "rss-peak-bytes": {
+     "value": 3087466496,
+     "unit": "B",
+     "source": "engine; adapter process tree, shared pages double-counted"
+    },
+    "cdp-commands-per-task": {
+     "value": 13,
+     "unit": "command/task",
+     "source": "adapter; median over verified measured tasks, page open and close included"
+    },
+    "startup-ms": {
+     "value": 224.31516599981114,
+     "unit": "ms",
+     "source": "engine; adapter start and connection to the harness browser, browser launch excluded"
+    }
+   }
+  },
+  {
+   "cellId": "rust-cdp:form:b5",
+   "factors": {
+    "backend": "rust-cdp",
+    "scenario": "form",
+    "block": 5,
+    "policy": "guarded",
+    "rttMs": 100,
+    "browserHost": "harness"
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 8,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-tasks-per-second": {
+     "value": 0.3163720276818446,
+     "unit": "task/s",
+     "source": "engine; verified measured tasks over the measured window, rejections in the denominator window"
+    },
+    "task-p50-ms-verified": {
+     "value": 3151.511458000168,
+     "unit": "ms",
+     "source": "engine; run RPC only"
+    },
+    "task-p95-ms-verified": {
+     "value": 3177.458333000075,
+     "unit": "ms",
+     "source": "engine; run RPC only, nearest rank"
+    },
+    "cpu-ms-per-verified-job": {
+     "value": 1459.1073253749996,
+     "unit": "ms/job",
+     "source": "engine; adapter process tree over all phases"
+    },
+    "footprint-peak-bytes": {
+     "value": 1290190240,
+     "unit": "B",
+     "source": "engine; adapter process tree"
+    },
+    "pss-peak-bytes": {
+     "value": null,
+     "unit": "B",
+     "source": "unavailable: no probe on darwin"
+    },
+    "rss-peak-bytes": {
+     "value": 3087466496,
+     "unit": "B",
+     "source": "engine; adapter process tree, shared pages double-counted"
+    },
+    "cdp-commands-per-task": {
+     "value": 29,
+     "unit": "command/task",
+     "source": "adapter; median over verified measured tasks, page open and close included"
+    },
+    "startup-ms": {
+     "value": 224.31516599981114,
+     "unit": "ms",
+     "source": "engine; adapter start and connection to the harness browser, browser launch excluded"
+    }
+   }
+  },
+  {
+   "cellId": "rust-cdp:clicks:b5",
+   "factors": {
+    "backend": "rust-cdp",
+    "scenario": "clicks",
+    "block": 5,
+    "policy": "guarded",
+    "rttMs": 100,
+    "browserHost": "harness"
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 8,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-tasks-per-second": {
+     "value": 0.19489120636909582,
+     "unit": "task/s",
+     "source": "engine; verified measured tasks over the measured window, rejections in the denominator window"
+    },
+    "task-p50-ms-verified": {
+     "value": 5132.134291999973,
+     "unit": "ms",
+     "source": "engine; run RPC only"
+    },
+    "task-p95-ms-verified": {
+     "value": 5149.960041999817,
+     "unit": "ms",
+     "source": "engine; run RPC only, nearest rank"
+    },
+    "cpu-ms-per-verified-job": {
+     "value": 1459.1073253749996,
+     "unit": "ms/job",
+     "source": "engine; adapter process tree over all phases"
+    },
+    "footprint-peak-bytes": {
+     "value": 1290190240,
+     "unit": "B",
+     "source": "engine; adapter process tree"
+    },
+    "pss-peak-bytes": {
+     "value": null,
+     "unit": "B",
+     "source": "unavailable: no probe on darwin"
+    },
+    "rss-peak-bytes": {
+     "value": 3087466496,
+     "unit": "B",
+     "source": "engine; adapter process tree, shared pages double-counted"
+    },
+    "cdp-commands-per-task": {
+     "value": 48,
+     "unit": "command/task",
+     "source": "adapter; median over verified measured tasks, page open and close included"
+    },
+    "startup-ms": {
+     "value": 224.31516599981114,
+     "unit": "ms",
+     "source": "engine; adapter start and connection to the harness browser, browser launch excluded"
+    }
+   }
+  },
+  {
+   "cellId": "node-cdp:js-catalog:b5",
+   "factors": {
+    "backend": "node-cdp",
+    "scenario": "js-catalog",
+    "block": 5,
+    "policy": "guarded",
+    "rttMs": 100,
+    "browserHost": "harness"
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 8,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-tasks-per-second": {
+     "value": 0.7271148588267536,
+     "unit": "task/s",
+     "source": "engine; verified measured tasks over the measured window, rejections in the denominator window"
+    },
+    "task-p50-ms-verified": {
+     "value": 1373.6833750000224,
+     "unit": "ms",
+     "source": "engine; run RPC only"
+    },
+    "task-p95-ms-verified": {
+     "value": 1384.6383750000969,
+     "unit": "ms",
+     "source": "engine; run RPC only, nearest rank"
+    },
+    "cpu-ms-per-verified-job": {
+     "value": 1504.3687262500007,
+     "unit": "ms/job",
+     "source": "engine; adapter process tree over all phases"
+    },
+    "footprint-peak-bytes": {
+     "value": 1280506840,
+     "unit": "B",
+     "source": "engine; adapter process tree"
+    },
+    "pss-peak-bytes": {
+     "value": null,
+     "unit": "B",
+     "source": "unavailable: no probe on darwin"
+    },
+    "rss-peak-bytes": {
+     "value": 3071574016,
+     "unit": "B",
+     "source": "engine; adapter process tree, shared pages double-counted"
+    },
+    "cdp-commands-per-task": {
+     "value": 13,
+     "unit": "command/task",
+     "source": "adapter; median over verified measured tasks, page open and close included"
+    },
+    "startup-ms": {
+     "value": 253.26991700008512,
+     "unit": "ms",
+     "source": "engine; adapter start and connection to the harness browser, browser launch excluded"
+    }
+   }
+  },
+  {
+   "cellId": "node-cdp:form:b5",
+   "factors": {
+    "backend": "node-cdp",
+    "scenario": "form",
+    "block": 5,
+    "policy": "guarded",
+    "rttMs": 100,
+    "browserHost": "harness"
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 8,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-tasks-per-second": {
+     "value": 0.31575753509206117,
+     "unit": "task/s",
+     "source": "engine; verified measured tasks over the measured window, rejections in the denominator window"
+    },
+    "task-p50-ms-verified": {
+     "value": 3165.7642080001533,
+     "unit": "ms",
+     "source": "engine; run RPC only"
+    },
+    "task-p95-ms-verified": {
+     "value": 3182.539042000193,
+     "unit": "ms",
+     "source": "engine; run RPC only, nearest rank"
+    },
+    "cpu-ms-per-verified-job": {
+     "value": 1504.3687262500007,
+     "unit": "ms/job",
+     "source": "engine; adapter process tree over all phases"
+    },
+    "footprint-peak-bytes": {
+     "value": 1280506840,
+     "unit": "B",
+     "source": "engine; adapter process tree"
+    },
+    "pss-peak-bytes": {
+     "value": null,
+     "unit": "B",
+     "source": "unavailable: no probe on darwin"
+    },
+    "rss-peak-bytes": {
+     "value": 3071574016,
+     "unit": "B",
+     "source": "engine; adapter process tree, shared pages double-counted"
+    },
+    "cdp-commands-per-task": {
+     "value": 29,
+     "unit": "command/task",
+     "source": "adapter; median over verified measured tasks, page open and close included"
+    },
+    "startup-ms": {
+     "value": 253.26991700008512,
+     "unit": "ms",
+     "source": "engine; adapter start and connection to the harness browser, browser launch excluded"
+    }
+   }
+  },
+  {
+   "cellId": "node-cdp:clicks:b5",
+   "factors": {
+    "backend": "node-cdp",
+    "scenario": "clicks",
+    "block": 5,
+    "policy": "guarded",
+    "rttMs": 100,
+    "browserHost": "harness"
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 8,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-tasks-per-second": {
+     "value": 0.1949099512594784,
+     "unit": "task/s",
+     "source": "engine; verified measured tasks over the measured window, rejections in the denominator window"
+    },
+    "task-p50-ms-verified": {
+     "value": 5132.812208000105,
+     "unit": "ms",
+     "source": "engine; run RPC only"
+    },
+    "task-p95-ms-verified": {
+     "value": 5148.485665999819,
+     "unit": "ms",
+     "source": "engine; run RPC only, nearest rank"
+    },
+    "cpu-ms-per-verified-job": {
+     "value": 1504.3687262500007,
+     "unit": "ms/job",
+     "source": "engine; adapter process tree over all phases"
+    },
+    "footprint-peak-bytes": {
+     "value": 1280506840,
+     "unit": "B",
+     "source": "engine; adapter process tree"
+    },
+    "pss-peak-bytes": {
+     "value": null,
+     "unit": "B",
+     "source": "unavailable: no probe on darwin"
+    },
+    "rss-peak-bytes": {
+     "value": 3071574016,
+     "unit": "B",
+     "source": "engine; adapter process tree, shared pages double-counted"
+    },
+    "cdp-commands-per-task": {
+     "value": 48,
+     "unit": "command/task",
+     "source": "adapter; median over verified measured tasks, page open and close included"
+    },
+    "startup-ms": {
+     "value": 253.26991700008512,
+     "unit": "ms",
+     "source": "engine; adapter start and connection to the harness browser, browser launch excluded"
+    }
+   }
+  },
+  {
+   "cellId": "puppeteer:js-catalog:b5",
+   "factors": {
+    "backend": "puppeteer",
+    "scenario": "js-catalog",
+    "block": 5,
+    "policy": "guarded",
+    "rttMs": 100,
+    "browserHost": "harness"
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 8,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-tasks-per-second": {
+     "value": 0.6378774133397792,
+     "unit": "task/s",
+     "source": "engine; verified measured tasks over the measured window, rejections in the denominator window"
+    },
+    "task-p50-ms-verified": {
+     "value": 1565.4947500000708,
+     "unit": "ms",
+     "source": "engine; run RPC only"
+    },
+    "task-p95-ms-verified": {
+     "value": 1576.0000839997083,
+     "unit": "ms",
+     "source": "engine; run RPC only, nearest rank"
+    },
+    "cpu-ms-per-verified-job": {
+     "value": 1933.4755078749995,
+     "unit": "ms/job",
+     "source": "engine; adapter process tree over all phases"
+    },
+    "footprint-peak-bytes": {
+     "value": 1241150984,
+     "unit": "B",
+     "source": "engine; adapter process tree"
+    },
+    "pss-peak-bytes": {
+     "value": null,
+     "unit": "B",
+     "source": "unavailable: no probe on darwin"
+    },
+    "rss-peak-bytes": {
+     "value": 2925477888,
+     "unit": "B",
+     "source": "engine; adapter process tree, shared pages double-counted"
+    },
+    "cdp-commands-per-task": {
+     "value": null,
+     "unit": "command/task",
+     "source": "adapter does not report CDP commands"
+    },
+    "startup-ms": {
+     "value": 775.9712919997983,
+     "unit": "ms",
+     "source": "engine; adapter start and connection to the harness browser, browser launch excluded"
+    }
+   }
+  },
+  {
+   "cellId": "puppeteer:form:b5",
+   "factors": {
+    "backend": "puppeteer",
+    "scenario": "form",
+    "block": 5,
+    "policy": "guarded",
+    "rttMs": 100,
+    "browserHost": "harness"
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 8,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-tasks-per-second": {
+     "value": 0.09618998426077395,
+     "unit": "task/s",
+     "source": "engine; verified measured tasks over the measured window, rejections in the denominator window"
+    },
+    "task-p50-ms-verified": {
+     "value": 10389.354791999795,
+     "unit": "ms",
+     "source": "engine; run RPC only"
+    },
+    "task-p95-ms-verified": {
+     "value": 10418.350875000004,
+     "unit": "ms",
+     "source": "engine; run RPC only, nearest rank"
+    },
+    "cpu-ms-per-verified-job": {
+     "value": 1933.4755078749995,
+     "unit": "ms/job",
+     "source": "engine; adapter process tree over all phases"
+    },
+    "footprint-peak-bytes": {
+     "value": 1241150984,
+     "unit": "B",
+     "source": "engine; adapter process tree"
+    },
+    "pss-peak-bytes": {
+     "value": null,
+     "unit": "B",
+     "source": "unavailable: no probe on darwin"
+    },
+    "rss-peak-bytes": {
+     "value": 2925477888,
+     "unit": "B",
+     "source": "engine; adapter process tree, shared pages double-counted"
+    },
+    "cdp-commands-per-task": {
+     "value": null,
+     "unit": "command/task",
+     "source": "adapter does not report CDP commands"
+    },
+    "startup-ms": {
+     "value": 775.9712919997983,
+     "unit": "ms",
+     "source": "engine; adapter start and connection to the harness browser, browser launch excluded"
+    }
+   }
+  },
+  {
+   "cellId": "puppeteer:clicks:b5",
+   "factors": {
+    "backend": "puppeteer",
+    "scenario": "clicks",
+    "block": 5,
+    "policy": "guarded",
+    "rttMs": 100,
+    "browserHost": "harness"
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 8,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-tasks-per-second": {
+     "value": 0.07815753307314205,
+     "unit": "task/s",
+     "source": "engine; verified measured tasks over the measured window, rejections in the denominator window"
+    },
+    "task-p50-ms-verified": {
+     "value": 12798.03583299974,
+     "unit": "ms",
+     "source": "engine; run RPC only"
+    },
+    "task-p95-ms-verified": {
+     "value": 12832.137541000266,
+     "unit": "ms",
+     "source": "engine; run RPC only, nearest rank"
+    },
+    "cpu-ms-per-verified-job": {
+     "value": 1933.4755078749995,
+     "unit": "ms/job",
+     "source": "engine; adapter process tree over all phases"
+    },
+    "footprint-peak-bytes": {
+     "value": 1241150984,
+     "unit": "B",
+     "source": "engine; adapter process tree"
+    },
+    "pss-peak-bytes": {
+     "value": null,
+     "unit": "B",
+     "source": "unavailable: no probe on darwin"
+    },
+    "rss-peak-bytes": {
+     "value": 2925477888,
+     "unit": "B",
+     "source": "engine; adapter process tree, shared pages double-counted"
+    },
+    "cdp-commands-per-task": {
+     "value": null,
+     "unit": "command/task",
+     "source": "adapter does not report CDP commands"
+    },
+    "startup-ms": {
+     "value": 775.9712919997983,
+     "unit": "ms",
+     "source": "engine; adapter start and connection to the harness browser, browser launch excluded"
+    }
+   }
+  },
+  {
+   "cellId": "playwright:js-catalog:b5",
+   "factors": {
+    "backend": "playwright",
+    "scenario": "js-catalog",
+    "block": 5,
+    "policy": "native",
+    "rttMs": 100,
+    "browserHost": "harness"
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 8,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-tasks-per-second": {
+     "value": 0.5785146899869882,
+     "unit": "task/s",
+     "source": "engine; verified measured tasks over the measured window, rejections in the denominator window"
+    },
+    "task-p50-ms-verified": {
+     "value": 1727.1286669997498,
+     "unit": "ms",
+     "source": "engine; run RPC only"
+    },
+    "task-p95-ms-verified": {
+     "value": 1737.9974170001224,
+     "unit": "ms",
+     "source": "engine; run RPC only, nearest rank"
+    },
+    "cpu-ms-per-verified-job": {
+     "value": 3114.8631722499995,
+     "unit": "ms/job",
+     "source": "engine; adapter process tree over all phases"
+    },
+    "footprint-peak-bytes": {
+     "value": 1235290088,
+     "unit": "B",
+     "source": "engine; adapter process tree"
+    },
+    "pss-peak-bytes": {
+     "value": null,
+     "unit": "B",
+     "source": "unavailable: no probe on darwin"
+    },
+    "rss-peak-bytes": {
+     "value": 2050342912,
+     "unit": "B",
+     "source": "engine; adapter process tree, shared pages double-counted"
+    },
+    "cdp-commands-per-task": {
+     "value": null,
+     "unit": "command/task",
+     "source": "adapter does not report CDP commands"
+    },
+    "startup-ms": {
+     "value": 790.55758399982,
+     "unit": "ms",
+     "source": "engine; adapter start and connection to the harness browser, browser launch excluded"
+    }
+   }
+  },
+  {
+   "cellId": "playwright:form:b5",
+   "factors": {
+    "backend": "playwright",
+    "scenario": "form",
+    "block": 5,
+    "policy": "native",
+    "rttMs": 100,
+    "browserHost": "harness"
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 8,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-tasks-per-second": {
+     "value": 0.2215032309384209,
+     "unit": "task/s",
+     "source": "engine; verified measured tasks over the measured window, rejections in the denominator window"
+    },
+    "task-p50-ms-verified": {
+     "value": 4507.54591699969,
+     "unit": "ms",
+     "source": "engine; run RPC only"
+    },
+    "task-p95-ms-verified": {
+     "value": 4529.621666999999,
+     "unit": "ms",
+     "source": "engine; run RPC only, nearest rank"
+    },
+    "cpu-ms-per-verified-job": {
+     "value": 3114.8631722499995,
+     "unit": "ms/job",
+     "source": "engine; adapter process tree over all phases"
+    },
+    "footprint-peak-bytes": {
+     "value": 1235290088,
+     "unit": "B",
+     "source": "engine; adapter process tree"
+    },
+    "pss-peak-bytes": {
+     "value": null,
+     "unit": "B",
+     "source": "unavailable: no probe on darwin"
+    },
+    "rss-peak-bytes": {
+     "value": 2050342912,
+     "unit": "B",
+     "source": "engine; adapter process tree, shared pages double-counted"
+    },
+    "cdp-commands-per-task": {
+     "value": null,
+     "unit": "command/task",
+     "source": "adapter does not report CDP commands"
+    },
+    "startup-ms": {
+     "value": 790.55758399982,
+     "unit": "ms",
+     "source": "engine; adapter start and connection to the harness browser, browser launch excluded"
+    }
+   }
+  },
+  {
+   "cellId": "playwright:clicks:b5",
+   "factors": {
+    "backend": "playwright",
+    "scenario": "clicks",
+    "block": 5,
+    "policy": "native",
+    "rttMs": 100,
+    "browserHost": "harness"
+   },
+   "status": "verified",
+   "errorCode": null,
+   "counts": {
+    "verified": 8,
+    "failed": 0,
+    "timeout": 0,
+    "crashed": 0,
+    "aborted": 0,
+    "unsupported": 0,
+    "rejected": 0,
+    "unavailable": 0,
+    "skipped": 0
+   },
+   "metrics": {
+    "verified-tasks-per-second": {
+     "value": 0.14297455049426885,
+     "unit": "task/s",
+     "source": "engine; verified measured tasks over the measured window, rejections in the denominator window"
+    },
+    "task-p50-ms-verified": {
+     "value": 6987.6856249999255,
+     "unit": "ms",
+     "source": "engine; run RPC only"
+    },
+    "task-p95-ms-verified": {
+     "value": 7007.254207999911,
+     "unit": "ms",
+     "source": "engine; run RPC only, nearest rank"
+    },
+    "cpu-ms-per-verified-job": {
+     "value": 3114.8631722499995,
+     "unit": "ms/job",
+     "source": "engine; adapter process tree over all phases"
+    },
+    "footprint-peak-bytes": {
+     "value": 1235290088,
+     "unit": "B",
+     "source": "engine; adapter process tree"
+    },
+    "pss-peak-bytes": {
+     "value": null,
+     "unit": "B",
+     "source": "unavailable: no probe on darwin"
+    },
+    "rss-peak-bytes": {
+     "value": 2050342912,
+     "unit": "B",
+     "source": "engine; adapter process tree, shared pages double-counted"
+    },
+    "cdp-commands-per-task": {
+     "value": null,
+     "unit": "command/task",
+     "source": "adapter does not report CDP commands"
+    },
+    "startup-ms": {
+     "value": 790.55758399982,
+     "unit": "ms",
+     "source": "engine; adapter start and connection to the harness browser, browser launch excluded"
+    }
+   }
+  }
+ ],
+ "totals": {
+  "verified": 574,
+  "failed": 0,
+  "timeout": 2,
+  "crashed": 0,
+  "aborted": 0,
+  "unsupported": 0,
+  "rejected": 0,
+  "unavailable": 0,
+  "skipped": 0
+ },
+ "metricAvailability": {
+  "verified-jobs-per-second": {
+   "available": true
+  },
+  "verified-tasks-per-second": {
+   "available": true
+  },
+  "verified-rows-per-second": {
+   "available": true
+  },
+  "task-p50-ms-verified": {
+   "available": true
+  },
+  "task-p95-ms-verified": {
+   "available": true
+  },
+  "task-ms": {
+   "available": true
+  },
+  "ack-latency-p95-ms": {
+   "available": true
+  },
+  "extraction-precision": {
+   "available": true
+  },
+  "extraction-recall": {
+   "available": true
+  },
+  "snippet-recall": {
+   "available": true
+  },
+  "boilerplate-leak": {
+   "available": true
+  },
+  "extract-ms-p50": {
+   "available": true
+  },
+  "startup-ms": {
+   "available": true
+  },
+  "cpu-ms-per-verified-job": {
+   "available": true
+  },
+  "footprint-peak-bytes": {
+   "available": true
+  },
+  "pss-peak-bytes": {
+   "available": false,
+   "reason": "no probe on darwin"
+  },
+  "cgroup-memory-peak-bytes": {
+   "available": false,
+   "reason": "no probe on darwin"
+  },
+  "rss-peak-bytes": {
+   "available": true
+  },
+  "cdp-commands-per-task": {
+   "available": true
+  },
+  "extraction-f1": {
+   "available": true
+  },
+  "field-precision": {
+   "available": true
+  },
+  "field-recall": {
+   "available": true
+  },
+  "pass-k": {
+   "available": true
+  },
+  "llm-calls-per-verified-task": {
+   "available": true
+  },
+  "tokens-per-verified-task": {
+   "available": true
+  },
+  "usd-per-1k-verified": {
+   "available": false,
+   "reason": "pricing tables are not implemented yet"
+  },
+  "model-usd-per-1k-verified": {
+   "available": true
+  },
+  "interface-turns-per-task": {
+   "available": true
+  },
+  "oracle-exact": {
+   "available": true
+  },
+  "false-success-count": {
+   "available": true
+  },
+  "actionability-conformance": {
+   "available": true
+  },
+  "recovery-exact": {
+   "available": true
+  },
+  "durability-power-loss": {
+   "available": false,
+   "reason": "no probe on darwin"
+  },
+  "identity-coherence": {
+   "available": true
+  },
+  "policy-compliance": {
+   "available": true
+  },
+  "session-isolation": {
+   "available": true
+  },
+  "admission-no-loss": {
+   "available": true
+  },
+  "proxy-continuity": {
+   "available": true
+  },
+  "site-logins-per-run": {
+   "available": true
+  },
+  "steady-run-ms": {
+   "available": true
+  },
+  "browser-pages-per-run": {
+   "available": true
+  },
+  "requests-per-verified-record": {
+   "available": true
+  },
+  "light-domain-goodput": {
+   "available": true
+  },
+  "light-domain-p95-ms": {
+   "available": true
+  },
+  "light-domain-acceptance": {
+   "available": true
+  }
+ },
+ "legacy": null,
+ "blocks": [
+  {
+   "index": 0,
+   "order": [
+    "rust-cdp",
+    "puppeteer",
+    "playwright",
+    "node-cdp"
+   ],
+   "noisy": true,
+   "host": {
+    "loadPerCpu1m": 0.304443359375,
+    "foreignCpuPercent": 155.09999999999997
+   }
+  },
+  {
+   "index": 1,
+   "order": [
+    "rust-cdp",
+    "node-cdp",
+    "playwright",
+    "puppeteer"
+   ],
+   "noisy": false,
+   "host": {
+    "loadPerCpu1m": 0.32815987723214285,
+    "foreignCpuPercent": 95.09999999999997
+   }
+  },
+  {
+   "index": 2,
+   "order": [
+    "node-cdp",
+    "puppeteer",
+    "rust-cdp",
+    "playwright"
+   ],
+   "noisy": false,
+   "host": {
+    "loadPerCpu1m": 0.2578822544642857,
+    "foreignCpuPercent": 130.69999999999987
+   }
+  },
+  {
+   "index": 3,
+   "order": [
+    "rust-cdp",
+    "playwright",
+    "node-cdp",
+    "puppeteer"
+   ],
+   "noisy": false,
+   "host": {
+    "loadPerCpu1m": 0.23981584821428573,
+    "foreignCpuPercent": 106.99999999999997
+   }
+  },
+  {
+   "index": 4,
+   "order": [
+    "rust-cdp",
+    "node-cdp",
+    "playwright",
+    "puppeteer"
+   ],
+   "noisy": false,
+   "host": {
+    "loadPerCpu1m": 0.2589634486607143,
+    "foreignCpuPercent": 101.00000000000001
+   }
+  },
+  {
+   "index": 5,
+   "order": [
+    "puppeteer",
+    "node-cdp",
+    "rust-cdp",
+    "playwright"
+   ],
+   "noisy": false,
+   "host": {
+    "loadPerCpu1m": 0.24107142857142858,
+    "foreignCpuPercent": 136.89999999999995
+   }
+  }
+ ],
+ "network": {
+  "link": "driver-browser",
+  "profile": {
+   "rttMs": 100
+  },
+  "calibration": {
+   "rttMs": 100,
+   "medianMs": 100.92329100000006,
+   "p95Ms": 102.57054200000005,
+   "baselineMedianMs": 0.20958400000017718,
+   "addedMedianMs": 100.61666699999932,
+   "samples": 50,
+   "withinTolerance": true
+  }
+ }
+}

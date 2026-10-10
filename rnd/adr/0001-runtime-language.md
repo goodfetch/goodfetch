@@ -1,6 +1,6 @@
 # ADR-001: language and architecture of the Automan runtime
 
-**Status: proposed, to be adopted explicitly when implementation starts.**
+**Status: proposed, R&D draft.**
 **Date: October 7, 2026.**
 **Final decision: user / project owner.**
 

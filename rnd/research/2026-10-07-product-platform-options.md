@@ -1,6 +1,6 @@
 # Automan: platforms, surfaces and product boundary
 
-**State studied: October 7, 2026. Status: design proposals to be integrated into the PRD and the ADRs.** No application, cloud execution, performance measurement or security qualification was carried out for this note. The small-team and 3–6-month timeline constraint has been removed; it governs none of the choices below.
+**State studied: October 7, 2026. Status: design proposals.** No application, cloud execution, performance measurement or security qualification was carried out for this note. The small-team and 3–6-month timeline constraint has been removed; it governs none of the choices below.
 
 This note complements the [runtime ADR](../adr/0001-runtime-language.md), the [Crawlee/Spider contracts](2026-10-07-crawlee-spider-contracts-followup.md) and the [Stagehand audit](2026-10-07-stagehand-alternatives-followup.md). It verifies platform surfaces against official sources and distinguishes their facts from our recommendations. Current documents are consulted as of this date; their links do not constitute a frozen version to install. Versions, MCP SDKs and browser capabilities will need to be pinned during implementation.
 
@@ -117,7 +117,7 @@ These examples show possible boundaries between accessible code and operated ser
 
 The OSS core can remain complete for executing, collecting, validating, resuming and exporting locally. Propose an explicit permissive license for the project's own code, subject to an inventory of its dependencies. SDKs, protocols and formats remain documented. The commercial difference lies in the resources and services provided: hosting, isolated fleet, available schedulers, integrated proxies, managed storage, collaboration, SSO, audit, support and recipe development/maintenance.
 
-Custom integrations and their maintenance are a service offering distinct from the SaaS. The recipe Store is a distribution option to validate, not a revenue assumption of the PRD. Features that guarantee the correctness of a local run should not depend on a subscription to behave correctly.
+Custom integrations and their maintenance are a service offering distinct from the SaaS. The recipe Store is a distribution option to validate, not a revenue assumption. Features that guarantee the correctness of a local run should not depend on a subscription to behave correctly.
 
 Before pricing, define append-only usage accounting: run/attempt, consumed line item, unit, quantity, provider, BYOK/managed mode, time, region and tariff version. Separate estimate, observed consumption, infrastructure cost and billable amount. A repair, a failed page and cancelled model calls can consume resources; their billability must be transparent in the commercial contract. Any credits have a versioned conversion, not a magic technical unit.
 
@@ -138,4 +138,4 @@ The budget is an admission and execution policy: cap, reservation, committed spe
 | Business model | Reconciled usage/cost and explainable invoice; tolerance to duplicates; interviews/paid offers validating value without extrapolating competitor benchmarks |
 | OSS/cloud boundary and license | Public features/responsibilities matrix; reproducible self-hosted installation; pinned components and licenses; project export contract |
 
-The gates organize a common ambition, without an artificial timeline. The PRD should set the user flows and the visible guarantees; the ADRs should set ownership, persistence, isolation, protocol and packaging. Any unvalidated commercial or technical gain remains an identified hypothesis.
+The gates organize a common ambition, without an artificial timeline. Any unvalidated commercial or technical gain remains an identified hypothesis.

@@ -1,8 +1,8 @@
-# Automan — final R&D report (pre-PRD)
+# Automan — final R&D report
 
-**Date:** October 10, 2026. **Status:** post-test report, basis for the PRD and the final documentation. **Final decision:** project owner.
+**Date:** October 10, 2026. **Status:** post-test report. **Final decision:** project owner.
 
-This folder gathers everything that was used to **choose** Automan's architecture and stack: the proposals written before testing, the R&D plan, the proposed ADRs, the sourced research and the lab that measured each choice. The final product documentation (`docs/`, adopted ADRs in `docs/adr/`) remains to be written from here. Section 9 explains how.
+This folder gathers everything that was used to **choose** Automan's architecture and stack: the proposals written before testing, the R&D plan, the proposed ADRs, the sourced research and the lab that measured each choice.
 
 Nothing in this report is a hand-written figure: each result points to a run in the [ledger](lab/ledger/results-ledger.json), to a computed verdict ([`lab/verdicts/`](lab/verdicts/)) or to a dated report ([`lab/reports/`](lab/reports/)).
 
@@ -312,54 +312,13 @@ These are lab defects found along the way, all fixed. To keep in mind going forw
 
 ---
 
-## 7. What remains to be done
-
-| Work | For which decision | What is needed |
-| --- | --- | --- |
-| Exact reference for D-browser-driver, then recomputation | Browser driver | Owner's decision |
-| Bare-metal Linux reference host | All publishable claims, per-cgroup memory | A machine ([preparation](plan/reference-host.md)) |
-| Firecracker | Cloud topology | Linux with KVM |
-| Additional blocks on a quiet Mac | Scheduler, routing, code mode | One night of an idle Mac |
-| Interviews | Segment, pricing, priorities, sinks | The owner ([guide](research/market/interview-guide.md)) |
-| Stealth profile | ADR-002, `stealth` catalog | The owner |
-| Markdown quality, WebMainBench, lol-html | Extraction | Campaigns to add |
-
----
-
-## 8. Map of the `rnd/` folder
+## 7. Map of the `rnd/` folder
 
 | Folder | Contents | Status |
 | --- | --- | --- |
-| [`GLOSSARY.md`](GLOSSARY.md) | Domain vocabulary drafted during the R&D | Input for the final root `GLOSSARY.md` |
-| [`proposals/`](proposals/) | Pre-test proposals: [proposal](proposals/proposition-automan.md), [architecture](proposals/architecture.md), [API](proposals/api.md), [product design](proposals/product-design.md), [documentation plan](proposals/documentation-plan.md), [console mockup](proposals/design/automan-console.html) | Historical: to be reread in light of this report |
+| [`GLOSSARY.md`](GLOSSARY.md) | Domain vocabulary drafted during the R&D | R&D draft |
+| [`proposals/`](proposals/) | Pre-test proposals: [proposal](proposals/proposition-automan.md), [architecture](proposals/architecture.md), [API](proposals/api.md), [product design](proposals/product-design.md), [documentation plan](proposals/documentation-plan.md), [console mockup](proposals/design/automan-console.html) | Historical, written before the tests |
 | [`plan/`](plan/) | [R&D plan](plan/rd-plan.md), [reference host](plan/reference-host.md) | Phases P0 to P9 |
-| [`adr/`](adr/) | **Proposed** ADRs: [0001 language](adr/0001-runtime-language.md), [0002 access and identity](adr/0002-access-identity-stealth.md), [0003 sessions](adr/0003-session-model.md) | To be adopted in `docs/adr/` |
+| [`adr/`](adr/) | **Proposed** ADRs: [0001 language](adr/0001-runtime-language.md), [0002 access and identity](adr/0002-access-identity-stealth.md), [0003 sessions](adr/0003-session-model.md) | R&D drafts, not adopted |
 | [`research/`](research/) | Sourced research ([index](research/README.md)) and [market track](research/market/) | Dated sources |
 | [`lab/`](lab/) | Test harness: engine, lanes, fixtures and oracles, [decisions](lab/decisions/), [ledger](lab/ledger/), [verdicts](lab/verdicts/), [reports](lab/reports/); usage guide in [`lab/README.md`](lab/README.md) | Executable from `rnd/lab` |
-
----
-
-## 9. For Wayfinder: moving from R&D to the final documentation
-
-Recommended order:
-
-1. **Adopt the decisions.** For each 🟢 row of the table in section 3, write the final ADR in `docs/adr/`, in Matt Pocock's format (configuration in `docs/agents/domain.md`). It cites its verdict (`rnd/lab/verdicts/D-*.json`) and its report. ADRs 0001 to 0003 in `rnd/adr/` are drafts to be reworked. The obvious candidates:
-   - Rust/Tokio core;
-   - CDP + Automan guard;
-   - reqwest and the transport gate;
-   - sample-based routing and discovered-API tier;
-   - learned frontier and cursor;
-   - session model;
-   - fair per-domain queues;
-   - journal + leases + epoch;
-   - SQLite WAL FULL;
-   - extraction chain;
-   - compiled replay;
-   - agent operation catalog with journaled code mode;
-   - reset container pool.
-2. **Adopt the vocabulary.** Start from the R&D glossary, [`GLOSSARY.md`](GLOSSARY.md) in this folder, and create the final `GLOSSARY.md` at the repository root with the terms that are adopted, adding those this R&D introduced: learned route, discovered-API tier, session page contract, effect journal, actionability guard, false success, host class.
-3. **Rewrite the architecture** in `docs/` from [`proposals/architecture.md`](proposals/architecture.md), integrating the eleven refinements from section 1. Remove Playwright from the behavioral-reference role.
-4. **Keep open** the 🟡 and ⚪ points as explicit PRD questions, along with what will decide them (section 5).
-5. **Write the PRD** once the interviews have provided segment, pricing and priorities.
-
-The lab remains the qualification tool: any new option is declared in `lab/decisions/` before being measured.

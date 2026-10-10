@@ -78,7 +78,7 @@ The API provides short usage for one-off extraction and precise controls for pro
 
 The console makes it possible to create, test, run and diagnose before opening the advanced settings. Its central object is the **run with its timeline, its data and its evidence**. Pools and workers have dedicated operations views; the driver's internals are not shown in the creation flow. [API contracts and examples](api.md), [interface design](product-design.md), [interactive mockup](design/automan-console.html).
 
-The PRD will be written after the decisions of the [R&D plan](../plan/rd-plan.md). The [glossary](../GLOSSARY.md) notably avoids confusing workflow, run, agent, pool and session.
+The [glossary](../GLOSSARY.md) notably avoids confusing workflow, run, agent, pool and session.
 
 The **complete documentation is a development deliverable**, to be produced with each capability: quickstarts, concepts, guides, exhaustive references, examples, operations, migration and diagnostics. Its [coverage plan](documentation-plan.md) describes the future work; the examples in this dossier remain API proposals.
 

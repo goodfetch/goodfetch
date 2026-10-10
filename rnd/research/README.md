@@ -39,6 +39,7 @@ The current product proposals are in the [consolidated report](../proposals/prop
 | [Language and architecture: level of consensus](2026-10-07-language-architecture-evidence.md) | Observed convergences, absence of universal consensus, SDK language versus engine and topology |
 | [Runtime ADR](../adr/0001-runtime-language.md) | Rust/Tokio proposal with SDK and CDP; alternatives, consequences and required qualification |
 | [ADR-002 access, identity and stealth](../adr/0002-access-identity-stealth.md) | `identified` (default), `standard` and full opt-in `stealth` profiles; open source/cloud split, CAPTCHA tiers, safeguards and qualification |
+| [Extraction chains and output formats](2026-10-10-extraction-formats-competitors.md) | Main-content extractors, HTML→Markdown converters, parsers and output formats actually wired by Crawlee, Spider, Stagehand, Firecrawl, Crawl4AI, Jina Reader, Apify WCC, Scrapy, ScrapeGraphAI, Exa/Tavily; WARC; state of Rust extractors (rs-trafilatura, dom_smoothie, htmd, lol-html) |
 | [Audited Reddit testimonials](2026-10-07-reddit-evidence-followup.md) | Identified threads/comments, sessions/costs/reliability; testimonials distinguished from comparative evidence |
 
 ## 3a. Market demand

@@ -1,7 +1,7 @@
 // WebMainBench's HTML was saved from its annotation tool: every element the annotators selected as main content carries
 // cc-select="true" and the class token mark-selected, and the tool injected <style id="cc-extraStyle"> to highlight them.
-// These are the answer key; they are removed so that no candidate can read them. The data-anno-uid attribute is kept: the
-// tool put it on every element, selected or not, so it carries no selection.
+// These are the answer key; they are removed so that no candidate can read them. The tool's other traces are kept, since
+// they carry no selection: data-anno-uid (on selected and unselected elements alike) and the class cc-unloaded.
 export function stripAnnotationMarkers(html: string): string {
   return html
     .replace(/<style\b[^>]*\bid="cc-extraStyle"[^>]*>[\s\S]*?<\/style>/g, '')

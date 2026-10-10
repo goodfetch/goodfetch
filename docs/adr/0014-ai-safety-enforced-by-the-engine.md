@@ -10,5 +10,5 @@ The engine enforces each run's domain policy on every request type (navigation, 
 ## Consequences
 
 - An injection classifier on pages can be switched on (Firecrawl's precedent).
-- Secrets are stored behind Secret references and Secret providers (ADR 0015). A run may switch off the redaction of logs, traces and HAR files, which lifts this guarantee for those outputs only (ADR 0016).
+- Secrets are stored behind Secret references and Secret providers (ADR 0015). A run may switch redaction off, which lifts the guarantee above for logs, screenshots, recordings and traces only (ADR 0016).
 - A raw CDP client can switch off browser-protocol interception, so a Session with raw CDP attached is held to the domain policy at the network layer instead (ADR 0017).

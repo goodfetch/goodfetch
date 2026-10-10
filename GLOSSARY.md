@@ -21,7 +21,7 @@ The web interface for operating Automan, served locally by the engine or by Auto
 _Avoid_: dashboard, inspector, app
 
 **Client**:
-Any program that drives the engine through its protocol: an SDK, the CLI, the MCP server, the Console or Automan Cloud.
+Any program that drives the engine through its protocol: an SDK, the CLI, the MCP server, the Console or Automan Cloud. A program speaking CDP to a browser is not a Client.
 _Avoid_: frontend, binding, consumer
 
 **Attached engine**:

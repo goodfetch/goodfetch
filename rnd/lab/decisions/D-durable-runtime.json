@@ -1,13 +1,13 @@
 {
   "id": "D-durable-runtime",
-  "title": "Exécution durable",
-  "question": "L'admission, l'ordonnancement, les leases et la reprise tiennent-ils sous charge continue et pannes ?",
+  "title": "Durable execution",
+  "question": "Do admission, scheduling, leases and recovery hold up under sustained load and failures?",
   "kind": "technical",
   "status": "open",
   "options": [
     {
       "id": "journal-leases-epoch",
-      "description": "Journal transactionnel, leases à epoch et fencing, writer batché"
+      "description": "Transactional journal, epoch leases and fencing, batched writer"
     }
   ],
   "baseline": "journal-leases-epoch",
@@ -56,22 +56,22 @@
     {
       "kind": "run",
       "ref": "runtime-faults-extended-2026-10-08T17-49-02-487Z-54a5e6",
-      "note": "pannes étendues"
+      "note": "extended faults"
     },
     {
       "kind": "run",
       "ref": "durable-admission-2026-10-08T19-43-14-860Z-b8ad5b",
-      "note": "admission ouverte, accusé après journalisation"
+      "note": "open admission, acknowledgment after journaling"
     },
     {
       "kind": "run",
       "ref": "durable-scheduler-2026-10-08T19-43-56-509Z-dfabee",
-      "note": "surcharge : refus explicites, aucune perte"
+      "note": "overload: explicit rejections, no loss"
     },
     {
       "kind": "run",
       "ref": "durable-admission-recovery-2026-10-08T19-50-26-865Z-f4c814",
-      "note": "crash après commit, reprise et renvoi idempotent"
+      "note": "crash after commit, recovery and idempotent resubmission"
     },
     {
       "kind": "research-doc",
@@ -83,7 +83,7 @@
   "dependsOn": [
     "D-storage"
   ],
-  "notes": "La durabilité au-delà d'un crash de processus exige un hard reset de VM ; sans lui, le contrat est libellé crash de processus uniquement. Une seule conception est analysée : le verdict est un verdict de contrat (admission sans perte, reprise exacte sous pannes injectées, oracle exact), lu dans les lanes runtime et admission ; le langage du noyau est tranché à part par D-core-language.",
+  "notes": "Durability beyond a process crash requires a VM hard reset; without it, the contract is labeled process crash only. A single design is analyzed: the verdict is a contract verdict (lossless admission, exact recovery under injected faults, exact oracle), read from the runtime and admission lanes; the core language is decided separately by D-core-language.",
   "analysis": {
     "lane": "runtime",
     "options": {

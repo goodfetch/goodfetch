@@ -1,196 +1,196 @@
-# Stagehand, Crawlee, Spider-rs : comparaison approfondie pour Automan
+# Stagehand, Crawlee, Spider-rs: in-depth comparison for Automan
 
-Recherche du **7 octobre 2026**, prolongement du dossier de marché. L'objectif reste un framework open source ambitieux et des services autour ; l'ancienne hypothèse de petite équipe en 3–6 mois a été retirée par l'utilisateur. Ce rapport distingue capacités publiées, code inspecté, témoignages et propositions pour Automan. Aucun benchmark comparatif des moteurs n'a été exécuté.
+Research of **October 7, 2026**, extending the market dossier. The goal remains an ambitious open source framework and services around it; the former assumption of a small team over 3–6 months was withdrawn by the user. This report distinguishes published capabilities, inspected code, testimonials and proposals for Automan. No comparative benchmark of the engines was run.
 
-## Conclusion qui gouverne la comparaison
+## Conclusion that governs the comparison
 
-**Stagehand, Crawlee et Spider-rs travaillent principalement à des couches différentes.** Stagehand résout la perception et des opérations de navigateur pour un développeur ou un agent. Crawlee organise le traitement de requêtes, les ressources, sessions, reprises et résultats. Spider constitue un moteur de collecte Rust, extensible vers Chrome et des traitements IA. Ils se chevauchent, mais les comparer comme trois agents interchangeables produit des conclusions trompeuses.
+**Stagehand, Crawlee and Spider-rs mainly work at different layers.** Stagehand addresses perception and browser operations for a developer or an agent. Crawlee organizes request processing, resources, sessions, recovery and results. Spider is a Rust collection engine, extensible toward Chrome and AI processing. They overlap, but comparing them as three interchangeable agents produces misleading conclusions.
 
-Le texte fourni décrit une tension réelle — découverte sémantique contre exécution connue — mais plusieurs oppositions sont trop absolues. Stagehand conserve des opérations déterministes et des sélecteurs ; Crawlee peut incorporer Stagehand et adapter le rendu HTTP/navigateur ; Spider possède des fonctions facultatives de navigateur et d'IA. La maintenance ne disparaît avec aucun de ces mécanismes.
+The provided text describes a real tension — semantic discovery versus known execution — but several of its oppositions are too absolute. Stagehand retains deterministic operations and selectors; Crawlee can incorporate Stagehand and adapt HTTP/browser rendering; Spider has optional browser and AI functions. Maintenance does not disappear with any of these mechanisms.
 
-**Pour Automan, la direction proposée est un runtime commun qui choisit l'exécuteur suffisant, produit des plans réutilisables et vérifie le résultat demandé.** La collecte massive et les actions applicatives doivent partager les transports et la perception, tout en gardant des règles de scheduling et de reprise distinctes. Cette proposition ne constitue pas une preuve d'avance commerciale : plusieurs concurrents possèdent déjà cache, replay, réparation et validation partielle.
+**For Automan, the proposed direction is a common runtime that chooses the sufficient executor, produces reusable plans and verifies the requested result.** Mass collection and application actions must share transports and perception, while keeping distinct scheduling and recovery rules. This proposal does not constitute proof of a commercial lead: several competitors already have cache, replay, repair and partial validation.
 
-## 1. Corriger précisément le texte fourni
+## 1. Precisely correcting the provided text
 
-| Affirmation fournie | Ce que les sources permettent de dire |
+| Provided claim | What the sources allow us to say |
 | --- | --- |
-| « Consensus Reddit Stagehand vs Crawlee » | Les références fournies sont des pages d'accueil. Notre recherche de complément n'a pas trouvé une comparaison directe suffisamment documentée du trio. Des témoignages individuels existent, parfois contradictoires ou promotionnels. |
-| « Stagehand n'utilise pas de sélecteurs classiques » | Faux comme description du framework. Ses primitives sémantiques peuvent produire des `Action`, et ses APIs page/locator permettent des opérations déterministes. Il ne faut pas confondre l'instruction fournie par le développeur et la cible finalement exécutée. |
-| « Crawlee impose toujours la maintenance manuelle du DOM » | Trop large : intégration Stagehand, crawler adaptatif HTTP/Playwright et extensions possibles. Scrapling propose également une récupération structurelle sans LLM. Aucun de ces outils ne garantit une correction métier après toute modification. |
-| « Crawlee gère automatiquement l'anti-bot » | Il fournit sessions, proxies et mécanismes de fingerprinting selon le backend. Ils ne garantissent pas l'accès à un site, et les intégrations Stagehand ont des limites explicites de fingerprint/isolation. |
-| « Playwright dans Crawlee sera toujours plus rapide » | Un parcours connu peut éliminer des inférences, mais le résultat dépend du rendu, réseau, état de session, batching, cache et travail réellement accompli. Le mot « toujours » n'est étayé par aucun protocole commun examiné. |
-| « Crawlee est gratuit et sans clés API » | Le framework peut fonctionner localement sans API de modèle ; navigateurs, machines, proxies et maintenance ont un coût. L'ajout de primitives IA ajoute les besoins du modèle ou de sa gateway. |
-| « StagehandCrawler permet de combiner les deux » | Oui, avec une intégration officielle. Il faut toutefois lire les contrats TypeScript et Python séparément et vérifier les versions ; la présence de l'adapter n'établit pas la compatibilité Stagehand v4. |
+| "Reddit consensus Stagehand vs Crawlee" | The references provided are home pages. Our follow-up research did not find a sufficiently documented direct comparison of the trio. Individual testimonials exist, sometimes contradictory or promotional. |
+| "Stagehand does not use classic selectors" | False as a description of the framework. Its semantic primitives can produce `Action`s, and its page/locator APIs allow deterministic operations. The instruction provided by the developer must not be confused with the target finally executed. |
+| "Crawlee always requires manual DOM maintenance" | Too broad: Stagehand integration, adaptive HTTP/Playwright crawler and possible extensions. Scrapling also offers structural recovery without an LLM. None of these tools guarantees business correctness after every change. |
+| "Crawlee handles anti-bot automatically" | It provides sessions, proxies and fingerprinting mechanisms depending on the backend. They do not guarantee access to a site, and the Stagehand integrations have explicit fingerprint/isolation limits. |
+| "Playwright in Crawlee will always be faster" | A known path can eliminate inferences, but the result depends on rendering, network, session state, batching, cache and the work actually done. The word "always" is not supported by any common protocol examined. |
+| "Crawlee is free and needs no API keys" | The framework can run locally without a model API; browsers, machines, proxies and maintenance have a cost. Adding AI primitives adds the requirements of the model or its gateway. |
+| "StagehandCrawler makes it possible to combine the two" | Yes, with an official integration. However, the TypeScript and Python contracts must be read separately and the versions checked; the presence of the adapter does not establish Stagehand v4 compatibility. |
 
-Sources : [Stagehand migration depuis Playwright](https://docs.stagehand.dev/v4/migrations/playwright), [adapter TS publié](https://github.com/apify/crawlee/blob/v3.18.2/packages/stagehand-crawler/package.json), [StagehandCrawler Python](https://crawlee.dev/python/docs/guides/stagehand-crawler), [crawler adaptatif publié](https://github.com/apify/crawlee/blob/v3.18.2/packages/playwright-crawler/src/internals/adaptive-playwright-crawler.ts), [preuves Reddit vérifiées](2026-10-07-reddit-evidence-followup.md).
+Sources: [Stagehand migration from Playwright](https://docs.stagehand.dev/v4/migrations/playwright), [published TS adapter](https://github.com/apify/crawlee/blob/v3.18.2/packages/stagehand-crawler/package.json), [Python StagehandCrawler](https://crawlee.dev/python/docs/guides/stagehand-crawler), [published adaptive crawler](https://github.com/apify/crawlee/blob/v3.18.2/packages/playwright-crawler/src/internals/adaptive-playwright-crawler.ts), [verified Reddit evidence](2026-10-07-reddit-evidence-followup.md).
 
-## 2. La comparaison utile : contrat, ressources et résultat
+## 2. The useful comparison: contract, resources and result
 
-| Axe | Stagehand | Crawlee | Spider-rs |
+| Axis | Stagehand | Crawlee | Spider-rs |
 | --- | --- | --- | --- |
-| Objet principal | Page et opérations sémantiques/déterministes | Requête et handler dans un cycle de crawl | Website, pages, liens et flux de collecte |
-| Découverte de cible | Instructions, observation, locators, actions résolues | Handler choisi par le développeur ; IA via intégrations | Parsing et hooks ; navigateur/IA facultatifs |
-| Rendu | Navigateur ; v4 runtime dans une extension Chrome | HTTP et plusieurs backends navigateur | HTTP natif, Chrome et smart mode selon features |
-| Travail massif | Concurrence de pages/onglets ne constitue pas une frontier de crawl | Queue, déduplication, autoscaling, pools, sessions, retries, stockage | Concurrence, budgets, déduplication et diffusion des pages ; capacités additionnelles selon compilation |
-| Adaptation | Résolution sémantique et mécanismes de cache/replay | Choix HTTP/Playwright fondé sur observation/comparaison des sorties | Smart mode fondé notamment sur des signaux de nécessité du rendu |
-| Reprise | Fonctions locales à distinguer de la reprise d'un job complet | Reclaim/retry d'une requête et stockage configuré | Crawl et stockage à examiner selon feature ; pas assimilation à un workflow métier transactionnel |
-| Vérité du résultat | Extraction structurée et jugement interne ne suffisent pas à prouver le résultat métier | Handler et callbacks de validation peuvent l'exprimer | L'application doit valider le contenu collecté et sa complétude |
-| Question à benchmarker | Combien de décisions, appels et faux succès pour une tâche ? | Combien de résultats valides avec quelles ressources et reprises ? | Quel débit/empreinte pour une acquisition équivalente et quel taux d'upgrade inutile ? |
+| Main object | Page and semantic/deterministic operations | Request and handler within a crawl cycle | Website, pages, links and collection streams |
+| Target discovery | Instructions, observation, locators, resolved actions | Handler chosen by the developer; AI via integrations | Parsing and hooks; optional browser/AI |
+| Rendering | Browser; v4 runtime in a Chrome extension | HTTP and several browser backends | Native HTTP, Chrome and smart mode depending on features |
+| Mass work | Page/tab concurrency does not constitute a crawl frontier | Queue, deduplication, autoscaling, pools, sessions, retries, storage | Concurrency, budgets, deduplication and page broadcasting; additional capabilities depending on compilation |
+| Adaptation | Semantic resolution and cache/replay mechanisms | HTTP/Playwright choice based on observation/comparison of outputs | Smart mode based notably on rendering-necessity signals |
+| Recovery | Local functions to be distinguished from resuming a complete job | Reclaim/retry of a request and configured storage | Crawl and storage to be examined per feature; not to be equated with a transactional business workflow |
+| Truth of the result | Structured extraction and internal judgment are not enough to prove the business result | Handler and validation callbacks can express it | The application must validate the collected content and its completeness |
+| Question to benchmark | How many decisions, calls and false successes for a task? | How many valid results with what resources and retries? | What throughput/footprint for equivalent acquisition, and what rate of unnecessary upgrades? |
 
-Les contrats et versions détaillés sont dans [l'étude des alternatives Stagehand](2026-10-07-stagehand-alternatives-followup.md) et [l'inspection Crawlee/Spider](2026-10-07-crawlee-spider-contracts-followup.md). Cette grille est une analyse, pas une matrice de performances mesurées.
+Detailed contracts and versions are in [the Stagehand alternatives study](2026-10-07-stagehand-alternatives-followup.md) and [the Crawlee/Spider inspection](2026-10-07-crawlee-spider-contracts-followup.md). This grid is an analysis, not a matrix of measured performance.
 
-## 3. Stagehand : le sujet est désormais v3 contre v4 autant qu'IA contre code
+## 3. Stagehand: the subject is now v3 versus v4 as much as AI versus code
 
-### Ce qu'il faut comparer aujourd'hui
+### What to compare today
 
-L'étude du paquet stable **Stagehand 4.1.0** montre un runtime d'extension et un protocole partagé entre clients. La migration v4 retire l'ancienne API autonome `agent()` au profit de primitives intégrables à une orchestration externe. L'exemple `page.act(...)` d'une discussion ancienne ne décrit donc pas nécessairement la surface actuelle. [Architecture v4](https://www.browserbase.com/blog/stagehand-v4), [migration v3](https://docs.stagehand.dev/v4/migrations/v3), [protocole](https://github.com/browserbase/stagehand/blob/main/packages/protocol/README.md).
+The study of the stable **Stagehand 4.1.0** package shows an extension runtime and a protocol shared between clients. The v4 migration removes the old autonomous `agent()` API in favor of primitives that can be integrated into external orchestration. The `page.act(...)` example from an old discussion therefore does not necessarily describe the current surface. [v4 architecture](https://www.browserbase.com/blog/stagehand-v4), [v3 migration](https://docs.stagehand.dev/v4/migrations/v3), [protocol](https://github.com/browserbase/stagehand/blob/main/packages/protocol/README.md).
 
-Trois chemins doivent être séparés :
+Three paths must be separated:
 
-1. **Instruction sémantique :** demander de trouver ou faire quelque chose nécessite une interprétation et dépend du modèle, du contexte et de l'observation.
-2. **Action déjà résolue :** exécuter un objet `Action` peut éviter l'inférence ; dans le paquet 4.1.0 inspecté, `act(Action)` conserve toutefois une vérification préalable de configuration modèle/gateway. « Aucune inférence pour cette branche » n'implique donc pas « toute cette API est utilisable sans config modèle ».
-3. **Primitives page/locator :** voie déterministe, distincte des appels sémantiques, qui doit être qualifiée comme un driver propre.
+1. **Semantic instruction:** asking it to find or do something requires interpretation and depends on the model, the context and the observation.
+2. **Already resolved action:** executing an `Action` object can avoid inference; in the inspected 4.1.0 package, however, `act(Action)` retains a prior check of model/gateway configuration. "No inference for this branch" therefore does not imply "this whole API is usable without model config".
+3. **Page/locator primitives:** a deterministic path, distinct from semantic calls, that must be qualified as a driver in its own right.
 
-Il ne faut surtout pas lui attribuer automatiquement les garanties de Playwright parce que certaines méthodes ont des noms proches. La [migration officielle](https://docs.stagehand.dev/v4/migrations/playwright) décrit notamment l'absence d'auto-waiting équivalent, d'assertions Playwright qui réessaient et de plusieurs attentes réseau. Le clic doit donc être étudié avec ses conditions de résolution et de disponibilité réelles.
+Above all, it must not be automatically credited with Playwright's guarantees because some methods have similar names. The [official migration](https://docs.stagehand.dev/v4/migrations/playwright) notably describes the absence of equivalent auto-waiting, of retrying Playwright assertions and of several network waits. The click must therefore be studied with its actual resolution and availability conditions.
 
-### Extraction : conformité, complétude et vérité sont trois questions
+### Extraction: conformance, completeness and truth are three questions
 
-Dans le paquet stable inspecté, le chemin d'extraction non servi par cache comporte une génération structurée puis un jugement de complétude. Ce second appel reçoit l'instruction et la sortie, pas le snapshot source. Ce jugement est utile, mais dépend du modèle ; il ne consulte pas un oracle indépendant de la tâche. Le champ interne `completed` n'est pas exposé au consommateur comme garantie de vérité métier. Le code inspecté peut renvoyer la sortie et la proposer à l'écriture cache même lorsque ce jugement est négatif ; l'acceptation par le serveur de cache non public n'a pas été vérifiée.
+In the inspected stable package, the non-cached extraction path involves a structured generation followed by a completeness judgment. This second call receives the instruction and the output, not the source snapshot. This judgment is useful, but depends on the model; it does not consult an oracle independent of the task. The internal `completed` field is not exposed to the consumer as a guarantee of business truth. The inspected code can return the output and offer it for cache writing even when this judgment is negative; acceptance by the non-public cache server was not verified.
 
-Un schéma qui exige un nombre et une devise ne garantit pas que le nombre est le prix courant du bon produit. Une page de résultats plausible ne garantit pas que toute la pagination a été parcourue. Cette limite concerne le contrat du résultat, au-delà d'une seule bibliothèque. Les chemins source exacts et limites de cette lecture statique sont dans [le rapport Stagehand 4.1.0](2026-10-07-stagehand-alternatives-followup.md).
+A schema that requires a number and a currency does not guarantee that the number is the current price of the right product. A plausible results page does not guarantee that the entire pagination was traversed. This limit concerns the result contract, beyond any single library. The exact source paths and the limits of this static reading are in [the Stagehand 4.1.0 report](2026-10-07-stagehand-alternatives-followup.md).
 
-### Cache : ne pas confondre action et donnée
+### Cache: do not confuse action and data
 
-Les trois familles de cache examinées ne conservent pas le même objet : `observe` peut réutiliser des actions résolues, `act` rejouer des actions, et `extract` retourner directement une **valeur structurée**. Ce dernier cas impose une politique de fraîcheur si les données changent. La clé cliente transmet notamment URL, arbres d'accessibilité, instruction et schéma, mais le serveur de correspondance n'est pas public ; cette lecture ne prouve pas ses règles de TTL ou d'invalidation sémantique.
+The three cache families examined do not store the same object: `observe` can reuse resolved actions, `act` can replay actions, and `extract` can directly return a **structured value**. This last case requires a freshness policy if the data changes. The client key notably transmits URL, accessibility trees, instruction and schema, but the matching server is not public; this reading does not prove its TTL or semantic invalidation rules.
 
-Une divergence existe entre la documentation v4 présentant le cache comme activé par défaut et les valeurs par défaut du paquet 4.1.0 inspecté. Une expérience comparative doit **configurer le cache explicitement et contrôler les métadonnées**, puis publier cache HIT/MISS et fraîcheur. Nous n'avons pas exercé le service cloud ; aucune hypothèse sur son implémentation cachée n'est convertie ici en fait.
+A divergence exists between the v4 documentation presenting the cache as enabled by default and the default values of the inspected 4.1.0 package. A comparative experiment must **configure the cache explicitly and check the metadata**, then publish cache HIT/MISS and freshness. We did not exercise the cloud service; no assumption about its hidden implementation is converted into fact here.
 
-Pour Automan, séparer cache de perception, cache de plan et cache de données devient une exigence de contrat : leurs règles d'invalidation ne peuvent pas être interchangeables.
+For Automan, separating perception cache, plan cache and data cache becomes a contract requirement: their invalidation rules cannot be interchangeable.
 
-## 4. StagehandCrawler : une composition réelle, avec deux contrats distincts
+## 4. StagehandCrawler: a real composition, with two distinct contracts
 
-### TypeScript publié
+### Published TypeScript
 
-`@crawlee/stagehand` **3.18.2** déclare `@browserbasehq/stagehand: ^3.0.0`. Cette contrainte ne couvre pas v4. Le package est séparé du bundle principal `crawlee`. [Manifest versionné](https://github.com/apify/crawlee/blob/v3.18.2/packages/stagehand-crawler/package.json).
+`@crawlee/stagehand` **3.18.2** declares `@browserbasehq/stagehand: ^3.0.0`. This constraint does not cover v4. The package is separate from the main `crawlee` bundle. [Versioned manifest](https://github.com/apify/crawlee/blob/v3.18.2/packages/stagehand-crawler/package.json).
 
-Le lancement et la connexion combinent Stagehand et Playwright sur **le même navigateur via CDP**. Ce n'est pas simplement deux APIs indépendantes déposées dans un handler : la propriété du navigateur, l'attachement des pages et les options de lancement comptent. Les wrappers `act/extract/observe` injectent la page traitée. L'interface autonome `agent` du wrapper v3 doit être étudiée séparément avant de supposer qu'elle vise toujours cette page. Le code du plugin avertit que le fingerprint est partiellement appliqué puisque Stagehand maîtrise le lancement.
+Launching and connecting combine Stagehand and Playwright on **the same browser via CDP**. This is not simply two independent APIs dropped into a handler: browser ownership, page attachment and launch options matter. The `act/extract/observe` wrappers inject the page being processed. The v3 wrapper's autonomous `agent` interface must be studied separately before assuming that it always targets this page. The plugin code warns that the fingerprint is only partially applied since Stagehand controls the launch.
 
-Cela donne une vraie orchestration Crawlee autour de primitives Stagehand v3. Cela ne démontre ni toutes les garanties de Playwright, ni toutes les garanties de fingerprint BrowserPool, ni une migration v4 transparente.
+This yields real Crawlee orchestration around Stagehand v3 primitives. It demonstrates neither all of Playwright's guarantees, nor all of BrowserPool's fingerprint guarantees, nor a transparent v4 migration.
 
-### Python publié
+### Published Python
 
-Dans Crawlee Python **1.10.4**, l'extra Stagehand dépend du package Python `stagehand>=3.19.5,<4.0.0`. Ces numéros appartiennent au client Python ; ils ne sont pas interchangeables avec ceux du package npm. Le plugin utilise `AsyncStagehand`, démarre une session puis connecte Playwright à son URL CDP ; le mode local peut sélectionner Chromium fourni par Playwright. [Manifest Python](https://github.com/apify/crawlee-python/blob/v1.10.4/pyproject.toml), [guide](https://crawlee.dev/python/docs/guides/stagehand-crawler).
+In Crawlee Python **1.10.4**, the Stagehand extra depends on the Python package `stagehand>=3.19.5,<4.0.0`. These numbers belong to the Python client; they are not interchangeable with those of the npm package. The plugin uses `AsyncStagehand`, starts a session, then connects Playwright to its CDP URL; local mode can select the Chromium provided by Playwright. [Python manifest](https://github.com/apify/crawlee-python/blob/v1.10.4/pyproject.toml), [guide](https://crawlee.dev/python/docs/guides/stagehand-crawler).
 
-L'inspection confirme un contexte partagé et des limites concernant nouveaux contextes/proxies, pages incognito et fingerprint complet canvas/WebGL/screen ; les en-têtes cohérents avec un fingerprint ne constituent pas un fingerprint complet. `StagehandPage` injecte la page pour ses opérations, y compris `execute`. Le [rapport de contrats](2026-10-07-crawlee-spider-contracts-followup.md) fournit les sources et les conséquences d'isolation détaillées.
+The inspection confirms a shared context and limits regarding new contexts/proxies, incognito pages and complete canvas/WebGL/screen fingerprinting; headers consistent with a fingerprint do not constitute a complete fingerprint. `StagehandPage` injects the page for its operations, including `execute`. The [contracts report](2026-10-07-crawlee-spider-contracts-followup.md) provides the sources and the detailed isolation consequences.
 
-**Conséquence pratique :** l'existence d'une intégration officielle est confirmée ; la compatibilité et l'isolation doivent être vérifiées pour le langage, la version et le backend choisis.
+**Practical consequence:** the existence of an official integration is confirmed; compatibility and isolation must be verified for the chosen language, version and backend.
 
-## 5. Crawlee : plus intéressant que « des sélecteurs avec retries »
+## 5. Crawlee: more interesting than "selectors with retries"
 
-Le concurrent architectural important est `AdaptivePlaywrightCrawler`. Dans la release TS 3.18.2, un prédicteur apprend à partir de l'hôte, du chemin et du label de requête. Des runs de détection comparent ce que le handler produit en navigateur et en HTTP ; des callbacks `resultChecker` et `resultComparator` permettent de décider si la sortie suffit. [Implémentation](https://github.com/apify/crawlee/blob/v3.18.2/packages/playwright-crawler/src/internals/adaptive-playwright-crawler.ts), [prédicteur](https://github.com/apify/crawlee/blob/v3.18.2/packages/playwright-crawler/src/internals/utils/rendering-type-prediction.ts).
+The important architectural competitor is `AdaptivePlaywrightCrawler`. In the TS 3.18.2 release, a predictor learns from the host, the path and the request label. Detection runs compare what the handler produces in the browser and over HTTP; `resultChecker` and `resultComparator` callbacks make it possible to decide whether the output is sufficient. [Implementation](https://github.com/apify/crawlee/blob/v3.18.2/packages/playwright-crawler/src/internals/adaptive-playwright-crawler.ts), [predictor](https://github.com/apify/crawlee/blob/v3.18.2/packages/playwright-crawler/src/internals/utils/rendering-type-prediction.ts).
 
-Cela est plus proche d'Automan qu'une règle « s'il y a du JavaScript, lancer Chrome ». La bonne question est : **le moyen moins coûteux produit-il le résultat demandé ?** Le comparateur par défaut examine seulement les `datasetItems`, leur nombre et leur égalité par index ; il ne définit pas à la place de l'utilisateur l'identité du produit, la période de données ou la complétude métier. Un handler qui émet uniquement des liens peut produire deux listes d'items vides jugées égales alors que les liens découverts diffèrent. Il faut donc choisir un `resultComparator` adapté au contrat de collecte. [Comparateur publié](https://github.com/apify/crawlee/blob/v3.18.2/packages/playwright-crawler/src/internals/adaptive-playwright-crawler.ts#L341).
+This is closer to Automan than a rule "if there is JavaScript, launch Chrome". The right question is: **does the cheaper means produce the requested result?** The default comparator examines only the `datasetItems`, their number and their equality by index; it does not define, on the user's behalf, product identity, data period or business completeness. A handler that only emits links can produce two empty item lists judged equal even though the discovered links differ. A `resultComparator` suited to the collection contract must therefore be chosen. [Published comparator](https://github.com/apify/crawlee/blob/v3.18.2/packages/playwright-crawler/src/internals/adaptive-playwright-crawler.ts#L341).
 
-Cette détection peut exécuter le handler plusieurs fois et gère ses écritures de résultats. Leur commit regroupe des opérations de stockage, sans constituer une transaction générale de toutes ces opérations. Elle convient à l'acquisition avec le contrat prévu ; elle ne rend pas sûre la répétition d'un achat, d'un envoi ou d'une création sur un site. De même, un retry de requête n'assure pas une exécution unique de ses effets externes. Automan doit journaliser les tentatives et vérifier l'état résultant avant de rejouer une étape à effet.
+This detection can run the handler several times and manages its result writes. Their commit groups storage operations, without constituting a general transaction over all these operations. It suits acquisition with the intended contract; it does not make it safe to repeat a purchase, a submission or a creation on a site. Likewise, a request retry does not ensure a single execution of its external effects. Automan must journal attempts and verify the resulting state before replaying a step that has effects.
 
-Le client [Impit](https://crawlee.dev/js/docs/guides/impit-http-client) montre aussi qu'une API TS peut déjà utiliser un transport natif Rust. Le langage du SDK ne suffit pas à déduire le coût du chemin critique. Le choix d'un runtime Rust Automan se justifie par l'unité du moteur, sa distribution et la maîtrise des ressources, puis doit être validé par mesure.
+The [Impit](https://crawlee.dev/js/docs/guides/impit-http-client) client also shows that a TS API can already use a native Rust transport. The SDK's language is not enough to infer the cost of the critical path. The choice of a Rust runtime for Automan is justified by the unity of the engine, its distribution and resource control, and must then be validated by measurement.
 
-## 6. Spider-rs : référence sérieuse de moteur, pas raccourci vers un agent universel
+## 6. Spider-rs: a serious engine reference, not a shortcut to a universal agent
 
-Le dossier inspecte la crate publiée **Spider 2.53.9** et **Chromey 2.58.2**, et distingue leur source publiée des nouveautés de `main`. Spider propose HTTP, hooks de fetch, budgets, diffusion des pages, Chrome et plusieurs chemins conditionnés par features Cargo. Le code n'est pas seulement un parseur Rust. [Crate publiée](https://docs.rs/crate/spider/2.53.9/source/), [configuration de features](https://github.com/spider-rs/spider/blob/main/spider/Cargo.toml).
+The dossier inspects the published crates **Spider 2.53.9** and **Chromey 2.58.2**, and distinguishes their published source from what is new on `main`. Spider offers HTTP, fetch hooks, budgets, page broadcasting, Chrome and several paths conditioned by Cargo features. The code is not just a Rust parser. [Published crate](https://docs.rs/crate/spider/2.53.9/source/), [feature configuration](https://github.com/spider-rs/spider/blob/main/spider/Cargo.toml).
 
-Son smart mode utilise des signaux de nécessité du navigateur, notamment scripts, mutations, données et marqueurs de frameworks. **Ce n'est pas le même contrat que comparer l'extraction attendue en HTTP et en navigateur.** Une page hydratée mais déjà complète côté serveur et une page apparemment complète qui omet une donnée doivent entrer dans le corpus de validation. La feature `smart` est importante : appeler la méthode sans le bon chemin compilé ne garantit pas l'upgrade Chrome. Spider possède aussi, avec `parallel_backends`, une sélection de réponses par score de qualité HTML et un `QualityValidator` personnalisable. Cette capacité ne doit pas être ignorée ; elle reste distincte d'une comparaison des sorties du handler adaptée au résultat demandé. [Détails audités](2026-10-07-crawlee-spider-contracts-followup.md), [hook qualité publié](https://github.com/spider-rs/spider/blob/e4b53c5b582357e46433fa9ba3d91f930fb67cb4/spider/src/website.rs#L14248).
+Its smart mode uses browser-necessity signals, notably scripts, mutations, data and framework markers. **This is not the same contract as comparing the expected extraction over HTTP and in the browser.** A page that is hydrated but already complete server-side, and an apparently complete page that omits a piece of data, must both enter the validation corpus. The `smart` feature is important: calling the method without the right compiled path does not guarantee the Chrome upgrade. Spider also has, with `parallel_backends`, response selection by HTML quality score and a customizable `QualityValidator`. This capability must not be ignored; it remains distinct from a comparison of handler outputs suited to the requested result. [Audited details](2026-10-07-crawlee-spider-contracts-followup.md), [published quality hook](https://github.com/spider-rs/spider/blob/e4b53c5b582357e46433fa9ba3d91f930fb67cb4/spider/src/website.rs#L14248).
 
-La persistance et le contrôle de charge ont également des périmètres précis. Le stockage SQLite `disk` conserve visites et signatures ; ce schéma n'est pas une frontier durable pending/running/done avec acquittement. `Website::queue()` injecte des liens via un broadcast Tokio en mémoire. Une base de visites conservée ne suffit donc pas à reconstituer tous les travaux interrompus. Le sémaphore adaptatif peut être fourni explicitement ; sa présence ne garantit pas un autoscaling CPU/RAM automatique de chaque crawl. [Schéma publié](https://github.com/spider-rs/spider/blob/e4b53c5b582357e46433fa9ba3d91f930fb67cb4/spider/src/features/disk.rs#L96), [queue réelle](https://github.com/spider-rs/spider/blob/e4b53c5b582357e46433fa9ba3d91f930fb67cb4/spider/src/website.rs#L14692), [résolution du sémaphore](https://github.com/spider-rs/spider/blob/e4b53c5b582357e46433fa9ba3d91f930fb67cb4/spider/src/website.rs#L6956).
+Persistence and load control also have precise scopes. The SQLite `disk` storage keeps visits and signatures; this schema is not a durable pending/running/done frontier with acknowledgment. `Website::queue()` injects links via an in-memory Tokio broadcast. A retained visits database is therefore not enough to reconstruct all interrupted work. The adaptive semaphore can be provided explicitly; its presence does not guarantee automatic CPU/RAM autoscaling of every crawl. [Published schema](https://github.com/spider-rs/spider/blob/e4b53c5b582357e46433fa9ba3d91f930fb67cb4/spider/src/features/disk.rs#L96), [actual queue](https://github.com/spider-rs/spider/blob/e4b53c5b582357e46433fa9ba3d91f930fb67cb4/spider/src/website.rs#L14692), [semaphore resolution](https://github.com/spider-rs/spider/blob/e4b53c5b582357e46433fa9ba3d91f930fb67cb4/spider/src/website.rs#L6956).
 
-**Spider possède aussi un véritable agent open source local**, pas seulement un client de cloud. La crate MIT `spider_agent` **2.53.9** propose notamment `run`, `act`, `observe`, mémoire d'exécution et extraction HTML/screenshot, avec API LLM configurable et contrôle du travail en cours ; son moteur CDP repose sur Chromey selon features. L'archive publiée a été inspectée et identifie le commit `e4b53c5b582357e46433fa9ba3d91f930fb67cb4`. Ce composant mérite donc un comparateur distinct face aux primitives Stagehand et aux boucles Browser Use. [Source publiée de spider_agent](https://docs.rs/crate/spider_agent/2.53.9/source/), [contrats détaillés](2026-10-07-crawlee-spider-contracts-followup.md).
+**Spider also has a real local open source agent**, not just a cloud client. The MIT crate `spider_agent` **2.53.9** notably offers `run`, `act`, `observe`, execution memory and HTML/screenshot extraction, with a configurable LLM API and control of in-progress work; its CDP engine relies on Chromey depending on features. The published archive was inspected and identifies commit `e4b53c5b582357e46433fa9ba3d91f930fb67cb4`. This component therefore deserves a separate comparator against the Stagehand primitives and the Browser Use loops. [Published source of spider_agent](https://docs.rs/crate/spider_agent/2.53.9/source/), [detailed contracts](2026-10-07-crawlee-spider-contracts-followup.md).
 
-Une réserve empêche cependant de transformer la liste de configuration en liste de garanties : dans les sources Rust publiées inspectées de `spider_agent` et `spider_agent_html`, les champs `html_diff_mode`, `planning_mode`, `self_healing` et `confidence_strategy` apparaissent dans les types/builders, sans lecture opérationnelle retrouvée. Cela ne démontre pas l'absence de ces capacités dans tout l'écosystème ou une release ultérieure ; cela signifie que **les économies et comportements associés ne sont pas établis par ces champs dans ce code publié**. Tester les traces et les différences effectives avant de reprendre les promesses de tokens.
+One caveat, however, prevents turning the configuration list into a list of guarantees: in the inspected published Rust sources of `spider_agent` and `spider_agent_html`, the fields `html_diff_mode`, `planning_mode`, `self_healing` and `confidence_strategy` appear in the types/builders, with no operational read found. This does not demonstrate the absence of these capabilities in the whole ecosystem or in a later release; it means that **the associated savings and behaviors are not established by these fields in this published code**. Test the traces and the actual differences before repeating the token promises.
 
-**Le SDK cloud `spider-browser`, la crate de crawl `spider`, la crate `spider_agent` et le driver Chromey ne constituent pas un seul produit ayant toutes les mêmes capacités.** Le SDK cloud expose des primitives proches de Stagehand ; cela ne prouve pas qu'elles ont toutes le même backend et les mêmes garanties en local. [Spider](https://github.com/spider-rs/spider), [spider-browser](https://github.com/spider-rs/spider-browser), [Chromey](https://github.com/spider-rs/chromey).
+**The `spider-browser` cloud SDK, the `spider` crawl crate, the `spider_agent` crate and the Chromey driver do not constitute a single product with all the same capabilities.** The cloud SDK exposes primitives close to Stagehand's; this does not prove that they all have the same backend and the same guarantees locally. [Spider](https://github.com/spider-rs/spider), [spider-browser](https://github.com/spider-rs/spider-browser), [Chromey](https://github.com/spider-rs/chromey).
 
-Chromey est un candidat de driver CDP et possède des extensions réseau/cache/fingerprint. Une méthode `Element::click()` n'établit toutefois pas une équivalence avec toute l'actionability de Playwright : résolution au moment de l'action, visibilité, stabilité, frames, hit testing et attente armée doivent être qualifiés. Certaines commandes vendor, comme des domaines de Markdown/WebMCP, nécessitent un moteur distant compatible et ne sont pas des commandes garanties de Chrome stock.
+Chromey is a CDP driver candidate and has network/cache/fingerprint extensions. An `Element::click()` method does not, however, establish equivalence with all of Playwright's actionability: resolution at action time, visibility, stability, frames, hit testing and armed waiting must be qualified. Some vendor commands, such as Markdown/WebMCP domains, require a compatible remote engine and are not guaranteed commands of stock Chrome.
 
-**Recommandation :** adapter Spider pour la collecte et comparer Chromey/Chromiumoxide pour le driver ; garder Automan propriétaire de ses contrats de résultat, de plan et de reprise. Ne pas forker l'ensemble de Spider avant d'avoir identifié ce qu'un adapter étroit ne permet pas. Le protocole, le comportement et la validation doivent rester ceux d'Automan.
+**Recommendation:** adapt Spider for collection and compare Chromey/Chromiumoxide for the driver; keep Automan the owner of its result, plan and recovery contracts. Do not fork the whole of Spider before identifying what a narrow adapter does not allow. The protocol, the behavior and the validation must remain Automan's.
 
-Les multiplicateurs de vitesse du benchmark Spider ne classent pas ce trio : Node y est le package `crawler`, pas Crawlee, et le code actuel possède des asymétries et stubs à corriger. L'[audit reproductible des sources](2026-10-07-benchmark-audit-followup.md) épingle les commits et explique précisément les limites, sans accuser les anciens résultats d'avoir utilisé ces mêmes défauts.
+The speed multipliers in the Spider benchmark do not rank this trio: Node there is the `crawler` package, not Crawlee, and the current code has asymmetries and stubs to fix. The [reproducible source audit](2026-10-07-benchmark-audit-followup.md) pins the commits and explains the limits precisely, without accusing the old results of having used these same defects.
 
-## 7. Les alternatives à suivre, classées par mécanisme
+## 7. Alternatives to follow, classified by mechanism
 
-### Proches de Stagehand ou complémentaires
+### Close to Stagehand or complementary
 
-| Projet | Pourquoi il compte | Comparaison utile pour Automan |
+| Project | Why it matters | Useful comparison for Automan |
 | --- | --- | --- |
-| [Browser Use](https://github.com/browser-use/browser-use) | Boucle d'agent et outils navigateur ; évolution vers composants natifs Rust | Tâches autonomes, contexte conservé, sessions et budget de décisions ; séparer SDK, bêta native et cloud |
-| [Skyvern](https://github.com/Skyvern-AI/skyvern) | Workflows, perception visuelle et génération/réutilisation de scripts | Réparation de blocs, reprise et coût amorti d'un workflow connu |
-| [AgentQL](https://docs.agentql.com/) | Requêtes sémantiques et résolution d'éléments au-dessus du navigateur | Extraction/ciblage avec schéma ; distinguer SDK public et backend de service |
-| [Magnitude](https://github.com/magnitudedev/browser-agent) | Automatisation d'agent fondée notamment sur la vision | Interfaces pauvres en DOM sémantique, changements visuels, coût des captures et de l'inférence |
-| [Imprint](https://github.com/ashaychangwani/imprint) | Découverte et compilation de comportements réutilisables | Artefact généré, validité sur répétitions et conditions de réparation ; maturité à lire selon version |
-| [agent-browser](https://github.com/vercel-labs/agent-browser) | CLI, daemon natif, snapshots et refs ; chat IA désormais facultatif | Surface d'outils et volume d'observation d'un agent externe ; le cœur déterministe reste distinct du chat |
-| [Playwright MCP](https://github.com/microsoft/playwright-mcp) / [CLI](https://github.com/microsoft/playwright-cli) | Exposent un driver éprouvé à un agent | Baseline d'actionability, observation et ergonomie ; le modèle et la durabilité restent ailleurs |
+| [Browser Use](https://github.com/browser-use/browser-use) | Agent loop and browser tools; evolving toward native Rust components | Autonomous tasks, retained context, sessions and decision budget; separate SDK, native beta and cloud |
+| [Skyvern](https://github.com/Skyvern-AI/skyvern) | Workflows, visual perception and script generation/reuse | Block repair, recovery and amortized cost of a known workflow |
+| [AgentQL](https://docs.agentql.com/) | Semantic queries and element resolution on top of the browser | Extraction/targeting with schema; distinguish public SDK and service backend |
+| [Magnitude](https://github.com/magnitudedev/browser-agent) | Agent automation based notably on vision | Interfaces poor in semantic DOM, visual changes, cost of screenshots and inference |
+| [Imprint](https://github.com/ashaychangwani/imprint) | Discovery and compilation of reusable behaviors | Generated artifact, validity over repetitions and repair conditions; maturity to be read per version |
+| [agent-browser](https://github.com/vercel-labs/agent-browser) | CLI, native daemon, snapshots and refs; AI chat now optional | Tool surface and observation volume of an external agent; the deterministic core remains distinct from the chat |
+| [Playwright MCP](https://github.com/microsoft/playwright-mcp) / [CLI](https://github.com/microsoft/playwright-cli) | Expose a proven driver to an agent | Baseline for actionability, observation and ergonomics; the model and durability remain elsewhere |
 
-Ces projets ne sont pas tous des frameworks entièrement auto-hébergeables au même périmètre. Le [rapport détaillé](2026-10-07-stagehand-alternatives-followup.md) établit leurs mécanismes, licences observées et frontières SDK/backend. La [cartographie générale](2026-10-07-commercial-landscape.md) couvre les services supplémentaires, dont Anchor et Airtop.
+These projects are not all fully self-hostable frameworks with the same scope. The [detailed report](2026-10-07-stagehand-alternatives-followup.md) establishes their mechanisms, observed licenses and SDK/backend boundaries. The [general landscape](2026-10-07-commercial-landscape.md) covers additional services, including Anchor and Airtop.
 
-### Proches de Crawlee ou Spider
+### Close to Crawlee or Spider
 
-| Projet | Mécanisme à retenir | Limite de comparaison |
+| Project | Mechanism to retain | Comparison limit |
 | --- | --- | --- |
-| [Scrapy](https://docs.scrapy.org/) | Scheduler, middlewares, pipelines, throttling et jobs reprenables | Navigateur via intégration ; agent sémantique non implicite |
-| [Scrapling](https://github.com/D4Vinci/Scrapling) | HTTP/navigateur, spiders et relocation structurelle de sélecteurs | Similarité structurelle ne garantit pas identité métier |
-| [Crawl4AI](https://docs.crawl4ai.com/) | Rendu, Markdown, extraction structurée, sessions et dispatcher | Pipeline de corpus différent d'une boucle autonome d'actions |
-| [Firecrawl](https://github.com/firecrawl/firecrawl) | API d'acquisition/extraction, formats et routage de moteurs | Déploiement OSS et cloud distincts ; cœur AGPL à examiner avant reprise de code |
-| [Colly](https://github.com/gocolly/colly) | Crawl HTTP Go configurable, async, limites et storage | Pas de rendu JS intégré comparable à Chromium |
-| [Ferret](https://github.com/MontFerret/ferret) | DSL et exécution de plans, v2 avec VM | v2 alpha ; distinguer inspiration d'une dépendance stable |
+| [Scrapy](https://docs.scrapy.org/) | Scheduler, middlewares, pipelines, throttling and resumable jobs | Browser via integration; semantic agent not implied |
+| [Scrapling](https://github.com/D4Vinci/Scrapling) | HTTP/browser, spiders and structural selector relocation | Structural similarity does not guarantee business identity |
+| [Crawl4AI](https://docs.crawl4ai.com/) | Rendering, Markdown, structured extraction, sessions and dispatcher | Corpus pipeline different from an autonomous action loop |
+| [Firecrawl](https://github.com/firecrawl/firecrawl) | Acquisition/extraction API, formats and engine routing | Separate OSS and cloud deployments; AGPL core to examine before reusing code |
+| [Colly](https://github.com/gocolly/colly) | Configurable Go HTTP crawl, async, limits and storage | No built-in JS rendering comparable to Chromium |
+| [Ferret](https://github.com/MontFerret/ferret) | DSL and plan execution, v2 with VM | v2 alpha; distinguish inspiration from a stable dependency |
 
-Leur intérêt est complémentaire : orchestration, extraction, transport et planification ne doivent pas être mis dans une seule colonne « vitesse ».
+Their value is complementary: orchestration, extraction, transport and planning must not be put into a single "speed" column.
 
-### Deux nuances concrètes souvent manquées
+### Two concrete nuances often missed
 
-**Scrapling peut adapter un sélecteur sans LLM.** Dans le [parser inspecté au commit `43dee004`](https://github.com/D4Vinci/Scrapling/blob/43dee004866e1c46843a9ac293cc1494aa7915d6/scrapling/parser.py), le fallback adaptatif de CSS/XPath intervient lorsqu'aucun élément n'est trouvé, si l'option est activée et une représentation mémorisée disponible. Il classe les ressemblances structurelles et peut renvoyer plusieurs meilleurs candidats ex aequo. Le pourcentage est un score de similarité, pas une probabilité calibrée de correction. Si un sélecteur continue à trouver un mauvais élément, ce chemin de fallback n'est pas déclenché à lui seul. Un validateur de données reste nécessaire. [Documentation](https://scrapling.readthedocs.io/en/latest/parsing/adaptive/).
+**Scrapling can adapt a selector without an LLM.** In the [parser inspected at commit `43dee004`](https://github.com/D4Vinci/Scrapling/blob/43dee004866e1c46843a9ac293cc1494aa7915d6/scrapling/parser.py), the adaptive CSS/XPath fallback kicks in when no element is found, if the option is enabled and a stored representation is available. It ranks structural resemblances and can return several tied best candidates. The percentage is a similarity score, not a calibrated probability of correctness. If a selector keeps finding a wrong element, this fallback path is not triggered on its own. A data validator remains necessary. [Documentation](https://scrapling.readthedocs.io/en/latest/parsing/adaptive/).
 
-**Crawl4AI propose des scripts déterministes.** Les commandes C4A telles que GO, WAIT, CLICK, TYPE et REPEAT sont un DSL, même si sa syntaxe est présentée comme proche de l'anglais. Le fait de lire une commande facilement ne la transforme pas en résolution sémantique par modèle. Cela fournit une autre référence de plan exécutable ; les stratégies d'extraction LLM restent un chemin séparé. [C4A Script](https://docs.crawl4ai.com/core/c4a-script/), [extraction LLM](https://docs.crawl4ai.com/extraction/llm-strategies/).
+**Crawl4AI offers deterministic scripts.** C4A commands such as GO, WAIT, CLICK, TYPE and REPEAT are a DSL, even though its syntax is presented as close to English. The fact that a command is easy to read does not turn it into semantic resolution by a model. This provides another reference for an executable plan; the LLM extraction strategies remain a separate path. [C4A Script](https://docs.crawl4ai.com/core/c4a-script/), [LLM extraction](https://docs.crawl4ai.com/extraction/llm-strategies/).
 
-## 8. Reddit : des scénarios à tester, aucune preuve de consensus
+## 8. Reddit: scenarios to test, no proof of consensus
 
-Le relevé de complément a ouvert **10 fils et 6 permaliens de commentaires**. Les auteurs, dates, métriques et biais sont documentés dans [le dossier de preuves](2026-10-07-reddit-evidence-followup.md). Aucun fil trouvé dans ce balayage ne fournit un protocole commun Stagehand/Crawlee/Spider ; cela ne prouve pas qu'aucune discussion n'existe ailleurs.
+The follow-up survey opened **10 threads and 6 comment permalinks**. Authors, dates, metrics and biases are documented in [the evidence dossier](2026-10-07-reddit-evidence-followup.md). No thread found in this sweep provides a common Stagehand/Crawlee/Spider protocol; this does not prove that no discussion exists elsewhere.
 
-Trois observations utiles :
+Three useful observations:
 
-- Un [retour Stagehand contre Browser Use du 15 avril 2026](https://www.reddit.com/r/AI_Agents/comments/1slvuta/stagehand_vs_browser_use_which_one_actually_works/) rapporte davantage de sessions terminées avec Stagehand après des clics erronés de Browser Use. Modèles, versions et taux de succès sont absents ; l'auteur dit que cela peut ne pas se généraliser.
-- Un [commentaire de juin 2026](https://www.reddit.com/r/AI_Agents/comments/1uhvp85/comment/oubl84a/) décrit au contraire trop de surveillance nécessaire avec Stagehand. Il ne fournit pas non plus de métrique appariée, mais empêche de prétendre à l'unanimité.
-- Le [récit de reconstruction d'une stack](https://www.reddit.com/r/WebScrapingInsider/comments/1tkqi5e/we_rebuilt_our_scraping_stack_4_times_in_18/) annonce 400 sites, 2 millions de pages/jour, 1,2 % d'échecs et -45 % de coût avec Browserbase + Stagehand. Aucun corpus, trace ou facture n'est donné. Hébergement, SDK et exploitation changent ensemble : ce n'est pas une mesure isolée de Stagehand.
+- A [Stagehand versus Browser Use report from April 15, 2026](https://www.reddit.com/r/AI_Agents/comments/1slvuta/stagehand_vs_browser_use_which_one_actually_works/) reports more completed sessions with Stagehand after erroneous Browser Use clicks. Models, versions and success rates are missing; the author says it may not generalize.
+- A [June 2026 comment](https://www.reddit.com/r/AI_Agents/comments/1uhvp85/comment/oubl84a/), on the contrary, describes too much supervision being needed with Stagehand. It does not provide a paired metric either, but it prevents claiming unanimity.
+- The [account of rebuilding a stack](https://www.reddit.com/r/WebScrapingInsider/comments/1tkqi5e/we_rebuilt_our_scraping_stack_4_times_in_18/) announces 400 sites, 2 million pages/day, 1.2% failures and -45% cost with Browserbase + Stagehand. No corpus, trace or invoice is given. Hosting, SDK and operations change together: this is not an isolated measurement of Stagehand.
 
-Les témoignages orientent vers les sessions authentifiées, l'observabilité, le coût des inférences et les faux succès. Ils ne décident pas du langage du runtime ni d'un vainqueur universel. Le prétendu benchmark Rust découvert sur Reddit concerne **Crawlyx, pas Spider-rs**, et provient de son auteur.
+The testimonials point toward authenticated sessions, observability, inference cost and false successes. They do not decide the runtime language or a universal winner. The so-called Rust benchmark discovered on Reddit concerns **Crawlyx, not Spider-rs**, and comes from its author.
 
-## 9. Direction concrète pour Automan
+## 9. Concrete direction for Automan
 
-Conserver la cible [runtime Rust autonome + protocole partagé + SDK](2026-10-07-direction-automan.md), mais préciser ce que cette comparaison impose au produit :
+Keep the [autonomous Rust runtime + shared protocol + SDK](2026-10-07-direction-automan.md) target, but specify what this comparison imposes on the product:
 
-1. **Task et ResultContract au centre.** Définir données attendues, identité, complétude, fraîcheur et état final observable. Le modèle propose une action ; un contrôle adapté décide si l'objectif a été atteint.
-2. **Exécuteurs interchangeables.** API documentée/HTTP, parsing, navigateur déterministe et découverte sémantique. Choisir selon le résultat et l'historique, avec navigateur direct sur les routes connues comme nécessaires. Éviter un double essai HTTP puis browser à chaque requête.
-3. **Plans durables et versionnés.** La première découverte produit un plan avec préconditions, cibles, attentes et postconditions. Exécuter ce plan sans nouvelle inférence lorsqu'il reste valide ; réparer l'étape diagnostiquée et enregistrer la modification.
-4. **Trois caches explicites.** Perception, plan et données ont des clés, invalidations et règles de fraîcheur distinctes. Un gain de latence n'est acceptable que si la sortie reste conforme au contrat.
-5. **Frontier de crawl séparée de la reprise des actions.** Queue, quotas par site, déduplication, leases et backpressure pour la collecte. Journal, idempotence quand elle existe et réconciliation de l'état après incident pour les actions. Ne pas annoncer une garantie exactly-once universelle sur des sites tiers.
-6. **Session comme ressource de premier ordre.** Cookies, identité, proxy, géographie et contexte isolé doivent rester cohérents. Pooling et multiplexage ne doivent pas mélanger les comptes ou clients.
-7. **Driver qualifié.** CDP natif pour la cible ; Playwright sert de référence et de backend de compatibilité. Tester attentes, frames, éléments détachés, téléchargements et reprise avant de promouvoir chaque chemin natif.
-8. **Économie observable.** Compter toutes les tentatives, appels modèle, rendu, proxies et ressources ; fournir le coût par résultat réellement validé et le temps nécessaire pour diagnostiquer un incident.
+1. **Task and ResultContract at the center.** Define expected data, identity, completeness, freshness and observable final state. The model proposes an action; an appropriate check decides whether the objective has been reached.
+2. **Interchangeable executors.** Documented API/HTTP, parsing, deterministic browser and semantic discovery. Choose according to the result and the history, with the browser used directly on routes known to require it. Avoid a double HTTP-then-browser attempt on every request.
+3. **Durable, versioned plans.** The first discovery produces a plan with preconditions, targets, waits and postconditions. Execute this plan without new inference while it remains valid; repair the diagnosed step and record the change.
+4. **Three explicit caches.** Perception, plan and data have distinct keys, invalidations and freshness rules. A latency gain is acceptable only if the output remains compliant with the contract.
+5. **Crawl frontier separate from action recovery.** Queue, per-site quotas, deduplication, leases and backpressure for collection. Journal, idempotence when it exists and state reconciliation after an incident for actions. Do not announce a universal exactly-once guarantee on third-party sites.
+6. **Session as a first-class resource.** Cookies, identity, proxy, geography and isolated context must remain consistent. Pooling and multiplexing must not mix accounts or clients.
+7. **Qualified driver.** Native CDP as the target; Playwright serves as reference and compatibility backend. Test waits, frames, detached elements, downloads and recovery before promoting each native path.
+8. **Observable economics.** Count all attempts, model calls, rendering, proxies and resources; provide the cost per actually validated result and the time needed to diagnose an incident.
 
-La différenciation à démontrer est donc : **un même workflow tourne localement ou à distance, choisit un moyen d'accès économique, se réutilise, survit aux changements prévus et rend visibles les résultats incomplets.** Le moteur doit rester utile sans service cloud ; les services facturables peuvent porter sur navigateurs/sessions gérés, capacité, maintenance des recettes, observabilité et support. Ce positionnement est une hypothèse produit à éprouver sur des pilotes, pas une promesse de marché déjà validée.
+The differentiation to demonstrate is therefore: **the same workflow runs locally or remotely, chooses an economical access method, is reused, survives anticipated changes and makes incomplete results visible.** The engine must remain useful without a cloud service; billable services can cover managed browsers/sessions, capacity, recipe maintenance, observability and support. This positioning is a product hypothesis to be tested on pilots, not an already validated market promise.
 
-## 10. Expériences qui doivent décider de la suite
+## 10. Experiments that must decide what comes next
 
-L'[audit des benchmarks](2026-10-07-benchmark-audit-followup.md) explique pourquoi les tableaux actuels ne suffisent pas. La prochaine comparaison doit isoler :
+The [benchmark audit](2026-10-07-benchmark-audit-followup.md) explains why the current tables are not enough. The next comparison must isolate:
 
-- HTTP avec sorties équivalentes : Spider, Crawlee HTTP, Scrapy/Colly async et Automan.
-- Rendu JS : Spider Chrome, Crawlee Playwright, Crawl4AI et Automan CDP.
-- Actions connues : Playwright, primitives Stagehand, CLI agent-browser et plans Automan.
-- Découverte sémantique : Stagehand 4, Browser Use, Skyvern, `spider_agent` et Automan, mêmes modèles/budgets lorsque c'est possible.
-- Répétitions et dérive : 1/10/100/1 000 runs, mutations de DOM contrôlées, données changées, session expirée, interruption entre action et validation.
+- HTTP with equivalent outputs: Spider, Crawlee HTTP, Scrapy/Colly async and Automan.
+- JS rendering: Spider Chrome, Crawlee Playwright, Crawl4AI and Automan CDP.
+- Known actions: Playwright, Stagehand primitives, agent-browser CLI and Automan plans.
+- Semantic discovery: Stagehand 4, Browser Use, Skyvern, `spider_agent` and Automan, same models/budgets when possible.
+- Repetitions and drift: 1/10/100/1,000 runs, controlled DOM mutations, changed data, expired session, interruption between action and validation.
 
-La vitesse doit être rapportée avec couverture, taux de faux succès, mémoire totale, p50/p95, démarrage chaud/froid, coûts de toutes les tentatives et résultats de reprise. Les cas métier d'export authentifié, de catalogue paginé et de collecte différentielle proposés précédemment donnent un premier corpus ; ils ne limitent pas les APIs générales.
+Speed must be reported with coverage, false-success rate, total memory, p50/p95, warm/cold start, costs of all attempts and recovery results. The business cases of authenticated export, paginated catalog and differential collection proposed earlier provide a first corpus; they do not limit the general APIs.
 
-## Provenance et limites du dossier
+## Provenance and limits of the dossier
 
-La racine de ce suivi a demandé **32 résultats Exa** dans quatre recherches complémentaires, puis ouvert des sources, registres et arbres GitHub. Le suivi Reddit a demandé 55 résultats, Stagehand 32 et Crawlee/Spider 20, soit **139 résultats demandés dans ce complément**. Les compteurs sont des volumes de résultats demandés et peuvent inclure doublons ou échecs ; ils ne désignent pas autant de sources indépendantes validées.
+The root of this follow-up requested **32 Exa results** in four complementary searches, then opened sources, registries and GitHub trees. The Reddit follow-up requested 55 results, Stagehand 32 and Crawlee/Spider 20, i.e. **139 results requested in this supplement**. The counters are volumes of requested results and may include duplicates or failures; they do not designate as many validated independent sources.
 
-La lecture du code publié, la vérification de contraintes de versions et l'audit statique ne prouvent pas la performance ou la réussite du cloud en conditions réelles. Les témoignages restent déclaratifs ; les scripts de benchmarks examinés n'ont pas été exécutés. Une petite expression Node et l'agrégation d'un JSON public ont vérifié respectivement une sémantique de stub et les totaux publiés. La décision Rust reste un choix de conception à qualifier, sans réduction d'ambition liée à l'équipe ou au calendrier.
+Reading the published code, checking version constraints and the static audit do not prove the performance or success of the cloud in real conditions. Testimonials remain declarative; the benchmark scripts examined were not run. A small Node expression and the aggregation of a public JSON verified, respectively, a stub's semantics and the published totals. The Rust decision remains a design choice to be qualified, with no reduction of ambition tied to the team or the schedule.

@@ -1,115 +1,115 @@
-# ADR-002 : accès aux sites, identité des agents et options stealth
+# ADR-002: site access, agent identity and stealth options
 
-**Statut : principe décidé par le porteur du projet le 8 octobre 2026 ; modalités proposées, à adopter explicitement lors de l'implémentation.**
-**Date : 8 octobre 2026.**
-**Décision finale : utilisateur / porteur du projet.**
+**Status: principle decided by the project owner on October 8, 2026; terms proposed, to be adopted explicitly during implementation.**
+**Date: October 8, 2026.**
+**Final decision: user / project owner.**
 
-## Contexte
+## Context
 
-Proxies, empreintes navigateur cohérentes et options stealth font partie de l'offre standard des services de collecte et de navigateurs hébergés. Le dossier les prévoit déjà : configuration proxy/fingerprint cohérente, pool de proxies avec sticky sessions, santé, cooldown et rotation ([architecture §4.1](../proposals/architecture.md:144)), transports spécialisés en fingerprinting avec profil cohérent ([architecture §5.1](../proposals/architecture.md:177)).
+Proxies, consistent browser fingerprints and stealth options are part of the standard offering of data collection services and hosted browsers. The dossier already provides for them: consistent proxy/fingerprint configuration, proxy pool with sticky sessions, health, cooldown and rotation ([architecture §4.1](../proposals/architecture.md:144)), transports specialized in fingerprinting with a consistent profile ([architecture §5.1](../proposals/architecture.md:177)).
 
-En parallèle, l'accès identifié devient une voie d'accès reconnue :
+In parallel, identified access is becoming a recognized access path:
 
-- Cloudflare définit un bot ou agent **Verified** par une identification déterministe — signature Web Bot Auth, liste d'IP publiée ou reverse DNS — et un comportement non abusif, dont le respect de `robots.txt` et des directives de crawl. Depuis le 1er juillet 2026, les agents signés y sont classés **Direct** ou **Intermediary** ; un service peut être retiré de l'allowlist si son trafic ne correspond pas à l'usage déclaré. [Verified bots, mis à jour le 1er juillet 2026](https://developers.cloudflare.com/bots/concepts/bot/verified-bots/).
-- Web Bot Auth est un document du groupe de travail IETF depuis le 1er septembre 2026 (auteurs Cloudflare et Google) : signatures HTTP RFC 9421, en-tête `Signature-Agent`, annuaire de clés JWKS sur une URI well-known. Le texte reste un Internet-Draft. [draft-ietf-webbotauth-httpsig-protocol-00](https://datatracker.ietf.org/doc/draft-ietf-webbotauth-httpsig-protocol/).
-- Browserbase propose à la fois ses options d'accès navigateur et une identité signée en bêta, et présente désormais ce travail comme une **continuité d'identité** entre sessions plutôt qu'une évasion ponctuelle. [Web Bot Auth chez Browserbase](https://docs.browserbase.com/platform/identity/web-bot-auth), [billet du 6 avril 2026](https://www.browserbase.com/blog/identity).
+- Cloudflare defines a **Verified** bot or agent by deterministic identification — Web Bot Auth signature, published IP list or reverse DNS — and non-abusive behavior, including respect for `robots.txt` and crawl directives. Since July 1, 2026, signed agents are classified there as **Direct** or **Intermediary**; a service can be removed from the allowlist if its traffic does not match the declared use. [Verified bots, updated July 1, 2026](https://developers.cloudflare.com/bots/concepts/bot/verified-bots/).
+- Web Bot Auth has been an IETF working group document since September 1, 2026 (authors Cloudflare and Google): RFC 9421 HTTP signatures, `Signature-Agent` header, JWKS key directory at a well-known URI. The text remains an Internet-Draft. [draft-ietf-webbotauth-httpsig-protocol-00](https://datatracker.ietf.org/doc/draft-ietf-webbotauth-httpsig-protocol/).
+- Browserbase offers both its browser access options and a signed identity in beta, and now presents this work as **identity continuity** across sessions rather than one-off evasion. [Web Bot Auth at Browserbase](https://docs.browserbase.com/platform/identity/web-bot-auth), [post of April 6, 2026](https://www.browserbase.com/blog/identity).
 
-Deux éléments juridiques modifient le risque de certaines options :
+Two legal developments change the risk of certain options:
 
-- **Reddit v. SerpApi (SDNY, 31 juillet 2026)** : au stade de la motion to dismiss, le tribunal considère que CAPTCHA et détection de bots peuvent constituer des mesures techniques de contrôle d'accès au sens du DMCA §1201, même si le contenu est visible par des humains. Les demandes de contournement (§1201(a)(1)(A)) et de *trafficking* (§1201(a)(2)) survivent contre le fournisseur d'un outil de scraping décrit comme utilisant proxies et techniques imitant le comportement humain. Ce n'est pas un jugement au fond. [Synthèse Loeb & Loeb](https://www.loeb.com/en/insights/publications/2026/08/reddit-v-serpapi-llc).
-- **CNIL, fiche moissonnage** : pour une collecte de **données personnelles destinée à constituer des bases d'entraînement d'IA sur la base de l'intérêt légitime**, exclure les sites qui s'y opposent par `robots.txt` ou CAPTCHA fait partie des mesures obligatoires. Le périmètre est cette finalité, pas tout scraping. [Fiche du 19 juin 2025](https://www.cnil.fr/fr/focus-interet-legitime-collecte-par-moissonnage), [version anglaise du 5 janvier 2026](https://www.cnil.fr/en/legal-basis-legitimate-interest-focus-sheet-measures-implement-case-data-collection-web-scraping).
+- **Reddit v. SerpApi (SDNY, July 31, 2026)**: at the motion to dismiss stage, the court considers that CAPTCHA and bot detection can constitute technological measures controlling access within the meaning of DMCA §1201, even if the content is visible to humans. The circumvention (§1201(a)(1)(A)) and *trafficking* (§1201(a)(2)) claims survive against the provider of a scraping tool described as using proxies and techniques imitating human behavior. This is not a judgment on the merits. [Loeb & Loeb summary](https://www.loeb.com/en/insights/publications/2026/08/reddit-v-serpapi-llc).
+- **CNIL, web scraping focus sheet**: for a collection of **personal data intended to build AI training datasets on the basis of legitimate interest**, excluding sites that object to it via `robots.txt` or CAPTCHA is one of the mandatory measures. The scope is this purpose, not all scraping. [Sheet of June 19, 2025](https://www.cnil.fr/fr/focus-interet-legitime-collecte-par-moissonnage), [English version of January 5, 2026](https://www.cnil.fr/en/legal-basis-legitimate-interest-focus-sheet-measures-implement-case-data-collection-web-scraping).
 
-Ces éléments ne sont pas un avis juridique. La question tranchée ici n'est donc pas *s'il faut* des options stealth, mais **comment les livrer** : profils, défauts, répartition open source/cloud, modalité CAPTCHA, garde-fous et conséquences sur le modèle de session.
+These elements are not legal advice. The question settled here is therefore not *whether* stealth options are needed, but **how to deliver them**: profiles, defaults, open source/cloud split, CAPTCHA modality, safeguards and consequences for the session model.
 
-## Décision
+## Decision
 
-### 1. Trois profils d'accès, exclusifs pour une session
+### 1. Three access profiles, exclusive within a session
 
-| Profil | Contenu | Défaut |
+| Profile | Content | Default |
 | --- | --- | --- |
-| `identified` | Agent déclaré : User-Agent avec jeton produit et URL de contact, signature Web Bot Auth, politique de préférences des sites appliquée | **Oui** |
-| `standard` | Navigation et HTTP génériques, sans signature ni masquage ; politique de préférences appliquée | Non |
-| `stealth` | Toutes les options du catalogue ci-dessous, activées individuellement | Non, opt-in explicite |
+| `identified` | Declared agent: User-Agent with product token and contact URL, Web Bot Auth signature, site preference policy applied | **Yes** |
+| `standard` | Generic browsing and HTTP, without signature or masking; preference policy applied | No |
+| `stealth` | All the options in the catalog below, enabled individually | No, explicit opt-in |
 
-Une session possède un seul profil, fixé à son ouverture. Signer une requête puis masquer l'automatisation dans la même session est contradictoire : cela expose la clé et la réputation de l'identité signée, et contredit l'usage déclaré exigé par les programmes de vérification. Changer de profil est une transition explicite qui ouvre une nouvelle session, comme le changement de backend ([architecture §5.2](../proposals/architecture.md:183)).
+A session has a single profile, set when it is opened. Signing a request and then masking automation in the same session is contradictory: it exposes the key and the reputation of the signed identity, and contradicts the declared use required by verification programs. Changing profile is an explicit transition that opens a new session, like a backend change ([architecture §5.2](../proposals/architecture.md:183)).
 
-### 2. Défaut conforme (`identified`)
+### 2. Compliant default (`identified`)
 
-- Signature Web Bot Auth avec clés propres à l'installation en local, **clés propres à chaque tenant** dans le cloud ; annuaire de clés publié, rotation et révocation.
-- Enregistrement du service cloud comme agent vérifié (Cloudflare Verified *Intermediary*, puis autres fournisseurs d'anti-bot qui vérifient Web Bot Auth).
-- Politique avant chaque requête : `robots.txt` (RFC 9309) dont crawl-delay, Content-Signal, TDMRep, meta `noai`, puis vocabulaire IETF aipref lorsqu'il sera stabilisé.
-- Finalité déclarée par workflow (search, ai-input, ai-train, agent, data-collection, transact), alignée sur les catégories de comportement Cloudflare.
-- Politesse et débit par hôte, adaptés aux réponses `429`/`Retry-After`.
-- `401`, `403`, `402` et pages de challenge sont des **signaux d'arrêt ou de licence**, jamais un succès.
+- Web Bot Auth signature with installation-specific keys locally, **per-tenant keys** in the cloud; published key directory, rotation and revocation.
+- Registration of the cloud service as a verified agent (Cloudflare Verified *Intermediary*, then other anti-bot providers that verify Web Bot Auth).
+- Policy before each request: `robots.txt` (RFC 9309) including crawl-delay, Content-Signal, TDMRep, meta `noai`, then the IETF aipref vocabulary once it is stabilized.
+- Declared purpose per workflow (search, ai-input, ai-train, agent, data-collection, transact), aligned with Cloudflare's behavior categories.
+- Per-host politeness and rate, adapted to `429`/`Retry-After` responses.
+- `401`, `403`, `402` and challenge pages are **stop or licensing signals**, never a success.
 
-### 3. Catalogue `stealth` : toutes les options
+### 3. `stealth` catalog: all the options
 
-| Famille | Options | Open source | Cloud |
+| Family | Options | Open source | Cloud |
 | --- | --- | --- | --- |
-| Proxies | Datacenter, résidentiels, mobiles, ISP ; BYO fournisseur ; sticky sessions, géolocalisation, rotation raisonnée, santé, cooldown, coût par Go mesuré | Gestion du pool et adapters fournisseurs (BYO) | Pools managés, isolés par tenant |
-| Empreinte réseau | Profils TLS et HTTP/2 cohérents avec le navigateur annoncé, ordre et casse des en-têtes, client hints | Transports d'impersonation (classe wreq/Impit) et profils de base | Catalogue de profils maintenu et daté |
-| Empreinte navigateur | Profils cohérents : User-Agent, plateforme, écran, polices, WebGL/canvas, langue, fuseau et géolocalisation alignés sur la sortie proxy ; profils persistants ; mode headful | Moteur de cohérence et profils de base | Profils maintenus, navigateurs patchés maintenus |
-| Signaux d'automatisation | Réduction des marqueurs d'automatisation du pilote et du navigateur ; navigateurs patchés en plugin (classe Patchright/Camoufox) | Interfaces et plugins | Builds maintenus |
-| Comportement | Rythmes de saisie et trajectoires de pointeur réalistes, en option par action | Oui | Oui |
-| Continuité | Réchauffement de session, persistance cookies/stockage, même identité au retour | Oui | Oui |
-| CAPTCHA | Voir §4 | Détection, handoff, interface de solveur | Résolution managée |
-| Détection de blocage | Classifieur de pages de challenge, interstitiels et `200` trompeurs ; escalade de profil selon politique | Oui | Statistiques de réussite par site et profil |
+| Proxies | Datacenter, residential, mobile, ISP; BYO provider; sticky sessions, geolocation, reasoned rotation, health, cooldown, measured cost per GB | Pool management and provider adapters (BYO) | Managed pools, isolated per tenant |
+| Network fingerprint | TLS and HTTP/2 profiles consistent with the announced browser, header order and case, client hints | Impersonation transports (wreq/Impit class) and base profiles | Maintained and dated profile catalog |
+| Browser fingerprint | Consistent profiles: User-Agent, platform, screen, fonts, WebGL/canvas, language, time zone and geolocation aligned with the proxy exit; persistent profiles; headful mode | Consistency engine and base profiles | Maintained profiles, maintained patched browsers |
+| Automation signals | Reduction of driver and browser automation markers; patched browsers as plugins (Patchright/Camoufox class) | Interfaces and plugins | Maintained builds |
+| Behavior | Realistic typing rhythms and pointer trajectories, optional per action | Yes | Yes |
+| Continuity | Session warm-up, cookie/storage persistence, same identity on return | Yes | Yes |
+| CAPTCHA | See §4 | Detection, handoff, solver interface | Managed solving |
+| Block detection | Classifier for challenge pages, interstitials and misleading `200`s; profile escalation according to policy | Yes | Success statistics per site and profile |
 
-Chaque option est déclarée dans le plan ou la politique du workflow, visible dans le journal et comptée dans le budget de tentatives. Rotation de proxy, de session et réparation consomment le même budget total ([architecture §3.4](../proposals/architecture.md:125)).
+Each option is declared in the workflow's plan or policy, visible in the log and counted in the attempt budget. Proxy rotation, session rotation and repair consume the same total budget ([architecture §3.4](../proposals/architecture.md:125)).
 
-### 4. CAPTCHA : toutes les modalités, livrées par niveaux
+### 4. CAPTCHA: all modalities, delivered in tiers
 
-1. **Détection** systématique, avec erreur typée ; jamais de faux succès.
-2. **Handoff humain** dans la session : l'opérateur résout, le run reprend. Open source.
-3. **Adapter de solveur tiers** : interface ouverte, compte et clé fournis par le client. Open source.
-4. **Résolution managée** dans le cloud : offre contractuelle, workspace vérifié.
+1. Systematic **detection**, with a typed error; never a false success.
+2. In-session **human handoff**: the operator solves, the run resumes. Open source.
+3. **Third-party solver adapter**: open interface, account and key provided by the customer. Open source.
+4. **Managed solving** in the cloud: contractual offering, verified workspace.
 
-Recommandation : livrer 1 à 3 avec le framework et ouvrir le niveau 4 après revue juridique, en particulier pour l'exposition aux États-Unis. Le risque de *trafficking* évoqué dans Reddit v. SerpApi vise le fournisseur de l'outil ; il porte donc sur Automan en tant qu'éditeur, pas seulement sur ses clients.
+Recommendation: ship 1 to 3 with the framework and open tier 4 after legal review, particularly for exposure in the United States. The *trafficking* risk raised in Reddit v. SerpApi targets the tool provider; it therefore concerns Automan as publisher, not only its customers.
 
-### 5. Garde-fous
+### 5. Safeguards
 
-- **Politique de workspace** : un administrateur peut autoriser ou interdire `stealth` et chaque famille d'options.
-- **Provenance** : chaque tentative et chaque enregistrement portent le profil d'accès, l'identité de signature éventuelle et l'état des préférences du site au moment de la requête (hash de `robots.txt`/signaux).
-- **Cloud** : vérification des clients et politique d'usage acceptable pour `stealth` ; pools d'IP et réputation isolés par tenant ; kill switch par tenant ; journaux d'audit exportables.
-- **Données personnelles** : un workflow déclarant des données personnelles et une finalité `ai-train` affiche l'obligation CNIL rappelée ci-dessus ; activer `stealth` sur ce couple exige une confirmation explicite, journalisée.
-- **Self-host** : refus par défaut des redirections vers des adresses privées (protection SSRF), avec allowlist explicite pour les tests ; le lab a observé ce comportement natif chez Spider.
+- **Workspace policy**: an administrator can allow or forbid `stealth` and each option family.
+- **Provenance**: each attempt and each record carry the access profile, the signing identity if any, and the state of the site's preferences at the time of the request (hash of `robots.txt`/signals).
+- **Cloud**: customer verification and acceptable use policy for `stealth`; IP pools and reputation isolated per tenant; per-tenant kill switch; exportable audit logs.
+- **Personal data**: a workflow declaring personal data and an `ai-train` purpose displays the CNIL obligation recalled above; enabling `stealth` on this combination requires an explicit, logged confirmation.
+- **Self-host**: redirects to private addresses refused by default (SSRF protection), with an explicit allowlist for tests; the lab observed this native behavior in Spider.
 
-## Répartition open source / cloud
+## Open source / cloud split
 
-Le framework Apache-2.0 contient tous les mécanismes : profils, cohérence d'identité, gestion des proxies BYO, transports d'impersonation, détection de blocage, handoff et interface de solveur, signature Web Bot Auth avec clés autogérées, moteur de politique. Il fonctionne sans clé cloud.
+The Apache-2.0 framework contains all the mechanisms: profiles, identity consistency, BYO proxy management, impersonation transports, block detection, handoff and solver interface, Web Bot Auth signing with self-managed keys, policy engine. It works without a cloud key.
 
-Le cloud vend ce qui exige une **maintenance continue** : pools de proxies managés, catalogue de profils réseau et navigateur tenu à jour, navigateurs patchés maintenus, résolution CAPTCHA managée, annuaire de clés hébergé et enregistrements auprès des vérificateurs, isolation de réputation et statistiques de réussite par site. Les profils publiés dans un dépôt public sont rapidement identifiables par les éditeurs d'anti-bot ; la valeur vendue est leur mise à jour, pas leur existence.
+The cloud sells what requires **continuous maintenance**: managed proxy pools, an up-to-date catalog of network and browser profiles, maintained patched browsers, managed CAPTCHA solving, a hosted key directory and registrations with verifiers, reputation isolation and per-site success statistics. Profiles published in a public repository are quickly identifiable by anti-bot vendors; the value sold is keeping them up to date, not their existence.
 
-## Conséquences architecturales
+## Architectural consequences
 
-- La `Session` porte un **profil d'identité complet** : signature ou absence de signature, sortie proxy, profil réseau, profil navigateur, cookies et stockage. Ces éléments sont cohérents entre eux et avec la géolocalisation du proxy.
-- Ce profil est **conservé lorsqu'une requête passe de HTTP au navigateur** dans la même session. Une escalade de moteur qui change d'empreinte crée elle-même le signal de bot.
-- Les erreurs de [l'API](../proposals/api.md) s'enrichissent de codes distincts pour un challenge détecté, un refus par politique du site et une demande de paiement (`402`). Le terme exact reste à fixer dans la revue d'API.
-- Les profils réseau et navigateur sont des artefacts versionnés et datés, avec la version du navigateur qu'ils imitent ; un profil périmé est signalé.
-- Le journal enregistre pour chaque tentative : profil, options actives, décision de politique et résultat de la détection de blocage.
+- The `Session` carries a **complete identity profile**: signature or absence of signature, proxy exit, network profile, browser profile, cookies and storage. These elements are consistent with one another and with the proxy's geolocation.
+- This profile is **preserved when a request moves from HTTP to the browser** within the same session. An engine escalation that changes fingerprint itself creates the bot signal.
+- The errors of [the API](../proposals/api.md) gain distinct codes for a detected challenge, a refusal by site policy and a payment request (`402`). The exact term remains to be set in the API review.
+- Network and browser profiles are versioned and dated artifacts, with the version of the browser they imitate; an outdated profile is flagged.
+- For each attempt, the log records: profile, active options, policy decision and block detection result.
 
-## Options considérées
+## Options considered
 
-| Option | Avantages | Limites | Statut |
+| Option | Advantages | Limitations | Status |
 | --- | --- | --- | --- |
-| Stealth seul, comme la plupart des services | Taux d'accès maximal sur sites protégés | Aucune voie d'accès vérifiée pour les clients entreprise ; réputation partagée exposée | Écartée |
-| Accès identifié seul | Risque juridique et réputationnel minimal | Taux de réussite insuffisant sur sites protégés ; écarté par le porteur | Écartée |
-| **Profils exclusifs, `identified` par défaut, `stealth` complet en opt-in** | Couvre le marché et l'accès vérifié ; contrôle explicite et traçable | Deux familles à maintenir ; règles de transition de session | **Retenue** |
+| Stealth only, like most services | Maximum access rate on protected sites | No verified access path for enterprise customers; shared reputation exposed | Rejected |
+| Identified access only | Minimal legal and reputational risk | Insufficient success rate on protected sites; rejected by the owner | Rejected |
+| **Exclusive profiles, `identified` by default, full `stealth` as opt-in** | Covers the market and verified access; explicit and traceable control | Two families to maintain; session transition rules | **Adopted** |
 
-## Risques
+## Risks
 
-- **Réputation partagée** : un tenant abusif peut dégrader l'identité d'intermédiaire ou les IP partagées. Réponse : clés et pools par tenant, vérification des clients, kill switch.
-- **Juridique** : CAPTCHA managé et outillage de contournement vendus par l'éditeur (§1201 aux États-Unis) ; obligations RGPD des clients. Réponse : niveaux CAPTCHA, revue juridique avant le niveau 4, provenance, confirmation explicite sur données personnelles.
-- **Course permanente** : les profils vieillissent. Réponse : profils datés, mesures de réussite par site et profil, maintenance financée par le cloud.
-- **Identité contradictoire** : mélanger signature et masquage. Réponse : profils exclusifs par session.
+- **Shared reputation**: an abusive tenant can degrade the intermediary identity or the shared IPs. Response: per-tenant keys and pools, customer verification, kill switch.
+- **Legal**: managed CAPTCHA and circumvention tooling sold by the publisher (§1201 in the United States); customers' GDPR obligations. Response: CAPTCHA tiers, legal review before tier 4, provenance, explicit confirmation on personal data.
+- **Permanent race**: profiles age. Response: dated profiles, success measurements per site and profile, maintenance funded by the cloud.
+- **Contradictory identity**: mixing signing and masking. Response: exclusive profiles per session.
 
-## Actions de qualification
+## Qualification actions
 
-- [ ] **Cohérence d'identité** : fixture locale qui enregistre empreinte TLS (JA4), paramètres HTTP/2, ordre des en-têtes, User-Agent et client hints, puis vérifie leur stabilité lorsqu'une même session passe de HTTP au navigateur.
-- [ ] **Web Bot Auth** : fixture qui vérifie la signature RFC 9421, l'annuaire de clés, `created`/`expires`, la rotation et le refus d'une clé révoquée.
-- [ ] **Politique** : fixtures `robots.txt`, Content-Signal et TDMRep ; refus journalisé ; une page de challenge servie en `200` ne doit jamais produire un résultat vérifié.
-- [ ] **Proxies** : proxy local de test pour sticky sessions, rotation, santé, cooldown et budget de tentatives.
-- [ ] **Transitions** : changement de profil refusé dans une session active, nouvelle session explicite acceptée.
-- [ ] **Live** : campagne séparée, hors CI, sur sites autorisés ; ses résultats ne sont jamais agrégés aux scores hermétiques du lab.
+- [ ] **Identity consistency**: local fixture that records TLS fingerprint (JA4), HTTP/2 parameters, header order, User-Agent and client hints, then checks their stability when the same session moves from HTTP to the browser.
+- [ ] **Web Bot Auth**: fixture that verifies the RFC 9421 signature, the key directory, `created`/`expires`, rotation and refusal of a revoked key.
+- [ ] **Policy**: `robots.txt`, Content-Signal and TDMRep fixtures; logged refusal; a challenge page served as `200` must never produce a verified result.
+- [ ] **Proxies**: local test proxy for sticky sessions, rotation, health, cooldown and attempt budget.
+- [ ] **Transitions**: profile change refused in an active session, explicit new session accepted.
+- [ ] **Live**: separate campaign, outside CI, on authorized sites; its results are never aggregated with the lab's hermetic scores.
 
-Les gates de promotion restent celles du [plan R&D](../plan/rd-plan.md#7-gates-de-promotion-sans-chiffres-inventés) : comportement conforme, limites visibles, aucun succès annoncé pour un effet ou un accès non vérifié.
+The promotion gates remain those of the [R&D plan](../plan/rd-plan.md#7-promotion-gates-without-invented-figures): compliant behavior, visible limits, no success announced for an unverified effect or access.

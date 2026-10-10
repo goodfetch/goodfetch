@@ -1,6 +1,6 @@
-# Reproduire les qualifications du 8 octobre
+# Reproducing the October 8 qualifications
 
-Depuis `/Users/jb/Dev/automan/lab`, avec le Node épinglé dans `.node-version` et les dépendances/bootstrap déjà construits :
+From `/Users/jb/Dev/automan/lab`, with the Node pinned in `.node-version` and the dependencies/bootstrap already built:
 
 ```sh
 node --test --test-concurrency=1 tests/*.test.ts tests/integration/*.test.ts
@@ -10,11 +10,11 @@ node tools/qualification-suite.ts
 node tools/qualification-current.ts
 ```
 
-Les deux suites créent de nouveaux dossiers uniques, sans remplacer les précédents. `qualification-suite.ts` couvre les cinq domaines et les arrivées ouvertes ; `qualification-current.ts` couvre les corrections du lab et les transports Spider restants. Ne pas lancer les suites ou builds en parallèle : les ressources mesurées se partageraient la machine.
+Both suites create new unique folders, without replacing the previous ones. `qualification-suite.ts` covers the five domains and the open arrivals; `qualification-current.ts` covers the lab fixes and the remaining Spider transports. Do not run the suites or builds in parallel: the measured resources would share the machine.
 
-La première suite retenue est `results/qualification-integrated-2026-10-07T23-21-58-974Z-6b64b0`. La requalification est `results/qualification-current-2026-10-08T00-11-54-553Z-21d1f2`. Chacune conserve sa copie de sources et les chemins de ses campagnes dans son `summary.json`.
+The first retained suite is `results/qualification-integrated-2026-10-07T23-21-58-974Z-6b64b0`. The requalification is `results/qualification-current-2026-10-08T00-11-54-553Z-21d1f2`. Each keeps its copy of the sources and the paths of its campaigns in its `summary.json`.
 
-Pour régénérer l'analyse, fournir la première suite, les cinq dossiers de campagne référencés par la seconde, puis la seconde suite elle-même. Celle-ci fournit les sources figées des campagnes HTTP qui ne copient pas leur propre source :
+To regenerate the analysis, provide the first suite, the five campaign folders referenced by the second, then the second suite itself. The latter provides the frozen sources of the HTTP campaigns that do not copy their own source:
 
 ```sh
 node reports/analyze-integrated.mjs results/qualification-integrated-2026-10-07T23-21-58-974Z-6b64b0 <native> <recovery> <browser> <sqlite-readers> <spider-transport> results/qualification-current-2026-10-08T00-11-54-553Z-21d1f2
@@ -23,4 +23,4 @@ python3 reports/render-integrated.py results/qualification-current-2026-10-08T00
 python3 reports/update-integrated-index.py results/qualification-integrated-2026-10-07T23-21-58-974Z-6b64b0 results/qualification-current-2026-10-08T00-11-54-553Z-21d1f2
 ```
 
-Les placeholders doivent être remplacés par les dossiers exacts du résumé de requalification. L'analyse s'exécute après les benchmarks. L'audit distingue conformité des comparateurs, correction des erreurs du lab et invariants des données brutes. Une suite terminée n'implique pas que chaque backend ait réussi : les états et effectifs sont conservés dans le rapport transversal.
+The placeholders must be replaced by the exact folders from the requalification summary. The analysis runs after the benchmarks. The audit distinguishes comparator compliance, correction of lab errors and raw-data invariants. A completed suite does not imply that every backend succeeded: the states and sample sizes are kept in the cross-cutting report.

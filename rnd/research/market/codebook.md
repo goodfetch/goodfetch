@@ -1,53 +1,53 @@
-# Piste « demande marché » : codebook et protocole de codage
+# "Market demand" track: codebook and coding protocol
 
-**Statut :** v1, figée pour le corpus du 8 octobre 2026 (`corpus.jsonl`, 421 items). **Date :** 2026-10-08.
-**Portée :** ce document définit les codes appliqués aux items du corpus, la manière de les appliquer, les contrôles d'accord et de sources, et les règles d'exclusion. Il ne contient aucun résultat d'analyse ; les classements sont dans [pains-ranking.md](pains-ranking.md).
+**Status:** v1, frozen for the corpus of October 8, 2026 (`corpus.jsonl`, 421 items). **Date:** 2026-10-08.
+**Scope:** this document defines the codes applied to the corpus items, how to apply them, the agreement and source checks, and the exclusion rules. It contains no analysis results; the rankings are in [pains-ranking.md](pains-ranking.md).
 
-## 1. Unité d'analyse
+## 1. Unit of analysis
 
-Un **item canonique** est un énoncé unique d'un acteur identifiable sur un sujet : ouverture d'issue GitHub, commentaire HN, post ou commentaire Reddit (via instantané), avis ou synthèse d'avis, rapport, billet, offre de mission. Un même fil peut produire plusieurs items s'ils portent des énoncés distincts, par exemple `reddit-0` et `reddit-1`, ou `hn-32` et `hn-33`. Les doublons d'URL et de contenu ont été fusionnés en amont par le workflow. La déduplication n'est pas rejouable à partir des seuls fichiers de ce dossier.
+A **canonical item** is a single statement by an identifiable actor on a topic: a GitHub issue opening, an HN comment, a Reddit post or comment (via snapshot), a review or review summary, a report, a blog post, a freelance job offer. A single thread can produce several items if they carry distinct statements, for example `reddit-0` and `reddit-1`, or `hn-32` and `hn-33`. URL and content duplicates were merged upstream by the workflow. The deduplication cannot be replayed from the files in this folder alone.
 
-Champs de chaque item (`corpus.jsonl`) :
+Fields of each item (`corpus.jsonl`):
 
-| Champ | Sens |
+| Field | Meaning |
 | --- | --- |
-| `id` | Préfixe du collecteur (`github`, `hn`, `reddit`, `reviews-reports`, `demand-use-cases`) suivi d'un rang ; les trous de numérotation viennent du filtrage amont |
-| `url`, `date` | Source et date de l'énoncé ; `YYYY-MM` quand seul le mois est connu. Pour Reddit, la date est celle de l'instantané (§5) |
+| `id` | Collector prefix (`github`, `hn`, `reddit`, `reviews-reports`, `demand-use-cases`) followed by a rank; gaps in the numbering come from upstream filtering |
+| `url`, `date` | Source and date of the statement; `YYYY-MM` when only the month is known. For Reddit, the date is that of the snapshot (§5) |
 | `source_type` | `github-issue`, `github-discussion`, `hn`, `reddit`, `review`, `report`, `blog`, `job-post`, `other` |
-| `product` | Produit visé, tel que nommé par la source (`general` si aucun) |
+| `product` | Targeted product, as named by the source (`general` if none) |
 | `kind` | `pain`, `feature-request`, `use-case`, `pricing-signal`, `statistic`, `switching`, `praise` |
-| `segment` | Segment estimé : `agent-developer`, `data-team`, `b2b-portal-integration`, `ecommerce-pricing`, `seo-marketing`, `enterprise`, `research-academic`, `hobbyist`, `unknown` |
-| `codes` | 1 à 3 codes feuilles du tableau §3 ; **le premier est le code primaire** |
-| `engagement` | Mesure brute propre à la source (§4), non comparable d'une source à l'autre |
-| `promo`, `vendor_affiliated` | Contenu promotionnel ; auteur lié à un éditeur (membre ou collaborateur du dépôt, fondateur, employé, concurrent) |
-| `summary` | Paraphrase en anglais rédigée au codage ; ce n'est pas une citation |
-| `quote` | Citation verbatim de moins de 15 mots, présente seulement si elle respecte cette limite |
-| `source_checked`, `check_note` | Item contrôlé avec succès au §5, avec réserve éventuelle |
+| `segment` | Estimated segment: `agent-developer`, `data-team`, `b2b-portal-integration`, `ecommerce-pricing`, `seo-marketing`, `enterprise`, `research-academic`, `hobbyist`, `unknown` |
+| `codes` | 1 to 3 leaf codes from the §3 table; **the first is the primary code** |
+| `engagement` | Raw measure specific to the source (§4), not comparable from one source to another |
+| `promo`, `vendor_affiliated` | Promotional content; author linked to a vendor (repository member or collaborator, founder, employee, competitor) |
+| `summary` | English paraphrase written during coding; it is not a quotation |
+| `quote` | Verbatim quotation of fewer than 15 words, present only if it respects this limit |
+| `source_checked`, `check_note` | Item successfully checked in §5, with any reservation |
 
-## 2. Protocole de codage
+## 2. Coding protocol
 
-1. **Collecte.** Cinq collecteurs indépendants (GitHub, Reddit, HN, avis et rapports, demande et cas d'usage) ont travaillé en lecture seule, sans contourner de blocage d'accès (Reddit est passé par un site tiers d'instantanés, faute d'accès direct). Les collecteurs Reddit et HN n'ont enregistré aucun nom d'utilisateur, et le corpus n'en contient aucun. Les items impossibles à dater ont été écartés à la collecte. Les limites de couverture de chaque collecteur figurent dans le [README](README.md#5-couverture-et-trous).
-2. **Premier codeur (LLM).** Chaque item reçoit 1 à 3 codes feuilles. Le code primaire est le besoin ou la douleur principale de l'énoncé, les codes suivants décrivent des besoins secondaires explicitement présents. Les codes parents (sans `parent`) ne sont jamais attribués directement ; dans le corpus final, tous les codes utilisés sont des feuilles, et les 30 feuilles sont toutes utilisées. Moyenne : 1,79 code par item (755 attributions pour 421 items).
-3. **Règles de décision.**
-   - On code ce que l'énoncé **dit**, pas ce que le produit cité fait.
-   - `kind = statistic` et les codes `market-adoption-stats`, `wtp-price-points`, `build-vs-buy-switching` et `usecase-*` sont des **codes de contexte** (marché, prix, cas d'usage). Ils sont classés à part des douleurs dans `pains-ranking.md`.
-   - Un blocage présenté comme un crash ou un 500 relève de `silent-false-success` en plus de `access-antibot-ip`. Une boucle qui facture relève de `cost-unpredictable-runaway` en plus de `rel-hang-crash`.
-   - `agent-deterministic-replay` couvre la **demande** de compiler, cacher ou rejouer. Les plaintes sur le coût d'un agent sans cette demande relèvent de `agent-token-latency-cost`.
-   - Le segment est estimé à partir du contexte déclaré. Les offres de génération de leads sont rattachées à `seo-marketing`, faute de segment « ventes ».
-4. **Second codeur indépendant.** Il a recodé un échantillon **stratifié de 120 items** sans reprendre les codes du premier. Résultats :
-   - **Accord sur le code primaire : 83,3 %** (100/120).
-   - **Jaccard moyen sur l'ensemble des codes : 0,838.**
+1. **Collection.** Five independent collectors (GitHub, Reddit, HN, reviews and reports, demand and use cases) worked read-only, without bypassing any access block (Reddit went through a third-party snapshot site, for lack of direct access). The Reddit and HN collectors recorded no usernames, and the corpus contains none. Items that could not be dated were discarded at collection. The coverage limits of each collector are given in the [README](README.md#5-coverage-and-gaps).
+2. **First coder (LLM).** Each item receives 1 to 3 leaf codes. The primary code is the main need or pain of the statement; the following codes describe explicitly present secondary needs. Parent codes (without `parent`) are never assigned directly; in the final corpus, all codes used are leaves, and all 30 leaves are used. Average: 1.79 codes per item (755 assignments for 421 items).
+3. **Decision rules.**
+   - We code what the statement **says**, not what the cited product does.
+   - `kind = statistic` and the codes `market-adoption-stats`, `wtp-price-points`, `build-vs-buy-switching` and `usecase-*` are **context codes** (market, price, use cases). They are ranked separately from pains in `pains-ranking.md`.
+   - A block presented as a crash or a 500 falls under `silent-false-success` in addition to `access-antibot-ip`. A loop that bills falls under `cost-unpredictable-runaway` in addition to `rel-hang-crash`.
+   - `agent-deterministic-replay` covers the **request** to compile, cache or replay. Complaints about the cost of an agent without this request fall under `agent-token-latency-cost`.
+   - The segment is estimated from the stated context. Lead-generation offers are attached to `seo-marketing`, for lack of a "sales" segment.
+4. **Independent second coder.** They recoded a **stratified sample of 120 items** without looking at the first coder's codes. Results:
+   - **Agreement on the primary code: 83.3%** (100/120).
+   - **Mean Jaccard over the full set of codes: 0.838.**
 
-   Ces taux sont des accords bruts, sans correction du hasard. Un kappa n'a pas été calculé : le codage est multi-étiquettes et le détail des désaccords n'a pas été transmis à cette synthèse.
+   These rates are raw agreements, without chance correction. A kappa was not computed: the coding is multi-label and the detail of the disagreements was not passed on to this synthesis.
 
-   Lecture : l'accord est suffisant pour classer les familles de douleurs. Il ne permet pas de départager des codes dont les scores diffèrent de moins d'environ 15 %.
-5. **Contrôle de sources** (§5). Sur 60 items tirés, on a vérifié l'URL, la date et la fidélité du résumé.
+   Interpretation: the agreement is sufficient to rank pain families. It does not allow separating codes whose scores differ by less than about 15%.
+5. **Source check** (§5). On 60 sampled items, the URL, the date and the faithfulness of the summary were verified.
 
 ## 3. Codes
 
-Le **n** compte les items portant le code, quelle que soit sa position, et le **n primaire** ceux où il vient en premier. Les définitions sont reproduites telles qu'elles ont servi au codage.
+**n** counts the items carrying the code, whatever its position, and **primary n** those where it comes first. The definitions are reproduced as they were used for coding.
 
-| Code | Libellé | Parent | Définition (texte du codage, anglais d'origine) | n | n primaire |
+| Code | Label | Parent | Definition (coding text, original English) | n | primary n |
 | --- | --- | --- | --- | ---: | ---: |
 | `cost-billing` | Cost and billing | — | Parent: complaints and signals about what scraping/automation costs and how it is billed. | — | — |
 | `cost-unpredictable-runaway` | Unpredictable or runaway spend | `cost-billing` | Opaque credits, credit multipliers, surcharges, bandwidth billing, expiring credits, charges on failure, and missing hard spend caps or budgets (including retry loops burning money). | 28 | 24 |
@@ -97,47 +97,47 @@ Le **n** compte les items portant le code, quelle que soit sa position, et le **
 | `build-vs-buy-switching` | Build vs buy and switching | `pricing-wtp` | Moves between DIY, OSS, hosted APIs and platforms, and the reasons given. | 31 | 19 |
 | `market-adoption-stats` | Market size and adoption statistics | `pricing-wtp` | Survey figures, funding, usage volumes, market forecasts, web-access barrier prevalence. | 35 | 23 |
 
-## 4. Mesure d'engagement et pondération
+## 4. Engagement measure and weighting
 
-`engagement` est une valeur brute propre à chaque source :
+`engagement` is a raw value specific to each source:
 
-| Source | Mesure |
+| Source | Measure |
 | --- | --- |
-| Issues et discussions GitHub | Réactions + commentaires (discussions : votes + commentaires) |
-| HN | Points pour une story ; nombre de réponses directes pour un commentaire, car l'API n'expose pas les points des commentaires |
-| Reddit | Nombre de commentaires capturés dans l'instantané (votes non visibles) |
-| Avis | Nombre d'avis de la page agrégée quand l'item résume une page (par exemple `reviews-reports-8` : 969). Une revue individuelle reçoit une petite valeur ou 0 |
-| Rapports, billets, offres | 0 dans la plupart des cas |
+| GitHub issues and discussions | Reactions + comments (discussions: votes + comments) |
+| HN | Points for a story; number of direct replies for a comment, because the API does not expose comment points |
+| Reddit | Number of comments captured in the snapshot (votes not visible) |
+| Reviews | Number of reviews on the aggregated page when the item summarizes a page (for example `reviews-reports-8`: 969). An individual review receives a small value or 0 |
+| Reports, blog posts, offers | 0 in most cases |
 
-Ces valeurs ne sont pas comparables entre sources : 969 avis Trustpilot et 969 réactions GitHub ne mesurent pas la même chose. Le score pondéré de `pains-ranking.md` reste donc **ordinal** :
+These values are not comparable across sources: 969 Trustpilot reviews and 969 GitHub reactions do not measure the same thing. The weighted score in `pains-ranking.md` therefore remains **ordinal**:
 
-`W(code) = Σ_items (1 + ln(1 + engagement)) × 0,5^(âge_en_mois / 6)`
+`W(code) = Σ_items (1 + ln(1 + engagement)) × 0.5^(age_in_months / 6)`
 
-L'âge est compté en jours depuis le 2026-10-08, divisé par 30,4375. Une date `YYYY-MM` est prise au 1er du mois, ce qui la rend légèrement plus ancienne et donc moins pondérée. Le logarithme limite l'effet des agrégats d'avis sans le supprimer. Deux variantes de sensibilité sont publiées à côté : sans les items `promo` ou `vendor_affiliated`, et avec un engagement plafonné à 50.
+Age is counted in days since 2026-10-08, divided by 30.4375. A `YYYY-MM` date is taken as the 1st of the month, which makes it slightly older and therefore less heavily weighted. The logarithm limits the effect of review aggregates without eliminating it. Two sensitivity variants are published alongside: without the `promo` or `vendor_affiliated` items, and with engagement capped at 50.
 
-## 5. Contrôle des sources et règles d'exclusion
+## 5. Source check and exclusion rules
 
-**Contrôle :** 60 items vérifiés, un par un, sur trois critères : URL accessible, date de l'énoncé, fidélité du résumé.
+**Check:** 60 items verified, one by one, on three criteria: accessible URL, date of the statement, faithfulness of the summary.
 
-- 52 items ont passé le contrôle (`source_checked: true`). Huit d'entre eux portent une note `check_note`, le plus souvent une réserve mineure : généralisation d'un seul auteur (`github-94`), qualificatif non établi (`demand-use-cases-4`, `demand-use-cases-15`), cause supposée par l'auteur (`github-115`), entre autres.
-- **8 échecs, soit 13,3 %, tous exclus du corpus :**
+- 52 items passed the check (`source_checked: true`). Eight of them carry a `check_note`, most often a minor reservation: generalization from a single author (`github-94`), unestablished qualifier (`demand-use-cases-4`, `demand-use-cases-15`), cause assumed by the author (`github-115`), among others.
+- **8 failures, i.e. 13.3%, all excluded from the corpus:**
 
-| Item exclu | Motif |
+| Excluded item | Reason |
 | --- | --- |
-| `github-4` | Résumé infidèle : « pas de correctif » est faux. L'auteur a ensuite identifié une course avec la nouvelle file de priorité par défaut et l'a contournée |
-| `reddit-5`, `reddit-10`, `reddit-23`, `reddit-69`, `reddit-71` | Date : la date de l'instantané a été prise pour celle du post, alors que le post est antérieur de 4 à environ 102 jours |
-| `reviews-reports-4`, `reviews-reports-6` | Date : le mois de l'avis ne peut pas être confirmé sur la page |
+| `github-4` | Unfaithful summary: "no fix" is false. The author later identified a race with the new default priority queue and worked around it |
+| `reddit-5`, `reddit-10`, `reddit-23`, `reddit-69`, `reddit-71` | Date: the snapshot date was taken as the post date, whereas the post is 4 to about 102 days older |
+| `reviews-reports-4`, `reviews-reports-6` | Date: the month of the review cannot be confirmed on the page |
 
-**Règles d'exclusion appliquées :**
+**Exclusion rules applied:**
 
-1. Un échec au contrôle de source entraîne l'exclusion, même si le contenu est fidèle.
-2. Un item sans date fiable est écarté dès la collecte. Les notes des collecteurs listent les items ainsi écartés : un taux d'échec Browserbase non daté, des tarifs de prestataires sans date, etc.
-3. Une citation de 15 mots ou plus est retirée, sans exclure l'item. Deux citations ont été retirées (`reddit-20`, `reddit-76`).
-4. Les contenus promotionnels ou affiliés à un éditeur sont **conservés et marqués**. Le classement est publié avec et sans eux. Sur 421 items, 98 sont `promo` ou `vendor_affiliated` (75 `promo`, 95 `vendor_affiliated`).
-5. Aucun nom d'utilisateur ni aucune donnée personnelle n'est conservé.
+1. A failed source check leads to exclusion, even if the content is faithful.
+2. An item without a reliable date is discarded at collection. The collectors' notes list the items discarded this way: an undated Browserbase failure rate, undated provider rates, etc.
+3. A quotation of 15 words or more is removed, without excluding the item. Two quotations were removed (`reddit-20`, `reddit-76`).
+4. Promotional or vendor-affiliated content is **kept and flagged**. The ranking is published with and without it. Out of 421 items, 98 are `promo` or `vendor_affiliated` (75 `promo`, 95 `vendor_affiliated`).
+5. No username or personal data is kept.
 
-**Biais résiduel identifié :** pour Reddit, 5 des 12 items contrôlés avaient une date d'instantané postérieure à la date réelle du post. Les 68 items Reddit conservés portent la date d'instantané et peuvent donc être **plus anciens qu'indiqué**, jusqu'à environ trois mois. Leur poids de récence peut être surestimé d'un facteur allant jusqu'à environ 1,5. Test de sensibilité : en divisant par 1,47 le poids de tous les items Reddit, on retrouve les mêmes dix codes de douleur en tête ; seuls les rangs 3 à 5 permutent (voir `pains-ranking.md`, §3).
+**Identified residual bias:** for Reddit, 5 of the 12 checked items had a snapshot date later than the actual post date. The 68 retained Reddit items carry the snapshot date and may therefore be **older than indicated**, by up to about three months. Their recency weight may be overestimated by a factor of up to about 1.5. Sensitivity test: dividing the weight of all Reddit items by 1.47 yields the same ten pain codes at the top; only ranks 3 to 5 swap (see `pains-ranking.md`, §3).
 
-## 6. Évolution du codebook
+## 6. Codebook evolution
 
-Toute modification d'un code (ajout, fusion ou nouvelle définition) entraîne une nouvelle version : recodage complet par le premier codeur, nouvel échantillon de 120 items pour le second, nouveau contrôle de 60 sources. Les classements ne peuvent pas comparer deux versions du codebook.
+Any change to a code (addition, merge or new definition) triggers a new version: full recoding by the first coder, a new sample of 120 items for the second, a new check of 60 sources. Rankings cannot compare two versions of the codebook.

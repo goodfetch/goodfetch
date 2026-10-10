@@ -1,6 +1,6 @@
 {
   "id": "C-zero-false-success",
-  "statement": "Le pilote Automan ne produit aucun faux succès sur la matrice d'actionnabilité, là où des primitives natives concurrentes en produisent.",
+  "statement": "The Automan driver produces no false successes on the actionability matrix, where competing native primitives do.",
   "decisionId": "D-browser-driver",
   "metricId": "false-success-count",
   "comparator": {
@@ -14,5 +14,5 @@
   "publicationHostClass": "local-controlled",
   "status": "candidate",
   "evidence": [],
-  "notes": "Comparer aussi les primitives natives non gardées des concurrents, déclarées comme telles."
+  "notes": "Also compare competitors' unguarded native primitives, declared as such."
 }

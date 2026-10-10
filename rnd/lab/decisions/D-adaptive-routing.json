@@ -1,29 +1,29 @@
 {
   "id": "D-adaptive-routing",
-  "title": "HTTP adaptatif fondé sur le résultat",
-  "question": "Pour une route nouvelle, comment le moteur choisit-il entre HTTP, navigateur et API découverte sans faux succès et au moindre coût sur les runs suivants (architecture §5.3) ?",
+  "title": "Result-driven adaptive HTTP",
+  "question": "For a new route, how does the engine choose between HTTP, the browser and a discovered API without false successes and at the lowest cost over subsequent runs (architecture §5.3)?",
   "kind": "technical",
   "status": "open",
   "options": [
     {
       "id": "browser-only",
-      "description": "Toujours le navigateur, page stabilisée (réseau calme, défilement et « load more » jusqu'à stabilité)"
+      "description": "Always the browser, with the page stabilized (quiet network, scrolling and \"load more\" until stable)"
     },
     {
       "id": "sampled-contract",
-      "description": "Premier passage d'une route : HTTP et navigateur sur la première page ; HTTP retenu s'il donne les mêmes enregistrements et liens ; total déclaré vérifié en fin de route, sinon route réapprise en navigateur"
+      "description": "First pass over a route: HTTP and browser on the first page; HTTP is kept if it yields the same records and links; declared total checked at the end of the route, otherwise the route is relearned in the browser"
     },
     {
       "id": "api-capture",
-      "description": "Comme sampled-contract ; si le navigateur est requis, plan de rejeu d'API inféré du trafic JSON de l'échantillon (paramètre de page ou chaîne de curseurs), validé contre le navigateur avant usage"
+      "description": "Like sampled-contract; if the browser is required, an API replay plan inferred from the sample's JSON traffic (page parameter or cursor chain), validated against the browser before use"
     },
     {
       "id": "heuristic",
-      "description": "HTTP, puis navigateur si la page HTTP ne contient aucun enregistrement"
+      "description": "HTTP, then the browser if the HTTP page contains no records"
     },
     {
       "id": "http-only",
-      "description": "HTTP seul"
+      "description": "HTTP only"
     }
   ],
   "baseline": "browser-only",
@@ -61,7 +61,7 @@
     {
       "kind": "run",
       "ref": "portal-routing-2026-10-10T02-47-13-937Z-4adc3c",
-      "note": "six rendus, cinq politiques ; Mac calme"
+      "note": "six renderings, five policies; quiet Mac"
     },
     {
       "kind": "research-doc",
@@ -78,7 +78,7 @@
     "D-browser-driver",
     "D-identity"
   ],
-  "notes": "Un job récurrent : ce qu'une route a appris est réutilisé aux runs suivants, avec le total déclaré comme événement d'invalidation. Le gate porte sur toutes les variantes d'une option : une seule page où elle rend un résultat faux la bloque.",
+  "notes": "A recurring job: what a route has learned is reused in subsequent runs, with the declared total as the invalidation event. The gate covers all variants of an option: a single page where it returns a wrong result blocks it.",
   "analysis": {
     "lane": "portal",
     "options": {

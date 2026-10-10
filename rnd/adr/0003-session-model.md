@@ -1,45 +1,45 @@
-# ADR-003 : modèle de session authentifiée longue
+# ADR-003: long authenticated session model
 
-**Statut : proposé, sur verdict mécanique du lab ; à adopter explicitement par le porteur du projet.**
-**Date : 9 octobre 2026.**
-**Décision finale : utilisateur / porteur du projet.**
-**Décision du registre : `D-session-model` ; verdict `lab/verdicts/D-session-model.json` ; rapport `lab/reports/portal-2026-10-09.md`.**
+**Status: proposed, based on the lab's mechanical verdict; to be explicitly adopted by the project owner.**
+**Date: October 9, 2026.**
+**Final decision: user / project owner.**
+**Registry decision: `D-session-model`; verdict `lab/verdicts/D-session-model.json`; report `lab/reports/portal-2026-10-09.md`.**
 
-## Contexte
+## Context
 
-Le segment des portails B2B repose sur des sessions authentifiées longues : un login à jeton CSRF, des sessions qui expirent, des refresh tokens, des runs interrompus puis repris. L'architecture fixe déjà plusieurs règles. La session porte une identité, des cookies, un backend propriétaire et un lease ([architecture §2.1](../proposals/architecture.md:59)), et le pool de sessions gère expiration, refresh et quarantaine ([§4.1](../proposals/architecture.md:143)). Les sessions expirées ne sont pas réutilisées aveuglément ([§2.2](../proposals/architecture.md:83)). Une politique distingue l'authentification expirée des autres causes, sous un budget de tentatives unique ([§3.4](../proposals/architecture.md:125)). L'ADR-002 impose un seul profil d'identité par session, entre HTTP et navigateur.
+The B2B portals segment relies on long authenticated sessions: a login with a CSRF token, sessions that expire, refresh tokens, runs interrupted then resumed. The architecture already sets several rules. The session carries an identity, cookies, an owning backend and a lease ([architecture §2.1](../proposals/architecture.md:59)), and the session pool manages expiration, refresh and quarantine ([§4.1](../proposals/architecture.md:143)). Expired sessions are not blindly reused ([§2.2](../proposals/architecture.md:83)). A policy distinguishes expired authentication from other causes, under a single attempt budget ([§3.4](../proposals/architecture.md:125)). ADR-002 imposes a single identity profile per session, across HTTP and browser.
 
-Restait à décider comment le moteur détecte la perte de session et ce qu'il garde d'un run à l'autre. La lane `portal` du lab a comparé trois politiques sur cinq situations, en HTTP et dans le navigateur, contre un site dont l'oracle compte enregistrements et logins (`portal-sessions-2026-10-09T15-26-01-462Z-3f0b51`, 5 blocs).
+What remained to be decided was how the engine detects session loss and what it keeps from one run to the next. The lab's `portal` lane compared three policies on five situations, over HTTP and in the browser, against a site whose oracle counts records and logins (`portal-sessions-2026-10-09T15-26-01-462Z-3f0b51`, 5 blocks).
 
-## Décision
+## Decision
 
-1. **Chaque page d'une session est jugée sur le contrat de la recette, jamais sur le seul statut HTTP.**
-   - La page attendue (le listing authentifié) est un succès.
-   - Un formulaire de login reconnu est une session perdue.
-   - Toute autre page arrête la tâche avec `E_CONTRACT`.
-2. **L'état de session fait partie du journal du run.** Cookies, curseur et enregistrements déjà validés y sont écrits, et un nouveau processus ou un nouveau contexte navigateur les reprend. L'état repris est revalidé sur la première page. S'il est refusé, par révocation ou par expiration, le moteur se reconnecte une fois.
-3. **La recette déclare la récupération de session** : endpoint et cookie de refresh, puis login avec une référence d'identifiants. La récupération consomme le budget de tentatives commun ; deux récupérations au plus par page.
-4. L'import et l'export d'une session restent des opérations distinctes de l'export du plan. Les cookies du journal ont le périmètre tenant et identité de la session ([§8.3](../proposals/architecture.md:318)).
+1. **Each page of a session is judged against the recipe's contract, never on the HTTP status alone.**
+   - The expected page (the authenticated listing) is a success.
+   - A recognized login form is a lost session.
+   - Any other page stops the task with `E_CONTRACT`.
+2. **The session state is part of the run journal.** Cookies, cursor and already validated records are written to it, and a new process or a new browser context resumes them. The resumed state is revalidated on the first page. If it is refused, through revocation or expiration, the engine logs in again once.
+3. **The recipe declares session recovery**: refresh endpoint and cookie, then login with a credentials reference. Recovery consumes the common attempt budget; at most two recoveries per page.
+4. Importing and exporting a session remain operations distinct from exporting the plan. The journal's cookies have the session's tenant and identity scope ([§8.3](../proposals/architecture.md:318)).
 
-## Preuves
+## Evidence
 
-| Politique | Faux succès | Logins par run repris | Verdict (logins, contre `relogin-each-run`) |
+| Policy | False successes | Logins per resumed run | Verdict (logins, against `relogin-each-run`) |
 | --- | --- | --- | --- |
-| `contract` (journal + contrat de page) | 0 | 1 | **meilleur**, ratio 0,50, 5/5 blocs, en HTTP et dans le navigateur |
-| `relogin-each-run` (contrat, sans état repris) | 0 | 2 | référence |
-| `status-only` (état repris, statut HTTP) | 20/20 sur l'expiration servie en `200` | 1 | **bloqué par le contrat** (`oracle-exact`) |
+| `contract` (journal + page contract) | 0 | 1 | **better**, ratio 0.50, 5/5 blocks, over HTTP and in the browser |
+| `relogin-each-run` (contract, without resumed state) | 0 | 2 | reference |
+| `status-only` (resumed state, HTTP status) | 20/20 on the expiration served as `200` | 1 | **blocked by the contract** (`oracle-exact`) |
 
-- Quand le portail répond `200` avec son formulaire de login à l'URL d'un rapport, `status-only` lit une page vide et déclare le crawl fini : 20 ou 40 enregistrements manquent selon le tier.
-- Reprendre l'état journalisé évite un login à chaque redémarrage. Une session révoquée pendant l'arrêt est détectée à la première page et coûte un seul login, sans perte ni doublon.
-- Les logins sont comptés par le site et ne dépendent pas de l'hôte : la décision peut se prendre en `local-dev`. Les durées, indicatives, ne servent pas au verdict.
+- When the portal responds `200` with its login form at the URL of a report, `status-only` reads an empty page and declares the crawl finished: 20 or 40 records are missing depending on the tier.
+- Resuming the journaled state avoids a login on every restart. A session revoked during the stop is detected on the first page and costs a single login, without loss or duplicate.
+- Logins are counted by the site and do not depend on the host: the decision can be made in `local-dev`. The durations, which are indicative, are not used for the verdict.
 
-## Conséquences
+## Consequences
 
-- Le schéma de recette porte un **contrat de page de session**, un marqueur d'authentification et la forme attendue du listing, ainsi qu'une **politique de récupération**.
-- Le journal d'un run stocke l'état de session chiffré au repos, avec la même rétention et les mêmes droits que les traces ([§8.3](../proposals/architecture.md:318)).
-- La documentation montre ce cas en exemple : un portail qui renvoie `200` à l'expiration est le piège le plus courant.
+- The recipe schema carries a **session page contract**, an authentication marker and the expected shape of the listing, as well as a **recovery policy**.
+- A run's journal stores the session state encrypted at rest, with the same retention and the same rights as the traces ([§8.3](../proposals/architecture.md:318)).
+- The documentation shows this case as an example: a portal that returns `200` on expiration is the most common trap.
 
-## Limites
+## Limitations
 
-- Fixtures synthétiques. MFA, SSO et jetons liés à l'appareil ne sont pas couverts ; ils relèvent d'une reprise avec intervention humaine (`needs_review`).
-- Un seul compte par session. La rotation de comptes n'est pas traitée ici.
+- Synthetic fixtures. MFA, SSO and device-bound tokens are not covered; they fall under a resumption with human intervention (`needs_review`).
+- A single account per session. Account rotation is not addressed here.

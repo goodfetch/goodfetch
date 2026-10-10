@@ -1,6 +1,6 @@
 {
   "id": "C-cpu-ram-per-job",
-  "statement": "Le noyau Automan consomme moins de CPU par job vérifié que le noyau Node de référence, à débit et garanties égaux.",
+  "statement": "The Automan core consumes less CPU per verified job than the reference Node core, at equal throughput and guarantees.",
   "decisionId": "D-core-language",
   "metricId": "cpu-ms-per-verified-job",
   "comparator": {

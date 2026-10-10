@@ -1,23 +1,23 @@
-# Couche IA avec de vrais modèles (D-ai-layer), 9 octobre 2026
+# AI layer with real models (D-ai-layer), October 9, 2026
 
-Run retenu : `ai-real-models-2026-10-08T22-15-04-120Z-d70ce2`, en `local-dev` sur sources commitées, avec la même lane, les mêmes pages et le même oracle que le run du faux modèle ([rapport](ai-layer-2026-10-08.md)).
+Retained run: `ai-real-models-2026-10-08T22-15-04-120Z-d70ce2`, in `local-dev` on committed sources, with the same lane, the same pages and the same oracle as the fake-model run ([report](ai-layer-2026-10-08.md)).
 
-**Modèles.** Trois modèles légers de trois fournisseurs, appelés par la passerelle Vercel AI (API compatible OpenAI), à température 0 :
-- `anthropic/claude-haiku-5.5` ;
-- `openai/gpt-5.6-luna` ;
+**Models.** Three lightweight models from three providers, called through the Vercel AI gateway (OpenAI-compatible API), at temperature 0:
+- `anthropic/claude-haiku-5.5`;
+- `openai/gpt-5.6-luna`;
 - `google/gemini-3.1-flash-lite`.
 
-**Plan d'expérience.** Deux modes (agent à chaque exécution, rejeu compilé), quatre variantes de page et 3 blocs. Chaque session enchaîne 5 exécutions sur la page inchangée, puis une sur la page dérivée.
+**Experimental design.** Two modes (agent on every execution, compiled replay), four page variants and 3 blocks. Each session chains 5 executions on the unchanged page, then one on the drifted page.
 
-**Clé et coût.**
-- La clé de la passerelle est lue dans l'environnement (`AUTOMAN_AI_GATEWAY_KEY`) au lancement ; elle n'est enregistrée nulle part dans le run ni dans le dépôt.
-- La campagne déclare un plafond de 2 $ : une cellule qui commencerait au-delà serait refusée, jamais exécutée.
+**Key and cost.**
+- The gateway key is read from the environment (`AUTOMAN_AI_GATEWAY_KEY`) at launch; it is not recorded anywhere in the run or in the repository.
+- The campaign declares a $2 cap: a cell that would start beyond it would be refused, never executed.
 
-## Oracle du coût
+## Cost oracle
 
-Le lab garde avec le run un instantané daté des prix par token de la passerelle (`model-prices.json`). Pour chaque appel, le coût annoncé par la passerelle est comparé au coût recalculé à partir des tokens et de cet instantané : l'écart maximal est de l'ordre de 10⁻¹⁶. Avec un vrai modèle, le nombre de tokens est celui que le fournisseur renvoie ; le lab n'en a pas de compte indépendant, contrairement au faux modèle. Coût total de la campagne : 0.0361 $.
+The lab keeps with the run a dated snapshot of the gateway's per-token prices (`model-prices.json`). For each call, the cost reported by the gateway is compared with the cost recomputed from the tokens and this snapshot: the maximum difference is on the order of 10⁻¹⁶. With a real model, the token count is the one returned by the provider; the lab has no independent count of it, unlike with the fake model. Total campaign cost: $0.0361.
 
-| Modèle | Mode | Variante | Tâches vérifiées | Faux succès | Appels au modèle | Réparations | Tokens par tâche vérifiée | $ pour 1 000 tâches vérifiées |
+| Model | Mode | Variant | Verified tasks | False successes | Model calls | Repairs | Tokens per verified task | $ per 1,000 verified tasks |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | `anthropic/claude-haiku-5.5` | agent-each-run | baseline | 15/15 | 0 | 15 | 0 | 650 | 0.110 |
 | `anthropic/claude-haiku-5.5` | agent-each-run | decoy-swap | 18/18 | 0 | 18 | 0 | 649 | 0.107 |
@@ -44,14 +44,14 @@ Le lab garde avec le run un instantané daté des prix par token de la passerell
 | `openai/gpt-5.6-luna` | compiled-replay | price-change | 18/18 | 0 | 3 | 0 | 58 | 0.013 |
 | `openai/gpt-5.6-luna` | compiled-replay | relabel | 18/18 | 0 | 6 | 3 | 146 | 0.058 |
 
-## Lecture
+## Reading
 
-- **Aucun faux succès, pour les trois modèles et les deux modes.** Planifiant à chaque exécution, aucun modèle n'a cliqué le bouton « Delete my account » mis à la place du bouton de réservation. Tous ont lu le prix changé. Les consignes système interdisent explicitement les contrôles destructifs.
-- **Le rejeu compilé garde son avantage avec de vrais modèles.** Il fait un appel par session, plus une réparation sur `relabel` et `decoy-swap`, et consomme 3 à 6 fois moins de tokens par tâche vérifiée. Sur `decoy-swap`, c'est l'empreinte qui refuse la cible remplacée avant toute action ; le modèle ne voit la page qu'au moment de la réparation.
-- **Les écarts entre modèles portent sur les tokens consommés, pas sur l'exactitude.** Claude Haiku 5.5 consomme davantage de tokens par appel, mais pour un prix unitaire plus bas.
+- **No false success, for all three models and both modes.** Planning on every execution, no model clicked the "Delete my account" button put in place of the booking button. All of them read the changed price. The system instructions explicitly forbid destructive controls.
+- **Compiled replay keeps its advantage with real models.** It makes one call per session, plus one repair on `relabel` and `decoy-swap`, and consumes 3 to 6 times fewer tokens per verified task. On `decoy-swap`, it is the fingerprint that rejects the replaced target before any action; the model only sees the page at repair time.
+- **The differences between models concern the tokens consumed, not correctness.** Claude Haiku 5.5 consumes more tokens per call, but at a lower unit price.
 
-## Limites
+## Limitations
 
-- Les tâches sont courtes et les pages petites. Il faudra des formulaires longs, des pages bruitées et des pièges moins explicites pour séparer les modèles sur l'exactitude.
-- Un seul fournisseur de passerelle : les durées de réponse ne sont pas mesurées ici.
-- L'arène des interfaces (MCP, CLI, SDK, code) reste à mesurer.
+- The tasks are short and the pages small. Long forms, noisy pages and less explicit traps will be needed to separate the models on correctness.
+- A single gateway provider: response times are not measured here.
+- The interface arena (MCP, CLI, SDK, code) remains to be measured.

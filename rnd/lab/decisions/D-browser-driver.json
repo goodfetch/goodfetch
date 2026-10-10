@@ -1,41 +1,41 @@
 {
   "id": "D-browser-driver",
-  "title": "Pilote navigateur par défaut",
-  "question": "Quel pilote Chromium sert de backend par défaut, à garanties d'actionnabilité égales ?",
+  "title": "Default browser driver",
+  "question": "Which Chromium driver serves as the default backend, with equal actionability guarantees?",
   "kind": "technical",
   "status": "open",
   "options": [
     {
       "id": "rust-cdp-guarded",
-      "description": "Pilote CDP Rust avec garde Automan",
+      "description": "Rust CDP driver with the Automan guard",
       "adapters": [
         "rust-cdp"
       ]
     },
     {
       "id": "node-cdp-guarded",
-      "description": "Référence CDP directe Node avec la même garde",
+      "description": "Direct Node CDP reference with the same guard",
       "adapters": [
         "node-cdp"
       ]
     },
     {
       "id": "puppeteer-guarded",
-      "description": "Puppeteer avec garde",
+      "description": "Puppeteer with guard",
       "adapters": [
         "puppeteer"
       ]
     },
     {
       "id": "playwright-native",
-      "description": "Playwright, garanties natives",
+      "description": "Playwright, native guarantees",
       "adapters": [
         "playwright"
       ]
     },
     {
       "id": "stagehand-v4",
-      "description": "Stagehand v4 primitives et batch",
+      "description": "Stagehand v4 primitives and batch",
       "adapters": [
         "stagehand",
         "stagehand-batch"
@@ -106,12 +106,12 @@
     {
       "kind": "run",
       "ref": "browser-actionability-2026-10-07T23-38-33-163Z-ccad1f",
-      "note": "matrice native"
+      "note": "native matrix"
     },
     {
       "kind": "run",
       "ref": "browser-actionability-2026-10-08T00-21-16-186Z-b21a28",
-      "note": "garde corrigée"
+      "note": "fixed guard"
     },
     {
       "kind": "run",
@@ -136,37 +136,37 @@
     {
       "kind": "run",
       "ref": "browser-navigation-frames-files-2026-10-08T16-44-06-166Z-d35973",
-      "note": "navigation, iframes, fichiers"
+      "note": "navigation, iframes, files"
     },
     {
       "kind": "run",
       "ref": "browser-actionability-extended-2026-10-08T16-46-59-186Z-c5a02a",
-      "note": "matrice étendue, garde v2"
+      "note": "extended matrix, guard v2"
     },
     {
       "kind": "run",
       "ref": "browser-driver-primitives-2026-10-08T16-56-23-563Z-6a0bbd",
-      "note": "primitives, garde v2"
+      "note": "primitives, guard v2"
     },
     {
       "kind": "run",
       "ref": "browser-driver-rtt-0-2026-10-09T23-21-22-913Z-2bbed1",
-      "note": "pilotes à 0 ms, Mac calme, 8 blocs propres sur 8"
+      "note": "drivers at 0 ms, quiet Mac, 8 clean blocks out of 8"
     },
     {
       "kind": "run",
       "ref": "browser-driver-rtt-20-2026-10-09T23-53-33-623Z-3dd31a",
-      "note": "pilotes à 20 ms, Mac calme, 7 blocs propres sur 8"
+      "note": "drivers at 20 ms, quiet Mac, 7 clean blocks out of 8"
     },
     {
       "kind": "run",
       "ref": "browser-driver-rtt-100-2026-10-10T00-17-31-377Z-ae1e25",
-      "note": "pilotes à 100 ms, Mac calme, 5 blocs propres sur 6 ; Playwright natif 2 timeouts sur le catalogue JS"
+      "note": "drivers at 100 ms, quiet Mac, 5 clean blocks out of 6; native Playwright 2 timeouts on the JS catalog"
     },
     {
       "kind": "run",
       "ref": "browser-driver-rtt-300-2026-10-10T03-02-31-508Z-5366fd",
-      "note": "pilotes à 300 ms, Mac calme, 4 blocs propres sur 6"
+      "note": "drivers at 300 ms, quiet Mac, 4 clean blocks out of 6"
     },
     {
       "kind": "research-doc",
@@ -176,7 +176,7 @@
   "verdictRef": "verdicts/D-browser-driver.json",
   "adr": null,
   "dependsOn": [],
-  "notes": "La référence CDP directe en Node sépare l'effet du langage de celui du protocole. Aucun verdict de vitesse tant que la matrice d'actionnabilité étendue n'est pas entièrement conforme. Strate principale : le formulaire sans latence, la tâche la plus riche en actions ; chaque scénario à chaque RTT est comparé séparément, pour ne pas mélanger des effets de sens opposé.",
+  "notes": "The direct Node CDP reference separates the effect of the language from that of the protocol. No speed verdict until the extended actionability matrix is fully conformant. Primary stratum: the form with no latency, the most action-rich task; each scenario at each RTT is compared separately, so as not to mix effects in opposite directions.",
   "analysis": {
     "lane": "bench",
     "options": {

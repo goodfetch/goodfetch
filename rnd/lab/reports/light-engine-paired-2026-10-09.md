@@ -1,40 +1,40 @@
-# Moteur léger contre Chrome, apparié dans un même run (D-light-engine), 9 octobre 2026
+# Light engine versus Chrome, paired within the same run (D-light-engine), October 9, 2026
 
-Jusqu'ici, Lightpanda et Chrome tournaient dans des runs séparés : le verdict, qui apparie les blocs à l'intérieur d'un run, n'avait rien à comparer. Une campagne bench peut désormais lister plusieurs navigateurs harnais (`browserHosts`). Chaque pilote tourne alors une fois par navigateur et par bloc, dans un ordre tiré au sort, et le navigateur devient un facteur de la cellule.
+Until now, Lightpanda and Chrome ran in separate runs: the verdict, which pairs blocks within a run, had nothing to compare. A bench campaign can now list several harness browsers (`browserHosts`). Each driver then runs once per browser and per block, in a randomized order, and the browser becomes a factor of the cell.
 
-Run : `light-engine-paired-2026-10-09T16-29-54-931Z-c62471`, `local-dev`. Il couvre 4 pilotes, 5 scénarios, 5 blocs et 5 itérations, avec la garde Automan sur les pilotes CDP et Puppeteer, et Playwright natif.
+Run: `light-engine-paired-2026-10-09T16-29-54-931Z-c62471`, `local-dev`. It covers 4 drivers, 5 scenarios, 5 blocks and 5 iterations, with the Automan guard on the CDP and Puppeteer drivers, and native Playwright.
 
-## Résultats
+## Results
 
-CPU et mémoire du pilote et du navigateur ensemble, par pilote, en médiane sur les blocs :
+CPU and memory of the driver and the browser together, per driver, median across blocks:
 
-| Pilote | CPU par tâche, Chrome (ms) | CPU par tâche, Lightpanda (ms) | Rapport | RSS max, Chrome | RSS max, Lightpanda |
+| Driver | CPU per task, Chrome (ms) | CPU per task, Lightpanda (ms) | Ratio | Max RSS, Chrome | Max RSS, Lightpanda |
 | --- | --- | --- | --- | --- | --- |
-| `rust-cdp` | 1243 | 58 | 0,05 | 2860 Mio | 43 Mio |
-| `node-cdp` | 1289 | 97 | 0,07 | 2830 Mio | 93 Mio |
-| `puppeteer` | 1209 | 145 | 0,12 | 2911 Mio | 116 Mio |
-| `playwright` | 3296 | 190 | 0,06 | 1788 Mio | 203 Mio |
+| `rust-cdp` | 1243 | 58 | 0.05 | 2860 MiB | 43 MiB |
+| `node-cdp` | 1289 | 97 | 0.07 | 2830 MiB | 93 MiB |
+| `puppeteer` | 1209 | 145 | 0.12 | 2911 MiB | 116 MiB |
+| `playwright` | 3296 | 190 | 0.06 | 1788 MiB | 203 MiB |
 
-Statuts par scénario :
+Statuses per scenario:
 
-| Scénario | Chrome | Lightpanda |
+| Scenario | Chrome | Lightpanda |
 | --- | --- | --- |
-| `http-catalog`, `js-catalog`, `form`, `clicks` | vérifiés, tous pilotes | vérifiés, tous pilotes |
-| `shadow` | vérifié ; Puppeteer `unsupported` | **échec** (timeout) pour `rust-cdp`, `node-cdp` et Playwright ; Puppeteer `unsupported` |
+| `http-catalog`, `js-catalog`, `form`, `clicks` | verified, all drivers | verified, all drivers |
+| `shadow` | verified; Puppeteer `unsupported` | **failure** (timeout) for `rust-cdp`, `node-cdp` and Playwright; Puppeteer `unsupported` |
 
-Sur les catalogues, une tâche dure 3 à 10 ms avec Lightpanda contre 60 à 170 ms avec Chrome. Sur les formulaires et les clics, la durée est dominée par les attentes de la garde, et l'écart se réduit (170 à 240 ms contre 260 à 415 ms).
+On the catalogs, a task takes 3 to 10 ms with Lightpanda versus 60 to 170 ms with Chrome. On forms and clicks, the duration is dominated by the guard's waits, and the gap narrows (170 to 240 ms versus 260 to 415 ms).
 
-## Verdict mécanique
+## Mechanical verdict
 
-D-light-engine est **bloqué par le contrat** (`oracle-exact`) : le shadow DOM échoue sur Lightpanda. Le gate porte sur toute la matrice, si bien qu'un scénario incompatible bloque l'option, quels que soient ses chiffres sur le reste.
+D-light-engine is **blocked by the contract** (`oracle-exact`): shadow DOM fails on Lightpanda. The gate covers the whole matrix, so an incompatible scenario blocks the option, whatever its figures on the rest.
 
-## Ce que cela dit pour l'architecture
+## What this says for the architecture
 
-- Lightpanda ne peut pas être le moteur par défaut : il ne couvre pas tout le contrat d'actionnabilité.
-- Sur un corpus compatible, il coûte 8 à 20 fois moins de CPU et 15 à 65 fois moins de mémoire. C'est l'ordre de grandeur qui justifie un **tier choisi par capacités**. Comme le prévoit l'architecture (§5.2), `capabilities()` et le manifeste du workflow déclarent ce qu'une tâche exige, et le moteur choisit le backend avant de créer la session, jamais en cours de route.
-- La route apprise du routage adaptatif peut porter ce choix au même titre que HTTP, navigateur ou API : une route compatible validée sur échantillon passe au moteur léger.
+- Lightpanda cannot be the default engine: it does not cover the whole actionability contract.
+- On a compatible corpus, it costs 8 to 20 times less CPU and 15 to 65 times less memory. That is the order of magnitude that justifies a **tier chosen by capabilities**. As the architecture provides (§5.2), `capabilities()` and the workflow manifest declare what a task requires, and the engine chooses the backend before creating the session, never midway.
+- The learned route of adaptive routing can carry this choice just like HTTP, browser or API: a compatible route validated on a sample moves to the light engine.
 
-## Limites
+## Limitations
 
-- Hôte `local-dev` : CPU et durées indicatifs ; le verdict demande `local-controlled`.
-- La matrice d'actionnabilité sur Lightpanda (`light-engine-actionability-…1d5ca3`) ne porte pas l'hôte comme facteur. Elle reste lue dans son propre rapport, et le gate `false-success-count` est retiré de la décision.
+- `local-dev` host: CPU and durations are indicative; the verdict requires `local-controlled`.
+- The actionability matrix on Lightpanda (`light-engine-actionability-…1d5ca3`) does not carry the host as a factor. It is still read in its own report, and the `false-success-count` gate is removed from the decision.

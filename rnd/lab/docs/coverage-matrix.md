@@ -1,43 +1,43 @@
-# Matrice de qualification
+# Qualification matrix
 
-Cette matrice garde distincts le code opérationnel, les fixtures non qualifiées et les expériences à ajouter. Le périmètre « tout » est un programme extensible ; aucune ligne future n'est présentée comme déjà testée.
+This matrix keeps operational code, unqualified fixtures and experiments to be added distinct. The "everything" scope is an extensible program; no future row is presented as already tested.
 
-| Famille | Opérationnel dans ce lab | Prochaine qualification / décision |
+| Family | Operational in this lab | Next qualification / decision |
 | --- | --- | --- |
-| Acquisition HTTP | Pagination, exactitude des records, fraîcheur par seed, pool Crawlee, Website Spider, fetch natif ; redirect/gzip/chunked/grandes réponses contrôlés ; redirection loopback Spider refusée par sa politique SSRF | TLS/HTTP2, streaming sans matérialisation, Impit, 429/503, Retry-After, proxy |
-| Rendu JS | Catalogue asynchrone ; conformité indépendante | SPA complexes, hydration, service workers, réseau bloqué, fallback adaptatif qualifié |
-| Navigation | `domcontentloaded` + condition de contenu | back/forward, redirect, popup, nouvelle target, long polling, navigation abandonnée |
-| Clics | 5/50 actions, effets ordonnés, overlay et postconditions ; batch Stagehand ; campagnes native/gardée exécutées sur 9 variantes dont cible bloquée/ambiguë | actionnabilité sur corpus indépendant, coordinates, stale reference entre garde et action, cancellation avec effet partiel |
-| Saisie | fill, select, checkbox, événement input et effet serveur | press/type détaillé, IME, contenteditable, clavier/raccourcis, changement de validation |
-| DOM | Extraction et comptage des nodes ; re-render avant interaction | Grands DOM paramétrés, mutation entre résolution et clic, snapshot DOM intégral, AX, références sémantiques |
-| Frames/shadow | Shadow ouvert ; routes iframe disponibles | Adapter iframe same-origin puis OOPIF/cross-origin ; shadow fermé et slots |
-| Média/fichiers | Route download et oracle de bytes disponibles | Adapter événement download, upload, screenshots (bytes + oracle visuel), PDF |
-| Sessions | Page neuve, cookies/profile policies documentées | Contextes indépendants équivalents, login, cookies/storage, reuse/cold, fuite entre tenants |
-| Concurrence | Closed loop, open loop, admission bornée, rejets visibles, plusieurs processus writers | Courbe capacité C1/4/16/64, queues, priorité, backpressure vers sink, fairness multi-domaines |
-| Écriture JSON | JSONL buffered/sync, snapshot entier sync + rename | Encodeur seul vs sink seul, streaming sans matérialisation, gros records, gzip/zstd, fichiers shardés |
-| Écriture SQLite | WAL FULL/NORMAL, DELETE FULL, transactions batchées, contention, integrity_check ; Node/Rust sync/Go sur le même artefact SQLite ; readers courts/longs et checkpoints vérifiés sur 108 cellules | indices/upsert, temp store/cache_size, gros corpus streaming, isolation du seul encodeur |
-| Autres sinks | Interface worker réutilisable | Arrow/Parquet, PostgreSQL/COPY, DuckDB, objet/S3, compression ; mêmes contrats de commit et oracles |
-| Incidents | Worker pendu/corrompu, descendants, faux succès ; crashes writer avant/après commit et pendant/après ACK ; nouveau coordinateur après claim/commit ; répétition de fautes avec writer lent | Crash pendant clic, kill browser, disque plein, corruption, perte réseau, fautes arbitraires répétées |
-| Workflow durable | Prototypes HTTP Node et Rust/Tokio : acquisition/extraction, oracle, queue bornée, batch, commit, ack, leases, fencing et reprise idempotente ; 30 cellules natives et 42 cellules de reprise vérifiées | Heartbeat, outbox, admission continue, ordonnanceur multi-domaines, effets externes, noyau intégré Go, Chromium |
-| IA | V3 bloquée au client modèle ; v4 primitives sans modèle | observe/act/extract, découverte/compile/replay/repair, même modèle et budgets, tokens/coût, cache frais/périmé |
-| Topologie | SDK/worker/browser locaux | RTT injecté contrôlé, SDK distant vs co-localisé, batch distant, CPU/RAM identiques, cloud/locale séparés |
-| Navigateurs/OS | Chrome for Testing local macOS | Linux dédié, Firefox/WebKit, Lightpanda/Hyperspeed, compatibilité et oracles inchangés |
-| Métrologie | Bruts, manifests, SHA, répétitions, quantiles/effectifs, RSS ; sonde macOS CPU/footprint/I/O calibrée pour runtime/SQLite readers | Octets réseau, Linux/cgroups, stabilité thermique, intervalles appariés, lot holdout |
+| HTTP acquisition | Pagination, record correctness, freshness by seed, Crawlee pool, Website Spider, native fetch; controlled redirect/gzip/chunked/large responses; Spider loopback redirect refused by its SSRF policy | TLS/HTTP2, streaming without materialization, Impit, 429/503, Retry-After, proxy |
+| JS rendering | Asynchronous catalog; independent conformance | Complex SPAs, hydration, service workers, blocked network, qualified adaptive fallback |
+| Navigation | `domcontentloaded` + content condition | back/forward, redirect, popup, new target, long polling, aborted navigation |
+| Clicks | 5/50 actions, ordered effects, overlay and postconditions; Stagehand batch; native/guarded campaigns run on 9 variants including blocked/ambiguous target | actionability on an independent corpus, coordinates, stale reference between guard and action, cancellation with partial effect |
+| Input | fill, select, checkbox, input event and server effect | detailed press/type, IME, contenteditable, keyboard/shortcuts, validation change |
+| DOM | Extraction and node counting; re-render before interaction | Large parameterized DOMs, mutation between resolution and click, full DOM snapshot, AX, semantic references |
+| Frames/shadow | Open shadow; iframe routes available | Same-origin iframe adapter then OOPIF/cross-origin; closed shadow and slots |
+| Media/files | Download route and byte oracle available | Download event adapter, upload, screenshots (bytes + visual oracle), PDF |
+| Sessions | Fresh page, documented cookies/profile policies | Equivalent independent contexts, login, cookies/storage, reuse/cold, cross-tenant leakage |
+| Concurrency | Closed loop, open loop, bounded admission, visible rejections, several writer processes | Capacity curve C1/4/16/64, queues, priority, backpressure toward sink, multi-domain fairness |
+| JSON writing | Buffered/sync JSONL, whole sync snapshot + rename | Encoder alone vs sink alone, streaming without materialization, large records, gzip/zstd, sharded files |
+| SQLite writing | WAL FULL/NORMAL, DELETE FULL, batched transactions, contention, integrity_check; Node/Rust sync/Go on the same SQLite artifact; short/long readers and checkpoints verified on 108 cells | indexes/upsert, temp store/cache_size, large streaming corpus, isolation of the encoder alone |
+| Other sinks | Reusable worker interface | Arrow/Parquet, PostgreSQL/COPY, DuckDB, object/S3, compression; same commit contracts and oracles |
+| Incidents | Hung/corrupted worker, descendants, false success; writer crashes before/after commit and during/after ACK; new coordinator after claim/commit; repeated faults with slow writer | Crash during click, browser kill, full disk, corruption, network loss, repeated arbitrary faults |
+| Durable workflow | Node and Rust/Tokio HTTP prototypes: acquisition/extraction, oracle, bounded queue, batch, commit, ack, leases, fencing and idempotent recovery; 30 native cells and 42 recovery cells verified | Heartbeat, outbox, continuous admission, multi-domain scheduler, external effects, integrated Go core, Chromium |
+| AI | V3 blocked at the model client; v4 primitives without a model | observe/act/extract, discovery/compile/replay/repair, same model and budgets, tokens/cost, fresh/stale cache |
+| Topology | Local SDK/worker/browser | Controlled injected RTT, remote vs co-located SDK, remote batch, identical CPU/RAM, cloud/local separated |
+| Browsers/OS | Local Chrome for Testing on macOS | Dedicated Linux, Firefox/WebKit, Lightpanda/Hyperspeed, compatibility and unchanged oracles |
+| Metrology | Raw data, manifests, SHA, repetitions, quantiles/sample sizes, RSS; macOS CPU/footprint/I/O probe calibrated for runtime/SQLite readers | Network bytes, Linux/cgroups, thermal stability, paired intervals, holdout set |
 
-## Concurrents à ajouter
+## Competitors to add
 
-Priorité à **Chromey/chromiumoxide natif Rust et chromedp/rod Go** pour isoler le pilote ; **Crawlee AdaptivePlaywrightCrawler/Impit, Scrapy, Colly, Scrapling et Crawl4AI** pour acquisition/parsing/pools ; **agent-browser, Browser Use, Skyvern, Magnitude et AgentQL** pour perception/agents. Firecrawl, Browserbase, Browserless, Steel, Spider Cloud, Zyte et les fournisseurs de collecte appartiennent à des pistes de produit/topologie distinctes. Les versions, licences et raisons de priorité sont dans la [shortlist sourcée](../../research/2026-10-07-lab-competitor-shortlist.md).
+Priority to **Chromey/chromiumoxide native Rust and chromedp/rod Go** to isolate the driver; **Crawlee AdaptivePlaywrightCrawler/Impit, Scrapy, Colly, Scrapling and Crawl4AI** for acquisition/parsing/pools; **agent-browser, Browser Use, Skyvern, Magnitude and AgentQL** for perception/agents. Firecrawl, Browserbase, Browserless, Steel, Spider Cloud, Zyte and the data collection providers belong to separate product/topology lanes. The versions, licenses and reasons for priority are in the [sourced shortlist](../../research/2026-10-07-lab-competitor-shortlist.md).
 
-Une librairie recensée dans la recherche n'est pas automatiquement installée ni benchmarkée. Ajouter un acteur selon une question architecturale précise, avec un adapter réel et un oracle, évite un catalogue de packages sans expériences comparables.
+A library listed in the research is not automatically installed or benchmarked. Adding a player according to a precise architectural question, with a real adapter and an oracle, avoids a catalog of packages without comparable experiments.
 
-## Gates avant une décision d'architecture
+## Gates before an architecture decision
 
-1. Résultat exact et effets attendus sur un corpus défini ; unsupported et erreurs explicités.
-2. Cycles de vie, actionnabilité et durabilité équivalents ou présentés comme des configurations différentes.
-3. Courbes de charge et coût complet, pas seulement temps de commande ou moyenne globale.
-4. Corpus de réglage puis holdout, perturbations et répétitions sur machine stable.
-5. Prototype intégré acquisition → validation → sink → ack ; recovery vérifiée avant l'adoption du moteur durable.
+1. Exact result and expected effects on a defined corpus; unsupported cases and errors made explicit.
+2. Equivalent lifecycles, actionability and durability, or presented as different configurations.
+3. Load curves and full cost, not just command time or overall average.
+4. Tuning corpus then holdout, perturbations and repetitions on a stable machine.
+5. Integrated prototype acquisition → validation → sink → ack; recovery verified before adopting the durable engine.
 
-Le prototype HTTP Node historique est décrit dans [workflow.md](workflow.md), et la comparaison native Node/Rust dans [runtime-workflow.md](runtime-workflow.md). Elle reprend **HTTP natif + queue bornée + sink batché à writer unique**. Rust/Tokio reste le candidat pour le noyau portable ; Node sert de référence et de backend de compatibilité. Le pilote Chromium Rust et les plans déterministes demandent encore une qualification propre. Les résultats de chaque campagne déterminent ses recommandations, sans transformer une préférence de langage en résultat mesuré.
+The historical Node HTTP prototype is described in [workflow.md](workflow.md), and the native Node/Rust comparison in [runtime-workflow.md](runtime-workflow.md). It takes up **native HTTP + bounded queue + batched sink with a single writer**. Rust/Tokio remains the candidate for the portable core; Node serves as a reference and as a compatibility backend. The Rust Chromium driver and the deterministic plans still require their own qualification. The results of each campaign determine its recommendations, without turning a language preference into a measured result.
 
-[Qualification transversale exécutée et limites](../reports/integrated-2026-10-08.md), [audit des contrats](../reports/integrated-verification.json). Guards 162/162 sur ce corpus ; cela ne qualifie pas toutes les garanties d’actionnabilité.
+[Executed cross-cutting qualification and limits](../reports/integrated-2026-10-08.md), [contract audit](../reports/integrated-verification.json). Guards 162/162 on this corpus; this does not qualify all actionability guarantees.

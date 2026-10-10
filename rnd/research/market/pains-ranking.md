@@ -1,21 +1,21 @@
-# Classement des douleurs : effectifs bruts et score pondéré
+# Pain ranking: raw counts and weighted score
 
-**Statut :** v1, recherche documentaire. **Date :** 2026-10-08. **Corpus :** 421 items canoniques ([corpus.jsonl](corpus.jsonl)), codés selon le [codebook](codebook.md).
-**Ce que ce classement mesure :** la fréquence et la visibilité récente de douleurs **exprimées publiquement**. Il ne mesure ni leur prévalence chez les clients, ni l'intensité du besoin, ni la volonté de payer.
+**Status:** v1, desk research. **Date:** 2026-10-08. **Corpus:** 421 canonical items ([corpus.jsonl](corpus.jsonl)), coded according to the [codebook](codebook.md).
+**What this ranking measures:** the frequency and recent visibility of **publicly expressed** pains. It measures neither their prevalence among customers, nor the intensity of the need, nor willingness to pay.
 
-## 1. Méthode
+## 1. Method
 
-- **n** : nombre d'items canoniques portant le code, à n'importe quelle position.
-- **W** : `Σ (1 + ln(1 + engagement)) × 0,5^(âge_mois / 6)`, calculé au 2026-10-08. La demi-vie est de 6 mois. Une date `YYYY-MM` est prise au 1er du mois.
-- **Sensibilité** : *W sans promo* exclut les 98 items `promo` ou `vendor_affiliated`. *W plafonné* limite l'engagement à 50, ce qui neutralise les agrégats d'avis (969, 724, 611 avis…) et les deux posts HN à plus de 350 points.
-- Les 24 **codes de douleur ou de besoin** sont classés ensemble. Les 6 **codes de contexte** (cas d'usage, prix, marché) sont classés séparément (§4), parce qu'ils décrivent une demande et non une douleur.
-- Les scores sont ordinaux (codebook §4). Avec un accord inter-codeurs de 83 % sur le code primaire, un écart de score de moins de 15 % environ ne permet pas de départager deux codes.
+- **n**: number of canonical items carrying the code, in any position.
+- **W**: `Σ (1 + ln(1 + engagement)) × 0.5^(age_months / 6)`, computed as of 2026-10-08. The half-life is 6 months. A `YYYY-MM` date is taken as the 1st of the month.
+- **Sensitivity**: *W without promo* excludes the 98 `promo` or `vendor_affiliated` items. *Capped W* limits engagement to 50, which neutralizes review aggregates (969, 724, 611 reviews…) and the two HN posts with more than 350 points.
+- The 24 **pain or need codes** are ranked together. The 6 **context codes** (use cases, price, market) are ranked separately (§4), because they describe demand and not a pain.
+- The scores are ordinal (codebook §4). With an inter-coder agreement of 83% on the primary code, a score gap of less than about 15% does not allow two codes to be separated.
 
-## 2. Classement des douleurs
+## 2. Pain ranking
 
-Tri par W. Le rang selon n est donné dans la deuxième colonne pour la lecture côte à côte. Entre parenthèses, le rang dans chaque variante.
+Sorted by W. The rank by n is given in the second column for side-by-side reading. In parentheses, the rank in each variant.
 
-| Rang W | Rang n | Code | Libellé | n | W | n sans promo | W sans promo (rang) | W plafonné (rang) |
+| W rank | n rank | Code | Label | n | W | n without promo | W without promo (rank) | Capped W (rank) |
 | ---: | ---: | --- | --- | ---: | ---: | ---: | ---: | ---: |
 | 1 | 1 | `access-antibot-ip` | Anti-bot, captcha, fingerprint and IP blocks | 76 | 92.4 | 59 | 72.4 (1) | 88.4 (1) |
 | 2 | 2 | `agent-token-latency-cost` | Token bloat and slow per-step loops | 44 | 50.0 | 28 | 21.5 (5) | 48.9 (2) |
@@ -42,9 +42,9 @@ Tri par W. Le rang selon n est donné dans la deuxième colonne pour la lecture 
 | 23 | 23 | `rel-incorrect-incomplete` | Duplicate, missing or incomplete data | 11 | 10.5 | 10 | 9.7 (22) | 9.6 (23) |
 | 24 | 24 | `durability-resume` | Crash-tolerant resume and checkpointing | 5 | 6.7 | 5 | 6.7 (24) | 6.7 (24) |
 
-**Les deux classements côte à côte (top 10) :**
+**The two rankings side by side (top 10):**
 
-| Rang | Par effectif brut (n) | Par score pondéré (W) |
+| Rank | By raw count (n) | By weighted score (W) |
 | ---: | --- | --- |
 | 1 | `access-antibot-ip` (76) | `access-antibot-ip` (92.4) |
 | 2 | `agent-token-latency-cost` (44) | `agent-token-latency-cost` (50.0) |
@@ -57,18 +57,18 @@ Tri par W. Le rang selon n est donné dans la deuxième colonne pour la lecture 
 | 9 | `agent-unreliable-drift` (22) | `agent-deterministic-replay` (24.0) |
 | 10 | `integ-sdk-llm-runtime` (21) | `silent-false-success` (23.1) |
 
-## 3. Robustesse
+## 3. Robustness
 
-- **Stable dans les quatre variantes.** `access-antibot-ip` reste premier, avec un score supérieur à 1,8 fois celui du deuxième dans toutes les variantes. `integ-mcp-agent-tooling` reste troisième. `cost-unpredictable-runaway` et `compliance-site-owner-politeness` restent dans le top 7.
-- **Gonflé par des sources commerciales.** `agent-token-latency-cost` passe du 2e au 5e rang sans les items promo ou affiliés : le lancement de Stagehand v4 (`hn-86`), le benchmark Browserbase (`hn-89`) et Kuri (`hn-53`) pèsent lourd. `agent-deterministic-replay` passe du 9e au 13e rang (Intuned, `demand-use-cases-26`). La douleur reste documentée par des sources indépendantes (§5), mais son poids relatif est surestimé.
-- **Gonflé par les agrégats d'avis.** 68 % du poids de `dx-setup-docs` et 57 % de celui de `cost-unpredictable-runaway` viennent de pages d'avis ou de billets dont l'engagement dépasse 100, c'est-à-dire des comptes d'avis. Avec le plafond à 50, `dx-setup-docs` descend du 8e au 11e rang. `cost-unpredictable-runaway`, lui, monte au 2e rang sans promo : son signal ne dépend pas des agrégats.
-- **Sous-estimés par le comptage brut.** `silent-false-success` (rang n 18, rang W 10) et `rel-hang-crash` (21 → 16) sont récents et concentrés sur 2026. Ils restent 9e et 12e sans promo.
-- **Biais de date Reddit** (codebook §5). En divisant par 1,47 le poids de chaque item Reddit, on garde les mêmes dix codes en tête. Seuls les rangs 3 à 5 permutent : `cost-unpredictable-runaway` passe 3e, devant `integ-mcp-agent-tooling` et `access-auth-session`.
-- **Biais de source.** 116 items GitHub viennent d'outils OSS à tracker public, comme Browser Use, Firecrawl ou Crawl4AI. Les services fermés (Bright Data, Zyte, Oxylabs) n'apparaissent qu'à travers des avis. `rel-hang-crash`, `maint-upgrade-regression` et `selfhost-parity-lockin` sont donc surreprésentés pour les produits OSS.
+- **Stable across all four variants.** `access-antibot-ip` stays first, with a score more than 1.8 times that of the second in every variant. `integ-mcp-agent-tooling` stays third. `cost-unpredictable-runaway` and `compliance-site-owner-politeness` stay in the top 7.
+- **Inflated by commercial sources.** `agent-token-latency-cost` drops from 2nd to 5th place without the promo or affiliated items: the Stagehand v4 launch (`hn-86`), the Browserbase benchmark (`hn-89`) and Kuri (`hn-53`) weigh heavily. `agent-deterministic-replay` drops from 9th to 13th place (Intuned, `demand-use-cases-26`). The pain remains documented by independent sources (§5), but its relative weight is overestimated.
+- **Inflated by review aggregates.** 68% of the weight of `dx-setup-docs` and 57% of that of `cost-unpredictable-runaway` come from review pages or posts whose engagement exceeds 100, that is, review counts. With the cap at 50, `dx-setup-docs` drops from 8th to 11th place. `cost-unpredictable-runaway`, by contrast, rises to 2nd place without promo: its signal does not depend on the aggregates.
+- **Underestimated by raw counting.** `silent-false-success` (n rank 18, W rank 10) and `rel-hang-crash` (21 → 16) are recent and concentrated in 2026. They remain 9th and 12th without promo.
+- **Reddit date bias** (codebook §5). Dividing the weight of each Reddit item by 1.47 keeps the same ten codes at the top. Only ranks 3 to 5 swap: `cost-unpredictable-runaway` moves to 3rd, ahead of `integ-mcp-agent-tooling` and `access-auth-session`.
+- **Source bias.** 116 GitHub items come from OSS tools with a public tracker, such as Browser Use, Firecrawl or Crawl4AI. Closed services (Bright Data, Zyte, Oxylabs) appear only through reviews. `rel-hang-crash`, `maint-upgrade-regression` and `selfhost-parity-lockin` are therefore overrepresented for OSS products.
 
-## 4. Codes de contexte (demande, prix, marché)
+## 4. Context codes (demand, price, market)
 
-| Rang W | Rang n | Code | n | W | n sans promo | W sans promo (rang) | W plafonné (rang) |
+| W rank | n rank | Code | n | W | n without promo | W without promo (rank) | Capped W (rank) |
 | ---: | ---: | --- | ---: | ---: | ---: | ---: | ---: |
 | 1 | 2 | `market-adoption-stats` | 35 | 34.3 | 12 | 15.1 (5) | 31.5 (3) |
 | 2 | 1 | `wtp-price-points` | 46 | 33.3 | 38 | 29.5 (1) | 33.3 (1) |
@@ -77,81 +77,81 @@ Tri par W. Le rang selon n est donné dans la deuxième colonne pour la lecture 
 | 5 | 5 | `usecase-qa-research-ingest` | 24 | 17.5 | 22 | 16.8 (4) | 17.5 (5) |
 | 6 | 6 | `usecase-portal-workflow` | 22 | 17.4 | 14 | 10.9 (6) | 16.9 (6) |
 
-`market-adoption-stats` est à 66 % promo ou affilié (23 sur 35) : il s'agit surtout de rapports d'éditeurs. Les cas d'usage `usecase-portal-workflow` ne résistent pas au retrait des sources promo (rang 6 sur 6) : le portail B2B est porté par des billets d'éditeurs (Anchor, TinyFish, Thinslices, Intuned) et par des offres de mission, pas par des plaintes d'utilisateurs. Voir [segments-and-needs.md](segments-and-needs.md).
+`market-adoption-stats` is 66% promo or affiliated (23 out of 35): these are mostly vendor reports. The `usecase-portal-workflow` use cases do not withstand the removal of promo sources (rank 6 out of 6): the B2B portal is carried by vendor posts (Anchor, TinyFish, Thinslices, Intuned) and by freelance job offers, not by user complaints. See [segments-and-needs.md](segments-and-needs.md).
 
-## 5. Items représentatifs par douleur principale
+## 5. Representative items by primary pain
 
-Pour chaque code de l'union des deux top 10, de 2 à 4 items sont présentés. Ce sont les items de plus fort poids W, en privilégiant ceux qui ne sont pas promo. `[P]` signale un item promo ou affilié.
+For each code in the union of the two top 10s, 2 to 4 items are presented. These are the items with the highest W weight, favoring those that are not promo. `[P]` flags a promo or affiliated item.
 
 ### 5.1 `access-antibot-ip` (n 76, W 92.4)
-- [`reddit-9`](https://reddit.sentinel-team.org/posts/1vuykgj/snapshots/2026-08-27T00%3A24%3A44.18942Z), 2026-08-27, r/LocalLLaMA. Selon un commentateur, ce n'est pas le mode headless qui déclenche la détection, mais les drapeaux d'automatisation et le profil vierge de Chromium lancé par Playwright. S'attacher en CDP au vrai Chrome de l'utilisateur fonctionne.
-- [`reddit-27`](https://reddit.sentinel-team.org/posts/1v7m7q3/snapshots/2026-07-30T03%3A43%3A11.089892Z), 2026-07-30. Réutiliser le navigateur déjà connecté a supprimé plus de blocages que des semaines de travail sur l'empreinte.
-- [`reviews-reports-11`](https://www.outflo.io/sales-tools/brightdata), 2026-09. Même chez Bright Data (G2 4,7 sur 348 avis, Capterra 4,7 sur 68), des sites cibles continuent de bloquer ou d'échouer.
-- [`reviews-reports-43`](https://www.zyte.com/sowa/2026/access/barrier-stacking/), 2026-06-22 `[P]`. Le WAF seul (31 %) et WAF + JavaScript (environ 20 %) dominent ; la pile complète de barrières ne concerne que 3,3 % des sites.
+- [`reddit-9`](https://reddit.sentinel-team.org/posts/1vuykgj/snapshots/2026-08-27T00%3A24%3A44.18942Z), 2026-08-27, r/LocalLLaMA. According to a commenter, it is not headless mode that triggers detection, but the automation flags and the blank profile of Chromium launched by Playwright. Attaching over CDP to the user's real Chrome works.
+- [`reddit-27`](https://reddit.sentinel-team.org/posts/1v7m7q3/snapshots/2026-07-30T03%3A43%3A11.089892Z), 2026-07-30. Reusing the already logged-in browser removed more blocks than weeks of work on the fingerprint.
+- [`reviews-reports-11`](https://www.outflo.io/sales-tools/brightdata), 2026-09. Even with Bright Data (G2 4.7 from 348 reviews, Capterra 4.7 from 68), target sites keep blocking or failing.
+- [`reviews-reports-43`](https://www.zyte.com/sowa/2026/access/barrier-stacking/), 2026-06-22 `[P]`. WAF alone (31%) and WAF + JavaScript (about 20%) dominate; the full stack of barriers concerns only 3.3% of sites.
 
 ### 5.2 `agent-token-latency-cost` (n 44, W 50.0)
-- [`github-106`](https://github.com/microsoft/playwright-mcp/issues/889), 2025-08-14. Les tokens par tâche ont été multipliés par 6 environ entre Playwright MCP 0.0.30 et 0.0.32 (engagement 28).
-- [`github-22`](https://github.com/browser-use/browser-use/issues/3768), 2025-12-15. Mêmes 20 tâches, environ deux fois plus de tokens après la mise à jour de Browser Use 0.8.1 vers 0.11.1.
-- [`hn-98`](https://news.ycombinator.com/item?id=46942341), 2026-02-09. Un seul serveur Playwright MCP coûte environ 11,7 k tokens de définitions d'outils à chaque requête.
-- [`hn-89`](https://news.ycombinator.com/item?id=49833761), 2026-09-24 `[P]`. Benchmark Browserbase : le même modèle obtient 74 % à 1,50 $ par tâche avec un harnais, contre 71 % à environ 10 $ avec un autre.
+- [`github-106`](https://github.com/microsoft/playwright-mcp/issues/889), 2025-08-14. Tokens per task were multiplied by about 6 between Playwright MCP 0.0.30 and 0.0.32 (engagement 28).
+- [`github-22`](https://github.com/browser-use/browser-use/issues/3768), 2025-12-15. Same 20 tasks, about twice as many tokens after the Browser Use update from 0.8.1 to 0.11.1.
+- [`hn-98`](https://news.ycombinator.com/item?id=46942341), 2026-02-09. A single Playwright MCP server costs about 11.7k tokens of tool definitions on every request.
+- [`hn-89`](https://news.ycombinator.com/item?id=49833761), 2026-09-24 `[P]`. Browserbase benchmark: the same model scores 74% at $1.50 per task with one harness, versus 71% at about $10 with another.
 
 ### 5.3 `integ-mcp-agent-tooling` (n 37, W 37.7)
-- [`hn-50`](https://news.ycombinator.com/item?id=47392002), 2026-03-15 (14 réponses). Pour ce commentateur, MCP gaspille du contexte en permanence et les utilisateurs avancés pilotent Chromium via Playwright CLI. Le fil débat longuement de MCP contre CLI.
-- [`hn-51`](https://news.ycombinator.com/item?id=47392518), 2026-03-15. Cas où MCP garde l'avantage : intégrations sans installation, utilisateurs non développeurs, OAuth multi-tenant, isolement des identifiants, journaux d'audit.
-- [`github-24`](https://github.com/browser-use/browser-use/issues/4742), 2026-04-25. Depuis Claude Code, une capture d'écran dans un résultat d'outil corrompt la conversation, et chaque tour suivant échoue en 400.
-- [`demand-use-cases-34`](https://news.ycombinator.com/item?id=46616481), 2026-01-14 `[P]` (134 points). CLI construite parce que les serveurs MCP navigateur testés ne reproduisaient pas une tâche SSO intranet.
+- [`hn-50`](https://news.ycombinator.com/item?id=47392002), 2026-03-15 (14 replies). For this commenter, MCP constantly wastes context and advanced users drive Chromium via Playwright CLI. The thread debates MCP versus CLI at length.
+- [`hn-51`](https://news.ycombinator.com/item?id=47392518), 2026-03-15. Cases where MCP keeps the advantage: zero-install integrations, non-developer users, multi-tenant OAuth, credential isolation, audit logs.
+- [`github-24`](https://github.com/browser-use/browser-use/issues/4742), 2026-04-25. From Claude Code, a screenshot in a tool result corrupts the conversation, and every subsequent turn fails with a 400.
+- [`demand-use-cases-34`](https://news.ycombinator.com/item?id=46616481), 2026-01-14 `[P]` (134 points). CLI built because the browser MCP servers tested could not reproduce an intranet SSO task.
 
 ### 5.4 `access-auth-session` (n 32, W 36.9)
-- [`github-19`](https://github.com/browser-use/browser-use/issues/1520), 2025-04-29 (46). Chrome 136+ bloque le contrôle CDP sur le profil par défaut, ce qui casse le flux « mon vrai Chrome connecté ».
-- [`github-43`](https://github.com/browserbase/stagehand/issues/1250), 2025-11-09. Stagehand v3 : `userDataDir` est sans effet et `storageState()` a disparu, donc impossible de persister une connexion.
-- [`hn-34`](https://news.ycombinator.com/item?id=45452473), 2025-10-02. Besoin d'une connexion humaine suivie d'une passation à l'agent, avec des sessions de plusieurs mois et des alertes de reconnexion. Aucune plateforme ne le permet simplement à un coût acceptable.
-- [`demand-use-cases-38`](https://github.com/microsoft/playwright-mcp/issues/922), 2025-08-20. Résolution des identifiants côté MCP pour que le LLM ne voie jamais les vrais mots de passe.
+- [`github-19`](https://github.com/browser-use/browser-use/issues/1520), 2025-04-29 (46). Chrome 136+ blocks CDP control on the default profile, which breaks the "my real logged-in Chrome" flow.
+- [`github-43`](https://github.com/browserbase/stagehand/issues/1250), 2025-11-09. Stagehand v3: `userDataDir` has no effect and `storageState()` has disappeared, so it is impossible to persist a login.
+- [`hn-34`](https://news.ycombinator.com/item?id=45452473), 2025-10-02. Need for a human login followed by a handoff to the agent, with sessions lasting several months and re-login alerts. No platform allows this simply at an acceptable cost.
+- [`demand-use-cases-38`](https://github.com/microsoft/playwright-mcp/issues/922), 2025-08-20. Credential resolution on the MCP side so that the LLM never sees the real passwords.
 
 ### 5.5 `cost-unpredictable-runaway` (n 28, W 36.0)
-- [`reviews-reports-23`](https://www.capterra.co.nz/software/180165/zyte), 2024-11-10. En pay-as-you-go, aucun plafond de dépense sans abonnement : facture environ 40 fois supérieure à l'attendu.
-- [`reddit-57`](https://reddit.sentinel-team.org/posts/1u9t2m9/snapshots/2026-06-19T20%3A07%3A29.810032Z), 2026-06-19. Un agent a relancé environ 200 fois un appel Firecrawl en timeout pendant la nuit, pour 40 $. L'utilisateur demande des budgets par tâche.
-- [`reviews-reports-10`](https://thunderbit.com/blog/brightdata-review-costs-alternatives), 2026-04-20 `[P]`. Web Unlocker facture les échecs dès que des en-têtes ou cookies personnalisés sont activés.
-- [`hn-76`](https://news.ycombinator.com/item?id=44834439), 2025-08-08. Objection à payer pour un résultat d'IA qui peut échouer ; l'éditeur envisage de ne pas facturer les échecs dus à la plateforme.
+- [`reviews-reports-23`](https://www.capterra.co.nz/software/180165/zyte), 2024-11-10. On pay-as-you-go, no spending cap without a subscription: a bill about 40 times higher than expected.
+- [`reddit-57`](https://reddit.sentinel-team.org/posts/1u9t2m9/snapshots/2026-06-19T20%3A07%3A29.810032Z), 2026-06-19. An agent retried a timed-out Firecrawl call about 200 times overnight, for $40. The user asks for per-task budgets.
+- [`reviews-reports-10`](https://thunderbit.com/blog/brightdata-review-costs-alternatives), 2026-04-20 `[P]`. Web Unlocker bills failures as soon as custom headers or cookies are enabled.
+- [`hn-76`](https://news.ycombinator.com/item?id=44834439), 2025-08-08. Objection to paying for an AI result that can fail; the vendor is considering not billing failures caused by the platform.
 
 ### 5.6 `compliance-site-owner-politeness` (n 25, W 29.3)
-- [`hn-125`](https://news.ycombinator.com/item?id=49211386), 2026-08-07 (462 points). Un site de 1,5 M de pages rapporte environ 99 % de trafic robot.
-- [`github-1`](https://github.com/scrapy/scrapy/issues/6597), 2025-01-01 (49). 38 000 requêtes en 17 minutes depuis une configuration Scrapy par défaut ; demande de valeurs par défaut polies.
-- [`demand-use-cases-31`](https://news.ycombinator.com/item?id=45459596), 2025-10-03. Un opérateur bloque tout Browserbase après l'abus d'un seul client : les IP partagées d'un navigateur cloud sont bloquées en bloc.
-- [`hn-62`](https://news.ycombinator.com/item?id=45374976), 2025-09-25 `[P]`. Une startup envisage de quitter Firecrawl pour maîtriser l'étiquette de crawl (gestion de robots.txt jugée incohérente).
+- [`hn-125`](https://news.ycombinator.com/item?id=49211386), 2026-08-07 (462 points). A 1.5M-page site reports about 99% bot traffic.
+- [`github-1`](https://github.com/scrapy/scrapy/issues/6597), 2025-01-01 (49). 38,000 requests in 17 minutes from a default Scrapy configuration; request for polite default values.
+- [`demand-use-cases-31`](https://news.ycombinator.com/item?id=45459596), 2025-10-03. An operator blocks all of Browserbase after abuse by a single customer: a cloud browser's shared IPs are blocked wholesale.
+- [`hn-62`](https://news.ycombinator.com/item?id=45374976), 2025-09-25 `[P]`. A startup is considering leaving Firecrawl to control crawl etiquette (robots.txt handling considered inconsistent).
 
 ### 5.7 `compliance-security-privacy` (n 35, W 28.0)
-- [`github-33`](https://github.com/browser-use/browser-use/issues/4505), 2026-03-24. Le script d'installation de la CLI a tiré une version compromise de litellm (porte dérobée de vol d'identifiants).
-- [`demand-use-cases-10`](https://www.upwork.com/freelance-jobs/apply/Python-Playwright-Developer-for-Secure-Browser-Automation-500-PDF-Downloads_~022104387142669699637/), 2026-09-28. Téléchargement d'environ 3 500 PDF clients : exécution locale imposée pour la confidentialité, reprise après interruption, NDA.
-- [`hn-35`](https://news.ycombinator.com/item?id=45458977), 2025-10-03. Les clients refusent le stockage des identifiants ; automatiser la 2FA en annule le principe.
-- [`demand-use-cases-39`](https://github.com/browser-use/browser-use/issues/4574), 2026-03-31. Supervision humaine, conservation des enregistrements et journaux d'audit pour l'EU AI Act.
+- [`github-33`](https://github.com/browser-use/browser-use/issues/4505), 2026-03-24. The CLI installation script pulled a compromised version of litellm (credential-stealing backdoor).
+- [`demand-use-cases-10`](https://www.upwork.com/freelance-jobs/apply/Python-Playwright-Developer-for-Secure-Browser-Automation-500-PDF-Downloads_~022104387142669699637/), 2026-09-28. Download of about 3,500 customer PDFs: local execution required for confidentiality, resume after interruption, NDA.
+- [`hn-35`](https://news.ycombinator.com/item?id=45458977), 2025-10-03. Customers refuse credential storage; automating 2FA defeats its purpose.
+- [`demand-use-cases-39`](https://github.com/browser-use/browser-use/issues/4574), 2026-03-31. Human oversight, record retention and audit logs for the EU AI Act.
 
-### 5.8 `dx-setup-docs` (n 18, W 24.6, poids porté par les agrégats d'avis)
-- [`github-13`](https://github.com/browser-use/browser-use/issues/839), 2025-02-23 (55) et [`github-14`](https://github.com/browser-use/browser-use/issues/1020), 2025-03-13 (51). Premier lancement : Chromium reste sur `about:blank` et l'agent boucle à l'étape 1.
-- [`reviews-reports-3`](https://ai.g2.com/product/apify), 2026-05. Synthèse G2 (611 avis) : construire un Actor sur mesure demande un long apprentissage.
-- [`hn-17`](https://news.ycombinator.com/item?id=46586819), 2026-01-12. La documentation ne dit pas à quoi Lightpanda peut servir sans risque comme moteur Playwright.
+### 5.8 `dx-setup-docs` (n 18, W 24.6, weight carried by review aggregates)
+- [`github-13`](https://github.com/browser-use/browser-use/issues/839), 2025-02-23 (55) and [`github-14`](https://github.com/browser-use/browser-use/issues/1020), 2025-03-13 (51). First launch: Chromium stays on `about:blank` and the agent loops at step 1.
+- [`reviews-reports-3`](https://ai.g2.com/product/apify), 2026-05. G2 summary (611 reviews): building a custom Actor requires a long learning curve.
+- [`hn-17`](https://news.ycombinator.com/item?id=46586819), 2026-01-12. The documentation does not say what Lightpanda can safely be used for as a Playwright engine.
 
 ### 5.9 `agent-deterministic-replay` (n 30, W 24.0)
-- [`github-39`](https://github.com/browserbase/stagehand/issues/389), 2025-01-09 (30). `extract()` devrait renvoyer son plan statique pour éviter un appel LLM par page.
-- [`hn-87`](https://news.ycombinator.com/item?id=49763632), 2026-09-19. Le cache d'actions de Stagehand est lié aux sessions Browserbase et ne sert à rien avec un navigateur local. L'utilisateur le voulait en fichier versionné pour la CI.
-- [`reddit-24`](https://reddit.sentinel-team.org/posts/1ve9gkj/snapshots/2026-08-07T06%3A10%3A44.151998Z), 2026-08-07. Le consensus du fil : résoudre une fois, cacher un contrat de workflow avec empreinte DOM, rejouer, et n'appeler le LLM qu'en cas de casse.
-- [`demand-use-cases-19`](https://www.upwork.com/freelance-jobs/apply/Powered-Test-Agent-Playwright-LLM_~022097330742604282149/), 2026-09-08. Offre de mission : un agent QA dont les runs réussis émettent des tests Playwright déterministes pour la CI.
+- [`github-39`](https://github.com/browserbase/stagehand/issues/389), 2025-01-09 (30). `extract()` should return its static plan to avoid one LLM call per page.
+- [`hn-87`](https://news.ycombinator.com/item?id=49763632), 2026-09-19. Stagehand's action cache is tied to Browserbase sessions and is useless with a local browser. The user wanted it as a versioned file for CI.
+- [`reddit-24`](https://reddit.sentinel-team.org/posts/1ve9gkj/snapshots/2026-08-07T06%3A10%3A44.151998Z), 2026-08-07. The thread's consensus: resolve once, cache a workflow contract with a DOM fingerprint, replay, and call the LLM only when something breaks.
+- [`demand-use-cases-19`](https://www.upwork.com/freelance-jobs/apply/Powered-Test-Agent-Playwright-LLM_~022097330742604282149/), 2026-09-08. Freelance job offer: a QA agent whose successful runs emit deterministic Playwright tests for CI.
 
 ### 5.10 `silent-false-success` (n 17, W 23.1)
-- [`reddit-1`](https://reddit.sentinel-team.org/posts/1vnydav/snapshots/2026-08-15T02%3A07%3A43.063054Z), 2026-08-15. Des clics renvoient « ok » sur des éléments qui les ignorent. Le correctif proposé est de vérifier chaque action en relisant la page.
-- [`github-80`](https://github.com/unclecode/crawl4ai/issues/2116), 2026-07-31. Un blocage anti-bot revient en HTTP 500 au lieu d'un résultat typé « bloqué ».
-- [`github-93`](https://github.com/apify/crawlee/issues/3629), 2026-05-06. Les handlers s'exécutent sur la page de challenge Cloudflare.
-- [`hn-101`](https://news.ycombinator.com/item?id=47296933), 2026-03-08 `[P]`. Après une refonte du site, les sélecteurs CSS renvoient silencieusement des chaînes vides.
+- [`reddit-1`](https://reddit.sentinel-team.org/posts/1vnydav/snapshots/2026-08-15T02%3A07%3A43.063054Z), 2026-08-15. Clicks return "ok" on elements that ignore them. The proposed fix is to verify each action by rereading the page.
+- [`github-80`](https://github.com/unclecode/crawl4ai/issues/2116), 2026-07-31. An anti-bot block comes back as HTTP 500 instead of a typed "blocked" result.
+- [`github-93`](https://github.com/apify/crawlee/issues/3629), 2026-05-06. Handlers run on the Cloudflare challenge page.
+- [`hn-101`](https://news.ycombinator.com/item?id=47296933), 2026-03-08 `[P]`. After a site redesign, CSS selectors silently return empty strings.
 
 ### 5.11 `agent-unreliable-drift` (n 22, W 20.8)
-- [`reddit-0`](https://reddit.sentinel-team.org/posts/1vnydav/snapshots/2026-08-15T02%3A07%3A43.063054Z), 2026-08-15. 40 minutes pour deux billets Ticketmaster : boucles sur captchas et modales, panier expiré deux fois.
-- [`reddit-25`](https://reddit.sentinel-team.org/posts/1uhvp85/snapshots/2026-06-29T19%3A40%3A40.485144Z), 2026-06-29. Meilleur retour sur investissement sur les outils internes fixes ; fragile sur les sites publics, peu fiable sur les tâches arbitraires.
-- [`github-30`](https://github.com/browser-use/browser-use/issues/1763), 2025-05-24. L'agent perd le fil d'un objectif en plusieurs étapes et déclare la tâche terminée trop tôt.
+- [`reddit-0`](https://reddit.sentinel-team.org/posts/1vnydav/snapshots/2026-08-15T02%3A07%3A43.063054Z), 2026-08-15. 40 minutes for two Ticketmaster tickets: loops on captchas and modals, cart expired twice.
+- [`reddit-25`](https://reddit.sentinel-team.org/posts/1uhvp85/snapshots/2026-06-29T19%3A40%3A40.485144Z), 2026-06-29. Best return on investment on fixed internal tools; brittle on public sites, unreliable on arbitrary tasks.
+- [`github-30`](https://github.com/browser-use/browser-use/issues/1763), 2025-05-24. The agent loses track of a multi-step goal and declares the task finished too early.
 
 ### 5.12 `integ-sdk-llm-runtime` (n 21, W 19.7)
-- [`github-31`](https://github.com/browser-use/browser-use/issues/2605), 2025-08-05 (31). Les modèles locaux (gpt-oss via Ollama) échouent sur la sortie structurée.
-- [`github-48`](https://github.com/browserbase/stagehand/issues/393), 2025-01-09 (33). Long fil de demandes d'un SDK Python pour Stagehand.
-- [`github-38`](https://github.com/browserbase/stagehand/issues/507), 2025-02-20 (31). Pouvoir s'attacher à une page Playwright de test existante.
+- [`github-31`](https://github.com/browser-use/browser-use/issues/2605), 2025-08-05 (31). Local models (gpt-oss via Ollama) fail on structured output.
+- [`github-48`](https://github.com/browserbase/stagehand/issues/393), 2025-01-09 (33). Long thread of requests for a Python SDK for Stagehand.
+- [`github-38`](https://github.com/browserbase/stagehand/issues/507), 2025-02-20 (31). Being able to attach to an existing Playwright test page.
 
-## 6. Douleurs peu exprimées
+## 6. Rarely expressed pains
 
-`durability-resume` (n 5) et `perf-memory-concurrency` (n 15, 23e sans promo) sont en bas du classement. La reprise apparaît surtout comme une **exigence de cahier des charges** (« resumable » dans `demand-use-cases-1` et `demand-use-cases-10`) et dans une proposition Scrapy (`github-5`), rarement comme une plainte. La mémoire n'est une douleur qu'à volume élevé (`github-104`, `reddit-60`). Un commentateur HN estime que le coût du LLM écrase celui du navigateur dans les workflows d'agents (`hn-14`). Cela ne veut pas dire que ces propriétés sont inutiles. Cela veut dire qu'elles **ne se vendent pas seules** : les acheteurs les tiennent pour acquises ou ne les découvrent qu'en production.
+`durability-resume` (n 5) and `perf-memory-concurrency` (n 15, 23rd without promo) are at the bottom of the ranking. Resume appears mostly as a **requirements-specification item** ("resumable" in `demand-use-cases-1` and `demand-use-cases-10`) and in a Scrapy proposal (`github-5`), rarely as a complaint. Memory is a pain only at high volume (`github-104`, `reddit-60`). An HN commenter considers that LLM cost dwarfs browser cost in agent workflows (`hn-14`). This does not mean these properties are useless. It means they **do not sell on their own**: buyers take them for granted or only discover them in production.

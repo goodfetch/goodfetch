@@ -1,45 +1,45 @@
-# La garde Automan sur Chromium, WebKit et Firefox, 9 octobre 2026
+# The Automan guard on Chromium, WebKit and Firefox, October 9, 2026
 
-**Objet.** Vérifier que la garde Automan protège les actions sur d'autres moteurs que Chromium, en passant par Playwright pour les moteurs sans CDP (Firefox, WebKit). C'est la condition pour qu'Automan pilote ces moteurs derrière le même contrat que son pilote CDP. Il s'agit d'un test de justesse des actions, pas d'empreinte.
+**Purpose.** Verify that the Automan guard protects actions on engines other than Chromium, going through Playwright for engines without CDP (Firefox, WebKit). This is the condition for Automan to drive these engines behind the same contract as its CDP driver. It is a test of action correctness, not of fingerprinting.
 
-**Plan d'expérience.**
-- Trois matrices : actionnabilité (9 variantes), primitives (10) et navigation, frames et fichiers (7).
-- Deux politiques : avec la garde et en natif, c'est-à-dire avec les seules vérifications de Playwright.
-- Trois blocs.
-- Moteurs épinglés par Playwright 1.63 sous `lab/.browsers` : Chromium 153, WebKit 26.6 et Firefox 155.
+**Experimental design.**
+- Three matrices: actionability (9 variants), primitives (10) and navigation, frames and files (7).
+- Two policies: with the guard and native, that is, with Playwright's own checks only.
+- Three blocks.
+- Engines pinned by Playwright 1.63 under `lab/.browsers`: Chromium 153, WebKit 26.6 and Firefox 155.
 
-**Runs retenus.**
+**Retained runs.**
 
-| Système | Actionnabilité | Primitives | Navigation |
+| System | Actionability | Primitives | Navigation |
 | --- | --- | --- | --- |
-| Conteneur Linux (arm64) | `cross-engine-actionability-2026-10-09T14-05-56-552Z-677518` | `cross-engine-primitives-2026-10-09T14-09-14-677Z-63256a` | `cross-engine-navigation-2026-10-09T14-12-41-527Z-cd6a35` |
+| Linux container (arm64) | `cross-engine-actionability-2026-10-09T14-05-56-552Z-677518` | `cross-engine-primitives-2026-10-09T14-09-14-677Z-63256a` | `cross-engine-navigation-2026-10-09T14-12-41-527Z-cd6a35` |
 | macOS 27.0.1 | `cross-engine-actionability-2026-10-09T13-59-29-588Z-e0a4f2` | `cross-engine-primitives-2026-10-09T14-02-07-047Z-53b744` | `cross-engine-navigation-2026-10-09T14-04-46-125Z-4d8f3c` |
 
-## Résultats
+## Results
 
-| Moteur | Avec la garde, Linux | Avec la garde, macOS | Natif, Linux | Natif, macOS |
+| Engine | With the guard, Linux | With the guard, macOS | Native, Linux | Native, macOS |
 | --- | --- | --- | --- | --- |
 | Chromium | 78/78 | 78/78 | 78/78 | 78/78 |
 | WebKit | 78/78 | 78/78 | 78/78 | 77/78 |
-| Firefox | 78/78 | ne démarre pas | 78/78 | ne démarre pas |
+| Firefox | 78/78 | does not start | 78/78 | does not start |
 
-- **La garde n'a jamais laissé passer une mauvaise action**, sur les trois moteurs et les deux systèmes : 390 cellules sur 390. Elle est faite de scripts de page sur le DOM et enveloppe les gestes de Playwright sans modification.
-- **En natif, Playwright laisse parfois passer un clic sur une cible encore en mouvement.**
-  - Sur ces runs, c'est arrivé une fois avec WebKit sur macOS.
-  - Pendant la mise au point, c'est arrivé aussi avec WebKit sous Linux et avec Chromium sous Linux.
-  - Le défaut est intermittent : sa vérification de stabilité peut se faire devancer par le mouvement.
-  - La garde, qui vérifie la cible au moment du geste puis intercepte l'événement, ne s'est jamais trompée sur ce cas.
-- **Firefox ne démarre pas sur macOS 27.0.1.** Le build Firefox de Playwright s'arrête sur « Could not find profile folder », quel que soit l'emplacement du profil, y compris hors du bac à sable des commandes. Il fonctionne sous Linux.
+- **The guard never let a wrong action through**, on all three engines and both systems: 390 cells out of 390. It is made of page scripts on the DOM and wraps Playwright's gestures without modification.
+- **Natively, Playwright sometimes lets a click through on a target that is still moving.**
+  - On these runs, it happened once with WebKit on macOS.
+  - During development, it also happened with WebKit on Linux and with Chromium on Linux.
+  - The defect is intermittent: its stability check can be outpaced by the movement.
+  - The guard, which checks the target at the moment of the gesture and then intercepts the event, was never wrong in this case.
+- **Firefox does not start on macOS 27.0.1.** Playwright's Firefox build stops on "Could not find profile folder", whatever the profile location, including outside the command sandbox. It works on Linux.
 
-## Défauts trouvés en route
+## Defects found along the way
 
-- **Oracle de la molette.** La fixture exigeait 300 pixels de défilement après une molette de 600, soit l'échelle de Chromium. Firefox défile de 180 pixels par cran ; WebKit atteint 600, mais progressivement. L'oracle juge désormais le contrat lui-même : un événement `wheel` de confiance sur la zone, suivi d'un défilement réel. Les runs faits avec l'ancien oracle sont classés `superseded`.
-- **Bibliothèque native dans l'image.** L'image Linux ne contient pas la bibliothèque SQLite native, que le lab charge au démarrage. Le script des campagnes la construit d'abord.
+- **Wheel oracle.** The fixture required 300 pixels of scrolling after a 600 wheel delta, which is Chromium's scale. Firefox scrolls 180 pixels per notch; WebKit reaches 600, but progressively. The oracle now judges the contract itself: a trusted `wheel` event on the area, followed by real scrolling. The runs made with the old oracle are classified `superseded`.
+- **Native library in the image.** The Linux image does not contain the native SQLite library, which the lab loads at startup. The campaign script builds it first.
 
-## Ce que cela change pour D-browser-driver
+## What this changes for D-browser-driver
 
-Le contrat navigateur peut s'appuyer sur deux backends, avec la même garde :
-- **notre pilote CDP** pour Chromium ;
-- **Playwright** pour Firefox et WebKit.
+The browser contract can rely on two backends, with the same guard:
+- **our CDP driver** for Chromium;
+- **Playwright** for Firefox and WebKit.
 
-Pour un produit, la garde reste nécessaire même au-dessus de Playwright : ses seules vérifications ne suffisent pas toujours sur une cible en mouvement.
+For a product, the guard remains necessary even on top of Playwright: its own checks are not always enough on a moving target.

@@ -1,21 +1,21 @@
 {
   "id": "D-identity",
-  "title": "Identité réseau et profils d'accès",
-  "question": "Quel transport sert le tier HTTP d'une session qui garde un seul profil d'identité entre HTTP et navigateur, conformément à l'ADR-002 ?",
+  "title": "Network identity and access profiles",
+  "question": "Which transport serves the HTTP tier of a session that keeps a single identity profile across HTTP and the browser, in accordance with ADR-002?",
   "kind": "technical",
   "status": "open",
   "options": [
     {
       "id": "browser-fetch",
-      "description": "Tier HTTP exécuté par le navigateur de la session (chargement de document sans script) : TLS, HTTP/2 et en-têtes du navigateur"
+      "description": "HTTP tier executed by the session's browser (document load without script): the browser's TLS, HTTP/2 and headers"
     },
     {
       "id": "impit-chrome",
-      "description": "Tier HTTP par Impit en émulation Chrome, en-têtes recopiés du navigateur de la session"
+      "description": "HTTP tier via Impit in Chrome emulation, headers copied from the session's browser"
     },
     {
       "id": "node-https",
-      "description": "Tier HTTP par le client HTTPS de Node, en-têtes recopiés du navigateur de la session"
+      "description": "HTTP tier via Node's HTTPS client, headers copied from the session's browser"
     }
   ],
   "baseline": "browser-fetch",
@@ -62,32 +62,32 @@
     {
       "kind": "run",
       "ref": "access-policy-2026-10-09T16-19-19-822Z-f128cf",
-      "note": "robots.txt et challenge en 200"
+      "note": "robots.txt and challenge served as 200"
     },
     {
       "kind": "run",
       "ref": "tls-fingerprint-2026-10-09T16-20-40-847Z-1d6b5d",
-      "note": "empreintes TLS et HTTP/2"
+      "note": "TLS and HTTP/2 fingerprints"
     },
     {
       "kind": "run",
       "ref": "identity-coherence-2026-10-08T19-32-36-456Z-419b62",
-      "note": "cohérence entre tiers, rotation et révocation"
+      "note": "cross-tier consistency, rotation and revocation"
     },
     {
       "kind": "run",
       "ref": "policy-fixtures-2026-10-08T19-11-08-127Z-31838d",
-      "note": "préférences des sites et signaux d'arrêt"
+      "note": "site preferences and stop signals"
     },
     {
       "kind": "run",
       "ref": "session-isolation-2026-10-08T19-34-55-558Z-f91765",
-      "note": "isolation de deux sessions"
+      "note": "isolation of two sessions"
     },
     {
       "kind": "run",
       "ref": "proxy-pool-2026-10-08T19-35-52-648Z-de827b",
-      "note": "proxies collants et bascule sur panne"
+      "note": "sticky proxies and failover"
     },
     {
       "kind": "research-doc",
@@ -97,7 +97,7 @@
   "verdictRef": null,
   "adr": "adr/0002-access-identity-stealth.md",
   "dependsOn": [],
-  "notes": "Décision de contrat avant tout : la session porte un seul profil ; la mesure de durée dit ce que coûte la cohérence quand le tier HTTP passe par le navigateur. Une session qui ne s'escalade jamais vers le navigateur n'a pas de contrainte de cohérence entre tiers.",
+  "notes": "A contract decision above all: the session carries a single profile; the duration measurement tells what consistency costs when the HTTP tier goes through the browser. A session that never escalates to the browser has no cross-tier consistency constraint.",
   "analysis": {
     "lane": "identity",
     "options": {

@@ -1,21 +1,21 @@
 {
   "id": "D-pricing",
-  "title": "Unité et niveau de prix",
-  "question": "Quelle unité de facturation et quels paliers ?",
+  "title": "Pricing unit and level",
+  "question": "Which billing unit and which tiers?",
   "kind": "product",
   "status": "open",
   "options": [
     {
       "id": "verified-result",
-      "description": "Par résultat vérifié pour un connecteur qualifié"
+      "description": "Per verified result for a qualified connector"
     },
     {
       "id": "compute-units",
-      "description": "Ressources consommées détaillées"
+      "description": "Itemized consumed resources"
     },
     {
       "id": "subscription-tiers",
-      "description": "Abonnement avec plafonds"
+      "description": "Subscription with caps"
     }
   ],
   "evidence": [
@@ -26,11 +26,11 @@
     {
       "kind": "research-doc",
       "ref": "research/market/README.md",
-      "note": "piste demande v1, recherche documentaire ; volonté de payer non mesurée"
+      "note": "demand track v1, desk research; willingness to pay not measured"
     }
   ],
   "dependsOn": [
     "D-segment"
   ],
-  "notes": "La volonté de payer se mesure en entretiens, pas en recherche documentaire."
+  "notes": "Willingness to pay is measured in interviews, not through desk research."
 }

@@ -1,24 +1,24 @@
 {
   "id": "D-feature-priority",
-  "title": "Priorité des fonctionnalités",
-  "question": "Quelles fonctionnalités prioriser pour le premier segment ?",
+  "title": "Feature priority",
+  "question": "Which features should be prioritized for the first segment?",
   "kind": "product",
   "status": "open",
   "options": [
     {
       "id": "ranked-backlog",
-      "description": "Backlog classé depuis le classement des douleurs et les entretiens"
+      "description": "Backlog ranked from the pain-point ranking and the interviews"
     }
   ],
   "evidence": [
     {
       "kind": "research-doc",
       "ref": "research/market/README.md",
-      "note": "piste demande v1, recherche documentaire ; volonté de payer non mesurée"
+      "note": "demand track v1, desk research; willingness to pay not measured"
     }
   ],
   "dependsOn": [
     "D-segment"
   ],
-  "notes": "Produite depuis research/market et les entretiens."
+  "notes": "Produced from research/market and the interviews."
 }

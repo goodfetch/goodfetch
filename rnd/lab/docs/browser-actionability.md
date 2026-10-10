@@ -1,63 +1,63 @@
-# Qualification des clics
+# Click qualification
 
-`pnpm actionability 3` exécute 324 cellules : six backends, neuf variantes,
-deux politiques et trois blocs randomisés. Chaque cellule démarre un adapter
-neuf, utilise le même Chromium et viewport, puis conserve ses événements,
-effets et verdicts. Le démarrage est séparé du temps de tâche.
-`pnpm actionability 3 guarded` permet de requalifier uniquement les 162 cellules
-avec la garde, tout en conservant la matrice native précédente.
+`pnpm actionability 3` runs 324 cells: six backends, nine variants,
+two policies and three randomized blocks. Each cell starts a fresh
+adapter, uses the same Chromium and viewport, then keeps its events,
+effects and verdicts. Startup is separated from task time.
+`pnpm actionability 3 guarded` makes it possible to requalify only the 162 cells
+with the guard, while keeping the previous native matrix.
 
-Les backends sont Playwright, Puppeteer, Stagehand v4, Stagehand v4 batch,
-Crawlee/Playwright et `@crawlee/stagehand`. Cette dernière extension reste sur
-Stagehand v3 et son handler utilise les primitives de la page Playwright.
-Aucun modèle n'est appelé ; cette campagne ne mesure pas observe/act/extract.
+The backends are Playwright, Puppeteer, Stagehand v4, Stagehand v4 batch,
+Crawlee/Playwright and `@crawlee/stagehand`. This last extension stays on
+Stagehand v3 and its handler uses the primitives of the Playwright page.
+No model is called; this campaign does not measure observe/act/extract.
 
-| Variante | Contrat observable |
+| Variant | Observable contract |
 | --- | --- |
-| normal | Un clic trusted sur la cible, un effet exact |
-| overlay | Attendre la disparition de la couverture, sans cliquer l'overlay |
-| delayed | Attendre l'activation du bouton |
-| hidden | Attendre que le bouton soit visible |
-| moving | Attendre la fin du déplacement |
-| rerender | Retrouver le bouton après remplacement, puis activation |
-| never-enabled | Refuser le clic ; aucun effet |
-| never-uncovered | Refuser le clic ; aucun effet, y compris sur l'overlay |
-| ambiguous | Refuser un selector qui correspond à deux boutons |
+| normal | One trusted click on the target, one exact effect |
+| overlay | Wait for the covering element to disappear, without clicking the overlay |
+| delayed | Wait for the button to be enabled |
+| hidden | Wait for the button to be visible |
+| moving | Wait for the movement to end |
+| rerender | Find the button again after replacement, then enablement |
+| never-enabled | Refuse the click; no effect |
+| never-uncovered | Refuse the click; no effect, including on the overlay |
+| ambiguous | Refuse a selector that matches two buttons |
 
-La politique **native** attend seulement que le document soit initialisé,
-puis appelle la primitive propre au backend. La politique **guarded** ajoute
-la même garde : selector unique, visibilité, activation, rectangle stable
-sur deux intervalles entre trois observations RAF espacées d'au moins 16 ms,
-et hit-test au centre. Les frames à fréquence élevée ne doivent pas masquer
-un déplacement qui se produit entre deux observations trop rapprochées.
-La garde n'utilise pas le flag interne de disponibilité attendu par l'oracle.
-Elle couvre ces fixtures, pas toute la compatibilité de Playwright.
+The **native** policy only waits for the document to be initialized,
+then calls the backend's own primitive. The **guarded** policy adds
+the same guard: unique selector, visibility, enablement, rectangle stable
+over two intervals between three RAF observations spaced at least 16 ms apart,
+and hit-test at the center. High-frequency frames must not mask
+a movement that occurs between two observations that are too close together.
+The guard does not use the internal availability flag expected by the oracle.
+It covers these fixtures, not all of Playwright's compatibility.
 
-La première matrice a exposé quatre clics prématurés du guard sur des cibles
-mobiles. La première observation était prise hors RAF et le guard pouvait
-accepter deux positions identiques avant le prochain déplacement. Déplacer
-seulement cette observation dans RAF n'a pas suffi au test public répété.
-Les deux intervalles de stabilité ci-dessus corrigent ce défaut ; les logs
-red/green et la matrice de requalification gardent la preuve du changement.
+The first matrix exposed four premature clicks by the guard on moving
+targets. The first observation was taken outside RAF and the guard could
+accept two identical positions before the next movement. Moving
+only this observation into RAF was not enough for the repeated public test.
+The two stability intervals above fix this defect; the red/green
+logs and the requalification matrix keep the evidence of the change.
 
-L'oracle serveur vérifie la cible, le nombre d'effets, `isTrusted` et la phase
-où le clic a eu lieu. Un clic prématuré ou sur l'overlay échoue, même si l'API
-renvoie un succès. Pour les trois variantes négatives, l'absence d'effet ne
-suffit pas : l'opération doit aussi avoir été refusée.
+The server oracle checks the target, the number of effects, `isTrusted` and the phase
+in which the click took place. A premature click or a click on the overlay fails, even if the API
+returns a success. For the three negative variants, the absence of effect is not
+enough: the operation must also have been refused.
 
-Le budget des guards et des primitives Playwright/Puppeteer est 800 ms.
-Stagehand v4 n'expose pas le même timeout de locator dans cette version ; le
-harness garde une deadline extérieure de 8 s et rapporte cette différence.
-Les handlers Crawlee ont une marge d'orchestration supplémentaire pour laisser
-la primitive refuser avant que le crawler ne tue la tâche. Les temps des refus
-ne doivent pas être assimilés aux temps des clics réussis.
+The budget of the guards and of the Playwright/Puppeteer primitives is 800 ms.
+Stagehand v4 does not expose the same locator timeout in this version; the
+harness keeps an outer deadline of 8 s and reports this difference.
+The Crawlee handlers have an additional orchestration margin to let
+the primitive refuse before the crawler kills the task. The times of refusals
+must not be equated with the times of successful clicks.
 
-Les [garanties Playwright documentées](https://playwright.dev/docs/actionability)
-fournissent la référence pour unicité, visibilité, stabilité, réception des
-événements et activation. La campagne teste ces propriétés sur son corpus,
-sans déduire une équivalence universelle à partir d'un nombre de cellules.
+The [documented Playwright guarantees](https://playwright.dev/docs/actionability)
+provide the reference for uniqueness, visibility, stability, event
+reception and enablement. The campaign tests these properties on its corpus,
+without deducing a universal equivalence from a number of cells.
 
-Un backend qui échoue en mode natif reste visible dans le rapport. Les temps
-d'une variante ne sont interprétés que pour ses effets vérifiés, avec les
-effectifs et les trois blocs. Les anciens résultats de 50 clics avaient des
-conditions de disponibilité communes ; cette campagne complète leur portée.
+A backend that fails in native mode remains visible in the report. The times
+of a variant are only interpreted for its verified effects, with the
+sample sizes and the three blocks. The old 50-click results had common
+availability conditions; this campaign extends their scope.

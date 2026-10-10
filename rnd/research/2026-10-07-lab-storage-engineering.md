@@ -1,111 +1,111 @@
-# Lab Automan — stockage JSON, JSONL et SQLite
+# Automan Lab — JSON, JSONL and SQLite storage
 
-**7 octobre 2026 — recherche et protocole proposé.** Ce document complète la [méthode générale du lab](2026-10-07-lab-testing-engineering.md). Il ne contient pas de résultats de benchmark. Les choix de matrice et de tailles sont des prescriptions locales proposées, adaptées à la demande de mesurer écriture et concurrence.
+**October 7, 2026 — research and proposed protocol.** This document complements the [general lab method](2026-10-07-lab-testing-engineering.md). It contains no benchmark results. The matrix and size choices are proposed local prescriptions, adapted to the request to measure writing and concurrency.
 
-## 1. Séparer quatre coûts
+## 1. Separate four costs
 
-Le lab doit mesurer **génération du corpus, sérialisation, écriture et publication/acquittement** séparément, puis leur combinaison dans le pipeline scraper. Une boucle qui construit de nouveaux objets, encode JSON et insère chaque ligne avec son propre commit ne mesure pas seulement la vitesse de SQLite.
+The lab must measure **corpus generation, serialization, writing and publication/acknowledgement** separately, then their combination in the scraper pipeline. A loop that builds new objects, encodes JSON and inserts each row with its own commit does not measure SQLite's speed alone.
 
-| Rail proposé | Entrée | Mesure | Usage de la conclusion |
+| Proposed rail | Input | Measurement | Use of the conclusion |
 | --- | --- | --- | --- |
-| Sérialisation seule | Objets déterministes en mémoire | Encodage, octets produits, CPU/mémoire | Comparer encoders et structures de données |
-| Sink seul | Corpus de bytes préparés | Write/commit/sync et attente de queue | Comparer sinks et politiques de durabilité |
-| Sérialisation + sink | Même corpus logique | Temps jusqu'à publication sous contrat | Comparer implémentation utile complète |
-| Crawl + extraction + sink | Même graphe fixture | Résultats corrects persistés/seconde | Mesurer backpressure et goulot du système |
+| Serialization only | Deterministic in-memory objects | Encoding, bytes produced, CPU/memory | Compare encoders and data structures |
+| Sink only | Corpus of prepared bytes | Write/commit/sync and queue wait | Compare sinks and durability policies |
+| Serialization + sink | Same logical corpus | Time to publication under contract | Compare complete useful implementations |
+| Crawl + extraction + sink | Same fixture graph | Correct results persisted/second | Measure backpressure and the system bottleneck |
 
-Inclure le coût de préparation dans une mesure distincte ; un buffer préconstruit n'est pas gratuit dans le produit. JSON/JSONL et SQLite ne fournissent pas les mêmes fonctions : exposer leurs contrats au lieu de produire un classement global « stockage le plus rapide ».
+Include the preparation cost in a separate measurement; a prebuilt buffer is not free in the product. JSON/JSONL and SQLite do not provide the same functions: expose their contracts instead of producing a global "fastest storage" ranking.
 
-## 2. SQLite : ce que les sources établissent
+## 2. SQLite: what the sources establish
 
-WAL permet lecteurs et écrivain simultanés, mais **un seul écrivain actif par base**. Les lecteurs longs peuvent empêcher un checkpoint d'avancer ; WAL nécessite que les processus partagent la même machine et n'est pas conçu pour ce mode sur filesystem réseau. Le checkpoint automatique se déclenche par défaut à 1 000 pages, avec un défaut modifiable au build. [Documentation SQLite WAL](https://www.sqlite.org/wal.html).
+WAL allows simultaneous readers and a writer, but **only one active writer per database**. Long-running readers can prevent a checkpoint from progressing; WAL requires the processes to share the same machine and is not designed for this mode on a network filesystem. The automatic checkpoint triggers by default at 1,000 pages, with a default that can be changed at build time. [SQLite WAL documentation](https://www.sqlite.org/wal.html).
 
-En WAL, `synchronous=FULL` ajoute une synchronisation du WAL à chaque commit. `NORMAL` conserve la cohérence mais peut perdre des commits après panne de courant ou crash OS ; SQLite distingue cela du crash applicatif. `integrity_check` vérifie la structure et des contraintes, pas les erreurs de clés étrangères : celles-ci demandent `foreign_key_check`. [Référence des PRAGMAs](https://www.sqlite.org/pragma.html#pragma_synchronous), [contrôle d'intégrité](https://www.sqlite.org/pragma.html#pragma_integrity_check).
+In WAL mode, `synchronous=FULL` adds a WAL sync at each commit. `NORMAL` preserves consistency but can lose commits after a power failure or OS crash; SQLite distinguishes this from an application crash. `integrity_check` verifies structure and constraints, not foreign key errors: those require `foreign_key_check`. [PRAGMA reference](https://www.sqlite.org/pragma.html#pragma_synchronous), [integrity check](https://www.sqlite.org/pragma.html#pragma_integrity_check).
 
-`busy_timeout` installe un handler qui attend avant de rendre `SQLITE_BUSY`, et ne transforme pas la base en moteur à plusieurs écrivains actifs. Le handler peut ne pas être appelé si SQLite détecte un risque de deadlock. [Timeout](https://www.sqlite.org/c3ref/busy_timeout.html), [handler et deadlocks](https://www.sqlite.org/c3ref/busy_handler.html).
+`busy_timeout` installs a handler that waits before returning `SQLITE_BUSY`, and does not turn the database into an engine with several active writers. The handler may not be called if SQLite detects a deadlock risk. [Timeout](https://www.sqlite.org/c3ref/busy_timeout.html), [handler and deadlocks](https://www.sqlite.org/c3ref/busy_handler.html).
 
-`BEGIN IMMEDIATE` demande une transaction d'écriture dès le début et peut échouer avec `SQLITE_BUSY` ; `DEFERRED` commence autrement et une conversion lecture→écriture peut échouer. [Transactions SQLite](https://www.sqlite.org/lang_transaction.html).
+`BEGIN IMMEDIATE` requests a write transaction from the start and can fail with `SQLITE_BUSY`; `DEFERRED` starts differently, and a read→write upgrade can fail. [SQLite transactions](https://www.sqlite.org/lang_transaction.html).
 
-La FAQ SQLite insiste sur le gain de plusieurs inserts dans une transaction. Elle indique aussi que ses anciens chiffres HDD ne constituent plus des références contemporaines : **reprendre le mécanisme, pas les anciens débits**. [FAQ, question 19 et mise à jour](https://www.sqlite.org/faq.html#q19).
+The SQLite FAQ stresses the gain from grouping several inserts in one transaction. It also states that its old HDD figures are no longer contemporary references: **reuse the mechanism, not the old throughputs**. [FAQ, question 19 and update](https://www.sqlite.org/faq.html#q19).
 
-## 3. Node et Rust : éviter les défauts asymétriques
+## 3. Node and Rust: avoiding asymmetric defaults
 
-| Backend examiné | Fait vérifié | Conséquence pour le lab |
+| Backend examined | Verified fact | Consequence for the lab |
 | --- | --- | --- |
-| Node 24.19.0 `node:sqlite` | `DatabaseSync` expose des opérations synchrones ; timeout par défaut `0` ; statements préparés disponibles ; stabilité « release candidate » 1.2 | Configurer timeout et PRAGMAs ; réutiliser la connexion et le statement ; documenter la version exacte |
-| SQLx 0.8.6 SQLite | `busy_timeout` par défaut 5 s ; journal mode non fixé ; le commentaire annonce synchronous FULL mais l'initialisation du pragma vaut `None`, donc dépend du SQLite compilé | Utiliser WAL/FULL ou NORMAL et timeout explicites ; vérifier les valeurs effectives |
-| SQLx 0.8.6 connection | SQLite bloquant est exécuté via un thread de fond et channels ; fermeture explicite rapporte des erreurs que le simple drop ne remonte pas | Mesurer overhead du driver/thread et attendre la fermeture |
+| Node 24.19.0 `node:sqlite` | `DatabaseSync` exposes synchronous operations; default timeout `0`; prepared statements available; stability "release candidate" 1.2 | Configure timeout and PRAGMAs; reuse the connection and the statement; document the exact version |
+| SQLx 0.8.6 SQLite | `busy_timeout` defaults to 5 s; journal mode not set; the comment announces synchronous FULL but the pragma initialization is `None`, so it depends on the compiled SQLite | Use WAL/FULL or NORMAL and explicit timeouts; check the effective values |
+| SQLx 0.8.6 connection | Blocking SQLite is executed via a background thread and channels; an explicit close reports errors that a simple drop does not surface | Measure the driver/thread overhead and await the close |
 
-Sources : [Node à la version 24.19.0](https://nodejs.org/download/release/v24.19.0/docs/api/sqlite.html), [options SQLx au tag v0.8.6](https://github.com/transact-rs/sqlx/blob/v0.8.6/sqlx-sqlite/src/options/mod.rs), [connexion SQLx au même tag](https://github.com/transact-rs/sqlx/blob/v0.8.6/sqlx-sqlite/src/connection/mod.rs).
+Sources: [Node at version 24.19.0](https://nodejs.org/download/release/v24.19.0/docs/api/sqlite.html), [SQLx options at tag v0.8.6](https://github.com/transact-rs/sqlx/blob/v0.8.6/sqlx-sqlite/src/options/mod.rs), [SQLx connection at the same tag](https://github.com/transact-rs/sqlx/blob/v0.8.6/sqlx-sqlite/src/connection/mod.rs).
 
-**Prescription locale :** `Promise.all` autour de `DatabaseSync` dans le même thread ne prouve aucune concurrence de writers. Pour le sink intégré au crawler, placer l'écrivain synchrone Node dans un worker ou processus dédié avec queue bornée. Publier séparément cette topologie et une boucle synchrone minimale de sink ; le coût IPC est réel. Côté Rust, un pool de connexions SQLite reste limité par le verrou d'écriture de la base.
+**Local prescription:** `Promise.all` around `DatabaseSync` in the same thread proves no writer concurrency. For the sink integrated into the crawler, place the synchronous Node writer in a dedicated worker or process with a bounded queue. Publish this topology and a minimal synchronous sink loop separately; the IPC cost is real. On the Rust side, a SQLite connection pool remains limited by the database's write lock.
 
-Node contre SQLx ne suffit pas à isoler un effet « langage » : versions/builds SQLite, binding synchrone ou thread/channel, statements et topologie diffèrent. Enregistrer `sqlite_version()`, `PRAGMA compile_options`, schéma et options effectives pour expliquer ces variables.
+Node versus SQLx is not enough to isolate a "language" effect: SQLite versions/builds, synchronous binding versus thread/channel, statements and topology differ. Record `sqlite_version()`, `PRAGMA compile_options`, the schema and the effective options to explain these variables.
 
-## 4. Matrice de contrats comparables
+## 4. Matrix of comparable contracts
 
-| Cellule proposée | Sortie / unité de publication | Acquittement mesuré | Atomicité annoncée | Portée |
+| Proposed cell | Output / publication unit | Measured acknowledgement | Announced atomicity | Scope |
 | --- | --- | --- | --- | --- |
-| JSON document buffered | Un tableau complet dans un fichier propre au run | Fin des writes/fermeture | Aucun résultat partiel utilisable garanti | Export batch exploratoire |
-| JSON document publié | Fichier temporaire dans même dossier, puis rename vers un nom unique | Writes puis sync du fichier, rename, sync du dossier si supporté | Publication d'un document complet | Export complet ; garantie OS explicitée |
-| JSON par objet | Un fichier à nom unique par record | Writes/close ; variante sync distincte | Publication selon stratégie de chaque fichier | Coût par objet et namespace |
-| JSONL buffered | Lignes complètes appendées par un writer | Writes/flush des buffers applicatifs | Pas de transaction multi-record | Streaming ; aucune preuve power-loss |
-| JSONL synchronisé par lot | Lots de `B` lignes, un writer | Toutes les lignes écrites puis sync du fichier | Pas de all-or-nothing du lot | Préfixe de lignes vérifiable après crash |
-| SQLite WAL NORMAL | Lignes dans transaction de `B` records | Commit | Transaction SQLite | Série sans durabilité power-loss des derniers commits |
-| SQLite WAL FULL | Même schéma et lots | Commit, sync selon SQLite/VFS | Transaction SQLite | Série de durabilité renforcée, hypothèses OS/device explicites |
+| JSON document buffered | A complete array in a run-specific file | End of writes/close | No usable partial result guaranteed | Exploratory batch export |
+| JSON document published | Temporary file in the same folder, then rename to a unique name | Writes then file sync, rename, folder sync if supported | Publication of a complete document | Complete export; OS guarantee made explicit |
+| JSON per object | One uniquely named file per record | Writes/close; separate sync variant | Publication according to each file's strategy | Cost per object and namespace |
+| JSONL buffered | Complete lines appended by one writer | Writes/flush of application buffers | No multi-record transaction | Streaming; no power-loss evidence |
+| JSONL synced per batch | Batches of `B` lines, one writer | All lines written then file sync | No all-or-nothing for the batch | Verifiable prefix of lines after a crash |
+| SQLite WAL NORMAL | Rows in a transaction of `B` records | Commit | SQLite transaction | Series without power-loss durability for the last commits |
+| SQLite WAL FULL | Same schema and batches | Commit, sync according to SQLite/VFS | SQLite transaction | Reinforced durability series, explicit OS/device assumptions |
 
-Les cellules buffered, NORMAL et FULL ont des contrats différents et restent visibles comme tels. JSONL sync et SQLite FULL peuvent répondre à un objectif commun de **records acquittés conservés**, mais JSONL seul n'offre pas une transaction atomique du lot. Si all-or-nothing est requis, cette capacité absente doit apparaître ; ne pas l'ajouter implicitement au score.
+The buffered, NORMAL and FULL cells have different contracts and remain visible as such. JSONL sync and SQLite FULL can meet a common goal of **acknowledged records being kept**, but JSONL alone does not offer an atomic batch transaction. If all-or-nothing is required, this missing capability must appear; do not add it implicitly to the score.
 
-Un write retourné, un buffer applicatif vidé, un fichier synchronisé et un record vérifié après reopen sont quatre observations distinctes. `close()` et un rename ne prouvent pas seuls une publication durable.
+A returned write, a flushed application buffer, a synced file and a record verified after reopen are four distinct observations. `close()` and a rename do not by themselves prove a durable publication.
 
-## 5. Fsync et rename : les limites importantes sur ce Mac
+## 5. Fsync and rename: the important limits on this Mac
 
-La documentation Linux de `rename()` décrit le remplacement atomique ; `fsync(file)` ne garantit pas que l'entrée du dossier a atteint le disque : il faut aussi synchroniser le dossier. Cela justifie une stratégie temp dans le même dossier → sync file → rename → sync directory **sur les systèmes où ces opérations sont supportées**. [rename](https://man7.org/linux/man-pages/man2/rename.2.html), [fsync](https://man7.org/linux/man-pages/man2/fsync.2.html).
+The Linux documentation for `rename()` describes atomic replacement; `fsync(file)` does not guarantee that the directory entry has reached the disk: the directory must also be synced. This justifies a strategy of temp file in the same folder → sync file → rename → sync directory **on systems where these operations are supported**. [rename](https://man7.org/linux/man-pages/man2/rename.2.html), [fsync](https://man7.org/linux/man-pages/man2/fsync.2.html).
 
-Node `FileHandle.sync()` demande le flush au device avec une réalisation dépendante de l'OS/device ; `writeFile({flush:true})` appelle cette opération, pas un protocole complet de publication de namespace. Éviter plusieurs `writeFile()` concurrents sur le même fichier sans attendre leur résolution. [Filesystem Node 24.19](https://nodejs.org/download/release/v24.19.0/docs/api/fs.html#filehandlesync).
+Node `FileHandle.sync()` requests the flush to the device with an OS/device-dependent implementation; `writeFile({flush:true})` calls this operation, not a complete namespace publication protocol. Avoid several concurrent `writeFile()` calls on the same file without awaiting their resolution. [Node 24.19 filesystem](https://nodejs.org/download/release/v24.19.0/docs/api/fs.html#filehandlesync).
 
-Le manuel Apple archivé distingue `fsync()` et `F_FULLFSYNC`, qui demande aussi le flush des buffers du device. Le lab ne doit pas annoncer qu'un `sync()` Node prouve cette garantie sur APFS/macOS actuel. Consigner la méthode et ses erreurs/support réel ; les options SQLite `fullfsync`/`checkpoint_fullfsync` restent des variables explicites. [Manuel Apple](https://developer.apple.com/library/archive/documentation/System/Conceptual/ManPages_iPhoneOS/man2/fsync.2.html), [PRAGMA fullfsync](https://www.sqlite.org/pragma.html#pragma_fullfsync).
+The archived Apple manual distinguishes `fsync()` from `F_FULLFSYNC`, which also requests a flush of the device's buffers. The lab must not announce that a Node `sync()` proves this guarantee on current APFS/macOS. Record the method and its errors/actual support; the SQLite options `fullfsync`/`checkpoint_fullfsync` remain explicit variables. [Apple manual](https://developer.apple.com/library/archive/documentation/System/Conceptual/ManPages_iPhoneOS/man2/fsync.2.html), [PRAGMA fullfsync](https://www.sqlite.org/pragma.html#pragma_fullfsync).
 
-Ne jamais faire disparaître une erreur de sync/directory sync en la traitant comme succès. Si ce niveau n'est pas disponible, étiqueter la cellule selon les opérations réalisées.
+Never make a sync/directory sync error disappear by treating it as a success. If this level is not available, label the cell according to the operations actually performed.
 
-## 6. La concurrence doit avoir plusieurs axes
+## 6. Concurrency must have several axes
 
-| Axe proposé | Premiers points de campagne | Question |
+| Proposed axis | First campaign points | Question |
 | --- | --- | --- |
-| Producteurs logiques `P` | 1 / 4 / 16 / 64 | Le writer impose-t-il backpressure au crawler ? |
-| Writers réels `W` | 1 / 2 / 4 / 8 processus ou workers | Où se trouve la contention et son coût ? |
-| Bases / shards `D` | 1 puis `D=W` dans une autre série | La partition permet-elle plus de débit, à quel coût ? |
-| Batch `B` | 1 / 100 / 1 000 records | Amortissement contre latence et fenêtre de replay |
-| Payload | ~256 B / 4 KiB / 64 KiB, octets réels enregistrés | Binding/metadata ou bandwidth ? |
-| Lecture simultanée | Aucun lecteur puis lecteurs courts/longs | Impact du reader sur checkpoint et croissance WAL |
+| Logical producers `P` | 1 / 4 / 16 / 64 | Does the writer impose backpressure on the crawler? |
+| Real writers `W` | 1 / 2 / 4 / 8 processes or workers | Where is the contention and what does it cost? |
+| Databases / shards `D` | 1 then `D=W` in another series | Does partitioning allow more throughput, and at what cost? |
+| Batch `B` | 1 / 100 / 1,000 records | Amortization versus latency and replay window |
+| Payload | ~256 B / 4 KiB / 64 KiB, actual bytes recorded | Binding/metadata or bandwidth? |
+| Concurrent reading | No reader, then short/long readers | Impact of the reader on checkpoint and WAL growth |
 
-**Ne pas lancer tout le produit cartésien.** Première piste locale : `W=1`, balayage `P` et `B`, puis même base avec `W=2/4`, enfin shards séparés. La série sharded inclut merge/lecture finale, nombre de fichiers et coût global ; elle n'a pas le contrat transactionnel d'une base unique.
+**Do not run the full Cartesian product.** First local track: `W=1`, sweep `P` and `B`, then the same database with `W=2/4`, finally separate shards. The sharded series includes merge/final read, number of files and overall cost; it does not have the transactional contract of a single database.
 
-JSONL commence avec un seul writer recevant les producteurs. Plusieurs appenders du même fichier sont une cellule expérimentale séparée, avec validation d'interleaving/troncature ; ne pas supposer qu'une ligne sérialisée correspond toujours à un unique write atomique. JSON par objet peut paralléliser des fichiers distincts avec noms disjoints ; pas de race au même path.
+JSONL starts with a single writer receiving from the producers. Several appenders to the same file are a separate experimental cell, with interleaving/truncation validation; do not assume that a serialized line always corresponds to a single atomic write. JSON per object can parallelize distinct files with disjoint names; no race on the same path.
 
-Publier `P`, `W`, connexions, processus/threads, `D`, queue max, batch réel, délai de remplissage d'un batch et timeout. Le temps d'attente de la queue et du verrou appartient à la latence utile ; une queue illimitée qui gonfle la RAM ne constitue pas une amélioration soutenable.
+Publish `P`, `W`, connections, processes/threads, `D`, max queue, actual batch, batch fill delay and timeout. Queue and lock wait time belong to useful latency; an unbounded queue that inflates RAM is not a sustainable improvement.
 
-## 7. Configuration locale minimale à essayer
+## 7. Minimal local configuration to try
 
-Commencer avec même corpus/schéma, `W=1`, statement préparé, `BEGIN IMMEDIATE`, inserts liés, commit par lot. WAL, synchronous et busy timeout fixés à l'ouverture puis relus sur **chaque connexion** ; DB propre à la campagne, sans réutilisation silencieuse de profil antérieur. Exemple de contrat : `busy_timeout=5000 ms`, `B=100`, deadline totale supérieure et explicite ; les valeurs restent réglables.
+Start with the same corpus/schema, `W=1`, prepared statement, `BEGIN IMMEDIATE`, bound inserts, commit per batch. WAL, synchronous and busy timeout set at opening, then read back on **each connection**; a campaign-specific DB, without silent reuse of a previous profile. Example contract: `busy_timeout=5000 ms`, `B=100`, a higher and explicit total deadline; the values remain tunable.
 
-Pour SQLite, garder le checkpoint automatique déclaré comme première baseline ; mesurer taille `.db` + WAL + SHM et checkpoint/close séparément, plus durée complète jusqu'au drainage final. Une expérience qui reporte tous les checkpoints au-delà de sa fenêtre doit afficher ce travail différé. Le checkpoint PASSIVE peut rester incomplet ; FULL/RESTART/TRUNCATE ont des comportements de blocage différents. [API officielle de checkpoint](https://www.sqlite.org/c3ref/wal_checkpoint_v2.html).
+For SQLite, keep the declared automatic checkpoint as the first baseline; measure the `.db` + WAL + SHM size and checkpoint/close separately, plus the complete duration up to the final drain. An experiment that defers all checkpoints beyond its window must display this deferred work. The PASSIVE checkpoint can remain incomplete; FULL/RESTART/TRUNCATE have different blocking behaviors. [Official checkpoint API](https://www.sqlite.org/c3ref/wal_checkpoint_v2.html).
 
-Pour comparer conservation d'un même payload, une table `id TEXT PRIMARY KEY, payload TEXT NOT NULL` est une baseline utile : JSON/JSONL et SQLite stockent les mêmes données logiques. Ajouter ensuite des colonnes/indexes métiers dans une série distincte ; leur coût et leurs capacités de lecture ont un intérêt produit réel. Ne pas remplacer un insert échoué par `INSERT OR IGNORE` qui masque un doublon.
+To compare retention of the same payload, a table `id TEXT PRIMARY KEY, payload TEXT NOT NULL` is a useful baseline: JSON/JSONL and SQLite store the same logical data. Then add business columns/indexes in a separate series; their cost and their read capabilities have real product value. Do not replace a failed insert with `INSERT OR IGNORE`, which masks a duplicate.
 
-## 8. Oracle, métriques et incidents
+## 8. Oracle, metrics and incidents
 
-Corpus partagé : IDs stables, Unicode/escaping, null, collections et valeurs numériques dans une plage représentable identique. Oracle sémantique sur tous les records ; comptage seul insuffisant. Bytes identiques seulement pour rail préencodé ; sinon encoders peuvent ordonner/échapper différemment sans perdre la valeur. Vérifier IDs, payload et hash normalisé indépendant.
+Shared corpus: stable IDs, Unicode/escaping, null, collections and numeric values within an identical representable range. Semantic oracle on all records; counting alone is insufficient. Identical bytes only for the pre-encoded rail; otherwise encoders can order/escape differently without losing the value. Verify IDs, payload and an independent normalized hash.
 
-Après la fenêtre chronométrée : reopen depuis un processus frais, parser JSON/chaque ligne JSONL, interroger toutes les lignes SQLite, comparer ensemble/valeurs/versions exacts ; `integrity_check` et `foreign_key_check` selon schéma. Résultats de validation séparés de la durée d'écriture, plus métrique end-to-end validée.
+After the timed window: reopen from a fresh process, parse the JSON/each JSONL line, query all SQLite rows, compare exact sets/values/versions; `integrity_check` and `foreign_key_check` depending on the schema. Validation results kept separate from write duration, plus a validated end-to-end metric.
 
-Métriques : records validés/s, octets logiques et physiques/s, bytes d'artefacts, CPU-s, mémoire du writer et des producteurs, queue wait, lock wait, commit/sync p50/p95 avec effectifs, `BUSY`/retries/rejets, checkpoint et fin de publication. Garder résultats bruts, configurations et ordre randomisé ; ne pas comparer un débit NORMAL à FULL sans indiquer le contrat.
+Metrics: validated records/s, logical and physical bytes/s, artifact bytes, CPU-s, writer and producer memory, queue wait, lock wait, commit/sync p50/p95 with sample counts, `BUSY`/retries/rejections, checkpoint and end of publication. Keep raw results, configurations and randomized order; do not compare a NORMAL throughput with a FULL one without stating the contract.
 
-Faults locales : writer tué avant/après commit ou sync, avant/après publication et avant/après ack ; garder un ledger d'IDs acquittés côté superviseur. Après reopen, vérifier leur conservation et signaler records supplémentaires non acquittés comme effet possible de la coupure avant ack. JSONL peut avoir un tail incomplet : conserver l'artefact et diagnostic, appliquer une politique de recovery déclarée, pas une réparation silencieuse qui transforme l'oracle.
+Local faults: writer killed before/after commit or sync, before/after publication and before/after ack; keep a ledger of acknowledged IDs on the supervisor side. After reopen, verify that they are retained and report additional unacknowledged records as a possible effect of the cut before ack. JSONL can have an incomplete tail: keep the artifact and diagnosis, apply a declared recovery policy, not a silent repair that alters the oracle.
 
-**Un SIGKILL teste un crash de processus, pas un power-loss ou crash kernel.** Le cache OS et le device restent actifs. Cette piste locale peut démontrer erreurs de protocole, intégrité après incidents et comportement de recovery ; elle ne valide pas expérimentalement les promesses de persistence à coupure électrique. Pas de reboot ni coupure de la machine de travail dans ce lot.
+**A SIGKILL tests a process crash, not a power loss or kernel crash.** The OS cache and the device remain active. This local track can demonstrate protocol errors, integrity after incidents and recovery behavior; it does not experimentally validate persistence promises under power loss. No reboot or power cut of the work machine in this batch.
 
-## 9. Décision proposée pour Automan
+## 9. Proposed decision for Automan
 
-Première hypothèse : producteurs concurrents → queue bornée → writer unique batché ; JSONL pour export/log séquentiel, SQLite WAL FULL pour état local transactionnel, NORMAL comme option au contrat de perte acceptable explicite. Ce sont des candidats à mesurer, pas un choix définitivement qualifié. Les shards ou plusieurs writers n'entrent qu'après courbes de contention et coût de merge.
+First hypothesis: concurrent producers → bounded queue → single batched writer; JSONL for sequential export/log, SQLite WAL FULL for transactional local state, NORMAL as an option with an explicit acceptable-loss contract. These are candidates to measure, not a definitively qualified choice. Shards or several writers come in only after contention curves and merge cost are known.
 
-La piste locale doit livrer fixtures de records, Node `node:sqlite`, Rust SQLx 0.8.6 séparé des adapters crawler, fichiers JSON/JSONL, matrice limitée, validation intégrale, manifests et résultats bruts. Il n'est pas nécessaire d'introduire PostgreSQL, broker ou stockage distant pour répondre à cette question initiale.
+The local track must deliver record fixtures, Node `node:sqlite`, Rust SQLx 0.8.6 separate from the crawler adapters, JSON/JSONL files, a limited matrix, full validation, manifests and raw results. It is not necessary to introduce PostgreSQL, a broker or remote storage to answer this initial question.

@@ -1,7 +1,7 @@
 {
   "id": "D-http-transport",
-  "title": "Transport HTTP",
-  "question": "Quel transport HTTP et quel cycle de vie d'acquisition adopter par défaut ?",
+  "title": "HTTP transport",
+  "question": "Which HTTP transport and which acquisition lifecycle should be adopted by default?",
   "kind": "technical",
   "status": "open",
   "options": [
@@ -11,29 +11,29 @@
     },
     {
       "id": "wreq",
-      "description": "wreq, contrôle fin TLS et HTTP/2"
+      "description": "wreq, fine-grained TLS and HTTP/2 control"
     },
     {
       "id": "impit",
-      "description": "Impit, HTTP/3 et impersonation"
+      "description": "Impit, HTTP/3 and impersonation"
     },
     {
       "id": "spider-http",
-      "description": "Spider HTTP intégré",
+      "description": "Built-in Spider HTTP",
       "adapters": [
         "spider-http"
       ]
     },
     {
       "id": "crawlee-http-pooled",
-      "description": "Crawlee HTTP avec pool",
+      "description": "Crawlee HTTP with pool",
       "adapters": [
         "crawlee-http-pooled"
       ]
     },
     {
       "id": "node-fetch",
-      "description": "fetch natif Node",
+      "description": "Node native fetch",
       "adapters": [
         "node-http"
       ]
@@ -79,7 +79,7 @@
     {
       "kind": "run",
       "ref": "http-transport-v2-2026-10-10T02-45-30-587Z-b23a72",
-      "note": "six transports, catalogue à incidents, boucle fermée ; Mac calme"
+      "note": "six transports, incident catalog, closed loop; quiet Mac"
     },
     {
       "kind": "run",
@@ -96,22 +96,22 @@
     {
       "kind": "run",
       "ref": "runtime-http-backends-2026-10-07T23-29-49-072Z-2b2b75",
-      "note": "hôte bruité"
+      "note": "noisy host"
     },
     {
       "kind": "run",
       "ref": "http-incidents-2026-10-09T16-17-14-005Z-41e172",
-      "note": "incidents HTTP"
+      "note": "HTTP incidents"
     },
     {
       "kind": "run",
       "ref": "access-policy-2026-10-09T16-19-19-822Z-f128cf",
-      "note": "robots.txt et challenge en 200"
+      "note": "robots.txt and challenge served as 200"
     },
     {
       "kind": "run",
       "ref": "tls-fingerprint-2026-10-09T16-20-40-847Z-1d6b5d",
-      "note": "empreintes TLS et HTTP/2"
+      "note": "TLS and HTTP/2 fingerprints"
     },
     {
       "kind": "research-doc",
@@ -127,7 +127,7 @@
   "dependsOn": [
     "D-identity"
   ],
-  "notes": "Les contrôles SSRF natifs sont conservés ; un refus de redirection loopback n'est jamais contourné pour fabriquer un succès. Le respect des préférences des sites (robots.txt, Content-Signal, TDMRep) relève de la politique de site du moteur (D-identity, ADR-002), pas de la brique de transport : aucun transport candidat ne l'applique seul, si bien que ce gate bloquait toutes les options, référence comprise. Il est retiré de cette décision le 9 octobre 2026 et reste porté par D-identity. Le verdict de débit ne lit que les runs en boucle fermée : en arrivées ouvertes, le débit vaut le débit offert pour tout transport qui suit.",
+  "notes": "Native SSRF checks are kept; a loopback redirect refusal is never bypassed to manufacture a success. Respecting site preferences (robots.txt, Content-Signal, TDMRep) belongs to the engine's site policy (D-identity, ADR-002), not to the transport component: no candidate transport applies it on its own, so this gate blocked every option, the reference included. It was removed from this decision on October 9, 2026 and remains carried by D-identity. The throughput verdict reads only closed-loop runs: under open arrivals, throughput equals the offered rate for any transport that keeps up.",
   "analysis": {
     "lane": "bench",
     "options": {

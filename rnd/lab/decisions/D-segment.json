@@ -1,25 +1,25 @@
 {
   "id": "D-segment",
-  "title": "Segment de lancement",
-  "question": "Quel segment client viser en premier ?",
+  "title": "Launch segment",
+  "question": "Which customer segment should be targeted first?",
   "kind": "product",
   "status": "open",
   "options": [
     {
       "id": "agent-developers",
-      "description": "Développeurs d'agents LLM"
+      "description": "LLM agent developers"
     },
     {
       "id": "b2b-portals",
-      "description": "Intégrateurs de portails B2B authentifiés"
+      "description": "Integrators of authenticated B2B portals"
     },
     {
       "id": "data-teams",
-      "description": "Équipes data et collecte à volume"
+      "description": "Data teams and high-volume collection"
     },
     {
       "id": "ecommerce-pricing",
-      "description": "Veille prix e-commerce"
+      "description": "E-commerce price monitoring"
     }
   ],
   "evidence": [
@@ -30,9 +30,9 @@
     {
       "kind": "research-doc",
       "ref": "research/market/README.md",
-      "note": "piste demande v1, recherche documentaire ; volonté de payer non mesurée"
+      "note": "demand track v1, desk research; willingness to pay not measured"
     }
   ],
   "dependsOn": [],
-  "notes": "Alimentée par la piste marché et les entretiens."
+  "notes": "Fed by the market track and the interviews."
 }

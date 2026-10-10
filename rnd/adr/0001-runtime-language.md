@@ -1,85 +1,85 @@
-# ADR-001 : langage et architecture du runtime Automan
+# ADR-001: language and architecture of the Automan runtime
 
-**Statut : proposé, à adopter explicitement lors du démarrage de l'implémentation.**
-**Date : 7 octobre 2026.**
-**Décision finale : utilisateur / porteur du projet.**
+**Status: proposed, to be adopted explicitly when implementation starts.**
+**Date: October 7, 2026.**
+**Final decision: user / project owner.**
 
-## Contexte
+## Context
 
-Automan doit être un framework open source qui combine collecte HTTP, rendu navigateur, actions déterministes, perception/extraction assistée par modèles et workflows réutilisables. Les services commerciaux doivent utiliser le même exécuteur. La contrainte initiale de petite équipe et de sortie en 3–6 mois a été retirée ; elle ne gouverne pas ce choix. Les objectifs sont vitesse, efficacité, polyvalence et fiabilité, avec une preuve comparative à qualité égale.
+Automan must be an open source framework that combines HTTP collection, browser rendering, deterministic actions, model-assisted perception/extraction and reusable workflows. The commercial services must use the same executor. The initial constraint of a small team and a release in 3–6 months has been removed; it does not govern this choice. The goals are speed, efficiency, versatility and reliability, with comparative evidence at equal quality.
 
-**Il n'existe pas de consensus universel établi sur le meilleur langage de ce type de framework.** Les projets étudiés montrent plusieurs solutions : Stagehand exécute son runtime dans une extension Chrome avec des clients TS/Python/Go ; Crawlee possède des implémentations TS et Python et accepte des clients HTTP natifs ; Spider et ses agents sont en Rust. Ce relevé n'est pas un sondage représentatif de tous les développeurs. [Architecture Stagehand](https://github.com/browserbase/stagehand/blob/main/CONTRIBUTING.md), [Crawlee Python](https://crawlee.dev/python/docs/guides/architecture-overview), [Crawlee/Impit](https://crawlee.dev/js/docs/guides/impit-http-client), [Spider publié](https://docs.rs/crate/spider/2.53.9/source/).
+**There is no established universal consensus on the best language for this type of framework.** The projects studied show several solutions: Stagehand runs its runtime in a Chrome extension with TS/Python/Go clients; Crawlee has TS and Python implementations and accepts native HTTP clients; Spider and its agents are in Rust. This survey is not a representative poll of all developers. [Stagehand architecture](https://github.com/browserbase/stagehand/blob/main/CONTRIBUTING.md), [Crawlee Python](https://crawlee.dev/python/docs/guides/architecture-overview), [Crawlee/Impit](https://crawlee.dev/js/docs/guides/impit-http-client), [published Spider](https://docs.rs/crate/spider/2.53.9/source/).
 
-La distinction à conserver est entre **langage du moteur, langue de l'API et emplacement d'exécution**. Des clients différents peuvent consommer un protocole commun. Un moteur natif n'élimine pas la latence du réseau, du modèle ou de Chromium ; des opérations exécutées loin du navigateur peuvent perdre davantage en allers-retours que le contrôleur ne gagne en CPU. Cette dernière conclusion est une inférence architecturale, cohérente avec le placement et le batching Stagehand ; ce n'est pas un gain chiffré mesuré pour Automan. [Protocole Stagehand](https://github.com/browserbase/stagehand/blob/main/packages/protocol/README.md), [batching](https://docs.stagehand.dev/v4/reference/stagehand).
+The distinction to keep is between **engine language, API language and execution location**. Different clients can consume a common protocol. A native engine does not eliminate network, model or Chromium latency; operations executed far from the browser can lose more in round trips than the controller gains in CPU. This last conclusion is an architectural inference, consistent with Stagehand's placement and batching; it is not a measured, quantified gain for Automan. [Stagehand protocol](https://github.com/browserbase/stagehand/blob/main/packages/protocol/README.md), [batching](https://docs.stagehand.dev/v4/reference/stagehand).
 
-## Décision proposée
+## Proposed decision
 
-Construire **un moteur canonique Rust asynchrone, utilisable comme bibliothèque et binaire autonome**, avec des SDK TypeScript et Python, une CLI et des outils MCP consommant le même contrat. Tokio est le candidat de runtime async. Le protocole partagé porte types, résultats, capacités, budgets, progression et annulation ; les modèles sont générés, les APIs publiques restent idiomatiques. Le cloud lance les mêmes workers Rust près de leurs navigateurs.
+Build **a canonical asynchronous Rust engine, usable as a library and as a standalone binary**, with TypeScript and Python SDKs, a CLI and MCP tools consuming the same contract. Tokio is the async runtime candidate. The shared protocol carries types, results, capabilities, budgets, progress and cancellation; the models are generated, the public APIs remain idiomatic. The cloud launches the same Rust workers close to their browsers.
 
-Rust est retenu pour l'unité du moteur, sa distribution native, la maîtrise des allocations et ressources, la concurrence et l'absence de GC dans le cœur. **Cela ne démontre pas sa supériorité sur le temps total d'un workflow.** Les services et processus dépendants, dont Chromium, gardent leurs propres comportements. [Rust](https://rust-lang.org/), [Tokio](https://tokio.rs/).
+Rust is chosen for the unity of the engine, its native distribution, control over allocations and resources, concurrency and the absence of GC in the core. **This does not demonstrate its superiority on the total time of a workflow.** Dependent services and processes, including Chromium, keep their own behaviors. [Rust](https://rust-lang.org/), [Tokio](https://tokio.rs/).
 
-Le navigateur est une dépendance pilotée. Un adapter CDP natif encapsule Chromey/Chromiumoxide ; la sélection finale de la bibliothèque attend une qualification des capacités. Un adapter Playwright fournit compatibilité et référence de comportement. Chaque session possède un seul backend responsable de son lifecycle. Les objets internes des drivers ne deviennent pas le contrat public d'Automan. [Chromey](https://github.com/spider-rs/chromey), [Chromiumoxide](https://github.com/mattsse/chromiumoxide), [actionability Playwright](https://playwright.dev/docs/actionability).
+The browser is a driven dependency. A native CDP adapter wraps Chromey/Chromiumoxide; the final selection of the library awaits a capability qualification. A Playwright adapter provides compatibility and a behavioral reference. Each session has a single backend responsible for its lifecycle. The drivers' internal objects do not become Automan's public contract. [Chromey](https://github.com/spider-rs/chromey), [Chromiumoxide](https://github.com/mattsse/chromiumoxide), [Playwright actionability](https://playwright.dev/docs/actionability).
 
-## Options considérées
+## Options considered
 
-Les appréciations ci-dessous sont nos choix de conception pour ce périmètre, pas un classement communautaire ou un benchmark.
+The assessments below are our design choices for this scope, not a community ranking or a benchmark.
 
-| Option | Avantages pertinents | Coûts et limites | Place proposée |
+| Option | Relevant advantages | Costs and limitations | Proposed place |
 | --- | --- | --- | --- |
-| Rust | Moteur natif commun, contrôle des ressources, async, bibliothèque + binaire | Distribution par plateforme, IPC, qualification et maintenance d'un driver CDP | Cœur, workers, CLI |
-| TypeScript | Accès direct à l'écosystème Playwright et APIs web ; bonne surface développeur | Runtime Node pour un moteur TS ; GC et coût CPU à mesurer, aucun handicap universel établi | SDK, outils et interface ; worker Playwright |
-| Python | Intégration aux pipelines de données et d'agents ; API familière à leurs utilisateurs | Hot paths CPU à déléguer si le profiling le demande ; packaging d'un moteur Python à considérer | SDK et intégrations |
-| Go | Runtime réseau/concurrence et distribution de binaire ; drivers CDP et crawlers existants | GC ; ne résout pas à lui seul la parité des attentes et actions navigateur | Alternative viable au cœur, SDK futur possible |
+| Rust | Common native engine, resource control, async, library + binary | Per-platform distribution, IPC, qualification and maintenance of a CDP driver | Core, workers, CLI |
+| TypeScript | Direct access to the Playwright ecosystem and web APIs; good developer surface | Node runtime for a TS engine; GC and CPU cost to be measured, no universal handicap established | SDK, tools and interface; Playwright worker |
+| Python | Integration with data and agent pipelines; API familiar to their users | CPU hot paths to be delegated if profiling calls for it; packaging of a Python engine to be considered | SDK and integrations |
+| Go | Network/concurrency runtime and binary distribution; existing CDP drivers and crawlers | GC; does not by itself solve parity of browser waits and actions | Viable alternative for the core, possible future SDK |
 
-La présence d'Impit permet à TS/Python d'utiliser déjà du code natif ; il serait faux de déduire la vitesse de toute une stack du langage de son SDK. Go ne doit pas être rejeté pour son seul GC, et un moteur Python peut déléguer ses parties coûteuses. [Impit](https://github.com/apify/impit), [chromedp](https://github.com/chromedp/chromedp), [Colly](https://github.com/gocolly/colly).
+The presence of Impit already allows TS/Python to use native code; it would be wrong to infer the speed of an entire stack from the language of its SDK. Go must not be rejected for its GC alone, and a Python engine can delegate its costly parts. [Impit](https://github.com/apify/impit), [chromedp](https://github.com/chromedp/chromedp), [Colly](https://github.com/gocolly/colly).
 
-## Architecture proposée
+## Proposed architecture
 
 ```mermaid
 flowchart TD
-    CLIENTS[SDK TypeScript et Python - CLI - MCP - API cloud] --> PROTOCOL[Protocole versionne et modeles partages]
-    PROTOCOL --> CORE[Runtime Rust - sessions - budgets - annulation]
-    CORE --> PLANS[Plans versionnes - journal - reprise]
-    CORE --> HTTP[HTTP natif et parsing]
-    CORE --> CDP[Adapter CDP Rust]
-    CORE --> PW[Worker Playwright de compatibilite]
-    CORE --> RESOLVE[Observation et resolution - modele facultatif]
-    PLANS --> VERIFY[Validation des donnees et effets]
-    CDP --> BROWSER[Chromium local ou distant]
+    CLIENTS[TypeScript and Python SDKs - CLI - MCP - cloud API] --> PROTOCOL[Versioned protocol and shared models]
+    PROTOCOL --> CORE[Rust runtime - sessions - budgets - cancellation]
+    CORE --> PLANS[Versioned plans - journal - recovery]
+    CORE --> HTTP[Native HTTP and parsing]
+    CORE --> CDP[Rust CDP adapter]
+    CORE --> PW[Playwright compatibility worker]
+    CORE --> RESOLVE[Observation and resolution - optional model]
+    PLANS --> VERIFY[Validation of data and effects]
+    CDP --> BROWSER[Local or remote Chromium]
     PW --> BROWSER
-    CRAWL[Frontier de crawl - leases - quotas - backpressure] --> PLANS
-    VERIFY --> RESULT[Resultat - preuves - cout - statut]
+    CRAWL[Crawl frontier - leases - quotas - backpressure] --> PLANS
+    VERIFY --> RESULT[Result - evidence - cost - status]
 ```
 
-Le cœur forme des modules bien séparés dans un produit commun ; l'architecture initiale ne nécessite pas un service indépendant pour chaque module. Les workers deviennent des frontières de processus lorsque l'isolation, la proximité du navigateur ou la répartition du travail le justifient.
+The core forms well-separated modules in a common product; the initial architecture does not require an independent service for each module. Workers become process boundaries when isolation, proximity to the browser or work distribution justifies it.
 
-### Contrats structurants
+### Structuring contracts
 
-1. **Protocole :** JSON-RPC bidirectionnel proposé sur stdio local et WebSocket distant sécurisé. Version et capacités négociées ; grands artefacts transférés par références ou flux bornés. Ce choix est proposé pour unifier SDK, CLI et cloud ; son overhead sera mesuré. Des bindings embarqués peuvent être ajoutés si un usage justifie leur coût.
-2. **Exécution :** API/HTTP, parsing, navigateur déterministe et résolution par modèle. Le moyen d'accès est choisi selon le résultat demandé et l'historique ; les routes connues comme nécessitant JS peuvent aller directement au navigateur.
-3. **Plans :** version, paramètres, exigences de session, étapes, attentes, préconditions et postconditions. Recorder, code ou modèle peuvent produire des plans ; aucune conversion générale de tout code arbitraire en plan sûr n'est promise.
-4. **Collecte :** frontier, déduplication, quotas par domaine, leases et backpressure distincts de la reprise des actions. Un adapter Crawlee externe peut posséder la queue pendant qu'Automan exécute, sans double scheduler pour une requête.
-5. **État :** SQLite proposé en local pour journal/checkpoints ; PostgreSQL et stockage d'objets proposés pour le cloud multi-worker. Les résultats sont idempotents lorsque leur contrat le permet ; un effet externe incertain exige réconciliation de l'état avant répétition.
-6. **Vérification :** schéma, identité, complétude, fraîcheur et postcondition sont des propriétés séparées. Distinguer succès technique, résultat vérifié, résultat partiel et effet inconnu. Les verdicts probabilistes sont explicitement identifiés.
-7. **Modèles et caches :** modèles facultatifs pour découverte, ambiguïté et réparation. Cache de perception, cache de plan et cache de données ont des invalidations distinctes. Un plan valide peut s'exécuter sans nouvelle inférence.
-8. **Placement :** conserver workers et navigateurs proches, sessions réutilisées sous identité isolée, opérations indépendantes groupées et concurrence bornée. Le SDK ne possède pas une seconde implémentation du moteur.
+1. **Protocol:** bidirectional JSON-RPC proposed over local stdio and secure remote WebSocket. Version and capabilities negotiated; large artifacts transferred by references or bounded streams. This choice is proposed to unify SDK, CLI and cloud; its overhead will be measured. Embedded bindings can be added if a use case justifies their cost.
+2. **Execution:** API/HTTP, parsing, deterministic browser and model-based resolution. The means of access is chosen according to the requested result and the history; routes known to require JS can go directly to the browser.
+3. **Plans:** version, parameters, session requirements, steps, waits, preconditions and postconditions. Recorder, code or model can produce plans; no general conversion of arbitrary code into a safe plan is promised.
+4. **Collection:** frontier, deduplication, per-domain quotas, leases and backpressure, distinct from action recovery. An external Crawlee adapter can own the queue while Automan executes, without a double scheduler for a request.
+5. **State:** SQLite proposed locally for journal/checkpoints; PostgreSQL and object storage proposed for the multi-worker cloud. Results are idempotent when their contract allows it; an uncertain external effect requires reconciliation of the state before repetition.
+6. **Verification:** schema, identity, completeness, freshness and postcondition are separate properties. Distinguish technical success, verified result, partial result and unknown effect. Probabilistic verdicts are explicitly identified.
+7. **Models and caches:** optional models for discovery, ambiguity and repair. Perception cache, plan cache and data cache have distinct invalidations. A valid plan can run without new inference.
+8. **Placement:** keep workers and browsers close, sessions reused under an isolated identity, independent operations grouped and concurrency bounded. The SDK does not have a second implementation of the engine.
 
-Ces choix s'inspirent de responsabilités présentes dans les références, sans leur attribuer une garantie qu'elles n'ont pas. Voir [contrats inspectés](../research/2026-10-07-crawlee-spider-contracts-followup.md) et [Stagehand/alternatives](../research/2026-10-07-stagehand-alternatives-followup.md).
+These choices are inspired by responsibilities present in the references, without attributing to them a guarantee they do not have. See [inspected contracts](../research/2026-10-07-crawlee-spider-contracts-followup.md) and [Stagehand/alternatives](../research/2026-10-07-stagehand-alternatives-followup.md).
 
-## Conséquences et arbitrages
+## Consequences and trade-offs
 
-Le produit dispose d'une seule sémantique d'exécution locale et distante, avec une distribution indépendante du langage client. La maintenance se concentre sur le protocole et les adapters ; l'équipe doit cependant qualifier l'actionability CDP, les courses de navigation, frames/OOPIF, téléchargements, pertes de connexion et cancellation. Le simple binding d'une commande CDP n'assure pas la fiabilité Playwright.
+The product has a single execution semantics, local and remote, with distribution independent of the client language. Maintenance concentrates on the protocol and the adapters; the team must nevertheless qualify CDP actionability, navigation races, frames/OOPIF, downloads, connection losses and cancellation. Merely binding a CDP command does not provide Playwright's reliability.
 
-Le choix Rust ne doit pas déplacer l'effort hors des coûts dominants. Le premier objectif de performance est d'éviter un rendu ou une décision inutile, puis les captures et allers-retours redondants ; le profiling décide de l'optimisation CPU. La sécurité mémoire du cœur ne prouve pas la correction de la recette, de l'extraction ou des effets sur le site.
+The Rust choice must not shift effort away from the dominant costs. The first performance goal is to avoid an unnecessary render or decision, then redundant screenshots and round trips; profiling decides CPU optimization. The memory safety of the core does not prove the correctness of the recipe, of the extraction or of the effects on the site.
 
-Les fonctions déjà présentes chez les concurrents — HTTP adaptatif, script cache, réparation, vérification — restent des références. La différenciation Automan doit porter sur leur contrat commun, leur portabilité, leur diagnostic et le coût par résultat réellement correct. [Comparaison approfondie](../research/2026-10-07-stagehand-crawlee-spider-comparison.md).
+The features already present at competitors — adaptive HTTP, script cache, repair, verification — remain references. Automan's differentiation must lie in their common contract, their portability, their diagnostics and the cost per actually correct result. [In-depth comparison](../research/2026-10-07-stagehand-crawlee-spider-comparison.md).
 
-## Actions de qualification
+## Qualification actions
 
-- [ ] Fixer schémas, ownership des sessions et états terminaux avant le driver public.
-- [ ] Établir des baselines équivalentes HTTP, rendu JS et workflows authentifiés avec Spider, Crawlee, Playwright et Stagehand.
-- [ ] Qualifier Chromey/Chromiumoxide derrière le même contrat, conserver le backend Playwright pour les capacités requises encore incomplètes.
-- [ ] Mesurer CPU/mémoire totale, startup froid/chaud, latence, RPC, appels LLM et coût de toutes les tentatives.
-- [ ] Tester dérive de DOM, données changeantes, auth expirée et interruption entre effet, validation et acquittement.
+- [ ] Fix schemas, session ownership and terminal states before the public driver.
+- [ ] Establish equivalent baselines for HTTP, JS rendering and authenticated workflows with Spider, Crawlee, Playwright and Stagehand.
+- [ ] Qualify Chromey/Chromiumoxide behind the same contract, keep the Playwright backend for required capabilities that are still incomplete.
+- [ ] Measure total CPU/memory, cold/warm startup, latency, RPC, LLM calls and the cost of all attempts.
+- [ ] Test DOM drift, changing data, expired auth and interruption between effect, validation and acknowledgment.
 
-Les gates de promotion d'un backend reposent sur **qualité et fiabilité équivalentes avec gain mesuré**. Aucun classement universel des langages ni gain chiffré Automan n'est établi par cet ADR. [Audit des benchmarks publics](../research/2026-10-07-benchmark-audit-followup.md).
+The promotion gates for a backend rest on **equivalent quality and reliability with a measured gain**. No universal ranking of languages and no quantified Automan gain is established by this ADR. [Audit of public benchmarks](../research/2026-10-07-benchmark-audit-followup.md).

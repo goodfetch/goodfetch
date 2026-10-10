@@ -1,107 +1,107 @@
 # Automan Lab
 
-Laboratoire local opérationnel : moteurs de crawl, primitives navigateur et stockage, avec données contrôlées et validation indépendante. Construction des 7–8 octobre 2026. Les premiers résultats qualifient des configurations sur ces fixtures ; ils ne démontrent pas une supériorité universelle ni l'architecture finale d'Automan.
+Operational local lab: crawl engines, browser and storage primitives, with controlled data and independent validation. Built October 7–8, 2026. The first results qualify configurations on these fixtures; they demonstrate neither universal superiority nor Automan's final architecture.
 
-Les [nouveaux résultats du workflow durable et de SQLite commun](reports/workflow-2026-10-08.md) prolongent le lab avec Node/Rust sync/Go, reprise et réveil du pool Crawlee.
+The [new results for the durable workflow and common SQLite](reports/workflow-2026-10-08.md) extend the lab with Node/Rust sync/Go, recovery and Crawlee pool wake-up.
 
-La [qualification transversale exécutée](reports/integrated-2026-10-08.md) ajoute le
-[workflow natif Node et Rust](docs/runtime-workflow.md), les crashes pendant/après
-ACK, l'actionnabilité native ou gardée, les lecteurs/checkpoints SQLite et les
-transports HTTP. Ces campagnes ne sont pas encore un choix final de noyau.
+The [executed cross-cutting qualification](reports/integrated-2026-10-08.md) adds the
+[native Node and Rust workflow](docs/runtime-workflow.md), crashes during/after
+ACK, native or guarded actionability, SQLite readers/checkpoints and
+HTTP transports. These campaigns are not yet a final choice of core.
 
-Les [résultats exécutés et décisions à tester](reports/qualification-2026-10-07.md) incluent HTTP, primitives navigateur et écritures concurrentes. L'[index HTML](reports/index.html) donne accès aux manifests, données brutes et rapports retenus.
+The [executed results and decisions to test](reports/qualification-2026-10-07.md) include HTTP, browser primitives and concurrent writes. The [HTML index](reports/index.html) gives access to the manifests, raw data and retained reports.
 
-## Décisions, claims et ledger
+## Decisions, claims and ledger
 
-Le lab est piloté par le [plan de R&D](../plan/rd-plan.md). Chaque campagne sert une décision de `decisions/` : options, baseline, métrique principale du [catalogue](metrics/catalog.json), gates de contrat, effet minimal Δ, règle et classe d'hôte. Les affirmations publiques candidates sont dans `claims/`, déclarées avant mesure. Les notes éditoriales ne portent aucun chiffre mesuré : les chiffres viennent des verdicts.
+The lab is driven by the [R&D plan](../plan/rd-plan.md). Each campaign serves a decision in `decisions/`: options, baseline, primary metric from the [catalog](metrics/catalog.json), contract gates, minimum effect Δ, rule and host class. Candidate public claims are in `claims/`, declared before measurement. Editorial notes carry no measured figure: figures come from the verdicts.
 
 ```sh
-pnpm lab validate   # schémas et références du registre, des claims et du ledger
-pnpm lab import     # réexprime results/ en run.v2 sous ledger/imported et régénère le ledger
-pnpm lab ledger     # rôle, statut, rerun et classes de validité de chaque run
+pnpm lab validate   # schemas and references of the register, claims and ledger
+pnpm lab import     # re-expresses results/ as run.v2 under ledger/imported and regenerates the ledger
+pnpm lab ledger     # role, status, rerun and validity classes of each run
 ```
 
-### Moteur v2 et classes d'hôte
+### v2 engine and host classes
 
 ```sh
-pnpm lab preflight local-controlled          # vérifie l'hôte : charge, mémoire, thermique, secteur, processus étrangers, sources commitées
+pnpm lab preflight local-controlled          # checks the host: load, memory, thermals, AC power, foreign processes, committed sources
 pnpm lab run campaigns/v2/bench/http-smoke.json
 ```
 
-`pnpm lab run` exécute une campagne v2 (`schemas/campaign-bench.v2.schema.json`) ; un ancien `campaigns/*.json` est converti et plafonné à `local-dev`. Le moteur enchaîne provenance (SHA git, état dirty, empreinte des sources), contrôle de l'hôte, gate de conformité, warmup, blocs mesurés et finalisation dans `results/<id>/run.v2.json` et `attempts.v2.jsonl`. Seuils des classes `local-controlled` et `reference` : `hosts/*.json`. Un hôte qui ne passe pas les gates est refusé, ou dégradé explicitement si la campagne l'autorise ; des sources non commitées plafonnent à `local-dev`.
+`pnpm lab run` executes a v2 campaign (`schemas/campaign-bench.v2.schema.json`); an old `campaigns/*.json` is converted and capped at `local-dev`. The engine chains provenance (git SHA, dirty state, source fingerprint), host check, conformance gate, warmup, measured blocks and finalization into `results/<id>/run.v2.json` and `attempts.v2.jsonl`. Thresholds for the `local-controlled` and `reference` classes: `hosts/*.json`. A host that does not pass the gates is refused, or explicitly downgraded if the campaign allows it; uncommitted sources cap the run at `local-dev`.
 
-Toutes les campagnes sont des données versionnées sous `campaigns/v2/` : `bench/` pour le moteur d'attempts, et `storage/`, `workflow/`, `runtime/`, `actionability/`, `sqlite-readers/` pour les lanes (`schemas/campaign-lane.v2.schema.json`). Chaque campagne nomme ses décisions et demande une classe d'hôte. Une lane garde son exécuteur de cellule et son oracle propres ; le moteur générique (`src/core/lanes.ts`) ajoute provenance, contrôle de l'hôte, blocs randomisés, statuts typés, `run.v2.json` et `cells.raw.jsonl` avec le détail complet de chaque cellule. Les anciens CLI (`pnpm storage`, `pnpm workflow`, `pnpm runtime`, `pnpm actionability`, `pnpm sqlite-readers`) appellent les mêmes exécuteurs et restent disponibles pour comparaison.
+All campaigns are versioned data under `campaigns/v2/`: `bench/` for the attempts engine, and `storage/`, `workflow/`, `runtime/`, `actionability/`, `sqlite-readers/` for the lanes (`schemas/campaign-lane.v2.schema.json`). Each campaign names its decisions and requests a host class. A lane keeps its own cell executor and oracle; the generic engine (`src/core/lanes.ts`) adds provenance, host check, randomized blocks, typed statuses, `run.v2.json` and `cells.raw.jsonl` with the full detail of each cell. The old CLIs (`pnpm storage`, `pnpm workflow`, `pnpm runtime`, `pnpm actionability`, `pnpm sqlite-readers`) call the same executors and remain available for comparison.
 
 ```sh
-pnpm lab validate                                          # registre + toutes les campagnes v2
-pnpm lab suite campaigns/v2/suites/qualification-current.json   # enchaîne les campagnes et compare aux comptes attendus
+pnpm lab validate                                          # register + all v2 campaigns
+pnpm lab suite campaigns/v2/suites/qualification-current.json   # chains the campaigns and compares against the expected counts
 ```
 
-Une suite (`schemas/suite.v2.schema.json`) déclare pour chaque étape les comptes attendus ; elle échoue si un compte diffère ou si la provenance a changé pendant le run. Un run v2 neuf entre dans le ledger comme `unreviewed` jusqu'à sa classification.
+A suite (`schemas/suite.v2.schema.json`) declares the expected counts for each step; it fails if a count differs or if provenance changed during the run. A new v2 run enters the ledger as `unreviewed` until it is classified.
 
-### Verdicts et rapport
+### Verdicts and report
 
 ```sh
-pnpm lab verdict            # verdicts/<décision>.json pour chaque décision dotée d'un bloc `analysis`
-pnpm lab report             # reports/decisions.md, généré depuis decisions/ et verdicts/ uniquement
+pnpm lab verdict            # verdicts/<decision>.json for each decision that has an `analysis` block
+pnpm lab report             # reports/decisions.md, generated from decisions/ and verdicts/ only
 ```
 
-Une décision déclare dans `analysis` la lane, les facteurs qui désignent chaque option, les facteurs d'appariement et la strate principale. Pour chaque bloc apparié, le verdict calcule ln(option / baseline) de la métrique principale. Il produit ensuite un intervalle par bootstrap de blocs seedé : (1 − α) en supériorité, (1 − 2α) en équivalence et en non-infériorité. Hodges–Lehmann et Wilcoxon signé exact sont donnés en contrôle de robustesse.
+A decision declares in `analysis` the lane, the factors that designate each option, the pairing factors and the main stratum. For each paired block, the verdict computes ln(option / baseline) of the primary metric. It then produces an interval by seeded block bootstrap: (1 − α) for superiority, (1 − 2α) for equivalence and non-inferiority. Hodges–Lehmann and exact signed Wilcoxon are given as robustness checks.
 
-L'issue est mécanique, comparée à ±ln(1 + Δ) : `better`, `worse`, `equivalent`, `trivial`, `non-inferior` ou `inconclusive`. Elle vaut `blocked-by-contract` si une gate échoue ou n'est pas encore évaluable, et `insufficient-n` si les blocs sont moins nombreux que ceux exigés par la dispersion observée (minimum cinq). Un verdict n'est éligible pour la décision que si l'hôte observé atteint la classe requise.
+The outcome is mechanical, compared with ±ln(1 + Δ): `better`, `worse`, `equivalent`, `trivial`, `non-inferior` or `inconclusive`. It is `blocked-by-contract` if a gate fails or cannot yet be evaluated, and `insufficient-n` if there are fewer blocks than the observed dispersion requires (minimum five). A verdict is eligible for the decision only if the observed host reaches the required class.
 
-Méthode : le statut d'une tentative vient d'un code d'erreur typé (`src/core/errors.ts`), jamais du texte d'un message. Un timeout ne touche que la tentative bloquée : ses voisines en vol sont `aborted` (`E_SIBLING_ABORT`), hors taux d'échec, et le worker redémarre dans la limite de `maxRestarts`. Fixtures et oracle tournent dans un processus séparé (`fixtures/worker.ts`) ; `taskMs` ne couvre que l'appel `run`, et `oracleMs` est mesuré à part. Une métrique sans sonde sur l'hôte vaut `null`, avec sa raison dans `metricAvailability`, jamais 0. Les tentatives bloquées par un gate restent visibles en `skipped-gate`.
+Method: an attempt's status comes from a typed error code (`src/core/errors.ts`), never from the text of a message. A timeout affects only the stuck attempt: its in-flight neighbors are `aborted` (`E_SIBLING_ABORT`), excluded from the failure rate, and the worker restarts within the `maxRestarts` limit. Fixtures and oracle run in a separate process (`fixtures/worker.ts`); `taskMs` covers only the `run` call, and `oracleMs` is measured separately. A metric with no probe on the host is `null`, with its reason in `metricAvailability`, never 0. Attempts blocked by a gate remain visible as `skipped-gate`.
 
-### Réseau, Linux et CI locale
+### Network, Linux and local CI
 
 ```sh
-pnpm lab ci     # typecheck, tests unitaires et de contrat, tests de précision temporelle (seuls), validation du registre et des campagnes
+pnpm lab ci     # typecheck, unit and contract tests, timing-precision tests (run alone), register and campaign validation
 ```
 
-Une campagne bench peut déclarer `network: { link: "browser-origin", rttMs }`. Le moteur calibre d'abord le profil : des ping-pong d'un octet, directs et à travers le proxy, sont alternés, et le run consigne la médiane appariée du délai ajouté. Hors tolérance (le plus grand de 2 ms et 10 %), les métriques de temps et de ressources deviennent indisponibles ; les métriques de contrat restent valides. Les fixtures sont ensuite servies à travers un proxy TCP en espace utilisateur (`src/net/latency-proxy.ts`), sans privilège, sur macOS comme sur Linux. Il ajoute la moitié du RTT dans chaque sens, préserve l'ordre des octets et ne libère jamais un paquet avant son échéance. Le lien `driver-browser` arrive avec l'adapter CDP de P6 ; perte et gigue relèvent de `tc netem` sur l'hôte de référence.
+A bench campaign can declare `network: { link: "browser-origin", rttMs }`. The engine first calibrates the profile: one-byte ping-pongs, direct and through the proxy, are alternated, and the run records the paired median of the added delay. Out of tolerance (the larger of 2 ms and 10%), time and resource metrics become unavailable; contract metrics remain valid. Fixtures are then served through a user-space TCP proxy (`src/net/latency-proxy.ts`), without privileges, on macOS as on Linux. It adds half the RTT in each direction, preserves byte order and never releases a packet before its due time. The `driver-browser` link arrives with the P6 CDP adapter; loss and jitter are handled by `tc netem` on the reference host.
 
-Sur Linux, le CPU de l'arbre de processus vient de `/proc/<pid>/stat` et la mémoire proportionnelle (PSS anonyme + swap) de `smaps_rollup`. Les compteurs cgroup v2 demandent un scope systemd par run et restent déclarés indisponibles d'ici là. Préparation de l'hôte : [`rnd/plan/reference-host.md`](../plan/reference-host.md).
+On Linux, the process tree's CPU comes from `/proc/<pid>/stat` and proportional memory (anonymous PSS + swap) from `smaps_rollup`. cgroup v2 counters require a systemd scope per run and remain declared unavailable until then. Host preparation: [`rnd/plan/reference-host.md`](../plan/reference-host.md).
 
-### Pilotes navigateur (D-browser-driver)
+### Browser drivers (D-browser-driver)
 
 ```sh
-pnpm lab run campaigns/v2/bench/browser-driver-rtt-0.json          # puis -20, -100, -300 : lien driver-browser
+pnpm lab run campaigns/v2/bench/browser-driver-rtt-0.json          # then -20, -100, -300: driver-browser link
 pnpm lab run campaigns/v2/actionability/browser-actionability-extended.json
 ```
 
-Deux pilotes CDP directs envoient la même séquence de commandes pour chaque opération : `node-cdp` (`adapters/cdp-node`) et `rust-cdp` (`adapters/cdp-rust`, compilé par `pnpm bootstrap`). Ils injectent les mêmes scripts de page, lus depuis `adapters/browser-scripts/` : attentes, extraction, et la garde Automan (unicité, visibilité, activation, stabilité, hit-test, shadow DOM compris). Une comparaison entre les deux isole donc le langage du protocole. Chaque tâche rapporte son nombre de commandes CDP, et un test d'intégration exige qu'il soit identique entre les deux langages.
+Two direct CDP drivers send the same command sequence for each operation: `node-cdp` (`adapters/cdp-node`) and `rust-cdp` (`adapters/cdp-rust`, compiled by `pnpm bootstrap`). They inject the same page scripts, read from `adapters/browser-scripts/`: waits, extraction, and the Automan guard (uniqueness, visibility, enablement, stability, hit-test, shadow DOM included). A comparison between the two therefore isolates the language used for the protocol. Each task reports its number of CDP commands, and an integration test requires it to be identical between the two languages.
 
-La matrice `browser-driver-primitives` (lane `actionability`, `config.scenario: "primitives"`) vérifie dix gestes avec un adapter neuf par cellule : survol, double clic, clic droit, glisser-déposer par événements pointeur, molette, touche Entrée, `contenteditable`, saisie Unicode, cible déplacée sous le pointeur (un leurre prend sa place) et cible remplacée par un contrôle destructeur (`retarget`, qui doit être refusé sans effet). L'oracle exige un seul effet du bon type, issu d'un événement `isTrusted`, et aucun effet sur un leurre. HTML5 drag-and-drop natif et composition IME sont hors de cette matrice.
+The `browser-driver-primitives` matrix (`actionability` lane, `config.scenario: "primitives"`) checks ten gestures with a fresh adapter per cell: hover, double click, right click, drag-and-drop via pointer events, mouse wheel, Enter key, `contenteditable`, Unicode input, target moved under the pointer (a decoy takes its place) and target replaced by a destructive control (`retarget`, which must be refused without effect). The oracle requires a single effect of the right type, coming from an `isTrusted` event, and no effect on a decoy. Native HTML5 drag-and-drop and IME composition are outside this matrix.
 
-La matrice `browser-navigation-frames-files` (`config.scenario: "navigation"`) couvre sept situations de portail : route SPA par `pushState`, retour arrière dans l'historique (restauration réelle, `persisted` ou `back_forward`), popup ouverte par `window.open`, iframe de même origine, iframe d'une autre origine (processus séparé dans Chromium), envoi de fichier et téléchargement aux octets exacts. Popups et frames sont remises à la tâche comme des pages : garde, geste et postcondition s'y appliquent de la même façon. En CDP direct, une frame du même processus passe par un monde isolé, une frame hors processus par l'auto-attachement, et les clics restent en coordonnées de la page principale.
+The `browser-navigation-frames-files` matrix (`config.scenario: "navigation"`) covers seven portal situations: SPA route via `pushState`, going back in history (real restoration, `persisted` or `back_forward`), popup opened by `window.open`, same-origin iframe, cross-origin iframe (separate process in Chromium), file upload, and download with exact bytes. Popups and frames are handed to the task as pages: guard, gesture and postcondition apply to them in the same way. In direct CDP, a same-process frame goes through an isolated world, an out-of-process frame through auto-attach, and clicks remain in main-page coordinates.
 
-La matrice `http-incidents` (`config.scenario: "http-catalog"`, décision D-http-transport) provoque un incident sur la deuxième page d'un catalogue de trois pages : 429 avec `Retry-After`, 503 unique, corps tronqué, connexion coupée, boucle de redirections, réponse en 8 s. Une relance doit respecter `Retry-After` ; les quatre cas corrompus ou sans fin doivent finir en erreur explicite, que la lane transmet à l'oracle. L'oracle distingue des données incomplètes rendues comme un succès (faux succès) de données complètes livrées après l'échéance.
+The `http-incidents` matrix (`config.scenario: "http-catalog"`, decision D-http-transport) triggers an incident on the second page of a three-page catalog: 429 with `Retry-After`, single 503, truncated body, dropped connection, redirect loop, 8 s response. A retry must respect `Retry-After`; the four corrupted or endless cases must end in an explicit error, which the lane passes on to the oracle. The oracle distinguishes incomplete data returned as a success (false success) from complete data delivered after the deadline.
 
-La matrice `access-policy` (décisions D-identity et D-http-transport) vérifie deux contrats de l'ADR-002 : aucune requête vers une page interdite par robots.txt quand la campagne demande de le respecter (`config.respectRobots`), et aucune réussite sur une page de challenge servie en 200.
+The `access-policy` matrix (decisions D-identity and D-http-transport) checks two contracts from ADR-002: no request to a page disallowed by robots.txt when the campaign asks to respect it (`config.respectRobots`), and no success on a challenge page served with 200.
 
-La matrice `tls-fingerprint` sert le catalogue en HTTPS (certificat local auto-signé, `config.insecureTls`) derrière un relais qui calcule le JA4 de chaque ClientHello ; le serveur HTTP/2 relève réglages, ordre des pseudo-en-têtes et ordre des en-têtes. Le contrat : une même identité TLS et HTTP/2 pendant toute la session.
+The `tls-fingerprint` matrix serves the catalog over HTTPS (local self-signed certificate, `config.insecureTls`) behind a relay that computes the JA4 of each ClientHello; the HTTP/2 server records settings, pseudo-header order and header order. The contract: the same TLS and HTTP/2 identity throughout the session.
 
-La lane `extraction` (D-extraction) mesure la qualité d'extraction du contenu principal sur le corpus WCXB, téléchargé hors git selon `corpora/wcxb.manifest.json` : F1 au niveau des mots, extraits requis, boilerplate présent, avec les définitions exactes de son `evaluate.py` ; chaque cellule écrit ses prédictions pour recoupement.
+The `extraction` lane (D-extraction) measures main-content extraction quality on the WCXB corpus, downloaded outside git according to `corpora/wcxb.manifest.json`: word-level F1, required snippets, boilerplate present, with the exact definitions of its `evaluate.py`; each cell writes its predictions for cross-checking.
 
-`browserHost: "lightpanda"` (bench) et `config.browserEngine: "lightpanda"` (matrices) lancent Lightpanda 1.0.0, épinglé sous `.toolchains/` et toujours hors processus (AGPL-3.0), et lui connectent les mêmes pilotes : la compatibilité du moteur se lit avec les oracles de Chromium.
+`browserHost: "lightpanda"` (bench) and `config.browserEngine: "lightpanda"` (matrices) launch Lightpanda 1.0.0, pinned under `.toolchains/` and always out of process (AGPL-3.0), and connect the same drivers to it: the engine's compatibility is read with Chromium's oracles.
 
-La lane `extraction` peut aussi rendre chaque page dans Chrome ou Lightpanda avant d'extraire. Les pages réelles figées sont alors servies par un proxy d'archive (`fixtures/replay-proxy.ts`), qui refuse toute requête hors archive.
+The `extraction` lane can also render each page in Chrome or Lightpanda before extracting. Frozen real pages are then served by an archive proxy (`fixtures/replay-proxy.ts`), which refuses any request outside the archive.
 
-La lane `admission` (D-durable-runtime, D-scheduling) envoie des arrivées de Poisson ouvertes sur plusieurs domaines au mode `admission` du runtime Rust. Un travail n'est accusé qu'une fois journalisé, et une file pleine le refuse explicitement. L'oracle vérifie de l'extérieur l'absence de perte, la borne de file et la limite de requêtes simultanées par domaine.
+The `admission` lane (D-durable-runtime, D-scheduling) sends open Poisson arrivals across several domains to the Rust runtime's `admission` mode. A job is acknowledged only once journaled, and a full queue refuses it explicitly. The oracle verifies from the outside the absence of loss, the queue bound and the per-domain limit on simultaneous requests.
 
-La lane `identity` (D-identity) fait passer une session de HTTP au navigateur sur un site servi derrière le relais TLS. Le site relève l'empreinte, les en-têtes, le cookie et la signature Web Bot Auth de chaque requête ; il vérifie la signature avec la bibliothèque `web-bot-auth` de Cloudflare, contre l'annuaire de clés de l'agent, et juge les refus selon le profil et la finalité.
+The `identity` lane (D-identity) moves a session from HTTP to the browser on a site served behind the TLS relay. The site records the fingerprint, headers, cookie and Web Bot Auth signature of each request; it verifies the signature with Cloudflare's `web-bot-auth` library, against the agent's key directory, and judges refusals according to profile and purpose.
 
-La lane `ai` (D-ai-layer) oppose un agent qui planifie à chaque exécution à un plan compilé rejoué sans le modèle, sur des pages qui dérivent en silence ; le faux modèle (`fixtures/fake-llm.ts`) compte lui-même ses tokens, que le lab compare à ceux de l'agent.
+The `ai` lane (D-ai-layer) pits an agent that plans on each execution against a compiled plan replayed without the model, on pages that drift silently; the fake model (`fixtures/fake-llm.ts`) counts its own tokens, which the lab compares with the agent's.
 
-Avec `browserHost: "harness"`, le harnais lance un Chromium par pilote et par bloc, avec les mêmes flags (`src/core/browser-host.ts`). Il échantillonne ce navigateur avec l'adapter, donc le CPU et la mémoire du navigateur comptent pour tous les pilotes. Playwright et Puppeteer s'y connectent par CDP. Un profil `network: { link: "driver-browser" }` place le proxy de latence entre le pilote et le navigateur. `actionPolicies` fixe la politique de chaque pilote : `guarded` applique la garde avant chaque clic, saisie et sélection, `native` s'en remet aux garanties du pilote.
+With `browserHost: "harness"`, the harness launches one Chromium per driver and per block, with the same flags (`src/core/browser-host.ts`). It samples this browser along with the adapter, so the browser's CPU and memory count for all drivers. Playwright and Puppeteer connect to it via CDP. A `network: { link: "driver-browser" }` profile places the latency proxy between the driver and the browser. `actionPolicies` sets each driver's policy: `guarded` applies the guard before each click, input and selection; `native` relies on the driver's own guarantees.
 
-Le bench produit une cellule par pilote, scénario et bloc, ce qui permet d'apparier les blocs. Les facteurs `policy`, `rttMs` et `browserHost` y figurent. Dans une décision, `analysis.gateLanes` indique la lane où chaque gate lit ses cellules : la conformité d'actionnabilité et l'absence de faux succès viennent de la matrice, pas du bench. Une gate ne passe que sur des cellules de l'option elle-même. Chaque option analysée est comparée à la baseline, avec ses propres gates.
+The bench produces one cell per driver, scenario and block, which makes it possible to pair the blocks. The `policy`, `rttMs` and `browserHost` factors appear in it. In a decision, `analysis.gateLanes` indicates the lane where each gate reads its cells: actionability conformance and absence of false success come from the matrix, not from the bench. A gate passes only on cells of the option itself. Each analyzed option is compared with the baseline, with its own gates.
 
-`ledger/classification.json` porte le jugement humain sur chaque run (rôle, raison, validité A contrat / B relatif même hôte / C absolu, décisions, rerun). L'import y ajoute les faits mécaniques : comptes, provenance, intégrité recalculée contre les catalogues SHA de `reports/`. Il est idempotent et ne modifie jamais `results/`. Les runs importés restent plafonnés à la classe d'hôte `local-dev`.
+`ledger/classification.json` holds the human judgment on each run (role, reason, validity A contract / B relative same host / C absolute, decisions, rerun). The import adds the mechanical facts to it: counts, provenance, integrity recomputed against the SHA catalogs in `reports/`. It is idempotent and never modifies `results/`. Imported runs remain capped at the `local-dev` host class.
 
-## Démarrer
+## Getting started
 
-Prérequis : Node >=24, pnpm **12.9.1**, Rust/Cargo et outils de compilation C/C++. La version Node exécutée **25.5.0** est indiquée dans `.node-version` ; d'autres versions demandent une requalification, notamment pour SQLite. L'environnement exécuté est consigné dans chaque manifest. Le lab utilise le stripping TypeScript natif de Node, sans serveur de développement.
+Prerequisites: Node >=24, pnpm **12.9.1**, Rust/Cargo and C/C++ build tools. The executed Node version, **25.5.0**, is specified in `.node-version`; other versions require requalification, notably for SQLite. The executed environment is recorded in each manifest. The lab uses Node's native TypeScript stripping, without a development server.
 
 ```sh
 cd /Users/jb/Dev/automan/lab
@@ -114,41 +114,41 @@ pnpm run doctor
 pnpm bench campaigns/smoke.json
 ```
 
-`bootstrap` installe Chrome for Testing dans `.browsers/`, puis compile les trois variantes Spider et le writer Rust en release, avec leurs lockfiles. Les téléchargements/builds initiaux peuvent prendre plusieurs minutes. Les profils et les outputs du lab sont séparés du Chrome personnel. Aucun compte cloud ou modèle n'est nécessaire pour ces campagnes.
+`bootstrap` installs Chrome for Testing into `.browsers/`, then compiles the three Spider variants and the Rust writer in release mode, with their lockfiles. Initial downloads/builds can take several minutes. The lab's profiles and outputs are separate from personal Chrome. No cloud account or model is needed for these campaigns.
 
-`bootstrap` construit aussi les bindings SQLite communs sur macOS arm64 : Node N-API, Rust FFI synchrone et Go/cgo. Go 1.27.1 est installé localement sous `.toolchains/`, sans modifier le Go global. Les archives sont épinglées par SHA-256 ; le source SQLite 3.53.4 est aussi vérifié contre le SHA3-256 publié. Ce build natif est actuellement qualifié uniquement sur macOS arm64.
+`bootstrap` also builds the common SQLite bindings on macOS arm64: Node N-API, synchronous Rust FFI and Go/cgo. Go 1.27.1 is installed locally under `.toolchains/`, without modifying the global Go. Archives are pinned by SHA-256; the SQLite 3.53.4 source is also verified against the published SHA3-256. This native build is currently qualified only on macOS arm64.
 
-Le `smoke` complet peut sortir avec le code 1 lorsqu'un concurrent ne respecte pas le contrat d'une fixture : le rapport est quand même produit. `unsupported` représente une capacité absente ; un résultat incomplet reste `failed`. `doctor` contrôle installation et protocole, pas la justesse métier.
+The full `smoke` can exit with code 1 when a competitor does not respect a fixture's contract: the report is produced anyway. `unsupported` represents a missing capability; an incomplete result remains `failed`. `doctor` checks installation and protocol, not business correctness.
 
-## Installations et configurations
+## Installations and configurations
 
-| Backend | Version | Travail et cycle de vie |
+| Backend | Version | Work and lifecycle |
 | --- | --- | --- |
-| `node-http` | Node du manifest | Fetch natif + parser spécialisé pour les fixtures ; témoin minimal, pas un scraper général |
-| `crawlee-http` | Crawlee 3.18.2 | CheerioCrawler neuf par tâche, queue en mémoire, concurrence interne 1 |
-| `crawlee-http-pooled` | Crawlee 3.18.2 | Un crawler `keepAlive` et une queue par bloc ; pool partagé entre les tâches |
-| `spider-http` | Spider 2.53.9 | `basic,sync`, sans features par défaut ; Website par tâche, concurrence interne 1 |
-| `spider-chrome` | Spider 2.53.9 | Binaire séparé avec `chrome` ; browser géré par Spider |
-| `spider-smart` | Spider 2.53.9 | Binaire séparé avec `smart`, qui active Chrome côté dépendance ; décisions de rendu natives |
-| `playwright` | 1.63.0 | Browser par bloc, page/context neuf par tâche |
-| `puppeteer` | puppeteer-core 25.12.0 | Browser par bloc, page par tâche ; shadow non qualifié dans cet adapter |
-| `stagehand` | 4.1.0 | Browser local + extension, primitives Page/Locator ; cache et self-heal désactivés |
-| `stagehand-batch` | 4.1.0 | `experimentalBatch` pour la séquence de clics seulement ; autres scénarios identiques à `stagehand` ; concurrence 1 |
-| `crawlee-playwright` | Crawlee 3.18.2 / PW 1.63.0 | Crawler et browser par tâche ; garanties natives de Playwright |
-| `crawlee-stagehand` | @crawlee/stagehand 3.18.2 / Stagehand 3.7.3 | Intégration demandée, lancée localement ; Page Playwright attachée par CDP ; frontière modèle interdite |
-| stockage Node | `node:sqlite` du Node exécuté | Une connexion synchrone par processus écrivain |
-| stockage Rust | SQLx 0.8.6 | Tokio + pool limité à une connexion par processus écrivain |
-| `node-shared` | Node 25.5.0 / SQLite 3.53.4 commun | Binding N-API synchrone, même bibliothèque C partagée |
-| `rust-sync` | Rust / SQLite 3.53.4 commun | FFI synchrone, même bibliothèque C partagée |
-| `go-sync` | Go 1.27.1 / SQLite 3.53.4 commun | cgo synchrone, même bibliothèque C partagée |
+| `node-http` | Node from the manifest | Native fetch + specialized parser for the fixtures; minimal control, not a general scraper |
+| `crawlee-http` | Crawlee 3.18.2 | Fresh CheerioCrawler per task, in-memory queue, internal concurrency 1 |
+| `crawlee-http-pooled` | Crawlee 3.18.2 | One `keepAlive` crawler and one queue per block; pool shared between tasks |
+| `spider-http` | Spider 2.53.9 | `basic,sync`, without default features; Website per task, internal concurrency 1 |
+| `spider-chrome` | Spider 2.53.9 | Separate binary with `chrome`; browser managed by Spider |
+| `spider-smart` | Spider 2.53.9 | Separate binary with `smart`, which enables Chrome on the dependency side; native rendering decisions |
+| `playwright` | 1.63.0 | Browser per block, fresh page/context per task |
+| `puppeteer` | puppeteer-core 25.12.0 | Browser per block, page per task; shadow not qualified in this adapter |
+| `stagehand` | 4.1.0 | Local browser + extension, Page/Locator primitives; cache and self-heal disabled |
+| `stagehand-batch` | 4.1.0 | `experimentalBatch` for the click sequence only; other scenarios identical to `stagehand`; concurrency 1 |
+| `crawlee-playwright` | Crawlee 3.18.2 / PW 1.63.0 | Crawler and browser per task; Playwright's native guarantees |
+| `crawlee-stagehand` | @crawlee/stagehand 3.18.2 / Stagehand 3.7.3 | Requested integration, launched locally; Playwright Page attached via CDP; model boundary forbidden |
+| Node storage | `node:sqlite` of the executed Node | One synchronous connection per writer process |
+| Rust storage | SQLx 0.8.6 | Tokio + pool limited to one connection per writer process |
+| `node-shared` | Node 25.5.0 / common SQLite 3.53.4 | Synchronous N-API binding, same shared C library |
+| `rust-sync` | Rust / common SQLite 3.53.4 | Synchronous FFI, same shared C library |
+| `go-sync` | Go 1.27.1 / common SQLite 3.53.4 | Synchronous cgo, same shared C library |
 
-**`@crawlee/stagehand` n'accepte actuellement que Stagehand v3.** Le workspace `adapters/stagehand-v3` évite de lui injecter v4. Les dépendances sont fixées dans pnpm/Cargo.lock. Un warning de peer Zod subsiste pour le fournisseur Ollama transitif de v3 ; ce fournisseur est hors qualification. L'adapter v3 remplace explicitement le client modèle par un client qui échoue à tout appel. V4 utilise les primitives sans instruction IA ni configuration modèle. Les variantes IA, cache cloud et réparation ne sont pas mesurées ici.
+**`@crawlee/stagehand` currently accepts only Stagehand v3.** The `adapters/stagehand-v3` workspace avoids injecting v4 into it. Dependencies are pinned in pnpm/Cargo.lock. A Zod peer warning remains for v3's transitive Ollama provider; this provider is outside the qualification. The v3 adapter explicitly replaces the model client with a client that fails on any call. V4 uses the primitives without AI instructions or model configuration. The AI, cloud cache and repair variants are not measured here.
 
-Les scripts d'installation de `esbuild` et `better-sqlite3` sont autorisés explicitement. Ceux de `@google/genai`, `bufferutil` et `protobufjs` sont désactivés ; leurs fonctions optionnelles ne sont pas qualifiées. Aucune installation avec `--force`.
+The install scripts of `esbuild` and `better-sqlite3` are explicitly allowed. Those of `@google/genai`, `bufferutil` and `protobufjs` are disabled; their optional functions are not qualified. No installation with `--force`.
 
-Le build macOS 27/Xcode 27 a nécessité `release.build-override.strip=false, debug=true` pour rendre les dylibs de compilation chargeables. L'exécutable reste compilé en release. La feature Spider `basic` entraîne aussi des dépendances SQLite via sa feature TLS ; elle n'implique pas une persistance du crawl dans ces essais.
+The macOS 27/Xcode 27 build required `release.build-override.strip=false, debug=true` to make the build-time dylibs loadable. The executable is still compiled in release mode. The Spider `basic` feature also pulls in SQLite dependencies through its TLS feature; it does not imply crawl persistence in these trials.
 
-## Campagnes de crawl et navigateur
+## Crawl and browser campaigns
 
 ```sh
 pnpm bench campaigns/http-stress.json
@@ -159,23 +159,23 @@ pnpm bench campaigns/qualification.json
 pnpm bench campaigns/smoke.json --backends playwright,stagehand,crawlee-stagehand
 ```
 
-Chaque appel produit `results/<nom>-<date>-<id>/` : `manifest.json`, `attempts.jsonl`, `summary.json`, `summary.csv`, `report.html`. Les dossiers sont uniques, les anciennes expériences sont conservées. Pour régénérer un rapport :
+Each call produces `results/<name>-<date>-<id>/`: `manifest.json`, `attempts.jsonl`, `summary.json`, `summary.csv`, `report.html`. Folders are unique; old experiments are kept. To regenerate a report:
 
 ```sh
-pnpm report results/<dossier>
+pnpm report results/<folder>
 ```
 
-Le catalogue HTTP est paginé. Le catalogue JavaScript charge ses données par fetch. L'oracle vérifie tous les IDs, prix, doublons et omissions. Les formulaires vérifient nom, select, checkbox, événement de saisie et effet serveur. Les clics vérifient la séquence et les événements déclarés trusted. Les mutations actuelles sont overlay temporaire, bouton retardé et remplacement DOM. Shadow DOM ouvert est testé ; iframe/download ont des fixtures, mais leurs adapters ne sont pas qualifiés et ne sont pas annoncés comme supportés.
+The HTTP catalog is paginated. The JavaScript catalog loads its data via fetch. The oracle checks all IDs, prices, duplicates and omissions. The forms check name, select, checkbox, input event and server-side effect. The clicks check the sequence and the events declared trusted. The current mutations are temporary overlay, delayed button and DOM replacement. Open Shadow DOM is tested; iframe/download have fixtures, but their adapters are not qualified and are not advertised as supported.
 
-Une condition explicite détermine la disponibilité de la page et la postcondition. Les wrappers utilisent `domcontentloaded`, puis cette condition. Le polling de condition à 8 ms n'est pas une attente arbitraire de succès. Les contrôles supplémentaires natifs de Playwright restent actifs ; Stagehand ne reçoit pas silencieusement toutes ses garanties. Le test prouve le résultat de ces fixtures, pas une équivalence universelle d'actionnabilité.
+An explicit condition determines page availability and the postcondition. The wrappers use `domcontentloaded`, then this condition. Condition polling at 8 ms is not an arbitrary wait for success. Playwright's additional native checks remain active; Stagehand does not silently receive all of those guarantees. The test proves the result on these fixtures, not a universal actionability equivalence.
 
-Pour chaque backend et bloc : démarrage séparé, conformité pour chaque mutation, warmup exclu des statistiques, puis mesures. Toute non-conformité coupe les mesures de la cellule. Les blocs randomisent l'ordre des backends par seed. Les variantes n'ont pas toutes un ordre randomisé : ce point doit être renforcé avant une publication statistique.
+For each backend and block: separate startup, conformance for each mutation, warmup excluded from statistics, then measurements. Any non-conformance stops the cell's measurements. Blocks randomize the backend order by seed. Not all variants have a randomized order: this point must be strengthened before a statistical publication.
 
-`closed` maintient un nombre borné de tâches actives. `open` produit des arrivées indépendantes et rejette quand la capacité est occupée. Il n'y a pas de queue FIFO cachée. `queueMs` désigne le retard d'admission/générateur, pas le temps dans une queue métier. La deadline borne l'admission ; les tâches déjà actives restent bornées par leur timeout. Un timeout met fin au worker et à son groupe de processus, donc peut faire échouer les autres tâches de ce worker.
+`closed` maintains a bounded number of active tasks. `open` produces independent arrivals and rejects when capacity is occupied. There is no hidden FIFO queue. `queueMs` refers to the admission/generator delay, not time in a business queue. The deadline bounds admission; already active tasks remain bounded by their timeout. A timeout terminates the worker and its process group, and can therefore make the worker's other tasks fail.
 
-Le débit est celui des **tâches complètes vérifiées**, pas celui des pages ni celui des RPC. Le rapport distingue quantiles des succès, quantiles de toutes les tentatives démarrées, erreurs, rejets, unsupported, et effectifs. Il agrège les échantillons bruts, jamais les p95 des blocs. Les détails par bloc et les fenêtres de mesure restent disponibles.
+Throughput is that of **complete verified tasks**, not of pages or RPCs. The report distinguishes success quantiles, quantiles of all started attempts, errors, rejections, unsupported, and sample sizes. It aggregates the raw samples, never the blocks' p95s. Per-block details and measurement windows remain available.
 
-## Campagnes d'écriture
+## Write campaigns
 
 ```sh
 pnpm storage campaigns/storage-smoke.json
@@ -186,26 +186,26 @@ pnpm storage campaigns/storage-shared-contention.json
 pnpm storage campaigns/storage-shared-checkpoint.json
 ```
 
-| Contrat | Acquittement |
+| Contract | Acknowledgment |
 | --- | --- |
-| `jsonl-buffered` | Append terminé côté OS ; aucune synchronisation disque demandée |
-| `jsonl-durable` | Append puis synchronisation du fichier pour chaque batch |
-| `json-snapshot-durable` | Document JSON entier croissant, fichier temporaire synchronisé, rename, synchronisation du directory ; un seul écrivain |
-| `sqlite-wal-full` | Une transaction par batch, WAL, synchronous FULL |
-| `sqlite-wal-normal` | Une transaction par batch, WAL, synchronous NORMAL ; série distincte de FULL |
-| `sqlite-delete-full` | Une transaction par batch, journal DELETE, synchronous FULL |
+| `jsonl-buffered` | Append completed on the OS side; no disk sync requested |
+| `jsonl-durable` | Append then file sync for each batch |
+| `json-snapshot-durable` | Entire growing JSON document, synced temporary file, rename, directory sync; single writer |
+| `sqlite-wal-full` | One transaction per batch, WAL, synchronous FULL |
+| `sqlite-wal-normal` | One transaction per batch, WAL, synchronous NORMAL; series distinct from FULL |
+| `sqlite-delete-full` | One transaction per batch, DELETE journal, synchronous FULL |
 
-`producers` règle les tâches actives du générateur. `writers` crée de vrais processus indépendants, chacun avec une connexion, sur **le même sink de la cellule**. Plusieurs writers SQLite restent soumis à un seul writer actif dans SQLite. `busy_timeout` et `wal_autocheckpoint=1000` sont explicites ; les PRAGMAs effectifs, `sqlite_version` et options de compilation sont consignés. Les trois nouveaux bindings chargent **un seul fichier SQLite commun**, dont le chemin réellement chargé, SHA-256, source ID, flags/options et PRAGMAs sont contrôlés. Les sources de compilation sont liées au manifest et un binaire périmé est refusé. Leurs bindings, allocations et encodages restent différents : cette comparaison est plus contrôlée, sans isoler le seul langage. Les pistes historiques Node natif / Rust SQLx gardent leurs builds séparés.
+`producers` sets the generator's active tasks. `writers` creates real independent processes, each with a connection, on **the same sink of the cell**. Several SQLite writers remain subject to a single active writer in SQLite. `busy_timeout` and `wal_autocheckpoint=1000` are explicit; the effective PRAGMAs, `sqlite_version` and compile options are recorded. The three new bindings load **a single common SQLite file**, whose actually loaded path, SHA-256, source ID, flags/options and PRAGMAs are checked. The compilation sources are tied to the manifest and a stale binary is refused. Their bindings, allocations and encodings remain different: this comparison is more controlled, without isolating the language alone. The historical native Node / Rust SQLx tracks keep their separate builds.
 
-Des versions SQLite différentes interdisent d'attribuer un écart au seul langage.
+Different SQLite versions make it impossible to attribute a gap to the language alone.
 
-Le workload construit les mêmes records et encode du JSON même pour la piste relationnelle. `serializationMs` mesure construction + encodage par batch ; `writerAckMs` inclut aussi le sink ; le temps principal inclut les échanges worker. Ce n'est pas un microbenchmark pur de JSON.stringify/serde_json. Le snapshot réécrit tout le document, tandis que JSONL append et SQLite insert : comparer ces usages distincts selon le besoin, sans classement commun aveugle.
+The workload builds the same records and encodes JSON even for the relational track. `serializationMs` measures construction + encoding per batch; `writerAckMs` also includes the sink; the main time includes the worker exchanges. This is not a pure microbenchmark of JSON.stringify/serde_json. The snapshot rewrites the entire document, whereas JSONL appends and SQLite inserts: compare these distinct usages according to need, without a blind common ranking.
 
-Après drain et fermeture, l'oracle rouvre les fichiers, compare tous les records attendus aux batches acquittés, cherche pertes/doublons/valeurs incorrectes et lance `PRAGMA integrity_check`. Seules les lignes relues correctement comptent dans le débit utile. La fermeture/checkpoint et l'oracle ont un temps distinct `finalizationMs`. Les bytes incluent les sidecars SQLite présents au moment du contrôle.
+After drain and close, the oracle reopens the files, compares all expected records with the acknowledged batches, looks for losses/duplicates/incorrect values and runs `PRAGMA integrity_check`. Only rows read back correctly count toward useful throughput. Close/checkpoint and the oracle have a separate time, `finalizationMs`. Bytes include the SQLite sidecars present at the time of the check.
 
-La campagne crash envoie SIGKILL **après les acquittements** et rouvre le sink. Elle vérifie la conservation après crash de processus, pas l'arrêt au milieu d'une transaction, la reprise idempotente ni une coupure électrique. Les limites de macOS/fsync/F_FULLFSYNC sont détaillées dans la recherche stockage.
+The crash campaign sends SIGKILL **after the acknowledgments** and reopens the sink. It verifies retention after a process crash, not a stop in the middle of a transaction, idempotent recovery or a power cut. The macOS/fsync/F_FULLFSYNC limits are detailed in the storage research.
 
-## Workflow intégré durable
+## Durable integrated workflow
 
 ```sh
 pnpm workflow campaigns/workflow-throughput.json
@@ -213,7 +213,7 @@ pnpm workflow campaigns/workflow-recovery.json
 pnpm workflow campaigns/workflow-pool-wakeup.json
 ```
 
-Le [contrat du prototype historique](docs/workflow.md) documente acquisition/extraction → validation → queue bornée → writer batché → commit → ack, leases et receipts idempotents, avec son sink Node SQLite incorporé. Le [nouveau workflow natif](docs/runtime-workflow.md) implémente ce cycle séparément dans Node et Rust/Tokio, avec le même artefact SQLite chargé par les deux writers. Go reste qualifié dans la piste d'écriture.
+The [historical prototype contract](docs/workflow.md) documents acquisition/extraction → validation → bounded queue → batched writer → commit → ack, leases and idempotent receipts, with its embedded Node SQLite sink. The [new native workflow](docs/runtime-workflow.md) implements this cycle separately in Node and Rust/Tokio, with the same SQLite artifact loaded by both writers. Go remains qualified in the write track.
 
 ```sh
 pnpm workflow-build
@@ -221,24 +221,24 @@ node tools/qualification-suite.ts
 node tools/qualification-current.ts
 ```
 
-## Reproductibilité et limites
+## Reproducibility and limitations
 
-- Les fixtures et l'oracle privé vivent dans le coordinateur ; le worker reçoit seulement l'URL publique de sa tâche. Cela évite les faux succès accidentels ; ce n'est pas une isolation contre un adapter hostile capable de falsifier des événements ou d'inspecter le host.
-- Les manifests récents fixent configs, seeds, runtime réel, OS, CPU, mémoire, browser et SHA-256, locks, sources et exécutables Rust. Une modification de source pendant une campagne récente entraîne un code de sortie 1 et un avertissement. Les premières campagnes de construction précèdent ce garde-fou.
-- Les pistes historiques échantillonnent le RSS à 250 ms. Les nouvelles pistes runtime et lecteurs SQLite utilisent aussi une sonde macOS CPU/RSS/footprint/I/O à 100 ms, calibrée contre getrusage ; elles peuvent manquer des pics et des fins de processus. Les pages partagées peuvent être additionnées. Le workflow historique inclut le coordinateur/oracle ; le workflow natif mesure son coordinateur et ses descendants, avec fixture et oracle hors du périmètre. Les limites matérielles CPU/RAM ne sont pas imposées.
-- Le lab borne concurrence, appels, sortie JSONL, délai et corpus : au plus un million de records de fixture retenus par le coordinateur, et 64 MiB de corpus estimé par cellule de stockage. Les plus grands tests nécessitent un oracle streaming. Il n'est pas un sandbox réseau et ne fournit pas une isolation matérielle. Les tests actuels ciblent loopback ; aucune campagne sur des sites publics n'est nécessaire.
-- Profiles, cache OS et connexions réutilisées diffèrent selon backend. Les cycles de vie sont des lignes séparées. `crawlee-http-pooled` sert précisément à éviter de conclure à partir du seul coût d'un crawler neuf par tâche.
-- p95/p99 avec quelques dizaines d'échantillons restent exploratoires. La borne zéro échec suppose des essais Bernoulli indépendants/représentatifs ; ce corpus ne les établit pas. Aucun SLO de production n'est annoncé.
-- Ne pas lancer plusieurs campagnes ou compilations en parallèle pour interpréter des performances. Les essais de construction ont parfois coexisté avec une compilation ; ils servent d'abord à la qualification et doivent être répétés sur un host stable.
+- The fixtures and the private oracle live in the coordinator; the worker receives only its task's public URL. This avoids accidental false successes; it is not isolation against a hostile adapter capable of forging events or inspecting the host.
+- Recent manifests pin configs, seeds, actual runtime, OS, CPU, memory, browser and SHA-256, locks, sources and Rust executables. A source modification during a recent campaign results in exit code 1 and a warning. The first construction campaigns predate this safeguard.
+- The historical tracks sample RSS at 250 ms. The new runtime and SQLite reader tracks also use a macOS CPU/RSS/footprint/I/O probe at 100 ms, calibrated against getrusage; they can miss peaks and process ends. Shared pages may be added together. The historical workflow includes the coordinator/oracle; the native workflow measures its coordinator and its descendants, with fixture and oracle outside the scope. Hardware CPU/RAM limits are not enforced.
+- The lab bounds concurrency, calls, JSONL output, delay and corpus: at most one million fixture records retained by the coordinator, and 64 MiB of estimated corpus per storage cell. The largest tests require a streaming oracle. It is not a network sandbox and does not provide hardware isolation. The current tests target loopback; no campaign on public sites is needed.
+- Profiles, OS cache and reused connections differ by backend. Lifecycles are separate rows. `crawlee-http-pooled` serves precisely to avoid drawing conclusions from the sole cost of a fresh crawler per task.
+- p95/p99 with a few dozen samples remain exploratory. The zero-failure bound assumes independent/representative Bernoulli trials; this corpus does not establish them. No production SLO is announced.
+- Do not run several campaigns or compilations in parallel when interpreting performance. The construction trials sometimes coexisted with a compilation; they serve primarily for qualification and must be repeated on a stable host.
 
-Voir la [matrice de couverture](docs/coverage-matrix.md), le [protocole adapter](docs/protocol.md), les [bonnes pratiques générales](../research/2026-10-07-lab-testing-engineering.md) et celles du [stockage](../research/2026-10-07-lab-storage-engineering.md). La [shortlist sourcée](../research/2026-10-07-lab-competitor-shortlist.md) distingue les concurrents à ajouter des backends installés.
+See the [coverage matrix](docs/coverage-matrix.md), the [adapter protocol](docs/protocol.md), the [general best practices](../research/2026-10-07-lab-testing-engineering.md) and those for [storage](../research/2026-10-07-lab-storage-engineering.md). The [sourced shortlist](../research/2026-10-07-lab-competitor-shortlist.md) distinguishes the competitors to add from the installed backends.
 
-## Ajouter une expérience
+## Adding an experiment
 
-Définir d'abord le résultat observable et l'oracle ; ajouter une fixture indépendante du backend, puis une capacité adapter. Faire refuser au lab un adapter incorrect avant de collecter ses temps. Donner à chaque configuration un nom explicite, un cycle de vie, des budgets, des versions et un contrat de durabilité. Ajouter un JSON de campagne et exécuter `pnpm check`, `pnpm test`, puis une qualification réelle ciblée.
+First define the observable result and the oracle; add a backend-independent fixture, then an adapter capability. Make the lab reject an incorrect adapter before collecting its timings. Give each configuration an explicit name, a lifecycle, budgets, versions and a durability contract. Add a campaign JSON and run `pnpm check`, `pnpm test`, then a targeted real qualification.
 
-Les tests automatisés couvrent oracle, persistance, faux succès, protocole corrompu/hors ordre, timeout et descendants, surcharge/admission, métriques et validation des configs. Les campagnes réelles couvrent les bibliothèques installées. Les performances ne doivent pas devenir des assertions instables sur un laptop ; la CI portable valide les contrats, et les comparaisons de performance utilisent une machine réservée.
+The automated tests cover oracle, persistence, false successes, corrupted/out-of-order protocol, timeout and descendants, overload/admission, metrics and config validation. The real campaigns cover the installed libraries. Performance must not become unstable assertions on a laptop; portable CI validates the contracts, and performance comparisons use a reserved machine.
 
-Le runner TypeScript est un outil de mesure qui pilote plusieurs processus/langages. Son choix ne fixe pas le langage du futur moteur Automan. Rust/Tokio reste le candidat pour le noyau portable ; Node est la référence de mesure et une voie de compatibilité. La comparaison du workflow HTTP natif Rust/Node est vérifiée sur 30 cellules ; le pilote Chromium natif Rust et un noyau intégré Go restent à qualifier.
+The TypeScript runner is a measurement tool that drives several processes/languages. Its choice does not set the language of the future Automan engine. Rust/Tokio remains the candidate for the portable core; Node is the measurement reference and a compatibility path. The native Rust/Node HTTP workflow comparison is verified on 30 cells; the native Rust Chromium driver and an integrated Go core remain to be qualified.
 
-[Commandes de reproduction et régénération des preuves](reports/qualification-reproduce.md). Les guards corrigés passent 162/162 cellules et les readers/checkpoints SQLite 108/108 ; les échecs des configurations natives restent visibles dans le rapport.
+[Commands for reproducing and regenerating the evidence](reports/qualification-reproduce.md). The fixed guards pass 162/162 cells and the SQLite readers/checkpoints 108/108; the failures of the native configurations remain visible in the report.

@@ -1,364 +1,365 @@
-# Automan — rapport final de R&D (pré-PRD)
+# Automan — final R&D report (pre-PRD)
 
-**Date :** 10 octobre 2026. **Statut :** rapport post-tests, base du PRD et de la documentation définitive. **Décision finale :** porteur du projet.
+**Date:** October 10, 2026. **Status:** post-test report, basis for the PRD and the final documentation. **Final decision:** project owner.
 
-Ce dossier rassemble tout ce qui a servi à **choisir** l'architecture et le stack d'Automan : les propositions écrites avant les tests, le plan de R&D, les ADR proposés, les recherches sourcées et le laboratoire qui a mesuré chaque choix. La documentation définitive du produit (`docs/`, ADR adoptés dans `docs/adr/`) reste à écrire à partir d'ici. La section 9 dit comment.
+This folder gathers everything that was used to **choose** Automan's architecture and stack: the proposals written before testing, the R&D plan, the proposed ADRs, the sourced research and the lab that measured each choice. The final product documentation (`docs/`, adopted ADRs in `docs/adr/`) remains to be written from here. Section 9 explains how.
 
-Rien de ce rapport n'est un chiffre écrit à la main : chaque résultat renvoie à un run du [ledger](lab/ledger/results-ledger.json), à un verdict calculé ([`lab/verdicts/`](lab/verdicts/)) ou à un rapport daté ([`lab/reports/`](lab/reports/)).
-
----
-
-## 1. En bref
-
-L'architecture proposée le 7 octobre tient pour l'essentiel. Les tests ne l'ont pas renversée ; ils l'ont **précisée** sur onze points, dont quatre que la proposition ne contenait pas :
-
-1. **Un tier « API découverte »** entre HTTP et navigateur : on capture le trafic JSON pendant un échantillon navigateur, puis on rejoue l'API. Une fois la route apprise, un run est 120 à 200 fois plus rapide qu'en navigateur, sans perte d'exactitude.
-2. **Un journal d'effets obligatoire pour le mode code des agents** : une correction ne rejoue jamais une action déjà reçue par le site. Sans ce journal, un modèle réel faisait 17 faux succès sur 45.
-3. **Des règles de frontier apprises** : paramètres sans effet appris par signature de page, chemins piégés fermés, pagination par curseur préférée. La pagination par décalage sur une table vivante perd des lignes et se déclare complète.
-4. **Un modèle de session jugé sur le contenu des pages** : un portail qui renvoie `200` avec son formulaire de login trompe tout client qui se fie au statut HTTP.
-
-Les choix centraux sont **confirmés par mesure** :
-- noyau Rust/Tokio : 0,51 fois le CPU de Node par travail vérifié ;
-- SQLite WAL `synchronous=FULL` : aucune perte sur 6 coupures de courant simulées ;
-- reqwest comme transport HTTP par défaut ;
-- rejeu compilé pour l'IA : 0,17 à 0,34 fois le coût en modèle.
-
-Un point **change de nature** : le pilote navigateur par défaut est un **client CDP direct avec la garde d'actionnabilité Automan**, et Playwright n'est plus la référence de comportement. La garde est exacte sur tous les moteurs. Playwright natif laisse passer des clics sur des cibles en mouvement et dépasse ses délais à distance.
-
-Ce qui **reste ouvert** relève surtout de trois choses :
-- du **matériel** : hôte Linux de référence pour publier des chiffres, et KVM pour Firecracker ;
-- de la **demande** : segment, prix, priorités, sinks ;
-- d'un **périmètre exclu** de cette R&D : le profil stealth.
+Nothing in this report is a hand-written figure: each result points to a run in the [ledger](lab/ledger/results-ledger.json), to a computed verdict ([`lab/verdicts/`](lab/verdicts/)) or to a dated report ([`lab/reports/`](lab/reports/)).
 
 ---
 
-## 2. Méthode et force des preuves
+## 1. In brief
 
-Chaque expérience tranche une **décision** du registre ([`lab/decisions/`](lab/decisions/)), déclarée **avant** les mesures : options, référence, métrique principale, gates de contrat, plus petit effet d'intérêt (10 %), règle statistique et classe d'hôte exigée. Le verdict est calculé mécaniquement (plan apparié par blocs, bootstrap, Wilcoxon, TOST). Il prend l'une de ces valeurs : `better`, `worse`, `equivalent`, `non-inferior`, `insufficient-n`, `blocked-by-contract` ou `contract-met`.
+The architecture proposed on October 7 largely holds. The tests did not overturn it; they **refined** it on eleven points, four of which the proposal did not contain:
 
-**Gates de contrat d'abord.** Une option qui produit un seul faux succès (un résultat déclaré complet que l'oracle indépendant réfute) est bloquée, quelle que soit sa vitesse.
+1. **A "discovered API" tier** between HTTP and the browser: JSON traffic is captured during a browser sample, then the API is replayed. Once the route is learned, a run is 120 to 200 times faster than in the browser, with no loss of accuracy.
+2. **A mandatory effect journal for the agents' code mode**: a correction never replays an action the site has already received. Without this journal, a real model produced 17 false successes out of 45.
+3. **Learned frontier rules**: no-effect parameters learned by page signature, trap paths closed, cursor pagination preferred. Offset pagination on a live table loses rows and reports itself complete.
+4. **A session model judged on page content**: a portal that returns `200` with its login form fools any client that relies on the HTTP status.
 
-**Classes d'hôte.**
+The core choices are **confirmed by measurement**:
+- Rust/Tokio core: 0.51 times Node's CPU per verified job;
+- SQLite WAL `synchronous=FULL`: no loss across 6 simulated power cuts;
+- reqwest as the default HTTP transport;
+- compiled replay for AI: 0.17 to 0.34 times the model cost.
 
-| Classe | Définition | Ce qu'elle permet |
+One point **changes in nature**: the default browser driver is a **direct CDP client with the Automan actionability guard**, and Playwright is no longer the behavioral reference. The guard is exact on all engines. Native Playwright lets clicks on moving targets through and exceeds its timeouts when remote.
+
+What **remains open** mostly comes down to three things:
+- **hardware**: a Linux reference host to publish figures, and KVM for Firecracker;
+- **demand**: segment, pricing, priorities, sinks;
+- a **scope excluded** from this R&D: the stealth profile.
+
+---
+
+## 2. Method and strength of evidence
+
+Each experiment settles a **decision** from the register ([`lab/decisions/`](lab/decisions/)), declared **before** the measurements: options, reference, primary metric, contract gates, smallest effect of interest (10%), statistical rule and required host class. The verdict is computed mechanically (paired block design, bootstrap, Wilcoxon, TOST). It takes one of these values: `better`, `worse`, `equivalent`, `non-inferior`, `insufficient-n`, `blocked-by-contract` or `contract-met`.
+
+**Contract gates first.** An option that produces a single false success (a result declared complete that the independent oracle refutes) is blocked, whatever its speed.
+
+**Host classes.**
+
+| Class | Definition | What it allows |
 | --- | --- | --- |
-| `local-dev` | Mac en usage | Contrats et comptes (logins, requêtes, tokens, lignes perdues) : ils ne dépendent pas de l'hôte |
-| `local-controlled` | Mac au repos : charge par CPU au plus 0,35, CPU étranger au plus 150 %, vérifié avant le run et à chaque bloc | Décider sur des durées |
-| `reference` | Linux nu dédié | Publier des chiffres. **Jamais atteint dans cette R&D** |
+| `local-dev` | Mac in use | Contracts and counts (logins, requests, tokens, lost rows): they do not depend on the host |
+| `local-controlled` | Idle Mac: load per CPU at most 0.35, foreign CPU at most 150%, checked before the run and at each block | Deciding on durations |
+| `reference` | Dedicated bare-metal Linux | Publishing figures. **Never reached in this R&D** |
 
-**Force des preuves dans ce rapport.**
-- 🟢 **Fort** : contrat vérifié par oracle, ou verdict mécanique éligible.
-- 🟡 **Moyen** : effet net et cohérent, mais verdict formel `insufficient-n`, ou hôte non éligible.
-- 🟠 **Faible** : indicatif, une seule mesure, ou conditions trop éloignées du réel.
-- ⚪ **Non testé** : recherche documentaire ou choix de conception seulement.
+**Strength of evidence in this report.**
+- 🟢 **Strong**: contract verified by oracle, or eligible mechanical verdict.
+- 🟡 **Medium**: clear and consistent effect, but formal verdict `insufficient-n`, or ineligible host.
+- 🟠 **Weak**: indicative, a single measurement, or conditions too far from reality.
+- ⚪ **Not tested**: desk research or design choice only.
 
-Toutes les durées viennent d'un Mac M3 Max (macOS 27). Aucune n'est publiable telle quelle.
+All durations come from a Mac M3 Max (macOS 27). None is publishable as is.
 
 ---
 
-## 3. Tableau comparatif : stack avant les tests et recommandé après
+## 3. Comparison table: stack before testing and recommended after
 
-« Avant » reprend la [proposition](proposals/proposition-automan.md), l'[architecture](proposals/architecture.md), l'[ADR-001](adr/0001-runtime-language.md), l'[ADR-002](adr/0002-access-identity-stealth.md) et la [qualification du 7 octobre](lab/reports/qualification-2026-10-07.md), produits par les sessions de conception avant toute campagne de décision.
+"Before" draws on the [proposal](proposals/proposition-automan.md), the [architecture](proposals/architecture.md), [ADR-001](adr/0001-runtime-language.md), [ADR-002](adr/0002-access-identity-stealth.md) and the [October 7 qualification](lab/reports/qualification-2026-10-07.md), produced by the design sessions before any decision campaign.
 
-| # | Domaine | Avant les tests | Recommandé maintenant | Verdict | Force |
+| # | Area | Before testing | Recommended now | Verdict | Strength |
 | --- | --- | --- | --- | --- | --- |
-| 1 | Langage du noyau | Rust/Tokio « candidat, pas un gagnant démontré » ; Node et Go crédibles | **Rust/Tokio** | `better` (CPU 0,51×), éligible | 🟢 |
-| 2 | Pilote navigateur | CDP natif (Chromey/Chromiumoxide à qualifier) + worker Playwright de compatibilité et de référence | **CDP direct + garde Automan** par défaut ; Playwright seulement pour Firefox et WebKit, avec la même garde | bloqué (référence Playwright en timeout) ; estimation hors contrat nette | 🟡 |
-| 3 | Contrat d'actionnabilité | Playwright comme référence de comportement | **Garde Automan**, indépendante du moteur | contrat 390/390 | 🟢 |
-| 4 | Transport HTTP | reqwest de base ; Impit et wreq en option | **reqwest** par défaut, wreq en variante ; options fixées par le moteur et couvertes par un gate | `non-inferior`, éligible | 🟢 |
-| 5 | Identité et accès | 3 profils exclusifs par session, `identified` par défaut, catalogue `stealth` en opt-in | Inchangé ; **tier HTTP exécuté par le navigateur** dès qu'une identité doit traverser l'escalade ; politique des sites dans le moteur, pas dans le transport | contrat ; durée non éligible | 🟢 / ⚪ stealth |
-| 6 | Routage HTTP ou navigateur | « HTTP adaptatif fondé sur le résultat », apprentissage par route | Inchangé dans le principe, **plus un tier API découverte** ; comparaison sur échantillon, total déclaré comme invalidation | `better`, éligible | 🟢 |
-| 7 | Frontier | Canonicalisation configurable, déduplication, fin de crawl calculée | **Plus** paramètres sans effet appris, chemins piégés fermés, curseur préféré au décalage | contrat (naïf bloqué) | 🟢 |
-| 8 | Sessions longues | Objet Session, pas de réutilisation aveugle des sessions expirées | **Page jugée sur le contrat de la recette ; état de session dans le journal du run** ([ADR-003](adr/0003-session-model.md)) | `better` (logins 0,5×) | 🟢 |
-| 9 | Admission et ordonnancement | File bornée, budgets par domaine ; équité « à prouver » | **Files bornées par domaine, servies à tour de rôle**, sous un plafond global ; admission journalisée par commits groupés, refus `E_CAPACITY` | 2,6× pour les petits domaines, `insufficient-n` | 🟡 |
-| 10 | Exécution durable | Leases, checkpoints, écriture idempotente avant acquittement | Inchangé : **journal + leases + epoch**, départ de chaque travail journalisé | `contract-met` | 🟢 |
-| 11 | Stockage local | SQLite WAL, writer unique par lots ; JSONL pour l'export | **SQLite WAL `synchronous=FULL`, writer unique, lots bornés** | décidé ; coupure : 0 perte | 🟢 |
-| 12 | Sinks | PostgreSQL pour le cloud ; autres sinks non examinés | PostgreSQL `COPY` pour l'état partagé ; DuckDB analytique locale (un seul écrivain) ; Parquet pour l'export par lots ; **adoption à la demande** | tous durables ; débits `insufficient-n` | 🟡 |
-| 13 | Extraction | Parser DOM HTML5, lol-html en streaming, htmd, extracteur de classe trafilatura : candidats | **rs-trafilatura** pour le contenu principal, **htmd** pour la conversion Markdown, **html5ever/scraper** pour le parsing structurel | `insufficient-n` par blocs ; tranché par page | 🟢 |
-| 14 | Moteur léger | Lightpanda candidat, hors processus (AGPL) | **Pas de moteur par défaut** ; tier choisi par capacités | bloqué (shadow DOM) | 🟢 |
-| 15 | Couche IA | Découvrir, compiler et réparer hors du rejeu normal, budgets | Inchangé ; **plan entier vérifié par empreinte avant le premier effet**, une réparation bornée | `better` (coût 0,17-0,34×) | 🟢 |
-| 16 | Interfaces agents | SDK, CLI, MCP pilotant le moteur | Un catalogue d'opérations, servi **à l'identique par MCP et par outils de fonction** ; **mode code seulement avec journal d'effets** ; CLI pour humains et scripts | MCP ≡ SDK ; mode code journalisé meilleur | 🟢 / 🟡 |
-| 17 | Topologie cloud | Pool de conteneurs ou snapshot Firecracker : reporté | **Pool chaud jeté ou remis à zéro après chaque tenant** ; Firecracker à mesurer | pool : contrat ; Firecracker non testé | 🟡 / ⚪ |
-| 18 | Surfaces produit | Console React/shadcn + Vite ; app macOS SwiftUI ; licence Apache-2.0 | Inchangé, **non testé** | — | ⚪ |
-| 19 | Observabilité | tracing + export OpenTelemetry, conventions GenAI | Inchangé, **non testé** | — | ⚪ |
-| 20 | Marché | Segments candidats issus de la recherche | Inchangé, **en attente des entretiens** | — | ⚪ |
+| 1 | Core language | Rust/Tokio "candidate, not a demonstrated winner"; Node and Go credible | **Rust/Tokio** | `better` (CPU 0.51×), eligible | 🟢 |
+| 2 | Browser driver | Native CDP (Chromey/Chromiumoxide to be qualified) + Playwright worker for compatibility and as reference | **Direct CDP + Automan guard** by default; Playwright only for Firefox and WebKit, with the same guard | blocked (Playwright reference timed out); clear out-of-contract estimate | 🟡 |
+| 3 | Actionability contract | Playwright as behavioral reference | **Automan guard**, engine-independent | contract 390/390 | 🟢 |
+| 4 | HTTP transport | reqwest as the base; Impit and wreq as options | **reqwest** by default, wreq as a variant; options set by the engine and covered by a gate | `non-inferior`, eligible | 🟢 |
+| 5 | Identity and access | 3 mutually exclusive profiles per session, `identified` by default, opt-in `stealth` catalog | Unchanged; **browser-executed HTTP tier** as soon as an identity must cross the escalation; site policy in the engine, not in the transport | contract; duration not eligible | 🟢 / ⚪ stealth |
+| 6 | HTTP or browser routing | "Result-based adaptive HTTP", per-route learning | Unchanged in principle, **plus a discovered-API tier**; sample-based comparison, declared total as invalidation | `better`, eligible | 🟢 |
+| 7 | Frontier | Configurable canonicalization, deduplication, computed end of crawl | **Plus** learned no-effect parameters, closed trap paths, cursor preferred over offset | contract (naive blocked) | 🟢 |
+| 8 | Long sessions | Session object, no blind reuse of expired sessions | **Page judged on the recipe's contract; session state in the run journal** ([ADR-003](adr/0003-session-model.md)) | `better` (logins 0.5×) | 🟢 |
+| 9 | Admission and scheduling | Bounded queue, per-domain budgets; fairness "to be proven" | **Bounded per-domain queues, served round-robin**, under a global cap; admission journaled through group commits, `E_CAPACITY` refusal | 2.6× for small domains, `insufficient-n` | 🟡 |
+| 10 | Durable execution | Leases, checkpoints, idempotent write before acknowledgment | Unchanged: **journal + leases + epoch**, start of each job journaled | `contract-met` | 🟢 |
+| 11 | Local storage | SQLite WAL, single batched writer; JSONL for export | **SQLite WAL `synchronous=FULL`, single writer, bounded batches** | decided; power cut: 0 loss | 🟢 |
+| 12 | Sinks | PostgreSQL for the cloud; other sinks not examined | PostgreSQL `COPY` for shared state; local analytical DuckDB (single writer); Parquet for batch export; **adoption on demand** | all durable; throughputs `insufficient-n` | 🟡 |
+| 13 | Extraction | HTML5 DOM parser, streaming lol-html, htmd, trafilatura-class extractor: candidates | **rs-trafilatura** for main content, **htmd** for Markdown conversion, **html5ever/scraper** for structural parsing | `insufficient-n` by blocks; decided per page | 🟢 |
+| 14 | Light engine | Lightpanda candidate, out of process (AGPL) | **No default engine**; tier chosen by capabilities | blocked (shadow DOM) | 🟢 |
+| 15 | AI layer | Discover, compile and repair outside normal replay, budgets | Unchanged; **whole plan verified by fingerprint before the first effect**, one bounded repair | `better` (cost 0.17-0.34×) | 🟢 |
+| 16 | Agent interfaces | SDK, CLI, MCP driving the engine | One operation catalog, served **identically by MCP and by function tools**; **code mode only with effect journal**; CLI for humans and scripts | MCP ≡ SDK; journaled code mode better | 🟢 / 🟡 |
+| 17 | Cloud topology | Container pool or Firecracker snapshot: deferred | **Warm pool discarded or reset after each tenant**; Firecracker to be measured | pool: contract; Firecracker not tested | 🟡 / ⚪ |
+| 18 | Product surfaces | React/shadcn + Vite console; SwiftUI macOS app; Apache-2.0 license | Unchanged, **not tested** | — | ⚪ |
+| 19 | Observability | tracing + OpenTelemetry export, GenAI conventions | Unchanged, **not tested** | — | ⚪ |
+| 20 | Market | Candidate segments from research | Unchanged, **pending interviews** | — | ⚪ |
 
 ---
 
-## 4. Chaque décision : pourquoi changer, pourquoi rester, alternatives
+## 4. Each decision: why change, why stay, alternatives
 
-### 4.1 Langage du noyau (D-core-language) 🟢
+### 4.1 Core language (D-core-language) 🟢
 
-- **Avant.** Rust/Tokio proposé dans l'ADR-001, avec la réserve explicite « ne démontre pas un avantage sur le temps total ». Node et Go étaient des alternatives crédibles.
-- **Mesuré.** Même workflow durable, même build SQLite, Mac calme. Rust consomme **0,51 fois le CPU de Node par travail vérifié** (8 blocs, éligible). Les écrivains synchrones sur une bibliothèque SQLite commune donnent des débits voisins entre Node, Rust et Go ([workflow, 8 octobre](lab/reports/workflow-2026-10-08.md)). La reprise est exacte sous quatre points de panne injectés ([pannes runtime](lab/reports/runtime-faults-2026-10-08.md)).
-- **Pourquoi rester.** Le coût par travail compte pour un service qui facture au résultat vérifié, et Rust tient la reprise exacte. Il n'y a aucune raison de changer.
-- **Alternatives plausibles.**
-  - Node, si la maintenance d'un pilote natif devenait le coût dominant. Les pilotes CDP Node et Rust ont des durées identiques, donc le langage n'a aucun effet côté navigateur.
-  - Go, pour la distribution ; pas mesuré sur le workflow complet.
-- **Limite.** Mac, pas hôte de référence.
+- **Before.** Rust/Tokio proposed in ADR-001, with the explicit caveat "does not demonstrate an advantage on total time". Node and Go were credible alternatives.
+- **Measured.** Same durable workflow, same SQLite build, quiet Mac. Rust uses **0.51 times Node's CPU per verified job** (8 blocks, eligible). Synchronous writers on a common SQLite library give similar throughputs across Node, Rust and Go ([workflow, October 8](lab/reports/workflow-2026-10-08.md)). Recovery is exact under four injected failure points ([runtime faults](lab/reports/runtime-faults-2026-10-08.md)).
+- **Why stay.** Cost per job matters for a service that bills per verified result, and Rust keeps recovery exact. There is no reason to change.
+- **Plausible alternatives.**
+  - Node, if maintaining a native driver became the dominant cost. The Node and Rust CDP drivers have identical durations, so the language has no effect on the browser side.
+  - Go, for distribution; not measured on the full workflow.
+- **Limitation.** Mac, not the reference host.
 
-### 4.2 Pilote navigateur (D-browser-driver) 🟡
+### 4.2 Browser driver (D-browser-driver) 🟡
 
-- **Avant.** CDP natif via Chromey ou Chromiumoxide, à qualifier, plus un worker Playwright de compatibilité et de **référence de comportement**.
-- **Mesuré, sur Mac calme, avec les blocs du 8 et du 10 octobre** ([rapport](lab/reports/quiet-host-2026-10-10.md)). Temps de tâche rapporté à Playwright natif (plus bas = plus rapide) :
+- **Before.** Native CDP via Chromey or Chromiumoxide, to be qualified, plus a Playwright worker for compatibility and as **behavioral reference**.
+- **Measured, on a quiet Mac, with the October 8 and 10 blocks** ([report](lab/reports/quiet-host-2026-10-10.md)). Task time relative to native Playwright (lower = faster):
 
-  | Latence pilote ↔ navigateur | Formulaire | Clics | Catalogue JS |
+  | Driver ↔ browser latency | Form | Clicks | JS catalog |
   | --- | --- | --- | --- |
-  | 0 ms (même machine) | 1,33 | 1,21 | 0,33 |
-  | 20 ms | 0,80 | 0,84 | 0,73 |
-  | 100 ms | 0,70 | 0,74 | 0,79 |
-  | 300 ms | 0,68 | 0,72 | 0,80 |
+  | 0 ms (same machine) | 1.33 | 1.21 | 0.33 |
+  | 20 ms | 0.80 | 0.84 | 0.73 |
+  | 100 ms | 0.70 | 0.74 | 0.79 |
+  | 300 ms | 0.68 | 0.72 | 0.80 |
 
-  Ces chiffres valent pour le CDP Rust avec garde. Le CDP Node avec garde donne les mêmes à ±0,02. Puppeteer avec garde est le plus lent.
-- **Pourquoi changer.**
-  - Un navigateur hébergé est toujours à distance du pilote. Dès 20 ms, le CDP direct avec garde est 16 à 32 % plus rapide.
-  - Playwright natif n'est pas une référence exacte : il laisse passer un clic sur une cible encore en mouvement ([multi-moteurs](lab/reports/cross-engine-2026-10-09.md)), et il a dépassé deux fois son délai à 100 ms.
-  - La garde Automan, elle, est exacte partout.
-- **Pourquoi le verdict reste bloqué.** Le gate d'exactitude lit aussi les cellules de la référence, et la référence, Playwright, a échoué. Les durées ci-dessus sont une estimation hors contrat, aux intervalles très étroits (largeur < 0,1).
-- **À trancher par le porteur.** Remplacer la référence de la décision par un pilote exact à toutes les latences. Je ne l'ai pas fait après coup, pour ne pas orienter le verdict.
-- **Alternatives plausibles.**
-  - Playwright natif sur boucle locale, s'il est 20 à 33 % plus rapide à 0 ms et que l'exactitude de la garde n'est pas exigée.
-  - Le runtime en extension Chrome, à la Stagehand v4 : placement près du navigateur, non mesuré dans les campagnes finales.
-- **Non tranché.** La bibliothèque CDP Rust (Chromey, Chromiumoxide ou client maison) : le prototype utilise un client WebSocket direct.
+  These figures apply to Rust CDP with guard. Node CDP with guard gives the same within ±0.02. Puppeteer with guard is the slowest.
+- **Why change.**
+  - A hosted browser is always remote from the driver. From 20 ms on, direct CDP with guard is 16 to 32% faster.
+  - Native Playwright is not an exact reference: it lets a click on a still-moving target through ([cross-engine](lab/reports/cross-engine-2026-10-09.md)), and it exceeded its timeout twice at 100 ms.
+  - The Automan guard, for its part, is exact everywhere.
+- **Why the verdict remains blocked.** The accuracy gate also reads the reference's cells, and the reference, Playwright, failed. The durations above are an out-of-contract estimate, with very narrow intervals (width < 0.1).
+- **For the owner to decide.** Replace the decision's reference with a driver that is exact at all latencies. I did not do it after the fact, so as not to bias the verdict.
+- **Plausible alternatives.**
+  - Native Playwright on local loopback, if it is 20 to 33% faster at 0 ms and the guard's accuracy is not required.
+  - The runtime as a Chrome extension, à la Stagehand v4: placement close to the browser, not measured in the final campaigns.
+- **Undecided.** The Rust CDP library (Chromey, Chromiumoxide or an in-house client): the prototype uses a direct WebSocket client.
 
-### 4.3 Contrat d'actionnabilité 🟢
+### 4.3 Actionability contract 🟢
 
-- **Avant.** L'actionnabilité Playwright servait de référence.
-- **Mesuré.** La garde Automan, faite de scripts de page sur le DOM (unicité, visibilité, stabilité, test de cible, interception d'événements), passe **390 cellules sur 390** sur Chromium, WebKit et Firefox, sous Linux et macOS. Elle avait déjà passé 162 cellules sur 162 sur la matrice d'actionnabilité Chromium. Deux défauts de la garde ont été trouvés et corrigés en route ([contrats pilotes](lab/reports/browser-driver-contracts-2026-10-08.md)).
-- **Pourquoi changer.** Le contrat appartient à Automan et ne dépend plus du moteur ni du pilote.
-- **Limite.** Le build Firefox de Playwright ne démarre pas sous macOS 27 ; il est vérifié sous Linux.
+- **Before.** Playwright actionability served as the reference.
+- **Measured.** The Automan guard, made of page scripts on the DOM (uniqueness, visibility, stability, target test, event interception), passes **390 cells out of 390** on Chromium, WebKit and Firefox, under Linux and macOS. It had already passed 162 cells out of 162 on the Chromium actionability matrix. Two guard defects were found and fixed along the way ([driver contracts](lab/reports/browser-driver-contracts-2026-10-08.md)).
+- **Why change.** The contract belongs to Automan and no longer depends on the engine or the driver.
+- **Limitation.** Playwright's Firefox build does not start under macOS 27; it is verified under Linux.
 
-### 4.4 Transport HTTP (D-http-transport) 🟢
+### 4.4 HTTP transport (D-http-transport) 🟢
 
-- **Avant.** reqwest de base ; Impit et wreq comme transports spécialisés optionnels.
-- **Mesuré, sur Mac calme.**
-  - wreq, Impit et Node sont non inférieurs à reqwest en débit ; Crawlee en pool est moins bon (0,86).
-  - À débit égal, reqwest et wreq coûtent environ 1,5 ms de CPU par tâche, moins de 11 Mio de mémoire et une dizaine de ms de démarrage. Impit et Node coûtent 10 fois plus en CPU et en mémoire ([transports](lab/reports/http-transport-2026-10-09.md)).
-  - Le gate a trouvé deux défauts de configuration d'adaptateur : reqwest compilé sans décompression gzip, et wreq sans politique de redirection (son défaut réel est `none`, contrairement à sa documentation).
-  - Spider refuse les redirections vers loopback, un contrôle SSRF conservé.
-- **Pourquoi rester sur reqwest.** Il est le plus sobre, au même débit, et ses options sont maîtrisées.
-- **Ce qui change.** Le moteur fixe lui-même décompression, redirections et délais, et un gate de conformité les vérifie, quel que soit le transport.
-- **Alternatives plausibles.**
-  - wreq, au même coût, s'il faut une empreinte TLS de navigateur côté HTTP pur.
-  - Impit, s'il faut une émulation Chrome et que le coût CPU est acceptable.
-- **Limite.** À concurrence 4, la concurrence plafonne avant le transport : on ne sait pas où chaque transport plafonne lui-même.
+- **Before.** reqwest as the base; Impit and wreq as optional specialized transports.
+- **Measured, on a quiet Mac.**
+  - wreq, Impit and Node are non-inferior to reqwest in throughput; pooled Crawlee is worse (0.86).
+  - At equal throughput, reqwest and wreq cost about 1.5 ms of CPU per task, less than 11 MiB of memory and around ten ms of startup. Impit and Node cost 10 times more in CPU and memory ([transports](lab/reports/http-transport-2026-10-09.md)).
+  - The gate found two adapter configuration defects: reqwest compiled without gzip decompression, and wreq without a redirect policy (its actual default is `none`, contrary to its documentation).
+  - Spider refuses redirects to loopback, an SSRF check that was kept.
+- **Why stay on reqwest.** It is the leanest, at the same throughput, and its options are under control.
+- **What changes.** The engine itself sets decompression, redirects and timeouts, and a conformance gate checks them, whatever the transport.
+- **Plausible alternatives.**
+  - wreq, at the same cost, if a browser TLS fingerprint is needed on the pure HTTP side.
+  - Impit, if Chrome emulation is needed and the CPU cost is acceptable.
+- **Limitation.** At concurrency 4, concurrency caps out before the transport does: we do not know where each transport caps out on its own.
 
-### 4.5 Identité et accès (D-identity, ADR-002) 🟢 / ⚪
+### 4.5 Identity and access (D-identity, ADR-002) 🟢 / ⚪
 
-- **Avant.** ADR-002 : trois profils exclusifs par session (`identified` par défaut, `standard`, `stealth` en opt-in), Web Bot Auth, politique des préférences des sites, CAPTCHA par niveaux.
-- **Mesuré, en contrat.**
-  - Une session garde un seul profil.
-  - Web Bot Auth est vérifié de façon indépendante avec la bibliothèque de Cloudflare.
-  - robots.txt, Content-Signal, TDMRep et meta `noai` sont appliqués selon la finalité déclarée.
-  - **Impit et le client HTTPS de Node changent l'empreinte TLS/HTTP2 au moment où la session passe au navigateur** ; seul le tier HTTP exécuté par le navigateur (`browser-fetch`) garde une identité cohérente ([identité](lab/reports/identity-2026-10-08.md), [empreinte TLS](lab/reports/tls-fingerprint-2026-10-08.md)).
-  - Le pool de proxies tient le sticky, le basculement et l'épuisement typé.
-- **Pourquoi rester sur l'ADR-002.** Ses principes sont confirmés.
-- **Ce qui change.** Le tier HTTP d'une session dont l'identité traverse l'escalade s'exécute dans le navigateur. Les préférences des sites relèvent du moteur, pas du transport : le gate `policy-compliance` a été retiré de D-http-transport, car aucun transport ne pouvait le passer seul.
-- **Alternatives plausibles.** Un transport d'impersonation (wreq, Impit) pour les sessions purement HTTP, sans escalade vers le navigateur.
-- **Non testé.** Le coût en durée de la cohérence d'identité (hôte non éligible). Le **profil stealth** : navigateurs patchés, empreintes, comportement, CAPTCHA ; hors du périmètre de cette R&D.
+- **Before.** ADR-002: three mutually exclusive profiles per session (`identified` by default, `standard`, opt-in `stealth`), Web Bot Auth, site-preference policy, tiered CAPTCHA.
+- **Measured, as contract.**
+  - A session keeps a single profile.
+  - Web Bot Auth is verified independently with Cloudflare's library.
+  - robots.txt, Content-Signal, TDMRep and meta `noai` are applied according to the declared purpose.
+  - **Impit and Node's HTTPS client change the TLS/HTTP2 fingerprint at the moment the session moves to the browser**; only the browser-executed HTTP tier (`browser-fetch`) keeps a consistent identity ([identity](lab/reports/identity-2026-10-08.md), [TLS fingerprint](lab/reports/tls-fingerprint-2026-10-08.md)).
+  - The proxy pool handles stickiness, failover and typed exhaustion.
+- **Why stay on ADR-002.** Its principles are confirmed.
+- **What changes.** The HTTP tier of a session whose identity crosses the escalation runs in the browser. Site preferences belong to the engine, not the transport: the `policy-compliance` gate was removed from D-http-transport, because no transport could pass it on its own.
+- **Plausible alternatives.** An impersonation transport (wreq, Impit) for purely HTTP sessions, without escalation to the browser.
+- **Not tested.** The duration cost of identity consistency (ineligible host). The **stealth profile**: patched browsers, fingerprints, behavior, CAPTCHA; outside the scope of this R&D.
 
-### 4.6 Routage HTTP, navigateur ou API (D-adaptive-routing) 🟢
+### 4.6 HTTP, browser or API routing (D-adaptive-routing) 🟢
 
-- **Avant.** Architecture §5.3 : routage `auto` fondé sur le résultat, appris par route ; « une taille HTML ou deux datasets vides ne suffisent pas ».
-- **Mesuré.** Le même listing est servi de six façons : HTML, coquille JS, hydratation partielle, HTML périmé, GraphQL et scroll infini ([portails](lab/reports/portal-2026-10-09.md)).
-  - L'heuristique « navigateur si la page HTTP est vide » déclare complets des prix périmés et des pages partielles.
-  - L'échantillon comparé est exact sur 120 runs sur 120.
-  - La découverte d'API, qui capture le JSON pendant l'échantillon puis infère un plan par page ou par curseur validé contre le navigateur, est exacte sur 120 runs sur 120.
-  - Sur Mac calme, l'échantillon est **meilleur et éligible** (0,004 du temps navigateur sur page statique, équivalent ailleurs), et l'API découverte est meilleure sur GraphQL et le scroll infini (0,008) ([Mac calme](lab/reports/quiet-host-2026-10-10.md)).
-- **Pourquoi rester.** Le principe de l'architecture est confirmé.
-- **Ce qui change.** On ajoute **la découverte d'API comme tier de routage**, avec la même portée et les mêmes invalidations qu'une décision HTTP.
-- **Alternatives plausibles.** Le navigateur seul : la référence exacte, mais la plus chère.
-- **Limite.** Plans d'API simples seulement : pas de signature de requête ni de jeton à usage unique.
+- **Before.** Architecture §5.3: result-based `auto` routing, learned per route; "an HTML size or two empty datasets are not enough".
+- **Measured.** The same listing is served in six ways: HTML, JS shell, partial hydration, stale HTML, GraphQL and infinite scroll ([portals](lab/reports/portal-2026-10-09.md)).
+  - The "browser if the HTTP page is empty" heuristic declares stale prices and partial pages complete.
+  - The compared sample is exact on 120 runs out of 120.
+  - API discovery, which captures the JSON during the sample and then infers a page- or cursor-based plan validated against the browser, is exact on 120 runs out of 120.
+  - On a quiet Mac, the sample is **better and eligible** (0.004 of browser time on a static page, equivalent elsewhere), and the discovered API is better on GraphQL and infinite scroll (0.008) ([quiet Mac](lab/reports/quiet-host-2026-10-10.md)).
+- **Why stay.** The architecture's principle is confirmed.
+- **What changes.** **API discovery is added as a routing tier**, with the same scope and the same invalidations as an HTTP decision.
+- **Plausible alternatives.** Browser only: the exact reference, but the most expensive.
+- **Limitation.** Simple API plans only: no request signing or single-use token.
 
 ### 4.7 Frontier (D-frontier) 🟢
 
-- **Avant.** §3.1 : canonicalisation configurable, déduplication dans un scope, fin de crawl calculée.
-- **Mesuré.**
-  - Avec des `sid` et des `utm` dans chaque lien, des tris permutés et un calendrier sans fin, la frontier naïve épuise son budget sans pouvoir conclure.
-  - Avec des paramètres sans effet appris par signature de page, des chemins piégés fermés et le curseur préféré, la frontier canonique termine en 75 requêtes.
-  - **La pagination par décalage sur une table modifiée pendant le crawl perd des lignes et se déclare complète : 15 faux succès sur 15.**
-- **Ce qui change.** Les trois règles apprises sont ajoutées, et un crawl arrêté par son budget n'est jamais un résultat complet.
-- **Alternatives plausibles.** Une canonicalisation déclarée seulement dans la recette : elle suffit tant qu'on connaît le site, pas pour la découverte.
+- **Before.** §3.1: configurable canonicalization, deduplication within a scope, computed end of crawl.
+- **Measured.**
+  - With `sid` and `utm` in every link, permuted sort orders and an endless calendar, the naive frontier exhausts its budget without being able to conclude.
+  - With no-effect parameters learned by page signature, trap paths closed and the cursor preferred, the canonical frontier finishes in 75 requests.
+  - **Offset pagination on a table modified during the crawl loses rows and reports itself complete: 15 false successes out of 15.**
+- **What changes.** The three learned rules are added, and a crawl stopped by its budget is never a complete result.
+- **Plausible alternatives.** Canonicalization declared only in the recipe: it suffices as long as the site is known, not for discovery.
 
-### 4.8 Sessions longues (D-session-model, ADR-003) 🟢
+### 4.8 Long sessions (D-session-model, ADR-003) 🟢
 
-- **Avant.** Une session a une identité, des cookies, un backend et un lease ; une session expirée n'est pas réutilisée aveuglément.
-- **Mesuré.**
-  - Un portail qui renvoie `200` avec son formulaire de login à l'expiration fait **20 faux succès sur 20** à un client qui se fie au statut HTTP.
-  - Juger chaque page sur le contrat de la recette les supprime.
-  - Reprendre l'état de session journalisé divise les logins par deux ; une session révoquée pendant l'arrêt coûte un seul login, sans perte.
-- **Ce qui change.** [ADR-003](adr/0003-session-model.md) est proposé.
-- **Alternatives plausibles.** Se reconnecter à chaque run : exact, mais un login de plus par reprise, ce qu'un portail avec MFA fait payer cher.
+- **Before.** A session has an identity, cookies, a backend and a lease; an expired session is not reused blindly.
+- **Measured.**
+  - A portal that returns `200` with its login form on expiry causes **20 false successes out of 20** for a client that relies on the HTTP status.
+  - Judging each page on the recipe's contract eliminates them.
+  - Resuming the journaled session state halves the logins; a session revoked during the shutdown costs a single login, with no loss.
+- **What changes.** [ADR-003](adr/0003-session-model.md) is proposed.
+- **Plausible alternatives.** Reconnecting on each run: exact, but one more login per resumption, which a portal with MFA makes costly.
 
-### 4.9 Admission et ordonnancement (D-scheduling) 🟡
+### 4.9 Admission and scheduling (D-scheduling) 🟡
 
-- **Avant.** File bornée, budgets par domaine ; l'équité restait à prouver.
-- **Mesuré.**
-  - Avec un domaine lourd en surcharge, des files bornées par domaine servies à tour de rôle donnent **2,6 fois** plus de travail aux petits domaines qu'une file globale (IC 2,31 à 2,93, Mac calme), et 2,84 fois sur Mac chargé.
-  - L'admission est journalisée par commits groupés. Le refus `E_CAPACITY` n'est jamais exécuté. Le départ de chaque travail est journalisé, ce qui préserve la politesse après un crash ([admission](lab/reports/admission-2026-10-08.md)).
-- **Pourquoi `fair-domain`.** L'effet est grand et le mécanisme évident. Le verdict formel demande 22 blocs ; 5 ont été mesurés.
-- **Alternatives plausibles.** File globale FIFO : plus simple, acceptable sans domaine dominant.
+- **Before.** Bounded queue, per-domain budgets; fairness remained to be proven.
+- **Measured.**
+  - With one heavy domain under overload, bounded per-domain queues served round-robin give small domains **2.6 times** more work than a global queue (CI 2.31 to 2.93, quiet Mac), and 2.84 times on a loaded Mac.
+  - Admission is journaled through group commits. Work refused with `E_CAPACITY` is never executed. The start of each job is journaled, which preserves politeness after a crash ([admission](lab/reports/admission-2026-10-08.md)).
+- **Why `fair-domain`.** The effect is large and the mechanism obvious. The formal verdict requires 22 blocks; 5 were measured.
+- **Plausible alternatives.** Global FIFO queue: simpler, acceptable without a dominant domain.
 
-### 4.10 Exécution durable (D-durable-runtime) 🟢
+### 4.10 Durable execution (D-durable-runtime) 🟢
 
-- **Avant.** Leases, checkpoints, écriture idempotente avant acquittement.
-- **Mesuré.**
-  - **Contrat tenu** : admission sans perte, reprise exacte sous pannes injectées (avant ou après commit, pendant l'acquittement, verrou affamé, erreur d'écriture), oracle exact.
-  - La resoumission idempotente est acquittée en doublon sans double exécution.
-- **Pourquoi rester.** Le contrat tient.
-- **Non éligible.** La latence d'acquittement (durée) n'a pas été mesurée sur hôte qualifié.
+- **Before.** Leases, checkpoints, idempotent write before acknowledgment.
+- **Measured.**
+  - **Contract held**: lossless admission, exact recovery under injected failures (before or after commit, during acknowledgment, starved lock, write error), exact oracle.
+  - Idempotent resubmission is acknowledged as a duplicate without double execution.
+- **Why stay.** The contract holds.
+- **Not eligible.** Acknowledgment latency (a duration) was not measured on a qualified host.
 
-### 4.11 Stockage local (D-storage) 🟢
+### 4.11 Local storage (D-storage) 🟢
 
-- **Avant.** SQLite WAL et writer unique par lots.
-- **Mesuré.**
-  - Les lots augmentent le débit dans toutes les configurations, et un écrivain fait mieux que quatre.
-  - **Coupure de courant simulée** (VM Docker tuée en pleine écriture, 6 coupures) : `synchronous=FULL` ne perd aucun commit acquitté. `NORMAL` en perd (96 sur 108 803) : il résiste au crash du processus, pas à la coupure. JSONL non synchronisé perd tout. Aucune base n'est corrompue ([sinks et coupures](lab/reports/sinks-topology-2026-10-09.md)).
-- **Pourquoi rester.** C'est exactement le choix décidé.
-- **Ce qui change.** Tout mode « rapide » doit être affiché comme non durable face à une panne de la machine.
+- **Before.** SQLite WAL and a single batched writer.
+- **Measured.**
+  - Batches increase throughput in all configurations, and one writer does better than four.
+  - **Simulated power cut** (Docker VM killed mid-write, 6 cuts): `synchronous=FULL` loses no acknowledged commit. `NORMAL` loses some (96 out of 108,803): it survives a process crash, not a power cut. Unsynced JSONL loses everything. No database is corrupted ([sinks and power cuts](lab/reports/sinks-topology-2026-10-09.md)).
+- **Why stay.** It is exactly the choice that was decided.
+- **What changes.** Any "fast" mode must be displayed as non-durable against a machine failure.
 
 ### 4.12 Sinks (D-sinks) 🟡
 
-- **Mesuré.**
-  - PostgreSQL `COPY` (conteneur local), DuckDB et Parquet par lot gardent chaque ligne acquittée, après un crash du writer comme après une coupure ; PostgreSQL ne perd aucun de ses 2 324 commits acquittés sur 3 coupures.
-  - Débits à 512 lignes par lot : DuckDB 515 000/s, SQLite 393 000/s, JSONL 119 000/s, PostgreSQL 70 000/s, Parquet 47 000/s.
-- **Pourquoi ne rien adopter maintenant.** La décision dépend de la demande des clients.
-- **Ce que ces débits ne disent pas.** Les durabilités ne sont pas égales sur macOS : Node demande `F_FULLFSYNC`, SQLite et DuckDB un `fsync` simple, et PostgreSQL tourne dans une VM.
-- **Vue de travail.**
-  - SQLite pour l'état local ;
-  - PostgreSQL `COPY` pour l'état partagé du cloud ;
-  - DuckDB pour l'analytique locale, avec un seul écrivain ;
-  - Parquet pour l'export par lots.
+- **Measured.**
+  - PostgreSQL `COPY` (local container), DuckDB and batched Parquet keep every acknowledged row, after a writer crash as after a power cut; PostgreSQL loses none of its 2,324 acknowledged commits across 3 power cuts.
+  - Throughputs at 512 rows per batch: DuckDB 515,000/s, SQLite 393,000/s, JSONL 119,000/s, PostgreSQL 70,000/s, Parquet 47,000/s.
+- **Why adopt nothing now.** The decision depends on customer demand.
+- **What these throughputs do not say.** Durability levels are not equal on macOS: Node requests `F_FULLFSYNC`, SQLite and DuckDB a plain `fsync`, and PostgreSQL runs in a VM.
+- **Working view.**
+  - SQLite for local state;
+  - PostgreSQL `COPY` for the cloud's shared state;
+  - DuckDB for local analytics, with a single writer;
+  - Parquet for batch export.
 
 ### 4.13 Extraction (D-extraction) 🟢
 
-- **Avant.** Plusieurs candidats : parser DOM HTML5, lol-html en streaming, htmd, extracteur de classe trafilatura.
-- **Mesuré.** Corpus WCXB, split test réservé, 511 pages, analyse appariée **par page** ([analyse par page](lab/reports/extraction-paired-2026-10-09.md)) :
-  - rs-trafilatura atteint un F1 de 0,884 ;
-  - il bat la référence html5ever de **0,165** (IC 0,144 à 0,186) sur 469 pages, et Readability ou dom-smoothie d'environ 0,06.
-  - htmd convertit en Markdown sans isoler le contenu principal.
-  - Le rendu par Chrome ou Lightpanda n'apporte rien sur des pages déjà rendues ([pages figées](lab/reports/frozen-pages-2026-10-08.md)).
-- **Pourquoi changer.** La proposition laissait le choix ouvert. On adopte la chaîne rs-trafilatura (contenu principal), puis htmd (Markdown), avec html5ever/scraper pour les sélecteurs et les champs.
-- **Alternatives plausibles.** Readability ou dom-smoothie : proches en médiane, échouent nettement sur quelques pages.
-- **Non testé.** lol-html, faute d'adaptateur. La qualité du Markdown produit (titres, listes, tableaux). WebMainBench.
+- **Before.** Several candidates: HTML5 DOM parser, streaming lol-html, htmd, trafilatura-class extractor.
+- **Measured.** WCXB corpus, held-out test split, 511 pages, paired analysis **per page** ([per-page analysis](lab/reports/extraction-paired-2026-10-09.md)):
+  - rs-trafilatura reaches an F1 of 0.884;
+  - it beats the html5ever reference by **0.165** (CI 0.144 to 0.186) on 469 pages, and Readability or dom-smoothie by about 0.06.
+  - htmd converts to Markdown without isolating the main content.
+  - Rendering through Chrome or Lightpanda adds nothing on already-rendered pages ([frozen pages](lab/reports/frozen-pages-2026-10-08.md)).
+- **Why change.** The proposal left the choice open. The chain adopted is rs-trafilatura (main content), then htmd (Markdown), with html5ever/scraper for selectors and fields.
+- **Plausible alternatives.** Readability or dom-smoothie: close at the median, fail clearly on a few pages.
+- **Not tested.** lol-html, for lack of an adapter. The quality of the Markdown produced (headings, lists, tables). WebMainBench.
 
-### 4.14 Moteur léger (D-light-engine) 🟢
+### 4.14 Light engine (D-light-engine) 🟢
 
-- **Avant.** Lightpanda candidat, hors processus (AGPL).
-- **Mesuré.** Chrome et Lightpanda appariés dans un même run :
-  - **le shadow DOM échoue** sur Lightpanda ;
-  - sur le reste, il consomme 1/8 à 1/20 du CPU et 1/15 à 1/65 de la mémoire de Chrome ([moteur léger apparié](lab/reports/light-engine-paired-2026-10-09.md)).
-- **Ce qui change.** Il n'est pas un moteur par défaut, mais un tier choisi par les capacités déclarées, avant la création de la session.
+- **Before.** Lightpanda candidate, out of process (AGPL).
+- **Measured.** Chrome and Lightpanda paired in the same run:
+  - **shadow DOM fails** on Lightpanda;
+  - on the rest, it uses 1/8 to 1/20 of Chrome's CPU and 1/15 to 1/65 of its memory ([paired light engine](lab/reports/light-engine-paired-2026-10-09.md)).
+- **What changes.** It is not a default engine, but a tier chosen by the declared capabilities, before the session is created.
 
-### 4.15 Couche IA (D-ai-layer) 🟢
+### 4.15 AI layer (D-ai-layer) 🟢
 
-- **Avant.** Découvrir, compiler et réparer hors du rejeu normal, avec des budgets.
-- **Mesuré, avec trois modèles réels via une gateway.**
-  - Le rejeu compilé coûte **0,17 à 0,34** fois la dépense de modèle d'un agent qui replanifie à chaque run, sur 12 blocs.
-  - Aucun faux succès. La vérification du **plan entier par empreinte avant le premier effet** refuse une cible remplacée par un contrôle destructif ([modèles réels](lab/reports/ai-real-models-2026-10-09.md)).
-- **Pourquoi rester.** Le principe de la proposition est confirmé, et sa mécanique précisée.
+- **Before.** Discover, compile and repair outside normal replay, with budgets.
+- **Measured, with three real models through a gateway.**
+  - Compiled replay costs **0.17 to 0.34** times the model spend of an agent that replans on each run, over 12 blocks.
+  - No false success. Verifying the **whole plan by fingerprint before the first effect** rejects a target replaced by a destructive control ([real models](lab/reports/ai-real-models-2026-10-09.md)).
+- **Why stay.** The proposal's principle is confirmed, and its mechanics refined.
 
-### 4.16 Interfaces agents (D-agent-interface) 🟢 / 🟡
+### 4.16 Agent interfaces (D-agent-interface) 🟢 / 🟡
 
-- **Mesuré.** 675 tâches, 3 modèles, 5 interfaces ([mode code journalisé](lab/reports/code-mode-journal-2026-10-09.md)).
-  - MCP et outils de fonction sont **équivalents**.
-  - La CLI dépend du modèle : Claude Haiku laisse 18 tâches sur 45 non terminées.
-  - Le mode code brut fait 17 faux succès sur 45 avec GPT-5.6 Luna.
-  - **Le mode code avec journal d'effets fait 0 faux succès**, en 3 à 5 fois moins de tours que MCP (verdict `better` sur la lecture de prix, `insufficient-n` ailleurs, IC 0,16 à 0,26).
-- **Ce qui change.** On expose un seul catalogue d'opérations par MCP et par SDK, et le mode code uniquement avec le journal d'effets.
+- **Measured.** 675 tasks, 3 models, 5 interfaces ([journaled code mode](lab/reports/code-mode-journal-2026-10-09.md)).
+  - MCP and function tools are **equivalent**.
+  - The CLI depends on the model: Claude Haiku leaves 18 tasks out of 45 unfinished.
+  - Raw code mode produces 17 false successes out of 45 with GPT-5.6 Luna.
+  - **Code mode with an effect journal produces 0 false successes**, in 3 to 5 times fewer turns than MCP (verdict `better` on price reading, `insufficient-n` elsewhere, CI 0.16 to 0.26).
+- **What changes.** A single operation catalog is exposed through MCP and the SDK, and code mode only with the effect journal.
 
-### 4.17 Topologie cloud (D-cloud-topology) 🟡 / ⚪
+### 4.17 Cloud topology (D-cloud-topology) 🟡 / ⚪
 
-- **Mesuré.** Navigateurs dans Docker :
-  - un pool chaud supprime environ 180 ms de démarrage par session, pour environ 39 Mio par conteneur en attente ;
-  - **un pool qui rend ses conteneurs sans les remettre à zéro fait fuir le cookie d'un tenant vers le suivant, 30 fois sur 30.**
-- **Ce qui change.** Un pool doit jeter ou remettre à zéro son conteneur avant chaque tenant, et ce contrat doit être un gate permanent.
-- **Non testé.** Firecracker, faute de KVM.
+- **Measured.** Browsers in Docker:
+  - a warm pool removes about 180 ms of startup per session, for about 39 MiB per idle container;
+  - **a pool that returns its containers without resetting them leaks one tenant's cookie to the next, 30 times out of 30.**
+- **What changes.** A pool must discard or reset its container before each tenant, and this contract must be a permanent gate.
+- **Not tested.** Firecracker, for lack of KVM.
 
 ---
 
-## 5. Données qui ne permettent pas réellement de trancher
+## 5. Data that do not really allow a decision
 
-| Donnée | Pourquoi elle ne tranche pas | Ce que j'en ai décidé quand même | Comment la trancher |
+| Data | Why it does not decide | What I decided anyway | How to decide it |
 | --- | --- | --- | --- |
-| Pilote navigateur, durées | Verdict bloqué : la **référence** Playwright a dépassé ses délais, et le gate lit aussi la référence | CDP + garde par défaut, sur l'estimation hors contrat | Changer la référence pour un pilote exact (décision du porteur), puis recalculer |
-| Bibliothèque CDP Rust | Non comparée : le prototype utilise un client direct | Aucune ; client direct en attendant | Qualifier Chromey et Chromiumoxide contre la garde |
-| Ordonnanceur, 2,6× | `insufficient-n` (5 blocs sur 22) | `fair-domain` | 17 blocs de plus sur Mac calme |
-| Mode code journalisé, tours | `insufficient-n` sur 2 variantes sur 3 (une correction présente dans certains blocs seulement) | L'offrir | Appariement par tâche plutôt que par bloc |
-| API découverte, 4 rendus sur 6 | `insufficient-n` malgré un écart de deux ordres de grandeur | La retenir comme tier | Plus de blocs, ou une règle qui tienne compte de l'effet observé |
-| Débits des sinks | Durabilités inégales sur macOS ; PostgreSQL dans une VM ; hôte non éligible | Aucune adoption | Durabilité égalisée (`fullfsync`), hôte Linux de référence |
-| Coût de la cohérence d'identité | Durées sur hôte non éligible | Aucune ; le contrat suffit pour le choix | Rerun sur Mac calme |
-| Latence d'acquittement du runtime | Hôte non éligible | Aucune ; le contrat tient | Rerun sur Mac calme |
-| Transports à forte concurrence | Concurrence 4 : plafond atteint avant le transport | reqwest, sur le coût | Campagne à concurrence plus haute |
-| Extraction par blocs | 7 types de page = 7 blocs | Tranché par l'analyse par page | Déjà fait |
-| Toutes les durées | Mac, pas Linux nu | Décisions de conception seulement | Hôte de référence ([préparation](plan/reference-host.md)) |
-| Firecracker | Pas de KVM | Pool de conteneurs | Linux avec KVM |
-| Segment, prix, priorités, sinks demandés | Recherche documentaire seulement | Aucune | Entretiens ([kit](research/market/)) |
-| Profil stealth | Hors périmètre | Aucune | Décision et travaux du porteur |
+| Browser driver, durations | Verdict blocked: the Playwright **reference** exceeded its timeouts, and the gate also reads the reference | CDP + guard by default, on the out-of-contract estimate | Change the reference to an exact driver (owner's decision), then recompute |
+| Rust CDP library | Not compared: the prototype uses a direct client | None; direct client in the meantime | Qualify Chromey and Chromiumoxide against the guard |
+| Scheduler, 2.6× | `insufficient-n` (5 blocks out of 22) | `fair-domain` | 17 more blocks on a quiet Mac |
+| Journaled code mode, turns | `insufficient-n` on 2 variants out of 3 (a correction present in some blocks only) | Offer it | Pairing by task rather than by block |
+| Discovered API, 4 renderings out of 6 | `insufficient-n` despite a two-order-of-magnitude gap | Keep it as a tier | More blocks, or a rule that accounts for the observed effect |
+| Sink throughputs | Unequal durability on macOS; PostgreSQL in a VM; ineligible host | No adoption | Equalized durability (`fullfsync`), Linux reference host |
+| Cost of identity consistency | Durations on an ineligible host | None; the contract suffices for the choice | Rerun on a quiet Mac |
+| Runtime acknowledgment latency | Ineligible host | None; the contract holds | Rerun on a quiet Mac |
+| Transports at high concurrency | Concurrency 4: cap reached before the transport | reqwest, on cost | Campaign at higher concurrency |
+| Extraction by blocks | 7 page types = 7 blocks | Decided by the per-page analysis | Already done |
+| All durations | Mac, not bare-metal Linux | Design decisions only | Reference host ([preparation](plan/reference-host.md)) |
+| Firecracker | No KVM | Container pool | Linux with KVM |
+| Requested segment, pricing, priorities, sinks | Desk research only | None | Interviews ([kit](research/market/)) |
+| Stealth profile | Out of scope | None | Owner's decision and work |
 
 ---
 
-## 6. Leçons de méthode
+## 6. Method lessons
 
-Ce sont des défauts du laboratoire trouvés en route, tous corrigés. À garder pour la suite :
+These are lab defects found along the way, all fixed. To keep in mind going forward:
 
-1. **Juger un bloc sur le CPU étranger, pas sur la charge moyenne.** La charge moyenne inclut le benchmark lui-même : elle a fait passer pour bruités 7 blocs propres sur 8.
-2. **Une configuration par défaut n'est pas un contrat.** reqwest sans gzip et wreq sans redirections échouaient au catalogue ; seul le gate de conformité l'a vu.
-3. **Un gate qui lit la référence peut bloquer une option exacte.** C'est le cas du pilote navigateur ; la référence d'une décision doit être exacte partout.
-4. **La règle de taille d'échantillon ne tient pas compte de l'effet observé.** Elle demande 100 à 200 blocs pour des écarts de 100×. Il faut choisir la bonne unité d'appariement (la page, la tâche) plutôt que répéter des blocs déterministes.
-5. **La durabilité dépend de l'OS.** Sur macOS, `fsync` ne vide pas le cache du disque. À égaliser avant toute comparaison de débit entre sinks.
-6. **Ne jamais modifier les sources pendant une campagne.** Le moteur marque le run `invalid-provenance`, et c'est arrivé une fois.
-7. **Toujours vérifier qu'un commit contient ce qu'il annonce.** Une correction refusée en cours de commande a laissé un commit au titre trompeur, et PostgreSQL non mesuré lors de la première série de coupures.
+1. **Judge a block on foreign CPU, not on load average.** Load average includes the benchmark itself: it made 7 clean blocks out of 8 look noisy.
+2. **A default configuration is not a contract.** reqwest without gzip and wreq without redirects failed the catalog; only the conformance gate caught it.
+3. **A gate that reads the reference can block an exact option.** This is the case for the browser driver; a decision's reference must be exact everywhere.
+4. **The sample-size rule does not account for the observed effect.** It requires 100 to 200 blocks for 100× gaps. The right pairing unit (the page, the task) must be chosen rather than repeating deterministic blocks.
+5. **Durability depends on the OS.** On macOS, `fsync` does not flush the disk cache. To be equalized before any throughput comparison between sinks.
+6. **Never modify sources during a campaign.** The engine marks the run `invalid-provenance`, and it happened once.
+7. **Always check that a commit contains what it claims.** A fix rejected mid-command left a commit with a misleading title, and PostgreSQL unmeasured during the first series of power cuts.
 
 ---
 
-## 7. Ce qui reste à faire
+## 7. What remains to be done
 
-| Travail | Pour quelle décision | Ce qu'il faut |
+| Work | For which decision | What is needed |
 | --- | --- | --- |
-| Référence exacte pour D-browser-driver, puis recalcul | Pilote navigateur | Décision du porteur |
-| Hôte Linux nu de référence | Toutes les affirmations publiables, mémoire par cgroup | Une machine ([préparation](plan/reference-host.md)) |
-| Firecracker | Topologie cloud | Linux avec KVM |
-| Blocs supplémentaires sur Mac calme | Ordonnanceur, routage, mode code | Une nuit de Mac au repos |
-| Entretiens | Segment, prix, priorités, sinks | Le porteur ([guide](research/market/interview-guide.md)) |
-| Profil stealth | ADR-002, catalogue `stealth` | Le porteur |
-| Qualité du Markdown, WebMainBench, lol-html | Extraction | Campagnes à ajouter |
+| Exact reference for D-browser-driver, then recomputation | Browser driver | Owner's decision |
+| Bare-metal Linux reference host | All publishable claims, per-cgroup memory | A machine ([preparation](plan/reference-host.md)) |
+| Firecracker | Cloud topology | Linux with KVM |
+| Additional blocks on a quiet Mac | Scheduler, routing, code mode | One night of an idle Mac |
+| Interviews | Segment, pricing, priorities, sinks | The owner ([guide](research/market/interview-guide.md)) |
+| Stealth profile | ADR-002, `stealth` catalog | The owner |
+| Markdown quality, WebMainBench, lol-html | Extraction | Campaigns to add |
 
 ---
 
-## 8. Plan du dossier `rnd/`
+## 8. Map of the `rnd/` folder
 
-| Dossier | Contenu | Statut |
+| Folder | Contents | Status |
 | --- | --- | --- |
-| [`proposals/`](proposals/) | Propositions d'avant les tests : [proposition](proposals/proposition-automan.md), [architecture](proposals/architecture.md), [API](proposals/api.md), [design produit](proposals/product-design.md), [plan de documentation](proposals/documentation-plan.md), [maquette de console](proposals/design/automan-console.html) | Historique : à relire à la lumière de ce rapport |
-| [`plan/`](plan/) | [Plan de R&D](plan/rd-plan.md), [hôte de référence](plan/reference-host.md) | Phases P0 à P9 |
-| [`adr/`](adr/) | ADR **proposés** : [0001 langage](adr/0001-runtime-language.md), [0002 accès et identité](adr/0002-access-identity-stealth.md), [0003 sessions](adr/0003-session-model.md) | À adopter dans `docs/adr/` |
-| [`research/`](research/) | Recherches sourcées ([index](research/README.md)) et [piste marché](research/market/) | Sources datées |
-| [`lab/`](lab/) | Harnais de test : moteur, lanes, fixtures et oracles, [décisions](lab/decisions/), [ledger](lab/ledger/), [verdicts](lab/verdicts/), [rapports](lab/reports/) ; mode d'emploi dans [`lab/README.md`](lab/README.md) | Exécutable depuis `rnd/lab` |
+| [`GLOSSARY.md`](GLOSSARY.md) | Domain vocabulary drafted during the R&D | Input for the final root `GLOSSARY.md` |
+| [`proposals/`](proposals/) | Pre-test proposals: [proposal](proposals/proposition-automan.md), [architecture](proposals/architecture.md), [API](proposals/api.md), [product design](proposals/product-design.md), [documentation plan](proposals/documentation-plan.md), [console mockup](proposals/design/automan-console.html) | Historical: to be reread in light of this report |
+| [`plan/`](plan/) | [R&D plan](plan/rd-plan.md), [reference host](plan/reference-host.md) | Phases P0 to P9 |
+| [`adr/`](adr/) | **Proposed** ADRs: [0001 language](adr/0001-runtime-language.md), [0002 access and identity](adr/0002-access-identity-stealth.md), [0003 sessions](adr/0003-session-model.md) | To be adopted in `docs/adr/` |
+| [`research/`](research/) | Sourced research ([index](research/README.md)) and [market track](research/market/) | Dated sources |
+| [`lab/`](lab/) | Test harness: engine, lanes, fixtures and oracles, [decisions](lab/decisions/), [ledger](lab/ledger/), [verdicts](lab/verdicts/), [reports](lab/reports/); usage guide in [`lab/README.md`](lab/README.md) | Executable from `rnd/lab` |
 
 ---
 
-## 9. Pour Wayfinder : passer de la R&D à la documentation définitive
+## 9. For Wayfinder: moving from R&D to the final documentation
 
-Ordre recommandé :
+Recommended order:
 
-1. **Adopter les décisions.** Pour chaque ligne 🟢 du tableau de la section 3, écrire l'ADR définitif dans `docs/adr/`, au format Matt Pocock (configuration dans `docs/agents/domain.md`). Il cite son verdict (`rnd/lab/verdicts/D-*.json`) et son rapport. Les ADR 0001 à 0003 de `rnd/adr/` sont des brouillons à reprendre. Les candidats évidents :
-   - noyau Rust/Tokio ;
-   - CDP + garde Automan ;
-   - reqwest et le gate de transport ;
-   - routage par échantillon et tier API découverte ;
-   - frontier apprise et curseur ;
-   - modèle de session ;
-   - files équitables par domaine ;
-   - journal + leases + epoch ;
-   - SQLite WAL FULL ;
-   - chaîne d'extraction ;
-   - rejeu compilé ;
-   - catalogue d'opérations agents avec mode code journalisé ;
-   - pool de conteneurs remis à zéro.
-2. **Mettre à jour le vocabulaire** dans `GLOSSARY.md` : route apprise, tier API découverte, contrat de page de session, journal d'effets, garde d'actionnabilité, faux succès, classe d'hôte.
-3. **Réécrire l'architecture** dans `docs/` à partir de [`proposals/architecture.md`](proposals/architecture.md), en y intégrant les onze précisions de la section 1. Retirer Playwright du rôle de référence de comportement.
-4. **Garder ouverts** les points 🟡 et ⚪ comme questions explicites du PRD, avec ce qui les tranchera (section 5).
-5. **Écrire le PRD** quand les entretiens auront donné segment, prix et priorités.
+1. **Adopt the decisions.** For each 🟢 row of the table in section 3, write the final ADR in `docs/adr/`, in Matt Pocock's format (configuration in `docs/agents/domain.md`). It cites its verdict (`rnd/lab/verdicts/D-*.json`) and its report. ADRs 0001 to 0003 in `rnd/adr/` are drafts to be reworked. The obvious candidates:
+   - Rust/Tokio core;
+   - CDP + Automan guard;
+   - reqwest and the transport gate;
+   - sample-based routing and discovered-API tier;
+   - learned frontier and cursor;
+   - session model;
+   - fair per-domain queues;
+   - journal + leases + epoch;
+   - SQLite WAL FULL;
+   - extraction chain;
+   - compiled replay;
+   - agent operation catalog with journaled code mode;
+   - reset container pool.
+2. **Adopt the vocabulary.** Start from the R&D glossary, [`GLOSSARY.md`](GLOSSARY.md) in this folder, and create the final `GLOSSARY.md` at the repository root with the terms that are adopted, adding those this R&D introduced: learned route, discovered-API tier, session page contract, effect journal, actionability guard, false success, host class.
+3. **Rewrite the architecture** in `docs/` from [`proposals/architecture.md`](proposals/architecture.md), integrating the eleven refinements from section 1. Remove Playwright from the behavioral-reference role.
+4. **Keep open** the 🟡 and ⚪ points as explicit PRD questions, along with what will decide them (section 5).
+5. **Write the PRD** once the interviews have provided segment, pricing and priorities.
 
-Le laboratoire reste l'outil de qualification : toute nouvelle option se déclare dans `lab/decisions/` avant d'être mesurée.
+The lab remains the qualification tool: any new option is declared in `lab/decisions/` before being measured.

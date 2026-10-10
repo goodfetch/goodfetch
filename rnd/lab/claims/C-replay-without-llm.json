@@ -1,6 +1,6 @@
 {
   "id": "C-replay-without-llm",
-  "statement": "Un plan compilé se rejoue sans appel de modèle tant qu'aucune dérive n'est détectée.",
+  "statement": "A compiled plan replays without any model call as long as no drift is detected.",
   "decisionId": "D-ai-layer",
   "metricId": "llm-calls-per-verified-task",
   "comparator": {

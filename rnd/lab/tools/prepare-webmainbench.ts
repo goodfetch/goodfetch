@@ -1,10 +1,11 @@
 // Converts the WebMainBench 545-page subset (corpora/webmainbench.manifest.json) into the corpus layout the extraction lane
-// reads, after checking the file against the manifest's SHA-256. Usage: node tools/prepare-webmainbench.ts <jsonl>
+// reads, after checking the file against the manifest's SHA-256, with the annotation markers stripped from the HTML. Usage: node tools/prepare-webmainbench.ts <jsonl>
 import { createHash } from 'node:crypto';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { gzipSync } from 'node:zlib';
 import { labRoot } from '../src/registry.ts';
+import { annotationMarkers, stripAnnotationMarkers } from '../src/webmainbench.ts';
 
 const source = process.argv[2];
 if (!source) throw new Error('usage: node tools/prepare-webmainbench.ts <WebMainBench_545.jsonl>');
@@ -22,7 +23,10 @@ await mkdir(join(root, 'html'), { recursive: true }); await mkdir(join(root, 'gr
 const rows = bytes.toString('utf8').split('\n').filter(line => line.trim()).map(line => JSON.parse(line) as Row);
 for (const [index, row] of rows.entries()) {
   const id = String(index + 1).padStart(4, '0');
-  await writeFile(join(root, 'html', `${id}.html.gz`), gzipSync(row.html));
+  const html = stripAnnotationMarkers(row.html);
+  const left = annotationMarkers(html);
+  if (left.length) throw new Error(`page ${id} still has annotation markers after stripping: ${left.join(', ')}`);
+  await writeFile(join(root, 'html', `${id}.html.gz`), gzipSync(html));
   await writeFile(join(root, 'ground-truth', `${id}.json`), JSON.stringify({ file_id: id, url: row.url, track_id: row.track_id,
     _internal: { page_type: { primary: row.meta.level }, language: row.meta.language, table: row.meta.table, code: row.meta.code, equation: row.meta.equation, source: 'webmainbench-545' },
     ground_truth: { main_content: plainOfMarkdown(row.groundtruth_content), main_markdown: row.groundtruth_content, with: [], without: [] } }));

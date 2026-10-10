@@ -34,6 +34,8 @@ lol-html is a streaming rewriter. It sees each tag and text chunk once, builds n
 3. **Slice:** keep the text between the markers, or the whole cleaned document when the page has no scope element.
 4. **Output:** a last lol-html pass reads the text, decoding entities itself, since lol-html returns raw chunks and raw attribute values. For Markdown (`lol-html-htmd`), the slice goes to htmd.
 
+**Defect found in review, fixed after these runs.** In the runs above, the last pass read text with an element text handler (`text!("*")`). Text sitting directly inside `<main>` or `<article>`, outside any child element, has no enclosing element once the scope is sliced out, so it was dropped: `<main>Intro <p>Para</p> tail</main>` gave only "Para". The adapter now reads text with a document text handler, with a unit test. The review of pull request #90 compared the adapter before and after the fix, page by page: on WCXB no page gains or loses a word (outputs differ in whitespace only); on WebMainBench one page (0130) changes a word boundary, with the same word F1. The figures below come from the runs at `504c843` and were not re-run.
+
 lol-html cannot weigh text density, link density or position, so it cannot isolate content inside a `div` soup. It also cannot tell a forum post from a comment block, and it misses `<header>` elements left implicitly closed. Its end-tag handlers do not fire for implicitly closed elements.
 
 ## Main content: word F1, per-page paired analysis
@@ -57,7 +59,11 @@ Per type:
 - On WCXB, lol-html is flat across types, 0.68 to 0.74. It beats the reference on collection (0.683 against 0.492), forum, listing, product and service pages, and loses on article (0.715 against 0.805) and documentation pages (0.695 against 0.781).
 - On WebMainBench, every extractor drops from simple to hard pages: rs-trafilatura goes from 0.888 to 0.751, dom-smoothie from 0.906 to 0.802, lol-html from 0.822 to 0.656.
 
-**Ground-truth bias to keep in mind.** In 504 of WCXB's 511 test pages, the ground truth records `_internal.source = "rs-trafilatura-draft"`: it was drafted from rs-trafilatura's output, then reviewed. WebMainBench's ground truth was annotated by humans at tag level, independently of these tools. The reversal between the two corpora (rs-trafilatura first on WCXB, Readability and dom-smoothie slightly ahead on WebMainBench) is consistent with this bias. We have not tested whether the bias causes the reversal.
+**Ground-truth provenance to keep in mind.**
+- *WCXB.* In the test split's ground-truth files, the field `_internal.source` is `"rs-trafilatura-draft"` on 504 of 511 pages; the other 7 are 5 without the field, 1 `verified-gt` and 1 `human-verified`. The repository README (commit `c039d5e`) describes a different first step: "LLM-assisted drafting", with Claude generating the initial annotations, then four human review passes and automated checks. The lab has not established which of the two describes the drafts; the field is the per-file record. The README's step 4, "adversarial review", flags files where the top extractors score low F1 for re-examination: a second way extractor output can shape the ground truth. WCXB and rs-trafilatura have the same author, Murrough Foley (WCXB `LICENSE` and README citation; rs-trafilatura 0.2.2 `Cargo.toml`).
+- *WebMainBench.* The ground truth comes from OpenDataLab. Its dataset card (revision `5da0972e`) says the full set was annotated by humans at HTML tag level, in three rounds, and that the 545-page Markdown was "manually calibrated"; it does not say how the Markdown was produced before calibration. As far as the card states, it is not derived from any candidate tested here. The dataset accompanies OpenDataLab's own extractor, MinerU-HTML (Dripper), which is not tested here.
+
+The reversal between the two corpora (rs-trafilatura first on WCXB, Readability and dom-smoothie slightly ahead on WebMainBench) is consistent with an rs-trafilatura bias in WCXB's ground truth. We have not tested whether that bias causes the reversal.
 
 ### Mechanical verdict (D-extraction)
 
@@ -147,9 +153,9 @@ On the 511 WCXB test pages, `lol-html-fields` reads the same fields as `scraper-
   - field precision is 0.9986 and field recall 0.9959;
   - title, canonical, og:title, h1 and images agree on all 511 pages.
 - **Where they differ:**
-  - *Links* differ on 13 pages:
-    - On 12 of them, the html5ever tree holds more `a` elements than lol-html sees, with nothing extra on the lol-html side. On page 4442, checked by hand, the source has 3 `<a>` tags for a given URL and the tree 7. This is consistent with html5ever cloning misnested `<a>` elements, as its tree-construction rules (adoption agency, reconstruction of formatting elements) require. lol-html counts source tags, html5ever DOM elements: neither is an error, they define "a link" differently.
-    - On 2 pages (4071 and 4787), `href` values contain raw carriage returns, which html5ever normalizes and lol-html does not.
+  - *Links* differ on 13 pages, for two reasons; page 4787 has both, so 12 + 2 − 1 = 13:
+    - On 12 pages, the html5ever tree holds more `a` elements than lol-html sees, with nothing extra on the lol-html side. On page 4442, checked by hand, the source has 3 `<a>` tags for a given URL and the tree 7. This is consistent with html5ever cloning misnested `<a>` elements, as its tree-construction rules (adoption agency, reconstruction of formatting elements) require. lol-html counts source tags, html5ever DOM elements: neither is an error, they define "a link" differently.
+    - On 2 pages, `href` values contain raw carriage returns, which html5ever normalizes and lol-html does not: 110 `href` values on page 4071, where the link counts are otherwise equal (621 each), and 1 on page 4787, which is also among the 12.
   - *Description* differs on 14 pages, all only by CR/CRLF: html5ever normalizes newlines when it preprocesses the input, lol-html returns the raw value.
 - **Speed:** per page, lol-html takes 0.27 of scraper's time (CI 0.265 to 0.276), with a median of 0.25 ms against 0.93 ms. That is about 3.7 times faster on a local-dev host.
 
@@ -169,3 +175,5 @@ Final adoption remains with the project owner.
 - The structure oracle matches text exactly after normalization. Encoded but equivalent URLs and slightly different cell text count as misses.
 - The timings come from a local-dev host under load (other agents running). They are paired per page, but not qualified as local-controlled.
 - `parsing-representative` (malformed HTML, large DOM, 1 to 1,000 MiB streaming) is still not built. The field comparison above uses WCXB pages only.
+- **lol-html's rules are not validated on held-out pages.** The boilerplate tags, ARIA roles, class/id tokens and scope rules were committed 9 seconds before the first run, and which pages they were developed on was not recorded. The WCXB test split and WebMainBench were both available locally while they were written, so neither corpus can be treated as held out for lol-html. The rules are generic (no site- or page-specific entry), which limits but does not exclude fitting.
+- **WebMainBench's HTML carried the annotators' answer key.** On 544 of 545 pages, the elements selected as main content have `cc-select="true"` and the class `mark-selected`, and every page has an injected `<style id="cc-extraStyle">` (in `<body>` on page 0313). No candidate or lab code reads them, so these results are not affected through them. The prepare tool now strips them and refuses a page that still has any; see `corpora/webmainbench.manifest.json`, field `annotationMarkers`. The runs above read the unstripped HTML.

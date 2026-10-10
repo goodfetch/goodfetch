@@ -107,7 +107,7 @@ fn fields_scraper(html: &str) -> Value {
 //   then the text is read by a last lol-html pass, or the slice goes to htmd for Markdown.
 mod lol {
     use lol_html::html_content::{ContentType, Element, TextChunk};
-    use lol_html::{RewriteStrSettings, element, end_tag, rewrite_str, text};
+    use lol_html::{RewriteStrSettings, doc_text, element, end_tag, rewrite_str, text};
     use serde_json::{Value, json};
     use std::cell::{Cell, RefCell};
     use std::rc::Rc;
@@ -184,13 +184,14 @@ mod lol {
     const BLOCKS: &str = "p, div, li, ul, ol, dl, dt, dd, h1, h2, h3, h4, h5, h6, br, hr, tr, td, th, table, section, article, main, blockquote, pre, figure, figcaption, header, address";
 
     // Text of an HTML fragment, read by lol-html: chunks are raw, so entities are decoded here; block elements separate words.
+    // A document text handler, not text!("*"): the slice of a scope starts inside <main>/<article>, so text sitting directly
+    // in the scope has no enclosing element in the fragment and an element text handler would drop it.
     pub fn text(html: &str) -> Result<String, String> {
         let buffer = Rc::new(RefCell::new(String::new()));
         let (b1, b2) = (buffer.clone(), buffer.clone());
-        rewrite_str(html, settings(vec![
-                element!(BLOCKS, move |_el| { b1.borrow_mut().push('\n'); Ok(()) }),
-                text!("*", move |chunk: &mut TextChunk| { b2.borrow_mut().push_str(chunk.as_str()); Ok(()) }),
-            ])).map_err(|error| error.to_string())?;
+        let settings = settings(vec![element!(BLOCKS, move |_el| { b1.borrow_mut().push('\n'); Ok(()) })])
+            .append_document_content_handler(doc_text!(move |chunk: &mut TextChunk| { b2.borrow_mut().push_str(chunk.as_str()); Ok(()) }));
+        rewrite_str(html, settings).map_err(|error| error.to_string())?;
         let raw = buffer.borrow();
         Ok(html_escape::decode_html_entities(&*raw).into_owned())
     }
@@ -276,5 +277,23 @@ fn main() {
             }
             _ => respond(id, Err("unknown method".into())),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::lol;
+
+    fn words(text: &str) -> Vec<&str> { text.split_whitespace().collect() }
+
+    #[test]
+    fn lol_text_keeps_text_directly_inside_the_scope() {
+        let selected = lol::main_html("<body><nav>Menu</nav><main>Intro <p>Para</p> tail</main></body>").unwrap();
+        assert_eq!(words(&lol::text(&selected).unwrap()), ["Intro", "Para", "tail"]);
+    }
+
+    #[test]
+    fn lol_text_separates_blocks_and_decodes_entities() {
+        assert_eq!(words(&lol::text("<p>a&amp;b</p><p>c</p>").unwrap()), ["a&b", "c"]);
     }
 }

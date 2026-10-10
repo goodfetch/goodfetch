@@ -16,4 +16,4 @@ Each run keeps its state (frontier, staged results, sessions, effect journal, us
 - Checkpoints are taken on the `checkpoint` and `migrate` signals, on a clean stop, and periodically at an interval the caller sets (off by default locally). Between checkpoints, the journal covers a crash on the same machine.
 - After a machine is lost, the run redoes the work since its last checkpoint. Effects in the checkpoint's journal are checked rather than repeated. Journal entries after the checkpoint are lost with the machine, so every effect the redone work reaches is checked first when it has a check, and otherwise reported as uncertain.
 - The reset gate of ADR 0001 runs in both layouts. In the per-install layout, a discarded run must leave no recoverable bytes of its secrets.
-- Checkpoints contain session secrets: those fields are encrypted under a key the caller holds, exports never carry them, and discarding a run destroys its key (ADR 0015).
+- Checkpoints and exported run files contain session secrets: those fields stay encrypted under a key the caller holds, results Exports never carry them, and discarding a run destroys its key (ADR 0015).

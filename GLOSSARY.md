@@ -175,11 +175,11 @@ Whatever turns a Secret reference into its value at the moment of use: the envir
 _Avoid_: vault (for every provider), secret store, credential manager
 
 **Provenance**:
-The record of how a Record was obtained: where and when it was fetched, under which Session and identity, by which extractor, Plan or model, and under which site preferences.
+The record of how a Record was obtained: where and when it was fetched, under which Session and signing identity, by which extractor, Plan or model, and under which Site preferences.
 _Avoid_: lineage, metadata, source (alone)
 
 **Purpose**:
-What a run declares its results are for (search, AI input, AI training, or plain collection), against which site preferences are judged.
+What a run declares its results are for (search, AI input, AI training, or plain collection), against which Site preferences are judged.
 _Avoid_: use case, intent, mode
 
 **Site preferences**:

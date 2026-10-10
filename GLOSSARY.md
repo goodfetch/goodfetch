@@ -221,5 +221,5 @@ _Avoid_: journal (alone), event log, history
 ## Measurement
 
 **Proving ground**:
-The website Automan owns and generates from a seed, whose every page has a known expected result, against which the benchmark and the conformance suites run.
+The website Automan owns and generates, whose every page has a known expected result, against which the benchmark and the conformance suites run.
 _Avoid_: fixtures site, test site, sandbox, demo site

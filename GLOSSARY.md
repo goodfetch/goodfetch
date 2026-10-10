@@ -20,6 +20,18 @@ _Avoid_: platform, Automan (for the hosted service)
 The web interface for operating Automan, served locally by the engine or by Automan Cloud.
 _Avoid_: dashboard, inspector, app
 
+**Client**:
+Any program that drives the engine through its protocol: an SDK, the CLI, the MCP server, the Console or Automan Cloud.
+_Avoid_: frontend, binding, consumer
+
+**Attached engine**:
+An engine started by one Client for its own use, which stops when that Client goes away.
+_Avoid_: sidecar, child engine
+
+**Daemon**:
+A long-lived engine on the local machine that several Clients share and that outlives each of them.
+_Avoid_: server, service, background engine
+
 **Private component**:
 A closed component kept outside the open-source framework, used by Automan Cloud and licensed under contract to vetted customers, that holds a capability whose public release would itself create legal exposure.
 _Avoid_: enterprise edition, premium module, closed core

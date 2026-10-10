@@ -12,3 +12,4 @@ An AI task succeeds only when a declared Success check passes, evaluated live by
 
 - Vision is opt-in and the last rung of the ladder; a coordinate action carries its screenshot's id and is refused if the page changed since.
 - Compiled selectors are keyed by route and page layout and repaired when validation failures appear; an LLM clean-up of Markdown is an opt-in step.
+- Success checks can be switched off per run (ADR 0022); results are then `needs-review`, never a success.

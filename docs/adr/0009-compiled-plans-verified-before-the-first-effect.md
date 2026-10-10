@@ -1,0 +1,19 @@
+# Plans are committed files, verified in full before the first Effect
+
+AI work is compiled once into a Plan: concrete steps whose targets each carry a Target fingerprint, built from what identifies the element to a person (such as its kind, type, label and visible text), never from its selector. The Plan is a readable file versioned next to the script or Recipe, like a lockfile, and later runs replay it with no model call and report which Plan version they used. Before the first Effect, every step's target is checked against its Target fingerprint; on Drift the engine makes one Repair (a fresh observation and one recompile, checked in full again, drawn from the run's Limits), and a second Drift fails the run. In the lab, compiled replay cost 0.17 to 0.34 times the model spend of an agent that replans each run ([rnd/README.md](https://github.com/Jbmanllr/automan/blob/main/rnd/README.md) §4.15), with no false success across three real models. Decided in [Adopt AI and agent decisions](https://github.com/Jbmanllr/automan/issues/72).
+
+Evidence: [AI-in-the-loop browser frameworks](https://github.com/Jbmanllr/automan/blob/research/ai-browser-frameworks/rnd/research/2026-10-10-ai-browser-frameworks.md).
+
+## Considered Options
+
+- **Checking step by step**: rejected. In the lab it ticked a consent box before seeing the Drift, and the repair then reported a wrong booking as a success.
+- **A cache held by a service**: rejected. Stagehand v4's cache works only with Browserbase-hosted browsers and receives secret values; users ask for a versioned file they can run in CI.
+- **Automatic regeneration on every break** (Skyvern): rejected for Plans with Effects; an unreviewed new Plan could act on the wrong control.
+
+## Consequences
+
+- A Repair is used within its run once checked, but becomes a new Plan version only after the whole run finishes verified (Midscene never writes back a partly repaired plan; Momentic re-caches only after the rest of the test passes). Read-only Plans are promoted automatically; Plans with Effects produce a reviewable diff unless the Recipe opts into auto-approval.
+- Login Plans skip the review: when the built-in agent recovers a login (ADR 0006), the Page check judges whether the login succeeded, and its steps become a scripted login Plan that is promoted automatically after a verified run, because a login changes no state on the site that the run is meant to change. Secrets and authenticator codes in it are typed by the engine; a stuck agent hands over to the Human pause, and a CAPTCHA goes to the challenge solver first (its form is decided in [Stealth and challenge-solving catalog](https://github.com/Jbmanllr/automan/issues/78)).
+- `observe` and `act` become Plan steps; `extract` stores its selectors but reads values live; a Success check is never cached.
+- A Decision provider (Jev or OpenAI's Decisions API, hosted, or a small open model run inside the engine) may sit between the Target fingerprint check and the LLM, and also checks during replay that a target is still the same element. It returns a choice with a confidence or abstains, its calls are journaled and counted like any model call, and a provider's confidence threshold is used only once a lab campaign has measured it on unseen pages; until then the step stays off. Evidence: [decision models research](https://github.com/Jbmanllr/automan/blob/research/decision-models/rnd/research/2026-10-10-decision-models.md).
+- The Console recorder writes Plans in this format, from DOM actions and network traffic across frames and shadow DOM, preferring a discovered API route with the browser as fallback, together with the matching TypeScript or Python code.

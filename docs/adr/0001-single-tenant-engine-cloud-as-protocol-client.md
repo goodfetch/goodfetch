@@ -4,7 +4,7 @@ Automan Cloud must power an actor platform, a crawl and extraction API, and host
 
 ## Considered Options
 
-- **Multi-tenant engine** (one process serves many tenants): rejected. It breaks the single SQLite writer per run, lets one tenant's crash stop every tenant's runs, which the separate engine binary exists to prevent between Clients (ADR 0019), and the lab showed that a pool reused without reset leaks one tenant's cookie to the next 30 times out of 30.
+- **Multi-tenant engine** (one process serves many tenants): rejected. It breaks the single SQLite writer per run, lets one tenant's crash stop every tenant's runs, which the separate engine binary exists to prevent between Clients (ADR 0024), and the lab showed that a pool reused without reset leaks one tenant's cookie to the next 30 times out of 30.
 - **Separate worker protocol for the cloud**: rejected. Two protocols means two conformance suites, and cloud behaviour that cannot be reproduced locally.
 
 ## Consequences

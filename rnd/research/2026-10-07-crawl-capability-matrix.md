@@ -1,6 +1,6 @@
 # Automan — crawl, resource and worker capability matrix
 
-State of the sources as of **October 7, 2026**. This document feeds the architecture, the design and the PRD; the Automan contracts are **proposed**, they do not describe an existing implementation. Scope: Crawlee TS/Python, Spider, Scrapy, Colly, Crawl4AI, Firecrawl, Scrapling, Katana, Apache StormCrawler and relevant browser transports/clients. It does not claim to cover every project in the world or every option of every repository.
+State of the sources as of **October 7, 2026**. The Automan contracts are **proposed**, they do not describe an existing implementation. Scope: Crawlee TS/Python, Spider, Scrapy, Colly, Crawl4AI, Firecrawl, Scrapling, Katana, Apache StormCrawler and relevant browser transports/clients. It does not claim to cover every project in the world or every option of every repository.
 
 Supplementary research: **`sources_reviewed = 10`**, two Exa calls of five results for Katana and StormCrawler, followed by primary inspection of the sources. Reuse of previous research ([engines](2026-10-07-crawl-engines.md), [Crawlee/Spider contracts](2026-10-07-crawlee-spider-contracts-followup.md), [engines/workers/browsers](2026-10-07-engines-workers-browsers.md)) without recounting their results. The archives and files were read; no benchmark or run of these projects was performed for this matrix.
 
@@ -76,7 +76,7 @@ Sources: [Crawlee queue V2](https://github.com/apify/crawlee/blob/v3.18.2/packag
 
 Sources: [BrowserPool and defaults](https://github.com/apify/crawlee/blob/v3.18.2/packages/browser-pool/src/browser-pool.ts#L357), [BrowserCrawler/session/proxy](https://github.com/apify/crawlee/blob/v3.18.2/packages/browser-crawler/src/internals/browser-crawler.ts), [Spider browser lifecycle](https://github.com/spider-rs/spider/blob/e4b53c5b582357e46433fa9ba3d91f930fb67cb4/spider/src/website.rs#L9180), [Spider retained controller](https://github.com/spider-rs/spider/blob/e4b53c5b582357e46433fa9ba3d91f930fb67cb4/spider/src/website.rs#L7575), [Crawl4AI BrowserManager](https://github.com/unclecode/crawl4ai/blob/v0.9.4/crawl4ai/browser_manager.py), [Scrapling sessions](https://github.com/D4Vinci/Scrapling/blob/v0.4.15/scrapling/spiders/session.py), [Katana pool](https://github.com/projectdiscovery/katana/blob/v1.8.0/pkg/engine/headless/browser/browser.go), [Katana pool and borrowed browser tests](https://github.com/projectdiscovery/katana/blob/v1.8.0/pkg/engine/headless/browser/cwu_test.go).
 
-### Stagehand clause to keep in the PRD
+### Stagehand clause
 
 `@crawlee/stagehand` 3.18.2 declares **Stagehand TS `^3.0.0`**, not v4. The plugin launches Stagehand and then connects Playwright to the same browser; `_newPage` uses `contexts()[0]` and ignores the context options. `act`/`observe`/`extract` bind the page, **`page.agent` does not inject this page**. Python 1.10.4 uses the REST SDK `>=3.19.5,<4.0.0`, a different API, and binds `execute` to its page; its integration documents **incognito and full fingerprint as not supported**. General BrowserPool parity therefore does not automatically apply to all adapters. [TS package](https://github.com/apify/crawlee/blob/v3.18.2/packages/stagehand-crawler/package.json), [controller](https://github.com/apify/crawlee/blob/v3.18.2/packages/stagehand-crawler/src/internals/stagehand-controller.ts), [TS wrapper](https://github.com/apify/crawlee/blob/v3.18.2/packages/stagehand-crawler/src/internals/utils/stagehand-utils.ts), [Python wrapper](https://github.com/apify/crawlee-python/blob/v1.10.4/src/crawlee/browsers/_stagehand_types.py).
 
@@ -230,6 +230,6 @@ Proposed decision: **own protocol/journal/frontier/identity/result-policy; reuse
 
 - Facts from pinned sources, without full validation of installation or network/DB/Chrome stress.
 - The Firecrawl snapshot and the stable code of the other projects are not interchangeable; private SaaS infrastructure is not extrapolated.
-- The "Automan" rows are contract/PRD proposals; they require an implementation and their acceptance tests.
+- The "Automan" rows are contract proposals; they require an implementation and their acceptance tests.
 - Several capabilities require flags/features/plugins/backends; the cited defaults and restrictions take precedence over README slogans.
 - Detailed agent/perception/repair capabilities belong to the supplementary browser/agent report; this matrix focuses on their safe integration with crawl/pools/workers.

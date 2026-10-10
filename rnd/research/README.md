@@ -4,13 +4,13 @@
 
 **Benchmark status:** the initial notes analyze public protocols and results. The following phase built the [local lab](../lab/README.md) and ran controlled campaigns on crawling, browser primitives and storage. These exploratory measurements qualify configurations on fixtures; they constitute neither a ranking of all the players listed nor proof of universal superiority.
 
-## 1. Recommended reading path
+## 1. Overview documents
 
-1. [Commercial mapping](2026-10-07-commercial-landscape.md) for the market and service models.
-2. [Stagehand / Crawlee / Spider comparison](2026-10-07-stagehand-crawlee-spider-comparison.md) for differences in contracts and overlaps.
-3. [Crawl, pools and workers matrix](2026-10-07-crawl-capability-matrix.md) and [agents, plans and repair matrix](2026-10-07-agent-capability-matrix.md) for the consolidated capabilities.
-4. [Audit of public benchmarks](2026-10-07-benchmark-audit-followup.md) to interpret existing figures.
-5. [Performance and evidence protocol](2026-10-07-benchmark-and-runtime.md) for the comparisons to run next.
+- [Commercial mapping](2026-10-07-commercial-landscape.md): the market and service models.
+- [Stagehand / Crawlee / Spider comparison](2026-10-07-stagehand-crawlee-spider-comparison.md): differences in contracts and overlaps.
+- [Crawl, pools and workers matrix](2026-10-07-crawl-capability-matrix.md) and [agents, plans and repair matrix](2026-10-07-agent-capability-matrix.md): the consolidated capabilities.
+- [Audit of public benchmarks](2026-10-07-benchmark-audit-followup.md): how existing figures were produced.
+- [Performance and evidence protocol](2026-10-07-benchmark-and-runtime.md): the proposed comparison protocol.
 
 The current product proposals are in the [consolidated report](../proposals/proposition-automan.md) and the [R&D plan](../plan/rd-plan.md). They build on this research, without turning its conclusions into already demonstrated performance.
 
@@ -66,7 +66,7 @@ The current product proposals are in the [consolidated report](../proposals/prop
 
 ## 6. Currency of the conclusions
 
-The first market and framework notes kept a small-team/release-in-3–6-months hypothesis. Their opening notice specifies that this constraint has been removed. For Automan choices, favor the [current consolidated dossier](../proposals/proposition-automan.md), the [architecture](../proposals/architecture.md) and the [R&D plan](../plan/rd-plan.md). The initial documents remain useful for sources and historical reasoning.
+The first market and framework notes kept a small-team/release-in-3–6-months hypothesis. Their opening notice specifies that this constraint has been removed. The [consolidated dossier](../proposals/proposition-automan.md), the [architecture](../proposals/architecture.md) and the [R&D plan](../plan/rd-plan.md) are more recent; the initial documents remain useful for sources and historical reasoning.
 
 Price data, versions and offerings are dated as of the survey; a later decision must revalidate items likely to have changed. The `sources_reviewed` counters refer to requested search results, including duplicates/discarded items, and are not a number of independent, experimentally validated sources.
 

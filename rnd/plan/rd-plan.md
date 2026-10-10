@@ -1,6 +1,6 @@
-# Pre-PRD R&D plan: a decision-driven lab
+# R&D plan: a decision-driven lab
 
-**Status: approved by the project owner on October 8, 2026.** This plan redirects the [existing lab](../lab/README.md). It does not rebuild it. It produces four outputs: a stack settled by measured decisions, provable performance claims, a market positioning, then a PRD v2. The parameters below are a program. No result follows from them yet.
+**Status: approved by the project owner on October 8, 2026.** This plan redirects the [existing lab](../lab/README.md). It does not rebuild it. It produces three outputs: a stack settled by measured decisions, provable performance claims and a market positioning. The parameters below are a program. No result follows from them yet.
 
 ## 1. Principle
 
@@ -77,10 +77,8 @@ Superseded or diagnostic runs keep their reason. To rerun first: Node/Rust runti
 
 ## 6. Phase outputs
 
-- One ADR per settled decision, generated from its verdict, in `docs/adr/`.
 - Retained claims, with their evidence and their host class.
 - Market synthesis.
-- PRD v2, then GitHub tickets.
 
 The detail of each phase's files and tasks is tracked in the repository's GitHub issues, one per phase.
 

@@ -1,6 +1,6 @@
 # ADR-003: long authenticated session model
 
-**Status: proposed, based on the lab's mechanical verdict; to be explicitly adopted by the project owner.**
+**Status: proposed, based on the lab's mechanical verdict; R&D draft.**
 **Date: October 9, 2026.**
 **Final decision: user / project owner.**
 **Registry decision: `D-session-model`; verdict `lab/verdicts/D-session-model.json`; report `lab/reports/portal-2026-10-09.md`.**

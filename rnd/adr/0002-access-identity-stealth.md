@@ -1,6 +1,6 @@
 # ADR-002: site access, agent identity and stealth options
 
-**Status: principle decided by the project owner on October 8, 2026; terms proposed, to be adopted explicitly during implementation.**
+**Status: principle decided by the project owner on October 8, 2026; terms proposed, R&D draft.**
 **Date: October 8, 2026.**
 **Final decision: user / project owner.**
 

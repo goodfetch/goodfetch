@@ -4,7 +4,7 @@ ADR 0016 made the costly security controls switchable. At the owner's request th
 
 ## Considered Options
 
-- **Fixed guarantees** (Playwright always checks before acting): rejected. Users trade checks for speed on pages they trust; Stagehand v4 checks nothing, and in separate lab runs on the same machine it was roughly three times faster than the guarded driver.
+- **Fixed guarantees**: rejected. Users trade checks for speed on pages they trust: Playwright skips its checks with `force: true`, and Stagehand v4 checks nothing before acting; in the lab, native Stagehand ran a 50-click task in 945 ms against 2,715 ms for native Playwright ([qualification](https://github.com/Jbmanllr/automan/blob/main/rnd/lab/reports/qualification-2026-10-07.md)).
 - **Switches without marks in the results**: rejected. A fast run and a checked run would look the same, which is the false success ADR 0013 exists to prevent.
 
 ## Consequences

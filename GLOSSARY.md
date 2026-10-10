@@ -87,7 +87,7 @@ How a Session presents itself to sites, fixed when it opens: standard (an ordina
 _Avoid_: profile, access profile, stealth level
 
 **Identity profile**:
-The consistent set of values a Session presents to sites, such as its user agent, network and browser fingerprints, signing key and proxy exit.
+The consistent set of values a Session presents to sites, such as its user agent, network and browser fingerprints, signing key, language and time zone, fixed for the Session's life.
 _Avoid_: fingerprint (alone), persona, profile (alone)
 
 **Session pool**:

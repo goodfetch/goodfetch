@@ -9,6 +9,8 @@ Automan Cloud sells hosted browsers to code and agents that run elsewhere ([Clou
 
 ## Consequences
 
+- The Browser host is an endpoint under ADR 0017: reached remotely, it requires TLS and a token. It enforces the run's egress policy (ADR 0017) on the hosted browser's traffic, since the user's engine cannot see it.
+- How it speaks the engine's protocol is part of [SDK binding and distribution strategy](https://github.com/Jbmanllr/automan/issues/75); whether it is public is decided in [Open-core boundary and license](https://github.com/Jbmanllr/automan/issues/77).
 - Cookies and storage held by the hosted browser are copied back into the run's state, so a checkpoint covers them (ADR 0002).
 - A raw CDP endpoint on a hosted browser stays opt-in, as decided in Cloud readiness, under ADR 0017's rules.
 - Third-party browsers (Browserbase, Bright Data's Scraping Browser) are reached over raw CDP with the guard, about two round trips per action once ADR 0018's speed target is met. The [V1 benchmark](https://github.com/Jbmanllr/automan/issues/79) measures this case against Stagehand v4 with equal guarantees; if Automan is clearly slower, an in-browser runtime for such browsers becomes a ticket with the numbers.

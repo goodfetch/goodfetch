@@ -1,0 +1,9 @@
+$ /venv/bin/python -m pip install --no-cache-dir --disable-pip-version-check --index-url http://pyidx:8000/full/simple/ --extra-index-url https://pypi.org/simple/ --trusted-host pyidx automan-native
+Looking in indexes: http://pyidx:8000/full/simple/, https://pypi.org/simple/
+Collecting automan-native
+  Downloading http://pyidx:8000/files/automan_native-0.1.0-cp39-abi3-musllinux_1_2_aarch64.whl (197 kB)
+     ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 197.3/197.3 kB 47.4 MB/s eta 0:00:00
+Installing collected packages: automan-native
+Successfully installed automan-native-0.1.0
+--- first use (venv NOT activated, PATH untouched)
+hello from pyo3 extension (aarch64-unknown-linux-musl)

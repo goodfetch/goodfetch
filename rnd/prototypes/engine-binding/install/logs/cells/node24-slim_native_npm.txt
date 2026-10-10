@@ -1,0 +1,5 @@
+$ npm install @automan-proto/native@0.1.0
+
+added 2 packages in 334ms
+--- first use: node -e
+hello from napi addon (aarch64-unknown-linux-gnu)

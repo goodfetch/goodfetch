@@ -1,0 +1,12 @@
+[build-system]
+requires = ["maturin>=1.9,<2"]
+build-backend = "maturin"
+
+[project]
+name = "automan-native"
+version = "0.1.0"
+description = "PROTOTYPE: in-process PyO3 binding (hello world)"
+requires-python = ">=3.9"
+
+[tool.maturin]
+module-name = "automan_native"

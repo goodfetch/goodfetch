@@ -1,0 +1,11 @@
+$ npm install @automan-proto/rpc@0.1.1
+
+added 2 packages in 4s
+npm notice
+npm notice New major version of npm available! 11.19.0 -> 12.2.0
+npm notice Changelog: https://github.com/npm/cli/releases/tag/v12.2.0
+npm notice To update run: npm install -g npm@12.2.0
+npm notice
+--- first use: node -e
+binary /w/node_modules/@automan-proto/engined-linux-x64-gnu/bin/engined mode 755
+{"pong":true,"target":"x86_64-unknown-linux-gnu","pid":41}

@@ -1,0 +1,10 @@
+$ pip install pip==19.2.3  (setup, not measured)
+$ /venv/bin/python -m pip install --no-cache-dir --disable-pip-version-check --index-url http://pyidx:8000/abi3/simple/ --extra-index-url https://pypi.org/simple/ --trusted-host pyidx automan-rpc
+Looking in indexes: http://pyidx:8000/abi3/simple/, https://pypi.org/simple/
+Collecting automan-rpc
+  ERROR: Could not find a version that satisfies the requirement automan-rpc (from versions: none)
+ERROR: No matching distribution found for automan-rpc
+--- first use (venv NOT activated, PATH untouched)
+Traceback (most recent call last):
+  File "<string>", line 1, in <module>
+ModuleNotFoundError: No module named 'automan_rpc'

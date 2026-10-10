@@ -1,0 +1,6 @@
+Using Python 3.13.11 environment at: /var/folders/tk/bs05js851fzffx4sm13zy7jm0000gn/T/tmp.hMBSWbR5jx/venv
+Resolved 1 package in 129ms
+Prepared 1 package in 52ms
+Installed 1 package in 6ms
+ + automan-native==0.1.0
+hello from pyo3 extension (aarch64-apple-darwin)

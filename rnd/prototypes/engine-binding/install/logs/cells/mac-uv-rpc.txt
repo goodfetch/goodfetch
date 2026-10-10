@@ -1,0 +1,6 @@
+Using Python 3.13.11 environment at: /var/folders/tk/bs05js851fzffx4sm13zy7jm0000gn/T/tmp.PRDkvI2gGn/venv
+Resolved 1 package in 72ms
+Prepared 1 package in 19ms
+Installed 1 package in 4ms
+ + automan-rpc==0.1.0
+{'pong': True, 'target': 'aarch64-apple-darwin', 'pid': 51226}

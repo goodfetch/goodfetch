@@ -1,0 +1,121 @@
+$ pip install pip==20.2.4  (setup, not measured)
+$ /venv/bin/python -m pip install --no-cache-dir --disable-pip-version-check --index-url http://pyidx:8000/full/simple/ --extra-index-url https://pypi.org/simple/ --trusted-host pyidx automan-rpc
+Looking in indexes: http://pyidx:8000/full/simple/, https://pypi.org/simple/
+Collecting automan-rpc
+  Downloading http://pyidx:8000/files/automan_rpc-0.1.0.tar.gz (4.7 kB)
+  Installing build dependencies: started
+  Installing build dependencies: finished with status 'error'
+  ERROR: Command errored out with exit status 1:
+   command: /venv/bin/python /venv/lib/python3.9/site-packages/pip install --ignore-installed --no-user --prefix /tmp/pip-build-env-x_i6d3re/overlay --no-warn-script-location --no-binary :none: --only-binary :none: -i http://pyidx:8000/full/simple/ --extra-index-url https://pypi.org/simple/ --trusted-host pyidx -- 'maturin>=1.9,<2'
+       cwd: None
+  Complete output (53 lines):
+  Looking in indexes: http://pyidx:8000/full/simple/, https://pypi.org/simple/
+  Collecting maturin<2,>=1.9
+    Downloading maturin-1.15.0.tar.gz (385 kB)
+    Installing build dependencies: started
+    Installing build dependencies: finished with status 'done'
+    Getting requirements to build wheel: started
+    Getting requirements to build wheel: finished with status 'done'
+    Installing backend dependencies: started
+    Installing backend dependencies: finished with status 'done'
+      Preparing wheel metadata: started
+      Preparing wheel metadata: finished with status 'error'
+      ERROR: Command errored out with exit status 1:
+       command: /venv/bin/python /venv/lib/python3.9/site-packages/pip/_vendor/pep517/_in_process.py prepare_metadata_for_build_wheel /tmp/tmpdl9pvweq
+           cwd: /tmp/pip-install-esqf6eg3/maturin
+      Complete output (34 lines):
+      /tmp/pip-build-env-2u7ggrpn/overlay/lib/python3.9/site-packages/setuptools/_vendor/wheel/bdist_wheel.py:4: FutureWarning: The 'wheel' package is no longer the canonical location of the 'bdist_wheel' command, and will be removed in a future release. Please update to setuptools v70.1 or later which contains an integrated version of this command.
+        warn(
+      Python reports SOABI: cpython-39-aarch64-linux-gnu
+      Computed rustc target triple: aarch64-unknown-linux-gnu
+      Installation directory: /root/.cache/puccinialin
+      Downloading rustup-init from https://static.rust-lang.org/rustup/dist/aarch64-unknown-linux-gnu/rustup-init
+      Rust not found, installing into a temporary directory
+      
+      Downloading rustup-init:   0%|          | 0.00/19.9M [00:00<?, ?B/s]
+      Downloading rustup-init:   2%|▏         | 328k/19.9M [00:00<00:08, 2.32MB/s]
+      Downloading rustup-init:   6%|▋         | 1.25M/19.9M [00:00<00:03, 5.59MB/s]
+      Downloading rustup-init:   9%|▉         | 1.85M/19.9M [00:00<00:03, 5.21MB/s]
+      Downloading rustup-init:  13%|█▎        | 2.54M/19.9M [00:00<00:03, 5.75MB/s]
+      Downloading rustup-init:  16%|█▌        | 3.14M/19.9M [00:00<00:03, 5.46MB/s]
+      Downloading rustup-init:  19%|█▉        | 3.77M/19.9M [00:00<00:02, 5.71MB/s]
+      Downloading rustup-init:  22%|██▏       | 4.36M/19.9M [00:00<00:02, 5.43MB/s]
+      Downloading rustup-init:  25%|██▍       | 4.92M/19.9M [00:01<00:03, 4.20MB/s]
+      Downloading rustup-init:  27%|██▋       | 5.38M/19.9M [00:01<00:04, 3.23MB/s]
+      Downloading rustup-init:  29%|██▉       | 5.80M/19.9M [00:01<00:04, 3.34MB/s]
+      Downloading rustup-init:  31%|███       | 6.18M/19.9M [00:01<00:04, 3.16MB/s]
+      Downloading rustup-init:  33%|███▎      | 6.54M/19.9M [00:01<00:04, 3.23MB/s]
+      Downloading rustup-init:  35%|███▍      | 6.89M/19.9M [00:01<00:04, 3.05MB/s]
+      Downloading rustup-init:  36%|███▋      | 7.22M/19.9M [00:01<00:04, 2.74MB/s]
+      Downloading rustup-init:  38%|███▊      | 7.51M/19.9M [00:02<00:04, 2.73MB/s]
+      Downloading rustup-init:  39%|███▉      | 7.80M/19.9M [00:02<00:04, 2.73MB/s]
+      Downloading rustup-init:  41%|████      | 8.09M/19.9M [00:02<00:05, 2.10MB/s]
+      Downloading rustup-init:  42%|████▏     | 8.32M/19.9M [00:02<00:05, 1.93MB/s]
+      Downloading rustup-init:  44%|████▍     | 8.81M/19.9M [00:02<00:05, 2.11MB/s]
+      Downloading rustup-init:  46%|████▌     | 9.04M/19.9M [00:02<00:07, 1.52MB/s]
+      Downloading rustup-init:  46%|████▋     | 9.22M/19.9M [00:03<00:07, 1.42MB/s]
+      Downloading rustup-init:  47%|████▋     | 9.42M/19.9M [00:03<00:07, 1.42MB/s]
+      Downloading rustup-init:  49%|████▊     | 9.65M/19.9M [00:03<00:06, 1.58MB/s]
+      Downloading rustup-init:  50%|████▉     | 9.83M/19.9M [00:03<00:06, 1.59MB/s]
+      Downloading rustup-init:  50%|█████     | 10.0M/19.9M [00:03<00:07, 1.30MB/s]
+... [9 lines trimmed] ...
+      Downloading rustup-init:  67%|██████▋   | 13.3M/19.9M [00:05<00:02, 2.92MB/s]
+      Downloading rustup-init:  69%|██████▉   | 13.7M/19.9M [00:05<00:02, 2.74MB/s]
+      Downloading rustup-init:  71%|███████   | 14.1M/19.9M [00:05<00:02, 2.87MB/s]
+      Downloading rustup-init:  72%|███████▏  | 14.4M/19.9M [00:05<00:01, 2.82MB/s]
+      Downloading rustup-init:  74%|███████▍  | 14.7M/19.9M [00:05<00:02, 2.37MB/s]
+      Downloading rustup-init:  75%|███████▌  | 14.9M/19.9M [00:05<00:02, 2.36MB/s]
+      Downloading rustup-init:  77%|███████▋  | 15.4M/19.9M [00:05<00:01, 2.83MB/s]
+      Downloading rustup-init:  79%|███████▉  | 15.7M/19.9M [00:05<00:01, 2.98MB/s]
+      Downloading rustup-init:  81%|████████  | 16.1M/19.9M [00:06<00:01, 2.82MB/s]
+      Downloading rustup-init:  83%|████████▎ | 16.4M/19.9M [00:06<00:01, 2.98MB/s]
+      Downloading rustup-init:  84%|████████▍ | 16.7M/19.9M [00:06<00:01, 2.94MB/s]
+      Downloading rustup-init:  86%|████████▌ | 17.1M/19.9M [00:06<00:00, 3.00MB/s]
+      Downloading rustup-init:  88%|████████▊ | 17.4M/19.9M [00:06<00:00, 2.62MB/s]
+      Downloading rustup-init:  89%|████████▉ | 17.7M/19.9M [00:06<00:00, 2.59MB/s]
+      Downloading rustup-init:  91%|█████████ | 18.0M/19.9M [00:06<00:00, 2.73MB/s]
+      Downloading rustup-init:  92%|█████████▏| 18.4M/19.9M [00:06<00:00, 2.87MB/s]
+      Downloading rustup-init:  95%|█████████▍| 18.8M/19.9M [00:07<00:00, 1.50MB/s]
+      Downloading rustup-init:  96%|█████████▌| 19.0M/19.9M [00:07<00:00, 1.15MB/s]
+      Downloading rustup-init:  97%|█████████▋| 19.2M/19.9M [00:08<00:00, 1.03MB/s]
+      Downloading rustup-init:  98%|█████████▊| 19.4M/19.9M [00:08<00:00, 1.07MB/s]
+      Downloading rustup-init:  98%|█████████▊| 19.5M/19.9M [00:08<00:00, 1.09MB/s]
+      Downloading rustup-init:  99%|█████████▉| 19.7M/19.9M [00:08<00:00, 967kB/s] 
+      Downloading rustup-init: 100%|█████████▉| 19.8M/19.9M [00:08<00:00, 645kB/s]
+      Downloading rustup-init: 100%|██████████| 19.9M/19.9M [00:09<00:00, 2.06MB/s]
+      Installing rust to /root/.cache/puccinialin/rustup
+      Traceback (most recent call last):
+        File "/venv/lib/python3.9/site-packages/pip/_vendor/pep517/_in_process.py", line 280, in <module>
+          main()
+        File "/venv/lib/python3.9/site-packages/pip/_vendor/pep517/_in_process.py", line 263, in main
+          json_out['return_val'] = hook(**hook_input['kwargs'])
+        File "/venv/lib/python3.9/site-packages/pip/_vendor/pep517/_in_process.py", line 133, in prepare_metadata_for_build_wheel
+          return hook(metadata_directory, config_settings)
+        File "/tmp/pip-build-env-2u7ggrpn/overlay/lib/python3.9/site-packages/setuptools/build_meta.py", line 380, in prepare_metadata_for_build_wheel
+          self.run_setup()
+        File "/tmp/pip-build-env-2u7ggrpn/overlay/lib/python3.9/site-packages/setuptools/build_meta.py", line 317, in run_setup
+          exec(code, locals())
+        File "<string>", line 54, in <module>
+        File "/tmp/pip-build-env-2u7ggrpn/normal/lib/python3.9/site-packages/puccinialin/_setup_rust.py", line 144, in setup_rust
+          install_rust(rustup_init, rustup_home, cargo_home, file, target_triple)
+        File "/tmp/pip-build-env-2u7ggrpn/normal/lib/python3.9/site-packages/puccinialin/_setup_rust.py", line 73, in install_rust
+          check_call(
+        File "/usr/local/lib/python3.9/subprocess.py", line 368, in check_call
+          retcode = call(*popenargs, **kwargs)
+        File "/usr/local/lib/python3.9/subprocess.py", line 349, in call
+          with Popen(*popenargs, **kwargs) as p:
+        File "/usr/local/lib/python3.9/subprocess.py", line 951, in __init__
+          self._execute_child(args, executable, preexec_fn, close_fds,
+        File "/usr/local/lib/python3.9/subprocess.py", line 1837, in _execute_child
+          raise child_exception_type(errno_num, err_msg, err_filename)
+      FileNotFoundError: [Errno 2] No such file or directory: PosixPath('/root/.cache/puccinialin/rustup-init/rustup-init')
+      ----------------------------------------
+  ERROR: Command errored out with exit status 1: /venv/bin/python /venv/lib/python3.9/site-packages/pip/_vendor/pep517/_in_process.py prepare_metadata_for_build_wheel /tmp/tmpdl9pvweq Check the logs for full command output.
+  WARNING: You are using pip version 20.2.4; however, version 26.0.1 is available.
+  You should consider upgrading via the '/venv/bin/python -m pip install --upgrade pip' command.
+  ----------------------------------------
+ERROR: Command errored out with exit status 1: /venv/bin/python /venv/lib/python3.9/site-packages/pip install --ignore-installed --no-user --prefix /tmp/pip-build-env-x_i6d3re/overlay --no-warn-script-location --no-binary :none: --only-binary :none: -i http://pyidx:8000/full/simple/ --extra-index-url https://pypi.org/simple/ --trusted-host pyidx -- 'maturin>=1.9,<2' Check the logs for full command output.
+--- first use (venv NOT activated, PATH untouched)
+Traceback (most recent call last):
+  File "<string>", line 1, in <module>
+ModuleNotFoundError: No module named 'automan_rpc'

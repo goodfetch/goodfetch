@@ -1,0 +1,8 @@
+$ uv pip install --no-cache --python /venv/bin/python --index-url http://pyidx:8000/full/simple/ --extra-index-url https://pypi.org/simple/ automan-native
+Using Python 3.13.16 environment at: /venv
+Resolved 1 package in 138ms
+Prepared 1 package in 48ms
+Installed 1 package in 9ms
+ + automan-native==0.1.0
+--- first use (venv NOT activated, PATH untouched)
+hello from pyo3 extension (aarch64-unknown-linux-musl)

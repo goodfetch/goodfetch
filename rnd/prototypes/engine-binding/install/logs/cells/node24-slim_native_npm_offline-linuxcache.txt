@@ -1,0 +1,5 @@
+$ npm ci --offline --cache /cache/npm --replace-registry-host=always
+
+added 2 packages in 600ms
+--- first use: node -e
+hello from napi addon (aarch64-unknown-linux-gnu)

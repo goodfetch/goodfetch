@@ -1,0 +1,16 @@
+[package]
+name = "automan-native-py"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[lib]
+name = "automan_native"
+crate-type = ["cdylib"]
+
+[features]
+# `--features abi3` builds one cp39-abi3 wheel per platform instead of one per CPython version.
+abi3 = ["pyo3/abi3-py39"]
+
+[dependencies]
+pyo3 = { version = "0.29", features = ["extension-module"] }

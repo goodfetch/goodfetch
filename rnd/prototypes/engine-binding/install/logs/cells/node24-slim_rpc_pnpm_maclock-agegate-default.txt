@@ -1,0 +1,59 @@
+$ pnpm install --frozen-lockfile
+? Verifying lockfile against supply-chain policies (6 entries)...
+Packages are hard linked from the content-addressable store to the virtual store.
+  Content-addressable store is at: /root/.local/share/pnpm/store/v11
+  Virtual store is at:             node_modules/.pnpm
+✗ Lockfile failed supply-chain policy check (6 entries in 211ms)
+Lockfile is up to date, resolution step is skipped
+Error: ERR_PNPM_MINIMUM_RELEASE_AGE_VIOLATION
+
+  × installing dependencies
+  ╰─▶ 6 lockfile entries failed verification:
+        @automan-proto/engined-darwin-arm64@0.1.1 was published at 2026-10-
+      10T20:41:50.868Z, within the minimumReleaseAge cutoff (2026-10-
+      09T20:56:30.055Z)
+        @automan-proto/engined-linux-arm64-gnu@0.1.1 was published at 2026-10-
+      10T20:41:51.553Z, within the minimumReleaseAge cutoff (2026-10-
+      09T20:56:30.055Z)
+        @automan-proto/engined-linux-arm64-musl@0.1.1 was published at 2026-
+      10-10T20:41:52.241Z, within the minimumReleaseAge cutoff (2026-10-
+      09T20:56:30.055Z)
+        @automan-proto/engined-linux-x64-gnu@0.1.1 was published at 2026-10-
+      10T20:41:52.999Z, within the minimumReleaseAge cutoff (2026-10-
+      09T20:56:30.055Z)
+        @automan-proto/engined-linux-x64-musl@0.1.1 was published at 2026-10-
+      10T20:41:53.686Z, within the minimumReleaseAge cutoff (2026-10-
+      09T20:56:30.055Z)
+        @automan-proto/rpc@0.1.1 was published at 2026-10-10T20:41:54.325Z,
+      within the minimumReleaseAge cutoff (2026-10-09T20:56:30.055Z)
+  help: The lockfile contains entries that the active policies reject. This
+        can mean the lockfile is stale, or that someone committed a lockfile
+        that bypassed the policy locally — inspect recent changes to pnpm-
+        lock.yaml before trusting it. If the changes look expected, run "pnpm
+        clean --lockfile" and then "pnpm install" to rebuild from a fresh
+        resolution. If the fresh resolution still fails and you trust the
+        affected packages, relax the policy that flagged them.
+
+--- first use: node -e
+node:internal/modules/cjs/loader:1568
+  throw err;
+  ^
+
+Error: Cannot find module '@automan-proto/rpc'
+Require stack:
+- /w/[eval]
+    at Module._resolveFilename (node:internal/modules/cjs/loader:1564:15)
+    at wrapResolveFilename (node:internal/modules/cjs/loader:1118:27)
+    at defaultResolveImplForCJSLoading (node:internal/modules/cjs/loader:1142:10)
+    at resolveForCJSWithHooks (node:internal/modules/cjs/loader:1169:12)
+    at Module._load (node:internal/modules/cjs/loader:1341:5)
+    at wrapModuleLoad (node:internal/modules/cjs/loader:261:19)
+    at Module.require (node:internal/modules/cjs/loader:1674:12)
+    at require (node:internal/modules/helpers:157:16)
+    at [eval]:1:9
+    at runScriptInThisContext (node:internal/vm:219:10) {
+  code: 'MODULE_NOT_FOUND',
+  requireStack: [ '/w/[eval]' ]
+}
+
+Node.js v24.21.0

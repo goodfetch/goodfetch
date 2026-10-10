@@ -1,0 +1,9 @@
+[package]
+name = "engined"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[[bin]]
+name = "engined"
+path = "src/main.rs"

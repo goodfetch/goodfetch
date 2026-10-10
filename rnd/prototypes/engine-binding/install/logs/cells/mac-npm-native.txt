@@ -1,0 +1,3 @@
+
+added 2 packages in 3s
+hello from napi addon (aarch64-apple-darwin)

@@ -1,0 +1,23 @@
+    Finished `release` profile [optimized] target(s) in 19.58s
+   napi .node (darwin-arm64) + loader built in 22s
+   engined (darwin-arm64) built in 1s
+🐍 Found CPython 3.13 at /Users/jb/.cache/uv/archive-v0/uPmNe8Bnl4nJ0fInGCqLm/bin/python3
+🔗 Found pyo3 bindings with abi3-py3.9 support
+💻 Using `MACOSX_DEPLOYMENT_TARGET=11.0` for aarch64-apple-darwin by default
+📦 Built wheel for abi3 Python ≥ 3.9 to /Users/jb/Dev/automan/.claude/worktrees/agent-abb30c7f4166370eb/rnd/prototypes/engine-binding/install/out/wheels/native/automan_native-0.1.0-cp39-abi3-macosx_11_0_arm64.whl
+🐍 Found CPython 3.13 at /Users/jb/.local/share/uv/python/cpython-3.13.11-macos-aarch64-none/bin/python3.13
+🔗 Found pyo3 bindings
+💻 Using `MACOSX_DEPLOYMENT_TARGET=11.0` for aarch64-apple-darwin by default
+📦 Built wheel for CPython 3.13 to /Users/jb/Dev/automan/.claude/worktrees/agent-abb30c7f4166370eb/rnd/prototypes/engine-binding/install/out/wheels/native/automan_native-0.1.0-cp313-cp313-macosx_11_0_arm64.whl
+Installed 1 package in 84ms
+🐍 Found CPython 3.14t at /Users/jb/.local/share/uv/python/cpython-3.14.2+freethreaded-macos-aarch64-none/bin/python3.14t
+🔗 Found pyo3 bindings
+💻 Using `MACOSX_DEPLOYMENT_TARGET=11.0` for aarch64-apple-darwin by default
+📦 Built wheel for CPython 3.14t to /Users/jb/Dev/automan/.claude/worktrees/agent-abb30c7f4166370eb/rnd/prototypes/engine-binding/install/out/wheels/native/automan_native-0.1.0-cp314-cp314t-macosx_11_0_arm64.whl
+🍹 Building a mixed python/rust project
+🔗 Found bin bindings
+📡 Using build options bindings from pyproject.toml
+💻 Using `MACOSX_DEPLOYMENT_TARGET=11.0` for aarch64-apple-darwin by default
+📦 Built wheel to /Users/jb/Dev/automan/.claude/worktrees/agent-abb30c7f4166370eb/rnd/prototypes/engine-binding/install/out/wheels/rpc/automan_rpc-0.1.0-py3-none-macosx_11_0_arm64.whl
+   macOS wheels built in 241s
+macos build total 276s

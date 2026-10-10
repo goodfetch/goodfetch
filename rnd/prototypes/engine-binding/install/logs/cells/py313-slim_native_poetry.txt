@@ -1,0 +1,14 @@
+$ poetry add --no-cache automan-native
+Creating virtualenv cell in /w/.venv
+Using version ^0.1.0 for automan-native
+
+Updating dependencies
+Resolving dependencies...
+
+Package operations: 1 install, 0 updates, 0 removals
+
+  - Installing automan-native (0.1.0)
+
+Writing lock file
+--- first use (venv NOT activated, PATH untouched)
+hello from pyo3 extension (aarch64-unknown-linux-gnu)

@@ -1,0 +1,14 @@
+$ yarn add @automan-proto/rpc@0.1.1
+➤ YN0000: · Yarn 4.18.1
+➤ YN0000: ┌ Resolution step
+➤ YN0085: │ + @automan-proto/rpc@npm:0.1.1, @automan-proto/engined-darwin-arm64@npm:0.1.1, @automan-proto/engined-linux-arm64-gnu@npm:0.1.1, and 3 more.
+➤ YN0000: └ Completed
+➤ YN0000: ┌ Fetch step
+➤ YN0013: │ 2 packages were added to the project (+ 349.1 KiB).
+➤ YN0000: └ Completed
+➤ YN0000: ┌ Link step
+➤ YN0000: └ Completed
+➤ YN0000: · Done in 0s 323ms
+--- first use: node -e
+binary /w/node_modules/@automan-proto/engined-linux-arm64-gnu/bin/engined mode 755
+{"pong":true,"target":"aarch64-unknown-linux-gnu","pid":41}

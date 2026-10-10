@@ -1,0 +1,15 @@
+$ poetry add --no-cache automan-rpc
+Creating virtualenv cell in /w/.venv
+Using version ^0.1.0 for automan-rpc
+
+Updating dependencies
+Resolving dependencies...
+
+Package operations: 1 install, 0 updates, 0 removals
+
+  - Installing automan-rpc (0.1.0)
+
+Writing lock file
+--- first use (venv NOT activated, PATH untouched)
+binary /w/.venv/bin/engined mode 0o755
+{'pong': True, 'target': 'aarch64-unknown-linux-gnu', 'pid': 40}

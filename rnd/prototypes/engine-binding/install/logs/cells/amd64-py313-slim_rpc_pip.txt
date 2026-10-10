@@ -1,0 +1,9 @@
+$ /venv/bin/python -m pip install --no-cache-dir --disable-pip-version-check --index-url http://pyidx:8000/full/simple/ --extra-index-url https://pypi.org/simple/ --trusted-host pyidx automan-rpc
+Looking in indexes: http://pyidx:8000/full/simple/, https://pypi.org/simple/
+Collecting automan-rpc
+  Downloading automan_rpc-0.1.0-py3-none-manylinux_2_17_x86_64.manylinux2014_x86_64.whl (194 kB)
+Installing collected packages: automan-rpc
+Successfully installed automan-rpc-0.1.0
+--- first use (venv NOT activated, PATH untouched)
+binary /venv/bin/engined mode 0o755
+{'pong': True, 'target': 'x86_64-unknown-linux-gnu', 'pid': 27}

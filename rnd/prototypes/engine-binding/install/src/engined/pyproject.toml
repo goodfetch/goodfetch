@@ -1,0 +1,14 @@
+[build-system]
+requires = ["maturin>=1.9,<2"]
+build-backend = "maturin"
+
+[project]
+name = "automan-rpc"
+version = "0.1.0"
+description = "PROTOTYPE: thin pure-Python SDK + engined sidecar binary (ruff/uv-style py3-none wheel)"
+requires-python = ">=3.9"
+
+[tool.maturin]
+bindings = "bin"
+python-source = "python"
+module-name = "automan_rpc"

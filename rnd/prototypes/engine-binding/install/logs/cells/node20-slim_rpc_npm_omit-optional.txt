@@ -1,0 +1,19 @@
+$ npm install --omit=optional @automan-proto/rpc@0.1.1
+
+added 1 package in 2s
+--- first use: node -e
+/w/node_modules/@automan-proto/rpc/index.js:43
+  throw new Error(
+  ^
+
+Error: automan: no engine binary for linux-arm64. Tried: @automan-proto/engined-linux-arm64-gnu (MODULE_NOT_FOUND), @automan-proto/engined-linux-arm64 (MODULE_NOT_FOUND). The platform package is an optional dependency: reinstall without --omit=optional/--no-optional, and do not copy node_modules between operating systems. Or set AUTOMAN_ENGINED_PATH.
+    at Object.enginedPath (/w/node_modules/@automan-proto/rpc/index.js:43:9)
+    at [eval]:1:49
+    at runScriptInThisContext (node:internal/vm:209:10)
+    at node:internal/process/execution:118:14
+    at [eval]-wrapper:6:24
+    at runScript (node:internal/process/execution:101:62)
+    at evalScript (node:internal/process/execution:133:3)
+    at node:internal/main/eval_string:51:3
+
+Node.js v20.20.2

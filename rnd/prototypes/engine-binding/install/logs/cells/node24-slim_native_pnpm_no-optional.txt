@@ -1,0 +1,90 @@
+$ pnpm add @automan-proto/native@0.1.0 && rm -rf node_modules && pnpm install --no-optional
+Progress: resolved 0, reused 0, downloaded 1, added 0
+Packages are hard linked from the content-addressable store to the virtual store.
+  Content-addressable store is at: /root/.local/share/pnpm/store/v11
+  Virtual store is at:             node_modules/.pnpm
+Added 6 entries to minimumReleaseAgeExclude in pnpm-workspace.yaml (set minimumReleaseAgeStrict to true to gate these updates with a prompt):
+  @automan-proto/native-darwin-arm64@0.1.0
+  @automan-proto/native-linux-arm64-gnu@0.1.0
+  @automan-proto/native-linux-arm64-musl@0.1.0
+  @automan-proto/native-linux-x64-gnu@0.1.0
+  @automan-proto/native-linux-x64-musl@0.1.0
+  @automan-proto/native@0.1.0
+Packages: +2
+++
+Progress: resolved 2, reused 0, downloaded 2, added 2, done
+
+dependencies:
++ @automan-proto/native 0.1.0
+
+Done in 686ms using pnpm v12.12.0
+? Verifying lockfile against supply-chain policies (6 entries)...
+✓ Lockfile passes supply-chain policies (6 entries in 0ms)
+Lockfile is up to date, resolution step is skipped
+Packages are hard linked from the content-addressable store to the virtual store.
+  Content-addressable store is at: /root/.local/share/pnpm/store/v11
+  Virtual store is at:             node_modules/.pnpm
+Packages: +1
++
+Progress: resolved 1, reused 1, downloaded 0, added 1, done
+
+dependencies:
++ @automan-proto/native 0.1.0
+
+Done in 85ms using pnpm v12.12.0
+--- first use: node -e
+/w/node_modules/.pnpm/@automan-proto+native@0.1.0/node_modules/@automan-proto/native/index.js:711
+    throw error
+    ^
+
+Error: Cannot find native binding. npm has a bug related to optional dependencies (https://github.com/npm/cli/issues/4828). Please try `npm i` again after removing both package-lock.json and node_modules directory.
+    at Object.<anonymous> (/w/node_modules/.pnpm/@automan-proto+native@0.1.0/node_modules/@automan-proto/native/index.js:703:19)
+    at Module._compile (node:internal/modules/cjs/loader:1929:14)
+    ... 4 lines matching cause stack trace ...
+    at Module.require (node:internal/modules/cjs/loader:1674:12)
+    at require (node:internal/modules/helpers:157:16)
+    at [eval]:1:13
+    at runScriptInThisContext (node:internal/vm:219:10) {
+  cause: Error: Cannot find module '@automan-proto/native-wasm32-wasi'
+  Require stack:
+  - /w/node_modules/.pnpm/@automan-proto+native@0.1.0/node_modules/@automan-proto/native/index.js
+  - /w/[eval]
+      at /w/node_modules/.pnpm/@automan-proto+native@0.1.0/node_modules/@automan-proto/native/index.js:549:19
+      ... 8 lines matching cause stack trace ...
+      at Module.require (node:internal/modules/cjs/loader:1674:12) {
+    cause: Error: Cannot find module './automan-native.wasi.cjs'
+    Require stack:
+    - /w/node_modules/.pnpm/@automan-proto+native@0.1.0/node_modules/@automan-proto/native/index.js
+    - /w/[eval]
+        at /w/node_modules/.pnpm/@automan-proto+native@0.1.0/node_modules/@automan-proto/native/index.js:549:19
+        ... 8 lines matching cause stack trace ...
+        at Module.require (node:internal/modules/cjs/loader:1674:12) {
+      cause: Error: Cannot find module '@automan-proto/native-linux-arm64-gnu'
+      Require stack:
+      - /w/node_modules/.pnpm/@automan-proto+native@0.1.0/node_modules/@automan-proto/native/index.js
+      - /w/[eval]
+          at /w/node_modules/.pnpm/@automan-proto+native@0.1.0/node_modules/@automan-proto/native/index.js:549:19
+          ... 8 lines matching cause stack trace ...
+          at Module.require (node:internal/modules/cjs/loader:1674:12) {
+        cause: Error: Cannot find module './automan-native.linux-arm64-gnu.node'
+        Require stack:
+        - /w/node_modules/.pnpm/@automan-proto+native@0.1.0/node_modules/@automan-proto/native/index.js
+        - /w/[eval]
+            at /w/node_modules/.pnpm/@automan-proto+native@0.1.0/node_modules/@automan-proto/native/index.js:549:19
+            at Array.reduce (<anonymous>)
+            at createLoadErrorChain (/w/node_modules/.pnpm/@automan-proto+native@0.1.0/node_modules/@automan-proto/native/index.js:539:17)
+            at Object.<anonymous> (/w/node_modules/.pnpm/@automan-proto+native@0.1.0/node_modules/@automan-proto/native/index.js:710:19)
+            at Module._compile (node:internal/modules/cjs/loader:1929:14)
+            at Object..js (node:internal/modules/cjs/loader:2060:10)
+            at Module.load (node:internal/modules/cjs/loader:1651:32)
+            at Module._load (node:internal/modules/cjs/loader:1443:12)
+            at wrapModuleLoad (node:internal/modules/cjs/loader:261:19)
+            at Module.require (node:internal/modules/cjs/loader:1674:12) {
+          cause: null
+        }
+      }
+    }
+  }
+}
+
+Node.js v24.21.0

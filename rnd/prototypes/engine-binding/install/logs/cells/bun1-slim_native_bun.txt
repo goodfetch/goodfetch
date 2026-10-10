@@ -1,0 +1,11 @@
+$ bun add @automan-proto/native@0.1.0
+bun add v1.4.3 (c6da4a4d3)
+Resolving dependencies
+Resolved, downloaded and extracted [18]
+Saved lockfile
+
+installed @automan-proto/native@0.1.0
+
+3 packages installed [95.00ms]
+--- first use: bun -e
+hello from napi addon (aarch64-unknown-linux-gnu)

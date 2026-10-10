@@ -1,0 +1,59 @@
+$ npm ci --replace-registry-host=always
+
+added 1 package in 408ms
+--- first use: node -e
+/w/node_modules/@automan-proto/native/index.js:711
+    throw error
+    ^
+
+Error: Cannot find native binding. npm has a bug related to optional dependencies (https://github.com/npm/cli/issues/4828). Please try `npm i` again after removing both package-lock.json and node_modules directory.
+    at Object.<anonymous> (/w/node_modules/@automan-proto/native/index.js:703:19)
+    at Module._compile (node:internal/modules/cjs/loader:1521:14)
+    ... 4 lines matching cause stack trace ...
+    at require (node:internal/modules/helpers:182:18)
+    at [eval]:1:13
+    at runScriptInThisContext (node:internal/vm:209:10)
+    at node:internal/process/execution:118:14 {
+  cause: Error: Cannot find module '@automan-proto/native-wasm32-wasi'
+  Require stack:
+  - /w/node_modules/@automan-proto/native/index.js
+  - /w/[eval]
+      at /w/node_modules/@automan-proto/native/index.js:549:19
+      ... 8 lines matching cause stack trace ...
+      at require (node:internal/modules/helpers:182:18) {
+    cause: Error: Cannot find module './automan-native.wasi.cjs'
+    Require stack:
+    - /w/node_modules/@automan-proto/native/index.js
+    - /w/[eval]
+        at /w/node_modules/@automan-proto/native/index.js:549:19
+        ... 8 lines matching cause stack trace ...
+        at require (node:internal/modules/helpers:182:18) {
+      cause: Error: Cannot find module '@automan-proto/native-linux-arm64-gnu'
+      Require stack:
+      - /w/node_modules/@automan-proto/native/index.js
+      - /w/[eval]
+          at /w/node_modules/@automan-proto/native/index.js:549:19
+          ... 8 lines matching cause stack trace ...
+          at require (node:internal/modules/helpers:182:18) {
+        cause: Error: Cannot find module './automan-native.linux-arm64-gnu.node'
+        Require stack:
+        - /w/node_modules/@automan-proto/native/index.js
+        - /w/[eval]
+            at /w/node_modules/@automan-proto/native/index.js:549:19
+            at Array.reduce (<anonymous>)
+            at createLoadErrorChain (/w/node_modules/@automan-proto/native/index.js:539:17)
+            at Object.<anonymous> (/w/node_modules/@automan-proto/native/index.js:710:19)
+            at Module._compile (node:internal/modules/cjs/loader:1521:14)
+            at Module._extensions..js (node:internal/modules/cjs/loader:1623:10)
+            at Module.load (node:internal/modules/cjs/loader:1266:32)
+            at Module._load (node:internal/modules/cjs/loader:1091:12)
+            at Module.require (node:internal/modules/cjs/loader:1289:19)
+            at require (node:internal/modules/helpers:182:18) {
+          cause: null
+        }
+      }
+    }
+  }
+}
+
+Node.js v20.20.2

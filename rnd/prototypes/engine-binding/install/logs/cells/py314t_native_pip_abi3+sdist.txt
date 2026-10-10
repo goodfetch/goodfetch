@@ -1,0 +1,108 @@
+$ /venv/bin/python -m pip install --no-cache-dir --disable-pip-version-check --index-url http://pyidx:8000/abi3sdist/simple/ --extra-index-url https://pypi.org/simple/ --trusted-host pyidx automan-native
+Looking in indexes: http://pyidx:8000/abi3sdist/simple/, https://pypi.org/simple/
+Collecting automan-native
+  Downloading http://pyidx:8000/files/automan_native-0.1.0.tar.gz (3.6 kB)
+  Installing build dependencies: started
+  Installing build dependencies: finished with status 'done'
+  Getting requirements to build wheel: started
+  Getting requirements to build wheel: finished with status 'done'
+  Installing backend dependencies: started
+  Installing backend dependencies: finished with status 'done'
+  Preparing metadata (pyproject.toml): started
+  Preparing metadata (pyproject.toml): finished with status 'error'
+  error: subprocess-exited-with-error
+  
+  × Preparing metadata (pyproject.toml) did not run successfully.
+  │ exit code: 1
+  ╰─> [75 lines of output]
+      Python reports SOABI: cpython-314t-aarch64-linux-gnu
+      Computed rustc target triple: aarch64-unknown-linux-gnu
+      Installation directory: /root/.cache/puccinialin
+      Downloading rustup-init from https://static.rust-lang.org/rustup/dist/aarch64-unknown-linux-gnu/rustup-init
+      Checking for Rust toolchain....
+      Rust not found, installing into a temporary directory
+      
+      Downloading rustup-init:   0%|          | 0.00/19.9M [00:00<?, ?B/s]
+      Downloading rustup-init:   3%|▎         | 672k/19.9M [00:00<00:02, 6.65MB/s]
+      Downloading rustup-init:   8%|▊         | 1.61M/19.9M [00:00<00:02, 8.14MB/s]
+      Downloading rustup-init:  12%|█▏        | 2.43M/19.9M [00:00<00:02, 7.85MB/s]
+      Downloading rustup-init:  19%|█▉        | 3.86M/19.9M [00:00<00:01, 10.3MB/s]
+      Downloading rustup-init:  25%|██▍       | 4.90M/19.9M [00:00<00:02, 6.83MB/s]
+      Downloading rustup-init:  29%|██▉       | 5.72M/19.9M [00:00<00:02, 6.56MB/s]
+      Downloading rustup-init:  34%|███▍      | 6.73M/19.9M [00:00<00:01, 7.33MB/s]
+      Downloading rustup-init:  38%|███▊      | 7.58M/19.9M [00:01<00:01, 7.60MB/s]
+      Downloading rustup-init:  42%|████▏     | 8.40M/19.9M [00:01<00:01, 7.26MB/s]
+      Downloading rustup-init:  46%|████▌     | 9.17M/19.9M [00:01<00:01, 6.67MB/s]
+      Downloading rustup-init:  50%|████▉     | 9.87M/19.9M [00:01<00:01, 6.10MB/s]
+      Downloading rustup-init:  53%|█████▎    | 10.5M/19.9M [00:01<00:01, 4.70MB/s]
+      Downloading rustup-init:  56%|█████▌    | 11.0M/19.9M [00:01<00:01, 4.57MB/s]
+      Downloading rustup-init:  58%|█████▊    | 11.5M/19.9M [00:01<00:02, 4.15MB/s]
+      Downloading rustup-init:  61%|██████    | 12.0M/19.9M [00:02<00:01, 4.29MB/s]
+      Downloading rustup-init:  63%|██████▎   | 12.5M/19.9M [00:02<00:01, 4.20MB/s]
+      Downloading rustup-init:  65%|██████▌   | 13.0M/19.9M [00:02<00:01, 4.40MB/s]
+      Downloading rustup-init:  68%|██████▊   | 13.5M/19.9M [00:02<00:01, 3.90MB/s]
+      Downloading rustup-init:  70%|██████▉   | 13.9M/19.9M [00:02<00:01, 3.76MB/s]
+      Downloading rustup-init:  72%|███████▏  | 14.3M/19.9M [00:02<00:02, 2.63MB/s]
+      Downloading rustup-init:  73%|███████▎  | 14.6M/19.9M [00:02<00:01, 2.67MB/s]
+      Downloading rustup-init:  75%|███████▌  | 14.9M/19.9M [00:03<00:01, 2.61MB/s]
+      Downloading rustup-init:  77%|███████▋  | 15.2M/19.9M [00:03<00:01, 2.77MB/s]
+      Downloading rustup-init:  78%|███████▊  | 15.5M/19.9M [00:03<00:01, 2.77MB/s]
+      Downloading rustup-init:  80%|████████  | 15.9M/19.9M [00:03<00:01, 2.98MB/s]
+      Downloading rustup-init:  82%|████████▏ | 16.2M/19.9M [00:03<00:01, 2.95MB/s]
+      Downloading rustup-init:  84%|████████▎ | 16.6M/19.9M [00:03<00:01, 3.14MB/s]
+      Downloading rustup-init:  85%|████████▌ | 16.9M/19.9M [00:03<00:01, 2.36MB/s]
+      Downloading rustup-init:  87%|████████▋ | 17.2M/19.9M [00:03<00:01, 2.38MB/s]
+      Downloading rustup-init:  88%|████████▊ | 17.5M/19.9M [00:04<00:00, 2.61MB/s]
+      Downloading rustup-init:  90%|████████▉ | 17.8M/19.9M [00:04<00:00, 2.59MB/s]
+      Downloading rustup-init:  92%|█████████▏| 18.2M/19.9M [00:04<00:00, 2.79MB/s]
+      Downloading rustup-init:  94%|█████████▍| 18.6M/19.9M [00:04<00:00, 3.21MB/s]
+      Downloading rustup-init:  95%|█████████▌| 19.0M/19.9M [00:04<00:00, 3.16MB/s]
+      Downloading rustup-init:  98%|█████████▊| 19.4M/19.9M [00:04<00:00, 3.18MB/s]
+      Downloading rustup-init:  99%|█████████▉| 19.7M/19.9M [00:04<00:00, 2.26MB/s]
+      Downloading rustup-init: 100%|██████████| 19.9M/19.9M [00:04<00:00, 4.08MB/s]
+      Installing rust to /root/.cache/puccinialin/rustup
+      info: profile set to minimal
+      info: setting default host tuple to aarch64-unknown-linux-gnu
+      info: syncing channel updates for stable-aarch64-unknown-linux-gnu
+      info: latest update on 2026-10-01 for version 1.99.0 (b940084d7 2026-09-28)
+      info: downloading 3 components
+      info: default toolchain set to stable-aarch64-unknown-linux-gnu
+      warn: no default linker (`cc`) was found in your PATH
+      warn: many Rust crates require a system C toolchain to build
+      Checking if cargo is installed
+      cargo 1.99.0 (5f94df478 2026-08-27)
+          Updating crates.io index
+      error: failed to get `pyo3` as a dependency of package `automan-native-py v0.1.0 (/tmp/pip-install-0hpje1yr/automan-native_00d0d62666c3448b8bf86d94a1be0b31/native-py)`
+      
+      Caused by:
+        failed to load source for dependency `pyo3`
+      
+      Caused by:
+        unable to update registry `crates-io`
+      
+      Caused by:
+        download of config.json failed
+      
+      Caused by:
+        [60] SSL peer certificate or SSH remote key was not OK (SSL certificate OpenSSL verify result: unable to get local issuer certificate (20))
+      💥 maturin failed
+        Caused by: Cargo metadata failed. Does your crate compile with `cargo build`?
+        Caused by: `cargo metadata` exited with an error:
+      Error running maturin: Command '['maturin', 'pep517', 'write-dist-info', '--metadata-directory', '/tmp/pip-modern-metadata-6773v8ug', '--interpreter', '/venv/bin/python']' returned non-zero exit status 1.
+      Running `maturin pep517 write-dist-info --metadata-directory /tmp/pip-modern-metadata-6773v8ug --interpreter /venv/bin/python`
+      [end of output]
+  
+  note: This error originates from a subprocess, and is likely not a problem with pip.
+error: metadata-generation-failed
+
+× Encountered error while generating package metadata.
+╰─> automan-native
+
+note: This is an issue with the package mentioned above, not pip.
+hint: See above for details.
+--- first use (venv NOT activated, PATH untouched)
+Traceback (most recent call last):
+  File "<string>", line 1, in <module>
+    import automan_native; print(automan_native.hello())
+    ^^^^^^^^^^^^^^^^^^^^^
+ModuleNotFoundError: No module named 'automan_native'

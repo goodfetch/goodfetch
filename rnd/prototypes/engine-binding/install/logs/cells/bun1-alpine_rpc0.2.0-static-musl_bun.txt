@@ -1,0 +1,12 @@
+$ bun add @automan-proto/rpc@0.2.0
+bun add v1.4.3 (c6da4a4d3)
+Resolving dependencies
+Resolved, downloaded and extracted [12]
+Saved lockfile
+
+installed @automan-proto/rpc@0.2.0
+
+2 packages installed [35.00ms]
+--- first use: bun -e
+binary /w/node_modules/@automan-proto/engined-linux-arm64/bin/engined mode 755
+{"pong":true,"target":"aarch64-unknown-linux-musl","pid":29}

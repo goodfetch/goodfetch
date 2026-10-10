@@ -1,0 +1,6 @@
+Looking in indexes: http://localhost:8000/full/simple/
+Collecting automan-native
+  Downloading automan_native-0.1.0-cp313-cp313-macosx_11_0_arm64.whl (166 kB)
+Installing collected packages: automan-native
+Successfully installed automan-native-0.1.0
+hello from pyo3 extension (aarch64-apple-darwin)

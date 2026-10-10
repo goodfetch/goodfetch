@@ -1,0 +1,9 @@
+$ /venv/bin/python -m pip install --no-cache-dir --disable-pip-version-check --index-url http://pyidx:8000/abi3sdist/simple/ --extra-index-url https://pypi.org/simple/ --trusted-host pyidx automan-rpc
+Looking in indexes: http://pyidx:8000/abi3sdist/simple/, https://pypi.org/simple/
+Collecting automan-rpc
+  Downloading http://pyidx:8000/files/automan_rpc-0.1.0-py3-none-manylinux2014_aarch64.manylinux_2_17_aarch64.musllinux_1_2_aarch64.whl (201 kB)
+Installing collected packages: automan-rpc
+Successfully installed automan-rpc-0.1.0
+--- first use (venv NOT activated, PATH untouched)
+binary /venv/bin/engined mode 0o755
+{'pong': True, 'target': 'aarch64-unknown-linux-musl', 'pid': 29}

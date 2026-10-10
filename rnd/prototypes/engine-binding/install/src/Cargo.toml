@@ -1,0 +1,7 @@
+[workspace]
+resolver = "2"
+members = ["native-node", "native-py", "engined"]
+
+[profile.release]
+strip = true
+codegen-units = 4

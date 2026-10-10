@@ -1,0 +1,6 @@
+$ npm ci --replace-registry-host=always
+
+added 2 packages in 1s
+--- first use: node -e
+binary /w/node_modules/@automan-proto/engined-linux-arm64-gnu/bin/engined mode 755
+{"pong":true,"target":"aarch64-unknown-linux-gnu","pid":41}

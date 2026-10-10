@@ -1,0 +1,9 @@
+$ uv pip install --no-cache --python /venv/bin/python --index-url http://pyidx:8000/abi3/simple/ --extra-index-url https://pypi.org/simple/ automan-rpc
+Using Python 3.14.3 environment at: /venv
+Resolved 1 package in 450ms
+Prepared 1 package in 189ms
+Installed 1 package in 33ms
+ + automan-rpc==0.1.0
+--- first use (venv NOT activated, PATH untouched)
+binary /venv/bin/engined mode 0o755
+{'pong': True, 'target': 'aarch64-unknown-linux-musl', 'pid': 46}

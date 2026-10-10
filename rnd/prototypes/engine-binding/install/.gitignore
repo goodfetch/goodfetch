@@ -1,0 +1,6 @@
+# Build outputs, registries and caches; ./run.sh regenerates them.
+out/
+target/
+node_modules/
+__pycache__/
+*.node

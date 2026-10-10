@@ -1,0 +1,23 @@
+$ pnpm add @automan-proto/rpc@0.1.1
+Progress: resolved 0, reused 0, downloaded 1, added 0
+Packages are hard linked from the content-addressable store to the virtual store.
+  Content-addressable store is at: /root/.local/share/pnpm/store/v11
+  Virtual store is at:             node_modules/.pnpm
+Added 6 entries to minimumReleaseAgeExclude in pnpm-workspace.yaml (set minimumReleaseAgeStrict to true to gate these updates with a prompt):
+  @automan-proto/engined-darwin-arm64@0.1.1
+  @automan-proto/engined-linux-arm64-gnu@0.1.1
+  @automan-proto/engined-linux-arm64-musl@0.1.1
+  @automan-proto/engined-linux-x64-gnu@0.1.1
+  @automan-proto/engined-linux-x64-musl@0.1.1
+  @automan-proto/rpc@0.1.1
+Packages: +2
+++
+Progress: resolved 2, reused 0, downloaded 2, added 2, done
+
+dependencies:
++ @automan-proto/rpc 0.1.1
+
+Done in 3.9s using pnpm v12.12.0
+--- first use: node -e
+binary /w/node_modules/.pnpm/@automan-proto+engined-linux-arm64-gnu@0.1.1/node_modules/@automan-proto/engined-linux-arm64-gnu/bin/engined mode 755
+{"pong":true,"target":"aarch64-unknown-linux-gnu","pid":99}

@@ -1,0 +1,18 @@
+$ pnpm install --frozen-lockfile
+? Verifying lockfile against supply-chain policies (6 entries)...
+✓ Lockfile passes supply-chain policies (6 entries in 1ms)
+Lockfile is up to date, resolution step is skipped
+Packages are hard linked from the content-addressable store to the virtual store.
+  Content-addressable store is at: /root/.local/share/pnpm/store/v11
+  Virtual store is at:             node_modules/.pnpm
+Packages: +2
+++
+Progress: resolved 2, reused 0, downloaded 2, added 2, done
+
+dependencies:
++ @automan-proto/rpc 0.1.1
+
+Done in 838ms using pnpm v12.12.0
+--- first use: node -e
+binary /w/node_modules/.pnpm/@automan-proto+engined-linux-arm64-gnu@0.1.1/node_modules/@automan-proto/engined-linux-arm64-gnu/bin/engined mode 755
+{"pong":true,"target":"aarch64-unknown-linux-gnu","pid":84}

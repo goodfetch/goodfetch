@@ -1,0 +1,5 @@
+$ npm ci --replace-registry-host=always
+
+added 2 packages in 2s
+--- first use: node -e
+hello from napi addon (aarch64-unknown-linux-musl)

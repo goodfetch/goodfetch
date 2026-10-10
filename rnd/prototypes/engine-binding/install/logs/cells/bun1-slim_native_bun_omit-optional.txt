@@ -1,0 +1,121 @@
+$ bun add --omit=optional @automan-proto/native@0.1.0
+bun add v1.4.3 (c6da4a4d3)
+Resolving dependencies
+Resolved, downloaded and extracted [14]
+Saved lockfile
+
+installed @automan-proto/native@0.1.0
+
+1 package installed [37.00ms]
+--- first use: bun -e
+698 |   }
+699 | }
+700 | 
+701 | if (!nativeBinding) {
+702 |   if (loadErrors.length > 0) {
+703 |     const error = new Error(
+                            ^
+error: Cannot find native binding. npm has a bug related to optional dependencies (https://github.com/npm/cli/issues/4828). Please try `npm i` again after removing both package-lock.json and node_modules directory.
+      at <anonymous> (/w/node_modules/@automan-proto/native/index.js:703:23)
+      at /w/[eval]:1:9
+
+544 |           ? current.message
+545 |           : String(current)
+546 |     } catch {
+547 |       message = 'Unknown error'
+548 |     }
+549 |     const error = new Error(message)
+                            ^
+error: Cannot find module '@automan-proto/native-wasm32-wasi'
+Require stack:
+- /w/node_modules/@automan-proto/native/index.js
+ cause: 544 |           ? current.message
+545 |           : String(current)
+546 |     } catch {
+547 |       message = 'Unknown error'
+548 |     }
+549 |     const error = new Error(message)
+                            ^
+error: Cannot find module './automan-native.wasi.cjs'
+Require stack:
+- /w/node_modules/@automan-proto/native/index.js
+ cause: 544 |           ? current.message
+545 |           : String(current)
+546 |     } catch {
+547 |       message = 'Unknown error'
+548 |     }
+549 |     const error = new Error(message)
+                            ^
+error: Cannot find module '@automan-proto/native-linux-arm64-gnu'
+Require stack:
+- /w/node_modules/@automan-proto/native/index.js
+ cause: 544 |           ? current.message
+545 |           : String(current)
+546 |     } catch {
+547 |       message = 'Unknown error'
+548 |     }
+549 |     const error = new Error(message)
+                            ^
+error: Cannot find module './automan-native.linux-arm64-gnu.node'
+Require stack:
+... [165 lines trimmed] ...
+      at <anonymous> (/w/node_modules/@automan-proto/native/index.js:549:23)
+      at reduce (1:11)
+      at createLoadErrorChain (/w/node_modules/@automan-proto/native/index.js:539:17)
+      at <anonymous> (/w/node_modules/@automan-proto/native/index.js:710:19)
+      at /w/[eval]:1:9
+
+544 |           ? current.message
+545 |           : String(current)
+546 |     } catch {
+547 |       message = 'Unknown error'
+548 |     }
+549 |     const error = new Error(message)
+                            ^
+error: Cannot find module '@automan-proto/native-linux-arm64-gnu'
+Require stack:
+- /w/node_modules/@automan-proto/native/index.js
+ cause: 544 |           ? current.message
+545 |           : String(current)
+546 |     } catch {
+547 |       message = 'Unknown error'
+548 |     }
+549 |     const error = new Error(message)
+                            ^
+error: Cannot find module './automan-native.linux-arm64-gnu.node'
+Require stack:
+- /w/node_modules/@automan-proto/native/index.js
+ cause: null,
+
+      at <anonymous> (/w/node_modules/@automan-proto/native/index.js:549:23)
+      at reduce (1:11)
+      at createLoadErrorChain (/w/node_modules/@automan-proto/native/index.js:539:17)
+      at <anonymous> (/w/node_modules/@automan-proto/native/index.js:710:19)
+      at /w/[eval]:1:9
+,
+
+      at <anonymous> (/w/node_modules/@automan-proto/native/index.js:549:23)
+      at reduce (1:11)
+      at createLoadErrorChain (/w/node_modules/@automan-proto/native/index.js:539:17)
+      at <anonymous> (/w/node_modules/@automan-proto/native/index.js:710:19)
+      at /w/[eval]:1:9
+
+544 |           ? current.message
+545 |           : String(current)
+546 |     } catch {
+547 |       message = 'Unknown error'
+548 |     }
+549 |     const error = new Error(message)
+                            ^
+error: Cannot find module './automan-native.linux-arm64-gnu.node'
+Require stack:
+- /w/node_modules/@automan-proto/native/index.js
+ cause: null,
+
+      at <anonymous> (/w/node_modules/@automan-proto/native/index.js:549:23)
+      at reduce (1:11)
+      at createLoadErrorChain (/w/node_modules/@automan-proto/native/index.js:539:17)
+      at <anonymous> (/w/node_modules/@automan-proto/native/index.js:710:19)
+      at /w/[eval]:1:9
+
+Bun v1.4.3 (Linux arm64)

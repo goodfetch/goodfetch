@@ -1,0 +1,6 @@
+Looking in indexes: http://localhost:8000/full/simple/
+Collecting automan-rpc
+  Downloading automan_rpc-0.1.0-py3-none-macosx_11_0_arm64.whl (171 kB)
+Installing collected packages: automan-rpc
+Successfully installed automan-rpc-0.1.0
+{'pong': True, 'target': 'aarch64-apple-darwin', 'pid': 51127}

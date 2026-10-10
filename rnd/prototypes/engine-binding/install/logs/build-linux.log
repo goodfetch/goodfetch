@@ -1,0 +1,110 @@
+== linux-arm64-gnu (aarch64-unknown-linux-gnu)
+   napi .node built in 15s
+   engined built in 0s
+🐍 Found CPython 3.13 at /opt/tools/bin/python
+🔗 Found pyo3 bindings with abi3-py3.9 support
+🛠️ Using zig for cross-compiling to aarch64-unknown-linux-gnu
+📦 Built wheel for abi3 Python ≥ 3.9 to /out/wheels/native/automan_native-0.1.0-cp39-abi3-manylinux_2_17_aarch64.manylinux2014_aarch64.whl
+🐍 Found CPython 3.13 at /opt/tools/bin/python3.13
+🔗 Found pyo3 bindings
+🛠️ Using zig for cross-compiling to aarch64-unknown-linux-gnu
+📦 Built wheel for CPython 3.13 to /out/wheels/native/automan_native-0.1.0-cp313-cp313-manylinux_2_17_aarch64.manylinux2014_aarch64.whl
+🐍 Found CPython 3.14t
+🔗 Found pyo3 bindings
+🛠️ Using zig for cross-compiling to aarch64-unknown-linux-gnu
+📦 Built wheel for CPython 3.14t to /out/wheels/native/automan_native-0.1.0-cp314-cp314t-manylinux_2_17_aarch64.manylinux2014_aarch64.whl
+   pyo3 wheels built in 28s
+🍹 Building a mixed python/rust project
+🔗 Found bin bindings
+📡 Using build options bindings from pyproject.toml
+🛠️ Using zig for cross-compiling to aarch64-unknown-linux-gnu
+📦 Built wheel to /out/wheels/rpc/automan_rpc-0.1.0-py3-none-manylinux_2_17_aarch64.manylinux2014_aarch64.whl
+   rpc wheel built in 1s
+== linux-arm64-musl (aarch64-unknown-linux-musl)
+   napi .node built in 89s
+   engined built in 56s
+🐍 Found CPython 3.13 at /opt/tools/bin/python
+🔗 Found pyo3 bindings with abi3-py3.9 support
+🛠️ Using zig for cross-compiling to aarch64-unknown-linux-musl
+cargo:warning=Compiler family detection failed due to error: ToolNotFound: failed to find tool "aarch64-linux-musl-gcc": No such file or directory (os error 2)
+📦 Built wheel for abi3 Python ≥ 3.9 to /out/wheels/native/automan_native-0.1.0-cp39-abi3-musllinux_1_2_aarch64.whl
+🐍 Found CPython 3.13
+🔗 Found pyo3 bindings
+🛠️ Using zig for cross-compiling to aarch64-unknown-linux-musl
+cargo:warning=Compiler family detection failed due to error: ToolNotFound: failed to find tool "aarch64-linux-musl-gcc": No such file or directory (os error 2)
+📦 Built wheel for CPython 3.13 to /out/wheels/native/automan_native-0.1.0-cp313-cp313-musllinux_1_2_aarch64.whl
+🐍 Found CPython 3.14t
+🔗 Found pyo3 bindings
+🛠️ Using zig for cross-compiling to aarch64-unknown-linux-musl
+cargo:warning=Compiler family detection failed due to error: ToolNotFound: failed to find tool "aarch64-linux-musl-gcc": No such file or directory (os error 2)
+📦 Built wheel for CPython 3.14t to /out/wheels/native/automan_native-0.1.0-cp314-cp314t-musllinux_1_2_aarch64.whl
+   pyo3 wheels built in 125s
+🍹 Building a mixed python/rust project
+🔗 Found bin bindings
+📡 Using build options bindings from pyproject.toml
+🛠️ Using zig for cross-compiling to aarch64-unknown-linux-musl
+📦 Built wheel to /out/wheels/rpc/automan_rpc-0.1.0-py3-none-musllinux_1_2_aarch64.whl
+   rpc wheel built in 4s
+== linux-x64-gnu (x86_64-unknown-linux-gnu)
+   napi .node built in 55s
+   engined built in 2s
+🐍 Found CPython 3.13 at /opt/tools/bin/python
+🔗 Found pyo3 bindings with abi3-py3.9 support
+🛠️ Using zig for cross-compiling to x86_64-unknown-linux-gnu
+📦 Built wheel for abi3 Python ≥ 3.9 to /out/wheels/native/automan_native-0.1.0-cp39-abi3-manylinux_2_17_x86_64.manylinux2014_x86_64.whl
+🐍 Found CPython 3.13
+🔗 Found pyo3 bindings
+🛠️ Using zig for cross-compiling to x86_64-unknown-linux-gnu
+📦 Built wheel for CPython 3.13 to /out/wheels/native/automan_native-0.1.0-cp313-cp313-manylinux_2_17_x86_64.manylinux2014_x86_64.whl
+🐍 Found CPython 3.14t
+🔗 Found pyo3 bindings
+🛠️ Using zig for cross-compiling to x86_64-unknown-linux-gnu
+📦 Built wheel for CPython 3.14t to /out/wheels/native/automan_native-0.1.0-cp314-cp314t-manylinux_2_17_x86_64.manylinux2014_x86_64.whl
+   pyo3 wheels built in 56s
+🍹 Building a mixed python/rust project
+🔗 Found bin bindings
+📡 Using build options bindings from pyproject.toml
+🛠️ Using zig for cross-compiling to x86_64-unknown-linux-gnu
+📦 Built wheel to /out/wheels/rpc/automan_rpc-0.1.0-py3-none-manylinux_2_17_x86_64.manylinux2014_x86_64.whl
+   rpc wheel built in 1s
+== linux-x64-musl (x86_64-unknown-linux-musl)
+   napi .node built in 43s
+   engined built in 61s
+🐍 Found CPython 3.13 at /opt/tools/bin/python
+🔗 Found pyo3 bindings with abi3-py3.9 support
+🛠️ Using zig for cross-compiling to x86_64-unknown-linux-musl
+cargo:warning=Compiler family detection failed due to error: ToolNotFound: failed to find tool "x86_64-linux-musl-gcc": No such file or directory (os error 2)
+📦 Built wheel for abi3 Python ≥ 3.9 to /out/wheels/native/automan_native-0.1.0-cp39-abi3-musllinux_1_2_x86_64.whl
+🐍 Found CPython 3.13
+🔗 Found pyo3 bindings
+🛠️ Using zig for cross-compiling to x86_64-unknown-linux-musl
+cargo:warning=Compiler family detection failed due to error: ToolNotFound: failed to find tool "x86_64-linux-musl-gcc": No such file or directory (os error 2)
+📦 Built wheel for CPython 3.13 to /out/wheels/native/automan_native-0.1.0-cp313-cp313-musllinux_1_2_x86_64.whl
+🐍 Found CPython 3.14t
+🔗 Found pyo3 bindings
+🛠️ Using zig for cross-compiling to x86_64-unknown-linux-musl
+cargo:warning=Compiler family detection failed due to error: ToolNotFound: failed to find tool "x86_64-linux-musl-gcc": No such file or directory (os error 2)
+📦 Built wheel for CPython 3.14t to /out/wheels/native/automan_native-0.1.0-cp314-cp314t-musllinux_1_2_x86_64.whl
+   pyo3 wheels built in 77s
+🍹 Building a mixed python/rust project
+🔗 Found bin bindings
+📡 Using build options bindings from pyproject.toml
+🛠️ Using zig for cross-compiling to x86_64-unknown-linux-musl
+📦 Built wheel to /out/wheels/rpc/automan_rpc-0.1.0-py3-none-musllinux_1_2_x86_64.whl
+   rpc wheel built in 7s
+ Downloading crates ...
+🔗 Found pyo3 bindings
+From `cargo package --list --allow-dirty --manifest-path /src/native-py/Cargo.toml`:
+warning: manifest has no description, license, license-file, documentation, homepage or repository
+  |
+  = note: see https://doc.rust-lang.org/cargo/reference/manifest.html#package-metadata for more info
+📦 Built source distribution to /out/sdist/automan_native-0.1.0.tar.gz
+🍹 Building a mixed python/rust project
+🔗 Found bin bindings
+📡 Using build options bindings from pyproject.toml
+From `cargo package --list --allow-dirty --manifest-path /src/engined/Cargo.toml`:
+warning: manifest has no description, license, license-file, documentation, homepage or repository
+  |
+  = note: see https://doc.rust-lang.org/cargo/reference/manifest.html#package-metadata for more info
+📦 Built source distribution to /out/sdist/automan_rpc-0.1.0.tar.gz
+linux build total 623s

@@ -1,0 +1,14 @@
+# Two-level fencing: work-item leases and a run epoch, with at-least-once delivery
+
+A user handler runs out of process and may keep running after it has timed out, and a migrated run may leave a zombie copy alive on the old machine. So each work item is leased with a monotonic epoch, and the run itself carries an epoch that every resume increments. Handlers are delivered at least once, but their outputs are staged and become visible exactly once, when the current attempt commits under a valid lease and epoch. Decided in [Adopt runtime and state decisions](https://github.com/Jbmanllr/automan/issues/70).
+
+## Considered Options
+
+- **Expiring locks only**: rejected. Crawlee's locks expire but do not stop a late commit, and Scrapy and spider-rs hold no lease at all. Temporal, Hatchet, Restate and DBOS all reject a stale attempt's commit, and Restate also fences a superseded leader by epoch.
+
+## Consequences
+
+- The run epoch cannot be enforced inside the run's own file, since a zombie copy writes to its own copy and believes its epoch is current. Every write leaving the engine (checkpoint, export, sink write) carries the epoch, and the destination enforces it: the cloud either kills the old copy before resuming or rejects stale epochs with a compare-and-set. A conformance test runs two copies of one run against such a store.
+- Inside the engine, every outgoing browser or network command is checked against the work item's lease, so a handler past its lease can send nothing more. This does not stop a zombie copy; only the measures above do.
+- A lease lasts the handler timeout plus a margin, a renewal only lengthens it, and expiry is judged on the engine's monotonic clock alone.
+- Fencing cannot undo an effect a website has already received. The engine offers an effect journal to every run: an effect is checked rather than repeated on resume, and reported as uncertain when it has no check. When agents must use it is decided in [Adopt AI and agent decisions](https://github.com/Jbmanllr/automan/issues/72).

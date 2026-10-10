@@ -40,6 +40,10 @@ _Avoid_: scraping, scraper, bot
 One piece of work the engine carries out from start to finish, with its own inputs, state, limits and usage. The unit of isolation, resumption and counting.
 _Avoid_: job, execution, session (for a whole run)
 
+**Effect**:
+An action of a run that changes something on a website or third-party service, such as submitting a form or placing an order. A resumed run checks whether an effect already happened instead of repeating it, and reports it as uncertain when it cannot tell.
+_Avoid_: side effect, mutation, write
+
 **Recipe**:
 A portable package of user code, described by a manifest, that runs the same locally or on Automan Cloud and can be published.
 _Avoid_: actor, app, pack, script
@@ -47,6 +51,10 @@ _Avoid_: actor, app, pack, script
 **Usage**:
 The raw quantities a run consumed, such as requests, browser time or LLM tokens, without any price.
 _Avoid_: cost, consumption, credits
+
+**Checkpoint**:
+A consistent, self-contained copy of a run's state from which the run can resume, on the same machine or another one.
+_Avoid_: snapshot, savepoint, backup
 
 **Limit**:
 A cap on a run's usage; reaching it stops the run cleanly.

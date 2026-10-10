@@ -145,11 +145,11 @@ A condition declared by the user that the engine evaluates live to decide whethe
 _Avoid_: check (alone), assertion, judge, validator
 
 **Agent**:
-A model-driven loop over the Operation catalog toward an objective, whether Automan's built-in one or an outside one.
-_Avoid_: bot, assistant, AI extraction
+A model-driven loop over the Operation catalog toward an objective, whether Automan's built-in one or an outside one; a single AI extraction is not an Agent.
+_Avoid_: bot, assistant
 
 **Model provider**:
-Whatever answers a run's model calls: a model company reached directly, a gateway, or a local model server.
+Whatever answers a run's model calls: a model company reached directly, a gateway, a local model server, or a model run inside the engine.
 _Avoid_: LLM vendor, backend
 
 **Decision provider**:

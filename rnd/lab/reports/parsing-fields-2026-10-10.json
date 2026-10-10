@@ -1,0 +1,251 @@
+{
+ "schemaVersion": 1,
+ "runId": "parsing-fields-wcxb-test-2026-10-10T15-17-10-238Z-d929b5",
+ "reference": "scraper-fields",
+ "candidate": "lol-html-fields",
+ "pages": 511,
+ "unreadable": 0,
+ "pagesAllFieldsEqual": 484,
+ "fieldPrecision": 0.998641821046341,
+ "fieldRecall": 0.9958609630303819,
+ "perField": {
+  "title": {
+   "matched": 511,
+   "predicted": 511,
+   "expected": 511,
+   "pagesEqual": 511,
+   "precision": 1,
+   "recall": 1
+  },
+  "description": {
+   "matched": 411,
+   "predicted": 425,
+   "expected": 425,
+   "pagesEqual": 497,
+   "precision": 0.9670588235294117,
+   "recall": 0.9670588235294117
+  },
+  "canonical": {
+   "matched": 447,
+   "predicted": 447,
+   "expected": 447,
+   "pagesEqual": 511,
+   "precision": 1,
+   "recall": 1
+  },
+  "ogTitle": {
+   "matched": 424,
+   "predicted": 424,
+   "expected": 424,
+   "pagesEqual": 511,
+   "precision": 1,
+   "recall": 1
+  },
+  "h1": {
+   "matched": 674,
+   "predicted": 674,
+   "expected": 674,
+   "pagesEqual": 511,
+   "precision": 1,
+   "recall": 1
+  },
+  "links": {
+   "matched": 76344,
+   "predicted": 76455,
+   "expected": 76712,
+   "pagesEqual": 498,
+   "precision": 0.9985481655876005,
+   "recall": 0.9952028365835853
+  },
+  "images": {
+   "matched": 13099,
+   "predicted": 13099,
+   "expected": 13099,
+   "pagesEqual": 511,
+   "precision": 1,
+   "recall": 1
+  }
+ },
+ "time": {
+  "reference": {
+   "p50": 0.9260419999999999,
+   "p95": 2.352625,
+   "total": 543.1073800000001
+  },
+  "candidate": {
+   "p50": 0.24912499999999999,
+   "p95": 0.529417,
+   "total": 139.01153900000014
+  },
+  "pairedPages": 511,
+  "geometricMeanRatio": 0.27035369776714296,
+  "ratioCi95": [
+   0.2649618411342712,
+   0.275958274732053
+  ]
+ },
+ "disagreements": [
+  {
+   "fileId": "4064",
+   "field": "links",
+   "reference": "202 items",
+   "candidate": "190 items"
+  },
+  {
+   "fileId": "4071",
+   "field": "links",
+   "reference": "621 items",
+   "candidate": "621 items"
+  },
+  {
+   "fileId": "4171",
+   "field": "description",
+   "reference": "I am asked about composition on my workshops often. And that's good. I'm \nglad my students are thinking about this.",
+   "candidate": "I am asked about composition on my workshops often. And that's good. I'm \r\nglad my students are thinking about this."
+  },
+  {
+   "fileId": "4190",
+   "field": "links",
+   "reference": "123 items",
+   "candidate": "111 items"
+  },
+  {
+   "fileId": "4442",
+   "field": "links",
+   "reference": "41 items",
+   "candidate": "33 items"
+  },
+  {
+   "fileId": "4461",
+   "field": "links",
+   "reference": "511 items",
+   "candidate": "415 items"
+  },
+  {
+   "fileId": "4672",
+   "field": "description",
+   "reference": "Learn how to refinish and restore antique furniture here from Old Crows \nAntiques. Read more here and get what you need to know for restoring \nfurniture!",
+   "candidate": "Learn how to refinish and restore antique furniture here from Old Crows \r\nAntiques. Read more here and get what you need to know for restoring \r\nfurniture!"
+  },
+  {
+   "fileId": "4757",
+   "field": "links",
+   "reference": "392 items",
+   "candidate": "391 items"
+  },
+  {
+   "fileId": "4787",
+   "field": "links",
+   "reference": "163 items",
+   "candidate": "156 items"
+  },
+  {
+   "fileId": "4926",
+   "field": "links",
+   "reference": "107 items",
+   "candidate": "100 items"
+  },
+  {
+   "fileId": "4930",
+   "field": "links",
+   "reference": "105 items",
+   "candidate": "98 items"
+  },
+  {
+   "fileId": "4937",
+   "field": "description",
+   "reference": "Rose Pest Solutions provides pest control services to Westland and surrounding areas. We offer integrated pest management for bed bugs, termites, mosquitoes, cockroaches, wildlife removal, stinging insects, rodents, and ants. Free inspections.\n",
+   "candidate": "Rose Pest Solutions provides pest control services to Westland and surrounding areas. We offer integrated pest management for bed bugs, termites, mosquitoes, cockroaches, wildlife removal, stinging insects, rodents, and ants. Free inspections.\r\n"
+  },
+  {
+   "fileId": "4941",
+   "field": "links",
+   "reference": "42 items",
+   "candidate": "41 items"
+  },
+  {
+   "fileId": "5032",
+   "field": "description",
+   "reference": "Good day to all discus lovers,\n\nI am thinking of setting up a discus tank which previously was for goldfish. I will state the details below and hope to have more incoming comments and feedback.\n\n120 Gallon Aquarium (4 x 2 x 2 ft) with overflow for the sump tank\nWater pump running at 4500 LPH / 1189 GPH (Cycling the",
+   "candidate": "Good day to all discus lovers,\r\n\r\nI am thinking of setting up a discus tank which previously was for goldfish. I will state the details below and hope to have more incoming comments and feedback.\r\n\r\n120 Gallon Aquarium (4 x 2 x 2 ft) with overflow for the sump tank\r\nWater pump running at 4500 LPH / 1189 GPH (Cycling the"
+  },
+  {
+   "fileId": "5155",
+   "field": "links",
+   "reference": "164 items",
+   "candidate": "154 items"
+  },
+  {
+   "fileId": "5234",
+   "field": "description",
+   "reference": "Hard-hitting investigations, compelling profiles, and a chorus of people \nwho just don’t believe what women tell them—there was something for \neveryone in our top ten lists. We reveal the best podcasts of 2025!",
+   "candidate": "Hard-hitting investigations, compelling profiles, and a chorus of people \r\nwho just don’t believe what women tell them—there was something for \r\neveryone in our top ten lists. We reveal the best podcasts of 2025!"
+  },
+  {
+   "fileId": "5235",
+   "field": "description",
+   "reference": "Looking for the best true crime podcast in 2025? Explore top shows, \ngripping stories, and listener favorites. Start your next binge with our \nexpert guide.",
+   "candidate": "Looking for the best true crime podcast in 2025? Explore top shows, \r\ngripping stories, and listener favorites. Start your next binge with our \r\nexpert guide."
+  },
+  {
+   "fileId": "5264",
+   "field": "description",
+   "reference": "Milwaukee's Coworking Space. Flexible And Collaborative Space For \nEntrepreneurs & Startups.",
+   "candidate": "Milwaukee's Coworking Space. Flexible And Collaborative Space For \r\nEntrepreneurs & Startups."
+  },
+  {
+   "fileId": "5276",
+   "field": "description",
+   "reference": "Explore the latest art exhibitions at Erie Art Museum and stay informed \nabout upcoming shows and events in the region.",
+   "candidate": "Explore the latest art exhibitions at Erie Art Museum and stay informed \r\nabout upcoming shows and events in the region."
+  },
+  {
+   "fileId": "5285",
+   "field": "links",
+   "reference": "177 items",
+   "candidate": "103 items"
+  },
+  {
+   "fileId": "5346",
+   "field": "links",
+   "reference": "181 items",
+   "candidate": "159 items"
+  },
+  {
+   "fileId": "5577",
+   "field": "description",
+   "reference": "Discover empowering strategies for new moms juggling entrepreneurship in \nthe creative industries. Learn practical tips for achieving work-life \nbalance, managing time effectively, and nurturing your creativity while \nraising a family.",
+   "candidate": "Discover empowering strategies for new moms juggling entrepreneurship in \r\nthe creative industries. Learn practical tips for achieving work-life \r\nbalance, managing time effectively, and nurturing your creativity while \r\nraising a family."
+  },
+  {
+   "fileId": "5592",
+   "field": "description",
+   "reference": "A real-life fitness transformation before and after focused on strength, \nconsistency, and sustainable routines. No extremes, just habits that work.",
+   "candidate": "A real-life fitness transformation before and after focused on strength, \r\nconsistency, and sustainable routines. No extremes, just habits that work."
+  },
+  {
+   "fileId": "5601",
+   "field": "description",
+   "reference": "7 Unusual Landscape Photography Tips that you probably haven't heard of and \ncan do today",
+   "candidate": "7 Unusual Landscape Photography Tips that you probably haven't heard of and \r\ncan do today"
+  },
+  {
+   "fileId": "5604",
+   "field": "description",
+   "reference": "Landscape Photography focused blog offering on-location tips and post \nprocessing tutorials.",
+   "candidate": "Landscape Photography focused blog offering on-location tips and post \r\nprocessing tutorials."
+  },
+  {
+   "fileId": "5608",
+   "field": "description",
+   "reference": "Learn essential landscape photography tips for beginners to capture \nstunning nature shots, master camera settings, composition and planning. \nFree guide available.",
+   "candidate": "Learn essential landscape photography tips for beginners to capture \r\nstunning nature shots, master camera settings, composition and planning. \r\nFree guide available."
+  },
+  {
+   "fileId": "5678",
+   "field": "description",
+   "reference": "Depending on your needs, Squarespace, among other website building \nplatforms, is a strong option for those looking for WordPress.com \nalternatives.",
+   "candidate": "Depending on your needs, Squarespace, among other website building \r\nplatforms, is a strong option for those looking for WordPress.com \r\nalternatives."
+  }
+ ]
+}

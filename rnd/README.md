@@ -230,17 +230,34 @@ All durations come from a Mac M3 Max (macOS 27). None is publishable as is.
   - DuckDB for local analytics, with a single writer;
   - Parquet for batch export.
 
-### 4.13 Extraction (D-extraction) 🟢
+### 4.13 Extraction (D-extraction, D-markdown) 🟢 / 🟡
 
 - **Before.** Several candidates: HTML5 DOM parser, streaming lol-html, htmd, trafilatura-class extractor.
-- **Measured.** WCXB corpus, held-out test split, 511 pages, paired analysis **per page** ([per-page analysis](lab/reports/extraction-paired-2026-10-09.md)):
+- **Measured on WCXB.** Held-out test split, 511 pages, paired analysis **per page** ([per-page analysis](lab/reports/extraction-paired-2026-10-09.md), [re-run of October 10](lab/reports/extraction-rerun-2026-10-10.md)):
   - rs-trafilatura reaches an F1 of 0.884;
-  - it beats the html5ever reference by **0.165** (CI 0.144 to 0.186) on 469 pages, and Readability or dom-smoothie by about 0.06.
-  - htmd converts to Markdown without isolating the main content.
-  - Rendering through Chrome or Lightpanda adds nothing on already-rendered pages ([frozen pages](lab/reports/frozen-pages-2026-10-08.md)).
-- **Why change.** The proposal left the choice open. The chain adopted is rs-trafilatura (main content), then htmd (Markdown), with html5ever/scraper for selectors and fields.
-- **Plausible alternatives.** Readability or dom-smoothie: close at the median, fail clearly on a few pages.
-- **Not tested.** lol-html, for lack of an adapter. The quality of the Markdown produced (headings, lists, tables). WebMainBench.
+  - it beats the html5ever reference by **0.165** (CI 0.144 to 0.186), and Readability or dom-smoothie by about 0.06;
+  - but 504 of the 511 ground truths were drafted from rs-trafilatura's output.
+- **Measured on WebMainBench.** 545 pages with human Markdown ground truth ([re-run](lab/reports/extraction-rerun-2026-10-10.md)):
+  - Readability (0.847) and dom-smoothie (0.846) slightly beat rs-trafilatura (0.820), by +0.027 and +0.025 (CIs above zero, median page nearly tied);
+  - dom-smoothie is 5 to 6 times faster per page than rs-trafilatura (local-dev host).
+- **lol-html.** It builds no tree and cannot score content.
+  - Its streaming boilerplate removal reaches 0.716 F1 on WCXB, the level of all body text (0.719), and 0.746 on WebMainBench.
+  - To read fields (title, meta, h1, links, images), it takes 0.27 of scraper's time per page, with 99.6% or more agreement. The differences come from html5ever's tree normalization: cloned `<a>` elements and newline normalization.
+- **Markdown, measured for the first time** (structure oracle on headings, lists, table cells and code blocks):
+  - on WebMainBench, with the same content HTML from rs-trafilatura, mdka (0.455) and html2md (0.444) beat htmd (0.410) per page;
+  - rs-trafilatura's own Markdown (0.357), fast_html2md (0.352) and dom-smoothie's Markdown mode (0.331) fall below it.
+  - On 30 curated fixtures, htmd loses code in `<pre>` without `<code>` and tables with row headers. fast_html2md, the lol_html converter used by spider_transformations, produces no usable table or code block.
+- **Mechanical verdicts** (64 shards per corpus):
+  - on WCXB, rs-trafilatura, Readability and dom-smoothie are `better` than the html5ever reference, and htmd `worse`;
+  - lol-html and every Markdown comparison remain `insufficient-n`.
+- **Why change.** The proposal left the choice open. The chain retained so far is rs-trafilatura (main content), then a Markdown converter, with html5ever/scraper for selectors and fields. WebMainBench reopens the choice between rs-trafilatura and dom-smoothie, and the Markdown results question htmd.
+- **Plausible alternatives.**
+  - dom-smoothie or Readability for main content;
+  - mdka or html2md for Markdown;
+  - lol-html as a fast path for fields and links when DOM normalization is not needed.
+- **Not tested.**
+  - The full WebMainBench (7,809 pages, tag-level annotations).
+  - The representative parsing campaign: malformed HTML, large DOM, streaming from 1 to 1,000 MiB.
 
 ### 4.14 Light engine (D-light-engine) 🟢
 

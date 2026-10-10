@@ -73,7 +73,22 @@
     "markdown-wmb",
     "markdown-fixtures"
   ],
-  "evidence": [],
+  "evidence": [
+    {
+      "kind": "run",
+      "ref": "markdown-wmb-2026-10-10T15-15-30-344Z-d7971d",
+      "note": "WebMainBench Markdown structure"
+    },
+    {
+      "kind": "run",
+      "ref": "markdown-fixtures-2026-10-10T15-13-30-714Z-1256be",
+      "note": "curated Markdown fixtures"
+    },
+    {
+      "kind": "research-doc",
+      "ref": "lab/reports/extraction-rerun-2026-10-10.md"
+    }
+  ],
   "verdictRef": "verdicts/D-markdown.json",
   "adr": null,
   "dependsOn": [

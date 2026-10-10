@@ -81,7 +81,13 @@ The `access-policy` matrix (decisions D-identity and D-http-transport) checks tw
 
 The `tls-fingerprint` matrix serves the catalog over HTTPS (local self-signed certificate, `config.insecureTls`) behind a relay that computes the JA4 of each ClientHello; the HTTP/2 server records settings, pseudo-header order and header order. The contract: the same TLS and HTTP/2 identity throughout the session.
 
-The `extraction` lane (D-extraction) measures main-content extraction quality on the WCXB corpus, downloaded outside git according to `corpora/wcxb.manifest.json`: word-level F1, required snippets, boilerplate present, with the exact definitions of its `evaluate.py`; each cell writes its predictions for cross-checking.
+The `extraction` lane (D-extraction) measures main-content extraction quality on the WCXB corpus, downloaded outside git according to `corpora/wcxb.manifest.json`: word-level F1, required snippets, boilerplate present, with the exact definitions of its `evaluate.py`; each cell writes its predictions for cross-checking. Options of the lane:
+- `corpus: "corpora/webmainbench"` reads WebMainBench's 545-page subset, prepared by `tools/prepare-webmainbench.ts` according to `corpora/webmainbench.manifest.json`;
+- `shards` spreads the pages over that many cells, stratified by type, so that a verdict pairs enough blocks;
+- `markdown: true` also scores the output against the ground-truth Markdown with the structure oracle (`src/extraction-markdown.ts`; curated cases in `fixtures/markdown-structure/`);
+- `task: "fields"` saves structural fields, compared between parsers by `tools/extraction-fields.ts`.
+
+`tools/extraction-paired.ts` gives the per-page paired analysis.
 
 `browserHost: "lightpanda"` (bench) and `config.browserEngine: "lightpanda"` (matrices) launch Lightpanda 1.0.0, pinned under `.toolchains/` and always out of process (AGPL-3.0), and connect the same drivers to it: the engine's compatibility is read with Chromium's oracles.
 

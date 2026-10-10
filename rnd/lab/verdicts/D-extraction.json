@@ -13,30 +13,32 @@
   "kind": "ratio",
   "value": 0.05
  },
- "option": "htmd",
+ "option": "lol-html-streaming",
  "baseline": "html5ever-scraper",
- "stratum": {},
+ "stratum": {
+  "corpus": "wcxb"
+ },
  "outcome": "insufficient-n",
- "n": 7,
+ "n": 64,
  "margin": 0.04879016416943205,
- "requiredN": 60,
+ "requiredN": 103,
  "estimate": {
-  "meanLogRatio": -0.428316266044554,
-  "ratio": 0.6516053015758033,
+  "meanLogRatio": -0.021253105827226157,
+  "ratio": 0.9789711499063873,
   "ci": [
-   -0.5187089539578303,
-   -0.3433792981582001
+   -0.06257855532693352,
+   0.0183964020968859
   ],
   "ratioCi": [
-   0.5952885970573248,
-   0.7093690981339154
+   0.9393392698116555,
+   1.0185666583335047
   ],
-  "hodgesLehmannRatio": 0.650441133933781,
+  "hodgesLehmannRatio": 0.990935802027243,
   "wilcoxon": {
-   "n": 7,
-   "wPlus": 0,
-   "pValue": 0.015625,
-   "method": "exact"
+   "n": 64,
+   "wPlus": 991,
+   "pValue": 0.7456777652873345,
+   "method": "normal"
   },
   "interval": "90% block bootstrap"
  },
@@ -54,30 +56,161 @@
  },
  "comparisons": [
   {
-   "option": "htmd",
+   "option": "lol-html-streaming",
    "baseline": "html5ever-scraper",
-   "stratum": {},
+   "stratum": {
+    "corpus": "wcxb"
+   },
    "outcome": "insufficient-n",
-   "n": 7,
+   "n": 64,
    "margin": 0.04879016416943205,
-   "requiredN": 60,
+   "requiredN": 103,
    "estimate": {
-    "meanLogRatio": -0.428316266044554,
-    "ratio": 0.6516053015758033,
+    "meanLogRatio": -0.021253105827226157,
+    "ratio": 0.9789711499063873,
     "ci": [
-     -0.5187089539578303,
-     -0.3433792981582001
+     -0.06257855532693352,
+     0.0183964020968859
     ],
     "ratioCi": [
-     0.5952885970573248,
-     0.7093690981339154
+     0.9393392698116555,
+     1.0185666583335047
     ],
-    "hodgesLehmannRatio": 0.650441133933781,
+    "hodgesLehmannRatio": 0.990935802027243,
     "wilcoxon": {
-     "n": 7,
+     "n": 64,
+     "wPlus": 991,
+     "pValue": 0.7456777652873345,
+     "method": "normal"
+    },
+    "interval": "90% block bootstrap"
+   },
+   "gates": [
+    {
+     "id": "oracle-exact",
+     "ok": true,
+     "evaluated": true
+    }
+   ],
+   "host": {
+    "required": "local-dev",
+    "observed": "local-dev",
+    "eligible": true
+   }
+  },
+  {
+   "option": "lol-html-streaming",
+   "baseline": "html5ever-scraper",
+   "stratum": {
+    "corpus": "webmainbench"
+   },
+   "outcome": "insufficient-n",
+   "n": 64,
+   "margin": 0.04879016416943205,
+   "requiredN": 112,
+   "estimate": {
+    "meanLogRatio": 0.26514697638653695,
+    "ratio": 1.3036225634323748,
+    "ci": [
+     0.2229444379370567,
+     0.30815255191731683
+    ],
+    "ratioCi": [
+     1.2497511330557498,
+     1.3609085823158888
+    ],
+    "hodgesLehmannRatio": 1.2897300542608723,
+    "wilcoxon": {
+     "n": 64,
+     "wPlus": 2030,
+     "pValue": 3.677835813675756e-11,
+     "method": "normal"
+    },
+    "interval": "90% block bootstrap"
+   },
+   "gates": [
+    {
+     "id": "oracle-exact",
+     "ok": true,
+     "evaluated": true
+    }
+   ],
+   "host": {
+    "required": "local-dev",
+    "observed": "local-dev",
+    "eligible": true
+   }
+  },
+  {
+   "option": "htmd",
+   "baseline": "html5ever-scraper",
+   "stratum": {
+    "corpus": "wcxb"
+   },
+   "outcome": "worse",
+   "n": 64,
+   "margin": 0.04879016416943205,
+   "requiredN": 16,
+   "estimate": {
+    "meanLogRatio": -0.32314479242743027,
+    "ratio": 0.7238690360247796,
+    "ci": [
+     -0.3390249940138463,
+     -0.30780268688646656
+    ],
+    "ratioCi": [
+     0.7124646415155362,
+     0.7350603407456219
+    ],
+    "hodgesLehmannRatio": 0.7277222194968943,
+    "wilcoxon": {
+     "n": 64,
      "wPlus": 0,
-     "pValue": 0.015625,
-     "method": "exact"
+     "pValue": 3.6330938257833623e-12,
+     "method": "normal"
+    },
+    "interval": "90% block bootstrap"
+   },
+   "gates": [
+    {
+     "id": "oracle-exact",
+     "ok": true,
+     "evaluated": true
+    }
+   ],
+   "host": {
+    "required": "local-dev",
+    "observed": "local-dev",
+    "eligible": true
+   }
+  },
+  {
+   "option": "htmd",
+   "baseline": "html5ever-scraper",
+   "stratum": {
+    "corpus": "webmainbench"
+   },
+   "outcome": "worse",
+   "n": 64,
+   "margin": 0.04879016416943205,
+   "requiredN": 57,
+   "estimate": {
+    "meanLogRatio": -0.4632691270130708,
+    "ratio": 0.6292232687401319,
+    "ci": [
+     -0.4938542865142848,
+     -0.43444599950374324
+    ],
+    "ratioCi": [
+     0.6102697011376224,
+     0.6476233513712697
+    ],
+    "hodgesLehmannRatio": 0.6342079153627987,
+    "wilcoxon": {
+     "n": 64,
+     "wPlus": 0,
+     "pValue": 3.6330938257833623e-12,
+     "method": "normal"
     },
     "interval": "90% block bootstrap"
    },
@@ -97,28 +230,245 @@
   {
    "option": "trafilatura-class",
    "baseline": "html5ever-scraper",
-   "stratum": {},
-   "outcome": "insufficient-n",
-   "n": 7,
+   "stratum": {
+    "corpus": "wcxb"
+   },
+   "outcome": "better",
+   "n": 64,
    "margin": 0.04879016416943205,
-   "requiredN": 28,
+   "requiredN": 19,
    "estimate": {
-    "meanLogRatio": 0.2598727304017566,
-    "ratio": 1.296765037397792,
+    "meanLogRatio": 0.20761039540542411,
+    "ratio": 1.2307335766729697,
     "ci": [
-     0.2052290821821808,
-     0.3218976499453188
+     0.19035808372114899,
+     0.2249747309386297
     ],
     "ratioCi": [
-     1.2278063012956275,
-     1.3797435519022416
+     1.2096826877896139,
+     1.25229107157211
     ],
-    "hodgesLehmannRatio": 1.2490515879970543,
+    "hodgesLehmannRatio": 1.2288377302216882,
     "wilcoxon": {
-     "n": 7,
-     "wPlus": 28,
-     "pValue": 0.015625,
-     "method": "exact"
+     "n": 64,
+     "wPlus": 2077,
+     "pValue": 4.1873171596762404e-12,
+     "method": "normal"
+    },
+    "interval": "90% block bootstrap"
+   },
+   "gates": [
+    {
+     "id": "oracle-exact",
+     "ok": true,
+     "evaluated": true
+    }
+   ],
+   "host": {
+    "required": "local-dev",
+    "observed": "local-dev",
+    "eligible": true
+   }
+  },
+  {
+   "option": "trafilatura-class",
+   "baseline": "html5ever-scraper",
+   "stratum": {
+    "corpus": "webmainbench"
+   },
+   "outcome": "insufficient-n",
+   "n": 64,
+   "margin": 0.04879016416943205,
+   "requiredN": 101,
+   "estimate": {
+    "meanLogRatio": 0.3680681190416591,
+    "ratio": 1.4449404635811796,
+    "ci": [
+     0.3292937660870532,
+     0.4082868404118523
+    ],
+    "ratioCi": [
+     1.3899861264020261,
+     1.504238575706172
+    ],
+    "hodgesLehmannRatio": 1.4307217154794927,
+    "wilcoxon": {
+     "n": 64,
+     "wPlus": 2079,
+     "pValue": 3.809175197488912e-12,
+     "method": "normal"
+    },
+    "interval": "90% block bootstrap"
+   },
+   "gates": [
+    {
+     "id": "oracle-exact",
+     "ok": true,
+     "evaluated": true
+    }
+   ],
+   "host": {
+    "required": "local-dev",
+    "observed": "local-dev",
+    "eligible": true
+   }
+  },
+  {
+   "option": "dom-smoothie",
+   "baseline": "html5ever-scraper",
+   "stratum": {
+    "corpus": "wcxb"
+   },
+   "outcome": "better",
+   "n": 64,
+   "margin": 0.04879016416943205,
+   "requiredN": 37,
+   "estimate": {
+    "meanLogRatio": 0.13545406958273992,
+    "ratio": 1.1450566016991073,
+    "ci": [
+     0.11116272814691591,
+     0.15968860240889493
+    ],
+    "ratioCi": [
+     1.1175767532523864,
+     1.1731454994243133
+    ],
+    "hodgesLehmannRatio": 1.1479770747228215,
+    "wilcoxon": {
+     "n": 64,
+     "wPlus": 1960,
+     "pValue": 7.820255554236155e-10,
+     "method": "normal"
+    },
+    "interval": "90% block bootstrap"
+   },
+   "gates": [
+    {
+     "id": "oracle-exact",
+     "ok": true,
+     "evaluated": true
+    }
+   ],
+   "host": {
+    "required": "local-dev",
+    "observed": "local-dev",
+    "eligible": true
+   }
+  },
+  {
+   "option": "dom-smoothie",
+   "baseline": "html5ever-scraper",
+   "stratum": {
+    "corpus": "webmainbench"
+   },
+   "outcome": "insufficient-n",
+   "n": 64,
+   "margin": 0.04879016416943205,
+   "requiredN": 97,
+   "estimate": {
+    "meanLogRatio": 0.3984431517383012,
+    "ratio": 1.4895039599409612,
+    "ci": [
+     0.3610007369225468,
+     0.43787724663728167
+    ],
+    "ratioCi": [
+     1.434764518188489,
+     1.5494146998807845
+    ],
+    "hodgesLehmannRatio": 1.4760225424900075,
+    "wilcoxon": {
+     "n": 64,
+     "wPlus": 2080,
+     "pValue": 3.6330938257833623e-12,
+     "method": "normal"
+    },
+    "interval": "90% block bootstrap"
+   },
+   "gates": [
+    {
+     "id": "oracle-exact",
+     "ok": true,
+     "evaluated": true
+    }
+   ],
+   "host": {
+    "required": "local-dev",
+    "observed": "local-dev",
+    "eligible": true
+   }
+  },
+  {
+   "option": "readability",
+   "baseline": "html5ever-scraper",
+   "stratum": {
+    "corpus": "wcxb"
+   },
+   "outcome": "better",
+   "n": 64,
+   "margin": 0.04879016416943205,
+   "requiredN": 36,
+   "estimate": {
+    "meanLogRatio": 0.14143504433087922,
+    "ratio": 1.151925677727457,
+    "ci": [
+     0.11777049821792224,
+     0.16487956336660456
+    ],
+    "ratioCi": [
+     1.1249858954701486,
+     1.1792510851279183
+    ],
+    "hodgesLehmannRatio": 1.1544707674702437,
+    "wilcoxon": {
+     "n": 64,
+     "wPlus": 1987,
+     "pValue": 2.4669288833933933e-10,
+     "method": "normal"
+    },
+    "interval": "90% block bootstrap"
+   },
+   "gates": [
+    {
+     "id": "oracle-exact",
+     "ok": true,
+     "evaluated": true
+    }
+   ],
+   "host": {
+    "required": "local-dev",
+    "observed": "local-dev",
+    "eligible": true
+   }
+  },
+  {
+   "option": "readability",
+   "baseline": "html5ever-scraper",
+   "stratum": {
+    "corpus": "webmainbench"
+   },
+   "outcome": "insufficient-n",
+   "n": 64,
+   "margin": 0.04879016416943205,
+   "requiredN": 97,
+   "estimate": {
+    "meanLogRatio": 0.39977965680702454,
+    "ratio": 1.4914960204362546,
+    "ci": [
+     0.3606997561959402,
+     0.4399403964488071
+    ],
+    "ratioCi": [
+     1.4343327467020026,
+     1.5526146744051559
+    ],
+    "hodgesLehmannRatio": 1.4791808152409818,
+    "wilcoxon": {
+     "n": 64,
+     "wPlus": 2080,
+     "pValue": 3.6330938257833623e-12,
+     "method": "normal"
     },
     "interval": "90% block bootstrap"
    },
@@ -138,13 +488,16 @@
  ],
  "inputs": {
   "runs": [
-   "extraction-quality-test-2026-10-08T18-00-46-463Z-751a55"
+   "extraction-rerun-wcxb-test-2026-10-10T15-13-38-928Z-b8a0cb"
   ],
   "considered": [
    "extraction-quality-test-2026-10-08T18-00-46-463Z-751a55",
-   "extraction-rendered-test-2026-10-08T20-14-39-618Z-9f5f67"
+   "extraction-rendered-test-2026-10-08T20-14-39-618Z-9f5f67",
+   "extraction-rerun-wcxb-test-2026-10-10T15-13-38-928Z-b8a0cb",
+   "extraction-rerun-wmb-2026-10-10T15-14-27-287Z-8ec849",
+   "parsing-fields-wcxb-test-2026-10-10T15-17-10-238Z-d929b5"
   ],
   "missing": [],
-  "ledgerSha256": "3d85a8eb4bcb2d0f2036367fdc1bcec1c39516cf97d38c933162c630c338f48e"
+  "ledgerSha256": "6587a714712f543e80901ad2a42d4b015c354c60b6791fbe0e2ecdd5f0cc855e"
  }
 }

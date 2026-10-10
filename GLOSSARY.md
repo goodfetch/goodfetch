@@ -109,3 +109,57 @@ _Avoid_: output, pipeline, connector
 **Baseline**:
 A previous run that a run's results are compared with to report what changed.
 _Avoid_: snapshot, reference run
+
+## AI and agents
+
+**Plan**:
+The concrete steps an AI produced for a task, each with a target and its Fingerprint, kept as a versioned file and replayed without a model.
+_Avoid_: cache, script, prompt
+
+**Fingerprint**:
+The identity of a Plan step's target, checked before any Effect to tell the same element from a look-alike.
+_Avoid_: selector, locator
+
+**Drift**:
+A Plan step whose target no longer matches its Fingerprint.
+_Avoid_: breakage, flake
+
+**Repair**:
+One bounded recompilation of a Plan after Drift, checked in full before it acts and kept only after a verified run.
+_Avoid_: self-healing, auto-fix
+
+**Effect journal**:
+The record of the Effects a run has performed, consulted so that a retried or corrected step never performs one twice.
+_Avoid_: action log, history
+
+**Operation catalog**:
+The single list of engine operations, each classed read, idempotent write or Effect, that every surface exposes to people and agents.
+_Avoid_: tool list, API surface
+
+**Code mode**:
+Driving the engine through a short program written by a model that calls only the Operation catalog.
+_Avoid_: scripting, eval
+
+**Check**:
+A condition declared by the user that the engine evaluates live to decide whether a step or a task succeeded.
+_Avoid_: assertion, judge, validator
+
+**Agent**:
+A model-driven loop over the Operation catalog toward an objective, whether Automan's built-in one or an outside one.
+_Avoid_: bot, assistant; a single AI extraction is not an agent
+
+**Model provider**:
+Whatever answers a run's model calls: a model company reached directly, a gateway, or a local model server.
+_Avoid_: LLM vendor, backend
+
+**Decision provider**:
+A model that picks one option from a fixed list with a confidence, or abstains.
+_Avoid_: classifier, router
+
+**Grounding**:
+The requirement that every extracted value appears in its page or follows from a declared transform.
+_Avoid_: verification, fact-check
+
+**Human pause**:
+The state of a Session's work items while they wait for a person to complete a login, MFA, a CAPTCHA, a confirmation or a review.
+_Avoid_: manual step, HITL

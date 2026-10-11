@@ -28,13 +28,15 @@ Cloudflare Pay per crawl, in private beta since July 2025 ([blog](https://blog.c
 
 **Who allows paying.**
 - `pay_domains` lists the domains a run may pay, matched by registrable domain as in ADR 0004, each with an optional `max_price_per_page`. `*` is accepted only when written explicitly.
-- It is taken only from Operator policy, user and project configuration, or a person's answer in the Console or an interactive CLI prompt, as the "Needs you" offer above. A Recipe or a run can only narrow it, removing domains or lowering caps. **Changes ADR 0028**: `pay_domains` is a setting that the Recipe and run layers can only narrow.
+- It is taken only from Operator policy, user and project configuration, or a person's answer in the Console or an interactive CLI prompt, as the "Needs you" offer above, under ADR 0031's step-up on a Daemon with accounts (**Changes ADR 0031**). A Recipe or a run can only narrow it, removing domains or lowering caps. **Changes ADR 0028**: `pay_domains` is a setting that the Recipe and run layers can only narrow.
 - **Changes ADR 0014:** `pay_domains` is what ADR 0014 means by a run allowing payments. A payment to a domain outside it is never made, whoever decides it, model or code.
-- Paying happens only in a Session whose Access mode is `identified` (ADR 0021). A run whose `pay_domains` apply to no `identified` Session is refused at start with the Error code `paid_fetch_not_allowed`.
+- Paying happens only in a Session whose Access mode is `identified` (ADR 0021). In any other Session the page stays at `payment_required`, with the reason recorded, so `pay_domains` set in configuration never affects `standard` or `stealth` runs.
 
 **Caps and currency.**
 - `max_price_per_page`, for the run or per `pay_domains` entry, is an amount with a currency (`USD 0.02`).
-- A Paid fetch is made only when a currency Limit applies (ADR 0041) in the quote's currency, or in a currency the price table (ADR 0012) reaches through a fixed rate, such as USDC to USD at 1:1, and the quote is at or below the cap after the same conversion. Otherwise the page stays at `payment_required`, with the reason recorded. **Changes ADR 0012**: its price table may declare such rates. The engine fetches no rates.
+- A Paid fetch is made only when a currency Limit applies (ADR 0041) in the quote's currency, or in a currency reached through a fixed rate, such as USDC to USD at 1:1, and the quote is at or below the cap after the same conversion. Otherwise the page stays at `payment_required`, with the reason recorded.
+- The Limit that allows paying must be one the run's own Client could not set: a Limit a person set in the Console or an interactive CLI prompt, or a managed policy's. A Limit a Client set for its own work, as ADR 0041 lets it, still caps payments but does not allow them. **Changes ADR 0041:** each Limit row records who set it: a person interactively, a managed policy, or a Client.
+- **Changes ADR 0012:** its price table may declare fixed rates between currencies. Rates used for Paid fetches come only from the shipped table, Operator policy, or user and project configuration, never from a Recipe or a run, so a run cannot shrink a quote. The engine fetches no rates.
 - **Changes ADR 0041:** a new Usage kind, `paid_fetch`, counts Paid fetches and their amounts by currency. Limit rows that name it carry the must-understand flag, so an older engine refuses rather than overspends.
 
 **Schemes.**
@@ -44,8 +46,12 @@ Cloudflare Pay per crawl, in private beta since July 2025 ([blog](https://blog.c
 - Every payment goes to the Audit log and is marked on the Record's Provenance with the scheme, the amount and the payee domain.
 
 **Exactly once.**
-- For x402 payloads that can be settled only once (EIP-3009 and Permit2 nonces, a signed Solana transaction), a resumed run re-sends the journaled payload, which cannot be charged twice. If the site refuses it as already used, the payment is recorded as made and the page as not received, and a person reconciles it (ADR 0029).
-- Cloudflare's headers and the Cloudflare binding of `batch-settlement`, which signs only its creation and expiry times, carry no idempotency key. A payment through either that is interrupted before its response is an uncertain Effect: it is never paid again automatically, the page stays at `payment_required`, and only a person reconciles it.
+- An x402 payload can be settled only once (EIP-3009 and Permit2 nonces, a signed Solana transaction) and only before it expires, usually within a minute or two. A resumed run first checks whether the journaled payload settled, through a chain RPC endpoint the user configured (EIP-3009's `authorizationState`, a Solana signature's status), as ADR 0010 checks an Effect before repeating it:
+  - **Settled:** the payment is recorded as made. If the payload is still valid, the page is requested again with it; otherwise the page is recorded as not received, and a person reconciles it (ADR 0029).
+  - **Not settled and still valid:** the same payload is sent again, which cannot be charged twice.
+  - **Not settled and expired:** it can never settle, so the payment is recorded as not made and a new one may follow.
+  - **Unknown**, with no RPC endpoint configured or no answer: an uncertain Effect, never paid again automatically, which only a person reconciles.
+- Cloudflare's headers and the Cloudflare binding of `batch-settlement`, which signs the request's authority, `signature-agent` and `payment-signature` but carries no nonce, have no idempotency key. A payment through either that is interrupted before its response is an uncertain Effect: it is never paid again automatically, the page stays at `payment_required`, and only a person reconciles it.
 
 **Keys.**
 - **Changes ADR 0021:** `goodfetch identity create` generates the Ed25519 key of an `identified` Session, kept as a Secret reference (ADR 0015), and `goodfetch identity directory` exports the signed key directory for the user to host at `/.well-known/http-message-signatures-directory` on a domain they control, which Cloudflare requires along with registration through its Bot Submission Form ([Web Bot Auth](https://developers.cloudflare.com/bots/reference/bot-verification/web-bot-auth/)). Signing uses Cloudflare's `web-bot-auth` crate (Apache-2.0). The engine sends `Signature-Agent` in the string form Cloudflare accepts; both Web Bot Auth drafts are still individual drafts, so the conformance suite tracks the form Cloudflare verifies.

@@ -24,17 +24,18 @@ Browsers offer no stable per-host control. Chromium's `--ignore-certificate-erro
 
 **Settings.**
 - `trusted_cas`, `client_certificates` and `accept_invalid_certs` are maps from a domain (a host name, or a registrable domain as in ADR 0004 with its subdomains) to a value: certificate files or Secret references for the first two (ADR 0015), and for the third a pin, `any`, or nothing (trust on first use). They are settings through ADR 0028's layers, so Operator policy can forbid or lock them.
-- A pin or `any` is taken only from Operator policy or user and project configuration, never from a Recipe or a run. A Recipe or a run can list a domain only for trust on first use. **Changes ADR 0028**: these values are settings that the Recipe and run layers cannot set.
+- `trusted_cas`, a pin and `any` are taken only from Operator policy or user and project configuration, never from a Recipe or a run, since each lets a host present a certificate the default roots would refuse. A Recipe or a run can list a domain in `accept_invalid_certs` only for trust on first use, and can set `client_certificates`. **Changes ADR 0028**: these values are settings that the Recipe and run layers cannot set.
 - They apply only to addresses a page can reach (ADR 0017). Endpoints the operator configures (Sinks, Model providers, vaults, proxies, webhooks) take only their own trusted CA and client certificate and never accept an invalid certificate.
 - No Plugin can set or widen them (ADR 0033), and a Plugin's own connections never benefit from them.
 - **Changes ADR 0016:** TLS verification is a control that cannot be switched off; these per-domain exceptions are the only way around it.
 
 **Pinning invalid certificates.**
 - The first invalid certificate accepted for a domain listed without a pin is pinned by the SHA-256 hash of its public key in a per-user known-certificates store, beside the Usage ledger (ADR 0041), and recorded in the Audit log.
-- Later connections to that host, in any run of that user, accept only that key. A different key stops that host with the Error code `certificate_changed`, which carries both hashes. A pin set in configuration that differs from the stored one raises the same error.
-- Only a person accepts a changed key, with `goodfetch certs accept` answered in an interactive CLI prompt or in the Console, under ADR 0031's step-up on a Daemon with accounts, as ADR 0029 restricts Reconciliation and ADR 0041 restricts raising a Limit. An agent cannot accept one.
+- A pin is per host name, also under a registrable domain listed with its subdomains. It applies only in runs that list that host's domain in `accept_invalid_certs`; other runs verify the host normally. A pinned host accepts only the pinned key, whatever `trusted_cas` would accept.
+- Later connections to that host, in any such run of that user, accept only that key. A different key stops that host with the Error code `certificate_changed`, which carries both hashes. A pin set in configuration that differs from the stored one raises the same error.
+- Only a person accepts a changed key, with `goodfetch certs accept` answered in an interactive CLI prompt or in the Console, under ADR 0031's step-up on a Daemon with accounts, as ADR 0029 restricts Reconciliation and ADR 0041 restricts raising a Limit. **Changes ADR 0031**, whose step-up gains accepting a changed key. An agent cannot accept one.
 - The value `any` accepts every certificate from that host, for test fixtures that regenerate theirs, and is recorded in the Audit log on each run that uses it.
-- The store partitions per person on a shared Daemon, as ADR 0031's accounts do. Like the Usage ledger, every product major shares it and its format's major stays frozen. **Changes ADR 0030**, whose list of versioned formats gains it.
+- The store partitions per person on a shared Daemon, as ADR 0031's accounts do. Like the Usage ledger, every product major shares it, its format's major stays frozen, and older engines open its newer versions, which only add. **Changes ADR 0030**, whose list of versioned formats gains it.
 
 **Guards.**
 - The engine refuses to type a secret into, or send a Session's credentials or cookies to, a host reached through `accept_invalid_certs`, as ADR 0017 refuses with raw CDP attached.

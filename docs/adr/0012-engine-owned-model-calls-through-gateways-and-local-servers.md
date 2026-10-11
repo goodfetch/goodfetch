@@ -17,4 +17,4 @@ Evidence: [Rust model-provider libraries](https://github.com/Jbmanllr/automan/bl
 
 - JSON repair and a bounded retry that feeds the validation error back to the model live above the three formats, since no Rust library has them; each release publishes a tested list of local models.
 - Limits apply to tokens and calls natively. A currency Limit uses a price table shipped with each release and overridable: the engine reserves each call's worst case before sending it (maximum output tokens at the model's price) and refuses a call that would cross the Limit; a stopped run ends incomplete and resumable with a higher Limit, which only a person can grant (ADR 0041). These are third-party prices, so ADR 0001 holds.
-- The price table may also declare fixed rates between currencies, such as USDC to USD, for Paid fetches; the engine never fetches exchange rates (ADR 0045).
+- The price table may also declare fixed rates between currencies, such as USDC to USD, for Paid fetches; those rates come only from the shipped table, Operator policy or user and project configuration, and the engine never fetches exchange rates (ADR 0045).

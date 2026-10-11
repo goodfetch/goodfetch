@@ -32,7 +32,7 @@ Comparable services cap spend in different ways:
   - a Client connection, such as an MCP session or an SDK's connection, for as long as the connection lasts.
 - **Periods.** Every scope except a run and a Client connection may count per day, week or month, in an explicit IANA time zone.
 - **What a Limit can cap.** A kind of Usage (model tokens and calls, browser time, proxy bytes by kind, paid solves under ADR 0035), or its price in a currency through ADR 0012's price table.
-- **Paid fetches.** The Usage kind `paid_fetch` counts Paid fetches and their amounts by currency, reserved like paid solves (ADR 0045).
+- **Paid fetches.** The Usage kind `paid_fetch` counts Paid fetches and their amounts by currency, reserved like paid solves. Each Limit row records who set it (a person interactively, a managed policy, or a Client), because only a Limit a Client could not set allows paying (ADR 0045).
 - **How they combine.** A run counts against every scope that applies to it, and the tightest one holds. A scheduled run counts against the scopes of its Schedule's creator.
 
 **Limits across runs are not settings** (changes ADR 0028).

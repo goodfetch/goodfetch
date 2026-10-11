@@ -32,7 +32,7 @@ Scrapy's `HttpCacheMiddleware` stores everything and never revalidates by defaul
 - Requests the Effect journal records as Effects (ADR 0010), Paid fetches (ADR 0045), and requests carrying a resolved secret (ADR 0016).
 
 **Storage and lifetime.**
-- **Changes ADR 0002:** reusable responses live outside run state, in a SQLite index, using the SQLite the engine already bundles, over content-addressed files, kept per user and per product major, as saved identities are (ADR 0035), so an upgrade starts with an empty cache. **Changes ADR 0030:** within a major, an engine that finds a cache format newer than it reads treats the cache as empty and replaces it, since nothing in it is needed.
+- **Changes ADR 0002:** reusable responses live outside run state, in a SQLite index, using the SQLite the engine already bundles, over content-addressed files, kept per user and per product major, as saved identities are (ADR 0035), so an upgrade starts with an empty cache. **Changes ADR 0030:** within a major, an engine that finds a cache format newer than it reads runs without the cache, neither reading nor writing it, so two minors never wipe each other's entries.
 - Each entry records the run that fetched it. Resetting or discarding a run deletes the entries it fetched, so the cache keeps ADR 0001's rule. Deleting a saved identity deletes its partition.
 - `cache.max_size` defaults to 10 GB per user, with least-recently-used eviction. `cache.max_age_ceiling` defaults to 30 days and deletes older entries in every mode. Operator policy can cap or lock both.
 - `goodfetch cache stats`, `goodfetch cache clear` (everything, or by domain, run or partition) and `goodfetch cache verify`, with the same information in the Console under Engine & settings.

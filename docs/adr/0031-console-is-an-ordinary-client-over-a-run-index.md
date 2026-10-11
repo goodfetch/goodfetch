@@ -127,3 +127,4 @@ Evidence from the competitor survey made for that ticket:
   - `Referrer-Policy: no-referrer`;
   - COOP and CORP.
 - **Checks.** CI checks these headers. The Proving ground (ADR 0025) includes pages that try to escape the content origin.
+- Step-up also covers accepting a changed certificate key (ADR 0042) and a Console answer that widens `pay_domains` (ADR 0045).

@@ -4,7 +4,7 @@ Every Client reports a run on three separate axes instead of one status:
 
 - **Lifecycle** says where the run is:
   - `running`
-  - `stopped`: ended early by a Limit, an abort or the loss of its engine
+  - `stopped`: ended early by a Limit, an abort, the loss of its engine, or exhausted resources (ADR 0039)
   - `finished`: reached its end
   - `failed`: ended by an error in the engine or the user's code
 - **Verdict** says whether the run's committed results are proven by the run's own checks. It is given once the run is no longer `running`, `failed` runs included, and reads the latest evaluation of each check:
@@ -48,7 +48,7 @@ Decided in [Prototype: V1 Console screens and flows](https://github.com/Jbmanllr
 - **ADR 0009 keeps its meaning.** Its "verified run", after which a Repair is kept and a login Plan is promoted, is a `finished` run with the Verdict `verified`.
 - **Changes ADR 0010.** An Effect that cannot be verified is still never redone automatically. A person's "it did not happen" is now the one way to redo it.
 - **Changes ADR 0027.** These replace its "run started, finished, failed, or stopped by a Limit" and "an Effect reported uncertain" events; its other events, including "an approval requested", are unchanged:
-  - run started, finished, `failed`, or `stopped` (whether by a Limit, an abort or the loss of the engine)
+  - run started, finished, `failed`, or `stopped` (whether by a Limit, an abort, the loss of the engine or exhausted resources)
   - Verdict `rejected` or `needs-review`
   - Completeness `incomplete`
   - an Effect reported uncertain, a reconciliation requested, or an Effect reconciled

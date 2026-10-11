@@ -60,4 +60,4 @@ The Proving ground comes second because it is the oracle every later area's conf
 
 - The parity list is the research of 2026-10-10 (Crawlee JS 3.18.2 and 4.0.0-rc.1, Crawlee Python 1.10.4, Spider 2.53.9, Stagehand 4.2.0), kept on the unmerged `research/parity-list` branch. The matrix carries its row IDs, so specs cite rows as `ADR 0037 / AI-12`.
 - Specs carry the notes the matrix attaches to rows, for example that clicks made to discover links are not Effects, and that the page API dismisses dialogs by default because accepting one can confirm an Effect.
-- The Engine runtime spec says how a reader tests a run's lock (ADR 0031) without making a writer that tries at the same moment think the owner is alive: `flock` locks on Linux and macOS and file locks on Windows can only be tested by briefly taking them.
+- The Engine runtime spec says how a reader tests a run's lock (ADR 0031) without making a writer that tries at the same moment think the owner is alive, either with a lock kind that can be tested without taking it or with writers that retry when the owner they forward to is gone; some lock kinds, such as `flock`, are usually tested by briefly taking them.

@@ -82,7 +82,7 @@ The open-source framework schedules runs itself. A Schedule starts runs of one t
 
 **The scheduler.**
 - It is a component of the Daemon above the runs, and starts each run through `runs.start` like any Client.
-- Each occurrence has an ID (the Schedule ID and the due time) written to the Schedule store before its run starts. An after-a-run occurrence is keyed by the upstream run's ID instead of a due time. Each run's ID is derived from the occurrence ID and its role (`watch` or `target`), and `runs.start` with an existing run ID returns that run instead of starting another. A scheduler restarted after a crash therefore never starts an occurrence twice, whenever it crashed. n8n's durable scheduler also queues runs in a database so that one instance picks up each, though its docs still allow duplicates ([durable scheduler](https://docs.n8n.io/deploy/host-n8n/configure-n8n/durable-scheduler.md)).
+- Each occurrence has an ID (the Schedule ID and the due time) written to the Schedule store before its run starts. An after-a-run occurrence is keyed by the upstream run's ID instead of a due time. Each run's ID is derived from the Schedule store's own random ID, the occurrence ID and the run's role (`watch` or `target`), so the same Schedule applied on two machines never yields the same run ID. `runs.start` with an existing run ID returns that run when the caller and inputs match, and otherwise refuses with a conflict. The ID's characters are left to the spec, since it also names the run's folder (ADR 0031). A scheduler restarted after a crash therefore never starts an occurrence twice, whenever it crashed. n8n's durable scheduler also queues runs in a database so that one instance picks up each, though its docs still allow duplicates ([durable scheduler](https://docs.n8n.io/deploy/host-n8n/configure-n8n/durable-scheduler.md)).
 - The scheduler holds an exclusive OS lock on the Schedule store (ADR 0031's lock-file pattern), so a second Daemon on the same files cannot fire.
 
 **Storage and the Run index** (changes ADR 0031).
@@ -97,8 +97,8 @@ The open-source framework schedules runs itself. A Schedule starts runs of one t
   - its current Baseline
   - any run still in "Needs you", whose Sinks are `behind` or `failed`, or that still holds dead-letter Records (ADR 0026)
   - pinned runs
-  - the last 10 Watch runs, the last 10 Watches that found a change, and the Watch that ran before the current Baseline
-- **What goes:** an older run is discarded: its data key is destroyed (ADR 0015) and its file and directory are removed, or in the per-install layout its rows are deleted from the shared database with no recoverable secret bytes left (ADR 0002), and its Run index row is marked *erased*, never silently dropped; `goodfetch runs reindex` keeps such rows *erased* rather than *missing* (changes ADR 0031). Occurrence history is kept 90 days.
+  - the last 10 Watch runs, the last 10 Watches that found a change, and the Watch that ran before the Schedule's latest run that qualifies as a Baseline; if that Watch is missing anyway, the next target run starts
+- **What goes:** an older run is discarded: its data key is destroyed (ADR 0015), and its file and directory are removed, or in the per-install layout its rows are deleted from the shared database (ADR 0002), and its Run index row is marked *erased*, never silently dropped; `goodfetch runs reindex` keeps such rows *erased* rather than *missing* (changes ADR 0031). Occurrence history is kept 90 days.
 - **Settings:** every number is a setting, and Operator policy can cap them.
 - **Precedents:** Kubernetes keeps 3 successful and 1 failed Job ([CronJob](https://kubernetes.io/docs/concepts/workloads/controllers/cron-jobs/)), Apify the 10 most recent runs ([storage](https://docs.apify.com/platform/storage/usage)), and Firecrawl monitor checks for 30 days by default.
 

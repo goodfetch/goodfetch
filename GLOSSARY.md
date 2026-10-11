@@ -93,7 +93,7 @@ One piece of work the engine carries out from start to finish, with its own inpu
 _Avoid_: job, execution, session (for a whole run)
 
 **Run index**:
-The catalog of every run of one user and one product major on a machine, pointing at each run's own state, from which it can be rebuilt.
+The catalog of every run of one user and one product major on a machine, pointing at each run's own state, from which it can be rebuilt, except the rows of runs discarded on purpose.
 _Avoid_: run registry, run database, history
 
 **Effect**:

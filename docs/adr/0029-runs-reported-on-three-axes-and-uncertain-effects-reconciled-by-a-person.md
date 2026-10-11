@@ -4,7 +4,7 @@ Every Client reports a run on three separate axes instead of one status:
 
 - **Lifecycle** says where the run is:
   - `running`
-  - `stopped`: ended early by a Limit, an abort or the loss of its engine
+  - `stopped`: ended early by a Limit, an abort, the loss of its engine, or exhausted resources (ADR 0040)
   - `finished`: reached its end
   - `failed`: ended by an error in the engine or the user's code
 - **Verdict** says whether the run's committed results are proven by the run's own checks. It is given once the run is no longer `running`, `failed` runs included, and reads the latest evaluation of each check:
@@ -44,11 +44,11 @@ Decided in [Prototype: V1 Console screens and flows](https://github.com/Jbmanllr
   - This is a policy boundary, not a proof of humanity. A program that holds the user's own Daemon token (ADR 0024) can do whatever the user can. The Audit log records the surface that gave each answer.
   - No agent surface lets a model's word make a run `verified` (ADR 0013).
 - **A retry after "it did not happen" is an ordinary Effect.** Within ADR 0014's scope it still asks for confirmation, unless the run allows that category.
-- **A run stopped by a Limit is never `complete`** (ADR 0005); this ADR extends the rule to an abort and to the loss of the engine. Raising the Limit resumes the run: this extends to every Limit what ADR 0012 allows for a currency Limit.
+- **A run stopped by a Limit is never `complete`** (ADR 0005); this ADR extends the rule to an abort, to the loss of the engine and to exhausted resources (ADR 0040). Raising the Limit resumes the run: this extends to every Limit what ADR 0012 allows for a currency Limit.
 - **ADR 0009 keeps its meaning.** Its "verified run", after which a Repair is kept and a login Plan is promoted, is a `finished` run with the Verdict `verified`.
 - **Changes ADR 0010.** An Effect that cannot be verified is still never redone automatically. A person's "it did not happen" is now the one way to redo it.
 - **Changes ADR 0027.** These replace its "run started, finished, failed, or stopped by a Limit" and "an Effect reported uncertain" events; its other events, including "an approval requested", are unchanged:
-  - run started, finished, `failed`, or `stopped` (whether by a Limit, an abort or the loss of the engine)
+  - run started, finished, `failed`, or `stopped` (whether by a Limit, an abort, the loss of the engine or exhausted resources)
   - Verdict `rejected` or `needs-review`
   - Completeness `incomplete`
   - an Effect reported uncertain, a reconciliation requested, or an Effect reconciled

@@ -100,6 +100,10 @@ _Avoid_: job, execution, session (for a whole run)
 The catalog of every run of one user and one product major on a machine, pointing at each run's own state, from which it can be rebuilt, except the rows of runs discarded on purpose.
 _Avoid_: run registry, run database, history
 
+**Usage ledger**:
+The per-user record, on one machine, of the Usage reserved and consumed by every run of that user, which stores the Limits on the install, a Daemon, a person, a named token or a Client connection and against which they are held.
+_Avoid_: billing, meter, spend log
+
 **Effect**:
 An action of a run that changes something on a website or third-party service, such as submitting a form or placing an order. A resumed run checks whether an effect already happened instead of repeating it, and reports it as uncertain when it cannot tell.
 _Avoid_: side effect, mutation, write
@@ -129,8 +133,8 @@ A consistent, self-contained copy of a run's state from which the run can resume
 _Avoid_: snapshot, savepoint, backup
 
 **Limit**:
-A cap on the usage of a run, or of a Schedule's runs over a period; reaching it stops the run cleanly, or holds back the Schedule's runs until the period ends.
-_Avoid_: budget, quota
+A cap on the Usage of one run, or of every run counted against a scope (a Schedule, the install or a Daemon, a person, a named token or a Client connection), over a period or a connection's lifetime; reaching it stops runs cleanly and refuses new ones until the period ends or a person raises it.
+_Avoid_: budget, quota, spending cap
 
 **Schedule**:
 A standing instruction, kept by the Daemon or Goodfetch Cloud, that starts runs of one target when its time comes or its trigger fires.

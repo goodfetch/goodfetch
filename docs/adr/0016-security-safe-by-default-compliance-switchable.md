@@ -17,3 +17,4 @@ Goodfetch must stay competitive with Crawlee and Spider, which ignore robots.txt
 - ADR 0028 lets an Operator policy or a Recipe cap or lock these switches; where nothing locks them, a run can still switch them.
 - Later decisions inherit this rule, in particular ADR 0035 and [Adopt site-access decisions](https://github.com/Jbmanllr/automan/issues/76).
 - ADR 0033's Plugin confinement is not one of these switchable controls: no run, Recipe or setting can turn it off. Each run reports which Plugins ran at which network level and, where Operator policy allowed reduced confinement for a first-party Plugin, which parts the host could not provide.
+- Third-party patched browser binaries that Goodfetch cannot reproduce are not one of these switchable controls either: the engine refuses them unless Operator policy allows them per digest, and each allowance is recorded in the Audit log and marks the results (ADR 0035).

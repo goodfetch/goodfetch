@@ -4,7 +4,7 @@ Web scraping and automation framework project. `rnd/` holds the R&D material (pr
 
 ## Delivery
 
-Delivery mode: autonomous. Agents merge their own pull requests after a fresh review recorded on the pull request's exact head and green required checks. Deploying to production and running production migrations still need the owner's explicit request.
+Delivery mode: autonomous. Agents merge their own pull requests after a fresh review recorded on the pull request's exact head and green required checks. Deploying to production and running production migrations still need the owner's explicit request. Production means running services (the online Proving ground, Goodfetch Cloud); a release through the gated pipeline of ADRs 0030 and 0032, its docs deploy from the release tag included, is not a production deploy and needs no separate request.
 
 ## Code style
 

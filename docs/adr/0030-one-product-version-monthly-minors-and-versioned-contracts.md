@@ -54,7 +54,7 @@ Every Goodfetch package carries one version and is released together: the `goodf
 - **Channels.**
   - **Stable:** npm `latest`, PyPI, crates.io, Homebrew, the installers and the OCI `latest` tag.
   - **Beta:** an `x.y.0-rc.N` cut one week before every minor (npm `next`, PyPI `x.y.0rcN`, crates.io `-rc.N`).
-  - **Patches:** shipped whenever a fix is ready, on the stable channel.
+  - **Patches:** shipped whenever a fix is ready, on the stable channel, built from the minor's `release/x.y` branch (ADR 0032).
   - **Nightly:** built from `main` to npm `nightly`, PyPI `.devN`, GitHub pre-releases and an OCI `nightly` tag, but not to crates.io or Homebrew.
 - **Browsers and stealth between minors.**
   - **Chrome:** each new Chrome stable major ships in a patch, once it passes the conformance suite and the guard (ADR 0019). A patch may also move the pinned Chrome for Testing build within its major, security point releases included, and update stealth material.
@@ -93,7 +93,7 @@ Every Goodfetch package carries one version and is released together: the `goodf
   - **Docs:** the docs build, and every example in them runs.
 - **Changelog and release notes.** One `CHANGELOG.md`, generated with git-cliff from Conventional Commits, which the product's commits follow from the first preview on. A hand-written page for every minor gives the highlights, the deprecations and their replacements, the browser builds, the contract-format versions and a link to that minor's benchmark results, completed with the competitor rows once they are published.
 - **Documentation.**
-  - **Tool and hosting:** a Docusaurus site, chosen for its built-in versioning. Starlight's versioning is still a community plugin, Mintlify is proprietary hosting whose llms.txt covers only the default version, and MkDocs Material has been in maintenance since November 2025.
+  - **Tool and hosting:** a Docusaurus site, chosen for its built-in versioning. Starlight's versioning is still a community plugin, Mintlify is proprietary hosting whose llms.txt covers only the default version, and MkDocs Material has been in maintenance since November 2025. The site is hosted on Vercel as its own project, built and deployed by Goodfetch's CI, and served at `goodfetch.dev/docs` through a rewrite from the marketing site, which lives in its own repository under the `goodfetch` organization because it is not a released surface. Vercel gives the response headers that `.md` pages and `llms.txt` need and a preview per pull request, which GitHub Pages does not; it shares one host with the marketing site. Decided in the [Repository, CI and release spec](https://github.com/Jbmanllr/automan/issues/130).
   - **Kept versions:** stable (the latest minor), `next` from `main`, and a frozen copy of the last minor of each previous major still supported. Each item carries "Added in" and "Deprecated in" badges generated from the catalog, and a banner marks `next` and old majors.
   - **When docs deploy:** stable docs deploy only from release tags, because docs ahead of the release are a recurring complaint (browser-use #902, scrapy #5324).
   - **Reference pages:** generated from the Operation catalog and the settings schema, one page per operation and per setting, with TypeScript, Python, Rust, CLI and MCP tabs showing each real signature, as Playwright and Pulumi generate every language from one source. TypeDoc, a Griffe-based Python reference, docs.rs and `clap-markdown` give each language its native reference in addition.

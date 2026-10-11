@@ -1,0 +1,46 @@
+# Notifications and Integrations are generated from the Operation catalog and reach the engine over an HTTP listener
+
+Messages about a run (Notifications) are kept apart from Records (Sinks). Automan inside other tools (Integrations) is a Client generated from the Operation catalog, like every agent surface in ADR 0011.
+
+Workflow tools force one change to ADR 0024. A verified n8n node may have no runtime dependencies and can only make HTTP calls, and Zapier, Make and Pipedream call from their own clouds. So the Daemon gains an **HTTP JSON-RPC listener**: the same protocol with the same `hello` version check, bound to loopback with a token by default, and to TLS plus a token for remote use (ADR 0017).
+
+Apify, Firecrawl, Bright Data and ScrapingBee all ship verified n8n nodes, Make apps and Zapier apps. Users' most frequent complaint is a pipeline that looks green but delivered nothing, which is what Notifications and per-page events address. Decided in [Export connectors and integrations catalog](https://github.com/Jbmanllr/automan/issues/88).
+
+Evidence: [workflow tools, Airbyte and AI loaders](https://github.com/Jbmanllr/automan/blob/research/sinks-integrations-catalog/rnd/research/2026-10-11-sinks-integrations/b1-integrations.md) and [notification channels](https://github.com/Jbmanllr/automan/blob/research/sinks-integrations-catalog/rnd/research/2026-10-11-sinks-integrations/a3-notify-vendors.md).
+
+## Considered Options
+
+- **Hand-written Integrations per tool**: rejected for the same reason as ADR 0011. They drift from the engine, while generated ones expose every operation and setting the same way.
+- **Workflow tools reaching the engine only through Automan Cloud**: rejected. Self-hosted n8n and Activepieces can reach a local Daemon directly, and Automan Cloud is a later map.
+- **Notifications as ordinary webhook Sinks**: rejected. A Notification carries no Records, goes to people as well as systems, and must not repeat across a resumed run. Most channels have no idempotency key: only Resend and Discord's bot API have one.
+
+## Consequences
+
+**Notification channels**:
+- Slack
+- Microsoft Teams, through Workflows webhooks only, since Microsoft switched off Office 365 connectors in May 2026
+- Discord
+- Telegram
+- email: SMTP, SES, Resend, Postmark, SendGrid and Mailgun
+- Standard Webhooks
+
+**Notification events**:
+- run started, finished, failed, or stopped by a Limit
+- Completeness `incomplete`
+- a Sink `behind`, `failed`, paused or recovered
+- a schema change
+- `auth expired`
+- an Effect reported uncertain
+- an approval requested
+- a Human pause waiting, with a link to the live view (ADR 0006)
+
+**Notification delivery**: an engine-side ledger keyed by event ID means a resumed run never re-sends. Channel idempotency keys are used where they exist. A status change notifies once, not once per run.
+
+**Integrations in V1**:
+- n8n (a verified node), Zapier, Make, Pipedream, Activepieces and Power Automate. Their actions start runs and Recipes and fetch Records. Their triggers arrive through a thin webhook carrying a record range and a fetch URL.
+- An Airbyte source that reads Datasets incrementally by record number. Apify's Airbyte source claims incremental sync but its manifest has none.
+- Dataset loaders for LangChain and LlamaIndex in TypeScript and Python, published as Automan's own packages. LlamaIndex's shared web-readers package is now GPL-3.0.
+
+**What each Integration can reach**: the docs for each Integration state whether it works with a local Daemon, an exposed Daemon, a tunnel or Automan Cloud. Zapier rejects localhost, and Make and Power Automate reach local services only on enterprise plans.
+
+**The HTTP listener** also serves the thin webhook's fetch URL. Being on HTTP, it keeps ADR 0017's `Host` and `Origin` checks. Whether the Console reads runs through it is left to the map's open item on Console data access.

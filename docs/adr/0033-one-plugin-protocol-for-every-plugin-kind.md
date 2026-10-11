@@ -157,7 +157,7 @@ Hooks run in declared order and can be scoped by label, which replaces Crawlee's
 - **Suites:** every kind has a suite in `conformance/`, run by `goodfetch plugins test`. Results appear in the Plugin index, in `goodfetch plugins list` and in the Console.
 - **What is proved:** Sinks keep their Guarantee class. Every other kind is proved one declared capability at a time (for a fetch backend: HTTP/2, proxies, TLS impersonation).
 - **Unproved capabilities:** a capability the suite has not proved is reported as unproved, and a run can require it proved.
-- **Proving ground:** fetch backends, browser backends and Challenge solvers are tested on it (ADR 0025): owned fixtures locally, real challenge vendors online.
+- **Proving ground:** fetch backends, browser backends and Challenge solvers are tested on it (ADR 0025): owned fixtures locally, real challenge vendors online, in the job ADR 0043 names for it.
 
 **Configuration.**
 - **Schema:** a Plugin's manifest declares a JSON Schema for its settings. The engine validates against it, the Console generates its form from it, and the CLI and MCP take the same fields.

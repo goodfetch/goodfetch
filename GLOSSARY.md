@@ -68,6 +68,10 @@ _Avoid_: side effect, mutation, write
 A portable package of user code, described by a manifest, that runs the same locally or on Automan Cloud and can be published.
 _Avoid_: actor, app, pack, script
 
+**Operator policy**:
+The settings an operator fixes for every run on a machine or Daemon, including the values runs may not exceed or change.
+_Avoid_: admin config, global settings, defaults
+
 **Usage**:
 The raw quantities a run consumed, such as requests, browser time or LLM tokens, without any price.
 _Avoid_: cost, consumption, credits
@@ -131,8 +135,20 @@ A file the engine writes from a run's results in a chosen format.
 _Avoid_: dump, download
 
 **Sink**:
-A system outside the engine that receives a run's committed results while the run is in progress.
+A system outside the engine that receives a run's committed Records, as rows or messages or as Export files, while the run is in progress or afterwards.
 _Avoid_: output, pipeline, connector
+
+**Guarantee class**:
+How strongly a Sink keeps a delivery from being duplicated or overwritten by a stale copy of the run, probed for each deployment: Fenced, Record-fenced, Keyed or At-least-once.
+_Avoid_: delivery semantics, QoS, consistency level
+
+**Notification**:
+A message about a run's progress or outcome, sent to a person or a system, that carries no Records.
+_Avoid_: alert, event (for the message), webhook (for every channel)
+
+**Integration**:
+A package that puts Automan inside another tool, such as a workflow tool node or a document loader; one that drives the engine is a Client.
+_Avoid_: connector, plugin, app
 
 **Baseline**:
 A previous run that a run's results are compared with to report what changed.

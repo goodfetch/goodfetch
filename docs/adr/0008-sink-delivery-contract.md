@@ -14,4 +14,4 @@ Competitor evidence: [storage and sinks research](https://github.com/Jbmanllr/au
 
 - The results stream numbers records in commit order and never drops one: a slow consumer slows delivery or resumes from its last number, unlike Spider's broadcast channel, which drops pages.
 - Webhook signatures follow the Standard Webhooks specification (ADR 0017).
-- Further sinks and integrations are catalogued in [Export connectors and integrations catalog](https://github.com/Jbmanllr/automan/issues/88).
+- The catalog of further Sinks, the four guarantee classes that replace the three cases above, and how each class is probed are in ADR 0026. ADR 0026 also reverses the rejection of DuckDB as a sink: DuckDB and MotherDuck become Sinks, and DuckDB still reads run files and Exports. Both decided in [Export connectors and integrations catalog](https://github.com/Jbmanllr/automan/issues/88).

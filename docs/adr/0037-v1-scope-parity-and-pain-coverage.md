@@ -29,7 +29,7 @@ One spec per area. An area goes to `/to-spec` only after every area whose contra
 
 | # | Area | ADRs | Waits on |
 |---:|---|---|---|
-| 1 | Repository, CI and release | 0018, 0030, 0032, 0034 | [Platform code signing for binaries and the Goodfetch Chromium](https://github.com/Jbmanllr/automan/issues/121) |
+| 1 | Repository, CI and release | 0018, 0030, 0032, 0034, 0039 |  |
 | 2 | Proving ground and conformance | 0025 |  |
 | 3 | Engine runtime | 0002–0004, 0024, 0028, 0039, 0040 | [Scaling past one engine](https://github.com/Jbmanllr/automan/issues/116), [Self-hosted deployment and operations](https://github.com/Jbmanllr/automan/issues/120) |
 | 4 | Security and egress | 0015–0017 | [Network defaults](https://github.com/Jbmanllr/automan/issues/118) |

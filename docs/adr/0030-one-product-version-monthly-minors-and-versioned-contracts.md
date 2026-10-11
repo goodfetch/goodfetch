@@ -87,6 +87,7 @@ Every Goodfetch package carries one version and is released together: the `goodf
     - a CycloneDX SBOM
     - `cargo-deny` and `cargo-audit` and their npm and Python equivalents
     - Actions pinned by SHA
+    - a valid Platform signature on every macOS and Windows executable Goodfetch builds (ADR 0039)
     - OpenSSF Scorecard
   - **Docs:** the docs build, and every example in them runs.
 - **Changelog and release notes.** One `CHANGELOG.md`, generated with git-cliff from Conventional Commits, which the product's commits follow from the first preview on. A hand-written page for every minor gives the highlights, the deprecations and their replacements, the browser builds, the contract-format versions and a link to that minor's benchmark results, completed with the competitor rows once they are published.

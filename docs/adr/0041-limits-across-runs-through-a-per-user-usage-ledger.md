@@ -37,7 +37,7 @@ Comparable services cap spend in different ways:
 **Limits across runs are not settings** (changes ADR 0028).
 - **Where they live.** The install, Daemon, person, named token and Client connection Limits are kept in the Usage ledger. They are not resolved through ADR 0028's five layers, so `goodfetch config explain` does not show them; `goodfetch usage` does.
 - **Operator policy.** An Operator policy may still cap them for the engines of its own major: the stricter of the policy's cap and the ledger's Limit holds. A cap kept only in a per-major policy is escaped by another major, so the operator's Daemon and person Limits are written to the ledger, through the Console with ADR 0031's step-up or an interactive CLI prompt. ADR 0036's operator caps on Schedules stay in Operator policy; a person's Limit is a ledger Limit.
-- **Managed machines.** A *managed* Operator policy (ADR 0031) may name an install Limit, so a fleet deployed by MDM or Ansible gets its cap without a person at each machine. Each engine writes it to the ledger when it starts, as a row of its own keyed by the policy's major and marked managed. Only a change to that policy changes that row; the tightest row holds, so a lower Limit set by anyone else is a separate row and never edits it.
+- **Managed machines.** A *managed* Operator policy (ADR 0031) may name an install Limit, so a fleet deployed by MDM or Ansible gets its cap without a person at each machine. Each engine writes it to the ledger when it starts, as a row of its own keyed by the policy's major and marked managed. Only a change to that policy changes that row; the tightest row holds, so a lower Limit set by anyone else is a separate row and never edits it. `goodfetch upgrade-files` replaces older majors' managed rows with the new major's, and rows of majors no longer supported (ADR 0030) are dropped, so an uninstalled major's cap does not linger.
 - **Containers.** In a container, the ledger needs a persistent volume. Otherwise period Limits restart whenever the container does, and the CLI warns when the ledger sits on a temporary filesystem.
 
 **The Usage ledger.**
@@ -62,7 +62,7 @@ Comparable services cap spend in different ways:
 - **Measured Usage.** Usage known only afterwards, such as browser time and proxy bytes, is charged against the run's slice. A run whose slice runs out either takes another or stops at its next safe point. It can go past a Limit only by what runs consume before then, as in ADR 0036. A metered proxy's bytes count toward a currency Limit only when the price table (ADR 0012) has a price for that proxy, and then as measured Usage.
 - **Returning and reclaiming.** A run returns what is left of its slices when it ends.
   - **What each slice records:** its run, the run epoch (ADR 0003) and the location of the run's state. The engine that writes a run holds the run's writer lock (ADR 0031).
-  - **Reclaiming.** An engine that opens the ledger reclaims a slice whose run's writer lock is free, or held at a later epoch: either way, the engine that took it is gone. It reads the run's state and charges the Usage journaled under that epoch in place of the slice. A reservation still open in the journal, such as a model call sent just before the crash, is charged at its worst case.
+  - **Reclaiming.** An engine that opens the ledger reclaims a slice whose run's writer lock is free, or held at a later epoch: either way, the engine that took it is gone. It reads the run's state and charges the Usage journaled under that epoch in place of the slice. A reservation still open in the run's state, such as a model call sent just before the crash, is charged at its worst case.
   - **Unreadable state.** When the run state cannot be read, the slice stays charged in full and is marked for review.
   - **Unsent Notifications.** The reclaiming engine also sends any threshold Notification the dead engine recorded but never marked sent.
 
@@ -86,11 +86,11 @@ Comparable services cap spend in different ways:
 **Who sets and raises a Limit** (changes ADRs 0012 and 0036, adds to ADR 0031).
 - **Setting.** Each scope is set by its owner, within the scopes above it:
   - install: a person on a single-user machine, the operator on a Daemon with accounts, or a managed Operator policy;
-  - Daemon and person: the operator;
+  - Daemon and person: the operator, or the OS user on a single-user Daemon;
   - named token: whoever creates the token, within their own Limits;
   - Client connection: the Client when it connects, within its token's Limits;
   - run: whoever starts it.
-- **Lowering.** A Client may lower, at once, the Limits that cover only its own work: its runs, its Client connection, its named token and, on a Daemon with accounts, its own person. Setting such a Limit where none applied counts as lowering, so CI, the OCI image and an agent can always cap their own work. Lowering or first setting a Limit shared with others (a Daemon's, another person's, or the install's on a Daemon with accounts) needs the role that sets it.
+- **Lowering.** A Client may lower, at once, the Limits that cover only its own work: its runs, its Client connection, its named token, on a Daemon with accounts its own person, and on a single-user machine the install, which covers only that user's work. Setting such a Limit where none applied counts as lowering, so CI, the OCI image and an agent can always cap their own work. Lowering or first setting a Limit shared with others (a Daemon's, another person's, or the install's on a Daemon with accounts) needs the role that sets it.
 - **Raising.** Raising a Limit that already applies is answered only in the Console or an interactive CLI prompt. That covers raising a run's Limit to resume it and raising a Schedule's period Limit.
   - **Same rule as Reconciliation.** ADR 0029 restricts Reconciliation the same way. ADR 0031's step-up, which asks for a passkey on a Daemon with accounts, extends to raising a Limit.
   - **Not offered elsewhere.** It is offered on no other surface generated from the catalog: not MCP, code mode, the SDKs, agent skills, framework adapters, Integrations, nor the CLI when it is not interactive or runs with `--json`.

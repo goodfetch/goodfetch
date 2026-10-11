@@ -93,7 +93,7 @@ One piece of work the engine carries out from start to finish, with its own inpu
 _Avoid_: job, execution, session (for a whole run)
 
 **Run index**:
-The catalog of every run of one user and one product major on a machine, pointing at each run's own state, from which it can be rebuilt.
+The catalog of every run of one user and one product major on a machine, pointing at each run's own state, from which it can be rebuilt, except the rows of runs discarded on purpose.
 _Avoid_: run registry, run database, history
 
 **Effect**:
@@ -125,8 +125,16 @@ A consistent, self-contained copy of a run's state from which the run can resume
 _Avoid_: snapshot, savepoint, backup
 
 **Limit**:
-A cap on a run's usage; reaching it stops the run cleanly.
+A cap on the usage of a run, or of a Schedule's runs over a period; reaching it stops the run cleanly, or holds back the Schedule's runs until the period ends.
 _Avoid_: budget, quota
+
+**Schedule**:
+A standing instruction, kept by the Daemon or Goodfetch Cloud, that starts runs of one target when its time comes or its trigger fires.
+_Avoid_: cron job, periodic job, monitor, trigger (for the whole Schedule)
+
+**Watch**:
+A small run that checks whether chosen pages or values have changed, so that a Schedule starts its target only on change.
+_Avoid_: monitor, probe, poll
 
 **Tenant**:
 A customer of Goodfetch Cloud. The engine never knows tenants.
@@ -207,7 +215,7 @@ How strongly a Sink keeps a delivery from being duplicated or overwritten by a s
 _Avoid_: delivery semantics, QoS, consistency level
 
 **Notification**:
-A message about a run's progress or outcome, sent to a person or a system, that carries no Records.
+A message about the progress or outcome of a run or a Schedule, sent to a person or a system, that carries no Records.
 _Avoid_: alert, event (for the message), webhook (for every channel)
 
 **Integration**:

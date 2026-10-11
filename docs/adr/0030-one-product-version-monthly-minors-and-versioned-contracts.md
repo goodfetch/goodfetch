@@ -24,6 +24,7 @@ Every Goodfetch package carries one version and is released together: the `goodf
   - the Plan file format (ADR 0009)
   - the Recipe manifest
   - the settings schema (ADR 0028)
+  - the Schedule file format (ADR 0036)
   - Dataset and Export formats
 
   An engine reads every older minor of a format within its major. A newer minor than it knows, such as a Checkpoint written by 1.5 and resumed by 1.4 on another machine, is refused with a message to upgrade, as the protocol handshake refuses a newer Client. A file of an older major is refused with a message naming `goodfetch upgrade-files`, and one of a newer major with a message to upgrade; the two protocols apply the same rule through their handshake. A format's major changes only with a product major. During the `0.y` previews, each `0.y` minor counts as a major for these rules, for the protocol handshake and for the per-major state below, as Cargo treats `0.y` versions. So each preview minor starts its own Daemon and asks for `goodfetch upgrade-files`, a cost accepted for previews. In this ADR, "major" and "minor" alone mean the product's version, not a format's.

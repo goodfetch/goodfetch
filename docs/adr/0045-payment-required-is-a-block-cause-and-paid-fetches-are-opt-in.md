@@ -28,14 +28,14 @@ Cloudflare Pay per crawl, in private beta since July 2025 ([blog](https://blog.c
 
 **Who allows paying.**
 - `pay_domains` lists the domains a run may pay, matched by registrable domain as in ADR 0004, each with an optional `max_price_per_page`. `*` is accepted only when written explicitly.
-- It is taken only from Operator policy, user and project configuration, or a person's answer in the Console or an interactive CLI prompt, as the "Needs you" offer above, under ADR 0031's step-up on a Daemon with accounts (**Changes ADR 0031**). A Recipe or a run can only narrow it, removing domains or lowering caps. **Changes ADR 0028**: `pay_domains` is a setting that the Recipe and run layers can only narrow.
+- It is taken only from Operator policy, user and project configuration, or a person's answer in the Console or an interactive CLI prompt, as the "Needs you" offer above, which is stored in that person's user configuration, under ADR 0031's step-up on a Daemon with accounts (**Changes ADR 0031**). A Recipe or a run can only narrow it, removing domains or lowering caps. **Changes ADR 0028**: `pay_domains` is a setting that the Recipe and run layers can only narrow.
 - **Changes ADR 0014:** `pay_domains` is what ADR 0014 means by a run allowing payments. A payment to a domain outside it is never made, whoever decides it, model or code.
 - Paying happens only in a Session whose Access mode is `identified` (ADR 0021). In any other Session the page stays at `payment_required`, with the reason recorded, so `pay_domains` set in configuration never affects `standard` or `stealth` runs.
 
 **Caps and currency.**
-- `max_price_per_page`, for the run or per `pay_domains` entry, is an amount with a currency (`USD 0.02`).
+- `max_price_per_page`, overall or per `pay_domains` entry, is an amount with a currency (`USD 0.02`). Like `pay_domains`, it is raised only in Operator policy or user and project configuration; a Recipe or a run can only lower it.
 - A Paid fetch is made only when a currency Limit applies (ADR 0041) in the quote's currency, or in a currency reached through a fixed rate, such as USDC to USD at 1:1, and the quote is at or below the cap after the same conversion. Otherwise the page stays at `payment_required`, with the reason recorded.
-- The Limit that allows paying must be one the run's own Client could not set: a Limit a person set in the Console or an interactive CLI prompt, or a managed policy's. A Limit a Client set for its own work, as ADR 0041 lets it, still caps payments but does not allow them. **Changes ADR 0041:** each Limit row records who set it: a person interactively, a managed policy, or a Client.
+- The Limit that allows paying must be one the run's own Client could not set: a Limit a person set in the Console or an interactive CLI prompt, or a managed policy's. A Limit a Client set for its own work, as ADR 0041 lets it, still caps payments but does not allow them. **Changes ADR 0041:** each Limit row records who set it: a person interactively, a managed policy, or a Client. A Client that lowers a person's Limit adds a row of its own, as for managed rows, so the person's row and the allowance it carries stay. Run and Schedule Limits, which are run parameters rather than ledger rows, cap payments but never allow them.
 - **Changes ADR 0012:** its price table may declare fixed rates between currencies. Rates used for Paid fetches come only from the shipped table, Operator policy, or user and project configuration, never from a Recipe or a run, so a run cannot shrink a quote. The engine fetches no rates.
 - **Changes ADR 0041:** a new Usage kind, `paid_fetch`, counts Paid fetches and their amounts by currency. Limit rows that name it carry the must-understand flag, so an older engine refuses rather than overspends.
 
@@ -46,10 +46,15 @@ Cloudflare Pay per crawl, in private beta since July 2025 ([blog](https://blog.c
 - Every payment goes to the Audit log and is marked on the Record's Provenance with the scheme, the amount and the payee domain.
 
 **Exactly once.**
-- An x402 payload can be settled only once (EIP-3009 and Permit2 nonces, a signed Solana transaction) and only before it expires, usually within a minute or two. A resumed run first checks whether the journaled payload settled, through a chain RPC endpoint the user configured (EIP-3009's `authorizationState`, a Solana signature's status), as ADR 0010 checks an Effect before repeating it:
-  - **Settled:** the payment is recorded as made. If the payload is still valid, the page is requested again with it; otherwise the page is recorded as not received, and a person reconciles it (ADR 0029).
+- Every x402 payment carries the journaled payment's ID in x402's `payment-identifier` extension, so a site that supports it treats a resend as the same payment.
+- An x402 payload can be settled only once and only before it expires, usually within a minute or two. When a payment's response is lost, in a live run or on resume, the engine checks whether it settled before doing anything else, as ADR 0010 checks an Effect before repeating it. It asks a chain RPC endpoint taken only from Operator policy or user and project configuration, and judges both settlement and expiry at a finalized block, never by the local clock:
+  - **EIP-3009:** the token's `authorizationState` for the authorizer and nonce, and `validBefore` against the finalized block's time.
+  - **Permit2**, used by `upto` and by `exact` for tokens without EIP-3009: Permit2's `nonceBitmap` for the owner and nonce, and the permit's deadline against the finalized block's time.
+  - **Solana:** the journaled transaction is only partly signed, and its ID comes from the fee payer's signature added at settlement, so the engine looks for it among the payer token account's signatures (`getSignaturesForAddress`) by its message, and judges expiry with `isBlockhashValid` at `finalized`.
+- The outcome decides the next step:
+  - **Settled:** the payment is recorded as made. The page is requested again only from a site that supports `payment-identifier`; otherwise it is recorded as not received, and a person reconciles it (ADR 0029). A 402 that follows a settled payment is never paid automatically.
   - **Not settled and still valid:** the same payload is sent again, which cannot be charged twice.
-  - **Not settled and expired:** it can never settle, so the payment is recorded as not made and a new one may follow.
+  - **Not settled and expired at a finalized block:** it can never settle, so the payment is recorded as not made and a new one may follow.
   - **Unknown**, with no RPC endpoint configured or no answer: an uncertain Effect, never paid again automatically, which only a person reconciles.
 - Cloudflare's headers and the Cloudflare binding of `batch-settlement`, which signs the request's authority, `signature-agent` and `payment-signature` but carries no nonce, have no idempotency key. A payment through either that is interrupted before its response is an uncertain Effect: it is never paid again automatically, the page stays at `payment_required`, and only a person reconciles it.
 

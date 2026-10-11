@@ -30,6 +30,7 @@ Scrapy's `HttpCacheMiddleware` stores everything and never revalidates by defaul
 **Never cached.**
 - Responses with any Block cause (`challenge`, `captcha`, `rate_limit`, `ip_block`, `decoy`, `payment_required`; ADRs 0035 and 0045), responses the Decision provider classes as a soft block (ADR 0021), and responses whose Page check fails.
 - Requests the Effect journal records as Effects (ADR 0010), Paid fetches (ADR 0045), and requests carrying a resolved secret (ADR 0016).
+- Responses fetched under a certificate exception (`trusted_cas`, `client_certificates` or `accept_invalid_certs`; ADR 0042), so a run that verifies a host normally is never served what another run accepted without verification.
 
 **Storage and lifetime.**
 - **Changes ADR 0002:** reusable responses live outside run state, in a SQLite index, using the SQLite the engine already bundles, over content-addressed files, kept per user and per product major, as saved identities are (ADR 0035), so an upgrade starts with an empty cache. **Changes ADR 0030:** within a major, an engine that finds a cache format newer than it reads runs without the cache, neither reading nor writing it, so two minors never wipe each other's entries.
@@ -44,4 +45,4 @@ Scrapy's `HttpCacheMiddleware` stores everything and never revalidates by defaul
 - Usage counts cache hits apart from fetches, so request counts stay honest.
 
 **Schedules.**
-- **Changes ADR 0036:** Watches never use the cache; they exist to see changes and send their own conditional requests. A Schedule's target runs may use `revalidate`. A Schedule whose target sets `replay` is refused with the Error code `replay_not_allowed`, because replayed pages would hide changes from the Baseline.
+- **Changes ADR 0036:** Watches never use the cache; they exist to see changes and send their own conditional requests. A Schedule's target runs may use `revalidate`. A Schedule whose target sets `replay` is refused with the Error code `replay_not_allowed`, which is not retryable (ADR 0038), because replayed pages would hide changes from the Baseline.

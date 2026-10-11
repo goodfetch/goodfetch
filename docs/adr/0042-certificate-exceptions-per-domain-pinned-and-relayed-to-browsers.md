@@ -34,7 +34,9 @@ Browsers offer no stable per-host control. Chromium's `--ignore-certificate-erro
 - A pin is per host name, also under a registrable domain listed with its subdomains. It applies only in runs that list that host's domain in `accept_invalid_certs`; other runs verify the host normally. A pinned host accepts only the pinned key, whatever `trusted_cas` would accept.
 - Later connections to that host, in any such run of that user, accept only that key. A different key stops that host with the Error code `certificate_changed`, which carries both hashes. A pin set in configuration that differs from the stored one raises the same error.
 - Only a person accepts a changed key, with `goodfetch certs accept` answered in an interactive CLI prompt or in the Console, under ADR 0031's step-up on a Daemon with accounts, as ADR 0029 restricts Reconciliation and ADR 0041 restricts raising a Limit. **Changes ADR 0031**, whose step-up gains accepting a changed key. An agent cannot accept one.
-- The value `any` accepts every certificate from that host, for test fixtures that regenerate theirs, and is recorded in the Audit log on each run that uses it.
+- The value `any` accepts every certificate from that host, for test fixtures that regenerate theirs, records no pin, and is recorded in the Audit log on each run that uses it. It never overrides a stored pin: moving a pinned host to `any` takes a person removing the pin with `goodfetch certs forget`, answered like `certs accept`.
+- A pin row an engine cannot read stops that host with `certificate_changed`, so an older engine never treats a pinned host as unpinned.
+- `certificate_changed` and `certificate_exception_unsupported` are not retryable (ADR 0038): a person or a configuration change must act first.
 - The store partitions per person on a shared Daemon, as ADR 0031's accounts do. Like the Usage ledger, every product major shares it, its format's major stays frozen, and older engines open its newer versions, which only add. **Changes ADR 0030**, whose list of versioned formats gains it.
 
 **Guards.**

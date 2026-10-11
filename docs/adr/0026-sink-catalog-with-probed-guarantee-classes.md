@@ -90,7 +90,7 @@ The last record in a batch wins. "Only new or changed" delivers what change trac
 
 **Third-party Sinks.** These come in three forms:
 - an SDK handler function
-- a sink process
+- a sink process (a process Plugin, ADR 0033)
 - a Rust trait implementation
 
 They share one interface and one conformance suite, and earn the class they pass.

@@ -41,7 +41,7 @@ The Automan process that runs beside a browser and carries out a Session's opera
 _Avoid_: worker, agent, sidecar
 
 **Plugin**:
-A package that adds one or more implementations of a Plugin kind to the engine, such as a Sink, a fetch backend or a Secret provider; the reverse of an Integration, which puts Automan inside another tool.
+A package that adds implementations of one or more Plugin kinds to the engine, such as a Sink, a fetch backend or a Secret provider; the reverse of an Integration, which puts Automan inside another tool.
 _Avoid_: extension (a browser extension is something else), add-on, connector, module
 
 **Plugin kind**:
@@ -49,8 +49,16 @@ One of the fixed places where the engine accepts a Plugin, each with its own con
 _Avoid_: extension point, hook (a Hook is one kind), slot
 
 **Hook**:
-A Plugin kind that runs at a fixed stage of a request, a navigation, a page, a Record or a run's lifecycle, and answers with a decision such as change, skip, retry or fail.
+The Plugin kind whose implementations run at a fixed stage of a request, a navigation, a page, a Record or a run's lifecycle, and may change, skip, retry or fail the work at that stage, or only observe it.
 _Avoid_: middleware (for a Hook scoped by label), callback, interceptor
+
+**Script Hook**:
+A Hook written as a short script that the engine runs in its own sandbox, so it can travel inside a Recipe or settings without an SDK or a separate process.
+_Avoid_: inline hook, user script
+
+**Plugin index**:
+The signed list of community Plugins that people search to find one, with each Plugin's conformance results.
+_Avoid_: registry (for the index; packages live in their own registries), marketplace, hub
 
 **Experimental**:
 The status of an operation, setting or SDK method released outside semver's compatibility promise until it is promoted.

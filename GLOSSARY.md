@@ -41,7 +41,7 @@ The Goodfetch process that runs beside a browser and carries out a Session's ope
 _Avoid_: worker, agent, sidecar
 
 **Plugin**:
-A package that adds implementations of one or more Plugin kinds to the engine, such as delivery to a Sink, a fetch backend or a Secret provider; the reverse of an Integration, which puts Automan inside another tool.
+A package that adds implementations of one or more Plugin kinds to the engine, such as delivery to a Sink, a fetch backend or a Secret provider; the reverse of an Integration, which puts Goodfetch inside another tool.
 _Avoid_: extension (a browser extension is something else), add-on, connector, module
 
 **Plugin kind**:

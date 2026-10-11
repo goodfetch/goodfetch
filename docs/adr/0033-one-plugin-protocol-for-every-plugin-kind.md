@@ -145,7 +145,7 @@ Hooks run in declared order and can be scoped by label, which replaces Crawlee's
   - a page handle
   - the challenge kind and vendor (Turnstile, reCAPTCHA v2, v3 and Enterprise, hCaptcha, DataDome, Akamai, PerimeterX, AWS WAF, GeeTest, Kasada, image CAPTCHA)
   - the run's remaining Limits
-- **Acting:** the solver acts on the page only through engine operations, or returns a token the engine injects.
+- **Acting:** the solver acts on the page only through engine operations, or returns a token the engine injects. When it needs a vision model, it asks through an Operation catalog operation, and the engine makes the call with the run's Model provider and Limits, so the solver never holds model credentials (ADR 0035).
 - **Outcome:** one of these typed outcomes:
   - `solved`, with evidence the engine re-checks with its Page check (ADR 0006)
   - `unsupported`

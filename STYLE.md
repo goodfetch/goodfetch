@@ -33,7 +33,7 @@ The design vocabulary is the one of `codebase-design`: a **module** has an **int
 - **The root `Cargo.toml` is a virtual manifest.** Members live under `crates/` and `crates/sinks/`, plus `proving-ground/` (ADR 0032) and an `xtask/` folder at the root for `xtask codegen` and `xtask release`. Each folder name equals its crate name, and internal crates are named `goodfetch-<glossary term>`. Siblings and shared dependencies are referenced with `.workspace = true`.
 - **A concern becomes its own crate only for one of these reasons:**
   1. it is a separate executable (the binary, a sink process, the sandbox helper, `xtask`, the Proving ground);
-  2. the compiler must enforce a dependency direction (`goodfetch-protocol` never depends on the engine; the Proving ground never depends on engine crates; a Private component's interface with its no-op implementation);
+  2. the compiler must enforce a dependency direction (`goodfetch-protocol` never depends on the engine; the Proving ground never depends on engine crates; `goodfetch-conformance` depends only on `goodfetch-protocol`; a Private component's interface with its no-op implementation);
   3. it is heavy and rarely changes, so isolating it speeds up incremental builds (generated CDP bindings);
   4. it is a Plugin-kind seam whose built-in implementation pulls dependencies nothing else needs.
 

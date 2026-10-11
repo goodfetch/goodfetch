@@ -87,6 +87,7 @@ Releases are **built once and published per registry**: no tool publishes crates
     - OpenSSF Scorecard.
     - The nightly channel's publish.
   - **Release candidate:** the benchmark of ADR 0025 runs on the reference host. The host is registered as a self-hosted runner that only tag and manual dispatch events reach, never pull-request code.
+- **Outbound traffic.** Every job that runs Goodfetch's code denies outbound traffic except to the fixtures and the pinned artifact mirror; only the jobs ADR 0043 names reach other endpoints, among them the nightly public testnets that check Paid fetch proofs (ADR 0045).
 - **Caching.** `Swatinem/rust-cache`, saving only from `main`.
 - **Docs source.** The documentation's content lives in `docs/` and the Docusaurus site in `website/`, which settles where the docs source lives, the other item ADR 0030 left to this one.
 - **Visibility and organization.** The repository stays private until its first release. Before that release, the owner creates a GitHub organization and moves the repository into it. It becomes public when the first version's release pull request merges, before that version is built, because GitHub artifact attestations, which every release carries (ADR 0030), need a public repository unless the account is on GitHub Enterprise Cloud ([attest-build-provenance](https://github.com/actions/attest-build-provenance#readme)). The organization is `goodfetch` and the docs domain `goodfetch.dev` (ADR 0034); GitHub redirects the old URLs.

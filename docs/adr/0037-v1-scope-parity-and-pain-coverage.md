@@ -32,9 +32,9 @@ One spec per area. An area goes to `/to-spec` only after every area whose contra
 | 1 | Repository, CI and release | 0018, 0030, 0032, 0034, 0039 |  |
 | 2 | Proving ground and conformance | 0025 |  |
 | 3 | Engine runtime | 0002–0004, 0024, 0028, 0040, 0041 | [Scaling past one engine](https://github.com/Jbmanllr/automan/issues/116), [Self-hosted deployment and operations](https://github.com/Jbmanllr/automan/issues/120) |
-| 4 | Security and egress | 0015–0017 | [Network defaults](https://github.com/Jbmanllr/automan/issues/118) |
-| 5 | Site access | 0019–0023 | [Bringing an existing login or browser](https://github.com/Jbmanllr/automan/issues/117), [Network defaults](https://github.com/Jbmanllr/automan/issues/118), [Built-in page clean-up](https://github.com/Jbmanllr/automan/issues/119), [Self-hosted deployment and operations](https://github.com/Jbmanllr/automan/issues/120) |
-| 6 | Collection | 0005–0008, 0026, 0040 | [Network defaults](https://github.com/Jbmanllr/automan/issues/118) |
+| 4 | Security and egress | 0015–0017, 0042–0044 |  |
+| 5 | Site access | 0019–0023, 0045 | [Bringing an existing login or browser](https://github.com/Jbmanllr/automan/issues/117), [Built-in page clean-up](https://github.com/Jbmanllr/automan/issues/119), [Self-hosted deployment and operations](https://github.com/Jbmanllr/automan/issues/120) |
+| 6 | Collection | 0005–0008, 0026, 0040, 0046 |  |
 | 7 | Plugin protocol | 0033 |  |
 | 8 | Stealth and Challenge solving | 0035 |  |
 | 9 | AI and agent | 0009–0014 |  |

@@ -6,10 +6,10 @@ This matrix is the companion of [ADR 0037](0037-v1-scope-parity-and-pain-coverag
 
 | Status | Parity rows | Stagehand v3 rows | Pains |
 |---|---:|---:|---:|
-| `decided` | 92 | 4 | 18 |
+| `decided` | 96 | 4 | 19 |
 | `spec` | 39 | 1 | 0 |
 | `excluded` | 1 | 0 | 0 |
-| `open → #N` | 10 | 0 | 6 |
+| `open → #N` | 6 | 0 | 5 |
 | Total | 142 | 5 | 24 |
 
 ## Parity rows
@@ -83,7 +83,7 @@ This matrix is the companion of [ADR 0037](0037-v1-scope-parity-and-pain-coverag
 | SA-22 | Proxy: list, function, auth, SOCKS, per-request choice | `spec` | ADR 0021, ADR 0033, ADR 0015 | 5 Site access | Pools by kind decided; SOCKS5 auth relayed locally. Per-request choice excluded: it changes the IP under the same cookies (ADR 0021). |
 | SA-23 | Device emulation: viewport, locale, timezone, geolocation, touch, scale | `spec` | ADR 0019, ADR 0035, ADR 0021 | 5 Site access | Locale, time zone and geolocation decided. User viewport, touch and scale stay consistent with the `standard` identity. |
 | SA-24 | Redirect control and limits | `decided` | ADR 0020, ADR 0017, ADR 0028 | 5 Site access | The engine sets redirects; each is re-checked by the egress policy. |
-| SA-25 | Bind to a local IP or network interface | `open → #118` | none | 4 Security and egress | Open: offer it within ADR 0017's egress policy and `per_ip_concurrency`, or exclude it with a reason. |
+| SA-25 | Bind to a local IP or network interface | `decided` | ADR 0044 | 4 Security and egress | A Session egress option on every OS: addresses, interface names, Linux IPv6 prefixes; DNS and WebRTC follow it; browsers through the egress relay; rotation after a block leaves the blocked /64 or /24. |
 | SA-26 | Auto-dismiss JS dialogs | `spec` | ADR 0019, ADR 0014 | 5 Site access | The default dismisses dialogs, since accepting a `confirm()` may confirm an Effect (ADR 0014). |
 | SA-27 | HTTP auth challenge in the browser | `spec` | ADR 0019, ADR 0015 | 5 Site access | Answered from a Secret reference bound to domains. |
 | SA-28 | Close cookie-consent modals | `open → #119` | none | 5 Site access | Open: reject, hide or accept; accepting is close to ADR 0014's terms confirmation. Filter-list licences meet ADR 0018. |
@@ -139,7 +139,7 @@ This matrix is the companion of [ADR 0037](0037-v1-scope-parity-and-pain-coverag
 | CO-28 | Storage backends: memory, filesystem, SQL, Redis, custom | `excluded` | ADR 0002, ADR 0033 | 6 Collection | "Pluggable live storage … rejected" (ADR 0002): it brings back multiple writers. SQL and Redis are reached as Sinks (ADR 0026). |
 | CO-29 | Stream of pages as they arrive | `decided` | ADR 0008, ADR 0024 | 6 Collection | Ordered, lossless results stream with credit-based delivery. |
 | CO-30 | WARC output | `decided` | [#71](https://github.com/Jbmanllr/automan/issues/71) | 6 Collection | WARC from both HTTP and browser tiers. |
-| CO-31 | HTTP response cache and conditional re-crawl (ETag) | `open → #118` | ADR 0036 | 6 Collection | Decided: Watches send conditional requests. Open: a cache across runs, its key, freshness, and effect on Completeness. |
+| CO-31 | HTTP response cache and conditional re-crawl (ETag) | `decided` | ADR 0046, ADR 0036 | 6 Collection | Per-user Response cache, off by default: `revalidate` (RFC 9111) and `replay` on every tier; partitioned by Session, country, language and device; 10 GB and 30 days by default; never `replay` for Schedules. |
 
 ### AI AI & agents
 
@@ -174,11 +174,11 @@ This matrix is the companion of [ADR 0037](0037-v1-scope-parity-and-pain-coverag
 | SC-03 | Only `http` and `https` schemes | `spec` | ADR 0014, ADR 0017 | 4 Security and egress | A fixed Frontier rule under the fail-closed policy. |
 | SC-04 | Domain allow/deny on browser traffic | `decided` | ADR 0014, ADR 0017 | 4 Security and egress | Every request type, fail closed. |
 | SC-05 | Guards against resource exhaustion | `spec` | ADR 0005, ADR 0020, ADR 0028, ADR 0025 | 4 Security and egress | Trap rules, Limits and redirects decided. Max page size and decompression-bomb caps are spec values. |
-| SC-06 | TLS verification on by default, explicit opt-out | `open → #118` | ADR 0033 | 4 Security and egress | Decided: no Plugin can disable checks. Open: a locked control or a per-run, audited opt-out for engine fetches. |
+| SC-06 | TLS verification on by default, explicit opt-out | `decided` | ADR 0042, ADR 0033 | 4 Security and egress | Verified everywhere; per-domain trusted CAs, client certificates and accepted invalid certificates, pinned on first use and audited; browsers through the engine's TLS relay; never for operator endpoints. |
 | SC-07 | Browser sandbox control | `decided` | ADR 0017, ADR 0016 | 4 Security and egress | On by default, switchable per run, recorded. |
 | SC-08 | Secrets kept out of model prompts | `decided` | ADR 0014, ADR 0015 | 4 Security and egress | `%var%` placeholders typed by the engine. |
 | SC-09 | Isolation of model-written code | `decided` | ADR 0011 | 4 Security and egress | Code mode sandbox with no network or files. |
-| SC-10 | Telemetry off unless configured | `open → #118` | ADR 0031, ADR 0030 | 4 Security and egress | Decided: the Console and version checks make no calls. Open: one locked rule for binary, SDKs and Console. |
+| SC-10 | Telemetry off unless configured | `decided` | ADR 0043 | 4 Security and egress | Locked: nothing leaves unless configured and no telemetry at all; only digest-pinned downloads, which `offline` turns off; browsers' background traffic off; checked in CI on three OSes. |
 
 ### CN Console
 
@@ -222,7 +222,7 @@ No v3 API compatibility layer is offered (ADR 0037). A Crawlee+Stagehand migrati
 | 3 | `integ-mcp-agent-tooling` | `decided` | ADR 0011, ADR 0017, ADR 0030 | 11 Client surfaces; 9 AI and agent | One catalog generates MCP, CLI, skills and adapters; OAuth 2.1 for remote MCP; docs served as MCP resources. |
 | 4 | `access-auth-session` | `open → #117` | ADR 0006, ADR 0015, ADR 0035 | 5 Site access | Decided: Page check, recovery ladder, MFA, saved identities. Open: bringing in a login the user already has. |
 | 5 | `cost-unpredictable-runaway` | `decided` | ADR 0041, ADR 0012, ADR 0036, ADR 0010 | 3 Engine runtime; 10 Scheduling | Limits on the install or Daemon, a person, a named token and a Client connection, held by a per-user Usage ledger every engine of every major reserves against; uncapped runs marked; only a person raises a Limit. Credit billing is Goodfetch Cloud's. |
-| 6 | `compliance-site-owner-politeness` | `open → #118` | ADR 0021, ADR 0004, ADR 0016 | 5 Site access; 4 Security and egress | Open: pay-per-crawl (HTTP 402). Goodfetch cannot reduce the bot traffic other tools send or the blocks site owners place on shared IP ranges. |
+| 6 | `compliance-site-owner-politeness` | `decided` | ADR 0045, ADR 0021, ADR 0004, ADR 0016 | 5 Site access; 4 Security and egress | 402 is the Block cause `payment_required`, never evaded; opt-in Paid fetches through Cloudflare's headers and x402, capped and journaled; RSL read as a Site preference. Goodfetch cannot reduce the bot traffic other tools send or the blocks site owners place on shared IP ranges. |
 | 7 | `compliance-security-privacy` | `decided` | ADR 0014, ADR 0015, ADR 0016, ADR 0017 | 4 Security and egress | Certifications such as SOC 2 attach to an organization operating a service, so they belong to Goodfetch Cloud, not to the framework. |
 | 8 | `dx-setup-docs` | `decided` | ADR 0024, ADR 0028, ADR 0030 | 11 Client surfaces; 1 Repository, CI and release | Support channels and response times are a project-governance commitment, not an engine feature. |
 | 9 | `agent-deterministic-replay` | `decided` | ADR 0009, ADR 0010, ADR 0013 | 9 AI and agent | Plans are versioned files replayed without a model; the recorder also emits TypeScript or Python code. |

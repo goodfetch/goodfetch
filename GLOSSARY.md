@@ -186,6 +186,18 @@ _Avoid_: unblocker, bypass, captcha solver (for every kind)
 The sessions a run keeps, scoring, rotating and retiring them as they fail.
 _Avoid_: session manager, account pool
 
+**Block cause**:
+The reason the rules give for a site refusing a page, such as a rate limit, a challenge, a login page or a demand for payment, which decides how the run responds.
+_Avoid_: block type, ban, error (for a block)
+
+**Paid fetch**:
+A fetch for which a run pays the site, from the user's own account or wallet, after the site asked for payment.
+_Avoid_: purchase, paid request, micropayment
+
+**Response cache**:
+The per-user store of responses that later runs may reuse instead of fetching the page again.
+_Avoid_: HTTP cache, page cache, crawl cache
+
 **Live view**:
 A Session's browser shown to a person while it works, which that person can take control of during a Human pause.
 _Avoid_: screencast, stream, remote desktop

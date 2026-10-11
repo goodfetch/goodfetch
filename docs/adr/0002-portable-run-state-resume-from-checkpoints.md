@@ -5,7 +5,7 @@ Each run keeps its state (frontier, staged results, sessions, effect journal, us
 ## Considered Options
 
 - **Pluggable live storage (PostgreSQL) that the cloud swaps in**, the R&D's working view: rejected. Every state contract would need conformance tests on two implementations, and it brings back the multiple writers that ADR 0001 avoided. PostgreSQL stays possible as a sink for results.
-- **One database per install holding every run**: kept as a local setting, not the default. It gives up one file per run: one database, written by the Daemon (ADR 0024), holds all of that install's runs, one database per product major (ADR 0030). The single writer holds; as with any Daemon, a crash stops every run it hosts. Automan Cloud always uses one database per run. Export, import and checkpoint produce the same per-run file in both layouts.
+- **One database per install holding every run**: kept as a local setting, not the default. It gives up one file per run: one database, written by the Daemon (ADR 0024), holds all of that install's runs. When two product majors are installed, each keeps its own such database (ADR 0030). The single writer holds; as with any Daemon, a crash stops every run it hosts. Automan Cloud always uses one database per run. Export, import and checkpoint produce the same per-run file in both layouts.
 - **A separate log as the source of truth, with the database rebuilt from it** (rqlite's design): rejected for V1. It would double the recovery code and tests, for a speed gain that grouped commits can give at large batch sizes.
 
 ## Consequences

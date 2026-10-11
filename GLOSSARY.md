@@ -42,7 +42,7 @@ _Avoid_: worker, agent, sidecar
 
 **Experimental**:
 The status of an operation, setting or SDK method released outside semver's compatibility promise until it is promoted.
-_Avoid_: unstable, nursery, preview mode
+_Avoid_: unstable, nursery
 
 ## Pillars
 

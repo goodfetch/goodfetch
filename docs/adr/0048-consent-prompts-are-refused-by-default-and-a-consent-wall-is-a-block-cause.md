@@ -51,7 +51,7 @@ A consent answer is Session state, not an Effect. Decided in [Built-in page clea
 - **Never delaying a page with no prompt.** The engine waits on a page only once a vendor is detected or a pre-hide rule matches. A prompt that appears later is answered when it appears, and ADR 0047 already keeps its text out of extracted content.
 - **In the HTTP tier,** ADR 0047 removes the prompt from extracted content. A server-side consent page, such as Google's `consent.google.com` or Yahoo's `guce`:
   - **with a refusal path,** is answered once through the Session's browser. Browser-fetch keeps the Session's identity (ADR 0020), and later HTTP fetches carry its cookies.
-  - **without one,** is `consent_required`.
+  - **without one,** or when no browser can be started for the Session, is `consent_required`.
 
 **The runner.**
 - **Where it comes from.** autoconsent (MPL-2.0, [repository](https://github.com/duckduckgo/autoconsent)) ships its library and rules inside the Clean-up rules (ADR 0047) and is never fetched from npm at run time.
@@ -73,7 +73,8 @@ A consent answer is Session state, not an Effect. Decided in [Built-in page clea
   - **Changes ADR 0019:** these calls, and the TCF read below, are the engine's only actions in the main world. **Changes ADR 0031:** its rejection of an in-page recorder stands. This exception covers calls into the consent vendor's own API, not code that stays in the page.
 
 **Prompts no rule recognises.**
-- **Who is asked.** When the run has a Decision provider, it is asked about them, as about the soft blocks of ADR 0021. Without one, such prompts are hidden.
+- **Which prompts.** Prompts the heuristics detect but no rule can answer.
+- **Who is asked.** When the run has a Decision provider, it is asked about them, as about the soft blocks of ADR 0021. Without one, the wall test below decides: a prompt that leaves the content readable is hidden, and any other is a wall.
 - **What it may choose.**
   - The engine offers only the prompt's buttons, leaving out any that match autoconsent's accept patterns.
   - The model picks the refusal, "close without answering", or abstains.
@@ -88,7 +89,7 @@ A consent answer is Session state, not an Effect. Decided in [Built-in page clea
 - **The test.** A prompt is a wall when it offers no refusal and either covers the main content or offers payment or a subscription instead.
 - **Who decides.** Rules decide. The Decision provider is asked only when they cannot. When it abstains, the prompt is treated as a wall: a notice wrongly blocked costs a page, while a wall wrongly hidden gets around an access condition.
 - **Changes ADR 0035:** `consent_required` joins the Block causes. The quoted price of an "accept or pay" wall, when the page gives one, is recorded in Provenance.
-- **Changes ADR 0021:** it never moves a domain up a proxy tier, never retires a Session to rotate, and is never retried unless the engine may accept on that domain.
+- **Changes ADR 0021:** it never moves a domain up a proxy tier, never retires a Session to rotate, and is never retried. On a domain in `consent_domains`, the engine accepts instead of blocking.
 - **Changes ADR 0005:** a finished run that left pages in scope at `consent_required` reports Completeness `unverified` and lists them, as for `payment_required`.
 - **Changes ADR 0046:** these responses are never stored in the Response cache, like every Block cause.
 - **`consent_domains`** lists the registrable domains (ADR 0004) on which the engine accepts.
@@ -98,7 +99,7 @@ A consent answer is Session state, not an Effect. Decided in [Built-in page clea
   - **Changes ADR 0031:** widening it goes through step-up.
 - **`on_consent_wall`.**
   - `report` (default) leaves the page at `consent_required`.
-  - `ask` raises a Human pause with a Notification. The person answers for this run, or "always for this domain", which writes `consent_domains` in user configuration, or Operator policy on a Daemon with accounts.
+  - `ask` raises a Human pause with a Notification. The person answers for this run, or "always for this domain", which writes `consent_domains` in user configuration. On a Daemon with accounts, only a person with the operator role can give either answer, and "always" is stored in Operator policy, as ADR 0045 does for `pay_domains`.
   - The Console's "Needs you" view lists the domains that showed a wall and offers to add them to `consent_domains`.
 - **Changes ADR 0014:** `consent_domains` is the allowance for "accepting terms" on a Consent prompt.
   - An Agent that clicks "accept" on a domain outside it asks for confirmation.

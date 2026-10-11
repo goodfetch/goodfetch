@@ -45,7 +45,7 @@ The real hazard is that a tracker list blocks the scripts that bot protection ne
 
 **Defaults and the never-block list.**
 - **Settings, each settable per run (ADR 0028).**
-  - `filter_lists.ads`, `filter_lists.trackers` and `filter_lists.annoyances` are on in every browser Session and every Access mode.
+  - `filter_lists.ads`, `filter_lists.trackers` and `filter_lists.annoyances` are on by default in every Access mode. In browser Sessions they block requests and hide elements; in every tier, HTTP included, they remove elements from extracted content.
   - `filter_lists.first_party_scripts` allows a site's own scripts, as Spider's `allow_first_party_javascript` does.
   - `filter_lists.extra` adds the user's own lists, as files or URLs. A URL is a configured destination (ADR 0043).
 - **The never-block list.** Goodfetch maintains it, under MIT. It names:
@@ -69,7 +69,7 @@ The real hazard is that a tracker list blocks the scripts that bot protection ne
 - **Never hidden.** A paywall overlay is never hidden or removed, whatever a list says (ADR 0045), and neither is a consent wall (ADR 0048).
 
 **Scriptlets and resource types.**
-- **Storage scriptlets** (`set-cookie`, `set-local-storage-item`, `set-session-storage-item`) are done by the engine through CDP before the page loads.
+- **Storage scriptlets** (`set-cookie`, `set-local-storage-item`, `set-session-storage-item`) are done by the engine before the page's own scripts run: cookies through the browser driver's cookie calls, storage items from an isolated world as the document starts, on all three browsers.
 - **Click scriptlets** (`trusted-click-element`) go through the guard's trusted input.
 - **Scriptlets that patch the page's JavaScript** (`abort-on-property-read`, `json-prune`, `set-constant` and the like) need the main world.
   - They are off by default.
@@ -115,14 +115,14 @@ The real hazard is that a tracker list blocks the scripts that bot protection ne
     - A failed gate publishes nothing and alerts the maintainers.
   - **Published.** It is an OCI artifact in the registry Goodfetch already publishes to, pulled by the Plugin store's code (ADR 0033).
   - **Signed.** It is signed with Sigstore to the workflow's identity and checked with `sigstore-verify` against the bundled trust root, as the Plugin index is.
-  - **Versioned.** It carries a version and a 14-day expiry. The engine refuses a set older than the last one it saw, and falls back with a warning from a set past its expiry.
+  - **Versioned.** It carries a version and a 14-day expiry. The engine refuses a set older than the last one it saw. When the newest set it holds is past its expiry, it falls back, with a warning, to the release set or the embedded part, whichever is newer.
   - **Fetched.** Once a day per user, as one conditional request with no identifier and no cookie, and never when `offline`. Operator policy can lock `clean_up.update`.
   - **Changes ADR 0043:** setting `daily` makes the channel a configured destination.
 - **Changes ADRs 0043 and 0032:** the nightly job that builds the channel joins the CI jobs allowed to reach named endpoints: the upstream list URLs, autoconsent's package and the online Proving ground. Publishing the channel is a publishing job, outside the deny.
 - **Changes ADR 0030:** the Clean-up rules' manifest is a contract format with its own `major.minor`. The channel publishes a set for every format major that a supported product major reads. As with the Response cache, an engine skips a set whose minor it cannot read and uses the newest one it can.
 
 **One version per run.**
-- **Choosing.** A run uses the newest valid version available: the daily channel's, then the downloaded release set, then the embedded part.
+- **Choosing.** A run uses the newest valid version available: the daily channel's, then the downloaded release set, then the embedded part. Under `upstream`, the lists fetched from their authors are cached by the digest the engine computes, and that digest is what the run holds to.
 - **Changes ADR 0002:** a run records that version's digest in its state at start and holds to it until it ends. A resumed run uses the same digest, fetched as a pinned download if the machine lacks it. When that fails, it uses the newest version available and Provenance records the change.
 - **Named in the results.** Provenance names the version and its date. The run report warns when it is older than 14 days.
 - **Changes ADR 0036:** change tracking says when a run and its Baseline used different Clean-up rules, so a difference the rules caused is not reported as a change on the site.

@@ -1,10 +1,11 @@
 # The Console is an ordinary Client: one Console per user sees every run through a Run index
 
-The Console reads and acts through the same JSON-RPC protocol and Operation catalog as every other Client (ADRs 0011 and 0024). It carries them over a WebSocket on its own origin, authenticated by the `HttpOnly` cookie of ADR 0024, and fetches large files (page bodies, screenshots, Exports) by handle with plain HTTP `GET`, as a remote Client streams `page.body`. Its `hello` names the surface `console`, which gives the Audit log the surface ADR 0029 records with each reconciliation. One Console per user and per product major (ADR 0030) sees every run on the machine:
-- **The Run index lists runs.** It is a small per-user, per-major SQLite catalog that every engine, Attached or Daemon, writes when a run starts and when one of its three axes changes. Each row holds the run's ID, file location, Recipe, Lifecycle, Verdict, Completeness, timestamps, a Usage summary and, while the run is live, the engine that owns it.
-- **The run files stay the truth.** `automan runs reindex` rebuilds the index by scanning them. A row whose file is gone shows as missing; it is never silently dropped.
-- **Committed state comes from the file.** The Daemon reads any run's file through SQLite WAL readers, live or not, so the single writer of ADR 0002 holds.
-- **Live actions go to the owner.** On a live run it does not own, the Daemon forwards each live action to the owning engine. That covers takeover, confirmation, reconciliation, the event stream and live frames. It reaches an Attached engine through the private endpoint ADR 0024 gives it for its workers; the index records that endpoint and its token in a `0600` file.
+The Console reads and acts through the same JSON-RPC protocol and Operation catalog as every other Client (ADRs 0011 and 0024). It carries them over a WebSocket on its own origin, authenticated by the `HttpOnly` cookie of ADR 0024, and fetches large files (page bodies, screenshots, Exports) by handle with plain HTTP `GET`, as a remote Client streams `page.body`. Its `hello` names the surface `console`, which gives the Audit log the surface ADR 0029 records with each reconciliation. One Console per user and per product major (ADR 0030) sees every run of that user and major on the machine:
+- **The Run index lists runs.** It is a small per-user, per-major SQLite catalog that every engine, Attached or Daemon, writes when a run starts and when one of its three axes changes. Each row holds the run's ID, its location (a run file, or the run inside the shared database of ADR 0002's per-install layout), Recipe, Lifecycle, Verdict, Completeness, timestamps, a Usage summary and, while the run is live, the engine that owns it.
+- **The runs stay the truth.** `automan runs reindex` rebuilds the index by scanning the run files and the per-install database. A row whose file is gone shows as missing; it is never silently dropped.
+- **Committed state comes from the run's database.** The Daemon reads any run through SQLite WAL readers, live or not, so the single writer of ADR 0002 holds.
+- **Live actions go to the owner.** On a live run it does not own, the Daemon forwards each live action to the owning engine. That covers takeover, confirmation, reconciliation, the event stream and live frames. It reaches an Attached engine through the private endpoint ADR 0024 gives it for its workers: the index records the endpoint, and its token sits in a separate `0600` file. Changes ADR 0024, whose private endpoint served only those workers.
+- **"Needs you".** The Console's single list of everything waiting for a person (Human pauses, confirmations, uncertain Effects, Plan diffs, runs stopped by a Limit, results to review) covers every run in the index.
 - **An Attached engine can start the Daemon.** When a Human pause or a Notification needs a link and no Console is running, it starts the Daemon on demand. A script's own Console (ADR 0024) remains for people who want no Daemon.
 
 Decided in [Console data access](https://github.com/Jbmanllr/automan/issues/104).
@@ -22,7 +23,7 @@ Evidence from the competitor survey made for that ticket:
 - **One Console per engine**: rejected. Two scripts would give two Consoles on two ports, each with its own "Needs you" list.
 - **Short-lived signed live-view links in Notifications** (Browserbase, Browserless, Anchor): rejected. A link that grants control sits in chat history and is forwarded with messages.
 - **Answering pauses and confirmations with chat-app buttons**: rejected. A Slack or Teams button identifies a chat user, not an Automan person who can verify a passkey.
-- **An in-page recorder such as rrweb** (Browserbase's recordings): rejected. Injecting script into the page is what the guard forbids (ADR 0019).
+- **An in-page recorder such as rrweb** (Browserbase's recordings): rejected. It runs in the page's main world, where the page can see it, tamper with it and detect automation; the guard of ADR 0019 stays in an isolated world.
 
 ## Consequences
 
@@ -36,17 +37,17 @@ Evidence from the competitor survey made for that ticket:
 - **Fallback.** Where a WebSocket cannot be opened, the Console falls back to Server-Sent Events plus `POST`, carrying the same messages.
 
 **Runs that no engine is running.**
-- **Taking the writer role.** To write to such a run, the Daemon takes the next run epoch (ADR 0003). While a live owner holds the run, the Daemon forwards the action to that owner instead.
-- **Answers that need no user code** apply at once, such as "it happened", "leave uncertain" or an erasure.
+- **Taking the writer role.** ADR 0003's epoch cannot be enforced inside the run's own file, so the engine that writes a run holds an exclusive OS lock on it. To write to a run, the Daemon takes that lock and the next run epoch (ADR 0003). If the lock is held, the owner is alive: the Daemon forwards the action to that owner instead. A stale owner recorded in the index never blocks, because a dead process holds no lock.
+- **Answers that need no user code** apply at once, such as "it happened" or "leave uncertain". An erasure applies the same way.
 - **Answers that need handlers.** "It did not happen" and "raise the Limit and resume" resume a Recipe run in the Daemon. They mark an SDK script's run as waiting for its script, which resumes it the next time it resumes that run ID. The Console says so and offers **Copy resume command**.
 - **A script that ends.** A Human pause pending when the script ends stops with the run.
 
 **The live view.**
-- **A channel of its own.** It is a per-Session stream, opened only while someone watches and kept apart from the credit-based event stream. The newest frame wins. A person's input travels on an ordered path where nothing is dropped.
+- **A channel of its own.** It is a per-Session channel, opened only while someone watches and kept apart from the credit-based event stream. The newest frame wins. A person's input travels on an ordered path where nothing is dropped.
 - **Tiers, chosen automatically and each settable:**
   1. **The real window.** When the browser is headful on the person's own desktop, "Take control" can bring that window to the front.
-  2. **CDP screencast** everywhere else, the default for headless browsers. It sends JPEG frames sized by `devicePixelRatio` under acknowledgement-based flow control. For remote viewers the frames are re-encoded into a WebRTC video stream.
-  3. **WebRTC H.264.** Where the browser runs headful in a virtual display (Linux containers, the OCI image, a Browser host, Automan Cloud), the engine captures that display at about 25 fps and falls back to tier 2. Steel moved from screencast ("4-12fps, unstable") to this.
+  2. **CDP screencast** everywhere else, the default for headless browsers. It sends JPEG frames sized by `devicePixelRatio` under acknowledgement-based flow control. For remote viewers, the screencast is relayed over WebRTC as video instead of JPEGs.
+  3. **WebRTC H.264.** Where the browser runs headful in a virtual display (Linux containers, the OCI image, a Browser host, Automan Cloud), the engine captures that display at about 25 fps, and falls back to tier 2 when capture fails or WebRTC cannot connect. Steel moved from screencast ("4-12fps, unstable") to this.
   
   Input goes through CDP (`Input.dispatch*`, `Input.insertText`, `Input.imeSetComposition`).
 - **The Session, not one tab.**
@@ -64,6 +65,7 @@ Evidence from the competitor survey made for that ticket:
   - **Audit.** Taking control, handing back and the start and end of input go to the Audit log. Keystrokes never do.
 - **Embeddable in users' own products**, as Browserbase, Steel, Hyperbrowser and Kernel allow.
   - **The grant.** `liveView.grant(session, mode, ttl, origins)` returns a token scoped to one Session. It is short-lived, single-use for opening the connection, tied to its origins through `frame-ancestors`, and revoked when the Session ends or by `liveView.revoke`.
+  - **What a grant allows.** A control grant lets its holder act in the page, for example to complete a login, MFA or CAPTCHA, and the pause then resolves through its Page check. A grant never confirms or reconciles an Effect, for the same reason chat-app buttons cannot: its holder is not an Automan person.
   - **View-only is enforced by the engine,** which drops the viewer's input. Browser Use's and Anchor's view-only modes are only drawn in the embedding page.
   - **Limits, audit and Usage.** The number of viewers is a setting, grants are audited, and live-view minutes count as Usage.
   - **Packages.** A `<automan-live-view>` web component and a React wrapper ship with connection, control and Session events.
@@ -76,7 +78,7 @@ Evidence from the competitor survey made for that ticket:
   - **Kept by default** for runs that are `failed`, `rejected` or `needs-review`, or that had a takeover or an Effect. A takeover is always recorded.
   - **Budget.** Each run gets 1 GB by default. Past it, the oldest video goes first, while snapshots and the HAR are kept.
   - **Erasure.** Traces are erased with their run.
-- **Cost.** Traces are a costly control (ADR 0023).
+- **Cost.** Traces are a costly control (ADR 0023). Its switch is the trace setting; its mark is "no trace" on the run report and on the Timeline.
 
 **People and tokens.**
 - **Changes ADRs 0017 and 0024**, which gave every endpoint one per-launch token.
@@ -86,7 +88,7 @@ Evidence from the competitor survey made for that ticket:
   - **Recovery and teams.** Recovery codes and an operator reset cover lost passkeys, and OIDC groups map to roles.
 - **Web protections.** Cookies are `SameSite=Strict`, the `POST` fallback carries a CSRF token, and sign-in is rate-limited.
 - **Programs.** Programs use named tokens, each limited to certain operations, Recipes, runs or Datasets, with an expiry, and revocable in Engine & settings. The per-launch token stays for local Clients that find the Daemon through its runtime file.
-- **Step-up.** Confirming an Effect (ADR 0014) or reconciling one (ADR 0029) asks for the person's passkey again.
+- **Step-up.** On a Daemon with accounts, confirming an Effect (ADR 0014) or reconciling one (ADR 0029) in the Console asks for the person's passkey again. On a single-user Daemon, and in an interactive CLI prompt, the OS user answers as before. Adds to ADR 0029.
 
 **Settings** (changes ADR 0028).
 - **What the Console edits.** It edits user-level values and a run's own values, and shows every effective value with its layer and lock. It never edits project configuration or Recipe manifests, because those are files under version control.
@@ -96,15 +98,15 @@ Evidence from the competitor survey made for that ticket:
 
 **Availability.**
 - **Idle stop.** A visible Console tab counts as a connected Client, so the Daemon does not stop idle while someone is looking. A hidden tab does not count.
-- **Socket activation.** `automan daemon install` registers launchd or systemd socket activation, so the first connection to the Console or the protocol starts the Daemon. On Windows, the installed service stays running.
+- **Socket activation.** `automan daemon install` registers launchd or systemd socket activation, so the first connection to the Console or the protocol starts the Daemon. On Windows, the installed logon task keeps the Daemon running. Because a Client may connect before the Daemon has launched and written its runtime file, a socket-activated Daemon uses a persistent per-user protocol token in a `0600` file instead of a per-launch one, rotated by `automan daemon rotate-token`. Changes ADR 0024.
 - **Logins survive restarts.** A per-user Console key in a `0600` file signs Console logins. They expire after 30 idle days and are revocable, and rotating the key signs everyone out. The protocol socket keeps the per-launch token.
 - **While disconnected,** the tab stays read-only under a banner and reconnects as above.
-- **Offline.** Run summaries and metadata are cached in the browser per major. Records are cached only when the person keeps a view offline, encrypted under a key that expires with the Console session. Secret fields are never cached. Sign-out wipes the cache, and Dataset erasures reach it as soon as a tab reconnects. A setting switches caching off.
+- **Offline.** Run summaries and metadata are cached in the browser per major. Records are cached only when the person keeps a view offline, encrypted under a key that expires with the Console login. Secret fields are never cached. Sign-out wipes the cache, and Dataset erasures reach it as soon as a tab reconnects. A setting switches caching off.
 
 **Records at scale.**
 - **Paging.** Records page by key, with filtering, sorting and column selection done in the engine.
 - **Search across runs** runs on DuckDB inside the engine, reading run files read-only, as ADR 0015 allowed by not using SQLCipher. Each run keeps a SQLite FTS5 index for full-text search.
-- **The SQL tab.** The Datasets screen offers a read-only SQL tab over the selected runs. DuckDB's external access is off and its configuration locked, so a query reads only those run files. Queries have time and memory limits and secret columns are hidden. The SQL tab is a catalog read, so every surface gets it.
+- **The SQL tab.** The Datasets screen offers a read-only SQL tab over the selected runs. The engine attaches the selected runs and loads DuckDB's SQLite reader first, then switches external access off and locks the configuration, so a query reads only those runs. Queries have time and memory limits and secret columns are hidden. The SQL tab is a catalog read, so every surface gets it.
 
 **Reaching the Console remotely.**
 - **Links.** Notification links carry no credential. They point to the Console address the person sets, such as an exposed Daemon's TLS address.

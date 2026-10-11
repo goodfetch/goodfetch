@@ -28,7 +28,7 @@ The `stealth` Access mode turns on a catalog of items, each of which a run can s
 | `engine` (default in `stealth`) | the Goodfetch build | inside the engine | none while the build is current |
 | `engine` with fingerprint-chromium or Clearcote binaries | theirs | inside the engine | behind on security fixes, not verifiable; recorded as a security switch-off |
 | `engine` with Camoufox | Camoufox, a separate download (ADR 0018) | inside the engine, Firefox identities only | a smaller crowd |
-| `engine` with the user's own binary | through a Browser backend Plugin | whatever it does | Goodfetch cannot verify the binary or its licence |
+| `engine` with the user's own browser (a licensed CloakBrowser, another Chromium build) | through a Browser backend Plugin: a declared download with a digest per platform, allowed per digest by Operator policy and off by default, or a CDP endpoint (ADR 0033) | whatever it does | Goodfetch cannot vouch for the build or its licence |
 
 - The warning appears in the CLI, the SDK results, the Console and the run's report, and the choice is recorded in Provenance and the Audit log (ADRs 0016 and 0023).
 - Choosing any method other than `none` makes the Session a `stealth` Session. `identified` refuses every masking item and the Challenge solver: a signed agent that masks spends its key's reputation (ADR 0021).
@@ -67,7 +67,7 @@ The `stealth` Access mode turns on a catalog of items, each of which a run can s
 6. A Human pause, if a human channel is configured (ADR 0006).
 7. Otherwise a typed stop, `E_CHALLENGE` with the block cause.
 
-Every step is an entry in the Effect journal and counts in Usage, so money Limits cap paid solves and model calls. Only the Page check declares a challenge passed (ADR 0013).
+Every step is an entry in the Effect journal and counts in Usage, so money Limits cap paid solves and model calls. Only the Page check declares a challenge passed (ADR 0013). Every solver in steps 4 and 5, first-party, adapter or Plugin, follows ADR 0033's Challenge solver contract: it acts only through engine operations or returns a token the engine injects, and its `needs_human` outcome leads to step 6.
 
 ### Placement
 
@@ -89,7 +89,9 @@ Every step is an entry in the Effect journal and counts in Usage, so money Limit
 
 ### Measurement
 
-Stealth quality is measured on three rungs, whose pass rates and protocol belong to [V1 benchmark protocol](https://github.com/Jbmanllr/automan/issues/79):
-1. Hermetic fixtures in CI: JA4, HTTP/2, header order and client hints kept consistent from HTTP to the browser; self-hosted probes such as CreepJS and BotD; CDP side-effect probes; the version check.
-2. Real vendor protections on domains Goodfetch owns, read back through the vendor's own verdict: Turnstile with Siteverify, the Cloudflare bot score, AWS WAF Bot Control labels, reCAPTCHA scores, Vercel BotID, hCaptcha, and proof-of-work walls (Anubis, ALTCHA, Cap). DataDome, Akamai, HUMAN and Kasada need trials the owner approves one by one. The Proving ground hosts the pages these protections guard.
-3. Dated live campaigns on third-party sites, kept separate and never merged with rungs 1 and 2.
+This is the content of the benchmark's Access family (ADR 0025), on three rungs:
+1. Hermetic fixtures in CI, on the Proving ground's local copy: JA4, HTTP/2, header order and client hints kept consistent from HTTP to the browser; self-hosted probes such as CreepJS and BotD; CDP side-effect probes; the version check; and the block-detection corpus.
+2. Real vendor protections in front of the Proving ground's online copy, on a domain Goodfetch owns, read back through the vendor's own verdict: Turnstile with Siteverify, the Cloudflare bot score, AWS WAF Bot Control labels, reCAPTCHA scores, Vercel BotID, hCaptcha, and proof-of-work walls (Anubis, ALTCHA, Cap). DataDome, Akamai, HUMAN and Kasada need trials the owner approves one by one. Published Access figures come from this rung only.
+3. Dated live campaigns on third-party sites, used to tune rules and never published or merged with rungs 1 and 2, because ADR 0025 rejects live sites for published figures.
+
+Every result is reported per Fingerprint method, engine, Access mode and build age, and the controls are stock headless and stock headful Chrome.

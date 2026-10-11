@@ -151,7 +151,7 @@ Hooks run in declared order and can be scoped by label, which replaces Crawlee's
   - `unsupported`
   - `failed`, with a cause
   - `needs_human`, which hands over to a Human pause once the engine has checked that the page is still the challenged one, so a solver cannot steer the person to a look-alike login page
-- **Placement:** where a solver runs and who may load it belong to [Stealth and challenge-solving catalog](https://github.com/Jbmanllr/automan/issues/78).
+- **Placement:** where a solver runs and who may load it belong to ADR 0035.
 
 **Conformance.**
 - **Suites:** every kind has a suite in `conformance/`, run by `goodfetch plugins test`. Results appear in the Plugin index, in `goodfetch plugins list` and in the Console.

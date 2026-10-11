@@ -15,7 +15,7 @@ Goodfetch ships under `MIT OR Apache-2.0` across the whole repository (the Rust 
 
 - Private components are the one exception to ADR 0001's rule that anything the cloud does can be reproduced locally. Because the public engine keeps their interface, a self-hoster can plug in their own implementation or a licensed Private component.
 - The Console's source is public under the framework license; cloud-only screens belong to Goodfetch Cloud's own codebase.
-- The [Stealth and challenge-solving catalog](https://github.com/Jbmanllr/automan/issues/78) places each stealth item, including the challenge solver, by this rule. The legal research rates a solver bundled in the public repository High in the US (DMCA §1201 trafficking) and a vetted Private component Medium to High.
+- ADR 0035 places each stealth item, including the challenge solver, by this rule. The legal research rates a solver bundled in the public repository High in the US (DMCA §1201 trafficking) and a vetted Private component Medium to High.
 - Lightpanda (AGPL-3.0-only) runs only out of process. Camoufox (MPL-2.0 with an LGPL-3.0-or-later part) and Patchright ship as separate browser downloads. No Crawl4AI code is copied in, because its added attribution clause reaches public uses.
 - Every release carries a third-party notice inventory, generated per ecosystem and checked in CI against a license allowlist; a dependency outside the allowlist blocks the release.
 - A trademark policy published with the license allows "built with" and "compatible with" uses and forbids forks and hosted services from using the name. Filing the mark is settled by ADR 0034.

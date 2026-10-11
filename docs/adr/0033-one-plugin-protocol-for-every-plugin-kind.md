@@ -20,7 +20,7 @@ Thirteen kinds:
 | Code source | email or SMS MFA codes (ADR 0006) | — |
 | Notification channel | joins ADR 0027's channels | — |
 
-Every kind accepts three forms: an SDK handler (in the Client's process, over JSON-RPC), a process Plugin (any language, the plugin protocol over stdio) and a Rust trait implementation (in-process, only when Automan is embedded as a Rust crate). Hooks also take a fourth: a **Script Hook**, a JavaScript function run in the code-mode sandbox of ADR 0011, with no network or files, journaled catalog calls only, and time and memory limits, so that a Recipe, the CLI or MCP can carry a Hook without an SDK or a process. First-party built-ins implement the same traits, so one suite proves built-in and third-party implementations alike.
+Every kind accepts three forms: an SDK handler (in the Client's process, over JSON-RPC), a process Plugin (any language, the plugin protocol over stdio) and a Rust trait implementation (in-process, only when Goodfetch is embedded as a Rust crate). Hooks also take a fourth: a **Script Hook**, a JavaScript function run in the code-mode sandbox of ADR 0011, with no network or files, journaled catalog calls only, and time and memory limits, so that a Recipe, the CLI or MCP can carry a Hook without an SDK or a process. First-party built-ins implement the same traits, so one suite proves built-in and third-party implementations alike.
 
 What the engine enforces differs by form. SDK-handler and Rust-trait Plugins are the user's own code, like a user handler (ADR 0003): they run in the user's process with the user's rights, and the engine accounts for every call into them but cannot confine them. Records produced through them say so in their Provenance. Process Plugins are confined and reach the outside only as below. Script Hooks are held by the code-mode sandbox. Private components ship only as process Plugins, so they are always confined.
 
@@ -47,8 +47,8 @@ Changes:
 - **A browser backend limited to local launches and Browser hosts**: rejected. No Plugin could add a remote browser vendor beside Browserbase and Bright Data, which ADR 0022 already reaches over CDP.
 - **Trusting a Plugin's own account of its calls**: rejected. The engine counts calls and time itself and classes each call itself. Only spend outside the engine comes from the Plugin, bounded by its declared maximum.
 - **Confinement on Linux only**: rejected. The engine ships for Linux, macOS and Windows (ADR 0024).
-- **A cross-platform sandbox crate**: none qualifies. `birdcage` is GPL-3.0 and archived, `gaol` is abandoned since 2019, `nono` has no native Windows support and changes fast before 1.0. Codex (`codex-rs`) and Claude Code's sandbox runtime both wrote per-OS code behind one policy, as Automan does.
-- **Confining the network per host at the OS level**: not possible; no OS offers it. Codex and Claude Code's sandbox runtime both remove the network and route allowed traffic through a host-side proxy that checks domains, as Automan does through the engine.
+- **A cross-platform sandbox crate**: none qualifies. `birdcage` is GPL-3.0 and archived, `gaol` is abandoned since 2019, `nono` has no native Windows support and changes fast before 1.0. Codex (`codex-rs`) and Claude Code's sandbox runtime both wrote per-OS code behind one policy, as Goodfetch does.
+- **Confining the network per host at the OS level**: not possible; no OS offers it. Codex and Claude Code's sandbox runtime both remove the network and route allowed traffic through a host-side proxy that checks domains, as Goodfetch does through the engine.
 - **No network for every process Plugin**: rejected. Drivers such as librdkafka and most database clients cannot use a proxy, so the first-party Sinks that ship as processes (Kafka, MongoDB, SQL Server, ClickHouse and others) could not run.
 - **Checking `direct` connections by address with a cgroup BPF filter**: rejected. It needs root and exists only on Linux.
 - **A digest pin for every Plugin on resume**: rejected for first-party Plugins, which follow the engine's version; any engine patch would otherwise stop a run from resuming, on another machine too (ADR 0002).
@@ -107,7 +107,7 @@ Hooks run in declared order and can be scoped by label, which replaces Crawlee's
 - **Placement:** where a solver runs and who may load it belong to [Stealth and challenge-solving catalog](https://github.com/Jbmanllr/automan/issues/78).
 
 **Conformance.**
-- **Suites:** every kind has a suite in `conformance/`, run by `automan plugins test`. Results appear in the Plugin index, in `automan plugins list` and in the Console.
+- **Suites:** every kind has a suite in `conformance/`, run by `goodfetch plugins test`. Results appear in the Plugin index, in `goodfetch plugins list` and in the Console.
 - **What is proved:** Sinks keep their Guarantee class. Every other kind is proved one declared capability at a time (for a fetch backend: HTTP/2, proxies, TLS impersonation).
 - **Unproved capabilities:** a capability the suite has not proved is reported as unproved, and a run can require it proved.
 - **Proving ground:** fetch backends, browser backends and challenge solvers are tested on it (ADR 0025): owned fixtures locally, real challenge vendors online.
@@ -139,35 +139,35 @@ Hooks run in declared order and can be scoped by label, which replaces Crawlee's
   - An in-flight Effect that has no check is reported uncertain for Reconciliation (ADR 0029), never retried blindly (ADR 0010).
   - Repeated crashes quarantine the Plugin and send a Notification.
 - **Health:** a heartbeat on the same channel.
-- **Where it runs:** Linux, macOS and Windows, and inside the Browser host for kinds that work beside the browser (browser backends, challenge solvers). In Automan Cloud, process Plugins run in the tenant's isolation and SDK-handler Plugins stay in the Client.
+- **Where it runs:** Linux, macOS and Windows, and inside the Browser host for kinds that work beside the browser (browser backends, challenge solvers). In Goodfetch Cloud, process Plugins run in the tenant's isolation and SDK-handler Plugins stay in the Client.
 - **Handshake:** an environment-variable cookie, as in go-plugin, so that a Plugin started by hand refuses to run (not a security boundary), then `hello` as the first JSON-RPC message. The Rust ports of go-plugin are immature, so the pattern is copied rather than imported.
 
-**Egress class, per destination.** The endpoints a Plugin's settings name (an unblocker's API, a solving service, a Sink's database, a vault, a SearXNG instance) are operator-configured endpoints under ADR 0017, including Automan Cloud's "no private endpoints" policy. Every other address is one a page can reach. Before the engine passes a target URL to a fetch backend or an unblocker, it checks that URL under the page class itself.
+**Egress class, per destination.** The endpoints a Plugin's settings name (an unblocker's API, a solving service, a Sink's database, a vault, a SearXNG instance) are operator-configured endpoints under ADR 0017, including Goodfetch Cloud's "no private endpoints" policy. Every other address is one a page can reach. Before the engine passes a target URL to a fetch backend or an unblocker, it checks that URL under the page class itself.
 
 **Network levels for process Plugins.** The manifest declares one level. A level the host cannot provide is refused with a typed `confinement_unavailable`, never silently weakened.
 - **`none`** (the default, and the only level an Extractor may declare). The Plugin creates no network socket: it reaches the outside only through `net.fetch` and `net.connect` on its stdio channel, where the engine applies the egress class, the domains the manifest declares, Usage and the journal.
   - **Linux:** seccomp refuses every new IP or Unix-domain socket.
   - **macOS:** Seatbelt denies all network.
   - **Windows:** an AppContainer with no network capability, which Windows' default outbound rule blocks, as Chromium's sandbox relies on.
-- **`proxy_tcp`**, for clients that only speak `HTTP_PROXY` or SOCKS5. The engine runs a proxy for that instance, which applies the same checks as `none` and requires credentials generated for that instance, carried in the proxy URL, so no other local process can use it. `automan plugin-shim`, the same binary, relays TCP clients to it where the platform needs a relay.
+- **`proxy_tcp`**, for clients that only speak `HTTP_PROXY` or SOCKS5. The engine runs a proxy for that instance, which applies the same checks as `none` and requires credentials generated for that instance, carried in the proxy URL, so no other local process can use it. `goodfetch plugin-shim`, the same binary, relays TCP clients to it where the platform needs a relay.
   - **Linux:** a network namespace holding only loopback, with the relay inside it, as Claude Code's sandbox runtime does. The relay reaches the engine through a socket it inherits already connected. seccomp allows IP sockets inside the namespace and refuses Unix-domain ones.
-    - Where AppArmor restricts unprivileged user namespaces (Ubuntu 23.10 and later), an AppArmor profile must grant them to `automan`, as Chrome's package does. The Linux packages install it; other installs (npm, PyPI, crates.io) get it from the elevated `automan plugins setup`.
+    - Where AppArmor restricts unprivileged user namespaces (Ubuntu 23.10 and later), an AppArmor profile must grant them to `goodfetch`, as Chrome's package does. The Linux packages install it; other installs (npm, PyPI, crates.io) get it from the elevated `goodfetch plugins setup`.
     - In containers whose seccomp profile refuses user namespaces (Docker's default), `proxy_tcp` is refused.
   - **macOS:** Seatbelt allows outgoing traffic to the proxy's loopback port only.
   - **Windows:** loopback between two processes of one AppContainer works only by undocumented behaviour, and a container's loopback to a process outside it needs an administrator exemption.
-    - So `proxy_tcp` on Windows needs a one-time elevated `automan plugins setup`, as Codex's Windows sandbox has. It creates a dedicated offline local user, with file access set by access lists, and Windows Filtering Platform filters scoped to that user that allow only the proxy's loopback port.
+    - So `proxy_tcp` on Windows needs a one-time elevated `goodfetch plugins setup`, as Codex's Windows sandbox has. It creates a dedicated offline local user, with file access set by access lists, and Windows Filtering Platform filters scoped to that user that allow only the proxy's loopback port.
     - Until setup has run, `proxy_tcp` is refused.
 - **`direct`**, for drivers that cannot use a proxy (librdkafka, most database clients). Only kinds whose destinations are operator-configured may declare it (Sinks, Notification channels, Secret providers, Model and Decision providers, code sources).
   - **What it gets:** real network access, while staying confined for files, processes and Unix-domain sockets.
   - **What is checked:** the engine checks every configured destination under ADR 0017 before starting the Plugin and at each Sink probe.
-  - **What is not checked:** addresses the driver learns during the run (Kafka brokers, MongoDB replicas) and DNS rebinding are not checked locally. The run report and `automan plugins list` say so for every Plugin at `direct`.
-  - **Automan Cloud:** the tenant's network firewall enforces "no private endpoints" whatever the engine sees.
+  - **What is not checked:** addresses the driver learns during the run (Kafka brokers, MongoDB replicas) and DNS rebinding are not checked locally. The run report and `goodfetch plugins list` say so for every Plugin at `direct`.
+  - **Goodfetch Cloud:** the tenant's network firewall enforces "no private endpoints" whatever the engine sees.
   - **Who gets it:** first-party sink processes have `direct` by default. A third-party Plugin gets it only when Operator policy names it, and the run report marks it.
   - **Linux:** seccomp allows IP sockets and refuses Unix-domain ones.
   - **macOS:** Seatbelt allows outgoing network and denies Unix-domain sockets.
   - **Windows:**
     - An AppContainer with the `internetClient` and `privateNetworkClientServer` capabilities.
-    - A loopback destination (a local PostgreSQL) needs the dedicated user that `automan plugins setup` creates, with filters scoped to that user that allow the configured ports. Until setup has run, a loopback destination is refused.
+    - A loopback destination (a local PostgreSQL) needs the dedicated user that `goodfetch plugins setup` creates, with filters scoped to that user that allow the configured ports. Until setup has run, a loopback destination is refused.
 
 **File, process and IPC confinement**, at every level, one policy type per Plugin generated from its manifest.
 - **Linux:**
@@ -192,7 +192,7 @@ Hooks run in declared order and can be scoped by label, which replaces Crawlee's
   - to spawn a process
 
 **Finding, versioning and trusting.**
-- **Packaging:** a Plugin is a package in its own registry (crates.io, npm, PyPI, a binary release or an OCI image), named `automan-plugin-*`.
+- **Packaging:** a Plugin is a package in its own registry (crates.io, npm, PyPI, a binary release or an OCI image), named `goodfetch-plugin-*`.
 - **Manifest:** it declares:
   - the Plugin's kinds and a plugin-protocol version range
   - its settings schema
@@ -200,11 +200,11 @@ Hooks run in declared order and can be scoped by label, which replaces Crawlee's
   - its network level and permissions: Secret references, domains, Effects, files and processes
   - browsers it adds, by download URL and digest
   - for spend outside the engine, a maximum per call and a price per unit
-- **Plugin index:** a file in the repository, validated in CI, signed with minisign (`minisign-verify` in the engine), listing community Plugins with their conformance results. `automan plugins search` reads it. A marketplace belongs to Automan Cloud's map.
-- **Lockfile:** `automan plugins add` records a digest in a lockfile, like `.terraform.lock.hcl`, and the engine refuses a mismatch.
+- **Plugin index:** a file in the repository, validated in CI, signed with minisign (`minisign-verify` in the engine), listing community Plugins with their conformance results. `goodfetch plugins search` reads it. A marketplace belongs to Goodfetch Cloud's map.
+- **Lockfile:** `goodfetch plugins add` records a digest in a lockfile, like `.terraform.lock.hcl`, and the engine refuses a mismatch.
 - **Provenance of the package:** where a Plugin carries GitHub, npm or PyPI attestations, `sigstore-verify` checks them against a signer policy (repository workflow and OIDC issuer). crates.io records trusted publishing but serves no signed attestations yet, so a crates.io Plugin rests on its digest alone until it does.
 - **Secrets:** a Plugin receives only the Secret references it declared.
-- **Loading:** a third-party Plugin loads only when Operator policy allows it. Automan's first-party Plugins are allowed by default. A Private component is not first-party: it loads only when Operator policy allows it.
+- **Loading:** a third-party Plugin loads only when Operator policy allows it. Goodfetch's first-party Plugins are allowed by default. A Private component is not first-party: it loads only when Operator policy allows it.
 
 Evidence: confinement and provenance precedents gathered for the ticket:
 - [Codex's sandboxes](https://github.com/openai/codex/tree/main/codex-rs) and [network proxy](https://github.com/openai/codex/blob/main/codex-rs/network-proxy/README.md)

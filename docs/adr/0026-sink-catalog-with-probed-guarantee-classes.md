@@ -23,7 +23,7 @@ Evidence: [sinks, notifications and integrations research](https://github.com/Jb
 
 ## Considered Options
 
-- **A small catalog plus community plugins** (Scrapy, Crawlee): rejected. V1 is complete scope, and the research shows Apify, Bright Data, Spider Cloud and Octoparse each ship destinations the others lack. Database sinks are rare among scrapers, which leaves them open for Automan to cover.
+- **A small catalog plus community plugins** (Scrapy, Crawlee): rejected. V1 is complete scope, and the research shows Apify, Bright Data, Spider Cloud and Octoparse each ship destinations the others lack. Database sinks are rare among scrapers, which leaves them open for Goodfetch to cover.
 - **Three classes, as ADR 0008 implied**: rejected. Elasticsearch, Qdrant and LanceDB reject a stale record but let a zombie insert new ones, which fits neither fenced nor keyed.
 - **The class looked up from the protocol name**: rejected, because "S3-compatible" and "MongoDB" each cover deployments with different guarantees.
 - **Every client compiled into the binary** (Vector, OpenTelemetry Collector): rejected. The AWS, Azure and Google SDKs, Kafka's C library and the database drivers would swell the binary and its notice inventory for everyone.
@@ -37,12 +37,12 @@ Evidence: [sinks, notifications and integrations research](https://github.com/Jb
 
 | Class | Destinations |
 | --- | --- |
-| Fenced | PostgreSQL, pgvector, Supabase direct, MySQL/MariaDB, SQL Server, SQLite on a local disk, MongoDB replica sets, DuckDB. Lab: Snowflake, BigQuery, Redshift, MotherDuck, Databricks (multi-statement transactions), Supabase through a fencing function, Kafka/Redpanda (one `transactional.id` kept across a run's epochs, so Kafka's own producer epoch fences the zombie), NATS JetStream (expected sequence), AWS S3, R2 (single-part writes; its multipart completion has no condition), GCS, Azure Blob, Dropbox, OneDrive/SharePoint and Box (their conditional writes are documented; using them as an epoch fence through a fence object is an inference), Iceberg (Automan sends the REST catalog commit itself, because `iceberg-rust` re-asserts against a reloaded snapshot) |
+| Fenced | PostgreSQL, pgvector, Supabase direct, MySQL/MariaDB, SQL Server, SQLite on a local disk, MongoDB replica sets, DuckDB. Lab: Snowflake, BigQuery, Redshift, MotherDuck, Databricks (multi-statement transactions), Supabase through a fencing function, Kafka/Redpanda (one `transactional.id` kept across a run's epochs, so Kafka's own producer epoch fences the zombie), NATS JetStream (expected sequence), AWS S3, R2 (single-part writes; its multipart completion has no condition), GCS, Azure Blob, Dropbox, OneDrive/SharePoint and Box (their conditional writes are documented; using them as an epoch fence through a fence object is an inference), Iceberg (Goodfetch sends the REST catalog commit itself, because `iceberg-rust` re-asserts against a reloaded snapshot) |
 | Record-fenced | Elasticsearch, OpenSearch, Qdrant, LanceDB, standalone MongoDB |
 | Keyed | ClickHouse, Pinecone, Weaviate, Milvus, Chroma, SFTP, FTP, Google Drive, Airtable, SQS/SNS FIFO, Service Bus, RabbitMQ Streams, Redis keys and Redis Streams (a crash or failover can lose an acknowledged fence write), S3-compatibles without conditional writes, Resend |
 | At-least-once | Webhooks, Google Sheets (a lab test may promote it to Keyed through developer metadata), Notion, SQS/SNS standard, Kinesis, Firehose, Pub/Sub, Event Hubs, RabbitMQ classic queues, SMTP, SES and Postmark |
 
-**Reporting the class.** The class appears in `automan sinks list`, in the run report and in the Console. When a retry falls outside a destination's dedup window, that delivery is reported as at-least-once.
+**Reporting the class.** The class appears in `goodfetch sinks list`, in the run report and in the Console. When a retry falls outside a destination's dedup window, that delivery is reported as at-least-once.
 
 **Two modes.** A Sink takes Records mode (rows or messages, delivered while the run goes), Files mode, or both. In Files mode, Exports roll into numbered parts by count, size or time, and a final part is written at run end. Each part's key carries the delivery ID and the epoch.
 
@@ -62,18 +62,18 @@ The last record in a batch wins. "Only new or changed" delivers what change trac
 - **Names:** normalized to snake_case, with collisions suffixed.
 - **Nesting:** nested data keeps the destination's native JSON, VARIANT or STRUCT type, with a `flatten` option.
 - **Changes:** each schema change emits an event.
-- **System columns:** `_automan_record_number`, `_automan_delivery_id`, `_automan_run_id`, `_automan_run_epoch`, `_automan_committed_at` and `_automan_meta`. Write modes that need them add `_automan_deleted`, `_automan_valid_from` and `_automan_valid_to`.
-- **Delivery table:** each destination gets an `_automan_deliveries` table holding the fence row and the delivery log.
+- **System columns:** `_goodfetch_record_number`, `_goodfetch_delivery_id`, `_goodfetch_run_id`, `_goodfetch_run_epoch`, `_goodfetch_committed_at` and `_goodfetch_meta`. Write modes that need them add `_goodfetch_deleted`, `_goodfetch_valid_from` and `_goodfetch_valid_to`.
+- **Delivery table:** each destination gets an `_goodfetch_deliveries` table holding the fence row and the delivery log.
 
 **Failure handling.**
 - **Collection:** does not stop for a Sink unless the run opts in with `on_sink_failure: stop`. Each Sink keeps its own cursor.
-- **Rejected Records:** a rejected batch is split recursively until the bad Records are isolated. They go to a per-Sink dead-letter list with the destination's reason and are retried on later runs. A value the engine had to null or truncate is recorded in `_automan_meta`.
+- **Rejected Records:** a rejected batch is split recursively until the bad Records are isolated. They go to a per-Sink dead-letter list with the destination's reason and are retried on later runs. A value the engine had to null or truncate is recorded in `_goodfetch_meta`.
 - **Delivery status:** `complete`, `complete with rejections`, `behind` or `failed`. Every failed page also emits an event.
 - **Retry schedule:** the Standard Webhooks schedule (immediately, 5 s, 5 min, 30 min, 2 h, 5 h, 10 h, 14 h, 20 h, 24 h).
   - Only 408, 429 and 5xx responses are retried, and `Retry-After` is honoured.
   - A `410` pauses the Sink.
   - After three days of total failure the Sink pauses and sends a Notification, with another one on recovery.
-- **After the run:** a Daemon keeps delivering a finished run's backlog. `automan deliver` can redeliver a delivery, recover failures since a date, replay what was never attempted, or backfill any past run to any Sink.
+- **After the run:** a Daemon keeps delivering a finished run's backlog. `goodfetch deliver` can redeliver a delivery, recover failures since a date, replay what was never attempted, or backfill any past run to any Sink.
 
 **Throughput.**
 - **Rate limiting:** each Sink ships a token bucket preset to its destination's published quotas, such as Sheets' 60 writes per minute per user and Airtable's 5 requests per second with 10 records each.
@@ -95,7 +95,7 @@ The last record in a batch wins. "Only new or changed" delivers what change trac
 
 They share one interface and one conformance suite, and earn the class they pass.
 
-**Bridge Sinks.** Bridges run a user-chosen Airbyte destination image or Singer target. Automan bundles none of them, because Airbyte connectors moved to ELv2 in July 2025 and several Singer targets are AGPL. The delivery ID is the primary key, and the probe reports the class. dlt is reached through a documented SDK handler.
+**Bridge Sinks.** Bridges run a user-chosen Airbyte destination image or Singer target. Goodfetch bundles none of them, because Airbyte connectors moved to ELv2 in July 2025 and several Singer targets are AGPL. The delivery ID is the primary key, and the probe reports the class. dlt is reached through a documented SDK handler.
 
 **Vector stores.** The engine chunks and embeds through a Model provider (ADR 0012).
 - Every embedding call goes through the Effect journal and counts against a currency Limit.
@@ -106,11 +106,11 @@ They share one interface and one conformance suite, and earn the class they pass
 
 **Export formats.** JSON, JSONL, CSV, XLSX, XML and Parquet are joined by HTML table, RSS/Atom, Avro, Arrow IPC and Markdown, with gzip or zstd compression.
 
-**OAuth.** Tokens are Secret references obtained by a loopback `automan auth <provider>` flow, or by service accounts.
+**OAuth.** Tokens are Secret references obtained by a loopback `goodfetch auth <provider>` flow, or by service accounts.
 - Refreshed and rotated tokens are written back to a writable Secret provider (keychain, encrypted file, vaults). With a read-only provider such as `env:`, they are kept in the run's encrypted state (ADR 0015) and the docs advise a writable provider for rotating tokens.
 - The run-start probe checks every token and sends an `auth expired` Notification before collection.
 - Bring-your-own OAuth clients come first, and the docs warn that Google expires refresh tokens after 7 days while an app is in testing.
-- Automan may also register its own Google app as an option. If it does, the app must be verified for production as a launch task and use the narrowest scopes, such as Drive's `drive.file`.
+- Goodfetch may also register its own Google app as an option. If it does, the app must be verified for production as a launch task and use the narrowest scopes, such as Drive's `drive.file`.
 
 **Webhook payloads.** Webhook Sinks send record batches capped at 256 KB by default. A thin shape instead carries a record range and a fetch URL, and is the default for workflow-tool Integrations.
 

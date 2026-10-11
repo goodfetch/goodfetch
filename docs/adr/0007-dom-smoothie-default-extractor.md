@@ -4,7 +4,7 @@ The default chain is dom-smoothie for main content, htmd for Markdown, html5ever
 
 ## Considered Options
 
-- **rs-trafilatura as default**: rejected. One maintainer, no commit since April 2026, three bugs filed in October, and machine-learning layers that Python trafilatura does not have. It ships vendored in a fork Automan can patch, pinned to a reviewed version.
+- **rs-trafilatura as default**: rejected. One maintainer, no commit since April 2026, three bugs filed in October, and machine-learning layers that Python trafilatura does not have. It ships vendored in a fork Goodfetch can patch, pinned to a reviewed version.
 - **lol-html for main content**: rejected. It is a streaming rewriter with no document tree and reached only all-body-text quality on WCXB; it reads fields at 0.27 of scraper's time with 99.6% or more agreement, which is what it is adopted for.
 - **mdka or html2md for Markdown**: not adopted yet. mdka leads htmd by 0.045 on WebMainBench, short of a formal verdict. htmd (112 dependent crates) is kept and its two measured defects are fixed upstream: code in `<pre>` without `<code>`, and tables with row headers. If mdka still leads by more than 0.03 after those fixes, the converter switches.
 

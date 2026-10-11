@@ -2,7 +2,7 @@
 
 The Console reads and acts through the same JSON-RPC protocol and Operation catalog as every other Client (ADRs 0011 and 0024). It carries them over a WebSocket on its own origin, authenticated by the `HttpOnly` cookie of ADR 0024, and fetches large files (page bodies, screenshots, Exports) by handle with plain HTTP `GET`, as a remote Client streams `page.body`. Its `hello` names the surface `console`, which gives the Audit log the surface ADR 0029 records with each reconciliation. One Console per user and per product major (ADR 0030) sees every run of that user and major on the machine:
 - **The Run index lists runs.** It is a small per-user, per-major SQLite catalog that every engine, Attached or Daemon, writes when a run starts and when one of its three axes changes. Each row holds the run's ID, its location (a run file, or the run inside the shared database of ADR 0002's per-install layout), Recipe, Lifecycle, Verdict, Completeness, timestamps, a Usage summary and, while the run is live, the engine that owns it.
-- **The runs stay the truth.** `automan runs reindex` rebuilds the index by scanning the configured run locations, the per-install database and any paths it is given; a run it cannot find stays as a missing row. A row whose file is gone shows as missing; it is never silently dropped.
+- **The runs stay the truth.** `goodfetch runs reindex` rebuilds the index by scanning the configured run locations, the per-install database and any paths it is given; a run it cannot find stays as a missing row. A row whose file is gone shows as missing; it is never silently dropped.
 - **Committed state comes from the run's database.** The Daemon reads any run through SQLite WAL readers, live or not, so the single writer of ADR 0002 holds.
 - **Live actions go to the owner.** On a live run it does not own, the Daemon forwards each live action to the owning engine. That covers takeover, confirmation, reconciliation, the event stream and live frames. It reaches an Attached engine through the private endpoint ADR 0024 gives it for its workers: the index records the endpoint, and its token sits in a separate `0600` file. Changes ADR 0024, whose private endpoint served only those workers.
 - **"Needs you".** The Console's single list of everything waiting for a person (Human pauses, confirmations, uncertain Effects, Plan diffs, runs stopped by a Limit, results to review) covers every run in the index.
@@ -18,17 +18,17 @@ Evidence from the competitor survey made for that ticket:
 ## Considered Options
 
 - **ADR 0027's HTTP listener as the Console's transport**: rejected. It is off by default and built for workflow tools, so the Console would break whenever it is off.
-- **A private API for the Console** (REST or GraphQL, as Dagster and n8n have): rejected. It is a second API to keep in step with the catalog, and Automan Cloud would have to copy it.
+- **A private API for the Console** (REST or GraphQL, as Dagster and n8n have): rejected. It is a second API to keep in step with the catalog, and Goodfetch Cloud would have to copy it.
 - **Scanning run directories to list runs** (TensorBoard's log directories): rejected. It gets slower with every run and misses runs stored outside the scanned folder.
 - **One Console per engine**: rejected. Two scripts would give two Consoles on two ports, each with its own "Needs you" list.
 - **Short-lived signed live-view links in Notifications** (Browserbase, Browserless, Anchor): rejected. A link that grants control sits in chat history and is forwarded with messages.
-- **Answering pauses and confirmations with chat-app buttons**: rejected. A Slack or Teams button identifies a chat user, not an Automan person who can verify a passkey.
+- **Answering pauses and confirmations with chat-app buttons**: rejected. A Slack or Teams button identifies a chat user, not a Goodfetch person who can verify a passkey.
 - **An in-page recorder such as rrweb** (Browserbase's recordings): rejected. It runs in the page's main world, where the page can see it, tamper with it and detect automation; the guard of ADR 0019 stays in an isolated world.
 
 ## Consequences
 
 **Where runs live.**
-- **Default folder.** Run files and directories go by default to a per-user, per-major data folder, such as `~/.local/share/automan/1/runs/<run-id>/` and its macOS and Windows equivalents. The location is a setting (ADR 0028). Each engine records its runs in the index wherever they are, so a run outside the default folder is still listed.
+- **Default folder.** Run files and directories go by default to a per-user, per-major data folder, such as `~/.local/share/goodfetch/1/runs/<run-id>/` and its macOS and Windows equivalents. The location is a setting (ADR 0028). Each engine records its runs in the index wherever they are, so a run outside the default folder is still listed.
 - **Changes ADR 0002:** the per-run layout gains this default location and the Run index.
 
 **Events and reconnects.**
@@ -47,7 +47,7 @@ Evidence from the competitor survey made for that ticket:
 - **Tiers, chosen automatically and each settable:**
   1. **The real window.** When the browser is headful on the person's own desktop, "Take control" can bring that window to the front.
   2. **CDP screencast** everywhere else, the default for headless browsers. It sends JPEG frames sized by `devicePixelRatio` under acknowledgement-based flow control. For remote viewers, the screencast is relayed over WebRTC as video, and falls back to JPEG frames over the WebSocket when WebRTC cannot connect.
-  3. **WebRTC H.264.** Where the browser runs headful in a virtual display (Linux containers, the OCI image, a Browser host, Automan Cloud), the engine captures that display at about 25 fps, and falls back to tier 2 when capture fails or WebRTC cannot connect. Steel moved from screencast ("4-12fps, unstable") to this.
+  3. **WebRTC H.264.** Where the browser runs headful in a virtual display (Linux containers, the OCI image, a Browser host, Goodfetch Cloud), the engine captures that display at about 25 fps, and falls back to tier 2 when capture fails or WebRTC cannot connect. Steel moved from screencast ("4-12fps, unstable") to this.
   
   Input goes through CDP (`Input.dispatch*`, `Input.insertText`, `Input.imeSetComposition`).
 - **The Session, not one tab.**
@@ -65,10 +65,10 @@ Evidence from the competitor survey made for that ticket:
   - **Audit.** Taking control, handing back and the start and end of input go to the Audit log. Keystrokes never do.
 - **Embeddable in users' own products**, as Browserbase, Steel, Hyperbrowser and Kernel allow.
   - **The grant.** `liveView.grant(session, mode, ttl, origins)` returns a token scoped to one Session. It is short-lived, single-use for opening the connection, tied to its origins through `frame-ancestors`, and revoked when the Session ends or by `liveView.revoke`.
-  - **What a grant allows.** A control grant lets its holder act in the page, for example to complete a login, MFA or CAPTCHA, and the pause then resolves through its Page check. A grant never confirms or reconciles an Effect, for the same reason chat-app buttons cannot: its holder is not an Automan person.
+  - **What a grant allows.** A control grant lets its holder act in the page, for example to complete a login, MFA or CAPTCHA, and the pause then resolves through its Page check. A grant never confirms or reconciles an Effect, for the same reason chat-app buttons cannot: its holder is not a Goodfetch person.
   - **View-only is enforced by the engine,** which drops the viewer's input. Browser Use's and Anchor's view-only modes are only drawn in the embedding page.
   - **Limits, audit and Usage.** The number of viewers is a setting, grants are audited, and live-view minutes count as Usage.
-  - **Packages.** A `<automan-live-view>` web component and a React wrapper ship with connection, control and Session events.
+  - **Packages.** A `<goodfetch-live-view>` web component and a React wrapper ship with connection, control and Session events.
 
 **Run traces.**
 - **What is recorded,** all on the CDP side with nothing injected into the page: the screencast as low-frame-rate video, a DOM snapshot at every action and Effect, the network log as HAR, and console messages. Playwright's trace has the same model. HTTP-tier runs record the network part only.
@@ -98,7 +98,7 @@ Evidence from the competitor survey made for that ticket:
 
 **Availability.**
 - **Idle stop.** A visible Console tab counts as a connected Client, so the Daemon does not stop idle while someone is looking. A hidden tab does not count.
-- **Socket activation.** `automan daemon install` registers launchd or systemd socket activation, so the first connection to the Console or the protocol starts the Daemon. On Windows, the installed logon task keeps the Daemon running. Because a Client may connect before the Daemon has launched and written its runtime file, a socket-activated Daemon uses a persistent per-user protocol token in a `0600` file instead of a per-launch one, rotated by `automan daemon rotate-token`. Changes ADR 0024.
+- **Socket activation.** `goodfetch daemon install` registers launchd or systemd socket activation, so the first connection to the Console or the protocol starts the Daemon. On Windows, the installed logon task keeps the Daemon running. Because a Client may connect before the Daemon has launched and written its runtime file, a socket-activated Daemon uses a persistent per-user protocol token in a `0600` file instead of a per-launch one, rotated by `goodfetch daemon rotate-token`. Changes ADR 0024.
 - **Logins survive restarts.** A per-user Console key in a `0600` file signs Console logins. They expire after 30 idle days and are revocable, and rotating the key signs everyone out. The Console key is separate from the protocol token.
 - **While disconnected,** the tab stays read-only under a banner and reconnects as above.
 - **Offline.** Run summaries and metadata are cached in the browser per major. Records are cached only when the person keeps a view offline, encrypted under a key that expires with the Console login. Secret fields are never cached. Sign-out wipes the cache, and Dataset erasures reach it as soon as a tab reconnects. A setting switches caching off.
@@ -111,11 +111,11 @@ Evidence from the competitor survey made for that ticket:
 **Reaching the Console remotely.**
 - **Links.** Notification links carry no credential. They point to the Console address the person sets, such as an exposed Daemon's TLS address.
 - **Remote access** means exposing the Daemon with TLS and passkeys (ADR 0017). The docs give tested setups for Tailscale, Cloudflare Tunnel and a reverse proxy.
-- **Out of scope.** A relay through Automan Cloud belongs to the Cloud map.
+- **Out of scope.** A relay through Goodfetch Cloud belongs to the Cloud map.
 
-**Automan Cloud.**
+**Goodfetch Cloud.**
 - **One contract.** The Console calls only catalog operations, including `runs.list` over the Run index, and takes its endpoint and authentication as configuration.
-- **The gateway.** Automan Cloud gives it a gateway that implements the same operations across its per-run engines (ADR 0001), reading its own index and forwarding live calls as the Daemon does.
+- **The gateway.** Goodfetch Cloud gives it a gateway that implements the same operations across its per-run engines (ADR 0001), reading its own index and forwarding live calls as the Daemon does.
 - **Testing.** One Console conformance suite runs against a Daemon and a stub gateway.
 - **Out of scope.** A hosted Console reaching a local Daemon belongs to the Cloud map.
 

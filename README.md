@@ -1,4 +1,4 @@
-# Automan
+# Goodfetch
 
 Web scraping and automation engine project.
 

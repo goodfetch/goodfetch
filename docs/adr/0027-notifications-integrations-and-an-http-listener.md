@@ -1,6 +1,6 @@
 # Notifications and Integrations are generated from the Operation catalog and reach the engine over an HTTP listener
 
-Messages about a run (Notifications) are kept apart from Records (Sinks). Automan inside other tools (Integrations) is a Client generated from the Operation catalog, like every agent surface in ADR 0011.
+Messages about a run (Notifications) are kept apart from Records (Sinks). Goodfetch inside other tools (Integrations) is a Client generated from the Operation catalog, like every agent surface in ADR 0011.
 
 Workflow tools force one change to ADR 0024. n8n's verification rules forbid runtime dependencies and environment or file access, so a verified node cannot start the engine and, we infer, can only reach it over HTTP; Zapier, Make and Pipedream call from their own clouds. So the Daemon gains an **HTTP JSON-RPC listener**: the same protocol with the same `hello` version check. It is off until a setting enables it, then binds to loopback with a token, and needs TLS plus a token for remote use (ADR 0017).
 
@@ -11,7 +11,7 @@ Evidence: [workflow tools, Airbyte and AI loaders](https://github.com/Jbmanllr/a
 ## Considered Options
 
 - **Hand-written Integrations per tool**: rejected for the same reason as ADR 0011. They drift from the engine, while generated ones expose every operation and setting the same way.
-- **Workflow tools reaching the engine only through Automan Cloud**: rejected. Self-hosted n8n and Activepieces can reach a local Daemon directly, and Automan Cloud is a later map.
+- **Workflow tools reaching the engine only through Goodfetch Cloud**: rejected. Self-hosted n8n and Activepieces can reach a local Daemon directly, and Goodfetch Cloud is a later map.
 - **Notifications as ordinary webhook Sinks**: rejected. A Notification carries no Records, goes to people as well as systems, and must not repeat across a resumed run. Most channels have no idempotency key: only Resend and Discord's bot API have one.
 
 ## Consequences
@@ -39,8 +39,8 @@ Evidence: [workflow tools, Airbyte and AI loaders](https://github.com/Jbmanllr/a
 **Integrations in V1**:
 - n8n (a verified node), Zapier, Make, Pipedream, Activepieces and Power Automate. Their actions start runs and Recipes and fetch Records. Their triggers arrive through a thin webhook carrying a record range and a fetch URL.
 - An Airbyte source that reads Datasets incrementally by record number. Apify's Airbyte source claims incremental sync but its manifest has none.
-- Dataset loaders for LangChain and LlamaIndex in TypeScript and Python, published as Automan's own packages. LlamaIndex's shared web-readers package is now GPL-3.0.
+- Dataset loaders for LangChain and LlamaIndex in TypeScript and Python, published as Goodfetch's own packages. LlamaIndex's shared web-readers package is now GPL-3.0.
 
-**What each Integration can reach**: the docs for each Integration state whether it works with a local Daemon, an exposed Daemon, a tunnel or Automan Cloud. Zapier rejects localhost; Make reaches local services only through its Enterprise on-premise agent; Power Automate's on-premises data gateway supports neither API-key authentication nor custom code.
+**What each Integration can reach**: the docs for each Integration state whether it works with a local Daemon, an exposed Daemon, a tunnel or Goodfetch Cloud. Zapier rejects localhost; Make reaches local services only through its Enterprise on-premise agent; Power Automate's on-premises data gateway supports neither API-key authentication nor custom code.
 
 **The HTTP listener** also serves the thin webhook's fetch URL. Being on HTTP, it keeps ADR 0017's `Host` and `Origin` checks. The Console does not read runs through it: it speaks the protocol over its own WebSocket (ADR 0031).

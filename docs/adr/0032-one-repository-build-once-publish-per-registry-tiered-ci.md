@@ -11,7 +11,7 @@ sdks/python/       the `py3-none` platform wheels
 adapters/          Vercel AI SDK, LangChain/LangGraph (TypeScript and Python), Mastra (ADR 0011)
 integrations/      n8n, Airbyte source, LangChain and LlamaIndex loaders, Zapier, Make, Pipedream, Activepieces, Power Automate (ADR 0027)
 skills/            agent skills
-conformance/       the cross-surface conformance suites, run against the Proving ground by `crates/goodfetch-conformance`
+conformance/       the cross-surface conformance suites, run against the Proving ground (harness: `crates/goodfetch-conformance`)
 proving-ground/    seed generator, page server, oracles, and deploy/ for the online copy
 bench/             the benchmark harness, competitor adapters, and results/
 docs/              the product documentation's content, plus adr/ and agents/

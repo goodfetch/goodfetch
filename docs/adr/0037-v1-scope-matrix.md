@@ -1,13 +1,13 @@
 # V1 scope matrix
 
-This matrix is the companion of [ADR 0037](0037-v1-scope-parity-and-pain-coverage.md). It gives one status, its source and its `/to-spec` area to every row of the [parity list of 2026-10-10](https://github.com/Jbmanllr/automan/blob/research/parity-list/rnd/research/2026-10-10-parity-list.md) (Crawlee JS 3.18.2 / 4.0.0-rc.1, Crawlee Python 1.10.4, Spider 2.53.9, Stagehand 4.2.0), to five Stagehand v3 capabilities reached through Crawlee, and to the 24 pains of `rnd/research/market/pains-ranking.md`. A ticket that resolves an `open` row changes that row in its pull request, and the map is done when no row reads `open`.
+This matrix is the companion of [ADR 0037](0037-v1-scope-parity-and-pain-coverage.md). It gives one status, its source and its `/to-spec` area to every row of the [parity list of 2026-10-10](https://github.com/Jbmanllr/automan/blob/research/parity-list/rnd/research/2026-10-10-parity-list.md) (Crawlee JS 3.18.2 / 4.0.0-rc.1, Crawlee Python 1.10.4, Spider 2.53.9, Stagehand 4.2.0), to five Stagehand v3 capabilities reached through Crawlee, and to the 24 pains of `rnd/research/market/pains-ranking.md`. A ticket that resolves an `open` row changes that row in its pull request, and the map is done when no row reads `open` and the map has no open ticket. When a pull request changes an `open` row, it also updates the "Waits on" column of ADR 0037.
 
 ## Status counts
 
 | Status | Parity rows | Stagehand v3 rows | Pains |
 |---|---:|---:|---:|
-| `decided` | 88 | 4 | 16 |
-| `spec` | 38 | 1 | 0 |
+| `decided` | 87 | 4 | 16 |
+| `spec` | 39 | 1 | 0 |
 | `excluded` | 1 | 0 | 0 |
 | `open → #N` | 15 | 0 | 8 |
 | Total | 142 | 5 | 24 |
@@ -22,23 +22,23 @@ This matrix is the companion of [ADR 0037](0037-v1-scope-parity-and-pain-coverag
 | RT-02 | Concurrency bounds and a requests-per-minute cap | `spec` | ADR 0004, ADR 0021, ADR 0028 | 3 Engine runtime | Global and per-domain caps decided. A global rate bound on the admission gate is spec. |
 | RT-03 | Resource budget from container limits (cgroups, Kubernetes) | `open → #115` | none | 3 Engine runtime | Nothing sizes engine concurrency from container limits yet; cgroups apply only to Plugins (ADR 0033). |
 | RT-04 | Retry count, handler before retry, failed-request handler | `spec` | ADR 0003, ADR 0028, ADR 0033 | 7 Plugin protocol | Retries are settings. A failed-request handler needs a new stage in ADR 0033's stage table. |
-| RT-05 | Error types that steer retries or abort the run | `spec` | ADR 0030, ADR 0006, ADR 0021 | 10 Client surfaces | Typed error codes are under semver. SDK error classes mapping onto recovery, retirement and stop are spec. |
+| RT-05 | Error types that steer retries or abort the run | `spec` | ADR 0030, ADR 0006, ADR 0021 | 11 Client surfaces | Typed error codes are under semver. SDK error classes mapping onto recovery, retirement and stop are spec. |
 | RT-06 | Timeouts: navigation, handler, whole run, first byte | `spec` | ADR 0003, ADR 0020, ADR 0028, [#69](https://github.com/Jbmanllr/automan/issues/69) item 7 | 3 Engine runtime | Handler and command timeouts decided. Whole-run wall-clock and first-byte timeouts are spec values. |
-| RT-07 | Routing to handlers by label, typed labels, middleware | `spec` | ADR 0033, [#71](https://github.com/Jbmanllr/automan/issues/71) | 10 Client surfaces | Label-scoped Hooks replace router middleware. The router and `userData` schema validation are SDK shape. |
+| RT-07 | Routing to handlers by label, typed labels, middleware | `spec` | ADR 0033, [#71](https://github.com/Jbmanllr/automan/issues/71) | 11 Client surfaces | Label-scoped Hooks replace router middleware. The router and `userData` schema validation are SDK shape. |
 | RT-08 | Pre- and post-navigation hooks | `decided` | ADR 0033 | 7 Plugin protocol | Hook stages before and after navigation. |
 | RT-09 | User state persisted across restarts | `decided` | [#71](https://github.com/Jbmanllr/automan/issues/71), ADR 0002 | 3 Engine runtime | A Key-value store in the run file checkpoints with the run. The `useState` shape is spec. |
 | RT-10 | Resume an interrupted crawl from persisted state | `decided` | ADR 0002, ADR 0003 | 3 Engine runtime | Frontier, Sessions and journal live in the per-run SQLite file. |
 | RT-11 | Stop, pause and resume a running crawl | `decided` | ADR 0001, ADR 0002, ADR 0029 | 3 Engine runtime | Pause is checkpoint, stop and resume, not an in-memory pause. |
-| RT-12 | Keep-alive run that waits for new work | `spec` | [#71](https://github.com/Jbmanllr/automan/issues/71), ADR 0005, ADR 0029 | 3 Engine runtime | A run flag plus CO-03's add-requests operation. A stopped keep-alive run with an empty frontier is `complete`. |
-| RT-13 | In-process scheduled (cron) runs | `decided` | ADR 0036 | 12 Scheduling | Daemon Schedules: cron, interval, Watch, after a run. |
+| RT-12 | Keep-alive run that waits for new work | `spec` | [#71](https://github.com/Jbmanllr/automan/issues/71), ADR 0005, ADR 0029 | 3 Engine runtime | A run flag plus CO-03's add-requests operation. How a keep-alive run finishes, and its Completeness, are spec under ADR 0029. |
+| RT-13 | In-process scheduled (cron) runs | `decided` | ADR 0036 | 10 Scheduling | Daemon Schedules: cron, interval, Watch, after a run. |
 | RT-14 | Lifecycle events: persist, system info, migrating, aborting | `decided` | ADR 0001, ADR 0024, ADR 0033 | 3 Engine runtime | Lifecycle Hooks, signals and the event stream. |
 | RT-15 | Run statistics, status log, custom status message | `spec` | ADR 0024, ADR 0029 | 3 Engine runtime | Usage and progress events decided. A user status message is one more progress-event field. |
-| RT-16 | Error grouping with HTML and screenshot snapshots | `spec` | ADR 0031, ADR 0029 | 11 Console | Traces are kept for failed runs. Grouping errors by code and stack is a report feature. |
+| RT-16 | Error grouping with HTML and screenshot snapshots | `spec` | ADR 0031, ADR 0029 | 12 Console | Traces are kept for failed runs. Grouping errors by code and stack is a report feature. |
 | RT-17 | Structured logging: levels, JSON, custom sink | `spec` | [#70](https://github.com/Jbmanllr/automan/issues/70) item 9 | 3 Engine runtime | The `tracing` substrate is decided. Levels, a JSON format and an SDK log callback are subscriber settings. |
 | RT-18 | OpenTelemetry traces | `decided` | [#70](https://github.com/Jbmanllr/automan/issues/70) item 9 | 3 Engine runtime | `tracing` everywhere, opt-in OTLP export, GenAI conventions for model calls. Recorded only in the ticket. |
 | RT-19 | Several crawlers in one process | `decided` | ADR 0002, ADR 0024 | 3 Engine runtime | A Daemon hosts several runs. |
 | RT-20 | Hedged requests, coalescing duplicate in-flight requests | `open → #115` | none | 3 Engine runtime | Open: whether Goodfetch ever sends redundant requests, and how they count against politeness and Effects. |
-| RT-21 | Pluggable storage, HTTP client, events and browser | `decided` | ADR 0033 | 7 Plugin protocol | Fetch, browser, Hook and Sink Plugin kinds decided. Storage excluded: a replaceable store would break portable, resumable runs (ADR 0002). |
+| RT-21 | Pluggable storage, HTTP client, events and browser | `decided` | ADR 0033 | 7 Plugin protocol | Fetch, browser, Hook and Sink Plugin kinds decided; events reach code through Hooks and the protocol (ADR 0024). Storage excluded: a replaceable store would break portable, resumable runs (ADR 0002). |
 | RT-22 | Typed config object and environment variables | `decided` | ADR 0028, ADR 0034 | 3 Engine runtime | Five-layer settings, generated schema, `GOODFETCH_` variables. |
 | RT-23 | Run a script beside the browser to save round trips | `decided` | ADR 0011, ADR 0022 | 9 AI and agent | Code mode in the engine sandbox; the Browser host keeps one round trip per action. |
 
@@ -46,13 +46,13 @@ This matrix is the companion of [ADR 0037](0037-v1-scope-parity-and-pain-coverag
 
 | ID | Capability | Status | Source | Spec area | Note |
 |---|---|---|---|---|---|
-| SDK-01 | Primary language and package | `decided` | ADR 0024, ADR 0034 | 10 Client surfaces | `goodfetch` binary, Rust crate, npm and PyPI SDKs. |
-| SDK-02 | Same API in several languages | `decided` | ADR 0011, ADR 0024, ADR 0030 | 10 Client surfaces | Every SDK is generated from one Operation catalog, in lockstep versions. |
+| SDK-01 | Primary language and package | `decided` | ADR 0024, ADR 0034 | 11 Client surfaces | `goodfetch` binary, Rust crate, npm and PyPI SDKs. |
+| SDK-02 | Same API in several languages | `decided` | ADR 0011, ADR 0024, ADR 0030 | 11 Client surfaces | Every SDK is generated from one Operation catalog, in lockstep versions. |
 | SDK-03 | Modular install | `decided` | ADR 0024, ADR 0033 | 1 Repository, CI and release | One binary; browsers, sink processes and Plugins fetched on demand by digest. |
-| SDK-04 | Project scaffolding CLI and templates | `open → #120` | ADR 0030 | 10 Client surfaces | `goodfetch init` writes an AGENTS.md index. Open: templates, their languages, and Dockerfiles in them. |
-| SDK-05 | No-code CLI that crawls or drives a browser | `decided` | ADR 0011, ADR 0034, ADR 0036 | 10 Client surfaces | CLI generated from the catalog with `--json`; code-free catalog runs. |
-| SDK-06 | Typed public API and schemas | `decided` | ADR 0011, ADR 0024, ADR 0028 | 10 Client surfaces | Typed catalog, generated SDK types, sync and async Python. |
-| SDK-07 | Docs for AI coding assistants | `decided` | ADR 0030 | 10 Client surfaces | `llms.txt`, `llms-full.txt`, embedded docs, skills, AGENTS.md. |
+| SDK-04 | Project scaffolding CLI and templates | `open → #120` | ADR 0030 | 11 Client surfaces | `goodfetch init` writes an AGENTS.md index. Open: templates, their languages, and Dockerfiles in them. |
+| SDK-05 | No-code CLI that crawls or drives a browser | `decided` | ADR 0011, ADR 0034, ADR 0036 | 11 Client surfaces | CLI generated from the catalog with `--json`; code-free catalog runs. |
+| SDK-06 | Typed public API and schemas | `decided` | ADR 0011, ADR 0024, ADR 0028 | 11 Client surfaces | Typed catalog, generated SDK types, sync and async Python. |
+| SDK-07 | Docs for AI coding assistants | `decided` | ADR 0030 | 11 Client surfaces | `llms.txt`, `llms-full.txt`, embedded docs, skills, AGENTS.md. |
 | SDK-08 | Browser provisioning | `decided` | ADR 0024 | 3 Engine runtime | Pinned builds in a digest-checked cache; `goodfetch browsers install`; offline path. |
 
 ### SA Site access
@@ -62,9 +62,9 @@ This matrix is the companion of [ADR 0037](0037-v1-scope-parity-and-pain-coverag
 | SA-01 | Plain HTTP fetching without a browser | `decided` | ADR 0020 | 5 Site access | HTTP tier on reqwest and wreq; the self-hosted equivalent of Stagehand's cloud fetch. |
 | SA-02 | Replaceable HTTP transport | `decided` | ADR 0033 | 7 Plugin protocol | Fetch backend Plugin kind. |
 | SA-03 | HTTP/2 | `decided` | ADR 0020, ADR 0035 | 5 Site access | wreq HTTP/2 settings matched to the build. |
-| SA-04 | Handler HTTP request sharing Session cookies and proxy | `spec` | ADR 0019, ADR 0020 | 5 Site access | Maps to Playwright `page.request`; the browser-fetch tier keeps the identity. Non-GET calls are Effects (ADR 0010). |
+| SA-04 | Handler HTTP request sharing Session cookies and proxy | `spec` | ADR 0019, ADR 0020 | 5 Site access | Maps to Playwright `page.request`; the browser-fetch tier keeps the identity. An Effect when the user declares it or an AI decides it (ADR 0010). |
 | SA-05 | Chromium, headless or headful | `decided` | ADR 0019, ADR 0024, ADR 0035 | 5 Site access | Direct CDP driver with the guard. |
-| SA-06 | Firefox, WebKit, Edge | `decided` | ADR 0019, ADR 0035 | 5 Site access | Firefox and WebKit through Playwright's driver with the guard; Edge best effort. |
+| SA-06 | Firefox, WebKit, Edge | `decided` | ADR 0019, ADR 0035, ADR 0030 | 5 Site access | Firefox and WebKit through Playwright's driver with the guard; Edge best effort. |
 | SA-07 | Puppeteer backend | `decided` | ADR 0019, ADR 0017, ADR 0003 | 5 Site access | Puppeteer code attaches over raw CDP, unguarded. Raw CDP is relayed by the engine and cut on lease loss (ADR 0003 amendment). |
 | SA-08 | Attach to a running or remote browser; never close it | `spec` | ADR 0022, ADR 0033 | 5 Site access | Third-party CDP browsers and Browser hosts decided. Releasing a borrowed browser without closing it is a default. |
 | SA-09 | Browser pool: page caps, retirement, launch hooks | `open → #115` | ADR 0006, ADR 0035, ADR 0033 | 3 Engine runtime | Decided: Session retirement; launch hooks are spec (browser backend kind). Open: page caps per browser, recycling on memory growth. |
@@ -73,7 +73,7 @@ This matrix is the companion of [ADR 0037](0037-v1-scope-parity-and-pain-coverag
 | SA-12 | Full native driver: frames, `route`, waits, assertions, `getBy*` | `spec` | ADR 0019, ADR 0003 | 5 Site access | `route`, assertions and `waitForResponse` follow ADR 0019's mapping. Raw CDP is relayed and cut on lease loss (ADR 0003 amendment). |
 | SA-13 | Click, fill, type, select, hover, scroll, drag, key, upload | `spec` | ADR 0019 | 5 Site access | Click, fill and human-like input decided. The rest follows ADR 0019's mapping; uploads land in the run directory. |
 | SA-14 | Waits: selector, load state, network idle, delay | `spec` | ADR 0019 | 5 Site access | The API waits through the guard until a deadline. Load-state, network-idle and explicit waits follow the mapping. |
-| SA-15 | Targeting inside iframes and shadow DOM | `decided` | ADR 0019, ADR 0009 | 5 Site access | OOPIF tracking; the recorder works across frames and shadow DOM. |
+| SA-15 | Targeting inside iframes and shadow DOM | `spec` | ADR 0019, ADR 0009 | 5 Site access | OOPIF tracking decided; the recorder spans frames and shadow DOM. Page API shadow-root targeting is spec. |
 | SA-16 | Evaluate JS; init scripts before page scripts | `spec` | ADR 0019 | 5 Site access | `evaluate` decided. A user init script departs from `standard` mode's no-injection identity (ADR 0021); the spec marks it. |
 | SA-17 | Request interception and resource or ad blocking | `open → #119` | ADR 0014, ADR 0033, ADR 0019 | 5 Site access | Decided: policy interception, Hook resource blocking; user `route` is spec. Open: built-in ad and tracker blocklists. |
 | SA-18 | Network and console events | `decided` | [#71](https://github.com/Jbmanllr/automan/issues/71), ADR 0019 | 5 Site access | Network and console capture decided. The `page.on` event API follows ADR 0019's mapping. |
@@ -87,23 +87,23 @@ This matrix is the companion of [ADR 0037](0037-v1-scope-parity-and-pain-coverag
 | SA-26 | Auto-dismiss JS dialogs | `spec` | ADR 0019, ADR 0014 | 5 Site access | The default dismisses dialogs, since accepting a `confirm()` may confirm an Effect (ADR 0014). |
 | SA-27 | HTTP auth challenge in the browser | `spec` | ADR 0019, ADR 0015 | 5 Site access | Answered from a Secret reference bound to domains. |
 | SA-28 | Close cookie-consent modals | `open → #119` | none | 5 Site access | Open: reject, hide or accept; accepting is close to ADR 0014's terms confirmation. Filter-list licences meet ADR 0018. |
-| SA-29 | Several tabs with an active page | `spec` | ADR 0019, ADR 0031 | 5 Site access | The live view follows popups. The tab API follows ADR 0019's mapping. |
+| SA-29 | Several tabs with an active page | `spec` | ADR 0019, ADR 0031 | 5 Site access | The Live view follows popups. The tab API follows ADR 0019's mapping. |
 | SA-30 | Clipboard read, write, copy, cut, paste | `spec` | ADR 0019 | 5 Site access | The page's clipboard, not the host's; mapped or excluded with a reason. |
 
 ### ST Stealth & challenge solving
 
 | ID | Capability | Status | Source | Spec area | Note |
 |---|---|---|---|---|---|
-| ST-01 | Browser fingerprint generation and injection | `decided` | ADR 0035, ADR 0021 | 8 Stealth and challenge solving | Fingerprint methods and generated identities. |
-| ST-02 | Headless-Chrome evasion patches | `decided` | ADR 0021, ADR 0019, ADR 0035 | 8 Stealth and challenge solving | Self-hosted equivalent of Verified browsers: Goodfetch-built Chromium, no `Runtime`, headful in `stealth`. |
-| ST-03 | Browser-like headers for HTTP | `decided` | ADR 0035, ADR 0020 | 8 Stealth and challenge solving | Header order and client hints captured from the build. |
-| ST-04 | TLS and HTTP fingerprint impersonation | `decided` | ADR 0020, ADR 0035 | 8 Stealth and challenge solving | wreq TLS and HTTP/2 matched to the Identity profile. |
-| ST-05 | Hardened browser builds (Camoufox, CloakBrowser) | `decided` | ADR 0035, ADR 0033 | 8 Stealth and challenge solving | Goodfetch build and Camoufox; CloakBrowser through a browser backend Plugin. |
-| ST-06 | Cloudflare challenge handling | `decided` | ADR 0035, ADR 0021, ADR 0018 | 8 Stealth and challenge solving | Self-hosted escalation ladder. Goodfetch's own solving logic is a licensed Private component (ADR 0018). |
-| ST-07 | CAPTCHA solving | `decided` | ADR 0035, ADR 0033, ADR 0018 | 8 Stealth and challenge solving | Self-hosted through the Challenge solver: the user's solver account or Plugin, or the licensed Private component. |
-| ST-08 | Block detection with retry or rotation | `decided` | ADR 0035, ADR 0021 | 8 Stealth and challenge solving | Typed block causes; the blocked Session is retired and reopened at the next tier. |
-| ST-09 | Session-bound proxy rotation with tiered escalation | `decided` | ADR 0021, ADR 0006 | 8 Stealth and challenge solving | Self-hosted with the user's own proxy providers. |
-| ST-10 | Hand-off to a managed unblocker | `decided` | ADR 0033 | 8 Stealth and challenge solving | A fetch backend Plugin reaches the user's unblocker account, with spend accounting. |
+| ST-01 | Browser fingerprint generation and injection | `decided` | ADR 0035, ADR 0021 | 8 Stealth and Challenge solving | Fingerprint methods and generated identities. |
+| ST-02 | Headless-Chrome evasion patches | `decided` | ADR 0021, ADR 0019, ADR 0035 | 8 Stealth and Challenge solving | Self-hosted equivalent of Verified browsers: Goodfetch-built Chromium, no `Runtime`, headful in `stealth`. |
+| ST-03 | Browser-like headers for HTTP | `decided` | ADR 0035, ADR 0020 | 8 Stealth and Challenge solving | Header order and client hints captured from the build. |
+| ST-04 | TLS and HTTP fingerprint impersonation | `decided` | ADR 0020, ADR 0035 | 8 Stealth and Challenge solving | wreq TLS and HTTP/2 matched to the Identity profile. |
+| ST-05 | Hardened browser builds (Camoufox, CloakBrowser) | `decided` | ADR 0035, ADR 0033 | 8 Stealth and Challenge solving | Goodfetch build and Camoufox; CloakBrowser through a browser backend Plugin. |
+| ST-06 | Cloudflare challenge handling | `decided` | ADR 0035, ADR 0021, ADR 0018 | 8 Stealth and Challenge solving | Self-hosted escalation ladder. Goodfetch's own solving logic is a licensed Private component (ADR 0018). |
+| ST-07 | CAPTCHA solving | `decided` | ADR 0035, ADR 0033, ADR 0018 | 8 Stealth and Challenge solving | Self-hosted through the Challenge solver: the user's solver account or Plugin, or the licensed Private component. |
+| ST-08 | Block detection with retry or rotation | `decided` | ADR 0035, ADR 0021 | 8 Stealth and Challenge solving | Typed block causes; the blocked Session is retired and reopened at the next tier. |
+| ST-09 | Session-bound proxy rotation with tiered escalation | `decided` | ADR 0021, ADR 0006 | 8 Stealth and Challenge solving | Self-hosted with the user's own proxy providers. |
+| ST-10 | Hand-off to a managed unblocker | `decided` | ADR 0033 | 8 Stealth and Challenge solving | A fetch backend Plugin reaches the user's unblocker account, with spend accounting. |
 
 ### CO Collection: frontier, sessions, extraction, datasets and sinks
 
@@ -114,7 +114,7 @@ This matrix is the companion of [ADR 0037](0037-v1-scope-parity-and-pain-coverag
 | CO-03 | Add URLs while the crawl runs | `spec` | [#71](https://github.com/Jbmanllr/automan/issues/71), ADR 0005 | 6 Collection | Forefront insertion and priority decided. The add-requests operation is SDK shape. |
 | CO-04 | Frontier ordered by priority | `decided` | ADR 0005, ADR 0004 | 6 Collection | Priority scores within a domain. |
 | CO-05 | Link discovery: scope, include/exclude, selector, transform, limit | `spec` | [#71](https://github.com/Jbmanllr/automan/issues/71), ADR 0005, ADR 0033 | 6 Collection | URL rules and Hook rewrite decided. Scope strategies, patterns and link selectors are spec. |
-| CO-06 | Enqueue by clicking JS-driven elements | `spec` | [#71](https://github.com/Jbmanllr/automan/issues/71) | 6 Collection | Clicks to discover links are not Effects: the spec aborts the navigations they start (ADR 0010, ADR 0014). |
+| CO-06 | Enqueue by clicking JS-driven elements | `spec` | [#71](https://github.com/Jbmanllr/automan/issues/71) | 6 Collection | Clicks to discover links are not Effects: the spec aborts their navigations and keeps them from sending state-changing requests (ADR 0010, ADR 0014). |
 | CO-07 | Crawl-depth limit | `spec` | [#71](https://github.com/Jbmanllr/automan/issues/71), ADR 0028 | 6 Collection | A depth cutoff reports the run `incomplete` (ADR 0005). |
 | CO-08 | Page budgets, global and per path | `spec` | [#71](https://github.com/Jbmanllr/automan/issues/71), [#69](https://github.com/Jbmanllr/automan/issues/69) item 7 | 6 Collection | Global request Limits decided. Per-path budgets are spec. |
 | CO-09 | Per-domain politeness incl. latency throttle and token bucket | `spec` | [#71](https://github.com/Jbmanllr/automan/issues/71), ADR 0021 | 6 Collection | Delay, backoff and crawl-delay decided. Latency throttle and token bucket are opt-in; defaults stay. |
@@ -150,8 +150,8 @@ This matrix is the companion of [ADR 0037](0037-v1-scope-parity-and-pain-coverag
 | AI-03 | LLM extraction validated by a schema | `decided` | ADR 0013, ADR 0012 | 9 AI and agent | Grounding; per-page model extraction is an explicit mode. |
 | AI-04 | Vision input | `decided` | ADR 0013 | 9 AI and agent | Opt-in, on the last rung of the ladder. |
 | AI-05 | Multi-step autonomous agent loop | `decided` | ADR 0013 | 9 AI and agent | A thin, journaled built-in agent over the catalog. |
-| AI-06 | Browser tools for external agent frameworks | `decided` | ADR 0011 | 10 Client surfaces | Generated adapters for Vercel AI SDK, LangChain/LangGraph and Mastra; MCP for the rest. |
-| AI-07 | MCP server | `decided` | ADR 0011, ADR 0017 | 10 Client surfaces | stdio and Streamable HTTP. |
+| AI-06 | Browser tools for external agent frameworks | `decided` | ADR 0011 | 11 Client surfaces | Generated adapters for Vercel AI SDK, LangChain/LangGraph and Mastra; MCP for the rest. |
+| AI-07 | MCP server | `decided` | ADR 0011, ADR 0017 | 11 Client surfaces | stdio and Streamable HTTP. |
 | AI-08 | Accessibility or DOM snapshot with element refs | `decided` | ADR 0011 | 9 AI and agent | Stable element references and diffs. |
 | AI-09 | WebMCP: list, invoke, cancel, add/remove events | `spec` | ADR 0011, [#72](https://github.com/Jbmanllr/automan/issues/72) | 9 AI and agent | Site tools join the catalog as Effects. Cancelling follows ADR 0010's uncertain-Effect rules. |
 | AI-10 | Model providers, own model, per-call override | `decided` | ADR 0012, ADR 0033 | 9 AI and agent | Three formats, gateways, local servers and the Model provider kind. |
@@ -184,10 +184,10 @@ This matrix is the companion of [ADR 0037](0037-v1-scope-parity-and-pain-coverag
 
 | ID | Capability | Status | Source | Spec area | Note |
 |---|---|---|---|---|---|
-| CN-01 | Watch a running browser live | `decided` | ADR 0031, ADR 0006 | 11 Console | Live view with three tiers and take control. |
-| CN-02 | Session recording and replay | `decided` | ADR 0031 | 11 Console | Self-hosted: Run traces replayed on the Timeline. |
-| CN-03 | Run status and progress in a UI | `decided` | ADR 0031, ADR 0029, ADR 0024 | 11 Console | Console over the Run index, on three axes. |
-| CN-04 | Hosted dashboard of runs, filterable by metadata | `decided` | ADR 0031, ADR 0036 | 11 Console | Self-hosted: the Console over the Run index, with run labels. |
+| CN-01 | Watch a running browser live | `decided` | ADR 0031, ADR 0006 | 12 Console | Live view with three tiers and take control. |
+| CN-02 | Session recording and replay | `decided` | ADR 0031 | 12 Console | Self-hosted: Run traces replayed on the Timeline. |
+| CN-03 | Run status and progress in a UI | `decided` | ADR 0031, ADR 0029, ADR 0024 | 12 Console | Console over the Run index, on three axes. |
+| CN-04 | Hosted dashboard of runs, filterable by metadata | `decided` | ADR 0031, ADR 0036 | 12 Console | Self-hosted: the Console over the Run index, with run labels. |
 
 ### CL Cloud readiness
 
@@ -195,7 +195,7 @@ This matrix is the companion of [ADR 0037](0037-v1-scope-parity-and-pain-coverag
 |---|---|---|---|---|---|
 | CL-01 | Docker images and Dockerfiles in templates | `open → #120` | ADR 0024, ADR 0017 | 13 Self-hosted deployment and operations | Decided: official non-root OCI image. Open: Dockerfiles in project templates (SDK-04). |
 | CL-02 | Deployment guides (AWS Lambda, Cloud Run) | `open → #120` | ADR 0031 | 13 Self-hosted deployment and operations | Decided: remote-access setups. Open: which self-hosted targets V1 supports, tests and documents. |
-| CL-03 | Crawler served as an HTTP service | `decided` | ADR 0027, ADR 0011, ADR 0017 | 10 Client surfaces | Daemon HTTP JSON-RPC listener; MCP Streamable HTTP. |
+| CL-03 | Crawler served as an HTTP service | `decided` | ADR 0027, ADR 0011, ADR 0017 | 11 Client surfaces | Daemon HTTP JSON-RPC listener; MCP Streamable HTTP. |
 | CL-04 | Several processes or machines sharing one queue | `decided` | ADR 0024, ADR 0003, ADR 0002 | 3 Engine runtime | `workers=N` processes lease from one run. Machines sharing a live frontier excluded: multiple writers (ADR 0002). Scale-out is [#116](https://github.com/Jbmanllr/automan/issues/116). |
 | CL-05 | Remote browser sessions with regions and keep-alive | `decided` | ADR 0022, [#69](https://github.com/Jbmanllr/automan/issues/69) item 8 | 14 Cloud-readiness contracts | Self-hostable Browser host; Sessions can be kept alive. Regions are a Cloud matter. |
 | CL-06 | Move from local to the vendor cloud by configuration | `decided` | ADR 0001, ADR 0031, ADR 0036 | 14 Cloud-readiness contracts | The cloud is an ordinary protocol client; the Console takes its endpoint as configuration. |
@@ -211,30 +211,30 @@ This matrix is the companion of [ADR 0037](0037-v1-scope-parity-and-pain-coverag
 | V3-04 | Built-in agent loop (v3 `agent().execute()`) | `decided` | ADR 0013 | 9 AI and agent | A thin, journaled built-in agent; dropping it, as Stagehand v4 did, was rejected. |
 | V3-05 | Local or remote browser chosen by configuration (v3 `env`) | `decided` | ADR 0022, ADR 0001, ADR 0028 | 5 Site access | Local browser, Browser host, or a third-party CDP browser such as Browserbase; the cloud is an ordinary protocol client. |
 
-No v3 API compatibility layer is offered (ADR 0037). A Crawlee+Stagehand migration guide is part of the docs (spec area 10 Client surfaces).
+No v3 API compatibility layer is offered (ADR 0037). A Crawlee+Stagehand migration guide is part of the docs (spec area 11 Client surfaces).
 
 ## Pains
 
 | Rank | Pain | Status | Source | Spec areas | Note |
 |---:|---|---|---|---|---|
-| 1 | `access-antibot-ip` | `decided` | ADR 0019, ADR 0020, ADR 0021, ADR 0035 | 8 Stealth and challenge solving; 5 Site access | Goodfetch cannot promise access to any site: whether a site admits automated traffic is the site owner's decision and an ongoing arms race. |
+| 1 | `access-antibot-ip` | `decided` | ADR 0019, ADR 0020, ADR 0021, ADR 0035 | 8 Stealth and Challenge solving; 5 Site access | Goodfetch cannot promise access to any site: whether a site admits automated traffic is the site owner's decision and an ongoing arms race. |
 | 2 | `agent-token-latency-cost` | `decided` | ADR 0009, ADR 0011, ADR 0013, ADR 0025 | 9 AI and agent | Plans replay with no model call; MCP profiles trim tools; observations send diffs; cost per verified result is benchmarked. |
-| 3 | `integ-mcp-agent-tooling` | `decided` | ADR 0011, ADR 0017, ADR 0030 | 10 Client surfaces; 9 AI and agent | One catalog generates MCP, CLI, skills and adapters; OAuth 2.1 for remote MCP; docs served as MCP resources. |
+| 3 | `integ-mcp-agent-tooling` | `decided` | ADR 0011, ADR 0017, ADR 0030 | 11 Client surfaces; 9 AI and agent | One catalog generates MCP, CLI, skills and adapters; OAuth 2.1 for remote MCP; docs served as MCP resources. |
 | 4 | `access-auth-session` | `open → #117` | ADR 0006, ADR 0015, ADR 0035 | 5 Site access | Decided: Page check, recovery ladder, MFA, saved identities. Open: bringing in a login the user already has. |
-| 5 | `cost-unpredictable-runaway` | `open → #115` | ADR 0012, ADR 0036, ADR 0010 | 3 Engine runtime; 12 Scheduling | Decided: currency Limits per run and per Schedule. Open: a cap across unscheduled runs. Credit billing is Goodfetch Cloud's. |
+| 5 | `cost-unpredictable-runaway` | `open → #115` | ADR 0012, ADR 0036, ADR 0010 | 3 Engine runtime; 10 Scheduling | Decided: currency Limits per run and per Schedule. Open: a cap across unscheduled runs. Credit billing is Goodfetch Cloud's. |
 | 6 | `compliance-site-owner-politeness` | `open → #118` | ADR 0021, ADR 0004, ADR 0016 | 5 Site access; 4 Security and egress | Open: pay-per-crawl (HTTP 402). Goodfetch cannot reduce the bot traffic other tools send or the blocks site owners place on shared IP ranges. |
 | 7 | `compliance-security-privacy` | `decided` | ADR 0014, ADR 0015, ADR 0016, ADR 0017 | 4 Security and egress | Certifications such as SOC 2 attach to an organization operating a service, so they belong to Goodfetch Cloud, not to the framework. |
-| 8 | `dx-setup-docs` | `decided` | ADR 0024, ADR 0028, ADR 0030 | 10 Client surfaces; 1 Repository, CI and release | Support channels and response times are a project-governance commitment, not an engine feature. |
+| 8 | `dx-setup-docs` | `decided` | ADR 0024, ADR 0028, ADR 0030 | 11 Client surfaces; 1 Repository, CI and release | Support channels and response times are a project-governance commitment, not an engine feature. |
 | 9 | `agent-deterministic-replay` | `decided` | ADR 0009, ADR 0010, ADR 0013 | 9 AI and agent | Plans are versioned files replayed without a model; the recorder also emits TypeScript or Python code. |
 | 10 | `silent-false-success` | `decided` | ADR 0006, ADR 0013, ADR 0026, ADR 0029 | 6 Collection; 9 AI and agent | Page check, Success checks, Grounding, typed challenge causes and the three-axis report. |
 | 11 | `agent-unreliable-drift` | `decided` | ADR 0009, ADR 0013, ADR 0019 | 9 AI and agent | Goodfetch does not make a model succeed at an arbitrary task; it makes an agent's failure visible (Success checks, Verdict) and its success repeatable (Plans). |
-| 12 | `integ-sdk-llm-runtime` | `open → #117, #120` | ADR 0012, ADR 0022, ADR 0024 | 10 Client surfaces; 5 Site access; 13 Self-hosted deployment and operations | Decided: three SDKs, model formats, third-party CDP browsers. Open: attaching to the user's Playwright ([#117](https://github.com/Jbmanllr/automan/issues/117)); edge and serverless Clients ([#120](https://github.com/Jbmanllr/automan/issues/120)). |
-| 13 | `cost-infra-proxy-spend` | `decided` | ADR 0020, ADR 0021, ADR 0025, ADR 0035 | 8 Stealth and challenge solving; 5 Site access | Proxy and CAPTCHA-service prices are set by their vendors; Goodfetch minimizes how much of them a run uses and reports the spend per verified result. |
+| 12 | `integ-sdk-llm-runtime` | `open → #117, #120` | ADR 0012, ADR 0022, ADR 0024 | 11 Client surfaces; 5 Site access; 13 Self-hosted deployment and operations | Decided: three SDKs, model formats, third-party CDP browsers. Open: attaching to the user's Playwright ([#117](https://github.com/Jbmanllr/automan/issues/117)); edge and serverless Clients ([#120](https://github.com/Jbmanllr/automan/issues/120)). |
+| 13 | `cost-infra-proxy-spend` | `decided` | ADR 0020, ADR 0021, ADR 0025, ADR 0035 | 8 Stealth and Challenge solving; 5 Site access | Proxy and CAPTCHA-service prices are set by their vendors; Goodfetch minimizes how much of them a run uses and reports the spend per verified result. |
 | 14 | `data-extraction-quality` | `decided` | ADR 0007, ADR 0013, ADR 0025 | 6 Collection; 2 Proving ground and conformance | Grounding, an extractor chosen on an independent corpus, and an extraction-quality benchmark family. |
-| 15 | `ops-scale-ratelimit-scheduling` | `open → #116, #120` | ADR 0004, ADR 0021, ADR 0036 | 3 Engine runtime; 12 Scheduling; 13 Self-hosted deployment and operations | Decided: backoff, fair admission, the Daemon scheduler. Open: shared politeness and scale-out ([#116](https://github.com/Jbmanllr/automan/issues/116)); Kubernetes artifacts ([#120](https://github.com/Jbmanllr/automan/issues/120)). |
+| 15 | `ops-scale-ratelimit-scheduling` | `open → #116, #120` | ADR 0004, ADR 0021, ADR 0036 | 3 Engine runtime; 10 Scheduling; 13 Self-hosted deployment and operations | Decided: backoff, fair admission, the Daemon scheduler. Open: shared politeness and scale-out ([#116](https://github.com/Jbmanllr/automan/issues/116)); Kubernetes artifacts ([#120](https://github.com/Jbmanllr/automan/issues/120)). |
 | 16 | `rel-hang-crash` | `decided` | ADR 0003, ADR 0019, ADR 0024, ADR 0033 | 3 Engine runtime | Leases, CDP command timeouts, process groups, Plugin heartbeat and resume from Checkpoint. |
 | 17 | `selfhost-parity-lockin` | `open → #120` | ADR 0001, ADR 0018, ADR 0031 | 13 Self-hosted deployment and operations; 14 Cloud-readiness contracts | Nothing held back to sell; Goodfetch's own solving logic is Private (ADR 0018). Open: Kubernetes and Helm, with pain #15. |
-| 18 | `agent-human-in-loop` | `decided` | ADR 0006, ADR 0014, ADR 0027, ADR 0031 | 11 Console; 9 AI and agent | Human pause, confirmation categories, live-view takeover and the "Needs you" list. |
+| 18 | `agent-human-in-loop` | `decided` | ADR 0006, ADR 0014, ADR 0027, ADR 0031 | 12 Console; 9 AI and agent | Human pause, confirmation categories, live-view takeover and the "Needs you" list. |
 | 19 | `dx-observability` | `open → #120` | [#70](https://github.com/Jbmanllr/automan/issues/70) item 9, ADR 0031 | 3 Engine runtime; 13 Self-hosted deployment and operations | OTLP export decided in [#70](https://github.com/Jbmanllr/automan/issues/70) item 9; run traces on the Timeline. Open: run and engine metrics, a scrapeable health endpoint. |
 | 20 | `maint-site-drift` | `decided` | ADR 0007, ADR 0009, ADR 0013 | 9 AI and agent | Fingerprinted Targets; Drift caught before the first Effect; one verified Repair. |
 | 21 | `maint-upgrade-regression` | `decided` | ADR 0025, ADR 0030, ADR 0032 | 1 Repository, CI and release; 2 Proving ground and conformance | One lockstep version, semver contracts, and a benchmark regression gate on every minor. |

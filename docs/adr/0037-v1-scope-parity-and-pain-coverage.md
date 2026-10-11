@@ -21,30 +21,30 @@ An item is **covered** when either:
 - an ADR or a closed ticket's resolution decides it (`decided`); or
 - a cited decision puts it in V1 and only API shape, naming or a default remain for `/to-spec` (`spec`).
 
-Only a real trade-off still unmade is `open`, and it becomes a grilling ticket on the map. A decision recorded only in a ticket's resolution stays there and is cited from the matrix, unless it contradicts an ADR's text, which is then amended. The matrix is [`0037-v1-scope-matrix.md`](0037-v1-scope-matrix.md), with one status per row (`decided`, `spec`, `excluded`, `open → #N`). A pull request that resolves a ticket changes that ticket's rows, and its fresh review checks it. The map is done when no row reads `open`. Decided in [V1 scope sign-off: parity and pain coverage](https://github.com/Jbmanllr/automan/issues/81).
+Only a real trade-off still unmade is `open`, and it becomes a grilling ticket on the map. A decision recorded only in a ticket's resolution stays there and is cited from the matrix, unless it contradicts an ADR's text, which is then amended. The matrix is [`0037-v1-scope-matrix.md`](0037-v1-scope-matrix.md), with one status per row (`decided`, `spec`, `excluded`, `open → #N`). A pull request that resolves a ticket changes that ticket's rows, and its fresh review checks it. The map is done when no row reads `open` and the map has no open ticket, since a ticket such as platform code signing holds no matrix row. Decided in [V1 scope sign-off: parity and pain coverage](https://github.com/Jbmanllr/automan/issues/81).
 
 ## Order of `/to-spec`
 
-One spec per area. An area goes to `/to-spec` only after every area whose contracts it consumes, and after the open tickets that feed it:
+One spec per area. An area goes to `/to-spec` only after every area whose contracts it consumes, and after every ticket that holds one of its `open` rows in the matrix; the "Waits on" column is derived from those rows, and a pull request that changes them updates it:
 
 | # | Area | ADRs | Waits on |
 |---:|---|---|---|
-| 1 | Repository, CI and release | 0030, 0032, 0034 | [Platform code signing for binaries and the Goodfetch Chromium](https://github.com/Jbmanllr/automan/issues/121) |
-| 2 | Proving ground and conformance | 0025 | |
-| 3 | Engine runtime | 0002–0004, 0024, 0028 | [Engine resource governance](https://github.com/Jbmanllr/automan/issues/115), [Scaling past one engine](https://github.com/Jbmanllr/automan/issues/116) |
+| 1 | Repository, CI and release | 0018, 0030, 0032, 0034 | [Platform code signing for binaries and the Goodfetch Chromium](https://github.com/Jbmanllr/automan/issues/121) |
+| 2 | Proving ground and conformance | 0025 |  |
+| 3 | Engine runtime | 0002–0004, 0024, 0028 | [Engine resource governance](https://github.com/Jbmanllr/automan/issues/115), [Scaling past one engine](https://github.com/Jbmanllr/automan/issues/116), [Self-hosted deployment and operations](https://github.com/Jbmanllr/automan/issues/120) |
 | 4 | Security and egress | 0015–0017 | [Network defaults](https://github.com/Jbmanllr/automan/issues/118) |
-| 5 | Site access | 0019–0023 | [Bringing an existing login or browser](https://github.com/Jbmanllr/automan/issues/117) |
-| 6 | Collection | 0005–0008, 0026 | [Built-in page clean-up](https://github.com/Jbmanllr/automan/issues/119) |
-| 7 | Plugin protocol | 0033 | |
-| 8 | Stealth and challenge solving | 0035 | |
-| 9 | AI and agent | 0009–0014 | |
-| 10 | Client surfaces (SDKs, CLI, MCP, skills, adapters, Integrations, Notifications) | 0011, 0024, 0027 | |
-| 11 | Console | 0029, 0031 | |
-| 12 | Scheduling | 0036 | |
-| 13 | Self-hosted deployment and operations | 0024 | [Self-hosted deployment and operations](https://github.com/Jbmanllr/automan/issues/120) |
-| 14 | Cloud-readiness contracts | 0001 | |
+| 5 | Site access | 0019–0023 | [Bringing an existing login or browser](https://github.com/Jbmanllr/automan/issues/117), [Network defaults](https://github.com/Jbmanllr/automan/issues/118), [Built-in page clean-up](https://github.com/Jbmanllr/automan/issues/119), [Self-hosted deployment and operations](https://github.com/Jbmanllr/automan/issues/120) |
+| 6 | Collection | 0005–0008, 0026 | [Engine resource governance](https://github.com/Jbmanllr/automan/issues/115), [Network defaults](https://github.com/Jbmanllr/automan/issues/118) |
+| 7 | Plugin protocol | 0033 |  |
+| 8 | Stealth and Challenge solving | 0035 |  |
+| 9 | AI and agent | 0009–0014 |  |
+| 10 | Scheduling | 0036 | [Engine resource governance](https://github.com/Jbmanllr/automan/issues/115), [Scaling past one engine](https://github.com/Jbmanllr/automan/issues/116), [Self-hosted deployment and operations](https://github.com/Jbmanllr/automan/issues/120) |
+| 11 | Client surfaces (SDKs, CLI, MCP, skills, adapters, Integrations, Notifications) | 0011, 0024, 0027 | [Bringing an existing login or browser](https://github.com/Jbmanllr/automan/issues/117), [Self-hosted deployment and operations](https://github.com/Jbmanllr/automan/issues/120) |
+| 12 | Console | 0029, 0031 |  |
+| 13 | Self-hosted deployment and operations | 0024 | [Scaling past one engine](https://github.com/Jbmanllr/automan/issues/116), [Bringing an existing login or browser](https://github.com/Jbmanllr/automan/issues/117), [Self-hosted deployment and operations](https://github.com/Jbmanllr/automan/issues/120) |
+| 14 | Cloud-readiness contracts | 0001 | [Self-hosted deployment and operations](https://github.com/Jbmanllr/automan/issues/120) |
 
-The Proving ground comes second because it is the oracle every later area's conformance suite runs against. Security precedes Site access because ADR 0017's egress policy wraps every fetch.
+The Proving ground comes second because it is the oracle every later area's conformance suite runs against. Security precedes Site access because ADR 0017's egress policy wraps every fetch. Scheduling precedes Client surfaces and the Console, which expose its `schedules.*` operations (ADR 0036).
 
 ## Considered Options
 

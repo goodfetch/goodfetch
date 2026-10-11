@@ -32,6 +32,10 @@ _Avoid_: sidecar, child engine
 A long-lived engine on the local machine that several Clients share and that outlives each of them.
 _Avoid_: server, service, background engine
 
+**Error code**:
+The stable name a Client receives when an operation fails, such as `page_check_failed`, which programs can match on and which keeps its meaning across releases of a major version.
+_Avoid_: error name, error kind, status code
+
 **Private component**:
 A closed component kept outside the open-source framework, used by Goodfetch Cloud and licensed under contract to vetted customers, that holds a capability whose public release would itself create legal exposure.
 _Avoid_: enterprise edition, premium module, closed core

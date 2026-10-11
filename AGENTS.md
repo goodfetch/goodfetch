@@ -6,6 +6,16 @@ Web scraping and automation framework project. `rnd/` holds the R&D material (pr
 
 Delivery mode: autonomous. Agents merge their own pull requests after a fresh review recorded on the pull request's exact head and green required checks. Deploying to production and running production migrations still need the owner's explicit request.
 
+## Code style
+
+Code follows [`STYLE.md`](STYLE.md), and the contracts follow ADR 0038. Traps that break things:
+
+- Only the protocol transport, the CLI's output writer and the `tracing` subscriber's writer touch stdout or stderr: when the binary is an Attached engine started by an SDK, or the stdio MCP server, stdout is the JSON-RPC channel. Everything else logs through `tracing`.
+- Never edit generated code (`generated/` folders, the committed JSON Schema bundle and catalog file): change the Rust types in `goodfetch-protocol` and run `xtask codegen`.
+- No task started outside its owner's tracker (no bare `tokio::spawn` or `spawn_blocking`), no `unwrap()` outside tests, no `#[allow]` (use `#[expect(lint, reason = "…")]`).
+- A capability is a setting, never a Cargo feature.
+- Identifiers use `GLOSSARY.md` terms, never their `_Avoid_` terms.
+
 ## Agent skills
 
 ### Issue tracker

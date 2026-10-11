@@ -65,12 +65,12 @@ An action of a run that changes something on a website or third-party service, s
 _Avoid_: side effect, mutation, write
 
 **Reconciliation**:
-A person's recorded answer about an uncertain Effect: it happened, it did not happen, or it stays uncertain.
+A person's recorded answer about an uncertain Effect: it happened, it did not happen, or it stays uncertain. An agent can ask for one but never give it.
 _Avoid_: resolution, manual fix, override
 
 **Verdict**:
-A run's statement of whether its committed results are proven: verified when every declared Success check passed and no Effect is left uncertain, needs review otherwise.
-_Avoid_: status, outcome, success
+A run's statement of whether its committed results are proven: verified, rejected by a failed Success check, or needing a person's review.
+_Avoid_: status, success, result (for the verdict)
 
 **Recipe**:
 A portable package of user code, described by a manifest, that runs the same locally or on Automan Cloud and can be published.

@@ -64,6 +64,10 @@ _Avoid_: scraping, scraper, bot
 One piece of work the engine carries out from start to finish, with its own inputs, state, limits and usage. The unit of isolation, resumption and counting.
 _Avoid_: job, execution, session (for a whole run)
 
+**Run index**:
+The per-user catalog of every run on a machine, pointing at each run's own state; it can always be rebuilt from the runs themselves.
+_Avoid_: run registry, run database, history
+
 **Effect**:
 An action of a run that changes something on a website or third-party service, such as submitting a form or placing an order. A resumed run checks whether an effect already happened instead of repeating it, and reports it as uncertain when it cannot tell.
 _Avoid_: side effect, mutation, write
@@ -125,6 +129,14 @@ _Avoid_: fingerprint (alone), persona, profile (alone)
 **Session pool**:
 The sessions a run keeps, scoring, rotating and retiring them as they fail.
 _Avoid_: session manager, account pool
+
+**Live view**:
+A Session's browser shown to a person while it works, which that person can take control of during a Human pause.
+_Avoid_: screencast, stream, remote desktop
+
+**Run trace**:
+The recording of what a run's Sessions did, such as their screens, page snapshots and network traffic, kept so a person can replay it.
+_Avoid_: session recording, replay (for the recording), video
 
 **Page check**:
 A declaration by a run's code of what an expected page and a login page look like, against which every page fetched in a session is judged.

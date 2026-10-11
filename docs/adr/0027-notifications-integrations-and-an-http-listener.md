@@ -43,4 +43,4 @@ Evidence: [workflow tools, Airbyte and AI loaders](https://github.com/Jbmanllr/a
 
 **What each Integration can reach**: the docs for each Integration state whether it works with a local Daemon, an exposed Daemon, a tunnel or Automan Cloud. Zapier rejects localhost; Make reaches local services only through its Enterprise on-premise agent; Power Automate's on-premises data gateway supports neither API-key authentication nor custom code.
 
-**The HTTP listener** also serves the thin webhook's fetch URL. Being on HTTP, it keeps ADR 0017's `Host` and `Origin` checks. Whether the Console reads runs through it is left to the map's open item on Console data access.
+**The HTTP listener** also serves the thin webhook's fetch URL. Being on HTTP, it keeps ADR 0017's `Host` and `Origin` checks. The Console does not read runs through it: it speaks the protocol over its own WebSocket (ADR 0031).

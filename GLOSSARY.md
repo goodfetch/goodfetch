@@ -188,6 +188,10 @@ _Avoid_: action log, history
 The single list of engine operations, each classed read, idempotent write or Effect, that every surface exposes to people and agents.
 _Avoid_: tool list, API surface
 
+**Experimental**:
+The status of an operation, setting or SDK method released outside the stable contract until it is promoted.
+_Avoid_: preview, beta, unstable, nursery
+
 **Code mode**:
 Driving the engine through a short program written by a model that calls only the Operation catalog.
 _Avoid_: scripting, eval

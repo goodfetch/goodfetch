@@ -1,27 +1,27 @@
-# Automan
+# Goodfetch
 
-Automan is an open-source framework for collecting web data, automating browsers and running AI-assisted workflows. Automan Cloud runs the same engine as a hosted service.
+Goodfetch is an open-source framework for collecting web data, automating browsers and running AI-assisted workflows. Goodfetch Cloud runs the same engine as a hosted service.
 
 ## Product
 
-**Automan**:
+**Goodfetch**:
 The open-source framework: the engine and every surface that drives it, such as the SDKs, the CLI, the MCP server and the agent skills.
-_Avoid_: engine (for the whole framework), library, platform
+_Avoid_: engine (for the whole framework), library, platform, Automan (its former working name)
 
 **Engine**:
-The runtime at the core of Automan that executes every run, whichever surface starts it.
+The runtime at the core of Goodfetch that executes every run, whichever surface starts it.
 _Avoid_: framework, core, backend
 
-**Automan Cloud**:
-The hosted service that runs the engine for customers on Automan's infrastructure.
-_Avoid_: platform, Automan (for the hosted service)
+**Goodfetch Cloud**:
+The hosted service that runs the engine for customers on Goodfetch's infrastructure.
+_Avoid_: platform, Goodfetch (for the hosted service)
 
 **Console**:
-The web interface for operating Automan, served locally by the engine or by Automan Cloud.
+The web interface for operating Goodfetch, served locally by the engine or by Goodfetch Cloud.
 _Avoid_: dashboard, inspector, app
 
 **Client**:
-Any program that drives the engine through its operations: an SDK, the CLI, the MCP server, the Console or Automan Cloud. Speaking CDP to a browser does not make a program a Client.
+Any program that drives the engine through its operations: an SDK, the CLI, the MCP server, the Console or Goodfetch Cloud. Speaking CDP to a browser does not make a program a Client.
 _Avoid_: frontend, binding, consumer
 
 **Attached engine**:
@@ -33,11 +33,11 @@ A long-lived engine on the local machine that several Clients share and that out
 _Avoid_: server, service, background engine
 
 **Private component**:
-A closed component kept outside the open-source framework, used by Automan Cloud and licensed under contract to vetted customers, that holds a capability whose public release would itself create legal exposure.
+A closed component kept outside the open-source framework, used by Goodfetch Cloud and licensed under contract to vetted customers, that holds a capability whose public release would itself create legal exposure.
 _Avoid_: enterprise edition, premium module, closed core
 
 **Browser host**:
-The Automan process that runs beside a browser and carries out a Session's operations for an engine running elsewhere.
+The Goodfetch process that runs beside a browser and carries out a Session's operations for an engine running elsewhere.
 _Avoid_: worker, agent, sidecar
 
 **Experimental**:
@@ -57,6 +57,14 @@ _Avoid_: scraping, spidering, scraper
 **Automation**:
 Driving a browser session through actions toward an objective.
 _Avoid_: scraping, scraper, bot
+
+**Foxhound**:
+The name of Goodfetch's Crawl and Extraction capabilities, taken together, never used without Goodfetch.
+_Avoid_: spider, scraper
+
+**Collie**:
+The name of Goodfetch's Automation capabilities, never used without Goodfetch.
+_Avoid_: browser module, agent
 
 ## Execution
 
@@ -81,7 +89,7 @@ A run's statement of whether its Success checks, Page checks and Grounding prove
 _Avoid_: status, success, result (for the verdict)
 
 **Recipe**:
-A portable package of user code, described by a manifest, that runs the same locally or on Automan Cloud and can be published.
+A portable package of user code, described by a manifest, that runs the same locally or on Goodfetch Cloud and can be published.
 _Avoid_: actor, app, pack, script
 
 **Operator policy**:
@@ -101,7 +109,7 @@ A cap on a run's usage; reaching it stops the run cleanly.
 _Avoid_: budget, quota
 
 **Tenant**:
-A customer of Automan Cloud. The engine never knows tenants.
+A customer of Goodfetch Cloud. The engine never knows tenants.
 _Avoid_: account, organization, user (for a customer)
 
 ## Collection
@@ -171,7 +179,7 @@ A message about a run's progress or outcome, sent to a person or a system, that 
 _Avoid_: alert, event (for the message), webhook (for every channel)
 
 **Integration**:
-A package that puts Automan inside another tool, such as a workflow tool node or a document loader; one that drives the engine is a Client.
+A package that puts Goodfetch inside another tool, such as a workflow tool node or a document loader; one that drives the engine is a Client.
 _Avoid_: connector, plugin, app
 
 **Baseline**:
@@ -213,7 +221,7 @@ A condition declared by the user that the engine evaluates live to decide whethe
 _Avoid_: check (alone), assertion, judge, validator
 
 **Agent**:
-A model-driven loop over the Operation catalog toward an objective, whether Automan's built-in one or an outside one; a single AI extraction is not an Agent.
+A model-driven loop over the Operation catalog toward an objective, whether Goodfetch's built-in one or an outside one; a single AI extraction is not an Agent.
 _Avoid_: bot, assistant
 
 **Model provider**:
@@ -261,5 +269,5 @@ _Avoid_: journal (alone), event log, history
 ## Measurement
 
 **Proving ground**:
-The website Automan owns and generates, whose every page has a known expected result, against which the benchmark and the conformance suites run.
+The website Goodfetch owns and generates, whose every page has a known expected result, against which the benchmark and the conformance suites run.
 _Avoid_: fixtures site, test site, sandbox, demo site

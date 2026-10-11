@@ -88,7 +88,7 @@ Evidence from the competitor survey made for that ticket:
   - **Recovery and teams.** Recovery codes and an operator reset cover lost passkeys, and OIDC groups map to roles.
 - **Web protections.** Cookies are `SameSite=Strict`, the `POST` fallback carries a CSRF token, and sign-in is rate-limited.
 - **Programs.** Programs use named tokens, each limited to certain operations, Recipes, runs or Datasets, with an expiry, and revocable in Engine & settings. Local Clients that find the Daemon through its runtime file keep using its protocol token: per-launch, or persistent under socket activation (below).
-- **Step-up.** On a Daemon with accounts, confirming an Effect (ADR 0014) or reconciling one (ADR 0029) in the Console asks for the person's passkey again. On a single-user Daemon, and in an interactive CLI prompt, the OS user answers as before. Adds to ADRs 0014 and 0029.
+- **Step-up.** On a Daemon with accounts, confirming an Effect (ADR 0014) or reconciling one (ADR 0029) in the Console asks for the person's passkey again. On a single-user Daemon, and in an interactive CLI prompt, the OS user answers as before. Adds to ADRs 0014 and 0029. Raising a Limit asks for it too (ADR 0040).
 
 **Settings** (changes ADR 0028).
 - **What the Console edits.** It edits user-level values and a run's own values, and shows every effective value with its layer and lock. It never edits project configuration or Recipe manifests, because those are files under version control.

@@ -111,7 +111,7 @@ The open-source framework schedules runs itself. A Schedule starts runs of one t
 - **Changes ADR 0027:** Notifications can be about a Schedule as well as a run. New events: Schedule auto-paused; occurrences skipped by a Limit, once per period; missed occurrences, once per wake; and, for any run with a Baseline, records changed. ADR 0027's delivery ledger keys the once-per-period and once-per-wake events by Schedule and period or wake, so they are never repeated.
 
 **People.**
-- On a shared Daemon (ADR 0031), viewers read Schedules and their history. Members create, edit, pause, resume and run now Schedules for targets they may run. Operators act on any Schedule and set caps in Operator policy: number of Schedules, minimum interval, period Limits.
+- On a shared Daemon (ADR 0031), viewers read Schedules and their history. Members create, edit, pause, resume and run now Schedules for targets they may run. Operators act on any Schedule and set caps in Operator policy: number of Schedules, minimum interval, period Limits. Limits across runs, such as a person's, are kept in the Usage ledger instead (ADR 0040).
 - Named tokens can be limited to `schedules.*` and to certain Recipes.
 - Each Schedule records as its creator the person or token that last created, edited or applied its definition; pausing, resuming and run now do not change it. The creator's rights are checked at every occurrence, so editing another member's Schedule never lends it someone else's rights. If they no longer allow the target, the Schedule pauses with a "Needs you" item.
 - Every change goes to the Audit log with a before-and-after diff, and each run records its Schedule and creator.

@@ -32,46 +32,73 @@ Comparable services cap spend in different ways:
   - a Client connection, such as an MCP session or an SDK's connection, for as long as the connection lasts.
 - **Periods.** Every scope except a run and a Client connection may count per day, week or month, in an explicit IANA time zone.
 - **What a Limit can cap.** Any kind of Usage: currency, model tokens and calls, browser time, proxy bytes by kind, and paid solves (ADR 0035).
-- **How they combine.** A run counts against every scope that applies to it, and the tightest one holds. A scheduled run counts against the scopes of its Schedule's creator. An Operator policy can lower any of these Limits for the engines of its major, never raise them.
+- **How they combine.** A run counts against every scope that applies to it, and the tightest one holds. A scheduled run counts against the scopes of its Schedule's creator.
+
+**Limits across runs are not settings** (changes ADR 0028).
+- **Where they live.** The install, Daemon, person, named token and Client connection Limits are kept in the Usage ledger. They are not resolved through ADR 0028's five layers, so `goodfetch config explain` does not show them; `goodfetch usage` does.
+- **Operator policy.** An Operator policy may still cap them for the engines of its own major: the stricter of the policy's cap and the ledger's Limit holds. A cap kept only in a per-major policy is escaped by another major, so the operator's Daemon and person Limits are written to the ledger, through the Console with ADR 0031's step-up or an interactive CLI prompt. ADR 0036's "operators set caps in Operator policy" now means these ledger Limits.
+- **Managed machines.** A *managed* Operator policy (ADR 0031) may name an install Limit, which every engine of that major writes to the ledger when it starts, so a fleet deployed by MDM or Ansible gets its cap without a person at each machine. Such a Limit is marked managed and can be changed only by changing the policy.
+- **Containers.** In a container, the ledger needs a persistent volume. Otherwise period Limits restart whenever the container does, and the CLI warns when the ledger sits on a temporary filesystem.
 
 **The Usage ledger.**
 - **What it is.** A per-user SQLite file. Every engine of that user on the machine reserves against it: Attached engines, the Daemon, and engines embedded through the Rust crate.
-- **What it holds.** The amounts and periods of the install, Daemon, person, named token and Client connection Limits, the leases taken against them, the Usage charged, and the scope-level Notifications and "Needs you" items below. The Console reads it beside the Run index.
+- **What it holds.**
+  - The Limits of the scopes above, as generic rows: scope kind, scope ID, Usage kind, period and amount.
+  - The slices taken against them, and the Usage charged.
+  - The scope-level Notifications and "Needs you" items below.
+
+  The Console reads it beside the Run index.
 - **Outside the majors.** It lives in a per-user folder outside the per-major folders, like ADR 0036's active-major marker, so running an older major's binary never escapes a cap. A person on a shared Daemon and a named token exist only on the Daemon of one major (ADR 0031), so their Limits apply on that Daemon.
-- **Its format** (changes ADR 0030). The ledger is a contract format whose major stays frozen across product majors. A new version may only add tables and columns, which older engines ignore rather than refuse. A change that cannot be made that way needs a new ledger beside the old one, read by both.
+- **Its format** (changes ADR 0030). The ledger is a contract format, added to ADR 0030's list. Its major stays frozen across product majors, so every supported major opens it.
+  - **New versions.** A new version adds rows, tables and columns.
+  - **Fails closed.** Each Limit row carries a *must understand* flag. An engine that finds a flagged Limit whose scope kind, Usage kind or period it cannot evaluate refuses to start runs it cannot place outside that Limit. The refusal uses the Error code `limit_not_understood`, which names the Limit and asks for an upgrade. An older engine therefore never runs past a Limit it cannot read.
+  - **Breaking changes.** A change that cannot be made by adding goes to a second ledger. Every engine that knows it keeps both up to date, so older engines still enforce what they can read.
 - **One machine.** Caps across several machines belong to Goodfetch Cloud. Its gateway keeps its own ledger per Tenant, with these scopes and semantics, behind the same operations (ADR 0001).
 
-**Reservation by slices.**
-- **Leasing.** For each scope this ADR adds, a run leases a slice and leases another when it is used up. Each lease is one transaction on the ledger, so concurrent engines can never take the same Usage twice.
+**Reservation by slices.** "Slice" is used here so as not to collide with the work-item lease of ADR 0003.
+- **Taking a slice.** For each scope this ADR adds, a run takes a slice and takes another when it is used up. Each slice is taken in one transaction on the ledger, so concurrent engines can never take the same Usage twice.
 - **Slice size.** The smaller of 1 % of the scope's Limit and the remainder divided by twice the number of live runs in that scope, both settable. Slices therefore shrink as the remainder falls, and no run holds back what others could use.
-- **Money.** A model call or paid solve still reserves its worst case before it is sent (ADR 0012). When the worst case exceeds the current slice, the run leases enough in the same transaction, or the call is refused. A currency Limit is therefore never exceeded.
-- **Measured Usage.** Usage known only afterwards, such as browser time and proxy bytes, is charged against the run's slice. A run whose slice runs out either leases another or stops at its next safe point, so it can go past a Limit only by what runs consume before then, as in ADR 0036.
+- **Reserved costs.** A model call or paid solve reserves its worst case before it is sent (ADR 0012). When the worst case exceeds the current slice, the run takes enough in the same transaction, or the call is refused. The reservation is journaled in the run before the call is sent. A currency Limit is therefore never exceeded by reserved costs.
+- **Measured Usage.** Usage known only afterwards, such as browser time and proxy bytes, is charged against the run's slice. A run whose slice runs out either takes another or stops at its next safe point. It can go past a Limit only by what runs consume before then, as in ADR 0036. A metered proxy's bytes count toward a currency Limit only when the price table (ADR 0012) has a price for that proxy, and then as measured Usage.
 - **Returning and reclaiming.** A run returns what is left of its slices when it ends.
-  - Each lease names its run and its engine, and every engine holds an OS lock while it lives (ADR 0031's lock-file test).
-  - An engine that opens the ledger and finds a lease whose engine's lock is free reclaims it. It reads the run's journaled Usage from its run state and charges that in place of the lease.
-  - When the run state cannot be read, the lease stays charged in full and is marked for review.
+  - **What each slice records:** its run, the run epoch (ADR 0003), the location of the run's state, and its engine. Every engine holds an OS lock while it lives (ADR 0031's lock-file test).
+  - **Reclaiming.** An engine that opens the ledger and finds a slice whose engine's lock is free reclaims it. It reads the run's state and charges the Usage journaled under that epoch in place of the slice. A reservation still open in the journal, such as a model call sent just before the crash, is charged at its worst case.
+  - **Unreadable state.** When the run state cannot be read, the slice stays charged in full and is marked for review.
+  - **Unsent Notifications.** The reclaiming engine also sends any threshold Notification the dead engine recorded but never marked sent.
 
 **When a Limit runs out.**
 - **New runs.** They are refused before they start, with the Error code `limit_reached`, which names the scope and its period, so an agent can tell its user why.
-- **Live runs.** A live run that cannot lease a new slice stops at its next safe point. Its Lifecycle is `stopped` and its Completeness `incomplete` (ADR 0029). It can be resumed once the period resets or the Limit is raised.
+- **Live runs.** A live run that cannot take a new slice stops at its next safe point. Its Lifecycle is `stopped` and its Completeness `incomplete` (ADR 0029). It can be resumed once the period resets or the Limit is raised.
 - **Schedules.** Their occurrences are recorded as *skipped: Limit*, as in ADR 0036.
 - **Notifications.** A Notification goes out at 50 %, 80 % and 100 % of each Limit (all settable), and a "Needs you" item at 100 %.
-  - **No duplicates.** The crossing is recorded in the ledger in the same transaction as the lease that crosses it, and only the engine that wrote it sends the Notification. Several engines crossing a threshold together therefore send it once.
+  - **No duplicates.** The crossing is recorded in the ledger in the same transaction as the slice that crosses it, and only the engine that wrote it sends the Notification, then marks it sent. Several engines crossing a threshold together therefore send it once.
   - **Where the item lives.** The "Needs you" item is kept in the ledger, and the Console lists it beside run items (ADR 0031).
 - **Visibility.** The Console's Engine & settings screen and `goodfetch usage` show Usage against each Limit, by scope.
 
 **No default amount, but uncapped runs are marked.**
-- **The mark.** A run that can spend money (model calls, paid solves, metered proxies) with no currency Limit in any scope is marked *uncapped* in its result, in the Console and in the CLI. This applies ADR 0023's rule that results say what was left off.
+- **The mark.** A run is marked *uncapped* in its result, in the Console and in the CLI, when it can spend money with nothing capping that spending:
+  - model calls or paid solves with no currency Limit in any scope;
+  - metered proxies with neither a proxy-bytes Limit nor a currency Limit and a price for that proxy.
+
+  This applies ADR 0023's rule that results say what was left off.
 - **First run.** `goodfetch init` and the Console's first launch offer to set a monthly Limit for the install.
 
-**Who sets and raises a Limit** (changes ADRs 0012 and 0036).
+**Who sets and raises a Limit** (changes ADRs 0012 and 0036, adds to ADR 0031).
 - **Setting.** Each scope is set by its owner, within the scopes above it:
-  - install: a person, in the Console or an interactive CLI prompt;
+  - install: a person, or a managed Operator policy;
   - Daemon and person: the operator;
   - named token: whoever creates the token, within their own Limits;
   - Client connection: the Client when it connects, within its token's Limits;
   - run: whoever starts it.
-- **Lowering.** Any Client may lower a Limit it is under, and the change applies at once.
-- **Raising.** Raising a Limit that already applies is answered only in the Console or an interactive CLI prompt. That covers raising a run's Limit to resume it and raising a Schedule's period Limit. ADR 0029 restricts Reconciliation the same way, and ADR 0031's step-up asks for a passkey on a Daemon with accounts. It is offered on no other surface generated from the catalog: not MCP, code mode, the SDKs, agent skills, framework adapters, Integrations, nor the CLI when it is not interactive or runs with `--json`.
+- **Lowering.** Any Client may lower a Limit it is under, and the change applies at once. Setting a Limit where none applied counts as lowering, so CI, the OCI image and an agent can always add a cap.
+- **Raising.** Raising a Limit that already applies is answered only in the Console or an interactive CLI prompt. That covers raising a run's Limit to resume it and raising a Schedule's period Limit.
+  - **Same rule as Reconciliation.** ADR 0029 restricts Reconciliation the same way. ADR 0031's step-up, which asks for a passkey on a Daemon with accounts, extends to raising a Limit.
+  - **Not offered elsewhere.** It is offered on no other surface generated from the catalog: not MCP, code mode, the SDKs, agent skills, framework adapters, Integrations, nor the CLI when it is not interactive or runs with `--json`.
 - **Schedules** (changes ADR 0036). A `schedules.edit` from another surface, or a `goodfetch schedules apply` of a Schedule file, that raises a period Limit is held as a "Needs you" item until a person confirms it. Until then, the previous Limit applies; the rest of the change applies at once.
-- **What it does not prove.** As ADR 0029 says of Reconciliation, this is a policy boundary, not a proof of humanity. A program with the user's own rights can still edit local files or start a new run with a higher run Limit where no wider scope holds it. The install Limit is the cap such a program cannot raise through any Goodfetch surface.
+- **What it does not prove.** As ADR 0029 says of Reconciliation, this is a policy boundary, not a proof of humanity. A program with the user's own rights can still get round it:
+  - by editing local files;
+  - by starting a new run with a higher run Limit where no wider scope holds it;
+  - by reconnecting to get a fresh Client connection Limit;
+  - by creating a new Schedule, or deleting one and creating it again, with a higher period Limit.
+
+  The install Limit is the cap such a program cannot raise through any Goodfetch surface.

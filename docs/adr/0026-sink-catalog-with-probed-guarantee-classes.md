@@ -53,7 +53,7 @@ Evidence: [sinks, notifications and integrations research](https://github.com/Jb
 - replace (written apart, then swapped in atomically)
 - history (versions with valid-from and valid-to)
 
-The last record in a batch wins. "Only new or changed" delivers what change tracking reports against the Baseline. A record missing since the Baseline can be soft-deleted. The engine refuses a mode a destination cannot support. On Sheets and Notion, the engine does the lookup itself.
+The last record in a batch wins. "Only new or changed" delivers what change tracking reports against the Baseline. A record missing since the Baseline can be soft-deleted, by a complete run only (ADR 0036). The engine refuses a mode a destination cannot support. On Sheets and Notion, the engine does the lookup itself.
 
 **Schema.** The declared schema comes first; otherwise it is inferred.
 - **Columns:** only added. A conflicting value widens the column to its lossless supertype, or goes to a variant column `<field>__v_<type>`.

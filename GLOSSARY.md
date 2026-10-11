@@ -125,8 +125,16 @@ A consistent, self-contained copy of a run's state from which the run can resume
 _Avoid_: snapshot, savepoint, backup
 
 **Limit**:
-A cap on a run's usage; reaching it stops the run cleanly.
+A cap on the usage of a run, or of a Schedule's runs over a period; reaching it stops the run cleanly or skips the Schedule's next occurrences.
 _Avoid_: budget, quota
+
+**Schedule**:
+A standing instruction, kept by the Daemon or Goodfetch Cloud, that starts runs of one target when its time comes or its trigger fires.
+_Avoid_: cron job, periodic job, monitor, trigger (for the whole Schedule)
+
+**Watch**:
+A small run that checks whether chosen pages or values changed since its last check, so that a Schedule starts its target only on change.
+_Avoid_: monitor, probe, poll
 
 **Tenant**:
 A customer of Goodfetch Cloud. The engine never knows tenants.
@@ -215,7 +223,7 @@ A package that puts Goodfetch inside another tool, such as a workflow tool node 
 _Avoid_: connector, plugin, app
 
 **Baseline**:
-A previous run that a run's results are compared with to report what changed.
+A previous run that a run's results are compared with to report what changed. For a Schedule's runs, it is the Schedule's latest verified and complete run unless one is pinned.
 _Avoid_: snapshot, reference run
 
 ## AI and agents

@@ -33,6 +33,7 @@ Evidence: [workflow tools, Airbyte and AI loaders](https://github.com/Jbmanllr/a
 - an Effect reported uncertain
 - an approval requested
 - a Human pause waiting, with a link to the live view (ADR 0006)
+- a Schedule auto-paused, occurrences skipped by a Limit (once per period), records changed, and missed occurrences (once per wake) (ADR 0036)
 
 **Notification delivery**: an engine-side ledger keyed by event ID means a resumed run never re-sends. Channel idempotency keys are used where they exist. A status change notifies once, not once per run.
 

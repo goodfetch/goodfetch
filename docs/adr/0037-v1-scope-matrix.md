@@ -22,7 +22,7 @@ This matrix is the companion of [ADR 0037](0037-v1-scope-parity-and-pain-coverag
 | RT-02 | Concurrency bounds and a requests-per-minute cap | `spec` | ADR 0004, ADR 0021, ADR 0028 | 3 Engine runtime | Global and per-domain caps decided. A global rate bound on the admission gate is spec. |
 | RT-03 | Resource budget from container limits (cgroups, Kubernetes) | `open → #115` | none | 3 Engine runtime | Nothing sizes engine concurrency from container limits yet; cgroups apply only to Plugins (ADR 0033). |
 | RT-04 | Retry count, handler before retry, failed-request handler | `spec` | ADR 0003, ADR 0028, ADR 0033 | 7 Plugin protocol | Retries are settings. A failed-request handler needs a new stage in ADR 0033's stage table. |
-| RT-05 | Error types that steer retries or abort the run | `spec` | ADR 0030, ADR 0006, ADR 0021 | 11 Client surfaces | Typed error codes are under semver. SDK error classes mapping onto recovery, retirement and stop are spec. |
+| RT-05 | Error types that steer retries or abort the run | `spec` | ADR 0030, ADR 0006, ADR 0021, ADR 0038 | 11 Client surfaces | Typed error codes are under semver, each with a retryable flag and one generated SDK class (ADR 0038). How the classes map onto recovery, retirement and stop is spec. |
 | RT-06 | Timeouts: navigation, handler, whole run, first byte | `spec` | ADR 0003, ADR 0020, ADR 0028, [#69](https://github.com/Jbmanllr/automan/issues/69) item 7 | 3 Engine runtime | Handler and command timeouts decided. Whole-run wall-clock and first-byte timeouts are spec values. |
 | RT-07 | Routing to handlers by label, typed labels, middleware | `spec` | ADR 0033, [#71](https://github.com/Jbmanllr/automan/issues/71) | 11 Client surfaces | Label-scoped Hooks replace router middleware. The router and `userData` schema validation are SDK shape. |
 | RT-08 | Pre- and post-navigation hooks | `decided` | ADR 0033 | 7 Plugin protocol | Hook stages before and after navigation. |
@@ -51,7 +51,7 @@ This matrix is the companion of [ADR 0037](0037-v1-scope-parity-and-pain-coverag
 | SDK-03 | Modular install | `decided` | ADR 0024, ADR 0033 | 1 Repository, CI and release | One binary; browsers, sink processes and Plugins fetched on demand by digest. |
 | SDK-04 | Project scaffolding CLI and templates | `open → #120` | ADR 0030 | 11 Client surfaces | `goodfetch init` writes an AGENTS.md index. Open: templates, their languages, and Dockerfiles in them. |
 | SDK-05 | No-code CLI that crawls or drives a browser | `decided` | ADR 0011, ADR 0034, ADR 0036 | 11 Client surfaces | CLI generated from the catalog with `--json`; code-free catalog runs. |
-| SDK-06 | Typed public API and schemas | `decided` | ADR 0011, ADR 0024, ADR 0028 | 11 Client surfaces | Typed catalog, generated SDK types, sync and async Python. |
+| SDK-06 | Typed public API and schemas | `decided` | ADR 0011, ADR 0024, ADR 0028, ADR 0038 | 11 Client surfaces | Typed catalog defined in Rust types, generated SDK types, sync and async Python. |
 | SDK-07 | Docs for AI coding assistants | `decided` | ADR 0030 | 11 Client surfaces | `llms.txt`, `llms-full.txt`, embedded docs, skills, AGENTS.md. |
 | SDK-08 | Browser provisioning | `decided` | ADR 0024 | 3 Engine runtime | Pinned builds in a digest-checked cache; `goodfetch browsers install`; offline path. |
 

@@ -252,6 +252,10 @@ _Avoid_: action log, history
 The single list of engine operations, each classed read, idempotent write or Effect, that every surface exposes to people and agents.
 _Avoid_: tool list, API surface
 
+**Error code**:
+The stable snake_case name a Client receives when an operation fails, such as `page_check_failed`, which code can match on and which keeps its meaning across releases of a major version.
+_Avoid_: error type, error class, status
+
 **Code mode**:
 Driving the engine through a short program written by a model that calls only the Operation catalog.
 _Avoid_: scripting, eval

@@ -1,6 +1,6 @@
 # One repository for every surface, build once and publish per registry, CI in tiers
 
-Every surface released together under ADR 0030 lives in one public repository, together with the Proving ground and the benchmark harness, because multi-language projects that release in lockstep keep one repository (Ruff, uv, Biome, Deno and Turborepo around a Rust core; Dagger, which releases every SDK at its engine's version; and Stagehand since v4, which keeps its TypeScript, Python and Go SDKs over one JSON-RPC protocol package), while those split per language lag: Playwright's language ports trail the core by one to three weeks, spider-rs's bindings sit behind its core, and Crawlee JS and Python keep separate version lines. Pydantic merged pydantic-core into its main repository in November 2025. The tree:
+Every surface released together under ADR 0030 lives in one public repository, together with the Proving ground and the benchmark harness. Multi-language projects that release in lockstep keep one repository (Ruff, uv, Biome, Deno and Turborepo around a Rust core; Dagger, which releases every SDK at its engine's version; and Stagehand since v4, which keeps its TypeScript, Python and Go SDKs over one JSON-RPC protocol package). Those split per language lag: Playwright's language ports trail the core by one to three weeks, spider-rs's bindings sit behind its core, and Crawlee JS and Python keep separate version lines. Pydantic merged pydantic-core into its main repository in November 2025. The tree:
 
 ```
 crates/            Cargo workspace: the public `automan` crate, internal `automan-*` crates, the `automan` binary
@@ -30,6 +30,8 @@ Releases are **built once and published per registry**: no tool publishes crates
 - **The docs in their own repository** (Deno, Biome, Playwright's website): rejected. Every example runs in CI (ADR 0030), and examples break when docs live apart; Polars moved its docs into the main repository for that reason.
 - **dist** (formerly cargo-dist) **for the whole release**: rejected. Its last release was v0.33.0 on 2026-09-11, most recent commits are from Dependabot, and it has no PyPI, crates.io or npm trusted-publishing jobs; uv now maintains by hand the workflow that dist first generated.
 - **release-please**: rejected. It has open bugs with linked Cargo and npm versions and with prereleases, which the rc and nightly channels of ADR 0030 need.
+- **release-plz**, the tool ADR 0030 named: rejected for the whole release. It versions and publishes Rust crates only, and its `wait_until_published` returns too early during workspace publishes.
+- **knope**, which versions Cargo, npm and Python manifests together: rejected. It does not publish, and the release step needs code anyway, to keep the internal crates at `0.0.x` and to generate the per-platform npm packages.
 - **Changesets** (Biome): rejected. It versions npm packages only, not Cargo or Python, and its own docs warn that prerelease mistakes are very hard to fix.
 - **Postinstall downloads for npm** (dist's and GoReleaser's npm wrappers): rejected. They fail under `--ignore-scripts` and offline; Biome, Turborepo, Deno, Rolldown, Oxc and Rspack all publish per-platform packages, as ADR 0024 already requires.
 - **A graph build system** (Nx, moon, Bazel): rejected. It adds a second build system; the native workspaces and the change detection below cover what CI needs.
@@ -51,13 +53,14 @@ Releases are **built once and published per registry**: no tool publishes crates
   - Nothing is edited except broken links, and lab code stays as history after its fixtures and harness move.
   - `pnpm lab ci` runs only when files under `rnd/` change, and is never a required check.
   - `research/*` branches stay unmerged.
-- **Private components.** The public repository holds each Private component's interface, a no-op implementation that keeps the public engine whole, and that interface's conformance suite (ADR 0018). The private repository builds against public `main` every night and against every release candidate. A release candidate is not promoted to stable while that run is red, so the challenge solver cannot silently fall out of a release. Public CI never sees private code or secrets.
+- **Private components.** The public repository holds each Private component's interface, a no-op implementation that keeps the public engine whole, and that interface's conformance suite (ADR 0018). The private repository builds against public `main` every night and against every release candidate and patch. A release candidate is not promoted, and a patch is not published, to stable while that run is red, so the challenge solver cannot silently fall out of a release. Public CI never sees private code or secrets.
 - **Release automation.** This settles the item ADR 0030 left to the specs.
-  - **Versioning.** An in-house `xtask release`, a small Rust program, sets the product version in every released manifest, keeps the internal `automan-*` crates at `0.0.x` and leaves the Zapier and Make apps to their platforms' versioning (ADR 0030), writes the changelog with git-cliff and opens a release pull request.
+  - **Versioning.** An in-house `xtask release`, a small Rust program, sets the product version in every released manifest. It keeps the internal `automan-*` crates at `0.0.x` and leaves the Zapier and Make apps to their platforms' versioning (ADR 0030). It then writes the changelog with git-cliff and opens a release pull request.
   - **Build.** Merging the release pull request builds every target once, with artifact attestations, signatures (ADR 0016) and a CycloneDX SBOM for the archives.
-  - **Promotion.** A release candidate is published to the beta channel first. It is promoted to stable only once its beta week's gates are green: the benchmark (ADR 0025), the Private component run and the conformance suites; a patch runs the correctness oracle instead (ADR 0030).
-  - **Publishing.** One job per registry: crates.io, npm (platform packages before the root), PyPI, the OCI image with its SBOM, and the GitHub Release.
-  - **Credentials.** Every registry job publishes through OIDC trusted publishing only.
+  - **Minors.** A release candidate is published to the beta channel first. It is promoted to stable only once its beta week's gates are green: the conformance suites, the benchmark (ADR 0025) and the Private component run.
+  - **Patches.** A patch has no beta week. Before it publishes, it passes the conformance suites, the correctness oracle, the guard when it carries a new Chrome major (ADR 0030), and the Private component build against it.
+  - **Publishing.** One job per registry: crates.io, npm (platform packages before the root), PyPI, the OCI image with its SBOM, and the GitHub Release, made immutable (ADR 0030).
+  - **Credentials.** Every registry job publishes through OIDC trusted publishing. npm and crates.io accept a trusted publisher only on a package that already exists, so each new package name, including each new per-platform npm package, is first published once by hand with a placeholder version.
   - **Re-runs.** A re-run skips versions already published, and the tag is pushed only after npm succeeds.
   - **Installers.** The `curl | sh` and PowerShell installers are written by hand. Automan's own Homebrew tap is updated by the release job.
 - **CI tiers.**
@@ -65,16 +68,17 @@ Releases are **built once and published per registry**: no tool publishes crates
     - One change-detection job decides what runs; workflow-level path filters are never used on required checks, because a skipped required check stays pending forever.
     - Formatting, lints and unit tests on Linux.
     - Tests of the SDKs and adapters the change touches, on one runtime each.
-    - The suites of changed Sinks against emulators and containers on Linux only, images pinned by digest: RustFS for S3, and LocalStack for the AWS queues and streams (SQS, SNS, Kinesis, Firehose) under its free open-source licence, whose token, required since March 2026, is a CI secret. The merge queue runs every Sink's suite, so ADR 0026's rule that every pull request passes the sink suite before it merges still holds.
+    - The sink suites against emulators and containers on Linux only, images pinned by digest: RustFS for S3, and LocalStack for the AWS queues and streams (SQS, SNS, Kinesis, Firehose). LocalStack has required an auth token since March 2026. Automan applies for its free open-source licence; if that is refused, the owner approves a paid token like any paid test resource. The token is a CI secret.
+    - Which Sinks run: until the merge queue exists, every Sink's suite, as ADR 0026 requires. Once it exists, a pull request runs only the suites of the Sinks it changes, and the merge queue runs them all before the merge, so every pull request still passes the whole sink suite before it lands. A change to the sink protocol or to code that Sinks share counts as a change to every Sink.
     - The docs build and example runs when docs change.
     - DCO, the notice inventory (ADR 0018), the API breakage checks (ADR 0030), `cargo-deny`, `cargo-audit` and their npm and Python equivalents, a check that every Action is pinned by SHA, and a build on the minimum supported Rust version.
     - One "all green" job, the only required check.
   - **Merge queue and `main`:** the full matrix of ADR 0024:
-    - Platforms: Linux x64 and arm64 (glibc and musl), macOS arm64 and Intel (`macos-15-intel` or `macos-26-intel`), Windows x64 and arm64. If GitHub retires its Intel macOS runners, the x64 build is cross-compiled and tested under Rosetta 2 on arm64 runners.
+    - Platforms: Linux x64 and arm64 (glibc and musl), macOS arm64 and Intel (`macos-15-intel` or `macos-26-intel`), Windows x64 and arm64. If GitHub retires its Intel macOS runners, the x64 build keeps shipping (ADR 0024), and how it is tested is decided then.
     - Runtimes: every supported Node line, Bun and Deno; every supported CPython, with its free-threaded build from 3.14t on, on Linux.
     - Browser conformance on every operating system.
 
-    Every target has a free GitHub-hosted runner for public repositories. The free plan's 20 concurrent jobs, 5 of them macOS, are why this tier waits for the merge queue.
+    Once the repository is public, every target has a free GitHub-hosted runner. The free plan's 20 concurrent jobs, 5 of them macOS, are why this tier waits for the merge queue.
   - **Nightly:**
     - Real SaaS sink accounts, which the owner approves case by case (ADR 0026).
     - Free-threaded Python on every operating system.
@@ -84,4 +88,8 @@ Releases are **built once and published per registry**: no tool publishes crates
     - The nightly channel's publish.
   - **Release candidate:** the benchmark of ADR 0025 runs on the reference host. The host is registered as a self-hosted runner that only tag and manual dispatch events reach, never pull-request code.
 - **Caching.** `Swatinem/rust-cache`, saving only from `main`.
-- **Organization.** The repository moves to a GitHub organization before the first release, because GitHub's documentation offers the merge queue to organization-owned repositories, and trusted-publishing identities name the repository. The organization also holds the private repository, the Homebrew tap and release rights for more than one maintainer. Its name follows [Product name: keep Automan or rename](https://github.com/Jbmanllr/automan/issues/83), as does the docs domain; GitHub redirects the old URLs. Until the move, `main` runs the full matrix after each merge.
+- **Docs source.** The documentation's content lives in `docs/` and the Docusaurus site in `website/`, which settles where the docs source lives, the other item ADR 0030 left to this one.
+- **Visibility and organization.** The repository stays private until its first release. Before that release, the owner creates a GitHub organization and moves the repository into it, and it becomes public when the first version is published. The organization's name follows [Product name: keep Automan or rename](https://github.com/Jbmanllr/automan/issues/83), as does the docs domain; GitHub redirects the old URLs.
+  - **Why an organization:** GitHub offers the merge queue to public repositories owned by an organization, and each registry's trusted-publisher entry names the GitHub owner and repository, so the move comes before the first publish. The organization also holds the private repository, the Homebrew tap and release rights for more than one maintainer.
+  - **Until the repository is public:** private repositories pay for hosted-runner minutes, macOS most of all. The pull-request tier runs on Linux only, the full matrix runs on manual dispatch, and the nightly tier is off. Every tier above applies from the first release.
+

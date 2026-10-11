@@ -58,7 +58,7 @@ _Avoid_: inline hook, user script
 
 **Plugin index**:
 The signed list of community Plugins that people search to find one, with each Plugin's conformance results.
-_Avoid_: registry (for the index; packages live in their own registries), marketplace, hub
+_Avoid_: registry (for the index; Plugins live in OCI registries), marketplace, hub
 
 **Experimental**:
 The status of an operation, setting or SDK method released outside semver's compatibility promise until it is promoted.

@@ -1,6 +1,6 @@
 # One plugin protocol for every Plugin kind; the engine accounts for every Plugin and confines process Plugins
 
-V1 extends the engine through **Plugins**, each implementing one or more **Plugin kinds** under one contract per kind and one conformance suite. ADR 0026's pattern for Sinks becomes the rule for all of them: the public sink protocol becomes the **plugin protocol**, with a `hello` handshake that negotiates the protocol version and declares the Plugin's kinds, then one group of JSON-RPC methods per kind (`sink.*`, `fetch.*`, …). The engine accounts for every call into a Plugin, whatever its form: it counts it, classes it, journals what ADRs 0010 and 0012 require, and holds it to Limits. A process Plugin also runs confined on Linux, macOS and Windows, at the network level its manifest declares; the engine enforces each level as far as the host allows and states plainly what it cannot enforce. Decided in [Plugin and extension model](https://github.com/Jbmanllr/automan/issues/108).
+V1 extends the engine through **Plugins**, each implementing one or more **Plugin kinds** under one contract per kind and one conformance suite. ADR 0026's pattern for Sinks becomes the rule for all of them: the public sink protocol becomes the **plugin protocol**, with a `hello` handshake that negotiates the protocol version and declares the Plugin's kinds, then one group of JSON-RPC methods per kind (`sink.*`, `fetch.*`, …). The engine accounts for every call into a Plugin, whatever its form: it counts it, classes it, journals what ADRs 0010 and 0012 require, and holds it to Limits. A process Plugin also runs confined on Linux, macOS and Windows, at the network level its manifest declares; where the host cannot provide a level, the engine refuses it rather than weaken it, and it states plainly what a level cannot check. Decided in [Plugin and extension model](https://github.com/Jbmanllr/automan/issues/108).
 
 Thirteen kinds:
 
@@ -13,7 +13,7 @@ Thirteen kinds:
 | Sink | delivery to a destination, as ADR 0026 decided | Scrapy pipelines, Crawlee storage clients |
 | Model provider | a model format beyond ADR 0012's three; ADR 0012's SDK model callback is its SDK-handler form | Stagehand's custom LLM function |
 | Decision provider | a Model provider held to the decision contract the [decision models research](https://github.com/Jbmanllr/automan/issues/92) suggested: one option from a fixed list with a confidence, or a typed abstention | none |
-| Secret provider | beyond ADR 0015's built-in providers; its custom HTTP provider becomes a form of this kind | — |
+| Secret provider | beyond ADR 0015's built-in providers; its custom HTTP provider becomes an implementation of this kind | — |
 | Challenge solver | the public interface a Private component plugs into (ADR 0018) | Crawlee through playwright-extra |
 | Proxy provider | a proxy per Session | Crawlee `newUrlFunction`, Spider `with_proxy_strategy` |
 | Search provider | joins ADR 0011's interchangeable web search providers | — |
@@ -26,18 +26,20 @@ What the engine enforces differs by form, so every distributed Plugin takes the 
 - **Distributed Plugins are process Plugins.** `goodfetch plugins add` and the Plugin index accept process Plugins only. Private components ship only as process Plugins too.
 - **SDK-handler and Rust-trait Plugins are the user's own code**, like a user handler (ADR 0003). They run in the user's process with the user's rights, and the engine accounts for every call into them but cannot confine them. Records produced through them say so in their Provenance. The docs state that a third-party package used in these forms runs with full rights.
 - **Process Plugins are always confined**, as below. There is no `unconfined` opt-out: a Plugin that needs more than its confinement allows has to be run as the user's own code. Confinement is not one of ADR 0016's switchable controls: no run, Recipe or setting can turn it off.
-- **Two named exceptions run third-party code outside a Plugin's confinement**, each approved per digest by Operator policy: a browser a Plugin declares (below), which runs as Goodfetch's own browsers do, and a Bridge Sink's container image, confined by a rootless container runtime instead.
+- **Two named exceptions run third-party code outside a Plugin's confinement**, each approved per digest by Operator policy: a browser a Plugin declares (below), which runs with the user's full rights as Goodfetch's own browsers do, and a Bridge Sink's container image, confined by a rootless container runtime instead.
 - **Script Hooks** are held by the code-mode sandbox.
 
 Changes:
 - ADR 0011, whose code-mode sandbox also runs Script Hooks.
 - ADR 0012, whose SDK model callback becomes the SDK-handler form of the Model provider kind.
-- ADR 0015, whose custom HTTP provider becomes a form of the Secret provider kind.
-- ADR 0016, whose security controls gain Plugin confinement and resource limits, reported per run.
+- ADR 0015, whose custom HTTP provider becomes an implementation of the Secret provider kind.
+- ADR 0003, whose lease check on every outgoing command covers the engine's own commands, not a Plugin's streams at `proxy_tcp` or `direct`, where writes stay fenced at the destination.
+- ADR 0016, whose switchable security controls never include Plugin confinement, which each run reports.
 - ADR 0017, whose two egress classes apply to Plugins per destination, and whose endpoint rule covers the Plugin proxy.
 - ADR 0022, whose third-party CDP browsers can be added by a browser backend.
-- ADR 0024, whose browser cache takes browsers a Plugin declares, and whose release gains the Windows filter broker.
-- ADR 0026, whose sink protocol becomes the `sink.*` group of the plugin protocol and whose sink processes are process Plugins.
+- ADR 0024, whose browser cache takes browsers a Plugin declares, and whose release gains a runtime cache, a Plugin store, the Linux `goodfetch-sandbox` helper and the Windows filter broker.
+- ADR 0026, whose sink protocol becomes the `sink.*` group of the plugin protocol, whose sink processes are process Plugins, and whose Bridge Sinks run only as container images on a rootless runtime.
+- ADR 0032, whose release builds, attests and publishes the helper and the broker.
 - ADR 0030, whose versioned contract formats list the plugin protocol, the Plugin manifest and the lockfile.
 
 ## Considered Options
@@ -77,25 +79,40 @@ Changes:
   - Effect-class calls
   - every Model provider and Decision provider call
 - Secret provider answers are never recorded: only the Secret reference, the outcome and the time.
-- **Secrets by reference.** A Plugin uses a Secret by naming it in a dedicated field of a `net.fetch` request, which says where the value goes (a header, a query parameter or a form field, with an optional template such as `Bearer {}`). Placeholders in free text are never expanded, so page text cannot pull a value into a request or a prompt. The engine inserts the value on the way out, only toward the domains the Secret is bound to (ADR 0015), so the value never enters the Plugin, and it removes the value from the response (also in base64 and URL encoding) before the Plugin sees it.
-  - A Plugin whose driver needs the value itself (a database password over `direct`, a TLS stream through `net.connect` or `proxy_tcp`, which the engine cannot read) declares `needs_secret_value` for that one reference.
-  - Operator policy must allow each such reference for that Plugin, and the Audit log records every release of a value. A released value leaves its domain binding, since the engine cannot see where the Plugin sends it; the approval says so.
-- **Secret providers own their schemes.** A third-party Secret provider declares its reference scheme in its manifest. It may not claim the scheme of a built-in provider or of another installed one, so it never answers for references meant for another provider.
-- **Plugin output is untrusted.** Everything a Plugin returns is treated like page content under ADR 0014, so text it returns cannot instruct a model. Two kinds differ: a Model or Decision provider's answer is the model's decision, governed by ADR 0014's confirmations, and a Secret provider's answer is a value that never reaches a model.
+- **Plugin output is untrusted.** Everything a Plugin returns is treated like page content under ADR 0014, so text it returns cannot instruct a model. Three kinds differ: a Model or Decision provider's answer is the model's decision, governed by ADR 0014, and the answers of a Secret provider or a code source are secret values that never reach a model.
 - Notification channels deliver through ADR 0027's ledger.
 - A call made for a work item runs under its lease (ADR 0003); lifecycle Hooks and other calls outside a work item are bounded by a timeout instead.
-- **Calls back into the engine** are possible only during a call the engine made to the Plugin, and carry that call's ID. They act within that call's run, lease and Session and the Plugin's declared permissions, and never outside them. A Script Hook gets the same subset of the Operation catalog as a Hook.
-- A Plugin that needs a page action asks the engine (`page.*`), which applies the guard and the journal. A Plugin's navigations stay within the domains it declares and the registrable domain of the page it was called for.
-- **Logged-in state.** A Plugin's `page.*` operations exclude running script in the page and reading form values, storage or cookies. A Plugin that needs them declares `page_script`, which Operator policy approves per domain. While a Session is logged in, every such script is treated as a possible Effect: it is journaled, and confirmed where ADR 0014 requires.
-- No Plugin answer can turn off certificate checks or add a trusted certificate authority for a Session, as some unblocker proxies ask, since that would hand the proxy every byte of the Session, typed Secrets included.
-- A `net.connect` or proxied stream is opaque to the engine. It is counted in Usage (bytes and time), recorded in the Run trace by destination, and closed when the lease it was opened under ends (ADR 0003).
-- At `direct`, the engine cannot refuse a stale call's traffic as ADR 0003 does for its own commands. Writes stay fenced at the destination, by the run epoch and the Sink's Guarantee class (ADRs 0003 and 0026).
 - **Spend outside the engine** (an unblocker API, a solving service):
   - The Plugin reports raw units (solves, requests, pages) in Usage.
   - Its manifest declares, for each unit, a maximum per call and a price. The operator sees them when allowing the Plugin and can override them, like ADR 0012's price table, and a currency Limit treats a unit with no price as unbounded, refusing the call.
   - Before the call, the engine reserves the maximum times the price against the currency Limit, and refuses a call that would cross it.
   - A reported quantity above the declared maximum is recorded in full, never capped, flagged in the run report, and stops the run if it crosses the Limit.
   - The currency Limit on this spend is only as accurate as the declared prices and the reported units, and the run report says the figures come from the Plugin. These are third-party prices, so ADR 0001 holds.
+
+**Secrets and logged-in state.** A third-party Plugin gets no Secret value and no session credential unless Operator policy approved it for that Plugin; each rule below applies that one principle.
+- **Secrets by reference.** A Plugin names a Secret in a dedicated field of a `net.fetch` request: a header or a query parameter, with an optional template such as `Bearer {}`, or a form field only where the operator set one for that Secret. Placeholders in free text are never expanded, so page text cannot pull a value into a request or a prompt.
+  - The engine inserts the value on the way out, only toward the domains the run binds the Secret to (ADR 0015), never toward domains taken from the manifest; a reference with no binding is sent nowhere. A value inserted into a query parameter is masked in the Run trace, Usage and the journal.
+  - The engine removes the value from the response before the Plugin sees it, raw and in common encodings (base64, URL, hex, JSON escapes).
+  - **Limits, stated in every approval:** a bound service that stores or publishes what it receives (an issue body, a profile field) keeps the value where the Plugin's author might read it, and an encoding the scrub does not know returns it.
+- **Released values.** A Plugin whose code needs a value itself (a database password over `direct`, a TLS stream through `net.connect` or `proxy_tcp`, which the engine cannot read, or an environment variable valued from a secret field) declares `needs_secret_value` for that one reference. Operator policy must allow each such reference for that Plugin, and the Audit log records every release. A released value leaves its domain binding, since the engine cannot see where the Plugin sends it; the approval says so.
+- **Session credentials.** A Session's cookies, typed values and logged-in state for a domain, whether it logged in through a Secret or through imported cookies (ADR 0015), reach a third-party Plugin only when Operator policy allows that Plugin for that domain, recorded in the Audit log as a release. Otherwise:
+  - a browser a third-party Plugin supplies (a Browser host or a third-party CDP endpoint, which sees every cookie and typed value) is not used for that Session;
+  - a third-party fetch backend does not carry that Session's requests: the engine carries them itself, since a backend with its own TLS stack would hold the cookies and inserted Secrets in clear, and an unblocker would pass them to its vendor;
+  - a Hook sees headers and bodies with credentials (`Cookie`, `Authorization`, `Set-Cookie`) and Secret values masked (its `session_credentials` permission lifts this);
+  - a Plugin's `page.*` operations cannot run script in the page or read form values, storage or cookies (its `page_script` permission lifts this).
+- **Secret providers own their schemes.** A third-party Secret provider declares its reference scheme in its manifest. It may not claim the scheme of a built-in provider or of another installed one, so it never answers for references meant for another provider.
+- **No certificate override.** No Plugin answer can turn off certificate checks or add a trusted certificate authority for a Session, as some unblocker proxies ask, since that would hand the proxy every byte of the Session, typed Secrets included.
+
+**What a Plugin may do through the engine.**
+- **Calls back into the engine** are possible only during a call the engine made to the Plugin, and carry that call's ID. They act within that call's run, lease and Session and the Plugin's declared permissions, and never outside them. A Hook, and a Script Hook alike, gets `net.*` and the `page.*` operations of its stage, never the Run index, settings, the Operator policy or accounts.
+- **Page actions** go through the engine (`page.*`), which applies the guard and the journal.
+- **Effects need a permission.** A `page.*` action that changes the page (click, fill, submit, key press) and a `net.fetch` with a method other than `GET` or `HEAD` are Effects. A Plugin performs them only on the domains its `effects` permission names, approved by Operator policy, and they go through the Effect journal (ADR 0010).
+- **Navigation.** A Plugin's navigations stay within the registrable domain of the page it was called for and, only while the Session is not logged in, the domains it declares. While the Session is logged in, every navigation and every approved page script is journaled as a possible Effect, since a `GET` can change state.
+
+**Streams and leases.**
+- A `net.connect` or proxied stream is opaque to the engine. It is counted in Usage (bytes and time), recorded in the Run trace by destination, and a `net.connect` stream is closed when the lease it was opened under ends (ADR 0003).
+- At `proxy_tcp`, the engine cannot tell which call a proxied stream belongs to, so when a call is abandoned while the instance has a proxied stream open, the instance is restarted under the crash rules.
+- At `proxy_tcp` and `direct`, the engine cannot refuse a stale call's traffic as ADR 0003 does for its own commands. Writes stay fenced at the destination, by the run epoch and the Sink's Guarantee class (ADRs 0003 and 0026).
 
 **Hooks.**
 
@@ -107,16 +124,16 @@ Changes:
 | Record before commit | transform; drop with a reason; reject into the rejection table of the run's Dataset, which the run report shows |
 | lifecycle (run start, checkpoint, migration, Limit reached, stop) | nothing: it observes only |
 
-A before-request Hook may rewrite a URL only within the registrable domain of the original request or the domains the Hook declares. A Hook sees request and response headers with credentials (`Cookie`, `Authorization`, `Set-Cookie` and inserted Secrets) removed. A Hook that needs those credentials declares `session_credentials`, which Operator policy approves per domain.
+A before-request Hook may rewrite a URL only within the registrable domain of the original request or the domains the Hook declares. What a Hook sees of credentials and Secrets follows **Secrets and logged-in state**, above.
 
 Hooks run in declared order and can be scoped by label, which replaces Crawlee's router middleware. A Hook error is a typed `hook_failed`, retried by the work item's policy, and a Hook's time counts against the lease.
 
 **Browser backends.** A browser backend answers with one of three:
-1. **A browser from the engine's browser cache**, by name and digest. A Plugin may add a browser by declaring a download URL and digest in its manifest; the engine downloads it over HTTPS, checking the URL under the page class so a manifest cannot point it at an internal address, verifies the digest at download and again at every launch, and launches it itself over a pipe, like Chrome for Testing (ADR 0024). Such a browser runs as the engine's own browsers do, outside the Plugin's confinement, so Operator policy allows it per digest, it is off by default, and each allowance is recorded in the Audit log. Its launch flags come only from the engine's allowlist, which excludes flags that run commands (such as `--renderer-cmd-prefix`). The engine never launches an executable a Plugin names.
+1. **A browser from the engine's browser cache**, by name and digest. A Plugin may add a browser by declaring a download URL and digest in its manifest; the engine downloads it over HTTPS, checking the URL under the page class so a manifest cannot point it at an internal address, verifies the digest at download and again at every launch, and launches it itself over a pipe, like Chrome for Testing (ADR 0024). Such a browser runs as the engine's own browsers do, outside the Plugin's confinement and with the user's full rights, so Operator policy allows it per digest, saying so, it is off by default, and each allowance is recorded in the Audit log. Its launch flags come only from the engine's allowlist, which excludes flags that run commands (such as `--renderer-cmd-prefix`). The engine never launches an executable a Plugin names.
 2. **A Browser host address** (ADR 0022).
 3. **A third-party CDP endpoint** (as for Browserbase or Bright Data's Scraping Browser), reached as ADR 0022 reaches them, with the guard, and checked under the egress rule below.
 
-A browser that a third-party Plugin supplies through answer 2 or 3 sees every cookie and typed value of its Session. So a Session that uses Secrets or a logged-in identity runs on such a browser only when Operator policy allows that endpoint for those Secret references.
+A browser that a third-party Plugin supplies through answer 2 or 3 is used for a logged-in Session only as **Secrets and logged-in state** allows.
 
 **The challenge solver's contract.**
 - **Detection:** the engine detects a challenge by its rules, which beat models there.
@@ -143,6 +160,7 @@ A browser that a third-party Plugin supplies through answer 2 or 3 sees every co
 - **Schema:** a Plugin's manifest declares a JSON Schema for its settings. The engine validates against it, the Console generates its form from it, and the CLI and MCP take the same fields.
 - **Secrets:** a secret field accepts only a Secret reference.
 - **Layers:** Plugin settings go through ADR 0028's five layers with lock and expose. Operator policy allows, denies or pins each Plugin to a digest.
+- **Digests:** every pin (Operator policy, the lockfile, Recipes, run state) is the digest of the Plugin's multi-platform OCI image index, under which each platform's artifact is checked, so a pinned Recipe or a checkpointed run moves between platforms (ADR 0002).
 - **Recipes:** a Recipe names its third-party Plugins by digest.
 - **Resuming:** a run records the Plugins and digests it used in its run state.
   - First-party Plugins follow the engine's version and ADR 0030's contract versions.
@@ -152,11 +170,12 @@ A browser that a third-party Plugin supplies through answer 2 or 3 sees every co
 - **Instances:**
   - Every instance belongs to one run: it starts with the run, or when the run first needs it, and is killed when the run stops, finishes or is discarded, so nothing from that run survives in a Plugin process.
   - Each call carries its lease, and all of an instance's traffic belongs to its run.
+  - Work outside a run's lifetime (a Sink probe, `goodfetch plugins test`, delivering a finished run's backlog, a Notification sent after the run ends) gets its own instance, scoped to that one task and its run's Secrets and killed after it.
 - **Backpressure:**
   - The manifest declares the maximum number of concurrent calls, and ADR 0024's credit-based flow control applies. Nothing is dropped; callers wait, and waiting for a credit counts against the caller's lease.
   - Calls from a Plugin back into the engine draw on a separate credit pool, so a Plugin at its limit cannot deadlock.
 - **Cancellation:**
-  - `$/cancel` with a deadline. A call past its deadline is abandoned: its credit is released, its result is refused at the engine (ADR 0003), and other runs' calls are untouched.
+  - `$/cancel` with a deadline. A call past its deadline is abandoned: its credit is released, its result is refused at the engine (ADR 0003), and the instance's other calls are untouched.
   - An abandoned Effect-class call is reported uncertain at once (ADR 0029), since it may still land.
   - An instance is restarted under the crash rules when its heartbeat stops or when it holds more abandoned calls than its concurrency limit.
 - **Crashes:** a crashed Plugin restarts with backoff.
@@ -177,10 +196,13 @@ A browser that a third-party Plugin supplies through answer 2 or 3 sees every co
 - **Handshake:** an environment-variable cookie, as in go-plugin, so that a Plugin started by hand refuses to run (not a security boundary), then `hello` as the first JSON-RPC message, which must match the approved manifest (kinds, protocol range, network level) or the instance is stopped. The Rust ports of go-plugin are immature, so the pattern is copied rather than imported.
 
 **Egress class, per destination.**
-- **Operator-configured endpoints** are those the operator or user typed into the Plugin's settings, at a settings layer above the Plugin's own defaults (ADR 0028): an unblocker's API, a solving service, a Sink's database, a vault, a SearXNG instance. Only these may resolve to private or loopback ranges locally, under ADR 0017, and they fall under Goodfetch Cloud's "no private endpoints" policy.
-- **Every other address is checked as one a page can reach**, including domains the manifest declares and defaults it ships, since the Plugin's author controls their DNS. So a Plugin cannot steer itself or the engine to `127.0.0.1` or a cloud metadata address.
-- **Returned endpoints** follow the same rule: a browser backend's CDP URL or a proxy provider's proxy is operator class only when it matches a typed setting.
-- **Targets:** before the engine passes a target URL to a fetch backend or an unblocker, it checks it under the page class. A fetch backend's `net.connect` for that call reaches only that target and its redirects, so it needs no wildcard domain and opens nothing else.
+- **Operator-configured endpoints** are values set in Operator policy or in user and project configuration (layers 2 and 3 of ADR 0028): an unblocker's API, a solving service, a Sink's database, a vault, a SearXNG instance. A value from a Recipe or from the run itself (layers 4 and 5, which an agent or a workflow tool may fill in) is operator-configured only when Operator policy allows that host. Only these may resolve to private or loopback ranges locally, under ADR 0017, and they fall under Goodfetch Cloud's "no private endpoints" policy.
+- **Every other address is checked as one a page can reach**, including domains the manifest declares and defaults it ships, since the Plugin's author controls their DNS.
+- **Plugin traffic never inherits the run's exceptions for pages.** A run's allowlist of private ranges and a switched-off resolved-IP check (ADRs 0016 and 0017) never apply to a Plugin's destinations, as ADR 0022 already rules for the Browser host; the one exception is a fetch backend's connection to the target the engine handed it.
+- **Link-local and cloud-metadata ranges** are refused for every Plugin destination, configured or not.
+- **Returned endpoints** follow the same rules: a browser backend's CDP URL or a proxy provider's proxy is operator-configured only when it matches a configured value.
+- **Targets:** before the engine passes a target URL to a fetch backend, it checks it under the page class and the run's domain policy. The backend's `net.connect` for that call reaches only that target and its own configured endpoints (an unblocker's API); it asks for each redirect as a new target, checked the same way.
+So a Plugin cannot steer itself or the engine to `127.0.0.1`, the local network or a cloud metadata address.
 
 **Network levels for process Plugins.** The manifest declares one level. For a third-party Plugin, a level the host cannot provide is refused with a typed `confinement_unavailable`, never silently weakened; first-party Plugins follow the rule for hosts that cannot confine, below. What each refusal costs (a fetch backend with its own TLS stack in a default Docker container, for instance) is listed in the docs for each platform.
 - **`none`** (the default, and the only level an Extractor may declare). The Plugin creates no network socket: it reaches the outside only through `net.fetch` and `net.connect` on its stdio channel, where the engine applies the egress class, the domains the manifest declares, Usage and the journal.
@@ -188,8 +210,8 @@ A browser that a third-party Plugin supplies through answer 2 or 3 sees every co
   - **macOS:** Seatbelt denies all network, and the Mach service allowlist for this level excludes the name-resolution service, so a Plugin cannot send data out through DNS queries.
   - **Windows:** an AppContainer with no network capability, which Windows' default outbound rule blocks, as Chromium's sandbox relies on.
 - **`proxy_tcp`**, for clients that only speak `HTTP_PROXY` or SOCKS5. The engine runs a proxy for that instance, which applies the same checks as `none` and requires credentials generated for that instance, carried in the proxy URL, so no other local process can use it. `goodfetch plugin-shim`, the same binary, relays TCP clients to it where the platform needs a relay.
-  - **Linux:** a network namespace holding only loopback, with the relay inside it, as Claude Code's sandbox runtime does. The relay reaches the engine through a socket it inherits already connected. seccomp allows IP sockets inside the namespace and refuses Unix-domain ones.
-    - Where AppArmor restricts unprivileged user namespaces (Ubuntu 23.10 and later), an AppArmor profile grants them only to `goodfetch-sandbox`, a small root-owned helper that creates the namespaces, as Chrome's `chrome-sandbox` does; never to a path the user can write. The Linux packages install both; other installs (npm, PyPI, crates.io) get them from the elevated `goodfetch plugins setup`.
+  - **Linux:** a network namespace holding only loopback, with the relay inside it, as Claude Code's sandbox runtime does. The relay starts outside the Plugin's filter and reaches the engine through a socket it inherits already connected. The Plugin's seccomp filter allows IP sockets inside the namespace and refuses Unix-domain ones.
+    - Where AppArmor restricts unprivileged user namespaces (Ubuntu 23.10 and later), an AppArmor profile grants them only to `goodfetch-sandbox`, a small root-owned helper, never to a path the user can write. The helper is not setuid. It starts only a verified entry of the engine's Plugin store or runtime cache, and before starting it creates the namespaces, drops every capability, sets `no_new_privs` and applies the Plugin's seccomp filter (no further namespaces, no netlink), so no other program can use it to obtain a user namespace. ADR 0024's channels (npm, PyPI, crates.io, GitHub Releases, Homebrew, the installers, the OCI image) ship no root-owned files, so the elevated `goodfetch plugins setup` installs the helper and the profile.
     - In containers whose seccomp profile refuses user namespaces (Docker's default), `proxy_tcp` is refused.
   - **macOS:** Seatbelt allows outgoing traffic to the proxy's loopback port only.
   - **Windows:** loopback between two processes of one AppContainer works only by undocumented behaviour, and a container's loopback to a process outside it needs an administrator exemption. So the filter broker (below) adds a Windows Filtering Platform filter scoped to that instance's AppContainer that allows only the proxy's loopback port. Until `goodfetch plugins setup` has installed the broker, `proxy_tcp` is refused.
@@ -199,8 +221,8 @@ A browser that a third-party Plugin supplies through answer 2 or 3 sees every co
   - **What is not checked:** any connection beyond those destinations, including addresses the driver learns during the run (Kafka brokers, MongoDB replicas) and DNS rebinding, is not checked locally. The run report and `goodfetch plugins list` say so for every Plugin at `direct`.
   - **Goodfetch Cloud:** the tenant's network firewall enforces "no private endpoints" whatever the engine sees.
   - **Who gets it:** each first-party sink process declares the lowest level it needs, and those that need `direct` have it by default. A third-party Plugin gets it only when Operator policy names it; the run report and the Audit log mark it.
-  - **Bridge Sinks** (ADR 0026's Airbyte destination images and Singer targets) are third-party Plugins at `direct`, each only when Operator policy names it. Both run as container images (a Singer target in the image its project or Meltano publishes), only under a rootless container runtime (rootless Podman or Docker), with a read-only root filesystem, all capabilities dropped, no privilege escalation, the runtime's default seccomp profile and only `direct`'s outgoing network; with only a rootful runtime they are refused.
-  - **Linux:** seccomp allows outgoing IP sockets and refuses `listen`, `accept` and Unix-domain sockets.
+  - **Bridge Sinks** (ADR 0026's Airbyte destination images and Singer targets) are third-party Plugins at `direct`, each only when Operator policy names it. Both run as container images (a Singer target in the image its project or Meltano publishes; one with no image does not run), only under a container runtime that does not run as root on the host (rootless Podman or Docker on Linux; Docker Desktop or Podman machine on macOS and Windows, whose containers run in a virtual machine), with a read-only root filesystem, all capabilities dropped, no privilege escalation, the runtime's default seccomp profile and only `direct`'s outgoing network; with only a rootful runtime they are refused. They read every credential from a configuration file, so each credential is a value released under `needs_secret_value`.
+  - **Linux:** seccomp allows outgoing IP sockets and refuses `listen`, `accept`, binding a chosen port (so no UDP socket waits for incoming datagrams) and Unix-domain sockets.
   - **macOS:** Seatbelt allows outgoing network and the name-resolution service, and denies incoming connections and other Unix-domain sockets.
   - **Windows:**
     - An AppContainer with the `internetClient` capability only, which allows no incoming connections. Private-network and loopback destinations get filters from the broker, scoped to that instance's AppContainer and the configured addresses, instead of `privateNetworkClientServer`, which would also allow incoming connections.
@@ -228,13 +250,10 @@ A browser that a third-party Plugin supplies through answer 2 or 3 sees every co
 - **Hosts that cannot confine** (no Landlock and no user namespaces, as on RHEL 8 or gVisor; no seccomp at all, as on WSL1):
   - A third-party Plugin is refused with `confinement_unavailable`.
   - A first-party Plugin, one shipped in the engine's own release, is refused by default too. Operator policy can allow it to run with the confinement the host offers; the run report and the Audit log then say which parts were not confined.
-- **CI on every OS:** a Plugin runs under real confinement at each network level, and must be refused when it tries:
-  - to open a socket its level forbids, an abstract or filesystem Unix socket, or `io_uring`
-  - to read `$HOME`
-  - to signal or inspect another process
-  - to spawn a process
-  - to read a variable from the engine's environment
-  - to exceed each resource limit
+- **CI on every OS**, with real confinement and a real engine, nothing mocked:
+  - **OS confinement**, at each network level: a Plugin is refused when it opens a socket its level forbids, an abstract or filesystem Unix socket, `io_uring`, `listen` or `accept`; reads `$HOME`, a path on the fixed deny list, a variable from the engine's environment or the kernel keyring; signals or inspects another process; spawns a process; exceeds each resource limit; on Windows, uses the clipboard or another desktop, or resolves a name through the DNS Client service at `none`.
+  - **Engine refusals:** a declared domain that resolves to loopback or a metadata address; a run's private-range allowlist reaching a Plugin; a Hook rewriting a URL to another site; a `page.*` navigation outside its scope; script without `page_script`; an Effect without `effects`; a Secret value reaching the Plugin through field insertion, a missed scrub or a Hook; a `hello` that differs from the manifest; a revoked Plugin.
+  - **Reset gate:** ADR 0001's canaries, planted through a Plugin, are found nowhere after a run is discarded.
 
 **Finding, versioning and trusting.**
 - **Packaging:** a Plugin is published as one OCI artifact per platform, in any OCI registry such as ghcr.io, holding the Plugin and every dependency it runs, built and attested by its own CI, as Steampipe distributes its plugins. Its name is `goodfetch-plugin-*`.
@@ -243,16 +262,15 @@ A browser that a third-party Plugin supplies through answer 2 or 3 sees every co
   - the Plugin's kinds and a plugin-protocol version range
   - its settings schema
   - its language runtime (a Node or Python version), which the engine provides from a runtime cache by digest, as it does browsers (ADR 0024), so a Plugin never relies on what happens to be installed
-  - its network level and permissions: Secret references, domains, Effects, files and processes
+  - its network level and permissions: Secret references and `needs_secret_value`, domains, `effects`, `page_script`, `session_credentials`, environment variables, files and processes
   - browsers it adds, by download URL and digest
   - for spend outside the engine, a maximum per call and a price per unit
-- **Plugin index:** a file in the repository, validated in CI and signed there with Sigstore, tied to the repository's workflow identity. The engine checks it with `sigstore-verify` against a trust root bundled with each release, so the check also works offline. It lists community Plugins with their signer identity and conformance results, and carries a version, an expiry and a revocation list of digests and signers, as TUF metadata does: the engine refuses an index older than the last one it saw or past its expiry, and a revoked Plugin is refused at load and its running instances are stopped. The spec picks the library (AWS's `tough`, a Rust TUF client, is the first candidate). `goodfetch plugins search` reads it. A marketplace belongs to Goodfetch Cloud's map.
+- **Plugin index:** a file in the repository, validated in CI and signed there with Sigstore, tied to the repository's workflow identity. The engine checks it with `sigstore-verify` against a trust root bundled with each release, so the check also works offline. It lists community Plugins with their signer identity and conformance results, and carries a version, an expiry and a revocation list of digests and signers, as TUF metadata does: the engine refuses an index older than the last one it saw or past its expiry, and a revoked Plugin is refused at load and its running instances are stopped. An expired index blocks loading third-party Plugins, since revocation can no longer be checked; an air-gapped host imports a fresh signed index (`goodfetch plugins index import`). The spec picks the library (AWS's `tough`, a Rust TUF client, is the first candidate). `goodfetch plugins search` reads it. A marketplace belongs to Goodfetch Cloud's map.
 - **Lockfile:** `goodfetch plugins add` records a digest in a lockfile, like `.terraform.lock.hcl`, and the engine refuses a mismatch.
-- **Provenance:** a third-party Plugin's artifact must carry a provenance attestation (a GitHub artifact attestation or a Sigstore bundle from its CI), which `sigstore-verify` checks against the signer the index records (repository workflow and OIDC issuer). Since the artifact holds every dependency, the attestation covers every byte that runs. An unattested Plugin loads only if Operator policy allows its exact digest.
-- **Updates:** never automatic. `goodfetch plugins update` shows the new digest, the signer and a permission diff, and any new permission (a domain, a Secret, a network level, a file, a process, a browser) needs explicit approval, as a browser asks when an extension wants more. A change of signer identity between versions is refused until the operator approves it again. That catches a release from another repository or workflow, not a compromise of the project's own release workflow (the Ultralytics releases on PyPI in 2024 carried valid attestations), which only revocation in the index covers.
+- **Provenance:** a third-party Plugin's artifact must carry a provenance attestation (a GitHub artifact attestation or a Sigstore bundle from its CI), which `sigstore-verify` checks against the signer the index records (repository workflow and OIDC issuer). Since the artifact holds every dependency, the attestation covers every byte the Plugin ships; code it fetches at run time stays confined but is not attested. An unattested Plugin loads only if Operator policy allows its exact digest.
+- **Updates:** never automatic. `goodfetch plugins update` shows the new digest, the signer and a permission diff, and any new permission or wider value (anything the manifest declares under permissions, a network level, a browser, a spend maximum or price) needs explicit approval, as a browser asks when an extension wants more. A change of signer identity between versions is refused until the operator approves it again. That catches a release from another repository or workflow, not a compromise of the project's own release workflow (the Ultralytics releases on PyPI in 2024 carried valid attestations), which only revocation in the index covers.
 - **Look-alike names:** `goodfetch plugins add` refuses a name close to an index entry (typosquatting) unless it is given by exact digest.
-- **Secrets:** a Plugin can use only the Secret references it declared, and by reference unless a value is allowed (above).
-- **Files:** a Plugin reads its own unpacked bundle and runtime, and writes only to directories that belong to its instance, deleted when the instance stops. What it must keep across runs goes through the engine, into the run's Key-value store, which follows the run's retention and discard rules. Any other path it declares is read-only, approved by Operator policy, and can never cover the engine's own files (settings, Operator policy, lockfiles, the browser and runtime caches, run files, the Plugin store and other Plugins' directories), credential stores (`~/.ssh`, `~/.aws`, keychains, browser profiles), shell startup files or version-control hooks.
+- **Files:** a Plugin reads its own unpacked bundle and runtime, and writes only to directories that belong to its instance, deleted when the instance stops. A Plugin keeps nothing across runs: what it needs lives in its bundle or its settings. Any other path it declares is read-only, approved by Operator policy, and never covers the fixed deny list: the engine's own files (settings, Operator policy, lockfiles, the browser and runtime caches, the Plugin store, run files, the Run index, the Audit log, the Daemon's runtime and token files, Console keys) and every other Plugin's directories; credential files (`~/.ssh`, `~/.aws`, `~/.kube`, `~/.docker/config.json`, `.env`, `.netrc`, `.git-credentials`, the GitHub CLI's token, keychains, browser profiles), maintained as a list in the spec; shell startup files; and version-control hooks.
 - **Loading:** a third-party Plugin loads only when Operator policy allows it. Goodfetch's first-party Plugins are allowed by default. A Private component is not first-party: it loads only when Operator policy allows it.
 
 Evidence: confinement and provenance precedents gathered for the ticket:

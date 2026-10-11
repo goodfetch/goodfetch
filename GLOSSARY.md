@@ -59,11 +59,11 @@ Driving a browser session through actions toward an objective.
 _Avoid_: scraping, scraper, bot
 
 **Foxhound**:
-The name of Goodfetch's Crawl and Extraction capabilities, taken together, always named with Goodfetch.
+The name of Goodfetch's Crawl and Extraction capabilities, taken together, never used without Goodfetch.
 _Avoid_: spider, scraper
 
 **Collie**:
-The name of Goodfetch's Automation capabilities, always named with Goodfetch.
+The name of Goodfetch's Automation capabilities, never used without Goodfetch.
 _Avoid_: browser module, agent
 
 ## Execution

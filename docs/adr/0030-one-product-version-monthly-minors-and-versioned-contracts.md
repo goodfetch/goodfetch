@@ -100,4 +100,4 @@ Every Goodfetch package carries one version and is released together: the `goodf
 
     No separate docs MCP server is run.
   - **Goodfetch Cloud:** its docs stay apart from the framework's. The framework docs never present a Cloud-only feature as available, and pages on features both offer say where each runs.
-- **Left to the specs.** Release automation (release-plz or another tool for a lockstep, multi-registry release) and where the docs source lives in the repository, an item of the repository layout in the [V1 map](https://github.com/Jbmanllr/automan/issues/61). The docs domain follows [Product name: keep Automan or rename](https://github.com/Jbmanllr/automan/issues/83).
+- **Left to the specs.** Release automation (release-plz or another tool for a lockstep, multi-registry release) and where the docs source lives in the repository, an item of the repository layout in the [V1 map](https://github.com/Jbmanllr/automan/issues/61). The docs domain is `goodfetch.dev` (ADR 0034).

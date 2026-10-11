@@ -139,7 +139,7 @@ A system outside the engine that receives a run's committed Records, as rows or 
 _Avoid_: output, pipeline, connector
 
 **Guarantee class**:
-How strongly a Sink keeps a delivery from being duplicated or overwritten by a stale copy of the run, proved for each deployment: Fenced, Record-fenced, Keyed or At-least-once.
+How strongly a Sink keeps a delivery from being duplicated or overwritten by a stale copy of the run, probed for each deployment: Fenced, Record-fenced, Keyed or At-least-once.
 _Avoid_: delivery semantics, QoS, consistency level
 
 **Notification**:

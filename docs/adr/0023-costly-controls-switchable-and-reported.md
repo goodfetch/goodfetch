@@ -19,5 +19,6 @@ ADR 0016 made the costly security controls switchable. At the owner's request th
 | Target fingerprint check before the first Effect (ADR 0009) | Effects are marked unverified in the Effect journal |
 | Success checks (ADR 0013) | results are `needs-review`, never a success |
 
+- ADR 0028 lets an Operator policy or a Recipe cap or lock these switches; where nothing locks them, a run can still switch them.
 - The V1 benchmark publishes what each control costs, as it does for the security controls of ADR 0016.
 - Later decisions that add a costly control state its switch and its mark.

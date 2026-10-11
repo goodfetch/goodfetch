@@ -23,7 +23,7 @@ Every Automan package carries one version and is released together: the `automan
   - the settings schema (ADR 0028)
   - Dataset and Export formats
 
-  An engine reads every older minor of a format within its major. A newer minor than it knows, such as a Checkpoint written by 1.5 and resumed by 1.4 on another machine, is refused with a message to upgrade, as the protocol handshake refuses a newer Client. A file of an older major is refused with a message naming `automan migrate`, and one of a newer major with a message to upgrade. A format's major changes only with a product major. In this ADR, "major" and "minor" alone mean the product's version, not a format's.
+  An engine reads every older minor of a format within its major. A newer minor than it knows, such as a Checkpoint written by 1.5 and resumed by 1.4 on another machine, is refused with a message to upgrade, as the protocol handshake refuses a newer Client. A file of an older major is refused with a message naming `automan upgrade-files`, and one of a newer major with a message to upgrade. A format's major changes only with a product major. During the `0.y` previews, a format may break with any minor. In this ADR, "major" and "minor" alone mean the product's version, not a format's.
 - **What semver covers from 1.0.** A breaking change requires a new major in any of these:
   - the TypeScript and Python SDKs and the Rust crate's top-level `automan` API
   - the Operation catalog: operation names, inputs, outputs and classes, so MCP tool names and schemas too
@@ -56,13 +56,13 @@ Every Automan package carries one version and is released together: the `automan
   - **Release notes:** they always name every browser build.
   - **Supported Chrome:** besides the pinned build, a run may use an installed Chrome. That Chrome is supported on the current stable, beta or dev channel and the two previous stable majors, all tested against the guard (ADR 0019) and the conformance suite. A musl host's distribution Chromium follows the same rule.
   - **Best effort:** older builds, Edge and Brave run best effort, with a warning.
-- **Majors.** A major ships only once breaking changes have been collected and announced. It comes with a migration guide with before-and-after examples. `automan migrate` upgrades every contract format, like `biome migrate`. It writes the new major's copy and never changes the files the previous major still uses. SDK code relies on the deprecation warnings rather than codemods.
+- **Majors.** A major ships only once breaking changes have been collected and announced. It comes with a migration guide with before-and-after examples. `automan upgrade-files` upgrades every contract format, like `biome migrate`; the name keeps it apart from the `migrate` signal that moves a run (ADR 0002). It writes the new major's copy and never changes the files the previous major still uses. SDK code relies on the deprecation warnings rather than codemods.
 - **Support.**
   - **Previews:** a `0.y` preview is supported until the next `0.y` minor ships.
   - **Current major:** only the latest minor gets patches.
-  - **Previous major:** its last minor gets security and data-loss fixes for 12 months after the next major ships.
-  - **Per-major state:** each major runs its own Daemon, with its own runtime file, socket and Console port, so a 1.x and a 2.x project never restart each other's (amends ADR 0024). The user-level settings and the per-install layout of ADR 0002 are also kept per major. The browser cache is shared, because its builds are checked by digest.
-  - **After support ends:** versions are marked deprecated on npm, as Puppeteer does.
+  - **Previous major:** its last minor gets security and data-loss fixes for 12 months after the next major ships, published under npm tags such as `latest-1` so that `latest` never moves back.
+  - **Per-major state:** each major runs its own Daemon, with its own runtime file, socket, Console port and HTTP listener port (ADR 0027), so a 1.x and a 2.x project never restart each other's (amends ADR 0024). The Operator policy and user-level settings (ADR 0028) and the per-install layout of ADR 0002 are also kept per major. The browser cache is shared, because its builds are checked by digest.
+  - **After support ends:** every version that no longer gets fixes is marked deprecated on npm, as Puppeteer does.
   - **Age notice:** a binary more than three months past its own release date prints one line a day. The line says that newer versions carry security fixes and a current Chrome, and gives the upgrade command. It compares dates only, makes no network call, and a setting turns it off. It goes to stderr only, never into `--json` output or a stdio protocol stream (Attached engine or MCP).
   - **Rust:** the crate's minimum supported Rust version is the latest stable minus two releases, tested in CI and raised only in a minor.
 - **Hotfixes under release-age gates.**

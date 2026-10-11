@@ -40,6 +40,10 @@ _Avoid_: enterprise edition, premium module, closed core
 The Automan process that runs beside a browser and carries out a Session's operations for an engine running elsewhere.
 _Avoid_: worker, agent, sidecar
 
+**Experimental**:
+The status of an operation, setting or SDK method released outside semver's compatibility promise until it is promoted.
+_Avoid_: unstable, nursery
+
 ## Pillars
 
 **Extraction**:

@@ -15,4 +15,5 @@ Competitor evidence: [frontier and sessions research](https://github.com/Jbmanll
 - Each learned rule is kept in run state with its evidence and the number of URLs it merged, and is reported; rules never cross registrable domains. Declared canonicalization always wins.
 - A wrongly learned no-effect parameter merges distinct pages. The report makes that visible, and a conformance fixture covers it.
 - Unverified covers a frontier exhausted only through offset pagination or a heuristic.
+- Unverified also covers a finished run that left pages in scope at the Block cause `payment_required`, which it lists (ADR 0045).
 - The frontier also takes priority scores and forefront insertion, for parity with Spider and Crawlee.

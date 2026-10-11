@@ -285,3 +285,4 @@ Evidence: confinement and provenance precedents gathered for the ticket:
 - [Terraform's plugin protocol](https://developer.hashicorp.com/terraform/plugin/terraform-plugin-protocol) and [dependency lock file](https://developer.hashicorp.com/terraform/language/files/dependency-lock)
 - [Airbyte's connector metadata](https://docs.airbyte.com/platform/connector-development/connector-metadata-file)
 - Crate facts taken from crates.io on 2026-10-11.
+- `goodfetch plugins add` also fetches the Plugin's language runtime, so an engine with the `offline` setting never downloads one, and a third-party Plugin's approved manifest domains and network level count as configured destinations (ADR 0043).

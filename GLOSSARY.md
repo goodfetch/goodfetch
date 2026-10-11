@@ -187,7 +187,7 @@ The sessions a run keeps, scoring, rotating and retiring them as they fail.
 _Avoid_: session manager, account pool
 
 **Block cause**:
-The reason the rules give for a site refusing a page, such as a rate limit, a challenge, a login page or a demand for payment, which decides how the run responds.
+The reason the rules give for a site refusing a page, such as a rate limit, a challenge, an IP block or a demand for payment, which decides how the run responds.
 _Avoid_: block type, ban, error (for a block)
 
 **Paid fetch**:

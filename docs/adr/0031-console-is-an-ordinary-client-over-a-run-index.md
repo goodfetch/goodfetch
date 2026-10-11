@@ -2,7 +2,7 @@
 
 The Console reads and acts through the same JSON-RPC protocol and Operation catalog as every other Client (ADRs 0011 and 0024). It carries them over a WebSocket on its own origin, authenticated by the `HttpOnly` cookie of ADR 0024, and fetches large files (page bodies, screenshots, Exports) by handle with plain HTTP `GET`, as a remote Client streams `page.body`. Its `hello` names the surface `console`, which gives the Audit log the surface ADR 0029 records with each reconciliation. One Console per user and per product major (ADR 0030) sees every run of that user and major on the machine:
 - **The Run index lists runs.** It is a small per-user, per-major SQLite catalog that every engine, Attached or Daemon, writes when a run starts and when one of its three axes changes. Each row holds the run's ID, its location (a run file, or the run inside the shared database of ADR 0002's per-install layout), Recipe, Lifecycle, Verdict, Completeness, timestamps, a Usage summary and, while the run is live, the engine that owns it.
-- **The runs stay the truth.** `automan runs reindex` rebuilds the index by scanning the run files and the per-install database. A row whose file is gone shows as missing; it is never silently dropped.
+- **The runs stay the truth.** `automan runs reindex` rebuilds the index by scanning the configured run locations, the per-install database and any paths it is given; a run it cannot find stays as a missing row. A row whose file is gone shows as missing; it is never silently dropped.
 - **Committed state comes from the run's database.** The Daemon reads any run through SQLite WAL readers, live or not, so the single writer of ADR 0002 holds.
 - **Live actions go to the owner.** On a live run it does not own, the Daemon forwards each live action to the owning engine. That covers takeover, confirmation, reconciliation, the event stream and live frames. It reaches an Attached engine through the private endpoint ADR 0024 gives it for its workers: the index records the endpoint, and its token sits in a separate `0600` file. Changes ADR 0024, whose private endpoint served only those workers.
 - **"Needs you".** The Console's single list of everything waiting for a person (Human pauses, confirmations, uncertain Effects, Plan diffs, runs stopped by a Limit, results to review) covers every run in the index.
@@ -28,7 +28,7 @@ Evidence from the competitor survey made for that ticket:
 ## Consequences
 
 **Where runs live.**
-- **Default folder.** Run files and directories go by default to a per-user, per-major data folder, such as `~/.local/share/automan/1/runs/<run-id>/` and its macOS and Windows equivalents. The location is a setting (ADR 0028), and the index finds runs wherever they are.
+- **Default folder.** Run files and directories go by default to a per-user, per-major data folder, such as `~/.local/share/automan/1/runs/<run-id>/` and its macOS and Windows equivalents. The location is a setting (ADR 0028). Each engine records its runs in the index wherever they are, so a run outside the default folder is still listed.
 - **Changes ADR 0002:** the per-run layout gains this default location and the Run index.
 
 **Events and reconnects.**
@@ -37,8 +37,8 @@ Evidence from the competitor survey made for that ticket:
 - **Fallback.** Where a WebSocket cannot be opened, the Console falls back to Server-Sent Events plus `POST`, carrying the same messages.
 
 **Runs that no engine is running.**
-- **Taking the writer role.** ADR 0003's epoch cannot be enforced inside the run's own file, so the engine that writes a run holds an exclusive OS lock on it. To write to a run, the Daemon takes that lock and the next run epoch (ADR 0003). If the lock is held, the owner is alive: the Daemon forwards the action to that owner instead. A stale owner recorded in the index never blocks, because a dead process holds no lock.
-- **Answers that need no user code** apply at once, such as "it happened" or "leave uncertain". An erasure applies the same way.
+- **Taking the writer role.** ADR 0003's epoch cannot be enforced inside the run's own file, so the engine that writes a run holds an exclusive OS lock on a lock file beside it (not on the database itself, which Windows would then close to readers). To write to a run, the Daemon takes that lock and the next run epoch (ADR 0003). If the lock is held, the owner is alive: the Daemon forwards the action to that owner instead. A stale owner recorded in the index never blocks, because a dead process holds no lock.
+- **Answers that need no user code** apply at once, such as "it happened" or "leave uncertain". Erasing a Dataset needs no user code either and applies at once.
 - **Answers that need handlers.** "It did not happen" and "raise the Limit and resume" resume a Recipe run in the Daemon. They mark an SDK script's run as waiting for its script, which resumes it the next time it resumes that run ID. The Console says so and offers **Copy resume command**.
 - **A script that ends.** A Human pause pending when the script ends stops with the run.
 
@@ -46,7 +46,7 @@ Evidence from the competitor survey made for that ticket:
 - **A channel of its own.** It is a per-Session channel, opened only while someone watches and kept apart from the credit-based event stream. The newest frame wins. A person's input travels on an ordered path where nothing is dropped.
 - **Tiers, chosen automatically and each settable:**
   1. **The real window.** When the browser is headful on the person's own desktop, "Take control" can bring that window to the front.
-  2. **CDP screencast** everywhere else, the default for headless browsers. It sends JPEG frames sized by `devicePixelRatio` under acknowledgement-based flow control. For remote viewers, the screencast is relayed over WebRTC as video instead of JPEGs.
+  2. **CDP screencast** everywhere else, the default for headless browsers. It sends JPEG frames sized by `devicePixelRatio` under acknowledgement-based flow control. For remote viewers, the screencast is relayed over WebRTC as video, and falls back to JPEG frames over the WebSocket when WebRTC cannot connect.
   3. **WebRTC H.264.** Where the browser runs headful in a virtual display (Linux containers, the OCI image, a Browser host, Automan Cloud), the engine captures that display at about 25 fps, and falls back to tier 2 when capture fails or WebRTC cannot connect. Steel moved from screencast ("4-12fps, unstable") to this.
   
   Input goes through CDP (`Input.dispatch*`, `Input.insertText`, `Input.imeSetComposition`).
@@ -76,7 +76,7 @@ Evidence from the competitor survey made for that ticket:
 - **Masking.** Password fields and values filled from Secret references are masked everywhere, and typed input is masked by default.
 - **Retention.**
   - **Kept by default** for runs that are `failed`, `rejected` or `needs-review`, or that had a takeover or an Effect. A takeover is always recorded.
-  - **Budget.** Each run gets 1 GB by default. Past it, the oldest video goes first, while snapshots and the HAR are kept.
+  - **Size cap.** Each run keeps up to 1 GB of trace by default. Past it, the oldest video goes first, while snapshots and the HAR are kept.
   - **Erasure.** Traces are erased with their run.
 - **Cost.** Traces are a costly control (ADR 0023). Its switch is the trace setting; its mark is "no trace" on the run report and on the Timeline.
 
@@ -87,8 +87,8 @@ Evidence from the competitor survey made for that ticket:
   - **Accounts and roles.** Per-person accounts sign in with passkeys, or optionally OIDC single sign-on, under three roles. A *viewer* reads. A *member* also runs, answers Human pauses, confirms and reconciles. An *operator* also edits the Operator policy and accounts.
   - **Recovery and teams.** Recovery codes and an operator reset cover lost passkeys, and OIDC groups map to roles.
 - **Web protections.** Cookies are `SameSite=Strict`, the `POST` fallback carries a CSRF token, and sign-in is rate-limited.
-- **Programs.** Programs use named tokens, each limited to certain operations, Recipes, runs or Datasets, with an expiry, and revocable in Engine & settings. The per-launch token stays for local Clients that find the Daemon through its runtime file.
-- **Step-up.** On a Daemon with accounts, confirming an Effect (ADR 0014) or reconciling one (ADR 0029) in the Console asks for the person's passkey again. On a single-user Daemon, and in an interactive CLI prompt, the OS user answers as before. Adds to ADR 0029.
+- **Programs.** Programs use named tokens, each limited to certain operations, Recipes, runs or Datasets, with an expiry, and revocable in Engine & settings. Local Clients that find the Daemon through its runtime file keep using its protocol token: per-launch, or persistent under socket activation (below).
+- **Step-up.** On a Daemon with accounts, confirming an Effect (ADR 0014) or reconciling one (ADR 0029) in the Console asks for the person's passkey again. On a single-user Daemon, and in an interactive CLI prompt, the OS user answers as before. Adds to ADRs 0014 and 0029.
 
 **Settings** (changes ADR 0028).
 - **What the Console edits.** It edits user-level values and a run's own values, and shows every effective value with its layer and lock. It never edits project configuration or Recipe manifests, because those are files under version control.
@@ -99,7 +99,7 @@ Evidence from the competitor survey made for that ticket:
 **Availability.**
 - **Idle stop.** A visible Console tab counts as a connected Client, so the Daemon does not stop idle while someone is looking. A hidden tab does not count.
 - **Socket activation.** `automan daemon install` registers launchd or systemd socket activation, so the first connection to the Console or the protocol starts the Daemon. On Windows, the installed logon task keeps the Daemon running. Because a Client may connect before the Daemon has launched and written its runtime file, a socket-activated Daemon uses a persistent per-user protocol token in a `0600` file instead of a per-launch one, rotated by `automan daemon rotate-token`. Changes ADR 0024.
-- **Logins survive restarts.** A per-user Console key in a `0600` file signs Console logins. They expire after 30 idle days and are revocable, and rotating the key signs everyone out. The protocol socket keeps the per-launch token.
+- **Logins survive restarts.** A per-user Console key in a `0600` file signs Console logins. They expire after 30 idle days and are revocable, and rotating the key signs everyone out. The Console key is separate from the protocol token.
 - **While disconnected,** the tab stays read-only under a banner and reconnects as above.
 - **Offline.** Run summaries and metadata are cached in the browser per major. Records are cached only when the person keeps a view offline, encrypted under a key that expires with the Console login. Secret fields are never cached. Sign-out wipes the cache, and Dataset erasures reach it as soon as a tab reconnects. A setting switches caching off.
 

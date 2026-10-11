@@ -22,16 +22,20 @@ Thirteen kinds:
 
 Every kind accepts three forms: an SDK handler (in the Client's process, over JSON-RPC), a process Plugin (any language, the plugin protocol over stdio) and a Rust trait implementation (in-process, only when Goodfetch is embedded as a Rust crate). Hooks also take a fourth: a **Script Hook**, a JavaScript function run in the code-mode sandbox of ADR 0011, with no network or files, journaled catalog calls only, and time and memory limits, so that a Recipe, the CLI or MCP can carry a Hook without an SDK or a process. First-party built-ins implement the same traits, so one suite proves built-in and third-party implementations alike.
 
-What the engine enforces differs by form. SDK-handler and Rust-trait Plugins are the user's own code, like a user handler (ADR 0003): they run in the user's process with the user's rights, and the engine accounts for every call into them but cannot confine them. Records produced through them say so in their Provenance. Process Plugins are confined and reach the outside only as below. Script Hooks are held by the code-mode sandbox. Private components ship only as process Plugins, and Operator policy cannot allow them `unconfined`, so they are always confined.
+What the engine enforces differs by form, so every distributed Plugin takes the confined form:
+- **Distributed Plugins are process Plugins.** `goodfetch plugins add` and the Plugin index accept process Plugins only. Private components ship only as process Plugins too.
+- **SDK-handler and Rust-trait Plugins are the user's own code**, like a user handler (ADR 0003). They run in the user's process with the user's rights, and the engine accounts for every call into them but cannot confine them. Records produced through them say so in their Provenance. The docs state that a third-party package used in these forms runs with full rights.
+- **Process Plugins are always confined**, as below. There is no `unconfined` opt-out: a Plugin that needs more than its confinement allows has to be run as the user's own code.
+- **Script Hooks** are held by the code-mode sandbox.
 
 Changes:
 - ADR 0011, whose code-mode sandbox also runs Script Hooks.
 - ADR 0012, whose SDK model callback becomes the SDK-handler form of the Model provider kind.
 - ADR 0015, whose custom HTTP provider becomes a form of the Secret provider kind.
-- ADR 0016, whose security controls gain Plugin confinement, reported per run.
+- ADR 0016, whose security controls gain Plugin confinement and resource limits, reported per run.
 - ADR 0017, whose two egress classes apply to Plugins per destination, and whose endpoint rule covers the Plugin proxy.
 - ADR 0022, whose third-party CDP browsers can be added by a browser backend.
-- ADR 0024, whose browser cache takes browsers a Plugin declares.
+- ADR 0024, whose browser cache takes browsers a Plugin declares, and whose release gains the Windows filter broker.
 - ADR 0026, whose sink protocol becomes the `sink.*` group of the plugin protocol and whose sink processes are process Plugins.
 - ADR 0030, whose versioned contract formats list the plugin protocol, the Plugin manifest and the lockfile.
 
@@ -52,7 +56,13 @@ Changes:
 - **No network for every process Plugin**: rejected. Drivers such as librdkafka and most database clients cannot use a proxy, so the first-party Sinks that ship as processes (Kafka, MongoDB, SQL Server, ClickHouse and others) could not run.
 - **Checking `direct` connections by address with a cgroup BPF filter**: rejected. It needs root and exists only on Linux.
 - **A digest pin for every Plugin on resume**: rejected for first-party Plugins, which follow the engine's version; any engine patch would otherwise stop a run from resuming, on another machine too (ADR 0002).
-- **Refusing first-party Plugins on hosts that cannot confine them**: rejected. Most Sinks would disappear on RHEL 8, Cloud Run and WSL1, a regression against ADR 0026.
+- **Running first-party Plugins with reduced confinement by default** on hosts that cannot confine them: rejected. They are refused by default, and an operator can allow reduced confinement, so the Sinks of ADR 0026 stay available on RHEL 8, Cloud Run and WSL1 without a silent weakening.
+- **An `unconfined` opt-out for process Plugins**: rejected. One switch would undo every guarantee for exactly the Plugins that ask for it; the user's own code (an SDK handler) remains the way to run without confinement, knowingly.
+- **Installing third-party SDK-handler or Rust-trait Plugins**: rejected. They would run in the user's process with full rights, which is how malicious npm and PyPI packages steal tokens.
+- **Handing a Plugin the values of its Secrets**: rejected as the default. The engine inserts a Secret into an outgoing request itself, so the value never enters the Plugin; a value is handed over only per reference, with approval.
+- **One dedicated sandbox user on Windows**, as Codex has: rejected. It suits one sandbox at a time; here instances, runs and Daemon accounts would reach each other, and filters set once cannot follow proxy ports chosen at run time.
+- **A long-lived signing key for the Plugin index** (minisign): rejected. A stolen key would sign a malicious index; Sigstore signs it in CI, tied to the repository's workflow identity.
+- **Automatic Plugin updates**: rejected. A new version can ask for new permissions or come from a hijacked repository.
 - **A docs page of community Plugins**: rejected for a CI-validated Plugin index that carries conformance results.
 
 ## Consequences
@@ -64,6 +74,10 @@ Changes:
   - Effect-class calls
   - every Model provider and Decision provider call
 - Secret provider answers are never recorded: only the Secret reference, the outcome and the time.
+- **Secrets by reference.** A Plugin uses a Secret by writing `{{secret:<reference>}}` in a `net.fetch` request's URL, headers or body. The engine substitutes the value on the way out, only toward the domains the Secret is bound to (ADR 0015), so the value never enters the Plugin.
+  - A Plugin whose driver needs the value itself (a database password over `direct`, a TLS stream through `net.connect` or `proxy_tcp`, which the engine cannot read) declares `needs_secret_value` for that one reference.
+  - Operator policy must allow each such reference for that Plugin, and the Audit log records every release of a value.
+- **Plugin output is untrusted.** Everything a Plugin returns is treated like page content under ADR 0014, so text it returns cannot instruct a model.
 - Notification channels deliver through ADR 0027's ledger.
 - A call made for a work item runs under its lease (ADR 0003); lifecycle Hooks and other calls outside a work item are bounded by a timeout instead.
 - A Plugin that needs a page action asks the engine (`page.*`), which applies the guard and the journal.
@@ -141,6 +155,15 @@ Hooks run in declared order and can be scoped by label, which replaces Crawlee's
   - Repeated crashes quarantine the Plugin and send a Notification.
 - **Health:** a heartbeat on the same channel.
 - **Where it runs:** Linux, macOS and Windows, and inside the Browser host for kinds that work beside the browser (browser backends, challenge solvers). In Goodfetch Cloud, process Plugins run in the tenant's isolation and SDK-handler Plugins stay in the Client.
+- **Start:** every process Plugin starts, on every OS:
+  - with an empty environment apart from the variables it declares, so tokens such as `AWS_SECRET_ACCESS_KEY` or `GITHUB_TOKEN` never leak in from the shell
+  - with no inherited handles other than stdio and its own proxy socket
+  - with a private temporary directory, deleted when the instance stops
+- **Resource limits:** memory, CPU time, process count and open files, from its manifest and capped by Operator policy.
+  - **Linux:** cgroup v2 where the user's cgroup is delegated (systemd user sessions), rlimits otherwise.
+  - **macOS:** rlimits. macOS enforces no per-process memory limit an unprivileged process can set and offers no event for one, so the engine samples the instance's footprint.
+  - **Windows:** job object limits.
+  - Exceeding a limit kills the instance under the crash rules, with a typed `plugin_limit_exceeded`.
 - **Handshake:** an environment-variable cookie, as in go-plugin, so that a Plugin started by hand refuses to run (not a security boundary), then `hello` as the first JSON-RPC message. The Rust ports of go-plugin are immature, so the pattern is copied rather than imported.
 
 **Egress class, per destination.** An endpoint is operator-configured under ADR 0017 only when its host matches one of the Plugin's settings or a domain its manifest declares and Operator policy allows: an unblocker's API, a solving service, a Sink's database, a vault, a SearXNG instance. The same rule applies to an endpoint a Plugin returns for the engine to reach itself, such as a browser backend's CDP URL or a proxy provider's proxy. Every other address, returned or requested, is one a page can reach, so a Plugin cannot steer the engine to a private or loopback address. Operator-configured endpoints also fall under Goodfetch Cloud's "no private endpoints" policy. Before the engine passes a target URL to a fetch backend or an unblocker, it checks that URL under the page class itself.
@@ -155,9 +178,7 @@ Hooks run in declared order and can be scoped by label, which replaces Crawlee's
     - Where AppArmor restricts unprivileged user namespaces (Ubuntu 23.10 and later), an AppArmor profile must grant them to `goodfetch`, as Chrome's package does. It covers the installed binary's path and the Daemon's versioned cache copies (ADR 0024). The Linux packages install it; other installs (npm, PyPI, crates.io) get it from the elevated `goodfetch plugins setup`, which writes it for the paths actually in use.
     - In containers whose seccomp profile refuses user namespaces (Docker's default), `proxy_tcp` is refused.
   - **macOS:** Seatbelt allows outgoing traffic to the proxy's loopback port only.
-  - **Windows:** loopback between two processes of one AppContainer works only by undocumented behaviour, and a container's loopback to a process outside it needs an administrator exemption.
-    - So `proxy_tcp` on Windows needs a one-time elevated `goodfetch plugins setup`, as Codex's Windows sandbox has. It creates a dedicated offline local user, with file access set by access lists, and Windows Filtering Platform filters scoped to that user that allow only the proxy's loopback port.
-    - Until setup has run, `proxy_tcp` is refused.
+  - **Windows:** loopback between two processes of one AppContainer works only by undocumented behaviour, and a container's loopback to a process outside it needs an administrator exemption. So the filter broker (below) adds a Windows Filtering Platform filter scoped to that instance's AppContainer that allows only the proxy's loopback port. Until `goodfetch plugins setup` has installed the broker, `proxy_tcp` is refused.
 - **`direct`**, for drivers that cannot use a proxy (librdkafka, most database clients). A Plugin may declare it only when every kind it implements is one of: Sink, notification channel, Secret provider, Model provider, Decision provider or code source. A Plugin that also implements any other kind cannot get `direct`.
   - **What it gets:** real network access, while staying confined for files, processes and Unix-domain sockets.
   - **What is checked:** the engine checks every configured destination under ADR 0017 before starting the Plugin and at each Sink probe.
@@ -169,7 +190,7 @@ Hooks run in declared order and can be scoped by label, which replaces Crawlee's
   - **macOS:** Seatbelt allows outgoing network and denies Unix-domain sockets.
   - **Windows:**
     - An AppContainer with the `internetClient` and `privateNetworkClientServer` capabilities.
-    - A loopback destination (a local PostgreSQL) needs the dedicated user that `goodfetch plugins setup` creates, with filters scoped to that user that allow the configured ports. Until setup has run, a loopback destination is refused.
+    - A loopback destination (a local PostgreSQL) needs a filter from the broker, scoped to that instance's AppContainer and allowing only the configured ports. Until the broker is installed, a loopback destination is refused.
 
 **File, process and IPC confinement**, at every level, one policy type per Plugin generated from its manifest.
 - **Linux:**
@@ -182,17 +203,24 @@ Hooks run in declared order and can be scoped by label, which replaces Crawlee's
   - It denies signals and process inspection outside the Plugin, and limits Mach service lookups to an allowlist, so no system service can fetch over the network for the Plugin.
   - The FFI binding is in-house (two functions), since no crate meets the dependency bar.
 - **Windows:**
-  - An AppContainer with a restricted token, read access granted to the language runtime the manifest declares.
-  - A job object for kill-on-close and process limits, through `windows-sys`.
+  - Every instance runs in its own AppContainer, created for that instance without administrator rights and deleted after it, so instances, runs and Daemon accounts never reach each other's files, pipes or ports.
+  - A restricted token, with read access to the language runtime the manifest declares: Program Files already grants it to every AppContainer, and a runtime the user installed gets an entry for that container.
+  - A job object for kill-on-close and the resource limits, through `windows-sys`.
+  - **The filter broker.** An elevated `goodfetch plugins setup`, run once, installs a small Windows service whose only job is to add and remove Windows Filtering Platform filters, each scoped to one AppContainer.
+    - It accepts requests only over a named pipe that only the installing user can open, from an executable whose digest matches a Goodfetch release attestation, checked against a Sigstore trust root bundled with the broker, so engine updates need no new elevation.
+    - It adds only filters scoped to a live AppContainer that engine created, allowing a proxy's loopback port or a `direct` instance's configured loopback destinations.
+    - It logs every change in the Windows event log, and removes an instance's filters when the instance stops, and every filter when the engine exits or the service restarts.
+    - It is a separate, minimal binary with no network access, built, attested and released with the engine.
 - **Hosts that cannot confine** (no Landlock and no user namespaces, as on RHEL 8 or gVisor; no seccomp at all, as on WSL1):
   - A third-party Plugin is refused with `confinement_unavailable`.
-  - A first-party Plugin, one shipped in the engine's own release, runs with whatever confinement the host offers. The run report and Audit log say which parts were not confined.
-- **Opting out:** a manifest asking for `unconfined` loads only if Operator policy allows that Plugin by name. The run report and the Audit log mark it.
+  - A first-party Plugin, one shipped in the engine's own release, is refused by default too. Operator policy can allow it to run with the confinement the host offers; the run report and the Audit log then say which parts were not confined.
 - **CI on every OS:** a Plugin runs under real confinement at each network level, and must be refused when it tries:
   - to open a socket its level forbids, an abstract or filesystem Unix socket, or `io_uring`
   - to read `$HOME`
   - to signal or inspect another process
   - to spawn a process
+  - to read a variable from the engine's environment
+  - to exceed each resource limit
 
 **Finding, versioning and trusting.**
 - **Packaging:** a Plugin is a package in its own registry (crates.io, npm, PyPI, a binary release or an OCI image), named `goodfetch-plugin-*`.
@@ -203,10 +231,12 @@ Hooks run in declared order and can be scoped by label, which replaces Crawlee's
   - its network level and permissions: Secret references, domains, Effects, files and processes
   - browsers it adds, by download URL and digest
   - for spend outside the engine, a maximum per call and a price per unit
-- **Plugin index:** a file in the repository, validated in CI, signed with minisign (`minisign-verify` in the engine), listing community Plugins with their conformance results. `goodfetch plugins search` reads it. A marketplace belongs to Goodfetch Cloud's map.
+- **Plugin index:** a file in the repository, validated in CI and signed there with Sigstore, tied to the repository's workflow identity. The engine checks it with `sigstore-verify` against a trust root bundled with each release, so the check also works offline. It lists community Plugins with their signer identity and conformance results. `goodfetch plugins search` reads it. A marketplace belongs to Goodfetch Cloud's map.
 - **Lockfile:** `goodfetch plugins add` records a digest in a lockfile, like `.terraform.lock.hcl`, and the engine refuses a mismatch.
-- **Provenance of the package:** where a Plugin carries GitHub, npm or PyPI attestations, `sigstore-verify` checks them against a signer policy (repository workflow and OIDC issuer). crates.io records trusted publishing but serves no signed attestations yet, so a crates.io Plugin rests on its digest alone until it does.
-- **Secrets:** a Plugin receives only the Secret references it declared.
+- **Provenance of the package:** a third-party Plugin must carry a provenance attestation (a GitHub artifact attestation, npm provenance or a PyPI PEP 740 attestation), which `sigstore-verify` checks against the signer the index records (repository workflow and OIDC issuer). crates.io serves no signed attestations yet, so Rust Plugins ship as attested binary releases. An unattested Plugin loads only if Operator policy allows its exact digest.
+- **Updates:** never automatic. `goodfetch plugins update` shows the new digest, the signer and a permission diff, and any new permission (a domain, a Secret, a network level, a file, a process, a browser) needs explicit approval, as a browser asks when an extension wants more. A change of signer identity between versions is refused until the operator approves it again, which catches a hijacked repository.
+- **Look-alike names:** `goodfetch plugins add` refuses a name close to an index entry (typosquatting) unless it is given by exact digest.
+- **Secrets:** a Plugin can use only the Secret references it declared, and by reference unless a value is allowed (above).
 - **Loading:** a third-party Plugin loads only when Operator policy allows it. Goodfetch's first-party Plugins are allowed by default. A Private component is not first-party: it loads only when Operator policy allows it.
 
 Evidence: confinement and provenance precedents gathered for the ticket:

@@ -64,6 +64,14 @@ _Avoid_: job, execution, session (for a whole run)
 An action of a run that changes something on a website or third-party service, such as submitting a form or placing an order. A resumed run checks whether an effect already happened instead of repeating it, and reports it as uncertain when it cannot tell.
 _Avoid_: side effect, mutation, write
 
+**Reconciliation**:
+A person's recorded answer about an uncertain Effect: it happened, it did not happen, or it stays uncertain. An agent can ask for one but never give it.
+_Avoid_: resolution, manual fix, override (for this answer)
+
+**Verdict**:
+A run's statement of whether its Success checks, Page checks and Grounding prove its committed results: verified, rejected by a failed Success check, or needing a person's review.
+_Avoid_: status, success, result (for the verdict)
+
 **Recipe**:
 A portable package of user code, described by a manifest, that runs the same locally or on Automan Cloud and can be published.
 _Avoid_: actor, app, pack, script
@@ -95,7 +103,7 @@ The URLs a run has discovered but not yet visited, with the list of those alread
 _Avoid_: queue, request list, to-do list
 
 **Completeness**:
-A run's statement of whether its results cover everything in scope: complete, incomplete (stopped early) or unverified (finished, but the engine cannot vouch that nothing was missed).
+A run's statement of whether its results cover everything in scope: complete, incomplete (ended early) or unverified (finished, but the engine cannot vouch that nothing was missed).
 _Avoid_: success, done, finished (for coverage)
 
 **Session**:

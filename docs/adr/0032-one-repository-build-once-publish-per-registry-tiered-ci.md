@@ -11,7 +11,7 @@ sdks/python/       the `py3-none` platform wheels
 adapters/          Vercel AI SDK, LangChain/LangGraph (TypeScript and Python), Mastra (ADR 0011)
 integrations/      n8n, Airbyte source, LangChain and LlamaIndex loaders, Zapier, Make, Pipedream, Activepieces, Power Automate (ADR 0027)
 skills/            agent skills
-conformance/       the conformance harness (`goodfetch-conformance`) and the cross-surface suites, run against the Proving ground
+conformance/       the cross-surface conformance suites, run against the Proving ground by `crates/goodfetch-conformance`
 proving-ground/    seed generator, page server, oracles, and deploy/ for the online copy
 bench/             the benchmark harness, competitor adapters, and results/
 docs/              the product documentation's content, plus adr/ and agents/
@@ -53,7 +53,7 @@ Releases are **built once and published per registry**: no tool publishes crates
   - Nothing is edited except broken links, and lab code stays as history after its fixtures and harness move.
   - `pnpm lab ci` runs only when files under `rnd/` change, and is never a required check.
   - `research/*` branches stay unmerged.
-- **Conformance harness.** The suites run in `goodfetch-conformance`, a Rust crate that depends only on `goodfetch-protocol` (STYLE.md's dependency-direction reason: it tests through the interface, never engine internals) and is linked into the binary, so `goodfetch plugins test` runs them (ADR 0033). Cases for the SDKs, the CLI and MCP run in those surfaces' own test runners and write the same result document. The Proving ground still depends on neither (settled on the gaps the [Proving ground and conformance spec](https://github.com/Jbmanllr/automan/issues/152) listed, as the [owner settled them](https://github.com/Jbmanllr/automan/issues/152#issuecomment-6115242029)).
+- **Conformance harness.** The suites in `conformance/` run in `goodfetch-conformance`, a Rust crate under `crates/` that depends only on `goodfetch-protocol` (STYLE.md's dependency-direction reason: it tests through the interface, never engine internals) and is linked into the binary, so `goodfetch plugins test` runs them (ADR 0033). Cases for the SDKs, the CLI and MCP run in those surfaces' own test runners and write the same result document. The Proving ground depends on neither `goodfetch-conformance` nor `goodfetch-protocol` (settled on the gaps the [Proving ground and conformance spec](https://github.com/Jbmanllr/automan/issues/152) listed, as the [owner settled them](https://github.com/Jbmanllr/automan/issues/152#issuecomment-6115242029)).
 - **Private components.** The public repository holds each Private component's interface, a no-op implementation that keeps the public engine whole, and that interface's conformance suite (ADR 0018). The private repository builds against public `main` every night and against every release candidate, stable release and patch. While that run is red, no release candidate, stable release or patch is published, so the challenge solver cannot silently fall out of a release. Public CI never sees private code or secrets.
 - **Release automation.** This settles the item ADR 0030 left to the specs.
   - **Versioning.** An in-house `xtask release`, a small Rust program, sets the product version in every released manifest. It keeps the internal `goodfetch-*` crates at `0.0.x` and leaves the Zapier and Make apps to their platforms' versioning (ADR 0030). It then writes the changelog with git-cliff and opens a release pull request.

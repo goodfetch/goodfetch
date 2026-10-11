@@ -127,4 +127,4 @@ Evidence from the competitor survey made for that ticket:
   - `Referrer-Policy: no-referrer`;
   - COOP and CORP.
 - **Checks.** CI checks these headers. The Proving ground (ADR 0025) includes pages that try to escape the content origin.
-- Step-up also covers accepting a changed certificate key (ADR 0042) and a Console answer that widens `pay_domains` (ADR 0045).
+- Step-up also covers the writes that no agent surface offers: `trusted_cas`, certificate pins and `any`, and `goodfetch certs accept` and `certs forget` (ADR 0042); and widening `pay_domains` or `max_price_per_page` and writing the rates and chain RPC endpoints of Paid fetches (ADR 0045). On a Daemon with accounts only the operator role makes these writes, in the Operator policy.

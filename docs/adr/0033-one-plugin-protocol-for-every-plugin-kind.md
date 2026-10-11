@@ -22,7 +22,7 @@ Thirteen kinds:
 
 Every kind accepts three forms: an SDK handler (in the Client's process, over JSON-RPC), a process Plugin (any language, the plugin protocol over stdio) and a Rust trait implementation (in-process, only when Goodfetch is embedded as a Rust crate). Hooks also take a fourth: a **Script Hook**, a JavaScript function run in the code-mode sandbox of ADR 0011, with no network or files, journaled catalog calls only, and time and memory limits, so that a Recipe, the CLI or MCP can carry a Hook without an SDK or a process. First-party built-ins implement the same traits, so one suite proves built-in and third-party implementations alike.
 
-What the engine enforces differs by form. SDK-handler and Rust-trait Plugins are the user's own code, like a user handler (ADR 0003): they run in the user's process with the user's rights, and the engine accounts for every call into them but cannot confine them. Records produced through them say so in their Provenance. Process Plugins are confined and reach the outside only as below. Script Hooks are held by the code-mode sandbox. Private components ship only as process Plugins, so they are always confined.
+What the engine enforces differs by form. SDK-handler and Rust-trait Plugins are the user's own code, like a user handler (ADR 0003): they run in the user's process with the user's rights, and the engine accounts for every call into them but cannot confine them. Records produced through them say so in their Provenance. Process Plugins are confined and reach the outside only as below. Script Hooks are held by the code-mode sandbox. Private components ship only as process Plugins, and Operator policy cannot allow them `unconfined`, so they are always confined.
 
 Changes:
 - ADR 0011, whose code-mode sandbox also runs Script Hooks.
@@ -67,12 +67,13 @@ Changes:
 - Notification channels deliver through ADR 0027's ledger.
 - A call made for a work item runs under its lease (ADR 0003); lifecycle Hooks and other calls outside a work item are bounded by a timeout instead.
 - A Plugin that needs a page action asks the engine (`page.*`), which applies the guard and the journal.
+- A `net.connect` or proxied stream is opaque to the engine. It is counted in Usage (bytes and time), recorded in the Run trace by destination, and closed when the lease it was opened under ends (ADR 0003).
 - **Spend outside the engine** (an unblocker API, a solving service):
   - The Plugin reports raw units (solves, requests, pages) in Usage.
-  - Its manifest declares, for each unit, a maximum per call and a price, overridable like ADR 0012's price table.
-  - Before the call, the engine reserves the maximum times the price against a currency Limit, and refuses a call that would cross it.
-  - A reported quantity above the declared maximum is capped and flagged in the run report.
-  - These are third-party prices, so ADR 0001 holds.
+  - Its manifest declares, for each unit, a maximum per call and a price. The operator sees them when allowing the Plugin and can override them, like ADR 0012's price table, and a currency Limit treats a unit with no price as unbounded, refusing the call.
+  - Before the call, the engine reserves the maximum times the price against the currency Limit, and refuses a call that would cross it.
+  - A reported quantity above the declared maximum is recorded in full, never capped, flagged in the run report, and stops the run if it crosses the Limit.
+  - The currency Limit on this spend is only as accurate as the declared prices and the reported units, and the run report says the figures come from the Plugin. These are third-party prices, so ADR 0001 holds.
 
 **Hooks.**
 
@@ -87,9 +88,9 @@ Changes:
 Hooks run in declared order and can be scoped by label, which replaces Crawlee's router middleware. A Hook error is a typed `hook_failed`, retried by the work item's policy, and a Hook's time counts against the lease.
 
 **Browser backends.** A browser backend answers with one of three:
-1. **A browser from the engine's browser cache**, by name and digest. A Plugin may add a browser by declaring a download URL and digest in its manifest; the engine downloads it, checks it, and launches it itself over a pipe, like Chrome for Testing (ADR 0024), if Operator policy allows that browser. The engine never launches an executable a Plugin names.
+1. **A browser from the engine's browser cache**, by name and digest. A Plugin may add a browser by declaring a download URL and digest in its manifest; the engine downloads it, checks it, and launches it itself over a pipe, like Chrome for Testing (ADR 0024). Such a browser runs as the engine's own browsers do, outside the Plugin's confinement, so Operator policy allows it per digest, it is off by default, and each allowance is recorded in the Audit log. Its launch flags come only from the engine's allowlist, which excludes flags that run commands (such as `--renderer-cmd-prefix`). The engine never launches an executable a Plugin names.
 2. **A Browser host address** (ADR 0022).
-3. **A third-party CDP endpoint** (as for Browserbase or Bright Data's Scraping Browser), reached as ADR 0022 reaches them, with the guard, and checked as an operator-configured endpoint under ADR 0017.
+3. **A third-party CDP endpoint** (as for Browserbase or Bright Data's Scraping Browser), reached as ADR 0022 reaches them, with the guard, and checked under the egress rule below.
 
 **The challenge solver's contract.**
 - **Detection:** the engine detects a challenge by its rules, which beat models there.
@@ -142,27 +143,28 @@ Hooks run in declared order and can be scoped by label, which replaces Crawlee's
 - **Where it runs:** Linux, macOS and Windows, and inside the Browser host for kinds that work beside the browser (browser backends, challenge solvers). In Goodfetch Cloud, process Plugins run in the tenant's isolation and SDK-handler Plugins stay in the Client.
 - **Handshake:** an environment-variable cookie, as in go-plugin, so that a Plugin started by hand refuses to run (not a security boundary), then `hello` as the first JSON-RPC message. The Rust ports of go-plugin are immature, so the pattern is copied rather than imported.
 
-**Egress class, per destination.** The endpoints a Plugin's settings name (an unblocker's API, a solving service, a Sink's database, a vault, a SearXNG instance) are operator-configured endpoints under ADR 0017, including Goodfetch Cloud's "no private endpoints" policy. Every other address is one a page can reach. Before the engine passes a target URL to a fetch backend or an unblocker, it checks that URL under the page class itself.
+**Egress class, per destination.** An endpoint is operator-configured under ADR 0017 only when its host matches one of the Plugin's settings or a domain its manifest declares and Operator policy allows: an unblocker's API, a solving service, a Sink's database, a vault, a SearXNG instance. The same rule applies to an endpoint a Plugin returns for the engine to reach itself, such as a browser backend's CDP URL or a proxy provider's proxy. Every other address, returned or requested, is one a page can reach, so a Plugin cannot steer the engine to a private or loopback address. Operator-configured endpoints also fall under Goodfetch Cloud's "no private endpoints" policy. Before the engine passes a target URL to a fetch backend or an unblocker, it checks that URL under the page class itself.
 
-**Network levels for process Plugins.** The manifest declares one level. A level the host cannot provide is refused with a typed `confinement_unavailable`, never silently weakened.
+**Network levels for process Plugins.** The manifest declares one level. For a third-party Plugin, a level the host cannot provide is refused with a typed `confinement_unavailable`, never silently weakened; first-party Plugins follow the rule for hosts that cannot confine, below. What each refusal costs (a fetch backend with its own TLS stack in a default Docker container, for instance) is listed in the docs for each platform.
 - **`none`** (the default, and the only level an Extractor may declare). The Plugin creates no network socket: it reaches the outside only through `net.fetch` and `net.connect` on its stdio channel, where the engine applies the egress class, the domains the manifest declares, Usage and the journal.
   - **Linux:** seccomp refuses every new IP or Unix-domain socket.
-  - **macOS:** Seatbelt denies all network.
+  - **macOS:** Seatbelt denies all network, and the Mach service allowlist below excludes the DNS service, so a Plugin cannot send data out through DNS queries.
   - **Windows:** an AppContainer with no network capability, which Windows' default outbound rule blocks, as Chromium's sandbox relies on.
 - **`proxy_tcp`**, for clients that only speak `HTTP_PROXY` or SOCKS5. The engine runs a proxy for that instance, which applies the same checks as `none` and requires credentials generated for that instance, carried in the proxy URL, so no other local process can use it. `goodfetch plugin-shim`, the same binary, relays TCP clients to it where the platform needs a relay.
   - **Linux:** a network namespace holding only loopback, with the relay inside it, as Claude Code's sandbox runtime does. The relay reaches the engine through a socket it inherits already connected. seccomp allows IP sockets inside the namespace and refuses Unix-domain ones.
-    - Where AppArmor restricts unprivileged user namespaces (Ubuntu 23.10 and later), an AppArmor profile must grant them to `goodfetch`, as Chrome's package does. The Linux packages install it; other installs (npm, PyPI, crates.io) get it from the elevated `goodfetch plugins setup`.
+    - Where AppArmor restricts unprivileged user namespaces (Ubuntu 23.10 and later), an AppArmor profile must grant them to `goodfetch`, as Chrome's package does. It covers the installed binary's path and the Daemon's versioned cache copies (ADR 0024). The Linux packages install it; other installs (npm, PyPI, crates.io) get it from the elevated `goodfetch plugins setup`, which writes it for the paths actually in use.
     - In containers whose seccomp profile refuses user namespaces (Docker's default), `proxy_tcp` is refused.
   - **macOS:** Seatbelt allows outgoing traffic to the proxy's loopback port only.
   - **Windows:** loopback between two processes of one AppContainer works only by undocumented behaviour, and a container's loopback to a process outside it needs an administrator exemption.
     - So `proxy_tcp` on Windows needs a one-time elevated `goodfetch plugins setup`, as Codex's Windows sandbox has. It creates a dedicated offline local user, with file access set by access lists, and Windows Filtering Platform filters scoped to that user that allow only the proxy's loopback port.
     - Until setup has run, `proxy_tcp` is refused.
-- **`direct`**, for drivers that cannot use a proxy (librdkafka, most database clients). Only kinds whose destinations are operator-configured may declare it (Sinks, Notification channels, Secret providers, Model and Decision providers, code sources).
+- **`direct`**, for drivers that cannot use a proxy (librdkafka, most database clients). A Plugin may declare it only when every kind it implements is one of: Sink, notification channel, Secret provider, Model provider, Decision provider or code source. A Plugin that also implements any other kind cannot get `direct`.
   - **What it gets:** real network access, while staying confined for files, processes and Unix-domain sockets.
   - **What is checked:** the engine checks every configured destination under ADR 0017 before starting the Plugin and at each Sink probe.
   - **What is not checked:** addresses the driver learns during the run (Kafka brokers, MongoDB replicas) and DNS rebinding are not checked locally. The run report and `goodfetch plugins list` say so for every Plugin at `direct`.
   - **Goodfetch Cloud:** the tenant's network firewall enforces "no private endpoints" whatever the engine sees.
-  - **Who gets it:** first-party sink processes have `direct` by default. A third-party Plugin gets it only when Operator policy names it, and the run report marks it.
+  - **Who gets it:** each first-party sink process declares the lowest level it needs, and those that need `direct` have it by default. A third-party Plugin gets it only when Operator policy names it; the run report and the Audit log mark it.
+  - **Bridge Sinks** (ADR 0026's Airbyte destination images and Singer targets) are third-party Plugins at `direct`: a Singer target runs under this confinement, an Airbyte image inside its container runtime with the same network rule, and either one only when Operator policy names it.
   - **Linux:** seccomp allows IP sockets and refuses Unix-domain ones.
   - **macOS:** Seatbelt allows outgoing network and denies Unix-domain sockets.
   - **Windows:**
@@ -172,8 +174,9 @@ Hooks run in declared order and can be scoped by label, which replaces Crawlee's
 **File, process and IPC confinement**, at every level, one policy type per Plugin generated from its manifest.
 - **Linux:**
   - Landlock (`landlock`, kernel 5.13+) limits files to those the manifest declares; ABI 6 (kernel 6.12+) also scopes signals and abstract Unix sockets to the Plugin.
-  - Without Landlock, a mount namespace exposes only those files (the bubblewrap approach), and a PID namespace isolates signals.
-  - seccomp (`seccompiler`) refuses `io_uring`, `ptrace`, `process_vm_readv` and `process_vm_writev`, and new processes unless the manifest declares them. `socketpair`, which language runtimes such as Python's asyncio use internally and which reaches nothing outside the process, stays allowed.
+  - Without Landlock, a mount namespace exposes only those files (the bubblewrap approach).
+  - On kernels before 6.12, a PID namespace isolates signals. Without Landlock ABI 6 and without user namespaces, signal isolation is unavailable, and the rule for hosts that cannot confine applies.
+  - seccomp (`seccompiler`) refuses `io_uring`, `ptrace`, `process_vm_readv` and `process_vm_writev`, and new processes unless the manifest declares them. A refused call returns an error rather than killing the Plugin, so it fails visibly; the exact system call and socket-family lists belong to the spec. `socketpair`, which language runtimes such as Python's asyncio use internally and which reaches nothing outside the process, stays allowed.
 - **macOS:**
   - A Seatbelt profile generated from the manifest is applied through `sandbox_init`, the mechanism Chrome, Codex and Claude Code still use although it is formally deprecated.
   - It denies signals and process inspection outside the Plugin, and limits Mach service lookups to an allowlist, so no system service can fetch over the network for the Plugin.

@@ -30,7 +30,7 @@ The design vocabulary is the one of `codebase-design`: a **module** has an **int
 
 ### Workspace and crates
 
-- **The root `Cargo.toml` is a virtual manifest.** Members live under `crates/` and `crates/sinks/`, plus `proving-ground/` and `xtask/` (ADR 0032). Each folder name equals its crate name, and internal crates are named `goodfetch-<glossary term>`. Siblings and shared dependencies are referenced with `.workspace = true`.
+- **The root `Cargo.toml` is a virtual manifest.** Members live under `crates/` and `crates/sinks/`, plus `proving-ground/` (ADR 0032) and an `xtask/` folder at the root for `xtask codegen` and `xtask release`. Each folder name equals its crate name, and internal crates are named `goodfetch-<glossary term>`. Siblings and shared dependencies are referenced with `.workspace = true`.
 - **A concern becomes its own crate only for one of these reasons:**
   1. it is a separate executable (the binary, a sink process, the sandbox helper, `xtask`, the Proving ground);
   2. the compiler must enforce a dependency direction (`goodfetch-protocol` never depends on the engine; the Proving ground never depends on engine crates; a Private component's interface with its no-op implementation);
@@ -55,9 +55,9 @@ The design vocabulary is the one of `codebase-design`: a **module** has an **int
 ### Async and concurrency
 
 - **Tokio is the runtime, and concurrency is structured** (ADR 0038): child cancellation tokens from the engine process (an Attached engine or the Daemon) to each run, Session and page; each owner waits for its own tasks before it stops.
-- **No task starts outside an owner's tracker.** Spawn through it (`TaskTracker::spawn`, `TaskTracker::spawn_blocking`); a Clippy `disallowed-methods` rule bans `tokio::spawn`, `tokio::task::spawn_blocking`, `tokio::task::spawn_local`, `Handle::spawn` and `Runtime::spawn` outside the module that implements this. A tracked task may own a `JoinSet` for a fan-out whose results it awaits before it returns.
+- **No task starts outside an owner's tracker.** Spawn through it (`TaskTracker::spawn`, `TaskTracker::spawn_blocking`); a Clippy `disallowed-methods` rule bans `tokio::spawn`, `tokio::task::spawn_blocking`, `tokio::task::spawn_local`, `Handle::spawn`, `Handle::spawn_blocking`, `Runtime::spawn` and `Runtime::spawn_blocking` outside the module that implements this. A tracked task may own a `JoinSet` for a fan-out whose results it awaits before it returns.
   _Why:_ an orphan task outlives its cancelled run and keeps writing.
-- **Never block an async worker.** Blocking I/O and CPU-heavy work go to the owner's tracked `spawn_blocking`, a dedicated thread, or an actor on its own thread; `std::thread::sleep`, blocking `std::process::Command` and blocking `std::fs` calls are disallowed in async crates.
+- **Never block an async worker.** Blocking I/O and CPU-heavy work go to the owner's tracked `spawn_blocking`, or to a dedicated thread (an actor's, for example) that its owner joins before it stops; `std::thread::sleep`, blocking `std::process::Command` and blocking `std::fs` calls are disallowed in async crates.
 - **Never hold a lock across `.await`.**
 - **Every public async function has a `# Cancel safety` section** saying what is lost if its future is dropped.
 - **Public futures are `Send`**, checked by a compile-time assertion on the main entry points.
@@ -114,13 +114,15 @@ For anything non-trivial, a known and widely used project is preferred to writin
 
 ### Tests
 
-Each dependency category of `codebase-design` is tested its own way:
+A module is tested according to the kind of dependency it has, using the four categories of `codebase-design`:
 
-- **Pure logic** (URL normalization, robots, frontier rules, extraction, run-state rules): through the module's interface; `proptest` for parsers.
-- **Untrusted input** (CDP messages, JSON-RPC and plugin-protocol framing, HTML and Markdown, sitemaps, run-state import): a `cargo-fuzz` target per decoder.
-- **Local stand-ins:** SQLite in a temporary file; a real Chromium (the Goodfetch build of ADR 0035) against Proving ground pages served locally. CDP is never mocked.
+- **In-process** (pure logic: URL normalization, robots, frontier rules, extraction, run-state rules): through the module's interface; `proptest` for parsers.
+- **Local-substitutable** (a real local stand-in exists): SQLite in a temporary file; a real Chromium (the Goodfetch build of ADR 0035) against Proving ground pages served locally. CDP is never mocked.
   _Why:_ a fake browser lets tests pass where a real one fails, which is the false success ADR 0025 measures.
-- **Truly external services** (model providers, CAPTCHA services): a mock adapter replaying recorded exchanges.
+- **Remote but owned** (Goodfetch's own processes across a boundary: sink processes, process Plugins, the Daemon): the logic is tested through an in-memory adapter of the protocol, and the real processes through the conformance suites.
+- **True external** (model providers, CAPTCHA services): a mock adapter replaying recorded exchanges.
+
+Untrusted input gets a `cargo-fuzz` target per decoder: CDP messages, JSON-RPC and plugin-protocol framing, HTML and Markdown, sitemaps, run-state import.
 - **Snapshots** use `insta`, with redactions for what varies, for JSON-RPC responses, generated surfaces and extraction output. Snapshot files are never edited by hand.
 - **Layout:** one integration-test binary per crate (`tests/it/main.rs` with modules), run with `cargo-nextest`.
   _Why:_ each file in `tests/` links its own binary, which multiplies build time.

@@ -55,7 +55,7 @@ The design vocabulary is the one of `codebase-design`: a **module** has an **int
 ### Async and concurrency
 
 - **Tokio is the runtime, and concurrency is structured** (ADR 0038): child cancellation tokens from the engine process (an Attached engine or the Daemon) to each run, Session and page; each owner waits for its own tasks before it stops.
-- **No task starts outside an owner's tracker.** Spawn through it (`TaskTracker::spawn`, `TaskTracker::spawn_blocking`); a Clippy `disallowed-methods` rule bans `tokio::spawn`, `tokio::task::spawn_blocking`, `tokio::task::spawn_local`, `Handle::spawn`, `Handle::spawn_blocking`, `Runtime::spawn` and `Runtime::spawn_blocking` outside the module that implements this. A tracked task may own a `JoinSet` for a fan-out whose results it awaits before it returns.
+- **No task starts outside an owner's tracker.** Spawn through it (`TaskTracker::spawn`, `TaskTracker::spawn_blocking`); a Clippy `disallowed-methods` rule bans `tokio::spawn`, `tokio::task::spawn_blocking`, `tokio::task::spawn_local`, `Handle::spawn`, `Handle::spawn_blocking`, `Runtime::spawn`, `Runtime::spawn_blocking` and `LocalSet::spawn_local` outside the module that implements this. A tracked task may own a `JoinSet` for a fan-out whose results it awaits before it returns.
   _Why:_ an orphan task outlives its cancelled run and keeps writing.
 - **Never block an async worker.** Blocking I/O and CPU-heavy work go to the owner's tracked `spawn_blocking`, or to a dedicated thread (an actor's, for example) that its owner joins before it stops; `std::thread::sleep`, blocking `std::process::Command` and blocking `std::fs` calls are disallowed in async crates.
 - **Never hold a lock across `.await`.**
@@ -122,7 +122,9 @@ A module is tested according to the kind of dependency it has, using the four ca
 - **Remote but owned** (Goodfetch's own processes across a boundary: sink processes, process Plugins, the Daemon): the logic is tested through an in-memory adapter of the protocol, and the real processes through the conformance suites.
 - **True external** (model providers, CAPTCHA services): a mock adapter replaying recorded exchanges.
 
-Untrusted input gets a `cargo-fuzz` target per decoder: CDP messages, JSON-RPC and plugin-protocol framing, HTML and Markdown, sitemaps, run-state import.
+Across all of them:
+
+- **Untrusted input** gets a `cargo-fuzz` target per decoder: CDP messages, JSON-RPC and plugin-protocol framing, HTML and Markdown, sitemaps, run-state import.
 - **Snapshots** use `insta`, with redactions for what varies, for JSON-RPC responses, generated surfaces and extraction output. Snapshot files are never edited by hand.
 - **Layout:** one integration-test binary per crate (`tests/it/main.rs` with modules), run with `cargo-nextest`.
   _Why:_ each file in `tests/` links its own binary, which multiplies build time.

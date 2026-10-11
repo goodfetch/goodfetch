@@ -25,7 +25,7 @@ Only a real trade-off still unmade is `open`, and it becomes a grilling ticket o
 
 ## Order of `/to-spec`
 
-One spec per area. An area goes to `/to-spec` only after every area whose contracts it consumes, and after every ticket that holds one of its `open` rows in the matrix; the "Waits on" column is derived from those rows, and a pull request that changes them updates it:
+One spec per area. An area goes to `/to-spec` only after every area whose contracts it consumes, except between areas that use each other's contracts (below), and after every ticket that holds one of its `open` rows in the matrix; the "Waits on" column is derived from those rows, and a pull request that changes them updates it:
 
 | # | Area | ADRs | Waits on |
 |---:|---|---|---|
@@ -44,7 +44,7 @@ One spec per area. An area goes to `/to-spec` only after every area whose contra
 | 13 | Self-hosted deployment and operations | 0024 | [Scaling past one engine](https://github.com/Jbmanllr/automan/issues/116), [Bringing an existing login or browser](https://github.com/Jbmanllr/automan/issues/117), [Self-hosted deployment and operations](https://github.com/Jbmanllr/automan/issues/120) |
 | 14 | Cloud-readiness contracts | 0001 | [Self-hosted deployment and operations](https://github.com/Jbmanllr/automan/issues/120) |
 
-The Proving ground comes second because it is the oracle every later area's conformance suite runs against. Security precedes Site access because ADR 0017's egress policy wraps every fetch. Scheduling precedes Client surfaces and the Console, which expose its `schedules.*` operations (ADR 0036). Where two areas use each other's contracts, as Scheduling uses the Console's Run index and the Notification events of Client surfaces (ADRs 0031 and 0027), the ADRs already fix the shared contract, and the earlier area's spec builds against it while the later area's spec implements it.
+The Proving ground comes second because it is the oracle every later area's conformance suite runs against. Security precedes Site access because ADR 0017's egress policy wraps every fetch. Scheduling precedes Client surfaces and the Console, which expose its `schedules.*` operations (ADR 0036). Where two areas use each other's contracts, as Scheduling uses the Console's Run index and the Notification events of Client surfaces (ADRs 0031 and 0027), the ADRs already fix the shared contract, and the earlier area's spec builds against it while the later area's spec implements it. Across areas, `/to-issues` blocks each issue on the issues that build the contracts it consumes, whichever area they belong to.
 
 ## Considered Options
 

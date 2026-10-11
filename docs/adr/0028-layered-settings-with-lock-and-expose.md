@@ -23,4 +23,5 @@ This extends ADR 0023, under which every costly control can be switched off and 
 - **Weakening is recorded.** Any override that weakens a guarantee class or switches off a costly control is recorded in the Audit log and marked on the results it touches (ADR 0023).
 - **Some honesty guarantees stay locked whatever the layer**: the delivery ID and epoch on every write, the guarantee class reported per delivery, webhook signing, and Secret references. These join ADR 0016's controls that cost nothing at run time.
 - **Changes ADRs 0016 and 0023.** Their "switchable per run" controls can now be capped or locked by an Operator policy or a Recipe; where nothing locks them, the run can still switch them.
+- **Per product major.** The Operator policy and user and project configuration are kept per product major, and a new major refuses to start on an older major's Operator policy until `automan upgrade-files` has run (ADR 0030).
 - **Applies beyond Sinks.** The layering covers every engine setting, not only Sinks. Earlier ADRs that call a control "settable" or "switchable" mean settable through these layers.

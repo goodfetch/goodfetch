@@ -40,6 +40,10 @@ _Avoid_: enterprise edition, premium module, closed core
 The Automan process that runs beside a browser and carries out a Session's operations for an engine running elsewhere.
 _Avoid_: worker, agent, sidecar
 
+**Experimental**:
+The status of an operation, setting or SDK method released outside the stable contract until it is promoted.
+_Avoid_: unstable, nursery
+
 ## Pillars
 
 **Extraction**:
@@ -187,10 +191,6 @@ _Avoid_: action log, history
 **Operation catalog**:
 The single list of engine operations, each classed read, idempotent write or Effect, that every surface exposes to people and agents.
 _Avoid_: tool list, API surface
-
-**Experimental**:
-The status of an operation, setting or SDK method released outside the stable contract until it is promoted.
-_Avoid_: preview, beta, unstable, nursery
 
 **Code mode**:
 Driving the engine through a short program written by a model that calls only the Operation catalog.

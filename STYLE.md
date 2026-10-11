@@ -54,8 +54,8 @@ The design vocabulary is the one of `codebase-design`: a **module** has an **int
 
 ### Async and concurrency
 
-- **Tokio is the runtime, and concurrency is structured** (ADR 0038): child cancellation tokens from Daemon to engine, run, Session and page; each owner waits for its own tasks before it stops.
-- **No bare `tokio::spawn` or `tokio::task::spawn_blocking`.** Spawn through the owner's task tracker (`TaskTracker::spawn`, `TaskTracker::spawn_blocking`); a Clippy `disallowed-methods` rule enforces it outside the module that implements this.
+- **Tokio is the runtime, and concurrency is structured** (ADR 0038): child cancellation tokens from the engine process (an Attached engine or the Daemon) to each run, Session and page; each owner waits for its own tasks before it stops.
+- **No task starts outside an owner's tracker.** Spawn through it (`TaskTracker::spawn`, `TaskTracker::spawn_blocking`); a Clippy `disallowed-methods` rule bans `tokio::spawn`, `tokio::task::spawn_blocking`, `tokio::task::spawn_local`, `Handle::spawn` and `Runtime::spawn` outside the module that implements this. A tracked task may own a `JoinSet` for a fan-out whose results it awaits before it returns.
   _Why:_ an orphan task outlives its cancelled run and keeps writing.
 - **Never block an async worker.** Blocking I/O and CPU-heavy work go to the owner's tracked `spawn_blocking`, a dedicated thread, or an actor on its own thread; `std::thread::sleep`, blocking `std::process::Command` and blocking `std::fs` calls are disallowed in async crates.
 - **Never hold a lock across `.await`.**
@@ -68,7 +68,7 @@ The design vocabulary is the one of `codebase-design`: a **module** has an **int
 - **Warnings fail CI.** Clippy runs with `--all-targets --all-features`.
 - **Clippy `pedantic` is on as warnings**, with a short allow-list kept in `[workspace.lints]`.
 - **Denied:** `print_stdout` and `print_stderr`, `dbg_macro`, `todo`, `unimplemented`, `unwrap_used` (allowed in tests), `allow_attributes`, `allow_attributes_without_reason`, `clone_on_ref_ptr`, `exit` (outside `main`). `std::io::stdout` and `std::io::stderr` are in `disallowed-methods`.
-- **Only two writers touch stdout or stderr:** the protocol transport and the CLI's output writer (its human output, its `--json` output and its hints on stderr). Everything else logs through `tracing`.
+- **Only three writers touch stdout or stderr:** the protocol transport, the CLI's output writer (its human output, its `--json` output and its hints on stderr) and the `tracing` subscriber's writer (stderr or a file). Everything else logs through `tracing`.
   _Why:_ when the binary runs as an Attached engine started by an SDK, or as the stdio MCP server, stdout is the JSON-RPC channel, so one stray write corrupts the protocol; and the CLI's `--json` output is under semver (ADR 0030).
 - **Exceptions use `#[expect(lint, reason = "…")]`, never `#[allow]`.**
   _Why:_ `expect` warns when the exception is no longer needed, so stale exceptions disappear.
@@ -133,7 +133,7 @@ Each dependency category of `codebase-design` is tested its own way:
 
 - **`missing_docs` warns on `goodfetch` and `goodfetch-protocol`.**
 - **Each public function of `goodfetch` and `goodfetch-protocol` documents `# Errors`** (with the Error codes it can return), **`# Cancel safety`** if it is async and **`# Panics`** if it can panic; on `goodfetch` it also has **an example** that runs as a doctest.
-- **Internal crates document what a caller outside the module must know**: their `//!` headers, and `# Errors` or `# Cancel safety` where a caller would otherwise guess.
+- **Internal crates document what a caller outside the module must know**: their `//!` headers, `# Errors` where a caller would otherwise guess, and `# Cancel safety` on every public async function (ADR 0038).
 - **The catalog's description of an operation is its only text source:** MCP tool descriptions, SDK docstrings and reference pages are generated from it.
   _Why:_ what a model reads in a tool description directly affects agent accuracy, and the surfaces then never disagree.
 - **Comments say why, never what the code already says.**
@@ -174,7 +174,7 @@ Applies to `sdks/python`, the Python adapters and the uv workspace. Supported ve
   _Why:_ pyright is what most editors show; the mypy check keeps the types right for mypy users too.
 - **ruff formats and lints**, with the rule sets `E F I UP B C4 ARG T20 TID251 PERF RUF ANN PYI TC ASYNC D`, ignoring `D206` and `D300`, which conflict with ruff's formatter.
   _Why:_ `ASYNC` catches blocking calls inside async code, and `T20` bans `print`.
-- **Packages build with `uv_build` and ship `py.typed`.**
+- **Pure-Python packages build with `uv_build`; every package ships `py.typed`.** The SDK's `py3-none` platform wheels, which carry the engine binary (ADR 0024), are built by the release job of ADR 0032.
 - **The async core uses anyio**, so the async API runs on asyncio and trio. The sync API is generated and runs that core on its own event-loop thread (ADR 0038).
 - **Protocol data are pydantic v2 models, generated; errors are one exception class per Error code, generated.**
 - **Tests use pytest with the anyio plugin** (every async test runs on asyncio and trio), `inline-snapshot` for protocol payloads and `hypothesis` for encode and decode round-trips. CI also runs the free-threaded build.

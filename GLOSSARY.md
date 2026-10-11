@@ -24,10 +24,6 @@ _Avoid_: dashboard, inspector, app
 Any program that drives the engine through its operations: an SDK, the CLI, the MCP server, the Console or Goodfetch Cloud. Speaking CDP to a browser does not make a program a Client.
 _Avoid_: frontend, binding, consumer
 
-**Error code**:
-The stable name a Client receives when an operation fails, such as `page_check_failed`, which code can match on and which keeps its meaning across releases of a major version.
-_Avoid_: error name, error kind, status code
-
 **Attached engine**:
 An engine started by one Client for its own use, which stops when that Client goes away.
 _Avoid_: sidecar, child engine
@@ -35,6 +31,10 @@ _Avoid_: sidecar, child engine
 **Daemon**:
 A long-lived engine on the local machine that several Clients share and that outlives each of them.
 _Avoid_: server, service, background engine
+
+**Error code**:
+The stable name a Client receives when an operation fails, such as `page_check_failed`, which programs can match on and which keeps its meaning across releases of a major version.
+_Avoid_: error name, error kind, status code
 
 **Private component**:
 A closed component kept outside the open-source framework, used by Goodfetch Cloud and licensed under contract to vetted customers, that holds a capability whose public release would itself create legal exposure.

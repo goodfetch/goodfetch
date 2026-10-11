@@ -310,6 +310,10 @@ _Avoid_: robots (for all of them), policy, rules
 The tamper-evident record of a run's security and compliance events, such as secret uses, confirmations and overrides. The Effect journal prevents repeated Effects; the Audit log answers who did what.
 _Avoid_: journal (alone), event log, history
 
+**Platform signature**:
+The operating system vendor's mark on a Goodfetch executable (an Apple Developer ID signature with notarization, or a Windows Authenticode signature), naming the legal entity that publishes it. It is what macOS and Windows check before running a file; the release's Sigstore signature and attestation, which say which workflow built it, are what Goodfetch itself checks.
+_Avoid_: code signing (alone), signature (alone), certificate
+
 ## Measurement
 
 **Proving ground**:

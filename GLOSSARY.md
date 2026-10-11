@@ -156,7 +156,7 @@ _Avoid_: fingerprint (alone), persona, profile (alone)
 
 **Fingerprint method**:
 How a Session's browser comes to present its Identity profile: not changed at all, changed by page scripts, changed through the browser's debugging protocol, or changed inside the browser engine itself.
-_Avoid_: stealth level, stealth engine, spoofing
+_Avoid_: stealth engine, spoofing mode, fingerprinting
 
 **Challenge**:
 A check a site's bot protection puts between a client and the content, such as an interstitial page, an invisible browser test or a CAPTCHA.

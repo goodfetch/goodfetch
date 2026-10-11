@@ -138,7 +138,7 @@ Hooks run in declared order and can be scoped by label, which replaces Crawlee's
 2. **A Browser host address** (ADR 0022).
 3. **A third-party CDP endpoint** (as for Browserbase or Bright Data's Scraping Browser), reached as ADR 0022 reaches them, with the guard, and checked under the egress rule below.
 
-**The challenge solver's contract.**
+**The Challenge solver's contract.**
 - **Detection:** the engine detects a challenge by its rules, which beat models there.
 - **Call:** it then calls the solver with:
   - the Session handle
@@ -157,7 +157,7 @@ Hooks run in declared order and can be scoped by label, which replaces Crawlee's
 - **Suites:** every kind has a suite in `conformance/`, run by `goodfetch plugins test`. Results appear in the Plugin index, in `goodfetch plugins list` and in the Console.
 - **What is proved:** Sinks keep their Guarantee class. Every other kind is proved one declared capability at a time (for a fetch backend: HTTP/2, proxies, TLS impersonation).
 - **Unproved capabilities:** a capability the suite has not proved is reported as unproved, and a run can require it proved.
-- **Proving ground:** fetch backends, browser backends and challenge solvers are tested on it (ADR 0025): owned fixtures locally, real challenge vendors online.
+- **Proving ground:** fetch backends, browser backends and Challenge solvers are tested on it (ADR 0025): owned fixtures locally, real challenge vendors online.
 
 **Configuration.**
 - **Schema:** a Plugin's manifest declares a JSON Schema for its settings. The engine validates against it, the Console generates its form from it, and the CLI and MCP take the same fields.
@@ -186,7 +186,7 @@ Hooks run in declared order and can be scoped by label, which replaces Crawlee's
   - An in-flight Effect that has no check is reported uncertain for Reconciliation (ADR 0029), never retried blindly (ADR 0010).
   - Repeated crashes quarantine the Plugin and send a Notification.
 - **Health:** a heartbeat on the same channel.
-- **Where it runs:** Linux, macOS and Windows, and inside the Browser host for kinds that work beside the browser (browser backends, challenge solvers). In Goodfetch Cloud, process Plugins run in the tenant's isolation and SDK-handler Plugins stay in the Client.
+- **Where it runs:** Linux, macOS and Windows, and inside the Browser host for kinds that work beside the browser (browser backends, Challenge solvers). In Goodfetch Cloud, process Plugins run in the tenant's isolation and SDK-handler Plugins stay in the Client.
 - **Start:** every process Plugin starts, on every OS:
   - with an empty environment holding only the variables its manifest declares, valued from its settings and never inherited from the shell (a manifest cannot declare loader variables such as `LD_PRELOAD`, `DYLD_*` or `NODE_OPTIONS`), so tokens such as `AWS_SECRET_ACCESS_KEY` or `GITHUB_TOKEN` never leak in
   - with no inherited handles other than stdio and its own proxy socket

@@ -30,7 +30,7 @@ The design vocabulary is the one of `codebase-design`: a **module** has an **int
 
 ### Workspace and crates
 
-- **The root `Cargo.toml` is a virtual manifest.** Members live under `crates/` (and `crates/sinks/`); the folder name equals the crate name, `goodfetch-<glossary term>`. Siblings and shared dependencies are referenced with `.workspace = true`.
+- **The root `Cargo.toml` is a virtual manifest.** Members live under `crates/` and `crates/sinks/`, plus `proving-ground/` and `xtask/` (ADR 0032). Each folder name equals its crate name, and internal crates are named `goodfetch-<glossary term>`. Siblings and shared dependencies are referenced with `.workspace = true`.
 - **A concern becomes its own crate only for one of these reasons:**
   1. it is a separate executable (the binary, a sink process, the sandbox helper, `xtask`, the Proving ground);
   2. the compiler must enforce a dependency direction (`goodfetch-protocol` never depends on the engine; the Proving ground never depends on engine crates; a Private component's interface with its no-op implementation);
@@ -55,9 +55,9 @@ The design vocabulary is the one of `codebase-design`: a **module** has an **int
 ### Async and concurrency
 
 - **Tokio is the runtime, and concurrency is structured** (ADR 0038): child cancellation tokens from Daemon to engine, run, Session and page; each owner waits for its own tasks before it stops.
-- **No bare `tokio::spawn`.** Spawn through the owner's task tracker; a Clippy `disallowed-methods` rule enforces it outside the module that implements this.
+- **No bare `tokio::spawn` or `tokio::task::spawn_blocking`.** Spawn through the owner's task tracker (`TaskTracker::spawn`, `TaskTracker::spawn_blocking`); a Clippy `disallowed-methods` rule enforces it outside the module that implements this.
   _Why:_ an orphan task outlives its cancelled run and keeps writing.
-- **Never block an async worker.** Blocking I/O and CPU-heavy work go to `spawn_blocking`, a dedicated thread, or an actor on its own thread; `std::thread::sleep`, blocking `std::process::Command` and blocking `std::fs` calls are disallowed in async crates.
+- **Never block an async worker.** Blocking I/O and CPU-heavy work go to the owner's tracked `spawn_blocking`, a dedicated thread, or an actor on its own thread; `std::thread::sleep`, blocking `std::process::Command` and blocking `std::fs` calls are disallowed in async crates.
 - **Never hold a lock across `.await`.**
 - **Every public async function has a `# Cancel safety` section** saying what is lost if its future is dropped.
 - **Public futures are `Send`**, checked by a compile-time assertion on the main entry points.
@@ -67,19 +67,20 @@ The design vocabulary is the one of `codebase-design`: a **module** has an **int
 - **Edition 2024, a pinned toolchain in `rust-toolchain.toml`, and the MSRV of ADR 0030 tested in CI.**
 - **Warnings fail CI.** Clippy runs with `--all-targets --all-features`.
 - **Clippy `pedantic` is on as warnings**, with a short allow-list kept in `[workspace.lints]`.
-- **Denied:** `print_stdout` and `print_stderr` (only the transport writer is exempt), `dbg_macro`, `todo`, `unimplemented`, `unwrap_used` (allowed in tests), `allow_attributes_without_reason`, `clone_on_ref_ptr`, `exit` (outside `main`).
-  _Why:_ in `--attached` mode stdout carries the JSON-RPC protocol, so one stray `println!` corrupts it.
+- **Denied:** `print_stdout` and `print_stderr`, `dbg_macro`, `todo`, `unimplemented`, `unwrap_used` (allowed in tests), `allow_attributes`, `allow_attributes_without_reason`, `clone_on_ref_ptr`, `exit` (outside `main`). `std::io::stdout` and `std::io::stderr` are in `disallowed-methods`.
+- **Only two writers touch stdout or stderr:** the protocol transport and the CLI's output writer (its human output, its `--json` output and its hints on stderr). Everything else logs through `tracing`.
+  _Why:_ when the binary runs as an Attached engine started by an SDK, or as the stdio MCP server, stdout is the JSON-RPC channel, so one stray write corrupts the protocol; and the CLI's `--json` output is under semver (ADR 0030).
 - **Exceptions use `#[expect(lint, reason = "…")]`, never `#[allow]`.**
   _Why:_ `expect` warns when the exception is no longer needed, so stale exceptions disappear.
 - **rustfmt runs on its default 2024 style.**
-  _Why:_ the options that would change it need a nightly toolchain.
+  _Why:_ the options teams most often change (import granularity and grouping, comment wrapping) need a nightly toolchain, and defaults end style debates.
 - **CI also runs `cargo-deny`, `cargo-shear` (unused dependencies), `cargo-nextest`, `typos` and `zizmor` (workflow security).**
 
 ### `unsafe`
 
 - **`unsafe_code` is denied across the workspace.** A module that needs it (the in-house `sandbox_init` binding of ADR 0033, the pipe file descriptors of ADR 0017) opts in with `#![expect(unsafe_code, reason = "…")]`.
 - **Every `unsafe` block carries a `// SAFETY:` comment** (`undocumented_unsafe_blocks`), and `unsafe_op_in_unsafe_fn` is denied.
-- **Miri runs in CI on the modules that opt in.**
+- **Miri runs in CI on the opted-in code it can execute (pure-Rust `unsafe`).** FFI and system-call modules, which Miri can't run, are covered by tests on each real OS.
 - **`unsafe` is never used to get past `Send` or `Sync`.**
 
 ### Logging and secrets
@@ -88,7 +89,7 @@ The design vocabulary is the one of `codebase-design`: a **module** has an **int
 - **`#[instrument(skip_all, fields(…))]`**, so arguments are only logged when named.
   _Why:_ one `?config` in a log line can leak a proxy password, and secrets never reach logs (ADRs 0014, 0015).
 - **Events are structured:** a fixed message plus fields, no `format!` inside a log call.
-- **Logs go to stderr or a file, never stdout.**
+- **Logs go to stderr or a file, never stdout**, through the `tracing` subscriber.
 - **Levels:** `error` needs someone to act; `warn` is a degraded but handled state; `info` is a lifecycle step of a run, Session or Daemon; `debug` explains a decision; `trace` is per-message detail.
 - **Credentials, cookies, tokens and keys are `secrecy::SecretString`** (or a wrapper with a hand-written `Debug`), and a unit test proves the secret is not printed.
 
@@ -131,7 +132,8 @@ Each dependency category of `codebase-design` is tested its own way:
 ### Documentation in code
 
 - **`missing_docs` warns on `goodfetch` and `goodfetch-protocol`.**
-- **Each public function documents `# Errors`** (with the Error codes it can return), **`# Cancel safety`** if it is async, **`# Panics`** if it can panic, and **an example** that runs as a doctest.
+- **Each public function of `goodfetch` and `goodfetch-protocol` documents `# Errors`** (with the Error codes it can return), **`# Cancel safety`** if it is async and **`# Panics`** if it can panic; on `goodfetch` it also has **an example** that runs as a doctest.
+- **Internal crates document what a caller outside the module must know**: their `//!` headers, and `# Errors` or `# Cancel safety` where a caller would otherwise guess.
 - **The catalog's description of an operation is its only text source:** MCP tool descriptions, SDK docstrings and reference pages are generated from it.
   _Why:_ what a model reads in a tool description directly affects agent accuracy, and the surfaces then never disagree.
 - **Comments say why, never what the code already says.**
@@ -145,7 +147,7 @@ Each dependency category of `codebase-design` is tested its own way:
 
 ## TypeScript
 
-Applies to `sdks/typescript`, `console/`, `adapters/` and `bench/` in the pnpm workspace.
+Applies to `sdks/typescript`, `console/`, `adapters/`, `integrations/` and `bench/` in the pnpm workspace.
 
 - **TypeScript 7 with `strict`, `noUncheckedIndexedAccess`, `exactOptionalPropertyTypes`, `verbatimModuleSyntax`, `isolatedDeclarations` and `erasableSyntaxOnly`.** A TypeScript 6 alias is kept only for tools that need the compiler API (API Extractor, TypeDoc) until TypeScript 7 provides one.
 - **Optional fields are written `?: T | undefined`.**
@@ -166,11 +168,11 @@ Applies to `sdks/typescript`, `console/`, `adapters/` and `bench/` in the pnpm w
 
 ## Python
 
-Applies to `sdks/python`, the Python adapters and the uv workspace. Supported versions follow ADR 0024 (CPython 3.11 and later, including free-threaded builds).
+Applies to `sdks/python`, the Python adapters and the uv workspace. Supported versions follow ADR 0024: every CPython not past end of life, including free-threaded builds.
 
 - **pyright in strict mode gates CI**, and mypy checks a small file that exercises the public API.
   _Why:_ pyright is what most editors show; the mypy check keeps the types right for mypy users too.
-- **ruff formats and lints**, with the rule sets `E F I UP B C4 ARG T20 TID251 PERF RUF ANN PYI TC ASYNC D`.
+- **ruff formats and lints**, with the rule sets `E F I UP B C4 ARG T20 TID251 PERF RUF ANN PYI TC ASYNC D`, ignoring `D206` and `D300`, which conflict with ruff's formatter.
   _Why:_ `ASYNC` catches blocking calls inside async code, and `T20` bans `print`.
 - **Packages build with `uv_build` and ship `py.typed`.**
 - **The async core uses anyio**, so the async API runs on asyncio and trio. The sync API is generated and runs that core on its own event-loop thread (ADR 0038).

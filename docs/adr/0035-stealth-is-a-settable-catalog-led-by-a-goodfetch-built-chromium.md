@@ -71,7 +71,7 @@ The `stealth` Access mode turns on a catalog of items, each of which a run can s
 4. If `solve_challenges` is on, deterministic solving: scripted interactive steps (checkbox, slider, press-and-hold), then the configured token services (CapSolver, 2Captcha, CapMonster) and the services that compute the anti-bot sensor data a site expects (such as Hyper Solutions), whose accounts the user brings. Goodfetch never reverse-engineers vendor scripts itself.
 5. If `solve_challenges` is on and the run allows AI escalation, vision models solve puzzles.
 6. A Human pause, if a human channel is configured (ADR 0006).
-7. Otherwise a typed stop, `challenge_unsolved` with the block cause (error code style of ADR 0038).
+7. Otherwise a typed stop, `challenge_unsolved` with the block cause (Error code style of ADR 0038).
 
 - At any step, the Decision provider classifies pages the rules cannot, as ADR 0021 already provides, whatever `solve_challenges` says.
 - Paid solves and model calls are entries in the Effect journal (ADR 0010) and count in Usage, so money Limits cap them; every step, including the moves between tiers and Sessions and the Human pause, is recorded in the run's trace. Only the Page check declares a challenge passed (ADR 0013).

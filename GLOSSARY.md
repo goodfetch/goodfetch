@@ -24,6 +24,10 @@ _Avoid_: dashboard, inspector, app
 Any program that drives the engine through its operations: an SDK, the CLI, the MCP server, the Console or Goodfetch Cloud. Speaking CDP to a browser does not make a program a Client.
 _Avoid_: frontend, binding, consumer
 
+**Error code**:
+The stable name a Client receives when an operation fails, such as `page_check_failed`, which code can match on and which keeps its meaning across releases of a major version.
+_Avoid_: error name, error kind, status code
+
 **Attached engine**:
 An engine started by one Client for its own use, which stops when that Client goes away.
 _Avoid_: sidecar, child engine
@@ -251,10 +255,6 @@ _Avoid_: action log, history
 **Operation catalog**:
 The single list of engine operations, each classed read, idempotent write or Effect, that every surface exposes to people and agents.
 _Avoid_: tool list, API surface
-
-**Error code**:
-The stable snake_case name a Client receives when an operation fails, such as `page_check_failed`, which code can match on and which keeps its meaning across releases of a major version.
-_Avoid_: error type, error class, status
 
 **Code mode**:
 Driving the engine through a short program written by a model that calls only the Operation catalog.

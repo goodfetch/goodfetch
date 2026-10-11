@@ -31,14 +31,14 @@ One spec per area. An area goes to `/to-spec` only after every area whose contra
 |---:|---|---|---|
 | 1 | Repository, CI and release | 0018, 0030, 0032, 0034 | [Platform code signing for binaries and the Goodfetch Chromium](https://github.com/Jbmanllr/automan/issues/121) |
 | 2 | Proving ground and conformance | 0025 |  |
-| 3 | Engine runtime | 0002–0004, 0024, 0028 | [Engine resource governance](https://github.com/Jbmanllr/automan/issues/115), [Scaling past one engine](https://github.com/Jbmanllr/automan/issues/116), [Self-hosted deployment and operations](https://github.com/Jbmanllr/automan/issues/120) |
+| 3 | Engine runtime | 0002–0004, 0024, 0028, 0039, 0040 | [Scaling past one engine](https://github.com/Jbmanllr/automan/issues/116), [Self-hosted deployment and operations](https://github.com/Jbmanllr/automan/issues/120) |
 | 4 | Security and egress | 0015–0017 | [Network defaults](https://github.com/Jbmanllr/automan/issues/118) |
 | 5 | Site access | 0019–0023 | [Bringing an existing login or browser](https://github.com/Jbmanllr/automan/issues/117), [Network defaults](https://github.com/Jbmanllr/automan/issues/118), [Built-in page clean-up](https://github.com/Jbmanllr/automan/issues/119), [Self-hosted deployment and operations](https://github.com/Jbmanllr/automan/issues/120) |
-| 6 | Collection | 0005–0008, 0026 | [Engine resource governance](https://github.com/Jbmanllr/automan/issues/115), [Network defaults](https://github.com/Jbmanllr/automan/issues/118) |
+| 6 | Collection | 0005–0008, 0026, 0039 | [Network defaults](https://github.com/Jbmanllr/automan/issues/118) |
 | 7 | Plugin protocol | 0033 |  |
 | 8 | Stealth and Challenge solving | 0035 |  |
 | 9 | AI and agent | 0009–0014 |  |
-| 10 | Scheduling | 0036 | [Engine resource governance](https://github.com/Jbmanllr/automan/issues/115), [Scaling past one engine](https://github.com/Jbmanllr/automan/issues/116), [Self-hosted deployment and operations](https://github.com/Jbmanllr/automan/issues/120) |
+| 10 | Scheduling | 0036, 0040 | [Scaling past one engine](https://github.com/Jbmanllr/automan/issues/116), [Self-hosted deployment and operations](https://github.com/Jbmanllr/automan/issues/120) |
 | 11 | Client surfaces (SDKs, CLI, MCP, skills, adapters, Integrations, Notifications) | 0011, 0024, 0027 | [Bringing an existing login or browser](https://github.com/Jbmanllr/automan/issues/117), [Self-hosted deployment and operations](https://github.com/Jbmanllr/automan/issues/120) |
 | 12 | Console | 0029, 0031 |  |
 | 13 | Self-hosted deployment and operations | 0024 | [Scaling past one engine](https://github.com/Jbmanllr/automan/issues/116), [Bringing an existing login or browser](https://github.com/Jbmanllr/automan/issues/117), [Self-hosted deployment and operations](https://github.com/Jbmanllr/automan/issues/120) |

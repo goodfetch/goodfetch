@@ -1,0 +1,83 @@
+# One resource governor per engine, sized from measured load, and redundant requests only on request
+
+Each engine process has one resource governor that admits work for all its runs. It sizes concurrency from measured memory, CPU and Tokio saturation, within the ceilings the user sets. ADR 0004's fixed global cap becomes a ceiling, and setting the floor equal to it brings the fixed cap back. Memory decides how many browser pages may be open, and recycling keeps browsers from growing without bound. A run under memory pressure sheds load before the operating system's OOM killer can act. Goodfetch never sends a redundant request to a site unless the run asks for it. Decided in [Engine resource governance](https://github.com/Jbmanllr/automan/issues/115).
+
+Crawlee scales on memory, CPU, event-loop delay and API 429s ([system_status.ts](https://github.com/apify/crawlee/blob/v3.18.2/packages/core/src/autoscaling/system_status.ts)). It reads cgroup limits only when it detects a container, and then from the root of `/sys/fs/cgroup` rather than its own cgroup ([general.ts](https://github.com/apify/crawlee/blob/v3.18.2/packages/utils/src/internals/general.ts), [memory-info.ts](https://github.com/apify/crawlee/blob/v3.18.2/packages/utils/src/internals/systemInfoV2/memory-info.ts)). Its users report:
+
+- OOM kills under limits it missed ([crawlee#4057](https://github.com/apify/crawlee/issues/4057), [crawlee-python#1535](https://github.com/apify/crawlee-python/issues/1535)).
+- A limit captured once ([crawlee-python#1704](https://github.com/apify/crawlee-python/issues/1704)).
+- Concurrency collapsing to 1 or 0 ([crawlee#1721](https://github.com/apify/crawlee/issues/1721), [crawlee#4129](https://github.com/apify/crawlee/issues/4129)).
+
+Spider and Crawl4AI read only the host's memory ([detect_system.rs](https://github.com/spider-rs/spider/blob/main/spider/src/utils/detect_system.rs), [async_dispatcher.py](https://github.com/unclecode/crawl4ai/blob/main/crawl4ai/async_dispatcher.py)). No surveyed tool recycles a browser because its memory grew; Crawlee retires one after 100 pages ([browser-pool.ts](https://github.com/apify/crawlee/blob/v3.18.2/packages/browser-pool/src/browser-pool.ts)). Together these answer pain #22 (`perf-memory-concurrency`) and parity rows RT-01, RT-03, SA-09, RT-20 and CO-16.
+
+## Considered Options
+
+- **A fixed cap only** (ADR 0004 as it stood, Spider without `balance`): rejected. A run that moves to the browser tier (ADRs 0020 and 0021) takes about a hundred times the memory at the same concurrency, and users tune by hand on every machine.
+- **A governor per run**: rejected. Runs on a Daemon share one machine, and the first to grow would starve the rest. Crawlee 4 moves the same way, to a `ConcurrencySystem` that several crawlers share ([upgrade guide](https://github.com/apify/crawlee/blob/master/docs/upgrading/upgrading-v4/autoscaling.md)).
+- **One count of work in flight for every kind of work** (Crawlee's AutoscaledPool): rejected. A browser page and an HTTP fetch differ by orders of magnitude in memory, so one count either wastes the machine on HTTP or exhausts it on browsers.
+- **The host's memory as the budget** (Spider, Crawl4AI): rejected. Inside a container it overshoots the limit, and the process is OOM-killed.
+- **Crawlee's default of about 22 % of memory** (0.9 × `availableMemoryRatio` 0.25): rejected. It leaves a dedicated container mostly idle.
+- **Recycling browsers on page count alone** (Crawlee): rejected. A browser on a heavy single-page app can grow faster than 100 pages allow.
+- **Hedged requests by default** (Spider's `hedge`, which never checks the request method; [hedge.rs](https://github.com/spider-rs/spider/blob/main/spider/src/utils/hedge.rs)): rejected. They add load to sites and proxy cost, and a hedged Effect would run twice. gRPC allows hedging only for methods that are safe to repeat ([A6](https://github.com/grpc/proposal/blob/master/A6-client-retries.md)).
+- **Racing every fetch tier on every page by default, scored on its HTML** (Spider's `parallel_backends`; [parallel_backends.rs](https://github.com/spider-rs/spider/blob/main/spider/src/utils/parallel_backends.rs)): rejected. Every page then costs a browser, and a score on how the HTML looks is the kind of success ADR 0013 refuses. Firecrawl staggers its engines rather than racing them ([scrapeURL](https://github.com/firecrawl/firecrawl/blob/main/apps/api/src/scraper/scrapeURL/index.ts)).
+- **Coalescing by URL alone** (Spider's `request_coalesce`): rejected. Two Sessions fetching one URL with different cookies would receive one Session's response.
+
+## Consequences
+
+**The governor.**
+- **Ownership.** It belongs to the engine process (an Attached engine, the Daemon, or an engine embedded through the Rust crate), sits under ADR 0038's cancellation tree, and serves every run of that process.
+- **Fairness.** Capacity goes round-robin to the live runs, then, within a run, to its domains as in ADR 0004. Each run keeps its own ceilings, and Operator policy can cap any run's share.
+- **Kinds of work.** It admits three kinds separately, each with its own floor and ceiling: HTTP and discovered-API fetches, open browser pages, and model calls. All three share the engine's memory and CPU budget:
+  - Browser pages are held mainly by memory, from a running average of what a page costs on its route.
+  - HTTP fetches are held by CPU and file descriptors.
+  - Model calls are held by the provider's rate limits.
+- **Control.** It works by additive increase and multiplicative decrease. Concurrency rises step by step while memory, CPU and Tokio saturation all have headroom, and drops quickly when one is under pressure. Tokio saturation is the share of time its workers are busy (`worker_total_busy_duration`, a stable Tokio metric), the Rust counterpart of Crawlee's event-loop delay.
+- **Limits of the controller.** It never goes below a floor. ADR 0021's halving on 429 still acts per domain, below the governor.
+- **Defaults.** The default ceilings are set from ADR 0025's search for the highest concurrency where verified throughput still rises.
+- **Settings.** Every value is a setting (ADR 0028). Setting floor equal to ceiling gives the fixed behaviour of ADR 0004. Autoscaling costs nothing at run time, so it is not one of ADR 0023's marked controls.
+
+**The budget.**
+- **Memory.** The budget is the tightest of:
+  - the process's own cgroup memory limit, v1 or v2, read from its own cgroup path rather than the root;
+  - a Windows Job object limit;
+  - the `memory_budget` setting;
+  - 50 % of physical memory when none of these applies, so a workstation stays usable.
+
+  Limits are read again at every sample, so Kubernetes burstable memory and a raised limit are seen.
+- **CPU.** The CPU budget comes from the cgroup CPU quota through `std::thread::available_parallelism`, which honours `cpu.max`.
+- **What counts as used.** The engine and all its child processes: browsers, process Plugins and a local Browser host. On Linux this is PSS, which splits Chrome's shared pages fairly between its processes; on other platforms it is the platform's own measure of a process's footprint.
+- **Thresholds.** Pressure starts at 85 % of the budget and critical at 95 %. Both are settings.
+
+**Browsers and Sessions.**
+- **Sharing a process.** `standard` and `identified` Sessions share a browser process, each in its own browser context with its own proxy (CDP `Target.createBrowserContext` takes `proxyServer`). A Session whose Fingerprint method is fixed per process gets a process of its own. That covers the Goodfetch-built Chromium of ADR 0035, whose fingerprint seed is a launch flag. The number of contexts per process is a setting.
+- **Recycling.** A browser is recycled after 100 pages, when its memory passes a per-browser cap (by default twice its size measured after warm-up, or an absolute value), or after it has been idle for a set time. All are settings.
+  - To recycle, it stops taking new pages, lets its pages finish, closes, and is replaced.
+  - A Session is not its browser: its cookies, storage and, for a per-process fingerprint, its seed carry over to the new process. Recycling therefore never changes an identity, which ADR 0021 treats as a bot signal.
+- **Session retirement.** ADR 0006 still retires Sessions that fail. Recycling is about the process, retirement about the identity.
+
+**Under memory pressure.**
+1. **Pressure.** Nothing new is admitted.
+2. **Critical.** The governor:
+   - closes idle browsers and recycles the largest ones first;
+   - puts back in the queue the work item whose page passes a per-page cap, with the Error code `page_memory_exceeded`, retried under the run's retry policy;
+   - treats a browser killed by the operating system as a page crash: its work items go back in the queue and the crash counts in Usage.
+3. **Last resort.** If memory stays critical at the floor for a set time, the run checkpoints and stops with the Error code `resources_exhausted`. Its Lifecycle is `stopped` and its Completeness `incomplete` (ADR 0029), and it can be resumed with a larger budget. Scrapy's `MEMUSAGE_LIMIT_MB` closes the spider instead, and Crawlee only lowers concurrency.
+
+**Remote browsers** (adds to ADR 0022).
+- A Browser host serves one Session (ADR 0022). It runs the same governor for its own browser, with the budget, recycling and per-page cap above measured where it runs, and reports its pressure to the engine. The engine then admits that Session's pages by the host's pressure, not its own. Where Browser hosts are placed across machines is Goodfetch Cloud's concern.
+- For a vendor's cloud browsers, the engine sees only the vendor's refusals. It learns a ceiling per provider from them, the way ADR 0021 halves on 429, and the ceiling can be set by hand. Browserbase caps concurrency by plan and answers session creation with 429 ([plans](https://docs.browserbase.com/account/billing/plans.md)).
+
+**Redundant requests.**
+- **Hedged requests** are off by default and switched on per run.
+  - **What they cover:** only idempotent GETs that are not Effects. The class comes from the Operation catalog (ADR 0011) and the Effect journal (ADR 0010).
+  - **When and where:** the hedge is sent after the route's 95th-percentile latency, through another proxy of the Session's proxy kind. Only Sessions whose identity does not bind one exit IP may hedge.
+  - **How they count:** both copies hold per-domain slots under ADR 0021's politeness limit and count in Usage. The losing copy is cancelled.
+  - **Rate:** a token bucket keeps hedges to a few percent of requests, as in gRPC A6. "The Tail at Scale" cut p99.9 latency from 1,800 ms to 74 ms with 2 % more requests ([Dean and Barroso, 2013](https://www.barroso.org/publications/TheTailAtScale.pdf)).
+- **`tier_race`** is off by default and switched on per run, for one-off fetches or wherever latency matters more than cost.
+  - **How it runs:** HTTP starts first, and the browser after a delay.
+  - **The winner:** the first result that passes the Page check and agrees with the route's comparison (ADR 0020).
+  - **How it counts:** the loser is cancelled, both count in politeness and in Usage, and Provenance records the race.
+  - **Otherwise:** ADR 0020's sample comparison stays the default.
+- **Coalescing** is on by default. Identical GETs in flight at the same time from the same Session wait for one response. Identical means the same method, URL and the headers that change the response. Typical cases are robots.txt, sitemaps, discovered-API calls and shared subresources.
+  - **Never across Sessions or runs:** cookies differ between Sessions, and the run is the unit of isolation.
+  - **Recorded:** Provenance records that a response was shared, and coalescing is a setting.

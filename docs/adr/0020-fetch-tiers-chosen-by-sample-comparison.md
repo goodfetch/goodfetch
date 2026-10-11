@@ -15,4 +15,5 @@ The engine fetches each page through one of four tiers: HTTP; a discovered API, 
 - Discovered APIs are limited to page-number and cursor plans in V1; signed requests and single-use tokens stay in the browser.
 - Lightpanda is an optional tier, run out of process and downloaded on demand, never bundled, so its AGPL licence stays outside Goodfetch's distribution. It is chosen only when the run's declared capabilities allow it and its sample matches Chrome's; it used 1/8 to 1/20 of Chrome's CPU in the lab.
 - A run can force a tier, which skips the comparison (ADR 0023); Provenance records the tier and whether it was compared or forced.
+- A run can instead race the tiers page by page with the opt-in `tier_race`, judged by the Page check (ADR 0039).
 - A block can also move a domain to another tier (ADR 0021).

@@ -6,10 +6,10 @@ This matrix is the companion of [ADR 0037](0037-v1-scope-parity-and-pain-coverag
 
 | Status | Parity rows | Stagehand v3 rows | Pains |
 |---|---:|---:|---:|
-| `decided` | 87 | 4 | 16 |
+| `decided` | 92 | 4 | 18 |
 | `spec` | 39 | 1 | 0 |
 | `excluded` | 1 | 0 | 0 |
-| `open → #N` | 15 | 0 | 8 |
+| `open → #N` | 10 | 0 | 6 |
 | Total | 142 | 5 | 24 |
 
 ## Parity rows
@@ -18,9 +18,9 @@ This matrix is the companion of [ADR 0037](0037-v1-scope-parity-and-pain-coverag
 
 | ID | Capability | Status | Source | Spec area | Note |
 |---|---|---|---|---|---|
-| RT-01 | Concurrency autoscaled from CPU, memory and event-loop load | `open → #115` | ADR 0004, ADR 0021 | 3 Engine runtime | Decided: fixed global cap, per-domain queues, 429-driven halving. Open: sizing the cap from host load. |
+| RT-01 | Concurrency autoscaled from CPU, memory and event-loop load | `decided` | ADR 0039, ADR 0004, ADR 0021 | 3 Engine runtime | One governor per engine scales on memory, CPU and Tokio saturation between a floor and the user's ceiling, shared fairly between runs; browser pages, HTTP fetches and model calls admitted separately. |
 | RT-02 | Concurrency bounds and a requests-per-minute cap | `spec` | ADR 0004, ADR 0021, ADR 0028 | 3 Engine runtime | Global and per-domain caps decided. A global rate bound on the admission gate is spec. |
-| RT-03 | Resource budget from container limits (cgroups, Kubernetes) | `open → #115` | none | 3 Engine runtime | Nothing sizes engine concurrency from container limits yet; cgroups apply only to Plugins (ADR 0033). |
+| RT-03 | Resource budget from container limits (cgroups, Kubernetes) | `decided` | ADR 0039 | 3 Engine runtime | The tightest of the process's own cgroup (v1 or v2), a Windows Job object, `memory_budget` or half of physical memory, read again at every sample; engine plus children measured, PSS on Linux. |
 | RT-04 | Retry count, handler before retry, failed-request handler | `spec` | ADR 0003, ADR 0028, ADR 0033 | 7 Plugin protocol | Retries are settings. A failed-request handler needs a new stage in ADR 0033's stage table. |
 | RT-05 | Error types that steer retries or abort the run | `spec` | ADR 0030, ADR 0006, ADR 0021, ADR 0038 | 11 Client surfaces | Typed Error codes are under semver, each with a retryable flag and one generated SDK class (ADR 0038). How the classes map onto recovery, retirement and stop is spec. |
 | RT-06 | Timeouts: navigation, handler, whole run, first byte | `spec` | ADR 0003, ADR 0020, ADR 0028, [#69](https://github.com/Jbmanllr/automan/issues/69) item 7 | 3 Engine runtime | Handler and command timeouts decided. Whole-run wall-clock and first-byte timeouts are spec values. |
@@ -37,7 +37,7 @@ This matrix is the companion of [ADR 0037](0037-v1-scope-parity-and-pain-coverag
 | RT-17 | Structured logging: levels, JSON, custom sink | `spec` | [#70](https://github.com/Jbmanllr/automan/issues/70) item 9 | 3 Engine runtime | The `tracing` substrate is decided. Levels, a JSON format and an SDK log callback are subscriber settings. |
 | RT-18 | OpenTelemetry traces | `decided` | [#70](https://github.com/Jbmanllr/automan/issues/70) item 9 | 3 Engine runtime | `tracing` everywhere, opt-in OTLP export, GenAI conventions for model calls. Recorded only in the ticket. |
 | RT-19 | Several crawlers in one process | `decided` | ADR 0002, ADR 0024 | 3 Engine runtime | A Daemon hosts several runs. |
-| RT-20 | Hedged requests, coalescing duplicate in-flight requests | `open → #115` | none | 3 Engine runtime | Open: whether Goodfetch ever sends redundant requests, and how they count against politeness and Effects. |
+| RT-20 | Hedged requests, coalescing duplicate in-flight requests | `decided` | ADR 0039 | 3 Engine runtime | Hedging opt-in for idempotent GETs that are not Effects, counted in politeness and Usage and rate-limited; coalescing on by default within one Session, never across Sessions or runs. |
 | RT-21 | Pluggable storage, HTTP client, events and browser | `decided` | ADR 0033, ADR 0024, ADR 0002 | 7 Plugin protocol | Fetch, browser, Hook and Sink Plugin kinds decided; events reach code through Hooks and the protocol (ADR 0024). Storage excluded: a replaceable store would break portable, resumable runs (ADR 0002). |
 | RT-22 | Typed config object and environment variables | `decided` | ADR 0028, ADR 0034 | 3 Engine runtime | Five-layer settings, generated schema, `GOODFETCH_` variables. |
 | RT-23 | Run a script beside the browser to save round trips | `decided` | ADR 0011, ADR 0022 | 9 AI and agent | Code mode in the engine sandbox; the Browser host keeps one round trip per action. |
@@ -67,7 +67,7 @@ This matrix is the companion of [ADR 0037](0037-v1-scope-parity-and-pain-coverag
 | SA-06 | Firefox, WebKit, Edge | `decided` | ADR 0019, ADR 0035, ADR 0030 | 5 Site access | Firefox and WebKit through Playwright's driver with the guard; Edge best effort. |
 | SA-07 | Puppeteer backend | `decided` | ADR 0019, ADR 0017, ADR 0003 | 5 Site access | Puppeteer code attaches over raw CDP, unguarded. Its attach is bound to the work item's lease and cut when the lease ends (ADR 0003). |
 | SA-08 | Attach to a running or remote browser; never close it | `spec` | ADR 0022, ADR 0033 | 5 Site access | Third-party CDP browsers and Browser hosts decided. Releasing a borrowed browser without closing it is a default. |
-| SA-09 | Browser pool: page caps, retirement, launch hooks | `open → #115` | ADR 0006, ADR 0035, ADR 0033 | 3 Engine runtime | Decided: Session retirement; launch hooks are spec (browser backend kind). Open: page caps per browser, recycling on memory growth. |
+| SA-09 | Browser pool: page caps, retirement, launch hooks | `decided` | ADR 0039, ADR 0006, ADR 0035, ADR 0033 | 3 Engine runtime | Sessions share a process as contexts unless their Fingerprint method is per process; browsers recycled after 100 pages, on memory growth or when idle, the Session carried over intact; launch hooks are spec (browser backend kind). |
 | SA-10 | Isolated contexts per page or Session | `decided` | ADR 0006, ADR 0021 | 5 Site access | Each Session has its own cookies, identity and proxy. Context or browser isolation is spec. |
 | SA-11 | Persistent browser profile (user data directory) | `open → #117` | ADR 0035, ADR 0015 | 5 Site access | Decided: saved identities persist cookies and storage. Open: reusing a user's own profile directory. |
 | SA-12 | Full native driver: frames, `route`, waits, assertions, `getBy*` | `spec` | ADR 0019, ADR 0003 | 5 Site access | `route`, assertions and `waitForResponse` follow ADR 0019's mapping. A raw CDP attach is cut when its lease ends (ADR 0003). |
@@ -124,7 +124,7 @@ This matrix is the companion of [ADR 0037](0037-v1-scope-parity-and-pain-coverag
 | CO-13 | Authenticated crawling: log in once, reuse | `decided` | ADR 0006, ADR 0009, ADR 0015, ADR 0035 | 5 Site access | Recovery chain, scripted login Plans, MFA, saved identities. |
 | CO-14 | Built-in HTML parsers | `decided` | ADR 0007 | 6 Collection | html5ever and scraper for fields; lol-html for streaming. |
 | CO-15 | Per-page choice between HTTP and browser | `decided` | ADR 0020 | 6 Collection | Four fetch tiers chosen per route by sample comparison. |
-| CO-16 | Parallel backends raced with a quality score | `open → #115` | ADR 0020 | 6 Collection | Decided: tiers compared on a sample per route. Open: racing tiers on every page. |
+| CO-16 | Parallel backends raced with a quality score | `decided` | ADR 0039, ADR 0020 | 6 Collection | Opt-in `tier_race`: HTTP first, browser after a delay, the first result passing the Page check and the route's comparison wins; sample comparison stays the default. |
 | CO-17 | Infinite-scroll helper | `spec` | [#71](https://github.com/Jbmanllr/automan/issues/71), ADR 0020, ADR 0033 | 6 Collection | Discovered API first; the scroll op and human-like scrolling are decided. |
 | CO-18 | HTML to Markdown or text | `decided` | ADR 0007 | 6 Collection | dom-smoothie then htmd; the self-hosted equivalent of Stagehand's cloud fetch. |
 | CO-19 | Contact, social and metadata extraction | `decided` | [#71](https://github.com/Jbmanllr/automan/issues/71) | 6 Collection | Formats: Open Graph, JSON-LD, microdata, contact and social. Recorded only in the ticket. |
@@ -221,7 +221,7 @@ No v3 API compatibility layer is offered (ADR 0037). A Crawlee+Stagehand migrati
 | 2 | `agent-token-latency-cost` | `decided` | ADR 0009, ADR 0011, ADR 0013, ADR 0025 | 9 AI and agent | Plans replay with no model call; MCP profiles trim tools; observations send diffs; cost per verified result is benchmarked. |
 | 3 | `integ-mcp-agent-tooling` | `decided` | ADR 0011, ADR 0017, ADR 0030 | 11 Client surfaces; 9 AI and agent | One catalog generates MCP, CLI, skills and adapters; OAuth 2.1 for remote MCP; docs served as MCP resources. |
 | 4 | `access-auth-session` | `open → #117` | ADR 0006, ADR 0015, ADR 0035 | 5 Site access | Decided: Page check, recovery ladder, MFA, saved identities. Open: bringing in a login the user already has. |
-| 5 | `cost-unpredictable-runaway` | `open → #115` | ADR 0012, ADR 0036, ADR 0010 | 3 Engine runtime; 10 Scheduling | Decided: currency Limits per run and per Schedule. Open: a cap across unscheduled runs. Credit billing is Goodfetch Cloud's. |
+| 5 | `cost-unpredictable-runaway` | `decided` | ADR 0040, ADR 0012, ADR 0036, ADR 0010 | 3 Engine runtime; 10 Scheduling | Limits on the install or Daemon, a person, a named token and a Client connection, held by a per-user Usage ledger every engine reserves against; uncapped runs marked; only a person raises a Limit. Credit billing is Goodfetch Cloud's. |
 | 6 | `compliance-site-owner-politeness` | `open → #118` | ADR 0021, ADR 0004, ADR 0016 | 5 Site access; 4 Security and egress | Open: pay-per-crawl (HTTP 402). Goodfetch cannot reduce the bot traffic other tools send or the blocks site owners place on shared IP ranges. |
 | 7 | `compliance-security-privacy` | `decided` | ADR 0014, ADR 0015, ADR 0016, ADR 0017 | 4 Security and egress | Certifications such as SOC 2 attach to an organization operating a service, so they belong to Goodfetch Cloud, not to the framework. |
 | 8 | `dx-setup-docs` | `decided` | ADR 0024, ADR 0028, ADR 0030 | 11 Client surfaces; 1 Repository, CI and release | Support channels and response times are a project-governance commitment, not an engine feature. |
@@ -238,6 +238,6 @@ No v3 API compatibility layer is offered (ADR 0037). A Crawlee+Stagehand migrati
 | 19 | `dx-observability` | `open → #120` | [#70](https://github.com/Jbmanllr/automan/issues/70) item 9, ADR 0031 | 3 Engine runtime; 13 Self-hosted deployment and operations | OTLP export decided in [#70](https://github.com/Jbmanllr/automan/issues/70) item 9; run traces on the Timeline. Open: run and engine metrics, a scrapeable health endpoint. |
 | 20 | `maint-site-drift` | `decided` | ADR 0007, ADR 0009, ADR 0013 | 9 AI and agent | Fingerprinted Targets; Drift caught before the first Effect; one verified Repair. |
 | 21 | `maint-upgrade-regression` | `decided` | ADR 0025, ADR 0030, ADR 0032 | 1 Repository, CI and release; 2 Proving ground and conformance | One lockstep version, semver contracts, and a benchmark regression gate on every minor. |
-| 22 | `perf-memory-concurrency` | `open → #115` | ADR 0004, ADR 0020, ADR 0024 | 3 Engine runtime | Decided: no orphaned Chrome, HTTP-first tiers, Session retirement. Open: resource-aware concurrency, memory caps, browser recycling. |
+| 22 | `perf-memory-concurrency` | `decided` | ADR 0039, ADR 0004, ADR 0020, ADR 0024 | 3 Engine runtime | Resource-aware concurrency from container limits, browser recycling on memory growth, and a shedding ladder ending in a resumable `resources_exhausted` stop. |
 | 23 | `rel-incorrect-incomplete` | `decided` | ADR 0003, ADR 0005, ADR 0008, ADR 0026 | 6 Collection | Outputs visible exactly once, delivery IDs, upsert on declared keys, and the Completeness axis. |
 | 24 | `durability-resume` | `decided` | ADR 0002, ADR 0003, ADR 0010 | 3 Engine runtime | Per-run SQLite, portable Checkpoints, epochs, and Effects never repeated blindly. |

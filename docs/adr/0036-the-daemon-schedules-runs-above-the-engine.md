@@ -66,6 +66,7 @@ The open-source framework schedules runs itself. A Schedule starts runs of one t
 - A run counts in the period in which it started. Resuming a scheduled run, or raising its Limit to resume it, is clamped and reserved against that same period.
 - Once a period's Limit is used up, occurrences are recorded as *skipped: Limit*, one Notification goes out per period, and the Schedule resumes next period, as Firecrawl records `skipped_no_credits`.
 - Operator policy can cap period Limits.
+- A scheduled run also counts against the Limits of ADR 0040 that apply to the Schedule's creator: the install or Daemon, the person and the named token.
 
 **Baseline and soft-delete.**
 - A Schedule's runs compare against its latest run whose Lifecycle is `finished`, whose Verdict is not `rejected` and whose Completeness is not `incomplete`, unless the Schedule pins a Baseline. A `failed` or `stopped` run never becomes the Baseline.

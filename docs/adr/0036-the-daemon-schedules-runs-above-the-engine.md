@@ -1,6 +1,6 @@
 # The Daemon schedules runs above the engine, and Goodfetch Cloud implements the same Schedule operations
 
-The open-source framework schedules runs itself. A Schedule starts runs of one target (a Recipe or a code-free catalog run) on a time trigger, after a Watch finds a change, or after another run finishes. Schedules are kept by the Daemon, the only engine that outlives its Clients (ADR 0024), and are managed through `schedules.*` operations in the Operation catalog (ADR 0011), which Goodfetch Cloud's gateway implements with the same semantics (ADR 0031). The scheduler sits above the runs and starts them only through the public run operations. It passes each run's Limits and Baseline as ordinary parameters, so the engine executing a run never knows Schedules, as ADR 0001 requires. Crawlee leaves scheduling to cron or to Apify's platform ([Apify Schedules](https://docs.apify.com/platform/schedules)), and Firecrawl offers it only in its hosted API ([`/v2/monitor`](https://docs.firecrawl.dev/features/monitor)). Building it into the framework answers the monitoring use case (pain #3 in `rnd/research/market/pains-ranking.md`), scheduling and orchestration (#15) and self-host parity (#17). Decided in [Scheduling and recurring runs](https://github.com/Jbmanllr/automan/issues/109).
+The open-source framework schedules runs itself. A Schedule starts runs of one target (a Recipe or a code-free catalog run) on a time trigger, after a Watch finds a change, or after another run finishes. Schedules are kept by the Daemon, the only engine that outlives its Clients (ADR 0024), and are managed through `schedules.*` operations in the Operation catalog (ADR 0011), which Goodfetch Cloud's gateway implements with the same semantics (ADR 0031). The scheduler sits above the runs and starts them only through the public run operations. It passes each run's Limits and Baseline as ordinary parameters and tags the run with opaque labels kept in run state, so a scheduled run behaves like any other and Goodfetch Cloud's per-run engines (ADR 0001) need nothing new. Crawlee leaves scheduling to cron or to Apify's platform ([Apify Schedules](https://docs.apify.com/platform/schedules)), and Firecrawl offers it only in its hosted API ([`/v2/monitor`](https://docs.firecrawl.dev/features/monitor)). Building it into the framework answers the monitoring use case (pain #3 in `rnd/research/market/pains-ranking.md`), scheduling and orchestration (#15) and self-host parity (#17). Decided in [Scheduling and recurring runs](https://github.com/Jbmanllr/automan/issues/109).
 
 ## Considered Options
 
@@ -14,8 +14,9 @@ The open-source framework schedules runs itself. A Schedule starts runs of one t
 - **Backfilling every missed occurrence** (Temporal backfill, Airflow `catchup`): rejected. A late run can only fetch the web as it is now, so ten catch-up runs would collect the same pages ten times.
 - **Waking a sleeping machine** (systemd `WakeSystem=`, macOS `pmset schedule wake`): rejected. Both need root or polkit rights; catch-up on wake covers laptops, and servers do not sleep.
 - **RRULE** (Browse AI): rejected. Cron plus anchored intervals cover what Schedules need and are what developers and agents already write.
-- **An existing Rust scheduler crate**: rejected. tokio-cron-scheduler runs an hour off after a DST change until restarted ([#107](https://github.com/mvniekerk/tokio-cron-scheduler/issues/107)), and none documents overlap or catch-up. Goodfetch parses with `croner` (MIT), the only cron crate that documents its DST rules ([croner-rust](https://github.com/hexagon/croner-rust)), and writes the scheduling loop itself.
+- **An existing Rust scheduler crate**: rejected. tokio-cron-scheduler runs an hour off after a DST change until restarted ([#107](https://github.com/mvniekerk/tokio-cron-scheduler/issues/107)), and none documents overlap or catch-up. Goodfetch parses with `croner` (MIT), which documents its DST rules where the `cron` crate does not ([croner-rust](https://github.com/hexagon/croner-rust)), and writes the scheduling loop itself.
 - **The previous run as the Baseline**: rejected. After one failed night every Record would look new, and a partial run would soft-delete every Record it did not reach (ADR 0026).
+- **Only verified and complete runs as the Baseline**: rejected. Offset-paginated crawls and AI tasks without a Success check can never be both (ADR 0029), so their Schedules would get no change tracking.
 - **Pre-creating future runs** (Prefect creates up to 100, up to 100 days ahead, and recreates them on every edit; [Prefect](https://docs.prefect.io/v3/concepts/schedules)): rejected. Upcoming occurrences are computed when asked, as Temporal shows them.
 - **Schedules inside the Run index**: rejected. `goodfetch runs reindex` rebuilds the index from runs (ADR 0031), and a Schedule cannot be rebuilt from its runs.
 
@@ -28,18 +29,22 @@ The open-source framework schedules runs itself. A Schedule starts runs of one t
 
 **Where Schedules are defined.**
 - **From any Client:** created and changed through `schedules.*` operations, so the SDKs, CLI, MCP server, Console and Integrations all have them. The CLI offers `goodfetch schedules list|show|create|edit|pause|resume|run|delete|apply|preview`.
-- **From files:** a `schedules` section of project configuration, reconciled into the Daemon by `goodfetch schedules apply`. Such Schedules are marked *from file* and read-only in the Console, as managed policies are (ADR 0031). A Recipe manifest may suggest a default Schedule but never creates one.
+- **From files:** a Schedule file kept in the project, its own contract format (ADR 0030), reconciled into the Daemon by `goodfetch schedules apply`. Such Schedules are marked *from file* and read-only in the Console, as managed policies are (ADR 0031). A Recipe manifest may suggest a default Schedule but never creates one.
+- **What `apply` does.** It needs the same role as creating a Schedule and records the person or token that ran it as the creator. It creates and updates the file's Schedules, deletes those it created earlier from the same file that the file no longer holds, and leaves a Schedule's paused or running state alone unless the file sets `enabled`.
 
 **Triggers.**
 - **Time:** cron (five fields plus optional seconds, `L`, `W`, `#` and the `@daily`-style macros, parsed by `croner`) or a fixed interval (`every 15m`) counted from the Schedule's anchor time, not from when it was saved, unlike n8n ([common issues](https://docs.n8n.io/integrations/builtin/core-nodes/n8n-nodes-base.scheduletrigger/common-issues/)).
-- **Watch, then run:** each occurrence first runs a Watch, a small run that checks chosen pages or values with a conditional request (`ETag`, `Last-Modified`) or a hash of pages or of an extracted field. The target run starts only if something changed. A Watch has Usage, Limits, Sessions and Access modes like any run. changedetection.io works this way.
+- **Watch, then run:** each occurrence first runs a Watch, a small run that checks chosen pages or values with a conditional request (`ETag`, `Last-Modified`) or a hash of pages or of an extracted field. The target run starts only if something changed. changedetection.io works this way.
+  - **Compared with what:** a Watch compares with what it saw when the Schedule's last target run started that ended `finished`, so a change whose target run failed is still detected next time.
+  - **A run like any other:** a Watch has Usage, Limits, Sessions and Access modes. Its Usage counts toward period Limits, a live Watch is the Schedule's live run for the overlap policy, and a failed Watch counts toward auto-pause.
+  - **The benchmark:** ADR 0025's change-triggered agent runs as a Schedule with a Watch.
 - **After a run:** a Schedule fires when a run of another Schedule or Recipe finishes with a chosen outcome, verified by default. Loops between Schedules are refused.
 - **Acting on change without a Watch** comes from change tracking against the Baseline, the "only new or changed" Sink mode (ADR 0026) and a new "records changed" Notification event, as Firecrawl's monitor and Browse AI do.
 - **Inbound webhooks** need no trigger of their own: ADR 0027's HTTP listener already lets a workflow tool start a run.
 
 **Time zones and DST.**
 - Every Schedule stores an explicit IANA time zone, defaulting to the host's at creation and never stored as "local", so it means the same thing in Goodfetch Cloud.
-- Cron occurrences follow `croner`'s rules: one in the skipped spring hour fires once, at the first valid time after the gap; one in the repeated autumn hour fires once. Intervals count elapsed time. A conformance test covers both transitions.
+- Cron occurrences follow `croner`'s rules. A fixed-time occurrence in the skipped spring hour fires once, at the first valid time after the gap, and one in the repeated autumn hour fires once. A wildcard or step expression (`*/15 * * * *`) has no occurrences in the skipped hour and fires at each matching time of the repeated hour. Intervals count elapsed time. A conformance test covers both transitions for both kinds.
 - Optional jitter, 0 by default, is the same delay at every occurrence of a Schedule (systemd's `FixedRandomDelay=`).
 - No product minimum interval. Operator policy may set one, and Goodfetch Cloud sets its own.
 - The Console and CLI preview the next occurrences in plain words before saving.
@@ -52,45 +57,46 @@ The open-source framework schedules runs itself. A Schedule starts runs of one t
 
 **Missed occurrences.**
 - An occurrence is missed when the Daemon was not running or the machine slept; the Daemon detects a sleep by the wall clock jumping.
-- On start or wake, the latest missed occurrence runs once if it falls within the catch-up window: one period of the Schedule by default, settable, 0 meaning never. Every other one is recorded as *missed*. This is systemd's `Persistent=` and n8n 2.36's run-once with a grace period.
+- On start or wake, the latest missed occurrence runs once if it falls within the catch-up window: by default until the occurrence after it is due, so a weekday 9:00 Schedule missed on Friday can still catch up until Monday 9:00; settable, 0 meaning never. Every other one is recorded as *missed*. This is systemd's `Persistent=`, and n8n 2.36's opt-in run-once policy with a grace period.
 - **Changes ADR 0024:** a Daemon holding an enabled Schedule never stops idle. Creating the first Schedule on a Daemon not installed as a service offers `goodfetch daemon install`; until then, the Console and CLI warn that Schedules fire only while the Daemon runs.
 
 **Limits across runs.**
 - Each run keeps its own Limits. A Schedule may also carry period Limits: caps on the total Usage of its runs per day, week or month, counted in its time zone.
-- Before a run starts, its Limits are clamped to what is left of the period. With the worst-case reservation of model calls (ADR 0012), the period total cannot overshoot.
+- Before a run starts, its Limits are clamped to what is left of the period, and that clamp is reserved against the period until the run ends and its actual Usage replaces it. Concurrent runs (`allow`, `queue_one`, Watches) therefore cannot jointly overshoot, and with ADR 0012's worst-case reservation of model calls, neither can one run.
 - Once a period's Limit is used up, occurrences are recorded as *skipped: Limit*, one Notification goes out per period, and the Schedule resumes next period, as Firecrawl records `skipped_no_credits`.
 - Operator policy can cap period Limits.
 
 **Baseline and soft-delete.**
-- A Schedule's runs compare against its latest run that ended verified and complete, unless the Schedule pins a Baseline. A run that ended `incomplete`, `unverified` or `rejected` never becomes the Baseline.
+- A Schedule's runs compare against its latest run whose Lifecycle is `finished`, whose Verdict is not `rejected` and whose Completeness is not `incomplete`, unless the Schedule pins a Baseline. A `failed` or `stopped` run never becomes the Baseline.
+- `verified` and `needs-review` runs, with `complete` or `unverified` Completeness, may serve, because ADR 0029 never lets some runs be both verified and complete: an offset-paginated crawl is always `unverified`, and an AI task without a Success check always `needs-review`. Requiring both would leave such Schedules without change tracking. The cost is that a comparison with an `unverified` run may report as new a few Records it had missed.
 - **Changes ADR 0026:** only a complete run may soft-delete Records missing since its Baseline, because an incomplete one cannot tell removed from not reached.
 
-**Repeated failures.** After 3 consecutive runs whose Lifecycle is `failed` or whose Verdict is `rejected` (settable, 0 meaning never), the Schedule pauses itself, sends a Notification and adds a "Needs you" item. Runs that end incomplete do not count. ADR 0026 auto-pauses failing webhook Sinks the same way.
+**Pauses.** A Schedule pauses itself on a timed-out Human pause (below), when its creator loses the right to run its target, and on repeated failures. After 3 consecutive occurrences whose run's Lifecycle is `failed`, whose Verdict is `rejected`, or that *failed to start* (settable, 0 meaning never), the Schedule pauses itself, sends a Notification and adds a "Needs you" item. `stopped` runs (a Limit or an abort) and skipped or missed occurrences do not count. ADR 0026 likewise pauses a webhook Sink after three days of total failure or a `410`.
 
 **Unattended runs.**
 - A scheduled run resolves Secret references in the Daemon's context (its environment, keychain and vault logins), and its data key is wrapped by the Daemon's keychain key (ADR 0015).
 - A Schedule whose target uses the `caller` Secret provider is refused. An `env:` reference that the creating Client can resolve but the Daemon cannot raises a warning at creation. A reference that does not resolve when an occurrence fires fails the run before it starts, naming the reference.
-- A Human pause in a scheduled run waits as usual, and later occurrences follow the overlap policy.
+- A Human pause in a scheduled run sends its Notification and "Needs you" item as usual, but waits only until the Schedule's next occurrence is due (settable). The run then checkpoints and ends `stopped`, resumable by its run ID (ADR 0031), and the Schedule pauses itself with a "Needs you" item naming the pause, such as a login needed on a domain. A next run would usually hit the same pause, and under `skip` an unanswered pause would otherwise block every later occurrence.
 
 **The scheduler.**
 - It is a component of the Daemon above the runs, and starts each run through `runs.start` like any Client.
-- Each occurrence has an ID (the Schedule ID and the due time) written to the Schedule store before its run starts, so a scheduler restarted after a crash never starts it twice. n8n's durable scheduler takes the same approach ([durable scheduler](https://docs.n8n.io/deploy/host-n8n/configure-n8n/durable-scheduler.md)).
+- Each occurrence has an ID (the Schedule ID and the due time) written to the Schedule store before its run starts, and the run carries that ID among its labels. A scheduler restarted after a crash looks the ID up in run state before starting anything, so it never starts an occurrence twice. n8n's durable scheduler also queues runs in a database so that one instance picks up each, though its docs still allow duplicates ([durable scheduler](https://docs.n8n.io/deploy/host-n8n/configure-n8n/durable-scheduler.md)).
 - The scheduler holds an exclusive OS lock on the Schedule store (ADR 0031's lock-file pattern), so a second Daemon on the same files cannot fire.
 
 **Storage and the Run index** (changes ADR 0031).
 - **The Schedule store** is a per-user, per-major SQLite file beside the Run index. It is the source of truth for Schedules and is not rebuilt by `goodfetch runs reindex`.
 - **Occurrence history.** Each occurrence records its due and fire times, its trigger (time, Watch, after a run, or manual "run now"), the Schedule version it used and its outcome: `started` with its run ID, `skipped: overlap`, `skipped: Limit`, `skipped: no change`, `missed` or `failed to start`. Dagster's tick history ([skip reasons](https://dagster.io/docs/api/dagster/schedules-sensors)) and Firecrawl's check statuses play the same role.
-- **Run index rows** gain the Schedule ID, the occurrence ID and the trigger kind. Watch runs are listed but hidden from the Runs list by default.
+- **Run labels.** `runs.start` accepts opaque labels stored in run state. The scheduler sets the Schedule ID, occurrence ID, trigger kind and creator, Run index rows show them, and `goodfetch runs reindex` restores them from run state. Watch runs are listed but hidden from the Runs list by default.
 - **Edits** apply from the next occurrence. "Run now" starts an occurrence at once under the overlap policy.
 
 **Retention.**
 - **What a Schedule keeps by default:**
   - its last 10 runs
   - its current Baseline
-  - any run still in "Needs you" or whose Sinks are `behind`
+  - any run still in "Needs you", whose Sinks are `behind` or `failed`, or that still holds dead-letter Records (ADR 0026)
   - pinned runs
-  - the last 10 Watch runs and every Watch that found a change
-- **What goes:** older runs are erased as ADR 0015 erases a run, by destroying its data key. Occurrence history is kept 90 days.
+  - the last 10 Watch runs and the last 10 Watches that found a change
+- **What goes:** an older run is discarded: its data key is destroyed (ADR 0015) and its file and directory are removed, and its Run index row is marked *erased*, never silently dropped (ADR 0031). Occurrence history is kept 90 days.
 - **Settings:** every number is a setting, and Operator policy can cap them.
 - **Precedents:** Kubernetes keeps 3 successful and 1 failed Job ([CronJob](https://kubernetes.io/docs/concepts/workloads/controllers/cron-jobs/)), Apify the 10 most recent runs ([storage](https://docs.apify.com/platform/storage/usage)), and Firecrawl monitor checks for 30 days by default.
 
@@ -99,7 +105,7 @@ The open-source framework schedules runs itself. A Schedule starts runs of one t
 - **A Schedule drawer** shows the occurrence history as a timeline with skip reasons, and offers pause, resume, run now, edit and delete. Edit and delete are disabled for Schedules from files.
 - **Links:** a Recipe's page lists its Schedules, and a run's drawer names the Schedule and occurrence that started it.
 - **"Needs you"** gains auto-paused Schedules, Schedules stopped by a period Limit, and the warning that the Daemon is not installed as a service.
-- **Changes ADR 0027:** new Notification events: Schedule auto-paused; occurrences skipped by a Limit, once per period; records changed; missed occurrences, once per wake.
+- **Changes ADR 0027:** Notifications can be about a Schedule as well as a run. New events: Schedule auto-paused; occurrences skipped by a Limit, once per period; missed occurrences, once per wake; and, for any run with a Baseline, records changed. ADR 0027's delivery ledger keys the once-per-period and once-per-wake events by Schedule and period or wake, so they are never repeated.
 
 **People.**
 - On a shared Daemon (ADR 0031), viewers read Schedules and their history. Members create, edit, pause, resume and run now Schedules for targets they may run. Operators act on any Schedule and set caps in Operator policy: number of Schedules, minimum interval, period Limits.
@@ -112,9 +118,10 @@ The open-source framework schedules runs itself. A Schedule starts runs of one t
 - Its gateway implements the `schedules.*` operations with its own durable scheduler and the semantics above.
 - One Schedule conformance suite runs against a Daemon and a stub gateway, as the Console's does.
 - Schedules move between a machine and the cloud through the file form and `goodfetch schedules apply`.
-- Cloud-only matters (its minimum interval, pricing, regions) belong to the cloud map.
+- Cloud-only matters (its minimum interval, pricing, regions) belong to the Cloud map.
 
 **Product majors** (adds to ADR 0030).
-- The Schedule file format is a versioned contract format.
-- When a new major's Daemon first starts, or `goodfetch upgrade-files` runs, Schedules move to the new major's store: under both stores' locks, they are copied, upgraded and disabled in the old store with a pointer to the new one.
-- A Schedule is never active in two majors. Rolling back moves it back the same way.
+- **Formats.** The Schedule file format is a versioned contract format, upgraded in place in the project like Plans. The Schedule store is per-user, per-major state, so a new major gets its own copy and the previous major's store is never changed.
+- **One active major.** A per-user marker, outside the per-major folders, names the major whose scheduler fires. Every Daemon reads it before each occurrence, so a Daemon of another major fires nothing, even while it runs and holds its own store's lock.
+- **Moving is explicit.** `goodfetch upgrade-files`, or a prompt in the CLI and Console when a new major's Daemon finds Schedules only in an older major, copies and upgrades the Schedules into the new store, then switches the marker. Nothing moves on its own, so trying a `0.y` preview, where each preview minor counts as a major, leaves the Schedules firing where they were.
+- **Rolling back** is `goodfetch schedules activate --major <n>`, which switches the marker back. The older store is as it was, so changes made under the newer major are not carried back, and the command says so.

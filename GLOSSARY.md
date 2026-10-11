@@ -125,7 +125,7 @@ A consistent, self-contained copy of a run's state from which the run can resume
 _Avoid_: snapshot, savepoint, backup
 
 **Limit**:
-A cap on the usage of a run, or of a Schedule's runs over a period; reaching it stops the run cleanly or skips the Schedule's next occurrences.
+A cap on the usage of a run, or of a Schedule's runs over a period; reaching it stops the run cleanly, or holds back the Schedule's runs until the period ends.
 _Avoid_: budget, quota
 
 **Schedule**:
@@ -215,7 +215,7 @@ How strongly a Sink keeps a delivery from being duplicated or overwritten by a s
 _Avoid_: delivery semantics, QoS, consistency level
 
 **Notification**:
-A message about a run's progress or outcome, sent to a person or a system, that carries no Records.
+A message about the progress or outcome of a run or a Schedule, sent to a person or a system, that carries no Records.
 _Avoid_: alert, event (for the message), webhook (for every channel)
 
 **Integration**:
@@ -223,7 +223,7 @@ A package that puts Goodfetch inside another tool, such as a workflow tool node 
 _Avoid_: connector, plugin, app
 
 **Baseline**:
-A previous run that a run's results are compared with to report what changed. For a Schedule's runs, it is the Schedule's latest verified and complete run unless one is pinned.
+A previous run that a run's results are compared with to report what changed.
 _Avoid_: snapshot, reference run
 
 ## AI and agents

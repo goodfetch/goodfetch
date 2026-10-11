@@ -1,6 +1,6 @@
 # Notifications and Integrations are generated from the Operation catalog and reach the engine over an HTTP listener
 
-Messages about a run (Notifications) are kept apart from Records (Sinks). Goodfetch inside other tools (Integrations) is a Client generated from the Operation catalog, like every agent surface in ADR 0011.
+Messages about a run or a Schedule (Notifications; ADR 0036) are kept apart from Records (Sinks). Goodfetch inside other tools (Integrations) is a Client generated from the Operation catalog, like every agent surface in ADR 0011.
 
 Workflow tools force one change to ADR 0024. n8n's verification rules forbid runtime dependencies and environment or file access, so a verified node cannot start the engine and, we infer, can only reach it over HTTP; Zapier, Make and Pipedream call from their own clouds. So the Daemon gains an **HTTP JSON-RPC listener**: the same protocol with the same `hello` version check. It is off until a setting enables it, then binds to loopback with a token, and needs TLS plus a token for remote use (ADR 0017).
 
@@ -33,7 +33,8 @@ Evidence: [workflow tools, Airbyte and AI loaders](https://github.com/Jbmanllr/a
 - an Effect reported uncertain
 - an approval requested
 - a Human pause waiting, with a link to the live view (ADR 0006)
-- a Schedule auto-paused, occurrences skipped by a Limit (once per period), records changed, and missed occurrences (once per wake) (ADR 0036)
+- records changed against the run's Baseline (ADR 0036)
+- a Schedule auto-paused, its occurrences skipped by a Limit (once per period), or its occurrences missed (once per wake) (ADR 0036)
 
 **Notification delivery**: an engine-side ledger keyed by event ID means a resumed run never re-sends. Channel idempotency keys are used where they exist. A status change notifies once, not once per run.
 

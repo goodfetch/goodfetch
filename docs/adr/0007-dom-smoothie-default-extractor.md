@@ -13,3 +13,4 @@ The default chain is dom-smoothie for main content, htmd for Markdown, html5ever
 - The 30 hand-written Markdown fixtures become a V1 conformance suite.
 - The Markdown converters were compared on rs-trafilatura's content HTML; the adopted dom-smoothie then htmd chain is measured again before the switch rule above is applied.
 - No surveyed competitor uses a trafilatura-class extractor: Jina and Apify use Readability, Firecrawl a fixed list of selectors to remove, Crawl4AI its own pruning filters, and Crawlee, Scrapy and Stagehand none in their core.
+- Before the extractor, the engine removes the elements matched by the cosmetic rules of the Clean-up rules, in every tier; raw HTML, WARC and the user's own selectors see the page untouched (ADR 0047).

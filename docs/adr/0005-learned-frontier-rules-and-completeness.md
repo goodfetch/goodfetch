@@ -16,4 +16,5 @@ Competitor evidence: [frontier and sessions research](https://github.com/Jbmanll
 - A wrongly learned no-effect parameter merges distinct pages. The report makes that visible, and a conformance fixture covers it.
 - Unverified covers a frontier exhausted only through offset pagination or a heuristic.
 - Unverified also covers a finished run that left pages in scope at the Block cause `payment_required`, which it lists (ADR 0045).
+- The same holds for pages left at the Block cause `consent_required` (ADR 0048).
 - The frontier also takes priority scores and forefront insertion, for parity with Spider and Crawlee.

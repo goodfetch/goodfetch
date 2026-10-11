@@ -63,6 +63,7 @@ Evidence from the competitor survey made for that ticket:
   - **Taking over.** Another person may ask for control, which is granted after 30 s without an answer. An operator can force it.
   - **Timings** are settings.
   - **Audit.** Taking control, handing back and the start and end of input go to the Audit log. Keystrokes never do.
+  - **Consent prompts.** While a person holds control, the Consent prompt runner's clicks stop, and the person's own answer is recorded as theirs for that Session only (ADR 0048).
 - **Embeddable in users' own products**, as Browserbase, Steel, Hyperbrowser and Kernel allow.
   - **The grant.** `liveView.grant(session, mode, ttl, origins)` returns a token scoped to one Session. It is short-lived, single-use for opening the connection, tied to its origins through `frame-ancestors`, and revoked when the Session ends or by `liveView.revoke`.
   - **What a grant allows.** A control grant lets its holder act in the page, for example to complete a login, MFA or CAPTCHA, and the pause then resolves through its Page check. A grant never confirms or reconciles an Effect, for the same reason chat-app buttons cannot: its holder is not a Goodfetch person.
@@ -79,6 +80,7 @@ Evidence from the competitor survey made for that ticket:
   - **Size cap.** Each run keeps up to 1 GB of trace by default. Past it, the oldest video goes first, while snapshots and the HAR are kept.
   - **Erasure.** Traces are erased with their run.
 - **Cost.** Traces are a costly control (ADR 0023). Its switch is the trace setting; its mark is "no trace" on the run report and on the Timeline.
+- **The main world.** Nothing stays in the page. The engine's only calls there are ADR 0048's single calls into a consent vendor's own API.
 
 **People and tokens.**
 - **Changes ADRs 0017 and 0024**, which gave every endpoint one per-launch token.
@@ -127,4 +129,4 @@ Evidence from the competitor survey made for that ticket:
   - `Referrer-Policy: no-referrer`;
   - COOP and CORP.
 - **Checks.** CI checks these headers. The Proving ground (ADR 0025) includes pages that try to escape the content origin.
-- Step-up also covers the writes that no agent surface offers: `trusted_cas`, certificate pins and `any`, and the answers to `goodfetch certs accept` and `certs forget` (ADR 0042); and widening `pay_domains` or `max_price_per_page` and writing the rates and chain RPC endpoints of Paid fetches (ADR 0045). On a Daemon with accounts, only the operator role writes those configuration values, in the Operator policy; `certs accept` and `certs forget` are answered by the person whose store holds the pin.
+- Step-up also covers the writes that no agent surface offers: `trusted_cas`, certificate pins and `any`, and the answers to `goodfetch certs accept` and `certs forget` (ADR 0042); and widening `pay_domains` or `max_price_per_page` and writing the rates and chain RPC endpoints of Paid fetches (ADR 0045); and widening `consent_domains` (ADR 0048). On a Daemon with accounts, only the operator role writes those configuration values, in the Operator policy; `certs accept` and `certs forget` are answered by the person whose store holds the pin.

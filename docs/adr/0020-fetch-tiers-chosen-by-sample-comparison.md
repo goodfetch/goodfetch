@@ -17,3 +17,4 @@ The engine fetches each page through one of four tiers: HTTP; a discovered API, 
 - A run can force a tier, which skips the comparison (ADR 0023); Provenance records the tier and whether it was compared or forced.
 - A run can instead race browser-fetch against a full navigation, page by page, with the opt-in `tier_race`, judged by the Page check (ADR 0040).
 - A block can also move a domain to another tier (ADR 0021).
+- The sample comparison also fetches its sample with Filter-list blocking off, and switches blocking off for a route whose results differ beyond what the rules remove (ADR 0047).

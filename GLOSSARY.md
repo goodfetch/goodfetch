@@ -198,6 +198,18 @@ _Avoid_: purchase, paid request, micropayment
 The per-user store of responses that later runs may reuse instead of fetching the page again.
 _Avoid_: HTTP cache, page cache, crawl cache
 
+**Filter list**:
+A published list of rules naming the ads, trackers and page annoyances that a run blocks or hides.
+_Avoid_: blocklist, adlist, ruleset
+
+**Consent prompt**:
+A site's request that the visitor accept or refuse cookies or tracking, shown as a banner, a modal or a wall that withholds the content.
+_Avoid_: cookie banner, cookie modal, CMP (the vendor software behind it), consent popup
+
+**Clean-up rules**:
+The dated collection of Filter lists, Consent prompt rules and never-block entries that a run holds to for its whole life and that its results name.
+_Avoid_: rule set, ruleset, list bundle
+
 **Live view**:
 A Session's browser shown to a person while it works, which that person can take control of during a Human pause.
 _Avoid_: screencast, stream, remote desktop

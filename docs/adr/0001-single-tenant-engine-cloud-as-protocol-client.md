@@ -9,5 +9,5 @@ Goodfetch Cloud must power an actor platform, a crawl and extraction API, and ho
 
 ## Consequences
 
-- A reset or discard must leave no state behind; a permanent conformance gate checks it.
+- A reset or discard must leave no state behind; a permanent conformance gate checks it. Saved identities are the one exception: named objects that outlive runs by design, kept outside run state and removed only by their own delete (ADR 0035).
 - The engine counts usage and enforces limits but never knows prices.

@@ -108,13 +108,17 @@ The real hazard is that a tracker list blocks the scripts that bot protection ne
 
   `goodfetch rules update` pulls once on demand.
 - **The daily channel.**
-  - **Built and gated.** A nightly CI job builds it from the upstream lists, autoconsent's latest release and the never-block list. It publishes only after the never-block, breakage and Consent prompt suites pass on the online Proving ground. A failed gate publishes nothing and alerts the maintainers.
+  - **Built and gated.**
+    - A nightly CI job builds it from the upstream lists, autoconsent's latest release and the never-block list.
+    - It publishes only after the never-block, breakage and Consent prompt suites pass, on owned fixtures and on the online Proving ground.
+    - Online, each page is judged against the same page with blocking off, so a vendor's own scoring change, which moves both, never holds the channel back; this differs from the release conformance against real vendors, which only reports (ADR 0043).
+    - A failed gate publishes nothing and alerts the maintainers.
   - **Published.** It is an OCI artifact in the registry Goodfetch already publishes to, pulled by the Plugin store's code (ADR 0033).
   - **Signed.** It is signed with Sigstore to the workflow's identity and checked with `sigstore-verify` against the bundled trust root, as the Plugin index is.
   - **Versioned.** It carries a version and a 14-day expiry. The engine refuses a set older than the last one it saw, and falls back with a warning from a set past its expiry.
   - **Fetched.** Once a day per user, as one conditional request with no identifier and no cookie, and never when `offline`. Operator policy can lock `clean_up.update`.
   - **Changes ADR 0043:** setting `daily` makes the channel a configured destination.
-- **Changes ADRs 0043 and 0032:** the nightly job that builds the channel joins the CI jobs allowed to reach named endpoints: the upstream list URLs and autoconsent's package.
+- **Changes ADRs 0043 and 0032:** the nightly job that builds the channel joins the CI jobs allowed to reach named endpoints: the upstream list URLs, autoconsent's package and the online Proving ground. Publishing the channel is a publishing job, outside the deny.
 - **Changes ADR 0030:** the Clean-up rules' manifest is a contract format with its own `major.minor`. The channel publishes a set for every format major that a supported product major reads. As with the Response cache, an engine skips a set whose minor it cannot read and uses the newest one it can.
 
 **One version per run.**

@@ -18,7 +18,8 @@ Every Goodfetch package carries one version and is released together: the `goodf
 
 - **Contract versions.** These formats each carry their own `major.minor`, checked when read:
   - the JSON-RPC protocol (ADR 0024)
-  - the sink protocol (ADR 0026)
+  - the plugin protocol, which includes the sink protocol (ADRs 0026 and 0033)
+  - the Plugin manifest and lockfile (ADR 0033)
   - run state and Checkpoints (ADR 0002)
   - the Plan file format (ADR 0009)
   - the Recipe manifest

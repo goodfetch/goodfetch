@@ -86,16 +86,16 @@ The last record in a batch wins. "Only new or changed" delivers what change trac
 
 **How Sinks are built.**
 - **In the binary:** Export formats, the object stores through `object_store`, SFTP/FTP, PostgreSQL, pgvector, Supabase, MySQL/MariaDB, SQLite, DuckDB, webhooks, SMTP and every Notification channel.
-- **As first-party sink processes:** every other Sink. They are written in Rust, speak the public sink protocol over stdio JSON-RPC, are released at the engine's version, and are cached by digest like browsers (ADR 0024). Where the Rust client is weak, they call the destination's HTTP API: Snowflake's SQL API, Weaviate, Airtable, Box, Notion, Microsoft Graph.
+- **As first-party sink processes:** every other Sink. They are written in Rust, speak the public sink protocol (the `sink.*` group of the plugin protocol, ADR 0033) over stdio JSON-RPC, are released at the engine's version, and are cached by digest like browsers (ADR 0024). Where the Rust client is weak, they call the destination's HTTP API: Snowflake's SQL API, Weaviate, Airtable, Box, Notion, Microsoft Graph.
 
 **Third-party Sinks.** These come in three forms:
 - an SDK handler function
-- a sink process
+- a sink process (a process Plugin, ADR 0033)
 - a Rust trait implementation
 
 They share one interface and one conformance suite, and earn the class they pass.
 
-**Bridge Sinks.** Bridges run a user-chosen Airbyte destination image or Singer target. Goodfetch bundles none of them, because Airbyte connectors moved to ELv2 in July 2025 and several Singer targets are AGPL. The delivery ID is the primary key, and the probe reports the class. dlt is reached through a documented SDK handler.
+**Bridge Sinks.** Bridges run a user-chosen Airbyte destination image or Singer target, as a container image on a rootless runtime, at ADR 0033's `direct` level, each named by image digest in Operator policy. Goodfetch bundles none of them, because Airbyte connectors moved to ELv2 in July 2025 and several Singer targets are AGPL. The delivery ID is the primary key, and the probe reports the class. dlt is reached through a documented SDK handler.
 
 **Vector stores.** The engine chunks and embeds through a Model provider (ADR 0012).
 - Every embedding call goes through the Effect journal and counts against a currency Limit.

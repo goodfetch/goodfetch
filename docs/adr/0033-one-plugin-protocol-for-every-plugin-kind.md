@@ -138,26 +138,26 @@ Hooks run in declared order and can be scoped by label, which replaces Crawlee's
 2. **A Browser host address** (ADR 0022).
 3. **A third-party CDP endpoint** (as for Browserbase or Bright Data's Scraping Browser), reached as ADR 0022 reaches them, with the guard, and checked under the egress rule below.
 
-**The challenge solver's contract.**
+**The Challenge solver's contract.**
 - **Detection:** the engine detects a challenge by its rules, which beat models there.
 - **Call:** it then calls the solver with:
   - the Session handle
   - a page handle
   - the challenge kind and vendor (Turnstile, reCAPTCHA v2, v3 and Enterprise, hCaptcha, DataDome, Akamai, PerimeterX, AWS WAF, GeeTest, Kasada, image CAPTCHA)
   - the run's remaining Limits
-- **Acting:** the solver acts on the page only through engine operations, or returns a token the engine injects.
+- **Acting:** the solver acts on the page only through engine operations, or returns a token the engine injects. When it needs a vision model, it asks through an Operation catalog operation, and the engine makes the call with the run's Model provider and Limits, so the solver never holds model credentials (ADR 0035).
 - **Outcome:** one of these typed outcomes:
   - `solved`, with evidence the engine re-checks with its Page check (ADR 0006)
   - `unsupported`
   - `failed`, with a cause
   - `needs_human`, which hands over to a Human pause once the engine has checked that the page is still the challenged one, so a solver cannot steer the person to a look-alike login page
-- **Placement:** where a solver runs and who may load it belong to [Stealth and challenge-solving catalog](https://github.com/Jbmanllr/automan/issues/78).
+- **Placement:** where a solver runs and who may load it belong to ADR 0035.
 
 **Conformance.**
 - **Suites:** every kind has a suite in `conformance/`, run by `goodfetch plugins test`. Results appear in the Plugin index, in `goodfetch plugins list` and in the Console.
 - **What is proved:** Sinks keep their Guarantee class. Every other kind is proved one declared capability at a time (for a fetch backend: HTTP/2, proxies, TLS impersonation).
 - **Unproved capabilities:** a capability the suite has not proved is reported as unproved, and a run can require it proved.
-- **Proving ground:** fetch backends, browser backends and challenge solvers are tested on it (ADR 0025): owned fixtures locally, real challenge vendors online.
+- **Proving ground:** fetch backends, browser backends and Challenge solvers are tested on it (ADR 0025): owned fixtures locally, real challenge vendors online.
 
 **Configuration.**
 - **Schema:** a Plugin's manifest declares a JSON Schema for its settings. The engine validates against it, the Console generates its form from it, and the CLI and MCP take the same fields.
@@ -186,7 +186,7 @@ Hooks run in declared order and can be scoped by label, which replaces Crawlee's
   - An in-flight Effect that has no check is reported uncertain for Reconciliation (ADR 0029), never retried blindly (ADR 0010).
   - Repeated crashes quarantine the Plugin and send a Notification.
 - **Health:** a heartbeat on the same channel.
-- **Where it runs:** Linux, macOS and Windows, and inside the Browser host for kinds that work beside the browser (browser backends, challenge solvers). In Goodfetch Cloud, process Plugins run in the tenant's isolation and SDK-handler Plugins stay in the Client.
+- **Where it runs:** Linux, macOS and Windows, and inside the Browser host for kinds that work beside the browser (browser backends, Challenge solvers). In Goodfetch Cloud, process Plugins run in the tenant's isolation and SDK-handler Plugins stay in the Client.
 - **Start:** every process Plugin starts, on every OS:
   - with an empty environment holding only the variables its manifest declares, valued from its settings and never inherited from the shell (a manifest cannot declare loader variables such as `LD_PRELOAD`, `DYLD_*` or `NODE_OPTIONS`), so tokens such as `AWS_SECRET_ACCESS_KEY` or `GITHUB_TOKEN` never leak in
   - with no inherited handles other than stdio and its own proxy socket
@@ -274,7 +274,7 @@ So, except at `direct` (below), a Plugin cannot steer itself or the engine to `1
 - **Updates:** never automatic. `goodfetch plugins update` shows the new digest, the signer and a permission diff, and any new permission or wider value (anything the manifest declares under permissions, a network level, a default endpoint, a browser, a spend maximum or price) needs explicit approval, as a browser asks when an extension wants more. A change of signer identity between versions is refused until the operator approves it again. That catches a release from another repository or workflow, not a compromise of the project's own release workflow (the Ultralytics releases on PyPI in 2024 carried valid attestations), which only revocation in the index covers.
 - **Look-alike names:** `goodfetch plugins add` refuses a name close to an index entry (typosquatting) unless it is given by exact digest.
 - **Files:** a Plugin reads its own unpacked bundle and runtime, and writes only to directories that belong to its instance, deleted when the instance stops. A Plugin keeps nothing across runs: what it needs lives in its bundle or its settings. Any other path it declares is read-only, approved by Operator policy, and never covers the fixed deny list: the engine's own files (settings, Operator policy, lockfiles, the browser and runtime caches, the Plugin store, run files, the Run index, the Audit log, the Daemon's runtime and token files, Console keys) and every other Plugin's directories; credential files (`~/.ssh`, `~/.aws`, `~/.kube`, `~/.docker/config.json`, `.env`, `.netrc`, `.git-credentials`, the GitHub CLI's token, keychains, browser profiles), maintained as a list in the spec; shell startup files; and version-control hooks.
-- **Loading:** a third-party Plugin loads only when Operator policy allows it. Goodfetch's first-party Plugins are allowed by default. A Private component is not first-party: it loads only when Operator policy allows it.
+- **Loading:** a third-party Plugin loads only when Operator policy allows it. Goodfetch's first-party Plugins are allowed by default. A Private component is not first-party: it loads only when Operator policy allows it, and the index lists its signer identity so that its expiry and revocation apply to it (ADR 0035).
 
 Evidence: confinement and provenance precedents gathered for the ticket:
 - [Codex's sandboxes](https://github.com/openai/codex/tree/main/codex-rs) and [network proxy](https://github.com/openai/codex/blob/main/codex-rs/network-proxy/README.md)

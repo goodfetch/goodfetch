@@ -12,7 +12,7 @@ Every Goodfetch package carries one version and is released together: the `goodf
 - **Backports to older minors of the current major** (Vite backports to N-1 and N-2): rejected. Minors come every four weeks and are non-breaking within a major, so upgrading is the fix.
 - **Bypassing the release-age gates**: rejected. Since pnpm 11, every pnpm project, and since Yarn 4.15, every new Yarn project, holds back releases younger than a day by default; pnpm 11 then silently installs the previous version instead of failing. The gates protect users from supply-chain attacks, so a hotfix ships with the steps to let it through the gate.
 - **One Daemon per user across majors**, ADR 0024's first rule: rejected. While two majors are supported, a project on 1.x and one on 2.x would keep restarting each other's Daemon. Gradle likewise runs a separate daemon per version.
-- **An online update check** (the `gh` CLI, Deno): rejected. It is more accurate than an age notice, but it is a network call from the user's machine, which users of a scraping framework may not want.
+- **An online update check** (the `gh` CLI, Deno): rejected. It is more accurate than an age notice, but it is a network call from the user's machine, which users of a scraping framework may not want. ADR 0035's browser version check follows the same rule: it reads a release table shipped with Goodfetch, and an online lookup is opt-in.
 
 ## Consequences
 

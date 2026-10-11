@@ -154,6 +154,18 @@ _Avoid_: profile, access profile, stealth level
 The consistent set of values a Session presents to sites, such as its user agent, network and browser fingerprints, signing key, language and time zone, fixed for the Session's life.
 _Avoid_: fingerprint (alone), persona, profile (alone)
 
+**Fingerprint method**:
+How a Session's browser comes to present its Identity profile: not changed at all, changed by page scripts, changed through the browser's debugging protocol, or changed inside the browser engine itself.
+_Avoid_: stealth engine, spoofing mode, fingerprinting
+
+**Challenge**:
+A check a site's bot protection puts between a client and the content, such as an interstitial page, an invisible browser test or a CAPTCHA.
+_Avoid_: block (for a challenge), captcha (for every kind), wall
+
+**Challenge solver**:
+What completes a Challenge on a Session's behalf, whether Goodfetch's own logic, a third-party solving service or a Plugin.
+_Avoid_: unblocker, bypass, captcha solver (for every kind)
+
 **Session pool**:
 The sessions a run keeps, scoring, rotating and retiring them as they fail.
 _Avoid_: session manager, account pool

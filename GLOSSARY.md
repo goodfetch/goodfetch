@@ -311,7 +311,7 @@ The tamper-evident record of a run's security and compliance events, such as sec
 _Avoid_: journal (alone), event log, history
 
 **Platform signature**:
-The signature macOS or Windows checks before running a Goodfetch executable (an Apple Developer ID signature with notarization, or an Authenticode signature), naming the legal entity that publishes it. It is what macOS and Windows check before running a file; the release's Sigstore signature and attestation, which say which workflow built it, are what Goodfetch itself checks.
+The signature macOS or Windows checks before running a Goodfetch executable (an Apple Developer ID signature with notarization, or an Authenticode signature), naming the legal entity that publishes it. The release's Sigstore signature and attestation, which say which workflow built it, are what Goodfetch itself checks.
 _Avoid_: code signing (alone), signature (alone), certificate
 
 ## Measurement

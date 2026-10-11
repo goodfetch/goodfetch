@@ -3,10 +3,10 @@
 Every surface released together under ADR 0030 lives in one repository, public from its first release, together with the Proving ground and the benchmark harness. Multi-language projects that release in lockstep keep one repository (Ruff, uv, Biome, Deno and Turborepo around a Rust core; Dagger, which releases every SDK at its engine's version; and Stagehand since v4, which keeps its TypeScript, Python and Go SDKs over one JSON-RPC protocol package). Those split per language lag: Playwright's language ports trail the core by one to three weeks, spider-rs's bindings sit behind its core, and Crawlee JS and Python keep separate version lines. Pydantic merged pydantic-core into its main repository in November 2025. The tree:
 
 ```
-crates/            Cargo workspace: the public `automan` crate, internal `automan-*` crates, the `automan` binary
+crates/            Cargo workspace: the public `goodfetch` crate, internal `goodfetch-*` crates, the `goodfetch` binary
 crates/sinks/      one crate per sink process (ADR 0026)
 console/           the Console app, built and embedded in the binary (ADR 0024)
-sdks/typescript/   npm `automan` and the generated per-platform packages
+sdks/typescript/   npm `goodfetch` and the generated per-platform packages
 sdks/python/       the `py3-none` platform wheels
 adapters/          Vercel AI SDK, LangChain/LangGraph (TypeScript and Python), Mastra (ADR 0011)
 integrations/      n8n, Airbyte source, LangChain and LlamaIndex loaders, Zapier, Make, Pipedream, Activepieces, Power Automate (ADR 0027)
@@ -19,7 +19,7 @@ website/           the Docusaurus configuration and theme
 rnd/               frozen R&D record
 ```
 
-Releases are **built once and published per registry**: no tool publishes crates.io, npm platform packages, PyPI, Homebrew and an OCI image from one version, so, like uv, Turborepo and Oxc, Automan writes its own publishing jobs. CI runs in tiers, so that the full platform and runtime matrix of ADR 0024 runs before every merge without holding up each pull request. Decided in [Repository layout and CI](https://github.com/Jbmanllr/automan/issues/107), on the evidence of the [repository layout, CI and release research](https://github.com/Jbmanllr/automan/blob/research/repo-layout-ci/rnd/research/2026-10-11-repo-layout-ci.md).
+Releases are **built once and published per registry**: no tool publishes crates.io, npm platform packages, PyPI, Homebrew and an OCI image from one version, so, like uv, Turborepo and Oxc, Goodfetch writes its own publishing jobs. CI runs in tiers, so that the full platform and runtime matrix of ADR 0024 runs before every merge without holding up each pull request. Decided in [Repository layout and CI](https://github.com/Jbmanllr/automan/issues/107), on the evidence of the [repository layout, CI and release research](https://github.com/Jbmanllr/automan/blob/research/repo-layout-ci/rnd/research/2026-10-11-repo-layout-ci.md).
 
 ## Considered Options
 
@@ -55,20 +55,20 @@ Releases are **built once and published per registry**: no tool publishes crates
   - `research/*` branches stay unmerged.
 - **Private components.** The public repository holds each Private component's interface, a no-op implementation that keeps the public engine whole, and that interface's conformance suite (ADR 0018). The private repository builds against public `main` every night and against every release candidate and patch. While that run is red, no release candidate is promoted to stable and no patch is published, so the challenge solver cannot silently fall out of a release. Public CI never sees private code or secrets.
 - **Release automation.** This settles the item ADR 0030 left to the specs.
-  - **Versioning.** An in-house `xtask release`, a small Rust program, sets the product version in every released manifest. It keeps the internal `automan-*` crates at `0.0.x` and leaves the Zapier and Make apps to their platforms' versioning (ADR 0030). It then writes the changelog with git-cliff and opens a release pull request.
+  - **Versioning.** An in-house `xtask release`, a small Rust program, sets the product version in every released manifest. It keeps the internal `goodfetch-*` crates at `0.0.x` and leaves the Zapier and Make apps to their platforms' versioning (ADR 0030). It then writes the changelog with git-cliff and opens a release pull request.
   - **Build.** Merging the release pull request builds every target once, with artifact attestations, signatures (ADR 0016) and a CycloneDX SBOM for the archives.
   - **Minors and majors.** A release candidate is published to the beta channel first. It is promoted to stable only once its beta week's gates are green: the conformance suites, the benchmark (ADR 0025) and the Private component run. The short `1.0.0-rc.N` series before 1.0 (ADR 0030) goes through the same gates.
   - **Patches.** A patch has no beta week. Before it publishes, it passes the conformance suites, the correctness oracle, the guard when it carries a new Chrome major (ADR 0030), and the Private component build against it.
   - **Publishing.** One job per registry: crates.io, npm (platform packages before the root), PyPI, the OCI image with its SBOM, and the GitHub Release, made immutable (ADR 0030).
   - **Credentials.** Every registry job publishes through OIDC trusted publishing. npm and crates.io accept a trusted publisher only on a package that already exists, so each new package name, including each new per-platform npm package, is first published once by hand.
   - **Re-runs.** A re-run skips versions already published, and the tag is pushed only after npm succeeds.
-  - **Installers.** The `curl | sh` and PowerShell installers are written by hand. Automan's own Homebrew tap is updated by the release job.
+  - **Installers.** The `curl | sh` and PowerShell installers are written by hand. Goodfetch's own Homebrew tap is updated by the release job.
 - **CI tiers.**
   - **Every pull request:**
     - One change-detection job decides what runs; workflow-level path filters are never used on required checks, because a skipped required check stays pending forever.
     - Formatting, lints and unit tests on Linux.
     - Tests of the SDKs and adapters the change touches, on one runtime each.
-    - The sink suites against emulators and containers on Linux only, images pinned by digest: RustFS for S3, and LocalStack for the AWS queues and streams (SQS, SNS, Kinesis, Firehose). LocalStack has required an auth token since March 2026. Automan applies for its free open-source licence; if that is refused, the owner approves a paid token like any paid test resource. The token is a CI secret.
+    - The sink suites against emulators and containers on Linux only, images pinned by digest: RustFS for S3, and LocalStack for the AWS queues and streams (SQS, SNS, Kinesis, Firehose). LocalStack has required an auth token since March 2026. Goodfetch applies for its free open-source licence; if that is refused, the owner approves a paid token like any paid test resource. The token is a CI secret.
     - Which Sinks run: until the merge queue exists, every Sink's suite, as ADR 0026 requires. Once it exists, a pull request runs only the suites of the Sinks it changes, and the merge queue runs them all before the merge, so every pull request still passes the whole sink suite before it lands. A change to the sink protocol or to code that Sinks share counts as a change to every Sink.
     - The docs build and example runs when docs change.
     - DCO, the notice inventory (ADR 0018), the API breakage checks (ADR 0030), `cargo-deny`, `cargo-audit` and their npm and Python equivalents, a check that every Action is pinned by SHA, and a build on the minimum supported Rust version.

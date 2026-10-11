@@ -9,7 +9,7 @@ At the owner's request, every parameter can be set. That covers retries, timeout
 
 A higher layer wins only where no lower layer locked the value.
 
-This extends ADR 0023, under which every costly control can be switched off and the results say so. It adds who may change a value, which a shared Daemon, a published Recipe and a workflow-tool form all need. Apify's input schema, Terraform's variable validation and Helm's values schema validate what users may pass; the lock across layers is Automan's own addition. Decided in [Export connectors and integrations catalog](https://github.com/Jbmanllr/automan/issues/88).
+This extends ADR 0023, under which every costly control can be switched off and the results say so. It adds who may change a value, which a shared Daemon, a published Recipe and a workflow-tool form all need. Apify's input schema, Terraform's variable validation and Helm's values schema validate what users may pass; the lock across layers is Goodfetch's own addition. Decided in [Export connectors and integrations catalog](https://github.com/Jbmanllr/automan/issues/88).
 
 ## Considered Options
 
@@ -19,9 +19,9 @@ This extends ADR 0023, under which every costly control can be switched off and 
 ## Consequences
 
 - **One generated schema.** A single settings schema, generated alongside the Operation catalog, produces the SDK types, the CLI flags, the Recipe manifest's exposed inputs, and the n8n, Zapier and Make forms.
-- **`automan config explain`** shows each effective value, the layer that set it and the layer that locked it, like `git config --show-origin`. The run report and the Console show the same; which layers the Console may edit is set by ADR 0031.
+- **`goodfetch config explain`** shows each effective value, the layer that set it and the layer that locked it, like `git config --show-origin`. The run report and the Console show the same; which layers the Console may edit is set by ADR 0031.
 - **Weakening is recorded.** Any override that weakens a guarantee class or switches off a costly control is recorded in the Audit log and marked on the results it touches (ADR 0023).
 - **Some honesty guarantees stay locked whatever the layer**: the delivery ID and epoch on every write, the guarantee class reported per delivery, webhook signing, and Secret references. These join ADR 0016's controls that cost nothing at run time.
 - **Changes ADRs 0016 and 0023.** Their "switchable per run" controls can now be capped or locked by an Operator policy or a Recipe; where nothing locks them, the run can still switch them.
-- **Per product major.** The Operator policy and the user-level configuration are kept per product major (project configuration lives with the project), and a new major refuses to start on an older major's Operator policy until `automan upgrade-files` has run (ADR 0030).
+- **Per product major.** The Operator policy and the user-level configuration are kept per product major (project configuration lives with the project), and a new major refuses to start on an older major's Operator policy until `goodfetch upgrade-files` has run (ADR 0030).
 - **Applies beyond Sinks.** The layering covers every engine setting, not only Sinks. Earlier ADRs that call a control "settable" or "switchable" mean settable through these layers.

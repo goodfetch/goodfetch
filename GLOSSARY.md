@@ -41,8 +41,8 @@ The Automan process that runs beside a browser and carries out a Session's opera
 _Avoid_: worker, agent, sidecar
 
 **Experimental**:
-The status of an operation, setting or SDK method released outside the stable contract until it is promoted.
-_Avoid_: unstable, nursery
+The status of an operation, setting or SDK method released outside semver's compatibility promise until it is promoted.
+_Avoid_: unstable, nursery, preview mode
 
 ## Pillars
 

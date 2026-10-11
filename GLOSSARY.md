@@ -133,7 +133,7 @@ A standing instruction, kept by the Daemon or Goodfetch Cloud, that starts runs 
 _Avoid_: cron job, periodic job, monitor, trigger (for the whole Schedule)
 
 **Watch**:
-A small run that checks whether chosen pages or values changed since its last check, so that a Schedule starts its target only on change.
+A small run that checks whether chosen pages or values have changed, so that a Schedule starts its target only on change.
 _Avoid_: monitor, probe, poll
 
 **Tenant**:

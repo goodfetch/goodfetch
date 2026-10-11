@@ -101,7 +101,7 @@ The catalog of every run of one user and one product major on a machine, pointin
 _Avoid_: run registry, run database, history
 
 **Usage ledger**:
-The per-user record, on one machine, of the Usage reserved and consumed by every run of that user, against which Limits on the install, a Daemon, a person, a named token or a Client connection are held.
+The per-user record, on one machine, of the Usage reserved and consumed by every run of that user, which stores the Limits on the install, a Daemon, a person, a named token or a Client connection and against which they are held.
 _Avoid_: billing, meter, spend log
 
 **Effect**:

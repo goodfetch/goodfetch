@@ -9,7 +9,7 @@ Evidence: [JavaScript engines for the code-mode sandbox and Script Hooks](https:
 | Size added to the binary | +1.1 MB | +42.8 MB | +10.3 MB |
 | One Script Hook call, JSON in and out | 4.8–5.5 µs | 1.4–2.3 µs | 11.7–11.9 µs |
 | Memory limit | holds, but a script can catch the error | holds, with a near-heap-limit callback | none (grew to 1.15 GB) |
-| Time limit | a 100 ms deadline overshot to 16.6 s, polled only between long built-in calls | holds | loop and recursion counters only |
+| Time limit | a 100 ms deadline overshot to 16.6 s: polled every 10,000 steps, a long built-in counting as one | holds | loop and recursion counters only |
 | test262 ([test262.fyi](https://test262.fyi)) | 83.5%, no `Intl` or `Temporal` | 97.7% (measured on V8 15.7) | 95.6% |
 
 ## Considered Options
@@ -36,10 +36,11 @@ Evidence: [JavaScript engines for the code-mode sandbox and Script Hooks](https:
 - The worker is the `goodfetch` binary started in a worker mode, as `plugin-shim` is, confined as a Plugin at network level `none` with no file access, under ADR 0033's per-OS mechanisms. It reaches the engine only over its pipe and never holds a Secret: the engine inserts Secrets into the catalog calls it carries out, as it does for Plugins.
 - Workers start lazily, at a run's first script, and are never shared between runs. The governor of ADR 0040 sizes each run's pool between one worker and the run's concurrency, since a worker runs one script at a time while it computes.
 - Limits apply at two levels. V8's heap limit, its near-heap-limit callback and `terminate_execution` enforce them first; ADR 0033's resource limits are the backstop (cgroup v2 where delegated, else rlimits, on Linux; footprint sampling on macOS; a Job object on Windows), and the engine kills a worker past its hard deadline. The Linux rlimit fallback is `RLIMIT_DATA`, never `RLIMIT_AS`, since V8 reserves a 4 GB pointer-compression region ([V8](https://v8.dev/blog/pointer-compression)) and, with its sandbox on, a far larger address-space reservation ([V8](https://v8.dev/blog/sandbox)) than any memory limit.
-- **Failures** (changes ADR 0033). A worker killed for time or memory, or crashed, fails only the script call it was running, with `script_time_exceeded`, `script_memory_exceeded` or `script_crashed`, which replace `plugin_limit_exceeded` and `plugin_crashed` for the Script sandbox; a limit V8 itself enforces raises the same codes, and no script can catch them.
+- **Failures** (changes ADR 0033). A worker killed for time or memory, or crashed, fails only the script call it was running, with `script_time_exceeded`, `script_memory_exceeded` or `script_crashed`, which replace `plugin_limit_exceeded` and `plugin_crashed` for the Script sandbox; a limit V8 itself enforces raises the same codes, and no script can catch them. The two limit codes are not retryable and `script_crashed` is (ADR 0038).
   - A failed Script Hook is a `hook_failed` naming that code, retried by the work item's policy like any Hook error (ADR 0033).
   - A failed code-mode program returns the code and its captured `console` to the model, which decides what to run next; the engine does not retry it.
-  - The rest of ADR 0033's crash rules apply unchanged: the worker restarts with backoff, an in-flight Effect that has no check is reported uncertain (ADR 0029), and repeated crashes quarantine the Script Hook, or code mode, for the run, with a Notification.
+  - The worker restarts with backoff, as a Plugin does. A catalog call the engine was carrying out for the script when the worker died completes and is journaled as usual, since the engine, not the worker, carries out every Effect.
+  - Only repeated `script_crashed` counts toward ADR 0033's quarantine; time and memory limits fail only their call. A quarantined Script Hook fails its stage with `hook_failed` naming `script_crashed` for every later work item, never skipped silently, and a quarantined code mode answers every program with `script_crashed`, each for the rest of the run and with a Notification.
 
 **What a script is.**
 - A program is JavaScript, or TypeScript whose types are stripped by `oxc` and never checked. A code-mode program is the body of an `async` function, with `await` at the top level, and returns a JSON value. A Script Hook is a single function expression (an arrow or a `function`), `async` or not, receiving its stage's context. There are no modules and no `import`.
@@ -51,7 +52,7 @@ Evidence: [JavaScript engines for the code-mode sandbox and Script Hooks](https:
 - A corrected or resumed program is replayed against the Effect journal by position, the rule the lab measured at zero false successes in 135 runs: the same Effect at the same position is skipped and reported "already applied"; a different Effect while an Effect that cannot be repeated still lies ahead in the journal stops the program with `effect_diverged`, which it cannot catch; an Effect that only sets a value (`fill`, `select`) resumes live when nothing unrepeatable lies ahead.
 - The engine carries out one program's Effects one at a time, so `Promise.all` cannot reorder them, as it can in Cloudflare's position-keyed runtime. Reads stay concurrent and are not journaled; model calls are, as ADR 0010 already says. `Date.now` and `Math.random` stay live, since only the order of Effects is compared.
 
-**The Rust crate** (changes ADRs 0024 and 0033, adds to ADR 0043).
+**The Rust crate** (changes ADRs 0024, 0033 and 0043).
 - The crate never links V8. For the Script sandbox and for `plugin-shim` it runs the `goodfetch` binary of its exact version, found through `GOODFETCH_ENGINE_PATH` or downloaded on first use into the shared cache, pinned and checked by digest, as browsers are. This download joins ADR 0043's list of pinned downloads: under `offline` a missing binary is `artifact_unavailable_offline`, and setting `GOODFETCH_ENGINE_PATH` supplies it beforehand.
 
 **Other changes.**

@@ -31,7 +31,7 @@ How comparable tools spread one crawl:
 - A draining Group member's Partition hands all its domains to the others this way, so a Partitioned crawl never needs a checkpoint transfer (ADR 0055).
 
 **Starting and reporting.**
-- `runs.start` takes `partitions`: a number, or `auto` for one per Group member that can run the crawl. It returns a Partitioned crawl ID beside the run IDs of its Partitions. The Lead Daemon places Partitions on distinct Group members (ADR 0055).
+- `runs.start` takes `partitions`: a number, or `auto` for one per Group member that can run the crawl. It returns a Partitioned crawl ID beside the run IDs of its Partitions. The Lead Daemon places Partitions on distinct Group members (ADR 0055); a number above the Group members that can run the crawl is refused with the Error code `partitions_exceed_group_members`.
 - On a Daemon outside a group or an Attached engine, `partitions` can only be 1; more is refused with the Error code `partitions_need_group`.
 - It is reported on ADR 0029's three axes:
   - **Lifecycle** is `running` while any Partition runs; then `failed` if any Partition failed, else `stopped` if any stopped, else `finished`.

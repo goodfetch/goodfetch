@@ -133,7 +133,7 @@ The catalog of every run of one user and one product major on a machine or in a 
 _Avoid_: run registry, run database, history
 
 **Usage ledger**:
-The per-user record, on one machine or in a Daemon group, of the Usage reserved and consumed by every run of that user, which stores the Limits on the install, a Daemon, a person, a named token or a Client connection and against which they are held.
+The per-user record, on one machine or in a Daemon group, of the Usage reserved and consumed by every run of that user, which stores the Limits on the install, a Daemon, a person, a named token, a Client connection or a Partitioned crawl and against which they are held.
 _Avoid_: billing, meter, spend log
 
 **Effect**:
@@ -153,7 +153,7 @@ A portable package of user code, described by a manifest, that runs the same loc
 _Avoid_: actor, app, pack, script
 
 **Operator policy**:
-The settings an operator fixes for every run on a machine or Daemon, including the values runs may not exceed or change.
+The settings an operator fixes for every run on a machine, a Daemon or a Daemon group, including the values runs may not exceed or change.
 _Avoid_: admin config, global settings, defaults
 
 **Usage**:

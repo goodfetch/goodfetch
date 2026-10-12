@@ -12,9 +12,9 @@ How comparable tools share their limits:
 - **Politeness per run** (the previous state, and Crawlee's): rejected. A user's own runs gang up on a site.
 - **The Daemon as the only authority**: rejected, as ADR 0041 rejected it for Limits. An Attached engine or an engine embedded through the Rust crate never reaches the Daemon and would escape it.
 - **Across machines, Goodfetch Cloud only** (as ADR 0041 first placed Limits): rejected. Pain #17 (`selfhost-parity-lockin`) is exactly a capability kept for the hosted service, and hn-103 names distributed rate limiting as a problem people pay for.
-- **Daemons electing an authority among themselves**: rejected. It means building leader election and failover for state whose loss only resets pacing.
+- **Daemons electing an authority among themselves**: rejected. It means building an election and failover for state whose loss only resets pacing.
 - **Partitioning alone** (ADR 0054): kept for one crawl, where it makes Politeness exact with no store, but it says nothing about independent crawls that reach the same site.
-- **On store loss, failing closed or failing open**: rejected. Failing closed turns a cache restart into a halt of every run; failing open breaks the very promise the store exists to keep. See the degraded mode below.
+- **On store loss, failing closed at once or failing open**: rejected. Failing closed at once turns a cache restart into a halt of every run; failing open breaks the very promise the store exists to keep. The degraded mode below keeps runs moving through ordinary outages, and stops admission to shared keys only when an outage outlasts `politeness_degraded_max`, because past that point a crashed engine cannot be told from a cut-off one.
 
 ## Consequences
 
@@ -22,7 +22,7 @@ How comparable tools share their limits:
 - **Per domain:** the count of requests in flight, the time before which `Retry-After` or a backoff forbids a request, and the halved concurrency after a 429 with its gradual recovery. The key is the run's domain key (ADR 0004): the registrable domain unless a Recipe overrides it, so runs with the same key share one entry.
 - **Per proxy** (adds to ADR 0021). `proxy_concurrency` and `proxy_rate` limit the requests sent through one proxy endpoint and credential, unset by default.
   - A 429 or 502 from the proxy itself, not from the site, is a proxy refusal. It is classified as a proxy error, never as a Block cause, so it never triggers ADR 0021's escalation. The engine learns a ceiling from those refusals, halving as on a site's 429, and raises it again gradually after a quiet period; the ceiling can be set by hand.
-  - A 407 from the proxy is a credential error: it fails the request with its own Error code and does not change the ceiling.
+  - A 407 from the proxy is a credential error: it fails the request with the Error code `proxy_auth_failed` and does not change the ceiling.
 - **Per cloud-browser provider** (changes ADR 0040). The ceiling learned per provider from a vendor's refusals is shared the same way, since a vendor's plan limits the whole account.
 - **What stays per run:** the per-domain queues and their order (ADR 0004), learned escalation and tier choice (ADRs 0020 and 0021), and `per_ip_concurrency`, which is keyed by the target's resolved IP.
 
@@ -46,12 +46,12 @@ How comparable tools share their limits:
 
 **When the store is unreachable.**
 - Every engine writes a heartbeat to the store, so the number N of live engines sharing a namespace is known. A heartbeat expires no later than a permit's lease, and an engine that exits cleanly deletes its own.
-- An engine that loses the store keeps the permits it holds until their leases expire, then admits per domain at most its share: each run's own cap divided by N, rounded down, and at least 1. Per-proxy limits divide the same way.
+- An engine that loses the store keeps the permits it holds until their leases expire, then admits on its own share: a run admits a request only while the engine's combined count in flight for that key, across its runs, is below the run's own cap divided by N, rounded down, and at least 1. Per-proxy limits divide the same way.
 - **Partial loss.** While an engine's heartbeat is stale, the store's script keeps that engine's share reserved, so engines that still reach the store admit only the rest of the cap. The cap can then be exceeded only by the minimum of 1 per disconnected engine, when the cap is smaller than N.
-- **For a bounded time.** The store cannot tell a crashed engine from a cut-off one, so degraded admission lasts at most `politeness_degraded_max` (10 minutes by default, settable). After it, the store frees the share, and the cut-off engine admits nothing more to shared keys until it reconnects; its runs stay live and resumable.
+- **For a bounded time.** The store cannot tell a crashed engine from a cut-off one, so degraded admission lasts at most `politeness_degraded_max` (10 minutes by default, settable), counted on each side's own clock from the engine's last successful heartbeat. After it, the store frees the share, and the cut-off engine admits nothing more to shared keys until it reconnects; its runs stay live and resumable. An outage of the whole store longer than that therefore stops admission to shared keys everywhere, which the degraded-period report says.
 - `Retry-After`, backoff and halving go on locally.
 - The degraded period is reported as an event on each affected run's event stream (ADR 0024), a metric on the ops listener (ADR 0050) and a note in each affected run's result. Reconnection is automatic, with backoff.
 
 **Formats** (changes ADR 0030). The per-user Politeness file and the Politeness store's key and script layout join ADR 0030's contract formats. Both follow the Usage ledger's exception: their major stays frozen across product majors, and newer versions only add, so every supported major shares them.
 
-**Several Daemons in a Daemon group** (ADR 0055) share Politeness through a store. The Helm chart refuses to render with more than one replica unless a store is set or its Operator policy sets `politeness_sharing: per_daemon`, which every run's result and the Console then show.
+**Several Daemons in a Daemon group** (ADR 0055) share Politeness through a store. A group of more than one Group member, formed by the Helm chart or by `goodfetch group join`, is refused unless a store is set or its Operator policy sets `politeness_sharing: per_daemon`, which every run's result and the Console then show.

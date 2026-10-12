@@ -27,7 +27,7 @@ The real hazard is that a tracker list blocks the scripts that bot protection ne
 - **Fetching the lists from their authors at run start** (Ghostery's library, puppeteer-extra, Browser Use): rejected as the default. It is an unpinned call nobody configured (ADR 0043), and launches fail when it fails ([puppeteer-extra#840](https://github.com/berstend/puppeteer-extra/issues/840), [ghostery/adblocker#3994](https://github.com/ghostery/adblocker/issues/3994)). It stays available as `clean_up.update = upstream`.
 - **Downloading the lists while building the binary** (Spider's `adblock_easylist`): rejected. Spider's build fetches them unpinned and silently ships empty lists when the download fails ([build.rs](https://github.com/spider-rs/chromey/blob/main/build.rs)), and GPL lists compiled into the binary risk making it "a larger program" under the GPL.
 - **The daily channel on by default**: rejected. One request a day from every install would show Goodfetch each install's address, the census ADR 0043 refuses.
-- **Hiding on the live page through page scripts or a `<style>` element**: rejected on Chromium, where the site would see it. Firefox and WebKit have no other way, so there it happens only on demand.
+- **Hiding on the live page through page scripts or a `<style>` element**: rejected on Chromium, where the site would see it. Firefox and WebKit can apply invisible user style sheets, but Playwright's driver, through which ADR 0019 runs them, does not expose them, so there hiding happens only on demand. Patching Playwright's drivers for both engines is rejected as over-engineering: a fork to maintain for a need on-demand hiding already covers, on a path ADR 0019 already plans to leave for Firefox.
 - **Differential updates for the daily channel** (uBlock Origin's and AdGuard's): rejected as over-engineering. They serve millions of clients hourly; the channel is one opt-in download a day.
 - **Non-commercial lists**: excluded by licence. Disconnect's and DuckDuckGo's lists are CC BY-NC-SA ([Disconnect](https://github.com/disconnectme/disconnect-tracking-protection/blob/master/LICENSE), [DuckDuckGo](https://github.com/duckduckgo/tracker-blocklists)), and Steven Black's merged hosts file includes non-commercial sources ([readme](https://github.com/StevenBlack/hosts)). Peter Lowe's list has no formal licence ([site](https://pgl.yoyo.org/adservers/)) and stays out until it has one.
 
@@ -51,18 +51,18 @@ The real hazard is that a tracker list blocks the scripts that bot protection ne
 - **Settings, each settable per run (ADR 0028).**
   - `filter_lists.ads`, `filter_lists.trackers` and `filter_lists.annoyances` are on by default in every Access mode. In browser Sessions they block requests and hide elements; in every tier, HTTP included, they remove elements from extracted content.
   - `filter_lists.first_party_scripts` allows a site's own scripts, as Spider's `allow_first_party_javascript` does.
-  - `filter_lists.extra` adds the user's own lists, as files or URLs. A URL is a configured destination (ADR 0043). As ADR 0017 rules for Plugin endpoints, it may use a private range only when set in Operator policy or user and project configuration, or by a Recipe or run value that Operator policy allows; otherwise it is checked as an address a page can reach. The lists it adds are part of the version a run holds to (below). Their scriptlets run only when the list is set in Operator policy or user and project configuration; a list a Recipe, a run or an agent surface adds contributes network and cosmetic rules only (**Changes ADR 0011**).
+  - `filter_lists.extra` adds the user's own lists, as files or URLs. A URL is a configured destination (ADR 0043). As ADR 0017 rules for Plugin endpoints, it may use a private range only when set in Operator policy or user and project configuration, or by a Recipe or run value that Operator policy allows; otherwise it is checked as an address a page can reach. The lists it adds are part of the version a run holds to (below). Their scriptlets run only when the list is set in Operator policy or user and project configuration, and on a Daemon with accounts only in Operator policy (**Changes ADR 0028**); a list a Recipe, a run or an agent surface adds contributes network and cosmetic rules only (**Changes ADR 0011**).
 - **The never-block list.** Goodfetch maintains it, under MIT. It names:
   - challenge and CAPTCHA providers;
   - anti-bot sensors;
   - anti-fraud and payment scripts.
 
   It wins over every Filter list, the user's own included, and over `block_resources`, since image challenges need their images. It is tested on the Proving ground's fixtures, and against a real vendor online wherever the online Proving ground or ADR 0035's owner-approved trials include that vendor (ADR 0025).
-- **Consent prompts come first.** While `consent_handling` is on (ADR 0048), the rules aimed at Consent prompts never act before its runner.
+- **Consent prompts come first.** Whether or not `consent_handling` is on (ADR 0048), the rules aimed at Consent prompts never act before its runner and its wall test.
   - **Which rules.** The EasyList Cookie List, AdGuard's Cookie Notices, and the consent-vendor entries of the other lists (EasyPrivacy's `/sourcepoint.js` and `-didomi.js`, for example).
-  - **What they may do.** They never block a request or hide an element on the live page, and their scriptlets never run, since some write acceptance (`set-cookie, cookieconsent_status, allow`). Once the runner is done, they only remove leftovers from extracted content.
-  - **The consent vendors' own hosts.** Every host autoconsent has a rule for joins the never-block list, so no other list can block the prompt before it is refused, or the wall before it is seen.
-  - **Fanboy Annoyance without its cookie part.** Upstream, Fanboy Annoyance includes the whole EasyList Cookie List, so Goodfetch builds both from the `easylist/easylist` repository's templates, the cookie sections only once.
+  - **What they may do.** They never block a request or hide an element on the live page, and their scriptlets never run, since some write acceptance (`set-cookie, cookieconsent_status, allow`). Once the runner and the wall test are done, they only remove leftovers from extracted content.
+  - **The consent vendors' prompt scripts.** autoconsent's rules detect prompts by selectors and name no host, so Goodfetch maintains, beside the never-block list, the hosts and paths from which the vendors its vendor rules cover load their prompts. They join the never-block list, scoped to the prompts' scripts, so the vendors' telemetry stays blocked (EasyPrivacy's `||privacy-analytics-proxy.cookiebot.com^`, for example). Site rules' URL patterns never join. The conformance suite tests each entry.
+  - **Fanboy Annoyance without its cookie part.** Upstream, Fanboy Annoyance includes the whole EasyList Cookie List, so Goodfetch builds both from the `easylist/easylist` repository's templates, the cookie sections only once. Under `clean_up.update = upstream` and for lists from `filter_lists.extra`, the engine drops those sections by their `easylist:easylist_cookie/…` markers, and the consent-vendor entries of the other lists, before compiling.
 - **Breakage, caught two ways.**
   - **Changes ADR 0020:** the per-route sample comparison also fetches its sample with blocking off. If the extracted results differ beyond what the rules remove, blocking is off for that route, learned as the tier choice is.
   - A page that fails its Page check, or shows an ad-blocker wall, while blocking is on is retried once with blocking off, and that choice is learned per domain, keyed as in ADR 0004. A page with a Block cause is never retried this way (ADRs 0045 and 0048).
@@ -75,10 +75,11 @@ The real hazard is that a tracker list blocks the scripts that bot protection ne
   - **Shadow trees.** These sheets never reach them, so Consent prompts there are handled by ADR 0048's runner.
   - **Cost.** Enabling the CSS domain has a cost, which the benchmark measures. `live_hiding = off` removes it, and Provenance records it.
   - **On Firefox and WebKit,** Playwright offers only `addStyleTag`, a visible `<style>` element. There `auto` hides only on demand: when the guard (ADR 0019) finds an action's target covered by an element a rule matches. `live_hiding = always` hides everywhere, with a warning that the site can see it.
-  - **What else sees the hiding.** **Changes ADR 0019:** when the guard finds that live hiding hid an action's target, it lifts the matching rule for that Session and retries, recording the rule in Provenance; this is never Drift (ADR 0009), so a Plan replayed under newer Clean-up rules needs no Repair. ADR 0035's trap-link rule judges visibility as the page renders without Goodfetch's own sheet, so a link inside a hidden ad is not taken for a trap.
+  - **What else sees the hiding.** **Changes ADR 0019:** when the guard finds that live hiding hid an action's target, it lifts the matching rule for that Session and retries, recording the rule in Provenance; this is never Drift (ADR 0009), so a Plan replayed under newer Clean-up rules needs no Repair. Links inside an element a cosmetic rule matched are left out of ADR 0035's trap-link judgement, so a link inside a hidden ad is not taken for a trap.
 - **Never hidden.** A paywall is never hidden or removed, whatever a list says, and neither is a consent wall (ADR 0048).
   - **Detecting a paywall.** Rules written like ADR 0035's block detection recognise the overlays of paywall vendors (Piano, Poool, Zephr and others), and a page that marks paid sections with schema.org's `isAccessibleForFree: false`, the markup Google asks publishers to use ([Google](https://developers.google.com/search/docs/appearance/structured-data/paywalled-content)), declares its own.
   - **What follows.** No cosmetic rule hides or removes a paywall vendor's overlay, an element containing a declared paid section, or, on the live page, an element covering one. Provenance records the paywall. The schema.org markup marks the paid content rather than the overlay, so it protects the sections it names and whatever covers them.
+  - **Paywall scripts load.** The scripts that render the overlays of the paywall vendors the detector knows (Piano and tinypass, Poool, Zephr, Pelcro, Steady and others) join the never-block list, scoped to those scripts so their analytics stay blocked. Fanboy Annoyance, for example, blocks `||tinypass.com^` and `||piano.io^` on paywalled publishers, which would keep the overlay from rendering at all. The conformance suite has a paywall page per vendor.
   - **Changes ADR 0045:** these rules join its paywall detection. Only a 402 or a paywall redirect is `payment_required`; an overlay leaves the page fetched as the site served it.
 
 **Scriptlets and resource types.**
@@ -91,25 +92,28 @@ The real hazard is that a tracker list blocks the scripts that bot protection ne
   - `filter_lists.page_scriptlets` turns them on, with the warning of ADR 0035's `js-injection` Fingerprint method.
 - **`block_resources`** blocks whole types (`image`, `media`, `font`, `stylesheet`). It is empty by default and works through the same interception. In `standard` and `stealth` it warns that the site can see the missing loads, since few people block images or fonts. Finer blocking stays a Hook (ADR 0033).
 
-**What the Clean-up rules hold.**
+**What the Clean-up rules hold, and what the release ships beside them.**
+
+The Clean-up rules are rule data: Filter lists, autoconsent's rules and the never-block entries. The stand-ins, autoconsent's library and uBlock Origin's resources are code, which comes with each release and its downloaded set, never through the daily channel.
 
 | Content | Licence | Embedded in the binary |
 | --- | --- | --- |
 | EasyList, EasyPrivacy, the EasyList Cookie List and Fanboy Annoyance, built from a pinned commit of [`easylist/easylist`](https://github.com/easylist/easylist)'s templates | GPLv3+ or CC BY-SA 3.0+, credited to "The EasyList authors" ([licence](https://easylist.to/pages/licence.html)); fanboy.co.nz's copies say CC BY 3.0, and the inventory records the stricter CC BY-SA | yes, under CC BY-SA |
 | Brave's unbreak list | MPL-2.0 ([adblock-lists](https://github.com/brave/adblock-lists)) | yes |
-| DuckDuckGo's tracker surrogates, Mozilla's web-compatibility shims | Apache-2.0 and MPL-2.0 | yes |
-| autoconsent and its rules (ADR 0048) | MPL-2.0 | yes |
+| DuckDuckGo's tracker surrogates, Mozilla's web-compatibility shims (code) | Apache-2.0 and MPL-2.0 | yes |
+| autoconsent's rules (data) and library (code) (ADR 0048) | MPL-2.0 | yes |
 | The never-block list | MIT | yes |
 | uBlock filters, privacy, unbreak and quick-fixes | GPLv3 ([uAssets](https://github.com/uBlockOrigin/uAssets)) | no, download only |
 | AdGuard's Cookie Notices, Popups, Mobile App Banners and Widgets | GPLv3 ([AdguardFilters](https://github.com/AdguardTeam/AdguardFilters)) | no, download only |
-| uBlock Origin's resources, for opt-in patching scriptlets | GPLv3 ([uBlock](https://github.com/gorhill/uBlock)) | no, download only |
+| uBlock Origin's resources, for opt-in patching scriptlets (code) | GPLv3 ([uBlock](https://github.com/gorhill/uBlock)) | no, download only |
 
 **How they arrive.**
 - **Embedded.**
   - The embedded part is precompiled at build time with `Engine::serialize` from the binary's own `adblock` version. Serialized, the embedded lists measured 9.06 MB, or 3.67 MB compressed, with `adblock` 0.13.3. autoconsent's rules and library add about 0.1 MB compressed (measured), and the stand-ins are small.
   - The serialized format can change between minor versions of the crate ([docs](https://docs.rs/adblock/latest/adblock/struct.Engine.html)), which is why it is built with the binary's own version.
   - It is loaded on the first page that needs it, never at engine start.
-- **Changes ADR 0018:** the compiled form of the CC BY-SA lists is an adaptation. It carries CC BY-SA in the notice inventory, as Chromium does for the EasyList-derived rules file in its BSD tree ([README.chromium](https://chromium.googlesource.com/chromium/src/+/main/third_party/subresource-filter-ruleset/README.chromium)). The GPL lists are never compiled by Goodfetch.
+  - Its inputs, like the full set's, are pinned and fetched before CI's network deny starts (ADR 0043); no build script downloads anything.
+- **Changes ADR 0018:** the compiled form of the CC BY-SA lists is an adaptation. It carries CC BY-SA in the notice inventory, as Chromium does for the EasyList-derived rules file in its BSD tree ([README.chromium](https://chromium.googlesource.com/chromium/src/+/main/third_party/subresource-filter-ruleset/README.chromium)). The GPL lists are never compiled into the binary or published compiled; the release's downloaded set and the daily channel carry them as text, and each engine compiles them on its own machine.
 - **Downloaded.**
   - The full set is pinned by digest in each release and refreshed in every patch release (ADR 0030).
   - It is downloaded on first use by any run, HTTP-only runs included, into the browser cache.
@@ -139,7 +143,7 @@ The real hazard is that a tracker list blocks the scripts that bot protection ne
 
 **One version per run.**
 - **Choosing.** A run uses the newest valid version available: the daily channel's, then the downloaded release set, then the embedded part. `clean_up.version` pins an exact digest instead. Under `upstream`, the lists fetched from their authors are cached by the digest the engine computes, and that digest is what the run holds to.
-- **Changes ADR 0002:** a run records that version's digest in its state at start and holds to it until it ends. A resumed run uses the same digest, fetched as a pinned download if the machine lacks it. When that fails, it uses the newest version available and Provenance records the change.
+- **Changes ADR 0002:** a run records that version's digest in its state at start and holds to it until it ends. A resumed run uses the same digest. A release set or embedded part missing on that machine is fetched as a pinned download. A daily set is fetched only where the channel is configured, or where `clean_up.version` names it, which configures it for that fetch. When neither applies, or the fetch fails, the run uses the newest version available and Provenance records the change.
 - **Named in the results.** Provenance names the version and its date, and the Goodfetch release whose code applied it, since the daily channel carries no code. The run report warns when the version is older than 14 days.
 - **Changes ADR 0036:** change tracking says when a run and its Baseline used different Clean-up rules, so a difference the rules caused is not reported as a change on the site.
 - **Changes ADR 0001:** Goodfetch Cloud, which runs one engine per run, chooses the version and hands its digest to the engine through the protocol, as it hands over saved identities (ADR 0035); the daily check and the anti-rollback state are the cloud's. A local run reproduces it by setting `clean_up.version` to that digest.

@@ -46,3 +46,4 @@ Scrapy's `HttpCacheMiddleware` stores everything and never revalidates by defaul
 
 **Schedules.**
 - **Changes ADR 0036:** Watches never use the cache; they exist to see changes and send their own conditional requests. A Schedule's target runs may use `revalidate`. A Schedule whose target sets `replay` is refused with the Error code `replay_not_allowed`, which is not retryable (ADR 0038), because replayed pages would hide changes from the Baseline.
+- Saving an identity drops, from its partition, the entries fetched under a Consent prompt acceptance that the saving run's `consent_domains` does not cover (ADR 0048).

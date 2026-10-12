@@ -176,7 +176,7 @@ _Avoid_: stealth engine, spoofing mode, fingerprinting
 
 **Challenge**:
 A check a site's bot protection puts between a client and the content, such as an interstitial page, an invisible browser test or a CAPTCHA.
-_Avoid_: block (for a challenge), captcha (for every kind), wall
+_Avoid_: block (for a challenge), captcha (for every kind), wall (for a challenge)
 
 **Challenge solver**:
 What completes a Challenge on a Session's behalf, whether Goodfetch's own logic, a third-party solving service or a Plugin.
@@ -207,8 +207,8 @@ A site's request that the visitor accept or refuse cookies or tracking, shown as
 _Avoid_: cookie banner, cookie modal, CMP (the vendor software behind it), consent popup
 
 **Clean-up rules**:
-The dated collection of Filter lists, Consent prompt rules, never-block entries and the stand-in scripts they use, which a run holds to for its whole life and its results name.
-_Avoid_: rule set, ruleset, list bundle
+The dated collection of Filter lists, Consent prompt rules and never-block entries that a run holds to for its whole life and that its results name.
+_Avoid_: rule set, list bundle
 
 **Live view**:
 A Session's browser shown to a person while it works, which that person can take control of during a Human pause.

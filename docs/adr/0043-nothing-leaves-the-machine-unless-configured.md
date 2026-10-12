@@ -43,4 +43,4 @@ Goodfetch's users send it the URLs, accounts and tasks they care most about, so 
   - the nightly build of the Clean-up rules' daily channel (ADR 0047), which reaches the upstream Filter-list URLs, autoconsent's package, the online Proving ground for its gate, and the hosts from which the challenges of the vendors protecting it, and the consent vendors it uses, load;
   - a fixture's licence endpoint where the fixture needs one, named in its job.
 - The Console's Content Security Policy (ADR 0031) and the offline version checks (ADRs 0030 and 0035) are instances of this rule.
-- The daily channel of the Clean-up rules is a configured destination once `clean_up.update = daily` is set, and a Filter list URL once `filter_lists.extra` names it (ADR 0047).
+- The daily channel of the Clean-up rules is a configured destination once `clean_up.update = daily` is set or `clean_up.version` names a daily set, the Filter lists' own URLs once `clean_up.update = upstream` is set, and a Filter list URL once `filter_lists.extra` names it (ADR 0047).

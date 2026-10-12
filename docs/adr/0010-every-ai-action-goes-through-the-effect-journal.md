@@ -12,3 +12,4 @@ Every action an AI decides (built-in agent, MCP, function tools, code mode, `act
 
 - An `act` that fails after its Effect happened is reported uncertain, never retried silently (Stagehand documents that `act()` can fail after acting).
 - Model calls are journaled too, so a resumed run reuses a journaled answer instead of calling the model again.
+- A Consent prompt answer that a Decision provider chose is not an Effect: the model call is journaled, and the click is recorded in Provenance and the Run trace (ADR 0048).

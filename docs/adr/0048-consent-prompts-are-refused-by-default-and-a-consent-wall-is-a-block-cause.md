@@ -42,14 +42,14 @@ A consent answer is Session state, not an Effect. Decided in [Built-in page clea
 ## Consequences
 
 **Handling a prompt.**
-- **`consent_handling`** is on by default, in every live browser Session and every Access mode, and can be switched off per run. Provenance then records the prompts it left.
+- **`consent_handling`** is on by default, in every live browser Session and every Access mode, and can be switched off per run. Switching it off stops only the answering: the wall test still runs, a wall is still `consent_required`, the Filter lists' Consent prompt rules still wait (ADR 0047), and Provenance lists the prompts left.
 - **The order:**
   1. autoconsent's vendor rules;
   2. its `reject` heuristics, in about ten languages ([heuristic-patterns.ts](https://github.com/duckduckgo/autoconsent/blob/main/lib/heuristic-patterns.ts));
   3. the Decision provider (below);
   4. then either hiding (a prompt with no refusal that leaves the content readable) or `consent_required` (a wall).
 - **Hiding** means ADR 0047's: always removed from extracted content, hidden on the live page through the invisible style sheet on Chromium, and on Firefox and WebKit only when the prompt covers an action's target.
-- **The Filter lists wait.** While `consent_handling` is on, the rules of the Filter lists aimed at Consent prompts never block, hide or run scriptlets on the live page, and the consent vendors' hosts are never blocked, so the runner always sees the prompt, and the wall test always sees the wall (ADR 0047).
+- **The Filter lists wait.** The rules of the Filter lists aimed at Consent prompts never block, hide or run scriptlets on the live page, and the consent vendors' prompt scripts are never blocked, so the runner always sees the prompt, and the wall test always sees the wall (ADR 0047).
 - **Never delaying a page with no prompt.** The engine waits on a page only once a vendor is detected or a pre-hide rule matches. A prompt that appears later is answered when it appears, and ADR 0047 already keeps its text out of extracted content.
 - **In the HTTP tier,** which has no layout, the wall test runs on the route's browser sample (ADR 0020).
   - **Changes ADR 0020:** a route whose browser sample showed a consent wall never moves to a tier that skips it. Its pages are `consent_required` in every tier, unless the domain is in `consent_domains`.
@@ -70,15 +70,17 @@ A consent answer is Session state, not an Effect. Decided in [Built-in page clea
 - **How it clicks.**
   - Clicks and keys go through the guard's trusted input on all three browsers, never as untrusted `element.click()` events.
   - autoconsent takes its DOM actions from its public `domActions` field ([web.ts](https://github.com/duckduckgo/autoconsent/blob/main/lib/web.ts)), typed as its `DomActions` class. Goodfetch supplies a subclass that sends clicks to the guard, in its own code under the framework's licence, and autoconsent's files stay unmodified (ADR 0018).
-  - Five coded vendors (Admiral, Conversant, Sourcepoint's frame, TikTok and UniConsent) call `element.click()` directly. An isolated world has its own JavaScript prototypes, so the runner replaces `HTMLElement.prototype.click` there, invisibly to the page, and those calls reach the guard too. On Firefox and WebKit, where that cannot be confirmed for Playwright's utility world, those vendors are switched off through autoconsent's `disabledCmps`.
-  - Seven of the main-world snippets click from the page's own world (`EVAL_COOKIE_POPUP_CLOSE`, `EVAL_COOKIEFIRST_1`, `EVAL_ETSY_1`, `EVAL_IUBENDA_0`, `EVAL_MICROSOFT_0`, `EVAL_MICROSOFT_1`, `EVAL_WAITROSE_0`). The rules that use them are switched off through `disabledCmps`, and their prompts go to the heuristics and the Decision provider. Goodfetch contributes upstream a version that clicks through `domActions`, and the conformance suite measures what the switched-off rules cost in coverage.
+  - Five coded vendors (Admiral, Conversant, Sourcepoint's frame, TikTok and UniConsent) call `element.click()` directly. An isolated world has its own JavaScript prototypes, as Chrome documents for content scripts ([isolated worlds](https://developer.chrome.com/docs/extensions/develop/concepts/content-scripts#isolated_world)), so the runner replaces `HTMLElement.prototype.click` there, invisibly to the page, and those calls reach the guard too. The conformance suite checks the override on each browser; a vendor is switched off through `disabledCmps` only on a browser where the check fails.
+  - Seven of the main-world snippets click from the page's own world (`EVAL_COOKIE_POPUP_CLOSE`, `EVAL_COOKIEFIRST_1`, `EVAL_ETSY_1`, `EVAL_IUBENDA_0`, `EVAL_MICROSOFT_0`, `EVAL_MICROSOFT_1`, `EVAL_WAITROSE_0`). Every rule that names one is dropped, by the snippets it names rather than by its own name, both when the channel is built and in the runner, so a newer rule using them is dropped too. Their prompts go to the heuristics and the Decision provider. Goodfetch contributes upstream a version that clicks through `domActions`, and the conformance suite measures what the dropped rules cost in coverage.
+  - **Pre-hiding and trusted clicks.** autoconsent's pre-hide makes a prompt transparent and lets clicks pass through it, which a trusted click cannot target. The runner lifts the pre-hide from a prompt before its first click on it. The guard's lift-and-retry (ADR 0047) lifts only the rule that hid the target, never pre-hiding for the whole Session.
+  - **autoconsent's other page writes.** Its `hide`, `prehide` and `stylesheet` steps would write `<style>` elements into the page. The subclass sends them to ADR 0047's live hiding instead: the invisible sheet on Chromium, and on Firefox and WebKit hiding on demand plus removal from extracted content. Its `setStyle`, `addStyle` and `removeClass` steps (five rules, mostly lifting a scroll lock the vendor left after a refusal) run from the isolated world, since they only finish a refusal, and Provenance marks them.
 - **Heuristics.** `reject` only, never `tier1` or `tier2`. A notice with no choice is hidden, never acknowledged.
 - **Pre-hiding** (hiding a known prompt before it flashes) uses ADR 0047's live style sheet on Chromium, and is undone before the wall test, so a wall is always judged as the site shows it.
 - **The main world.**
   - **Which rules.** About 50 call the consent vendor's own JavaScript API, which an isolated world cannot reach: 45 rule files with `eval` steps, and five vendors coded in TypeScript (OneTrust, Cookiebot, consentmanager, Klaro and TrustArc). Each makes a few calls, up to seven, of the fixed snippets in autoconsent's `eval-snippets.ts`.
   - **How on Chromium.** `DOM.resolveNode`, given no context, resolves in the frame's main world ([resolve_node.cc](https://chromium.googlesource.com/chromium/src/+/main/third_party/blink/renderer/core/inspector/resolve_node.cc)), and `Runtime.callFunctionOn` then runs the snippet there. V8 refuses only `compileScript`, `runScript` and two settings calls while `Runtime` is off, never `callFunctionOn`, so `Runtime` stays off, and the snippets leave no global behind.
   - **How on Firefox and WebKit.** Through Playwright's main-world evaluation.
-  - **When the call can't be made,** the prompt goes to the wall test: hidden when the content is readable, a wall otherwise.
+  - **When the call can't be made,** the prompt falls through to the heuristics and the Decision provider, and only then to the wall test.
   - **Changes ADR 0019:** by default, these calls and the TCF read below are the engine's only actions in a page's main world. The opt-in exceptions are ADR 0047's page scriptlets, ADR 0035's `js-injection` Fingerprint method, and the user's own `evaluate` and init scripts, each marked in Provenance. ADR 0047's on-demand hiding on Firefox and WebKit adds a visible `<style>` element, which is not main-world code but does stay in the page, and Provenance marks it too. **Changes ADR 0031:** its rejection of an in-page recorder stands. This exception covers calls into the consent vendor's own API, not code that stays in the page.
 
 **Prompts no rule recognises.**
@@ -92,7 +94,7 @@ A consent answer is Session state, not an Effect. Decided in [Built-in page clea
   - Where the page exposes a TCF consent string, the engine reads it through `__tcfapi` after the click.
   - A consent given by mistake is reported, and the Session's consent cookies are cleared.
   - Elsewhere, Provenance marks the answer `unverified`, since a model alone never judges an outcome (ADR 0013).
-- **Accounting.** The call is journaled and counted against Limits (ADR 0012).
+- **Accounting.** The call is journaled and counted against Limits (ADR 0012). **Changes ADR 0010:** the click the model chose is a consent answer, not an Effect, so it is recorded in Provenance and the Run trace rather than the Effect journal; the model call stays journaled.
 
 **Consent walls.**
 - **The test.** A prompt is a wall when it offers no refusal and either covers the main content or offers payment or a subscription instead.
@@ -117,7 +119,7 @@ A consent answer is Session state, not an Effect. Decided in [Built-in page clea
 
 **A consent answer is Session state.**
 - **Where it lives.** With the Session's cookies and storage, so a saved identity carries it (ADR 0035). A new or resumed Session simply answers again.
-- **Acceptances stay in their scope.** The engine records which cookies and storage each answer set. Saving an identity drops those of acceptances that the saving run's `consent_domains` does not cover, such as a person's own click or an "accept for this run" answer, so a later run never inherits them.
+- **Acceptances stay in their scope.** The engine records which cookies and storage each answer set. Saving an identity drops those of acceptances that the saving run's `consent_domains` does not cover, such as a person's own click or an "accept for this run" answer, so a later run never inherits them. **Changes ADR 0046:** it also drops the Response cache entries fetched under those acceptances from the saved identity's partition.
 - **Provenance per page** records:
   - the action: refused, hidden, accepted, accepted by a person, left, or none;
   - the rule that matched;
@@ -142,7 +144,7 @@ A consent answer is Session state, not an Effect. Decided in [Built-in page clea
   So `auto` never sends them for a stock Chrome identity.
 - **Forcing it.** `gpc = on` sends them anyway, with a warning that a signal the presented browser never sends breaks the consistency `standard` keeps (ADR 0021).
   - **Firefox and Camoufox** use their own preference.
-  - **Chromium** gets the header through the interception, and the warning also says that the JavaScript property is absent.
+  - **Chromium** uses CDP's `Browser.setGlobalPrivacyControl`, which sets the header and `navigator.globalPrivacyControl` together, behind Chromium's `GlobalPrivacyControl` feature ([browser_handler.cc](https://chromium.googlesource.com/chromium/src/+/main/content/browser/devtools/protocol/browser_handler.cc)). It is browser-wide, so it applies only to a Session with a browser of its own. Elsewhere the header goes through the interception, and the warning also says that the JavaScript property is absent.
   - **The HTTP tier** sends `Sec-GPC` exactly when the Session's browser would, since it presents the same identity.
 
 **Proof.**
@@ -154,4 +156,4 @@ A consent answer is Session state, not an Effect. Decided in [Built-in page clea
   - prompts in more than ten languages;
   - server-side consent pages in the HTTP tier;
   - the Live view and recorder scenarios above.
-- **Real vendors.** The online Proving ground uses real consent vendors' free tiers where their terms allow. The owner approves any paid one.
+- **Real vendors.** **Changes ADR 0025:** the online Proving ground also carries real consent vendors' prompts, through their free tiers where their terms allow. The owner approves any paid one.

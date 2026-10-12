@@ -13,4 +13,4 @@ The engine enforces each run's domain policy on every request type (navigation, 
 - Secrets are stored behind Secret references and Secret providers (ADR 0015). A run may switch redaction off, which lifts the guarantee above for logs, traces, HAR files, screenshots and recordings kept as outputs only (ADR 0016).
 - A raw CDP client can switch off browser-protocol interception, so a Session with raw CDP attached is held to the domain policy at the network layer instead (ADR 0017).
 - For payments, a run's allowance is `pay_domains`, which only Operator policy, user and project configuration or a person's answer can widen; no payment goes to a domain outside it (ADR 0045).
-- For Consent prompts, a run's allowance for accepting terms is `consent_domains`, which only Operator policy, user and project configuration or a person's answer can widen (ADR 0048).
+- For Consent prompts, the only allowance for accepting terms is `consent_domains`, never a run's general allowance, which only Operator policy, user and project configuration or a person's answer can widen (ADR 0048).

@@ -60,6 +60,7 @@ Every Goodfetch package carries one version and is released together: the `goodf
 - **Browsers and stealth between minors.**
   - **Chrome:** each new Chrome stable major ships in a patch, once it passes the conformance suite and the guard (ADR 0019). A patch may also move the pinned Chrome for Testing build within its major, security point releases included, and update stealth material.
   - **Other browsers:** a patch may move Playwright's Firefox and WebKit builds, Camoufox, Patchright and Lightpanda to a newer build within their own upstream major, security point releases included. A new upstream major of these comes only with a minor.
+  - **Clean-up rules:** every patch may refresh them (ADR 0047). What they block, hide or remove is outside semver, as stealth material is, and the release notes name their version.
   - **Release notes:** they always name every browser build.
   - **Supported Chrome:** besides the pinned build, a run may use an installed Chrome. That Chrome is supported on the current stable, beta or dev channel, every stable major released in the last eight weeks, and the current Extended Stable, which keeps an eight-week cycle for enterprises; all are tested against the guard and the conformance suite. A musl host's distribution Chromium follows the same rule.
   - **Best effort:** older builds, Edge and Brave run best effort, with a warning.

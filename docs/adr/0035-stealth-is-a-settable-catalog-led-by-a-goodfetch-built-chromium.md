@@ -64,6 +64,7 @@ The `stealth` Access mode turns on a catalog of items, each of which a run can s
 - The Block cause `payment_required` joins these causes; it never escalates, rotates or retries (ADR 0045).
 - The Block cause `consent_required` joins them too; it never escalates, rotates, retries or hides (ADR 0048).
 - **Trap links.** In the browser tier, the Frontier skips links a person cannot see and invisible `nofollow` links, and a page reached through one, or marked `noindex` and failing its Page check, is classed `decoy`; Cloudflare documents both signals for [AI Labyrinth](https://developers.cloudflare.com/bots/additional-configurations/ai-labyrinth/). HTTP-tier crawls flag such links instead. This avoids traps rather than honouring Site preferences, so ADR 0016 is unaffected. It can be switched off; that is recorded and the results say so (ADR 0023).
+- Visibility for the trap-link rule is judged as the page renders without Goodfetch's own live-hiding sheet, so a link inside a hidden ad is not taken for a trap (ADR 0047).
 
 ### Challenge solver and escalation
 

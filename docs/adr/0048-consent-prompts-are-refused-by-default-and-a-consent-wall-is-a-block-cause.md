@@ -2,7 +2,7 @@
 
 Every live browser Session answers each Consent prompt by refusing. A prompt that offers no refusal but leaves the content readable is hidden instead. The engine never accepts unless a person approved the domain. A prompt that offers no refusal and covers the content, or asks for payment instead, is a **consent wall**: it gets the Block cause `consent_required` and is never evaded.
 
-DuckDuckGo's autoconsent recognises the prompts, driven through Goodfetch's own driver in an isolated world, with trusted input, in every frame. Its rules that call a consent vendor's own API make one call each into the page's main world, the engine's only action there. A prompt no rule recognises goes to the Decision provider when the run has one.
+DuckDuckGo's autoconsent recognises the prompts, driven through Goodfetch's own driver in an isolated world, with trusted input, in every frame. Its rules that call a consent vendor's own API run fixed snippets in the page's main world, the engine's only action there by default. A prompt no rule recognises goes to the Decision provider when the run has one.
 
 A consent answer is Session state, not an Effect. Decided in [Built-in page clean-up](https://github.com/Jbmanllr/automan/issues/119) (parity row SA-28). Ads, trackers and the Clean-up rules that carry autoconsent are ADR 0047's.
 
@@ -10,7 +10,7 @@ A consent answer is Session state, not an Effect. Decided in [Built-in page clea
 
 **What the alternatives do to the page.**
 - **Hiding without answering** stores nothing, so the prompt returns in every new Session. EasyList documents broken scrolling and dead clicks ([COOKIE_CONSENTS.md](https://github.com/easylist/easylist/blob/master/COOKIE_CONSENTS.md)).
-- **Accepting** loads the trackers. On sites with consent walls, accepting sets 6.4 times more third-party cookies ([Rasaii et al., IMC 2023](https://arxiv.org/abs/2310.01108)). It is also not consent in GDPR's sense, which is the data subject's own indication of their wishes ([Art. 4(11)](https://gdpr-info.eu/art-4-gdpr/)).
+- **Accepting** loads the trackers, and the sites that insist most on it, those with consent walls, set 6.4 times more third-party cookies than sites with ordinary banners ([Rasaii et al., IMC 2023](https://arxiv.org/abs/2310.01108)). It is also not consent in GDPR's sense, which is the data subject's own indication of their wishes ([Art. 4(11)](https://gdpr-info.eu/art-4-gdpr/)).
 - **Refusing** has a basis: Art. 21(5) lets a person object "by automated means using technical specifications" ([Art. 21](https://gdpr-info.eu/art-21-gdpr/)).
 - **Agents left to themselves accept.** Four of eight browser agents chose "accept all" even when an equal "deny" button was there ([Ukani et al.](https://arxiv.org/html/2512.07725v1)).
 
@@ -35,23 +35,26 @@ A consent answer is Session state, not an Effect. Decided in [Built-in page clea
   - It clicks with `element.click()`, whose events are `isTrusted: false` ([MDN](https://developer.mozilla.org/en-US/docs/Web/API/Event/isTrusted)).
 - **"I don't care about cookies" or "I still don't care about cookies"**: rejected. They are GPL-3.0 and accept where they have to.
 - **Consent-O-Matic** (MIT, [repository](https://github.com/cavi-au/Consent-O-Matic)) as a second rule source: rejected as over-engineering. A second rule format needs a second runner, for rules that largely overlap autoconsent's larger and more active set, and the Decision provider covers what neither knows. A coverage gap measured by the conformance suite reopens this.
-- **The rules of Firefox's Cookie Banner Reduction**: unavailable. The list is archived, and the feature never shipped in release ([bug 1940275](https://bugzilla.mozilla.org/show_bug.cgi?id=1940275)).
+- **The rules of Firefox's Cookie Banner Reduction**: unavailable. The feature shipped only in private windows in Germany ([Firefox 120](https://www.firefox.com/en-US/firefox/120.0/releasenotes/)) and was later turned off everywhere ([bug 1940275](https://bugzilla.mozilla.org/show_bug.cgi?id=1940275)), and its list is archived ([repository](https://github.com/mozilla/cookie-banner-rules-list)).
 - **Hiding a consent wall to read what is behind it**: rejected. It gets around the condition the site set for access, and for an "accept or pay" wall it is the paywall ADR 0045 forbids getting around.
 - **Treating a consent answer as an Effect**: rejected. Repeating the same answer changes nothing. Journaling it would put a Target fingerprint check (ADR 0009) and possible Reconciliation (ADR 0029) on every page for no protection.
 
 ## Consequences
 
 **Handling a prompt.**
-- **`consent.handle`** is on by default, in every live browser Session and every Access mode, and can be switched off per run. Provenance then records the prompts it left.
+- **`consent_handling`** is on by default, in every live browser Session and every Access mode, and can be switched off per run. Provenance then records the prompts it left.
 - **The order:**
   1. autoconsent's vendor rules;
   2. its `reject` heuristics, in about ten languages ([heuristic-patterns.ts](https://github.com/duckduckgo/autoconsent/blob/main/lib/heuristic-patterns.ts));
   3. the Decision provider (below);
   4. then either hiding (a prompt with no refusal that leaves the content readable) or `consent_required` (a wall).
 - **Never delaying a page with no prompt.** The engine waits on a page only once a vendor is detected or a pre-hide rule matches. A prompt that appears later is answered when it appears, and ADR 0047 already keeps its text out of extracted content.
-- **In the HTTP tier,** ADR 0047 removes the prompt from extracted content. A server-side consent page, such as Google's `consent.google.com` or Yahoo's `guce`:
-  - **with a refusal path,** is answered once through the Session's browser. Browser-fetch keeps the Session's identity (ADR 0020), and later HTTP fetches carry its cookies.
-  - **without one,** or when no browser can be started for the Session, is `consent_required`.
+- **In the HTTP tier,** which has no layout, the wall test runs on the route's browser sample (ADR 0020).
+  - **Changes ADR 0020:** a route whose browser sample showed a consent wall never moves to a tier that skips it. Its pages are `consent_required` in every tier, unless the domain is in `consent_domains`.
+  - On a route whose sample showed a refusable prompt or a notice, ADR 0047 removes the prompt from extracted content.
+  - A server-side consent page, such as Google's `consent.google.com` or Yahoo's `guce`:
+    - **with a refusal path,** is answered once through the Session's browser. Browser-fetch keeps the Session's identity (ADR 0020), and later HTTP fetches carry its cookies.
+    - **without one,** or when no browser can be started for the Session, is `consent_required`.
 
 **The runner.**
 - **Where it comes from.** autoconsent (MPL-2.0, [repository](https://github.com/duckduckgo/autoconsent)) ships its library and rules inside the Clean-up rules (ADR 0047) and is never fetched from npm at run time.
@@ -59,18 +62,18 @@ A consent answer is Session state, not an Effect. Decided in [Built-in page clea
   - On Chromium, in an isolated world in every frame, cross-origin iframes included, through ADR 0019's out-of-process iframe tracking.
   - On Firefox and WebKit, in Playwright's utility world.
   - It is set up again on every new document and every route change of a single-page app.
-- **How it reports to the engine.** Through `Runtime.addBinding`, installed by context ID in the isolated world only. Its `bindingCalled` events are sent without `Runtime` being enabled ([v8-runtime-agent-impl.cc](https://chromium.googlesource.com/v8/v8/+/main/src/inspector/v8-runtime-agent-impl.cc)), so nothing polls and nothing appears in the page's own world.
+- **How it reports to the engine.** Through `Runtime.addBinding`, named with the isolated world's own unique name (`executionContextName`; the `executionContextId` form is deprecated) and added again on every new isolated world, since with `Runtime` off V8 does not carry named bindings to new contexts. Its `bindingCalled` events are sent without `Runtime` being enabled ([v8-runtime-agent-impl.cc](https://chromium.googlesource.com/v8/v8/+/main/src/inspector/v8-runtime-agent-impl.cc)), so nothing polls and nothing appears in the page's own world.
 - **How it clicks.**
   - Clicks and keys go through the guard's trusted input on all three browsers, never through `element.click()`.
-  - The adapter at autoconsent's click interface is contributed upstream and published as an MPL patch until it is merged.
+  - autoconsent takes its DOM actions from a `DomActionsProvider` it exposes as a public field ([types.ts](https://github.com/duckduckgo/autoconsent/blob/main/lib/types.ts)), so Goodfetch supplies its own provider, in its own code under the framework's licence, and autoconsent's files stay unmodified (ADR 0018).
 - **Heuristics.** `reject` only, never `tier1` or `tier2`. A notice with no choice is hidden, never acknowledged.
 - **Pre-hiding** (hiding a known prompt before it flashes) uses ADR 0047's live style sheet on Chromium.
 - **The main world.**
-  - **Which rules.** 45 rules call the consent vendor's own JavaScript API, which an isolated world cannot reach.
-  - **How on Chromium.** Each makes one call. `DOM.resolveNode`, given no context, resolves in the frame's main world ([resolve_node.cc](https://chromium.googlesource.com/chromium/src/+/main/third_party/blink/renderer/core/inspector/resolve_node.cc)), and `Runtime.callFunctionOn` then calls the function there. V8 requires `Runtime` to be enabled only for `compileScript` and `runScript`, so it stays off, and the call leaves no global behind.
+  - **Which rules.** About 50 call the consent vendor's own JavaScript API, which an isolated world cannot reach: 45 rule files with `eval` steps, and five vendors coded in TypeScript (OneTrust, Cookiebot, consentmanager, Klaro and TrustArc). Each makes a few calls, up to seven, of the fixed snippets in autoconsent's `eval-snippets.ts`.
+  - **How on Chromium.** `DOM.resolveNode`, given no context, resolves in the frame's main world ([resolve_node.cc](https://chromium.googlesource.com/chromium/src/+/main/third_party/blink/renderer/core/inspector/resolve_node.cc)), and `Runtime.callFunctionOn` then runs the snippet there. V8 refuses only `compileScript`, `runScript` and two settings calls while `Runtime` is off, never `callFunctionOn`, so `Runtime` stays off, and the snippets leave no global behind.
   - **How on Firefox and WebKit.** Through Playwright's main-world evaluation.
   - **When the call can't be made,** the prompt is hidden.
-  - **Changes ADR 0019:** these calls, and the TCF read below, are the engine's only actions in the main world. **Changes ADR 0031:** its rejection of an in-page recorder stands. This exception covers calls into the consent vendor's own API, not code that stays in the page.
+  - **Changes ADR 0019:** by default, these calls and the TCF read below are the engine's only actions in a page's main world. The opt-in exceptions are ADR 0047's page scriptlets, ADR 0035's `js-injection` Fingerprint method, and the user's own `evaluate` and init scripts, each marked in Provenance. **Changes ADR 0031:** its rejection of an in-page recorder stands. This exception covers calls into the consent vendor's own API, not code that stays in the page.
 
 **Prompts no rule recognises.**
 - **Which prompts.** Prompts the heuristics detect but no rule can answer.
@@ -101,13 +104,14 @@ A consent answer is Session state, not an Effect. Decided in [Built-in page clea
   - `report` (default) leaves the page at `consent_required`.
   - `ask` raises a Human pause with a Notification. The person answers for this run, or "always for this domain", which writes `consent_domains` in user configuration. On a Daemon with accounts, only a person with the operator role can give either answer, and "always" is stored in Operator policy, as ADR 0045 does for `pay_domains`.
   - The Console's "Needs you" view lists the domains that showed a wall and offers to add them to `consent_domains`.
-- **Changes ADR 0014:** `consent_domains` is the allowance for "accepting terms" on a Consent prompt.
+- **Changes ADR 0014:** `consent_domains` is the only allowance for "accepting terms" on a Consent prompt; a run's general allowance for accepting terms never covers one.
   - An Agent that clicks "accept" on a domain outside it asks for confirmation.
   - Agents rarely meet a prompt, because the engine answers prompts before building an Agent's observation.
 - **Audit log.** Every acceptance goes to it, naming the domain and the approval it came from.
 
 **A consent answer is Session state.**
 - **Where it lives.** With the Session's cookies and storage, so a saved identity carries it (ADR 0035). A new or resumed Session simply answers again.
+- **Acceptances stay in their scope.** The engine records which cookies and storage each answer set. Saving an identity drops those of acceptances that the saving run's `consent_domains` does not cover, such as a person's own click or an "accept for this run" answer, so a later run never inherits them.
 - **Provenance per page** records:
   - the action: refused, hidden, accepted, accepted by a person, left, or none;
   - the rule that matched;
@@ -119,19 +123,21 @@ A consent answer is Session state, not an Effect. Decided in [Built-in page clea
 - **Changes ADR 0031:**
   - The runner's clicks stop at "Take control" and resume at "Hand back". These are events, so nothing polls.
   - Blocking, live hiding and extraction-side removal (ADR 0047) keep running.
-  - Whatever the person answers, an acceptance included, is recorded in Provenance and the Audit log as theirs, for that Session only, and never widens `consent_domains`.
+  - Whatever the person answers, an acceptance included, is recorded in Provenance and the Audit log as theirs, for that Session only, and never widens `consent_domains`. On a Daemon with accounts, any member holding control may answer this way, since it is their own act in the page; widening `consent_domains` stays the operator's. A holder of an embedded Live view grant, who is not a Goodfetch person, is recorded under the grant (ADR 0031).
+- **Raw CDP** (ADR 0017). The runner's clicks also stop while a raw CDP client is attached, since the engine cannot tell what that client is doing; ADR 0047 says what blocking and hiding do then.
 
 **Global Privacy Control.**
 - **The setting.** `gpc` is `auto` by default, which follows the Identity profile. The `Sec-GPC` header and `navigator.globalPrivacyControl` are sent only when the browser the Session presents would send them.
 - **Which browsers send it.**
-  - Brave and DuckDuckGo send them by default.
-  - Firefox sends them in private windows.
+  - Brave and DuckDuckGo send them by default ([GPC](https://globalprivacycontrol.org/)).
+  - Firefox sends them in private windows ([Firefox 120](https://www.firefox.com/en-US/firefox/120.0/releasenotes/)).
   - Chrome, Edge and Safari never send them ([browser-compat-data](https://github.com/mdn/browser-compat-data/blob/main/http/headers/Sec-GPC.json)).
 
   So `auto` never sends them for a stock Chrome identity.
 - **Forcing it.** `gpc = on` sends them anyway, with a warning that a signal the presented browser never sends breaks the consistency `standard` keeps (ADR 0021).
   - **Firefox and Camoufox** use their own preference.
   - **Chromium** gets the header through the interception, and the warning also says that the JavaScript property is absent.
+  - **The HTTP tier** sends `Sec-GPC` exactly when the Session's browser would, since it presents the same identity.
 
 **Proof.**
 - **The conformance suite** runs on the Proving ground (ADR 0025) on all three browsers. Its prompts are modelled on OneTrust, Cookiebot, Didomi, Usercentrics, Sourcepoint, Quantcast, TrustArc, Google's consent page and Axeptio in shadow DOM. It covers:

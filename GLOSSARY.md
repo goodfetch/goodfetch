@@ -214,6 +214,14 @@ _Avoid_: blocklist, adlist, ruleset
 A site's request that the visitor accept or refuse cookies or tracking, shown as a banner, a modal or a wall that withholds the content.
 _Avoid_: cookie banner, cookie modal, CMP (the vendor software behind it), consent popup
 
+**Wall**:
+An overlay a site draws over its page as the condition for reading the content: a paywall, a consent wall or an ad-blocker wall.
+_Avoid_: gate, barrier, paywall (for every kind), wall (for a Challenge or a demand for payment)
+
+**Wall allowance**:
+A person's approval for a domain on which the engine reads past Walls instead of stopping at them.
+_Avoid_: bypass, unblock, circumvention mode
+
 **Clean-up rules**:
 The dated collection of Filter lists, the rules that recognise and answer Consent prompts, the rules that recognise paywall and ad-blocker overlays, and never-block entries, which a run holds to for its whole life and its results name.
 _Avoid_: rule set, list bundle

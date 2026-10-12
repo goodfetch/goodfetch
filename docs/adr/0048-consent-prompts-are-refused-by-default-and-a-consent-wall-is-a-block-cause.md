@@ -1,6 +1,6 @@
 # Consent prompts are refused by default, and a consent wall is the Block cause `consent_required`
 
-Every live browser Session answers each Consent prompt by refusing. A prompt that offers no refusal but leaves the content readable is hidden instead. The engine never accepts unless a person approved the domain. A prompt that offers no refusal and covers the content, or asks for payment instead, is a **consent wall**: it gets the Block cause `consent_required` and is never evaded.
+Every live browser Session answers each Consent prompt by refusing. A prompt that offers no refusal but leaves the content readable is hidden instead. The engine never accepts unless a person approved the domain. A prompt that offers no refusal and covers the content, or asks for payment instead, is a **consent wall**: it gets the Block cause `consent_required` and is never evaded, except on a domain a person put in `wall_domains`, where it is read past without consenting (ADR 0052).
 
 DuckDuckGo's autoconsent recognises the prompts, driven through Goodfetch's own driver in an isolated world, with trusted input, in every frame. Its rules that read or call a consent vendor's own JavaScript run fixed snippets in the page's main world, the engine's only action there by default; every other snippet runs in the isolated world. A prompt no rule recognises goes to the Decision provider when the run has one.
 
@@ -109,7 +109,7 @@ A consent answer is Session state, not an Effect. Decided in [Built-in page clea
 - **Changes ADR 0005:** a finished run that left pages in scope at `consent_required` reports Completeness `unverified` and lists them, as for `payment_required`.
 - **Changes ADR 0046:** these responses are never stored in the Response cache, like every Block cause.
 - **Changes ADR 0016:** never evading a wall is not one of its switchable compliance controls. It is a condition the site set for access, like ADR 0045's payment gate, and it never stops stealth or the Challenge solver.
-- **`consent_domains`** lists the registrable domains (ADR 0004) on which the engine accepts a wall. A prompt that offers a refusal is still refused there. On such a domain, a wall no rule recognises goes to the Decision provider with its accept buttons offered; without a Decision provider, it stays `consent_required`.
+- **`consent_domains`** lists the registrable domains (ADR 0004) on which the engine accepts a wall. `*` is accepted only when written explicitly (ADR 0052). A prompt that offers a refusal is still refused there. On such a domain, a wall no rule recognises goes to the Decision provider with its accept buttons offered; without a Decision provider, it stays `consent_required`.
   - **Who widens it.** Only Operator policy, user and project configuration, or a person's answer in the Console or an interactive CLI prompt. On a Daemon with accounts, only the operator role, in Operator policy, as for `pay_domains` (ADR 0045).
   - **Changes ADR 0028:** the Recipe and run layers can only narrow it.
   - **Changes ADR 0011:** no agent surface widens it.

@@ -6,10 +6,10 @@ This matrix is the companion of [ADR 0037](0037-v1-scope-parity-and-pain-coverag
 
 | Status | Parity rows | Stagehand v3 rows | Pains |
 |---|---:|---:|---:|
-| `decided` | 101 | 4 | 21 |
+| `decided` | 101 | 4 | 22 |
 | `spec` | 39 | 1 | 0 |
 | `excluded` | 1 | 0 | 0 |
-| `open → #N` | 1 | 0 | 3 |
+| `open → #N` | 1 | 0 | 2 |
 | Total | 142 | 5 | 24 |
 
 ## Parity rows
@@ -117,7 +117,7 @@ This matrix is the companion of [ADR 0037](0037-v1-scope-parity-and-pain-coverag
 | CO-06 | Enqueue by clicking JS-driven elements | `spec` | [#71](https://github.com/Jbmanllr/automan/issues/71) | 6 Collection | Clicks to discover links are not Effects; the spec decides how a discovery click is kept from causing one (ADR 0010, ADR 0014). |
 | CO-07 | Crawl-depth limit | `spec` | [#71](https://github.com/Jbmanllr/automan/issues/71), ADR 0028 | 6 Collection | A depth cutoff reports the run `incomplete` (ADR 0005). |
 | CO-08 | Page budgets, global and per path | `spec` | [#71](https://github.com/Jbmanllr/automan/issues/71), [#69](https://github.com/Jbmanllr/automan/issues/69) item 7 | 6 Collection | Global request Limits decided. Per-path budgets are spec. |
-| CO-09 | Per-domain politeness incl. latency throttle and token bucket | `spec` | [#71](https://github.com/Jbmanllr/automan/issues/71), ADR 0021 | 6 Collection | Delay, backoff and crawl-delay decided. Latency throttle and token bucket are opt-in; defaults stay. |
+| CO-09 | Per-domain politeness incl. latency throttle and token bucket | `spec` | [#71](https://github.com/Jbmanllr/automan/issues/71), ADR 0021, ADR 0053 | 6 Collection | Delay, backoff and crawl-delay decided. Latency throttle and token bucket are opt-in; defaults stay. |
 | CO-10 | Sitemap discovery and loading | `spec` | [#71](https://github.com/Jbmanllr/automan/issues/71), ADR 0016 | 6 Collection | robots.txt is already read on every run. Scope filtering is SC-02. |
 | CO-11 | Callback for skipped or blocked links | `spec` | [#71](https://github.com/Jbmanllr/automan/issues/71), ADR 0005, ADR 0033 | 6 Collection | Learned rules are reported and the `skip` stage exists. This adds an event. |
 | CO-12 | Session pool | `decided` | ADR 0006, ADR 0035, ADR 0002 | 6 Collection | Scoring, rotation and retirement, persisted in run state. |
@@ -136,7 +136,7 @@ This matrix is the companion of [ADR 0037](0037-v1-scope-parity-and-pain-coverag
 | CO-25 | Push records to a dataset and read them back | `decided` | ADR 0008, ADR 0026, ADR 0031 | 6 Collection | Dataset of Records, numbered results stream, paging and SQL tab. |
 | CO-26 | Key-value store | `decided` | [#71](https://github.com/Jbmanllr/automan/issues/71) | 6 Collection | A Key-value store in the run file. Its operations are spec. |
 | CO-27 | Export to CSV or JSON with all keys | `decided` | ADR 0008, ADR 0026 | 6 Collection | Files mode carries the union of all fields. |
-| CO-28 | Storage backends: memory, filesystem, SQL, Redis, custom | `excluded` | ADR 0002, ADR 0033 | 6 Collection | "Pluggable live storage … rejected" (ADR 0002): it brings back multiple writers. SQL and Redis are reached as Sinks (ADR 0026). |
+| CO-28 | Storage backends: memory, filesystem, SQL, Redis, custom | `excluded` | ADR 0002, ADR 0033, ADR 0053 | 6 Collection | "Pluggable live storage … rejected" (ADR 0002): it brings back multiple writers. SQL and Redis are reached as Sinks (ADR 0026); a Redis-protocol server may hold Politeness, never run state (ADR 0053). |
 | CO-29 | Stream of pages as they arrive | `decided` | ADR 0008, ADR 0024 | 6 Collection | Ordered, lossless results stream with credit-based delivery. |
 | CO-30 | WARC output | `decided` | [#71](https://github.com/Jbmanllr/automan/issues/71) | 6 Collection | WARC from both HTTP and browser tiers. |
 | CO-31 | HTTP response cache and conditional re-crawl (ETag) | `decided` | ADR 0046, ADR 0036 | 6 Collection | Per-user Response cache, off by default: `revalidate` (RFC 9111) and `replay` on every tier; partitioned by Session, country, language and device; 10 GB and 30 days by default; never `replay` for Schedules. |
@@ -196,7 +196,7 @@ This matrix is the companion of [ADR 0037](0037-v1-scope-parity-and-pain-coverag
 | CL-01 | Docker images and Dockerfiles in templates | `decided` | ADR 0024, ADR 0017, ADR 0049 | 13 Self-hosted deployment and operations | Five non-root, multi-arch image tags (default, `-slim`, `-full`, `-node`, `-python`) on Debian 13 slim with SBOM and attestations; every template has a Dockerfile (SDK-04). |
 | CL-02 | Deployment guides (AWS Lambda, Cloud Run) | `decided` | ADR 0031, ADR 0049 | 13 Self-hosted deployment and operations | Supported means a tested guide plus a CI deploy: Docker and Compose, Kubernetes (Helm), systemd, Cloud Run, Lambda as a container image, and edge runtimes as Clients; ECS and Fargate, Azure Container Apps, Fly.io, Railway and Render are documented. |
 | CL-03 | Crawler served as an HTTP service | `decided` | ADR 0027, ADR 0011, ADR 0017 | 11 Client surfaces | Daemon HTTP JSON-RPC listener; MCP Streamable HTTP. |
-| CL-04 | Several processes or machines sharing one queue | `decided` | ADR 0024, ADR 0003, ADR 0002 | 3 Engine runtime | `workers=N` processes lease from one run. Machines sharing a live frontier excluded: multiple writers (ADR 0002). Scale-out is [#116](https://github.com/Jbmanllr/automan/issues/116). |
+| CL-04 | Several processes or machines sharing one queue | `decided` | ADR 0024, ADR 0003, ADR 0002, ADR 0054 | 3 Engine runtime | `workers=N` processes lease from one run. Machines sharing a live frontier excluded: multiple writers (ADR 0002). Past one engine, a Partitioned crawl splits a crawl across Group members, each Partition owning its domains and receiving their forwarded links (ADR 0054). |
 | CL-05 | Remote browser sessions with regions and keep-alive | `decided` | ADR 0022, [#69](https://github.com/Jbmanllr/automan/issues/69) item 8 | 14 Cloud-readiness contracts | Self-hostable Browser host; Sessions can be kept alive. Regions are a Cloud matter. |
 | CL-06 | Move from local to the vendor cloud by configuration | `decided` | ADR 0001, ADR 0031, ADR 0036 | 14 Cloud-readiness contracts | The cloud is an ordinary protocol client; the Console takes its endpoint as configuration. |
 | CL-07 | Persistent browser contexts stored in the cloud | `decided` | ADR 0035, ADR 0015 | 14 Cloud-readiness contracts | Self-hosted: saved identities and session export. |
@@ -231,7 +231,7 @@ No v3 API compatibility layer is offered (ADR 0037). A Crawlee+Stagehand migrati
 | 12 | `integ-sdk-llm-runtime` | `open → #117` | ADR 0012, ADR 0022, ADR 0024, ADR 0049 | 11 Client surfaces; 5 Site access; 13 Self-hosted deployment and operations | Decided: three SDKs, model formats, third-party CDP browsers. Edge and serverless Clients over WebSocket (ADR 0049). Open: attaching to the user's Playwright ([#117](https://github.com/Jbmanllr/automan/issues/117)). |
 | 13 | `cost-infra-proxy-spend` | `decided` | ADR 0020, ADR 0021, ADR 0025, ADR 0035 | 8 Stealth and Challenge solving; 5 Site access | Proxy and CAPTCHA-service prices are set by their vendors; Goodfetch minimizes how much of them a run uses and reports the spend per verified result. |
 | 14 | `data-extraction-quality` | `decided` | ADR 0007, ADR 0013, ADR 0025 | 6 Collection; 2 Proving ground and conformance | Grounding, an extractor chosen on an independent corpus, and an extraction-quality benchmark family. |
-| 15 | `ops-scale-ratelimit-scheduling` | `open → #116` | ADR 0004, ADR 0021, ADR 0036, ADR 0049 | 3 Engine runtime; 10 Scheduling; 13 Self-hosted deployment and operations | Decided: backoff, fair admission, the Daemon scheduler. Helm chart with one Daemon (ADR 0049). Open: shared politeness, scale-out and the chart's replicas ([#116](https://github.com/Jbmanllr/automan/issues/116)). |
+| 15 | `ops-scale-ratelimit-scheduling` | `decided` | ADR 0004, ADR 0021, ADR 0036, ADR 0049, ADR 0053, ADR 0054, ADR 0055 | 3 Engine runtime; 10 Scheduling; 13 Self-hosted deployment and operations | Backoff, fair admission and the Daemon scheduler; Politeness (per domain and per proxy) shared by every run of a user and across machines through an optional Politeness store (ADR 0053); Partitioned crawls past one engine (ADR 0054); a Daemon group with a Lead Daemon, so the Helm chart runs any number of pods (ADR 0055). |
 | 16 | `rel-hang-crash` | `decided` | ADR 0003, ADR 0019, ADR 0024, ADR 0033 | 3 Engine runtime | Leases, CDP command timeouts, process groups, Plugin heartbeat and resume from Checkpoint. |
 | 17 | `selfhost-parity-lockin` | `decided` | ADR 0001, ADR 0018, ADR 0031, ADR 0049 | 13 Self-hosted deployment and operations; 14 Cloud-readiness contracts | Nothing held back to sell; Goodfetch's own solving logic is Private (ADR 0018). A signed Helm chart passing the `restricted` Pod Security level, tested on `kind`, and six supported targets (ADR 0049). |
 | 18 | `agent-human-in-loop` | `decided` | ADR 0006, ADR 0014, ADR 0027, ADR 0031 | 12 Console; 9 AI and agent | Human pause, confirmation categories, Live view takeover and the "Needs you" list. |

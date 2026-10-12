@@ -69,7 +69,7 @@ The open-source framework schedules runs itself. A Schedule starts runs of one t
 - Operator policy can cap period Limits.
 - A scheduled run also counts against the Limits of ADR 0041 that apply to the Schedule's creator: the install, the Daemon, the person and the named token. A change that raises a period Limit from a surface other than the Console or an interactive CLI prompt, including `goodfetch schedules apply`, waits for a person's confirmation (ADR 0041).
 
-**Baseline and soft-delete.**
+**Baseline and soft-delete.** For a Schedule that targets a Partitioned crawl, each rule below reads the whole crawl's three axes and Records (ADR 0054).
 - A Schedule's runs compare against its latest run whose Lifecycle is `finished`, whose Verdict is not `rejected` and whose Completeness is not `incomplete`, unless the Schedule pins a Baseline. A `failed` or `stopped` run never becomes the Baseline.
 - `verified` and `needs-review` runs, with `complete` or `unverified` Completeness, may serve, because ADR 0029 never lets some runs be both verified and complete: an offset-paginated crawl is always `unverified`, and an AI task without a Success check always `needs-review`. Requiring both would leave such Schedules without change tracking. The cost is that a comparison with an `unverified` run may report as new a few Records it had missed.
 - **Changes ADR 0026:** only a complete run may soft-delete Records missing since its Baseline, because an incomplete one cannot tell removed from not reached.
@@ -86,7 +86,7 @@ The open-source framework schedules runs itself. A Schedule starts runs of one t
 **The scheduler.**
 - It is a component of the Daemon above the runs, and starts each run through `runs.start` like any Client.
 - Each occurrence has an ID (the Schedule ID and the due time) written to the Schedule store before its run starts. An after-a-run occurrence is keyed by the upstream run's ID instead of a due time. Each run's ID is derived from the Schedule store's own random ID, the occurrence ID and the run's role (`watch` or `target`), so the same Schedule applied on two machines never yields the same run ID. `runs.start` with an existing run ID returns that run when the caller and inputs match, and otherwise refuses with a conflict. The ID's characters are left to the spec, since it also names the run's folder (ADR 0031). A scheduler restarted after a crash therefore never starts an occurrence twice, whenever it crashed. n8n's durable scheduler also queues runs in a database so that one instance picks up each, though its docs still allow duplicates ([durable scheduler](https://docs.n8n.io/deploy/host-n8n/configure-n8n/durable-scheduler.md)).
-- The scheduler holds an exclusive OS lock on the Schedule store (ADR 0031's lock-file pattern), so a second Daemon on the same files cannot fire.
+- The scheduler holds an exclusive OS lock on the Schedule store (ADR 0031's lock-file pattern), so a second Daemon on the same files cannot fire. In a Daemon group, only the Lead Daemon keeps the Schedule store and fires, and that role replaces the lock (ADR 0055).
 
 **Storage and the Run index** (changes ADR 0031).
 - **The Schedule store** is a per-user, per-major SQLite file beside the Run index. It is the source of truth for Schedules and is not rebuilt by `goodfetch runs reindex`.

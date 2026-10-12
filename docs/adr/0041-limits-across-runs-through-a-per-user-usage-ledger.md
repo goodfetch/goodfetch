@@ -25,8 +25,9 @@ Comparable services cap spend in different ways:
 - **Where a Limit attaches:**
   - a run (ADR 0012);
   - a Schedule's period (ADR 0036);
-  - the install: every run of the user on the machine, whichever engine runs it;
-  - a Daemon;
+  - the install: every run of the user on the machine, whichever engine runs it, or in a Daemon group on every Group member's machine (ADR 0055);
+  - a Daemon, which in a Daemon group is the whole group (ADR 0055);
+  - a Partitioned crawl (ADR 0054);
   - a person on a shared Daemon (ADR 0031);
   - a named token;
   - a Client connection, such as an MCP session or an SDK's connection, for as long as the connection lasts.
@@ -49,12 +50,12 @@ Comparable services cap spend in different ways:
   - The scope-level Notifications and "Needs you" items below.
 
   The Console reads it beside the Run index.
-- **Outside the majors.** It lives in a per-user folder outside the per-major folders, like ADR 0036's active-major marker, so running an older major's binary never escapes a cap. A person on a shared Daemon and a named token exist only on the Daemon of one major (ADR 0031), so their Limits apply on that Daemon.
+- **Outside the majors.** It lives in a per-user folder outside the per-major folders, like ADR 0036's active-major marker, so running an older major's binary never escapes a cap. A person on a shared Daemon and a named token exist only on the Daemon, or the Daemon group, of one major (ADRs 0031 and 0055), so their Limits apply there.
 - **Its format** (changes ADR 0030). The ledger is a contract format, added to ADR 0030's list. Its major stays frozen across product majors, so every supported major opens it.
   - **New versions.** A new version adds rows, tables and columns.
   - **Fails closed.** Each Limit row carries a *must understand* flag. An engine that finds a flagged Limit whose scope kind, Usage kind, currency or period it cannot evaluate refuses to start runs it cannot place outside that Limit. The refusal uses the Error code `limit_not_understood`, which names the Limit and asks for an upgrade. An older engine therefore never runs past a Limit it cannot read. A live run on such an engine that meets a new flagged Limit when it takes its next slice stops at its next safe point with the same Error code.
   - **Breaking changes.** A change that cannot be made by adding goes to a second ledger. Every engine that knows it keeps both up to date, so older engines still enforce what they can read.
-- **One machine.** Caps across several machines belong to Goodfetch Cloud. Its gateway keeps its own ledger per Tenant, with these scopes and semantics, behind the same operations (ADR 0001).
+- **One machine or one Daemon group.** In a Daemon group, the Lead Daemon keeps the ledger, and on each Group member's machine every engine of the user, Attached engines included, takes its slices there, so the install, Daemon, person, named token and Client connection Limits hold across the group, and a Partitioned crawl adds its own scope; a slice is reclaimed by the Group member that owns or adopts its run, which reports the charge to the Lead Daemon (ADRs 0054 and 0055). Goodfetch Cloud's gateway keeps its own ledger per Tenant, with these scopes and semantics, behind the same operations (ADR 0001).
 
 **Reservation by slices.** "Slice" is used here so as not to collide with the work-item lease of ADR 0003.
 - **Taking a slice.** For each scope this ADR adds, a run takes a slice and takes another when it is used up. Each slice is taken in one transaction on the ledger, so concurrent engines can never take the same Usage twice.
@@ -63,7 +64,7 @@ Comparable services cap spend in different ways:
 - **Measured Usage.** Usage known only afterwards, such as browser time and proxy bytes, is charged against the run's slice. A run whose slice runs out either takes another or stops at its next safe point. It can go past a Limit only by what runs consume before then, as in ADR 0036. A metered proxy's bytes count toward a currency Limit only when the price table (ADR 0012) has a price for that proxy, and then as measured Usage.
 - **Returning and reclaiming.** A run returns what is left of its slices when it ends.
   - **What each slice records:** its run, the run epoch (ADR 0003) and the location of the run's state. The engine that writes a run holds the run's writer lock (ADR 0031).
-  - **Reclaiming.** An engine that opens the ledger reclaims a slice whose run's writer lock is free, or held at a later epoch: either way, the engine that took it is gone. It reads the run's state and charges the Usage journaled under that epoch in place of the slice. A reservation still open in the run's state, such as a model call sent just before the crash, is charged at its worst case.
+  - **Reclaiming.** An engine that opens the ledger reclaims a slice whose run's writer lock is free, or held at a later epoch: either way, the engine that took it is gone. In a Daemon group, the Group member that owns or adopts the run reclaims it and reports the charge to the Lead Daemon (ADR 0055). It reads the run's state and charges the Usage journaled under that epoch in place of the slice. A reservation still open in the run's state, such as a model call sent just before the crash, is charged at its worst case.
   - **Unreadable state.** When the run state cannot be read, the slice stays charged in full and is marked for review.
   - **Unsent Notifications.** The reclaiming engine also sends any threshold Notification the dead engine recorded but never marked sent.
 

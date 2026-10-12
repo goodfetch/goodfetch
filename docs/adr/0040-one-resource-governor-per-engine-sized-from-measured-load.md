@@ -71,7 +71,7 @@ Spider and Crawl4AI read only the host's memory ([detect_system.rs](https://gith
 
 **Remote browsers** (adds to ADR 0022).
 - A Browser host serves one Session (ADR 0022). It runs the same governor for its own browser, with the allowance, recycling and per-page cap above measured where it runs, and reports its pressure to the engine. The engine then admits that Session's pages by the host's pressure, not its own. Where Browser hosts are placed across machines is Goodfetch Cloud's concern.
-- For a vendor's cloud browsers, the engine sees only the vendor's refusals. It learns a ceiling per provider from them, the way ADR 0021 halves on 429, and the ceiling can be set by hand. Browserbase limits concurrent browsers by plan and answers with 429 when a limit is reached ([concurrency](https://docs.browserbase.com/optimizations/concurrency/overview.md)).
+- For a vendor's cloud browsers, the engine sees only the vendor's refusals. It learns a ceiling per provider from them, the way ADR 0021 halves on 429, and the ceiling can be set by hand. The ceiling is shared by every run of the user and across machines, like Politeness (ADR 0053). Browserbase limits concurrent browsers by plan and answers with 429 when a limit is reached ([concurrency](https://docs.browserbase.com/optimizations/concurrency/overview.md)).
 
 **Redundant requests.**
 - **Hedged requests** are off by default and switched on per run.

@@ -36,6 +36,22 @@ _Avoid_: server, service, background engine
 A Daemon that Clients reach from other machines.
 _Avoid_: server, remote engine, hosted engine
 
+**Daemon group**:
+Daemons that serve one team as one, sharing the control state of a Lead Daemon.
+_Avoid_: cluster, fleet
+
+**Lead Daemon**:
+The Group member of a Daemon group that holds the group's shared control state.
+_Avoid_: master, primary, leader
+
+**Group member**:
+Any Daemon of a Daemon group, the Lead Daemon included. Not the *member* role of a person on a shared Daemon.
+_Avoid_: member (alone), node, worker, replica
+
+**Group backup**:
+A consistent copy of a Lead Daemon's stores from which another Group member can become the Lead Daemon.
+_Avoid_: snapshot, Checkpoint (which is a run's)
+
 **Error code**:
 The stable name a Client receives when an operation fails, such as `page_check_failed`, which programs can match on and which keeps its meaning across releases of a major version.
 _Avoid_: error name, error kind, status code
@@ -104,12 +120,20 @@ _Avoid_: browser module, agent
 One piece of work the engine carries out from start to finish, with its own inputs, state, limits and usage. The unit of isolation, resumption and counting.
 _Avoid_: job, execution, session (for a whole run)
 
+**Partitioned crawl**:
+One crawl carried out as several runs on several Group members of a Daemon group, or on several engines of Goodfetch Cloud, each owning part of the domains.
+_Avoid_: distributed crawl, sharded crawl
+
+**Partition**:
+One run of a Partitioned crawl, owning the domains assigned to it.
+_Avoid_: shard
+
 **Run index**:
-The catalog of every run of one user and one product major on a machine, pointing at each run's own state, from which it can be rebuilt, except the rows of runs discarded on purpose.
+The catalog of every run of one user and one product major on a machine or in a Daemon group, pointing at each run's own state, from which it can be rebuilt, except the rows of runs discarded on purpose.
 _Avoid_: run registry, run database, history
 
 **Usage ledger**:
-The per-user record, on one machine, of the Usage reserved and consumed by every run of that user, which stores the Limits on the install, a Daemon, a person, a named token or a Client connection and against which they are held.
+The per-user record, on one machine or in a Daemon group, of the Usage reserved and consumed by every run of that user, which stores the Limits on the install, a Daemon, a person, a named token, a Client connection or a Partitioned crawl and against which they are held.
 _Avoid_: billing, meter, spend log
 
 **Effect**:
@@ -129,7 +153,7 @@ A portable package of user code, described by a manifest, that runs the same loc
 _Avoid_: actor, app, pack, script
 
 **Operator policy**:
-The settings an operator fixes for every run on a machine or Daemon, including the values runs may not exceed or change.
+The settings an operator fixes for every run on a machine, a Daemon or a Daemon group, including the values runs may not exceed or change.
 _Avoid_: admin config, global settings, defaults
 
 **Usage**:
@@ -141,7 +165,7 @@ A consistent, self-contained copy of a run's state from which the run can resume
 _Avoid_: snapshot, savepoint, backup
 
 **Limit**:
-A cap on the Usage of one run, or of every run counted against a scope (a Schedule, the install or a Daemon, a person, a named token or a Client connection), over a period or a connection's lifetime; reaching it stops runs cleanly and refuses new ones until the period ends or a person raises it.
+A cap on the Usage of one run, or of every run counted against a scope (a Schedule, a Partitioned crawl, the install or a Daemon, a person, a named token or a Client connection), over a period or a connection's lifetime; reaching it stops runs cleanly and refuses new ones until the period ends or a person raises it.
 _Avoid_: budget, quota, spending cap
 
 **Schedule**:
@@ -161,6 +185,14 @@ _Avoid_: account, organization, user (for a customer)
 **Frontier**:
 The URLs a run has discovered but not yet visited, with the list of those already visited and the rules that decide when two URLs are the same page.
 _Avoid_: queue, request list, to-do list
+
+**Politeness**:
+The per-domain and per-proxy limits on how hard a user's runs press one site or one proxy, shared by those runs.
+_Avoid_: rate limiting, throttling
+
+**Politeness store**:
+The optional store through which engines on several machines share Politeness.
+_Avoid_: rate limiter, Redis
 
 **Completeness**:
 A run's statement of whether its results cover everything in scope: complete, incomplete (ended early) or unverified (finished, but the engine cannot vouch that nothing was missed).
@@ -271,7 +303,7 @@ A package that puts Goodfetch inside another tool, such as a workflow tool node 
 _Avoid_: connector, plugin, app
 
 **Baseline**:
-A previous run that a run's results are compared with to report what changed.
+A previous run, or Partitioned crawl, that a run's results are compared with to report what changed.
 _Avoid_: snapshot, reference run
 
 ## AI and agents
@@ -351,7 +383,7 @@ What a site states about how it may be crawled and used, such as its robots.txt 
 _Avoid_: robots (for all of them), policy, rules
 
 **Audit log**:
-The tamper-evident record of a run's security and compliance events, such as secret uses, confirmations and overrides. The Effect journal prevents repeated Effects; the Audit log answers who did what.
+The tamper-evident record of the security and compliance events of a run, a Daemon or a Daemon group, such as secret uses, confirmations and overrides. The Effect journal prevents repeated Effects; the Audit log answers who did what.
 _Avoid_: journal (alone), event log, history
 
 **Platform signature**:

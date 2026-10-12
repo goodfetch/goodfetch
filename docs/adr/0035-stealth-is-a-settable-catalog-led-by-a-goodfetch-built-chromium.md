@@ -22,7 +22,7 @@ The `stealth` Access mode turns on a catalog of items, each of which a run can s
 
 | Method | Browser | How the fingerprint changes | Warning |
 | --- | --- | --- | --- |
-| `none` (default outside `stealth`) | Chrome for Testing (ADR 0024) | no change beyond the language and time zone every Access mode matches to the proxy (ADR 0021) | the machine's real fingerprint shows, and Sessions on one machine are linkable |
+| `none` (default outside `stealth`) | Chrome for Testing (ADR 0024) | no change beyond the language and time zone every Access mode matches to the proxy (ADR 0021; an imported login keeps its source's, ADR 0056) | the machine's real fingerprint shows, and Sessions on one machine are linkable |
 | `js-injection` | Chrome for Testing | page JavaScript | detectors can see the injected values |
 | `basic` | Chrome for Testing | the CDP Emulation domain and launch flags | graphics, canvas, audio and fonts stay the machine's own |
 | `engine` (default in `stealth`) | the Goodfetch build | inside the engine | none while the build matches the current Chrome Stable major |

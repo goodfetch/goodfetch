@@ -45,8 +45,8 @@ How comparable self-hosted tools run several instances:
 
 **Routing a Client.**
 - A Client connects to any Group member. A unary call on a run another Group member owns is forwarded over the peer link, after a lookup in the group Run index that the receiving Group member caches.
-- Heavy streams (live frames, screencast, WebRTC and the event stream) are redirected when the owner has an `advertise_url` the Client can reach, such as a per-pod Ingress or a VM address. The SDKs and the Console follow the redirect; without an `advertise_url`, those streams are forwarded too.
-- After a run moves, the former owner answers with the Error code `run_moved`; the receiving Group member refreshes its cache and retries once.
+- Heavy streams (live frames, screencast, WebRTC and the event stream) are redirected when the owner has an `advertise_url` the Client can reach, such as a per-pod Ingress or a VM address. The SDKs, the CLI and the Console follow the redirect; without an `advertise_url`, those streams are forwarded too.
+- After a run moves, the former owner answers with the Error code `run_moved`; the receiving Group member refreshes its cache and retries once, and a Client that followed a redirect to the former owner reconnects through any Group member and retries once.
 
 **Placing a run.**
 - The Lead Daemon places new runs. Group members push their governor headroom (ADR 0040) when it changes noticeably, and what they can run: installed browsers and Plugins, local addresses (ADR 0044), local model servers.
@@ -78,7 +78,7 @@ How comparable self-hosted tools run several instances:
   - in the chart, by checking that its `StatefulSet`'s `spec.template` (the update revision) still names it in `lead`;
   - on VMs, by exchanging lead epochs with a majority of the Group members it last knew, itself included, and finding none higher; when no majority can be reached, a person confirms with `goodfetch group lead --confirm`.
 
-  A Daemon promoted on VMs confirms its new lead epoch with a majority of the Group members the same way before it acts, unless a person confirms. Every Group member durably records the highest lead epoch it has seen and refuses peer messages carrying a lower one. Any two majorities share a Group member, so a former Lead Daemon that restarts learns of its replacement before it can act, even when it comes back cut off from the others, unless a person overrode the majority check; a confirmation by a person therefore warns that the former Lead Daemon must not restart with its lead configuration.
+  A Daemon promoted on VMs confirms its new lead epoch with a majority of the Group members the same way before it acts, unless a person confirms. Every Group member durably records the highest lead epoch it has seen and refuses peer messages carrying a lower one. Any two majorities share a Group member, so a former Lead Daemon that restarts learns of its replacement before it can act, even when it comes back cut off from the others, unless a person confirmed with `goodfetch group lead --confirm`, or confirmed a `group promote` that reached no majority; both warn that the former Lead Daemon must not restart with its lead configuration.
 
 **The Helm chart** (changes ADR 0049).
 - `replicas` may be any number, and the `lead` value names the Lead Daemon's pod, pod 0 by default. The chart refuses a `replicas` value that would remove the Lead Daemon's pod, and sets `persistentVolumeClaimRetentionPolicy.whenScaled: Retain`, so a removed pod's volume stays for `runs adopt`.

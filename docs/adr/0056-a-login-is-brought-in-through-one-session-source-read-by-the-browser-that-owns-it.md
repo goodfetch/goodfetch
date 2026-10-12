@@ -67,7 +67,7 @@ Until now Goodfetch could only make a login inside its own Sessions (ADR 0006) a
 | `cdp_url { url, headers?, domains? }` | Any browser reachable over CDP; header values are Secret references, and `domains` is required for an import and for a run by a Client acting for a model or a Recipe | Borrowed browser | Read by the browser |
 | `client_browser` | A browser the SDK's `borrow()` relays | Borrowed browser | — |
 
-**Who sets it.** Only Operator policy, user and project configuration, the run layer, or a person in the Console or CLI sets `session.source`. A Recipe may expose it, but never sets or locks it. Plugins never set it. **Changes ADR 0028.**
+**Who sets it.** Only Operator policy, user and project configuration, the developer's own code or the run layer, or a person in the Console or CLI sets `session.source`. A Recipe may expose it, but never sets or locks it. Plugins never set it. **Changes ADR 0028.**
 
 **Destinations.** One importer serves two destinations, and neither keeps the source file:
 - *a Saved identity*, the default in the CLI and the Console;
@@ -134,7 +134,7 @@ The rules for an in-place launch:
   - *Firefox:* `parent.lock` on Windows, `.parentlock` on macOS and Linux, plus `compatibility.ini`.
 
   It refuses with `profile_directory_in_use`, `profile_directory_browser_mismatch` or `profile_directory_newer_than_browser`. On Windows, a cookie file locked by a running browser counts as `profile_directory_in_use` and is never retried in a loop.
-- **One Session.** A run on a Profile directory has one Session on it, in the run's Access mode (`standard` by default; `stealth` with Goodfetch's Chromium on a directory it created, or with Camoufox), fixed for its life, with the launching browser's identity recorded in Provenance. The Session pool never rotates, retires or escalates it, and a failure that would do so raises a Human pause. **Changes ADR 0021**, whose escalation opens a new Session. Recycling (ADR 0040) relaunches the same browser on the same directory.
+- **One Session.** A run on a Profile directory has one Session on it, in the run's Access mode (`standard` by default; `stealth` with Goodfetch's Chromium on a directory it created, or with Camoufox), fixed for its life, with the launching browser's identity recorded in Provenance. The Session pool never rotates, retires or escalates it, and a failure that would do so raises a Human pause. **Changes ADR 0021**, whose escalation opens a new Session, **and ADR 0035**, whose Session pool retires Sessions by age and use count. Recycling relaunches the same browser on the same directory. **Changes ADR 0040.**
 - **The profile's own key store.** The launch never passes the mock-keychain or `basic` password-store flags that automation tools add by default, because they stop a real profile's cookies from decrypting ([browser-use#3225](https://github.com/browser-use/browser-use/issues/3225)).
 - **Chrome's default data directory is refused**, pointing to `running_browser`.
 - **Writes persist.** Cookies, storage and Consent prompt answers the run sets stay in the directory, as they would in the person's own use, marked in Provenance. **Changes ADR 0048.**
@@ -145,17 +145,17 @@ The rules for an in-place launch:
 
 ### Borrowed browsers
 
-A Borrowed browser serves one run and one Session, in its default context, where the login lives. It is never closed, and browser-wide settings such as download behaviour are never changed in it.
+A Borrowed browser serves one run and one Session, in the context where the login lives: the browser's default context, or for `client_browser` the context of the borrowed page. It is never closed, and browser-wide settings such as download behaviour are never changed in it.
 - **Work items:** they use it one at a time, each under its own lease (ADR 0003).
 - **A second run** trying to borrow the same browser is refused with `browser_borrowed`.
-- **The Session pool** never rotates, retires or escalates its Session. A failure that would do so raises a Human pause.
+- **The Session pool** never rotates, retires or escalates its Session. A failure that would do so raises a Human pause. **Changes ADR 0021 and ADR 0035.**
 - **Identity:** the Session is `standard`, and its identity is the browser's own, recorded in Provenance.
 - **Resources:** the governor neither recycles a Borrowed browser nor counts it in the memory allowance. **Changes ADR 0040.**
 - **Refused Sessions:** a Session with a certificate exception (`certificate_exception_unsupported`, ADR 0042) or a local address (`local_address_unavailable`, ADR 0044).
 - **What persists:** cookies, storage and Consent prompt answers the run sets stay in the person's browser, marked in Provenance. **Changes ADR 0001, ADR 0015 and ADR 0048.**
 
 **The person's running browser.** Goodfetch uses Chrome 144's consented remote debugging ([Chrome blog](https://developer.chrome.com/blog/chrome-devtools-mcp-debug-your-browser-session)).
-- *Setup:* the person enables it once at `chrome://inspect/#remote-debugging`, and the browser asks "Allow remote debugging?" for each WebSocket connection ([chrome-devtools-mcp#1794](https://github.com/ChromeDevTools/chrome-devtools-mcp/issues/1794)).
+- *Setup:* the person enables it once at `chrome://inspect/#remote-debugging`, and the browser asks "Allow remote debugging?" for each WebSocket connection ([chrome-devtools-mcp#1794](https://github.com/ChromeDevTools/chrome-devtools-mcp/issues/1794)). ADR 0017's rejection of a debugging port covers the browsers Goodfetch launches; here the person turns the mode on and Chrome asks before each connection.
 - *Finding it:* the browser is found through the `DevToolsActivePort` file in its profile, since its `/json/version` returns 404 in this mode ([chrome-devtools-mcp#2283](https://github.com/ChromeDevTools/chrome-devtools-mcp/issues/2283)). Chrome and Edge implement the mode; other Chromium-family browsers are probed.
 - *One connection per run,* opened once after the person approves and held for the run's life. It is never reopened in a loop, because each attempt raises a dialog. While waiting for the person to enable the mode, the engine watches `DevToolsActivePort` for changes rather than polling it.
 - *Tabs:* Goodfetch opens its own tabs and never touches the person's other tabs.
@@ -178,7 +178,7 @@ A Borrowed browser serves one run and one Session, in its default context, where
 - the egress check and the domain policy are interception only, which that code can switch off, and Provenance records that neither is guaranteed. **Changes ADR 0014.**
 - that code's commands go outside any endpoint Goodfetch serves, so no lease fences them. **Changes ADR 0003.**
 
-A `cdp_url` the engine alone drives, such as a cloud browser, keeps ADR 0022's guarded path. The engine cannot see other CDP clients, so a `cdp_url` that comes from the person's own code (the run layer, an SDK or the CLI) is treated as shared, and one set in Operator policy or configuration is treated as driven by the engine alone.
+A `cdp_url` the engine alone drives, such as a cloud browser, keeps ADR 0022's guarded path. The engine cannot see other CDP clients, so a `cdp_url` set at the run layer is treated as shared, and one set in Operator policy or configuration is treated as driven by the engine alone.
 
 **Egress on every Borrowed browser.** No egress proxy can be put under a browser that is already running, so the engine resolves each intercepted request's host itself and blocks private ranges. The browser resolves names itself, so a DNS-rebinding gap remains, and it is recorded in Provenance. **Changes ADR 0017**, whose connect-time check this replaces for Borrowed browsers.
 
@@ -200,13 +200,14 @@ A `cdp_url` the engine alone drives, such as a cloud browser, keeps ADR 0022's g
     - for the person's own code, it fails with `domain_not_allowed`.
 - **Operator policy (ADR 0028) can lock which source kinds are allowed.** On a Daemon with accounts (ADR 0031), Exposed Daemons included (ADR 0049), `profile_directory`, `installed_browser`, `running_browser` and `cdp_url` are off by default when they would be read on the Daemon's own machine, because they would reach that account's browser or network for anyone holding a token. Served by a Browser host the person runs (below), they stay available. On a Daemon with accounts, `state_file` reads only content the Client uploads, never a server path.
 - **Changes ADR 0031:** on a Daemon with accounts, the clear-text `storageState` export and widening a source's `domains` go through step-up, and only the operator role writes the `cdp_url` addresses used as operator-configured endpoints.
-- **Daemon groups.** In a Daemon group, a run whose source is `profile_directory`, `installed_browser`, `running_browser` or a loopback `cdp_url` runs only on the Group member where that source exists, a `client_browser` run on the Group member holding the SDK's connection, and a run using an import bound to its machine on that machine's Group member; their paths take the *group member* scope (ADR 0028). **Changes ADR 0055.**
+- **Daemon groups.** In a Daemon group, a run whose source is `profile_directory`, `installed_browser`, `running_browser` or a loopback `cdp_url` runs only on the Group member where that source exists, a `client_browser` run on the Group member holding the SDK's connection, and a run using an import bound to its machine on that machine's Group member; their paths take the *group member* scope (ADR 0028). A Partitioned crawl (ADR 0054) whose source is one of these, or a machine-bound import, is refused at start with `session_bound_to_machine`. **Changes ADR 0055.**
 
 ### A remote engine and the person's browser
 
 When the engine runs on a shared Daemon or in Goodfetch Cloud, the person runs a Browser host (ADR 0022) on their own machine, beside their running browser or a Profile directory. The Browser host carries out the Session's operations beside the browser, behind the guard.
 - **The connection runs outward:** the Browser host connects out to the engine, and the person's browser never accepts an inbound connection. The rules above apply, and the Browser host's token is scoped to that one Session.
 - **Nothing is wiped:** the Browser host wipes nothing. It never closes a Borrowed browser; a browser it launched on a Profile directory it closes, leaving the directory intact.
+- **Installed browsers:** through a Browser host, `installed_browser` is used in place as `profile_directory` is, or as `running_browser` when the browser is running. An import into a remote engine's Saved identity goes only through a file the person uploads or ADR 0015's session export.
 - **Cookies stay local:** the Session's cookies and storage are not copied back into run state. A Checkpoint records only that the browser stayed behind, so the run resumes only through that Browser host. **Changes ADR 0022.**
 - **Events and cancellation:** the Browser host's events flow under ADR 0024's credits, and `$/cancel` ends the borrow.
 - **When the machine sleeps or goes offline:**

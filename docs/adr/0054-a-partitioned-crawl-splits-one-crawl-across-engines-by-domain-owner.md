@@ -11,7 +11,7 @@ How comparable tools spread one crawl:
 
 - **A per-engine ceiling and a guide to splitting a crawl by hand**: rejected as the only answer. A link found in one hand-split run for a domain of another is either crawled twice or lost, which is Heritrix's `.divert` problem left to the user. The ceiling is still documented, so users know when a Partitioned crawl helps.
 - **A shared queue**: rejected, already excluded by ADR 0002 and by CO-28 (ADR 0037): it brings back multiple writers, and it multiplies per-domain load.
-- **A fixed number of Partitions** (Nutch, StormCrawler): rejected. Autoscaling (ADR 0055) could not help a crawl already running, and a draining Group member's Partition would have to move whole.
+- **A fixed number of Partitions** (Nutch, StormCrawler): rejected. Autoscaling (ADR 0055) could not help a crawl already running, and a removed Group member's Partition would have to move whole.
 
 ## Consequences
 
@@ -28,7 +28,7 @@ How comparable tools spread one crawl:
 **Changing the number of Partitions while the crawl runs.**
 - Adding a Group member to the crawl, or removing one, publishes a new partition map under a higher partition-map epoch.
 - A moving domain is handed off fenced: the old owner stops admitting it, waits until its requests in flight to it have ended, sends its pending URLs and the fingerprints of URLs already seen, and the new owner starts admitting it only once the handoff is acknowledged.
-- A Group member removed from the group (ADR 0055) hands all its Partition's domains to the others this way, so a Partitioned crawl never needs a checkpoint transfer; on a restart, the Partition resumes in place. A Partition left with no domains ends `finished`, and its Completeness counts only the domains it still owned at its end, so a handoff never marks the crawl `stopped` or `incomplete`.
+- A Group member removed from the group (ADR 0055) hands all its Partition's domains to the others this way, so a Partitioned crawl never needs a checkpoint transfer; on a restart, the Partition resumes in place. A handoff the grace period does not cover is completed from the kept volume by `runs adopt`, which hands the remaining domains to their owners under the current partition map rather than resuming the Partition as a run. A Partition left with no domains ends `finished`, and its Completeness counts only the domains it still owned at its end, so a handoff never marks the crawl `stopped` or `incomplete`.
 
 **Starting and reporting.**
 - `runs.start` takes `partitions`: a number, or `auto` for one per Group member that can run the crawl. It returns a Partitioned crawl ID beside the run IDs of its Partitions. The Lead Daemon places Partitions on distinct Group members (ADR 0055); a number above the Group members that can run the crawl is refused with the Error code `partitions_exceed_group_members`.

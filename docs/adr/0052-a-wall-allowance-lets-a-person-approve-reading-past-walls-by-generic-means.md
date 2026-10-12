@@ -20,7 +20,7 @@ Generic means rate Low at every level in the public framework and in a user's ow
 - No mainstream scraping framework ships a named feature for blocking Wall scripts, disguising identity or fetching archives.
 - Firecrawl treats "paywalls block the actual content" as a successful scrape and does not escalate ([engpicker.ts](https://github.com/firecrawl/firecrawl/blob/main/apps/api/src/lib/engpicker.ts)).
 - One third-party Apify actor offers `useGoogleBotHeaders` ([actor](https://apify.com/lukaskrivka/article-extractor-smart)).
-- uBlock Origin's uAssets ([readme](https://github.com/uBlockOrigin/uAssets)) and AdGuard ([filter policy](https://adguard.com/kb/general/ad-filtering/filter-policy/)) refuse paywall bypass rules.
+- uBlock Origin's uAssets ([readme](https://github.com/uBlockOrigin/uAssets)) and AdGuard ([filter policy](https://adguard.com/kb/general/ad-filtering/filter-policy/)) refuse rules that get past paywalls.
 - Accepting consent automatically is common (Apify, Browser Use, Crawl4AI; ADR 0048).
 
 No parity row and none of the 24 ranked pains asks for getting past a paywall (ADR 0037).
@@ -44,7 +44,7 @@ No parity row and none of the 24 ranked pains asks for getting past a paywall (A
   - On a Daemon with accounts, only the operator role widens it, and it is stored in Operator policy.
   - **Changes ADR 0028:** the Recipe and run layers can only narrow it.
   - **Changes ADR 0011:** no MCP tool, code-mode function, SDK method or `--json` CLI operation widens it.
-  - **Changes ADR 0031:** widening it goes through step-up.
+  - **Changes ADR 0031:** on a Daemon with accounts, widening it goes through step-up.
   - Operator policy can lock it empty.
 - **A warning at each widening.** The Console, the interactive CLI prompt, and the first configuration load that adds a domain show the person, in plain words, what they take on: copyright in content behind a paywall, the site's terms, and GDPR where consent is later accepted. The warning goes to the Audit log with the approval. There is no confirmation loop.
 - **`on_wall`.**
@@ -65,7 +65,7 @@ No parity row and none of the 24 ranked pains asks for getting past a paywall (A
 - **Letting the Filter lists block a Wall's script.**
   - **Changes ADR 0047:** on these domains, the never-block list's entries for paywall vendors' overlay scripts do not apply. The Filter lists then block them as they do in any browser running uBlock Origin; Fanboy Annoyance already blocks `||piano.io^` and `||tinypass.com^`.
   - **Changes ADRs 0020 and 0047:** the breakage rules that turn blocking off because a Wall appears only with blocking off, or that retry with blocking off because an ad-blocker wall appears, are skipped. An ad-blocker wall is hidden instead.
-  - ADR 0047's comparison of the route's sample with blocking off still applies, except that differences caused by requests to scripts of a Wall the rules detected are ignored, so blocking a Wall's script never turns blocking off for the route. Entries for challenge providers, anti-bot sensors, and anti-fraud and payment scripts still win.
+  - **Changes ADR 0047:** its comparison of the route's sample with blocking off still applies, except that differences caused by requests to scripts of a Wall the rules detected are ignored, so blocking a Wall's script never turns blocking off for the route. Entries for challenge providers, anti-bot sensors, and anti-fraud and payment scripts still win.
   - The consent vendors' prompt scripts keep loading, so a prompt with a refusal is still refused (below).
 - **One fresh Session per page.**
   - When a paywall leaves the served page without its main content, the engine retires the Session through its Session pool and fetches the page once more in a new one, with a fresh cookie jar and storage.
@@ -78,12 +78,12 @@ No parity row and none of the 24 ranked pains asks for getting past a paywall (A
 - A prompt that offers a refusal is still refused (ADR 0048).
 - On a domain in `wall_domains`, a consent wall still goes through the wall test. It is then read past as above, without consenting: no acceptance is clicked, and the vendor's trackers stay blocked as for any refused prompt.
 - When the consent wall withholds the content, the engine accepts only if the domain is also in `consent_domains`. Otherwise the page stays `consent_required`.
-- **Changes ADR 0048:** on a domain in both lists, the engine reads past first and accepts only when the content is withheld, rather than accepting every wall. On a route whose browser sample showed a consent wall, pages on a domain in `wall_domains` are read as served in every tier rather than `consent_required`, unless the sample showed the content withheld.
-- **Changes ADR 0048:** `consent_domains` accepts `*` when a person writes it explicitly, as `pay_domains` does. ADR 0048's rule for an Agent's own "accept" click (its change to ADR 0014) still applies: the Agent asks for confirmation on a domain outside `consent_domains`, so under an explicit `*` it no longer asks anywhere, which the warning for `*` says.
+- **Changes ADRs 0047 and 0048:** on a domain in both lists, the engine reads past first and accepts only when the content is withheld, rather than accepting every wall. On a route whose browser sample showed a consent wall, pages on a domain in `wall_domains` are read as served in every tier rather than `consent_required`, unless the sample showed the content withheld.
+- **Changes ADR 0048:** `consent_domains` accepts `*` when a person writes it explicitly, as `pay_domains` does. ADR 0048's rule for an Agent's own "accept" click (its change to ADR 0014) still applies: the Agent asks for confirmation on a domain outside `consent_domains`, so under an explicit `*` it no longer asks anywhere. Writing `*` in `consent_domains` therefore shows a plain-language warning saying so, recorded in the Audit log, as widening `wall_domains` does.
 
 **What the allowance never covers.**
 - **`payment_required`.** A 402 or a paywall redirect (ADR 0045) is not a Wall. On every domain, the engine never escalates, rotates, resets or reads past it, and a Paid fetch stays the only way through.
-- **Named techniques.** Goodfetch ships no list of Wall scripts to block, no Googlebot, crawler or referrer preset, no meter-reset preset, and no archive or cached-copy fallback. A user's own Hooks, Plugins and Filter lists can do these things through the generic means ADRs 0033 and 0047 already provide. The engine cannot judge a Hook's or Plugin's intent, so these are not limited to `wall_domains`; a user's Filter list, though, can block a Wall's script only on `wall_domains`, since elsewhere the never-block list wins over it (ADR 0047). Provenance records what they did as that user's configuration, as ADR 0047 records the scriptlets of a user's own lists, never as the engine's own act.
+- **Named techniques.** Goodfetch ships no list of Wall scripts to block, no Googlebot, crawler or referrer preset, no meter-reset preset, and no archive or cached-copy fallback. A user's own Hooks, Plugins and Filter lists can do these things through the generic means ADRs 0033 and 0047 already provide. The engine cannot judge a Hook's or Plugin's intent, so these are not limited to `wall_domains`; a user's Filter list, though, gets past a Wall's script only on `wall_domains`: elsewhere the never-block list wins over it for paywall vendors' overlay scripts, and for an in-house paywall or ad-blocker-wall script ADR 0047's breakage rules turn blocking off instead. Consent vendors' prompt scripts are never blocked, on `wall_domains` included. Provenance records what they did as that user's configuration, as ADR 0047 records the scriptlets of a user's own lists, never as the engine's own act.
 - **Changes ADR 0033:** the official Plugin index does not list, and delists once found, any Plugin whose name, description or docs present it as a way past Walls, crawler verification or paywalls, or as a source of archived copies of protected pages. Delisting is not revocation: the Plugin's digest and signer do not join the revocation list, which stays for security, so installing it by exact digest, where Operator policy allows it, is unaffected.
 
 **How results are marked.**

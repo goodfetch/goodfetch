@@ -199,7 +199,7 @@ The per-user store of responses that later runs may reuse instead of fetching th
 _Avoid_: HTTP cache, page cache, crawl cache
 
 **Filter list**:
-A published list of rules naming the ads, trackers and page annoyances that a run blocks or hides.
+A list of rules, published or the user's own, naming the ads, trackers and page annoyances that a run blocks, hides, or removes from what it extracts.
 _Avoid_: blocklist, adlist, ruleset
 
 **Consent prompt**:

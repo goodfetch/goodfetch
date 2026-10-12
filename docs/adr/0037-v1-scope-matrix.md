@@ -40,7 +40,7 @@ This matrix is the companion of [ADR 0037](0037-v1-scope-parity-and-pain-coverag
 | RT-20 | Hedged requests, coalescing duplicate in-flight requests | `decided` | ADR 0040 | 3 Engine runtime | Hedging opt-in for GET and HEAD from work items that declare no Effect, through the Session's own sticky exit, counted in politeness and Usage and capped at 5 %; coalescing on by default within one Session, never across Sessions or runs. |
 | RT-21 | Pluggable storage, HTTP client, events and browser | `decided` | ADR 0033, ADR 0024, ADR 0002 | 7 Plugin protocol | Fetch, browser, Hook and Sink Plugin kinds decided; events reach code through Hooks and the protocol (ADR 0024). Storage excluded: a replaceable store would break portable, resumable runs (ADR 0002). |
 | RT-22 | Typed config object and environment variables | `decided` | ADR 0028, ADR 0034 | 3 Engine runtime | Five-layer settings, generated schema, `GOODFETCH_` variables. |
-| RT-23 | Run a script beside the browser to save round trips | `decided` | ADR 0011, ADR 0022 | 9 AI and agent | Code mode in the engine sandbox; the Browser host keeps one round trip per action. |
+| RT-23 | Run a script beside the browser to save round trips | `decided` | ADR 0011, ADR 0022, ADR 0051 | 9 AI and agent | Code mode in the Script sandbox; the Browser host keeps one round trip per action. |
 
 ### SDK SDK binding & distribution
 
@@ -162,7 +162,7 @@ This matrix is the companion of [ADR 0037](0037-v1-scope-parity-and-pain-coverag
 | AI-15 | Web search API for agents | `decided` | ADR 0011, ADR 0033 | 9 AI and agent | Interchangeable search providers, including self-hosted SearXNG. |
 | AI-16 | Configure a crawl from a prompt | `decided` | ADR 0011 | 9 AI and agent | Compiles to a configuration reviewed before it runs. |
 | AI-17 | Research synthesis: search, extract, summarize | `decided` | [#72](https://github.com/Jbmanllr/automan/issues/72) | 9 AI and agent | Q30: research synthesis as a cited built-in agent task. Recorded only in the ticket. |
-| AI-18 | Code tools for the agent | `decided` | ADR 0011 | 9 AI and agent | JavaScript Code mode sandbox with only catalog calls. |
+| AI-18 | Code tools for the agent | `decided` | ADR 0011, ADR 0051 | 9 AI and agent | Code mode in the Script sandbox (V8 without JIT, in a confined worker per run) with only catalog calls. |
 | AI-19 | Custom system prompt | `decided` | [#72](https://github.com/Jbmanllr/automan/issues/72) | 9 AI and agent | Q30: a custom system prompt on every AI operation. Recorded only in the ticket. |
 
 ### SC Security & compliance
@@ -177,7 +177,7 @@ This matrix is the companion of [ADR 0037](0037-v1-scope-parity-and-pain-coverag
 | SC-06 | TLS verification on by default, explicit opt-out | `decided` | ADR 0042, ADR 0033 | 4 Security and egress | Verified everywhere; per-domain trusted CAs, client certificates and accepted invalid certificates, pinned on first use and audited; browsers through the engine's TLS relay; never for operator endpoints. |
 | SC-07 | Browser sandbox control | `decided` | ADR 0017, ADR 0016 | 4 Security and egress | On by default, switchable per run, recorded. |
 | SC-08 | Secrets kept out of model prompts | `decided` | ADR 0014, ADR 0015 | 4 Security and egress | `%var%` placeholders typed by the engine. |
-| SC-09 | Isolation of model-written code | `decided` | ADR 0011 | 4 Security and egress | Code mode sandbox with no network or files. |
+| SC-09 | Isolation of model-written code | `decided` | ADR 0011, ADR 0051 | 4 Security and egress | The Script sandbox: a worker confined as a Plugin at network level `none`, with no files or Secrets. |
 | SC-10 | Telemetry off unless configured | `decided` | ADR 0043 | 4 Security and egress | Locked: nothing leaves unless configured and no telemetry at all; only digest-pinned downloads, which `offline` turns off; browsers' background traffic off; checked in CI on three OSes. |
 
 ### CN Console

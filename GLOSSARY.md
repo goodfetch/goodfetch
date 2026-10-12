@@ -61,8 +61,12 @@ The Plugin kind whose implementations run at a fixed stage of a request, a navig
 _Avoid_: middleware (for a Hook scoped by label), callback, interceptor
 
 **Script Hook**:
-A Hook written as a short script that the engine runs in its own sandbox, so it can travel inside a Recipe or settings without an SDK or a separate process.
+A Hook written as a short script that the engine runs in the Script sandbox, so it can travel inside a Recipe or settings without an SDK or a process Plugin.
 _Avoid_: inline hook, user script
+
+**Script sandbox**:
+The confined place where the engine runs Code mode programs and Script Hooks, with only the catalog calls it allows and with time and memory limits.
+_Avoid_: code-mode sandbox, VM, isolate, JS runtime
 
 **Plugin index**:
 The signed list of community Plugins that people search to find one, with each Plugin's conformance results.

@@ -28,7 +28,7 @@ Evidence: [JavaScript engines for the code-mode sandbox and Script Hooks](https:
 ## Consequences
 
 **The engine.**
-- `goodfetch` links V8 through the `v8` crate, built from source (`V8_FROM_SOURCE`) in release CI with V8's sandbox on, for every V1 target of ADR 0024. On aarch64 musl the link needs `-lgcc` for `__clear_cache`; x86_64 musl links with default flags. V8 always runs with `--jitless`.
+- `goodfetch` links V8 through the `v8` crate, built from source (`V8_FROM_SOURCE`) in release CI with V8's sandbox on, for every V1 target of ADR 0024. On aarch64 musl the link needs `-lgcc` for `__clear_cache`; x86_64 musl links with default flags. V8 always runs with `--jitless`. Its ICU data stays uncompressed in the binary, so every worker shares it through the page cache (ADR 0057).
 - The engine's V8 is never more than one Chrome Stable major behind. When the `v8` crate lags, Goodfetch carries the update in a fork and sends it upstream; a release check fails when the rule is broken (adds to ADR 0030).
 - The spec measures, on the reference host and with the bundled mimalloc, V8's cost with its sandbox on and the 3 to 5 times slowdown seen in a musl container, whose cause the research did not isolate.
 

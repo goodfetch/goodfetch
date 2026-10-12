@@ -88,7 +88,7 @@ Crawlee documents AWS Lambda and Cloud Run but tests neither, and its AWS guide 
 - Published as a signed OCI artifact on GHCR at the product version, released with the other packages (adds to ADR 0030). Upgrades roll by drain, then resume from the same volume.
 
 **Project templates** (adds to ADR 0030).
-- `goodfetch init` scaffolds TypeScript, Python and Rust projects from five starters: crawl, extract, browser automation, AI agent and Recipe.
+- `goodfetch init` scaffolds TypeScript, Python and Rust projects from five starters: crawl, extract, browser automation, AI agent and Recipe. The templates are embedded zstd-compressed (ADR 0057).
 - Each carries a Dockerfile on the official image, a Compose file, a GitHub Actions workflow running the project's tests, the AGENTS.md index and the agent skills.
 - Templates are embedded in the binary and versioned with it, so `init` works offline (ADR 0043).
 - `goodfetch init --deploy <target>` adds a supported target's files: Helm values, a Lambda handler and Dockerfile, Cloud Run service or job definitions.

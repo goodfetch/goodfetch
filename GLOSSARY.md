@@ -411,3 +411,7 @@ _Avoid_: code signing (alone), signature (alone), certificate
 **Proving ground**:
 The website Goodfetch owns and generates, whose every page has a known expected result, against which the benchmark and the conformance suites run.
 _Avoid_: fixtures site, test site, sandbox, demo site
+
+**Size budget**:
+The largest size each released file of Goodfetch may reach on each platform, and the growth a single change may add without an explicit, recorded acceptance.
+_Avoid_: size limit (alone), quota, bloat check

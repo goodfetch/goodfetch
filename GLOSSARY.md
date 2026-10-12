@@ -220,7 +220,7 @@ _Avoid_: gate, barrier, paywall (for every kind), wall (for a Challenge or a dem
 
 **Wall allowance**:
 A person's approval for a domain on which the engine reads past Walls instead of stopping at them.
-_Avoid_: bypass, unblock, circumvention mode
+_Avoid_: bypass, unblock, circumvention
 
 **Clean-up rules**:
 The dated collection of Filter lists, the rules that recognise and answer Consent prompts, the rules that recognise paywall and ad-blocker overlays, and never-block entries, which a run holds to for its whole life and its results name.

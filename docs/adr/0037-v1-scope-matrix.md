@@ -86,7 +86,7 @@ This matrix is the companion of [ADR 0037](0037-v1-scope-parity-and-pain-coverag
 | SA-25 | Bind to a local IP or network interface | `decided` | ADR 0044 | 4 Security and egress | A Session egress option on every OS: addresses, interface names, Linux IPv6 prefixes; DNS and WebRTC follow it; browsers through the egress relay; rotation after a block leaves the blocked /64 or /24. |
 | SA-26 | Auto-dismiss JS dialogs | `spec` | ADR 0019, ADR 0014 | 5 Site access | The default dismisses dialogs, since accepting a `confirm()` may confirm an Effect (ADR 0014). |
 | SA-27 | HTTP auth challenge in the browser | `spec` | ADR 0019, ADR 0015 | 5 Site access | Answered from a Secret reference bound to domains. |
-| SA-28 | Close cookie-consent modals | `decided` | ADR 0048, ADR 0047, ADR 0052 | 5 Site access | Consent prompts refused by default through autoconsent, hidden when they offer no refusal and leave the content readable; a consent wall is the Block cause `consent_required`, accepted only on `consent_domains`. |
+| SA-28 | Close cookie-consent modals | `decided` | ADR 0048, ADR 0047, ADR 0052 | 5 Site access | Consent prompts refused by default through autoconsent, hidden when they offer no refusal and leave the content readable; a consent wall is the Block cause `consent_required`, accepted only on `consent_domains`, and read past without consenting only on a person-approved `wall_domains` (ADR 0052). |
 | SA-29 | Several tabs with an active page | `spec` | ADR 0019, ADR 0031 | 5 Site access | The Live view follows popups. The tab API follows ADR 0019's mapping. |
 | SA-30 | Clipboard read, write, copy, cut, paste | `spec` | ADR 0019 | 5 Site access | The page's clipboard, not the host's; mapped or excluded with a reason. |
 

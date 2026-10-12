@@ -46,7 +46,7 @@ Until now Goodfetch could only make a login inside its own Sessions (ADR 0006) a
 - **Uploading the person's cookies to a remote engine**, as Browserbase, Browser Use and Browserless do: rejected as the way to reach one. It breaks device-bound logins, moves the cookies to another IP under the same login, and puts them on someone else's machine. A local Browser host keeps them where they are. Moving a Saved identity on purpose still uses ADR 0015's session export.
 - **Separate options per mechanism** (`storageState`, `userDataDir`, `cdpUrl`, `connect`): rejected. They overlap, allow contradictory combinations, and each surface would validate them on its own.
 - **A Saved identity as the only destination**: rejected. A CI job with a `storageState` file would have to create a stored object for one run, on a machine whose keychain may not exist.
-- **Guessing which cookies are a login**: rejected. A wrong "anonymous" would hand an account to a Plugin or log it out through a Wall reset.
+- **Guessing which cookies are a login**: rejected. A wrong "anonymous" would hand an account to a Plugin or log it out through a Wall allowance refetch.
 - **Letting a Recipe set the source**: rejected. A third-party Recipe could then read the person's browser into Sinks its author controls. As with `wall_domains` (ADR 0052), only the person sets `session.source`, through their configuration, their run, or the Console or CLI, and Operator policy sets or limits it.
 - **Exporting `cookies.txt`**: rejected as over-engineering. No V1 parity row or pain needs Goodfetch to produce it.
 
@@ -64,7 +64,7 @@ Until now Goodfetch could only make a login inside its own Sessions (ADR 0006) a
 | `profile_directory { path, browser, chromium_profile?, domains }` | A Profile directory, and for a Chromium-family browser the profile folder inside it | Launched in place | Read by the browser |
 | `installed_browser { browser, chromium_profile?, domains }` | A browser installed on this machine, such as Chrome, Edge, Brave, Firefox or Safari | Run-only import | Read by the browser |
 | `running_browser { browser, domains }` | The person's running browser | Borrowed browser | Read by the browser |
-| `cdp_url { url, headers?, domains? }` | Any browser reachable over CDP; header values are Secret references, and `domains` is required for an import | Borrowed browser | Read by the browser |
+| `cdp_url { url, headers?, domains? }` | Any browser reachable over CDP; header values are Secret references, and `domains` is required for an import and for a run by a Client acting for a model or a Recipe | Borrowed browser | Read by the browser |
 | `client_browser` | A browser the SDK's `borrow()` relays | Borrowed browser | — |
 
 **Who sets it.** Only Operator policy, user and project configuration, the run layer, or a person in the Console or CLI sets `session.source`. A Recipe may expose it, but never sets or locks it. Plugins never set it. **Changes ADR 0028.**
@@ -78,14 +78,14 @@ Until now Goodfetch could only make a login inside its own Sessions (ADR 0006) a
 - *sessionStorage:* travels only in Goodfetch's session export bundle, because Playwright's format has no field for it ([#8874](https://github.com/microsoft/playwright/issues/8874)).
 - *Export:* `goodfetch identity export --format storage-state` writes a Saved identity as `storageState` in clear text. Only a person can run it, through the CLI or the Console. It is refused to every Client acting for a model and recorded in the Audit log. **Changes ADR 0015.**
 
-**Domains.** A source read from a browser or a Profile directory takes a list of registrable domains (ADR 0004), with `*` only when written explicitly, as `consent_domains` and `wall_domains` do (ADRs 0048 and 0052). A file or cookie-header import keeps every domain it holds unless the person filters them with `domains`.
+**Domains.** A source read from a browser or a Profile directory takes a list of registrable domains (ADR 0004), with `*` only when written explicitly, as `consent_domains` and `wall_domains` do (ADRs 0048 and 0052). A file import keeps every domain it holds unless the person filters them with `domains`; a cookie header applies to its `domain`.
 
 **Device-bound logins.** When the source is a live Chromium, the import lists the browser's device-bound sessions (`Network.enableDeviceBoundSessions`). It leaves out the cookies they keep refreshed, and says in plain words that this login can only be used by borrowing the running browser. The command is experimental in CDP, so the import probes for it: a Chrome that lacks it gets a warning that the check could not run, and the import goes on. A file cannot show this, so a file import relies on the Page check (ADR 0006).
 
 **Every source counts as logged-in.** The engine cannot tell which cookies are a login. A Session seeded from an import, a Profile directory or a Borrowed browser therefore counts as logged-in for every rule that depends on that, including:
 - ADR 0033's `session_credentials` permission;
 - ADR 0022's rule on Plugin-supplied browsers;
-- ADR 0052's rule that no Wall reset runs on a logged-in Session;
+- ADR 0052's rule that no Wall allowance refetch runs on a Session logged in to that site. **Changes ADR 0052**, whose list of logged-in sources now includes these;
 - ADR 0014, which now keeps a logged-in Session's cookies and storage away from models and observations. **Changes ADR 0014.**
 
 **Consent answers.** An import keeps the Consent prompt answers the person gave in their own browser as that person's acceptance. Provenance and the Audit log record them as imported, and saving the identity does not drop them. **Changes ADR 0048.**
@@ -199,7 +199,7 @@ A `cdp_url` the engine alone drives, such as a cloud browser, keeps ADR 0022's g
     - for the person's own code, it fails with `domain_not_allowed`.
 - **Operator policy (ADR 0028) can lock which source kinds are allowed.** On a Daemon with accounts (ADR 0031), Exposed Daemons included (ADR 0049), `profile_directory`, `installed_browser`, `running_browser` and `cdp_url` are off by default when they would be read on the Daemon's own machine, because they would reach that account's browser or network for anyone holding a token. Served by a Browser host the person runs (below), they stay available. On a Daemon with accounts, `state_file` reads only content the Client uploads, never a server path.
 - **Changes ADR 0031:** on a Daemon with accounts, the clear-text `storageState` export and widening a source's `domains` go through step-up, and only the operator role writes the `cdp_url` addresses used as operator-configured endpoints.
-- **Daemon groups.** In a Daemon group, a run whose source is `profile_directory`, `installed_browser`, `running_browser` or a loopback `cdp_url` runs only on the Group member where that source exists, and a `client_browser` run on the Group member holding the SDK's connection; their paths take the *group member* scope (ADR 0028). **Changes ADR 0055.**
+- **Daemon groups.** In a Daemon group, a run whose source is `profile_directory`, `installed_browser`, `running_browser` or a loopback `cdp_url` runs only on the Group member where that source exists, a `client_browser` run on the Group member holding the SDK's connection, and a run using an import bound to its machine on that machine's Group member; their paths take the *group member* scope (ADR 0028). **Changes ADR 0055.**
 
 ### A remote engine and the person's browser
 
@@ -234,7 +234,7 @@ This is the only way a remote run can use a device-bound login, and it keeps the
 ### Other changes
 
 - **Changes ADR 0001:** a Profile directory used in place and a Borrowed browser are outside the reset gate, as the person's own data. Saved identities remain the only Goodfetch state excepted from the reset rule.
-- **Changes ADR 0002 and ADR 0055:** a run bound to its machine does not resume elsewhere. That covers `session_bound_to_machine` runs, runs behind a person's Browser host, and runs on a Borrowed browser of the engine's own machine (`running_browser`, `client_browser`, a loopback `cdp_url`). When its Group member is removed, such a run stays checkpointed, still assigned to that Group member, and resumes only when it comes back or a person discards it; `goodfetch runs adopt` refuses it with `session_bound_to_machine`.
+- **Changes ADR 0002 and ADR 0055:** a run bound to its machine does not resume elsewhere. That covers `session_bound_to_machine` runs, runs behind a person's Browser host, and runs on a Borrowed browser reached on the engine's machine (`running_browser`, a loopback `cdp_url`) or through its SDK connection (`client_browser`). When its Group member is removed, such a run stays checkpointed, still assigned to that Group member, and resumes only when it comes back or a person discards it; `goodfetch runs adopt` refuses it with `session_bound_to_machine`.
 - **Changes ADR 0033:** its `session_credentials` permission covers every source of this ADR.
 - **Changes ADR 0035 and ADR 0045:** `goodfetch identity` now manages Saved identities (`import`, `export`, `list` and `delete`). The Web Bot Auth key commands become `goodfetch signing-key create` and `goodfetch signing-key directory`, which **changes ADR 0021** too.
 - **Changes ADR 0037:**

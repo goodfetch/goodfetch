@@ -11,7 +11,7 @@ How comparable tools share their limits:
 
 - **Politeness per run** (the previous state, and Crawlee's): rejected. A user's own runs gang up on a site.
 - **The Daemon as the only authority**: rejected, as ADR 0041 rejected it for Limits. An Attached engine or an engine embedded through the Rust crate never reaches the Daemon and would escape it.
-- **Across machines, Goodfetch Cloud only** (as ADR 0041 first placed Limits): rejected. Pain #17 (`selfhost-parity-lockin`) is exactly a capability kept for the hosted service, and hn-103 names distributed rate limiting as a problem people pay for.
+- **Across machines, Goodfetch Cloud only** (as ADR 0041 first placed Limits): rejected. Pain #17 (`selfhost-parity-lockin`) is exactly a capability kept for the hosted service, and hn-103 names Politeness shared across machines as a problem people pay for.
 - **Daemons electing an authority among themselves**: rejected. It means building an election and failover for state whose loss only resets pacing.
 - **Partitioning alone** (ADR 0054): kept for one crawl, where it makes Politeness exact with no store, but it says nothing about independent crawls that reach the same site.
 - **On store loss, failing closed at once or failing open**: rejected. Failing closed at once turns a cache restart into a halt of every run; failing open breaks the very promise the store exists to keep. The degraded mode below keeps runs moving through ordinary outages, and stops admission to shared keys only when an outage outlasts `politeness_degraded_max`, because past that point a crashed engine cannot be told from a cut-off one.

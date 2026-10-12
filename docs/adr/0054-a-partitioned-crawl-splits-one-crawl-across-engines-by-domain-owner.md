@@ -28,7 +28,7 @@ How comparable tools spread one crawl:
 **Changing the number of Partitions while the crawl runs.**
 - Adding a Group member to the crawl, or removing one, publishes a new partition map under a higher partition-map epoch.
 - A moving domain is handed off fenced: the old owner stops admitting it, waits until its requests in flight to it have ended, sends its pending URLs and the fingerprints of URLs already seen, and the new owner starts admitting it only once the handoff is acknowledged.
-- A draining Group member's Partition hands all its domains to the others this way, so a Partitioned crawl never needs a checkpoint transfer (ADR 0055). A Partition left with no domains ends `finished`, and its Completeness counts only the domains it still owned at its end, so a handoff never marks the crawl `stopped` or `incomplete`.
+- A Group member removed from the group (ADR 0055) hands all its Partition's domains to the others this way, so a Partitioned crawl never needs a checkpoint transfer; on a restart, the Partition resumes in place. A Partition left with no domains ends `finished`, and its Completeness counts only the domains it still owned at its end, so a handoff never marks the crawl `stopped` or `incomplete`.
 
 **Starting and reporting.**
 - `runs.start` takes `partitions`: a number, or `auto` for one per Group member that can run the crawl. It returns a Partitioned crawl ID beside the run IDs of its Partitions. The Lead Daemon places Partitions on distinct Group members (ADR 0055); a number above the Group members that can run the crawl is refused with the Error code `partitions_exceed_group_members`.

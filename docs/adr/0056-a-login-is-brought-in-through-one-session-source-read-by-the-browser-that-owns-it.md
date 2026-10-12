@@ -47,7 +47,7 @@ Until now Goodfetch could only make a login inside its own Sessions (ADR 0006) a
 - **Separate options per mechanism** (`storageState`, `userDataDir`, `cdpUrl`, `connect`): rejected. They overlap, allow contradictory combinations, and each surface would validate them on its own.
 - **A Saved identity as the only destination**: rejected. A CI job with a `storageState` file would have to create a stored object for one run, on a machine whose keychain may not exist.
 - **Guessing which cookies are a login**: rejected. A wrong "anonymous" would hand an account to a Plugin or log it out through a Wall allowance refetch.
-- **Letting a Recipe set the source**: rejected. A third-party Recipe could then read the person's browser into Sinks its author controls. As with `wall_domains` (ADR 0052), only the person sets `session.source`, through their configuration, their run, or the Console or CLI, and Operator policy sets or limits it.
+- **Letting a Recipe set the source**: rejected. A third-party Recipe could then read the person's browser into Sinks its author controls. As with `wall_domains` (ADR 0052), a Recipe cannot set it: only the person sets `session.source`, through their configuration, their run, or the Console or CLI, and Operator policy sets or limits it.
 - **Exporting `cookies.txt`**: rejected as over-engineering. No V1 parity row or pain needs Goodfetch to produce it.
 
 ## Consequences
@@ -85,7 +85,7 @@ Until now Goodfetch could only make a login inside its own Sessions (ADR 0006) a
 **Every source counts as logged-in.** The engine cannot tell which cookies are a login. A Session seeded from an import, a Profile directory or a Borrowed browser therefore counts as logged-in for every rule that depends on that, including:
 - ADR 0033's `session_credentials` permission;
 - ADR 0022's rule on Plugin-supplied browsers;
-- ADR 0052's rule that no Wall allowance refetch runs on a Session logged in to that site. **Changes ADR 0052**, whose list of logged-in sources now includes these;
+- ADR 0052's rule that no Wall allowance refetch runs on a Session logged in to that site; a Profile directory used in place or a Borrowed browser counts as logged in to every site. **Changes ADR 0052**, whose list of logged-in sources now includes these;
 - ADR 0014, which now keeps a logged-in Session's cookies and storage away from models and observations. **Changes ADR 0014.**
 
 **Consent answers.** An import keeps the Consent prompt answers the person gave in their own browser as that person's acceptance. Provenance and the Audit log record them as imported, and saving the identity does not drop them. **Changes ADR 0048.**
@@ -134,6 +134,7 @@ The rules for an in-place launch:
   - *Firefox:* `parent.lock` on Windows, `.parentlock` on macOS and Linux, plus `compatibility.ini`.
 
   It refuses with `profile_directory_in_use`, `profile_directory_browser_mismatch` or `profile_directory_newer_than_browser`. On Windows, a cookie file locked by a running browser counts as `profile_directory_in_use` and is never retried in a loop.
+- **One Session.** A run on a Profile directory has one Session on it, in the run's Access mode (`standard` by default; `stealth` with Goodfetch's Chromium on a directory it created, or with Camoufox), fixed for its life, with the launching browser's identity recorded in Provenance. The Session pool never rotates, retires or escalates it, and a failure that would do so raises a Human pause. **Changes ADR 0021**, whose escalation opens a new Session. Recycling (ADR 0040) relaunches the same browser on the same directory.
 - **The profile's own key store.** The launch never passes the mock-keychain or `basic` password-store flags that automation tools add by default, because they stop a real profile's cookies from decrypting ([browser-use#3225](https://github.com/browser-use/browser-use/issues/3225)).
 - **Chrome's default data directory is refused**, pointing to `running_browser`.
 - **Writes persist.** Cookies, storage and Consent prompt answers the run sets stay in the directory, as they would in the person's own use, marked in Provenance. **Changes ADR 0048.**
@@ -177,7 +178,7 @@ A Borrowed browser serves one run and one Session, in its default context, where
 - the egress check and the domain policy are interception only, which that code can switch off, and Provenance records that neither is guaranteed. **Changes ADR 0014.**
 - that code's commands go outside any endpoint Goodfetch serves, so no lease fences them. **Changes ADR 0003.**
 
-A `cdp_url` the engine alone drives, such as a cloud browser, keeps ADR 0022's guarded path.
+A `cdp_url` the engine alone drives, such as a cloud browser, keeps ADR 0022's guarded path. The engine cannot see other CDP clients, so a `cdp_url` that comes from the person's own code (the run layer, an SDK or the CLI) is treated as shared, and one set in Operator policy or configuration is treated as driven by the engine alone.
 
 **Egress on every Borrowed browser.** No egress proxy can be put under a browser that is already running, so the engine resolves each intercepted request's host itself and blocks private ranges. The browser resolves names itself, so a DNS-rebinding gap remains, and it is recorded in Provenance. **Changes ADR 0017**, whose connect-time check this replaces for Borrowed browsers.
 

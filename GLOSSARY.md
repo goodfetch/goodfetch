@@ -239,7 +239,7 @@ A browser's own folder of a person's browsing data, on which Goodfetch can launc
 _Avoid_: user data dir, profile (alone)
 
 **Session source**:
-Where a Session's login comes from: a Saved identity, a file, a browser installed on the machine, a Profile directory or a Borrowed browser.
+Where a Session's login comes from: a Saved identity, a file or a cookie header, a browser installed on the machine, a Profile directory or a Borrowed browser.
 _Avoid_: login source, auth source, profile
 
 **Block cause**:

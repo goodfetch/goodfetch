@@ -22,7 +22,7 @@ The `stealth` Access mode turns on a catalog of items, each of which a run can s
 
 | Method | Browser | How the fingerprint changes | Warning |
 | --- | --- | --- | --- |
-| `none` (default outside `stealth`) | Chrome for Testing (ADR 0024) | no change beyond the language and time zone every Access mode matches to the proxy (ADR 0021; an imported login keeps its source's, ADR 0056) | the machine's real fingerprint shows, and Sessions on one machine are linkable |
+| `none` (default outside `stealth`) | Chrome for Testing (ADR 0024) | no change beyond the language and time zone every Access mode matches to the proxy (ADR 0021; an imported login or a Profile directory used in place keeps its source's, ADR 0056) | the machine's real fingerprint shows, and Sessions on one machine are linkable |
 | `js-injection` | Chrome for Testing | page JavaScript | detectors can see the injected values |
 | `basic` | Chrome for Testing | the CDP Emulation domain and launch flags | graphics, canvas, audio and fonts stay the machine's own |
 | `engine` (default in `stealth`) | the Goodfetch build | inside the engine | none while the build matches the current Chrome Stable major |
@@ -54,7 +54,7 @@ The `stealth` Access mode turns on a catalog of items, each of which a run can s
 ### The rest of the catalog
 
 - **Headful.** `stealth` Sessions show a window by default, on a virtual display on Linux; Browser Use measured 2% of protected sites passed headless and 50% headful on the same IP ([its own benchmark](https://browser-use.com/posts/stealth-benchmark)).
-- **Generated identities.** Drawn from a population model per engine (the open data of fpgen, fingerprint-suite and BrowserForge, Apache-2.0), matched to the proxy exit for language, time zone, geolocation and WebRTC address (an imported login keeps its source's language and time zone, ADR 0056), with the OS following real traffic shares rather than the host's, and applied only inside the engine.
+- **Generated identities.** Drawn from a population model per engine (the open data of fpgen, fingerprint-suite and BrowserForge, Apache-2.0), matched to the proxy exit for language, time zone, geolocation and WebRTC address (an imported login or a Profile directory used in place keeps its source's language and time zone, ADR 0056), with the OS following real traffic shares rather than the host's, and applied only inside the engine.
 - **Human-like input.** Cursory's recorded mouse movements (LGPL-3.0-or-later) are downloaded at runtime into the browser cache, never compiled in, kept replaceable and listed in the notice inventory; Goodfetch writes the reshaping step from Cursory's published description, not from its code. The Boğaziçi mouse recordings may widen the set once their CC BY 4.0 licence is confirmed. A Rust port of ghost-cursor (MIT) is the fallback when the recordings are absent. Typing with neighbouring-key slips, scrolling and press-and-hold use Goodfetch's own model. Input goes through native CDP events, inside the guard's deadlines (ADR 0019).
 
 ### What serves every Access mode

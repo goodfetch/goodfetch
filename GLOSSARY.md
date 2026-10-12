@@ -235,7 +235,7 @@ A Session's identity, cookies and storage, kept under a name so that later runs 
 _Avoid_: profile, context, login
 
 **Profile directory**:
-A browser's own folder of a person's browsing data, on which Goodfetch can launch that browser in place.
+A browser's own folder of a person's browsing data, on which Goodfetch can launch that browser in place; for the Chromium family, the data directory (Chrome's `--user-data-dir`), not the profile folder inside it that Chrome's `--profile-directory` names.
 _Avoid_: user data dir, profile (alone)
 
 **Session source**:

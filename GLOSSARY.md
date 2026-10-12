@@ -303,7 +303,7 @@ A package that puts Goodfetch inside another tool, such as a workflow tool node 
 _Avoid_: connector, plugin, app
 
 **Baseline**:
-A previous run that a run's results are compared with to report what changed.
+A previous run, or Partitioned crawl, that a run's results are compared with to report what changed.
 _Avoid_: snapshot, reference run
 
 ## AI and agents

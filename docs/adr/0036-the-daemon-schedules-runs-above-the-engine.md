@@ -69,7 +69,7 @@ The open-source framework schedules runs itself. A Schedule starts runs of one t
 - Operator policy can cap period Limits.
 - A scheduled run also counts against the Limits of ADR 0041 that apply to the Schedule's creator: the install, the Daemon, the person and the named token. A change that raises a period Limit from a surface other than the Console or an interactive CLI prompt, including `goodfetch schedules apply`, waits for a person's confirmation (ADR 0041).
 
-**Baseline and soft-delete.**
+**Baseline and soft-delete.** For a Schedule that targets a Partitioned crawl, each rule below reads the whole crawl's three axes and Records (ADR 0054).
 - A Schedule's runs compare against its latest run whose Lifecycle is `finished`, whose Verdict is not `rejected` and whose Completeness is not `incomplete`, unless the Schedule pins a Baseline. A `failed` or `stopped` run never becomes the Baseline.
 - `verified` and `needs-review` runs, with `complete` or `unverified` Completeness, may serve, because ADR 0029 never lets some runs be both verified and complete: an offset-paginated crawl is always `unverified`, and an AI task without a Success check always `needs-review`. Requiring both would leave such Schedules without change tracking. The cost is that a comparison with an `unverified` run may report as new a few Records it had missed.
 - **Changes ADR 0026:** only a complete run may soft-delete Records missing since its Baseline, because an incomplete one cannot tell removed from not reached.

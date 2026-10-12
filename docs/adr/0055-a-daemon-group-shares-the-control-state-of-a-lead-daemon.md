@@ -78,7 +78,7 @@ How comparable self-hosted tools run several instances:
   - in the chart, by checking that its `StatefulSet`'s `spec.template` (the update revision) still names it in `lead`;
   - on VMs, by exchanging lead epochs with a majority of the Group members it last knew, itself included, and finding none higher; when no majority can be reached, a person confirms with `goodfetch group lead --confirm`.
 
-  A Daemon promoted on VMs confirms its new lead epoch with a majority of the Group members the same way before it acts, unless a person confirms. Every Group member durably records the highest lead epoch it has seen and refuses peer messages carrying a lower one. Any two majorities share a Group member, so a former Lead Daemon that restarts learns of its replacement before it can act, even when it comes back cut off from the others.
+  A Daemon promoted on VMs confirms its new lead epoch with a majority of the Group members the same way before it acts, unless a person confirms. Every Group member durably records the highest lead epoch it has seen and refuses peer messages carrying a lower one. Any two majorities share a Group member, so a former Lead Daemon that restarts learns of its replacement before it can act, even when it comes back cut off from the others, unless a person overrode the majority check; a confirmation by a person therefore warns that the former Lead Daemon must not restart with its lead configuration.
 
 **The Helm chart** (changes ADR 0049).
 - `replicas` may be any number, and the `lead` value names the Lead Daemon's pod, pod 0 by default. The chart refuses a `replicas` value that would remove the Lead Daemon's pod, and sets `persistentVolumeClaimRetentionPolicy.whenScaled: Retain`, so a removed pod's volume stays for `runs adopt`.

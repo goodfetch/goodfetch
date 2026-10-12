@@ -35,7 +35,7 @@ One spec per area. An area goes to `/to-spec` only after every area whose contra
 | 4 | Security and egress | 0015–0017, 0042–0044, 0049, 0050 |  |
 | 5 | Site access | 0019–0023, 0045, 0047–0049 | [Bringing an existing login or browser](https://github.com/Jbmanllr/automan/issues/117) |
 | 6 | Collection | 0005–0008, 0026, 0040, 0046 |  |
-| 7 | Plugin protocol | 0033 |  |
+| 7 | Plugin protocol | 0033, 0049 |  |
 | 8 | Stealth and Challenge solving | 0035 |  |
 | 9 | AI and agent | 0009–0014 |  |
 | 10 | Scheduling | 0036, 0041 | [Scaling past one engine](https://github.com/Jbmanllr/automan/issues/116) |

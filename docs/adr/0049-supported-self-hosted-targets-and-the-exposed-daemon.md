@@ -22,7 +22,7 @@ Crawlee documents AWS Lambda and Cloud Run but tests neither, and its AWS guide 
 - On `SIGTERM` it drains: it stops leasing work and taking runs, checkpoints every run as resumable (ADR 0002) and exits within the grace period.
 - It makes itself a child subreaper (`PR_SET_CHILD_SUBREAPER`) and reaps every browser descendant, so it runs correctly as PID 1 without `tini`.
 
-**Exposed Daemon security** (changes ADRs 0017 and 0031).
+**Exposed Daemon security** (changes ADRs 0017, 0027 and 0031).
 - The Daemon terminates TLS itself by default, with certificate files reloaded when they change.
 - A person can opt in to **TLS terminated upstream**: the Daemon then serves plain HTTP, still requires tokens or passkeys, keeps its `Host` and `Origin` checks, trusts `X-Forwarded-*` only from configured proxy addresses, records the setting in the Audit log and shows it in the Console.
 - **Bootstrap.** The first operator enrolls a passkey through a one-time setup link. Its token comes from a Secret reference or, when none is configured, is printed once to the logs. It expires after 24 hours, and the Daemon refuses every other request until setup completes.
@@ -49,7 +49,7 @@ Crawlee documents AWS Lambda and Cloud Run but tests neither, and its AWS guide 
 - Run state goes in `/tmp`, with checkpoints to object storage, and a run nearing the 15-minute limit checkpoints and stops as resumable, so another invocation resumes it.
 
 **Google Cloud Run.**
-- An Exposed Daemon as a service, with instance-based billing (CPU always allocated), at least one instance, at most one instance per Daemon, and checkpoints to Cloud Storage.
+- An Exposed Daemon as a Cloud Run service, with instance-based billing (CPU always allocated), at least one instance, at most one instance per Daemon, and checkpoints to Cloud Storage.
 - Recipe runs as jobs: an Attached engine per execution, started by Cloud Scheduler.
 - The engine detects throttled CPU on Cloud Run and warns in the run's results. The guide for ECS and Fargate describes services and tasks the same way.
 
@@ -59,7 +59,7 @@ Crawlee documents AWS Lambda and Cloud Run but tests neither, and its AWS guide 
 - On a detected ephemeral target (Lambda, Cloud Run, Fargate), periodic checkpoints are on by default every 60 seconds, settable, and a run with no checkpoint location carries a warning in its results.
 
 **Chromium's sandbox** (changes ADRs 0016 and 0017).
-- The engine probes at startup whether the namespace sandbox can start; ADR 0033's Plugin confinement reads the same probe.
+- The engine probes at startup whether the namespace sandbox can start; ADR 0033's Plugin confinement reads the same probe (adds to ADR 0033).
 - **A fix exists** (Docker's and containerd's default seccomp profiles, which still block `CLONE_NEWUSER`; Kubernetes `RuntimeDefault`; Ubuntu's AppArmor restriction on unprivileged user namespaces on the host): browser runs are refused with a typed Error code whose message names the fix for the detected environment. An operator can still switch the sandbox off in Operator policy, audited and reported under ADR 0016.
 - **No fix exists** (Lambda, Fargate and EKS on Fargate, Azure Container Apps): the sandbox is switched off automatically, still recorded in results and the Audit log, and the docs warn against untrusted sites.
 - Goodfetch publishes its seccomp profile, which, like [Playwright's](https://github.com/microsoft/playwright/blob/main/utils/docker/seccomp_profile.json), adds only the user-namespace system calls to the default. `init`'s Compose files and the Helm chart use it.
@@ -70,9 +70,9 @@ Crawlee documents AWS Lambda and Cloud Run but tests neither, and its AWS guide 
 
 | Tag | Contents |
 |---|---|
-| `goodfetch:<v>` | The engine, the Goodfetch Chromium (ADR 0035) and a virtual display (ADR 0031) |
+| `goodfetch:<v>` | The engine, Chrome for Testing (the default browser outside `stealth`), the Goodfetch Chromium (the default in `stealth`; ADR 0035) and a virtual display (ADR 0031) |
 | `goodfetch:<v>-slim` | The engine only: HTTP tiers, and remote browsers through a Browser host or a CDP provider |
-| `goodfetch:<v>-full` | The default plus Chrome for Testing, Camoufox, and Playwright's Firefox and WebKit |
+| `goodfetch:<v>-full` | The default plus Camoufox, and Playwright's Firefox and WebKit |
 | `goodfetch:<v>-node`, `goodfetch:<v>-python` | The default plus the language runtime and SDK, the base for `init`'s Dockerfiles and for Lambda |
 
 - Every tag is built on Debian 13 slim (Chromium needs glibc), for amd64 and arm64, runs as the non-root UID 10001, and ships with an SBOM and Sigstore attestations.

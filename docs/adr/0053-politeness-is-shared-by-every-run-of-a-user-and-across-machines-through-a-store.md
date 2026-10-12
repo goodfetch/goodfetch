@@ -30,7 +30,7 @@ How comparable tools share their limits:
 - Each run keeps its own values (ADR 0021, settings per run). A run admits a request to a domain only while the combined count in flight for that key, across every run sharing it, is below the run's own cap. A stricter run therefore waits while a looser one may still go up to its own cap.
 - A `Retry-After`, a backoff or a halving seen by any run applies to every run sharing the key.
 - Runs waiting on the same busy domain take turns, as ADR 0040 serves runs before domains.
-- `politeness_sharing` is a setting per run, `shared` by default; `run` restores per-run Politeness and is marked in the run's result (ADR 0023).
+- `politeness_sharing` is a setting per run: `shared` by default (through the Politeness store when one is configured, else on the machine); `per_daemon`, which shares on the machine only and ignores a store; or `run`, which restores per-run Politeness. Anything but `shared` is marked in the run's result (ADR 0023).
 
 **On one machine: a per-user Politeness file.**
 - Every engine of the user (Attached engines, the Daemon, engines embedded through the Rust crate) takes and returns its *permits*, one per request in flight, in one SQLite transaction on a per-user Politeness file. It lives outside the per-major folders like the Usage ledger (ADR 0041), so every major shares it.
@@ -39,18 +39,19 @@ How comparable tools share their limits:
 
 **Across machines: the Politeness store.**
 - **What it is.** A Valkey or Redis server the user provides, set in user configuration or Operator policy (ADR 0028) with a namespace, so every engine pointing at the same namespace shares Politeness. It holds no run state, so CO-28's exclusion of pluggable live storage (ADR 0037) still stands: nothing is resumed from it, and losing it resets only pacing.
-- **Algorithms.** Rates use GCRA, run as a Lua script, so no server module is needed (redis-cell's `CL.THROTTLE` is the reference, [repo](https://github.com/brandur/redis-cell)). Permits are leases with an expiry, renewed while the request lasts. A returned permit wakes waiters through pub/sub; a rate wait sleeps until the deadline GCRA returns.
+- **Algorithms.** Rates use GCRA, run as a Lua script, so no server module is needed (redis-cell's `CL.THROTTLE` is the reference, [repo](https://github.com/brandur/redis-cell)). Permits are leases with an expiry, renewed while the request lasts. Every key a script touches for one domain or proxy carries the same hash tag, so the script runs on one Redis Cluster slot. A returned permit wakes waiters through pub/sub; a rate wait sleeps until the deadline GCRA returns.
 - **Client.** The `redis` crate (BSD-3), async on Tokio with TLS through rustls, Sentinel and Cluster. TLS is required off loopback, and the password is a Secret reference (ADR 0015).
 - **Precedence.** With a store configured, the store is the shared state and the per-user file is not used for Politeness.
 - **Goodfetch Cloud** runs the same code against its own Valkey.
 
 **When the store is unreachable.**
-- Every engine writes a heartbeat to the store, so the number N of live engines sharing a namespace is known.
-- An engine that loses the store keeps the permits it holds until their leases expire, then admits per domain at most its share: the cap divided by N, rounded down, and at least 1. Per-proxy limits divide the same way.
+- Every engine writes a heartbeat to the store, so the number N of live engines sharing a namespace is known. A heartbeat expires no later than a permit's lease, and an engine that exits cleanly deletes its own.
+- An engine that loses the store keeps the permits it holds until their leases expire, then admits per domain at most its share: each run's own cap divided by N, rounded down, and at least 1. Per-proxy limits divide the same way.
 - **Partial loss.** While an engine's heartbeat is stale, the store's script keeps that engine's share reserved, so engines that still reach the store admit only the rest of the cap. The cap can then be exceeded only by the minimum of 1 per disconnected engine, when the cap is smaller than N.
+- **For a bounded time.** The store cannot tell a crashed engine from a cut-off one, so degraded admission lasts at most `politeness_degraded_max` (10 minutes by default, settable). After it, the store frees the share, and the cut-off engine admits nothing more to shared keys until it reconnects; its runs stay live and resumable.
 - `Retry-After`, backoff and halving go on locally.
 - The degraded period is reported as an event on each affected run's event stream (ADR 0024), a metric on the ops listener (ADR 0050) and a note in each affected run's result. Reconnection is automatic, with backoff.
 
 **Formats** (changes ADR 0030). The per-user Politeness file and the Politeness store's key and script layout join ADR 0030's contract formats. Both follow the Usage ledger's exception: their major stays frozen across product majors, and newer versions only add, so every supported major shares them.
 
-**Several Daemons in a Daemon group** (ADR 0055) share Politeness through a store. The Helm chart refuses to render with more than one replica unless a store is set or `politeness.sharing: per_daemon` is chosen explicitly, which every run's result and the Console then show.
+**Several Daemons in a Daemon group** (ADR 0055) share Politeness through a store. The Helm chart refuses to render with more than one replica unless a store is set or its Operator policy sets `politeness_sharing: per_daemon`, which every run's result and the Console then show.

@@ -10,7 +10,7 @@ How comparable self-hosted tools run several instances:
 ## Considered Options
 
 - **Islands, each pod its own Daemon**: rejected. Limits multiply by the number of pods, which defeats ADR 0041, and accounts and tokens differ from pod to pod.
-- **An external PostgreSQL for the shared state**, as Goodfetch Cloud keeps its ledger on Aurora: rejected for self-hosting. A second required dependency beside the Politeness store, and a second code path for every store below, buys high availability the control plane does not need: runs go on while the Lead Daemon restarts.
+- **An external PostgreSQL for the shared state**, as Goodfetch Cloud keeps its ledger on Aurora: rejected for self-hosting. A required dependency beside the optional Politeness store, and a second code path for every store below, buys high availability the control plane does not need: runs go on while the Lead Daemon restarts.
 - **Consensus among the Daemons** (Raft through `openraft`, or dqlite): rejected. It is the most complex option, dqlite is LGPL C code, and it buys the same availability.
 - **A lead chosen by election**: rejected. The Lead Daemon's state sits on its own disk, so an elected Daemon would have nothing to lead with; the lead is fixed by configuration and replaced from a Group backup.
 - **A shared group token**: rejected for the peer link. One leaked secret would let anyone join, and no single Group member could be revoked.
@@ -20,9 +20,9 @@ How comparable self-hosted tools run several instances:
 
 **Forming a group.**
 - `goodfetch group init` makes a Daemon a group's Lead Daemon and creates the group's certificate authority.
-- **Joining.** On VMs, `goodfetch group join` takes a short-lived, single-use join token minted by `goodfetch group token`. In the Helm chart, a pod joins with its projected Kubernetes ServiceAccount token, which the Lead Daemon checks through the `TokenReview` API, together with the pod's name and its `StatefulSet`; no join token is stored in the chart. Either way, the Lead Daemon signs a certificate for the new Group member, which renews it automatically.
+- **Joining.** On VMs, `goodfetch group join` takes a short-lived, single-use join token minted by `goodfetch group token`. In the Helm chart, a pod joins with a projected Kubernetes ServiceAccount token whose audience is `goodfetch-group`, which the Lead Daemon checks through the `TokenReview` API, together with the pod's name and its `StatefulSet`; no join token is stored in the chart. The chart grants the Lead Daemon `system:auth-delegator` and read access to its own pods and `StatefulSet`. Either way, the Lead Daemon signs a certificate for the new Group member, which renews it automatically.
 - **Leaving.** `goodfetch group leave` and revocation in the Console remove one Group member. The peer link is mutual TLS and is separate from the endpoints Clients use (ADR 0017).
-- **Versions.** Group members share one product major (ADR 0030). During a rolling upgrade their minors may differ: the peer protocol joins ADR 0030's contract formats, versioned on its own and checked by a handshake like the JSON-RPC protocol's (changes ADR 0030). The Lead Daemon is upgraded last.
+- **Versions.** Group members share one product major (ADR 0030). During a rolling upgrade their minors may differ: the peer protocol joins ADR 0030's contract formats, versioned on its own, and every Group member speaks each older minor of its major, so two Group members settle on the lower of their two minors when they connect (changes ADR 0030). Group members can therefore be upgraded in any order.
 - **Which Daemon leads** is fixed by configuration: the chart's `lead` value, pod 0 by default, or the Daemon where `group init` ran.
 
 **What the Lead Daemon holds** (changes ADRs 0031, 0035, 0036 and 0041).
@@ -31,7 +31,7 @@ How comparable self-hosted tools run several instances:
 - **Usage.** Group members take ADR 0041's slices from the Lead Daemon's ledger; ADR 0041's minimum slice keeps the number of calls bounded. Limits on a person, a named token, the Daemon or the install now hold across the group, and a Partitioned crawl adds its own Limit scope (ADR 0054). A slice is reclaimed by the Group member that owns or adopts its run, which checks the run's writer lock and reads its state as ADR 0041 does, then reports the charge to the Lead Daemon.
 - **Saved identities** are fetched from the Lead Daemon when a run starts and written back when it ends. ADR 0035's install-wide lock becomes a lease held at the Lead Daemon.
 - **Schedules** fire only on the Lead Daemon; that role replaces ADR 0036's OS lock on the Schedule store. Their runs are placed like any other.
-- **The Audit log** is one hash chain kept by the Lead Daemon, which appends the events Group members send. A Group member that cannot reach the Lead Daemon chains its events locally from the last lead hash it saw, and the Lead Daemon splices that branch in when it returns, so the chain stays verifiable end to end.
+- **The Audit log** is one hash chain kept by the Lead Daemon, which appends the events Group members send. A Group member that cannot reach the Lead Daemon chains its events locally from the last lead hash it saw. When it reconnects, the Lead Daemon appends a merge record carrying that branch's head hash, so every event stays verifiable from the chain's head.
 - **The group Run index** is fed by Group members, and each row names the owning Group member. `goodfetch runs reindex` on a Group member re-reports that Group member's runs.
 - **Group events.** Schedule and Limit Notifications are deduplicated at the Lead Daemon. Run events stay with their run.
 
@@ -66,15 +66,16 @@ How comparable self-hosted tools run several instances:
 | Tokens and sign-ins | A cached token check stays valid for what remains of it, at most 10 minutes; new sign-ins fail with the Error code `lead_unreachable` | A revoked token stops working within 10 minutes |
 | Policy and configuration | The last pushed version applies | Never older than the Group member's last known version |
 | Saved identity write-back | Kept encrypted on the Group member and retried until accepted; the run still finishes | No lost logins |
-| Schedules | Nothing fires; on return, ADR 0036's rule catches up the latest missed occurrence once | One firing, never two |
-| Placement and handoffs | New runs start on the Group member that received them; handoffs wait | Work keeps moving |
+| Schedules | Group members never fire. A Lead Daemon that is up but cut off keeps firing and places runs on itself or the Group members it reaches; one that was down catches up the latest missed occurrence once on return (ADR 0036) | One firing, never two |
+| Placement and handoffs | New runs start on the Group member that received them, taking Usage from the slices it holds; one that needs a new slice is refused with `lead_unreachable`. Handoffs wait | Work keeps moving within Limits |
 
 **Group backups and losing the Lead Daemon.**
 - A *Group backup* is a consistent copy of the Lead Daemon's stores, written the way ADR 0002 writes a Checkpoint, to a configured destination: every 15 minutes by default, and on demand with `goodfetch group backup`. The group's certificate authority key is in it, wrapped by the shared Secret provider's key-encryption key.
-- `goodfetch group promote --from-backup` makes another Group member the Lead Daemon; in the chart, the `lead` value then names that pod. Every peer message carries the group's *lead epoch*, so a former Lead Daemon that comes back is fenced off, as ADR 0003 fences a run.
+- **Nothing since the backup is lost.** Each Group member keeps the slices it took, the Usage it charged and the Audit events it sent until the Lead Daemon announces a Group backup that covers them.
+- `goodfetch group promote --from-backup` makes another Group member the Lead Daemon; in the chart, the `lead` value then names that pod. Every Group member re-reports what it kept, as `runs reindex` re-reports runs, and the new Lead Daemon grants no slice until they have. Every peer message carries the group's *lead epoch*, so a former Lead Daemon that comes back is fenced off, as ADR 0003 fences a run.
 
 **The Helm chart** (changes ADR 0049).
-- `replicas` may be any number, and the `lead` value names the Lead Daemon's pod, pod 0 by default.
+- `replicas` may be any number, and the `lead` value names the Lead Daemon's pod, pod 0 by default. The chart refuses a `replicas` value that would remove the Lead Daemon's pod, and sets `persistentVolumeClaimRetentionPolicy.whenScaled: Retain`, so a removed pod's volume stays for `runs adopt`.
 - A `Service` reaches any Group member for new connections; a headless `Service` gives each pod the stable name the peer link uses.
-- With more than one replica, the chart refuses to render unless a Politeness store is set or `politeness.sharing: per_daemon` is chosen explicitly (ADR 0053), and unless a shared Secret provider is set.
+- With more than one replica, the chart refuses to render unless a Politeness store is set or `politeness_sharing: per_daemon` is set in its Operator policy (ADR 0053), and unless a shared Secret provider is set.
 - **Goodfetch Cloud** keeps its own gateway, ledger and index per Tenant (ADRs 0001 and 0031); a Daemon group is the self-hosted form of the same operations.

@@ -39,4 +39,5 @@ How comparable tools spread one crawl:
   - **Completeness** is `incomplete` if any Partition's is, else `unverified` if any Partition's is, else `complete`.
 - Usage is summed. A Limit set on the crawl spans its Partitions through a new Limit scope, *Partitioned crawl*, held in the Lead Daemon's Usage ledger (ADR 0041).
 - Its Dataset is the union of its Partitions' Datasets, shown as one in the Console and exported as one. Each Partition's Sinks keep their own fencing (ADRs 0003 and 0008).
-- Stop, pause, resume and cancel act on every Partition. A Schedule may target a Partitioned crawl (ADR 0036), and its Baseline is the whole crawl.
+- Abort, checkpoint and resume (ADR 0001) act on every Partition. A Schedule may target a Partitioned crawl (ADR 0036), and its Baseline is the whole crawl.
+- Goodfetch Cloud serves `partitions` through its gateway, with one engine per Partition (ADR 0001), forwarding links between them as Group members do.

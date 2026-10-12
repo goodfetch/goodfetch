@@ -36,7 +36,7 @@ A consent answer is Session state, not an Effect. Decided in [Built-in page clea
 - **"I don't care about cookies" or "I still don't care about cookies"**: rejected. They are GPL-3.0 and accept where they have to.
 - **Consent-O-Matic** (MIT, [repository](https://github.com/cavi-au/Consent-O-Matic)) as a second rule source: rejected as over-engineering. A second rule format needs a second runner, for rules that largely overlap autoconsent's larger and more active set, and the Decision provider covers what neither knows. A coverage gap measured by the conformance suite reopens this.
 - **The rules of Firefox's Cookie Banner Reduction**: unavailable. The feature shipped only in private windows in Germany ([Firefox 120](https://www.firefox.com/en-US/firefox/120.0/releasenotes/)) and was later turned off everywhere ([bug 1940275](https://bugzilla.mozilla.org/show_bug.cgi?id=1940275)), and its list is archived ([repository](https://github.com/mozilla/cookie-banner-rules-list)).
-- **Hiding a consent wall to read what is behind it**: rejected. It gets around the condition the site set for access, and an "accept or pay" wall is a payment gate, which ADR 0045 never evades.
+- **Hiding a consent wall to read what is behind it**: rejected. It gets around the condition the site set for access, and for an "accept or pay" wall the site set consent, or payment, as the price of the content; reading it without either takes the content on terms the site refused.
 - **Treating a consent answer as an Effect**: rejected. Repeating the same answer changes nothing. Journaling it would put a Target fingerprint check (ADR 0009) and possible Reconciliation (ADR 0029) on every page for no protection.
 
 ## Consequences
@@ -45,7 +45,7 @@ A consent answer is Session state, not an Effect. Decided in [Built-in page clea
 - **`consent_handling`** is on by default, in every live browser Session and every Access mode, and can be switched off per run. Switching it off stops only the answering: the wall test still runs, a wall is still `consent_required`, the Filter-list rules aimed at Consent prompts still wait (ADR 0047), and Provenance lists the prompts left.
 - **The order:**
   1. autoconsent's vendor rules;
-  2. its `reject` heuristics, in about ten languages. autoconsent runs its heuristic only in the top frame and keeps only prompts that have a refusal button, so the engine calls its detection in every frame itself, and a prompt detected without a refusal button goes to step 3 ([heuristic-patterns.ts](https://github.com/duckduckgo/autoconsent/blob/main/lib/heuristic-patterns.ts));
+  2. its `reject` heuristics, which detect prompts in a dozen languages and recognise refusal buttons in more. autoconsent runs its heuristic only in the top frame and keeps only prompts that have a refusal button, so the engine calls its detection in every frame itself, and a prompt detected without a refusal button goes to step 3 ([heuristic-patterns.ts](https://github.com/duckduckgo/autoconsent/blob/main/lib/heuristic-patterns.ts));
   3. the Decision provider (below);
   4. then either hiding (a prompt with no refusal that leaves the content readable) or `consent_required` (a wall).
 - **Hiding** means ADR 0047's: always removed from extracted content, hidden on the live page through the invisible style sheet on Chromium, and on Firefox and WebKit only when the prompt covers an action's target.
@@ -54,7 +54,7 @@ A consent answer is Session state, not an Effect. Decided in [Built-in page clea
 - **In the HTTP tier,** which has no layout, the wall test runs on the route's browser sample (ADR 0020).
   - **Changes ADR 0020:** a route whose browser sample showed a consent wall never moves to a tier that skips it. Its pages are `consent_required` in every tier, unless the domain is in `consent_domains`.
   - On a route whose sample showed a refusable prompt or a notice, ADR 0047 removes the prompt from extracted content.
-  - A route whose tier the run forced (ADR 0023) still takes one browser sample for the wall test when a browser can start, downloading it on first use (ADR 0024) unless `offline`. This sample cannot be switched off: like `payment_required` (ADR 0045), a wall is never evaded. When no browser can start, its pages record "no wall test" in Provenance, and their prompts are left in extracted content rather than removed.
+  - A route whose tier the run forced (ADR 0023) still takes one browser sample for the wall test when a browser can start, downloading it on first use (ADR 0024) unless `offline`. This sample cannot be switched off, since a wall is never evaded. When no browser can start, its pages record "no wall test" in Provenance, and their prompts are left in extracted content rather than removed.
   - A server-side consent page, such as Google's `consent.google.com` or Yahoo's `guce`:
     - **with a refusal path,** is answered once through the Session's browser. Browser-fetch keeps the Session's identity (ADR 0020), and later HTTP fetches carry its cookies.
     - **without one,** or when no browser can be started for the Session, is `consent_required`.
@@ -78,7 +78,7 @@ A consent answer is Session state, not an Effect. Decided in [Built-in page clea
 - **Heuristics.** `reject` only, never `tier1` or `tier2`. A notice with no choice is hidden, never acknowledged.
 - **Pre-hiding** (hiding a known prompt before it flashes) uses ADR 0047's live style sheet on Chromium, and is undone before the wall test, so a wall is always judged as the site shows it. ADR 0047's other live hiding starts on a document only once the runner and the wall test are done with it, so no other cosmetic rule, built-in or added through `filter_lists.extra`, can hide a wall first.
 - **The main world.**
-  - **Which snippets.** autoconsent's `eval` steps name fixed snippets in its `eval-snippets.ts`. Most read or change only the DOM, cookies, `localStorage` or history, which the isolated world reaches, and run there: `DOM.resolveNode` accepts the isolated world's context. Goodfetch keeps an MIT table that classes each snippet, checked by the conformance suite. Only the snippets that read or call a page global, such as `__tcfapi` or a vendor's own object, run in the main world. With the five coded vendors that call their vendor's API (OneTrust, Cookiebot, consentmanager, Klaro and TrustArc), about 20 rules need it.
+  - **Which snippets.** autoconsent's `eval` steps name fixed snippets in its `eval-snippets.ts`. Snippets that read or change only the DOM, cookies, `localStorage` or history, which the isolated world reaches, run there, and most rules use only those: `DOM.resolveNode` accepts the isolated world's context. Goodfetch keeps an MIT table that classes each snippet, checked by the conformance suite. Only the snippets that read or call a page global, such as `__tcfapi` or a vendor's own object, run in the main world. With the five coded vendors that read or call their vendor's API (OneTrust, Cookiebot, consentmanager, Klaro and TrustArc), about 20 rules need it.
   - **How on Chromium.** `DOM.resolveNode`, given no context, resolves in the frame's main world ([resolve_node.cc](https://chromium.googlesource.com/chromium/src/+/main/third_party/blink/renderer/core/inspector/resolve_node.cc)), and `Runtime.callFunctionOn` then runs the snippet there. V8 refuses only `compileScript`, `runScript` and two settings calls while `Runtime` is off, never `callFunctionOn`, so `Runtime` stays off, and the snippets leave no global behind.
   - **How on Firefox and WebKit.** Through Playwright's main-world evaluation.
   - **When a main-world call can't be made,** the prompt falls through to the heuristics and the Decision provider, and only then to the wall test.
@@ -99,12 +99,16 @@ A consent answer is Session state, not an Effect. Decided in [Built-in page clea
 
 **Consent walls.**
 - **The test.** A prompt is a wall when it offers no refusal and either covers the main content or offers payment or a subscription instead.
+- **Paywalls too.** An "accept or pay" overlay from a vendor ADR 0047's paywall detector knows is judged as a Consent prompt: the wall test decides, and a wall is `consent_required`.
+- **Walls no rule detects.** On a page where the runner found no prompt, an element the Consent prompt rules of the Filter lists match goes to the wall test, and to the Decision provider, before ADR 0047 removes it from extracted content.
+- **Late prompts.** A prompt that appears after live hiding started on its document, on a route change for example, has any live-hiding rule that hides it lifted before detection and the wall test, as ADR 0047 does before a Target fingerprint check.
 - **Who decides.** Rules decide. The Decision provider is asked only when they cannot. When it abstains, the prompt is treated as a wall: a notice wrongly blocked costs a page, while a wall wrongly hidden gets around an access condition.
 - **Changes ADR 0035:** `consent_required` joins the Block causes. The quoted price of an "accept or pay" wall, when the page gives one, is recorded in Provenance.
 - **Changes ADR 0021:** it never moves a domain up a proxy tier, never retires a Session to rotate, and is never retried. On a domain in `consent_domains`, the engine accepts instead of blocking.
 - **Changes ADR 0005:** a finished run that left pages in scope at `consent_required` reports Completeness `unverified` and lists them, as for `payment_required`.
 - **Changes ADR 0046:** these responses are never stored in the Response cache, like every Block cause.
-- **`consent_domains`** lists the registrable domains (ADR 0004) on which the engine accepts.
+- **Changes ADR 0016:** never evading a wall is not one of its switchable compliance controls. It is a condition the site set for access, like ADR 0045's payment gate, and it never stops stealth or the Challenge solver.
+- **`consent_domains`** lists the registrable domains (ADR 0004) on which the engine accepts. On such a domain, a wall no rule recognises goes to the Decision provider with its accept buttons offered; without a Decision provider, it stays `consent_required`.
   - **Who widens it.** Only Operator policy, user and project configuration, or a person's answer in the Console or an interactive CLI prompt. On a Daemon with accounts, only the operator role, in Operator policy, as for `pay_domains` (ADR 0045).
   - **Changes ADR 0028:** the Recipe and run layers can only narrow it.
   - **Changes ADR 0011:** no agent surface widens it.
@@ -145,7 +149,7 @@ A consent answer is Session state, not an Effect. Decided in [Built-in page clea
   So `auto` never sends them for a stock Chrome identity.
 - **Forcing it.** `gpc = on` sends them anyway, with a warning that a signal the presented browser never sends breaks the consistency `standard` keeps (ADR 0021).
   - **Firefox and Camoufox** use their own preference.
-  - **Chromium** uses CDP's `Browser.setGlobalPrivacyControl`, which sets the header and `navigator.globalPrivacyControl` together, behind Chromium's `GlobalPrivacyControl` feature ([browser_handler.cc](https://chromium.googlesource.com/chromium/src/+/main/content/browser/devtools/protocol/browser_handler.cc)). It is browser-wide, so it applies only to a Session with a browser of its own. Elsewhere the header goes through the interception, and the warning also says that the JavaScript property is absent.
+  - **Chromium** uses CDP's `Browser.setGlobalPrivacyControl`, which sets the header and `navigator.globalPrivacyControl` together ([browser_handler.cc](https://chromium.googlesource.com/chromium/src/+/main/content/browser/devtools/protocol/browser_handler.cc)). The command needs Chromium's `GlobalPrivacyControlTest` base feature, so Goodfetch launches Chromium with it. It is browser-wide, so it applies only to a Session with a browser of its own. Elsewhere, and in a browser Goodfetch did not launch, the header goes through the interception, and the warning also says that the JavaScript property is absent.
   - **The HTTP tier** sends `Sec-GPC` exactly when the Session's browser would, since it presents the same identity.
 
 **Proof.**

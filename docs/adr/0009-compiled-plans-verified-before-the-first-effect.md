@@ -19,3 +19,4 @@ Evidence: [AI-in-the-loop browser frameworks](https://github.com/Jbmanllr/automa
 - The Console recorder writes Plans in this format, from DOM actions and network traffic across frames and shadow DOM, preferring a discovered API route with the browser as fallback, together with the matching TypeScript or Python code.
 - The check before the first Effect can be switched off per run (ADR 0023); Effects then run marked unverified in the Effect journal.
 - Plans never contain steps for Consent prompts a rule recognises: the engine answers a prompt before each step and its Target fingerprint check, and the recorder leaves such steps out; a step a person keeps after review is theirs (ADR 0048).
+- Before a step's Target fingerprint check, the engine lifts any live-hiding rule that matches its target, so a target hidden by newer Clean-up rules is never Drift (ADR 0047).

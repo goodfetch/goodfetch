@@ -41,12 +41,16 @@ Daemons that serve one team as one, sharing the control state of a Lead Daemon.
 _Avoid_: cluster, fleet
 
 **Lead Daemon**:
-The Member of a Daemon group that holds the group's shared control state.
+The Group member of a Daemon group that holds the group's shared control state.
 _Avoid_: master, primary, leader
 
-**Member**:
-Any Daemon of a Daemon group, the Lead Daemon included.
-_Avoid_: node, worker, replica
+**Group member**:
+Any Daemon of a Daemon group, the Lead Daemon included. Not the *member* role of a person on a shared Daemon.
+_Avoid_: member (alone), node, worker, replica
+
+**Group backup**:
+A consistent copy of a Lead Daemon's stores from which another Group member can become the Lead Daemon.
+_Avoid_: snapshot, Checkpoint (which is a run's)
 
 **Error code**:
 The stable name a Client receives when an operation fails, such as `page_check_failed`, which programs can match on and which keeps its meaning across releases of a major version.
@@ -117,7 +121,7 @@ One piece of work the engine carries out from start to finish, with its own inpu
 _Avoid_: job, execution, session (for a whole run)
 
 **Partitioned crawl**:
-One crawl carried out as several runs on several Members of a Daemon group, each owning part of the domains.
+One crawl carried out as several runs on several Group members of a Daemon group, each owning part of the domains.
 _Avoid_: distributed crawl, sharded crawl
 
 **Partition**:

@@ -13,14 +13,16 @@ How comparable tools share their limits:
 - **The Daemon as the only authority**: rejected, as ADR 0041 rejected it for Limits. An Attached engine or an engine embedded through the Rust crate never reaches the Daemon and would escape it.
 - **Across machines, Goodfetch Cloud only** (as ADR 0041 first placed Limits): rejected. Pain #17 (`selfhost-parity-lockin`) is exactly a capability kept for the hosted service, and hn-103 names distributed rate limiting as a problem people pay for.
 - **Daemons electing an authority among themselves**: rejected. It means building leader election and failover for state whose loss only resets pacing.
-- **Partitioning alone** (ADR 0054): kept for one crawl, where it makes politeness exact with no store, but it says nothing about independent crawls that reach the same site.
+- **Partitioning alone** (ADR 0054): kept for one crawl, where it makes Politeness exact with no store, but it says nothing about independent crawls that reach the same site.
 - **On store loss, failing closed or failing open**: rejected. Failing closed turns a cache restart into a halt of every run; failing open breaks the very promise the store exists to keep. See the degraded mode below.
 
 ## Consequences
 
 **What is shared** (changes ADRs 0004 and 0021).
 - **Per domain:** the count of requests in flight, the time before which `Retry-After` or a backoff forbids a request, and the halved concurrency after a 429 with its gradual recovery. The key is the run's domain key (ADR 0004): the registrable domain unless a Recipe overrides it, so runs with the same key share one entry.
-- **Per proxy** (adds to ADR 0021). `proxy_concurrency` and `proxy_rate` limit the requests sent through one proxy endpoint and credential, unset by default. A refusal by the proxy itself (a 407, 429 or 502 from the proxy, not from the site) is classified as a proxy error, never as a Block cause, so it never triggers ADR 0021's escalation. The engine learns a ceiling from those refusals, halving as on a 429, and raises it again gradually after a quiet period; the ceiling can be set by hand.
+- **Per proxy** (adds to ADR 0021). `proxy_concurrency` and `proxy_rate` limit the requests sent through one proxy endpoint and credential, unset by default.
+  - A 429 or 502 from the proxy itself, not from the site, is a proxy refusal. It is classified as a proxy error, never as a Block cause, so it never triggers ADR 0021's escalation. The engine learns a ceiling from those refusals, halving as on a site's 429, and raises it again gradually after a quiet period; the ceiling can be set by hand.
+  - A 407 from the proxy is a credential error: it fails the request with its own Error code and does not change the ceiling.
 - **Per cloud-browser provider** (changes ADR 0040). The ceiling learned per provider from a vendor's refusals is shared the same way, since a vendor's plan limits the whole account.
 - **What stays per run:** the per-domain queues and their order (ADR 0004), learned escalation and tier choice (ADRs 0020 and 0021), and `per_ip_concurrency`, which is keyed by the target's resolved IP.
 
@@ -28,23 +30,27 @@ How comparable tools share their limits:
 - Each run keeps its own values (ADR 0021, settings per run). A run admits a request to a domain only while the combined count in flight for that key, across every run sharing it, is below the run's own cap. A stricter run therefore waits while a looser one may still go up to its own cap.
 - A `Retry-After`, a backoff or a halving seen by any run applies to every run sharing the key.
 - Runs waiting on the same busy domain take turns, as ADR 0040 serves runs before domains.
-- `politeness_sharing` is a setting per run, `shared` by default; `run` restores per-run politeness and is marked in the run's result (ADR 0023).
+- `politeness_sharing` is a setting per run, `shared` by default; `run` restores per-run Politeness and is marked in the run's result (ADR 0023).
 
-**On one machine: a per-user file.**
-- Every engine of the user (Attached engines, the Daemon, engines embedded through the Rust crate) takes and releases its slots in one SQLite transaction on a per-user Politeness file, outside the per-major folders like the Usage ledger (ADR 0041), so every major shares it.
-- **No polling.** An engine waiting for a slot registers a wake endpoint (a Unix domain socket on Linux and macOS, a named pipe on Windows); the engine that releases a slot wakes the first waiter in turn. A wait for a `Retry-After` or a backoff is a timer on a known deadline.
-- **Nothing to keep.** The file holds no Usage and nothing to resume, so it skips `fsync`. A slot records its run and epoch; an engine reclaims the slots of a run whose writer lock is free or held at a later epoch, as ADR 0041 reclaims slices.
+**On one machine: a per-user Politeness file.**
+- Every engine of the user (Attached engines, the Daemon, engines embedded through the Rust crate) takes and returns its *permits*, one per request in flight, in one SQLite transaction on a per-user Politeness file. It lives outside the per-major folders like the Usage ledger (ADR 0041), so every major shares it.
+- **No polling.** An engine waiting for a permit registers a wake endpoint (a Unix domain socket on Linux and macOS, a named pipe on Windows); the engine that returns a permit wakes the first waiter in turn. A wait for a `Retry-After` or a backoff is a timer on a known deadline.
+- **Nothing to keep.** The file holds no Usage and nothing to resume, so it skips `fsync`. A permit records its run and epoch; an engine reclaims the permits of a run whose writer lock is free or held at a later epoch, as ADR 0041 reclaims slices.
 
 **Across machines: the Politeness store.**
 - **What it is.** A Valkey or Redis server the user provides, set in user configuration or Operator policy (ADR 0028) with a namespace, so every engine pointing at the same namespace shares Politeness. It holds no run state, so CO-28's exclusion of pluggable live storage (ADR 0037) still stands: nothing is resumed from it, and losing it resets only pacing.
-- **Algorithms.** Rates use GCRA, run as a Lua script, so no server module is needed (redis-cell's `CL.THROTTLE` is the reference, [repo](https://github.com/brandur/redis-cell)). Slots in flight are leases with an expiry, renewed while the request lasts. A released slot wakes waiters through pub/sub; a rate wait sleeps until the deadline GCRA returns.
+- **Algorithms.** Rates use GCRA, run as a Lua script, so no server module is needed (redis-cell's `CL.THROTTLE` is the reference, [repo](https://github.com/brandur/redis-cell)). Permits are leases with an expiry, renewed while the request lasts. A returned permit wakes waiters through pub/sub; a rate wait sleeps until the deadline GCRA returns.
 - **Client.** The `redis` crate (BSD-3), async on Tokio with TLS through rustls, Sentinel and Cluster. TLS is required off loopback, and the password is a Secret reference (ADR 0015).
 - **Precedence.** With a store configured, the store is the shared state and the per-user file is not used for Politeness.
-- **Goodfetch Cloud** runs the same code against its own Valkey, keyed per target domain across Tenants, as its architecture research planned.
+- **Goodfetch Cloud** runs the same code against its own Valkey.
 
 **When the store is unreachable.**
-- An engine keeps the slots it holds until their leases expire, then admits per domain at most the cap divided by the number of live engines it last saw. Every engine writes a heartbeat to the store, so that count is known and the sum stays within the cap. Per-proxy limits divide the same way.
+- Every engine writes a heartbeat to the store, so the number N of live engines sharing a namespace is known.
+- An engine that loses the store keeps the permits it holds until their leases expire, then admits per domain at most its share: the cap divided by N, rounded down, and at least 1. Per-proxy limits divide the same way.
+- **Partial loss.** While an engine's heartbeat is stale, the store's script keeps that engine's share reserved, so engines that still reach the store admit only the rest of the cap. The cap can then be exceeded only by the minimum of 1 per disconnected engine, when the cap is smaller than N.
 - `Retry-After`, backoff and halving go on locally.
-- The degraded period is reported as an Activity event, a metric on the ops listener (ADR 0050) and a note in each affected run's result. Reconnection is automatic, with backoff.
+- The degraded period is reported as an event on each affected run's event stream (ADR 0024), a metric on the ops listener (ADR 0050) and a note in each affected run's result. Reconnection is automatic, with backoff.
 
-**Several Daemons in a Daemon group** (ADR 0055) share Politeness through a store. The Helm chart refuses to render with more than one replica unless a store is set or `politeness.shared: per_daemon` is chosen explicitly, which every run's result and the Console then show.
+**Formats** (changes ADR 0030). The per-user Politeness file and the Politeness store's key and script layout join ADR 0030's contract formats. Both follow the Usage ledger's exception: their major stays frozen across product majors, and newer versions only add, so every supported major shares them.
+
+**Several Daemons in a Daemon group** (ADR 0055) share Politeness through a store. The Helm chart refuses to render with more than one replica unless a store is set or `politeness.sharing: per_daemon` is chosen explicitly, which every run's result and the Console then show.

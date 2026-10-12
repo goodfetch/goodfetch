@@ -80,7 +80,7 @@ Crawlee documents AWS Lambda and Cloud Run but tests neither, and its AWS guide 
 
 **Helm chart.**
 - A `StatefulSet` of Daemons, each with its own `ReadWriteOnce` volume for run state, probes on the ops listener (ADR 0050), a `terminationGracePeriodSeconds` sized for the drain (120 by default) and a `PodDisruptionBudget`.
-- `replicas: 1`. Each pod has a stable DNS name. Several Daemons, routing a Client to the Daemon that owns its run, and shared politeness belong to [Scaling past one engine](https://github.com/Jbmanllr/automan/issues/116).
+- `replicas` may be any number: the pods form one Daemon group with pod 0 as the Lead Daemon, a headless `Service` gives each pod the stable name of the peer link, and more than one replica needs a Politeness store, or `politeness.shared: per_daemon` chosen explicitly, and a shared Secret provider (ADRs 0053 and 0055).
 - Optional: a `ServiceMonitor`, an `Ingress` or Gateway API `HTTPRoute`, a `NetworkPolicy` that blocks cluster-internal ranges (ADR 0017's egress classes at the network level), and a Browser host `Deployment`.
 - Operator policy as a `ConfigMap`, and secrets referenced from Kubernetes `Secret`s.
 - By default it passes Kubernetes' `restricted` Pod Security level: `runAsNonRoot`, every capability dropped, `allowPrivilegeEscalation: false`, a read-only root filesystem with `emptyDir` volumes for `/tmp` and the browser cache, a memory-backed `/dev/shm` of 1 GiB, and the seccomp profile as `Localhost`, installed through an optional Security Profiles Operator `SeccompProfile` the chart can create, or by hand.

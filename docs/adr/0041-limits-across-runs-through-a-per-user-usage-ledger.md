@@ -49,12 +49,12 @@ Comparable services cap spend in different ways:
   - The scope-level Notifications and "Needs you" items below.
 
   The Console reads it beside the Run index.
-- **Outside the majors.** It lives in a per-user folder outside the per-major folders, like ADR 0036's active-major marker, so running an older major's binary never escapes a cap. A person on a shared Daemon and a named token exist only on the Daemon of one major (ADR 0031), so their Limits apply on that Daemon.
+- **Outside the majors.** It lives in a per-user folder outside the per-major folders, like ADR 0036's active-major marker, so running an older major's binary never escapes a cap. A person on a shared Daemon and a named token exist only on the Daemon, or the Daemon group, of one major (ADRs 0031 and 0055), so their Limits apply there.
 - **Its format** (changes ADR 0030). The ledger is a contract format, added to ADR 0030's list. Its major stays frozen across product majors, so every supported major opens it.
   - **New versions.** A new version adds rows, tables and columns.
   - **Fails closed.** Each Limit row carries a *must understand* flag. An engine that finds a flagged Limit whose scope kind, Usage kind, currency or period it cannot evaluate refuses to start runs it cannot place outside that Limit. The refusal uses the Error code `limit_not_understood`, which names the Limit and asks for an upgrade. An older engine therefore never runs past a Limit it cannot read. A live run on such an engine that meets a new flagged Limit when it takes its next slice stops at its next safe point with the same Error code.
   - **Breaking changes.** A change that cannot be made by adding goes to a second ledger. Every engine that knows it keeps both up to date, so older engines still enforce what they can read.
-- **One machine.** Caps across several machines belong to Goodfetch Cloud. Its gateway keeps its own ledger per Tenant, with these scopes and semantics, behind the same operations (ADR 0001).
+- **One machine or one Daemon group.** In a Daemon group, the Lead Daemon keeps the ledger and every Member takes its slices there, so these Limits hold across the group, and a Partitioned crawl adds its own scope (ADRs 0054 and 0055). Goodfetch Cloud's gateway keeps its own ledger per Tenant, with these scopes and semantics, behind the same operations (ADR 0001).
 
 **Reservation by slices.** "Slice" is used here so as not to collide with the work-item lease of ADR 0003.
 - **Taking a slice.** For each scope this ADR adds, a run takes a slice and takes another when it is used up. Each slice is taken in one transaction on the ledger, so concurrent engines can never take the same Usage twice.

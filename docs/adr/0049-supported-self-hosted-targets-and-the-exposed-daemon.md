@@ -35,7 +35,7 @@ Crawlee documents AWS Lambda and Cloud Run but tests neither, and its AWS guide 
 | Docker and Docker Compose | Supported | The OCI image itself |
 | Kubernetes (Helm chart) | Supported | A `kind` cluster: install the chart, run, drain on pod deletion |
 | Linux VM with systemd | Supported | A system unit running `goodfetch daemon run`, beside the per-user unit of `goodfetch daemon install` (ADR 0031) |
-| Google Cloud Run, services and jobs | Supported | One real deploy per release candidate |
+| Google Cloud Run, services and jobs | Supported | One real deploy per release candidate, a job ADR 0043 allows to reach Google Cloud |
 | AWS Lambda, container image | Supported | AWS's Lambda Runtime Interface Emulator |
 | Cloudflare Workers, Vercel Functions, Deno Deploy, as Clients only | Supported | The SDK in `workerd` (Miniflare), Vercel's edge-runtime and Deno against a Daemon |
 | ECS and Fargate, Azure Container Apps, Fly.io, Railway, Render | Documented | None |

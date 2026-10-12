@@ -9,7 +9,7 @@ Consent walls are read past without consenting; accepting still needs `consent_d
 
 Goodfetch's own code never names a paywall vendor, a search crawler or an archive as a way past a Wall. Posing as Googlebot, spoofing a referrer and fetching archived copies stay reachable only through the user's own Hooks, Plugins and Filter lists. The official Plugin index does not list Plugins presented that way. Decided in [Opt-in paywall and consent-wall circumvention](https://github.com/Jbmanllr/automan/issues/155), on the evidence of [Legal exposure of paywall and consent-wall circumvention](https://github.com/Jbmanllr/automan/issues/154) ([findings](https://github.com/Jbmanllr/automan/blob/research/paywall-consent-circumvention/rnd/research/2026-10-12-paywall-consent-circumvention-legal.md)).
 
-**Why generic, and why public.** The legal research found that risk follows naming, not capability. Every takedown it found hit a tool presented as a paywall bypass:
+**Why generic, and why public.** The legal research found that risk follows naming, not capability. Every takedown it found hit a tool presented as a way past paywalls:
 - one §1201 notice disabled 3,879 GitHub repositories of Bypass Paywalls Clean ([notice](https://github.com/github/dmca/blob/master/2024/08/2024-08-09-news-media-alliance.md));
 - 12ft.io's host locked it;
 - smry.ai, which used to pose as Googlebot and fetch archives, retreated and now tells users not to use it on hard paywalls.
@@ -61,11 +61,11 @@ No parity row and none of the 24 ranked pains asks for getting past a paywall (A
   - It removes that element from extracted content in every tier, and lifts a scroll lock the Wall left, from the isolated world, as ADR 0048 does after a refusal.
   - In the HTTP tier, which has no layout, the route's browser sample decides what covers the main content and whether the served page holds it, as it decides the wall test (ADR 0048).
   - **Changes ADR 0047:** the "never hidden" rule for paywalls, consent walls and ad-blocker walls, and the protection of elements covering a section marked `isAccessibleForFree: false`, do not apply on these domains. Sections the page declares paid are still never removed, since they are the content.
-  - **Changes ADR 0045:** its rule that no cosmetic rule hides a paywall vendor's overlay does not apply on these domains either.
+  - **Changes ADR 0045:** on these domains, its rule that no cosmetic rule hides a paywall vendor's overlay or an element covering a declared paid section does not apply, nor does its shielding of paywall vendors' overlay scripts through the never-block list.
 - **Letting the Filter lists block a Wall's script.**
   - **Changes ADR 0047:** on these domains, the never-block list's entries for paywall vendors' overlay scripts do not apply. The Filter lists then block them as they do in any browser running uBlock Origin; Fanboy Annoyance already blocks `||piano.io^` and `||tinypass.com^`.
   - **Changes ADRs 0020 and 0047:** the breakage rules that turn blocking off because a Wall appears only with blocking off, or that retry with blocking off because an ad-blocker wall appears, are skipped. An ad-blocker wall is hidden instead.
-  - **Changes ADR 0047:** its comparison of the route's sample with blocking off still applies, except that differences caused by requests to scripts of a Wall the rules detected are ignored, so blocking a Wall's script never turns blocking off for the route. Entries for challenge providers, anti-bot sensors, and anti-fraud and payment scripts still win.
+  - **Changes ADRs 0020 and 0047:** ADR 0047's comparison of the route's sample with blocking off still applies, except that differences caused by requests to scripts of a Wall the rules detected are ignored, so blocking a Wall's script never turns blocking off for the route. Entries for challenge providers, anti-bot sensors, and anti-fraud and payment scripts still win.
   - The consent vendors' prompt scripts keep loading, so a prompt with a refusal is still refused (below).
 - **One fresh Session per page.**
   - When a paywall leaves the served page without its main content, the engine retires the Session through its Session pool and fetches the page once more in a new one, with a fresh cookie jar and storage.

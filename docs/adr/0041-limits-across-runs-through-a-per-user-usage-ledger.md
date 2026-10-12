@@ -25,8 +25,9 @@ Comparable services cap spend in different ways:
 - **Where a Limit attaches:**
   - a run (ADR 0012);
   - a Schedule's period (ADR 0036);
-  - the install: every run of the user on the machine, whichever engine runs it;
-  - a Daemon;
+  - the install: every run of the user on the machine, whichever engine runs it, or in a Daemon group on every Group member's machine (ADR 0055);
+  - a Daemon, which in a Daemon group is the whole group (ADR 0055);
+  - a Partitioned crawl (ADR 0054);
   - a person on a shared Daemon (ADR 0031);
   - a named token;
   - a Client connection, such as an MCP session or an SDK's connection, for as long as the connection lasts.

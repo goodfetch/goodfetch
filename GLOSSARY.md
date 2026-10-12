@@ -121,7 +121,7 @@ One piece of work the engine carries out from start to finish, with its own inpu
 _Avoid_: job, execution, session (for a whole run)
 
 **Partitioned crawl**:
-One crawl carried out as several runs on several Group members of a Daemon group, each owning part of the domains.
+One crawl carried out as several runs on several Group members of a Daemon group, or on several engines of Goodfetch Cloud, each owning part of the domains.
 _Avoid_: distributed crawl, sharded crawl
 
 **Partition**:

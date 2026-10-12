@@ -108,7 +108,7 @@ Evidence from the competitor survey made for that ticket:
 **Records at scale.**
 - **Paging.** Records page by key, with filtering, sorting and column selection done in the engine.
 - **Search across runs** runs on DuckDB inside the engine, reading run files read-only, as ADR 0015 allowed by not using SQLCipher. Each run keeps a SQLite FTS5 index for full-text search.
-- **The SQL tab.** The Datasets screen offers a read-only SQL tab over the selected runs. The engine attaches the selected runs and loads DuckDB's SQLite reader first (a pinned download, ADR 0057), then switches external access off and locks the configuration, so a query reads only those runs. Queries have time and memory limits and secret columns are hidden. The SQL tab is a catalog read, so every surface gets it.
+- **The SQL tab.** The Datasets screen offers a read-only SQL tab over the selected runs. The engine registers the selected runs as DuckDB table functions that read them through `rusqlite` (ADR 0057), with external access off and the configuration locked from the start, so a query reads only those runs. Queries have time and memory limits and secret columns are hidden. The SQL tab is a catalog read, so every surface gets it.
 
 **Reaching the Console remotely.**
 - **Links.** Notification links carry no credential. They point to the Console address the person sets, such as an exposed Daemon's TLS address.

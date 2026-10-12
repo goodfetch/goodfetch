@@ -48,7 +48,7 @@ This matrix is the companion of [ADR 0037](0037-v1-scope-parity-and-pain-coverag
 |---|---|---|---|---|---|
 | SDK-01 | Primary language and package | `decided` | ADR 0024, ADR 0034 | 11 Client surfaces | `goodfetch` binary, Rust crate, npm and PyPI SDKs. |
 | SDK-02 | Same API in several languages | `decided` | ADR 0011, ADR 0024, ADR 0030 | 11 Client surfaces | Every SDK is generated from one Operation catalog, in lockstep versions. |
-| SDK-03 | Modular install | `decided` | ADR 0024, ADR 0033, ADR 0057 | 1 Repository, CI and release | One binary with every capability under a Size budget; browsers, sink processes, Plugins and DuckDB's SQLite reader fetched on demand by digest. |
+| SDK-03 | Modular install | `decided` | ADR 0024, ADR 0033, ADR 0057 | 1 Repository, CI and release | One binary with every capability under a Size budget; browsers, sink processes and Plugins fetched on demand by digest. |
 | SDK-04 | Project scaffolding CLI and templates | `decided` | ADR 0030, ADR 0049 | 11 Client surfaces | `goodfetch init` scaffolds TypeScript, Python and Rust from five starters (crawl, extract, browser automation, AI agent, Recipe), each with a Dockerfile, Compose file, CI workflow, AGENTS.md and skills, embedded in the binary; `--deploy <target>` adds a target's files. |
 | SDK-05 | No-code CLI that crawls or drives a browser | `decided` | ADR 0011, ADR 0034, ADR 0036 | 11 Client surfaces | CLI generated from the catalog with `--json`; code-free catalog runs. |
 | SDK-06 | Typed public API and schemas | `decided` | ADR 0011, ADR 0024, ADR 0028, ADR 0038 | 11 Client surfaces | Typed catalog defined in Rust types, generated SDK types, sync and async Python. |

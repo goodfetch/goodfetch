@@ -105,7 +105,7 @@ Every Goodfetch package carries one version and is released together: the `goodf
   - **Tested examples:** every code sample runs in CI against the Proving ground, through Rust doctests, Twoslash, pytest-examples and scripted CLI and MCP samples. Links are checked with lychee.
   - **For agents:**
     - every page is also served as `.md`, with `llms.txt` and `llms-full.txt`
-    - the docs of the installed version are embedded in the binary, read with `goodfetch docs` and served as resources by the engine's MCP server, as Next.js ships its docs in its package
+    - the docs of the installed version are embedded in the binary (zstd-compressed, ADR 0057), read with `goodfetch docs` and served as resources by the engine's MCP server, as Next.js ships its docs in its package
     - skills ship inside the packages and install with `goodfetch skills install`
     - `goodfetch init` writes a short AGENTS.md index
 

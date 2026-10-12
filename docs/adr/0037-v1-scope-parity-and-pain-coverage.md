@@ -32,7 +32,7 @@ One spec per area. An area goes to `/to-spec` only after every area whose contra
 | 1 | Repository, CI and release | 0018, 0030, 0032, 0034, 0039, 0049, 0057 |  |
 | 2 | Proving ground and conformance | 0025 |  |
 | 3 | Engine runtime | 0002–0004, 0024, 0028, 0040, 0041, 0049–0051, 0053–0057 |  |
-| 4 | Security and egress | 0015–0017, 0042–0044, 0049, 0050, 0055, 0056 |  |
+| 4 | Security and egress | 0015–0017, 0042–0044, 0049–0051, 0055, 0056 |  |
 | 5 | Site access | 0019–0023, 0045, 0047–0049, 0052, 0053, 0056 |  |
 | 6 | Collection | 0005–0008, 0026, 0040, 0046, 0054, 0056 |  |
 | 7 | Plugin protocol | 0033, 0049, 0056 |  |
@@ -44,7 +44,7 @@ One spec per area. An area goes to `/to-spec` only after every area whose contra
 | 13 | Self-hosted deployment and operations | 0024, 0049, 0050, 0053, 0055, 0056 |  |
 | 14 | Cloud-readiness contracts | 0001, 0049, 0056 |  |
 
-Every area also follows ADR 0038, which sets the contracts and code conventions, and reads every ADR that says it changes one of the area's ADRs (a "Changes ADR" line), so a later decision that amends an area's ADR reaches that area's spec without being listed here. The table lists the ADRs an area builds; it is updated when a new ADR adds to an area.
+Every area also follows ADR 0038, which sets the contracts and code conventions. Its `/to-spec` also reads every ADR that amends one of the ADRs listed in its row, however the amendment is worded ("Changes ADR", "adds to ADR", "extends", "narrows", "replaces"), so a later decision reaches every area whose ADR it amends without being listed here. This applies to the ADRs listed in the row, not again to the amending ADRs. The table lists the ADRs an area builds: the pull request that records an ADR deciding something an area builds adds it to that area's row, and its fresh review checks it.
 
 The Proving ground comes second because it is the oracle every later area's conformance suite runs against. Security precedes Site access because ADR 0017's egress policy wraps every fetch. Scheduling precedes Client surfaces and the Console, which expose its `schedules.*` operations (ADR 0036). Where two areas use each other's contracts, as Scheduling uses the Console's Run index and the Notification events of Client surfaces (ADRs 0031 and 0027), the ADRs already fix the shared contract, and the earlier area's spec builds against it while the later area's spec implements it. Across areas, `/to-issues` blocks each issue on the issues that build the contracts it consumes, whichever area they belong to; when those issues do not exist yet, the later area's `/to-issues` adds the links to the issues already created.
 

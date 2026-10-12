@@ -56,7 +56,7 @@ Spider and Crawl4AI read only the host's memory ([detect_system.rs](https://gith
   - To recycle, it stops taking new pages, lets its pages finish, closes, and is replaced.
   - A Session is not its browser: its cookies, storage and, for a per-process fingerprint, its seed carry over to the new process. Recycling therefore never changes an identity, which ADR 0021 treats as a bot signal.
   - **Held browsers.** A browser holding a page in a Human pause, under a person's control in the Live view (ADR 0031) or under a raw CDP attach bound to its work item's lease (ADR 0003) is recycled only once that page is released.
-- **Session retirement.** ADR 0006 still retires Sessions that fail. Recycling is about the process, retirement about the identity.
+- **Session retirement.** ADR 0006 still retires Sessions that fail, except a Session on a Profile directory used in place or on a Borrowed browser, which raises a Human pause instead (ADR 0056). Recycling is about the process, retirement about the identity.
 
 **Under memory pressure.**
 1. **Pressure.** Nothing new is admitted.

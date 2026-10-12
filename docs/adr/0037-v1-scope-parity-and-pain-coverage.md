@@ -42,7 +42,7 @@ One spec per area. An area goes to `/to-spec` only after every area whose contra
 | 11 | Client surfaces (SDKs, CLI, MCP, skills, adapters, Integrations, Notifications) | 0011, 0024, 0027, 0049, 0055, 0056 |  |
 | 12 | Console | 0029, 0031, 0049, 0055, 0056 |  |
 | 13 | Self-hosted deployment and operations | 0024, 0049, 0050, 0053, 0055, 0056 |  |
-| 14 | Cloud-readiness contracts | 0001, 0049 |  |
+| 14 | Cloud-readiness contracts | 0001, 0049, 0056 |  |
 
 The Proving ground comes second because it is the oracle every later area's conformance suite runs against. Security precedes Site access because ADR 0017's egress policy wraps every fetch. Scheduling precedes Client surfaces and the Console, which expose its `schedules.*` operations (ADR 0036). Where two areas use each other's contracts, as Scheduling uses the Console's Run index and the Notification events of Client surfaces (ADRs 0031 and 0027), the ADRs already fix the shared contract, and the earlier area's spec builds against it while the later area's spec implements it. Across areas, `/to-issues` blocks each issue on the issues that build the contracts it consumes, whichever area they belong to; when those issues do not exist yet, the later area's `/to-issues` adds the links to the issues already created.
 

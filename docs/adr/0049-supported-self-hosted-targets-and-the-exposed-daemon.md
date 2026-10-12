@@ -50,7 +50,7 @@ Crawlee documents AWS Lambda and Cloud Run but tests neither, and its AWS guide 
 
 **Google Cloud Run.**
 - An Exposed Daemon as a Cloud Run service, with instance-based billing (CPU always allocated), at least one instance, at most one instance per Daemon, and checkpoints to Cloud Storage.
-- Recipe runs as jobs: an Attached engine per execution, started by Cloud Scheduler.
+- Recipe runs as Cloud Run jobs: an Attached engine per Cloud Run job execution, started by Cloud Scheduler.
 - The engine detects throttled CPU on Cloud Run and warns in the run's results. The guide for ECS and Fargate describes services and tasks the same way.
 
 **Run state on deployed hosts** (changes ADR 0002).

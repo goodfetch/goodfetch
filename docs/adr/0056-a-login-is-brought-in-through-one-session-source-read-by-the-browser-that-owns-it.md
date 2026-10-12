@@ -7,7 +7,7 @@ A person often has a login already, meaning the signed-in state a site keeps in 
 - a browser they are using;
 - a browser their own Playwright script launched.
 
-Until now Goodfetch could only make a login inside its own Sessions (ADR 0006) and keep it as a Saved identity (ADR 0035). V1 brings every one of those logins in, through one setting, `session.source`, whose value is exactly one kind of source. Each browser's data is read by that browser itself, never decrypted by Goodfetch, because browsers bind their cookies to their own build and machine and, for Google accounts, to a device key. Decided in [Bringing an existing login or browser](https://github.com/Jbmanllr/automan/issues/117).
+Until now Goodfetch could only make a login inside its own Sessions (ADR 0006) and keep it as a Saved identity (ADR 0035). V1 brings every one of those logins in, through one setting, `session.source`, the Session source, whose value is exactly one kind of source. Each browser's data is read by that browser itself, never decrypted by Goodfetch, because browsers bind their cookies to their own build and machine and, for Google accounts, to a device key. Decided in [Bringing an existing login or browser](https://github.com/Jbmanllr/automan/issues/117).
 
 **Why the browser reads its own data.**
 - **macOS:** Chrome encrypts cookies under the Keychain item "Chrome Safe Storage", while other Chromium builds use "Chromium Safe Storage" ([keychain_password_mac.mm](https://chromium.googlesource.com/chromium/src/+/main/components/os_crypt/common/keychain_password_mac.mm)).
@@ -47,7 +47,7 @@ Until now Goodfetch could only make a login inside its own Sessions (ADR 0006) a
 - **Separate options per mechanism** (`storageState`, `userDataDir`, `cdpUrl`, `connect`): rejected. They overlap, allow contradictory combinations, and each surface would validate them on its own.
 - **A Saved identity as the only destination**: rejected. A CI job with a `storageState` file would have to create a stored object for one run, on a machine whose keychain may not exist.
 - **Guessing which cookies are a login**: rejected. A wrong "anonymous" would hand an account to a Plugin or log it out through a Wall reset.
-- **Letting a Recipe set the source**: rejected. A third-party Recipe could then read the person's browser into Sinks its author controls. As with `wall_domains` (ADR 0052), only the person's own configuration sets `session.source`.
+- **Letting a Recipe set the source**: rejected. A third-party Recipe could then read the person's browser into Sinks its author controls. As with `wall_domains` (ADR 0052), only the person sets `session.source`, through their configuration, their run, or the Console or CLI, and Operator policy limits it.
 - **Exporting `cookies.txt`**: rejected as over-engineering. No V1 parity row or pain needs Goodfetch to produce it.
 
 ## Consequences
@@ -61,13 +61,13 @@ Until now Goodfetch could only make a login inside its own Sessions (ADR 0006) a
 | `saved_identity { name }` | A Saved identity (ADR 0035) | Used as today | — |
 | `state_file { path, format?, key? }` | A Playwright `storageState` file, a Netscape `cookies.txt`, a JSON array of CDP `Network.Cookie` objects, or a session export bundle (ADR 0015, opened with `key`, a Secret reference). The format is detected; `format` overrides it. | Run-only import | Parsed |
 | `cookie_header { header, domain }` | A raw `Cookie:` header, for Spider's `with_cookies` and Firecrawl's `headers` | Run-only import | Parsed |
-| `profile_directory { path, browser, profile_name?, domains }` | A Profile directory, and for Chromium the profile inside it | Launched in place | Read by the browser |
-| `browser { family, profile_name?, domains }` | A browser installed on this machine | Run-only import | Read by the browser |
+| `profile_directory { path, browser, chromium_profile?, domains }` | A Profile directory, and for a Chromium-family browser the profile folder inside it | Launched in place | Read by the browser |
+| `installed_browser { browser, chromium_profile?, domains }` | A browser installed on this machine, such as Chrome, Edge, Brave, Firefox or Safari | Run-only import | Read by the browser |
 | `running_browser { browser, domains }` | The person's running browser | Borrowed browser | Read by the browser |
-| `cdp_url { url, headers }` | Any browser reachable over CDP; header values are Secret references | Borrowed browser | Read by the browser |
+| `cdp_url { url, headers?, domains? }` | Any browser reachable over CDP; header values are Secret references, and `domains` is required for an import | Borrowed browser | Read by the browser |
 | `client_browser` | A browser the SDK's `borrow()` relays | Borrowed browser | — |
 
-**Who sets it.** Only user and project configuration, the run layer, or a person in the Console or CLI sets `session.source`. A Recipe may expose it, but never sets or locks it. Plugins never set it. **Changes ADR 0028.**
+**Who sets it.** Only Operator policy, user and project configuration, the run layer, or a person in the Console or CLI sets `session.source`. A Recipe may expose it, but never sets or locks it. Plugins never set it. **Changes ADR 0028.**
 
 **Destinations.** One importer serves two destinations, and neither keeps the source file:
 - *a Saved identity*, the default in the CLI and the Console;
@@ -94,8 +94,8 @@ Until now Goodfetch could only make a login inside its own Sessions (ADR 0006) a
 
 The cookies were minted by the person's own browser on the person's own network, and ADR 0021 treats a fingerprint or IP that changes under the same cookies as a bot signal. So an import is bound to its source:
 - **Access mode** `standard`.
-- **Identity profile:** the source browser's family, major version, language and time zone. When a file does not carry them, they are taken from the importing machine and marked *inferred* in Provenance.
-- **Which browser runs it:** an installed browser of the source's family (by channel, ADR 0024) when one exists, else Goodfetch's build of that engine. Version fields follow the running build, as in ADR 0035, and Provenance records the source's major.
+- **Identity profile:** the source browser's family, language and time zone; the source's major version is recorded in Provenance. When a file does not carry them, they are taken from the importing machine and marked *inferred* in Provenance.
+- **Which browser runs it:** an installed browser of the source's family (by channel, ADR 0024) when one exists, else Goodfetch's build of that engine. Version fields follow the running build, as in ADR 0035.
 - **Egress:** direct, unless the person names a proxy at import, which becomes the binding. With a proxy, language and time zone stay the source's, because the site knows the login by them, and the import warns when the exit's country differs. **Changes ADR 0021**, whose `standard` matches them to the proxy exit.
 - **`stealth`** may be chosen at import, with a warning that the fingerprint changes under the same cookies.
 
@@ -117,7 +117,7 @@ From then on, ADR 0035's reuse rules apply.
   - *localStorage and IndexedDB* are read by Goodfetch's Firefox (ADR 0019) on a temporary copy of the profile, over its pipe, with every request intercepted so that no site is contacted.
   - *Source profile newer than Goodfetch's Firefox:* that part fails with `profile_directory_newer_than_browser`, and the cookies still import, with a warning.
 - **Safari.** Cookies, localStorage and IndexedDB are in scope.
-  - *Permission:* macOS allows reading them only after the person grants Full Disk Access. Without it, a typed error explains how.
+  - *Permission:* macOS allows reading them only after the person grants Full Disk Access. Without it, the import fails with `full_disk_access_required`, which explains how to grant it.
   - *Primary route:* Goodfetch's WebKit (ADR 0019) opens a copy of Safari's website data, as the Firefox route does.
   - *Fallback for cookies:* an in-house decoder of `Cookies.binarycookies`, fuzzed, written because no crate is widely used (the best, `safari-binarycookies`, has about 12,000 downloads).
 
@@ -130,16 +130,16 @@ A run whose source is `profile_directory` launches a browser on that directory:
 
 The rules for an in-place launch:
 - **Lock and version.** The engine takes the browser's own lock and checks the directory's version before launching:
-  - *Chromium family:* `SingletonLock`, plus `Local State` and `Last Version`.
-  - *Firefox:* `parent.lock`, plus `compatibility.ini`.
+  - *Chromium family:* the singleton lock (`SingletonLock`, or `lockfile` on Windows), plus `Local State` and `Last Version`.
+  - *Firefox:* `parent.lock` on Windows, `.parentlock` on macOS and Linux, plus `compatibility.ini`.
 
   It refuses with `profile_directory_in_use`, `profile_directory_browser_mismatch` or `profile_directory_newer_than_browser`. On Windows, a cookie file locked by a running browser counts as `profile_directory_in_use` and is never retried in a loop.
 - **The profile's own key store.** The launch never passes the mock-keychain or `basic` password-store flags that automation tools add by default, because they stop a real profile's cookies from decrypting ([browser-use#3225](https://github.com/browser-use/browser-use/issues/3225)).
 - **Chrome's default data directory is refused**, pointing to `running_browser`.
-- **Writes persist.** Cookies, storage and Consent prompt answers the run sets stay in the directory, as they would in the person's own use.
+- **Writes persist.** Cookies, storage and Consent prompt answers the run sets stay in the directory, as they would in the person's own use, marked in Provenance. **Changes ADR 0048.**
 - **The reset gate.** The directory is the person's data, not Goodfetch state, so the reset gate neither removes nor scans it. Everything the run creates elsewhere is still removed. **Changes ADR 0001 and ADR 0015.**
 - **Resuming elsewhere** (ADR 0002):
-  - *Through a proxy:* allowed, because the Session reaches sites through the same exit. The resumed Session continues from its checkpointed cookies and storage, and Provenance records that the directory stayed behind.
+  - *Through a proxy, and not behind a Browser host:* allowed, because the Session reaches sites through the same exit. The resumed Session continues from its checkpointed cookies and storage, and Provenance records that the directory stayed behind.
   - *On direct egress:* refused with `session_bound_to_machine`, since a new IP under the same cookies breaks ADR 0021.
 
 ### Borrowed browsers
@@ -151,7 +151,7 @@ A Borrowed browser serves one run and one Session, in its default context, where
 - **Identity:** the Session is `standard`, and its identity is the browser's own, recorded in Provenance.
 - **Resources:** the governor neither recycles a Borrowed browser nor counts it in the memory allowance, as for a vendor's browser. **Changes ADR 0040.**
 - **Refused Sessions:** a Session with a certificate exception (`certificate_exception_unsupported`, ADR 0042) or a local address (`local_address_unavailable`, ADR 0044).
-- **What persists:** cookies, storage and Consent prompt answers the run sets stay in the person's browser.
+- **What persists:** cookies, storage and Consent prompt answers the run sets stay in the person's browser, marked in Provenance. **Changes ADR 0001, ADR 0015 and ADR 0048.**
 
 **The person's running browser.** Goodfetch uses Chrome 144's consented remote debugging ([Chrome blog](https://developer.chrome.com/blog/chrome-devtools-mcp-debug-your-browser-session)).
 - *Setup:* the person enables it once at `chrome://inspect/#remote-debugging`, and the browser asks "Allow remote debugging?" for each WebSocket connection ([chrome-devtools-mcp#1794](https://github.com/ChromeDevTools/chrome-devtools-mcp/issues/1794)).
@@ -160,7 +160,7 @@ A Borrowed browser serves one run and one Session, in its default context, where
 - *Tabs:* Goodfetch opens its own tabs and never touches the person's other tabs.
 - *Refusals:*
   - when an administrator has turned remote debugging off, `remote_debugging_disabled_by_policy`;
-  - a running Firefox or Safari, because neither offers a way in.
+  - a running Firefox or Safari, with `running_browser_unsupported`, because neither offers a way in.
 
 **A browser the person's own code launched.** This is the reverse of ADR 0019, where the person's Playwright attaches to Goodfetch's browser.
 - *The SDK relay:* `goodfetch.borrow(browserOrPage)`, in the TypeScript SDK for Playwright and Puppeteer, and in the Python SDK for Playwright's sync and async APIs.
@@ -169,16 +169,18 @@ A Borrowed browser serves one run and one Session, in its default context, where
   - `$/cancel` ends the borrow.
   - No port is needed, so it works on the pipe-launched browsers Playwright starts by default.
 - *Through `cdp_url`:* Selenium 4 (through its `se:cdp` address), the Rust crate and the CLI.
-- *Refused:* Playwright's Firefox and WebKit pages, which expose no CDP. Pyppeteer is not supported, because it is unmaintained.
+- *Refused:* Playwright's Firefox and WebKit pages, which expose no CDP, with `borrow_requires_cdp`. Pyppeteer is not supported, because it is unmaintained.
 
-**The person's code is a raw CDP client (ADR 0017).** On `client_browser` and `cdp_url`, that code holds its own CDP session and can act outside the Effect journal and switch off interception. So:
+**The person's code is a raw CDP client (ADR 0017).** On `client_browser`, and on a `cdp_url` the person's own code also drives, that code holds its own CDP session and can act outside the Effect journal and switch off interception. So:
 - the engine refuses to type secrets;
 - results are marked unguarded, and Provenance marks the run as sharing its browser;
-- the egress check is interception only.
+- the egress check and the domain policy are interception only, which that code can switch off, and Provenance records that neither is guaranteed. **Changes ADR 0014.**
+
+A `cdp_url` the engine alone drives, such as a cloud browser, keeps ADR 0022's guarded path.
 
 **Egress on every Borrowed browser.** No egress proxy can be put under a browser that is already running, so the engine resolves each intercepted request's host itself and blocks private ranges. The browser resolves names itself, so a DNS-rebinding gap remains, and it is recorded in Provenance. **Changes ADR 0017**, whose connect-time check this replaces for Borrowed browsers.
 
-**Which `cdp_url` addresses are allowed.** A `cdp_url` counts as operator-configured only when it is set in Operator policy or in user and project configuration. Otherwise it is treated as an address a page can reach, and private ranges are refused.
+**Which `cdp_url` addresses are allowed.** As for Plugin endpoints (ADR 0017), a `cdp_url` counts as operator-configured when it is set in Operator policy or in user and project configuration, or is a run value that Operator policy allows; a run value from the person's own code may also use loopback, except on an Exposed Daemon. Otherwise it is treated as an address a page can reach, and private ranges are refused.
 
 **Audit.** Every import and every borrow is recorded in the Audit log.
 
@@ -187,26 +189,27 @@ A Borrowed browser serves one run and one Session, in its default context, where
 ### Who may bring a login in
 
 - **A person's own code** (a script, an SDK, the CLI) needs no extra approval, because running the code is the approval. A browser's own dialog still appears.
-- **A Recipe or a Plugin is not the person's own code.** A Recipe run whose source is `profile_directory`, `browser`, `running_browser` or `cdp_url` waits for a person's approval, as a Client acting for a model does.
-- **A Client acting for a model** (MCP, an agent, code mode) waits for a person's approval before any import or borrow, through a Human pause in the Console, the CLI or a Notification. For a running browser, the browser's own "Allow remote debugging?" dialog counts as that approval. The reason is session fixation: a prompt-injected agent could import an attacker's cookies, and the person's later work would land in the attacker's account.
+- **A Recipe or a Plugin is not the person's own code.** A Recipe run whose source is `profile_directory`, `installed_browser`, `running_browser` or `cdp_url` waits for a person's approval, as a Client acting for a model does.
+- **A Client acting for a model** (MCP, an agent, code mode) waits for a person's approval before any import or borrow, through a Human pause in the Console, the CLI or a Notification. For a running browser, the browser's own "Allow remote debugging?" dialog counts as approval of the connection; `domains` chosen by a Client acting for a model are still approved in the Human pause. The reason is session fixation: a prompt-injected agent could import an attacker's cookies, and the person's later work would land in the attacker's account.
 - **Navigation on a borrowed running browser, or on a Profile directory used in place, is bound to its source's `domains`,** which a person approves.
   - The list covers top-level navigations and new tabs. Subresources and frames follow their page, so a payment or CAPTCHA frame on an allowed page loads.
   - An unlisted navigation, such as a login redirect to an identity provider, is handled by who started the run:
     - for a Client acting for a model or a Recipe run, a Human pause asks the person to add the domain;
     - for the person's own code, it fails with `domain_not_allowed`.
-- **Operator policy (ADR 0028) can lock which source kinds are allowed.** On an Exposed Daemon (ADR 0049), `profile_directory`, `browser`, `running_browser` and `cdp_url` are off by default, because they would reach the server account's browser or network for anyone holding a token. There, `state_file` reads only content the Client uploads, never a server path.
-- **Daemon groups.** In a Daemon group, a run whose source is `profile_directory`, `browser` or `running_browser` runs only on the Group member where that source exists, and its paths take the *group member* scope (ADR 0028). **Changes ADR 0055.**
+- **Operator policy (ADR 0028) can lock which source kinds are allowed.** On a Daemon with accounts (ADR 0031), Exposed Daemons included (ADR 0049), `profile_directory`, `installed_browser`, `running_browser` and `cdp_url` are off by default when they would be read on the Daemon's own machine, because they would reach that account's browser or network for anyone holding a token. Served by a Browser host the person runs (below), they stay available. There, `state_file` reads only content the Client uploads, never a server path.
+- **Changes ADR 0031:** on a Daemon with accounts, the clear-text `storageState` export and widening a source's `domains` go through step-up, and only the operator role writes the `cdp_url` addresses used as operator-configured endpoints.
+- **Daemon groups.** In a Daemon group, a run whose source is `profile_directory`, `installed_browser`, `running_browser` or a loopback `cdp_url` runs only on the Group member where that source exists, and a `client_browser` run on the Group member holding the SDK's connection; their paths take the *group member* scope (ADR 0028). **Changes ADR 0055.**
 
 ### A remote engine and the person's browser
 
-When the engine runs on a shared Daemon or in Goodfetch Cloud, the person runs a Browser host (ADR 0022) on their own machine, beside their running browser or a Profile directory. The Browser host carries out the Session's operations beside the browser, behind the guard, and serves that Borrowed browser.
+When the engine runs on a shared Daemon or in Goodfetch Cloud, the person runs a Browser host (ADR 0022) on their own machine, beside their running browser or a Profile directory. The Browser host carries out the Session's operations beside the browser, behind the guard.
 - **The connection runs outward:** the Browser host connects out to the engine, and the person's browser never accepts an inbound connection. The rules above apply, and the Browser host's token is scoped to that one Session.
-- **Nothing is wiped:** the Browser host wipes nothing and never closes the browser.
+- **Nothing is wiped:** the Browser host wipes nothing. It never closes a Borrowed browser; a browser it launched on a Profile directory it closes, leaving the directory intact.
 - **Cookies stay local:** the Session's cookies and storage are not copied back into run state. A Checkpoint records only that the browser stayed behind, so the run resumes only through that Browser host. **Changes ADR 0022.**
 - **Events and cancellation:** the Browser host's events flow under ADR 0024's credits, and `$/cancel` ends the borrow.
 - **When the machine sleeps or goes offline:**
-  - the Session is suspended;
-  - the work item's lease is released after its grace period (ADR 0003);
+  - the Session stops taking work and the run's frontier holds its pending items;
+  - the work item's lease expires as ADR 0003 has it, and the item is retried once the browser is back;
   - the run waits in a Human pause ("your browser is offline") instead of failing;
   - it resumes when the Browser host reconnects.
 
@@ -218,8 +221,9 @@ This is the only way a remote run can use a device-bound login, and it keeps the
 - **Changes ADR 0006:** the recovery ladder gains **re-import from source**, right after the declared refresh.
   - *Unattended:* only when the source can be read without a person. That means a closed, non-default Chromium data directory, a Firefox profile, or Safari once Full Disk Access is granted.
   - *Needing a person:* a running browser, Chrome's default data directory, or a busy source (`profile_directory_in_use`). The step becomes part of the Human pause, where the person approves a re-import or logs in through the Live view.
-  - *Started by a Client acting for a model:* always the Human pause.
+  - *Started by a Client acting for a model, or in a Recipe run:* always the Human pause.
   - *Budget:* re-import counts toward the limit of two recoveries per page.
+  - *Writing:* a re-import writes the Saved identity under ADR 0035's install-wide lock, a lease in a Daemon group.
   - *File and run-only imports* have nothing to re-read and run the ladder as before.
 - **Cookie expiry warnings.** A cookie's expiry is not the site's session expiry, so the warnings say "cookies expire on…", and only the Page check judges whether a login is still live.
   - *On a Daemon:* a Notification (ADR 0027) and a Console badge appear when the earliest expiry falls inside a window, by default 3 days, a setting. The Daemon schedules this as a timer at expiry minus the window. In a Daemon group, the Lead Daemon, which keeps Saved identities, runs the timers and sends each Notification once.
@@ -228,7 +232,8 @@ This is the only way a remote run can use a device-bound login, and it keeps the
 
 ### Other changes
 
-- **Changes ADR 0001:** a Profile directory used in place is outside the reset gate, as the person's own data. Saved identities remain the only exception to the reset rule.
+- **Changes ADR 0001:** a Profile directory used in place and a Borrowed browser are outside the reset gate, as the person's own data. Saved identities remain the only Goodfetch state excepted from the reset rule.
+- **Changes ADR 0002 and ADR 0055:** a run bound to its machine (`session_bound_to_machine`, or behind a person's Browser host) does not resume elsewhere; when its Group member is removed, it stays checkpointed for `goodfetch runs adopt`.
 - **Changes ADR 0033:** its `session_credentials` permission covers every source of this ADR.
 - **Changes ADR 0035 and ADR 0045:** `goodfetch identity` now manages Saved identities (`import`, `export`, `list` and `delete`). The Web Bot Auth key commands become `goodfetch signing-key create` and `goodfetch signing-key directory`, which **changes ADR 0021** too.
 - **Changes ADR 0037:**
@@ -236,7 +241,7 @@ This is the only way a remote run can use a device-bound login, and it keeps the
   - Site access, Client surfaces and Self-hosted deployment no longer wait on this ticket.
 - **To prove in the spec:**
   - the Safari primary route, by prototype;
-  - which Chromium-family browsers other than Chrome and Edge implement the consented mode, by probe;
+  - which Chromium-family browsers other than Chrome and Edge implement the consented mode, and that `DevToolsActivePort` appears on the default data directory ([chrome-devtools-mcp#2283](https://github.com/ChromeDevTools/chrome-devtools-mcp/issues/2283)), by probe;
   - the Python sync relay, since Playwright's sync objects are bound to the thread that created them, while ADR 0038's sync API runs its core on its own thread;
   - the conformance cases:
     - each refusal code;

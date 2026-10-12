@@ -55,7 +55,7 @@ How comparable self-hosted tools run several instances:
 **Leaving a group: scale-down and drain** (adds to ADR 0049).
 - A draining Group member tells a restart from a removal: in the chart by reading its own `StatefulSet` through the chart's ServiceAccount (its pod index at or above the desired replicas means removal), on VMs through `goodfetch group leave`.
 - On a restart, it resumes the runs the group Run index still assigns to it.
-- On a removal, each run's Checkpoint (ADR 0002) goes over the peer link to the Group member the Lead Daemon places it on, which resumes it and becomes its owner in the group Run index; Partitions hand their domains off instead (ADR 0054).
+- On a removal, each run's Checkpoint (ADR 0002) goes over the peer link to the Group member the Lead Daemon places it on, which resumes it and becomes its owner in the group Run index; Partitions hand their domains off instead (ADR 0054). A run bound to a source on the removed Group member stays checkpointed for `goodfetch runs adopt` unless ADR 0056 lets it resume elsewhere.
 - What the grace period does not cover stays checkpointed on the kept volume, still assigned to the removed Group member. `goodfetch runs adopt` brings it into another Group member: the chart runs it as a `Job` that mounts the kept `ReadWriteOnce` volume. A pod index added back later resumes only what the group Run index still assigns to it, so a run already adopted never runs twice.
 - The chart documents autoscaling on the governor's saturation metric (ADRs 0040 and 0050) through KEDA or the Prometheus adapter.
 

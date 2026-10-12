@@ -11,6 +11,6 @@ The engine enforces each run's domain policy on every request type (navigation, 
 
 - An injection classifier on pages can be switched on (Firecrawl's precedent).
 - Secrets are stored behind Secret references and Secret providers (ADR 0015). A run may switch redaction off, which lifts the guarantee above for logs, traces, HAR files, screenshots and recordings kept as outputs only (ADR 0016).
-- A raw CDP client can switch off browser-protocol interception, so a Session with raw CDP attached is held to the domain policy at the network layer instead (ADR 0017).
+- A raw CDP client can switch off browser-protocol interception, so a Session with raw CDP attached is held to the domain policy at the network layer instead (ADR 0017), except on a Borrowed browser, where no network layer can be put under the browser: there the domain policy is enforced by interception, which a raw client can switch off, and the run is marked unguarded (ADR 0056).
 - For payments, a run's allowance is `pay_domains`, which only Operator policy, user and project configuration or a person's answer can widen; no payment goes to a domain outside it (ADR 0045).
 - For Consent prompts, the only allowance for accepting terms is `consent_domains`, never a run's general allowance, which only Operator policy, user and project configuration or a person's answer can widen (ADR 0048).

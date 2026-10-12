@@ -238,6 +238,10 @@ _Avoid_: profile, context, login
 A browser's own folder of a person's browsing data, on which Goodfetch can launch that browser in place.
 _Avoid_: user data dir, profile (alone)
 
+**Session source**:
+Where a Session's login comes from: a Saved identity, a file, a browser installed on the machine, a Profile directory or a Borrowed browser.
+_Avoid_: login source, auth source, profile
+
 **Block cause**:
 The reason the rules give for a site refusing a page, such as a rate limit, a challenge, an IP block or a demand for payment, which decides how the run responds.
 _Avoid_: block type, ban, error (for a block)

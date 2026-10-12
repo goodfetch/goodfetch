@@ -9,6 +9,6 @@ Goodfetch Cloud must power an actor platform, a crawl and extraction API, and ho
 
 ## Consequences
 
-- A reset or discard must leave no state behind; a permanent conformance gate checks it. Saved identities are the one exception: named objects that outlive runs by design, kept outside run state and removed only by their own delete (ADR 0035). A Profile directory a run uses in place is the person's own data, not Goodfetch state, so the gate neither removes nor scans it (ADR 0056).
+- A reset or discard must leave no state behind; a permanent conformance gate checks it. Saved identities are the one exception: named objects that outlive runs by design, kept outside run state and removed only by their own delete (ADR 0035). A Profile directory a run uses in place and a Borrowed browser are the person's own data, not Goodfetch state, so the gate neither removes nor scans them (ADR 0056).
 - The engine counts usage and enforces limits but never knows prices.
 - Goodfetch Cloud chooses the version of the Clean-up rules for each run and hands its digest to the engine through the protocol; a local run reproduces it with `clean_up.version` (ADR 0047).

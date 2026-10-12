@@ -64,6 +64,10 @@ _Avoid_: enterprise edition, premium module, closed core
 The Goodfetch process that runs beside a browser and carries out a Session's operations for an engine running elsewhere.
 _Avoid_: worker, agent, sidecar
 
+**Borrowed browser**:
+A browser Goodfetch did not launch and never closes: the person's running browser, one their own code launched, or a third-party cloud browser reached by its address.
+_Avoid_: external browser, attached browser
+
 **Plugin**:
 A package that adds implementations of one or more Plugin kinds to the engine, such as delivery to a Sink, a fetch backend or a Secret provider; the reverse of an Integration, which puts Goodfetch inside another tool.
 _Avoid_: extension (a browser extension is something else), add-on, connector, module
@@ -225,6 +229,18 @@ _Avoid_: unblocker, bypass, captcha solver (for every kind)
 **Session pool**:
 The sessions a run keeps, scoring, rotating and retiring them as they fail.
 _Avoid_: session manager, account pool
+
+**Saved identity**:
+A Session's identity, cookies and storage, kept under a name so that later runs can reuse them.
+_Avoid_: profile, context, login
+
+**Profile directory**:
+A browser's own folder of a person's browsing data, on which Goodfetch can launch that browser in place; for the Chromium family, the data directory (Chrome's `--user-data-dir`), not the profile folder inside it that Chrome's `--profile-directory` names.
+_Avoid_: user data dir, profile (alone)
+
+**Session source**:
+Where a Session's login comes from: a Saved identity, a file or a cookie header, a browser installed on the machine, a Profile directory or a Borrowed browser.
+_Avoid_: login source, auth source, profile
 
 **Block cause**:
 The reason the rules give for a site refusing a page, such as a rate limit, a challenge, an IP block or a demand for payment, which decides how the run responds.

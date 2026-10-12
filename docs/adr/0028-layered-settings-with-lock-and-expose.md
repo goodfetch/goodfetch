@@ -4,7 +4,7 @@ At the owner's request, every parameter can be set. That covers retries, timeout
 1. Built-in defaults: the best-practice values of the catalog decision.
 2. An **Operator policy** on the machine or Daemon, which can set, cap or lock values.
 3. User and project configuration.
-4. A **Recipe** or the developer's code. Every setting the Recipe declares is locked for the Recipe's users unless the developer **exposes** it, optionally with bounds. What the Recipe does not declare, such as the user's own Sinks, Notification channels and credentials, stays the user's to set.
+4. A **Recipe** or the developer's code. Every setting the Recipe declares is locked for the Recipe's users unless the developer **exposes** it, optionally with bounds. What the Recipe does not declare, such as the user's own Sinks, Notification channels and credentials, stays the user's to set. A Recipe may expose `session.source` but never sets or locks it (ADR 0056).
 5. The run itself: SDK arguments, CLI flags, environment variables, an Integration's form.
 
 A higher layer wins only where no lower layer locked the value. In a Daemon group, settings that only make sense on one machine, such as local addresses, TLS files and browser paths, take a *group member* scope applied only by that Group member (ADR 0055).

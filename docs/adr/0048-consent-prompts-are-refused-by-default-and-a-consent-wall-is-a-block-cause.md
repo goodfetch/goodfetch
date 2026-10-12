@@ -48,10 +48,13 @@ A consent answer is Session state, not an Effect. Decided in [Built-in page clea
   2. its `reject` heuristics, in about ten languages ([heuristic-patterns.ts](https://github.com/duckduckgo/autoconsent/blob/main/lib/heuristic-patterns.ts));
   3. the Decision provider (below);
   4. then either hiding (a prompt with no refusal that leaves the content readable) or `consent_required` (a wall).
+- **Hiding** means ADR 0047's: always removed from extracted content, hidden on the live page through the invisible style sheet on Chromium, and on Firefox and WebKit only when the prompt covers an action's target.
+- **The Filter lists wait.** While `consent_handling` is on, the rules of the Filter lists aimed at Consent prompts never block, hide or run scriptlets on the live page, and the consent vendors' hosts are never blocked, so the runner always sees the prompt, and the wall test always sees the wall (ADR 0047).
 - **Never delaying a page with no prompt.** The engine waits on a page only once a vendor is detected or a pre-hide rule matches. A prompt that appears later is answered when it appears, and ADR 0047 already keeps its text out of extracted content.
 - **In the HTTP tier,** which has no layout, the wall test runs on the route's browser sample (ADR 0020).
   - **Changes ADR 0020:** a route whose browser sample showed a consent wall never moves to a tier that skips it. Its pages are `consent_required` in every tier, unless the domain is in `consent_domains`.
   - On a route whose sample showed a refusable prompt or a notice, ADR 0047 removes the prompt from extracted content.
+  - A route whose tier the run forced (ADR 0023) still takes one browser sample for the wall test when a browser can start. When none can, its pages record "no wall test" in Provenance, and their prompts are left in extracted content rather than removed.
   - A server-side consent page, such as Google's `consent.google.com` or Yahoo's `guce`:
     - **with a refusal path,** is answered once through the Session's browser. Browser-fetch keeps the Session's identity (ADR 0020), and later HTTP fetches carry its cookies.
     - **without one,** or when no browser can be started for the Session, is `consent_required`.
@@ -62,18 +65,21 @@ A consent answer is Session state, not an Effect. Decided in [Built-in page clea
   - On Chromium, in an isolated world in every frame, cross-origin iframes included, through ADR 0019's out-of-process iframe tracking.
   - On Firefox and WebKit, in Playwright's utility world.
   - It is set up again on every new document and every route change of a single-page app.
+  - It runs wherever the Session's browser is: in the Browser host for a remote browser (ADR 0022), and on a third-party CDP browser whose isolated worlds and input the engine controls. Lightpanda has no layout for the wall test, but ADR 0020 picks it only when its sample matches the browser's, so a walled route never uses it; on its pages prompts are only removed from extracted content.
 - **How it reports to the engine.** Through `Runtime.addBinding`, named with the isolated world's own unique name (`executionContextName`; the `executionContextId` form is deprecated) and added again on every new isolated world, since with `Runtime` off V8 does not carry named bindings to new contexts. Its `bindingCalled` events are sent without `Runtime` being enabled ([v8-runtime-agent-impl.cc](https://chromium.googlesource.com/v8/v8/+/main/src/inspector/v8-runtime-agent-impl.cc)), so nothing polls and nothing appears in the page's own world.
 - **How it clicks.**
-  - Clicks and keys go through the guard's trusted input on all three browsers, never through `element.click()`.
-  - autoconsent takes its DOM actions from a `DomActionsProvider` it exposes as a public field ([types.ts](https://github.com/duckduckgo/autoconsent/blob/main/lib/types.ts)), so Goodfetch supplies its own provider, in its own code under the framework's licence, and autoconsent's files stay unmodified (ADR 0018).
+  - Clicks and keys go through the guard's trusted input on all three browsers, never as untrusted `element.click()` events.
+  - autoconsent takes its DOM actions from its public `domActions` field ([web.ts](https://github.com/duckduckgo/autoconsent/blob/main/lib/web.ts)), typed as its `DomActions` class. Goodfetch supplies a subclass that sends clicks to the guard, in its own code under the framework's licence, and autoconsent's files stay unmodified (ADR 0018).
+  - Five coded vendors (Admiral, Conversant, Sourcepoint's frame, TikTok and UniConsent) call `element.click()` directly. An isolated world has its own JavaScript prototypes, so the runner replaces `HTMLElement.prototype.click` there, invisibly to the page, and those calls reach the guard too. On Firefox and WebKit, where that cannot be confirmed for Playwright's utility world, those vendors are switched off through autoconsent's `disabledCmps`.
+  - Seven of the main-world snippets click from the page's own world (`EVAL_COOKIE_POPUP_CLOSE`, `EVAL_COOKIEFIRST_1`, `EVAL_ETSY_1`, `EVAL_IUBENDA_0`, `EVAL_MICROSOFT_0`, `EVAL_MICROSOFT_1`, `EVAL_WAITROSE_0`). The rules that use them are switched off through `disabledCmps`, and their prompts go to the heuristics and the Decision provider. Goodfetch contributes upstream a version that clicks through `domActions`, and the conformance suite measures what the switched-off rules cost in coverage.
 - **Heuristics.** `reject` only, never `tier1` or `tier2`. A notice with no choice is hidden, never acknowledged.
-- **Pre-hiding** (hiding a known prompt before it flashes) uses ADR 0047's live style sheet on Chromium.
+- **Pre-hiding** (hiding a known prompt before it flashes) uses ADR 0047's live style sheet on Chromium, and is undone before the wall test, so a wall is always judged as the site shows it.
 - **The main world.**
   - **Which rules.** About 50 call the consent vendor's own JavaScript API, which an isolated world cannot reach: 45 rule files with `eval` steps, and five vendors coded in TypeScript (OneTrust, Cookiebot, consentmanager, Klaro and TrustArc). Each makes a few calls, up to seven, of the fixed snippets in autoconsent's `eval-snippets.ts`.
   - **How on Chromium.** `DOM.resolveNode`, given no context, resolves in the frame's main world ([resolve_node.cc](https://chromium.googlesource.com/chromium/src/+/main/third_party/blink/renderer/core/inspector/resolve_node.cc)), and `Runtime.callFunctionOn` then runs the snippet there. V8 refuses only `compileScript`, `runScript` and two settings calls while `Runtime` is off, never `callFunctionOn`, so `Runtime` stays off, and the snippets leave no global behind.
   - **How on Firefox and WebKit.** Through Playwright's main-world evaluation.
-  - **When the call can't be made,** the prompt is hidden.
-  - **Changes ADR 0019:** by default, these calls and the TCF read below are the engine's only actions in a page's main world. The opt-in exceptions are ADR 0047's page scriptlets, ADR 0035's `js-injection` Fingerprint method, and the user's own `evaluate` and init scripts, each marked in Provenance. **Changes ADR 0031:** its rejection of an in-page recorder stands. This exception covers calls into the consent vendor's own API, not code that stays in the page.
+  - **When the call can't be made,** the prompt goes to the wall test: hidden when the content is readable, a wall otherwise.
+  - **Changes ADR 0019:** by default, these calls and the TCF read below are the engine's only actions in a page's main world. The opt-in exceptions are ADR 0047's page scriptlets, ADR 0035's `js-injection` Fingerprint method, and the user's own `evaluate` and init scripts, each marked in Provenance. ADR 0047's on-demand hiding on Firefox and WebKit adds a visible `<style>` element, which is not main-world code but does stay in the page, and Provenance marks it too. **Changes ADR 0031:** its rejection of an in-page recorder stands. This exception covers calls into the consent vendor's own API, not code that stays in the page.
 
 **Prompts no rule recognises.**
 - **Which prompts.** Prompts the heuristics detect but no rule can answer.

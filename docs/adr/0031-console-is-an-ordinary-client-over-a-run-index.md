@@ -80,7 +80,7 @@ Evidence from the competitor survey made for that ticket:
   - **Size cap.** Each run keeps up to 1 GB of trace by default. Past it, the oldest video goes first, while snapshots and the HAR are kept.
   - **Erasure.** Traces are erased with their run.
 - **Cost.** Traces are a costly control (ADR 0023). Its switch is the trace setting; its mark is "no trace" on the run report and on the Timeline.
-- **The main world.** By default nothing stays in the page, and the engine's only calls there are ADR 0048's calls into a consent vendor's own API. The opt-in exceptions are those ADR 0019 lists.
+- **The main world.** By default nothing stays in the page, and the engine's only calls there are ADR 0048's calls into a consent vendor's own API. The opt-in exceptions are those ADR 0019 lists, and ADR 0047's on-demand hiding on Firefox and WebKit leaves a visible `<style>` element, marked in Provenance.
 
 **People and tokens.**
 - **Changes ADRs 0017 and 0024**, which gave every endpoint one per-launch token.

@@ -98,7 +98,7 @@ The cookies were minted by the person's own browser on the person's own network,
 - **Which browser runs it:** an installed browser of the source's family (by channel, ADR 0024) when one exists, else Goodfetch's build of that engine. Version fields follow the running build, as in ADR 0035.
 - **Egress:** direct, unless the person names a proxy at import, which becomes the binding. On direct egress the import is bound to the importing machine: a run using it elsewhere, including on another Group member, is refused with `session_bound_to_machine`, and a Daemon group places it only on that machine. With a proxy, language and time zone stay the source's, because the site knows the login by them, and the import warns when the exit's country differs. **Changes ADR 0021**, whose `standard` matches them to the proxy exit.
 - **`stealth`** may be chosen at import, with a warning that the fingerprint changes under the same cookies.
-- **A session export bundle** (ADR 0015) is not rebound: it keeps its Saved identity's Access mode, Identity profile seed and proxy binding, and ADR 0035's reuse rules apply to it unchanged.
+- **A session export bundle** (ADR 0015) is not rebound: it keeps its Saved identity's Access mode, Identity profile seed and proxy binding, and ADR 0035's reuse rules apply to it unchanged. A bundle of an import bound to its machine keeps that binding: using it on another machine is refused with `session_bound_to_machine`.
 - **Goodfetch Cloud**, where each run has its own engine, designs what a direct-egress import is bound to with its Saved identity store (ADR 0035).
 
 From then on, ADR 0035's reuse rules apply.
@@ -127,7 +127,7 @@ From then on, ADR 0035's reuse rules apply.
 
 A run whose source is `profile_directory` launches a browser on that directory:
 - *Chromium family:* the installed browser that wrote it, by channel or path (ADR 0024), or Goodfetch's Chromium for a directory it created.
-- *Firefox:* Playwright's Firefox or Camoufox. Firefox cookies are not encrypted, so a different Firefox build keeps them; Provenance records that the build differs from the one that wrote the profile.
+- *Firefox:* Playwright's Firefox or Camoufox, only at the Firefox version the profile's `compatibility.ini` records, compared as Firefox compares it (version, then build ID). Firefox cookies are not encrypted, so that build keeps them; Provenance records that the build differs from the one that wrote the profile.
 - *WebKit:* only a directory WebKit created.
 
 The rules for an in-place launch:
@@ -135,7 +135,7 @@ The rules for an in-place launch:
   - *Chromium family:* the singleton lock (`SingletonLock`, or `lockfile` on Windows), plus `Local State` and `Last Version`.
   - *Firefox:* `parent.lock` on Windows, `.parentlock` on macOS and Linux, plus `compatibility.ini`.
 
-  It refuses with `profile_directory_in_use`, `profile_directory_browser_mismatch` or `profile_directory_newer_than_browser`. On Windows, a cookie file locked by a running browser counts as `profile_directory_in_use` and is never retried in a loop. On Firefox, a build newer than the profile's `compatibility.ini` version is also refused with `profile_directory_browser_mismatch`, because launching it would upgrade the profile and Firefox's downgrade protection would then keep the person's own Firefox from opening it.
+  It refuses with `profile_directory_in_use`, `profile_directory_browser_mismatch` or `profile_directory_newer_than_browser`. On Windows, a cookie file locked by a running browser counts as `profile_directory_in_use` and is never retried in a loop. On Firefox, a build newer than the profile's `compatibility.ini` version is also refused with `profile_directory_browser_mismatch`, because launching it would upgrade the profile and Firefox's downgrade protection would then keep the person's own Firefox from opening it. Both Firefox refusals point to `installed_browser`, which reads a copy.
 - **One Session.** A run on a Profile directory has one Session on it, in the run's Access mode (`standard` by default; `stealth` with Goodfetch's Chromium on a directory it created, or with Camoufox), fixed for its life, with the launching browser's identity recorded in Provenance. The Session pool never rotates, retires or escalates it, and a failure that would do so raises a Human pause. **Changes ADR 0006 and ADR 0021**, whose pool rotates and retires and whose escalation opens a new Session, **and ADR 0035**, whose Session pool retires Sessions by age and use count. Recycling relaunches the same browser on the same directory. **Changes ADR 0040.**
 - **The profile's own key store.** The launch never passes the mock-keychain or `basic` password-store flags that automation tools add by default, because they stop a real profile's cookies from decrypting ([browser-use#3225](https://github.com/browser-use/browser-use/issues/3225)).
 - **Chrome's default data directory is refused**, pointing to `running_browser`.
@@ -185,7 +185,7 @@ A `cdp_url` the engine alone drives, such as a cloud browser, keeps ADR 0022's g
 
 **Egress on every Borrowed browser.** No egress proxy can be put under a browser that is already running, so the engine resolves each intercepted request's host itself and blocks private ranges. The browser resolves names itself, so a DNS-rebinding gap remains, and it is recorded in Provenance. **Changes ADR 0017**, whose connect-time check this replaces for Borrowed browsers.
 
-**Which `cdp_url` addresses are allowed.** As for Plugin endpoints (ADR 0017), a `cdp_url` counts as operator-configured when it is set in Operator policy or in user and project configuration, or is a run value that Operator policy allows; a value from the person's own code or CLI, but not one from a Client acting for a model, may also use loopback, except on an Exposed Daemon. Otherwise it is treated as an address a page can reach, and private ranges are refused.
+**Which `cdp_url` addresses are allowed.** As for Plugin endpoints (ADRs 0017 and 0033), a `cdp_url` counts as operator-configured when it is set in Operator policy or in user and project configuration, or is a run value that Operator policy allows; a value from the person's own code or CLI, but not one from a Client acting for a model, may also use loopback, except on an Exposed Daemon. Otherwise it is treated as an address a page can reach, and private ranges are refused.
 
 **Audit.** Every import and every borrow is recorded in the Audit log.
 

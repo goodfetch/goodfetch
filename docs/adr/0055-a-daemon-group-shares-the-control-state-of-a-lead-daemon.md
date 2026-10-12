@@ -34,7 +34,7 @@ How comparable self-hosted tools run several instances:
 - **Schedules** fire only on the Lead Daemon; that role replaces ADR 0036's OS lock on the Schedule store. Their runs are placed like any other.
 - **The Audit log** is one hash chain kept by the Lead Daemon, which appends the events Group members send. A Group member that cannot reach the Lead Daemon chains its events locally from the last lead hash it saw. When it reconnects, the Lead Daemon appends a merge record carrying that branch's head hash, so every event stays verifiable from the chain's head.
 - **The group Run index** is fed by Group members, and each row names the owning Group member. `goodfetch runs reindex` on a Group member re-reports that Group member's runs.
-- **Group events.** Schedule and Limit Notifications are deduplicated at the Lead Daemon. Run events stay with their run.
+- **Group events.** Schedule, Limit and Saved identity cookie-expiry Notifications are deduplicated at the Lead Daemon (ADR 0056). Run events stay with their run.
 
 **What stays on each Group member.** Run state on its own volume (ADR 0049 refuses network filesystems), the run lock files, browser and Plugin caches and unpacked Plugins, TLS files, governor measurements, crash reports, the ops listener's token and the Response cache (ADR 0046). Erasure, discarding a run and deleting a saved identity are broadcast by the Lead Daemon to every Group member's Response cache, and each one acknowledges. Machine-specific settings (`local_addresses` of ADR 0044, TLS files, browser paths) take a new *group member* scope in ADR 0028's layers, applied only by that Group member.
 

@@ -178,11 +178,11 @@ A Borrowed browser serves one run and one Session, in the context where the logi
 - the egress check and the domain policy are interception only, which that code can switch off, and Provenance records that neither is guaranteed. **Changes ADR 0014.**
 - that code's commands go outside any endpoint Goodfetch serves, so no lease fences them. **Changes ADR 0003.**
 
-A `cdp_url` the engine alone drives, such as a cloud browser, keeps ADR 0022's guarded path. The engine cannot see other CDP clients, so a `cdp_url` set at the run layer is treated as shared, and one set in Operator policy or configuration is treated as driven by the engine alone.
+A `cdp_url` the engine alone drives, such as a cloud browser, keeps ADR 0022's guarded path. The engine cannot see other CDP clients, so a `cdp_url` set by the developer's own code or at the run layer is treated as shared, and one set in Operator policy or in user and project configuration is treated as driven by the engine alone.
 
 **Egress on every Borrowed browser.** No egress proxy can be put under a browser that is already running, so the engine resolves each intercepted request's host itself and blocks private ranges. The browser resolves names itself, so a DNS-rebinding gap remains, and it is recorded in Provenance. **Changes ADR 0017**, whose connect-time check this replaces for Borrowed browsers.
 
-**Which `cdp_url` addresses are allowed.** As for Plugin endpoints (ADR 0017), a `cdp_url` counts as operator-configured when it is set in Operator policy or in user and project configuration, or is a run value that Operator policy allows; a run value from the person's own code may also use loopback, except on an Exposed Daemon. Otherwise it is treated as an address a page can reach, and private ranges are refused.
+**Which `cdp_url` addresses are allowed.** As for Plugin endpoints (ADR 0017), a `cdp_url` counts as operator-configured when it is set in Operator policy or in user and project configuration, or is a run value that Operator policy allows; a value from the person's own code (the developer's code or the run layer) may also use loopback, except on an Exposed Daemon. Otherwise it is treated as an address a page can reach, and private ranges are refused.
 
 **Audit.** Every import and every borrow is recorded in the Audit log.
 
@@ -200,7 +200,7 @@ A `cdp_url` the engine alone drives, such as a cloud browser, keeps ADR 0022's g
     - for the person's own code, it fails with `domain_not_allowed`.
 - **Operator policy (ADR 0028) can lock which source kinds are allowed.** On a Daemon with accounts (ADR 0031), Exposed Daemons included (ADR 0049), `profile_directory`, `installed_browser`, `running_browser` and `cdp_url` are off by default when they would be read on the Daemon's own machine, because they would reach that account's browser or network for anyone holding a token. Served by a Browser host the person runs (below), they stay available. On a Daemon with accounts, `state_file` reads only content the Client uploads, never a server path.
 - **Changes ADR 0031:** on a Daemon with accounts, the clear-text `storageState` export and widening a source's `domains` go through step-up, and only the operator role writes the `cdp_url` addresses used as operator-configured endpoints.
-- **Daemon groups.** In a Daemon group, a run whose source is `profile_directory`, `installed_browser`, `running_browser` or a loopback `cdp_url` runs only on the Group member where that source exists, a `client_browser` run on the Group member holding the SDK's connection, and a run using an import bound to its machine on that machine's Group member; their paths take the *group member* scope (ADR 0028). A Partitioned crawl (ADR 0054) whose source is one of these, or a machine-bound import, is refused at start with `session_bound_to_machine`. **Changes ADR 0055.**
+- **Daemon groups.** In a Daemon group, a run whose source is `profile_directory`, `installed_browser`, `running_browser` or a loopback `cdp_url` runs only on the Group member where that source exists, a `client_browser` run on the Group member holding the SDK's connection, and a run using an import bound to its machine on that machine's Group member; their paths take the *group member* scope (ADR 0028). A Partitioned crawl (ADR 0054) of more than one Partition whose source is one of these, any other Borrowed browser, or a machine-bound import is refused at start with `session_bound_to_machine`. **Changes ADR 0054 and ADR 0055.**
 
 ### A remote engine and the person's browser
 
@@ -227,9 +227,9 @@ This is the only way a remote run can use a device-bound login, and it keeps the
   - *Started by a Client acting for a model, or in a Recipe run:* always the Human pause.
   - *Budget:* re-import counts toward the limit of two recoveries per page.
   - *Writing:* a re-import writes the Saved identity under ADR 0035's install-wide lock, a lease in a Daemon group.
-  - *File and run-only imports* have nothing to re-read and run the ladder as before.
+  - *File imports and run-only imports,* which record no source, run the ladder as before.
 - **Cookie expiry warnings.** A cookie's expiry is not the site's session expiry, so the warnings say "cookies expire on…", and only the Page check judges whether a login is still live.
-  - *On a Daemon:* a Notification (ADR 0027) and a Console badge appear when the earliest expiry falls inside a window, by default 3 days, a setting. The Daemon schedules this as a timer at expiry minus the window. In a Daemon group, the Lead Daemon, which keeps Saved identities, runs the timers and sends each Notification once.
+  - *On a Daemon:* a Notification (ADR 0027) and a Console badge appear when the earliest expiry falls inside a window, by default 3 days, a setting. The Daemon schedules this as a timer at expiry minus the window. In a Daemon group, the Lead Daemon, which keeps Saved identities, runs the timers and sends each Notification once. **Changes ADR 0027 and ADR 0055.**
   - *On an Attached engine:* a warning at run start.
   - *In listings:* `goodfetch identity list` and its MCP operation return each identity's expiry.
 

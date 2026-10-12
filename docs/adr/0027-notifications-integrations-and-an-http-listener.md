@@ -35,6 +35,7 @@ Evidence: [workflow tools, Airbyte and AI loaders](https://github.com/Jbmanllr/a
 - a Human pause waiting, with a link to the live view (ADR 0006)
 - records changed against the run's Baseline (ADR 0036)
 - a Schedule auto-paused, its occurrences skipped by a Limit (once per period), or its occurrences missed (once per wake) (ADR 0036)
+- a Saved identity's earliest cookie expiry entering its warning window (ADR 0056)
 
 **Notification delivery**: an engine-side ledger keyed by event ID means a resumed run never re-sends. Channel idempotency keys are used where they exist. A status change notifies once, not once per run.
 

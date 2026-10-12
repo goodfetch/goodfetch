@@ -1,7 +1,7 @@
 # Filter lists block ads and trackers by default, from Clean-up rules that each run pins
 
 Every browser Session blocks ads and trackers by default, in every Access mode. Brave's `adblock-rust` matches each request inside the interception ADR 0014 already runs, and a never-block list keeps challenge, anti-bot, anti-fraud and payment scripts loading whatever the Filter lists say. The same rules remove ads, Consent prompt leftovers and page annoyances from extracted content in every tier. On the live page they hide those elements through a style sheet the site cannot see on Chromium, and only on demand on Firefox and WebKit, where any hiding is visible. The rules come as **Clean-up rules**:
-- the part whose licences allow embedding (CC BY-SA, MPL-2.0, Apache-2.0 and MIT), precompiled in the binary;
+- the part whose licences allow embedding (CC BY-SA, MPL-2.0 and MIT), precompiled in the binary beside the release's stand-ins;
 - the full set, a digest-pinned download refreshed in every release;
 - an opt-in, signed daily channel.
 
@@ -45,7 +45,7 @@ The real hazard is that a tracker list blocks the scripts that bot protection ne
   - Lists name stand-ins by uBlock Origin's resource names, so Goodfetch keeps an MIT alias table from those names to these files.
   - A redirect rule whose stand-in is missing simply blocks, as `adblock-rust` does when no resource matches ([blocker.rs](https://github.com/brave/adblock-rust/blob/master/src/blocker.rs)).
   - Brave's own `adblock-resources` holds only Brave-specific fixes; Brave assembles its stand-ins and scriptlets from uBlock Origin's GPL-3.0 files ([brave-core-crx-packager](https://github.com/brave/brave-core-crx-packager)).
-- **Memory.** One engine loads each version of the Clean-up rules once, shares it between the runs that hold to it, and unloads it when none does. `adblock` is built without its default `single-thread` feature, which makes `Engine` neither `Send` nor `Sync`, so one loaded version serves every task of the engine.
+- **Memory and threads.** One engine loads each version of the Clean-up rules once, shares it between the runs that hold to it, and unloads it when none does. `adblock`'s default `single-thread` feature is faster and lighter but makes `Engine` neither `Send` nor `Sync`; without it, matching shares a lock per loaded version. The Site access spec measures both at ADR 0040's concurrency and picks one shared engine without the feature, or one engine per worker thread with it.
 
 **Defaults and the never-block list.**
 - **Settings, each settable per run (ADR 0028).**
@@ -66,7 +66,7 @@ The real hazard is that a tracker list blocks the scripts that bot protection ne
 - **Breakage, caught two ways.**
   - **Changes ADR 0020:** the per-route sample comparison also fetches its sample with blocking off. If the extracted results differ beyond what the rules remove, blocking is off for that route, learned as the tier choice is.
   - A page that fails its Page check, or shows an ad-blocker wall, while blocking is on is retried once with blocking off, and that choice is learned per domain, keyed as in ADR 0004. A page with a Block cause is never retried this way (ADRs 0045 and 0048).
-- **Provenance.** Each page's Provenance records whether blocking was on, the Clean-up rules it used and how many requests were blocked.
+- **Provenance.** Each page's Provenance records whether blocking was on, the Clean-up rules it used, how many requests were blocked, and which elements and how much text were removed from extracted content. A removal above a share of the main content, which the Site access spec sets, is flagged, so a rule that removes real content shows.
 
 **Removing and hiding elements.**
 - **Changes ADR 0007:** before dom-smoothie, htmd or any AI input, the engine removes from the page's HTML the elements the cosmetic rules match. It walks shadow roots and does this in every tier, so hidden text never leaks into output, as it did in [jina-ai/reader#1138](https://github.com/jina-ai/reader/issues/1138). Raw HTML, WARC, Run traces, the Frontier's link reading (ADR 0007's lol-html pass) and the user's own selectors see the page untouched. On a route whose browser sample showed a consent wall, nothing is removed and the page is `consent_required` in every tier (ADR 0048).
@@ -74,8 +74,8 @@ The real hazard is that a tracker list blocks the scripts that bot protection ne
   - **On Chromium**, `auto` hides matched elements through `CSS.createStyleSheet`, in every frame and every new document. That call builds a style sheet with no DOM node ([style_engine.cc](https://chromium.googlesource.com/chromium/src/+/main/third_party/blink/renderer/core/css/style_engine.cc)). `document.styleSheets` is built only from DOM nodes, so the site cannot see the sheet ([style_sheet_collection.cc](https://chromium.googlesource.com/chromium/src/+/main/third_party/blink/renderer/core/css/style_sheet_collection.cc)). Computed styles still show the hiding, as they do for any person using a blocker.
   - **Shadow trees.** These sheets never reach them, so Consent prompts there are handled by ADR 0048's runner.
   - **Cost.** Enabling the CSS domain has a cost, which the benchmark measures. `live_hiding = off` removes it, and Provenance records it.
-  - **On Firefox and WebKit,** Playwright offers only `addStyleTag`, a visible `<style>` element. There `auto` hides only on demand: when the guard (ADR 0019) finds an action's target covered by an element a rule matches. `live_hiding = always` hides everywhere, with a warning that the site can see it.
-  - **What else sees the hiding.** **Changes ADR 0019:** when the guard finds that live hiding hid an action's target, it lifts the matching rule for that Session and retries, recording the rule in Provenance; this is never Drift (ADR 0009), so a Plan replayed under newer Clean-up rules needs no Repair. Links inside an element a cosmetic rule matched are left out of ADR 0035's trap-link judgement, so a link inside a hidden ad is not taken for a trap.
+  - **On Firefox and WebKit,** Playwright offers only `addStyleTag`, a visible `<style>` element. There `auto` hides only on demand: when the guard (ADR 0019) finds an action's target covered by an element a rule matches. `live_hiding = always` hides everywhere, with a warning that the site can see it. Where ADR 0048's route into Playwright's utility world works, that `<style>` is inserted from there; otherwise `addStyleTag` inserts it from the main world, and Provenance marks it.
+  - **What else sees the hiding.** **Changes ADR 0019:** when the guard finds that live hiding hid an action's target, it lifts the matching rule for that Session and retries, recording the rule in Provenance; this is never Drift (ADR 0009), so a Plan replayed under newer Clean-up rules needs no Repair. Links inside an element a cosmetic rule matched are left out of ADR 0035's trap-link judgement, so a link inside a hidden ad is not taken for a trap. Before a Plan step's Target fingerprint check (ADR 0009), the engine lifts any live-hiding rule that matches the step's target, so the check sees the target as the site renders it.
 - **Never hidden.** A paywall is never hidden or removed, whatever a list says, and neither is a consent wall (ADR 0048).
   - **Detecting a paywall.** Rules written like ADR 0035's block detection recognise the overlays of paywall vendors (Piano, Poool, Zephr and others), and a page that marks paid sections with schema.org's `isAccessibleForFree: false`, the markup Google asks publishers to use ([Google](https://developers.google.com/search/docs/appearance/structured-data/paywalled-content)), declares its own.
   - **What follows.** No cosmetic rule hides or removes a paywall vendor's overlay, an element containing a declared paid section, or, on the live page, an element covering one. Provenance records the paywall. The schema.org markup marks the paid content rather than the overlay, so it protects the sections it names and whatever covers them.
@@ -83,8 +83,8 @@ The real hazard is that a tracker list blocks the scripts that bot protection ne
   - **Changes ADR 0045:** these rules join its paywall detection. Only a 402 or a paywall redirect is `payment_required`; an overlay leaves the page fetched as the site served it.
 
 **Scriptlets and resource types.**
-- **Storage scriptlets** (`set-cookie`, `set-local-storage-item`, `set-session-storage-item`) are done by the engine before the page's own scripts run: cookies through the browser driver's cookie calls, storage items from an isolated world as the document starts, on all three browsers. Those of the Consent prompt lists never run (above).
-- **Click scriptlets** (`trusted-click-element`) go through the guard's trusted input.
+- **Storage scriptlets** (`set-cookie`, `set-local-storage-item`, `set-session-storage-item`, their `trusted-` variants, and `cookie-remover`) are done by the engine before the page's own scripts run: cookies through the browser driver's cookie calls, storage items from an isolated world on Chromium, and on Firefox and WebKit through the route ADR 0048 names. They never touch the cookies or storage of a vendor on the never-block list, such as Akamai's `ak_bmsc`. Those of the Consent prompt lists never run (above).
+- **Click scriptlets** (`trusted-click-element`) go through the guard's trusted input, and never click inside a never-block vendor's element.
 - **DOM scriptlets** (`remove-class`, `remove-attr`, `set-attr` and the like) change the page's markup where its scripts can see them, so they follow `filter_lists.page_scriptlets` below.
 - **Scriptlets that patch the page's JavaScript** (`abort-on-property-read`, `json-prune`, `set-constant` and the like) need the main world.
   - They are off by default.
@@ -115,7 +115,7 @@ The Clean-up rules are rule data: Filter lists, autoconsent's rules and the neve
   - Its inputs, like the full set's, are pinned and fetched before CI's network deny starts (ADR 0043); no build script downloads anything.
 - **Changes ADR 0018:** the compiled form of the CC BY-SA lists is an adaptation. It carries CC BY-SA in the notice inventory, as Chromium does for the EasyList-derived rules file in its BSD tree ([README.chromium](https://chromium.googlesource.com/chromium/src/+/main/third_party/subresource-filter-ruleset/README.chromium)). The GPL lists are never compiled into the binary or published compiled; the release's downloaded set and the daily channel carry them as text, and each engine compiles them on its own machine.
 - **Downloaded.**
-  - The full set is pinned by digest in each release and refreshed in every patch release (ADR 0030).
+  - The full set is pinned by digest in each release and refreshed in every patch release (ADR 0030). Each release also publishes its embedded part as a pinned download, so a run resumed on a machine with another release can fetch it. Both are plain HTTPS downloads of the release's assets, as browsers are.
   - It is downloaded on first use by any run, HTTP-only runs included, into the browser cache.
   - Downloaded sets are compiled once, in a tracked blocking task off the async runtime, and the compiled form is cached by set digest and `adblock` version.
   - **Changes ADR 0024:** `goodfetch browsers install` also fetches the Clean-up rules, and `GOODFETCH_BROWSERS_PATH` covers them.
@@ -123,19 +123,19 @@ The Clean-up rules are rule data: Filter lists, autoconsent's rules and the neve
 - **`clean_up.update`** is one of three values:
   - `release` (default): the set pinned by the release, with the embedded part as fallback;
   - `daily`: the channel below;
-  - `upstream`: the Filter lists from their own URLs, at the expiry each declares. Consent prompt rules and the never-block list still come from Goodfetch, and the never-block list still wins. Setting `upstream` makes those URLs configured destinations (ADR 0043), and `offline` turns their fetching off, as it does the channel's.
+  - `upstream`: the Filter lists from their own URLs, at the expiry each declares. autoconsent's rules and the never-block list still come from Goodfetch, and the never-block list still wins. Setting `upstream` makes those URLs configured destinations (ADR 0043), and `offline` turns their fetching off, as it does the channel's.
 
   `goodfetch rules update` pulls once on demand.
 - **The daily channel.**
   - **Built and gated.**
-    - A nightly CI job builds it from the upstream lists, the rules of autoconsent's latest release that the library Goodfetch shipped can read, and the never-block list.
+    - A nightly CI job builds it from the upstream lists, autoconsent's latest rules and the never-block list, once per supported release line (ADR 0030), each set keeping only the rules whose snippets that line's library knows.
     - It carries rule data only. autoconsent's library, its main-world snippets and the stand-ins are code, which changes only with Goodfetch releases and their gates (ADR 0030).
     - It publishes only after the never-block, breakage and Consent prompt suites pass, on owned fixtures and on the online Proving ground.
     - Online, each page is judged against the same page with blocking off, so a vendor's own scoring change, which moves both, never holds the channel back; this differs from the release conformance against real vendors, which only reports (ADR 0043).
     - A failed gate publishes nothing and alerts the maintainers.
   - **Published.** It is an OCI artifact in the registry Goodfetch already publishes to, pulled by the Plugin store's code (ADR 0033).
   - **Signed.** It is signed with Sigstore to the workflow's identity and checked with `sigstore-verify` against the bundled trust root, as the Plugin index is.
-  - **Versioned.** It carries a version and a 14-day expiry. When choosing the version a new run starts with, the engine refuses a set older than the last one it saw; a resumed run still uses the version it recorded (below). When the newest set it holds is past its expiry, it falls back, with a warning, to the release set or the embedded part, whichever is newer.
+  - **Versioned.** It carries a version and a 14-day expiry. When choosing the version a new run starts with, the engine refuses a set older than the last one it saw; a resumed run still uses the version it recorded (below). When the newest set it holds is past its expiry, it falls back, with a warning, to the release set or the embedded part, whichever is newer. A version that `clean_up.version` names explicitly is exempt from both checks, with a warning when it is past its expiry, so a local run can reproduce an older Cloud run.
   - **Fetched.** Once a day per user, as a conditional manifest check (an OCI pull's anonymous token and manifest requests, with blobs fetched only when changed), with no identifier and no cookie, and never when `offline`. Operator policy can lock `clean_up.update`.
   - **Changes ADR 0043:** setting `daily` makes the channel a configured destination.
 - **Changes ADRs 0043 and 0032:** the nightly job that builds the channel joins the CI jobs allowed to reach named endpoints: the upstream list URLs, autoconsent's package, the online Proving ground, and the hosts from which the challenges of the vendors protecting it, and the consent vendors it uses, load. Publishing the channel is a publishing job, outside the deny.
@@ -145,14 +145,15 @@ The Clean-up rules are rule data: Filter lists, autoconsent's rules and the neve
 - **Choosing.** A run uses the newest valid version available: the daily channel's, then the downloaded release set, then the embedded part. `clean_up.version` pins an exact digest instead. Under `upstream`, the lists fetched from their authors are cached by the digest the engine computes, and that digest is what the run holds to.
 - **Changes ADR 0002:** a run records that version's digest in its state at start and holds to it until it ends. A resumed run uses the same digest. A release set or embedded part missing on that machine is fetched as a pinned download. A daily set is fetched only where the channel is configured, or where `clean_up.version` names it, which configures it for that fetch. When neither applies, or the fetch fails, the run uses the newest version available and Provenance records the change.
 - **Named in the results.** Provenance names the version and its date, and the Goodfetch release whose code applied it, since the daily channel carries no code. The run report warns when the version is older than 14 days.
-- **Changes ADR 0036:** change tracking says when a run and its Baseline used different Clean-up rules, so a difference the rules caused is not reported as a change on the site.
+- **Changes ADR 0036:** change tracking says when a run and its Baseline used different Clean-up rules, so a difference the rules caused is not reported as a change on the site. A Watch whose two checks used different versions reports that instead of a change.
 - **Changes ADR 0001:** Goodfetch Cloud, which runs one engine per run, chooses the version and hands its digest to the engine through the protocol, as it hands over saved identities (ADR 0035); the daily check and the anti-rollback state are the cloud's. A local run reproduces it by setting `clean_up.version` to that digest.
 
 **Where it runs.**
-- **Browser host** (ADR 0022). Matching and live hiding run in the Browser host beside the browser, with the digest of the version the run holds to.
+- **Browser host** (ADR 0022). Matching, live hiding and ADR 0048's runner run in the Browser host beside the browser, with the digest of the version the run holds to. Goodfetch Cloud hands Browser hosts the compiled form with the digest, so a Session does not recompile the GPL lists.
 - **Raw CDP** (ADR 0017). A raw CDP client that switches the interception off also switches blocking off for that Session, and Provenance says so; live hiding and extraction-side removal continue.
 - **Third-party CDP browsers** (ADR 0022) are treated as Chromium when the engine controls their interception, and get extraction-side removal only otherwise.
 - **Lightpanda** (ADR 0020) gets extraction-side removal, and blocking where its CDP supports request interception. Provenance records which applied.
+- **An installed Brave or Edge** (ADR 0030) blocks and hides by itself, outside the never-block list and before the runner. The engine turns that off where the browser allows it, and otherwise records it in Provenance.
 
 **Proof.**
 - **The conformance suite** runs on the Proving ground (ADR 0025), on Chromium, Firefox and WebKit, with cross-origin iframes and shadow DOM. It covers:

@@ -207,7 +207,7 @@ A site's request that the visitor accept or refuse cookies or tracking, shown as
 _Avoid_: cookie banner, cookie modal, CMP (the vendor software behind it), consent popup
 
 **Clean-up rules**:
-The dated collection of Filter lists, Consent prompt rules and never-block entries that a run holds to for its whole life and that its results name.
+The dated collection of Filter lists, the rules that recognise and answer Consent prompts, and never-block entries, which a run holds to for its whole life and its results name.
 _Avoid_: rule set, list bundle
 
 **Live view**:

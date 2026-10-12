@@ -32,10 +32,10 @@ One spec per area. An area goes to `/to-spec` only after every area whose contra
 | 1 | Repository, CI and release | 0018, 0030, 0032, 0034, 0039, 0049 |  |
 | 2 | Proving ground and conformance | 0025 |  |
 | 3 | Engine runtime | 0002–0004, 0024, 0028, 0040, 0041, 0049, 0050, 0053–0055 |  |
-| 4 | Security and egress | 0015–0017, 0042–0044, 0049, 0050, 0055 |  |
+| 4 | Security and egress | 0015–0017, 0042–0044, 0049, 0050, 0055, 0056 |  |
 | 5 | Site access | 0019–0023, 0045, 0047–0049, 0053, 0056 |  |
-| 6 | Collection | 0005–0008, 0026, 0040, 0046, 0054 |  |
-| 7 | Plugin protocol | 0033, 0049 |  |
+| 6 | Collection | 0005–0008, 0026, 0040, 0046, 0054, 0056 |  |
+| 7 | Plugin protocol | 0033, 0049, 0056 |  |
 | 8 | Stealth and Challenge solving | 0035 |  |
 | 9 | AI and agent | 0009–0014 |  |
 | 10 | Scheduling | 0036, 0041, 0055 |  |

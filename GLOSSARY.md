@@ -65,7 +65,7 @@ The Goodfetch process that runs beside a browser and carries out a Session's ope
 _Avoid_: worker, agent, sidecar
 
 **Borrowed browser**:
-A browser Goodfetch did not launch and never closes: the person's running browser, one their own code launched, or a third-party cloud browser.
+A browser Goodfetch did not launch and never closes: the person's running browser, one their own code launched, or a third-party cloud browser reached by its address.
 _Avoid_: external browser, attached browser
 
 **Plugin**:

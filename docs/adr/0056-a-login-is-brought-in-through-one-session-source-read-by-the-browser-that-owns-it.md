@@ -143,7 +143,8 @@ The rules for an in-place launch:
 - **The reset gate.** The directory is the person's data, not Goodfetch state, so the reset gate neither removes nor scans it. Everything the run creates elsewhere is still removed. **Changes ADR 0001 and ADR 0015.**
 - **Resuming elsewhere** (ADR 0002):
   - *Through a proxy, and not behind a Browser host:* allowed, because the Session reaches sites through the same exit. A Checkpoint of a Session on a Profile directory holds only the cookies and storage of its `domains`, and the resumed Session continues from those; Provenance records that the directory stayed behind. The resumed Session keeps its Access mode and is bound as an import of those cookies would be (above): for the Chromium family, an installed browser of the source's family, else ADR 0024's default Chromium with the family warning (the Goodfetch build under `stealth`); for Firefox, Goodfetch's Firefox (Camoufox under `stealth`); for WebKit, Goodfetch's WebKit; in each case with the language and time zone the Session had on the directory's machine (above).
-  - *On direct egress:* refused with `session_bound_to_machine`, since a new IP under the same cookies breaks ADR 0021.
+  - *On direct egress, not behind a Browser host:* refused with `session_bound_to_machine`, since a new IP under the same cookies breaks ADR 0021.
+  - *Behind a Browser host:* the directory never leaves the person's machine, so the run may resume on another engine or Group member and continues once the Browser host reconnects (below).
 
 ### Borrowed browsers
 
@@ -204,7 +205,7 @@ A `cdp_url` the engine alone drives, such as a cloud browser, keeps ADR 0022's g
     - for the person's own code, it fails with `domain_not_allowed`.
 - **Operator policy (ADR 0028) can lock which source kinds are allowed.** On a Daemon with accounts (ADR 0031), Exposed Daemons included (ADR 0049), `profile_directory`, `installed_browser`, `running_browser` and `cdp_url` are off by default when they would be read on the Daemon's own machine, because they would reach that account's browser or network for anyone holding a token. Served by a Browser host the person runs (below), they stay available. On a Daemon with accounts, `state_file` reads only content the Client uploads, never a server path.
 - **Changes ADR 0031:** on a Daemon with accounts, the clear-text `storageState` export and widening a source's `domains` go through step-up, and only the operator role writes the `cdp_url` addresses used as operator-configured endpoints.
-- **Daemon groups.** In a Daemon group, a run whose source is `profile_directory`, `installed_browser`, `running_browser`, a loopback `cdp_url` or a `state_file` path runs only on the Group member where that source exists, a `client_browser` run on the Group member holding the SDK's connection, and a run using an import bound to its machine on that machine's Group member; their paths take the *group member* scope (ADR 0028). A Partitioned crawl (ADR 0054) of more than one Partition whose source is one of these, `client_browser` included, or a machine-bound import, or a run-only import (`state_file` upload or `cookie_header`) on direct egress, is refused at start with `session_bound_to_machine`, and one on any other Borrowed browser (a non-loopback `cdp_url`) with `browser_borrowed`. **Changes ADR 0054 and ADR 0055.**
+- **Daemon groups.** In a Daemon group, a run whose source is `profile_directory`, `installed_browser`, `running_browser`, a loopback `cdp_url` or a `state_file` path runs only on the Group member where that source exists (a source served by a person's Browser host is placed on any Group member, and the Browser host connects to it), a `client_browser` run on the Group member holding the SDK's connection, and a run using an import bound to its machine on that machine's Group member; their paths take the *group member* scope (ADR 0028). A Partitioned crawl (ADR 0054) of more than one Partition whose source is one of these, `client_browser` included, or a machine-bound import, or a run-only import (`state_file` upload or `cookie_header`) on direct egress, is refused at start with `session_bound_to_machine`, and one on any other Borrowed browser (a non-loopback `cdp_url`) with `browser_borrowed`. **Changes ADR 0054 and ADR 0055.**
 
 ### A remote engine and the person's browser
 
@@ -218,7 +219,7 @@ When the engine runs on a shared Daemon or in Goodfetch Cloud, the person runs a
   - the Session stops taking work and the run's frontier holds its pending items;
   - the work item's lease expires as ADR 0003 has it, and the item is retried once the browser is back;
   - the run waits in a Human pause ("your browser is offline") instead of failing;
-  - it resumes when the Browser host reconnects.
+  - it resumes when the Browser host reconnects; after the run moves, the Browser host reconnects through any Group member, as a Client does after `run_moved` (ADR 0055), and the resuming engine issues it a new token scoped to the Session.
 
 This is the only way a remote run can use a device-bound login, and it keeps the person's cookies on their own machine.
 
@@ -240,7 +241,7 @@ This is the only way a remote run can use a device-bound login, and it keeps the
 ### Other changes
 
 - **Changes ADR 0001:** a Profile directory used in place and a Borrowed browser are outside the reset gate, as the person's own data. Saved identities remain the only Goodfetch state excepted from the reset rule.
-- **Changes ADR 0002 and ADR 0055:** a run bound to its machine does not resume elsewhere. That covers `session_bound_to_machine` runs and runs on a Borrowed browser reached on the engine's machine (`running_browser`, a loopback `cdp_url`) or through its SDK connection (`client_browser`). A run behind a person's Browser host is bound to that Browser host instead: it may resume on another engine or Group member, and continues once the Browser host reconnects to it. When its Group member is removed, such a run stays checkpointed, still assigned to that Group member, and resumes only when it comes back or a person discards it; `goodfetch runs adopt` refuses it with `session_bound_to_machine`.
+- **Changes ADR 0002 and ADR 0055:** a run bound to its machine does not resume elsewhere. That covers `session_bound_to_machine` runs and runs on a Borrowed browser reached on the engine's machine (`running_browser`, a loopback `cdp_url`) or through its SDK connection (`client_browser`). When its Group member is removed, a run bound to its machine stays checkpointed, still assigned to that Group member, and resumes only when it comes back or a person discards it; `goodfetch runs adopt` refuses it with `session_bound_to_machine`. A run behind a person's Browser host is bound to that Browser host instead: it may resume on another engine or Group member, and continues once the Browser host reconnects to it.
 - **Changes ADR 0033:** its `session_credentials` permission covers every source of this ADR.
 - **Changes ADR 0035 and ADR 0045:** `goodfetch identity` now manages Saved identities (`import`, `export`, `list` and `delete`). The Web Bot Auth key commands become `goodfetch signing-key create` and `goodfetch signing-key directory`, which **changes ADR 0021** too.
 - **Changes ADR 0037:**

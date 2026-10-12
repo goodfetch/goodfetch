@@ -88,3 +88,7 @@ The following request favors a **measurement lab before the console**: isolated 
 
 - [Contract and method: workflow and shared SQLite](2026-10-08-workflow-and-shared-sqlite.md).
 - [Executed results: 153 qualified cells](../lab/reports/workflow-2026-10-08.md), with Node/Rust sync/Go, idempotent recovery and comparison of the Crawlee pool wake-up.
+
+## Code-mode sandboxes — October 12, 2026
+
+- [Code-mode sandboxes in practice](2026-10-12-code-mode-sandboxes-in-practice.md): engines, confinement, author contracts, limits and journal replay of Cloudflare Code Mode, OpenAI and Anthropic programmatic tool calling, Pydantic Monty, pctx, smolagents, Shopify Functions, Figma, n8n and the browser-automation peers; hooks in scraping frameworks; dated sandbox escapes. Feeds [issue 125](https://github.com/Jbmanllr/automan/issues/125).

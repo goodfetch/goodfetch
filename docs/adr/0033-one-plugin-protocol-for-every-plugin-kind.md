@@ -20,7 +20,7 @@ Thirteen kinds:
 | Code source | email or SMS MFA codes (ADR 0006) | — |
 | Notification channel | joins ADR 0027's channels | — |
 
-Every kind accepts three forms: an SDK handler (in the Client's process, over JSON-RPC), a process Plugin (any language, the plugin protocol over stdio) and a Rust trait implementation (in-process, only when Goodfetch is embedded as a Rust crate). Hooks also take a fourth: a **Script Hook**, a JavaScript function run in the Script sandbox (ADRs 0011 and 0051), with no sockets or files of its own, only the catalog calls a Hook gets (`net.fetch` and the `page.*` operations of its stage, journaled) and the run's Key-value store, and time and memory limits, so that a Recipe, the CLI or MCP can carry a Hook without an SDK or a process. First-party built-ins implement the same traits, so one suite proves built-in and third-party implementations alike.
+Every kind accepts three forms: an SDK handler (in the Client's process, over JSON-RPC), a process Plugin (any language, the plugin protocol over stdio) and a Rust trait implementation (in-process, only when Goodfetch is embedded as a Rust crate). Hooks also take a fourth: a **Script Hook**, a JavaScript function run in the Script sandbox (ADRs 0011 and 0051), with no sockets or files of its own, only the catalog calls a Hook gets (`net.fetch` and the `page.*` operations of its stage, journaled) and the run's Key-value store, and time and memory limits, so that a Recipe, the CLI or MCP can carry a Hook without an SDK or a process Plugin. First-party built-ins implement the same traits, so one suite proves built-in and third-party implementations alike.
 
 What the engine enforces differs by form, so every distributed Plugin takes the confined form:
 - **Distributed Plugins are process Plugins.** `goodfetch plugins add` and the Plugin index accept process Plugins only. Private components ship only as process Plugins too.
@@ -31,7 +31,7 @@ What the engine enforces differs by form, so every distributed Plugin takes the 
 
 Changes:
 - ADR 0003, whose lease check on every outgoing command covers the engine's own commands, not a Plugin's streams at `proxy_tcp` or `direct`, where writes stay fenced at the destination.
-- ADR 0011, whose code-mode sandbox, the Script sandbox of ADR 0051, also runs Script Hooks.
+- ADR 0011, whose sandbox for code mode also runs Script Hooks: the Script sandbox of ADR 0051.
 - ADR 0012, whose SDK model callback becomes the SDK-handler form of the Model provider kind.
 - ADR 0015, whose custom HTTP provider becomes an implementation of the Secret provider kind.
 - ADR 0016, whose switchable security controls never include Plugin confinement, which each run reports.
@@ -287,4 +287,4 @@ Evidence: confinement and provenance precedents gathered for the ticket:
 - [Airbyte's connector metadata](https://docs.airbyte.com/platform/connector-development/connector-metadata-file)
 - Crate facts taken from crates.io on 2026-10-11.
 - `goodfetch plugins add` also fetches the Plugin's language runtime, so an engine with the `offline` setting never downloads one, and a third-party Plugin's approved manifest domains and network level count as configured destinations (ADR 0043).
-- ADR 0051 confines the Script sandbox's worker as a Plugin at network level `none`, with these resource limits (on the Linux rlimit fallback, `RLIMIT_DATA`, never `RLIMIT_AS`), and has the Rust crate run `plugin-shim` from the `goodfetch` binary of its exact version.
+- ADR 0051 confines the Script sandbox's worker as a Plugin at network level `none`, with these resource limits (on the Linux rlimit fallback, `RLIMIT_DATA`, never `RLIMIT_AS`) and these crash rules under its own `script_*` Error codes, and has the Rust crate run `plugin-shim` from the `goodfetch` binary of its exact version.

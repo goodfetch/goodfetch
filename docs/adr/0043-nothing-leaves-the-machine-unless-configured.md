@@ -44,3 +44,4 @@ Goodfetch's users send it the URLs, accounts and tasks they care most about, so 
   - a fixture's licence endpoint where the fixture needs one, named in its job.
 - The Console's Content Security Policy (ADR 0031) and the offline version checks (ADRs 0030 and 0035) are instances of this rule.
 - The daily channel of the Clean-up rules is a configured destination once `clean_up.update = daily` is set or `clean_up.version` names a daily set, the Filter lists' own URLs once `clean_up.update = upstream` is set, and a Filter list URL once `filter_lists.extra` names it (ADR 0047).
+- ADR 0051 adds a pinned download: the `goodfetch` binary of its exact version, fetched by the Rust crate on first use for the Script sandbox and `plugin-shim`, unless `GOODFETCH_ENGINE_PATH` supplies it.

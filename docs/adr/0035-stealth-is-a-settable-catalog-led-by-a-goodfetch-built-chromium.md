@@ -77,6 +77,7 @@ The `stealth` Access mode turns on a catalog of items, each of which a run can s
 6. A Human pause, if a human channel is configured (ADR 0006).
 7. Otherwise a typed stop, `challenge_unsolved` with the block cause (Error code style of ADR 0038).
 
+- Before step 1, a challenge or CAPTCHA that failed while Filter-list blocking was on is retried once with blocking off, since the never-block list may have missed the vendor (ADR 0047).
 - At any step, the Decision provider classifies pages the rules cannot, as ADR 0021 already provides, whatever `solve_challenges` says.
 - Paid solves and model calls are entries in the Effect journal (ADR 0010) and count in Usage, so money Limits cap them; every step, including the moves between tiers and Sessions and the Human pause, is recorded in the run's trace. Only the Page check declares a challenge passed (ADR 0013).
 - Every solver in steps 4 and 5, the Private component, a token-service or sensor-data adapter, or a Plugin, follows ADR 0033's Challenge solver contract: it acts only through engine operations or returns a token the engine injects, and its `needs_human` outcome leads to step 6.

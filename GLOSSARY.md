@@ -29,8 +29,12 @@ An engine started by one Client for its own use, which stops when that Client go
 _Avoid_: sidecar, child engine
 
 **Daemon**:
-A long-lived engine on the local machine that several Clients share and that outlives each of them.
+A long-lived engine that several Clients share and that outlives each of them.
 _Avoid_: server, service, background engine
+
+**Exposed Daemon**:
+A Daemon that Clients reach from other machines.
+_Avoid_: server, remote engine, hosted engine
 
 **Error code**:
 The stable name a Client receives when an operation fails, such as `page_check_failed`, which programs can match on and which keeps its meaning across releases of a major version.

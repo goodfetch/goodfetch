@@ -6,10 +6,10 @@ This matrix is the companion of [ADR 0037](0037-v1-scope-parity-and-pain-coverag
 
 | Status | Parity rows | Stagehand v3 rows | Pains |
 |---|---:|---:|---:|
-| `decided` | 98 | 4 | 19 |
+| `decided` | 101 | 4 | 21 |
 | `spec` | 39 | 1 | 0 |
 | `excluded` | 1 | 0 | 0 |
-| `open → #N` | 4 | 0 | 5 |
+| `open → #N` | 1 | 0 | 3 |
 | Total | 142 | 5 | 24 |
 
 ## Parity rows
@@ -49,7 +49,7 @@ This matrix is the companion of [ADR 0037](0037-v1-scope-parity-and-pain-coverag
 | SDK-01 | Primary language and package | `decided` | ADR 0024, ADR 0034 | 11 Client surfaces | `goodfetch` binary, Rust crate, npm and PyPI SDKs. |
 | SDK-02 | Same API in several languages | `decided` | ADR 0011, ADR 0024, ADR 0030 | 11 Client surfaces | Every SDK is generated from one Operation catalog, in lockstep versions. |
 | SDK-03 | Modular install | `decided` | ADR 0024, ADR 0033 | 1 Repository, CI and release | One binary; browsers, sink processes and Plugins fetched on demand by digest. |
-| SDK-04 | Project scaffolding CLI and templates | `open → #120` | ADR 0030 | 11 Client surfaces | `goodfetch init` writes an AGENTS.md index. Open: templates, their languages, and Dockerfiles in them. |
+| SDK-04 | Project scaffolding CLI and templates | `decided` | ADR 0030, ADR 0049 | 11 Client surfaces | `goodfetch init` scaffolds TypeScript, Python and Rust from five starters (crawl, extract, browser automation, AI agent, Recipe), each with a Dockerfile, Compose file, CI workflow, AGENTS.md and skills, embedded in the binary; `--deploy <target>` adds a target's files. |
 | SDK-05 | No-code CLI that crawls or drives a browser | `decided` | ADR 0011, ADR 0034, ADR 0036 | 11 Client surfaces | CLI generated from the catalog with `--json`; code-free catalog runs. |
 | SDK-06 | Typed public API and schemas | `decided` | ADR 0011, ADR 0024, ADR 0028, ADR 0038 | 11 Client surfaces | Typed catalog defined in Rust types, generated SDK types, sync and async Python. |
 | SDK-07 | Docs for AI coding assistants | `decided` | ADR 0030 | 11 Client surfaces | `llms.txt`, `llms-full.txt`, embedded docs, skills, AGENTS.md. |
@@ -193,8 +193,8 @@ This matrix is the companion of [ADR 0037](0037-v1-scope-parity-and-pain-coverag
 
 | ID | Capability | Status | Source | Spec area | Note |
 |---|---|---|---|---|---|
-| CL-01 | Docker images and Dockerfiles in templates | `open → #120` | ADR 0024, ADR 0017 | 13 Self-hosted deployment and operations | Decided: official non-root OCI image. Open: Dockerfiles in project templates (SDK-04). |
-| CL-02 | Deployment guides (AWS Lambda, Cloud Run) | `open → #120` | ADR 0031 | 13 Self-hosted deployment and operations | Decided: remote-access setups. Open: which self-hosted targets V1 supports, tests and documents. |
+| CL-01 | Docker images and Dockerfiles in templates | `decided` | ADR 0024, ADR 0017, ADR 0049 | 13 Self-hosted deployment and operations | Five non-root, multi-arch image tags (default, `-slim`, `-full`, `-node`, `-python`) on Debian 13 slim with SBOM and attestations; every template has a Dockerfile (SDK-04). |
+| CL-02 | Deployment guides (AWS Lambda, Cloud Run) | `decided` | ADR 0031, ADR 0049 | 13 Self-hosted deployment and operations | Supported means a tested guide plus a CI deploy: Docker and Compose, Kubernetes (Helm), systemd, Cloud Run, Lambda as a container image, and edge runtimes as Clients; ECS and Fargate, Azure Container Apps, Fly.io, Railway and Render are documented. |
 | CL-03 | Crawler served as an HTTP service | `decided` | ADR 0027, ADR 0011, ADR 0017 | 11 Client surfaces | Daemon HTTP JSON-RPC listener; MCP Streamable HTTP. |
 | CL-04 | Several processes or machines sharing one queue | `decided` | ADR 0024, ADR 0003, ADR 0002 | 3 Engine runtime | `workers=N` processes lease from one run. Machines sharing a live frontier excluded: multiple writers (ADR 0002). Scale-out is [#116](https://github.com/Jbmanllr/automan/issues/116). |
 | CL-05 | Remote browser sessions with regions and keep-alive | `decided` | ADR 0022, [#69](https://github.com/Jbmanllr/automan/issues/69) item 8 | 14 Cloud-readiness contracts | Self-hostable Browser host; Sessions can be kept alive. Regions are a Cloud matter. |
@@ -228,14 +228,14 @@ No v3 API compatibility layer is offered (ADR 0037). A Crawlee+Stagehand migrati
 | 9 | `agent-deterministic-replay` | `decided` | ADR 0009, ADR 0010, ADR 0013 | 9 AI and agent | Plans are versioned files replayed without a model; the recorder also emits TypeScript or Python code. |
 | 10 | `silent-false-success` | `decided` | ADR 0006, ADR 0013, ADR 0026, ADR 0029 | 6 Collection; 9 AI and agent | Page check, Success checks, Grounding, typed Challenge causes and the three-axis report. |
 | 11 | `agent-unreliable-drift` | `decided` | ADR 0009, ADR 0013, ADR 0019 | 9 AI and agent | Goodfetch does not make a model succeed at an arbitrary task; it makes an agent's failure visible (Success checks, Verdict) and its success repeatable (Plans). |
-| 12 | `integ-sdk-llm-runtime` | `open → #117, #120` | ADR 0012, ADR 0022, ADR 0024 | 11 Client surfaces; 5 Site access; 13 Self-hosted deployment and operations | Decided: three SDKs, model formats, third-party CDP browsers. Open: attaching to the user's Playwright ([#117](https://github.com/Jbmanllr/automan/issues/117)); edge and serverless Clients ([#120](https://github.com/Jbmanllr/automan/issues/120)). |
+| 12 | `integ-sdk-llm-runtime` | `open → #117` | ADR 0012, ADR 0022, ADR 0024 | 11 Client surfaces; 5 Site access; 13 Self-hosted deployment and operations | Decided: three SDKs, model formats, third-party CDP browsers. Edge and serverless Clients over WebSocket (ADR 0049). Open: attaching to the user's Playwright ([#117](https://github.com/Jbmanllr/automan/issues/117)). |
 | 13 | `cost-infra-proxy-spend` | `decided` | ADR 0020, ADR 0021, ADR 0025, ADR 0035 | 8 Stealth and Challenge solving; 5 Site access | Proxy and CAPTCHA-service prices are set by their vendors; Goodfetch minimizes how much of them a run uses and reports the spend per verified result. |
 | 14 | `data-extraction-quality` | `decided` | ADR 0007, ADR 0013, ADR 0025 | 6 Collection; 2 Proving ground and conformance | Grounding, an extractor chosen on an independent corpus, and an extraction-quality benchmark family. |
-| 15 | `ops-scale-ratelimit-scheduling` | `open → #116, #120` | ADR 0004, ADR 0021, ADR 0036 | 3 Engine runtime; 10 Scheduling; 13 Self-hosted deployment and operations | Decided: backoff, fair admission, the Daemon scheduler. Open: shared politeness and scale-out ([#116](https://github.com/Jbmanllr/automan/issues/116)); Kubernetes artifacts ([#120](https://github.com/Jbmanllr/automan/issues/120)). |
+| 15 | `ops-scale-ratelimit-scheduling` | `open → #116` | ADR 0004, ADR 0021, ADR 0036, ADR 0049 | 3 Engine runtime; 10 Scheduling; 13 Self-hosted deployment and operations | Decided: backoff, fair admission, the Daemon scheduler. Helm chart with one Daemon (ADR 0049). Open: shared politeness, scale-out and the chart's replicas ([#116](https://github.com/Jbmanllr/automan/issues/116)). |
 | 16 | `rel-hang-crash` | `decided` | ADR 0003, ADR 0019, ADR 0024, ADR 0033 | 3 Engine runtime | Leases, CDP command timeouts, process groups, Plugin heartbeat and resume from Checkpoint. |
-| 17 | `selfhost-parity-lockin` | `open → #120` | ADR 0001, ADR 0018, ADR 0031 | 13 Self-hosted deployment and operations; 14 Cloud-readiness contracts | Nothing held back to sell; Goodfetch's own solving logic is Private (ADR 0018). Open: Kubernetes and Helm, with pain #15. |
+| 17 | `selfhost-parity-lockin` | `decided` | ADR 0001, ADR 0018, ADR 0031, ADR 0049 | 13 Self-hosted deployment and operations; 14 Cloud-readiness contracts | Nothing held back to sell; Goodfetch's own solving logic is Private (ADR 0018). A signed Helm chart passing the `restricted` Pod Security level, tested on `kind`, and six supported targets (ADR 0049). |
 | 18 | `agent-human-in-loop` | `decided` | ADR 0006, ADR 0014, ADR 0027, ADR 0031 | 12 Console; 9 AI and agent | Human pause, confirmation categories, Live view takeover and the "Needs you" list. |
-| 19 | `dx-observability` | `open → #120` | [#70](https://github.com/Jbmanllr/automan/issues/70) item 9, ADR 0031 | 3 Engine runtime; 13 Self-hosted deployment and operations | OTLP export decided in [#70](https://github.com/Jbmanllr/automan/issues/70) item 9; run traces on the Timeline. Open: run and engine metrics, a scrapeable health endpoint. |
+| 19 | `dx-observability` | `decided` | [#70](https://github.com/Jbmanllr/automan/issues/70) item 9, ADR 0031, ADR 0050 | 3 Engine runtime; 13 Self-hosted deployment and operations | OTLP export decided in [#70](https://github.com/Jbmanllr/automan/issues/70) item 9; run traces on the Timeline. Run and engine metrics through OTLP and a token-protected Prometheus endpoint, with versioned names; token-free `/livez` and `/readyz` (ADR 0050). |
 | 20 | `maint-site-drift` | `decided` | ADR 0007, ADR 0009, ADR 0013 | 9 AI and agent | Fingerprinted Targets; Drift caught before the first Effect; one verified Repair. |
 | 21 | `maint-upgrade-regression` | `decided` | ADR 0025, ADR 0030, ADR 0032 | 1 Repository, CI and release; 2 Proving ground and conformance | One lockstep version, semver contracts, and a benchmark regression gate on every minor. |
 | 22 | `perf-memory-concurrency` | `decided` | ADR 0040, ADR 0004, ADR 0020, ADR 0024 | 3 Engine runtime | Resource-aware concurrency from container limits, browser recycling on memory growth, and a shedding ladder ending in a resumable `resources_exhausted` stop. |

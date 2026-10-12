@@ -98,3 +98,4 @@ Releases are **built once and published per registry**: no tool publishes crates
   - **Until the repository is public:** private repositories pay for hosted-runner minutes, macOS most of all. The pull-request tier runs on Linux only, the full matrix runs on manual dispatch, and the nightly tier is off. Every tier above applies once the repository is public.
 - ADR 0033 adds two release artifacts built, attested and published with the engine: the Linux `goodfetch-sandbox` helper and the Windows filter broker.
 - ADR 0039 signs and notarizes every macOS and Windows executable between build and attestation, in signing jobs that alone reach a `release` environment, and keeps Homebrew a formula.
+- The nightly job that builds the Clean-up rules' daily channel is one of the jobs ADR 0043 lets reach named endpoints, and the channel is published only after its clean-up suites pass (ADR 0047).

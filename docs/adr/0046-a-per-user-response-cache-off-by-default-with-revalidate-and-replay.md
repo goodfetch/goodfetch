@@ -28,7 +28,7 @@ Scrapy's `HttpCacheMiddleware` stores everything and never revalidates by defaul
 - Every partition also carries the person on a shared Daemon (ADR 0031), the proxy exit country, the Identity profile's language and its device class (desktop or mobile).
 
 **Never cached.**
-- Responses with any Block cause (`challenge`, `captcha`, `rate_limit`, `ip_block`, `decoy`, `payment_required`; ADRs 0035 and 0045), responses the Decision provider classes as a soft block (ADR 0021), and responses whose Page check fails.
+- Responses with any Block cause (`challenge`, `captcha`, `rate_limit`, `ip_block`, `decoy`, `payment_required`, `consent_required`; ADRs 0035, 0045 and 0048), responses the Decision provider classes as a soft block (ADR 0021), and responses whose Page check fails.
 - Requests the Effect journal records as Effects (ADR 0010), Paid fetches (ADR 0045), and requests carrying a resolved secret (ADR 0016).
 - Responses fetched under a certificate exception (`trusted_cas`, `client_certificates` or `accept_invalid_certs`; ADR 0042), so a run that verifies a host normally is never served what another run accepted without verification.
 
@@ -46,3 +46,4 @@ Scrapy's `HttpCacheMiddleware` stores everything and never revalidates by defaul
 
 **Schedules.**
 - **Changes ADR 0036:** Watches never use the cache; they exist to see changes and send their own conditional requests. A Schedule's target runs may use `revalidate`. A Schedule whose target sets `replay` is refused with the Error code `replay_not_allowed`, which is not retryable (ADR 0038), because replayed pages would hide changes from the Baseline.
+- Saving an identity drops, from its partition, the entries fetched under a Consent prompt acceptance that the saving run's `consent_domains` does not cover (ADR 0048).

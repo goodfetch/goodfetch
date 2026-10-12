@@ -20,3 +20,4 @@ Goodfetch ships under `MIT OR Apache-2.0` across the whole repository (the Rust 
 - Every release carries a third-party notice inventory, generated per ecosystem and checked in CI against a license allowlist; a dependency outside the allowlist blocks the release.
 - A trademark policy published with the license allows "built with" and "compatible with" uses and forbids forks and hosted services from using the name. Filing the mark is settled by ADR 0034.
 - The copyright holder named in the license files is "The Goodfetch contributors" (ADR 0034).
+- The license allowlist accepts MPL-2.0 for unmodified files, such as `adblock-rust`, autoconsent and Mozilla's web-compatibility shims. The binary embeds the compiled form of CC BY-SA Filter lists under CC BY-SA. GPL Filter lists and uBlock Origin's GPL resources are only downloaded, never embedded or compiled into the binary (ADR 0047).

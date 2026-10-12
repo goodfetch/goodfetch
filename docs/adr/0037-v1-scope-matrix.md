@@ -6,10 +6,10 @@ This matrix is the companion of [ADR 0037](0037-v1-scope-parity-and-pain-coverag
 
 | Status | Parity rows | Stagehand v3 rows | Pains |
 |---|---:|---:|---:|
-| `decided` | 96 | 4 | 19 |
+| `decided` | 98 | 4 | 19 |
 | `spec` | 39 | 1 | 0 |
 | `excluded` | 1 | 0 | 0 |
-| `open → #N` | 6 | 0 | 5 |
+| `open → #N` | 4 | 0 | 5 |
 | Total | 142 | 5 | 24 |
 
 ## Parity rows
@@ -75,7 +75,7 @@ This matrix is the companion of [ADR 0037](0037-v1-scope-parity-and-pain-coverag
 | SA-14 | Waits: selector, load state, network idle, delay | `spec` | ADR 0019 | 5 Site access | The API waits through the guard until a deadline. Load-state, network-idle and explicit waits follow the mapping. |
 | SA-15 | Targeting inside iframes and shadow DOM | `spec` | ADR 0019, ADR 0009 | 5 Site access | OOPIF tracking decided; the recorder spans frames and shadow DOM. Page API shadow-root targeting is spec. |
 | SA-16 | Evaluate JS; init scripts before page scripts | `spec` | ADR 0019 | 5 Site access | `evaluate` decided. A user init script departs from `standard` mode's no-injection identity (ADR 0021); the spec marks it. |
-| SA-17 | Request interception and resource or ad blocking | `open → #119` | ADR 0014, ADR 0033, ADR 0019 | 5 Site access | Decided: policy interception, Hook resource blocking; user `route` is spec. Open: built-in ad and tracker blocklists. |
+| SA-17 | Request interception and resource or ad blocking | `decided` | ADR 0047, ADR 0014, ADR 0033, ADR 0019 | 5 Site access | Ads and trackers blocked by default through `adblock-rust` in the policy interception, with a never-block list for challenge, anti-bot and payment scripts; `block_resources` by type; Hook resource blocking. User `route` is spec. |
 | SA-18 | Network and console events | `decided` | [#71](https://github.com/Jbmanllr/automan/issues/71), ADR 0019 | 5 Site access | Network and console capture decided. The `page.on` event API follows ADR 0019's mapping. |
 | SA-19 | Main-document response: status, headers, body | `spec` | ADR 0019, ADR 0024 | 5 Site access | Body handles decided. Status, headers and final URL follow the Playwright `Response` mapping. |
 | SA-20 | Custom headers, user agent, referer | `decided` | ADR 0033, ADR 0021, ADR 0035 | 5 Site access | Before-request Hooks change headers except `Host`, `Cookie` and `Authorization`. |
@@ -86,7 +86,7 @@ This matrix is the companion of [ADR 0037](0037-v1-scope-parity-and-pain-coverag
 | SA-25 | Bind to a local IP or network interface | `decided` | ADR 0044 | 4 Security and egress | A Session egress option on every OS: addresses, interface names, Linux IPv6 prefixes; DNS and WebRTC follow it; browsers through the egress relay; rotation after a block leaves the blocked /64 or /24. |
 | SA-26 | Auto-dismiss JS dialogs | `spec` | ADR 0019, ADR 0014 | 5 Site access | The default dismisses dialogs, since accepting a `confirm()` may confirm an Effect (ADR 0014). |
 | SA-27 | HTTP auth challenge in the browser | `spec` | ADR 0019, ADR 0015 | 5 Site access | Answered from a Secret reference bound to domains. |
-| SA-28 | Close cookie-consent modals | `open → #119` | none | 5 Site access | Open: reject, hide or accept; accepting is close to ADR 0014's terms confirmation. Filter-list licences meet ADR 0018. |
+| SA-28 | Close cookie-consent modals | `decided` | ADR 0048, ADR 0047 | 5 Site access | Consent prompts refused by default through autoconsent, hidden when they offer no refusal and leave the content readable; a consent wall is the Block cause `consent_required`, accepted only on `consent_domains`. |
 | SA-29 | Several tabs with an active page | `spec` | ADR 0019, ADR 0031 | 5 Site access | The Live view follows popups. The tab API follows ADR 0019's mapping. |
 | SA-30 | Clipboard read, write, copy, cut, paste | `spec` | ADR 0019 | 5 Site access | The page's clipboard, not the host's; mapped or excluded with a reason. |
 

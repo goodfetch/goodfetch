@@ -14,9 +14,9 @@ Browserless users asked for a health check that needs no token, for Kubernetes p
 
 ## Consequences
 
-**Ops listener** (changes ADR 0017: the probe paths are the only endpoints without a token).
+**Ops listener** (changes ADRs 0016 and 0017: the probe paths are the only endpoints without a token).
 - `/livez` succeeds while the Tokio runtime and the run-state writer respond.
-- `/readyz` succeeds while the Daemon can accept a new run: run state is writable, browsers are installed, it is not draining, and the governor is not at `resources_exhausted` (ADR 0040).
+- `/readyz` succeeds while the Daemon can accept a new run: run state is writable, the browsers its configuration uses are available, it is not draining, and the governor has not reached its last-resort stage, where runs stop as `resources_exhausted` (ADR 0040).
 - Neither returns a body, a version or run information.
 - `/metrics` takes a scoped read-only token as a bearer token.
 - `goodfetch daemon health` answers the same questions for `exec` probes and systemd.

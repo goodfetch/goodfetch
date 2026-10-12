@@ -1,6 +1,6 @@
 # Self-hosted targets are supported only when CI deploys there, and an Exposed Daemon runs in the foreground
 
-A Daemon that Clients reach from other machines is an **Exposed Daemon**; it is the same engine with the same operations, so the Daemon's definition drops "on the local machine" (ADR 0024). Servers run it with `goodfetch daemon run`, in the foreground, draining to resumable checkpoints on `SIGTERM`. A deployment target is **supported** only when the docs give a tested guide and CI deploys there, or into a faithful emulator, and runs a smoke run: Docker and Compose, Kubernetes through a Helm chart, a Linux VM with systemd, Google Cloud Run, AWS Lambda as a container image, and edge or serverless JavaScript runtimes as Clients only. ECS and Fargate, Azure Container Apps, Fly.io, Railway and Render are **documented** with the generic image. Chromium's sandbox is probed at startup, refused with a precise fix where one exists, and switched off automatically but recorded where the platform allows none. Decided in [Self-hosted deployment and operations](https://github.com/Jbmanllr/automan/issues/120).
+A Daemon that Clients reach from other machines is an **Exposed Daemon**; it is the same engine with the same operations, so the Daemon's definition drops "on the local machine" (ADR 0024). A deployed host runs it with `goodfetch daemon run`, in the foreground, draining to resumable checkpoints on `SIGTERM`. A deployment target is **supported** only when the docs give a tested guide and CI deploys there, or into a faithful emulator, and runs a smoke run: Docker and Compose, Kubernetes through a Helm chart, a Linux VM with systemd, Google Cloud Run, AWS Lambda as a container image, and edge or serverless JavaScript runtimes as Clients only. ECS and Fargate, Azure Container Apps, Fly.io, Railway and Render are **documented** with the generic image. Chromium's sandbox is probed at startup, refused with a precise fix where one exists, and switched off automatically but recorded where the platform allows none. Decided in [Self-hosted deployment and operations](https://github.com/Jbmanllr/automan/issues/120).
 
 Crawlee documents AWS Lambda and Cloud Run but tests neither, and its AWS guide is stale ([crawlee#3371](https://github.com/apify/crawlee/issues/3371)). Firecrawl calls its Helm chart and manifests "starting points", bundles Redis, Postgres and RabbitMQ that users cannot replace ([firecrawl#3827](https://github.com/firecrawl/firecrawl/issues/3827)), and its k3d CI is still an open pull request ([firecrawl#2729](https://github.com/firecrawl/firecrawl/pull/2729)). Browserless has only community charts. Playwright's image runs as root, which disables Chromium's sandbox, and needs `--init` against zombie processes ([playwright#34230](https://github.com/microsoft/playwright/issues/34230), [docs](https://playwright.dev/docs/docker)); Browserless always launches with `--no-sandbox` ([browsers.cdp.ts](https://github.com/browserless/browserless/blob/main/src/browsers/browsers.cdp.ts)). Lambda's 250 MB unzipped limit is the top complaint of `@sparticuz/chromium` ([#8](https://github.com/Sparticuz/chromium/issues/8)), which Crawlee and Puppeteer point users to.
 
@@ -17,8 +17,8 @@ Crawlee documents AWS Lambda and Cloud Run but tests neither, and its AWS guide 
 
 ## Consequences
 
-**Foreground Daemon.**
-- `goodfetch daemon run` has no idle stop and no runtime file, listens on the configured address, reads configuration from files and environment variables (ADR 0028), and logs JSON to stdout through `tracing`.
+**Foreground Daemon** (changes ADR 0024).
+- In this mode, ADR 0024's runtime file, idle stop, one Daemon per user and per major, and Unix-socket or loopback-only listener do not apply: `goodfetch daemon run` has no idle stop and no runtime file, listens on the configured address, reads configuration from files and environment variables (ADR 0028), and logs JSON to stdout through `tracing`.
 - On `SIGTERM` it drains: it stops leasing work and taking runs, checkpoints every run as resumable (ADR 0002) and exits within the grace period.
 - It makes itself a child subreaper (`PR_SET_CHILD_SUBREAPER`) and reaps every browser descendant, so it runs correctly as PID 1 without `tini`.
 
@@ -34,10 +34,10 @@ Crawlee documents AWS Lambda and Cloud Run but tests neither, and its AWS guide 
 |---|---|---|
 | Docker and Docker Compose | Supported | The OCI image itself |
 | Kubernetes (Helm chart) | Supported | A `kind` cluster: install the chart, run, drain on pod deletion |
-| Linux VM with systemd | Supported | `goodfetch daemon install` (ADR 0031) |
+| Linux VM with systemd | Supported | A system unit running `goodfetch daemon run`, beside the per-user unit of `goodfetch daemon install` (ADR 0031) |
 | Google Cloud Run, services and jobs | Supported | One real deploy per release candidate |
 | AWS Lambda, container image | Supported | AWS's Lambda Runtime Interface Emulator |
-| Cloudflare Workers, Vercel Functions, Deno Deploy, as Clients only | Supported | The SDK in `workerd` (Miniflare) and Vercel's edge-runtime against a Daemon |
+| Cloudflare Workers, Vercel Functions, Deno Deploy, as Clients only | Supported | The SDK in `workerd` (Miniflare), Vercel's edge-runtime and Deno against a Daemon |
 | ECS and Fargate, Azure Container Apps, Fly.io, Railway, Render | Documented | None |
 
 **Edge and serverless Clients** (adds to ADR 0024).
@@ -50,10 +50,10 @@ Crawlee documents AWS Lambda and Cloud Run but tests neither, and its AWS guide 
 
 **Google Cloud Run.**
 - An Exposed Daemon as a service, with instance-based billing (CPU always allocated), at least one instance, at most one instance per Daemon, and checkpoints to Cloud Storage.
-- Recipe runs as jobs: an Attached engine per execution, started by Cloud Scheduler or by a Daemon Schedule calling the Jobs API (ADR 0036).
+- Recipe runs as jobs: an Attached engine per execution, started by Cloud Scheduler.
 - The engine detects throttled CPU on Cloud Run and warns in the run's results. The guide for ECS and Fargate describes services and tasks the same way.
 
-**Run state on servers** (changes ADR 0002).
+**Run state on deployed hosts** (changes ADR 0002).
 - The engine checks the run directory's filesystem with `statfs` and refuses NFS, SMB, EFS, Azure Files, Filestore and FUSE object-storage mounts with a typed Error code that names the fix.
 - Checkpoint locations accept object-storage URLs (`s3://`, `gs://`, `az://` and S3-compatible endpoints such as R2 and MinIO) with credentials as Secret references, through the object-storage clients the Sinks already ship (ADR 0026).
 - On a detected ephemeral target (Lambda, Cloud Run, Fargate), periodic checkpoints are on by default every 60 seconds, settable, and a run with no checkpoint location carries a warning in its results.
@@ -85,7 +85,7 @@ Crawlee documents AWS Lambda and Cloud Run but tests neither, and its AWS guide 
 - Operator policy as a `ConfigMap`, and secrets referenced from Kubernetes `Secret`s.
 - By default it passes Kubernetes' `restricted` Pod Security level: `runAsNonRoot`, every capability dropped, `allowPrivilegeEscalation: false`, a read-only root filesystem with `emptyDir` volumes for `/tmp` and the browser cache, a memory-backed `/dev/shm` of 1 GiB, and the seccomp profile as `Localhost`, installed through an optional Security Profiles Operator `SeccompProfile` the chart can create, or by hand.
 - Two documented values: `seccomp: unconfined`, needed on GKE Autopilot, which forbids custom profiles and drops to the `privileged` level; and `hostUsers: false` with `SYS_ADMIN` inside the pod's user namespace (Kubernetes 1.33 and later, GA in 1.36), which fails `baseline`.
-- Published as a signed OCI artifact on GHCR at the product version (ADR 0030). Upgrades roll by drain, then resume from the same volume.
+- Published as a signed OCI artifact on GHCR at the product version, released with the other packages (adds to ADR 0030). Upgrades roll by drain, then resume from the same volume.
 
 **Project templates** (adds to ADR 0030).
 - `goodfetch init` scaffolds TypeScript, Python and Rust projects from five starters: crawl, extract, browser automation, AI agent and Recipe.

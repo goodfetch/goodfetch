@@ -75,11 +75,13 @@ Releases are **built once and published per registry**: no tool publishes crates
     - Which Sinks run: until the merge queue exists, every Sink's suite, as ADR 0026 requires. Once it exists, a pull request runs only the suites of the Sinks it changes, and the merge queue runs them all before the merge, so every pull request still passes the whole sink suite before it lands. A change to the sink protocol or to code that Sinks share counts as a change to every Sink.
     - The docs build and example runs when docs change.
     - DCO, the notice inventory (ADR 0018), the API breakage checks (ADR 0030), `cargo-deny`, `cargo-audit` and their npm and Python equivalents, a check that every Action is pinned by SHA, and a build on the minimum supported Rust version.
+    - A Linux x64 size estimate posted as a comment, which never blocks (ADR 0057).
     - One "all green" job, the only required check.
   - **Merge queue and `main`:** the full matrix of ADR 0024:
     - Platforms: Linux x64 and arm64 (glibc and musl), macOS arm64 and Intel (`macos-15-intel` or `macos-26-intel`), Windows x64 and arm64. If GitHub retires its Intel macOS runners, the x64 build keeps shipping (ADR 0024), and how it is tested is decided then.
     - Runtimes: every supported Node line, Bun and Deno; every supported CPython, with its free-threaded build from 3.14t on, on Linux.
     - Browser conformance on every operating system.
+    - The Size budget's increase check per target, against `main`'s build of the same profile (ADR 0057).
 
     Once the repository is public, every target has a free GitHub-hosted runner. The free plan's 20 concurrent jobs, 5 of them macOS, are why this tier waits for the merge queue.
   - **Nightly:**
@@ -88,8 +90,8 @@ Releases are **built once and published per registry**: no tool publishes crates
     - Every installed Chrome that ADR 0030 supports: the stable, beta and dev channels, every stable major of the last eight weeks, and Extended Stable.
     - The Private component run.
     - OpenSSF Scorecard.
-    - The nightly channel's publish.
-  - **Release candidate:** the benchmark of ADR 0025 runs on the reference host. The host is registered as a self-hosted runner that only tag and manual dispatch events reach, never pull-request code.
+    - The Size budget's ceilings on the release-profile files, then the nightly channel's publish (ADR 0057).
+  - **Release candidate:** the Size budget's ceilings on the release-profile files (ADR 0057), and the benchmark of ADR 0025 on the reference host. The host is registered as a self-hosted runner that only tag and manual dispatch events reach, never pull-request code.
 - **Outbound traffic.** After installs and cache restores, every step that runs Goodfetch's product denies outbound traffic except to the fixtures and the pinned artifact mirror; only the jobs ADR 0043 names reach other endpoints, among them the nightly public testnets that check Paid fetch proofs (ADR 0045) and the online conformance against real vendors (ADR 0033).
 - **Caching.** `Swatinem/rust-cache`, saving only from `main`.
 - **Docs source.** The documentation's content lives in `docs/` and the Docusaurus site in `website/`, which settles where the docs source lives, the other item ADR 0030 left to this one.

@@ -112,7 +112,7 @@ The Clean-up rules are rule data: Filter lists, autoconsent's rules, the never-b
 
 **How they arrive.**
 - **Embedded.**
-  - The embedded part is precompiled at build time with `Engine::serialize` from the binary's own `adblock` version. Serialized, the embedded lists measured 9.06 MB, or 3.67 MB compressed, with `adblock` 0.13.3. autoconsent's rules and library add about 0.1 MB compressed (measured), and the stand-ins are small.
+  - The embedded part is precompiled at build time with `Engine::serialize` from the binary's own `adblock` version. Serialized, the embedded lists measured 9.06 MB, or 3.67 MB compressed, with `adblock` 0.13.3; they are embedded zstd-compressed and decompressed on load (ADR 0057). autoconsent's rules and library add about 0.1 MB compressed (measured), and the stand-ins are small.
   - The serialized format can change between minor versions of the crate ([docs](https://docs.rs/adblock/latest/adblock/struct.Engine.html)), which is why it is built with the binary's own version.
   - It is loaded on the first page that needs it, never at engine start.
   - Its inputs, like the full set's, are pinned and fetched before CI's network deny starts (ADR 0043); no build script downloads anything.

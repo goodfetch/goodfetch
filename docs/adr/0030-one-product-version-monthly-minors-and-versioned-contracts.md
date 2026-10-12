@@ -58,7 +58,8 @@ Every Goodfetch package carries one version and is released together: the `goodf
   - **Stable:** npm `latest`, PyPI, crates.io, Homebrew, the installers and the OCI `latest` tag.
   - **Beta:** an `x.y.0-rc.N` cut one week before every minor (npm `next`, PyPI `x.y.0rcN`, crates.io `-rc.N`).
   - **Patches:** shipped whenever a fix is ready, on the stable channel, built from the minor's `release/x.y` branch (ADR 0032).
-  - **Nightly:** built from `main` to npm `nightly`, PyPI `.devN`, GitHub pre-releases and an OCI `nightly` tag, but not to crates.io or Homebrew.
+  - **Nightly:** built from `main` to npm `nightly`, GitHub pre-releases, a Goodfetch-hosted Python index on `goodfetch.dev` that lists the pre-releases' wheels (never PyPI, ADR 0057) and an OCI `nightly` tag, but not to crates.io or Homebrew.
+  - **Size budget:** a nightly, release candidate or release whose files break a ceiling of ADR 0057 is not published. Each release publishes its binaries' debug symbols beside them, and its notes list every file's size.
 - **Browsers and stealth between minors.**
   - **Chrome:** each new Chrome stable major ships in a patch, once it passes the conformance suite and the guard (ADR 0019). A patch may also move the pinned Chrome for Testing build within its major, security point releases included, and update stealth material.
   - **Other browsers:** a patch may move Playwright's Firefox and WebKit builds, Camoufox, Patchright and Lightpanda to a newer build within their own upstream major, security point releases included. A new upstream major of these comes only with a minor.

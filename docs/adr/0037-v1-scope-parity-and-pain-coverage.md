@@ -33,15 +33,15 @@ One spec per area. An area goes to `/to-spec` only after every area whose contra
 | 2 | Proving ground and conformance | 0025 |  |
 | 3 | Engine runtime | 0002–0004, 0024, 0028, 0040, 0041, 0049, 0050, 0053–0055 |  |
 | 4 | Security and egress | 0015–0017, 0042–0044, 0049, 0050, 0055 |  |
-| 5 | Site access | 0019–0023, 0045, 0047–0049, 0053 | [Bringing an existing login or browser](https://github.com/Jbmanllr/automan/issues/117) |
+| 5 | Site access | 0019–0023, 0045, 0047–0049, 0053, 0056 |  |
 | 6 | Collection | 0005–0008, 0026, 0040, 0046, 0054 |  |
 | 7 | Plugin protocol | 0033, 0049 |  |
 | 8 | Stealth and Challenge solving | 0035 |  |
 | 9 | AI and agent | 0009–0014 |  |
 | 10 | Scheduling | 0036, 0041, 0055 |  |
-| 11 | Client surfaces (SDKs, CLI, MCP, skills, adapters, Integrations, Notifications) | 0011, 0024, 0027, 0049, 0055 | [Bringing an existing login or browser](https://github.com/Jbmanllr/automan/issues/117) |
-| 12 | Console | 0029, 0031, 0049, 0055 |  |
-| 13 | Self-hosted deployment and operations | 0024, 0049, 0050, 0053, 0055 | [Bringing an existing login or browser](https://github.com/Jbmanllr/automan/issues/117) |
+| 11 | Client surfaces (SDKs, CLI, MCP, skills, adapters, Integrations, Notifications) | 0011, 0024, 0027, 0049, 0055, 0056 |  |
+| 12 | Console | 0029, 0031, 0049, 0055, 0056 |  |
+| 13 | Self-hosted deployment and operations | 0024, 0049, 0050, 0053, 0055, 0056 |  |
 | 14 | Cloud-readiness contracts | 0001, 0049 |  |
 
 The Proving ground comes second because it is the oracle every later area's conformance suite runs against. Security precedes Site access because ADR 0017's egress policy wraps every fetch. Scheduling precedes Client surfaces and the Console, which expose its `schedules.*` operations (ADR 0036). Where two areas use each other's contracts, as Scheduling uses the Console's Run index and the Notification events of Client surfaces (ADRs 0031 and 0027), the ADRs already fix the shared contract, and the earlier area's spec builds against it while the later area's spec implements it. Across areas, `/to-issues` blocks each issue on the issues that build the contracts it consumes, whichever area they belong to; when those issues do not exist yet, the later area's `/to-issues` adds the links to the issues already created.

@@ -6,10 +6,10 @@ This matrix is the companion of [ADR 0037](0037-v1-scope-parity-and-pain-coverag
 
 | Status | Parity rows | Stagehand v3 rows | Pains |
 |---|---:|---:|---:|
-| `decided` | 101 | 4 | 22 |
+| `decided` | 102 | 4 | 24 |
 | `spec` | 39 | 1 | 0 |
 | `excluded` | 1 | 0 | 0 |
-| `open → #N` | 1 | 0 | 2 |
+| `open → #N` | 0 | 0 | 0 |
 | Total | 142 | 5 | 24 |
 
 ## Parity rows
@@ -69,7 +69,7 @@ This matrix is the companion of [ADR 0037](0037-v1-scope-parity-and-pain-coverag
 | SA-08 | Attach to a running or remote browser; never close it | `spec` | ADR 0022, ADR 0033 | 5 Site access | Third-party CDP browsers and Browser hosts decided. Releasing a borrowed browser without closing it is a default. |
 | SA-09 | Browser pool: page caps, retirement, launch hooks | `decided` | ADR 0040, ADR 0006, ADR 0035, ADR 0033 | 3 Engine runtime | Sessions of the same run share a process as contexts unless their Fingerprint method is per process; browsers recycled after 100 pages, on memory growth or when idle, the Session carried over intact; launch hooks are spec (browser backend kind). |
 | SA-10 | Isolated contexts per page or Session | `decided` | ADR 0006, ADR 0021 | 5 Site access | Each Session has its own cookies, identity and proxy. Context or browser isolation is spec. |
-| SA-11 | Persistent browser profile (user data directory) | `open → #117` | ADR 0035, ADR 0015 | 5 Site access | Decided: saved identities persist cookies and storage. Open: reusing a user's own profile directory. |
+| SA-11 | Persistent browser profile (user data directory) | `decided` | ADR 0056, ADR 0035, ADR 0015 | 5 Site access | Saved identities persist cookies and storage. A Profile directory is launched in place by the browser that wrote it (Chromium family, Firefox, WebKit), under its own lock and version checks, outside the reset gate. |
 | SA-12 | Full native driver: frames, `route`, waits, assertions, `getBy*` | `spec` | ADR 0019, ADR 0003 | 5 Site access | `route`, assertions and `waitForResponse` follow ADR 0019's mapping. A raw CDP attach is cut when its lease ends (ADR 0003). |
 | SA-13 | Click, fill, type, select, hover, scroll, drag, key, upload | `spec` | ADR 0019 | 5 Site access | Click, fill and human-like input decided. The rest follows ADR 0019's mapping; uploads land in the run directory. |
 | SA-14 | Waits: selector, load state, network idle, delay | `spec` | ADR 0019 | 5 Site access | The API waits through the guard until a deadline. Load-state, network-idle and explicit waits follow the mapping. |
@@ -220,7 +220,7 @@ No v3 API compatibility layer is offered (ADR 0037). A Crawlee+Stagehand migrati
 | 1 | `access-antibot-ip` | `decided` | ADR 0019, ADR 0020, ADR 0021, ADR 0035 | 8 Stealth and Challenge solving; 5 Site access | Goodfetch cannot promise access to any site: whether a site admits automated traffic is the site owner's decision and an ongoing arms race. |
 | 2 | `agent-token-latency-cost` | `decided` | ADR 0009, ADR 0011, ADR 0013, ADR 0025 | 9 AI and agent | Plans replay with no model call; MCP profiles trim tools; observations send diffs; cost per verified result is benchmarked. |
 | 3 | `integ-mcp-agent-tooling` | `decided` | ADR 0011, ADR 0017, ADR 0030 | 11 Client surfaces; 9 AI and agent | One catalog generates MCP, CLI, skills and adapters; OAuth 2.1 for remote MCP; docs served as MCP resources. |
-| 4 | `access-auth-session` | `open → #117` | ADR 0006, ADR 0015, ADR 0035 | 5 Site access | Decided: Page check, recovery ladder, MFA, saved identities. Open: bringing in a login the user already has. |
+| 4 | `access-auth-session` | `decided` | ADR 0006, ADR 0015, ADR 0035, ADR 0056 | 5 Site access | Page check, recovery ladder, MFA, saved identities. A login the user already has comes in through `session.source`: a state file, a cookie header, an installed browser, a Profile directory or the user's running browser, read by the browser that owns it, with re-import from source on expiry. |
 | 5 | `cost-unpredictable-runaway` | `decided` | ADR 0041, ADR 0012, ADR 0036, ADR 0010 | 3 Engine runtime; 10 Scheduling | Limits on the install or Daemon, a person, a named token and a Client connection, held by a per-user Usage ledger every engine of every major reserves against; uncapped runs marked; only a person raises a Limit. Credit billing is Goodfetch Cloud's. |
 | 6 | `compliance-site-owner-politeness` | `decided` | ADR 0045, ADR 0021, ADR 0004, ADR 0016 | 5 Site access; 4 Security and egress | 402 is the Block cause `payment_required`, never evaded; opt-in Paid fetches through Cloudflare's headers and x402, capped and journaled; RSL read as a Site preference. Goodfetch cannot reduce the bot traffic other tools send or the blocks site owners place on shared IP ranges. |
 | 7 | `compliance-security-privacy` | `decided` | ADR 0014, ADR 0015, ADR 0016, ADR 0017 | 4 Security and egress | Certifications such as SOC 2 attach to an organization operating a service, so they belong to Goodfetch Cloud, not to the framework. |
@@ -228,7 +228,7 @@ No v3 API compatibility layer is offered (ADR 0037). A Crawlee+Stagehand migrati
 | 9 | `agent-deterministic-replay` | `decided` | ADR 0009, ADR 0010, ADR 0013 | 9 AI and agent | Plans are versioned files replayed without a model; the recorder also emits TypeScript or Python code. |
 | 10 | `silent-false-success` | `decided` | ADR 0006, ADR 0013, ADR 0026, ADR 0029 | 6 Collection; 9 AI and agent | Page check, Success checks, Grounding, typed Challenge causes and the three-axis report. |
 | 11 | `agent-unreliable-drift` | `decided` | ADR 0009, ADR 0013, ADR 0019 | 9 AI and agent | Goodfetch does not make a model succeed at an arbitrary task; it makes an agent's failure visible (Success checks, Verdict) and its success repeatable (Plans). |
-| 12 | `integ-sdk-llm-runtime` | `open → #117` | ADR 0012, ADR 0022, ADR 0024, ADR 0049 | 11 Client surfaces; 5 Site access; 13 Self-hosted deployment and operations | Decided: three SDKs, model formats, third-party CDP browsers. Edge and serverless Clients over WebSocket (ADR 0049). Open: attaching to the user's Playwright ([#117](https://github.com/Jbmanllr/automan/issues/117)). |
+| 12 | `integ-sdk-llm-runtime` | `decided` | ADR 0012, ADR 0022, ADR 0024, ADR 0049, ADR 0056 | 11 Client surfaces; 5 Site access; 13 Self-hosted deployment and operations | Three SDKs, model formats, third-party CDP browsers. Edge and serverless Clients over WebSocket (ADR 0049). `goodfetch.attach()` relays the user's own Playwright or Puppeteer browser over the SDK's JSON-RPC connection; `cdp_url` covers Selenium and other tools. |
 | 13 | `cost-infra-proxy-spend` | `decided` | ADR 0020, ADR 0021, ADR 0025, ADR 0035 | 8 Stealth and Challenge solving; 5 Site access | Proxy and CAPTCHA-service prices are set by their vendors; Goodfetch minimizes how much of them a run uses and reports the spend per verified result. |
 | 14 | `data-extraction-quality` | `decided` | ADR 0007, ADR 0013, ADR 0025 | 6 Collection; 2 Proving ground and conformance | Grounding, an extractor chosen on an independent corpus, and an extraction-quality benchmark family. |
 | 15 | `ops-scale-ratelimit-scheduling` | `decided` | ADR 0004, ADR 0021, ADR 0036, ADR 0049, ADR 0053, ADR 0054, ADR 0055 | 3 Engine runtime; 10 Scheduling; 13 Self-hosted deployment and operations | Backoff, fair admission and the Daemon scheduler; Politeness (per domain and per proxy) shared by every run of a user and across machines through an optional Politeness store (ADR 0053); Partitioned crawls past one engine (ADR 0054); a Daemon group with a Lead Daemon, so the Helm chart runs any number of pods (ADR 0055). |

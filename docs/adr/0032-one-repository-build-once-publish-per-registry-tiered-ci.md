@@ -66,8 +66,9 @@ Releases are **built once and published per registry**: no tool publishes crates
   - **Credentials.** Every registry job publishes through OIDC trusted publishing. npm and crates.io accept a trusted publisher only on a package that already exists, so each new package name, including each new per-platform npm package, is first published once by hand.
   - **Re-runs.** A re-run skips versions already published, and the tag is pushed only after npm succeeds.
   - **Installers.** The `curl | sh` and PowerShell installers are written by hand. Goodfetch's own Homebrew tap is updated by the release job.
-- **CI tiers.** Amended by ADR 0061: each tier runs one of three test suites, each a superset of the one before. The pull-request tier runs the Pre-merge suite, with the Quick suite as its first job. The merge queue runs the Release suite, which holds the full matrix below and gates every merge. The nightly runs the Release suite again on `main`'s head, then its own checks. Every release candidate, stable release and patch runs the Release suite, then its gates. Each suite has one `just` command and a time budget (ADR 0061).
-  - **Every pull request** (the Pre-merge suite):
+- **CI tiers.**
+  > Amended by [ADR 0061](0061-three-test-suites-each-run-by-one-just-command-under-a-time-budget.md): the tiers run three suites; the merge queue runs the Release suite, which holds the full matrix below, and `main` reruns nothing after the merge.
+  - **Every pull request:**
     - One change-detection job decides what runs; workflow-level path filters are never used on required checks, because a skipped required check stays pending forever.
     - Formatting, lints and unit tests on Linux.
     - Tests of the SDKs and adapters the change touches, on one runtime each.
@@ -77,7 +78,7 @@ Releases are **built once and published per registry**: no tool publishes crates
     - DCO, the notice inventory (ADR 0018), the API breakage checks (ADR 0030), `cargo-deny`, `cargo-audit` and their npm and Python equivalents, a check that every Action is pinned by SHA, and a build on the minimum supported Rust version.
     - A Linux x64 size estimate posted as a comment, which never blocks (ADR 0057).
     - One "all green" job, the only required check.
-  - **Merge queue** (the Release suite): the full matrix of ADR 0024. `main` reruns nothing after the merge, since the queue tested the same tree (ADR 0061):
+  - **Merge queue and `main`:** the full matrix of ADR 0024:
     - Platforms: Linux x64 and arm64 (glibc and musl), macOS arm64 and Intel (`macos-15-intel` or `macos-26-intel`), Windows x64 and arm64. If GitHub retires its Intel macOS runners, the x64 build keeps shipping (ADR 0024), and how it is tested is decided then.
     - Runtimes: every supported Node line, Bun and Deno; every supported CPython, with its free-threaded build from 3.14t on, on Linux.
     - Browser conformance on every operating system.
@@ -85,20 +86,19 @@ Releases are **built once and published per registry**: no tool publishes crates
 
     Once the repository is public, every target has a free GitHub-hosted runner. The free plan's 20 concurrent jobs, 5 of them macOS, are why this tier waits for the merge queue.
   - **Nightly:**
-    - The Release suite again on `main`'s head (ADR 0061).
     - Real SaaS sink accounts, which the owner approves case by case (ADR 0026).
     - Free-threaded Python on every operating system.
     - Every installed Chrome that ADR 0030 supports: the stable, beta and dev channels, every stable major of the last eight weeks, and Extended Stable.
     - The Private component run.
     - OpenSSF Scorecard.
     - The Size budget's ceilings on the release-profile files, then the nightly channel's publish (ADR 0057).
-  - **Release candidate:** the Release suite on the candidate's commit (ADR 0061), the Size budget's ceilings on the release-profile files (ADR 0057), and the benchmark of ADR 0025 on the reference host. The host is registered as a self-hosted runner that only tag and manual dispatch events reach, never pull-request code.
+  - **Release candidate:** the Size budget's ceilings on the release-profile files (ADR 0057), and the benchmark of ADR 0025 on the reference host. The host is registered as a self-hosted runner that only tag and manual dispatch events reach, never pull-request code.
 - **Outbound traffic.** After installs and cache restores, every step that runs Goodfetch's product denies outbound traffic except to the fixtures and the pinned artifact mirror; only the jobs ADR 0043 names reach other endpoints, among them the nightly public testnets that check Paid fetch proofs (ADR 0045) and the online conformance against real vendors (ADR 0033).
 - **Caching.** `Swatinem/rust-cache`, saving only from `main`.
 - **Docs source.** The documentation's content lives in `docs/` and the Docusaurus site in `website/`, which settles where the docs source lives, the other item ADR 0030 left to this one.
 - **Visibility and organization.** The repository stays private until its first release. Before that release, the owner creates a GitHub organization and moves the repository into it. It becomes public when the first version's release pull request merges, before that version is built, because GitHub artifact attestations, which every release carries (ADR 0030), need a public repository unless the account is on GitHub Enterprise Cloud ([attest-build-provenance](https://github.com/actions/attest-build-provenance#readme)). The organization is `goodfetch` and the docs domain `goodfetch.dev` (ADR 0034); GitHub redirects the old URLs.
   - **Why an organization:** GitHub offers the merge queue to public repositories owned by an organization, and trusted publishers are configured per repository, so the move comes before the first publish. The organization also holds the private repository, the Homebrew tap and release rights for more than one maintainer.
-  - **Until the repository is public:** private repositories pay for hosted-runner minutes, macOS most of all. The pull-request tier runs on Linux only, the full matrix runs on manual dispatch, and the nightly tier is off. The Release suite must pass on manual dispatch before each milestone's owner test (ADR 0058) and before any release (ADR 0061). Every tier above applies once the repository is public.
+  - **Until the repository is public:** private repositories pay for hosted-runner minutes, macOS most of all. The pull-request tier runs on Linux only, the full matrix runs on manual dispatch, and the nightly tier is off. Every tier above applies once the repository is public.
 - ADR 0033 adds two release artifacts built, attested and published with the engine: the Linux `goodfetch-sandbox` helper and the Windows filter broker.
 - ADR 0039 signs and notarizes every macOS and Windows executable between build and attestation, in signing jobs that alone reach a `release` environment, and keeps Homebrew a formula.
 - The nightly job that builds the Clean-up rules' daily channel is one of the jobs ADR 0043 lets reach named endpoints, and the channel is published only after its clean-up suites pass (ADR 0047).

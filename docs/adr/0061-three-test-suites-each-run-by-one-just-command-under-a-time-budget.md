@@ -128,8 +128,13 @@ A budget is measured as the median (p50) over the last 20 runs on `main` and in 
 
 ## Consequences
 
-- **Amends ADR 0032.** Its CI tiers keep their content and now run suites: the pull-request tier runs the Pre-merge suite, the merge queue the Release suite, the nightly the Release suite again plus its own checks, and every release the Release suite plus its gates. The owner's "release (full matrix)" is the Release suite, and it gates every merge. ADR 0032's text is amended in place.
-- **Adds to ADR 0032:** the merge queue's settings, the budgets, sharding by hash, the `ci-test` profile, JUnit artifacts, and the release suite on manual dispatch before each milestone's owner test while the repository is private.
+- **Amends ADR 0032.** Its CI tiers keep their content and now run suites: the pull-request tier runs the Pre-merge suite, the merge queue the Release suite, and `main` reruns nothing after the merge. The owner's "release (full matrix)" is the Release suite, and it gates every merge. ADR 0032 carries a one-line amendment note at its CI tiers.
+- **Adds to ADR 0032:**
+  - the nightly runs the Release suite again on `main`'s head before its own jobs;
+  - every release candidate, stable release and patch runs the Release suite before its gates;
+  - while the repository is private, the Release suite runs on manual dispatch and passes before each milestone's owner test and before any release;
+  - the merge queue's settings, the budgets, sharding by hash, the `ci-test` profile and JUnit artifacts.
+- **Adds to ADR 0037:** area 1 (Repository, CI and release) builds this decision, so its row lists ADR 0061.
 - **Changes area 1's spec** ([Spec: Repository, CI and release (V1 area 1)](https://github.com/Jbmanllr/automan/issues/130)):
   - its CI tiers name the suites they run;
   - `just` gets the recipes above;

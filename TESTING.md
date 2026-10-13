@@ -40,7 +40,7 @@ Decided in [ADR 0059](docs/adr/0059-dependencies-are-injected-as-values-and-only
 - **Every random choice draws from `Entropy`** (`chacha20`, portable across versions).
 - **A test runs on a fixed seed.** `GOODFETCH_TEST_SEED` overrides it, and the seed is printed when the test starts.
   _Why:_ a test nextest kills on a timeout never reaches a failure message.
-- **Secrets never come from `Entropy`.**
+- **Secrets never come from `Entropy`.** The Proving ground's seeded test certificate authority is the one exception.
 - **Hash order never reaches output or ordering.** `iter_over_hash_type` is denied; use `BTreeMap` or `IndexMap` where order shows.
 
 ### Storage, network and OS services
@@ -48,7 +48,7 @@ Decided in [ADR 0059](docs/adr/0059-dependencies-are-injected-as-values-and-only
 - **Each test gets its own `GOODFETCH_HOME`** in a temporary folder, and writes nowhere else.
 - **Proving ground host names resolve through the `resolve` setting** to loopback, which the run allowlists for tests.
 - **Proxies are tested against the Proving ground's real forward proxy.**
-- **Local addresses use real extra loopback addresses:** `127.0.0.0/8` on Linux and Windows, `lo0` aliases on macOS, a network namespace under sudo where needed.
+- **Local addresses use real extra loopback addresses:** `127.0.0.0/8` on Linux and Windows (Windows not yet tested), `lo0` aliases on macOS, a network namespace under sudo where needed.
 - **No test reaches the public internet.** Only the jobs ADR 0043 names go online, to their named endpoints; every other job runs under its deny with the canary.
 - **The keychain provider runs against the real keychain** of each OS (`gnome-keyring` started and unlocked on Ubuntu), with a unique service name per test. Consumers of Secrets use the environment or caller provider.
 - **`daemon install` installs for real on each OS.** The unit file it generates is snapshot-tested.

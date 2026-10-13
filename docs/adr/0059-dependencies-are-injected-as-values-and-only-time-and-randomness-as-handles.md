@@ -21,7 +21,7 @@ Decided in [Injection and determinism: time, randomness, storage, network and OS
 - **Rules that depend on time are pure functions that take "now" as an argument:** lease expiry (ADR 0003), a Schedule's next occurrence across DST (croner's explicit-start API, ADR 0036), and backoff. Their tests need no clock. The Politeness store's granted shares stay in the store's Lua script, tested against a real Valkey as area 3's spec says. Only the loops that sleep read the `Clock`.
 - **Tests of the binary set short durations through settings** (ADR 0028 makes every timeout a setting), and no build carries a test-only clock control. Every duration the engine waits on is a setting or derives from one. Interval Schedules "count elapsed time" (ADR 0036), so a binary-level Schedule test uses a short interval. Cases that need a default-length lease, a day boundary or a DST date are tested in-process through the `Clock`.
 - **Clocks outside Goodfetch's code stay real:**
-  - The Valkey server's clock is the single time source for every engine sharing the Politeness store: its Lua script reads `TIME` rather than a time an engine passes in, so engines whose clocks drift still agree. Tests run the real store with short durations. **Adds to ADR 0053**, which left this open.
+  - The store's rate and permit math reads the Valkey server's clock: its Lua script calls `TIME` rather than taking a time an engine passes in, so engines whose clocks drift still agree. The degraded period ADR 0053 counts on each side's own clock stays as decided. Tests run the real store with short durations. **Adds to ADR 0053**, which left this open.
   - Chromium keeps its own clock. Proving ground pages take their time step from the task (area 2's spec).
   - The Script sandbox keeps `Date.now` and `Math.random` live (ADR 0051), and its tests compare the order of Effects.
 
@@ -31,7 +31,7 @@ Decided in [Injection and determinism: time, randomness, storage, network and OS
   - It uses a portable seeded generator, the `chacha20` crate. rand calls `StdRng` "non-portable" across versions, so a saved seed would not replay a run.
   - In production its seed comes from the OS, and the run state keeps it where replaying a run needs it (the fingerprint seed).
   - A test gets a fixed seed, which `GOODFETCH_TEST_SEED` overrides. The seed is printed when the test starts, so a test nextest kills on a timeout still shows it (madsim #217).
-- **Security randomness never comes from `Entropy`.** Keys, tokens, the per-run data key (ADR 0015) and certificate authorities come from the OS generator (`getrandom`) and are never seeded.
+- **Security randomness never comes from `Entropy`.** Keys, tokens, the per-run data key (ADR 0015) and every certificate authority Goodfetch makes come from the OS generator (`getrandom`) and are never seeded. The Proving ground's test-only certificate authority, made from its seed (area 2's spec), is the one exception, since it never guards real traffic.
 - **Hash order never reaches output or ordering.** std `HashMap` "is randomly seeded". Clippy's `iter_over_hash_type` restriction lint is denied, so a loop over a hash type fails the build, and ordered output uses `BTreeMap` or `IndexMap`.
 
 ### Storage
@@ -45,7 +45,7 @@ Decided in [Injection and determinism: time, randomness, storage, network and OS
 
 ### Network
 
-- **A `resolve` setting** maps host names to addresses, like curl's `--resolve`. It is applied wherever Goodfetch resolves a name: the engine's own resolver (ADRs 0024 and 0044), and Chromium's `--host-resolver-rules` wherever Chromium resolves on its own. Tests point every Proving ground host name at loopback, which a run allowlists for tests (ADR 0017). Users get staging hosts and pinned addresses from the same setting. Like every setting it can be set in any layer and locked by Operator policy (ADR 0028), and an address it gives still passes ADR 0017's check of resolved addresses.
+- **A `resolve` setting** maps host names to addresses, like curl's `--resolve`. It applies before any lookup, whichever resolver then runs: the engine's own (ADRs 0024 and 0044), the OS resolver Goodfetch uses on macOS and Windows, and Chromium through `--host-resolver-rules` wherever Chromium resolves on its own. A Session behind a proxy hands the name to the proxy, which resolves it, so the mapping does not reach it (ADR 0017). Tests point every Proving ground host name at loopback, which a run allowlists for tests (ADR 0017). Users get staging hosts and pinned addresses from the same setting. This ADR lets every layer of ADR 0028 set it and Operator policy lock it, since an address it gives still passes ADR 0017's check of resolved addresses.
 - **Proxies are tested against a real forward proxy** that the Proving ground serves. They are never mocked.
 - **Local addresses (ADR 0044) are tested on real extra addresses:**
   - Linux: `127.0.0.0/8`, or a network namespace under sudo.
@@ -102,7 +102,7 @@ Any test can run beside any other:
 
 ## Consequences
 
-- **Amends `STYLE.md`.** "Concrete types first; a trait only where two adapters exist" now names `Clock` and `Entropy` as handles whose test version is the second adapter. Everything else is injected as a value with a real stand-in. The clock rule and `iter_over_hash_type` join its lint list.
+- **Amends `STYLE.md`.** "Concrete types first; a trait only where two adapters exist" now names `Clock` and `Entropy` as handles whose test version is the second adapter. Everything else is injected as a value with a real stand-in. The clock rule, the environment rule and `iter_over_hash_type` join its lint list.
 - **Changes area 3's spec** ([Spec: Engine runtime (V1 area 3)](https://github.com/Jbmanllr/automan/issues/213)). "Time-dependent cases set short durations through settings rather than mocking clocks" becomes "In-process tests drive time through the injected `Clock`; tests of the binary set short durations through settings".
   - Leases (ADR 0003), the Daemon's idle stop, the governor's samples and checkpoints read the `Clock`.
   - Lease expiry is a pure function of the monotonic reading.

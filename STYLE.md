@@ -163,6 +163,7 @@ Applies to `sdks/typescript`, `console/`, `adapters/`, `integrations/` and `benc
 - **oxlint with type-aware rules, and oxfmt for formatting.** `no-floating-promises` is an error.
   _Why:_ an unawaited promise loses its error silently; oxlint's type-aware rules run on the real TypeScript 7 checker.
 - **Libraries build with tsdown; tests run with Vitest on every supported Node line (ADR 0024), plus a smoke suite of the built package on Bun and Deno 2.**
+- **The Console and the docs site are tested in browsers, on one Node line:** Vitest Browser Mode and Playwright Test, against the binary for the served Console (ADR 0068, rules in [`TESTING.md`](TESTING.md)).
 - **Packages are ESM-only** (ADR 0024) and pass `publint` and `@arethetypeswrong/cli` before publishing. npm is the only registry.
 - **Named exports only; no TypeScript `enum`s** (string-literal unions instead).
 - **SDK idioms:**

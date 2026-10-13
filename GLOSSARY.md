@@ -419,3 +419,7 @@ _Avoid_: fixtures site, test site, sandbox, demo site
 **Size budget**:
 The largest size each released file of Goodfetch may reach on each platform, and the growth a single change may add without an explicit, recorded acceptance.
 _Avoid_: size limit (alone), quota, bloat check
+
+**Stub gateway**:
+A test-only stand-in for Goodfetch Cloud's gateway, kept in the public repository, that serves the Console through the same operations across per-run engines, so the Console conformance suite can run without Goodfetch Cloud.
+_Avoid_: mock cloud, fake gateway, cloud emulator

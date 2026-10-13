@@ -29,7 +29,7 @@ One spec per area. An area goes to `/to-spec` only after every area whose contra
 
 | # | Area | ADRs | Waits on |
 |---:|---|---|---|
-| 1 | Repository, CI and release | 0018, 0030, 0032, 0034, 0039, 0049, 0057 |  |
+| 1 | Repository, CI and release | 0018, 0030, 0032, 0034, 0039, 0049, 0057, 0068 |  |
 | 2 | Proving ground and conformance | 0025 |  |
 | 3 | Engine runtime | 0002–0004, 0024, 0028, 0040, 0041, 0049–0051, 0053–0057 |  |
 | 4 | Security and egress | 0015–0017, 0042–0044, 0049–0051, 0055, 0056 |  |
@@ -40,7 +40,7 @@ One spec per area. An area goes to `/to-spec` only after every area whose contra
 | 9 | AI and agent | 0009–0014, 0051, 0056 |  |
 | 10 | Scheduling | 0036, 0041, 0055 |  |
 | 11 | Client surfaces (SDKs, CLI, MCP, skills, adapters, Integrations, Notifications) | 0011, 0024, 0027, 0049, 0055, 0056 |  |
-| 12 | Console | 0029, 0031, 0049, 0055–0057 |  |
+| 12 | Console | 0029, 0031, 0049, 0055–0057, 0068 |  |
 | 13 | Self-hosted deployment and operations | 0024, 0049, 0050, 0053, 0055, 0056 |  |
 | 14 | Cloud-readiness contracts | 0001, 0049, 0056 |  |
 

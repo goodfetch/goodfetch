@@ -68,3 +68,63 @@ Decided in [ADR 0059](docs/adr/0059-dependencies-are-injected-as-values-and-only
 
 - **SDK durations and jitter are options:** tests pass short values and a fixed seed. In TypeScript, Vitest fake timers may drive timer logic that never reaches the engine.
 - **The Console's end-to-end tests set time with Playwright's `page.clock`** (`setFixedTime` first). Its component tests use Vitest fake timers.
+
+## Console and docs site
+
+Decided in [ADR 0068](docs/adr/0068-the-console-is-tested-in-real-browsers-and-served-by-the-real-binary.md). Which accessibility, localization and visual checks run on these runners is decided by [Accessibility, localization and visual regression](https://github.com/Jbmanllr/automan/issues/283).
+
+### Where each test lives
+
+| Path | What it tests | Runner | Suite |
+|---|---|---|---|
+| `console/src/**/*.test.ts` | logic with no DOM | Vitest `unit` (Node) | Quick |
+| `console/src/**/*.test.tsx` | one component | Vitest `component` (Browser Mode) | Pre-merge |
+| `console/src/**/*.stories.tsx` | each state of a component, rendered as a test | Vitest `component` (Storybook's addon) | Pre-merge |
+| `console/tests/app/` | the whole Console against the in-memory engine | Vitest `component` | Pre-merge |
+| `console/tests/served/` | the Console served by the binary | Playwright Test | Pre-merge |
+| `console/journeys/` | the `console` variants of Journeys | Playwright Test | Pre-merge, Release |
+| `conformance/console/` | the Console conformance suite | Playwright Test | Pre-merge, Release |
+| `website/src/**/*.test.ts` | the docs site's build code | Vitest (Node) | Quick |
+| `website/tests/` | the built docs site | Playwright Test | Pre-merge, Release |
+
+### Components
+
+- **A test that renders or needs the DOM is a `.test.tsx` file** and runs in Vitest Browser Mode with the Playwright provider. A `.test.ts` file runs in Node and never touches the DOM. Never jsdom or happy-dom.
+  _Why:_ Base UI's positioning, focus and pointer handling need a real layout.
+- **Mount with `vitest-browser-react`, find with `vitest/browser` locators, act with `vitest/browser`'s `userEvent`.** Never `@testing-library/user-event`.
+  _Why:_ events then go through CDP, and the locators are Playwright's.
+- **The engine is the in-memory adapter of the protocol from `@goodfetch/test-support`, passed to the Console's Client as its transport and body fetcher.** Never MSW, never a patched global `WebSocket`. A call the test did not answer fails the test, and every message is validated against the schema bundle.
+- **Test data comes from builders with literal defaults.** Override only what the test asserts on; no random data.
+- **Each state of a component has a story** (`*.stories.tsx`, Storybook 10). Stories hold no assertions and no play functions. Behaviour goes in `.test.tsx`, which may reuse a story through `composeStories`.
+
+### The served Console
+
+- **Browser tests of the Console as users get it run on Playwright Test against the `goodfetch` binary built from the commit.** Never against a Vite server.
+- **Each test starts its own Daemon** through the `@goodfetch/test-support` fixture (`goodfetch-test-env`), with its own home, port 0 and fresh browser context.
+- **Sign in the way a person does:** the binary's single-user sign-in link, Playwright's virtual authenticator for passkeys and step-up, a local OIDC provider pinned by digest. Never write a cookie or storage state yourself.
+- **Make faults where they happen:** `routeWebSocket` with `connectToServer()` for a dropped or stalled connection, the real process for an engine fault.
+- **Find by role, label or text.** `data-testid` only where an element has no accessible role or name; never CSS classes or XPath.
+- **Wait with web-first assertions and `expect.poll`.** Never `waitForTimeout` (oxlint refuses it) or `networkidle`.
+- **A console error, an uncaught page error, a CSP violation or a failed same-origin request fails the test**, through the shared fixture.
+- **Tests run under the production CSP.** The binary has no switch that relaxes it.
+- **Keep traces on failure** and upload them with the JUnit files.
+
+### The Console conformance suite
+
+- **It runs the Console against a backend given as configuration:** the Daemon and the stub gateway here, Goodfetch Cloud's gateway from the private repository. Each target run writes a result document with `kind = "conformance"`.
+- **Add a case when the Console starts to need something new from a backend.**
+
+### Browsers
+
+- **One Playwright version for the whole pnpm workspace**, shared by Vitest's provider.
+- **The Console's and the docs site's tests run on one Node line;** their matrix is browsers.
+- **Pre-merge:** Chromium on Linux. **Release:** components on Chromium, Firefox and WebKit; served tests, Journeys and conformance on every OS runner with every browser Playwright ships for it, plus phone emulation on Chromium and WebKit.
+
+### Docs site
+
+- **Docusaurus throws on every broken reference:** `onBrokenLinks`, `onBrokenAnchors`, `onDuplicateRoutes` and `markdown.hooks`' `onBrokenMarkdownLinks`, `onBrokenMarkdownImages` and `onUnusedMarkdownDirectives`.
+- **Every kept version is built, and every page has its `.md` twin and an `llms.txt` entry.**
+- **lychee runs with `--offline --include-fragments` in the suites.** External links are the nightly Live check `docs-external-links`.
+- **Playwright tests the built site served locally under `/docs/` on port 0,** never a Vercel preview: every `sitemap.xml` page of every kept version answers 200 with no console, hydration or same-site request error, and the interactive components work.
+- **After each production deploy, the Live check `docs-deploy-smoke`** checks the deployed pages, a `.md` page and `llms.txt` with their content types.
+- **`typos` checks the docs' spelling.** No Vale, no cspell.

@@ -36,6 +36,9 @@ Goodfetch's users send it the URLs, accounts and tasks they care most about, so 
   - **The pinned artifact mirror** is the set of digest-pinned downloads this ADR's rule lists, or a CI cache of them.
   - **A canary** in every job under the deny tries a forbidden connection after the deny starts and must be refused.
 - Only these jobs may also reach named endpoints, and only those:
+
+  > Amended by [ADR 0065](0065-ai-features-are-tested-without-live-models-and-measured-by-oracle-graded-evaluations.md): adds the provider check, the recorder and the Evaluations, which reach only the Model providers, gateways and hosted Decision providers they name.
+
   - the nightly real SaaS sink accounts (ADR 0026);
   - the release-candidate benchmark's online Proving ground behind real vendor protections and the model, proxy, CAPTCHA and hosted-browser services it pays for (ADRs 0025 and 0035);
   - the nightly public testnets that check Paid fetch proofs (ADR 0045);

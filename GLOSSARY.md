@@ -412,6 +412,14 @@ _Avoid_: code signing (alone), signature (alone), certificate
 
 ## Measurement
 
+**Flaky test**:
+A test that passes and fails with the same pinned inputs. Unlike Drift, the fault is in the test or the product, never in the site.
+_Avoid_: flake, intermittent test, unstable test
+
+**Live check**:
+A check of Goodfetch against something it does not pin, such as a vendor, a real SaaS account, a live model or a moving Chrome channel, run outside the test suites and ending in pass, fail or inconclusive.
+_Avoid_: monitor, flaky test, informing job, canary (for a Live check)
+
 **Proving ground**:
 The website Goodfetch owns and generates, whose every page has a known expected result, against which the benchmark and the conformance suites run.
 _Avoid_: fixtures site, test site, sandbox, demo site
@@ -425,9 +433,37 @@ The explicit list of faults, such as crashes, power cuts and partitions, and of 
 _Avoid_: nemesis, fault schedule, chaos script
 
 **Observation log**:
-The ordered list of every operation, answer and fault of one Simulation or fault test, against which its invariants are checked.
+The ordered list of every operation, answer and fault of one Simulation or fault test, against which its invariants are checked. It is a test's record, never a run's.
 _Avoid_: history, trace (alone), event log
+
+**Evaluation**:
+A measurement of an AI capability with live models on Proving ground tasks, repeated over trials and graded by the Proving ground's oracle, never by a model.
+_Avoid_: eval test, AI test, benchmark (alone: the benchmark is what is published)
+
+**Fake model**:
+A Model provider the Proving ground serves, which answers from the task and the page it is shown, the same way every time, and counts the tokens of every call itself.
+_Avoid_: mock LLM, stub model, fake LLM
+
+**Scripted model**:
+A Model provider used only in tests, which gives a fixed sequence of replies and fails on any call beyond it or any reply left unused.
+_Avoid_: mock model, fake (alone)
+
+**Model recording**:
+A real exchange with a Model provider, recorded once with its secrets removed, that tests replay in place of the provider.
+_Avoid_: cassette, fixture (alone), snapshot
 
 **Size budget**:
 The largest size each released file of Goodfetch may reach on each platform, and the growth a single change may add without an explicit, recorded acceptance.
 _Avoid_: size limit (alone), quota, bloat check
+
+**Quick suite**:
+The tests and checks of Goodfetch that run in-process, on what a change touches or on everything, run after every edit.
+_Avoid_: unit suite, smoke tests, fast tests
+
+**Pre-merge suite**:
+The Quick suite plus the integration, conformance, sink, SDK and Console tests of what a change touches, on one platform, which every pull request must pass.
+_Avoid_: PR checks, CI suite
+
+**Release suite**:
+The Pre-merge suite for every package across every supported platform, runtime and browser, which every merge (once the merge queue exists) and every release must pass.
+_Avoid_: full suite, nightly suite, matrix (alone)

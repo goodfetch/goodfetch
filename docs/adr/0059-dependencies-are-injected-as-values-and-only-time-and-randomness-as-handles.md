@@ -2,6 +2,8 @@
 
 Every external dependency of Goodfetch's code is injected, never reached through a global. Most are injected as **values**: the Goodfetch home, listen addresses, the environment, a host-to-address map. Tests give them a real local stand-in: real SQLite and files in a temporary folder, real sockets on port 0, real child processes, the real OS keychain and service manager. Only the dependencies with no local stand-in are injected as **handles** that a test can drive: one `Clock` (wall time, monotonic time and sleeps) and one `Entropy` (seeded, non-secret randomness).
 
+> Amended by [ADR 0060](0060-distributed-and-crash-behaviour-is-simulated-on-tokio-model-checked-and-faulted-at-io-seams.md): the Simulation also swaps `transport`'s network, a value with product adapters, for turmoil's adapter.
+
 The owner required every external dependency (time, network, storage, system services) to be injected so tests can replace it. `STYLE.md` says "Concrete types first; a trait only where two adapters exist", and area 3's spec says "Time-dependent cases set short durations through settings rather than mocking clocks". The two conflict only if *injected* means *behind a trait*. Comparable projects do both:
 - **Values for what has a stand-in.** Cargo's test harness passes `HOME` and `CARGO_HOME` to each child process, and nextest's "process-per-test" isolation does the rest.
 - **Handles only for what has none.** Materialize injects wall time with `NowFn`, TigerBeetle with a `Time` interface, and rustls with a `TimeProvider`. turmoil, madsim and proptest take a seed.

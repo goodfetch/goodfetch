@@ -116,7 +116,7 @@ For anything non-trivial, a known and widely used project is preferred to writin
 
 - **A capability is never a Cargo feature** (ADR 0038): stealth, the Challenge solver, AI and costly controls are settings.
 - **Features exist only on the embeddable `goodfetch` crate**, only for heavy optional dependencies and `test-util`, and they are additive. The binary builds one fixed set, and `cargo-hack` checks every combination of `goodfetch`'s features.
-- **Platform differences use `cfg(target_os = …)`, never features.** Custom `cfg`s are declared for `unexpected_cfgs`: `goodfetch_loom` for loom tests (ADR 0060), and `tokio_unstable` for the Simulation's build only. Under `goodfetch_loom`, a crate's `sync` module maps its atomics and locks to loom, and `disallowed-types` refuses the std atomic, `Mutex`, `RwLock` and `Condvar` types outside it.
+- **Platform differences use `cfg(target_os = …)`, never features.** Custom `cfg`s are declared for `unexpected_cfgs`: `goodfetch_loom` for loom tests (ADR 0060), and `tokio_unstable` only because the Simulation's scenarios compile under it, in a job of their own. Under `goodfetch_loom`, a crate's `sync` module maps its atomics and locks to loom, and `disallowed-types` refuses the std atomic, `Mutex`, `RwLock` and `Condvar` types outside it.
 
 ### Tests
 

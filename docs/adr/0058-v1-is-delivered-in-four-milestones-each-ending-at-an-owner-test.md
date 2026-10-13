@@ -11,23 +11,23 @@ Every V1 capability stays in V1 (ADR 0037); the milestones order the work, they 
 
 ## Considered Options
 
-- **Delivery in ADR 0037's spec order**: rejected. It gives the owner nothing to test hands-on until area 12, the last area of the engine's surfaces, is built.
+- **Delivery in ADR 0037's spec order**: rejected. It gives the owner nothing to test hands-on until the Console, area 12, is built.
 - **The Console specified right after the engine**, amending ADR 0037's order: rejected. The Console would be designed before the accounts, Datasets and Schedules it shows (areas 4, 6 and 10), and reworked when they arrive.
-- **Every spec written before any code**: rejected. Nothing would run for months, while areas 1 to 3 are already ticketed.
-- **An HTTP-only first milestone**: rejected by the owner. On today's web a crawler that cannot render JavaScript returns empty pages, so M1 renders pages and leaves only browser automation to M3.
+- **Every spec written before any code**: rejected. Nothing would run until every area is specified.
+- **An HTTP-only first milestone**: rejected by the owner, who asked for a fully working crawl framework in M1; M1 therefore renders pages and leaves only browser automation to M3.
 - **The SDKs first, before the Console**: rejected by the owner, who wants to test the engine through the CLI and the Console first.
 
 ## Consequences
 
 **What each milestone holds.**
 - **M1:**
-  - the engine on one machine (areas 3 and 4): the Attached engine and the Daemon, run state and resume, leases and epochs, admission and the governor, the Usage ledger, shared Politeness on one machine, settings, the foreground Daemon and the ops listener;
+  - the engine on one machine (areas 3 and 4): the Attached engine and the Daemon, run state and resume, leases, the governor, the Usage ledger, shared Politeness on one machine, settings, and the ops listener with the foreground Daemon (#228) in its chain;
   - the security and egress controls of area 4, built before the fetch tiers because ADR 0017's egress policy wraps every fetch;
   - the Operation catalog over JSON-RPC as the only API, and the CLI generated from it;
   - the single-user local Console of ADR 0031: Runs, a run's drawer, Datasets, Engine & settings and "Needs you";
   - from area 5: the HTTP tiers (reqwest and wreq's TLS impersonation), browser rendering for crawling (the CDP driver's navigation, waits and extraction, the per-route tier choice of ADR 0020, screenshots and PDF, the browser pool), proxies, Sessions and the Session pool, block causes and escalation, and Politeness defaults (ADR 0021);
   - from area 6: the Frontier, extraction in every format, the Dataset, every Export format and the results stream;
-  - from areas 1 and 2: the build and test gates (#132–#137), the full platform matrix (#145), V8 built from source (#210), the Size budget checks (#201, #204), the local Proving ground (#158–#167) and the conformance harness (#169–#172, #212).
+  - from areas 1 and 2: the build and test gates (#132–#137), the full platform matrix (#145), `xtask size` (#201), the local Proving ground (#158–#167) and the conformance harness (#169–#172).
 - **M2:** the three SDKs, MCP and agent skills.
 - **M3:** the guard and the rest of ADR 0019's page API, Firefox and WebKit through Playwright's driver, the Browser host (ADR 0022), Session sources and Borrowed browsers (ADR 0056), stealth and the Challenge solver (area 8), and the Live view with takeover.
 - **M4:**
@@ -35,12 +35,13 @@ Every V1 capability stays in V1 (ADR 0037); the milestones order the work, they 
   - AI and agents with Plans, Plugins, Script Hooks and the Script sandbox;
   - framework adapters, Integrations, Notifications and the HTTP listener of ADR 0027;
   - Daemon groups, Partitioned crawls, the Politeness store, deployed hosts, and Exposed Daemons with accounts and passkeys;
-  - the release pipeline, signing and publishing, the docs site, the online Proving ground and the benchmark (from areas 1 and 2: #138–#144, #146–#150, #168, #173–#189, #202, #203, #205–#209, #211).
+  - the release pipeline, signing and publishing, the docs site, the online Proving ground and the benchmark (from areas 1 and 2: #138–#144, #146–#150, #168, #173–#189, #202, #203, #205–#209, #211);
+  - three area 1–2 tickets first placed in M1 that wait on M4 work: V8 built from source (#210) and the merge queue's size increase check (#204), both behind the release pipeline, and `goodfetch plugins test` (#212), behind the process Plugin target (#171). M1 needs none of them: V8 serves only the Script sandbox, and the binary links it from M4 on.
 
-  The governor keeps its provisional defaults until M4's concurrency search measures them (ADR 0040).
+  The governor keeps its provisional defaults until #178's concurrency search, in M4, measures them.
 
 **Gates.**
-- Each of M1, M2 and M3 ends with a `ready-for-human` issue listing how to install from a local build on macOS and Linux and the scenarios to try. No ticket of the next milestone starts until the owner closes it.
+- Each of M1, M2 and M3 ends with a `ready-for-human` testing issue listing how to install from a local build on macOS and Linux. It is blocked by every other ticket of its milestone, so no agent takes it, and no ticket of the next milestone starts until the owner closes it.
 - M4 ends at the release gates of ADRs 0030 and 0032.
 - Nothing is published before M4, on any channel; the owner tests from local builds. **Changes ADRs 0030 and 0032:** the nightly channel (npm `nightly`, GitHub pre-releases, the nightly Python index, the OCI `nightly` tag) and the `0.y` previews start in M4.
 - Between gates, delivery stays autonomous under AGENTS.md.
@@ -48,7 +49,7 @@ Every V1 capability stays in V1 (ADR 0037); the milestones order the work, they 
 **Tracking** (adds to ADR 0037).
 - Every ticket carries one of the four milestones, and every later spec's `/to-tickets` assigns one to each ticket it creates.
 - A ticket's milestone is never later than the earliest milestone of any ticket it blocks, directly or transitively, so a gate never holds back a ticket that an earlier milestone needs. `/to-tickets` checks this when it assigns milestones, and moves a blocker earlier when it finds one later than what it blocks.
-- A milestone is done when it has no open ticket; the earliest milestone with an open ticket is the current one. Each of M1, M2 and M3 holds its testing issue, created when the milestone is assigned.
+- A milestone is done when it has no open ticket; the earliest milestone with an open ticket is the current one. Each of M1, M2 and M3 holds its testing issue, created with the milestone.
 - The frontier takes the earliest open milestone first, then map order (`docs/agents/issue-tracker.md`).
 - Specs keep ADR 0037's order, and each area spans the milestones its tickets fall in.
 - This ADR decides delivery order, not a capability, so no row of ADR 0037's area table lists it, and ADR 0037's rule on area rows does not apply.

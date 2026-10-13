@@ -61,11 +61,13 @@ A test's level is the seam it crosses, not its speed:
   _Why:_ a loop stops at the first failing case and hides the others; rstest makes each case its own nextest test.
 - **No mocking of owned code:**
   - `cargo-deny` denies `mockall`, `mockito`, `wiremock`, `faux` and `mry`;
-  - oxlint's `vitest/no-restricted-vi-methods` refuses at least `vi.mock`, `vi.doMock`, `vi.importMock`, `vi.mockObject`, `vi.spyOn` and `vi.stubGlobal`;
-  - ruff's `TID251` bans `unittest.mock`;
-  - pytest-mock is in no dependency group (CI checks `uv.lock`), and the test-support pytest plugin fails the collection of any test that requests `monkeypatch` or `mocker`. Python code takes its environment and settings as values, so no test patches them.
+  - oxlint's `vitest/no-restricted-vi-methods` refuses at least `vi.mock`, `vi.doMock`, `vi.importMock`, `vi.mockObject`, `vi.spyOn`, `vi.stubGlobal` and `vi.stubEnv`;
+  - ruff's `TID251` bans `unittest.mock` and `pytest.MonkeyPatch`;
+  - pytest-mock is in no dependency group (CI checks `uv.lock`), and the test-support pytest plugin fails the collection of any test that requests `monkeypatch` or `mocker`, directly or through another fixture. A third-party plugin fixture that uses `monkeypatch` therefore cannot be adopted.
 
   _Why:_ a mocked collaborator ties the test to the implementation.
+- **The TypeScript and Python SDKs read their environment from a map an option can replace**, defaulting to the process's own. Tests pass the map instead of patching the environment.
+  _Why:_ a patched environment leaks between tests and hides what a call depends on.
 - **A flaky test is quarantined with an issue, never retried silently.**
 
 ## Dependencies in tests
@@ -98,7 +100,7 @@ How each dependency is injected is in [Injection and determinism](#injection-and
 - **Fixtures live in a `fixtures/` folder beside the tests that read them.** Data several languages read lives once, in `test-support/fixtures/`.
 - **A test copies a fixture into its temporary folder before changing it.**
 - **No fixture file exceeds 256 KiB.** Larger or repetitive data is generated from a seed, by the Proving ground or a generator in test support. No Git LFS.
-- **A generated fixture or a recorded exchange has a `<name>.source.toml` sidecar** naming the generator or recording job, its version, the seed or recording date, and the command that regenerates it. Secrets are redacted from recordings.
+- **A generated fixture or a recorded exchange has a `<name>.source.toml` file beside it,** naming the generator or recording job, its version, the seed or recording date, and the command that regenerates it. Secrets are redacted from recordings.
   _Why:_ a fixture nobody can regenerate becomes untouchable.
 
 ## Snapshots
@@ -204,5 +206,5 @@ The fresh review of a pull request checks its tests against this list:
 6. Deterministic and isolated: the rules of [Injection and determinism](#injection-and-determinism), no real sleep, its own data.
 7. Parameterized cases are named.
 8. Snapshots are redacted, cover structured output, and every change to one is intended.
-9. Fixtures are under 256 KiB, and generated ones have their sidecar.
+9. Fixtures are under 256 KiB, and generated ones have their `.source.toml` file.
 10. No helper is duplicated; shared setup is in test support.

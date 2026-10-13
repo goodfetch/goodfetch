@@ -47,12 +47,13 @@ Decided in [Test layout, naming, shared helpers and the test-first process](http
 - **Parameterized tests name every case:** rstest's `#[case::name]` in Rust, so nextest runs each case as its own test; Vitest's `test.for` with the case name in the title; pytest's `parametrize` with an `id` per case. A loop over cases inside one test is not allowed, since it stops at the first failure and hides the others.
 - **No mocking of owned code, enforced by tools:**
   - `cargo-deny` denies `mockall`, `mockito`, `wiremock`, `faux` and `mry`. httpmock stays allowed for true externals.
-  - oxlint's `vitest/no-restricted-vi-methods` refuses at least `vi.mock`, `vi.doMock`, `vi.importMock`, `vi.mockObject`, `vi.spyOn` and `vi.stubGlobal`.
-  - ruff's `TID251` bans `unittest.mock`.
+  - oxlint's `vitest/no-restricted-vi-methods` refuses at least `vi.mock`, `vi.doMock`, `vi.importMock`, `vi.mockObject`, `vi.spyOn`, `vi.stubGlobal` and `vi.stubEnv`.
+  - ruff's `TID251` bans `unittest.mock` and `pytest.MonkeyPatch`, which can be used without the fixture.
   - pytest-mock is in no dependency group, which CI checks against `uv.lock`, since its `mocker` fixture needs no import that `TID251` could catch.
-  - The test-support pytest plugin fails the collection of any test that requests `monkeypatch` or `mocker`. Python code under test takes its environment and settings as values (ADR 0059), so no test patches them.
+  - The test-support pytest plugin fails the collection of any test that requests `monkeypatch` or `mocker`. That list includes fixtures requested indirectly, so a third-party plugin fixture that uses `monkeypatch` would fail every test using it and cannot be adopted.
 
   A double is a written adapter at a seam: the in-memory adapter of the protocol for code that is remote but owned, and an adapter replaying recorded exchanges for true externals (`STYLE.md`'s four categories, which move to `TESTING.md`).
+- **The TypeScript and Python SDKs take their environment as an injectable value.** This is ADR 0062's own rule; ADR 0059 makes it only for Rust. Whatever an SDK reads from the environment, such as `GOODFETCH_ENGINE_PATH` (ADR 0024), it reads from an environment map that an option can replace, defaulting to the process's own. A test passes the map, so no test patches the environment, in either language.
 
 ### Shared helpers
 
@@ -79,7 +80,7 @@ Decided in [Test layout, naming, shared helpers and the test-first process](http
 - **Fixtures live in a `fixtures/` folder beside the tests that read them.** Data that several languages read lives once, in `test-support/fixtures/`.
 - **A test copies a fixture into its own temporary folder before changing it.**
 - **No fixture file exceeds 256 KiB.** Larger or repetitive data is generated from a seed, by the Proving ground or by a generator in test support. Git LFS is not used.
-- **A generated fixture or a recorded exchange is committed with a `<name>.source.toml` sidecar.** It names the generator or the recording job, its version, the seed or the recording date, and the command that regenerates it. Secrets are redacted from recordings. When recorded model exchanges are made is decided by [Testing AI features and agent skills](https://github.com/Jbmanllr/automan/issues/281).
+- **A generated fixture or a recorded exchange is committed with a `<name>.source.toml` file beside it.** It names the generator or the recording job, its version, the seed or the recording date, and the command that regenerates it. Secrets are redacted from recordings. When recorded model exchanges are made is decided by [Testing AI features and agent skills](https://github.com/Jbmanllr/automan/issues/281).
 
 ### Snapshots
 
@@ -133,6 +134,7 @@ Decided in [Test layout, naming, shared helpers and the test-first process](http
   [Workspace skeleton and the "all green" pull-request check](https://github.com/Jbmanllr/automan/issues/132) creates the empty `test-support/` folder, the crate and the two packages, with these checks.
 - **[Deterministic simulation and crash testing for leases, fencing, groups and run state](https://github.com/Jbmanllr/automan/issues/275)** builds on `Clock::paused` and `Entropy::seeded`.
 - **The "Test infrastructure" spec** builds `goodfetch-test-support`, `goodfetch-test-env`'s JSON description and the two thin packages, and names the exact `just` recipes for snapshot updates, with the other helpers ADR 0059 lists.
+- **[SDK and CLI test stack](https://github.com/Jbmanllr/automan/issues/285) and the Client surfaces area's spec** design the TypeScript and Python SDKs to read their environment from a replaceable map, as decided above.
 - **Changes ADR 0059's last consequence.** The test `Clock` and the seeded `Entropy` are not test-support helpers: they are the handles' named constructors, `Clock::paused` and `Entropy::seeded`, in the crate that defines the handles. `goodfetch-test-support` supplies only their seed and start time.
 - **Adds to `STYLE.md`'s lint list:** `Clock::paused` and `Entropy::seeded` join `disallowed-methods`.
 - **Property tests:** parsers and stateful rules get property tests (`proptest` in Rust, `hypothesis` in Python), and their regression files are committed, as `TESTING.md` records.

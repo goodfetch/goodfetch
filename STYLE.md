@@ -116,7 +116,7 @@ For anything non-trivial, a known and widely used project is preferred to writin
 
 ### Tests
 
-The test rules live in [`TESTING.md`](TESTING.md), apart from Design's "Tests go through the interface", the secret-printing test under Logging and secrets, and each language's runner choices below: where tests live, how they are written and named, shared helpers, fixtures, snapshots, injection and determinism, and the test-first process (ADRs 0059 and 0062).
+The test rules live in [`TESTING.md`](TESTING.md) (where tests live, how they are written and named, shared helpers, fixtures, snapshots, injection and determinism, and the test-first process; ADRs 0059 and 0062), apart from Design's "Tests go through the interface", the secret-printing test under Logging and secrets, and each language's runner choices below.
 
 ### Documentation in code
 

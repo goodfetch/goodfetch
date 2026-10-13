@@ -245,10 +245,10 @@ Decided in [ADR 0064](docs/adr/0064-tests-are-never-retried-and-unpinned-checks-
 
 ### Live checks
 
-- **Each Live check has an owning area and a placement** listed in ADR 0064: real SaaS Sinks, installed Chrome's stable, beta and dev channels (pinned majors are tests), public testnets, the Clean-up rules' daily gate, the online conformance, the benchmark, the Cloud Run deploy, live-model evaluations, Scorecard.
+- **Each Live check has an owning area and a placement** listed in ADR 0064: real SaaS Sinks, installed Chrome's stable, beta and dev channels (pinned majors are tests), public testnets, the Clean-up rules' daily gate, the online conformance, the benchmark, the Cloud Run deploy, live-model evaluations, Scorecard, and fuzzing (ADR 0067).
 - **Outcomes are pass, fail or inconclusive.** Inconclusive means the external side was unavailable; it never counts as a pass.
-- **Results go to the results store** under the `live` tier.
-- **A fail, or three inconclusive runs in a row, opens or updates one `live-check` issue** in the current milestone, right after `flaky-test` issues on the frontier. If its cause is not stated within two business days, the next minor is not promoted until it is. Patches are not held, and the online conformance never blocks (ADR 0043).
+- **Results go to the results store** under the `live` tier, except fuzzing's, which stay private ([Security](#fuzzing)).
+- **A fail, or three inconclusive runs in a row, opens or updates one `live-check` issue** in the current milestone, right after `flaky-test` issues on the frontier. If its cause is not stated within two business days, the next minor is not promoted until it is. Patches are not held, and the online conformance never blocks (ADR 0043). Fuzzing opens no `live-check` issue: its crashes stay private and block the next minor until fixed ([Security](#fuzzing)).
 - **A `live-check` issue closes** once its cause is written down and either fixed or attributed to an external party with a linked upstream report, so an explained vendor outage never holds a milestone gate.
 - **A measurement declares its trials, threshold and statistic before it runs,** and every trial counts. A failed trial is never replaced.
 
@@ -423,7 +423,7 @@ Decided in [ADR 0065](docs/adr/0065-ai-features-are-tested-without-live-models-a
 
 ## Security
 
-Decided in [ADR 0067](docs/adr/0067-security-is-tested-per-trust-boundary-with-secret-canaries-and-private-fuzzing.md). The Quick, Pre-merge and Release suites are those of [Suites, commands and time budgets](#suites-commands-and-time-budgets): the Pre-merge suite runs on Linux, and the Release suite on the full matrix, in the merge queue once it exists and on manual dispatch before each milestone's owner test and before any release until then. Live checks are the checks non-deterministic by nature, which are in no suite.
+Decided in [ADR 0067](docs/adr/0067-security-is-tested-per-trust-boundary-with-secret-canaries-and-private-fuzzing.md). The Quick, Pre-merge and Release suites are those of [Suites, commands and time budgets](#suites-commands-and-time-budgets): the Pre-merge suite runs on Linux, and the Release suite on the full matrix, in the merge queue once it exists and on manual dispatch before each milestone's owner test and before any release until then. Live checks are those of [Flaky tests and Live checks](#live-checks), in no suite.
 
 ### Trust boundaries
 
@@ -435,7 +435,7 @@ Every boundary has its tests. A decision that adds a boundary adds its row in th
 | | `cargo fuzz check` | Pre-merge | Linux x64 |
 | | fuzzing | Live check, private repository | Linux x64 |
 | Script sandbox | worker probes and inspection | Pre-merge; Release | Linux; every OS |
-| | V8 memory-corruption build | Release | Linux x64 |
+| | V8 memory-corruption scripts, on the test build fetched by digest | Release | Linux x64 |
 | Plugin confinement | rule-to-probe check | Quick | every OS |
 | | probes generated from each policy; engine refusals | Pre-merge; Release | Linux; every OS |
 | Chromium's sandbox | renderer checks; startup probe cases | Pre-merge; Release | Linux; every OS |
@@ -461,12 +461,14 @@ Every boundary has its tests. A decision that adds a boundary adds its row in th
   _Why:_ cargo-fuzz does not build on Windows, and path handling differs most there.
 - **Check more than crashes where a pair exists:** round-trip for encoders and decoders, and the resolved-IP classification against the reference table built from the IANA registries.
 - **Commit seeds and a dictionary per target.** The grown corpus stays private.
-- **Never fuzz in a pull request.** Fuzzing is a Live check that runs only in a private repository, against `main`: continuous builds and 600 s of ClusterFuzzLite `code-change` on the affected targets after every push, and `batch` for 3,600 s then `prune` and `coverage` nightly.
+- **Never fuzz in a pull request.** Fuzzing is a Live check that runs only in a private repository, against the main repository's `main`: continuous builds and 600 s of ClusterFuzzLite `code-change` on the affected targets after every push, and `batch` for 3,600 s then `prune` and `coverage` nightly.
   _Why:_ a public job's logs and artifacts would disclose a crash already on `main` before its fix.
+- **Keep fuzzing's results in the private repository.** They never go to the results store or its published report.
 - **The job that builds and runs fuzz targets holds no secret** and a token with no permissions; a later job stores its results.
 - **Run ClusterFuzzLite's images by digest** from Goodfetch's workflow, never through its action's `:v1` tag.
-- **Send every new crash to a private security advisory draft**, never a public issue. A crash that also crashes the previous continuous build joins its existing advisory. Fix it from the advisory's private fork, and commit the crasher, minimised with `cargo fuzz tmin`, as a regression input with the fix.
-- **Fuzz on a nightly toolchain pinned in its own file**, apart from `rust-toolchain.toml`.
+- **Send every new crash to a private security advisory draft** on the main repository, never a public issue. Until the main repository is public, which advisories need, open an issue in the private fuzz repository instead. A crash that also crashes the previous continuous build joins its advisory, or opens one. Fix it from the advisory's private fork (before publication, an ordinary pull request), and commit the crasher, minimised with `cargo fuzz tmin`, as a regression input with the fix.
+- **An open fuzz crash blocks the promotion of the next minor** until it is fixed or triage closes it as not a vulnerability. Patches are not held. The threat-model review checks that none is open.
+- **Fuzz, and run the ASan tests, on one nightly toolchain pinned in its own file**, apart from `rust-toolchain.toml`.
 - **Run the tests of every crate that opts into `unsafe` under AddressSanitizer** in the Release suite, on Linux glibc.
 
 ### Confinement
@@ -477,6 +479,7 @@ Every boundary has its tests. A decision that adds a boundary adds its row in th
   _Why:_ a probe that fails for an unrelated reason would otherwise pass as a refusal.
 - **Assert the mechanism each runner uses** (Landlock ABI, user namespaces, mount-namespace fallback), so a silent fallback fails. A container under Docker's default seccomp profile on a kernel before 6.12 must refuse with `confinement_unavailable`.
 - **Test the Script sandbox worker as if V8 were broken:** run the probes under the worker's own generated policy, and inspect a live worker (`Seccomp:` and `NoNewPrivs:` on Linux, an AppContainer token on Windows, the spec's method on macOS). In the Release suite, on Linux x64, run corruption scripts on a V8 build with `v8_enable_memory_corruption_api`; each must end as `script_crashed`.
+- **Build the test V8 once per V8 version**, in a job of the pull request that changes the version, and commit its digest. The Release suite fetches it by digest and never builds it.
 - **Check that every renderer is sandboxed** for each browser Goodfetch launches: `Seccomp: 2` and `NoNewPrivs: 1` on Linux (Ubuntu 24.04 with its AppArmor restriction on), `chrome://sandbox` on Windows, Seatbelt on macOS. Test ADR 0049's startup probe in its refuse and record cases.
 
 ### Egress and hostile input

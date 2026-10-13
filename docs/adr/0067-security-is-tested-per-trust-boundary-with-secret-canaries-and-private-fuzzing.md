@@ -11,7 +11,7 @@ The ADRs already require `cargo-fuzz` per decoder (`TESTING.md`) and Miri (`STYL
 
 Decided in [Security testing](https://github.com/Jbmanllr/automan/issues/288) (grilling ticket), on the facts of [Security testing](https://github.com/Jbmanllr/automan/issues/273) ([findings](https://github.com/Jbmanllr/automan/blob/research/security-testing/rnd/research/2026-10-13-security-testing.md)). The agent answered the grilling on the owner's delegation. The rules every test follows are in `TESTING.md`.
 
-**Suites and tiers.** [ADR 0061](0061-three-test-suites-each-run-by-one-just-command-under-a-time-budget.md) defines three suites, each containing the one before: the **Quick suite**, the **Pre-merge suite** (every pull request, on Linux) and the **Release suite** (the full matrix: the merge queue, nightly and every release; on manual dispatch before each milestone's owner test and before any release while the merge queue does not exist). Every OS before a merge therefore comes from the Release suite in the merge queue. Checks that are non-deterministic by nature are **Live checks**, in no suite ([Flakiness policy and checks that are non-deterministic by nature](https://github.com/Jbmanllr/automan/issues/280)).
+**Suites and tiers.** [ADR 0061](0061-three-test-suites-each-run-by-one-just-command-under-a-time-budget.md) defines three suites, each containing the one before: the **Quick suite**, the **Pre-merge suite** (every pull request, on Linux) and the **Release suite** (the full matrix: the merge queue, nightly and every release; on manual dispatch before each milestone's owner test and before any release while the merge queue does not exist). Every OS before a merge therefore comes from the Release suite in the merge queue. Checks with an input that moves without a commit are **Live checks**, in no suite ([ADR 0064](0064-tests-are-never-retried-and-unpinned-checks-run-as-live-checks.md)).
 
 ## Decision
 
@@ -25,20 +25,21 @@ Decided in [Security testing](https://github.com/Jbmanllr/automan/issues/288) (g
 - **Oracles.** No crash, no sanitizer error, no hang past the target's limit; plus round-trip or differential checks where a pair exists, such as the resolved-IP classification against a reference table built from the IANA registries.
 - **Replay on every OS.** Each target's body is a plain function. A `#[test]` replays the committed seeds and every past crasher on every OS, since cargo-fuzz does not build on Windows (Wasmtime's pattern).
 - **In the suites.** The replay is in the Quick suite. `cargo fuzz check` of every target is in the Pre-merge suite, on Linux x64.
-- **Fuzzing itself is a Live check**, since its corpus and libFuzzer's seed move without a commit. It never runs in a pull request: ClusterFuzzLite's `code-change` mode reports a crash that already exists on `main` unless continuous builds tell it apart, and a public pull request's logs and artifacts would then disclose it.
-- **Where it runs.** All fuzzing runs in a private repository of the organization, against the public repository's `main`, with ClusterFuzzLite:
+- **Fuzzing itself is a Live check** ([ADR 0064](0064-tests-are-never-retried-and-unpinned-checks-run-as-live-checks.md)), since its corpus and libFuzzer's seed move without a commit. It never runs in a pull request: ClusterFuzzLite's `code-change` mode reports a crash that already exists on `main` unless continuous builds tell it apart, and a public pull request's logs and artifacts would then disclose it.
+- **Where it runs.** All fuzzing runs in a private repository of the organization, against the main repository's `main`, with ClusterFuzzLite:
   - **Continuous builds:** every push to `main` builds and stores the fuzz targets.
   - **Push fuzzing:** each push then runs `code-change` for 600 s on the targets it affects, chosen from the latest coverage report, or on every target when no report exists yet.
   - **Nightly:** `batch` for 3,600 s over every target, then `prune` and `coverage`.
-  - **Containment:** crashes, corpora, coverage and logs stay in that repository. The job that builds and runs the code holds no secret and a token with no permissions; a later job stores its results.
+  - **Containment:** crashes, corpora, coverage, logs and results stay in that repository. They never reach ADR 0064's results store, which becomes public with the main repository, nor its published report. The job that builds and runs the code holds no secret and a token with no permissions; a later job stores its results.
 - **Cost and phases.** Runner minutes in a private repository are paid beyond the plan's included minutes, so fuzzing starts when the owner approves it as a paid test resource. Until then, the replay and `cargo fuzz check` run, and nothing else.
 - **Images by digest.** ClusterFuzzLite's images run by digest from Goodfetch's own workflow, never through its action's mutable `:v1` tag. They are pulled before ADR 0043's deny, and the fuzz jobs run under it.
 - **Crashes.**
-  - A crash whose input also crashes the previous continuous build is a known one, and is added to its existing advisory.
-  - A new crash opens a private security advisory draft on the public repository, never a public issue. This is an exception to the Live checks' public `live-check` issue.
-  - The fix lands from the advisory's private fork under `SECURITY.md`'s coordinated disclosure (ADR 0030). The crasher, minimised with `cargo fuzz tmin`, is committed with the fix as a regression input.
+  - A crash whose input also crashes the previous continuous build is a known one: it joins its advisory, or opens one if it has none.
+  - A new crash opens a private security advisory draft on the main repository, never a public issue. Repository security advisories exist only on public repositories, so until the main repository is public, a crash opens an issue in the private fuzz repository instead. Either replaces ADR 0064's `live-check` issue.
+  - Once the main repository is public, the fix lands from the advisory's private fork under `SECURITY.md`'s coordinated disclosure (ADR 0030); before that, through an ordinary pull request, which is private too. The crasher, minimised with `cargo fuzz tmin`, is committed with the fix as a regression input.
+- **What it blocks.** An open fuzz crash (its advisory draft, or its issue in the private repository) blocks the promotion of the next minor until it is fixed, or until triage (manual test 2) closes it as not a vulnerability. Patches are not held, since a patch may carry the fix. The threat-model review (manual test 1) checks that none is open, since the release pipeline cannot read the private repository's issues.
 - **Corpus.** Seeds and a dictionary are committed per target. The grown corpus stays in the private repository.
-- **Toolchain.** Fuzzing uses a nightly toolchain pinned in its own file, apart from `rust-toolchain.toml`.
+- **Toolchain.** Fuzzing and the ASan run use one nightly toolchain pinned in its own file, apart from `rust-toolchain.toml`, since both need `-Zsanitizer`.
 - **OSS-Fuzz.** Its rule is "a significant user base and/or" critical infrastructure, so the owner applies once Goodfetch is published and has users. Its fuzzing then replaces the private batch run. OSS-Fuzz keeps its reports private until fixed.
 - **Sanitizers beyond fuzzing.** The Release suite runs the tests of every crate that opts into `unsafe` under AddressSanitizer, on Linux glibc, covering the FFI and system-call modules Miri cannot run.
 
@@ -48,6 +49,7 @@ Decided in [Security testing](https://github.com/Jbmanllr/automan/issues/288) (g
 - **The Script sandbox, as if V8 were already broken (adds to ADR 0051).**
   - **OS layer:** ADR 0033's probes run under exactly the policy generated for the worker. A live worker is also inspected: `Seccomp:` and `NoNewPrivs:` in `/proc/<pid>/status` on Linux, an AppContainer token on Windows, and on macOS the method the spec finds.
   - **V8 layer:** in the Release suite, on Linux x64, a test build of V8 with `v8_enable_memory_corruption_api` runs corruption scripts through the worker. Each must end as `script_crashed` and reach nothing outside it.
+  - **The test V8 is built once per V8 version, outside the merge queue.** A build job, in no suite, runs on the pull request that changes the V8 version. It stores the build as an attested artifact, and its digest is committed beside the version. The Release-suite job fetches it by digest, as the Goodfetch Chromium is, and only runs the corruption scripts, so it fits ADR 0061's job budgets. A V8 change cannot merge until its test build exists. The build job's runner minutes beyond the plan's included minutes are a paid test resource the owner approves.
   - **If V8 refuses the build under `--jitless`,** the question returns to the owner. It is never skipped.
 - **Chromium's sandbox (adds to ADRs 0017 and 0049).**
   - **Linux:** every renderer of Chrome for Testing and of the Goodfetch Chromium build shows `Seccomp: 2` and `NoNewPrivs: 1`, on Ubuntu 24.04 with its AppArmor restriction on.
@@ -120,8 +122,9 @@ Decided in [Security testing](https://github.com/Jbmanllr/automan/issues/288) (g
 |---|---|
 | Corpus and crasher replay; in-process SSRF and hostile-input cases; redaction property tests; Audit log tamper tests; the check that every policy rule has a probe | Quick suite |
 | `cargo fuzz check`; confinement, Script sandbox, Chromium sandbox, end-to-end egress, hostile-input and endpoint suites on Linux; MCP conformance over HTTP; CodeQL once public, `gitleaks` over commits until then | Pre-merge suite |
-| Each suite above on every OS its row in `TESTING.md` gives it; the ASan run (Linux glibc); the V8 memory-corruption build (Linux x64); the ZAP baseline (Linux) | Release suite |
-| Push and nightly fuzzing, in a private repository | Live check |
+| Each suite above on every OS its row in `TESTING.md` gives it; the ASan run (Linux glibc); the V8 memory-corruption scripts (Linux x64, on the build fetched by digest); the ZAP baseline (Linux) | Release suite |
+| Push and nightly fuzzing, in a private repository | Live check (ADR 0064), with its own results and blocking rule |
+| The test V8 build | a build job on the pull request that changes the V8 version, in no suite |
 | The IANA and advisory watch jobs | nightly tier, running none of the product |
 | `gitleaks` over each job's outputs | a step of every CI job |
 
@@ -169,12 +172,14 @@ Only these stay manual:
 - **Adds to ADR 0032:**
   - `cargo fuzz check` and the security suites join the pull-request tier on Linux, CodeQL once public, and `gitleaks` over commits until then;
   - `gitleaks` over outputs joins every job;
-  - the ASan run, the V8 memory-corruption build and the ZAP baseline join the Release suite;
+  - the ASan run, the V8 memory-corruption scripts and the ZAP baseline join the Release suite;
+  - the test V8 build job runs on each pull request that changes the V8 version, and its digest is committed;
   - fuzzing runs in a private repository, under the owner's approval of its minutes;
   - every container image a workflow runs is pinned by digest, as Actions are pinned by SHA;
   - the IANA and advisory watch jobs run none of the product, so they sit outside ADR 0043's rule, like the watchlist job.
-- **Adds to the Live checks** of [Flakiness policy and checks that are non-deterministic by nature](https://github.com/Jbmanllr/automan/issues/280): fuzzing, owned by area 4 and placed as above, whose failures go to a private advisory draft instead of a public `live-check` issue.
-- **Adds to ADR 0030:** `SECURITY.md` publishes what counts as a vulnerability: anything that crosses a trust boundary of `TESTING.md`'s table, any memory unsafety, and a limit that never fires. A new fuzz crash follows its coordinated disclosure.
+- **Adds to [ADR 0064](0064-tests-are-never-retried-and-unpinned-checks-run-as-live-checks.md)'s Live checks table** a fuzzing row: owned by area 4; tier: every push to `main` and nightly, in the private repository; what it blocks: the promotion of the next minor while a fuzz crash is open; decided in ADR 0067.
+- **Amends ADR 0064 for fuzzing alone.** Its results stay in the private repository, never in the results store, and a crash goes to a private advisory draft, or to an issue in the private repository before the main one is public, never to a `live-check` issue. ADR 0064 carries a one-line note.
+- **Adds to ADR 0030:** `SECURITY.md` publishes what counts as a vulnerability: anything that crosses a trust boundary of `TESTING.md`'s table, any memory unsafety, and a limit that never fires. A new fuzz crash follows its coordinated disclosure, and an open one blocks the promotion of the next minor, as above.
 - **Adds to ADRs 0017, 0049 and 0051:** the tests of the resolved-IP check, Chromium's sandbox and the Script sandbox worker described above.
 - **Changes area 1's spec** ([Spec: Repository, CI and release (V1 area 1)](https://github.com/Jbmanllr/automan/issues/130)). It gains:
   - the jobs above;
@@ -199,13 +204,12 @@ Only these stay manual:
   - the Secret canary planting and search helpers;
   - the fuzz replay harness;
   - the watch jobs.
-- **The security jobs' time budgets** are those of ADR 0061.
+- **The security jobs' time budgets** are those of ADR 0061. The test V8 build job is in no suite, so no suite budget covers it.
 - **Left to other tickets of the map:**
   - prompt-injection and fake-success pages ([Testing AI features and agent skills](https://github.com/Jbmanllr/automan/issues/281));
   - the MCP test stack ([MCP, framework adapter and Integration test stack](https://github.com/Jbmanllr/automan/issues/286));
   - the Console's test stack and its virtual authenticator ([Console and docs test stack](https://github.com/Jbmanllr/automan/issues/282));
-  - manual-test IDs ([Journey catalog: format, IDs, seeded data and surfaces](https://github.com/Jbmanllr/automan/issues/278));
-  - the Live check rules ([Flakiness policy and checks that are non-deterministic by nature](https://github.com/Jbmanllr/automan/issues/280)).
+  - manual-test IDs ([Journey catalog: format, IDs, seeded data and surfaces](https://github.com/Jbmanllr/automan/issues/278)).
 - **Unverified, checked by the first implementation tickets:**
   - whether Landlock is enabled in GitHub's Ubuntu runner kernels;
   - whether V8's memory-corruption API works under `--jitless`;

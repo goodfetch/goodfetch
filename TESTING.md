@@ -71,7 +71,7 @@ Decided in [ADR 0059](docs/adr/0059-dependencies-are-injected-as-values-and-only
 
 ## Upgrades and version mismatches
 
-Decided in [ADR 0066](docs/adr/0066-upgrades-are-tested-from-a-frozen-corpus-and-skew-from-every-released-minor.md). Tiers are named as [Test suites, local commands and time budgets](https://github.com/Jbmanllr/automan/issues/276) defines them.
+Decided in [ADR 0066](docs/adr/0066-upgrades-are-tested-from-a-frozen-corpus-and-skew-from-every-released-minor.md). Suites are the Quick, Pre-merge and Release suites of [Test suites, local commands and time budgets](https://github.com/Jbmanllr/automan/issues/276).
 
 ### The format registry
 
@@ -86,7 +86,8 @@ Decided in [ADR 0066](docs/adr/0066-upgrades-are-tested-from-a-frozen-corpus-and
 - **Never change a frozen set** (`compat/<format>/<major>.<minor>/`). If the reading of an old file must change, change its snapshot in a reviewed pull request whose changelog entry says so.
   _Why:_ a frozen file is what a released version really wrote.
 - **Change a format's schema only with a version bump** once a frozen set exists. `xtask compat check` fails otherwise.
-- **Bump a format's version only on `main`.** A patch never changes one.
+- **Bump a format's version only on `main`.** A patch never changes one: `xtask release` compares a patch's `head/` versions and schemas with the `x.y.0` tag's.
+- **Freeze from the release tag.** `xtask compat freeze --tag <tag>` copies the tag's `head/`, never `main`'s, which may hold unreleased versions.
 - **Fixtures cover the whole schema:** every property in a JSON document and a non-null value in every column. They hold synthetic data and Secret references only.
 - **A corpus test is golden.** It reads, writes back and compares with its snapshot. A migrated SQLite store must also match a fresh store's schema. Checkpoints resume, Plans replay without a model, Recipes run and transcripts replay.
   _Why:_ "it opens" misses a misread.
@@ -103,20 +104,20 @@ Decided in [ADR 0066](docs/adr/0066-upgrades-are-tested-from-a-frozen-corpus-and
 
 ### Released artifacts
 
-- **Skew covers every released minor of the current major**, latest patch of each: SDKs, the Rust crate's client, the CLI and the MCP server against the current Daemon (the SDKs over stdio too), the Console, the Browser host and first-party Plugins.
+- **Skew covers every released minor of the current major**, latest patch of each: SDKs, the Rust crate's client, the CLI and the MCP server against the current Daemon, the SDKs over stdio through `GOODFETCH_ENGINE_PATH` (where the Attached engine applies the Daemon's rule), the Console, the Browser host and first-party Plugins.
 - **An old Client runs its own release's journeys** from its tag. A journey that asserts something outside semver is fixed on `main` and excluded by ID, with a reason, in `compat/skew-exclusions.toml`.
-- **Rolling upgrades run under load** in a three-member group, once with the Lead Daemon last and once with it first, then a promotion from an older Group backup and the rollbacks. The Helm chart upgrades with `ct install --upgrade`.
+- **Rolling upgrades run under load** in a three-member group, once with the Lead Daemon last (a StatefulSet's default order with the Lead Daemon as pod 0) and once with it first, then a promotion from an older Group backup and the rollbacks. The Helm chart upgrades with `ct install --upgrade`.
 - **Older engines open the files the current engine wrote.** The Usage-ledger family opens; every other format is refused. Two majors run side by side on one machine.
-- **Old artifacts come only from `compat/releases.toml`,** through the pinned artifact mirror, checked by digest and by `gh attestation verify --bundle`.
+- **Old artifacts come only from `compat/releases.toml`,** through the pinned artifact mirror, checked by digest and by `gh attestation verify --bundle`. One local command fetches the same set.
 - **Never skip for a missing artifact.** A missing or mismatched artifact fails the job. An empty version list runs the current build against itself.
   _Why:_ a test that passes because nothing ran hides decay, as SQLite's and Cargo's skipped old-binary tests do.
 
-### Tiers
+### Suites
 
-| Check | Tier |
+| Check | Suite |
 |---|---|
-| Corpus golden reads, fabricated refusals, compatibility-function tables, `upgrade-files` from fixtures | quick |
-| `xtask compat check`, corpus replays and `upgrade-files` against the binary | pre-merge |
-| Skew against the latest released minor, when a protocol, a handshake or the registry changes | pre-merge |
-| The full skew matrix, rolling upgrades, older engines, two majors, the Helm upgrade | nightly |
-| The nightly set on each release candidate's, stable release's and patch's own bytes | release, blocking |
+| Corpus golden reads, fabricated refusals, compatibility-function tables, `upgrade-files` from fixtures, `xtask compat check` | Quick |
+| Corpus replays and `upgrade-files` against the binary | Pre-merge |
+| Every test that needs released artifacts: the skew matrix, rolling upgrades, older engines, two majors, the Helm upgrade | Release |
+
+- **Tests that need released artifacts belong to the Release suite**, which the merge queue runs. Its nightly rerun and its run on each release's own bytes cover them; none is a nightly-only job.

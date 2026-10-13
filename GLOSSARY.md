@@ -421,5 +421,5 @@ The largest size each released file of Goodfetch may reach on each platform, and
 _Avoid_: size limit (alone), quota, bloat check
 
 **Compatibility corpus**:
-The committed files, one frozen set per released version of each contract format, that every later engine of their major must read as that release wrote them.
+The committed files of each contract format: those its current version writes, and one frozen set per released version, which every later engine of that major must read as the release wrote them.
 _Avoid_: golden files, legacy fixtures, test data (for these files)

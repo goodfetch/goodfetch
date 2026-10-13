@@ -83,6 +83,7 @@ Releases are **built once and published per registry**: no tool publishes crates
     - DCO, the notice inventory (ADR 0018), the API breakage checks (ADR 0030), `cargo-deny`, `cargo-audit` and their npm and Python equivalents, a check that every Action is pinned by SHA, and a build on the minimum supported Rust version.
     - A Linux x64 size estimate posted as a comment, which never blocks (ADR 0057).
     - One "all green" job, the only required check.
+      > Amended by [ADR 0074](0074-the-goodfetch-chromium-is-gated-where-it-is-built-against-a-control-build-of-the-same-revision.md): the Chromium build gate is a required check too, on every head.
   - **Merge queue and `main`:** the full matrix of ADR 0024:
     - Platforms: Linux x64 and arm64 (glibc and musl), macOS arm64 and Intel (`macos-15-intel` or `macos-26-intel`), Windows x64 and arm64. If GitHub retires its Intel macOS runners, the x64 build keeps shipping (ADR 0024), and how it is tested is decided then.
     - Runtimes: every supported Node line, Bun and Deno; every supported CPython, with its free-threaded build from 3.14t on, on Linux.

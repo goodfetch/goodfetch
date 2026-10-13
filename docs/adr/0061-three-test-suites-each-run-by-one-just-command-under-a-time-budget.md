@@ -43,6 +43,7 @@ Each suite runs everything the suite before it runs.
   - the tests that need released binaries, such as version skew and rolling upgrades (decided by [Upgrade and version-mismatch testing](https://github.com/Jbmanllr/automan/issues/287)).
 
 Checks that are non-deterministic by nature are not in any suite: real SaaS Sinks, live models, the online Proving ground, real vendors, Chrome's beta and dev channels, and the benchmark. They keep the tiers ADRs 0026, 0032 and 0043 give them. How they report, and when they block, is decided by [Flakiness policy and checks that are non-deterministic by nature](https://github.com/Jbmanllr/automan/issues/280).
+> Amended by [ADR 0074](0074-the-goodfetch-chromium-is-gated-where-it-is-built-against-a-control-build-of-the-same-revision.md): the Chromium build gate's pinned tests are in no suite too, since they need the build's source tree.
 
 ### Tiers run suites
 
@@ -53,6 +54,8 @@ Checks that are non-deterministic by nature are not in any suite: real SaaS Sink
 | `main` after a merge | No tests: the merge queue already ran the Release suite on the same tree. A cache-warming job saves the caches (below). |
 | Nightly | The Release suite again on `main`'s head, then the nightly-only checks and the nightly publish. A second run of the same commit is what result history needs (the flaky-tests findings). |
 | Release candidate, stable release, patch | The Release suite on the release branch's commit, then that release's gates (ADR 0032). |
+
+> Amended by [ADR 0074](0074-the-goodfetch-chromium-is-gated-where-it-is-built-against-a-control-build-of-the-same-revision.md): the Chromium build gate is also a required check, on every head.
 
 - **Until the merge queue exists** (the repository is private, ADR 0032), the Release suite runs on manual dispatch. It must pass on the commit before each milestone's owner test (ADR 0058), and before any release.
 - **Size baseline.** Every merge-queue run saves its per-target size report (`xtask size`, thin-LTO CI profile) keyed by the tree it tested. The group that merges makes that tree `main`'s head, so its report is `main`'s build of the same profile that ADR 0057's increase checks and the pull request's Linux x64 estimate compare against; they read the report for `main`'s head. While the repository is private, manual-dispatch Release runs on `main` save it.

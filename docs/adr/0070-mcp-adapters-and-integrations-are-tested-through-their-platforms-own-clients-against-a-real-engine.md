@@ -8,7 +8,7 @@ Comparable projects test these surfaces unevenly ([findings](https://github.com/
 - **Integrations.** Apify mocks its own API with `nock` in its n8n and Zapier tests; Firecrawl's and Browserbase's n8n nodes have no tests. Platforms certify by human review with accounts.
 - **Loaders.** LangChain lists document loaders under "Not these ❌" ("High maintenance burden") for integrations it lists in its docs, while `BaseLoader` stays in `langchain-core`. LlamaIndex.TS is archived and "no longer maintained".
 
-Decided in [MCP, framework adapter and Integration test stack](https://github.com/Jbmanllr/automan/issues/286) ([grilling record](https://github.com/Jbmanllr/automan/issues/286#issuecomment-6152373951)), with the agent answering on the owner's delegation, on the facts of [Testing MCP, framework adapters, Integrations and agent skills](https://github.com/Jbmanllr/automan/issues/267). The rules every test follows are in `TESTING.md`. Suites (Quick, Pre-merge, Release) are ADR 0061's, Live checks ADR 0064's, layout and test support ADR 0062's, Journeys ADR 0063's, and the Scripted engine ADR 0069's (in review).
+Decided in [MCP, framework adapter and Integration test stack](https://github.com/Jbmanllr/automan/issues/286) ([grilling record](https://github.com/Jbmanllr/automan/issues/286#issuecomment-6152373951)), with the agent answering on the owner's delegation, on the facts of [Testing MCP, framework adapters, Integrations and agent skills](https://github.com/Jbmanllr/automan/issues/267). The rules every test follows are in `TESTING.md`. Suites (Quick, Pre-merge, Release) are ADR 0061's, Live checks ADR 0064's, layout and test support ADR 0062's, Journeys ADR 0063's, and the Scripted engine ADR 0069's.
 
 ## Decision
 
@@ -35,7 +35,7 @@ Decided in [MCP, framework adapter and Integration test stack](https://github.co
   - for an older revision with no set (such as `2025-03-26` and `2025-06-18`, which the TypeScript v1 client negotiates), with `--spec-version <revision>`: the scenarios the pinned version tags for it. Their list changes only when the pin moves, in the reviewed pull request that updates the expected-failures files;
   - against the shipped binary, whose expected-failures file may list only scenarios that need fixture tools or resources, each with its reason;
   - against a **fixture server**, a test target built from the same MCP server code with a catalog of the suite's fixture tools, never shipped, with an empty expected-failures file;
-  - with a separate run for the extensions the server implements, since `--requirements` runs extensions as `not_scored` and they can't fail it: each of their scenarios by name with `--scenario`, against the expected-failures file `conformance/mcp/expected-failures/extensions.yaml`. The server command has no extensions suite (`--suite extensions` exists for clients only);
+  - with a separate run for the extensions the server implements, since `--requirements` runs extensions as `not_scored` and they can't fail it: each of their scenarios by name with `--scenario` and without `--spec-version` (with it, the pinned version reports an extension scenario as skipped and exits 0), against the expected-failures file `conformance/mcp/expected-failures/extensions.yaml`. The server command has no extensions suite (`--suite extensions` exists for clients only). The suite runs these scenarios at `2026-07-28` only, so an extension the server also supports under an older revision is tested at that revision by the `rmcp` integration tests in `tests/it`;
   - Pre-merge when MCP code, the catalog or an expected-failures file changes; always in the Release suite, on Linux.
 - **stdio conformance** comes from the client matrix and the Inspector until the suite gains a stdio mode; the nightly Live check below shows when it does, and adopting it is a reviewed change.
 - **The MCP Inspector CLI**, pinned, with `--format json --stored-auth-only`:
@@ -94,6 +94,7 @@ Decided in [MCP, framework adapter and Integration test stack](https://github.co
   - Python adapters, the LlamaIndex reader and the Airbyte source: pytest, `tests/journeys/test_jNNN.py`;
   - Make has no automated variant, since it runs only in its cloud; its Journeys are tried by hand at the owner test, and its account Live check covers each module once approved.
 - **They run on Linux**, against a real Daemon or Attached engine, with the platform's version from the lockfile.
+- **The `http-listener` variants** run on nextest in the `goodfetch` binary crate's `tests/it/journeys`, beside the `cli` variants: a Daemon with its HTTP listener on, a token and port 0, driven by JSON-RPC over HTTP from Rust test code, as a person's script would call it.
 
 ### Live checks
 
@@ -140,8 +141,8 @@ At each release candidate that changes them:
 - **Adds to ADR 0043.** The account job may reach its tunnel host and each platform's API host; the nightly Live checks may reach the npm and PyPI registries to fetch unpinned releases.
 - **Adds to ADR 0061.** The Pre-merge and Release placements above.
 - **Adds to ADR 0064's Live check table:** the four Live checks above.
-- **Adds to ADR 0063:** MCP Journey variants run on nextest with `rmcp`; adapter and Integration variants on Vitest or pytest in each package's `tests/journeys`, as above; `integration-make` has no automated variant.
-- **Adds to ADR 0069 (in review):** `goodfetch-scripted-engine` also plays a script as a Daemon's HTTP listener (JSON-RPC over HTTP behind a token, ADR 0027), for the Integrations' faults.
+- **Adds to ADR 0063:** MCP Journey variants run on nextest with `rmcp`; `http-listener` variants on nextest in the binary crate; adapter and Integration variants on Vitest or pytest in each package's `tests/journeys`, as above; `integration-make` has no automated variant.
+- **Adds to [ADR 0069](0069-sdks-and-the-cli-are-tested-against-a-scripted-engine-and-the-binary-of-the-same-commit.md):** `goodfetch-scripted-engine` also plays a script as a Daemon's HTTP listener (JSON-RPC over HTTP behind a token, ADR 0027), for the Integrations' faults. The listener falls under the same exception to ADR 0060's closed lists as its other players.
 - **Adds to ADR 0037:** area 11 (Client surfaces) builds this decision.
 - **Assumed interfaces:**
   - [Console and docs test stack](https://github.com/Jbmanllr/automan/issues/282) can run a model-free framework test as a docs page's example;

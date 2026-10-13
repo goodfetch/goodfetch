@@ -12,16 +12,18 @@ How Goodfetch is tested: every surface, at every level. Each rule comes with its
 6. [Snapshots](#snapshots)
 7. [Property tests, fuzzing and doctests](#property-tests-fuzzing-and-doctests)
 8. [Injection and determinism](#injection-and-determinism)
-9. [Flaky tests and Live checks](#flaky-tests-and-live-checks)
-10. [Test-first process](#test-first-process)
-11. [Review checklist](#review-checklist)
-12. [Suites, commands and time budgets](#suites-commands-and-time-budgets)
-13. [AI features and agent skills](#ai-features-and-agent-skills)
-14. [Journeys](#journeys)
-15. [Upgrades and version mismatches](#upgrades-and-version-mismatches)
-16. [MCP, framework adapters and Integrations](#mcp-framework-adapters-and-integrations)
+9. [Simulation, model checking and crash testing](#simulation-model-checking-and-crash-testing)
+10. [Flaky tests and Live checks](#flaky-tests-and-live-checks)
+11. [Test-first process](#test-first-process)
+12. [Review checklist](#review-checklist)
+13. [Suites, commands and time budgets](#suites-commands-and-time-budgets)
+14. [AI features and agent skills](#ai-features-and-agent-skills)
+15. [Journeys](#journeys)
+16. [Upgrades and version mismatches](#upgrades-and-version-mismatches)
+17. [SDK and CLI tests](#sdk-and-cli-tests)
+18. [MCP, framework adapters and Integrations](#mcp-framework-adapters-and-integrations)
 
-Sections 1 to 7, 10 and 11 are decided in [ADR 0062](docs/adr/0062-tests-sit-beside-their-code-and-share-one-test-support-written-once.md).
+Sections 1 to 7, 11 and 12 are decided in [ADR 0062](docs/adr/0062-tests-sit-beside-their-code-and-share-one-test-support-written-once.md).
 
 ## Levels and layout
 
@@ -40,7 +42,7 @@ A test's level is the seam it crosses, not its speed:
 
 - **A unit test reaches only its module's interface:** the items the module's callers use. Never a private function.
   _Why:_ such tests survive internal refactors, and they test what callers rely on.
-- **Product code has no `#[cfg(test)]` branch and no `pub` item added for tests.** If a test needs one, the module is the wrong shape.
+- **Product code has no `#[cfg(test)]` branch and no `pub` item added for tests.** If a test needs one, the module is the wrong shape. The one test-only `cfg` in product code is the `sync` modules' `goodfetch_loom` switch ([Concurrency](#concurrency)).
 - **One integration-test binary per crate, run with `cargo-nextest`.** A crate splits it into named area harnesses (`tests/<area>/main.rs`, `autotests = false`) only when its pull request shows a localized test edit taking more than 5 seconds to rebuild with one harness.
   _Why:_ each file in `tests/` links its own binary. uv's measurement favours one harness until a suite is large.
 - **Tests of the `goodfetch` binary live in its crate's `tests/it`** and find the binary through `CARGO_BIN_EXE_goodfetch`, never a guessed path.
@@ -84,7 +86,7 @@ A module is tested according to the kind of dependency it has, using the four ca
 - **In-process** (pure logic: URL normalization, robots, frontier rules, extraction, run-state rules): through the module's interface; `proptest` for parsers.
 - **Local-substitutable** (a real local stand-in exists): SQLite in a temporary file; a real Chromium (the Goodfetch build of ADR 0035) against Proving ground pages served locally. CDP is never mocked.
   _Why:_ a fake browser lets tests pass where a real one fails, which is the false success ADR 0025 measures.
-- **Remote but owned** (Goodfetch's own processes across a boundary: sink processes, process Plugins, the Daemon): the logic is tested through an in-memory adapter of the protocol, and the real processes through the conformance suites.
+- **Remote but owned** (Goodfetch's own processes across a boundary: sink processes, process Plugins, the Daemon): the logic is tested through an in-memory adapter of the protocol and, for several hosts, in the [Simulation](#simulation), and the real processes through the conformance suites.
 - **True external** (model providers, CAPTCHA services): a stand-in adapter. For Model providers, the Scripted model in-process, Model recordings replayed by `httpmock` at the adapter's base URL (matched on the body, secrets removed by an allowlist), and the Proving ground's Fake model end to end; no test calls a live model ([AI features and agent skills](#ai-features-and-agent-skills), ADR 0065).
 
 How each dependency is injected is in [Injection and determinism](#injection-and-determinism).
@@ -144,7 +146,7 @@ Decided in [ADR 0059](docs/adr/0059-dependencies-are-injected-as-values-and-only
 | Environment | an explicit map | a cleared map for each child process |
 | Keychain, service manager, processes | nothing: the real service | the real service, unique names |
 
-- **A dependency with a local stand-in gets no handle.** Only `Clock` and `Entropy` are swapped in tests.
+- **A dependency with a local stand-in gets no handle.** Only `Clock` and `Entropy` are swapped in tests, and, in the [Simulation](#simulation) alone, `transport`'s network (ADR 0060). That network is a value with product adapters, the OS and the in-memory pair the embeddable `goodfetch` crate uses, so its interface is public for them, not for tests, and it is not a third handle.
   _Why:_ a fake passes where the real thing fails, and a stand-in tests what users run.
 - **Nothing reads time, chooses at random or reads the environment through a global.** `disallowed-methods` refuses `SystemTime::now`, std and Tokio `Instant::now` and constructors such as `Ulid::new` outside `Clock` and `Entropy`, and `std::env::var` outside `main`; `std::env::set_var` is `unsafe`.
 
@@ -192,6 +194,97 @@ Decided in [ADR 0059](docs/adr/0059-dependencies-are-injected-as-values-and-only
 
 - **SDK durations and jitter are options:** tests pass short values and a fixed seed. In TypeScript, Vitest fake timers may drive timer logic that never reaches the engine.
 - **The Console's end-to-end tests set time with Playwright's `page.clock`** (`setFixedTime` first). Its component tests use Vitest fake timers.
+
+## Simulation, model checking and crash testing
+
+Decided in [ADR 0060](docs/adr/0060-distributed-and-crash-behaviour-is-simulated-on-tokio-model-checked-and-faulted-at-io-seams.md). Leases, run epochs, Checkpoints, the writer lock, Daemon groups, Partitioned crawls, degraded shares, the Usage ledger and Sink delivery are tested at every layer that can break them; the ADR's table says which.
+
+### Code the tests rely on
+
+- **Open the connections the Simulation carries only in `goodfetch-engine`'s `transport` module**, which takes the network as a value (the OS, the in-memory pair, or a test adapter): stdio of an Attached engine, the Daemon's socket and named pipe, loopback TCP, the WebSocket listener, the private endpoint, the ops listener, the peer link, wake endpoints. `rpc` takes its connections from it. Fetch sockets, the CDP connection, plugin-protocol pipes and third-party clients stay outside the Simulation and open their own. `STYLE.md` lists the lints.
+  _Why:_ the Simulation swaps the network there, and nowhere else.
+- **Start threads and block only through the `tasks` module**, whose blocking policy is a value. In the Simulation it runs blocking calls inline, and a dedicated thread's body (the run's SQLite writer actor, for example) as a task on the host's runtime.
+  _Why:_ a real thread ends its work at an arbitrary simulated moment, so the run would not replay.
+- **Never build a runtime in the engine.** Only `main` and test helpers build one; `tokio::task::block_in_place` is in `disallowed-methods`.
+- **Give every third-party time hook the `Clock`** (rustls's `TimeProvider`), and the test `tracing` subscriber's timer too, so traces carry simulated time.
+- **Emit each transition a TLA+ model names as a `tracing` event** under the model's target, with the model's variable names as fields.
+- **No failpoints.** Inject faults at I/O seams: the crash VFS, the transport adapters, the plugin protocol's in-memory adapter, Toxiproxy, process kills.
+  _Why:_ a crash only matters at an I/O boundary, and each boundary already has a seam.
+
+### Simulation
+
+- **Several hosts in one process run on turmoil**, pinned, each on its own paused current-thread Tokio runtime with `Clock::paused` and `Entropy::seeded`, built with `--cfg tokio_unstable` so each host's runtime randomness (`select!` order) follows the seed. No crate swaps the runtime.
+- **Compile the scenarios only under `cfg(tokio_unstable)`** (`#[cfg(tokio_unstable)] mod simulation;` in `tests/it/main.rs`). They run from a nextest archive and CI job of their own, filtered to the `simulation` module, with their own rust-cache key, counted against the Pre-merge budget and ADR 0061's cache priority.
+  _Why:_ every other test then runs on the Tokio configuration production ships.
+- **Derive every seed from the test's seed**, which `goodfetch-test-support` supplies (`GOODFETCH_TEST_SEED` overrides it): one stream for turmoil, one per host's `Entropy`, one for the Fault plan's generation.
+- **A scenario keeps an Observation log** of operations, answers and faults, and **the shared invariant checkers judge it**: fencing, one lead, Limits, Partitions, the Audit log chain (through the product's own verifier, passed in as a value), and liveness within a stated simulated time once faults stop. Real-process tests and conformance suites use the same checkers.
+- **Faults come from Fault plans** generated by proptest-state-machine and shrunk by proptest on failure.
+- **Check determinism:** rerun a few seeds and compare Observation logs and `tracing` output. Fix any mismatch at its source.
+- **Leave security values out of the comparison.** Keys, tokens, certificates and TLS handshakes still come from the OS generator (ADR 0059) and are recorded redacted. If behaviour depends on their bytes, fix the code; never seed them.
+- **The Politeness store is not simulated.** Group scenarios set `politeness_sharing: per_daemon`.
+
+### Model checking
+
+- **The five protocols have TLA+ models checked by TLC:** run fencing, lead epoch, Partition handoff, slices and reclaim, degraded shares. The TLA+ tools and the CommunityModules release are pinned as one pair, which the "Test infrastructure" spec chooses (whether stable 1.7.4 runs trace validation is unverified).
+- **Trace validation:** TLC checks the Simulation's NDJSON traces against the model. Real-process traces are not validated, since several processes' events have no single order.
+- **Change a model in the same pull request as the behaviour it describes.**
+
+### Model-based tests and crashes in one process
+
+- **Test `run_state`, `lease`, `checkpoint`, delivery and `ledger` with proptest-state-machine** against reference models, on real SQLite in the test's folder with `Clock::paused`, with crash, power-cut, timeout, late-commit and resume transitions.
+- **Crash SQLite through the crash VFS** (`sqlite-plugin`): it holds writes until a sync; a process crash keeps unsynced writes, a power cut drops, tears or reorders them from the seed; the crashed instance's later I/O is refused. It also injects I/O errors and a full disk. Databases open with the VFS name as a value; production passes none.
+- **Check after every crash:** acknowledged commits are present in default durability, `PRAGMA integrity_check` passes in both modes, and nothing is visible twice.
+- **Test Sinks through the plugin protocol's in-memory adapter** with a test Sink of each Guarantee class, and judge the result by class.
+
+### Concurrency
+
+- **A module that synchronizes threads with its own atomics, `Mutex`, `RwLock` or `Condvar` has loom tests.** It imports them through its crate's `sync` module, which maps to loom under `--cfg goodfetch_loom`.
+  _Why:_ a Goodfetch-specific cfg leaves dependencies that react to `cfg(loom)` unchanged.
+- **No Shuttle.** Actors on Tokio channels are covered by the Simulation.
+
+### Real processes
+
+- **Kill real processes at seeded moments** chosen from observed protocol events: `kill -9` on Linux and macOS, `TerminateProcess` on Windows, for engines, Clients, sink processes and Script sandbox workers.
+- **Power-cut the real binary with LazyFS on Linux:** mount the run folder and the Goodfetch home through it, kill, clear its cache, resume, check as above.
+- **Assert `fullfsync` on macOS**, which no tool can observe reaching the drive.
+- **Cut off engines and partition Group members with Toxiproxy**, reached through each engine's `resolve` mapping. Give each engine's listeners a loopback address of their own (`resolve` maps names, not ports). Keep Valkey's durations short.
+- **Run ADR 0055's Kubernetes path on `kind`.**
+
+### Where the pieces live
+
+- **Simulation scenarios:** `goodfetch-engine`'s `tests/it/simulation/`, one module per behaviour area, with turmoil's network adapter.
+- **Committed Fault plans:** `fixtures/fault_plans/` beside their scenario, each with its `<name>.source.toml` (generator version, seed, replay command).
+- **Model-based tests and loom tests:** unit tests of the module they check; loom tests compile only under `goodfetch_loom`.
+- **The crash VFS, the Observation log and the invariant checkers:** `goodfetch-test-support`. The Observation log is plain records, so they need no Goodfetch crate.
+- **TLA+ models:** `test-support/models/`, one folder per model with its TLC configurations and trace-validation spec.
+
+### Suites
+
+Placed in the suites of [Suites, commands and time budgets](#suites-commands-and-time-budgets). Nightly-only jobs explore new seeds: they repeat tests of normal length with new `GOODFETCH_TEST_SEED` values, each within the 5-minute kill, in the nightly tier once it is on. They are in no suite. A failure in the deterministic layers (model-based tests, Simulation, loom, TLC) replays from its seed; a real-process or Toxiproxy failure is recorded with its seed and classified by ADR 0064's diagnostic run.
+
+| Check | Quick | Pre-merge | Release | Nightly-only job |
+|---|---|---|---|---|
+| Pure time rules, proptest of decision logic | yes | yes | yes | |
+| Model-based tests with the crash VFS | 16 cases and committed regressions, within the 10 s kill | own job: 256 cases and committed regressions | as Pre-merge, every OS | random seeds, 1 h |
+| Simulation (own `tokio_unstable` job) | | committed Fault plans, 16 seeds per scenario, determinism check on 4 seeds, within 10 min | as Pre-merge | random seeds, 2 h |
+| loom | | changed crates, 2 preemptions, within 10 min | every crate, 2 preemptions | every crate, 3 preemptions |
+| TLC | | when a model or traced module changes, with trace validation, within 10 min | every model | larger constants, 2 h |
+| Real-process crashes, writer lock, shared per-user files | | fixed seeds | every OS | random seeds, every OS |
+| LazyFS power cut | | | Linux x64 | |
+| Toxiproxy cut-offs and partitions | | fixed seeds | yes | random seeds |
+| `kind` lead scenarios | | | Linux x64 | |
+
+- **Set the model-based tests' case count per test**, with the `ProptestConfig` `goodfetch-test-support` builds for the running suite: 16 in Quick, 256 in the Pre-merge job that reruns them by a nextest filter, counted against the Pre-merge budget. Never set `PROPTEST_CASES`, which would lower every property test.
+- **A failure in a deterministic nightly-only job is a bug, not flakiness.** A real-process or Toxiproxy failure goes through [Flaky tests and Live checks](#flaky-tests-and-live-checks) (diagnostic run, quarantine), and rule 3 of Regressions still applies when it does not reproduce. No release candidate is cut while either is open.
+- **Over budget, shard, speed up or move a test to a later suite** (ADR 0061). Never lower case counts or seeds, and never drop a scenario, to fit.
+
+### Regressions
+
+1. A failing Simulation writes its shrunk Fault plan to a file and prints the command that replays it.
+2. The fix commits the plan beside its scenario, with proptest's regression file. Committed plans run in the Pre-merge suite.
+3. A failure from a non-deterministic layer (real processes, LazyFS, Toxiproxy, `kind`) is reproduced at the lowest deterministic layer that shows it, and that reproduction is the regression test. If none can, file an issue to extend the Simulation, and commit the failing seed to the real-process scenario meanwhile.
+4. A TLC counterexample becomes a Fault plan and a fix to the model or design. A trace-validation failure is fixed in the code or in the stale model.
+5. A test that once found a bug is never removed or weakened while its behaviour is still required; it may be replaced by a test covering the same failure.
 
 ## Flaky tests and Live checks
 
@@ -529,6 +622,62 @@ Decided in [ADR 0066](docs/adr/0066-upgrades-are-tested-from-a-frozen-corpus-and
 - **Never drop a minor, and never move a skew check out of the merge queue.** A Release suite budget breach is fixed with fewer or faster jobs per minor, or with more concurrency or larger runners, a paid resource the owner approves.
   _Why:_ the Release suite has no later suite to move to, and an untested minor decays.
 
+## SDK and CLI tests
+
+Decided in [ADR 0069](docs/adr/0069-sdks-and-the-cli-are-tested-against-a-scripted-engine-and-the-binary-of-the-same-commit.md).
+
+### SDKs
+
+- **Unit tests run against the Scripted engine in-process**, through an in-memory transport; integration tests and Journeys run the `goodfetch` binary built from the same commit. `sdk-rust` Journeys run with a Daemon only; `linked` is never a Journey mode.
+  _Why:_ the binary can't fabricate a refused `hello` or a crash mid-call, and a fake alone passes where the engine fails.
+- **Scripts live only in `test-support/fixtures/engine-scripts/`**, never inline in a test. Every message step in them must validate against the committed JSON Schema bundle; only raw-byte steps, deliberately not JSON-RPC, are skipped.
+  _Why:_ one validated corpus keeps the stand-in true to the engine for every SDK at once.
+- **Pass `GOODFETCH_ENGINE_PATH` and `GOODFETCH_HOME` in the SDK's environment-map option**, as the test-support fixtures build it from `goodfetch-test-env`. Never set them in the test's own process; an Attached engine gets exactly that map as its environment.
+- **Process faults use `goodfetch-scripted-engine`**, reached as an Attached engine through `GOODFETCH_ENGINE_PATH` (TypeScript and Python) or as a Daemon through a runtime file in the test's Goodfetch home (every SDK). No build of `goodfetch` carries a fault switch.
+- **No process outlives its test:** the test-support fixtures fail a test that leaves an engine, Daemon or handler process alive after teardown.
+- **Every Client conformance case in `conformance/clients/` is implemented on every surface it lists**, carries its case ID, and runs in both of its surface's modes: named cases `attached` and `daemon` in TypeScript, Python and the CLI, `linked` and `daemon` in Rust, which links the engine and starts no Attached engine. A Quick-suite check fails on a missing implementation or an unknown ID.
+- **For Client conformance cases, each runner writes a case log; only `goodfetch-conformance`'s writer turns it into a result document**, deriving each outcome through `goodfetch-protocol`'s constructor. A log entry never carries an outcome. A declared case missing from the log is `unproved`. Journeys write their own documents ([Journeys](#journeys)). The entry type is in `goodfetch-protocol` and its schema in the bundle; the script format's schema is `test-support/fixtures/engine-scripts/script.schema.json`. Both come from `xtask codegen`.
+- **Completeness tests** check that every catalog operation, Error code and event has its generated counterpart in each SDK.
+- **Generated code is type-checked** by `tsc` with `skipLibCheck: false`, pyright strict and mypy `--strict`.
+- **Mapping and decoding are property-tested** (fast-check, hypothesis): user-data values with any keys, `__proto__` included, come back unchanged.
+- **Type tests:**
+  - TypeScript: `*.test-d.ts` files with `expect-type`'s `expectTypeOf` and `@ts-expect-error`, compiled by `tsc --noEmit` against the built `.d.ts`. Not Vitest's `typecheck` mode, tsd or TSTyche.
+  - Python: `tests/types/` files with `typing.assert_type` and `# type: ignore[code]`, under pyright strict with `reportUnnecessaryTypeIgnoreComment = "error"` and under mypy `--strict`, whose `--warn-unused-ignores` reports an unused ignore.
+- **Python:**
+  - the test-support plugin's `anyio_backend` lists `asyncio` and `trio` explicitly, and a missing trio fails the session;
+  - every Client conformance case runs on asyncio, on trio and through the sync API;
+  - free-threaded builds run the whole suite with `PYTHON_GIL=0`, and fail if the GIL is on; the sync API's unit tests also run under pytest-run-parallel. Every Linux platform in the Release suite; macOS and Windows in a nightly-only job.
+- **TypeScript runtimes:** Vitest runs on Node with the `forks` pool. The `smoke/*.mjs` scripts (only `node:assert`) each run spawned by a Vitest test:
+  - on Bun and Deno 2, with an Attached engine and with a Daemon, covering the runtime-dependent Client conformance cases, whose IDs the script declares;
+  - on `workerd` (Miniflare) and Vercel's edge runtime, against a Daemon only, since they cannot start a process. Deno 2's `daemon` run stands for Deno Deploy (ADR 0049).
+- **Installed packages:**
+  - npm packages install from Verdaccio with no uplink, with npm, pnpm, Yarn, Bun and Deno, into a path with a space and a non-ASCII character, and the smoke scripts check the installed version; `--omit=optional` must fail at first use with Goodfetch's error;
+  - each install keeps its manager's release-age gate on and passes it through ADR 0030's exclusion snippet, read from the source the release notes use; one run per manager without the snippet must not install the packed version (uv's snippet is not tested: `--no-index` has no gate);
+  - wheels install into a fresh environment (`uv pip install --no-index --find-links`, and `pip`) and run `tests/integration` unchanged, on glibc and Alpine;
+  - the crate builds a temporary consumer from `cargo package`'s output.
+- **Models are scripted only through the testing kit's Scripted model** (`goodfetch::testing`, `goodfetch/testing`, `goodfetch.testing`). The kit's test engine helper is an Attached engine in TypeScript and Python and the linked engine in Rust.
+
+### CLI
+
+- **The binary runs under assert_cmd and is snapshotted with insta**, through `goodfetch-test-support`'s helper. One snapshot holds stdout, stderr and the exit code.
+- **Every `--json` test validates stdout against the command's schema** from the bundle, checks that stdout holds nothing else, and snapshots it.
+  _Why:_ `--json` is under semver (ADR 0030), and only a schema puts it in the breakage check.
+- **Warnings, hints, deprecations and the age notice never reach stdout.**
+- **Every exit code in `goodfetch-protocol`'s table has a test through the binary**, one rstest named case per exit code, in `tests/it`. An in-process unit test checks that the table maps every Error code.
+- **Human output is snapshotted under `NO_COLOR=1`, a fixed `COLUMNS`, `TERM=dumb` and a fixed locale.** The `--help` tree is one snapshot rendered in-process from clap's `Command`; one `tests/it` case checks the binary prints the same. A unit test calls clap's `Command::debug_assert`.
+- **Terminal-only behaviour is tested in a pseudo-terminal with expectrl:** colour, progress, and person-only prompts, which must refuse when stdin is not a terminal.
+- **Interrupts are tested through the binary:** a running Crawl sent `SIGINT` (Unix) or `CTRL_BREAK_EVENT` (Windows) checkpoints and exits with its exit code; a second interrupt stops it at once.
+- **A command that runs the engine is tested in both modes**, as rstest cases `attached` and `daemon`, against one snapshot.
+- **Client faults** (a refused protocol version, a dead PID, a dropped connection) come from the Scripted engine run as a Daemon.
+
+### Where they run
+
+| Suite | SDKs | CLI |
+|---|---|---|
+| Quick | unit tests, type tests, completeness and property tests, script validation, the case-list check | in-process unit tests, `--help` rendered in-process, `debug_assert`, the exit-code table maps every Error code |
+| Pre-merge | touched SDKs on Linux with the newest Node LTS and CPython: integration, Client conformance, Scripted engine process, one installed-package run | every `tests/it` case, both modes: exit codes and `--help` through the binary, `--json`, pseudo-terminal, interrupts |
+| Release | every Node line, Bun, Deno and CPython on Linux x64, free-threaded builds on every Linux platform; oldest and newest Node and CPython on every other platform; every install path on every OS. Free-threaded builds on macOS and Windows: a nightly-only job | everything, on every platform |
+
 ## MCP, framework adapters and Integrations
 
 Decided in [ADR 0070](docs/adr/0070-mcp-adapters-and-integrations-are-tested-through-their-platforms-own-clients-against-a-real-engine.md).
@@ -537,7 +686,7 @@ Decided in [ADR 0070](docs/adr/0070-mcp-adapters-and-integrations-are-tested-thr
 
 - **Drive each surface with its platform's own client, against a real engine or Daemon serving the local Proving ground.** No mocking library or hand-written fake of Goodfetch's API: no `nock`, fake HTTP API or stub listener.
   _Why:_ a fake of the engine passes where the real one fails, and misses the token, `Host` and `Origin` checks.
-- **Use only the doubles ADRs 0062 and 0069 define:** the in-memory adapter of the protocol in Quick-suite unit tests, and the Scripted engine for faults a real engine can't produce on demand.
+- **For Goodfetch's side, use only the doubles ADRs 0062 and 0069 define:** the in-memory adapter of the protocol in Quick-suite unit tests, and the Scripted engine for faults a real engine can't produce on demand.
 - **Stand in for the platform in this order:** its real runtime run locally, its official test harness, a written adapter of its context.
 - **Keep a Quick check over everything `xtask codegen` generates:** no person-only operation or setting on any MCP profile, Framework adapter, Integration or skill, and each surface's operations map to catalog operations of the same class.
 - **Assert outcomes through the oracle and Error codes**, never a model's wording or a platform's message text.
@@ -551,7 +700,7 @@ Decided in [ADR 0070](docs/adr/0070-mcp-adapters-and-integrations-are-tested-thr
   - `--requirements <revision>` for a revision with a frozen requirement set (today `2025-11-25` and `2026-07-28`), `--spec-version <revision>` for an older one;
   - against the shipped binary, whose expected-failures file lists only scenarios that need fixture tools or resources, each with a reason (a Quick check refuses other entries);
   - against the fixture server, with an empty expected-failures file;
-  - once more for the extensions the server implements, each scenario by name with `--scenario`, against `conformance/mcp/expected-failures/extensions.yaml`, since `--requirements` doesn't score extensions.
+  - once more for the extensions the server implements, each scenario by name with `--scenario` and without `--spec-version`, against `conformance/mcp/expected-failures/extensions.yaml`, since `--requirements` doesn't score extensions. These run at `2026-07-28` only; test an extension the server supports under an older revision with `rmcp` in `tests/it`.
 - **Change the suite's version only in a pull request that updates the expected-failures files.**
 - **Run the pinned Inspector CLI with `--format json --stored-auth-only`:** boot smoke of every packaged artifact over stdio and Streamable HTTP (the OCI image on Linux only), `--strict` on every profile's `tools/list`, and `--verify --require-digests` on skills once the server serves them.
 - **Cover every supported revision in the client matrix:** TypeScript SDK v1 and v2 clients, the Python SDK and `rmcp`, pinned, over stdio and Streamable HTTP, plus the negotiation cases.
@@ -586,6 +735,7 @@ Decided in [ADR 0070](docs/adr/0070-mcp-adapters-and-integrations-are-tested-thr
 ### Journey variants
 
 - **Run `adapter-<name>` and `integration-<name>` variants in the package's own runner, on Linux:** Vitest in `tests/journeys/J-NNN.test.ts` for TypeScript adapters and the n8n, Zapier, Pipedream, Activepieces and Power Automate Integrations; pytest in `tests/journeys/test_jNNN.py` for Python adapters, the LlamaIndex reader and the Airbyte source. Make has no automated variant.
+- **Run `http-listener` variants on nextest** in the binary crate's `tests/it/journeys`, against a Daemon's HTTP listener with a token and port 0.
 
 ### Live checks and manual tests
 

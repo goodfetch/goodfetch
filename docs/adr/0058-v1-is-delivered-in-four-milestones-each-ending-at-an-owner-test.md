@@ -2,7 +2,7 @@
 
 ADR 0037 orders the specs of V1's fourteen areas by the contracts they consume, but it orders nothing about delivery. Building in spec order would leave the owner with nothing to try until the Console, area 12, is built. V1 is therefore delivered in four milestones, each a GitHub milestone carried by every ticket. Each of the first three ends at a test the owner runs by hand before the next starts:
 
-1. **M1 Core: a fully working scrape and crawl framework.** The engine on one machine, the Operation catalog over JSON-RPC, the CLI generated from it, a single-user local Console, crawling over HTTP and with browser rendering, `standard` and `identified` access, the Frontier and extraction, the Dataset, every Export format and the results stream.
+1. **M1 Core: a fully working extraction and crawl framework.** The engine on one machine, the Operation catalog over JSON-RPC, the CLI generated from it, a single-user local Console, crawling over HTTP and with browser rendering, `standard` and `identified` access, the Frontier and extraction, the Dataset, every Export format and the results stream.
 2. **M2 Client surfaces:** the TypeScript, Python and Rust SDKs, MCP and agent skills.
 3. **M3 Browser automation:** actions and the guard, Firefox and WebKit, stealth and the Challenge solver, the Live view with takeover, the Browser host and Session sources.
 4. **M4 Everything else**, ending at V1's release gates.
@@ -27,26 +27,28 @@ Every V1 capability stays in V1 (ADR 0037); the milestones order the work, they 
   - the single-user local Console of ADR 0031: Runs, a run's drawer, Datasets, Engine & settings and "Needs you";
   - from area 5: the HTTP tiers (reqwest and wreq's TLS impersonation), browser rendering for crawling (the CDP driver's navigation, waits and extraction, the per-route tier choice of ADR 0020, screenshots and PDF, the browser pool), proxies, Sessions and the Session pool, block causes and escalation, and Politeness defaults (ADR 0021);
   - from area 6: the Frontier, extraction in every format, the Dataset, every Export format and the results stream;
-  - from areas 1 and 2: the build and test gates, the full platform matrix, V8 built from source, the Size budget checks, the Proving ground and the conformance harness.
+  - from areas 1 and 2: the build and test gates (#132–#137), the full platform matrix (#145), V8 built from source (#210), the Size budget checks (#201, #204), the local Proving ground (#158–#167) and the conformance harness (#169–#172, #212).
 - **M2:** the three SDKs, MCP and agent skills.
-- **M3:** the rest of ADR 0019's page API, Firefox and WebKit through Playwright's driver, the Browser host (ADR 0022), Session sources and Borrowed browsers (ADR 0056), stealth and the Challenge solver (area 8), and the Live view with takeover.
+- **M3:** the guard and the rest of ADR 0019's page API, Firefox and WebKit through Playwright's driver, the Browser host (ADR 0022), Session sources and Borrowed browsers (ADR 0056), stealth and the Challenge solver (area 8), and the Live view with takeover.
 - **M4:**
   - Sinks, Schedules, Watches and Recipes;
   - AI and agents with Plans, Plugins, Script Hooks and the Script sandbox;
   - framework adapters, Integrations, Notifications and the HTTP listener of ADR 0027;
   - Daemon groups, Partitioned crawls, the Politeness store, deployed hosts, and Exposed Daemons with accounts and passkeys;
-  - the release pipeline, signing and publishing, the docs site, the online Proving ground and the benchmark.
+  - the release pipeline, signing and publishing, the docs site, the online Proving ground and the benchmark (from areas 1 and 2: #138–#144, #146–#150, #168, #173–#189, #202, #203, #205–#209, #211).
 
   The governor keeps its provisional defaults until M4's concurrency search measures them (ADR 0040).
 
 **Gates.**
 - Each of M1, M2 and M3 ends with a `ready-for-human` issue listing how to install from a local build on macOS and Linux and the scenarios to try. No ticket of the next milestone starts until the owner closes it.
 - M4 ends at the release gates of ADRs 0030 and 0032.
-- Nothing is published to a registry before M4; the owner tests from local builds.
+- Nothing is published before M4, on any channel; the owner tests from local builds. **Changes ADRs 0030 and 0032:** the nightly channel (npm `nightly`, GitHub pre-releases, the nightly Python index, the OCI `nightly` tag) and the `0.y` previews start in M4.
 - Between gates, delivery stays autonomous under AGENTS.md.
 
 **Tracking** (adds to ADR 0037).
 - Every ticket carries one of the four milestones, and every later spec's `/to-tickets` assigns one to each ticket it creates.
+- A ticket's milestone is never later than the earliest milestone of any ticket it blocks, directly or transitively, so a gate never holds back a ticket that an earlier milestone needs. `/to-tickets` checks this when it assigns milestones, and moves a blocker earlier when it finds one later than what it blocks.
+- A milestone is done when it has no open ticket; the earliest milestone with an open ticket is the current one. Each of M1, M2 and M3 holds its testing issue, created when the milestone is assigned.
 - The frontier takes the earliest open milestone first, then map order (`docs/agents/issue-tracker.md`).
 - Specs keep ADR 0037's order, and each area spans the milestones its tickets fall in.
-- This ADR decides delivery order, not a capability, so no row of ADR 0037's area table lists it.
+- This ADR decides delivery order, not a capability, so no row of ADR 0037's area table lists it, and ADR 0037's rule on area rows does not apply.

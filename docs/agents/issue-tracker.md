@@ -42,13 +42,14 @@ Used by `/wayfinder`. The **map** is a single issue with **child** issues as tic
 - **Child ticket**: an issue linked to the map as a GitHub sub-issue (see **Make an issue a sub-issue of a parent**). Where sub-issues aren't enabled, add the child to a task list in the map body and put `Part of #<map>` at the top of the child body. Labels: `wayfinder:<type>` (`research`/`prototype`/`grilling`/`task`). Once claimed, the ticket is assigned to the driving dev.
 - **Blocking**: GitHub's **native issue dependencies**, the canonical, UI-visible representation. Add an edge with `gh api --method POST repos/<owner>/<repo>/issues/<child>/dependencies/blocked_by -F issue_id=<blocker-db-id>`, where `<blocker-db-id>` is the blocker's numeric **database id** (`gh api repos/<owner>/<repo>/issues/<n> --jq .id`, _not_ the `#number` or `node_id`). GitHub reports `issue_dependencies_summary.blocked_by` (open blockers only, the live gate). Where dependencies aren't available, fall back to a `Blocked by: #<n>, #<n>` line at the top of the child body. A ticket is unblocked when every blocker is closed.
 - **Frontier query**: list the map's open children (`gh issue list --state open`, scoped to the map's sub-issues / task list), drop any with an open blocker (`issue_dependencies_summary.blocked_by > 0`, or an open issue in the `Blocked by` line) or an assignee; first in map order wins.
+- **Claim**: `gh issue edit <n> --add-assignee @me`, the session's first write.
+- **Resolve**: `gh issue comment <n> --body "<answer>"`, then `gh issue close <n>`, then append a context pointer (gist + link) to the map's Decisions-so-far.
 
 ## Delivery milestones
 
 V1 is delivered in four GitHub milestones (ADR 0058): `M1 Core`, `M2 Client surfaces`, `M3 Browser automation` and `M4 Everything else`.
 
 - **Assign**: every ticket carries one milestone. `/to-tickets` sets it at creation: `gh issue create --milestone "<name>" ...`, or later `gh issue edit <n> --milestone "<name>"`.
-- **Frontier**: when picking implementation work, take tickets from the earliest open milestone first, then apply the frontier query above (no open blocker, no assignee, first in order).
-- **Gate**: each of M1, M2 and M3 holds a `ready-for-human` testing issue. Until the owner closes it, no ticket of the next milestone starts, even when it is unblocked.
-- **Claim**: `gh issue edit <n> --add-assignee @me`, the session's first write.
-- **Resolve**: `gh issue comment <n> --body "<answer>"`, then `gh issue close <n>`, then append a context pointer (gist + link) to the map's Decisions-so-far.
+- **Order**: a ticket's milestone is never later than the earliest milestone of any ticket it blocks, directly or transitively. `/to-tickets` checks this when it assigns milestones, and moves a blocker earlier when it finds one later than what it blocks.
+- **Frontier**: the current milestone is the earliest one that still has an open ticket. When picking implementation work, take tickets from the current milestone, then apply the frontier query above (no open blocker, no assignee, first in order).
+- **Gate**: each of M1, M2 and M3 holds a `ready-for-human` testing issue, created when the milestone is assigned. Until the owner closes it, no ticket of the next milestone starts, even when it is unblocked.

@@ -25,7 +25,8 @@ How Goodfetch is tested: every surface, at every level. Each rule comes with its
 19. [Performance budgets](#performance-budgets)
 20. [Security](#security)
 21. [Console and docs site](#console-and-docs-site)
-22. [Accessibility, localization and visual regression](#accessibility-localization-and-visual-regression)
+22. [Feature coverage](#feature-coverage)
+23. [Accessibility, localization and visual regression](#accessibility-localization-and-visual-regression)
 
 Sections 1 to 7, 11 and 12 are decided in [ADR 0062](docs/adr/0062-tests-sit-beside-their-code-and-share-one-test-support-written-once.md).
 
@@ -325,7 +326,7 @@ Decided in [ADR 0064](docs/adr/0064-tests-are-never-retried-and-unpinned-checks-
 - **Test health runs from M1 on, even while the repository is private, with no paid resource:**
   - the **daily test-health job** (scheduled, Linux, `main`'s head, 15-minute timeout) runs the 10 oldest quarantined tests 50 times each, then the scan and the Allure report;
   - the **constrained test-health run** (weekly and after each manual-dispatch Release run, Linux, 120-minute timeout) runs the Pre-merge suite with half the runner's CPU and memory, a fresh order seed and `detectAsyncLeaks`;
-  - these and the diagnostic runs share a ceiling of 1,000 included minutes a month. At the ceiling, constrained and then diagnostic runs are skipped until the month ends.
+  - these and the diagnostic runs share a ceiling of 1,000 included minutes a month. At the ceiling, constrained and then diagnostic runs are skipped until the month ends. The coverage and in-diff mutation jobs of [Feature coverage](#feature-coverage) count toward it too, and stop once the month's count reaches 550 minutes.
   - Once the nightly tier is on, both run every night with no ceiling.
 
 ### A flaky test found after merge
@@ -374,7 +375,11 @@ The fresh review of a pull request checks its tests against this list:
 9. Fixtures are under 256 KiB, and generated ones have their `.source.toml` file.
 10. No helper is duplicated; shared setup is in test support.
 11. A new decoder, listener, Plugin kind, widening setting, Secret kind or output has its tests under [Security](#security).
-12. A new Console string is in the catalog, a new state has its story, and every changed Reference screenshot is intended ([Accessibility, localization and visual regression](#accessibility-localization-and-visual-regression)).
+12. Each declared Feature is one the test asserts ([Feature coverage](#feature-coverage)).
+13. Each mutant that survives in changed code is killed, or the Verification section explains it.
+14. Each new exception names evidence no pinned test can replace.
+15. A spec change and its `features/stories/` file agree.
+16. A new Console string is in the catalog, a new component state has its Storybook story, and every changed Reference screenshot is intended ([Accessibility, localization and visual regression](#accessibility-localization-and-visual-regression)).
 
 ## Suites, commands and time budgets
 
@@ -534,7 +539,7 @@ Decided in [ADR 0063](docs/adr/0063-end-to-end-tests-follow-a-catalog-of-numbere
 - **Write `goal` with RFC 2119 words**, readable as a specification without the code.
 - **Write steps declaratively** ("export the Dataset as CSV"), never as clicks or flags, so the wording survives a change of implementation. Pin a step with `on` only when the goal needs that surface; give `manual` a reason only when no automated check can do it.
 - **List every surface on which a person can reach the goal**, each with the milestone by which it must be proved, never earlier than the surface ships.
-- **Fill `covers` with feature IDs** (`row:CO-18` for an ADR 0037 row).
+- **Fill `covers` with Feature IDs** (`row:CO-18` for an ADR 0037 row; every kind is in [Feature coverage](#feature-coverage)).
 - **Keep a Journey to its goal.** Edge cases, Error codes and limits go to unit, integration and conformance tests.
 - **Each area's `/to-spec` adds the Journeys of its user stories**, and each ticket names the variants (`J-NNN@<surface>`) it makes pass.
 
@@ -565,8 +570,8 @@ Decided in [ADR 0063](docs/adr/0063-end-to-end-tests-follow-a-catalog-of-numbere
 
 ### Owner tests
 
-- **List an owner test's "Journeys to try" from the catalog:** every variant of its milestone, by ID and title, with its manual steps.
-- **An owner test is ready only when every automated variant of its milestone is `proved` on `main`.**
+- **List an owner test's "Journeys to try" from the catalog:** every variant of its milestone, by ID and title, with its manual steps, plus the milestone's `manual` exceptions of [Feature coverage](#feature-coverage).
+- **An owner test is ready only when every automated variant of its milestone is `proved` on `main`,** and no Feature due at its milestone is untested ([Feature coverage](#feature-coverage)).
 - **A finding on a goal no Journey covers adds a Journey.**
 
 ## Upgrades and version mismatches
@@ -1000,27 +1005,87 @@ Each suite contains the one before, so the table gives the first suite that runs
 - **Only `docs/` (`next`) runs.** Frozen versions were tested at their release.
 - **Pre-merge:** the affected samples on one runtime. **Release:** every sample on its surface's own matrix ([SDK and CLI tests](#sdk-and-cli-tests), [MCP, framework adapters and Integrations](#mcp-framework-adapters-and-integrations)).
 
+## Feature coverage
+
+Decided in [ADR 0072](docs/adr/0072-every-feature-in-a-generated-inventory-has-a-passing-test-and-code-coverage-and-mutants-are-signals.md). Coverage means every Feature has a passing test, never a percentage. Suites are those of [Suites, commands and time budgets](#suites-commands-and-time-budgets); quarantine is that of [Flaky tests and Live checks](#flaky-tests-and-live-checks).
+
+### The Feature inventory
+
+- **Never edit `features/inventory.json` by hand.** `xtask codegen` generates it from ADR 0037's matrix, `features/stories/`, `features/rows.toml`, `features/areas.toml` and the contracts the code defines, and `xtask codegen --check` fails on drift.
+- **Every generator reads source files or Rust types in process.** `screen:` comes from the Console's route definitions read statically; if they can't be, from a route list committed in the Console's package, which the Console's Pre-merge build checks for drift. The Quick suite never builds the Console to get it.
+- **Write a Feature as `<kind>:<id>`.** Declared kinds: `row:` (an ADR 0037 matrix row that is not `excluded`) and `story:<area>-<n>` (a spec's user story). Generated kinds: `operation:`, `error:`, `event:`, `setting:`, `command:`, `exit:`, `format:`, `plugin-kind:`, `block-cause:`, `sink:`, `mcp-profile:`, `skill:`, `adapter:`, `integration:` and `screen:`.
+- **A contract you add is a Feature in the same pull request,** and that pull request adds a test that declares it. The Quick suite fails until it does.
+- **Never renumber or reuse a story ID.** A new story takes its spec's next number; a removed one stays with `status = "retired"` and a `reason`.
+- **Give every declared Feature a milestone** (`/to-tickets` sets it), and every generated Feature an owning area through `features/areas.toml`.
+
+### Declaring what a test proves
+
+- **Declare a Feature only when the test asserts its outcome**, never one the test merely passes through.
+- **Declare it in the runner's own idiom**, never by a file or name pattern:
+  - Rust: `/// Covers: operation:runs.start, error:run_not_found` on the test function, or `//! Covers: …` on a test module for every test in it;
+  - Vitest: the Feature ID as a tag, declared from the inventory, with `strictTags` on;
+  - pytest: `@pytest.mark.covers("<feature id>")` or a module's `pytestmark`, under `strict_markers`;
+  - Playwright Test: an annotation `{ type: "covers", description: "<feature id>" }` per Feature;
+  - Journeys, conformance cases and Client conformance cases: their `covers` list.
+- **A test that drives the protocol and declares an `operation:`, `error:`, `event:`, `command:` or `exit:` Feature must reach it.** The exercise audit reads `rpc`'s dispatch records (the engine's structured log for the binary, the test `tracing` subscriber for in-process tests over the in-memory transport) and test support's command record, and fails a declaring test that never called the operation, received the Error code or event, ran the command or saw the exit code.
+- **A unit test that never reaches `rpc` may declare the `error:` or `event:` Feature it asserts,** but must assert the Error code or the event itself. The audit can't see it; the review checks it.
+
+### What counts as tested
+
+- **Every Feature is tested, excepted or untested.** The gates fail only on untested Features.
+- **A Feature is tested** when, on `main`'s latest Release suite run, at least one test declares it, every declaring test ran and passed in every configuration it runs in, none is quarantined, every declaring Journey's variants of reached milestones are `proved`, and every declaring conformance case's capability is `proved`.
+- **A story with `journey = true` also needs a Journey that covers it.** `/to-spec` sets the flag on stories whose actor is a person using Goodfetch.
+- **Test a Feature once.** The per-surface completeness and conformance of [SDK and CLI tests](#sdk-and-cli-tests) and of the surface ADRs, and a Journey's variants, prove each surface.
+- **A quarantined test leaves every Feature it declares untested** until its fix merges.
+
+### Exceptions
+
+- **List a Feature no pinned test can prove in `features/exceptions.toml`;** it is then excepted, never tested. Give it its `evidence` (`manual`, `live`, `check` or `none`), a `reason` and a `link` to the owner-test step, Live check, CI job or place where it is tested.
+- **Never except a Feature a pinned test can reach.** The release pull request lists every exception, and the owner test lists the `manual` ones as manual steps.
+
+### The checks
+
+| Check | Suite or gate | Fails when |
+|---|---|---|
+| Feature check | Quick | the inventory is stale, a declaration names an unknown or retired Feature, a generated Feature has neither a declaring test nor an exception, a non-excluded matrix row has no milestone, a generated Feature has no area or two, or an exception is incomplete or names a Feature a test also declares |
+| Exercise audit | Pre-merge (tests that ran), Release (all tests) | a declaring test never reached its Feature |
+| Milestone gate | the owner test (ADR 0058) | a generated Feature, or a declared Feature due at the milestone, is untested (neither tested nor excepted) |
+| Release gate | `xtask release` | a Feature present in the release is untested (neither tested nor excepted) |
+
+- **Run `just features`** to see what the changed packages declare and miss.
+
+### Code coverage and mutation testing
+
+- **Never gate on a percentage:** no `--fail-under-*`, no coverage or mutation score in any check, badge or pull request, and no coverage service.
+- **The coverage job runs in no suite** on Linux x64, weekly (nightly once the nightly tier is on): cargo-llvm-cov over nextest and over every run of the instrumented binary through `show-env`, Vitest's `v8` provider on Node and in Browser Mode, coverage.py with branches. While the repository is private, it has a 60-minute timeout and runs only while the month's count toward the ceiling of [Flaky tests and Live checks](#flaky-tests-and-live-checks) is below 550 minutes. Its results never decide a Feature's status. Run `just coverage` locally.
+- **Read coverage for gaps.** A function no test executes that hides a behaviour with no Feature gets a story, a Feature or a test.
+- **Every pull request that changes Rust code runs cargo-mutants `--in-diff`** with nextest on Linux x64, sharded within the 15-minute job budget, in a job that never fails on a survivor and is not part of "all green". While the repository is private, it runs at most four shards per pull-request run and stops at the same 550 minutes; the Verification section then says it was skipped.
+- **List each surviving mutant of your changed code in the Verification section,** with the test that now kills it or why it stays (an equivalent mutant; caught only by a doctest, by a Journey in another runner, or by another OS's test).
+- **Full mutation runs are weekly once the nightly tier is on:** cargo-mutants over the workspace, StrykerJS on the TypeScript SDK runtime and the Console's logic (its `command` runner until a release fixes [stryker-js#6210](https://github.com/stryker-mutator/stryker-js/issues/6210), then its Vitest runner and an in-diff pull-request job), and mutmut on the Python SDK runtime on Linux.
+
 ## Accessibility, localization and visual regression
 
 Decided in [ADR 0073](docs/adr/0073-accessibility-meets-wcag-2-2-aa-the-console-ships-ready-to-translate-and-screenshots-compare-in-one-pinned-image.md). The runners are those of [Console and docs site](#console-and-docs-site). Two product decisions in it await the owner's confirmation: V1 ships in English, ready to translate, and the docs publish an accessibility statement.
 
 ### Accessibility
 
-- **The target is WCAG 2.2 AA** for the Console, the docs site and the live-view packages' own controls. The remote page inside the live view is third-party content; the live view's controls, name and announcements are not.
+- **The target is WCAG 2.2 AA** for the Console, the docs site and the Live view packages' own controls. The remote page inside the Live view is third-party content; the Live view's controls, name and announcements are not.
 - **Every oxlint `jsx-a11y` rule is an error.**
-- **Every story runs Storybook's a11y addon with `parameters.a11y.test = 'error'`** and the tags `wcag2a`, `wcag2aa`, `wcag21a`, `wcag21aa`, `wcag22aa` and `best-practice`, in light and dark.
+- **Every Storybook story runs Storybook's a11y addon with `parameters.a11y.test = 'error'`** and the tags `wcag2a`, `wcag2aa`, `wcag21a`, `wcag21aa`, `wcag22aa` and `best-practice`, in light and dark.
   _Why:_ axe's WCAG 2.2 rules are off by default.
 - **Use the shared Playwright fixture: it runs axe with the same tags at the end of every served test and `console` Journey variant.** Call `expectAccessible(page)` at each state worth checking on the way (an open dialog, drawer or menu). The docs pass runs axe on every `sitemap.xml` page of `next`, light and dark.
 - **Never disable an axe rule in a test.** Except a false positive only in the shared exception file, with the rule, a selector, the reason and an open issue; the fixture fails when the issue closes or the selector matches nothing. "Incomplete" results go to the report and never fail.
-- **Each screen has a keyboard walk test:** Tab and Shift+Tab reach every element with an interactive role, focus never falls to `body`, Escape closes each overlay and returns focus to its trigger, and the ordered accessible names are a snapshot. At each stop, the element must look different focused and unfocused, and must not be entirely covered.
+- **Each screen has a keyboard walk test,** one named case per `screen:` Feature of the inventory: Tab and Shift+Tab reach every element with an interactive role, focus never falls to `body`, Escape closes each overlay and returns focus to its trigger, and the ordered accessible names are a snapshot. At each stop, the element must look different focused and unfocused, and must not be entirely covered.
 - **Check reflow, text spacing and motion with the shared helpers:**
   - at 320 × 256 CSS pixels there is no horizontal page scroll, except inside data tables and code blocks with their own scroll container;
-  - with WCAG's text-spacing values and at 200% text, in the `component` project, no text is clipped without a way to read it in full;
+  - with WCAG's text-spacing values and at 200% text, in the `component` project's screens, no text is clipped without a way to read it in full;
+    _Why:_ served tests run under the production CSP, which refuses an injected style sheet, and Playwright has no option for either;
   - under `reducedMotion: 'reduce'`, `document.getAnimations()` holds no running animation after an action.
 - **Every drag has a single-pointer alternative,** and its test performs the action through it.
-- **Test announcements with `@guidepup/virtual-screen-reader`** in the `component` project: live regions, route titles and live-view control changes. Assert names and roles in the spoken log.
-- **The live view's escape key always returns focus to the Console** while a person holds control; a served test proves it and that every other key reaches the remote page.
+- **Test announcements with `@guidepup/virtual-screen-reader`** in the `component` project: live regions, route titles and Live view control changes. Assert names and roles in the spoken log.
+- **The Live view's escape key always returns focus to the Console** while a person holds control; a served test proves it and that every other key reaches the remote page.
 - **The CLI's colour never carries information alone:** in a pseudo-terminal, the coloured output with ANSI sequences stripped equals the `NO_COLOR=1` output. `NO_COLOR` set to any non-empty value disables colour, an empty one does not, and `--color always` overrides it. The shared CLI helper fails any `tests/it` case whose piped output holds an escape byte (0x1B).
+- **Accessibility tests declare no Feature** ([Feature coverage](#feature-coverage)): axe, keyboard walks, announcements and screenshots check how a screen is built, not its outcome. A screen's `screen:` Feature is declared by the tests of its behaviour. The keyboard walk's and axe's case tables come from the inventory's `screen:` Features, so a new screen gets both.
 - **Real screen readers run as the Live check `screen-reader`** (Guidepup, NVDA on Windows and VoiceOver on macOS), nightly, owned by area 12, blocking nothing directly; before each release candidate while the nightly tier is off.
 
 ### Localization
@@ -1039,19 +1104,21 @@ Decided in [ADR 0073](docs/adr/0073-accessibility-meets-wcag-2-2-aa-the-console-
 - **Engine results never depend on the host's locale or time zone** unless a setting names a zone. The Release suite reruns the engine's integration tests and the Journeys on Linux and macOS with `TZ=Pacific/Chatham` and `LANG=tr_TR.UTF-8`.
 - **The shared Unicode record** (bidi text with marks, NFC and NFD forms, a ZWJ emoji sequence, an astral character, a zero-width joiner, a BOM, a tab and a newline in a field) round-trips byte for byte through every Sink conformance case and every Export format, and renders in a Console story.
 - **The Proving ground's encodings and language families** cover the encodings and scripts ADR 0073 lists; their oracle holds the expected text in UTF-8.
-- **Keyboard layouts and IME:** a served Chromium test drives the live view with AZERTY, QWERTZ and dead-key pairs and a CDP `Input.imeSetComposition`, and compares a Proving ground page's record of events with literal expected events. Enter during a composition never submits a Console form or search.
+- **Keyboard layouts and IME:** a served Chromium test drives the Live view with AZERTY, QWERTZ and dead-key pairs and a CDP `Input.imeSetComposition`, and compares a Proving ground page's record of events with literal expected events. Enter during a composition never submits a Console form or search.
 
 ### Visual regression
 
 - **Compare a Reference screenshot only inside the pinned Playwright image, on Linux x86-64.** Visual tests are the `visual` projects of Vitest and Playwright, and nothing else schedules them.
   _Why:_ rendering differs by OS, architecture and font stack.
 - **Never set a tolerance in a test.** Zero mismatched pixels at the default per-pixel threshold; a config check fails if `maxDiffPixels`, `maxDiffPixelRatio`, `allowedMismatchedPixels`, `allowedMismatchedPixelRatio` or `threshold` is set outside the shared config.
-- **Make the screen deterministic:** take screenshots through the shared helper, which awaits `document.fonts.ready`; fix the instant (`page.clock.setFixedTime`, or Vitest fake timers), `locale: 'en-US'`, `timezoneId: 'UTC'`, the viewport, `deviceScaleFactor: 1` and `reducedMotion: 'reduce'`; use builder data with literal defaults. Mask only the live view's frames.
+- **Make the screen deterministic:** take screenshots through the shared helper, which awaits `document.fonts.ready`; fix the instant (`page.clock.setFixedTime`, or Vitest fake timers), `locale: 'en-US'`, `timezoneId: 'UTC'`, the viewport, `deviceScaleFactor: 1` and `reducedMotion: 'reduce'`; use builder data with literal defaults. Mask only the Live view's frames.
 - **Make hover, focus and pressed states with real `userEvent` input** in `.test.tsx` files, never a pseudo-states addon.
-- **Keep Reference screenshots beside their tests,** named without the platform, each at most 512 KiB (Quick). No Git LFS. A run of every visual project fails on a reference no test read.
-- **Update references only through the `update-screenshots` workflow** on the pull request's branch, then `just screenshots-fetch <run>`, and commit them with your own sign-off. Never commit a reference rendered outside the pinned image.
+- **A Reference screenshot is neither a fixture nor a snapshot** in the sense of [Fixtures and data files](#fixtures-and-data-files) and [Snapshots](#snapshots): its own rules below replace their size limit, their `.source.toml` and "CI never writes a snapshot".
+- **Keep Reference screenshots beside their tests,** named without the platform, each at most 512 KiB (Quick). Clip a larger one to the region the test is about. No Git LFS. A run of every visual project fails on a Reference screenshot no test read.
+- **Update Reference screenshots only through the `update-screenshots` workflow** on the pull request's branch, then `just screenshots-fetch <run>`, and commit them with your own sign-off, naming the run in the commit message. The workflow is the only writer and is not a suite job, so no suite writes one. `just screenshots-fetch` refuses a run whose image digest is not the pinned one or whose commit is not the branch's head. Never commit a Reference screenshot rendered outside the pinned image.
 - **Locally, `just` runs the visual projects in the same image through Docker or Podman;** with neither, the step fails with an error naming the fix.
-- **What is screenshotted:** every story in light and dark; the served key screens ADR 0073 lists in light and dark at 1280 × 800, plus phone, Firefox, WebKit, forced colours, more contrast, greyscale, both pseudo-locales, text spacing and 200% text in Release; the docs' page templates, light and dark, desktop and phone.
+- **What is screenshotted:** every Storybook story in light and dark; the Console's `tests/screens/` under greyscale, text spacing and 200% text in Release (in the `component` project, where a style sheet can be injected); the served key screens ADR 0073 lists in light and dark at 1280 × 800, plus phone, Firefox, WebKit, forced colours, more contrast and both pseudo-locales in Release; the docs' page templates, light and dark, desktop and phone.
+- **If a browser's screenshots do not repeat in the pinned image,** that browser leaves the `visual` projects with an issue, and its served tests and axe keep running. Never add a tolerance instead. Firefox's and WebKit's repeatability is unverified until the first fixtures ticket measures it.
 - **No hosted visual service** without the owner's approval as a paid test resource.
 
 ### Where they run
@@ -1060,7 +1127,7 @@ Decided in [ADR 0073](docs/adr/0073-accessibility-meets-wcag-2-2-aa-the-console-
 |---|---|
 | `jsx-a11y`, `no-unlocalized-strings`, the `lingui extract` check, the formatting table, reference sizes, the tolerance check | Quick |
 | axe on stories and served tests, keyboard walks, focus, reflow, target size, reduced motion, virtual screen reader, layout and IME tests, the CLI's colour and locale cases, docs axe, visual projects on Chromium | Pre-merge (Linux) |
-| axe in every browser on every OS runner, text spacing and 200% text, pseudo-locales, the elsewhere and translation projects, the host-elsewhere engine run, the other screenshots, the orphan check | Release |
+| axe in served Console tests in every browser on every OS runner, text spacing and 200% text, pseudo-locales, the elsewhere and translation projects, the host-elsewhere engine run, the other screenshots, the orphan check | Release |
 | `screen-reader` | Live check, nightly |
 
 ### Manual tests
@@ -1071,6 +1138,6 @@ Only these stay manual, on each minor's release candidate once the Console ships
 |---|---|
 | Screen-reader pass | NVDA with Firefox and Chrome on Windows, VoiceOver with Safari on macOS and iOS, TalkBack with Chrome on Android, over the minor's Console Journeys and changed screens, some docs pages, and the CLI's common commands |
 | Keyboard, zoom and contrast pass | Keyboard only, 400% zoom, the OS magnifier, a Windows contrast theme and speech input on changed screens |
-| Real IMEs and layouts | Japanese, Chinese Pinyin and Korean IMEs, AZERTY and a dead-key layout, in the live view and Console fields, on macOS and Windows |
+| Real IMEs and layouts | Japanese, Chinese Pinyin and Korean IMEs, AZERTY and a dead-key layout, in the Live view and Console fields, on macOS and Windows |
 | Browser translation | Chrome's and Safari's page translation over the main screens |
 | WCAG review of new screens | Names and instructions, error suggestions, consistent help, redundant entry, sensory-only cues; the accessibility statement kept current |

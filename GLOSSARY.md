@@ -476,6 +476,14 @@ _Avoid_: fixture, test case
 A goal a person reaches through Goodfetch's public surfaces, written as steps from a starting state to an outcome checked from outside the engine, kept under a stable ID and run on each surface that offers it.
 _Avoid_: scenario, user story, critical user journey, flow, end-to-end test (for the Journey itself)
 
+**Feature**:
+One behaviour Goodfetch promises, listed in the Feature inventory under a kind and an ID, such as a matrix row, a user story, an operation or an Error code. A Cargo feature is a different thing and keeps its full name.
+_Avoid_: requirement, test target, capability (for an inventory entry)
+
+**Feature inventory**:
+The list of every Feature of Goodfetch, generated from the V1 scope matrix, the specs' user stories and the contracts the code defines, against which "every feature is tested" is checked.
+_Avoid_: feature list, traceability matrix, requirements list
+
 **Size budget**:
 The largest size each released file of Goodfetch may reach on each platform, and the growth a single change may add without an explicit, recorded acceptance.
 _Avoid_: size limit (alone), quota, bloat check

@@ -204,7 +204,7 @@ Decided in [ADR 0060](docs/adr/0060-distributed-and-crash-behaviour-is-simulated
   _Why:_ the Simulation swaps the network there, and nowhere else.
 - **Start threads and block only through the `tasks` module**, whose blocking policy is a value. In the Simulation it runs blocking calls inline, and a dedicated thread's body (the run's SQLite writer actor, for example) as a task on the host's runtime.
   _Why:_ a real thread ends its work at an arbitrary simulated moment, so the run would not replay.
-- **Never build a runtime in the engine.** Only `main` and test helpers build one; `tokio::task::block_in_place` is in `disallowed-methods`.
+- **Never build a runtime in the engine.** Only `main`, test helpers and bench targets (ADR 0071) build one; `tokio::task::block_in_place` is in `disallowed-methods`.
 - **Give every third-party time hook the `Clock`** (rustls's `TimeProvider`), and the test `tracing` subscriber's timer too, so traces carry simulated time.
 - **Emit each transition a TLA+ model names as a `tracing` event** under the model's target, with the model's variable names as fields.
 - **No failpoints.** Inject faults at I/O seams: the crash VFS, the transport adapters, the plugin protocol's in-memory adapter, Toxiproxy, process kills.
@@ -635,7 +635,8 @@ Decided in [ADR 0071](docs/adr/0071-performance-budgets-are-counted-per-change-a
 
 - **Benchmarks live in the crate's `benches/`:** `scenarios.rs` holds the scenario functions, `instructions.rs` runs them under gungraun's Callgrind with mimalloc as the global allocator, `heap.rs` under gungraun's DHAT with the system allocator, and `wall.rs` under criterion for the Performance series. Scenarios that cross crates (startup, a protocol round trip) live in the binary crate.
   _Why:_ DHAT counts allocations by replacing `malloc`, which mimalloc never calls.
-- **A benchmark measures one pinned scenario:** inputs from a literal, a fixture or a seed; no network, no sleep, no work whose amount depends on timing; a current-thread runtime when it needs Tokio.
+- **A benchmark measures one pinned scenario:** inputs from a literal, a fixture or a seed; no network, no sleep, no work whose amount depends on timing.
+- **A bench target builds what it needs the way tests do:** a current-thread runtime, `Clock::paused` and `Entropy::seeded` through `goodfetch-test-support`'s helpers, and the `tasks` module's inline blocking policy, so no thread waits on another. Its root opts in once with `#![expect(clippy::disallowed_methods, reason = "benchmark harness, ADR 0071")]`.
 - **A new or changed benchmark runs 20 times on one build in its pull request.** Every gated figure must spread less than 0.5%, or the benchmark is fixed before it gates.
 - **Changing what a benchmark measures gives it a new ID.** A benchmark with no base is reported, never gated.
 - **Benchmarks build with the `bench` profile** (release settings, thin LTO, `debug = "line-tables-only"`) on the Linux gnu targets.

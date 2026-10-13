@@ -27,7 +27,7 @@ Every V1 capability stays in V1 (ADR 0037); the milestones order the work, they 
   - the single-user local Console of ADR 0031: Runs, a run's drawer, Datasets, Engine & settings and "Needs you";
   - from area 5: the HTTP tiers (reqwest and wreq's TLS impersonation), browser rendering for crawling (the CDP driver's navigation, waits and extraction, the per-route tier choice of ADR 0020, screenshots and PDF, the browser pool), proxies, Sessions and the Session pool, block causes and escalation, and Politeness defaults (ADR 0021);
   - from area 6: the Frontier, extraction in every format, the Dataset, every Export format and the results stream;
-  - from areas 1 and 2: the build and test gates (#132–#137), the full platform matrix (#145), `xtask size` (#201), the local Proving ground (#158–#167) and the conformance harness (#169–#172).
+  - from areas 1 and 2: the build and test gates (#132–#137), the full platform matrix (#145), `xtask size` (#201), the local Proving ground (#158–#167) and the conformance harness (#169, #170, #172).
 - **M2:** the three SDKs, MCP and agent skills.
 - **M3:** the guard and the rest of ADR 0019's page API, Firefox and WebKit through Playwright's driver, the Browser host (ADR 0022), Session sources and Borrowed browsers (ADR 0056), stealth and the Challenge solver (area 8), and the Live view with takeover.
 - **M4:**
@@ -36,12 +36,12 @@ Every V1 capability stays in V1 (ADR 0037); the milestones order the work, they 
   - framework adapters, Integrations, Notifications and the HTTP listener of ADR 0027;
   - Daemon groups, Partitioned crawls, the Politeness store, deployed hosts, and Exposed Daemons with accounts and passkeys;
   - the release pipeline, signing and publishing, the docs site, the online Proving ground and the benchmark (from areas 1 and 2: #138–#144, #146–#150, #168, #173–#189, #202, #203, #205–#209, #211);
-  - three area 1–2 tickets first placed in M1 that wait on M4 work: V8 built from source (#210) and the merge queue's size increase check (#204), both behind the release pipeline, and `goodfetch plugins test` (#212), behind the process Plugin target (#171). M1 needs none of them: V8 serves only the Script sandbox, and the binary links it from M4 on.
+  - four area 1–2 tickets first placed in M1 that wait on M4 work: V8 built from source (#210) and the merge queue's size increase check (#204), both behind the release pipeline, and the process Plugin conformance target (#171) with `goodfetch plugins test` (#212), which serve Plugins. M1 needs none of them: V8 serves only the Script sandbox, and the binary links it from M4 on. **Changes ADR 0057:** its increase check on every pull request starts in M4, while M1's pull requests carry `xtask size`'s estimate (#201).
 
   The governor keeps its provisional defaults until #178's concurrency search, in M4, measures them.
 
 **Gates.**
-- Each of M1, M2 and M3 ends with a `ready-for-human` testing issue listing how to install from a local build on macOS and Linux. It is blocked by every other ticket of its milestone, so no agent takes it, and no ticket of the next milestone starts until the owner closes it.
+- Each of M1, M2 and M3 ends with a `ready-for-human` testing issue listing how to install from a local build on macOS and Linux. It is blocked by every other ticket of its milestone, and the frontier skips `ready-for-human` issues, so no agent takes it, and no ticket of the next milestone starts until the owner closes it.
 - M4 ends at the release gates of ADRs 0030 and 0032.
 - Nothing is published before M4, on any channel; the owner tests from local builds. **Changes ADRs 0030 and 0032:** the nightly channel (npm `nightly`, GitHub pre-releases, the nightly Python index, the OCI `nightly` tag) and the `0.y` previews start in M4.
 - Between gates, delivery stays autonomous under AGENTS.md.

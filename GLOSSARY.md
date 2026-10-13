@@ -413,8 +413,16 @@ _Avoid_: code signing (alone), signature (alone), certificate
 ## Measurement
 
 **Proving ground**:
-The website Goodfetch owns and generates, whose every page has a known expected result, against which the benchmark and the conformance suites run.
+The website Goodfetch owns and generates, whose every page has a known expected result, against which the benchmark, the conformance suites and the Journeys run.
 _Avoid_: fixtures site, test site, sandbox, demo site
+
+**Proving ground task**:
+One thing the Proving ground asks a tool to do on one page family, with its starting URL and the expected result its oracle judges against.
+_Avoid_: task (alone, which also names a goal given to an agent), fixture, test case
+
+**Journey**:
+A goal a person reaches through Goodfetch's public surfaces, written as steps from a starting state to an outcome checked from outside the engine, kept under a stable ID and run on each surface that offers it.
+_Avoid_: scenario, user story, critical user journey, flow, end-to-end test (for the Journey itself)
 
 **Size budget**:
 The largest size each released file of Goodfetch may reach on each platform, and the growth a single change may add without an explicit, recorded acceptance.

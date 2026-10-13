@@ -68,3 +68,46 @@ Decided in [ADR 0059](docs/adr/0059-dependencies-are-injected-as-values-and-only
 
 - **SDK durations and jitter are options:** tests pass short values and a fixed seed. In TypeScript, Vitest fake timers may drive timer logic that never reaches the engine.
 - **The Console's end-to-end tests set time with Playwright's `page.clock`** (`setFixedTime` first). Its component tests use Vitest fake timers.
+
+## Journeys
+
+Decided in [ADR 0063](docs/adr/0063-end-to-end-tests-follow-a-catalog-of-numbered-journeys-kept-in-the-repository.md). A Journey is a goal a person reaches through Goodfetch's public surfaces; Journeys are the end-to-end tests.
+
+### The catalog
+
+- **One Journey per file, `journeys/J-NNN.toml`**, validated by `journeys/journey.schema.json`, which `xtask codegen` emits. Unknown fields fail.
+- **A new Journey takes the number in `journeys/catalog.toml`** and increments it in the same pull request. If another pull request merged the same number first, take the next one.
+- **Never change an ID on `main`, and never reuse one.**
+- **Never change a Journey's `goal` under its ID.** Fix wording, steps, data or surfaces freely; for a different goal, set `status = "retired"` with `reason` and `replaced_by`, keep the file, and add a new Journey.
+- **Write `goal` with RFC 2119 words**, readable as a specification without the code.
+- **Write steps declaratively** ("export the Dataset as CSV"), never as clicks or flags, so the wording survives a change of implementation. Pin a step with `on` only when the goal needs that surface; give `manual` a reason only when no automated check can do it.
+- **List every surface on which a person can reach the goal**, each with the milestone by which it must be proved, never earlier than the surface ships.
+- **Fill `covers` with feature IDs** (`row:CO-18` for an ADR 0037 row).
+- **Keep a Journey to its goal.** Edge cases, Error codes and limits go to unit, integration and conformance tests.
+- **Each area's `/to-spec` adds the Journeys of its user stories**, and each ticket names the variants (`J-NNN@<surface>`) it makes pass.
+
+### Data and isolation
+
+- **Each Journey has its own `seed`.** Never share one between Journeys.
+- **Each variant run starts from scratch:** its own Proving ground on port 0 with the Journey's seed, its own Goodfetch home and cleared environment, `resolve` mapping the Proving ground's hosts to loopback, and its certificate authority trusted through the per-domain exception.
+- **Build the starting state through public surfaces** in the first steps. Never copy in a run file, database or home folder, except an older-format file for an upgrade Journey.
+- **Run against the local copy only.** Online results stay conformance reports.
+- **Drive the shipped artefacts**: the `goodfetch` binary and the SDK packages built from the commit, never an engine linked into the test.
+- **When a generator change moves a task a Journey names, update the Journey in the same pull request.**
+
+### Tests and results
+
+- **Carry the ID where the runner selects by it:**
+  - nextest: a module `j002` (the ID lowercased, hyphen dropped) in the test's path;
+  - Vitest: the tag `J-002`, declared from the catalog, `strictTags` on;
+  - pytest: `@pytest.mark.journey("J-002")`, registered, `strict_markers` on;
+  - Playwright Test: the tag `@J-002`.
+- **One test per variant.**
+- **Each variant run writes one result document with `kind = "journey"`.** Never set its outcome: it is derived from the steps, the checks and the oracle's answers. A step not reached, or any task not `verified`, fails the variant.
+- **The catalog check fails** on a file that does not parse, an ID that differs from its file name or repeats, a task missing from the Proving ground's task list for the seed, a test naming a retired or unknown Journey or an unlisted surface, two tests for one variant, a variant milestone earlier than its surface, or a retired Journey without a reason.
+
+### Owner tests
+
+- **List an owner test's "Journeys to try" from the catalog:** every variant of its milestone, by ID and title, with its manual steps.
+- **An owner test is ready only when every automated variant of its milestone is `proved` on `main`.**
+- **A finding on a goal no Journey covers adds a Journey.**

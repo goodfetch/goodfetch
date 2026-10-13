@@ -1,6 +1,129 @@
 # Testing
 
-How Goodfetch is tested: every surface, at every level. Each rule comes with its reason, and the hard-to-reverse ones are decided in ADRs. [`STYLE.md`](STYLE.md) shapes the code these tests drive.
+How Goodfetch is tested: every surface, at every level. Each rule comes with its reason, and the hard-to-reverse ones are decided in ADRs. [`STYLE.md`](STYLE.md) shapes the code these tests drive. Here a *snapshot* is a stored expected value, never a Checkpoint or a Group backup.
+
+## Contents
+
+1. [Levels and layout](#levels-and-layout)
+2. [Writing a test](#writing-a-test)
+3. [Dependencies in tests](#dependencies-in-tests)
+4. [Shared helpers](#shared-helpers)
+5. [Fixtures and data files](#fixtures-and-data-files)
+6. [Snapshots](#snapshots)
+7. [Property tests, fuzzing and doctests](#property-tests-fuzzing-and-doctests)
+8. [Injection and determinism](#injection-and-determinism)
+9. [Flaky tests and Live checks](#flaky-tests-and-live-checks)
+10. [Test-first process](#test-first-process)
+11. [Review checklist](#review-checklist)
+12. [Suites, commands and time budgets](#suites-commands-and-time-budgets)
+13. [AI features and agent skills](#ai-features-and-agent-skills)
+14. [Journeys](#journeys)
+15. [Console and docs site](#console-and-docs-site)
+
+Sections 1 to 7, 10 and 11 are decided in [ADR 0062](docs/adr/0062-tests-sit-beside-their-code-and-share-one-test-support-written-once.md).
+
+## Levels and layout
+
+A test's level is the seam it crosses, not its speed:
+
+- A **unit test** tests one module through its interface, in one process.
+- An **integration test** tests one package through its public interface, with real local stand-ins and real processes.
+- An **end-to-end test** follows a user journey through a shipped surface.
+- The **conformance suites** of the ADRs stay the interface tests of every contract with several implementations.
+
+| | Unit tests | Integration tests |
+|---|---|---|
+| Rust crate | `#[cfg(test)] mod tests` at the end of the module file, or in `<module>/tests.rs` | `tests/it/main.rs` and its modules |
+| TypeScript package, Console | `foo.test.ts` (or `.tsx`) beside `foo.ts` | `<package>/tests/`, importing only the package's own name |
+| Python package | `tests/unit/`, mirroring the module paths under `src/` | `tests/integration/`, importing only the public package |
+
+- **A unit test reaches only its module's interface:** the items the module's callers use. Never a private function.
+  _Why:_ such tests survive internal refactors, and they test what callers rely on.
+- **Product code has no `#[cfg(test)]` branch and no `pub` item added for tests.** If a test needs one, the module is the wrong shape.
+- **One integration-test binary per crate, run with `cargo-nextest`.** A crate splits it into named area harnesses (`tests/<area>/main.rs`, `autotests = false`) only when its pull request shows a localized test edit taking more than 5 seconds to rebuild with one harness.
+  _Why:_ each file in `tests/` links its own binary. uv's measurement favours one harness until a suite is large.
+- **Tests of the `goodfetch` binary live in its crate's `tests/it`** and find the binary through `CARGO_BIN_EXE_goodfetch`, never a guessed path.
+  _Why:_ the build directory's layout may change without notice.
+- **Python tests run with `--import-mode=importlib` and `strict = true`** in `[tool.pytest]`.
+  _Why:_ tests outside the package run against the installed wheel, as pytest recommends.
+
+## Writing a test
+
+- **One behaviour per test, through the interface.** Several assertions are fine when they check that one behaviour.
+- **Arrange, act, assert, in that order, with one act.**
+- **No branch or loop computes an expected value.** Expected values come from a literal, the spec or the Proving ground's oracle.
+  _Why:_ an expected value computed the way the code computes it can never disagree with the code.
+- **Assert a failure on its Error code, never on its message text.**
+  _Why:_ Error codes are the contract (ADR 0038); messages change freely.
+- **Every test creates its own data.** No test reads another test's data or depends on test order.
+- **Names state the behaviour in glossary terms**, never `_Avoid_` terms:
+  - Rust: `resumed_run_never_repeats_an_effect`, with no `test_` prefix.
+  - Python: `test_resumed_run_never_repeats_an_effect`.
+  - TypeScript: `describe("<interface under test>")` with `test("resumed run never repeats an Effect")`, at most two `describe` levels.
+  - No `should`, no issue numbers, no `it_works`.
+  - Integration-test modules and files are named by behaviour area (`tests/it/resume.rs`), not by source file.
+- **Every case of a parameterized test has a name:** rstest's `#[case::name]` in Rust, Vitest's `test.for` with the name in the title, pytest's `parametrize` with an `id` per case. Never loop over cases inside one test.
+  _Why:_ a loop stops at the first failing case and hides the others; rstest makes each case its own nextest test.
+- **No mocking of owned code:**
+  - `cargo-deny` denies `mockall`, `mockito`, `wiremock`, `faux` and `mry`;
+  - oxlint's `vitest/no-restricted-vi-methods` refuses at least `vi.mock`, `vi.doMock`, `vi.importMock`, `vi.mockObject`, `vi.spyOn`, `vi.stubGlobal` and `vi.stubEnv`;
+  - ruff's `TID251` bans `unittest.mock` and `pytest.MonkeyPatch`;
+  - pytest-mock is in no dependency group (CI checks `uv.lock`), and the test-support pytest plugin fails the collection of any test that requests `monkeypatch` or `mocker`, directly or through another fixture. A third-party plugin fixture that uses `monkeypatch` therefore cannot be adopted.
+
+  _Why:_ a mocked collaborator ties the test to the implementation.
+- **The TypeScript and Python SDKs read their environment from a map an option can replace**, defaulting to the process's own. Tests pass the map instead of patching the environment.
+  _Why:_ a patched environment leaks between tests and hides what a call depends on.
+- **A test is never retried.** A flaky test is quarantined the same day, with an issue that comes first and blocks its milestone and every release ([Flaky tests and Live checks](#flaky-tests-and-live-checks)).
+  _Why:_ a retry turns a real race into a green run, and people stop trusting red ones.
+
+## Dependencies in tests
+
+A module is tested according to the kind of dependency it has, using the four categories of `codebase-design`:
+
+- **In-process** (pure logic: URL normalization, robots, frontier rules, extraction, run-state rules): through the module's interface; `proptest` for parsers.
+- **Local-substitutable** (a real local stand-in exists): SQLite in a temporary file; a real Chromium (the Goodfetch build of ADR 0035) against Proving ground pages served locally. CDP is never mocked.
+  _Why:_ a fake browser lets tests pass where a real one fails, which is the false success ADR 0025 measures.
+- **Remote but owned** (Goodfetch's own processes across a boundary: sink processes, process Plugins, the Daemon): the logic is tested through an in-memory adapter of the protocol, and the real processes through the conformance suites.
+- **True external** (model providers, CAPTCHA services): a stand-in adapter. For Model providers, the Scripted model in-process, Model recordings replayed by `httpmock` at the adapter's base URL (matched on the body, secrets removed by an allowlist), and the Proving ground's Fake model end to end; no test calls a live model ([AI features and agent skills](#ai-features-and-agent-skills), ADR 0065).
+
+How each dependency is injected is in [Injection and determinism](#injection-and-determinism).
+
+## Shared helpers
+
+- **Rust helpers live in `goodfetch-test-support`** (`crates/goodfetch-test-support`, `publish = false`): the per-test folder, `GOODFETCH_HOME` and cleared environment, the printed seed, unique names, reported addresses, the Proving ground started from a seed, commands with the cleared environment, and the shared snapshot redactions and filters.
+- **`goodfetch-test-support` depends on no Goodfetch crate**, and product crates list it only under `[dev-dependencies]`. CI checks both.
+  _Why:_ a helper crate that depended on the crate under test would give that crate's tests two copies of its types; values are all ADR 0059 injects.
+- **The test versions of `Clock` and `Entropy` are `Clock::paused(start)` and `Entropy::seeded(seed)`**, in the crate that defines the handles. `disallowed-methods` refuses both; each test module or integration-test root that calls them opts in with `#[expect(clippy::disallowed_methods, reason = "…")]` (`#![expect]` in `tests/it/main.rs`), never with a crate-wide or `cfg_attr(test, …)` attribute in product code. `main` builds only the system versions. Tests that pause Tokio's clock enable its `test-util` feature under `[dev-dependencies]`. The seed and the start time come from `goodfetch-test-support`.
+- **TypeScript and Python reuse the Rust setup, never rewrite it.** The `goodfetch-test-env` executable of `goodfetch-test-support` prepares a test's folder, home and environment, starts what it is asked to, prints one JSON description (paths, environment map, seed, addresses), and tears everything down when its standard input closes.
+  - `@goodfetch/test-support` (`test-support/typescript/`, private) gives Vitest fixtures through `test.extend`.
+  - `goodfetch-test-support` (`test-support/python/`, never published) is a pytest plugin registered through `pytest11`.
+- **`goodfetch`'s `test-util` feature is for people who embed `goodfetch`**, never Goodfetch's own helper home.
+- **Expected results of Proving ground pages come from its oracle**, never copied into test code.
+- **A helper written twice moves into test support.**
+
+## Fixtures and data files
+
+- **Fixtures live in a `fixtures/` folder beside the tests that read them.** Data several languages read lives once, in `test-support/fixtures/`.
+- **A test copies a fixture into its temporary folder before changing it.**
+- **No fixture file exceeds 256 KiB.** Larger or repetitive data is generated from a seed, by the Proving ground or a generator in test support. No Git LFS.
+- **A generated fixture or a recorded exchange has a `<name>.source.toml` file beside it,** naming the generator or recording job, its version, the seed or recording date, and the command that regenerates it. Secrets are redacted from recordings.
+  _Why:_ a fixture nobody can regenerate becomes untouchable.
+
+## Snapshots
+
+- **Tools:** insta in Rust, Vitest's snapshots in TypeScript, inline-snapshot in Python.
+- **Inline for short values** (about 20 lines); a file for longer ones: insta's `.snap` files, Vitest's `toMatchFileSnapshot` or `toMatchSnapshot`, inline-snapshot's `external()`.
+- **What snapshots cover:** structured outputs (JSON-RPC responses, CLI output, generated surfaces, extraction output). Never instead of a precise assertion on one value.
+- **Every varying value is redacted or filtered** (IDs, times, durations, temporary paths), with the shared settings of test support.
+- **CI never writes a snapshot and fails on a mismatched, missing or orphaned one:** `cargo insta test --check --unreferenced reject`; Vitest in CI; inline-snapshot, which raises on an empty `snapshot()` there.
+- **Snapshots change only through the tool's update or review command, never by hand.** inline-snapshot updates run single-process (`-n0`), since under xdist it can neither create nor fix one.
+- **A snapshot change is reviewed as a change of expected behaviour.**
+
+## Property tests, fuzzing and doctests
+
+- **Parsers and stateful rules get property tests:** `proptest` in Rust, `hypothesis` in Python. Their regression files are committed.
+- **Untrusted input** gets a `cargo-fuzz` target per decoder: CDP messages, JSON-RPC and plugin-protocol framing, HTML and Markdown, sitemaps, run-state import.
+- **Doctests only on `goodfetch`**, where they are the examples of ADR 0030.
 
 ## Injection and determinism
 
@@ -69,62 +192,352 @@ Decided in [ADR 0059](docs/adr/0059-dependencies-are-injected-as-values-and-only
 - **SDK durations and jitter are options:** tests pass short values and a fixed seed. In TypeScript, Vitest fake timers may drive timer logic that never reaches the engine.
 - **The Console's end-to-end tests set time with Playwright's `page.clock`** (`setFixedTime` first). Its component tests use Vitest fake timers.
 
+## Flaky tests and Live checks
+
+Decided in [ADR 0064](docs/adr/0064-tests-are-never-retried-and-unpinned-checks-run-as-live-checks.md). The Quick, Pre-merge and Release suites and the CI tiers are those of [ADR 0061](docs/adr/0061-three-test-suites-each-run-by-one-just-command-under-a-time-budget.md).
+
+### What is a test
+
+- **A test pins every input:** commit, Proving ground seed, `Entropy` seed, browser build, images by digest, recorded model exchanges. A **flaky test** passes and fails with the same inputs.
+- **A check with an input that moves without a commit is a Live check.** It never goes in a suite.
+  _Why:_ a vendor's change or outage is then never mistaken for a broken change.
+
+### No retries
+
+- **Runners keep zero retries with every lock on:** nextest `retries = 0` and `flaky-result = "fail"` in every profile, with no per-test override; Vitest `retry: 0` with no per-test `retry`; Playwright `retries: 0` and `failOnFlakyTests: true`; no pytest rerun plugin and no `flaky` marker.
+- **No workflow step retries a test:** no retry action, no shell loop, no `continue-on-error` on a test step.
+- **No test loops until it passes.** Wait on a condition with a deadline (auto-waiting, `expect.poll`, a CDP event, a state you can name); never repeat the action under test until it succeeds.
+- **The no-retry check in the Quick suite refuses all of the above**, and the flags and variables that undo them (nextest `--retries`, `--flaky-result`, `NEXTEST_RETRIES`, `NEXTEST_FLAKY_RESULT`; Vitest `--retry`; Playwright `--retries`). Downloads before the deny of ADR 0043 may retry: they test nothing.
+- **Re-run a failed job only when no test step failed in it** (lost runner, failed download). The "all green" job fails when an earlier attempt of its run had a failed test step.
+- **Never assert elapsed real time, a rate or a duration.** Those are measurements.
+
+### Before merge
+
+- **Every new or changed test runs 20 times in the pull request**, and one failure fails it. New: absent from the base commit's listing. Changed: its file changed. The run is sharded to fit the budget; the count is never lowered, and nothing skips it.
+- **Taking a test off the quarantine list takes 200 passing runs** in that pull request.
+- **Tests run in random order, seed printed:** pytest-randomly, Vitest `sequence.shuffle.tests`, Playwright `--shuffle` with `fullyParallel`; nextest runs each test in its own process. The seed comes from the tree hash under test in every run but the constrained test-health run, which takes a fresh one. Pass it back to reproduce an order.
+- **Vitest resets shared state:** `restoreMocks`, `unstubEnvs` and `unstubGlobals` are on.
+- **Leaks and hangs fail:** nextest's leaky result is `fail`, every test has its suite's hang timeout, and the constrained test-health run runs Vitest with `detectAsyncLeaks`.
+
+### After merge
+
+- **Every runner writes JUnit XML in every tier and attempt, pass or fail.** An ingest workflow, which runs none of the product, copies it to the results store: the `test-results` repository beside the main one (private until it is public), one compressed file per run attempt, with a record per test run (test ID, runner, suite, tier, job, OS, architecture, runtime, shard, commit, tree hash, run, attempt, outcome, duration, order and `Entropy` seeds). Nothing is pruned.
+- **Allure Report 3 shows the history,** built from the store by the daily test-health job.
+- **A test is flaky when** it passed and failed on the same tree hash and configuration, or when a diagnostic run passes it at least once: 20 more runs at the same commit and on the same OS, after a failure in the merge queue, a manual-dispatch Release run, the nightly tier or a test-health run. A diagnostic run never changes a verdict.
+- **Test health runs from M1 on, even while the repository is private, with no paid resource:**
+  - the **daily test-health job** (scheduled, Linux, `main`'s head, 15-minute timeout) runs the 10 oldest quarantined tests 50 times each, then the scan and the Allure report;
+  - the **constrained test-health run** (weekly and after each manual-dispatch Release run, Linux, 120-minute timeout) runs the Pre-merge suite with half the runner's CPU and memory, a fresh order seed and `detectAsyncLeaks`;
+  - these and the diagnostic runs share a ceiling of 1,000 included minutes a month. At the ceiling, constrained and then diagnostic runs are skipped until the month ends.
+  - Once the nightly tier is on, both run every night with no ceiling.
+
+### A flaky test found after merge
+
+1. CI opens (or reopens) one `flaky-test` issue for it, in the current milestone.
+2. The same day, add the test to the quarantine list with its issue.
+3. If the test or the code it covers changed in the last 7 days, you may also revert that change: revert the product code, and the tests stay quarantined.
+4. `flaky-test` issues come first on the frontier.
+5. Fix the cause. A longer timeout alone, a sleep or a retry is not a fix. A race or leak in the product is fixed in the product, and the test stays as it was.
+6. The fix takes the test off the list after 200 passing runs; the issue closes when it merges.
+
+- **The quarantine list is one file in the repository.** Each entry has a test ID, its open `flaky-test` issue and a date; the Quick suite's check refuses an entry without an open issue or naming a test that no longer exists.
+- **Quarantined tests still run** 50 times a day in the daily test-health job (the 10 oldest entries), into the results store.
+- **A quarantined test blocks** its milestone's gate, every release (`xtask release` refuses while the list is not empty), and counts its feature as untested.
+- **A flaky test is never removed or weakened to make a suite pass:** quarantine it, fix it, or replace it with a test covering the same behaviour (for example by moving its unpinned part to a Live check).
+
+### Live checks
+
+- **Each Live check has an owning area and a placement** listed in ADR 0064: real SaaS Sinks, installed Chrome's stable, beta and dev channels (pinned majors are tests), public testnets, the Clean-up rules' daily gate, the online conformance, the benchmark, the Cloud Run deploy, live-model evaluations, Scorecard, and the docs site's `docs-external-links` (nightly, or before each release candidate while the nightly tier is off) and `docs-deploy-smoke` (after each production deploy), which block nothing directly ([Console and docs site](#console-and-docs-site)).
+- **Outcomes are pass, fail or inconclusive.** Inconclusive means the external side was unavailable; it never counts as a pass.
+- **Results go to the results store** under the `live` tier.
+- **A fail, or three inconclusive runs in a row, opens or updates one `live-check` issue** in the current milestone, right after `flaky-test` issues on the frontier. If its cause is not stated within two business days, the next minor is not promoted until it is. Patches are not held, and the online conformance never blocks (ADR 0043).
+- **A `live-check` issue closes** once its cause is written down and either fixed or attributed to an external party with a linked upstream report, so an explained vendor outage never holds a milestone gate.
+- **A measurement declares its trials, threshold and statistic before it runs,** and every trial counts. A failed trial is never replaced.
+
+## Test-first process
+
+- **An agent implementing a ticket follows the `tdd` skill.** The seams named in the spec's Testing Decisions are the seams agreed in advance. A test at another seam needs the pull request to name that seam and the reason, and the fresh review to accept it.
+- **Every behaviour lands red, then green.** The pull request's Verification section lists each new test with the failure it showed before the code existed. Commits stay green.
+  _Why:_ a test never seen failing may test nothing, and green commits keep `git bisect` and the "all green" check working.
+- **A bug fix starts with a test that reproduces the bug**, named by the behaviour, not the issue.
+- **Refactoring is not part of the red-green loop;** it happens in review.
+
+## Review checklist
+
+The fresh review of a pull request checks its tests against this list:
+
+1. Each test sits at a seam the spec names, or the pull request justifies the new seam.
+2. The Verification section lists each new test with its red failure.
+3. One behaviour per test, named as a behaviour in glossary terms, in the right place for its level.
+4. Through the interface: no private call, no `#[cfg(test)]` in product code, no `pub` added for tests, no mock of owned code.
+5. Expected values come from an independent source; failures are matched on Error codes.
+6. Deterministic and isolated: the rules of [Injection and determinism](#injection-and-determinism), no real sleep, its own data.
+7. Parameterized cases are named.
+8. Snapshots are redacted, cover structured output, and every change to one is intended.
+9. Fixtures are under 256 KiB, and generated ones have their `.source.toml` file.
+10. No helper is duplicated; shared setup is in test support.
+
+## Suites, commands and time budgets
+
+Decided in [ADR 0061](docs/adr/0061-three-test-suites-each-run-by-one-just-command-under-a-time-budget.md).
+
+### The three suites
+
+Each suite runs everything the suite before it runs.
+
+| Suite | What it adds | Command | Runs in CI |
+|---|---|---|---|
+| Quick | Format and lint checks; in-process tests of what changed (Rust unit tests in `src/`, never `tests/it`); the committed format fixtures; `xtask codegen --check` and `xtask affected`'s own tests | `just quick` (`just quick all` for everything) | First job of every pull request, over the whole workspace |
+| Pre-merge | The `tests/it` of every touched crate and its dependants; conformance on the local Proving ground; touched Sinks against their containers (every Sink until the merge queue exists, ADR 0032); touched SDKs, adapters and Integrations on one runtime; the Console on Chromium; docs examples; ADR 0032's static checks | `just pre-merge` (`just pre-merge all`) | Every pull request, on Linux |
+| Release | Everything, for every package, on the full matrix of ADR 0024; deployment-target smoke runs; tests that need released binaries | `just release` (this host's cell), `just release-ci` (the whole matrix on CI) | Merge queue, nightly, every release |
+
+- **A Quick-suite test starts no process, browser or container and binds no socket.** Anything that does is a `tests/it` test, or its runner's equivalent.
+  _Why:_ the Quick suite is what you run after every edit, so it must stay seconds long.
+- **Checks that are non-deterministic by nature are in no suite**: real SaaS Sinks, live models, the online Proving ground, real vendors, Chrome's beta and dev channels, the benchmark. They keep their own tiers.
+- **The Release suite gates every merge**, through the merge queue. Before the merge queue exists, it runs on manual dispatch, and passes before each milestone's owner test and before any release.
+  _Why:_ a macOS, Windows, arm64 or runtime failure found after the merge lands on `main`, which ships nightly.
+
+### Commands
+
+- **Run `just quick` before every push.** `just hooks` installs an opt-in pre-push hook that does it.
+- **`just test <suite> [packages]`** runs one suite's tests without lints. CI jobs call it, and so can you.
+- **`just fmt`, `just lint` and `just build`** format, check and build Rust, TypeScript and Python.
+- **What changed comes from `xtask affected`**, in CI and locally. Until it exists, `just quick` and `just pre-merge` run over the whole workspace. Locally it diffs the working tree, uncommitted changes included, against the merge base with `origin/main`. Rust selects through `rdeps(…)`, so dependants run too.
+- **A local run lists what it could not run on this host, and why**, such as containers without a container engine, or another OS. Its exit code covers what ran. CI is the verdict.
+- **`just release-ci` dispatches the Release suite on your pushed branch** and follows it to the end. It never reaches the reference host.
+
+### Time budgets
+
+Budgets are the median (p50) of a job's last 20 runs in its own tier, on GitHub-hosted runners with warm caches: pull-request runs for Quick and Pre-merge; merge-queue runs (manual-dispatch runs while the repository is private), nightly and release runs for Release.
+
+| Suite | Where | Budget | Hard cap |
+|---|---|---|---|
+| Quick | Locally, one crate changed, incremental build | ≤ 60 s (guidance) | none |
+| Quick | CI, whole workspace | tests ≤ 2 min, job ≤ 10 min | 20 min |
+| Pre-merge | Pull request | "all green" ≤ 20 min, each job ≤ 15 min | 30 min per job |
+| Release | Merge queue | ≤ 60 min per group, each job ≤ 45 min | 90 min per job, 120 min for the queue |
+| Release | Nightly and release pipelines | each job ≤ 3 h | 5 h per job |
+
+- **Per-test caps stop hangs, never measure speed.** In the Quick suite a test is marked slow after 1 s and killed at 10 s; above it, slow after 30 s and killed at 5 min. nextest's `quick` and `ci` profiles, Vitest, Playwright and `pytest-timeout` all use these two levels.
+- **No run fails for being slow within its cap.**
+  _Why:_ benchmark suites on shared runners vary by about 2.7% run to run (CodSpeed's measurement), and whole jobs vary more, so a one-run timing gate would be flaky.
+- **A breached budget opens an issue** through the budget check, run nightly and after every manual-dispatch Release run, labelled `needs-triage`. Fix it within two weeks: shard the job, speed up the tests, or move a test to a later suite with the reason in its pull request.
+- **A stress run of new and changed tests, if the pull-request tier runs one, counts against the Pre-merge budget.** Shard it to fit; never lower its run count to meet a budget.
+
+### Sharding, caching and reports
+
+- **Shards are deterministic:** nextest archives once per target and splits with `--partition hash:m/n`; Vitest and Playwright use `--shard`; pytest uses `pytest-xdist` inside one job. Never split by recorded timings.
+- **Caches save only from `main`**: a cache-warming job on every push to `main` builds without testing and saves `Swatinem/rust-cache`, the V8 build, pnpm's and uv's caches (keyed by their lockfiles); the nightly and manual-dispatch Release runs save the other targets'. The merge queue saves none, since pull requests can't restore its caches. Chromium, images and released binaries are cached by digest.
+- **The warming job shares the pull-request jobs' rust-cache `shared-key` and profiles.** Linux pull-request caches take priority within GitHub's 10 GB; raising it is a paid resource the owner approves.
+- **CI test builds use the `ci-test` Cargo profile** (`test` with `debug = "line-tables-only"`).
+- **Every run writes JUnit XML**, local or CI. Every CI job uploads it, pass or fail, as `junit-<suite>-<tier>-<os>-<arch>[-<runtime>]-<shard>`, and a failing job writes a summary of its failed tests to its page.
+
+## AI features and agent skills
+
+Decided in [ADR 0065](docs/adr/0065-ai-features-are-tested-without-live-models-and-measured-by-oracle-graded-evaluations.md). Suites are the Quick, Pre-merge and Release suites of [ADR 0061](docs/adr/0061-three-test-suites-each-run-by-one-just-command-under-a-time-budget.md); Live checks are those of [ADR 0064](docs/adr/0064-tests-are-never-retried-and-unpinned-checks-run-as-live-checks.md), in no suite. A **live model** is one a provider serves and Goodfetch doesn't pin (a cloud model, directly or through a gateway); a pinned local model on a pinned server is a test input.
+
+### Stand-ins for a model
+
+| Layer | Stand-in | Suite |
+|---|---|---|
+| In-process AI logic | the Scripted model | Quick |
+| Each adapter's wire format | Model recordings replayed by `httpmock` at the adapter's base URL | Pre-merge |
+| The binary, journeys, AI end to end | the Proving ground's Fake model, in all three formats | Pre-merge |
+| SDK code that calls a model | a model callback registered through the SDK handler | Pre-merge |
+| Local model servers | the real server, pinned, with a pinned small model | Release (Linux cell) |
+
+- **No test of an AI feature calls a live model.** Only the Live checks below reach one.
+  _Why:_ providers no longer offer determinism: current Anthropic models refuse `temperature`, Gemini ignores it, and OpenAI's `seed` is best effort.
+- **The Scripted model fails on a call beyond its script and on unused steps.** Script errors and faults as replies, and assert on the requests it recorded.
+- **AI journeys name the Fake model as their Model provider.** Ask it for faults (rate limit, overload, timeout, cut stream, malformed JSON, refusal, wrong but plausible answer) through the task, never through a test-only switch in the binary.
+- **Check Usage against the Fake model's own token count.**
+
+### What an AI test asserts
+
+- **Assert outcomes Goodfetch owns:** the Success check result, Grounding, the Plan file, the Effect journal, the Record, the Error code, Usage, what the oracle saw. Never a model's wording.
+- **Never rely on temperature or a seed for determinism.**
+- **Snapshot the whole request each AI operation sends, per format, with `insta`** (Quick). A prompt or tool-description change then shows as a reviewed diff.
+
+### Model recordings
+
+- **Record each cell of the matrix:**
+  - per format on the direct provider: text, tool call and result turn, parallel tool calls, structured output, streaming of each, usage (cached and reasoning tokens), prompt caching, search grounding, image input, and the errors the engine branches on;
+  - the named gateways, for the OpenAI-compatible format;
+  - each hosted Decision provider (Jev, OpenAI's Decisions API): a choice, an abstention, a low-confidence choice, and its errors.
+
+  A missing cell fails a Quick check.
+- **Match on method, path and the canonical JSON body.** An unmatched request fails, and so does an unused recording.
+  _Why:_ matching on the path alone replays a stale answer to a changed request.
+- **Replay each stream whole and re-cut at seeded boundaries.** The stream parsers also have `proptest` and a fuzz target.
+- **Keep only allowlisted headers at write time:** `content-type`, the version and beta headers the adapter sends, `retry-after` and the rate-limit headers the adapters read. Remove key query parameters, and replace request and organization IDs. A Quick check fails on anything else, or on anything shaped like a provider key.
+- **Record only against Proving ground pages and tasks.**
+- **Refresh on cause:** a changed request, a provider-check report, or 30 days before a manifest model's retirement. Use the recorder job, which opens a pull request, and review the diff. Never refresh on a timer or automatically.
+- **Write faults that aren't worth recording as explicit `httpmock` stubs**, marked as synthetic.
+
+### Pinned local models and the in-engine model
+
+- **llama.cpp server and Ollama run in the Release suite's Linux cell**, each at a pinned version with a pinned small model downloaded by digest before ADR 0043's deny, with the dependency installs. vLLM joins them on its CPU build where it can serve the model.
+  - Assert protocol behaviour only.
+  - Send every sampling parameter the engine relies on.
+  - Record the server version and model digest.
+- **In the release pipeline**, every model on ADR 0012's tested list runs the same tests. vLLM runs there on a GPU host if its CPU build can't serve the model; that host is a paid resource the owner approves. LM Studio runs there where a runner supports its headless server.
+- **The in-engine Decision provider model is checked on a labelled set with a margin:** on Linux in the Pre-merge suite, and on every OS in the Release suite. Never compare confidences exactly.
+
+### Live checks that reach live models
+
+- **The provider check runs nightly and compares shapes, never content.** It covers fields, types, stream events, error bodies and the headers adapters read, for every recorded cell: direct providers, gateways and hosted Decision providers. A difference opens or updates its `live-check` issue.
+- **Every live job has its own credentials with a hard cap outside Goodfetch**: an Anthropic workspace spend limit, a gateway key limit, or a provider project budget that stops calls.
+- **Every live job stops itself at its per-run cap.** The engine's runs use a currency Limit, Claude Code uses `maxBudgetUsd`, Codex uses a capped key, and the provider check and recorder compute their worst case before starting. Each job prints its worst case first.
+- **Coding agents in live jobs make no other calls:** Claude Code runs with `CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1`, and Codex with its update check and analytics turned off.
+  _Why:_ the job reaches only its named model hosts, and ADR 0043's deny refuses anything else.
+- **Live jobs stay disabled until the owner approves the budget in ADR 0065.** Fork pull requests never receive model keys.
+
+### Evaluations
+
+- **Evaluations are `bench/` campaigns on the local Proving ground**, never tests. They come in three sizes: pull-request (only for changes to prompts, request snapshots, catalog descriptions or skills), nightly (plus a weekly run on larger models), and ADR 0025's release benchmark.
+- **The oracle grades every trial.** No model grades an Evaluation. Record the engine's Success check and Grounding results beside the oracle's verdict.
+- **Run 3 trials per task and model** at the pull-request and nightly sizes, each from a clean Goodfetch home. Every trial counts.
+- **Report** the verified rate with its 95% Wilson interval, pass^3, false successes, safety violations, tokens and dollars per verified result, and the Success check and Grounding disagreements with the oracle. State the bound that "zero" can claim at the trial count (about 3/*n*).
+- **A false success or a safety violation fails an Evaluation at any size** and blocks the next release candidate as a correctness failure.
+- **The regression rule** is the mean over tasks of the paired difference in verified rate against the last accepted baseline on the same models. The difference is in percentage points (never a log ratio), with a block-bootstrap interval. It fails only when the interval's upper bound is below −Δ. An inconclusive result is reported, never a failure.
+- **Δ is proposed at 10 points and waits for the owner's approval.** Until then, a regression opens or updates a `live-check` issue and blocks no release candidate.
+- **A task joins its regression set at pass^3 ≥ 0.9 on every nightly model for five nights.** Add harder tasks once a regression set passes everything for 30 nights. Add a task for every AI bug fixed.
+- **The pull-request size uses development seeds; nightly and release use held-out seeds.**
+  _Why:_ prompts tuned on the tasks that judge them overfit.
+- **Pin models in the manifest, and run old and new side by side for five nights before dropping one.** Record the model, any fingerprint the provider returns, the gateway, the local server's version and digest, the commit, the seed and the prompt snapshot hashes.
+
+### Agent skills and tool descriptions
+
+- **Skills are checked with no model:**
+  - in Quick, `xtask codegen --check` and the Agent Skills frontmatter limits;
+  - in Pre-merge, a check that every operation, command and option they name exists in the catalog, and a run of every example command against the local Proving ground, checked by the oracle.
+- **If area 11 ships the skills as a Claude Code plugin, run `claude plugin validate --strict`** at a pinned version in Pre-merge.
+- **Skill Evaluations run the CLI with and without the skills**, through promptfoo, on Claude Code (small, mid and large models) and Codex. The oracle grades; `skill-used` is a signal. Open an issue on any skill that doesn't beat its baseline on some model.
+- **Snapshot the catalog's MCP projection per profile** (Quick). Keep each description at most 2,048 characters, and record each profile's total tool-definition size in the snapshot.
+- **The tool-selection Evaluation checks a model's first tool call without executing it.**
+
+### Manual tests
+
+- **After a confirmed Evaluation regression, read the failed trials' Run traces** before accepting or fixing it.
+  _Why:_ only a person can tell a wrong grade or a new failure mode from a real regression.
+- **LM Studio**, where no CI runner can host its headless server: run the tested-list cases by hand before each release.
+
+## Journeys
+
+Decided in [ADR 0063](docs/adr/0063-end-to-end-tests-follow-a-catalog-of-numbered-journeys-kept-in-the-repository.md). A Journey is a goal a person reaches through Goodfetch's public surfaces; Journeys are the end-to-end tests.
+
+### The catalog
+
+- **One Journey per file, `journeys/J-NNN.toml`**, validated by `journeys/journey.schema.json`, which `xtask codegen` emits. Unknown fields fail.
+- **A new Journey takes the number in `journeys/catalog.toml`** and increments it in the same pull request. If another pull request merged the same number first, take the next one.
+- **Never change an ID on `main`, and never reuse one.**
+- **Never change a Journey's `goal` under its ID.** Fix wording, steps, data or surfaces freely; for a different goal, set `status = "retired"` with `reason` and `replaced_by`, keep the file, and add a new Journey.
+- **Write `goal` with RFC 2119 words**, readable as a specification without the code.
+- **Write steps declaratively** ("export the Dataset as CSV"), never as clicks or flags, so the wording survives a change of implementation. Pin a step with `on` only when the goal needs that surface; give `manual` a reason only when no automated check can do it.
+- **List every surface on which a person can reach the goal**, each with the milestone by which it must be proved, never earlier than the surface ships.
+- **Fill `covers` with feature IDs** (`row:CO-18` for an ADR 0037 row).
+- **Keep a Journey to its goal.** Edge cases, Error codes and limits go to unit, integration and conformance tests.
+- **Each area's `/to-spec` adds the Journeys of its user stories**, and each ticket names the variants (`J-NNN@<surface>`) it makes pass.
+
+### Data and isolation
+
+- **Each Journey that uses Proving ground pages has its own `seed`.** Never share one between Journeys. A Journey that touches no page has none. `GOODFETCH_TEST_SEED` never overrides a Journey's seed.
+- **Pin each Proving ground task a Journey names with its `digest`** from the task list. The digest ignores the port, so the same seed gives the same digest on every run.
+- **Each variant run starts from scratch:** its own Proving ground on port 0 with the Journey's seed, its own Goodfetch home and cleared environment, `resolve` mapping the Proving ground's hosts to loopback, and its certificate authority trusted through the per-domain exception.
+- **An AI Journey names the Fake model as its Model provider:** its variant's Proving ground serves it, and the setup steps point the Model provider setting at it through a public surface ([ADR 0065](docs/adr/0065-ai-features-are-tested-without-live-models-and-measured-by-oracle-graded-evaluations.md)). Never the Scripted model, never a live model.
+- **Build the starting state through public surfaces** in the first steps. Never copy in a run file, database or home folder, except an older-format file for an upgrade Journey.
+- **Run against the local copy only.** Online results stay conformance reports.
+- **Drive the shipped artefacts**: the `goodfetch` binary and the SDK packages built from the commit, never an engine linked into the test.
+- **When a generator change alters a task a Journey names, the digest check fails: check the Journey still fits, and update it, digest included, in the same pull request.** Task ordinals are append-only within a family; never reuse one.
+
+### Tests and results
+
+- **Carry the ID where the runner selects by it:**
+  - nextest: a module `j002` (the ID lowercased, hyphen dropped) in the test's path;
+  - Vitest: the tag `J-002`, declared from the catalog, `strictTags` on;
+  - pytest: `@pytest.mark.journey("J-002")`, registered, `strict_markers` on;
+  - Playwright Test: the tag `@J-002`.
+- **Put a surface's Journey tests in a `journeys` folder of the package that ships it**, one file per Journey: `tests/it/journeys/j002.rs` in Rust, `tests/journeys/J-002.test.ts` (Vitest) or `J-002.spec.ts` (Playwright) in TypeScript, `tests/journeys/test_j002.py` in Python.
+- **Start a variant's Proving ground, home and environment through test support** (`goodfetch-test-support`, or `goodfetch-test-env` through the `test-support/` packages), and drive the shipped binary.
+- **Journey tests run with their package's integration tests**: in the Pre-merge suite when the package is touched, and in the Release suite.
+- **One test per variant.**
+- **Each variant run writes one result document with `kind = "journey"`.** Never set its outcome by hand: derive it from the steps, the checks and the oracle's answers, through the Rust constructor or a helper that passes the shared outcome vectors. A step not reached, or any Proving ground task not `verified`, fails the variant. Readers recompute the outcome and reject a document that disagrees, or whose steps, checks and named Proving ground tasks are not exactly its Journey's. The shared outcome vectors are in `test-support/fixtures/outcome-vectors/`.
+- **The catalog check fails** on a file that does not parse, an ID that differs from its file name, repeats or is not below the next free number, a Proving ground task missing from the task list for the seed or whose digest differs, a test naming a retired or unknown Journey or an unlisted surface, two tests for one variant, a variant milestone earlier than its surface, or a retired Journey without a reason.
+
+### Owner tests
+
+- **List an owner test's "Journeys to try" from the catalog:** every variant of its milestone, by ID and title, with its manual steps.
+- **An owner test is ready only when every automated variant of its milestone is `proved` on `main`.**
+- **A finding on a goal no Journey covers adds a Journey.**
+
 ## Console and docs site
 
 Decided in [ADR 0068](docs/adr/0068-the-console-is-tested-in-real-browsers-and-served-by-the-real-binary.md). Which accessibility, localization and visual checks run on these runners is decided by [Accessibility, localization and visual regression](https://github.com/Jbmanllr/automan/issues/283).
 
 ### Where each test lives
 
-| Path | What it tests | Runner | Suite |
+Each suite contains the one before, so the table gives the first suite that runs each test; [Browsers](#browsers) says which browsers each suite adds.
+
+| Path | What it tests | Runner | First suite |
 |---|---|---|---|
 | `console/src/**/*.test.ts` | logic with no DOM | Vitest `unit` (Node) | Quick |
 | `console/src/**/*.test.tsx` | one component | Vitest `component` (Browser Mode) | Pre-merge |
 | `console/src/**/*.stories.tsx` | each state of a component, rendered as a test | Vitest `component` (Storybook's addon) | Pre-merge |
-| `console/tests/app/` | the whole Console against the in-memory engine | Vitest `component` | Pre-merge |
+| `console/tests/screens/` | the whole Console against the in-memory adapter of the protocol | Vitest `component` | Pre-merge |
 | `console/tests/served/` | the Console served by the binary | Playwright Test | Pre-merge |
-| `console/journeys/` | the `console` variants of Journeys | Playwright Test | Pre-merge, Release |
-| `conformance/console/` | the Console conformance suite | Playwright Test | Pre-merge, Release |
+| `console/tests/journeys/J-NNN.spec.ts` | the `console` variants of Journeys ([Journeys](#journeys)) | Playwright Test | Pre-merge |
+| `conformance/console/` | the Console conformance suite | Playwright Test | Pre-merge |
+| the live-view packages' `*.test.ts(x)` | `<goodfetch-live-view>` and its React wrapper | Vitest Browser Mode | Pre-merge |
 | `website/src/**/*.test.ts` | the docs site's build code | Vitest (Node) | Quick |
-| `website/tests/` | the built docs site | Playwright Test | Pre-merge, Release |
+| `website/tests/` | the built docs site | Playwright Test | Pre-merge |
 
 ### Components
 
 - **A test that renders or needs the DOM is a `.test.tsx` file** and runs in Vitest Browser Mode with the Playwright provider. A `.test.ts` file runs in Node and never touches the DOM. Never jsdom or happy-dom.
   _Why:_ Base UI's positioning, focus and pointer handling need a real layout.
 - **Mount with `vitest-browser-react`, find with `vitest/browser` locators, act with `vitest/browser`'s `userEvent`.** Never `@testing-library/user-event`.
-  _Why:_ events then go through CDP, and the locators are Playwright's.
+  _Why:_ events are then real browser input sent by Playwright, and the locators are Playwright's.
+- **Use the shared Vitest fixture of `@goodfetch/test-support`; it resets hover in `beforeEach`** (`userEvent.unhover(document.body)`).
+  _Why:_ the Playwright provider keeps the pointer position and hover state between tests of one file, and tests run shuffled.
 - **The engine is the in-memory adapter of the protocol from `@goodfetch/test-support`, passed to the Console's Client as its transport and body fetcher.** Never MSW, never a patched global `WebSocket`. A call the test did not answer fails the test, and every message is validated against the schema bundle.
 - **Test data comes from builders with literal defaults.** Override only what the test asserts on; no random data.
-- **Each state of a component has a story** (`*.stories.tsx`, Storybook 10). Stories hold no assertions and no play functions. Behaviour goes in `.test.tsx`, which may reuse a story through `composeStories`.
+- **Each state of a component has a story** (`*.stories.tsx`, Storybook 10 until Storybook 11 is stable and supports TypeScript 7). Stories hold no assertions and no play functions. Behaviour goes in `.test.tsx`, which may reuse a story through `composeStories`.
+- **Storybook's docgen is `react-docgen`.** Never `react-docgen-typescript` or the experimental docgen server, which need the TypeScript compiler API.
+
+### Browser state
+
+- **Set colour scheme, reduced motion, locale, time zone and online status through Playwright:** context options (`colorScheme`, `reducedMotion`, `locale`, `timezoneId`), `page.emulateMedia` and `context.setOffline` in served tests; the provider's context options and the `@goodfetch/test-support` browser command in component tests.
+- **Pass page visibility to the Console's Client as a value**, like its transport. Playwright cannot emulate it. Served tests of the idle stop close the page instead.
+- **Never redefine a property of `document`, `navigator` or `window`.** oxlint's `no-restricted-properties` refuses `Object.defineProperty`, `Object.defineProperties` and `Reflect.defineProperty` in test files, and `vi.stubGlobal` is banned ([Writing a test](#writing-a-test)).
 
 ### The served Console
 
 - **Browser tests of the Console as users get it run on Playwright Test against the `goodfetch` binary built from the commit.** Never against a Vite server.
 - **Each test starts its own Daemon** through the `@goodfetch/test-support` fixture (`goodfetch-test-env`), with its own home, port 0 and fresh browser context.
 - **Sign in the way a person does:** the binary's single-user sign-in link, Playwright's virtual authenticator for passkeys and step-up, a local OIDC provider pinned by digest. Never write a cookie or storage state yourself.
-- **Make faults where they happen:** `routeWebSocket` with `connectToServer()` for a dropped or stalled connection, the real process for an engine fault.
+- **Make faults where they happen:** `routeWebSocket` with `connectToServer()` for a dropped or stalled connection, the real process for an engine fault. `routeWebSocket` replaces the page's `WebSocket` with a shim that forwards to the real binary; use it only to drop or delay real messages, never to invent one.
 - **Find by role, label or text.** `data-testid` only where an element has no accessible role or name; never CSS classes or XPath.
 - **Wait with web-first assertions and `expect.poll`.** Never `waitForTimeout` (oxlint refuses it) or `networkidle`.
 - **A console error, an uncaught page error, a CSP violation or a failed same-origin request fails the test**, through the shared fixture.
-- **Tests run under the production CSP.** The binary has no switch that relaxes it.
+- **`toMatchAriaSnapshot` and Vitest's ARIA snapshots follow [Snapshots](#snapshots).**
+- **Tests run under the production CSP.** The binary has no switch that relaxes it, and Playwright's `bypassCSP` is never set: the shared fixture fails a test that sets it, and oxlint refuses `newContext`, so every context comes from the fixture.
 - **Keep traces on failure** and upload them with the JUnit files.
 
 ### The Console conformance suite
 
-- **It runs the Console against a backend given as configuration:** the Daemon and the stub gateway here, Goodfetch Cloud's gateway from the private repository. Each target run writes a result document with `kind = "conformance"`.
-- **Add a case when the Console starts to need something new from a backend.**
+- **It runs the Console against a target given as configuration:** the Daemon and the Stub gateway here, Goodfetch Cloud's gateway from the private repository. Each target run writes a result document with `kind = "conformance"`.
+- **Add a case when the Console starts to need something new from its target.**
 
 ### Browsers
 
 - **One Playwright version for the whole pnpm workspace**, shared by Vitest's provider.
 - **The Console's and the docs site's tests run on one Node line;** their matrix is browsers.
-- **Pre-merge:** Chromium on Linux. **Release:** components on Chromium, Firefox and WebKit; served tests, Journeys and conformance on every OS runner with every browser Playwright ships for it, plus phone emulation on Chromium and WebKit.
+- **Pre-merge:** Chromium on Linux. **Release:** components and the live-view packages on Chromium, Firefox and WebKit; served tests, Journeys and conformance on every OS runner with every browser Playwright ships for it, plus phone emulation on Chromium and WebKit; the docs site on Chromium, Firefox and WebKit.
 
 ### Docs site
 
 - **Docusaurus throws on every broken reference:** `onBrokenLinks`, `onBrokenAnchors`, `onDuplicateRoutes` and `markdown.hooks`' `onBrokenMarkdownLinks`, `onBrokenMarkdownImages` and `onUnusedMarkdownDirectives`.
-- **Every kept version is built, and every page has its `.md` twin and an `llms.txt` entry.**
-- **lychee runs with `--offline --include-fragments` in the suites.** External links are the nightly Live check `docs-external-links`.
-- **Playwright tests the built site served locally under `/docs/` on port 0,** never a Vercel preview: every `sitemap.xml` page of every kept version answers 200 with no console, hydration or same-site request error, and the interactive components work.
-- **After each production deploy, the Live check `docs-deploy-smoke`** checks the deployed pages, a `.md` page and `llms.txt` with their content types.
+- **Every kept version is built, and every page has its `.md` twin, an `llms.txt` entry and its content in `llms-full.txt`.**
+- **lychee runs with `--offline --include-fragments --root-dir <root>` in the suites**, over the built site copied to `<root>/docs/`, so absolute `/docs/` links resolve. External links are the Live check `docs-external-links`.
+- **Playwright tests the built site served locally under `/docs/` on port 0,** never a Vercel preview: every `sitemap.xml` page of every kept version answers 200 with no console, hydration or same-site request error, and the interactive components work. Search is tested against an index built with the site; a hosted search service is tested only by `docs-deploy-smoke`.
+- **After each production deploy, the Live check `docs-deploy-smoke`** checks the deployed pages, a `.md` page, `llms.txt` and `llms-full.txt` with their content types.
 - **`typos` checks the docs' spelling.** No Vale, no cspell.

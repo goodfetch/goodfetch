@@ -54,6 +54,7 @@ Releases are **built once and published per registry**: no tool publishes crates
   - `pnpm lab ci` runs only when files under `rnd/` change, and is never a required check.
   - `research/*` branches stay unmerged.
 - **Conformance harness.** The suites in `conformance/` run in `goodfetch-conformance`, a Rust crate under `crates/` that depends only on `goodfetch-protocol` (STYLE.md's dependency-direction reason: it tests through the interface, never engine internals) and is linked into the binary, so `goodfetch plugins test` runs them (ADR 0033). Cases for the SDKs, the CLI and MCP run in those surfaces' own test runners and write the same result document. The Proving ground depends on neither `goodfetch-conformance` nor `goodfetch-protocol` (settled on the gaps the [Proving ground and conformance spec](https://github.com/Jbmanllr/automan/issues/152) listed, as the [owner settled them](https://github.com/Jbmanllr/automan/issues/152#issuecomment-6115242029)).
+  > Amended by [ADR 0068](0068-the-console-is-tested-in-real-browsers-and-served-by-the-real-binary.md): the Console conformance suite in `conformance/console/` runs on Playwright Test and writes the same result document through a Playwright reporter.
 - **Private components.** The public repository holds each Private component's interface, a no-op implementation that keeps the public engine whole, and that interface's conformance suite (ADR 0018). The private repository builds against public `main` every night and against every release candidate, stable release and patch. While that run is red, no release candidate, stable release or patch is published, so the challenge solver cannot silently fall out of a release. Public CI never sees private code or secrets.
 - **Release automation.** This settles the item ADR 0030 left to the specs.
   - **Versioning.** An in-house `xtask release`, a small Rust program, sets the product version in every released manifest. It keeps the internal `goodfetch-*` crates at `0.0.x` and leaves the Zapier and Make apps to their platforms' versioning (ADR 0030). It then writes the changelog with git-cliff and opens a release pull request.
@@ -67,6 +68,7 @@ Releases are **built once and published per registry**: no tool publishes crates
   - **Re-runs.** A re-run skips versions already published, and the tag is pushed only after npm succeeds.
   - **Installers.** The `curl | sh` and PowerShell installers are written by hand. Goodfetch's own Homebrew tap is updated by the release job.
 - **CI tiers.**
+  > Amended by [ADR 0061](0061-three-test-suites-each-run-by-one-just-command-under-a-time-budget.md): the tiers run three suites; the merge queue runs the Release suite, which holds the full matrix below, and `main` reruns nothing after the merge.
   - **Every pull request:**
     - One change-detection job decides what runs; workflow-level path filters are never used on required checks, because a skipped required check stays pending forever.
     - Formatting, lints and unit tests on Linux.
@@ -98,6 +100,9 @@ Releases are **built once and published per registry**: no tool publishes crates
 - **Visibility and organization.** The repository stays private until its first release. Before that release, the owner creates a GitHub organization and moves the repository into it. It becomes public when the first version's release pull request merges, before that version is built, because GitHub artifact attestations, which every release carries (ADR 0030), need a public repository unless the account is on GitHub Enterprise Cloud ([attest-build-provenance](https://github.com/actions/attest-build-provenance#readme)). The organization is `goodfetch` and the docs domain `goodfetch.dev` (ADR 0034); GitHub redirects the old URLs.
   - **Why an organization:** GitHub offers the merge queue to public repositories owned by an organization, and trusted publishers are configured per repository, so the move comes before the first publish. The organization also holds the private repository, the Homebrew tap and release rights for more than one maintainer.
   - **Until the repository is public:** private repositories pay for hosted-runner minutes, macOS most of all. The pull-request tier runs on Linux only, the full matrix runs on manual dispatch, and the nightly tier is off. Every tier above applies once the repository is public.
+
+    > Amended by [ADR 0064](0064-tests-are-never-retried-and-unpinned-checks-run-as-live-checks.md): the daily test-health job and a weekly constrained test-health run, both Linux, run while the repository is private too, within a ceiling of included minutes.
+
 - ADR 0033 adds two release artifacts built, attested and published with the engine: the Linux `goodfetch-sandbox` helper and the Windows filter broker.
 - ADR 0039 signs and notarizes every macOS and Windows executable between build and attestation, in signing jobs that alone reach a `release` environment, and keeps Homebrew a formula.
 - The nightly job that builds the Clean-up rules' daily channel is one of the jobs ADR 0043 lets reach named endpoints, and the channel is published only after its clean-up suites pass (ADR 0047).

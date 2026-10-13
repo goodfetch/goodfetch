@@ -421,7 +421,7 @@ A check of Goodfetch against something it does not pin, such as a vendor, a real
 _Avoid_: monitor, flaky test, informing job, canary (for a Live check)
 
 **Proving ground**:
-The website Goodfetch owns and generates, whose every page has a known expected result, against which the benchmark, the conformance suites and the Journeys run.
+The website Goodfetch owns and generates, whose every page has a known expected result, against which the benchmark, the Evaluations, the conformance suites and the Journeys run.
 _Avoid_: fixtures site, test site, sandbox, demo site
 
 **Evaluation**:

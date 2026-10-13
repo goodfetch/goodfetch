@@ -162,7 +162,7 @@ Applies to `sdks/typescript`, `console/`, `adapters/`, `integrations/` and `benc
   _Why:_ the published types then work whether or not the consumer enables `exactOptionalPropertyTypes`.
 - **oxlint with type-aware rules, and oxfmt for formatting.** `no-floating-promises` is an error.
   _Why:_ an unawaited promise loses its error silently; oxlint's type-aware rules run on the real TypeScript 7 checker.
-- **Libraries build with tsdown; tests run with Vitest on every supported Node line (ADR 0024), plus a smoke suite of the built package on Bun and Deno 2.**
+- **Libraries build with tsdown; tests run with Vitest on every supported Node line (ADR 0024), plus smoke scripts of the installed package on Bun, Deno 2 and the edge runtimes (ADR 0069).**
 - **Packages are ESM-only** (ADR 0024) and pass `publint` and `@arethetypeswrong/cli` before publishing. npm is the only registry.
 - **Named exports only; no TypeScript `enum`s** (string-literal unions instead).
 - **SDK idioms:**
@@ -178,7 +178,7 @@ Applies to `sdks/typescript`, `console/`, `adapters/`, `integrations/` and `benc
 
 Applies to `sdks/python`, the Python adapters and the uv workspace. Supported versions follow ADR 0024: every CPython not past end of life, including free-threaded builds.
 
-- **pyright in strict mode gates CI**, and mypy checks a small file that exercises the public API.
+- **pyright in strict mode gates CI**, and mypy `--strict` checks the generated code and the type tests that exercise the public API (`TESTING.md`, ADR 0069).
   _Why:_ pyright is what most editors show; the mypy check keeps the types right for mypy users too.
 - **ruff formats and lints**, with the rule sets `E F I UP B C4 ARG T20 TID251 PERF RUF ANN PYI TC ASYNC D`, ignoring `D206` and `D300`, which conflict with ruff's formatter.
   _Why:_ `ASYNC` catches blocking calls inside async code, and `T20` bans `print`.

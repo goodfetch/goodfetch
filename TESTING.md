@@ -68,3 +68,54 @@ Decided in [ADR 0059](docs/adr/0059-dependencies-are-injected-as-values-and-only
 
 - **SDK durations and jitter are options:** tests pass short values and a fixed seed. In TypeScript, Vitest fake timers may drive timer logic that never reaches the engine.
 - **The Console's end-to-end tests set time with Playwright's `page.clock`** (`setFixedTime` first). Its component tests use Vitest fake timers.
+
+## SDK and CLI tests
+
+Decided in [ADR 0069](docs/adr/0069-sdks-and-the-cli-are-tested-against-a-scripted-engine-and-the-binary-of-the-same-commit.md).
+
+### SDKs
+
+- **Unit tests run against the Scripted engine in-process**, through an in-memory transport; integration tests and Journeys run the `goodfetch` binary built from the same commit, given through `GOODFETCH_ENGINE_PATH`.
+  _Why:_ the binary can't fabricate a refused `hello` or a crash mid-call, and a fake alone passes where the engine fails.
+- **Scripts live only in `test-support/fixtures/engine-scripts/`**, never inline in a test. Every message in them must validate against the committed JSON Schema bundle.
+  _Why:_ one validated corpus keeps the stand-in true to the engine for every SDK at once.
+- **Process faults use `goodfetch-scripted-engine`**, reached as an Attached engine through `GOODFETCH_ENGINE_PATH` or as a Daemon through a runtime file in the test's Goodfetch home. No build of `goodfetch` carries a fault switch.
+- **No process outlives its test:** the test-support fixtures fail a test that leaves an engine, Daemon or handler process alive after teardown.
+- **Every Client conformance case in `conformance/clients/` is implemented on every surface it lists**, carries its case ID, and runs with an Attached engine and with a Daemon. A Quick-suite check fails on a missing implementation or an unknown ID.
+- **Each runner writes a case log; only `goodfetch-conformance`'s writer turns it into a result document.** A declared case missing from the log is `unproved`.
+- **Completeness tests** check that every catalog operation, Error code and event has its generated counterpart in each SDK.
+- **Generated code is type-checked** by `tsc` with `skipLibCheck: false`, pyright strict and mypy `--strict`.
+- **Mapping and decoding are property-tested** (fast-check, hypothesis): user-data values with any keys, `__proto__` included, come back unchanged.
+- **Type tests:**
+  - TypeScript: `*.test-d.ts` files with `expect-type`'s `expectTypeOf` and `@ts-expect-error`, compiled by `tsc --noEmit` against the built `.d.ts`. Not Vitest's `typecheck` mode, tsd or TSTyche.
+  - Python: `tests/types/` files with `typing.assert_type` and `# type: ignore[code]`, under pyright strict with `reportUnnecessaryTypeIgnoreComment = "error"` and under mypy `--strict`.
+- **Python:**
+  - the test-support plugin's `anyio_backend` lists `asyncio` and `trio` explicitly, and a missing trio fails the session;
+  - every Client conformance case runs on asyncio, on trio and through the sync API;
+  - free-threaded builds run the whole suite with `PYTHON_GIL=0`, and fail if the GIL is on; the sync API's unit tests also run under pytest-run-parallel.
+- **TypeScript runtimes:** Vitest runs on Node with the `forks` pool. Bun, Deno 2, `workerd` and Vercel's edge runtime run the `smoke/*.mjs` scripts (only `node:assert`), each spawned by a Vitest test.
+- **Installed packages:**
+  - npm packages install from Verdaccio with no uplink, with npm, pnpm, Yarn, Bun and Deno, into a path with a space and a non-ASCII character; `--omit=optional` must fail at first use with Goodfetch's error;
+  - wheels install into a fresh environment (`uv pip install --no-index --find-links`, and `pip`) and run `tests/integration` unchanged, on glibc and Alpine;
+  - the crate builds a temporary consumer from `cargo package`'s output.
+- **Models are scripted only through the testing kit's Scripted model** (`goodfetch::testing`, `goodfetch/testing`, `goodfetch.testing`).
+
+### CLI
+
+- **The binary runs under assert_cmd and is snapshotted with insta**, through `goodfetch-test-support`'s helper. One snapshot holds stdout, stderr and the exit code.
+- **Every `--json` test validates stdout against the command's schema** from the bundle, checks that stdout holds nothing else, and snapshots it.
+  _Why:_ `--json` is under semver (ADR 0030), and only a schema puts it in the breakage check.
+- **Warnings, hints, deprecations and the age notice never reach stdout.**
+- **Every exit code in `goodfetch-protocol`'s table has a test through the binary.**
+- **Human output is snapshotted under `NO_COLOR=1`, a fixed `COLUMNS`, `TERM=dumb` and a fixed locale.** The `--help` tree is one snapshot, and a unit test calls clap's `Command::debug_assert`.
+- **Terminal-only behaviour is tested in a pseudo-terminal with expectrl:** colour, progress, and person-only prompts, which must refuse when stdin is not a terminal.
+- **A command that runs the engine is tested in both modes**, as rstest cases `attached` and `daemon`, against one snapshot.
+- **Client faults** (a refused protocol version, a dead PID, a dropped connection) come from the Scripted engine run as a Daemon.
+
+### Where they run
+
+| Suite | SDKs | CLI |
+|---|---|---|
+| Quick | unit tests, type tests, completeness and property tests, script validation, the case-list check | in-process unit tests, `--help` snapshot, `debug_assert`, exit-code table |
+| Pre-merge | touched SDKs on Linux with the newest Node LTS and CPython: integration, Client conformance, Scripted engine process, one installed-package run | every `tests/it` case, both modes, pseudo-terminal, interrupts |
+| Release | every Node line, Bun, Deno and CPython (free-threaded included) on Linux x64; oldest and newest Node and CPython on every other platform; every install path on every OS; free-threaded builds on every OS | everything, on every platform |

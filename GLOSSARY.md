@@ -419,3 +419,7 @@ _Avoid_: fixtures site, test site, sandbox, demo site
 **Size budget**:
 The largest size each released file of Goodfetch may reach on each platform, and the growth a single change may add without an explicit, recorded acceptance.
 _Avoid_: size limit (alone), quota, bloat check
+
+**Scripted engine**:
+A stand-in for the engine used only in tests, which plays one script of protocol messages to a Client and fails on any message it did not expect or any step left unused.
+_Avoid_: fake engine, mock engine, mock server

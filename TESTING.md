@@ -990,9 +990,10 @@ Each suite contains the one before, so the table gives the first suite that runs
 ### Docs code samples
 
 - **Give every fenced block in `docs/` a language;** use `text` for output and prose. The docs build fails on an empty info string.
-- **`xtask docs-samples` extracts every sample** from `.md` and `.mdx` pages into `target/docs-samples/`, with a manifest. A sample missing from the manifest, or a runner whose case count differs from it, fails the check.
-- **Tag a block that can't run `no_run`** after its language. It is still compiled, type-checked or linted. No other marker.
-- **Each surface's tests run its samples:** `twoslash` type-checks `ts` and `tsx` in the docs build (our own remark plugin, on the TypeScript 6 alias) and the TypeScript SDK's tests run them; Ruff lints and the Python SDK's pytest runs `python`; `#[cfg(doctest)]` includes in `goodfetch` run `rust`; trycmd runs the `.trycmd` files from the binary crate's `tests/it` (`...` for any lines, `[..]` within a line); an MCP server test plays each `json` request and answer pair through `rmcp`.
+- **`xtask docs-samples` extracts every sample** from `.md` and `.mdx` pages into `target/docs-samples/`, with a manifest. The docs build's remark plugin lists every sample block it sees; a difference between that list and the manifest, or a runner whose case count differs from the manifest, fails the check.
+- **Tag a block that can't run `no_run`** after its language. A `rust`, `ts` or `python` block is still compiled, type-checked or linted; a `console` block or an MCP pair is only listed in the manifest.
+- **Mark MCP samples `json mcp-request` and `json mcp-answer`.** Other `json` blocks are not samples.
+- **Each surface's tests run its samples:** `twoslash` type-checks `ts` and `tsx` in the docs build (our own remark plugin, on the TypeScript 6 alias) and the TypeScript SDK's tests run them; Ruff lints and the Python SDK's pytest runs `python`; `#[cfg(doctest)]` includes in `goodfetch` run `rust`; trycmd runs the `.trycmd` files from the binary crate's `tests/it` (`...` for any lines, `[..]` within a line); an MCP server test plays each `mcp-request` and `mcp-answer` pair through `rmcp`.
 - **Run samples against the binary built from the commit and a local Proving ground,** never the online one. Hide setup with the tool's own convention (`# ` in Rust, `---cut---` in Twoslash).
 - **Only `docs/` (`next`) runs.** Frozen versions were tested at their release.
-- **Pre-merge:** the affected samples on one runtime. **Release:** every sample on its surface's full matrix.
+- **Pre-merge:** the affected samples on one runtime. **Release:** every sample on its surface's own matrix ([SDK and CLI tests](#sdk-and-cli-tests), [MCP, framework adapters and Integrations](#mcp-framework-adapters-and-integrations)).

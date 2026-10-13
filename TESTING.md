@@ -17,6 +17,7 @@ How Goodfetch is tested: every surface, at every level. Each rule comes with its
 11. [Review checklist](#review-checklist)
 12. [Suites, commands and time budgets](#suites-commands-and-time-budgets)
 13. [AI features and agent skills](#ai-features-and-agent-skills)
+14. [Journeys](#journeys)
 
 Sections 1 to 7, 10 and 11 are decided in [ADR 0062](docs/adr/0062-tests-sit-beside-their-code-and-share-one-test-support-written-once.md).
 
@@ -418,3 +419,51 @@ Decided in [ADR 0065](docs/adr/0065-ai-features-are-tested-without-live-models-a
 - **After a confirmed Evaluation regression, read the failed trials' Run traces** before accepting or fixing it.
   _Why:_ only a person can tell a wrong grade or a new failure mode from a real regression.
 - **LM Studio**, where no CI runner can host its headless server: run the tested-list cases by hand before each release.
+
+## Journeys
+
+Decided in [ADR 0063](docs/adr/0063-end-to-end-tests-follow-a-catalog-of-numbered-journeys-kept-in-the-repository.md). A Journey is a goal a person reaches through Goodfetch's public surfaces; Journeys are the end-to-end tests.
+
+### The catalog
+
+- **One Journey per file, `journeys/J-NNN.toml`**, validated by `journeys/journey.schema.json`, which `xtask codegen` emits. Unknown fields fail.
+- **A new Journey takes the number in `journeys/catalog.toml`** and increments it in the same pull request. If another pull request merged the same number first, take the next one.
+- **Never change an ID on `main`, and never reuse one.**
+- **Never change a Journey's `goal` under its ID.** Fix wording, steps, data or surfaces freely; for a different goal, set `status = "retired"` with `reason` and `replaced_by`, keep the file, and add a new Journey.
+- **Write `goal` with RFC 2119 words**, readable as a specification without the code.
+- **Write steps declaratively** ("export the Dataset as CSV"), never as clicks or flags, so the wording survives a change of implementation. Pin a step with `on` only when the goal needs that surface; give `manual` a reason only when no automated check can do it.
+- **List every surface on which a person can reach the goal**, each with the milestone by which it must be proved, never earlier than the surface ships.
+- **Fill `covers` with feature IDs** (`row:CO-18` for an ADR 0037 row).
+- **Keep a Journey to its goal.** Edge cases, Error codes and limits go to unit, integration and conformance tests.
+- **Each area's `/to-spec` adds the Journeys of its user stories**, and each ticket names the variants (`J-NNN@<surface>`) it makes pass.
+
+### Data and isolation
+
+- **Each Journey that uses Proving ground pages has its own `seed`.** Never share one between Journeys. A Journey that touches no page has none. `GOODFETCH_TEST_SEED` never overrides a Journey's seed.
+- **Pin each Proving ground task a Journey names with its `digest`** from the task list. The digest ignores the port, so the same seed gives the same digest on every run.
+- **Each variant run starts from scratch:** its own Proving ground on port 0 with the Journey's seed, its own Goodfetch home and cleared environment, `resolve` mapping the Proving ground's hosts to loopback, and its certificate authority trusted through the per-domain exception.
+- **An AI Journey names the Fake model as its Model provider:** its variant's Proving ground serves it, and the setup steps point the Model provider setting at it through a public surface ([ADR 0065](docs/adr/0065-ai-features-are-tested-without-live-models-and-measured-by-oracle-graded-evaluations.md)). Never the Scripted model, never a live model.
+- **Build the starting state through public surfaces** in the first steps. Never copy in a run file, database or home folder, except an older-format file for an upgrade Journey.
+- **Run against the local copy only.** Online results stay conformance reports.
+- **Drive the shipped artefacts**: the `goodfetch` binary and the SDK packages built from the commit, never an engine linked into the test.
+- **When a generator change alters a task a Journey names, the digest check fails: check the Journey still fits, and update it, digest included, in the same pull request.** Task ordinals are append-only within a family; never reuse one.
+
+### Tests and results
+
+- **Carry the ID where the runner selects by it:**
+  - nextest: a module `j002` (the ID lowercased, hyphen dropped) in the test's path;
+  - Vitest: the tag `J-002`, declared from the catalog, `strictTags` on;
+  - pytest: `@pytest.mark.journey("J-002")`, registered, `strict_markers` on;
+  - Playwright Test: the tag `@J-002`.
+- **Put a surface's Journey tests in a `journeys` folder of the package that ships it**, one file per Journey: `tests/it/journeys/j002.rs` in Rust, `tests/journeys/J-002.test.ts` (Vitest) or `J-002.spec.ts` (Playwright) in TypeScript, `tests/journeys/test_j002.py` in Python.
+- **Start a variant's Proving ground, home and environment through test support** (`goodfetch-test-support`, or `goodfetch-test-env` through the `test-support/` packages), and drive the shipped binary.
+- **Journey tests run with their package's integration tests**: in the Pre-merge suite when the package is touched, and in the Release suite.
+- **One test per variant.**
+- **Each variant run writes one result document with `kind = "journey"`.** Never set its outcome by hand: derive it from the steps, the checks and the oracle's answers, through the Rust constructor or a helper that passes the shared outcome vectors. A step not reached, or any Proving ground task not `verified`, fails the variant. Readers recompute the outcome and reject a document that disagrees, or whose steps, checks and named Proving ground tasks are not exactly its Journey's. The shared outcome vectors are in `test-support/fixtures/outcome-vectors/`.
+- **The catalog check fails** on a file that does not parse, an ID that differs from its file name, repeats or is not below the next free number, a Proving ground task missing from the task list for the seed or whose digest differs, a test naming a retired or unknown Journey or an unlisted surface, two tests for one variant, a variant milestone earlier than its surface, or a retired Journey without a reason.
+
+### Owner tests
+
+- **List an owner test's "Journeys to try" from the catalog:** every variant of its milestone, by ID and title, with its manual steps.
+- **An owner test is ready only when every automated variant of its milestone is `proved` on `main`.**
+- **A finding on a goal no Journey covers adds a Journey.**

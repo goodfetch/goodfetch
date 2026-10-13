@@ -37,7 +37,13 @@ Decided in [Security testing](https://github.com/Jbmanllr/automan/issues/288) (g
   - A crash whose input also crashes the previous continuous build is a known one: it joins its advisory, or opens one if it has none.
   - A new crash opens a private security advisory draft on the main repository, never a public issue. Repository security advisories exist only on public repositories, so until the main repository is public, a crash opens an issue in the private fuzz repository instead. Either replaces ADR 0064's `live-check` issue.
   - Once the main repository is public, the fix lands from the advisory's private fork under `SECURITY.md`'s coordinated disclosure (ADR 0030); before that, through an ordinary pull request, which is private too. The crasher, minimised with `cargo fuzz tmin`, is committed with the fix as a regression input.
-- **What it blocks.** An open fuzz crash (its advisory draft, or its issue in the private repository) blocks the promotion of the next minor until it is fixed, or until triage (manual test 2) closes it as not a vulnerability. Patches are not held, since a patch may carry the fix. The private fuzz repository reports an **open fuzz crashes** status on the candidate's commit, red while any is open, as the private repository reports the Private component run (ADR 0032). Promotion to `x.y.0` waits for it with the beta week's other gates, so a crash found during the beta week still holds the minor.
+- **What it blocks.** An open fuzz crash (its advisory draft, or its issue in the private repository) blocks the promotion of the next minor until it is fixed, or until triage (manual test 2) closes it as not a vulnerability. Patches are not held, since a patch may carry the fix. It is enforced through one neutral commit status, **private gates**:
+  - It covers the Private component run and fuzzing together. It is `pending` while either blocks, and `success` otherwise, never `failure`.
+  - Its description is fixed and it has no link, so a held promotion looks the same as a red private build, and a public commit never shows that a crash exists.
+  - The private repositories post it on each release candidate's commit, and again on the latest candidate's commit whenever a fuzz crash opens or closes or the Private component run changes state.
+  - Promotion to `x.y.0` reads it when it starts, with the beta week's other gates, so a crash found during the beta week still holds the minor.
+  - Only promotion reads it. Release candidates and patches keep ADR 0032's own Private component check, so a fuzz crash never holds a patch.
+  - It is posted with the **private gates App**, a GitHub App installed on the main repository with only commit-status write and, once the main repository is public, repository-advisory read, so that it can see open advisory drafts. Its private key is a secret of the private repositories, held only by the job that posts.
 - **Corpus.** Seeds and a dictionary are committed per target. The grown corpus stays in the private repository.
 - **Toolchain.** Fuzzing and the ASan run use one nightly toolchain pinned in its own file, apart from `rust-toolchain.toml`, since both need `-Zsanitizer`.
 - **OSS-Fuzz.** Its rule is "a significant user base and/or" critical infrastructure, so the owner applies once Goodfetch is published and has users. Its fuzzing then replaces the private batch run. OSS-Fuzz keeps its reports private until fixed.
@@ -181,13 +187,13 @@ Only these stay manual:
   - `gitleaks` over outputs joins every job;
   - the ASan run, the V8 memory-corruption scripts and the ZAP baseline join the Release suite;
   - the test V8 build job runs on each pull request that changes the V8 version, as its own required check, and publishes the build as an attested release asset whose digest is committed;
-  - promotion to `x.y.0` also waits for the private fuzz repository's open fuzz crashes status, which is red while a fuzz crash is open, beside the Private component run;
+  - the beta week's gates gain the private gates status, which covers the Private component run and open fuzz crashes and is posted by the private gates App; ADR 0032 carries a one-line note, since its list of those gates is closed;
   - fuzzing runs in a private repository, under the owner's approval of its minutes;
   - every container image a workflow runs is pinned by digest, as Actions are pinned by SHA;
   - the IANA and advisory watch jobs run none of the product, so they sit outside ADR 0043's rule, like the watchlist job.
 - **Adds to [ADR 0064](0064-tests-are-never-retried-and-unpinned-checks-run-as-live-checks.md)'s Live checks table** a fuzzing row: owned by area 4; tier: every push to `main` and nightly, in the private repository; what it blocks: the promotion of the next minor while a fuzz crash is open; decided in ADR 0067.
 - **Amends ADR 0064 for fuzzing alone.** Its results stay in the private repository, never in the results store, and a crash goes to a private advisory draft, or to an issue in the private repository before the main one is public, never to a `live-check` issue. ADR 0064 carries a one-line note.
-- **Adds to ADR 0043:** the test V8 build joins the pinned downloads. Only the Release-suite job fetches it, by digest, before the deny.
+- **Adds to ADR 0043:** the test V8 build joins CI's pinned artifact mirror, as a CI-only entry that the Release-suite job fetches by digest before the deny. It is not one of the product's pinned downloads.
 - **Adds to ADR 0030:** `SECURITY.md` publishes what counts as a vulnerability: anything that crosses a trust boundary of `TESTING.md`'s table, any memory unsafety, and a limit that never fires. A new fuzz crash follows its coordinated disclosure, and an open one blocks the promotion of the next minor, as above.
 - **Adds to ADRs 0017, 0049 and 0051:** the tests of the resolved-IP check, Chromium's sandbox and the Script sandbox worker described above.
 - **Changes area 1's spec** ([Spec: Repository, CI and release (V1 area 1)](https://github.com/Jbmanllr/automan/issues/130)). It gains:

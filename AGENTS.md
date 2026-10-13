@@ -6,6 +6,12 @@ Web scraping and automation framework project. `rnd/` holds the R&D material (pr
 
 Delivery mode: autonomous. Agents merge their own pull requests after a fresh review recorded on the pull request's exact head and green required checks. Deploying to production and running production migrations still need the owner's explicit request. Production means running services (the online Proving ground, Goodfetch Cloud); a release through the gated pipeline of ADRs 0030 and 0032 is not a production deploy, nor are the docs site's deploys from `main` (ADR 0030); neither needs a separate request.
 
+## Release status
+
+Release status: pre-release. Nothing has been published on any channel, no one outside the project runs Goodfetch, and any running service holds only test data. Change a contract, setting, format or stored shape in place: update every caller, regenerate with `xtask codegen` and commit its output in the same change, and add no alias, shim, fallback, deprecation or migration for an earlier state of this repository. A contract format's version does not change before Goodfetch is published, so no reader for an earlier shape is owed. Deploying to, migrating or resetting a running service still needs the owner's explicit request (Delivery).
+
+The compatibility the product promises its users is V1 scope and is built as its ADRs specify, including ADR 0030's versioned contract formats with their readers, `goodfetch upgrade-files`, and semver and deprecation from 1.0 (any `0.y` preview minor may break); the Usage ledger's add-only versions and *must understand* Limits (ADR 0041); and the Clean-up rules' format majors (ADR 0047). The owner switches this to released when Goodfetch is first published on any channel (the nightlies and the `0.y` previews start in M4, ADR 0058), and ADR 0030 and each format's own ADR then govern every breaking change.
+
 ## Code style
 
 Code follows [`STYLE.md`](STYLE.md), and the contracts follow ADR 0038. Traps that break things:

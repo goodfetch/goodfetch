@@ -29,6 +29,7 @@ Decided in [Test layout, naming, shared helpers and the test-first process](http
 | Python package | `tests/unit/`, mirroring the module paths under `src/` | `tests/integration/`, importing only the public package |
 
 - **A unit test reaches only the module's interface**: the items its callers use. It never calls a private function. Product code has no `#[cfg(test)]` branch and no `pub` item added for tests.
+  > Amended by [ADR 0060](0060-distributed-and-crash-behaviour-is-simulated-on-tokio-model-checked-and-faulted-at-io-seams.md): the `sync` modules' `goodfetch_loom` switch is the one test-only `cfg` in product code.
 - **A Rust crate splits its integration tests into named area harnesses** (`tests/<area>/main.rs`, with `autotests = false`) only when its pull request shows a localized test edit taking more than 5 seconds to rebuild with one harness. uv measured 7.52 s falling to 2.60 s with area harnesses, and per-file binaries cost more everywhere.
 - **Tests of the `goodfetch` binary** live in the binary crate's `tests/it`, and find the binary through `CARGO_BIN_EXE_goodfetch`, never a guessed path under the build directory.
 - **Python tests run with `--import-mode=importlib` and pytest 9's `strict = true`.** pytest's mirrored `tests/unit/` path is the nearest it supports without shipping tests in the wheel. The installed-wheel run of [SDK and CLI test stack](https://github.com/Jbmanllr/automan/issues/285) can then run `tests/integration` unchanged.

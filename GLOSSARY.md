@@ -424,6 +424,18 @@ _Avoid_: monitor, flaky test, informing job, canary (for a Live check)
 The website Goodfetch owns and generates, whose every page has a known expected result, against which the benchmark, the Evaluations, the conformance suites and the Journeys run.
 _Avoid_: fixtures site, test site, sandbox, demo site
 
+**Simulation**:
+A test that runs several Goodfetch engines or Daemons in one process over a simulated network and simulated time, all drawn from one seed, so that a failure replays exactly.
+_Avoid_: chaos test, emulation, sim (alone)
+
+**Fault plan**:
+The explicit list of faults, such as crashes, power cuts and partitions, and of Client operations that one test applies at named moments.
+_Avoid_: nemesis, fault schedule, chaos script
+
+**Observation log**:
+The ordered list of every operation, answer and fault of one Simulation or fault test, against which its invariants are checked. It is a test's record, never a run's.
+_Avoid_: history, trace (alone), event log
+
 **Evaluation**:
 A measurement of an AI capability with live models on Proving ground tasks, repeated over trials and graded by the Proving ground's oracle, never by a model.
 _Avoid_: eval test, AI test, benchmark (alone: the benchmark is what is published)

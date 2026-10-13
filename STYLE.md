@@ -134,7 +134,8 @@ Across all of them:
   _Why:_ each file in `tests/` links its own binary, which multiplies build time.
 - **Doctests only on `goodfetch`**, where they are the examples of ADR 0030.
 - **Test names describe the behaviour** (`resumed_run_never_repeats_an_effect`), with no `test_` prefix.
-- **A flaky test is quarantined with an issue, never retried silently.**
+- **A test is never retried.** A flaky test is reverted or quarantined the same day, with an issue that comes first and blocks its milestone and every release (ADR 0064, rules in [`TESTING.md`](TESTING.md)).
+  _Why:_ a retry turns a real race into a green run, and people stop trusting red ones.
 - The conformance suites of the ADRs stay the interface tests for every contract with several implementations.
 
 ### Documentation in code

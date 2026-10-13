@@ -412,6 +412,14 @@ _Avoid_: code signing (alone), signature (alone), certificate
 
 ## Measurement
 
+**Flaky test**:
+A test that passes and fails with the same pinned inputs. Unlike Drift, the fault is in the test or the product, never in the site.
+_Avoid_: flake, intermittent test, unstable test
+
+**Live check**:
+A check of Goodfetch against something it does not pin, such as a vendor, a real SaaS account, a live model or a moving Chrome channel, run outside the test suites and ending in pass, fail or inconclusive.
+_Avoid_: monitor, flaky test, informing job, canary
+
 **Proving ground**:
 The website Goodfetch owns and generates, whose every page has a known expected result, against which the benchmark and the conformance suites run.
 _Avoid_: fixtures site, test site, sandbox, demo site

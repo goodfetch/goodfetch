@@ -68,3 +68,58 @@ Decided in [ADR 0059](docs/adr/0059-dependencies-are-injected-as-values-and-only
 
 - **SDK durations and jitter are options:** tests pass short values and a fixed seed. In TypeScript, Vitest fake timers may drive timer logic that never reaches the engine.
 - **The Console's end-to-end tests set time with Playwright's `page.clock`** (`setFixedTime` first). Its component tests use Vitest fake timers.
+
+## Flaky tests and Live checks
+
+Decided in [ADR 0064](docs/adr/0064-tests-are-never-retried-and-unpinned-checks-run-as-live-checks.md). The suites (`quick`, `pre-merge`, `release`) and their CI tiers are those of [Test suites, local commands and time budgets](https://github.com/Jbmanllr/automan/issues/276).
+
+### What is a test
+
+- **A test pins every input:** commit, Proving ground seed, `Entropy` seed, browser build, images by digest, recorded model exchanges. A **flaky test** passes and fails with the same inputs.
+- **A check with an input that moves without a commit is a Live check.** It never goes in a suite.
+  _Why:_ a vendor's change or outage is then never mistaken for a broken change.
+
+### No retries
+
+- **Runners keep zero retries with every lock on:** nextest `retries = 0` and `flaky-result = "fail"` in every profile; Vitest `retry: 0` with no per-test `retry`; Playwright `retries: 0` and `failOnFlakyTests: true`; no pytest rerun plugin and no `flaky` marker.
+- **No workflow step retries a test:** no retry action, no shell loop, no `continue-on-error` on a test step.
+- **No test loops until it passes.** Wait on a condition with a deadline (auto-waiting, `expect.poll`, a CDP event, a state you can name); never repeat the action under test until it succeeds.
+- **The no-retry check in `quick` refuses all of the above.** Downloads before the deny of ADR 0043 may retry: they test nothing.
+- **Re-run a failed job only when no test step failed in it** (lost runner, failed download). The "all green" job fails when an earlier attempt of its run had a failed test step.
+- **Never assert elapsed real time, a rate or a duration.** Those are measurements.
+
+### Before merge
+
+- **Every new or changed test runs 20 times in the pull request**, and one failure fails it. New: absent from the base commit's listing. Changed: its file changed. The run is sharded to fit the budget; the count is never lowered, and nothing skips it.
+- **Taking a test off the quarantine list takes 200 passing runs** in that pull request.
+- **Tests run in random order, seed printed:** pytest-randomly, Vitest `sequence.shuffle.tests`, Playwright `--shuffle` with `fullyParallel`; nextest runs each test in its own process. The seed comes from the commit's tree hash on pull requests, the merge queue and `main`, and is fresh each night. Pass it back to reproduce an order.
+- **Vitest resets shared state:** `restoreMocks`, `unstubEnvs` and `unstubGlobals` are on.
+- **Leaks and hangs fail:** nextest's leaky result is `fail`, every test has its suite's hang timeout, and Vitest's `detectAsyncLeaks` runs nightly.
+
+### After merge
+
+- **Every runner writes JUnit XML in every tier and attempt, pass or fail.** An ingest workflow, which runs none of the product, copies it to the results store: the `test-results` repository, one compressed file per run attempt, with a record per test run (test ID, runner, suite, tier, job, OS, architecture, runtime, shard, commit, tree hash, run, attempt, outcome, duration, order and `Entropy` seeds). Nothing is pruned.
+- **Allure Report 3 shows the history,** built nightly from the store.
+- **A test is flaky when** it passed and failed on the same tree hash and configuration, or when a diagnostic run (20 more runs at the same commit, after a failure in the merge queue, on `main` or nightly) passes it at least once. A diagnostic run never changes a verdict.
+- **One nightly Linux job runs `pre-merge` with half the runner's CPU and memory**, to expose resource-sensitive tests.
+
+### When a test flakes
+
+1. CI opens (or reopens) one `flaky-test` issue for it, in the current milestone.
+2. The same day: if the test or the code it covers changed in the last 7 days, revert that pull request with a new one; otherwise add the test to the quarantine list with its issue.
+3. `flaky-test` issues come first on the frontier.
+4. Fix the cause. A longer timeout alone, a sleep or a retry is not a fix. A race or leak in the product is fixed in the product, and the test stays as it was.
+5. The fix takes the test off the list after 200 passing runs; the issue closes when it merges.
+
+- **The quarantine list is one file in the repository.** Each entry has a test ID, its open `flaky-test` issue and a date; the `quick` check refuses an entry without an open issue or naming a test that no longer exists.
+- **Quarantined tests still run** 50 times each night, into the results store.
+- **A quarantined test blocks** its milestone's gate, every release (`xtask release` refuses while the list is not empty), and counts its feature as untested.
+- **Never delete a test.** Fix it, or move its unpinned part to a Live check. A test whose behaviour left the product is removed by the owner: propose the paths and commands.
+
+### Live checks
+
+- **Each Live check has an owning area and a placement** listed in ADR 0064: real SaaS Sinks, Chrome dev and beta, public testnets, the Clean-up rules' daily gate, the online conformance, the benchmark, the Cloud Run deploy, live-model evaluations, Scorecard.
+- **Outcomes are pass, fail or inconclusive.** Inconclusive means the external side was unavailable; it never counts as a pass.
+- **Results go to the results store** under the `live` tier.
+- **A fail, or three inconclusive runs in a row, opens or updates one `live-check` issue.** If its cause is not stated within two business days, the next minor is not promoted until it is. Patches are not held, and the online conformance never blocks (ADR 0043).
+- **A measurement declares its trials, threshold and statistic before it runs,** and every trial counts. A failed trial is never replaced.

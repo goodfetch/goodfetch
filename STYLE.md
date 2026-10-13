@@ -55,9 +55,13 @@ The design vocabulary is the one of `codebase-design`: a **module** has an **int
 ### Async and concurrency
 
 - **Tokio is the runtime, and concurrency is structured** (ADR 0038): child cancellation tokens from the engine process (an Attached engine or the Daemon) to each run, Session and page; each owner waits for its own tasks before it stops.
-- **No task starts outside an owner's tracker.** Spawn through it (`TaskTracker::spawn`, `TaskTracker::spawn_blocking`); a Clippy `disallowed-methods` rule bans `tokio::spawn`, `tokio::task::spawn_blocking`, `tokio::task::spawn_local`, `Handle::spawn`, `Handle::spawn_blocking`, `Runtime::spawn`, `Runtime::spawn_blocking` and `LocalSet::spawn_local` outside the module that implements this. A tracked task may own a `JoinSet` for a fan-out whose results it awaits before it returns.
+- **No task starts outside an owner's tracker.** Spawn through it (`TaskTracker::spawn`, `TaskTracker::spawn_blocking`); a Clippy `disallowed-methods` rule bans `tokio::spawn`, `tokio::task::spawn_blocking`, `tokio::task::spawn_local`, `Handle::spawn`, `Handle::spawn_blocking`, `Runtime::spawn`, `Runtime::spawn_blocking`, `LocalSet::spawn_local`, `std::thread::spawn`, `std::thread::Builder::spawn` and `std::thread::scope` outside the module that implements this (`tasks`). A tracked task may own a `JoinSet` for a fan-out whose results it awaits before it returns.
   _Why:_ an orphan task outlives its cancelled run and keeps writing.
-- **Never block an async worker.** Blocking I/O and CPU-heavy work go to the owner's tracked `spawn_blocking`, or to a dedicated thread (an actor's, for example) that its owner joins before it stops; `std::thread::sleep`, blocking `std::process::Command` and blocking `std::fs` calls are disallowed in async crates.
+- **Never block an async worker.** Blocking I/O and CPU-heavy work go through the `tasks` module's blocking policy, a value: the owner's tracked blocking threads, or a dedicated thread (an actor's, such as the run's SQLite writer) that `tasks` starts and its owner joins before it stops. In the Simulation the same policy runs blocking calls inline and a dedicated thread's body as a task on the host's runtime (ADR 0060); `std::thread::sleep`, blocking `std::process::Command` and blocking `std::fs` calls are disallowed in async crates.
+- **Sockets and runtimes have one place each** (ADR 0060).
+  - Connections the Simulation carries (stdio of an Attached engine, the Daemon's socket and named pipe, loopback TCP, the WebSocket listener, the private endpoint, the ops listener, the peer link, wake endpoints) are opened only in `goodfetch-engine`'s `transport` module, which takes the network as a value; `rpc` takes its connections from it. `disallowed-types` lists the socket types of `std::net`, `std::os::unix::net`, `tokio::net` and Tokio's named pipes, and `disallowed-methods` lists `tokio::io::stdin`, `tokio::io::stdout` and `std::io::stdin`. Fetch sockets behind the egress checks, the CDP connection, plugin-protocol pipes and third-party clients open their own, each module with an `#[expect]` naming ADR 0060.
+  - Only `main` and test helpers build a Tokio runtime (`Runtime::new`, `Builder::new_current_thread`, `Builder::new_multi_thread`, `#[tokio::main]`), and `tokio::task::block_in_place` is in `disallowed-methods`.
+  _Why:_ the same engine code then runs on the OS, the in-memory transport pair and the Simulation, and replays from a seed.
 - **Never hold a lock across `.await`.**
 - **Every public async function has a `# Cancel safety` section** saying what is lost if its future is dropped.
 - **Public futures are `Send`**, checked by a compile-time assertion on the main entry points.
@@ -112,11 +116,11 @@ For anything non-trivial, a known and widely used project is preferred to writin
 
 - **A capability is never a Cargo feature** (ADR 0038): stealth, the Challenge solver, AI and costly controls are settings.
 - **Features exist only on the embeddable `goodfetch` crate**, only for heavy optional dependencies and `test-util`, and they are additive. The binary builds one fixed set, and `cargo-hack` checks every combination of `goodfetch`'s features.
-- **Platform differences use `cfg(target_os = …)`, never features.** Custom `cfg`s are declared for `unexpected_cfgs`.
+- **Platform differences use `cfg(target_os = …)`, never features.** Custom `cfg`s are declared for `unexpected_cfgs`: `goodfetch_loom` for loom tests (ADR 0060), and `tokio_unstable` only because the Simulation's scenarios compile under it, in a job of their own. Under `goodfetch_loom`, a crate's `sync` module maps its atomics and locks to loom, and `disallowed-types` refuses the std atomic, `Mutex`, `RwLock` and `Condvar` types outside it.
 
 ### Tests
 
-The test rules live in [`TESTING.md`](TESTING.md) (where tests live, how they are written and named, shared helpers, fixtures, snapshots, injection and determinism, flaky tests and Live checks, the test-first process, suites, AI features and security tests; ADRs 0059, 0061, 0062, 0064, 0065 and 0067), apart from Design's "Tests go through the interface" and each language's runner choices below.
+The test rules live in [`TESTING.md`](TESTING.md) (where tests live, how they are written and named, shared helpers, fixtures, snapshots, injection and determinism, simulation, model checking and crash testing, flaky tests and Live checks, the test-first process, suites, AI features and security tests; ADRs 0059, 0060, 0061, 0062, 0064, 0065 and 0067), apart from Design's "Tests go through the interface" and each language's runner choices below.
 
 ### Documentation in code
 

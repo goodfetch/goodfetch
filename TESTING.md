@@ -374,6 +374,10 @@ The fresh review of a pull request checks its tests against this list:
 9. Fixtures are under 256 KiB, and generated ones have their `.source.toml` file.
 10. No helper is duplicated; shared setup is in test support.
 11. A new decoder, listener, Plugin kind, widening setting, Secret kind or output has its tests under [Security](#security).
+12. Each declared Feature is one the test asserts ([Feature coverage](#feature-coverage)).
+13. Each mutant that survives in changed code is killed, or the Verification section explains it.
+14. Each new exception names evidence no pinned test can replace.
+15. A spec change and its `features/stories/` file agree.
 
 ## Suites, commands and time budgets
 
@@ -533,7 +537,7 @@ Decided in [ADR 0063](docs/adr/0063-end-to-end-tests-follow-a-catalog-of-numbere
 - **Write `goal` with RFC 2119 words**, readable as a specification without the code.
 - **Write steps declaratively** ("export the Dataset as CSV"), never as clicks or flags, so the wording survives a change of implementation. Pin a step with `on` only when the goal needs that surface; give `manual` a reason only when no automated check can do it.
 - **List every surface on which a person can reach the goal**, each with the milestone by which it must be proved, never earlier than the surface ships.
-- **Fill `covers` with feature IDs** (`row:CO-18` for an ADR 0037 row).
+- **Fill `covers` with Feature IDs** (`row:CO-18` for an ADR 0037 row; every kind is in [Feature coverage](#feature-coverage)).
 - **Keep a Journey to its goal.** Edge cases, Error codes and limits go to unit, integration and conformance tests.
 - **Each area's `/to-spec` adds the Journeys of its user stories**, and each ticket names the variants (`J-NNN@<surface>`) it makes pass.
 
@@ -564,8 +568,8 @@ Decided in [ADR 0063](docs/adr/0063-end-to-end-tests-follow-a-catalog-of-numbere
 
 ### Owner tests
 
-- **List an owner test's "Journeys to try" from the catalog:** every variant of its milestone, by ID and title, with its manual steps.
-- **An owner test is ready only when every automated variant of its milestone is `proved` on `main`.**
+- **List an owner test's "Journeys to try" from the catalog:** every variant of its milestone, by ID and title, with its manual steps, plus the milestone's `manual` exceptions of [Feature coverage](#feature-coverage).
+- **An owner test is ready only when every automated variant of its milestone is `proved` on `main`,** and no Feature due at its milestone is untested ([Feature coverage](#feature-coverage)).
 - **A finding on a goal no Journey covers adds a Journey.**
 
 ## Upgrades and version mismatches
@@ -921,6 +925,7 @@ Decided in [ADR 0072](docs/adr/0072-every-feature-in-a-generated-inventory-has-a
 ### The Feature inventory
 
 - **Never edit `features/inventory.json` by hand.** `xtask codegen` generates it from ADR 0037's matrix, `features/stories/`, `features/rows.toml`, `features/areas.toml` and the contracts the code defines, and `xtask codegen --check` fails on drift.
+- **Every generator reads source files or Rust types in process.** `screen:` comes from the Console's route definitions read statically; if they can't be, from a committed `console/routes.json` that the Console's Pre-merge build checks for drift. The Quick suite never builds the Console to get it.
 - **Write a Feature as `<kind>:<id>`.** Declared kinds: `row:` (an ADR 0037 matrix row that is not `excluded`) and `story:<area>-<n>` (a spec's user story). Generated kinds: `operation:`, `error:`, `event:`, `setting:`, `command:`, `exit:`, `format:`, `plugin-kind:`, `block-cause:`, `sink:`, `mcp-profile:`, `skill:`, `adapter:`, `integration:` and `screen:`.
 - **A contract you add is a Feature in the same pull request,** and that pull request adds a test that declares it. The Quick suite fails until it does.
 - **Never renumber or reuse a story ID.** A new story takes its spec's next number; a removed one stays with `status = "retired"` and a `reason`.
@@ -935,10 +940,12 @@ Decided in [ADR 0072](docs/adr/0072-every-feature-in-a-generated-inventory-has-a
   - pytest: `@pytest.mark.covers("<feature id>")` or a module's `pytestmark`, under `strict_markers`;
   - Playwright Test: an annotation `{ type: "covers", description: "<feature id>" }` per Feature;
   - Journeys, conformance cases and Client conformance cases: their `covers` list.
-- **A test that declares an `operation:`, `error:`, `event:`, `command:` or `exit:` Feature must reach it.** The exercise audit reads the engine's structured log and test support's command record, and fails a declaring test that never called the operation, received the Error code or event, ran the command or saw the exit code.
+- **A test that drives the protocol and declares an `operation:`, `error:`, `event:`, `command:` or `exit:` Feature must reach it.** The exercise audit reads `rpc`'s dispatch records (the engine's structured log for the binary, the test `tracing` subscriber for in-process tests over the in-memory transport) and test support's command record, and fails a declaring test that never called the operation, received the Error code or event, ran the command or saw the exit code.
+- **A unit test that never reaches `rpc` may declare the `error:` or `event:` Feature it asserts,** but must assert the Error code or the event itself. The audit can't see it; the review checks it.
 
 ### What counts as tested
 
+- **Every Feature is tested, excepted or untested.** The gates fail only on untested Features.
 - **A Feature is tested** when, on `main`'s latest Release suite run, at least one test declares it, every declaring test ran and passed in every configuration it runs in, none is quarantined, every declaring Journey's variants of reached milestones are `proved`, and every declaring conformance case's capability is `proved`.
 - **A story with `journey = true` also needs a Journey that covers it.** `/to-spec` sets the flag on stories whose actor is a person using Goodfetch.
 - **Test a Feature once.** The per-surface completeness and conformance of [SDK and CLI tests](#sdk-and-cli-tests) and of the surface ADRs, and a Journey's variants, prove each surface.
@@ -946,33 +953,25 @@ Decided in [ADR 0072](docs/adr/0072-every-feature-in-a-generated-inventory-has-a
 
 ### Exceptions
 
-- **List a Feature no pinned test can prove in `features/exceptions.toml`,** with its `evidence` (`manual`, `live`, `check` or `none`), a `reason` and a `link` to the owner-test step, Live check, CI job or place where it is tested.
-- **Never except a Feature a pinned test can reach.** An exception never counts as tested, and the release pull request lists every one.
+- **List a Feature no pinned test can prove in `features/exceptions.toml`;** it is then excepted, never tested. Give it its `evidence` (`manual`, `live`, `check` or `none`), a `reason` and a `link` to the owner-test step, Live check, CI job or place where it is tested.
+- **Never except a Feature a pinned test can reach.** The release pull request lists every exception, and the owner test lists the `manual` ones as manual steps.
 
 ### The checks
 
 | Check | Suite or gate | Fails when |
 |---|---|---|
-| Feature check | Quick | the inventory is stale, a declaration names an unknown or retired Feature, a generated Feature has neither a declaring test nor an exception, a row has no milestone, a generated Feature has no area or two, or an exception is incomplete |
+| Feature check | Quick | the inventory is stale, a declaration names an unknown or retired Feature, a generated Feature has neither a declaring test nor an exception, a non-excluded matrix row has no milestone, a generated Feature has no area or two, or an exception is incomplete |
 | Exercise audit | Pre-merge (tests that ran), Release (all tests) | a declaring test never reached its Feature |
-| Milestone gate | the owner test (ADR 0058) | a generated Feature, or a declared Feature due at the milestone, is untested |
-| Release gate | `xtask release` | a Feature present in the release is untested |
+| Milestone gate | the owner test (ADR 0058) | a generated Feature, or a declared Feature due at the milestone, is untested (neither tested nor excepted) |
+| Release gate | `xtask release` | a Feature present in the release is untested (neither tested nor excepted) |
 
 - **Run `just features`** to see what the changed packages declare and miss.
 
 ### Code coverage and mutation testing
 
 - **Never gate on a percentage:** no `--fail-under-*`, no coverage or mutation score in any check, badge or pull request, and no coverage service.
-- **The coverage job runs in no suite** on Linux x64, weekly (nightly once the nightly tier is on): cargo-llvm-cov over nextest and over every run of the instrumented binary through `show-env`, Vitest's `v8` provider on Node and in Browser Mode, coverage.py with branches. Its results never decide a Feature's status. Run `just coverage` locally.
+- **The coverage job runs in no suite** on Linux x64, weekly (nightly once the nightly tier is on): cargo-llvm-cov over nextest and over every run of the instrumented binary through `show-env`, Vitest's `v8` provider on Node and in Browser Mode, coverage.py with branches. While the repository is private, it has a 60-minute timeout and its minutes count against the 1,000-minute ceiling of [Flaky tests and Live checks](#flaky-tests-and-live-checks); at the ceiling it is skipped first. Its results never decide a Feature's status. Run `just coverage` locally.
 - **Read coverage for gaps.** A function no test executes that hides a behaviour with no Feature gets a story, a Feature or a test.
-- **Every pull request that changes Rust code runs cargo-mutants `--in-diff`** with nextest on Linux x64, sharded within the 15-minute job budget, in a job that never fails on a survivor.
+- **Every pull request that changes Rust code runs cargo-mutants `--in-diff`** with nextest on Linux x64, sharded within the 15-minute job budget, in a job that never fails on a survivor and is not part of "all green". While the repository is private, it runs at most four shards per pull-request run and counts against the same ceiling, skipped right after the coverage job; the Verification section then says it was skipped.
 - **List each surviving mutant of your changed code in the Verification section,** with the test that now kills it or why it stays (an equivalent mutant; caught only by a doctest, by a Journey in another runner, or by another OS's test).
 - **Full mutation runs are weekly once the nightly tier is on:** cargo-mutants over the workspace, StrykerJS on the TypeScript SDK runtime and the Console's logic (its `command` runner until a release fixes [stryker-js#6210](https://github.com/stryker-mutator/stryker-js/issues/6210), then its Vitest runner and an in-diff pull-request job), and mutmut on the Python SDK runtime on Linux.
-
-### Review
-
-The fresh review also checks that:
-1. each declared Feature is one the test asserts;
-2. each surviving mutant in changed code is killed or explained;
-3. each new exception names evidence no pinned test can replace;
-4. a spec change and its `features/stories/` file agree.

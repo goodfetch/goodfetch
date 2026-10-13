@@ -30,10 +30,10 @@ The design vocabulary is the one of `codebase-design`: a **module** has an **int
 
 ### Workspace and crates
 
-- **The root `Cargo.toml` is a virtual manifest.** Members live under `crates/` and `crates/sinks/`, plus `proving-ground/` (ADR 0032) and an `xtask/` folder at the root for `xtask codegen` and `xtask release`. Each folder name equals its crate name, and internal crates are named `goodfetch-<glossary term>`. Siblings and shared dependencies are referenced with `.workspace = true`.
+- **The root `Cargo.toml` is a virtual manifest.** Members live under `crates/` and `crates/sinks/`, plus `proving-ground/` (ADR 0032) and an `xtask/` folder at the root for `xtask codegen` and `xtask release`. Each folder name equals its crate name, and internal crates are named `goodfetch-<glossary term>`, apart from the test-only `goodfetch-test-support`. Siblings and shared dependencies are referenced with `.workspace = true`.
 - **A concern becomes its own crate only for one of these reasons:**
   1. it is a separate executable (the binary, a sink process, the sandbox helper, `xtask`, the Proving ground);
-  2. the compiler must enforce a dependency direction (`goodfetch-protocol` never depends on the engine; the Proving ground never depends on engine crates; `goodfetch-conformance` depends only on `goodfetch-protocol`; a Private component's interface with its no-op implementation);
+  2. the compiler must enforce a dependency direction (`goodfetch-protocol` never depends on the engine; the Proving ground never depends on engine crates; `goodfetch-conformance` depends only on `goodfetch-protocol`; `goodfetch-test-support` depends on no Goodfetch crate and is only ever a dev-dependency (ADR 0062); a Private component's interface with its no-op implementation);
   3. it is heavy and rarely changes, so isolating it speeds up incremental builds (generated CDP bindings);
   4. it is a Plugin-kind seam whose built-in implementation pulls dependencies nothing else needs.
 
@@ -67,7 +67,7 @@ The design vocabulary is the one of `codebase-design`: a **module** has an **int
 - **Edition 2024, a pinned toolchain in `rust-toolchain.toml`, and the MSRV of ADR 0030 tested in CI.**
 - **Warnings fail CI.** Clippy runs with `--all-targets --all-features`.
 - **Clippy `pedantic` is on as warnings**, with a short allow-list kept in `[workspace.lints]`.
-- **Time and order come from their handles:** `SystemTime::now`, `std::time::Instant::now`, `tokio::time::Instant::now` and library constructors that read their own clock or randomness (`Ulid::new`) are in `disallowed-methods` outside the `Clock` and `Entropy` modules, `std::env::var`, `var_os` and `vars` outside `main`, and `iter_over_hash_type` is denied (ADR 0059).
+- **Time and order come from their handles:** `SystemTime::now`, `std::time::Instant::now`, `tokio::time::Instant::now` and library constructors that read their own clock or randomness (`Ulid::new`) are in `disallowed-methods` outside the `Clock` and `Entropy` modules, `std::env::var`, `var_os` and `vars` outside `main`, and `iter_over_hash_type` is denied (ADR 0059). The handles' test constructors `Clock::paused` and `Entropy::seeded` are in `disallowed-methods` too, opted into only by test modules (ADR 0062).
   _Why:_ a test can then drive every clock the code reads, and hash order never reaches output.
 - **Denied:** `print_stdout` and `print_stderr`, `dbg_macro`, `todo`, `unimplemented`, `unwrap_used` (allowed in tests), `allow_attributes`, `allow_attributes_without_reason`, `clone_on_ref_ptr`, `exit` (outside `main`). `std::io::stdout` and `std::io::stderr` are in `disallowed-methods`.
 - **Only three writers touch stdout or stderr:** the protocol transport, the CLI's output writer (its human output, its `--json` output and its hints on stderr) and the `tracing` subscriber's writer (stderr or a file). Everything else logs through `tracing`.
@@ -93,7 +93,7 @@ The design vocabulary is the one of `codebase-design`: a **module** has an **int
 - **Events are structured:** a fixed message plus fields, no `format!` inside a log call.
 - **Logs go to stderr or a file, never stdout**, through the `tracing` subscriber.
 - **Levels:** `error` needs someone to act; `warn` is a degraded but handled state; `info` is a lifecycle step of a run, Session or Daemon; `debug` explains a decision; `trace` is per-message detail.
-- **Credentials, cookies, tokens and keys are `secrecy::SecretString`** (or a wrapper with a hand-written `Debug`). Secret canaries and redaction property tests prove the secret never reaches an output (ADR 0067, rules in [`TESTING.md`](TESTING.md)).
+- **Credentials, cookies, tokens and keys are `secrecy::SecretString`** (or a wrapper with a hand-written `Debug`). Secret canaries and redaction property tests prove the secret reaches no output ([`TESTING.md`](TESTING.md#secrets), ADR 0067).
 
 ### Dependencies
 
@@ -116,26 +116,7 @@ For anything non-trivial, a known and widely used project is preferred to writin
 
 ### Tests
 
-Injection, time, randomness and test isolation follow [`TESTING.md`](TESTING.md).
-
-A module is tested according to the kind of dependency it has, using the four categories of `codebase-design`:
-
-- **In-process** (pure logic: URL normalization, robots, frontier rules, extraction, run-state rules): through the module's interface; `proptest` for parsers.
-- **Local-substitutable** (a real local stand-in exists): SQLite in a temporary file; a real Chromium (the Goodfetch build of ADR 0035) against Proving ground pages served locally. CDP is never mocked.
-  _Why:_ a fake browser lets tests pass where a real one fails, which is the false success ADR 0025 measures.
-- **Remote but owned** (Goodfetch's own processes across a boundary: sink processes, process Plugins, the Daemon): the logic is tested through an in-memory adapter of the protocol, and the real processes through the conformance suites.
-- **True external** (model providers, CAPTCHA services): a mock adapter replaying recorded exchanges.
-
-Across all of them:
-
-- **Untrusted input** gets a `cargo-fuzz` target for every decoder of input Goodfetch did not write itself, replayed by a plain `#[test]` on every OS; the list and the rest of security testing are in [`TESTING.md`](TESTING.md) (ADR 0067).
-- **Snapshots** use `insta`, with redactions for what varies, for JSON-RPC responses, generated surfaces and extraction output. Snapshot files are never edited by hand.
-- **Layout:** one integration-test binary per crate (`tests/it/main.rs` with modules), run with `cargo-nextest`.
-  _Why:_ each file in `tests/` links its own binary, which multiplies build time.
-- **Doctests only on `goodfetch`**, where they are the examples of ADR 0030.
-- **Test names describe the behaviour** (`resumed_run_never_repeats_an_effect`), with no `test_` prefix.
-- **A flaky test is quarantined with an issue, never retried silently.**
-- The conformance suites of the ADRs stay the interface tests for every contract with several implementations.
+The test rules live in [`TESTING.md`](TESTING.md) (where tests live, how they are written and named, shared helpers, fixtures, snapshots, injection and determinism, and the test-first process; ADRs 0059 and 0062), apart from Design's "Tests go through the interface", and each language's runner choices below.
 
 ### Documentation in code
 

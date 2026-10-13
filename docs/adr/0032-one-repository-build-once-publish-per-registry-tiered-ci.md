@@ -19,6 +19,8 @@ website/           the Docusaurus configuration, theme and release-notes pages
 rnd/               frozen R&D record
 ```
 
+> Amended by [ADR 0070](0070-mcp-adapters-and-integrations-are-tested-through-their-platforms-own-clients-against-a-real-engine.md): the LangChain Dataset loaders live in the LangChain packages under `adapters/` and `integrations/` holds no TypeScript LlamaIndex loader.
+
 Releases are **built once and published per registry**: no tool publishes crates.io, npm platform packages, PyPI, Homebrew and an OCI image from one version, so, like uv, Turborepo and Oxc, Goodfetch writes its own publishing jobs. CI runs in tiers, so that the full platform and runtime matrix of ADR 0024 runs before every merge without holding up each pull request. Decided in [Repository layout and CI](https://github.com/Jbmanllr/automan/issues/107), on the evidence of the [repository layout, CI and release research](https://github.com/Jbmanllr/automan/blob/research/repo-layout-ci/rnd/research/2026-10-11-repo-layout-ci.md).
 
 ## Considered Options

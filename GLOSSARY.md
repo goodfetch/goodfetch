@@ -508,6 +508,10 @@ _Avoid_: golden files, legacy fixtures, test data (for these files)
 A stand-in for the engine used only in tests, which plays one script of protocol messages to a Client and fails on any message it did not expect or any step left unused.
 _Avoid_: fake engine, mock engine, mock server
 
+**Reference screenshot**:
+A committed image of a screen or component in one state, which a visual test compares the current rendering with, pixel for pixel.
+_Avoid_: baseline, golden image, snapshot (alone)
+
 **Performance budget**:
 The counted costs of Goodfetch's code (instructions, heap allocations, protocol messages and bytes, renders, bundle bytes) that a single change may grow only by a set margin without an explicit, recorded acceptance, and the ceilings resident memory and the Console may never pass.
 _Avoid_: perf test, speed limit, benchmark (for a budget)

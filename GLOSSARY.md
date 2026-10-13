@@ -132,6 +132,10 @@ _Avoid_: distributed crawl, sharded crawl
 One run of a Partitioned crawl, owning the domains assigned to it.
 _Avoid_: shard
 
+**Goodfetch home**:
+The folder holding one user's Goodfetch data, caches and configuration on a machine: the operating system's usual folders unless the user names another.
+_Avoid_: data dir, app folder, install folder
+
 **Run index**:
 The catalog of every run of one user and one product major on a machine or in a Daemon group, pointing at each run's own state, from which it can be rebuilt, except the rows of runs discarded on purpose.
 _Avoid_: run registry, run database, history

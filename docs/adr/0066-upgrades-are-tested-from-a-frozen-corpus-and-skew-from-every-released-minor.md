@@ -98,9 +98,9 @@ A test fabricates a version by writing the header, or by sending its own `hello`
   - **Plugins:** older first-party Plugins, as OCI artifacts by digest, through the plugin conformance suite against the current engine.
 
   An SDK and the Attached engine it ships with never skew (ADR 0024); only `GOODFETCH_ENGINE_PATH` pairs an SDK with another engine. The `0.y` previews have no cross-minor skew, because each preview counts as a major (ADR 0030).
-- **What an old Client runs.** The old release's own end-to-end journeys, checked out at its tag with its own seeded data, against the current Daemon. They assert what that release promised, and a minor keeps every promise.
-  - A journey that asserts something outside semver (ADR 0030) is fixed on `main`.
-  - On an old tag, such a journey is excluded by ID in `compat/skew-exclusions.toml`, with a reason, in a reviewed change.
+- **What an old Client runs.** The old release's own Journeys ([ADR 0063](0063-end-to-end-tests-follow-a-catalog-of-numbered-journeys-kept-in-the-repository.md)), checked out at its tag with its own seeds. The old tag's Journey helper runs each variant with the old release's Client against the current binary, given by path. Each variant keeps ADR 0063's fresh start: its own Proving ground and its own Goodfetch home, shared with no other variant, so a Journey that starts, stops or moves the Daemon starts the current one. The Journeys assert what that release promised, and a minor keeps every promise.
+  - A Journey that asserts something outside semver (ADR 0030) is fixed on `main`.
+  - On an old tag, such a Journey's variant is excluded by its variant ID (`J-NNN@<surface>`) in `compat/skew-exclusions.toml`, with a reason, in a reviewed change.
 - **Rolling upgrades.** A three-member Daemon group starts on each older minor of the major and runs under load: a Partitioned crawl, a Schedule and live Limits. Its Group members are upgraded one at a time, once with the Lead Daemon last (the order a StatefulSet's default rolling update gives when the Lead Daemon is pod 0) and once with it first. The test checks ADR 0055's guarantees:
   - no Record lost or duplicated beyond the Sink's Guarantee class;
   - no Limit exceeded;
@@ -150,8 +150,9 @@ A test fabricates a version by writing the header, or by sending its own `hello`
 
 - The Release suite runs in the merge queue, so every merge passes the whole skew matrix. Its rerun on `main` each night and its run on each release candidate's, stable release's and patch's own bytes cover the same checks. Nothing here is a nightly-only job.
 - None of these checks is a Live check: every version pair is a fixed, released artifact.
+- A new or changed skew harness or generated job takes ADR 0064's 20 stress runs, like any new or changed test.
 - **The matrix grows with each minor, and so does its wall time.** About 13 minors ship a year, and each brings about 14 checks: the five Clients, the two SDKs over stdio, the Console, the Browser host, Plugins, the two rolling-upgrade orders with their promotion and rollbacks, the Helm upgrade and the older-engine checks. ADR 0061 runs on the free plan's 20 concurrent jobs, so one job per check would exceed it after two minors. From then on, every added minor adds merge-queue time.
-- **Few jobs per minor.** The generator groups each older minor's checks into as few jobs as fit ADR 0061's 45-minute job budget: its artifacts are fetched and its Daemon started once per job. It splits a minor's job only when that job breaches its budget.
+- **Few jobs per minor.** The generator groups each older minor's checks into as few jobs as fit ADR 0061's 45-minute job budget: its artifacts are fetched once per job, while every variant still starts its own Daemon, Goodfetch home and Proving ground (ADR 0063). It splits a minor's job only when that job breaches its budget.
 - **When the Release suite breaches ADR 0061's merge-queue budget,** the levers are:
   - fewer or faster jobs per minor;
   - more concurrency or larger runners, a paid test resource the owner approves, as ADR 0061 treats the cache limit.
@@ -198,9 +199,9 @@ A test fabricates a version by writing the header, or by sending its own `hello`
   - the generated refusal cases;
   - the `hello` refusal before any other message.
   - Each area that owns a format adds its `head/` set and its scenarios.
+- **Adds to [ADR 0063](0063-end-to-end-tests-follow-a-catalog-of-numbered-journeys-kept-in-the-repository.md):** the Journey helpers accept the engine binary to run, by path, so an old tag's Journeys can run against the current binary. Selecting a tag's variants by surface stays the "Test infrastructure" spec's command.
 - **Assumed interfaces of other tickets:**
-  - A release tag's journeys can be selected by surface and run against a Daemon given by address and token, with their own seeded data ([Journey catalog: format, IDs, seeded data and surfaces](https://github.com/Jbmanllr/automan/issues/278)).
-  - The SDKs' fake engine can answer `hello` with any version and Error code ([SDK and CLI test stack](https://github.com/Jbmanllr/automan/issues/285)).
+  - The SDKs' Scripted engine can answer `hello` with any version and Error code ([SDK and CLI test stack](https://github.com/Jbmanllr/automan/issues/285)).
   - Crash injection can wrap `upgrade-files` and store migrations ([Deterministic simulation and crash testing for leases, fencing, groups and run state](https://github.com/Jbmanllr/automan/issues/275)).
   - MCP revisions negotiated with external hosts belong to [MCP, framework adapter and Integration test stack](https://github.com/Jbmanllr/automan/issues/286).
 - **The "Test infrastructure" spec** builds:

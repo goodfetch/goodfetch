@@ -7,7 +7,7 @@ No single tool covers Goodfetch: every Rust simulator runs one process, and none
 - etcd model-checks its Raft library in TLA+ with trace validation ([etcd-io/raft](https://github.com/etcd-io/raft/blob/main/tla/README.md)), and its robustness suite adds failpoints, `kill` and LazyFS.
 - SQLite tests crashes through a VFS that drops unsynced writes ([testing](https://sqlite.org/testing.html)).
 
-Decided in [Deterministic simulation and crash testing for leases, fencing, groups and run state](https://github.com/Jbmanllr/automan/issues/275), answered by the agent on the owner's delegation, on the facts of [Deterministic time, randomness, storage and OS services in a multi-process Tokio system](https://github.com/Jbmanllr/automan/issues/264) ([findings](https://github.com/Jbmanllr/automan/blob/research/deterministic-testing/rnd/research/2026-10-13-deterministic-testing.md)) and [Rust test tooling in 2026](https://github.com/Jbmanllr/automan/issues/263) ([findings](https://github.com/Jbmanllr/automan/blob/research/rust-test-tooling/rnd/research/2026-10-13-rust-test-tooling.md)). It builds on ADR 0059's `Clock` and `Entropy`. The rules every test follows are in `TESTING.md`.
+Decided in [Deterministic simulation and crash testing for leases, fencing, groups and run state](https://github.com/Jbmanllr/automan/issues/275), answered by the agent on the owner's delegation, on the facts of [Deterministic time, randomness, storage and OS services in a multi-process Tokio system](https://github.com/Jbmanllr/automan/issues/264) ([findings](https://github.com/Jbmanllr/automan/blob/research/deterministic-testing/rnd/research/2026-10-13-deterministic-testing.md)) and [Rust test tooling in 2026](https://github.com/Jbmanllr/automan/issues/263) ([findings](https://github.com/Jbmanllr/automan/blob/research/rust-test-tooling/rnd/research/2026-10-13-rust-test-tooling.md)). It builds on ADR 0059's `Clock` and `Entropy` and on ADR 0062's test layout and `goodfetch-test-support`. The rules every test follows are in `TESTING.md`.
 
 ## Decision
 
@@ -29,7 +29,7 @@ Decided in [Deterministic simulation and crash testing for leases, fencing, grou
 ### The Simulation: turmoil, with no runtime swap
 
 - **turmoil** runs several Goodfetch hosts (Daemons, Group members, engines) in one test process, each on its own paused current-thread Tokio runtime, over simulated TCP, with partitions, latency, message loss, host crashes and restarts. It is pinned to one version, since its main branch is splitting into crates (`turmoil-net`, `turmoil-fs`) and warns that its API will change.
-- **One seed drives the whole Simulation.** The test's seed (fixed, overridden by `GOODFETCH_TEST_SEED`, printed when the test starts, ADR 0059) is split by `Entropy`'s derivation into one stream for turmoil, one per host's `Entropy`, and one for proptest's generation of the Fault plan, so that seed alone replays every choice.
+- **One seed drives the whole Simulation.** The test's seed (fixed, overridden by `GOODFETCH_TEST_SEED`, printed when the test starts, ADR 0059; supplied by `goodfetch-test-support`, ADR 0062) is split by `Entropy`'s derivation into one stream for turmoil, one per host's `Entropy`, and one for proptest's generation of the Fault plan, so that seed alone replays every choice. Each host gets `Clock::paused(start)` and `Entropy::seeded(stream)`, ADR 0062's named constructors, which the scenarios' test module opts into as ADR 0062 says.
 - **The engine stays on Tokio everywhere:** multi-thread in production, current-thread with the paused clock in tests (ADR 0059), one runtime per host in the Simulation. No crate depends on a replacement runtime.
 - **What the code must do:**
   - **Connections the Simulation carries are opened only in a new `transport` module of `goodfetch-engine`.** It sits beside `rpc`, which keeps the protocol server (framing, `hello`, events, credits, WebSocket framing) and takes every connection from `transport`. `transport` listens and connects, and takes the network as a value: the OS, the in-memory transport pair area 3 already exposes, or a test adapter. turmoil's adapter is test code at that seam.
@@ -65,7 +65,7 @@ Decided in [Deterministic simulation and crash testing for leases, fencing, grou
 
 ### Model-based tests in one process
 
-- **proptest-state-machine** checks `run_state`, `lease`, `checkpoint`, delivery and the `ledger` against reference models, on real SQLite in a temporary folder and the test `Clock`. Transitions include handler timeouts (advancing the paused clock), late commits, crashes, power cuts, reopening and resuming. Sinks join through the plugin protocol's in-memory adapter with a test Sink of each Guarantee class.
+- **proptest-state-machine** checks `run_state`, `lease`, `checkpoint`, delivery and the `ledger` against reference models, on real SQLite in the test's folder and `Clock::paused`. Transitions include handler timeouts (advancing the paused clock), late commits, crashes, power cuts, reopening and resuming. Sinks join through the plugin protocol's in-memory adapter with a test Sink of each Guarantee class.
 
 ### Crashes and power cuts
 
@@ -82,6 +82,7 @@ Faults enter only at I/O seams: the crash VFS for storage, the transport adapter
 
 - **loom**, under the custom `--cfg goodfetch_loom`, checks every module that synchronizes threads with its own atomics, `Mutex`, `RwLock` or `Condvar`. Such a module imports them through its crate's `sync` module, which maps to loom under that cfg; `disallowed-types` lists the std atomic, `Mutex`, `RwLock` and `Condvar` types outside `sync` modules, which make the rule checkable. A Goodfetch-specific cfg leaves dependencies that react to `cfg(loom)` unchanged, as crossbeam does with `crossbeam_loom`.
 - Actors on Tokio channels are covered by the Simulation, whose hosts run with seeded runtime randomness.
+- The `sync` modules' `goodfetch_loom` switch is the only test-only `cfg` in product code. It swaps the primitives of a whole crate at compile time, as loom requires and as Tokio and crossbeam do; no module gains a test branch, so ADR 0062's rule against `#[cfg(test)]` branches holds everywhere else.
 
 ### Real-process faults: Toxiproxy and `kind`
 
@@ -96,6 +97,17 @@ Faults enter only at I/O seams: the crash VFS for storage, the transport adapter
   - Record-fenced: no stale overwrite.
   - Keyed: no duplicate key.
   - At-least-once: every record is present at least once.
+
+### Where the pieces live
+
+Following ADR 0062's layout:
+
+- **Simulation scenarios** are integration tests of `goodfetch-engine`, in `tests/it/simulation/`, one module per behaviour area (`lead.rs`, `partition_handoff.rs`). turmoil's network adapter lives there too, since it implements `transport`'s public network interface.
+- **Committed Fault plans** are generated fixtures in a `fixtures/fault_plans/` folder beside the scenario that replays them, each with the `<name>.source.toml` file ADR 0062 requires (generator version, seed, replay command). proptest's regression files are committed where proptest writes them.
+- **Model-based tests** are unit tests of `run_state`, `lease`, `checkpoint`, delivery and `ledger`, through each module's interface.
+- **loom tests** are unit tests of the module they check, compiled only under `goodfetch_loom`.
+- **`goodfetch-test-support`** holds the crash VFS, the Observation log and the invariant checkers, so the Simulation, real-process tests and conformance suites share them. They depend on no Goodfetch crate: the Observation log is plain records (operation, host, epochs, keys, simulated time), the shape of the NDJSON traces.
+- **TLA+ models** live in `test-support/models/`, one folder per model with its TLC configurations and trace-validation spec.
 
 ### Suites
 
@@ -121,7 +133,7 @@ A failure in a nightly-only job is a bug, not flakiness, and no release candidat
 2. The fix commits that plan beside its scenario, with proptest's regression file. Committed plans run in the Pre-merge suite.
 3. A failure found by a non-deterministic layer (real processes, LazyFS, Toxiproxy, `kind`) is reproduced at the lowest deterministic layer that shows it, and that reproduction is the regression test. If none can, an issue extends the Simulation, and the failing seed joins the real-process scenario's committed seeds meanwhile.
 4. A TLC counterexample becomes a Fault plan as well as a fix to the model or the design. A trace-validation failure is fixed in the code or in a stale model.
-5. A test that once found a bug is never deleted.
+5. A test that once found a bug is never removed or weakened while its behaviour is still required; it may be replaced by a test covering the same failure.
 
 ## Considered Options
 
@@ -142,7 +154,7 @@ A failure in a nightly-only job is a bug, not flakiness, and no release candidat
 
 - **[Engine tracer: an Attached engine answers `hello` over stdio](https://github.com/Jbmanllr/automan/issues/214) builds on plain Tokio.** There is no runtime swap. From its first code, its stdio connection comes from `transport`, it spawns tasks and threads and blocks only through `tasks`, and it leaves runtime construction to `main`.
 - **Amends ADR 0038.** Its Structured concurrency allowed blocking work "on dedicated threads their owner joins". Dedicated threads now come only from the `tasks` module, which runs their bodies as tasks in the Simulation, and `std::thread` spawning joins the banned spawn functions. It also adds, for every crate: the `transport` seam with the network as a value, the socket, stdin and runtime-construction bans, and the ban on `block_in_place`. ADR 0037's amendment rule therefore carries them to every area's spec.
-- **Amends `STYLE.md`:** its dedicated-thread rule changes as above, these rules join its concurrency and lint rules, the `goodfetch_loom` cfg joins its custom cfgs, and "Remote but owned" adds the Simulation.
+- **Amends `STYLE.md`:** its dedicated-thread rule changes as above, these rules join its concurrency and lint rules, and the `goodfetch_loom` cfg joins its custom cfgs. `TESTING.md`'s "Remote but owned" adds the Simulation.
 - **Changes area 3's spec** ([Spec: Engine runtime (V1 area 3)](https://github.com/Jbmanllr/automan/issues/213)):
   - Its scenarios with several processes add Toxiproxy partitions and cut-offs, LazyFS, and seeded kill moments.
   - Its in-memory adapter scenarios move into the Simulation and the model-based tests above.
@@ -153,5 +165,7 @@ A failure in a nightly-only job is a bug, not flakiness, and no release candidat
 - **Adds to ADR 0002:** its power-cut promise is now tested, by the crash VFS on every OS and by LazyFS on Linux.
 - **Adds to ADRs 0003, 0026, 0053, 0054 and 0055:** their fencing, delivery, shares, handoff and lead-epoch rules each get a TLA+ model, invariant checkers and, except ADR 0053's store, Simulation scenarios. ADR 0026's sink suite keeps its cases and tiers, and gains crash points per delivery step and a verdict per Guarantee class.
 - **The "Test infrastructure" spec** builds the shared pieces: turmoil's transport adapter, the Observation log and invariant checkers, the seed derivation, Fault plans and their file format, the crash VFS, the LazyFS and Toxiproxy setups, the TLC and trace-validation jobs. Three facts are unverified here and are checked there: that `sqlite-plugin` registers a VFS with the SQLite that `rusqlite` bundles, that LazyFS runs on GitHub-hosted Ubuntu runners (else in a container given `/dev/fuse`), and which pinned pair of TLA+ tools and CommunityModules runs trace validation.
-- **Owned by other tickets:** the suites and budgets ([Test suites, local commands and time budgets](https://github.com/Jbmanllr/automan/issues/276)), the layout of models, plans and loom tests ([Test layout, naming, shared helpers and the test-first process](https://github.com/Jbmanllr/automan/issues/277)), and how failures of nightly-only jobs are filed ([Flakiness policy and checks that are non-deterministic by nature](https://github.com/Jbmanllr/automan/issues/280)).
+- **Adds to ADR 0062:** its layout gains the places above. `goodfetch-test-support` gains the crash VFS, the Observation log and the invariant checkers; the `goodfetch_loom` switch is the one test-only `cfg` in product code.
+- **Adds to ADR 0032:** `test-support/` gains `models/` for the TLA+ models.
+- **Owned by other tickets:** the suites and budgets ([Test suites, local commands and time budgets](https://github.com/Jbmanllr/automan/issues/276)) and how failures of nightly-only jobs are filed ([Flakiness policy and checks that are non-deterministic by nature](https://github.com/Jbmanllr/automan/issues/280)).
 - **Delivery order (ADR 0058).** Each check lands with the code it covers. M1 brings the seams, the model-based tests, the crash VFS, LazyFS and the real-process crash tests. The Simulation's group and Partition scenarios, Toxiproxy and `kind` arrive with Daemon groups, Partitioned crawls and the Politeness store in M4.

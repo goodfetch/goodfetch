@@ -1,6 +1,124 @@
 # Testing
 
-How Goodfetch is tested: every surface, at every level. Each rule comes with its reason, and the hard-to-reverse ones are decided in ADRs. [`STYLE.md`](STYLE.md) shapes the code these tests drive.
+How Goodfetch is tested: every surface, at every level. Each rule comes with its reason, and the hard-to-reverse ones are decided in ADRs. [`STYLE.md`](STYLE.md) shapes the code these tests drive. Here a *snapshot* is a stored expected value, never a Checkpoint or a Group backup.
+
+## Contents
+
+1. [Levels and layout](#levels-and-layout)
+2. [Writing a test](#writing-a-test)
+3. [Dependencies in tests](#dependencies-in-tests)
+4. [Shared helpers](#shared-helpers)
+5. [Fixtures and data files](#fixtures-and-data-files)
+6. [Snapshots](#snapshots)
+7. [Property tests, fuzzing and doctests](#property-tests-fuzzing-and-doctests)
+8. [Injection and determinism](#injection-and-determinism)
+9. [Simulation, model checking and crash testing](#simulation-model-checking-and-crash-testing)
+10. [Test-first process](#test-first-process)
+11. [Review checklist](#review-checklist)
+
+Sections 1 to 7, 10 and 11 are decided in [ADR 0062](docs/adr/0062-tests-sit-beside-their-code-and-share-one-test-support-written-once.md).
+
+## Levels and layout
+
+A test's level is the seam it crosses, not its speed:
+
+- A **unit test** tests one module through its interface, in one process.
+- An **integration test** tests one package through its public interface, with real local stand-ins and real processes.
+- An **end-to-end test** follows a user journey through a shipped surface.
+- The **conformance suites** of the ADRs stay the interface tests of every contract with several implementations.
+
+| | Unit tests | Integration tests |
+|---|---|---|
+| Rust crate | `#[cfg(test)] mod tests` at the end of the module file, or in `<module>/tests.rs` | `tests/it/main.rs` and its modules |
+| TypeScript package, Console | `foo.test.ts` (or `.tsx`) beside `foo.ts` | `<package>/tests/`, importing only the package's own name |
+| Python package | `tests/unit/`, mirroring the module paths under `src/` | `tests/integration/`, importing only the public package |
+
+- **A unit test reaches only its module's interface:** the items the module's callers use. Never a private function.
+  _Why:_ such tests survive internal refactors, and they test what callers rely on.
+- **Product code has no `#[cfg(test)]` branch and no `pub` item added for tests.** If a test needs one, the module is the wrong shape. The one test-only `cfg` in product code is the `sync` modules' `goodfetch_loom` switch ([Concurrency](#concurrency)).
+- **One integration-test binary per crate, run with `cargo-nextest`.** A crate splits it into named area harnesses (`tests/<area>/main.rs`, `autotests = false`) only when its pull request shows a localized test edit taking more than 5 seconds to rebuild with one harness.
+  _Why:_ each file in `tests/` links its own binary. uv's measurement favours one harness until a suite is large.
+- **Tests of the `goodfetch` binary live in its crate's `tests/it`** and find the binary through `CARGO_BIN_EXE_goodfetch`, never a guessed path.
+  _Why:_ the build directory's layout may change without notice.
+- **Python tests run with `--import-mode=importlib` and `strict = true`** in `[tool.pytest]`.
+  _Why:_ tests outside the package run against the installed wheel, as pytest recommends.
+
+## Writing a test
+
+- **One behaviour per test, through the interface.** Several assertions are fine when they check that one behaviour.
+- **Arrange, act, assert, in that order, with one act.**
+- **No branch or loop computes an expected value.** Expected values come from a literal, the spec or the Proving ground's oracle.
+  _Why:_ an expected value computed the way the code computes it can never disagree with the code.
+- **Assert a failure on its Error code, never on its message text.**
+  _Why:_ Error codes are the contract (ADR 0038); messages change freely.
+- **Every test creates its own data.** No test reads another test's data or depends on test order.
+- **Names state the behaviour in glossary terms**, never `_Avoid_` terms:
+  - Rust: `resumed_run_never_repeats_an_effect`, with no `test_` prefix.
+  - Python: `test_resumed_run_never_repeats_an_effect`.
+  - TypeScript: `describe("<interface under test>")` with `test("resumed run never repeats an Effect")`, at most two `describe` levels.
+  - No `should`, no issue numbers, no `it_works`.
+  - Integration-test modules and files are named by behaviour area (`tests/it/resume.rs`), not by source file.
+- **Every case of a parameterized test has a name:** rstest's `#[case::name]` in Rust, Vitest's `test.for` with the name in the title, pytest's `parametrize` with an `id` per case. Never loop over cases inside one test.
+  _Why:_ a loop stops at the first failing case and hides the others; rstest makes each case its own nextest test.
+- **No mocking of owned code:**
+  - `cargo-deny` denies `mockall`, `mockito`, `wiremock`, `faux` and `mry`;
+  - oxlint's `vitest/no-restricted-vi-methods` refuses at least `vi.mock`, `vi.doMock`, `vi.importMock`, `vi.mockObject`, `vi.spyOn`, `vi.stubGlobal` and `vi.stubEnv`;
+  - ruff's `TID251` bans `unittest.mock` and `pytest.MonkeyPatch`;
+  - pytest-mock is in no dependency group (CI checks `uv.lock`), and the test-support pytest plugin fails the collection of any test that requests `monkeypatch` or `mocker`, directly or through another fixture. A third-party plugin fixture that uses `monkeypatch` therefore cannot be adopted.
+
+  _Why:_ a mocked collaborator ties the test to the implementation.
+- **The TypeScript and Python SDKs read their environment from a map an option can replace**, defaulting to the process's own. Tests pass the map instead of patching the environment.
+  _Why:_ a patched environment leaks between tests and hides what a call depends on.
+- **A flaky test is quarantined with an issue, never retried silently.**
+
+## Dependencies in tests
+
+A module is tested according to the kind of dependency it has, using the four categories of `codebase-design`:
+
+- **In-process** (pure logic: URL normalization, robots, frontier rules, extraction, run-state rules): through the module's interface; `proptest` for parsers.
+- **Local-substitutable** (a real local stand-in exists): SQLite in a temporary file; a real Chromium (the Goodfetch build of ADR 0035) against Proving ground pages served locally. CDP is never mocked.
+  _Why:_ a fake browser lets tests pass where a real one fails, which is the false success ADR 0025 measures.
+- **Remote but owned** (Goodfetch's own processes across a boundary: sink processes, process Plugins, the Daemon): the logic is tested through an in-memory adapter of the protocol and, for several hosts, in the [Simulation](#simulation), and the real processes through the conformance suites.
+- **True external** (model providers, CAPTCHA services): a mock adapter replaying recorded exchanges. httpmock is the HTTP mock for this.
+
+How each dependency is injected is in [Injection and determinism](#injection-and-determinism).
+
+## Shared helpers
+
+- **Rust helpers live in `goodfetch-test-support`** (`crates/goodfetch-test-support`, `publish = false`): the per-test folder, `GOODFETCH_HOME` and cleared environment, the printed seed, unique names, reported addresses, the Proving ground started from a seed, commands with the cleared environment, and the shared snapshot redactions and filters.
+- **`goodfetch-test-support` depends on no Goodfetch crate**, and product crates list it only under `[dev-dependencies]`. CI checks both.
+  _Why:_ a helper crate that depended on the crate under test would give that crate's tests two copies of its types; values are all ADR 0059 injects.
+- **The test versions of `Clock` and `Entropy` are `Clock::paused(start)` and `Entropy::seeded(seed)`**, in the crate that defines the handles. `disallowed-methods` refuses both; each test module or integration-test root that calls them opts in with `#[expect(clippy::disallowed_methods, reason = "…")]` (`#![expect]` in `tests/it/main.rs`), never with a crate-wide or `cfg_attr(test, …)` attribute in product code. `main` builds only the system versions. Tests that pause Tokio's clock enable its `test-util` feature under `[dev-dependencies]`. The seed and the start time come from `goodfetch-test-support`.
+- **TypeScript and Python reuse the Rust setup, never rewrite it.** The `goodfetch-test-env` executable of `goodfetch-test-support` prepares a test's folder, home and environment, starts what it is asked to, prints one JSON description (paths, environment map, seed, addresses), and tears everything down when its standard input closes.
+  - `@goodfetch/test-support` (`test-support/typescript/`, private) gives Vitest fixtures through `test.extend`.
+  - `goodfetch-test-support` (`test-support/python/`, never published) is a pytest plugin registered through `pytest11`.
+- **`goodfetch`'s `test-util` feature is for people who embed `goodfetch`**, never Goodfetch's own helper home.
+- **Expected results of Proving ground pages come from its oracle**, never copied into test code.
+- **A helper written twice moves into test support.**
+
+## Fixtures and data files
+
+- **Fixtures live in a `fixtures/` folder beside the tests that read them.** Data several languages read lives once, in `test-support/fixtures/`.
+- **A test copies a fixture into its temporary folder before changing it.**
+- **No fixture file exceeds 256 KiB.** Larger or repetitive data is generated from a seed, by the Proving ground or a generator in test support. No Git LFS.
+- **A generated fixture or a recorded exchange has a `<name>.source.toml` file beside it,** naming the generator or recording job, its version, the seed or recording date, and the command that regenerates it. Secrets are redacted from recordings.
+  _Why:_ a fixture nobody can regenerate becomes untouchable.
+
+## Snapshots
+
+- **Tools:** insta in Rust, Vitest's snapshots in TypeScript, inline-snapshot in Python.
+- **Inline for short values** (about 20 lines); a file for longer ones: insta's `.snap` files, Vitest's `toMatchFileSnapshot` or `toMatchSnapshot`, inline-snapshot's `external()`.
+- **What snapshots cover:** structured outputs (JSON-RPC responses, CLI output, generated surfaces, extraction output). Never instead of a precise assertion on one value.
+- **Every varying value is redacted or filtered** (IDs, times, durations, temporary paths), with the shared settings of test support.
+- **CI never writes a snapshot and fails on a mismatched, missing or orphaned one:** `cargo insta test --check --unreferenced reject`; Vitest in CI; inline-snapshot, which raises on an empty `snapshot()` there.
+- **Snapshots change only through the tool's update or review command, never by hand.** inline-snapshot updates run single-process (`-n0`), since under xdist it can neither create nor fix one.
+- **A snapshot change is reviewed as a change of expected behaviour.**
+
+## Property tests, fuzzing and doctests
+
+- **Parsers and stateful rules get property tests:** `proptest` in Rust, `hypothesis` in Python. Their regression files are committed.
+- **Untrusted input** gets a `cargo-fuzz` target per decoder: CDP messages, JSON-RPC and plugin-protocol framing, HTML and Markdown, sitemaps, run-state import.
+- **Doctests only on `goodfetch`**, where they are the examples of ADR 0030.
 
 ## Injection and determinism
 
@@ -87,8 +205,8 @@ Decided in [ADR 0060](docs/adr/0060-distributed-and-crash-behaviour-is-simulated
 
 ### Simulation
 
-- **Several hosts in one process run on turmoil**, pinned, each on its own paused current-thread Tokio runtime, built with `--cfg tokio_unstable` so each host's runtime randomness (`select!` order) follows the seed. No crate swaps the runtime.
-- **Derive every seed from the test's seed** (`GOODFETCH_TEST_SEED` overrides it): one stream for turmoil, one per host's `Entropy`, one for the Fault plan's generation.
+- **Several hosts in one process run on turmoil**, pinned, each on its own paused current-thread Tokio runtime with `Clock::paused` and `Entropy::seeded`, built with `--cfg tokio_unstable` so each host's runtime randomness (`select!` order) follows the seed. No crate swaps the runtime.
+- **Derive every seed from the test's seed**, which `goodfetch-test-support` supplies (`GOODFETCH_TEST_SEED` overrides it): one stream for turmoil, one per host's `Entropy`, one for the Fault plan's generation.
 - **A scenario keeps an Observation log** of operations, answers and faults, and **the shared invariant checkers judge it**: fencing, one lead, Limits, Partitions, the Audit log chain, and liveness within a stated simulated time once faults stop. Real-process tests and conformance suites use the same checkers.
 - **Faults come from Fault plans** generated by proptest-state-machine and shrunk by proptest on failure.
 - **Check determinism:** rerun a few seeds and compare Observation logs and `tracing` output. Fix any mismatch at its source.
@@ -103,7 +221,7 @@ Decided in [ADR 0060](docs/adr/0060-distributed-and-crash-behaviour-is-simulated
 
 ### Model-based tests and crashes in one process
 
-- **Test `run_state`, `lease`, `checkpoint`, delivery and `ledger` with proptest-state-machine** against reference models, on real SQLite in the test's folder, with crash, power-cut, timeout, late-commit and resume transitions.
+- **Test `run_state`, `lease`, `checkpoint`, delivery and `ledger` with proptest-state-machine** against reference models, on real SQLite in the test's folder with `Clock::paused`, with crash, power-cut, timeout, late-commit and resume transitions.
 - **Crash SQLite through the crash VFS** (`sqlite-plugin`): it holds writes until a sync; a process crash keeps unsynced writes, a power cut drops, tears or reorders them from the seed; the crashed instance's later I/O is refused. It also injects I/O errors and a full disk. Databases open with the VFS name as a value; production passes none.
 - **Check after every crash:** acknowledged commits are present in default durability, `PRAGMA integrity_check` passes in both modes, and nothing is visible twice.
 - **Test Sinks through the plugin protocol's in-memory adapter** with a test Sink of each Guarantee class, and judge the result by class.
@@ -121,6 +239,14 @@ Decided in [ADR 0060](docs/adr/0060-distributed-and-crash-behaviour-is-simulated
 - **Assert `fullfsync` on macOS**, which no tool can observe reaching the drive.
 - **Cut off engines and partition Group members with Toxiproxy**, reached through each engine's `resolve` mapping. Give each engine's listeners a loopback address of their own (`resolve` maps names, not ports). Keep Valkey's durations short.
 - **Run ADR 0055's Kubernetes path on `kind`.**
+
+### Where the pieces live
+
+- **Simulation scenarios:** `goodfetch-engine`'s `tests/it/simulation/`, one module per behaviour area, with turmoil's network adapter.
+- **Committed Fault plans:** `fixtures/fault_plans/` beside their scenario, each with its `<name>.source.toml` (generator version, seed, replay command).
+- **Model-based tests and loom tests:** unit tests of the module they check; loom tests compile only under `goodfetch_loom`.
+- **The crash VFS, the Observation log and the invariant checkers:** `goodfetch-test-support`. The Observation log is plain records, so they need no Goodfetch crate.
+- **TLA+ models:** `test-support/models/`, one folder per model with its TLC configurations and trace-validation spec.
 
 ### Suites
 
@@ -147,4 +273,27 @@ Placed in the suites of [Test suites, local commands and time budgets](https://g
 2. The fix commits the plan beside its scenario, with proptest's regression file. Committed plans run in the Pre-merge suite.
 3. A failure from a non-deterministic layer (real processes, LazyFS, Toxiproxy, `kind`) is reproduced at the lowest deterministic layer that shows it, and that reproduction is the regression test. If none can, file an issue to extend the Simulation, and commit the failing seed to the real-process scenario meanwhile.
 4. A TLC counterexample becomes a Fault plan and a fix to the model or design. A trace-validation failure is fixed in the code or in the stale model.
-5. Never delete a test that once found a bug.
+5. A test that once found a bug is never removed or weakened while its behaviour is still required; it may be replaced by a test covering the same failure.
+
+## Test-first process
+
+- **An agent implementing a ticket follows the `tdd` skill.** The seams named in the spec's Testing Decisions are the seams agreed in advance. A test at another seam needs the pull request to name that seam and the reason, and the fresh review to accept it.
+- **Every behaviour lands red, then green.** The pull request's Verification section lists each new test with the failure it showed before the code existed. Commits stay green.
+  _Why:_ a test never seen failing may test nothing, and green commits keep `git bisect` and the "all green" check working.
+- **A bug fix starts with a test that reproduces the bug**, named by the behaviour, not the issue.
+- **Refactoring is not part of the red-green loop;** it happens in review.
+
+## Review checklist
+
+The fresh review of a pull request checks its tests against this list:
+
+1. Each test sits at a seam the spec names, or the pull request justifies the new seam.
+2. The Verification section lists each new test with its red failure.
+3. One behaviour per test, named as a behaviour in glossary terms, in the right place for its level.
+4. Through the interface: no private call, no `#[cfg(test)]` in product code, no `pub` added for tests, no mock of owned code.
+5. Expected values come from an independent source; failures are matched on Error codes.
+6. Deterministic and isolated: the rules of [Injection and determinism](#injection-and-determinism), no real sleep, its own data.
+7. Parameterized cases are named.
+8. Snapshots are redacted, cover structured output, and every change to one is intended.
+9. Fixtures are under 256 KiB, and generated ones have their `.source.toml` file.
+10. No helper is duplicated; shared setup is in test support.

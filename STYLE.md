@@ -124,7 +124,7 @@ A module is tested according to the kind of dependency it has, using the four ca
 - **Local-substitutable** (a real local stand-in exists): SQLite in a temporary file; a real Chromium (the Goodfetch build of ADR 0035) against Proving ground pages served locally. CDP is never mocked.
   _Why:_ a fake browser lets tests pass where a real one fails, which is the false success ADR 0025 measures.
 - **Remote but owned** (Goodfetch's own processes across a boundary: sink processes, process Plugins, the Daemon): the logic is tested through an in-memory adapter of the protocol, and the real processes through the conformance suites.
-- **True external** (model providers, CAPTCHA services): a mock adapter replaying recorded exchanges. For Model providers this means the Scripted model in-process, Model recordings replayed by `httpmock` at the adapter's base URL (matched on the body, secrets removed by an allowlist) and the Proving ground's Fake model end to end; no test calls a live model (ADR 0065, rules in [`TESTING.md`](TESTING.md)).
+- **True external** (model providers, CAPTCHA services): a stand-in adapter. For Model providers, the Scripted model in-process, Model recordings replayed by `httpmock` at the adapter's base URL (matched on the body, secrets removed by an allowlist), and the Proving ground's Fake model end to end; no test calls a live model (ADR 0065, rules in [`TESTING.md`](TESTING.md)).
 
 Across all of them:
 

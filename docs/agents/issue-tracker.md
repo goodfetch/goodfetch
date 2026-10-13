@@ -60,4 +60,4 @@ V1 is delivered in four GitHub milestones (ADR 0058): `M1 Core`, `M2 Client surf
 Two labels, applied by CI's automation (ADR 0064), never by triage:
 
 - **`flaky-test`**: one issue per flaky test, in the current milestone, with the runs that differed. It comes first on the frontier, and the test's quarantine-list entry links it.
-- **`live-check`**: one issue per Live check whose last run failed, or was inconclusive three times in a row, owned by the Live check's area, in the current milestone. It comes right after `flaky-test` issues on the frontier, and a comment states its cause within two business days.
+- **`live-check`**: one issue per Live check whose last run failed, or was inconclusive three times in a row, owned by the Live check's area, in the current milestone. It comes right after `flaky-test` issues on the frontier, and a comment states its cause within two business days. It closes once that cause is fixed in Goodfetch, or attributed to an external party with a linked upstream report.

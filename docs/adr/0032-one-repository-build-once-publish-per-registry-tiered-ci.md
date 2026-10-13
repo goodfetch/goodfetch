@@ -99,7 +99,7 @@ Releases are **built once and published per registry**: no tool publishes crates
   - **Why an organization:** GitHub offers the merge queue to public repositories owned by an organization, and trusted publishers are configured per repository, so the move comes before the first publish. The organization also holds the private repository, the Homebrew tap and release rights for more than one maintainer.
   - **Until the repository is public:** private repositories pay for hosted-runner minutes, macOS most of all. The pull-request tier runs on Linux only, the full matrix runs on manual dispatch, and the nightly tier is off. Every tier above applies once the repository is public.
 
-    > Amended by [ADR 0064](0064-tests-are-never-retried-and-unpinned-checks-run-as-live-checks.md): the daily test-health job, one scheduled Linux job, runs while the repository is private too.
+    > Amended by [ADR 0064](0064-tests-are-never-retried-and-unpinned-checks-run-as-live-checks.md): the daily test-health job and a weekly constrained test-health run, both Linux, run while the repository is private too, within a ceiling of included minutes.
 
 - ADR 0033 adds two release artifacts built, attested and published with the engine: the Linux `goodfetch-sandbox` helper and the Windows filter broker.
 - ADR 0039 signs and notarizes every macOS and Windows executable between build and attestation, in signing jobs that alone reach a `release` environment, and keeps Homebrew a formula.

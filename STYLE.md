@@ -82,7 +82,7 @@ The design vocabulary is the one of `codebase-design`: a **module** has an **int
 
 - **`unsafe_code` is denied across the workspace.** A module that needs it (the in-house `sandbox_init` binding of ADR 0033, the pipe file descriptors of ADR 0017) opts in with `#![expect(unsafe_code, reason = "…")]`.
 - **Every `unsafe` block carries a `// SAFETY:` comment** (`undocumented_unsafe_blocks`), and `unsafe_op_in_unsafe_fn` is denied.
-- **Miri runs in CI on the opted-in code it can execute (pure-Rust `unsafe`).** FFI and system-call modules, which Miri can't run, are covered by tests on each real OS.
+- **Miri runs in CI on the opted-in code it can execute (pure-Rust `unsafe`).** FFI and system-call modules, which Miri can't run, are covered by tests on each real OS, and by the Release suite's AddressSanitizer run on Linux (ADR 0067).
 - **`unsafe` is never used to get past `Send` or `Sync`.**
 
 ### Logging and secrets

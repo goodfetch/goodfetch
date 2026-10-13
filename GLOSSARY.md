@@ -480,6 +480,14 @@ _Avoid_: golden files, legacy fixtures, test data (for these files)
 A stand-in for the engine used only in tests, which plays one script of protocol messages to a Client and fails on any message it did not expect or any step left unused.
 _Avoid_: fake engine, mock engine, mock server
 
+**Performance budget**:
+The counted costs of Goodfetch's code (instructions, heap allocations, protocol messages and bytes, renders, bundle bytes) that a single change may grow only by a set margin without an explicit, recorded acceptance, and the ceilings resident memory and the Console may never pass.
+_Avoid_: perf test, speed limit, benchmark (for a budget)
+
+**Performance series**:
+The timed measurements of Goodfetch's latest code taken every night on the reference host, read for lasting shifts and never used to fail a single change.
+_Avoid_: nightly benchmark, perf dashboard
+
 **Quick suite**:
 The tests and checks of Goodfetch that run in-process, on what a change touches or on everything, run after every edit.
 _Avoid_: unit suite, smoke tests, fast tests

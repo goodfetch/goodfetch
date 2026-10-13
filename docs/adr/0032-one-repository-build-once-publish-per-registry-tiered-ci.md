@@ -93,6 +93,7 @@ Releases are **built once and published per registry**: no tool publishes crates
     - OpenSSF Scorecard.
     - The Size budget's ceilings on the release-profile files, then the nightly channel's publish (ADR 0057).
   - **Release candidate:** the Size budget's ceilings on the release-profile files (ADR 0057), and the benchmark of ADR 0025 on the reference host. The host is registered as a self-hosted runner that only tag and manual dispatch events reach, never pull-request code.
+    > Amended by [ADR 0071](0071-performance-budgets-are-counted-per-change-and-time-is-measured-on-the-reference-host.md): once the owner approves, a nightly schedule on `main`'s head also reaches the reference host, for the Performance series.
 - **Outbound traffic.** After installs and cache restores, every step that runs Goodfetch's product denies outbound traffic except to the fixtures and the pinned artifact mirror; only the jobs ADR 0043 names reach other endpoints, among them the nightly public testnets that check Paid fetch proofs (ADR 0045) and the online conformance against real vendors (ADR 0033).
 - **Caching.** `Swatinem/rust-cache`, saving only from `main`.
 - **Docs source.** The documentation's content lives in `docs/` and the Docusaurus site in `website/`, which settles where the docs source lives, the other item ADR 0030 left to this one.

@@ -444,6 +444,14 @@ _Avoid_: cassette, fixture (alone), snapshot
 The largest size each released file of Goodfetch may reach on each platform, and the growth a single change may add without an explicit, recorded acceptance.
 _Avoid_: size limit (alone), quota, bloat check
 
+**Performance budget**:
+The counted costs of Goodfetch's code (instructions, heap allocations, protocol messages and bytes, renders, bundle bytes) that a single change may grow only by a set margin without an explicit, recorded acceptance, and the ceilings resident memory and the Console may never pass.
+_Avoid_: perf test, speed limit, benchmark (for a budget)
+
+**Performance series**:
+The timed measurements of Goodfetch's latest code taken every night on the reference host, read for lasting shifts and never used to fail a single change.
+_Avoid_: nightly benchmark, perf dashboard
+
 **Quick suite**:
 The tests and checks of Goodfetch that run in-process, on what a change touches or on everything, run after every edit.
 _Avoid_: unit suite, smoke tests, fast tests

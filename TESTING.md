@@ -308,7 +308,7 @@ Decided in [ADR 0064](docs/adr/0064-tests-are-never-retried-and-unpinned-checks-
 - **Runners keep zero retries with every lock on:** nextest `retries = 0` and `flaky-result = "fail"` in every profile, with no per-test override; Vitest `retry: 0` with no per-test `retry`; Playwright `retries: 0` and `failOnFlakyTests: true`; no pytest rerun plugin and no `flaky` marker.
 - **No workflow step retries a test:** no retry action, no shell loop, no `continue-on-error` on a test step.
 - **No test loops until it passes.** Wait on a condition with a deadline (auto-waiting, `expect.poll`, a CDP event, a state you can name); never repeat the action under test until it succeeds.
-- **The no-retry check in the Quick suite refuses all of the above**, and the flags and variables that undo them (nextest `--retries`, `--flaky-result`, `NEXTEST_RETRIES`, `NEXTEST_FLAKY_RESULT`; Vitest `--retry`; Playwright `--retries`; Chromium's `--test-launcher-retry-limit` other than 0, a gtest run without it, and `--num-retries`; wptrunner's `--retry-unexpected` above 0, `--rerun` above 1 and `--repeat-until-unexpected`). Downloads before the deny of ADR 0043 may retry: they test nothing.
+- **The no-retry check in the Quick suite refuses all of the above**, and the flags and variables that undo them (nextest `--retries`, `--flaky-result`, `NEXTEST_RETRIES`, `NEXTEST_FLAKY_RESULT`; Vitest `--retry`; Playwright `--retries`; Chromium's `--test-launcher-retry-limit` other than 0, a gtest run without it, and `--num-retries`; wptrunner's `--retry-unexpected` above 0, `--rerun` above 1 and `--repeat-until-unexpected`; typ's `--retry-limit` and `--isolated-script-test-launcher-retry-limit` other than 0, `--retry-only-retry-on-failure-tests`, and a `RetryOnFailure` expectation). Downloads before the deny of ADR 0043 may retry: they test nothing.
 - **Re-run a failed job only when no test step failed in it** (lost runner, failed download). The "all green" job fails when an earlier attempt of its run had a failed test step.
 - **Never assert elapsed real time, a rate or a duration.** Those are measurements.
 
@@ -400,6 +400,7 @@ Each suite runs everything the suite before it runs.
 
 - **A Quick-suite test starts no process, browser or container and binds no socket.** Anything that does is a `tests/it` test, or its runner's equivalent.
   _Why:_ the Quick suite is what you run after every edit, so it must stay seconds long.
+- **The Chromium build gate holds pinned tests in no suite** ([Goodfetch Chromium](#goodfetch-chromium)), because they need the build's source tree. Like the test V8 build job ([Security](#confinement)), it is its own required check beside "all green".
 - **Checks that are non-deterministic by nature are in no suite**: real SaaS Sinks, live models, the online Proving ground, real vendors, Chrome's beta and dev channels, the benchmark, the Performance series. They keep their own tiers.
 - **The Release suite gates every merge**, through the merge queue. Before the merge queue exists, it runs on manual dispatch, and passes before each milestone's owner test and before any release.
   _Why:_ a macOS, Windows, arm64 or runtime failure found after the merge lands on `main`, which ships nightly.
@@ -1181,11 +1182,14 @@ Decided in [ADR 0074](docs/adr/0074-the-goodfetch-chromium-is-gated-where-it-is-
 
 ### The Chromium build gate
 
-- **A pull request that changes an input of the Goodfetch Chromium is a Chromium pull request:** the Chromium version, ungoogled-chromium's tag, the fingerprint patch series, Goodfetch's own patches, the build scripts or arguments. It runs the Chromium build gate on every platform the build ships, as its own required check outside "all green", in no suite.
-- **Build where the gate runs, and nowhere else.** The gate builds from the lite and testdata tarballs of the version, checked against Google's hashes. A later job attests and publishes the build, its chromedriver, the Control build and both builds' test packages; only the Goodfetch Chromium and chromedriver are ever shipped.
-- **Commit each platform's digest and the protocol JSON the gate produced.** A check matches the digests against the attested assets. A fork's Chromium pull request is rebuilt from a branch of the main repository.
+- **The build's inputs** are the files under `chromium/` that make the build (the Chromium version, ungoogled-chromium's tag, the fingerprint patch series, Goodfetch's own patches, the build scripts and arguments). **Its test inputs** are the WPT and Khronos pins, the expectations and the launch-arguments file. A pull request that changes either is a Chromium pull request.
+- **The Chromium build gate is a required check on every head:** every pull request, the merge queue and every pull request to a release branch, cherry-picks included, never behind a path filter.
+  - It passes fast when the committed manifest's digests carry attestations naming this head's input tree hashes and workflow, and a passing gate result for them.
+  - Otherwise, on a pull request, it builds and tests on every platform the build ships; when only test inputs changed, it fetches both builds and their packages by digest and reruns the tests.
+  - In the merge queue and on a release branch, a mismatch fails; rebuild in the pull request.
+- **Build where the gate runs, and nowhere else.** The gate builds from the lite and testdata tarballs of the version, checked against Google's hashes. A later job attests and publishes the build, its chromedriver, the Control build and both builds' test packages; only the Goodfetch Chromium and chromedriver are ever shipped. Split a file over GitHub's 2 GiB release-asset limit into parts, each with its digest.
+- **Commit the manifest of each platform's digests and the protocol JSON the gate produced.** Each attestation records the input tree hashes, the source commit and the workflow, and the gate refuses a digest whose attestation names other inputs. A fork's Chromium pull request is rebuilt from a branch of the main repository.
 - **Never rebuild in a suite or a release.** Suites fetch the build by digest; the release pipeline signs the published bytes.
-- **When only test inputs change** (the WPT pin, the expectations, the launch arguments), the gate fetches both builds and their packages by digest and reruns the tests.
 
 ### The Control build
 
@@ -1198,10 +1202,10 @@ Decided in [ADR 0074](docs/adr/0074-the-goodfetch-chromium-is-gated-where-it-is-
 - **Chromium's own suites:** those `gn refs --all --testonly=true --type=executable` finds linking a patched file, within `unit_tests`, `components_unittests`, `content_unittests`, `blink_unittests`, `blink_platform_unittests`, `headless_browsertests`, `content_browsertests` and `browser_tests`; plus `sandbox_linux_unittests` on Linux, always. Unit suites and `headless_browsertests` run whole; `content_browsertests` and `browser_tests` run the test files in the directories the series touches, listed in the gate's report.
 - **Pass `--test-launcher-retry-limit=0` on every gtest run.** The launcher retries once by default.
 - **Shard with the launcher's own hash sharding,** from packages made from `gn`'s runtime deps, on standard runners; a package too big for one runs on the build runner.
-- **web-platform-tests:** `./wpt run chrome` at the pinned WPT commit (the commit of wpt.fyi's Chrome Stable run for the same version), with the chromedriver built from the same tree, on the directories the surface table names, in `--chunk-type hash` chunks. wpt.fyi's results never gate.
+- **web-platform-tests:** `./wpt run chrome` at the pinned WPT commit (the commit of wpt.fyi's first Chrome Stable run on the first day the adopted major's version ran there; security updates keep it), with the chromedriver built from the same tree, on the directories `chromium/surfaces.toml` names, in `--chunk-type hash` chunks. wpt.fyi's results never gate.
 - **Launch the browser as the engine does:** the `engine` Fingerprint method's arguments with a fixed Identity profile seed, from the file `xtask codegen` writes from the engine's code.
-- **WebGL:** Khronos' `webgl1_conformance` and `webgl2_conformance` through Chromium's `run_gpu_integration_test.py` with `--browser=exact`, on SwiftShader.
-- **Size:** each platform's compressed archive. Growth of more than 5 MB over the previous build needs an acceptance written in the pull request.
+- **WebGL:** Khronos' `webgl1_conformance` and `webgl2_conformance` through Chromium's `run_gpu_integration_test.py` with `--browser=exact` and typ's `--retry-limit=0`, on SwiftShader with `--enable-unsafe-swiftshader`.
+- **Size:** each platform's compressed archive. Growth of more than 5 MB over the previous build needs ADR 0057's "Size increase" section in the pull request body, accepted by the fresh review on the exact head.
 
 ### Expected results
 
@@ -1212,7 +1216,11 @@ Decided in [ADR 0074](docs/adr/0074-the-goodfetch-chromium-is-gated-where-it-is-
   - `intended`: a deliberate effect of a named patch, on the Goodfetch Chromium only, naming its surface row.
 - **The two WPT trees differ only in `intended` entries.** A check enforces it.
 - **An `upstream` entry whose test passes on the Control build fails the gate,** and so does an expected failure that passes. Each Chromium pull request runs the excluded `upstream` gtests once on the Control build and fails on any that pass.
-- **Regenerate the `upstream-flaky` gtest lists in each Chromium pull request** from LUCI Analysis (a flake rate of 1% or more over 30 days), committed with the command that made them. Any other `upstream-flaky` entry needs a diagnostic run that shows both outcomes on the Control build.
+- **Treat `upstream-flaky` entries as a quarantine of upstream tests:**
+  - generated entries come from LUCI Analysis (a flake rate of 1% or more over 30 days), regenerated in each Chromium pull request and committed with the command that made them, one tracking issue per file;
+  - every other entry needs a diagnostic run showing both outcomes on the Control build, and has its own issue, an upstream link and a date;
+  - each Chromium pull request rechecks those entries with 20 runs on the Control build; 20 passes fail the gate until the entry is removed, and an entry not renewed by a recheck showing both outcomes expires after 8 weeks;
+  - they are not Goodfetch tests, so they block no milestone or release; their issues sit with area 8.
 - **Never enter flakiness of the Goodfetch Chromium alone.** It is a patch bug: fix the patch. An entry excludes a flaky test; it never widens a Goodfetch Chromium expectation to "pass or fail".
 - **List the entries added and removed** in the Chromium pull request's description.
 
@@ -1232,15 +1240,15 @@ Decided in [ADR 0074](docs/adr/0074-the-goodfetch-chromium-is-gated-where-it-is-
 
 | Part | Where |
 |---|---|
-| Surface table check; CDP protocol check | Quick suite |
+| `chromium/surfaces.toml` check; CDP protocol check | Quick suite |
 | The patch series applies to the pinned version (`validate_patches.py`, fetching only the touched files) | Pre-merge suite on Linux, when a build input changes |
 | Identity consistency, version truth, codecs and fonts, the quiet browser, the renderer checks, the guard matrix and the stealth fixtures, on the build by digest | Pre-merge suite on Linux when affected; Release suite on every OS |
-| Build, Chromium's suites, WPT and WebGL on both builds, expectation checks, size | Chromium build gate, every platform |
+| Build, Chromium's suites, WPT and WebGL on both builds, expectation checks, size | Chromium build gate: required on every head, building and testing only on a Chromium pull request, every platform |
 | Signed-bundle smoke | release pipeline, every OS |
 | Chromium patch preview (weekly and at each new Beta major); Chromium build currency (daily) | Live checks |
 
 - **A new major or security update ships only when** the gate is green on every platform, the Chromium pull request passes the Release suite, and the patch passes ADR 0032's gates and the signed-bundle smoke. The online conformance still never blocks.
-- **Triage a red gate without a retry:** read the report's result on both builds, let the diagnostic run (20 runs on each build) tell flaky from broken, then fix the patch or add the entry the evidence supports. Never skip a test without an entry.
+- **Triage a red gate without a retry:** read the report's result on both builds, let the gate's diagnostic run (20 runs of each failing test on each build, sharded, 60 minutes per job) tell flaky from broken, then fix the patch or add the entry the evidence supports. Never skip a test without an entry.
 - **A held major never weakens the gate.** The pinned build keeps shipping. If a patch still cannot pass when the next Stable version ships, the owner decides whether that major ships without it.
 - **Budgets:** build ≤ 4 h p50 per platform (6 h cap; stage a build that cannot fit over chained jobs), test stage ≤ 90 min p50 per platform (3 h cap per job). The gate's runner minutes, the macOS runner and a full gate on Beta majors are paid resources the owner approves.
 - **Results** go to the results store under the tier `chromium-build`, as JUnit XML.

@@ -83,6 +83,7 @@ A Feature is **tested** when, on `main`'s latest Release suite run:
    > Amended by [ADR 0075](0075-a-user-story-needs-a-journey-only-when-it-is-a-persons-goal-a-variant-can-reach.md): rule 5 is due at the later of the story's milestone and the earliest milestone of a covering variant, and every story also needs a declaring test above the unit level.
 
 A Feature with an entry in `features/exceptions.toml` is **excepted**, by its evidence kind, unless it is also tested. Every other Feature is **untested**, with its cause: no test, failed, quarantined, or not run. Every test belongs to a suite (ADR 0061), so a declaring test the Release suite didn't run is a fault, not a skip. The gates fail only on untested Features: an excepted Feature passes them and is listed.
+> Amended by [ADR 0074](0074-the-goodfetch-chromium-is-gated-where-it-is-built-against-a-control-build-of-the-same-revision.md): the Chromium build gate's tests are in no suite; they declare no Feature.
 
 - **A unit test alone counts**, except for rule 5. `/to-spec` sets `journey = true` on stories whose actor is a person using Goodfetch (a user, an operator, an agent's user), and off on stories of contributors, maintainers and areas.
   > Amended by [ADR 0075](0075-a-user-story-needs-a-journey-only-when-it-is-a-persons-goal-a-variant-can-reach.md): `/to-spec` sets `journey = true` only on stories that pass its three tests (`actor`, `part`, `reach`), records the failed test as `not_journey` otherwise, and a story needs a test above the unit level.

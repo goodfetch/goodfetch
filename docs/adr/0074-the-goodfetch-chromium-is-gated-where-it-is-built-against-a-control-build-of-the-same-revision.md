@@ -1,6 +1,6 @@
 # The Goodfetch Chromium is gated where it is built, against a Control build of the same revision
 
-Each Goodfetch Chromium is built on the pull request that changes its inputs, and tested there by the **Chromium build gate**, on every platform, before its bytes can reach a suite or a user. The gate runs a selected subset of Chromium's own test suites, the web-platform-tests of every surface the patches change, and Khronos' WebGL conformance suite. It runs each one on the Goodfetch Chromium and on a **Control build**: the same tree at the same revision, built with the same arguments but without Goodfetch's patches. A failure on the Goodfetch Chromium alone is the patches'; a failure on both is upstream's. Expected results are committed per runner, and each entry has a category and evidence. Goodfetch's own tests then check every patched surface through the Proving ground, against the build fetched by digest, in the Pre-merge and Release suites. The release pipeline signs the tested bytes and launches them once more on every OS.
+Each Goodfetch Chromium is built on the pull request that changes its inputs, and tested there by the **Chromium build gate**, on every platform, before its bytes can reach a suite or a user. The gate runs a selected subset of Chromium's own test suites, the web-platform-tests of every surface the patches change, and Khronos' WebGL conformance suite. It runs each one on the Goodfetch Chromium and on a **Control build**: the same tree at the same revision, built with the same arguments but without Goodfetch's patches. A failure on the Goodfetch Chromium alone is the patches'; a failure on both is upstream's. The gate is a required check on every head, and passes at once where the committed digests' attestations already name that head's inputs. Expected results are committed per runner, and each entry has a category and evidence. Goodfetch's own tests then check every patched surface through the Proving ground, against the build fetched by digest, in the Pre-merge and Release suites. The release pipeline signs the tested bytes and launches them once more on every OS.
 
 ADR 0035 builds the Goodfetch Chromium in a release job, and a patch that no longer applies blocks the release. The browser was tested only by the stealth fixtures, the guard matrix and the conformance suites, so the C++ the patches change was reached only from outside, and the merge queue could not test a new major's build before merge. The facts, checked on 2026-10-13:
 - **Two-week majors.** Chrome has shipped a Stable major every two weeks since Chrome 153 on 2026-09-08 ([Chrome blog](https://developer.chrome.com/blog/chrome-two-week-start)), so about 26 builds a year, plus security updates.
@@ -19,11 +19,16 @@ Decided in [Testing the Goodfetch Chromium build on each Stable major](https://g
 
 ### Where the build and the gate run
 
-- **The Chromium pull request** is any pull request that changes an input of the build: the Chromium version, ungoogled-chromium's tag, the fingerprint patch series, Goodfetch's own patches, the build scripts or the build arguments. A scheduled job opens one when Google's version history shows a new Stable version, as Puppeteer's bot does. It runs none of the product.
-- **The Chromium build gate** runs on it, per platform, as its own required check outside "all green". It builds the Goodfetch Chromium, runs the tests below on it and on its Control build, and checks the expectations. Its job holds no secret and a token with no permissions.
-- **A later job attests the bundle** and its chromedriver, and publishes them as release assets. The Control build and both builds' test packages are attested and published beside them as CI-only assets, which no channel ships; release assets do not expire, unlike workflow artifacts. The author commits each platform's digest, which a check matches against the attested asset (ADR 0067's rule for the test V8). A fork's pull request is rebuilt from a branch of the main repository.
+- **The build's inputs** are the Chromium version, ungoogled-chromium's tag, the fingerprint patch series, Goodfetch's own patches, the build scripts and the build arguments, all under `chromium/`. **Its test inputs** are the WPT and Khronos pins, the expectations and the launch-arguments file `xtask codegen` writes from the engine's code. The gate hashes each set as a Git tree.
+- **A Chromium pull request** is a pull request that changes the build's inputs or its test inputs. A scheduled job opens one when Google's version history shows a new Stable version, as Puppeteer's bot does. It runs none of the product.
+- **The Chromium build gate is a required check on every head**: every pull request, the merge queue, and every pull request to a release branch, cherry-picks included. It never uses a path filter, since a skipped required check stays pending forever (ADR 0032). This overrides "the only required check" of ADRs 0032 and 0061, which carry a one-line note.
+  - **It passes fast** when the committed manifest's digests have attestations whose recorded inputs (the two tree hashes, and the workflow that built and tested them) equal this head's, and the gate's own result for those inputs passed. Most heads take this path, with no build.
+  - **Otherwise, on a pull request, it builds** the Goodfetch Chromium, runs the tests below on it and on its Control build, and checks the expectations. When only the test inputs changed, it fetches both builds and their test packages by digest and reruns the tests.
+  - **In the merge queue and on a release branch, a mismatch fails.** A build cannot fit the queue's 120-minute timeout; the Chromium pull request rebuilds instead.
+  - Its build jobs hold no secret and a token with no permissions.
+- **A later job attests and publishes** the bundle and its chromedriver as release assets, and the Control build and both builds' test packages as CI-only assets, which no channel ships. Release assets do not expire, unlike workflow artifacts. A file over GitHub's 2 GiB limit per release asset is split into parts below it, each with its digest.
+- **The attestation binds the bytes to their inputs.** Its predicate records the two input tree hashes, the source commit and the workflow. The author commits a manifest of each platform's digests, and the gate checks that every digest's attestation names this head's inputs, so a digest cannot point at bytes built from other inputs. A fork's pull request is rebuilt from a branch of the main repository, since forks get no `id-token`.
 - **The Release suite fetches the build by digest.** The release pipeline signs those bytes (ADR 0039) and never rebuilds them.
-- **The gate reruns its tests without rebuilding** when only their inputs change (the WPT pin, the expectations, the engine's launch arguments): it fetches both builds and their test packages by digest.
 
 ### The Control build
 
@@ -40,14 +45,14 @@ Decided in [Testing the Goodfetch Chromium build on each Stable major](https://g
 
 ### web-platform-tests
 
-- **The runner** is upstream wptrunner, `./wpt run chrome`, at a pinned WPT commit: the commit of wpt.fyi's Chrome Stable run for the same Chrome version. The Chromium pull request updates it. wpt.fyi's own results never gate.
+- **The runner** is upstream wptrunner, `./wpt run chrome`, at a pinned WPT commit: the commit of wpt.fyi's first Chrome Stable run, on Linux, on the first day the adopted major's version ran there. A security update within the major keeps the pin; the next major's Chromium pull request moves it. If wpt.fyi has no such run, the pin stays and the pull request says so. wpt.fyi's own results never gate.
 - **The browser runs as the engine launches it:** with the arguments of the `engine` Fingerprint method and a fixed Identity profile seed, read from a file `xtask codegen` writes from the engine's code. chromedriver is built from the same tree.
-- **The directories** are those the surface table names for each patched surface. Today: `html/canvas`, `webaudio`, `webgl`, `webcodecs`, `css/css-fonts`, `css/css-font-loading`, `font-access`, `html/webappapis/system-state-and-capabilities/the-navigator-object`, `screen-orientation`, `screen-details`, `window-management`, `css/cssom-view`, `css/mediaqueries`, `hr-time`, `client-hints`, `ua-client-hints`, `webrtc`, `webrtc-stats`, `mediacapture-streams`, `media-capabilities`, `permissions`, `device-memory`, `battery-status`, `netinfo`, `speech-api`, `keyboard-map`, `gamepad`, `geolocation`, `compute-pressure`, `audio-output`, and test262's `intl402`. Without `intl402`, these held 6,203 tests and 37,794 subtests in Chrome 155's Stable run on wpt.fyi.
+- **The directories** are those `chromium/surfaces.toml` names for each patched surface. Today: `html/canvas`, `webaudio`, `webgl`, `webcodecs`, `css/css-fonts`, `css/css-font-loading`, `font-access`, `html/webappapis/system-state-and-capabilities/the-navigator-object`, `screen-orientation`, `screen-details`, `window-management`, `css/cssom-view`, `css/mediaqueries`, `hr-time`, `client-hints`, `ua-client-hints`, `webrtc`, `webrtc-stats`, `mediacapture-streams`, `media-capabilities`, `permissions`, `device-memory`, `battery-status`, `netinfo`, `speech-api`, `keyboard-map`, `gamepad`, `geolocation`, `compute-pressure`, `audio-output`, and test262's `intl402`. Without `intl402`, these held 6,203 tests and 37,794 subtests in Chrome 155's Stable run on wpt.fyi.
 - **Chunks** are deterministic: `--total-chunks` with `--chunk-type hash`.
 
 ### WebGL
 
-- The gate runs Khronos' `webgl1_conformance` and `webgl2_conformance` through Chromium's `run_gpu_integration_test.py` with `--browser=exact`, on SwiftShader, on both builds.
+- The gate runs Khronos' `webgl1_conformance` and `webgl2_conformance` through Chromium's `run_gpu_integration_test.py` with `--browser=exact`, on SwiftShader with `--enable-unsafe-swiftshader`, on both builds, with typ's `--retry-limit=0` and no `RetryOnFailure` expectation.
 - If the testdata tarball lacks `third_party/webgl`, the suite comes from the Khronos repository at the commit Chromium's DEPS pins. If the harness cannot run outside a full checkout, the question returns to the owner; it is never skipped.
 
 ### Expected results
@@ -63,13 +68,16 @@ Decided in [Testing the Goodfetch Chromium build on each Stable major](https://g
   - The two WPT trees differ only in `intended` entries.
   - An `upstream` entry whose test passes on the Control build in the same run fails the gate.
   - An expected failure that passes is an unexpected result. For excluded gtests, the Chromium pull request runs its `upstream` exclusions once on the Control build and fails on any that pass.
-- **Upstream-flaky lists are generated.** Each Chromium pull request regenerates them from LUCI Analysis with Brave's threshold, a flake rate of 1% or more over 30 days, and commits them with the command that made them. Otherwise an entry needs a diagnostic run that shows both outcomes on the Control build.
+- **`upstream-flaky` entries are a quarantine of upstream tests,** recorded like ADR 0064's list:
+  - **Generated entries:** each Chromium pull request regenerates them from LUCI Analysis with Brave's threshold, a flake rate of 1% or more over 30 days, and commits them with the command that made them. Each generated file has one tracking issue. An entry lasts until the regeneration drops it.
+  - **Other entries** need the gate's diagnostic run showing both outcomes on the Control build. Each has its own issue, a link to the upstream report, and a date. Each Chromium pull request rechecks it with 20 runs on the Control build: 20 passes make the entry stale, which fails the gate until it is removed. An entry not renewed by a recheck that shows both outcomes expires after 8 weeks, and the gate then fails until it is renewed or removed.
+  - **They are not Goodfetch tests,** so ADR 0064's rule that a quarantined test blocks its milestone and every release does not apply. Their issues sit with area 8, outside the milestone.
 - **Flakiness on the Goodfetch Chromium alone is a patch bug.** It is fixed, never entered. A flaky entry excludes the test; it never widens a Goodfetch Chromium expectation to "pass or fail".
 - **The Chromium pull request lists the entries it adds and removes.**
 
 ### Goodfetch's own tests of the build
 
-- **The surface table** (`chromium/surfaces.toml`) lists every surface the series changes, with its patches, its WPT directories and its Goodfetch tests. Infrastructure patches (build fixes, background traffic, the variations seed) get rows of their own. A Quick-suite check fails when a patch file has no row or a row has no test, as ADR 0067's confinement check does for policy rules.
+- **`chromium/surfaces.toml`** lists every surface the series changes, with its patches, its WPT directories and its Goodfetch tests. Infrastructure patches (build fixes, background traffic, the variations seed) get rows of their own. A Quick-suite check fails when a patch file has no row or a row has no test, as ADR 0067's confinement check does for policy rules.
 - **Identity consistency:** each surface reports the Identity profile's value in the main frame, a cross-origin iframe, dedicated, shared and service workers, and the HTTP headers. The same seed gives the same values across launches, different seeds give different ones, and nothing changes within a Session.
 - **Version truth:** the user agent, client hints' full version list and `navigator.userAgentData` report the pinned version. The HTTP profile captured at build (ADRs 0020 and 0035) matches the browser's own ClientHello and HTTP/2 settings.
 - **Codecs and fonts:** every codec that `canPlayType` and Media Capabilities claim decodes a Proving ground sample. Every font the profile lists renders differently from the fallback, and no host font outside the profile is reachable.
@@ -82,14 +90,14 @@ Decided in [Testing the Goodfetch Chromium build on each Stable major](https://g
 
 | What | Where |
 |---|---|
-| Surface table check; CDP protocol check; the no-retry check's Chromium and wptrunner flags | Quick suite |
+| `chromium/surfaces.toml` check; CDP protocol check; the no-retry check's Chromium and wptrunner flags | Quick suite |
 | The patch series applies to the pinned version (ungoogled-chromium's `validate_patches.py`, fetching only the touched files) | Pre-merge suite on Linux, when a build input changes |
 | Identity consistency, version truth, codecs and fonts, the quiet browser and the renderer checks, beside the guard matrix and the stealth fixtures, on the build fetched by digest | Pre-merge suite on Linux when affected; Release suite on every OS |
-| Build; Chromium's suites, WPT and WebGL on both builds; expectation checks; size | Chromium build gate, on the Chromium pull request, every platform, in no suite |
+| Build; Chromium's suites, WPT and WebGL on both builds; expectation checks; size | Chromium build gate, a required check on every head: it builds and tests only on a Chromium pull request, every platform, in no suite |
 | Signed-bundle smoke: launch, CDP handshake, renderer sandbox and one stealth fixture, on the signed bytes | release pipeline, every OS, before publishing |
 | Chromium patch preview; Chromium build currency | Live checks |
 
-- **The gate's tests are tests** under ADR 0064: they pin every input (tarballs by hash, the WPT and Khronos commits, the expectations), never retry, and get its diagnostic run. Their results go to the results store under the tier `chromium-build`, as JUnit XML.
+- **The gate's tests are tests** under ADR 0064: they pin every input (tarballs by hash, the WPT and Khronos commits, the expectations) and never retry. They are in no suite, an exception to ADR 0061's rule that only checks non-deterministic by nature stay outside the suites, and to ADR 0072's "every test belongs to a suite". They declare no Feature; Goodfetch's own tests of the build do. Their results go to the results store under the tier `chromium-build`, as JUnit XML.
 - **The signed-bundle smoke** exists because signing changes the bytes, and a wrong macOS entitlement breaks a renderer while every signature check passes.
 
 ### Live checks
@@ -109,7 +117,7 @@ Both run on standard runners and run none of the product. ADR 0064's rules apply
 
 The online conformance against real vendors still runs on that patch and never blocks (ADR 0043).
 
-- **Triage of a red gate.** Its report shows each unexpected result on both builds. ADR 0064's diagnostic run (20 more runs on each build) tells flaky from broken, and never changes the verdict. The pull request then fixes the patch, or adds the entry its evidence supports.
+- **Triage of a red gate.** Its report shows each unexpected result on both builds. The gate's diagnostic run tells flaky from broken: 20 more runs of each failing test on each build, sharded, each job timing out after 60 minutes rather than ADR 0064's 10, since browser tests are long. It never changes the verdict. The pull request then fixes the patch, or adds the entry its evidence supports.
 - **A held major.** The pinned build keeps shipping, and the engine's version check (ADR 0035) warns users as it falls behind. If a patch still cannot pass when the next Stable version ships, the owner decides whether that major ships without the patch, with a warning naming the surface. The gate is never weakened.
 
 ### Platforms, budgets and cost
@@ -123,12 +131,12 @@ The online conformance against real vendors still runs on that patch and never b
   | Build, per platform | 4 h | 6 h (GitHub's limit); a build that cannot fit is staged over chained jobs, ungoogled-chromium's method |
   | Test stage, per platform | 90 min | 3 h per job |
 
-- **The gate's runner minutes are a paid test resource.** At published prices (Linux 64-core x64 $0.162 a minute, Windows 64-core x64 $0.322, Linux 64-core arm64 $0.098; [pricing](https://docs.github.com/en/billing/reference/actions-runner-pricing)), a four-hour gate costs about $39 to $77 per platform, about $250 per build and about $10,000 a year at 40 builds. This is an estimate. ADR 0035's first measured build now measures the gate too, and the owner approves the cadence from that figure.
-- **A full gate on the first Beta of each major** would find conflicts four weeks early. It starts only on the owner's approval.
+- **The gate's runner minutes are a paid test resource.** At published prices (Linux 64-core x64 $0.162 a minute, Windows 64-core x64 $0.322, Linux 64-core arm64 $0.098; [pricing](https://docs.github.com/en/billing/reference/actions-runner-pricing)), and Windows 64-core arm64 $0.194, a four-hour gate costs about $39 on Linux x64, $24 on Linux arm64, $77 on Windows x64 and $47 on Windows arm64: about $190 per build for the four hosted platforms, or about $7,500 a year at 40 builds. The two macOS builds come on top, on a runner whose price is known only once the owner chooses it. This is an estimate. ADR 0035's first measured build now measures the gate too, and the owner approves the cadence from that figure.
+- **A full gate on the first Beta of each major** would find conflicts about three weeks early. It starts only on the owner's approval.
 
 ### Size and performance
 
-- **Size:** the gate measures each platform's compressed archive. There is no ceiling. Growth of more than 5 MB over the previous build needs an acceptance written in the Chromium pull request, and each release's notes list the sizes.
+- **Size:** the gate measures each platform's compressed archive. There is no ceiling. Growth of more than 5 MB over the previous build passes only with ADR 0057's "Size increase" section in the pull request body, accepted by the fresh review on the exact head. Each release's notes list the sizes.
 - **Performance:** no new gate. The Performance series and the benchmark (ADRs 0071 and 0025) run on the pinned build, and each build change is recorded as an event in the series, so a shift is attributed to it.
 
 ## Considered Options
@@ -147,19 +155,21 @@ The online conformance against real vendors still runs on that patch and never b
 
 ## Consequences
 
+- **Amends ADRs 0032 and 0061:** "all green" is no longer the only required check; the Chromium build gate is one too, on every head. ADR 0067's test V8 build already was. Both carry a one-line note.
+- **Amends ADRs 0061 and 0072:** the gate's tests are pinned tests in no suite, an exception to ADR 0061's list of what stays outside the suites and to ADR 0072's "every test belongs to a suite"; they declare no Feature. Both carry a one-line note.
 - **Amends ADR 0035.** "The build runs as its own release job on paid large runners" becomes: the build runs on the Chromium pull request, as the Chromium build gate, and the release pipeline signs and publishes the bytes whose digests the pull request committed. A patch that no longer applies now blocks that pull request. ADR 0035 carries a one-line note.
 - **Adds to ADR 0030:** a Chrome major or security update ships only after the Chromium build gate and the signed-bundle smoke, beside the conformance suite and the guard.
-- **Adds to ADR 0032:** the gate is its own required check on Chromium pull requests; the signed-bundle smoke joins the patch pipeline's gates and every release's; the scheduled job that opens Chromium pull requests runs none of the product.
+- **Adds to ADR 0032:** the gate's attested-input binding and its fast path on heads whose inputs are unchanged; the signed-bundle smoke joins the patch pipeline's gates and every release's; the scheduled job that opens Chromium pull requests runs none of the product.
 - **Adds to ADR 0043:** the gate fetches the lite and testdata tarballs by hash, the WPT and Khronos commits and the LUCI Analysis lists before the deny; its tests run under the deny.
-- **Adds to ADR 0057:** the Goodfetch Chromium's compressed archive per platform is measured, with no ceiling and an increase threshold of 5 MB per build.
-- **Adds to ADR 0064:** two Live checks, the Chromium patch preview and the Chromium build currency, owned by area 8; the no-retry check refuses `--test-launcher-retry-limit` other than 0 (and a gtest run without it), `--num-retries`, wptrunner's `--retry-unexpected` above 0, `--rerun` above 1 and `--repeat-until-unexpected`; the results store gains the tier `chromium-build`.
+- **Adds to ADR 0057:** the Goodfetch Chromium's compressed archive per platform is measured, with no ceiling and an increase threshold of 5 MB per build, passed by its "Size increase" section.
+- **Adds to ADR 0064:** `upstream-flaky` entries, a quarantine of upstream tests with an issue, a recheck at each Chromium pull request and an 8-week expiry, which blocks no milestone or release; the gate's diagnostic run, with a 60-minute job timeout; two Live checks, the Chromium patch preview and the Chromium build currency, owned by area 8; the no-retry check refuses `--test-launcher-retry-limit` other than 0 (and a gtest run without it), `--num-retries`, wptrunner's `--retry-unexpected` above 0, `--rerun` above 1 and `--repeat-until-unexpected`, typ's `--retry-limit` and `--isolated-script-test-launcher-retry-limit` other than 0 and `--retry-only-retry-on-failure-tests`, and a `RetryOnFailure` expectation; the results store gains the tier `chromium-build`.
 - **Adds to ADR 0067:** `sandbox_linux_unittests` in the gate, and the renderer check on the signed bytes.
 - **Adds to ADR 0071:** each build change is an event in the Performance series.
 - **ADR 0037's rows** for areas 1, 2 and 8 list this ADR.
 - **Changes area 1's spec** ([Spec: Repository, CI and release (V1 area 1)](https://github.com/Jbmanllr/automan/issues/130)): the signing jobs receive the bundles published from the Chromium pull request, not from a release build; user stories 24 and 85's "the guard when it carries a new Chrome major" gains the gate and the signed-bundle smoke; the release notes list the build's sizes.
 - **Changes area 2's spec** ([Spec: Proving ground and conformance (V1 area 2)](https://github.com/Jbmanllr/automan/issues/152)): the Proving ground gains the consistency probe pages (frames and every worker kind), codec samples, font pages and a Google-host stand-in that records `X-Client-Data`.
-- **Area 8 (Stealth and Challenge solving)** builds the gate, the surface table, the expectations and the Chromium pull request's job.
-- **The "Test infrastructure" spec** builds: the gate workflow and its runtime-deps packaging, the expectation checks, the surface-table and protocol checks, the codegen of launch arguments, the crash-dump check, and the helpers of the consistency, codec, font and quiet-browser tests.
+- **Area 8 (Stealth and Challenge solving)** builds the gate, `chromium/surfaces.toml`, the expectations and the Chromium pull request's job.
+- **The "Test infrastructure" spec** builds: the gate workflow and its runtime-deps packaging, the expectation checks, the `chromium/surfaces.toml` and protocol checks, the codegen of launch arguments, the crash-dump check, and the helpers of the consistency, codec, font and quiet-browser tests.
 - **Owner approvals:** the gate's runner minutes, from the first measured build; the macOS build and gate runner; the full gate on Beta majors.
 - **Unverified, checked by the first implementation tickets:**
   - whether `browser_tests` and the other suites build and run on an ungoogled tree with the testdata tarball added;

@@ -492,6 +492,10 @@ _Avoid_: feature list, traceability matrix, requirements list
 The tests that run where the Goodfetch Chromium is built, on every platform, before its bytes reach a suite or a user, because they need the build's own source tree.
 _Avoid_: browser roll check, Chromium suite, smoke build
 
+**Chromium pull request**:
+A pull request that changes what the Goodfetch Chromium is built or tested from, such as its Chromium version, its patches or its expected results.
+_Avoid_: browser roll, Chromium bump (for the pull request)
+
 **Control build**:
 The Goodfetch Chromium's source tree at the same revision, built with the same arguments but without Goodfetch's patches, against which the Chromium build gate tells a patch's failure from an upstream one.
 _Avoid_: baseline build, vanilla build, reference build

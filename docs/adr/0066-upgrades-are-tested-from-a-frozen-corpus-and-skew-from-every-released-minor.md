@@ -38,7 +38,7 @@ Decided in [Upgrade and version-mismatch testing](https://github.com/Jbmanllr/au
 - **`xtask compat check`** fails when:
   - `head/` differs from what `write` produces;
   - a frozen byte changed;
-  - a registered format lacks its `head/` set or a frozen set for a version a release shipped;
+  - a registered format lacks its `head/` set, or a frozen set for a version a release shipped, as `compat/releases.toml` records it;
   - coverage is incomplete;
   - a format's schema changed while its version still equals its newest frozen version. This catches a format changed without a version bump, the mistake behind Cassandra's two fixture sets for one format (CASSANDRA-15035).
 - **Frozen from the release tag.** Every release is built from `release/x.y` (ADR 0032), and `main` may already carry a newer, unreleased version of a format. So when a stable `x.y.0` or a patch ships, the pull request it opens against `main` (ADR 0030) runs `xtask compat freeze --tag <tag>`. It reads each format's `head/` from the release tag, as the docs version is cut from the tag's `docs/`. Every format whose shipped version has no frozen set on `main` yet gets that `head/` copied to `<major>.<minor>/`. Release candidates and nightlies freeze nothing.
@@ -85,12 +85,14 @@ Generated for each registered format, each with its Error code and message snaps
 - **An Operator policy found only for an older major:** the engine refuses to start and names `upgrade-files` (ADR 0030).
 - **Handshakes** (the JSON-RPC protocol, the Browser host, the plugin protocol's range, the peer protocol): a refused version is refused in the reply to `hello`, before any other message, and the connection closes. This replaces a time budget, such as Stagehand's 5 seconds, with a check that cannot flake.
 
-A test fabricates a version by writing the header, or by sending its own `hello` through the conformance harness, which speaks raw JSON-RPC. No build carries a version override (ADR 0059).
+A test fabricates a version by writing the header, or by sending its own `hello`. No build carries a version override (ADR 0059). Each handshake refusal is tested twice:
+- in the Quick suite, in process: the handshake code receives the fabricated `hello` over an in-memory transport, and the test checks the reply and that the transport closes;
+- in the Pre-merge suite, through the conformance harness, which speaks raw JSON-RPC to a running engine and checks that the reply comes before any other message and that the connection closes.
 
 ### Released artifacts
 
 - **The skew matrix.** The latest patch of every released minor of the current major runs against the current build:
-  - **Clients:** the TypeScript SDK, the Python SDK, the Rust crate's client, the CLI and the MCP server, against the current Daemon, on Linux with one runtime each. The SDKs also run over stdio, with `GOODFETCH_ENGINE_PATH` pointing at the current binary, the hotfix path of ADR 0030 (see the addition to ADR 0024 below).
+  - **Clients:** the TypeScript SDK, the Python SDK, the Rust crate's client, the CLI and the MCP server, against the current Daemon, on Linux with one runtime each. The SDKs also run over stdio, with `GOODFETCH_ENGINE_PATH` pointing at the current binary, the hotfix path of ADR 0030 (see the amendment to ADR 0024 below).
   - **The Console:** a Console page served by an older Daemon keeps working after the current Daemon replaces it on the same Goodfetch home.
   - **The Browser host:** older engines against the current Browser host.
   - **Plugins:** older first-party Plugins, as OCI artifacts by digest, through the plugin conformance suite against the current engine.
@@ -99,18 +101,24 @@ A test fabricates a version by writing the header, or by sending its own `hello`
 - **What an old Client runs.** The old release's own end-to-end journeys, checked out at its tag with its own seeded data, against the current Daemon. They assert what that release promised, and a minor keeps every promise.
   - A journey that asserts something outside semver (ADR 0030) is fixed on `main`.
   - On an old tag, such a journey is excluded by ID in `compat/skew-exclusions.toml`, with a reason, in a reviewed change.
-- **Rolling upgrades.** A three-member Daemon group starts on each older minor of the major and runs under load: a Partitioned crawl, a Schedule and live Limits. Its members are upgraded one at a time, once with the Lead Daemon last (the order a StatefulSet's default rolling update gives when the Lead Daemon is pod 0) and once with it first. The test checks ADR 0055's guarantees:
+- **Rolling upgrades.** A three-member Daemon group starts on each older minor of the major and runs under load: a Partitioned crawl, a Schedule and live Limits. Its Group members are upgraded one at a time, once with the Lead Daemon last (the order a StatefulSet's default rolling update gives when the Lead Daemon is pod 0) and once with it first. The test checks ADR 0055's guarantees:
   - no Record lost or duplicated beyond the Sink's Guarantee class;
   - no Limit exceeded;
   - each Schedule occurrence fires once;
   - a named token stays valid;
   - peer links settle on the lower minor.
 
-  It also promotes an upgraded member from a Group backup the older minor wrote. Rollbacks:
+  It also promotes an upgraded Group member from a Group backup the older minor wrote. Rollbacks:
   - a Group member rolled back before the Lead Daemon upgrades keeps working;
   - a Lead Daemon rolled back after writing newer minors is refused, as ADR 0030 decides.
 
-  The Helm chart runs the same upgrade in `kind` with chart-testing's `ct install --upgrade` from the previous chart release.
+  The Helm chart runs the same upgrade in `kind`, from the same releases as the group:
+  - the older release's chart is installed by digest from `compat/releases.toml`;
+  - `helm upgrade` moves it to the current chart, under the same load and checks;
+  - `helm test` then runs;
+  - any skipped step fails the job.
+
+  During the previews, which have no cross-minor upgrade, the Helm upgrade runs the current chart against itself, as every empty version list does.
 - **Older engines and newer files:**
   - each older minor of the major, and the last minor of each supported earlier major, opens the Usage ledger, the known-certificates store and the Politeness file the current engine wrote, enforces what it reads and refuses flagged Limits it cannot;
   - each older minor refuses a current Checkpoint, Plan, settings file and Schedule file with the upgrade message.
@@ -125,7 +133,8 @@ A test fabricates a version by writing the header, or by sending its own `hello`
 - **Where artifacts come from.**
   - The release's pull request to `main` appends the release to `compat/releases.toml`: binaries per platform, the npm and PyPI packages, the crate, Plugin artifacts, the Helm chart and the OCI image, each with its SHA-256 digest and attestation bundle.
   - ADR 0032's pinned artifact mirror holds these releases.
-  - CI fetches them before the outbound deny starts, checks each digest, and verifies provenance offline with `gh attestation verify --bundle`. The fetched set is cached by the manifest's hash.
+  - The entry also records the version of every registered format the release shipped, read from the tag's registry. `xtask compat check` reads it to know which frozen sets must exist.
+  - CI fetches the artifacts and Sigstore's trusted root (`gh attestation trusted-root`) before the outbound deny starts, and checks each digest. It then verifies provenance offline with `gh attestation verify --bundle --custom-trusted-root`, since without that flag the command fetches the trusted root over the network. The fetched set is cached by the manifest's hash.
   - One local command fetches the same set; [Test suites, local commands and time budgets](https://github.com/Jbmanllr/automan/issues/276) names it beside its suite recipes.
 - **No silent skip.**
   - A missing or mismatched artifact fails the job. SQLite's `backcompat.test` skips itself without old binaries, and Cargo's `old_cargos.rs` sits `#[ignore]`d.
@@ -135,12 +144,14 @@ A test fabricates a version by writing the header, or by sending its own `hello`
 
 | Check | Suite |
 |---|---|
-| Corpus golden reads, fabricated refusals, compatibility-function tables, `upgrade-files` from fixtures, `xtask compat check` | Quick |
-| Corpus replays and `upgrade-files` against the binary | Pre-merge |
+| Corpus golden reads, fabricated refusals of files and of `hello` in process, compatibility-function tables, `upgrade-files` from fixtures, `xtask compat check` | Quick |
+| Corpus replays, handshake refusals through the conformance harness, and `upgrade-files` against the binary | Pre-merge |
 | Every test that needs released artifacts: the full skew matrix, rolling upgrades and rollbacks, older engines opening newer files, two majors, the Helm upgrade | Release |
 
 - The Release suite runs in the merge queue, so every merge passes the whole skew matrix. Its rerun on `main` each night and its run on each release candidate's, stable release's and patch's own bytes cover the same checks. Nothing here is a nightly-only job.
 - None of these checks is a Live check: every version pair is a fixed, released artifact.
+- **The matrix grows with each minor, in parallel jobs.** The generator makes one job per older minor and per check: the five Clients, the two SDKs over stdio, the Console, the Browser host, Plugins, the two rolling-upgrade orders with their promotion and rollbacks, the Helm upgrade and the older-engine checks, about 14 jobs per minor. A new minor adds jobs, not time to an existing job, so the merge queue's wall time stays near that of its slowest job; the growth, about 13 minors a year, costs runner minutes and concurrency.
+- **When the Release suite breaches ADR 0061's merge-queue budget,** ADR 0061's breach rule applies: shard a job, or speed up its tests. Moving skew checks out of the merge queue, or testing only a sample of minors, reverses this decision and needs a new ADR.
 
 ## Considered Options
 
@@ -150,7 +161,8 @@ A test fabricates a version by writing the header, or by sending its own `hello`
 - **Hand-written fixtures:** rejected. They drift from what the writer emits, so every project above generates its fixtures.
 - **Binary SQLite fixtures:** rejected, apart from one Checkpoint file per version for its envelope. SQLite's file format has been stable since 3.0.0, and text dumps can be reviewed.
 - **Skew only before a release or only nightly:** rejected. A protocol change that breaks an older Client would then land on `main` before anyone sees it; the Release suite runs in the merge queue (ADR 0061).
-- **Skew tested on the last release only** (Stagehand) **or on a sample:** rejected. Docker's untested window decayed. With one minor every four weeks, every minor is affordable in the Release suite.
+- **Skew tested on the last release only** (Stagehand) **or on a sample:** rejected. Docker's untested window decayed. Each minor adds parallel jobs, not merge-queue wall time (see Suites), and ADR 0061's breach rule handles a budget breach without dropping a minor.
+- **chart-testing's `ct install --upgrade` for the Helm upgrade:** rejected. It upgrades from the chart on the git target branch, not from a release, and tests only charts changed against that branch. It passes with "Skipping upgrade test" on a SemVer-breaking version bump, which is any minor bump of a `0.x` chart, or when no previous revision exists.
 - **A skew script written today:** rejected. It may call APIs the old Client lacks, and it checks today's expectations, not the old release's promise.
 - **A version override in the binary** (Playwright's `PW_VERSION_OVERRIDE`): rejected. ADR 0059 keeps test-only controls out of the shipped binary, and the conformance harness can send any `hello`.
 - **A time budget for refusals** (Stagehand's 5 seconds): rejected. "Refused in the reply to `hello`" checks the same thing and cannot flake.
@@ -159,12 +171,12 @@ A test fabricates a version by writing the header, or by sending its own `hello`
 
 ## Consequences
 
-- **Amends ADR 0024.** An Attached engine started from `GOODFETCH_ENGINE_PATH` may be another version than the one its SDK ships with (ADR 0030's hotfix path). At `hello` it applies the Daemon's rule: it accepts an SDK of its major with the same or an older minor, and refuses any other with the same clean error. ADR 0024 carries a note where it says an Attached engine runs the exact version its SDK ships with.
+- **Amends ADR 0024.** Every Attached engine applies the Daemon's rule at `hello`: it accepts an SDK of its major with the same or an older minor, and refuses any other with the same clean error. The engine cannot tell how its SDK found it, so the rule does not depend on it. With the engine its SDK ships, the versions are equal; `GOODFETCH_ENGINE_PATH` (ADR 0030's hotfix path) is how they can differ. ADR 0024 carries a note where it says an Attached engine runs the exact version its SDK ships with.
 - **Adds to ADR 0037:** ADR 0066 joins the rows of areas 1, 3, 4, 5, 6, 7, 9, 10 and 13, which build its tooling, its registry and refusals, the formats they own (the known-certificates store, the Clean-up rules manifest, Datasets and Exports, the plugin protocol, Plans, Schedules) and the group and Helm upgrades.
 - **Adds to ADR 0030.**
   - **Format versions change only on `main`,** so only a minor or a major ships a new format version, never a patch. When `xtask release` prepares a patch, it compares each format's version and schema in the branch's `head/` with the `x.y.0` tag's and fails on any difference.
   - **A new release gate, Compatibility:** the Release suite's upgrade and skew checks pass on the release's own bytes.
-  - **The release's pull request to `main`** also freezes the corpus from the release tag and appends to `compat/releases.toml`.
+  - **The release's pull request to `main`** also freezes the corpus from the release tag and appends the release, with its artifacts and its format versions, to `compat/releases.toml`.
   - **The format registry** joins the committed bundle.
 - **Adds to ADR 0032.**
   - `compat/` joins the repository's top-level folders.

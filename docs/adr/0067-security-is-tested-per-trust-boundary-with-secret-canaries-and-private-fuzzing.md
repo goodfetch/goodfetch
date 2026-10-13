@@ -2,7 +2,7 @@
 
 Goodfetch's security tests are organised by **trust boundary**, the places where untrusted input or code meets something worth protecting, and each boundary has its tests, their suite and an oracle. Refusals are generated from the policy they test, assert the exact error and pair with a positive control. Leaks are found with **Secret canaries**, planted fake secrets searched for in every output. Fuzzing runs only in a private repository, on every push to `main` and nightly, so no crash is public before its fix; the public suites replay the committed corpus and every past crasher. Five reviews stay manual and are listed as manual tests.
 
-The ADRs already require `cargo-fuzz` per decoder and Miri (`STYLE.md`), Plugin confinement CI on every OS (ADR 0033), the reset gate's planted canary cookies, tokens and secret values (ADRs 0001 and 0015), the CI's Egress canary (ADR 0043), Console header checks and origin-escape pages (ADR 0031), and supply-chain and signing gates (ADRs 0018, 0030, 0032, 0039). What they did not settle is how those suites are shaped, what else runs, where fuzzing runs and how its crashes are handled, and what stays manual. Comparable projects show the shapes:
+The ADRs already require `cargo-fuzz` per decoder (`TESTING.md`) and Miri (`STYLE.md`), Plugin confinement CI on every OS (ADR 0033), the reset gate's planted cookies, tokens and secret values (ADRs 0001 and 0015), the CI's Egress canary (ADR 0043), Console header checks and origin-escape pages (ADR 0031), and supply-chain and signing gates (ADRs 0018, 0030, 0032, 0039). What they did not settle is how those suites are shaped, what else runs, where fuzzing runs and how its crashes are handled, and what stays manual. Comparable projects show the shapes:
 - **Policy-generated, exact, controlled refusals.** Firecracker generates its seccomp tests from its `seccompiler` filter; Chromium asserts `EPERM` or `SIGSYS` per call and pairs a denial with a positive control; gVisor runs each syscall test natively, then sandboxed.
 - **One regression test per bypass.** Deno added a spec test for each 2026 network-permission bypass, asserting that "no socket was opened to the denied IP". Firecrawl added SSRF regression tests on 2026-09-30.
 - **Private fuzz reports.** gVisor keeps them private "because automated fuzzing reports may contain undisclosed vulnerabilities".
@@ -11,7 +11,7 @@ The ADRs already require `cargo-fuzz` per decoder and Miri (`STYLE.md`), Plugin 
 
 Decided in [Security testing](https://github.com/Jbmanllr/automan/issues/288) (grilling ticket), on the facts of [Security testing](https://github.com/Jbmanllr/automan/issues/273) ([findings](https://github.com/Jbmanllr/automan/blob/research/security-testing/rnd/research/2026-10-13-security-testing.md)). The agent answered the grilling on the owner's delegation. The rules every test follows are in `TESTING.md`.
 
-**Suites and tiers.** [Test suites, local commands and time budgets](https://github.com/Jbmanllr/automan/issues/276) defines three suites, each containing the one before: the **Quick suite**, the **Pre-merge suite** (every pull request, on Linux) and the **Release suite** (the full matrix: the merge queue, nightly and every release; on manual dispatch before each milestone's owner test and before any release while the merge queue does not exist). Every OS before a merge therefore comes from the Release suite in the merge queue. Checks that are non-deterministic by nature are **Live checks**, in no suite ([Flakiness policy and checks that are non-deterministic by nature](https://github.com/Jbmanllr/automan/issues/280)).
+**Suites and tiers.** [ADR 0061](0061-three-test-suites-each-run-by-one-just-command-under-a-time-budget.md) defines three suites, each containing the one before: the **Quick suite**, the **Pre-merge suite** (every pull request, on Linux) and the **Release suite** (the full matrix: the merge queue, nightly and every release; on manual dispatch before each milestone's owner test and before any release while the merge queue does not exist). Every OS before a merge therefore comes from the Release suite in the merge queue. Checks that are non-deterministic by nature are **Live checks**, in no suite ([Flakiness policy and checks that are non-deterministic by nature](https://github.com/Jbmanllr/automan/issues/280)).
 
 ## Decision
 
@@ -119,7 +119,7 @@ Decided in [Security testing](https://github.com/Jbmanllr/automan/issues/288) (g
 | Part | Placement |
 |---|---|
 | Corpus and crasher replay; in-process SSRF and hostile-input cases; redaction property tests; Audit log tamper tests; the check that every policy rule has a probe | Quick suite |
-| `cargo fuzz check`; confinement, Script sandbox, Chromium sandbox, end-to-end egress, hostile-input and endpoint suites on Linux; MCP conformance over HTTP when MCP changes; CodeQL once public, `gitleaks` over commits until then | Pre-merge suite |
+| `cargo fuzz check`; confinement, Script sandbox, Chromium sandbox, end-to-end egress, hostile-input and endpoint suites on Linux; MCP conformance over HTTP; CodeQL once public, `gitleaks` over commits until then | Pre-merge suite |
 | Each suite above on every OS its row in `TESTING.md` gives it; the ASan run (Linux glibc); the V8 memory-corruption build (Linux x64); the ZAP baseline (Linux) | Release suite |
 | Push and nightly fuzzing, in a private repository | Live check |
 | The IANA and advisory watch jobs | nightly tier, running none of the product |
@@ -162,9 +162,9 @@ Only these stay manual:
 
 ## Consequences
 
-- **Amends `STYLE.md`:**
-  - The untrusted-input rule becomes "every decoder of input Goodfetch did not write itself", with the list in `TESTING.md` and replay on every OS.
-  - The secret rule's "a unit test proves the secret is not printed" becomes Secret canaries and redaction property tests.
+- **Amends `TESTING.md` and `STYLE.md`:**
+  - `TESTING.md`'s untrusted-input rule (moved there from `STYLE.md` by ADR 0062) becomes "every decoder of input Goodfetch did not write itself", replayed on every OS, with the list under Security.
+  - `STYLE.md`'s "a unit test proves the secret is not printed" becomes Secret canaries and redaction property tests, and its Miri rule points to the AddressSanitizer run.
 - **Changes ADR 0033:** its "CI on every OS" OS-confinement cases are generated from the policy, check the exact error, carry a positive control and assert the mechanism in use. The hand-listed engine refusals stay. ADR 0033 carries a one-line note.
 - **Adds to ADR 0032:**
   - `cargo fuzz check` and the security suites join the pull-request tier on Linux, CodeQL once public, and `gitleaks` over commits until then;
@@ -199,12 +199,12 @@ Only these stay manual:
   - the Secret canary planting and search helpers;
   - the fuzz replay harness;
   - the watch jobs.
+- **The security jobs' time budgets** are those of ADR 0061.
 - **Left to other tickets of the map:**
   - prompt-injection and fake-success pages ([Testing AI features and agent skills](https://github.com/Jbmanllr/automan/issues/281));
   - the MCP test stack ([MCP, framework adapter and Integration test stack](https://github.com/Jbmanllr/automan/issues/286));
   - the Console's test stack and its virtual authenticator ([Console and docs test stack](https://github.com/Jbmanllr/automan/issues/282));
   - manual-test IDs ([Journey catalog: format, IDs, seeded data and surfaces](https://github.com/Jbmanllr/automan/issues/278));
-  - the time budgets ([Test suites, local commands and time budgets](https://github.com/Jbmanllr/automan/issues/276));
   - the Live check rules ([Flakiness policy and checks that are non-deterministic by nature](https://github.com/Jbmanllr/automan/issues/280)).
 - **Unverified, checked by the first implementation tickets:**
   - whether Landlock is enabled in GitHub's Ubuntu runner kernels;

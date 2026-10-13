@@ -97,6 +97,7 @@ Releases are **built once and published per registry**: no tool publishes crates
     - OpenSSF Scorecard.
     - The Size budget's ceilings on the release-profile files, then the nightly channel's publish (ADR 0057).
   - **Release candidate:** the Size budget's ceilings on the release-profile files (ADR 0057), and the benchmark of ADR 0025 on the reference host. The host is registered as a self-hosted runner that only tag and manual dispatch events reach, never pull-request code.
+    > Amended by [ADR 0071](0071-performance-budgets-are-counted-per-change-and-time-is-measured-on-the-reference-host.md): once the owner approves, a nightly schedule on `main`'s head also reaches the reference host, for the Performance series.
 - **Outbound traffic.** After installs and cache restores, every step that runs Goodfetch's product denies outbound traffic except to the fixtures and the pinned artifact mirror; only the jobs ADR 0043 names reach other endpoints, among them the nightly public testnets that check Paid fetch proofs (ADR 0045) and the online conformance against real vendors (ADR 0033).
 - **Caching.** `Swatinem/rust-cache`, saving only from `main`.
 - **Docs source.** The documentation's content lives in `docs/` and the Docusaurus site in `website/`, which settles where the docs source lives, the other item ADR 0030 left to this one.
@@ -105,6 +106,7 @@ Releases are **built once and published per registry**: no tool publishes crates
   - **Until the repository is public:** private repositories pay for hosted-runner minutes, macOS most of all. The pull-request tier runs on Linux only, the full matrix runs on manual dispatch, and the nightly tier is off. Every tier above applies once the repository is public.
 
     > Amended by [ADR 0064](0064-tests-are-never-retried-and-unpinned-checks-run-as-live-checks.md): the daily test-health job and a weekly constrained test-health run, both Linux, run while the repository is private too, within a ceiling of included minutes.
+    > Amended by [ADR 0071](0071-performance-budgets-are-counted-per-change-and-time-is-measured-on-the-reference-host.md): the Performance series runs nightly on the reference host while the repository is private too, once the owner approves, since it uses no hosted minutes.
 
 - ADR 0033 adds two release artifacts built, attested and published with the engine: the Linux `goodfetch-sandbox` helper and the Windows filter broker.
 - ADR 0039 signs and notarizes every macOS and Windows executable between build and attestation, in signing jobs that alone reach a `release` environment, and keeps Homebrew a formula.

@@ -80,10 +80,12 @@ A Feature is **tested** when, on `main`'s latest Release suite run:
 3. every variant of a declaring Journey whose milestone has been reached is `proved` (ADR 0063); variants of later milestones don't count yet;
 4. every declaring conformance case's capability is `proved` in its result document;
 5. a story with `journey = true` also has a Journey that covers it.
+   > Amended by [ADR 0075](0075-a-user-story-needs-a-journey-only-when-it-is-a-persons-goal-a-variant-can-reach.md): rule 5 is due at the later of the story's milestone and the earliest milestone of a covering variant, and every story also needs a declaring test above the unit level.
 
 A Feature with an entry in `features/exceptions.toml` is **excepted**, by its evidence kind, unless it is also tested. Every other Feature is **untested**, with its cause: no test, failed, quarantined, or not run. Every test belongs to a suite (ADR 0061), so a declaring test the Release suite didn't run is a fault, not a skip. The gates fail only on untested Features: an excepted Feature passes them and is listed.
 
 - **A unit test alone counts**, except for rule 5. `/to-spec` sets `journey = true` on stories whose actor is a person using Goodfetch (a user, an operator, an agent's user), and off on stories of contributors, maintainers and areas.
+  > Amended by [ADR 0075](0075-a-user-story-needs-a-journey-only-when-it-is-a-persons-goal-a-variant-can-reach.md): `/to-spec` sets `journey = true` only on stories that pass its three tests (`actor`, `part`, `reach`), records the failed test as `not_journey` otherwise, and a story needs a test above the unit level.
 - **A Feature is tested once, not once per surface.** Surfaces are generated from one catalog (ADR 0038), and the surface ADRs already require their own completeness: generated API completeness and every Client conformance case on every surface (ADR 0069), the MCP client matrix (ADR 0070), and a Journey on every surface it lists (ADR 0063).
 - **The check counts Features, not depth.** One test makes a Feature tested; depth comes from the stories, the review and the mutation signal.
 

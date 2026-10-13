@@ -24,7 +24,8 @@ How Goodfetch is tested: every surface, at every level. Each rule comes with its
 18. [MCP, framework adapters and Integrations](#mcp-framework-adapters-and-integrations)
 19. [Performance budgets](#performance-budgets)
 20. [Security](#security)
-21. [Feature coverage](#feature-coverage)
+21. [Console and docs site](#console-and-docs-site)
+22. [Feature coverage](#feature-coverage)
 
 Sections 1 to 7, 11 and 12 are decided in [ADR 0062](docs/adr/0062-tests-sit-beside-their-code-and-share-one-test-support-written-once.md).
 
@@ -343,8 +344,7 @@ Decided in [ADR 0064](docs/adr/0064-tests-are-never-retried-and-unpinned-checks-
 
 ### Live checks
 
-- **Each Live check has an owning area and a placement** listed in ADR 0064: real SaaS Sinks, installed Chrome's stable, beta and dev channels (pinned majors are tests), public testnets, the Clean-up rules' daily gate, the online conformance, the benchmark, the Performance series (ADR 0071), the Cloud Run deploy, live-model evaluations, Scorecard; and, from ADR 0070, the newest MCP conformance suite, Inspector and SDK clients, each agent framework's newest releases, the n8n scanner on the published node, and real Integration platform accounts; and fuzzing (ADR 0067).
-
+- **Each Live check has an owning area and a placement** listed in ADR 0064: real SaaS Sinks, installed Chrome's stable, beta and dev channels (pinned majors are tests), public testnets, the Clean-up rules' daily gate, the online conformance, the benchmark, the Performance series (ADR 0071), the Cloud Run deploy, live-model evaluations, Scorecard; and, from ADR 0070, the newest MCP conformance suite, Inspector and SDK clients, each agent framework's newest releases, the n8n scanner on the published node, and real Integration platform accounts; and fuzzing (ADR 0067); and, from ADR 0068, the docs site's `docs-external-links` (nightly, or before each release candidate while the nightly tier is off) and `docs-deploy-smoke` (after each production deploy), which block nothing directly ([Console and docs site](#console-and-docs-site)).
 - **Outcomes are pass, fail or inconclusive.** Inconclusive means the external side was unavailable; it never counts as a pass.
 - **Results go to the results store** under the `live` tier, except fuzzing's, which stay private ([Security](#fuzzing)).
 - **A fail, or three inconclusive runs in a row, opens or updates one `live-check` issue** in the current milestone, right after `flaky-test` issues on the frontier. If its cause is not stated within two business days, the next minor is not promoted until it is. Patches are not held, and the online conformance never blocks (ADR 0043). Fuzzing opens no `live-check` issue: its crashes stay private and block the next minor until fixed ([Security](#fuzzing)).
@@ -917,6 +917,91 @@ Only these stay manual. They are not Journeys: none has an automated step, and e
 | Independent security assessment | before 1.0 and each later major; paid, owner-approved | An outside tester attacks the boundaries; each finding gets a fix and a regression test | a report linked from the release notes |
 | Confinement where CI cannot run | each minor's release candidate | WSL1's refusal; Bridge Sinks under Docker Desktop and Podman machine on macOS and Windows; the documented host-firewall recipes for `direct` | the release pull request |
 | Passkeys on real authenticators | each minor's release candidate | Sign-in, step-up and recovery on a platform authenticator and a hardware key | the release pull request |
+
+## Console and docs site
+
+Decided in [ADR 0068](docs/adr/0068-the-console-is-tested-in-real-browsers-and-served-by-the-real-binary.md). Which accessibility, localization and visual checks run on these runners is decided by [Accessibility, localization and visual regression](https://github.com/Jbmanllr/automan/issues/283).
+
+### Where each test lives
+
+Each suite contains the one before, so the table gives the first suite that runs each test; [Browsers](#browsers) says which browsers each suite adds.
+
+| Path | What it tests | Runner | First suite |
+|---|---|---|---|
+| `console/src/**/*.test.ts` | logic with no DOM | Vitest `unit` (Node) | Quick |
+| `console/src/**/*.test.tsx` | one component | Vitest `component` (Browser Mode) | Pre-merge |
+| `console/src/**/*.stories.tsx` | each state of a component, rendered as a test | Vitest `component` (Storybook's addon) | Pre-merge |
+| `console/tests/screens/` | the whole Console against the in-memory adapter of the protocol | Vitest `component` | Pre-merge |
+| `console/tests/served/` | the Console served by the binary | Playwright Test | Pre-merge |
+| `console/tests/journeys/J-NNN.spec.ts` | the `console` variants of Journeys ([Journeys](#journeys)) | Playwright Test | Pre-merge |
+| `conformance/console/` | the Console conformance suite | Playwright Test | Pre-merge |
+| the live-view packages' `*.test.ts(x)` | `<goodfetch-live-view>` and its React wrapper | Vitest Browser Mode | Pre-merge |
+| `website/src/**/*.test.ts` | the docs site's build code | Vitest (Node) | Quick |
+| `website/tests/` | the built docs site | Playwright Test | Pre-merge |
+| `docs/**/*.md(x)` code blocks | the docs code samples, extracted by `xtask docs-samples` | `twoslash` in the docs build; the TypeScript SDK's Vitest, the Python SDK's pytest, rustdoc, trycmd, the MCP server's tests | Pre-merge |
+
+### Components
+
+- **A test that renders or needs the DOM is a `.test.tsx` file** and runs in Vitest Browser Mode with the Playwright provider. A `.test.ts` file runs in Node and never touches the DOM. Never jsdom or happy-dom.
+  _Why:_ Base UI's positioning, focus and pointer handling need a real layout.
+- **Mount with `vitest-browser-react`, find with `vitest/browser` locators, act with `vitest/browser`'s `userEvent`.** Never `@testing-library/user-event`.
+  _Why:_ events are then real browser input sent by Playwright, and the locators are Playwright's.
+- **Use the shared Vitest fixture of `@goodfetch/test-support`; it resets hover in `beforeEach`** (`userEvent.unhover(document.body)`).
+  _Why:_ the Playwright provider keeps the pointer position and hover state between tests of one file, and tests run shuffled.
+- **The engine is the in-memory adapter of the protocol from `@goodfetch/test-support`, passed to the Console's Client as its transport and body fetcher.** Never MSW, never a patched global `WebSocket`. A call the test did not answer fails the test, and every message is validated against the schema bundle.
+- **Test data comes from builders with literal defaults.** Override only what the test asserts on; no random data.
+- **Each state of a component has a story** (`*.stories.tsx`, Storybook 10 until Storybook 11 is stable and supports TypeScript 7). Stories hold no assertions and no play functions. Behaviour goes in `.test.tsx`, which may reuse a story through `composeStories`.
+- **Storybook's docgen is `react-docgen`.** Never `react-docgen-typescript` or the experimental docgen server, which need the TypeScript compiler API.
+
+### Browser state
+
+- **Set colour scheme, reduced motion, locale, time zone and online status through Playwright:** context options (`colorScheme`, `reducedMotion`, `locale`, `timezoneId`), `page.emulateMedia` and `context.setOffline` in served tests; the provider's context options and the `@goodfetch/test-support` browser command in component tests.
+- **Pass page visibility to the Console's Client as a value**, like its transport. Playwright cannot emulate it. Served tests of the idle stop close the page instead.
+- **Never redefine a property of `document`, `navigator` or `window`.** oxlint's `no-restricted-properties` refuses `Object.defineProperty`, `Object.defineProperties` and `Reflect.defineProperty` in test files, and `vi.stubGlobal` is banned ([Writing a test](#writing-a-test)).
+
+### The served Console
+
+- **Browser tests of the Console as users get it run on Playwright Test against the `goodfetch` binary built from the commit.** Never against a Vite server.
+- **Each test starts its own Daemon** through the `@goodfetch/test-support` fixture (`goodfetch-test-env`), with its own home, port 0 and fresh browser context.
+- **Sign in the way a person does:** the binary's single-user sign-in link, Playwright's virtual authenticator for passkeys and step-up, a local OIDC provider pinned by digest. Never write a cookie or storage state yourself.
+- **Make faults where they happen:** `routeWebSocket` with `connectToServer()` for a dropped or stalled connection, the real process for an engine fault. `routeWebSocket` replaces the page's `WebSocket` with a shim that forwards to the real binary; use it only to drop or delay real messages, never to invent one.
+- **Find by role, label or text.** `data-testid` only where an element has no accessible role or name; never CSS classes or XPath.
+- **Wait with web-first assertions and `expect.poll`.** Never `waitForTimeout` (oxlint refuses it) or `networkidle`.
+- **A console error, an uncaught page error, a CSP violation or a failed same-origin request fails the test**, through the shared fixture.
+- **`toMatchAriaSnapshot` and Vitest's ARIA snapshots follow [Snapshots](#snapshots).**
+- **Tests run under the production CSP.** The binary has no switch that relaxes it, and Playwright's `bypassCSP` is never set: the shared fixture fails a test that sets it, and in test files oxlint refuses `newContext`, `browser.newPage`, `launchPersistentContext`, `launch`, `connect` and `connectOverCDP`, so every browser and context comes from the fixture. `context.newPage()` is allowed; API calls use the fixture's `request`.
+- **Keep traces on failure** and upload them with the JUnit files.
+
+### The Console conformance suite
+
+- **It runs the Console against a target given as configuration:** the Daemon and the Stub gateway here, Goodfetch Cloud's gateway from the private repository. Each target run writes its own result document with `kind = "conformance"`, like a Journey ([Journeys](#journeys)): its Playwright reporter derives each outcome, and the Rust reader recomputes it. It writes no case log.
+- **Add a case when the Console starts to need something new from its target.**
+
+### Browsers
+
+- **One Playwright version for the whole pnpm workspace**, shared by Vitest's provider.
+- **The Console's and the docs site's tests run on one Node line;** their matrix is browsers.
+- **Pre-merge:** Chromium on Linux. **Release:** components, the live-view packages, served tests, Journeys and conformance on every OS runner with every browser Playwright ships for it, plus phone emulation on Chromium and WebKit for served tests; the docs site's build, lychee and Playwright on Linux, on Chromium, Firefox and WebKit; the docs code samples as [Docs code samples](#docs-code-samples) says.
+
+### Docs site
+
+- **Docusaurus throws on every broken reference:** `onBrokenLinks`, `onBrokenAnchors`, `onDuplicateRoutes` and `markdown.hooks`' `onBrokenMarkdownLinks`, `onBrokenMarkdownImages` and `onUnusedMarkdownDirectives`.
+- **Every kept version is built, and every page has its `.md` twin, an `llms.txt` entry and its content in `llms-full.txt`.**
+- **lychee runs with `--offline --include-fragments --root-dir <root>` in the suites**, over the built site copied to `<root>/docs/`, so absolute `/docs/` links resolve. External links are the Live check `docs-external-links`.
+- **Playwright tests the built site served locally under `/docs/` on port 0,** never a Vercel preview: every `sitemap.xml` page of every kept version answers 200 with no console, hydration or same-site request error, and the interactive components work. Search is tested against an index built with the site; a hosted search service is tested only by `docs-deploy-smoke`.
+- **After each production deploy, the Live check `docs-deploy-smoke`** checks the deployed pages, a `.md` page, `llms.txt` and `llms-full.txt` with their content types.
+- **`typos` checks the docs' spelling.** No Vale, no cspell.
+
+### Docs code samples
+
+- **Give every fenced block in `docs/` a language;** use `text` for output and prose. The docs build fails on an empty info string.
+- **`xtask docs-samples` extracts every sample** from `.md` and `.mdx` pages into `target/docs-samples/`, with a manifest. The docs build's remark plugin lists every sample block it sees; a difference between that list and the manifest, or a runner whose case count differs from the manifest, fails the check.
+- **Tag a block that can't run `no_run`** after its language. A `rust`, `ts` or `python` block is still compiled, type-checked or linted; a `console` block or an MCP pair is only listed in the manifest.
+- **Mark MCP samples `json mcp-request` and `json mcp-answer`.** Other `json` blocks are not samples.
+- **Each surface's tests run its samples:** `twoslash` type-checks `ts` and `tsx` in the docs build (our own remark plugin, on the TypeScript 6 alias) and the TypeScript SDK's tests run them; Ruff lints and the Python SDK's pytest runs `python`; `#[cfg(doctest)]` includes in `goodfetch` run `rust`; trycmd runs the `.trycmd` files from the binary crate's `tests/it` (`...` for any lines, `[..]` within a line); an MCP server test plays each `mcp-request` and `mcp-answer` pair through `rmcp`.
+- **Run samples against the binary built from the commit and a local Proving ground,** never the online one. Hide setup with the tool's own convention (`# ` in Rust, `---cut---` in Twoslash).
+- **Only `docs/` (`next`) runs.** Frozen versions were tested at their release.
+- **Pre-merge:** the affected samples on one runtime. **Release:** every sample on its surface's own matrix ([SDK and CLI tests](#sdk-and-cli-tests), [MCP, framework adapters and Integrations](#mcp-framework-adapters-and-integrations)).
 
 ## Feature coverage
 

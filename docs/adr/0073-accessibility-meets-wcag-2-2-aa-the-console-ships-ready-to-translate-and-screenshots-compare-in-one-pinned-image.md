@@ -18,7 +18,7 @@ Decided in [Accessibility, localization and visual regression](https://github.co
 
 - **WCAG 2.2 AA** for the Console, the docs site and the Live view packages' own controls.
 - **The remote page in the Live view is third-party content**, under WCAG's statement of partial conformance. Its controls, its accessible name and its announcements are held to AA.
-- **The docs publish an accessibility statement:** the target, known exceptions and how to report a barrier.
+- **The docs publish an accessibility statement:** the target, known exceptions and how to report a barrier, linked from every page's footer.
 - **The CLI:** colour and motion never carry information alone, `NO_COLOR` is honoured as no-color.org states it, and output to a pipe holds no escape sequence.
 
 ### Automated accessibility checks
@@ -38,7 +38,7 @@ Decided in [Accessibility, localization and visual regression](https://github.co
   - **reduced motion:** under `reducedMotion: 'reduce'`, `document.getAnimations()` holds no running animation after an action;
   - **colour never alone, forced colours and more contrast:** screenshots (below).
 - **Announcements:** `@guidepup/virtual-screen-reader` tests in the `component` project assert the spoken log of live regions ("Needs you", toasts, errors, run-state changes), route titles and Live view control changes.
-- **Features** ([ADR 0072](0072-every-feature-in-a-generated-inventory-has-a-passing-test-and-code-coverage-and-mutants-are-signals.md)): axe, keyboard walks, focus, reflow, announcement and screenshot tests declare no Feature. They check how a screen is built, not the outcome its `screen:` Feature names, which the screen's own behaviour tests declare. Their case tables come from the inventory's `screen:` Features, one named case each, so a new screen gets a keyboard walk and an axe pass without a list to keep. WCAG 2.2 AA is a target the checks enforce, not a Feature, and needs no exception. The accessibility statement is a page of the docs: area 1's spec adds its user story, and a docs test declares that `story:` by asserting the page is served and linked from every page's footer.
+- **Features** ([ADR 0072](0072-every-feature-in-a-generated-inventory-has-a-passing-test-and-code-coverage-and-mutants-are-signals.md)): axe, keyboard walks, focus, reflow, announcement and screenshot tests declare no Feature. They check how a screen is built, not the outcome its `screen:` Feature names, which the screen's own behaviour tests declare. The keyboard walk has one named served case per `screen:` Feature of the inventory, ending with the fixture's axe pass, so a new screen gets both without a list to keep. WCAG 2.2 AA is a target the checks enforce, not a Feature, and needs no exception. The accessibility statement is a page of the docs: area 1's spec adds its user story, and a docs test declares that `story:` by asserting the page is served and linked from every page's footer.
 - **Real screen readers:** a Live check, `screen-reader`, runs Guidepup with NVDA on Windows and VoiceOver on macOS over a few served flows, nightly. It asserts expected names and roles in the spoken log, never whole phrases. It is owned by area 12 and blocks nothing directly (ADR 0064); while the nightly tier is off (ADR 0032), it runs before each release candidate. Speech and runner images move without a commit, so it cannot be a test.
 
 ### The Live view
@@ -61,9 +61,9 @@ Decided in [Accessibility, localization and visual regression](https://github.co
 - **`lingui extract`** runs in the Quick suite and fails on an uncommitted catalog change.
 - **`lingui/no-unlocalized-strings`** runs through oxlint's JS plugins, pinned. They are alpha, so the first fixtures ticket proves the rule runs; if it does not, ESLint runs that one plugin alone.
 - **Data renders inside `translate="no"`:** URLs, names, IDs, page text and every value from the engine. Browser translation then leaves data alone, and the pseudo-locale test can tell data from interface text.
-- **Two pseudo-locales:** `pseudo-LONG` (accented, about 35% longer, bracketed) and `pseudo-RTL` (`rightToLeft: true`). The `component` project and the served tests run under both in the Release suite:
-  - under `pseudo-LONG`, every visible text node is bracketed or inside `translate="no"`, no text is clipped, and the keyboard walk passes;
-  - under `pseudo-RTL`, the root has `dir="rtl"` and arrow keys in menus and tabs follow the direction.
+- **Two pseudo-locales:** `en-XA` (accented, about 35% longer, bracketed) and `ar-XB` (`rightToLeft: true`). They are Chromium's pseudo-locale tags, well-formed BCP 47, so `Intl` accepts them as formatting locales. The `component` project and the served tests run under both in the Release suite:
+  - under `en-XA`, every visible text node is bracketed or inside `translate="no"`, no text is clipped, and the keyboard walk passes;
+  - under `ar-XB`, the root has `dir="rtl"` and arrow keys in menus and tabs follow the direction.
 - **Browser translation:** a Release-suite served project adds a page script that wraps every text node in a `<font>` element as it appears, as page translators do; the served tests must pass with no uncaught error.
 
 ### Locale and time zone independence
@@ -89,9 +89,10 @@ Decided in [Accessibility, localization and visual regression](https://github.co
   - a fixed instant (`page.clock.setFixedTime`; Vitest fake timers in components), `locale: 'en-US'`, `timezoneId: 'UTC'`, builder data with literal defaults, no random value on screen;
   - viewport and `deviceScaleFactor: 1` set per project, `reducedMotion: 'reduce'`, animations disabled, caret hidden;
   - masks only over pixels Goodfetch does not own, the Live view's frames.
+- **No suite writes a Reference screenshot:** the shared Playwright config sets `updateSnapshots: 'none'` in the suites, since Playwright's default writes a missing one.
 - **Zero tolerance:** the default per-pixel threshold and zero mismatched pixels. A config check fails if `maxDiffPixels`, `maxDiffPixelRatio`, `allowedMismatchedPixels`, `allowedMismatchedPixelRatio` or `threshold` is set outside the shared config.
-- **Repeatability per browser is unverified for Firefox and WebKit.** Chromium in a pinned image is what comparable projects run (PostHog); nothing in the findings shows the same for Firefox's and WebKit's Linux builds. The first fixtures ticket measures each browser with ADR 0064's 20 repeated runs. A browser whose screenshots do not repeat leaves the `visual` projects with an issue; its served tests and axe keep running, and its layouts rest on those tests and the manual pass. No tolerance is ever added instead.
-- **A Reference screenshot is neither a fixture nor a snapshot** in ADR 0062's sense. Its own rules replace their 256 KiB limit, their `.source.toml` and "CI never writes a snapshot": its provenance is the pinned image's digest and the workflow run named in the commit that added it.
+- **Repeatability per browser is unverified for Firefox and WebKit.** Chromium in a pinned image is what comparable projects run (PostHog); nothing in the findings shows the same for Firefox's and WebKit's Linux builds. The first fixtures ticket measures each browser with ADR 0064's 20 repeated runs. If a browser's screenshots do not repeat, it stays out of the `visual` projects, its served tests and axe keep running, and an issue owned by area 12 tracks it until 20 runs repeat, when it joins them. No tolerance is ever added. After that measurement, a screenshot test that stops repeating is a Flaky test under ADR 0064: quarantined, never removed.
+- **A Reference screenshot is neither a fixture nor a snapshot** in ADR 0062's sense. Their 256 KiB limit, their `.source.toml` and "CI never writes a snapshot" do not apply, and its own rules do: its provenance is the pinned image's digest and the workflow run named in the commit that added it.
 - **Reference screenshots** sit beside their tests (Vitest's `__screenshots__/`, Playwright's `-snapshots/`), named without the platform. Each is at most 512 KiB, checked in the Quick suite; a larger one is clipped to the region the test is about. No Git LFS.
 - **Updates come only from the pinned image.** The `update-screenshots` workflow, dispatched on a pull request's branch, regenerates changed references and uploads them as an artifact with the image digest and the commit it ran on. It is the only writer of Reference screenshots and is not a suite job, so no suite ever writes one. `just screenshots-fetch <run>` refuses a run whose digest is not the pinned one or whose commit is not the branch's head, then applies them; the author commits them with their own sign-off and names the run in the commit message. No bot commits.
 - **Locally,** `just` runs the visual projects through Docker or Podman in the same image; a host with neither fails that step with an error naming the fix. Whether the amd64 image under emulation on Apple Silicon gives CI's pixels is unverified, and arm64 and amd64 images are expected to differ ([playwright#13873](https://github.com/microsoft/playwright/issues/13873)): the first fixtures ticket measures it, and if it does not, local runs on such hosts dispatch the visual job to CI and follow it, like `just release-ci`.
@@ -100,7 +101,7 @@ Decided in [Accessibility, localization and visual regression](https://github.co
 - **What is screenshotted:**
   - every Storybook story, light and dark, on Chromium; hover, focus and pressed states come from real `userEvent` input in `.test.tsx` files;
   - served key screens (sign-in, Runs, a run page in each Lifecycle and Verdict, "Needs you" with each item kind, the Live view watching and in control, Datasets and the SQL tab, Recipes, Schedules, Engine & settings, an error state): light and dark at 1280 × 800 on Chromium in Pre-merge; on Firefox and WebKit, and at a phone viewport on Chromium and WebKit, in Release; under `forcedColors: 'active'`, `contrast: 'more'` and both pseudo-locales on Chromium in Release;
-  - the Console's `tests/screens/` under a greyscale filter, text spacing and 200% text, in the `component` visual project in Release, where a style sheet can be injected;
+  - the Console's `tests/screens/` under a greyscale filter, text spacing and 200% text, in Vitest's `visual` project in Release, where a style sheet can be injected;
   - docs page templates, not every page: home, a guide, a generated reference page, a page with language tabs and code, search open, the version banner and a 404, light and dark, desktop and phone.
 
 ### Placement
@@ -116,7 +117,7 @@ Decided in [Accessibility, localization and visual regression](https://github.co
 
 Only these stay manual, on each minor's release candidate once the Console ships, recorded on the release pull request:
 1. **Screen-reader pass:** NVDA with Firefox and Chrome on Windows, VoiceOver with Safari on macOS and iOS, TalkBack with Chrome on Android, over the minor's Console Journeys and changed screens, a few docs pages, and the CLI's common commands in a terminal.
-2. **Keyboard, zoom and contrast pass:** keyboard only, 400% zoom, the OS magnifier, a Windows contrast theme and speech input on changed screens.
+2. **Keyboard, zoom and contrast pass:** keyboard only, 400% zoom, the OS magnifier, a Windows contrast theme and speech input on changed screens, in Chrome, Firefox and Safari.
 3. **Real IMEs and keyboard layouts:** Japanese, Chinese Pinyin and Korean IMEs, AZERTY and a dead-key layout, in the Live view and Console fields, on macOS and Windows. A CDP composition is not the OS's IME.
 4. **Browser translation:** Chrome's and Safari's page translation over the main screens.
 5. **WCAG review of new screens** for what no tool judges: meaningful names and instructions, error suggestions, consistent help, redundant entry, sensory-only cues; the accessibility statement is kept current.

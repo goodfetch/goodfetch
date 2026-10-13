@@ -1,6 +1,6 @@
 # Testing
 
-How Goodfetch is tested: every surface, at every level. Each rule comes with its reason, and the hard-to-reverse ones are decided in ADRs. [`STYLE.md`](STYLE.md) shapes the code these tests drive. Here a *snapshot* is a stored expected value, never a Checkpoint or a Group backup.
+How Goodfetch is tested: every surface, at every level. Each rule comes with its reason, and the hard-to-reverse ones are decided in ADRs. [`STYLE.md`](STYLE.md) shapes the code these tests drive. Here a *snapshot* is a stored expected value, never a Checkpoint, a Group backup or a Reference screenshot.
 
 ## Contents
 
@@ -1075,7 +1075,7 @@ Decided in [ADR 0073](docs/adr/0073-accessibility-meets-wcag-2-2-aa-the-console-
   _Why:_ axe's WCAG 2.2 rules are off by default.
 - **Use the shared Playwright fixture: it runs axe with the same tags at the end of every served test and `console` Journey variant.** Call `expectAccessible(page)` at each state worth checking on the way (an open dialog, drawer or menu). The docs pass runs axe on every `sitemap.xml` page of `next`, light and dark.
 - **Never disable an axe rule in a test.** Except a false positive only in the shared exception file, with the rule, a selector, the reason and an open issue; the fixture fails when the issue closes or the selector matches nothing. "Incomplete" results go to the report and never fail.
-- **Each screen has a keyboard walk test,** one named case per `screen:` Feature of the inventory: Tab and Shift+Tab reach every element with an interactive role, focus never falls to `body`, Escape closes each overlay and returns focus to its trigger, and the ordered accessible names are a snapshot. At each stop, the element must look different focused and unfocused, and must not be entirely covered.
+- **Each screen has a keyboard walk test,** one named served case per `screen:` Feature of the inventory: Tab and Shift+Tab reach every element with an interactive role, focus never falls to `body`, Escape closes each overlay and returns focus to its trigger, and the ordered accessible names are a snapshot. At each stop, the element must look different focused and unfocused, and must not be entirely covered.
 - **Check reflow, text spacing and motion with the shared helpers:**
   - at 320 × 256 CSS pixels there is no horizontal page scroll, except inside data tables and code blocks with their own scroll container;
   - with WCAG's text-spacing values and at 200% text, in the `component` project's screens, no text is clipped without a way to read it in full;
@@ -1085,7 +1085,7 @@ Decided in [ADR 0073](docs/adr/0073-accessibility-meets-wcag-2-2-aa-the-console-
 - **Test announcements with `@guidepup/virtual-screen-reader`** in the `component` project: live regions, route titles and Live view control changes. Assert names and roles in the spoken log.
 - **The Live view's escape key always returns focus to the Console** while a person holds control; a served test proves it and that every other key reaches the remote page.
 - **The CLI's colour never carries information alone:** in a pseudo-terminal, the coloured output with ANSI sequences stripped equals the `NO_COLOR=1` output. `NO_COLOR` set to any non-empty value disables colour, an empty one does not, and `--color always` overrides it. The shared CLI helper fails any `tests/it` case whose piped output holds an escape byte (0x1B).
-- **Accessibility tests declare no Feature** ([Feature coverage](#feature-coverage)): axe, keyboard walks, announcements and screenshots check how a screen is built, not its outcome. A screen's `screen:` Feature is declared by the tests of its behaviour. The keyboard walk's and axe's case tables come from the inventory's `screen:` Features, so a new screen gets both.
+- **Accessibility tests declare no Feature** ([Feature coverage](#feature-coverage)): axe, keyboard walks, announcements and screenshots check how a screen is built, not its outcome. A screen's `screen:` Feature is declared by the tests of its behaviour. The keyboard walk has one served case per `screen:` Feature of the inventory, ending with the fixture's axe pass, so a new screen gets both.
 - **Real screen readers run as the Live check `screen-reader`** (Guidepup, NVDA on Windows and VoiceOver on macOS), nightly, owned by area 12, blocking nothing directly; before each release candidate while the nightly tier is off.
 
 ### Localization
@@ -1094,7 +1094,7 @@ Decided in [ADR 0073](docs/adr/0073-accessibility-meets-wcag-2-2-aa-the-console-
 - **Never hard-code a Console string.** `lingui/no-unlocalized-strings` runs through oxlint's JS plugins, and `lingui extract` in the Quick suite fails on an uncommitted catalog change.
 - **Render data inside `translate="no"`:** URLs, names, IDs, page text and every value from the engine.
   _Why:_ browser translation then leaves data alone, and the pseudo-locale test tells data from interface text.
-- **Run the `component` project and the served tests under `pseudo-LONG` and `pseudo-RTL`** in the Release suite. Under `pseudo-LONG`, every visible text node is bracketed or inside `translate="no"`, no text is clipped, and the keyboard walk passes. Under `pseudo-RTL`, the root has `dir="rtl"` and arrow keys in menus and tabs follow the direction.
+- **Run the `component` project and the served tests under `en-XA` and `ar-XB`** in the Release suite. Under `en-XA`, every visible text node is bracketed or inside `translate="no"`, no text is clipped, and the keyboard walk passes. Under `ar-XB`, the root has `dir="rtl"` and arrow keys in menus and tabs follow the direction.
 - **Format only through the Console's formatting module,** which uses `Intl` with the active locale and time zone. Assert formatted strings only in the `unit` project. Browser tests assert the machine form (`<time datetime>`, `data-value`) or a role, never formatted text.
   _Why:_ each browser ships its own ICU and CLDR; the `unit` project runs on one pinned Node line.
 - **Take locale and time zone cases from the shared table in test support** (`en-US`, `de-DE`, `fr-FR`, `tr-TR`, `ar-EG`, `hi-IN`, `ja-JP`; `UTC`, `America/St_Johns`, `Asia/Kathmandu`, `Pacific/Chatham`, `Australia/Lord_Howe`, and the DST gap and overlap days of `Europe/Paris` and `America/New_York`). Period Limits and Schedules use it for their zone cases.
@@ -1110,15 +1110,16 @@ Decided in [ADR 0073](docs/adr/0073-accessibility-meets-wcag-2-2-aa-the-console-
 
 - **Compare a Reference screenshot only inside the pinned Playwright image, on Linux x86-64.** Visual tests are the `visual` projects of Vitest and Playwright, and nothing else schedules them.
   _Why:_ rendering differs by OS, architecture and font stack.
+- **The shared Playwright config sets `updateSnapshots: 'none'` in the suites,** so no suite writes a Reference screenshot, even a missing one.
 - **Never set a tolerance in a test.** Zero mismatched pixels at the default per-pixel threshold; a config check fails if `maxDiffPixels`, `maxDiffPixelRatio`, `allowedMismatchedPixels`, `allowedMismatchedPixelRatio` or `threshold` is set outside the shared config.
 - **Make the screen deterministic:** take screenshots through the shared helper, which awaits `document.fonts.ready`; fix the instant (`page.clock.setFixedTime`, or Vitest fake timers), `locale: 'en-US'`, `timezoneId: 'UTC'`, the viewport, `deviceScaleFactor: 1` and `reducedMotion: 'reduce'`; use builder data with literal defaults. Mask only the Live view's frames.
 - **Make hover, focus and pressed states with real `userEvent` input** in `.test.tsx` files, never a pseudo-states addon.
-- **A Reference screenshot is neither a fixture nor a snapshot** in the sense of [Fixtures and data files](#fixtures-and-data-files) and [Snapshots](#snapshots): its own rules below replace their size limit, their `.source.toml` and "CI never writes a snapshot".
+- **A Reference screenshot is neither a fixture nor a snapshot** in the sense of [Fixtures and data files](#fixtures-and-data-files) and [Snapshots](#snapshots): their size limit, their `.source.toml` and "CI never writes a snapshot" do not apply; its own rules below do.
 - **Keep Reference screenshots beside their tests,** named without the platform, each at most 512 KiB (Quick). Clip a larger one to the region the test is about. No Git LFS. A run of every visual project fails on a Reference screenshot no test read.
 - **Update Reference screenshots only through the `update-screenshots` workflow** on the pull request's branch, then `just screenshots-fetch <run>`, and commit them with your own sign-off, naming the run in the commit message. The workflow is the only writer and is not a suite job, so no suite writes one. `just screenshots-fetch` refuses a run whose image digest is not the pinned one or whose commit is not the branch's head. Never commit a Reference screenshot rendered outside the pinned image.
 - **Locally, `just` runs the visual projects in the same image through Docker or Podman;** with neither, the step fails with an error naming the fix.
-- **What is screenshotted:** every Storybook story in light and dark; the Console's `tests/screens/` under greyscale, text spacing and 200% text in Release (in the `component` project, where a style sheet can be injected); the served key screens ADR 0073 lists in light and dark at 1280 × 800, plus phone, Firefox, WebKit, forced colours, more contrast and both pseudo-locales in Release; the docs' page templates, light and dark, desktop and phone.
-- **If a browser's screenshots do not repeat in the pinned image,** that browser leaves the `visual` projects with an issue, and its served tests and axe keep running. Never add a tolerance instead. Firefox's and WebKit's repeatability is unverified until the first fixtures ticket measures it.
+- **What is screenshotted:** every Storybook story in light and dark; the Console's `tests/screens/` under greyscale, text spacing and 200% text in Vitest's `visual` project in Release, where a style sheet can be injected; the served key screens ADR 0073 lists in light and dark at 1280 × 800, plus phone, Firefox, WebKit, forced colours, more contrast and both pseudo-locales in Release; the docs' page templates, light and dark, desktop and phone.
+- **If the first fixtures ticket finds that a browser's screenshots do not repeat in the pinned image** (ADR 0064's 20 runs), that browser stays out of the `visual` projects, its served tests and axe keep running, and an issue owned by area 12 tracks it; the browser joins the `visual` projects once 20 runs repeat. Never add a tolerance instead. After that, a screenshot test that stops repeating is a Flaky test like any other ([Flaky tests and Live checks](#flaky-tests-and-live-checks)): quarantined, never removed.
 - **No hosted visual service** without the owner's approval as a paid test resource.
 
 ### Where they run
@@ -1137,7 +1138,7 @@ Only these stay manual, on each minor's release candidate once the Console ships
 | Manual test | What a person does |
 |---|---|
 | Screen-reader pass | NVDA with Firefox and Chrome on Windows, VoiceOver with Safari on macOS and iOS, TalkBack with Chrome on Android, over the minor's Console Journeys and changed screens, some docs pages, and the CLI's common commands |
-| Keyboard, zoom and contrast pass | Keyboard only, 400% zoom, the OS magnifier, a Windows contrast theme and speech input on changed screens |
+| Keyboard, zoom and contrast pass | Keyboard only, 400% zoom, the OS magnifier, a Windows contrast theme and speech input on changed screens, in Chrome, Firefox and Safari |
 | Real IMEs and layouts | Japanese, Chinese Pinyin and Korean IMEs, AZERTY and a dead-key layout, in the Live view and Console fields, on macOS and Windows |
 | Browser translation | Chrome's and Safari's page translation over the main screens |
 | WCAG review of new screens | Names and instructions, error suggestions, consistent help, redundant entry, sensory-only cues; the accessibility statement kept current |

@@ -34,6 +34,7 @@ Each suite runs everything the suite before it runs.
   - the static checks ADR 0032 lists.
 - **Release suite**: everything the Pre-merge suite runs, for every package rather than only the touched ones, across the full matrix of ADR 0024:
   - every platform: Linux x64 and arm64 on glibc and musl, macOS arm64 and Intel, Windows x64 and arm64;
+    > Amended by [ADR 0073](0073-accessibility-meets-wcag-2-2-aa-the-console-ships-ready-to-translate-and-screenshots-compare-in-one-pinned-image.md): visual tests run on one platform, Linux x86-64 inside the pinned Playwright image.
   - every runtime: every supported Node line, Bun, Deno 2, and every supported CPython, with its free-threaded build on Linux (on every OS in the nightly, ADR 0032);
     > Amended by [ADR 0068](0068-the-console-is-tested-in-real-browsers-and-served-by-the-real-binary.md): the Console's and the docs site's tests run on one Node line; their matrix is browsers. The docs site's build, lychee and Playwright pass run on Linux only.
   - browser conformance on every OS;

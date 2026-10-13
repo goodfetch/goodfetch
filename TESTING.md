@@ -1,6 +1,6 @@
 # Testing
 
-How Goodfetch is tested: every surface, at every level. Each rule comes with its reason, and the hard-to-reverse ones are decided in ADRs. [`STYLE.md`](STYLE.md) shapes the code these tests drive. Here a *snapshot* is a stored expected value, never a Checkpoint or a Group backup.
+How Goodfetch is tested: every surface, at every level. Each rule comes with its reason, and the hard-to-reverse ones are decided in ADRs. [`STYLE.md`](STYLE.md) shapes the code these tests drive. Here a *snapshot* is a stored expected value, never a Checkpoint, a Group backup or a Reference screenshot.
 
 ## Contents
 
@@ -26,7 +26,8 @@ How Goodfetch is tested: every surface, at every level. Each rule comes with its
 20. [Security](#security)
 21. [Console and docs site](#console-and-docs-site)
 22. [Feature coverage](#feature-coverage)
-23. [Which stories need a Journey](#which-stories-need-a-journey)
+23. [Accessibility, localization and visual regression](#accessibility-localization-and-visual-regression)
+24. [Which stories need a Journey](#which-stories-need-a-journey)
 
 Sections 1 to 7, 11 and 12 are decided in [ADR 0062](docs/adr/0062-tests-sit-beside-their-code-and-share-one-test-support-written-once.md).
 
@@ -187,8 +188,8 @@ Decided in [ADR 0059](docs/adr/0059-dependencies-are-injected-as-values-and-only
 ### Isolation
 
 1. One process per test (nextest).
-2. A per-test temporary `GOODFETCH_HOME`.
-3. A child process starts with a cleared environment whose `HOME`, `USERPROFILE` and `XDG_` variables point inside the test's folder.
+2. A per-test temporary `GOODFETCH_HOME`, in a folder whose name holds a space and a non-ASCII letter on every OS ([Accessibility, localization and visual regression](#accessibility-localization-and-visual-regression)).
+3. A child process starts with a cleared environment whose `HOME`, `USERPROFILE` and `XDG_` variables point inside the test's folder, and whose `TZ` and `LANG` are `UTC` and `C.UTF-8` unless the test names others.
 4. No fixed ports: bind port 0 and report the address, or use a Unix socket or named pipe in the test's folder.
 5. One Valkey per CI job, with a namespace per test.
 6. Resources shared by the whole user (keychain, service manager) run in a nextest test group, with unique names.
@@ -345,7 +346,7 @@ Decided in [ADR 0064](docs/adr/0064-tests-are-never-retried-and-unpinned-checks-
 
 ### Live checks
 
-- **Each Live check has an owning area and a placement** listed in ADR 0064: real SaaS Sinks, installed Chrome's stable, beta and dev channels (pinned majors are tests), public testnets, the Clean-up rules' daily gate, the online conformance, the benchmark, the Performance series (ADR 0071), the Cloud Run deploy, live-model evaluations, Scorecard; and, from ADR 0070, the newest MCP conformance suite, Inspector and SDK clients, each agent framework's newest releases, the n8n scanner on the published node, and real Integration platform accounts; and fuzzing (ADR 0067); and, from ADR 0068, the docs site's `docs-external-links` (nightly, or before each release candidate while the nightly tier is off) and `docs-deploy-smoke` (after each production deploy), which block nothing directly ([Console and docs site](#console-and-docs-site)).
+- **Each Live check has an owning area and a placement** listed in ADR 0064: real SaaS Sinks, installed Chrome's stable, beta and dev channels (pinned majors are tests), public testnets, the Clean-up rules' daily gate, the online conformance, the benchmark, the Performance series (ADR 0071), the Cloud Run deploy, live-model evaluations, Scorecard; and, from ADR 0070, the newest MCP conformance suite, Inspector and SDK clients, each agent framework's newest releases, the n8n scanner on the published node, and real Integration platform accounts; and fuzzing (ADR 0067); and, from ADR 0068, the docs site's `docs-external-links` (nightly, or before each release candidate while the nightly tier is off) and `docs-deploy-smoke` (after each production deploy), which block nothing directly ([Console and docs site](#console-and-docs-site)); and, from ADR 0073, `screen-reader` (nightly, or before each release candidate while the nightly tier is off), blocking nothing directly.
 - **Outcomes are pass, fail or inconclusive.** Inconclusive means the external side was unavailable; it never counts as a pass.
 - **Results go to the results store** under the `live` tier, except fuzzing's, which stay private ([Security](#fuzzing)).
 - **A fail, or three inconclusive runs in a row, opens or updates one `live-check` issue** in the current milestone, right after `flaky-test` issues on the frontier. If its cause is not stated within two business days, the next minor is not promoted until it is. Patches are not held, and the online conformance never blocks (ADR 0043). Fuzzing opens no `live-check` issue: its crashes stay private and block the next minor until fixed ([Security](#fuzzing)).
@@ -379,6 +380,7 @@ The fresh review of a pull request checks its tests against this list:
 13. Each mutant that survives in changed code is killed, or the Verification section explains it.
 14. Each new exception names evidence no pinned test can replace.
 15. A spec change and its `features/stories/` file agree.
+16. A new Console string is in the catalog, a new component state has its Storybook story, and every changed Reference screenshot is intended ([Accessibility, localization and visual regression](#accessibility-localization-and-visual-regression)).
 
 ## Suites, commands and time budgets
 
@@ -921,7 +923,7 @@ Only these stay manual. They are not Journeys: none has an automated step, and e
 
 ## Console and docs site
 
-Decided in [ADR 0068](docs/adr/0068-the-console-is-tested-in-real-browsers-and-served-by-the-real-binary.md). Which accessibility, localization and visual checks run on these runners is decided by [Accessibility, localization and visual regression](https://github.com/Jbmanllr/automan/issues/283).
+Decided in [ADR 0068](docs/adr/0068-the-console-is-tested-in-real-browsers-and-served-by-the-real-binary.md). Which accessibility, localization and visual checks run on these runners is in [Accessibility, localization and visual regression](#accessibility-localization-and-visual-regression).
 
 ### Where each test lives
 
@@ -1061,6 +1063,86 @@ Decided in [ADR 0072](docs/adr/0072-every-feature-in-a-generated-inventory-has-a
 - **Every pull request that changes Rust code runs cargo-mutants `--in-diff`** with nextest on Linux x64, sharded within the 15-minute job budget, in a job that never fails on a survivor and is not part of "all green". While the repository is private, it runs at most four shards per pull-request run and stops at the same 550 minutes; the Verification section then says it was skipped.
 - **List each surviving mutant of your changed code in the Verification section,** with the test that now kills it or why it stays (an equivalent mutant; caught only by a doctest, by a Journey in another runner, or by another OS's test).
 - **Full mutation runs are weekly once the nightly tier is on:** cargo-mutants over the workspace, StrykerJS on the TypeScript SDK runtime and the Console's logic (its `command` runner until a release fixes [stryker-js#6210](https://github.com/stryker-mutator/stryker-js/issues/6210), then its Vitest runner and an in-diff pull-request job), and mutmut on the Python SDK runtime on Linux.
+
+## Accessibility, localization and visual regression
+
+Decided in [ADR 0073](docs/adr/0073-accessibility-meets-wcag-2-2-aa-the-console-ships-ready-to-translate-and-screenshots-compare-in-one-pinned-image.md). The runners are those of [Console and docs site](#console-and-docs-site). Two product decisions in it await the owner's confirmation: V1 ships in English, ready to translate, and the docs publish an accessibility statement.
+
+### Accessibility
+
+- **The target is WCAG 2.2 AA** for the Console, the docs site and the Live view packages' own controls. The remote page inside the Live view is third-party content; the Live view's controls, name and announcements are not.
+- **Every oxlint `jsx-a11y` rule is an error.**
+- **Every Storybook story runs Storybook's a11y addon with `parameters.a11y.test = 'error'`** and the tags `wcag2a`, `wcag2aa`, `wcag21a`, `wcag21aa`, `wcag22aa` and `best-practice`, in light and dark.
+  _Why:_ axe's WCAG 2.2 rules are off by default.
+- **Use the shared Playwright fixture: it runs axe with the same tags at the end of every served test and `console` Journey variant.** Call `expectAccessible(page)` at each state worth checking on the way (an open dialog, drawer or menu). The docs pass runs axe on every `sitemap.xml` page of `next`, light and dark.
+- **Never disable an axe rule in a test.** Except a false positive only in the shared exception file, with the rule, a selector, the reason and an open issue; the fixture fails when the issue closes or the selector matches nothing. "Incomplete" results go to the report and never fail.
+- **Each screen has a keyboard walk test,** one named served case per `screen:` Feature of the inventory: Tab and Shift+Tab reach every element with an interactive role, focus never falls to `body`, Escape closes each overlay and returns focus to its trigger, and the ordered accessible names are a snapshot. At each stop, the element must look different focused and unfocused, and must not be entirely covered.
+- **Check reflow, text spacing and motion with the shared helpers:**
+  - at 320 × 256 CSS pixels there is no horizontal page scroll, except inside data tables and code blocks with their own scroll container;
+  - with WCAG's text-spacing values and at 200% text, in the `component` project's screens, no text is clipped without a way to read it in full;
+    _Why:_ served tests run under the production CSP, which refuses an injected style sheet, and Playwright has no option for either;
+  - under `reducedMotion: 'reduce'`, `document.getAnimations()` holds no running animation after an action.
+- **Every drag has a single-pointer alternative,** and its test performs the action through it.
+- **Test announcements with `@guidepup/virtual-screen-reader`** in the `component` project: live regions, route titles and Live view control changes. Assert names and roles in the spoken log.
+- **The Live view's escape key always returns focus to the Console** while a person holds control; a served test proves it and that every other key reaches the remote page.
+- **The CLI's colour never carries information alone:** in a pseudo-terminal, the coloured output with ANSI sequences stripped equals the `NO_COLOR=1` output. `NO_COLOR` set to any non-empty value disables colour, an empty one does not, and `--color always` overrides it. The shared CLI helper fails any `tests/it` case whose piped output holds an escape byte (0x1B).
+- **Accessibility tests declare no Feature** ([Feature coverage](#feature-coverage)): axe, keyboard walks, announcements and screenshots check how a screen is built, not its outcome. A screen's `screen:` Feature is declared by the tests of its behaviour. The keyboard walk has one served case per `screen:` Feature of the inventory, ending with the fixture's axe pass, so a new screen gets both.
+- **Real screen readers run as the Live check `screen-reader`** (Guidepup, NVDA on Windows and VoiceOver on macOS), nightly, owned by area 12, blocking nothing directly; before each release candidate while the nightly tier is off.
+
+### Localization
+
+- **V1 ships in English.** The Console is internationalized: every interface string comes from its Lingui catalog with ICU messages.
+- **Never hard-code a Console string.** `lingui/no-unlocalized-strings` runs through oxlint's JS plugins, and `lingui extract` in the Quick suite fails on an uncommitted catalog change.
+- **Render data inside `translate="no"`:** URLs, names, IDs, page text and every value from the engine.
+  _Why:_ browser translation then leaves data alone, and the pseudo-locale test tells data from interface text.
+- **Run the `component` project and the served tests under `en-XA` and `ar-XB`** in the Release suite. Under `en-XA`, every visible text node is bracketed or inside `translate="no"`, no text is clipped, and the keyboard walk passes. Under `ar-XB`, the root has `dir="rtl"` and arrow keys in menus and tabs follow the direction.
+- **Format only through the Console's formatting module,** which uses `Intl` with the active locale and time zone. Assert formatted strings only in the `unit` project. Browser tests assert the machine form (`<time datetime>`, `data-value`) or a role, never formatted text.
+  _Why:_ each browser ships its own ICU and CLDR; the `unit` project runs on one pinned Node line.
+- **Take locale and time zone cases from the shared table in test support** (`en-US`, `de-DE`, `fr-FR`, `tr-TR`, `ar-EG`, `hi-IN`, `ja-JP`; `UTC`, `America/St_Johns`, `Asia/Kathmandu`, `Pacific/Chatham`, `Australia/Lord_Howe`, and the DST gap and overlap days of `Europe/Paris` and `America/New_York`). Period Limits and Schedules use it for their zone cases.
+- **The elsewhere project** reruns served tests and `console` Journey variants with `locale: 'tr-TR'` and `timezoneId: 'Asia/Kathmandu'` (Release).
+- **A translation project** adds a page script that wraps every new text node in `<font>`, as page translators do; served tests must pass with no uncaught error (Release).
+- **The CLI's human output reads no locale:** the snapshot commands give the same bytes under `LANG` and `LC_ALL` set to `tr_TR.UTF-8`, two `TZ` values print the same instant, and `--json` is UTC.
+- **Engine results never depend on the host's locale or time zone** unless a setting names a zone. The Release suite reruns the engine's integration tests and the Journeys on Linux and macOS with `TZ=Pacific/Chatham` and `LANG=tr_TR.UTF-8`.
+- **The shared Unicode record** (bidi text with marks, NFC and NFD forms, a ZWJ emoji sequence, an astral character, a zero-width joiner, a BOM, a tab and a newline in a field) round-trips byte for byte through every Sink conformance case and every Export format, and renders in a Console story.
+- **The Proving ground's encodings and language families** cover the encodings and scripts ADR 0073 lists; their oracle holds the expected text in UTF-8.
+- **Keyboard layouts and IME:** a served Chromium test drives the Live view with AZERTY, QWERTZ and dead-key pairs and a CDP `Input.imeSetComposition`, and compares a Proving ground page's record of events with literal expected events. Enter during a composition never submits a Console form or search.
+
+### Visual regression
+
+- **Compare a Reference screenshot only inside the pinned Playwright image, on Linux x86-64.** Visual tests are the `visual` projects of Vitest and Playwright, and nothing else schedules them.
+  _Why:_ rendering differs by OS, architecture and font stack.
+- **The shared Playwright config sets `updateSnapshots: 'none'` in the suites,** so no suite writes a Reference screenshot, even a missing one.
+- **Never set a tolerance in a test.** Zero mismatched pixels at the default per-pixel threshold; a config check fails if `maxDiffPixels`, `maxDiffPixelRatio`, `allowedMismatchedPixels`, `allowedMismatchedPixelRatio` or `threshold` is set outside the shared config.
+- **Make the screen deterministic:** take screenshots through the shared helper, which awaits `document.fonts.ready`; fix the instant (`page.clock.setFixedTime`, or Vitest fake timers), `locale: 'en-US'`, `timezoneId: 'UTC'`, the viewport, `deviceScaleFactor: 1` and `reducedMotion: 'reduce'`; use builder data with literal defaults. Mask only the Live view's frames.
+- **Make hover, focus and pressed states with real `userEvent` input** in `.test.tsx` files, never a pseudo-states addon.
+- **A Reference screenshot is neither a fixture nor a snapshot** in the sense of [Fixtures and data files](#fixtures-and-data-files) and [Snapshots](#snapshots): their size limit, their `.source.toml` and "CI never writes a snapshot" do not apply; its own rules below do.
+- **Keep Reference screenshots beside their tests,** named without the platform, each at most 512 KiB (Quick). Clip a larger one to the region the test is about. No Git LFS. A run of every visual project fails on a Reference screenshot no test read.
+- **Update Reference screenshots only through the `update-screenshots` workflow** on the pull request's branch, then `just screenshots-fetch <run>`, and commit them with your own sign-off, naming the run in the commit message. The workflow is the only writer and is not a suite job, so no suite writes one. `just screenshots-fetch` refuses a run whose image digest is not the pinned one or whose commit is not the branch's head. Never commit a Reference screenshot rendered outside the pinned image.
+- **Locally, `just` runs the visual projects in the same image through Docker or Podman;** with neither, the step fails with an error naming the fix.
+- **What is screenshotted:** every Storybook story in light and dark; the Console's `tests/screens/` under greyscale, text spacing and 200% text in Vitest's `visual` project in Release, where a style sheet can be injected; the served key screens ADR 0073 lists in light and dark at 1280 × 800, plus phone, Firefox, WebKit, forced colours, more contrast and both pseudo-locales in Release; the docs' page templates, light and dark, desktop and phone.
+- **If the first fixtures ticket finds that a browser's screenshots do not repeat in the pinned image** (ADR 0064's 20 runs), that browser stays out of the `visual` projects, its served tests and axe keep running, and an issue owned by area 12 tracks it; the browser joins the `visual` projects once 20 runs repeat. Never add a tolerance instead. After that, a screenshot test that stops repeating is a Flaky test like any other ([Flaky tests and Live checks](#flaky-tests-and-live-checks)): quarantined, never removed.
+- **No hosted visual service** without the owner's approval as a paid test resource.
+
+### Where they run
+
+| Check | Suite |
+|---|---|
+| `jsx-a11y`, `no-unlocalized-strings`, the `lingui extract` check, the formatting table, reference sizes, the tolerance check | Quick |
+| axe on stories and served tests, keyboard walks, focus, reflow, target size, reduced motion, virtual screen reader, layout and IME tests, the CLI's colour and locale cases, docs axe, visual projects on Chromium | Pre-merge (Linux) |
+| axe in served Console tests in every browser on every OS runner, text spacing and 200% text, pseudo-locales, the elsewhere and translation projects, the host-elsewhere engine run, the other screenshots, the orphan check | Release |
+| `screen-reader` | Live check, nightly |
+
+### Manual tests
+
+Only these stay manual, on each minor's release candidate once the Console ships, recorded on the release pull request:
+
+| Manual test | What a person does |
+|---|---|
+| Screen-reader pass | NVDA with Firefox and Chrome on Windows, VoiceOver with Safari on macOS and iOS, TalkBack with Chrome on Android, over the minor's Console Journeys and changed screens, some docs pages, and the CLI's common commands |
+| Keyboard, zoom and contrast pass | Keyboard only, 400% zoom, the OS magnifier, a Windows contrast theme and speech input on changed screens, in Chrome, Firefox and Safari |
+| Real IMEs and layouts | Japanese, Chinese Pinyin and Korean IMEs, AZERTY and a dead-key layout, in the Live view and Console fields, on macOS and Windows |
+| Browser translation | Chrome's and Safari's page translation over the main screens |
+| WCAG review of new screens | Names and instructions, error suggestions, consistent help, redundant entry, sensory-only cues; the accessibility statement kept current |
 
 ## Which stories need a Journey
 

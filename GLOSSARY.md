@@ -424,6 +424,10 @@ _Avoid_: chaos test, emulation, sim (alone)
 The explicit list of faults, such as crashes, power cuts and partitions, and of Client operations that one test applies at named moments.
 _Avoid_: nemesis, fault schedule, chaos script
 
+**Observation log**:
+The ordered list of every operation, answer and fault of one Simulation or fault test, against which its invariants are checked.
+_Avoid_: history, trace (alone), event log
+
 **Size budget**:
 The largest size each released file of Goodfetch may reach on each platform, and the growth a single change may add without an explicit, recorded acceptance.
 _Avoid_: size limit (alone), quota, bloat check

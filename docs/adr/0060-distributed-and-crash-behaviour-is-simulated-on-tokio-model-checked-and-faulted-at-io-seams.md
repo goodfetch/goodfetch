@@ -28,15 +28,23 @@ Decided in [Deterministic simulation and crash testing for leases, fencing, grou
 
 ### The Simulation: turmoil, with no runtime swap
 
-- **turmoil**, pinned, runs several Goodfetch hosts (Daemons, Group members, engines) in one test process, each on its own paused current-thread Tokio runtime, over simulated TCP, with partitions, latency, message loss, host crashes and restarts, all drawn from one seed.
+- **turmoil** runs several Goodfetch hosts (Daemons, Group members, engines) in one test process, each on its own paused current-thread Tokio runtime, over simulated TCP, with partitions, latency, message loss, host crashes and restarts. It is pinned to one version, since its main branch is splitting into crates (`turmoil-net`, `turmoil-fs`) and warns that its API will change.
+- **One seed drives the whole Simulation.** The test's seed (fixed, overridden by `GOODFETCH_TEST_SEED`, printed when the test starts, ADR 0059) is split by `Entropy`'s derivation into one stream for turmoil, one per host's `Entropy`, and one for proptest's generation of the Fault plan, so that seed alone replays every choice.
 - **The engine stays on Tokio everywhere:** multi-thread in production, current-thread with the paused clock in tests (ADR 0059), one runtime per host in the Simulation. No crate depends on a replacement runtime.
 - **What the code must do:**
-  - **Sockets are opened only in the `transport` module.** Its interface listens and connects for the peer link, Client endpoints and the Politeness store, and takes the network as a value: the OS, the in-memory transport pair area 3 already exposes, or a test adapter. turmoil's adapter is test code at that seam. `tokio::net` and `std::net` socket types are refused elsewhere by `disallowed-types`.
-  - **Blocking work goes through the `tasks` module, whose blocking policy is a value:** threads in production and in ordinary tests, inline in the Simulation, so SQLite takes no simulated time and ends at a deterministic point.
-  - **The engine never builds its own runtime.** Only `main` and test helpers build one, and `tokio::task::block_in_place`, which panics on a current-thread runtime, is in `disallowed-methods`.
-  - **Third-party time hooks read the `Clock`**, such as rustls's `TimeProvider` for certificate expiry.
-  - **The Simulation builds with `--cfg tokio_unstable`**, so turmoil seeds each host's scheduler and `select!` order. The shipped binary does not.
-- **Scenarios record a history** (each operation, its answer and each fault, in simulated time) and **invariant checkers** judge it:
+  - **Connections the Simulation carries are opened only in a new `transport` module of `goodfetch-engine`.** It sits beside `rpc`, which keeps the protocol server (framing, `hello`, events, credits, WebSocket framing) and takes every connection from `transport`. `transport` listens and connects, and takes the network as a value: the OS, the in-memory transport pair area 3 already exposes, or a test adapter. turmoil's adapter is test code at that seam.
+    - **In scope:** stdio of an Attached engine (so the engine tracer's `hello` already arrives through `transport`), the Daemon's Unix socket and Windows named pipe, loopback TCP and the WebSocket listener's sockets, the private endpoint for `workers=N` and forwarded live actions, the ops listener, the peer link, and the Politeness file's wake endpoints.
+    - **Out of scope, because the Simulation never runs them:** fetch sockets, opened by area 5's fetch tiers behind ADR 0017's egress checks (local addresses of ADR 0044 included); the CDP connection to a browser process; plugin-protocol pipes to Plugins and sink processes (ADR 0033); and third-party clients that open their own sockets (the Valkey client, object storage, Model providers). Their modules are the only other places allowed to open sockets, each with `#[expect(clippy::disallowed_types, reason = "…")]` naming this ADR.
+    - **The lint:** `disallowed-types` lists `std::net::{TcpListener, TcpStream, UdpSocket}`, `std::os::unix::net::{UnixListener, UnixStream, UnixDatagram}`, `tokio::net::{TcpListener, TcpStream, TcpSocket, UdpSocket, UnixListener, UnixStream, UnixDatagram}` and `tokio::net::windows::named_pipe::{NamedPipeServer, NamedPipeClient}`; `disallowed-methods` lists `tokio::io::stdin`, `tokio::io::stdout` and `std::io::stdin`.
+  - **Every thread and every blocking call goes through the `tasks` module, whose blocking policy is a value.**
+    - Production and ordinary tests: blocking calls run on tracked blocking threads, and a dedicated thread (the run's SQLite writer actor, for example) is an OS thread its owner joins.
+    - The Simulation: blocking calls run inline on the host's runtime, and a dedicated thread's body runs as a task on that runtime, calling its handler inline for each message. `tasks` drives the thread's message loop, so the same handler runs either way. SQLite then takes no simulated time and finishes at a deterministic point.
+    - `std::thread::spawn`, `std::thread::Builder::spawn` and `std::thread::scope` join the spawn functions `disallowed-methods` already bans outside `tasks`.
+    - The policy's exact shape is decided by the area 3 ticket that first adds blocking work to `tasks`, within these rules.
+  - **The engine never builds its own runtime.** `tokio::runtime::Runtime::new`, `tokio::runtime::Builder::new_current_thread`, `tokio::runtime::Builder::new_multi_thread` and `#[tokio::main]` are allowed only in `main` and test helpers. `tokio::task::block_in_place`, which panics on a current-thread runtime, is in `disallowed-methods`.
+  - **Third-party time hooks read the `Clock`**, such as rustls's `TimeProvider` for certificate expiry. The `tracing` subscriber's timer reads the `Clock` too, so traces carry simulated time and no real timestamps.
+  - **The Simulation builds with `--cfg tokio_unstable`**, so turmoil seeds each host's runtime randomness (`select!` order). The shipped binary does not.
+- **Scenarios keep an Observation log** (each operation, its answer and each fault, in simulated time) and **invariant checkers** judge it:
   - **Fencing:** no output becomes visible under a stale lease epoch or run epoch, and every committed output is visible exactly once.
   - **One lead:** no two Daemons act as Lead Daemon under overlapping lead epochs, a Schedule fires at most once per occurrence, and one lead grants slices at a time.
   - **Limits:** charged plus outstanding Usage never exceeds a Limit, except the loss ADR 0055 allows after the last Group backup.
@@ -45,12 +53,14 @@ Decided in [Deterministic simulation and crash testing for leases, fencing, grou
   - **Bounded liveness:** once faults stop, every run finishes or is resumable within a stated simulated time.
   The same checkers judge real-process tests and the conformance suites. Scenarios cover ADR 0055's VM path (majority confirmation, promotion, demotion, `group lead --confirm`), Checkpoint handoff on scale-down, `runs adopt`, a zombie copy writing to a fenced destination, Partition handoff, and clock skew through `jump_wall` on one host. Group scenarios use `politeness_sharing: per_daemon`, since the Politeness store is a real Valkey outside the Simulation.
 - **Fault plans.** A **Fault plan** lists the faults and Client operations a test applies at named simulated moments. Plans are generated by proptest-state-machine, run by turmoil, and shrunk by proptest when they fail, so a failure is small, readable, and replays after the code changes, where a bare seed replays only on its own commit.
-- **Determinism check.** A few seeds run twice and their histories and `tracing` output must match. A mismatch is a leak of real time, OS randomness or hash order, fixed at its source.
+- **Determinism check.** A few seeds run twice, and their Observation logs and `tracing` output must match. A mismatch is a leak of real time, of randomness drawn outside `Entropy` for a choice, or of hash order, fixed at its source.
+  - **Security values are not compared.** Keys, tokens, run data keys, the group's certificate authority, certificates and TLS handshakes still come from the OS generator, never seeded (ADR 0059, unchanged). They differ between two runs of one seed, so the Observation log records them redacted, as `STYLE.md` already keeps secrets out of logs. A behaviour that depends on their bytes, such as an order taken from a key, is a determinism bug fixed in the code, never by seeding them.
 
 ### TLA+ models with trace validation
 
-- **Five models, checked by TLC** (tools pinned at 1.7.4): **run fencing** (leases, run epoch, destination compare-and-set by Guarantee class), **lead epoch** (ADR 0055's confirmation, promotion, demotion and membership change), **Partition handoff** (partition-map epochs, fenced domain handoff), **slices and reclaim**, and **degraded shares** (ADR 0053's shares and reservations over bounded time).
-- **Trace validation.** Each transition a model names is a `tracing` event under one dedicated target, carrying the model's variable names as fields. A test subscriber writes them as NDJSON, and TLC checks each trace is a behaviour of the model, as etcd's Raft library does. No test build is needed.
+- **Five models, checked by TLC**: **run fencing** (leases, run epoch, destination compare-and-set by Guarantee class), **lead epoch** (ADR 0055's confirmation, promotion, demotion and membership change), **Partition handoff** (partition-map epochs, fenced domain handoff), **slices and reclaim**, and **degraded shares** (ADR 0053's shares and reservations over bounded time).
+- **Trace validation.** Each transition a model names is a `tracing` event under one dedicated target, carrying the model's variable names as fields. A test subscriber writes them as NDJSON, and TLC checks each trace is a behaviour of the model. etcd's Raft library validates its traces this way, with events compiled in only under a `with_tla` build tag; Goodfetch's events are always compiled in under their target, so no test build is needed.
+- **Tool versions are pinned:** the TLA+ tools and the CommunityModules release (whose `CommunityModules-deps.jar` reads NDJSON), as one dated pair. **Unverified:** etcd's `validate.sh` downloads the nightly `tla2tools.jar` and the latest CommunityModules, so it is not known whether the last stable TLA+ tools (1.7.4, 2024-08-05) run this trace validation, or whether 1.8.0, a prerelease of 2026-10-13, is needed. The "Test infrastructure" spec settles the pair.
 - A model changes in the same pull request as the code whose behaviour it describes.
 
 ### Model-based tests in one process
@@ -70,12 +80,12 @@ Faults enter only at I/O seams: the crash VFS for storage, the transport adapter
 
 ### In-process concurrency: loom
 
-- **loom**, under the custom `--cfg goodfetch_loom`, checks every module that synchronizes threads with its own atomics, `Mutex`, `RwLock` or `Condvar`. Such a module imports them through its crate's `sync` module, which maps to loom under that cfg. A Goodfetch-specific cfg leaves dependencies that react to `cfg(loom)` unchanged, as crossbeam does with `crossbeam_loom`.
-- Actors on Tokio channels are covered by the Simulation's seeded scheduling.
+- **loom**, under the custom `--cfg goodfetch_loom`, checks every module that synchronizes threads with its own atomics, `Mutex`, `RwLock` or `Condvar`. Such a module imports them through its crate's `sync` module, which maps to loom under that cfg; `disallowed-types` lists the std atomic, `Mutex`, `RwLock` and `Condvar` types outside `sync` modules, which make the rule checkable. A Goodfetch-specific cfg leaves dependencies that react to `cfg(loom)` unchanged, as crossbeam does with `crossbeam_loom`.
+- Actors on Tokio channels are covered by the Simulation, whose hosts run with seeded runtime randomness.
 
 ### Real-process faults: Toxiproxy and `kind`
 
-- **Toxiproxy** sits between each real engine and the Politeness store, and between real Group members. ADR 0059's `resolve` setting maps each host name to that engine's Toxiproxy listener, so a test can cut off one engine or partition one Group member on any OS. Politeness checks:
+- **Toxiproxy** sits between each real engine and the Politeness store, and between real Group members. ADR 0059's `resolve` setting maps each host name to that engine's Toxiproxy listener. `resolve` maps names to addresses, not ports, so each engine's listeners bind the store's and peers' ports on a loopback address of their own: `127.0.0.x` on Linux and Windows, `lo0` aliases on macOS (ADR 0059's extra loopback addresses). So a test can cut off one engine or partition one Group member on any OS. Politeness checks:
   - requests in flight per key stay within the cap plus ADR 0053's minimum of 1 per cut-off engine;
   - degraded admission stops at `politeness_degraded_max`;
   - a reconnecting engine registers its requests in flight before the store frees its reservation.
@@ -87,28 +97,28 @@ Faults enter only at I/O seams: the crash VFS for storage, the transport adapter
   - Keyed: no duplicate key.
   - At-least-once: every record is present at least once.
 
-### Suites (assumed)
+### Suites
 
-[Test suites, local commands and time budgets](https://github.com/Jbmanllr/automan/issues/276) owns the suites. This decision assumes four tiers, **quick**, **pre-merge**, **release** and **nightly**, and places each check:
+[Test suites, local commands and time budgets](https://github.com/Jbmanllr/automan/issues/276) defines three suites, Quick, Pre-merge and Release, each containing the one before; the Pre-merge suite runs on Linux and the Release suite on every platform of ADR 0024, in the merge queue, nightly on `main` and for every release. This decision places each check in a suite, and names the nightly-only jobs that explore new seeds. Those jobs are in no suite, but they are not Live checks: every failure they find replays from its seed.
 
-| Check | Quick | Pre-merge | Release | Nightly |
+| Check | Quick | Pre-merge | Release | Nightly-only job |
 |---|---|---|---|---|
 | Pure time rules, proptest of decision logic | yes | yes | yes | |
-| Model-based tests with the crash VFS | 32 cases, committed regressions | 256 cases | 256 cases, every OS | random seeds, 1 h |
-| Simulation | committed Fault plans | committed plans, 16 seeds per scenario, determinism check on 4 seeds, one Linux job within 10 min | as pre-merge | random seeds, 2 h |
-| loom | | changed crates, 2 preemptions, within 10 min | all, 2 preemptions | all, 3 preemptions |
-| TLC | | when a model or a traced module changes: small constants within 10 min, trace validation of the Simulation's traces | all models | larger constants, 2 h |
-| Real-process crashes, writer lock, shared per-user files | | Linux, fixed seeds | every OS | random seeds, every OS |
-| LazyFS power cut | | | Linux x64 | Linux x64 |
-| Toxiproxy cut-offs and partitions | | Linux, fixed seeds | yes | random seeds |
-| `kind` lead scenarios | | | yes | yes |
+| Model-based tests with the crash VFS | | 256 cases and committed regressions | as Pre-merge, every OS | random seeds, 1 h |
+| Simulation | | committed Fault plans, 16 seeds per scenario, determinism check on 4 seeds, within 10 min | as Pre-merge | random seeds, 2 h |
+| loom | | changed crates, 2 preemptions, within 10 min | every crate, 2 preemptions | every crate, 3 preemptions |
+| TLC | | when a model or a traced module changes: small constants and trace validation of the Simulation's traces, within 10 min | every model, small constants | larger constants, 2 h |
+| Real-process crashes, writer lock, shared per-user files | | fixed seeds | every OS | random seeds, every OS |
+| LazyFS power cut | | | Linux x64 | |
+| Toxiproxy cut-offs and partitions | | fixed seeds (Valkey runs on Linux) | yes | random seeds |
+| `kind` lead scenarios | | | Linux x64 | |
 
-A nightly failure of these checks is a bug, not flakiness, and no release candidate is cut while one is open. A budget overrun lowers case counts or seeds; it never removes a scenario.
+A failure in a nightly-only job is a bug, not flakiness, and no release candidate is cut while one is open. A budget overrun lowers case counts or seeds; it never removes a scenario.
 
 ### Regressions
 
 1. A failing Simulation writes its shrunk Fault plan to a file and prints the command that replays it.
-2. The fix commits that plan beside its scenario, with proptest's regression file. Committed plans run in quick and pre-merge.
+2. The fix commits that plan beside its scenario, with proptest's regression file. Committed plans run in the Pre-merge suite.
 3. A failure found by a non-deterministic layer (real processes, LazyFS, Toxiproxy, `kind`) is reproduced at the lowest deterministic layer that shows it, and that reproduction is the regression test. If none can, an issue extends the Simulation, and the failing seed joins the real-process scenario's committed seeds meanwhile.
 4. A TLC counterexample becomes a Fault plan as well as a fix to the model or the design. A trace-validation failure is fixed in the code or in a stale model.
 5. A test that once found a bug is never deleted.
@@ -121,7 +131,7 @@ A nightly failure of these checks is a bug, not flakiness, and no release candid
 - **Antithesis or Hermit:** not adopted. They alone run the real binary with Chromium deterministically, but both are Linux x86-64 only and Antithesis is a paid service with no public price. The layers above cover the rest; the owner can approve Antithesis later as a paid test resource.
 - **A `Network` handle** beside `Clock` and `Entropy`: rejected. The transport is already a seam with two adapters (OS sockets and the in-memory pair), so turmoil is a third adapter there, and ADR 0059's two handles stay the only handles.
 - **Failpoints** (`fail`, Neon's `testing` builds, etcd's `gofail`): rejected. `fail` is switched by a Cargo feature on the dependency, keeps a global registry, and scatters annotations through product code. A failpoint build of the binary is the test-only build ADRs 0057 and 0059 rule out.
-- **Porcupine, Elle, Jepsen:** rejected. Goodfetch's properties are fencing, uniqueness and bounds, not linearizability of a key-value API, so invariant checkers over histories judge them. Jepsen needs a Clojure control node and Linux nodes; Toxiproxy gives real-process partitions on every OS, and `jump_wall` gives clock skew in the Simulation.
+- **Porcupine, Elle, Jepsen:** rejected. Goodfetch's properties are fencing, uniqueness and bounds, not linearizability of a key-value API, so invariant checkers over Observation logs judge them. Jepsen needs a Clojure control node and Linux nodes; Toxiproxy gives real-process partitions on every OS, and `jump_wall` gives clock skew in the Simulation.
 - **stateright or P for model checking:** rejected. stateright needs the code written as its actors, and P has no trace-validation precedent found. TLA+ is the established choice and has one in etcd.
 - **No model checking:** rejected. A Simulation samples states and rarely reaches a promoted lead meeting a returning one across a membership change; a design flaw survives any number of tests of a correct implementation.
 - **`kill -9` alone for crash safety:** rejected. The page cache survives a process crash, so it proves nothing about ADR 0002's power-cut promise.
@@ -130,16 +140,18 @@ A nightly failure of these checks is a bug, not flakiness, and no release candid
 
 ## Consequences
 
-- **[Engine tracer: an Attached engine answers `hello` over stdio](https://github.com/Jbmanllr/automan/issues/214) builds on plain Tokio.** There is no runtime swap. From its first code it opens sockets only in `transport`, spawns and blocks only through `tasks` with a blocking policy value, and leaves runtime construction to `main`.
-- **Adds to ADR 0038.** The `transport` seam with the network as a value, the blocking policy of the ownership tree, and the bans on sockets outside `transport`, on `block_in_place` and on building runtimes outside `main` and test helpers apply to every crate. ADR 0037's amendment rule therefore carries them to every area's spec.
-- **Amends `STYLE.md`:** these rules join its concurrency and lint rules, the `goodfetch_loom` cfg joins its custom cfgs, and "Remote but owned" adds the Simulation.
+- **[Engine tracer: an Attached engine answers `hello` over stdio](https://github.com/Jbmanllr/automan/issues/214) builds on plain Tokio.** There is no runtime swap. From its first code, its stdio connection comes from `transport`, it spawns tasks and threads and blocks only through `tasks`, and it leaves runtime construction to `main`.
+- **Amends ADR 0038.** Its Structured concurrency allowed blocking work "on dedicated threads their owner joins". Dedicated threads now come only from the `tasks` module, which runs their bodies as tasks in the Simulation, and `std::thread` spawning joins the banned spawn functions. It also adds, for every crate: the `transport` seam with the network as a value, the socket, stdin and runtime-construction bans, and the ban on `block_in_place`. ADR 0037's amendment rule therefore carries them to every area's spec.
+- **Amends `STYLE.md`:** its dedicated-thread rule changes as above, these rules join its concurrency and lint rules, the `goodfetch_loom` cfg joins its custom cfgs, and "Remote but owned" adds the Simulation.
 - **Changes area 3's spec** ([Spec: Engine runtime (V1 area 3)](https://github.com/Jbmanllr/automan/issues/213)):
   - Its scenarios with several processes add Toxiproxy partitions and cut-offs, LazyFS, and seeded kill moments.
   - Its in-memory adapter scenarios move into the Simulation and the model-based tests above.
+  - It gains a `transport` module beside `rpc`, which takes its connections from it, and the ops listener's socket comes from `transport` too.
+  - `tasks` drives dedicated threads such as `run_state`'s writer actor, and its blocking policy is a value; the ticket that first adds blocking work to `tasks` settles its shape.
   - `run_state`, `ledger` and `politeness` open their databases with a VFS name value.
   - `group`, `partition`, `lease`, `ledger` and `politeness` emit the trace events their TLA+ models name.
 - **Adds to ADR 0002:** its power-cut promise is now tested, by the crash VFS on every OS and by LazyFS on Linux.
 - **Adds to ADRs 0003, 0026, 0053, 0054 and 0055:** their fencing, delivery, shares, handoff and lead-epoch rules each get a TLA+ model, invariant checkers and, except ADR 0053's store, Simulation scenarios. ADR 0026's sink suite keeps its cases and tiers, and gains crash points per delivery step and a verdict per Guarantee class.
-- **The "Test infrastructure" spec** builds the shared pieces: turmoil's transport adapter, the history recorder and invariant checkers, Fault plans and their file format, the crash VFS, the LazyFS and Toxiproxy setups, the TLC and trace-validation jobs. Two facts are unverified here and are checked there: that `sqlite-plugin` registers a VFS with the SQLite that `rusqlite` bundles, and that LazyFS runs on GitHub-hosted Ubuntu runners (else in a container given `/dev/fuse`).
-- **Owned by other tickets:** the suites and budgets ([Test suites, local commands and time budgets](https://github.com/Jbmanllr/automan/issues/276)), the layout of models, plans and loom tests ([Test layout, naming, shared helpers and the test-first process](https://github.com/Jbmanllr/automan/issues/277)), and how nightly failures are filed ([Flakiness policy and checks that are non-deterministic by nature](https://github.com/Jbmanllr/automan/issues/280)).
+- **The "Test infrastructure" spec** builds the shared pieces: turmoil's transport adapter, the Observation log and invariant checkers, the seed derivation, Fault plans and their file format, the crash VFS, the LazyFS and Toxiproxy setups, the TLC and trace-validation jobs. Three facts are unverified here and are checked there: that `sqlite-plugin` registers a VFS with the SQLite that `rusqlite` bundles, that LazyFS runs on GitHub-hosted Ubuntu runners (else in a container given `/dev/fuse`), and which pinned pair of TLA+ tools and CommunityModules runs trace validation.
+- **Owned by other tickets:** the suites and budgets ([Test suites, local commands and time budgets](https://github.com/Jbmanllr/automan/issues/276)), the layout of models, plans and loom tests ([Test layout, naming, shared helpers and the test-first process](https://github.com/Jbmanllr/automan/issues/277)), and how failures of nightly-only jobs are filed ([Flakiness policy and checks that are non-deterministic by nature](https://github.com/Jbmanllr/automan/issues/280)).
 - **Delivery order (ADR 0058).** Each check lands with the code it covers. M1 brings the seams, the model-based tests, the crash VFS, LazyFS and the real-process crash tests. The Simulation's group and Partition scenarios, Toxiproxy and `kind` arrive with Daemon groups, Partitioned crawls and the Politeness store in M4.

@@ -95,7 +95,7 @@ Any test can run beside any other:
   - The binary builds one fixed set of features (ADR 0038), so a test-only control means a second binary that ships nowhere.
   - A shipped binary must never expose clock skew. Everything it would reach is tested in-process instead.
 - **libfaketime:** rejected. It cannot reach the static musl binary or a notarized macOS binary.
-- **A deterministic simulator for the whole system** (turmoil or madsim) as the injection mechanism: rejected here. Both run a single process, and neither carries Chromium, sink processes or Script sandbox workers. Where they fit is decided by [Deterministic simulation and crash testing for leases, fencing, groups and run state](https://github.com/Jbmanllr/automan/issues/275): turmoil, with no runtime swap, as a third adapter at the transport seam ([ADR 0060](0060-distributed-and-crash-behaviour-is-simulated-on-tokio-model-checked-and-faulted-at-io-seams.md)).
+- **A deterministic simulator for the whole system** (turmoil or madsim) as the injection mechanism: rejected here. Both run a single process, and neither carries Chromium, sink processes or Script sandbox workers. Where they fit is decided by [Deterministic simulation and crash testing for leases, fencing, groups and run state](https://github.com/Jbmanllr/automan/issues/275).
 - **`StdRng` for seeded randomness:** rejected. Its output changes across rand versions.
 - **Fakes for OS services** (`keyring-core`'s mock store, a fake service manager): rejected. Every one runs for real on GitHub-hosted runners, and the real one is what users hit.
 - **A per-test `HOME` alone, without `GOODFETCH_HOME`:** rejected. Windows Known Folders most likely ignore it, and a named root works the same on every OS.

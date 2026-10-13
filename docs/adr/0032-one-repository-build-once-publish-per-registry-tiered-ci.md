@@ -14,6 +14,7 @@ skills/            agent skills
 conformance/       the cross-surface conformance suites, run against the Proving ground (harness: `crates/goodfetch-conformance`)
 proving-ground/    seed generator, page server, oracles, and deploy/ for the online copy
 bench/             the benchmark harness, competitor adapters, and results/
+test-support/      private TypeScript and Python test-support packages, and fixtures several languages share (ADR 0062)
 docs/              the product documentation's content, plus adr/ and agents/
 website/           the Docusaurus configuration, theme and release-notes pages
 rnd/               frozen R&D record
@@ -101,3 +102,4 @@ Releases are **built once and published per registry**: no tool publishes crates
 - ADR 0033 adds two release artifacts built, attested and published with the engine: the Linux `goodfetch-sandbox` helper and the Windows filter broker.
 - ADR 0039 signs and notarizes every macOS and Windows executable between build and attestation, in signing jobs that alone reach a `release` environment, and keeps Homebrew a formula.
 - The nightly job that builds the Clean-up rules' daily channel is one of the jobs ADR 0043 lets reach named endpoints, and the channel is published only after its clean-up suites pass (ADR 0047).
+- ADR 0062 adds the `test-support/` folder to the tree and the internal `goodfetch-test-support` crate under `crates/`.

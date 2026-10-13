@@ -30,10 +30,10 @@ The design vocabulary is the one of `codebase-design`: a **module** has an **int
 
 ### Workspace and crates
 
-- **The root `Cargo.toml` is a virtual manifest.** Members live under `crates/` and `crates/sinks/`, plus `proving-ground/` (ADR 0032) and an `xtask/` folder at the root for `xtask codegen` and `xtask release`. Each folder name equals its crate name, and internal crates are named `goodfetch-<glossary term>`. Siblings and shared dependencies are referenced with `.workspace = true`.
+- **The root `Cargo.toml` is a virtual manifest.** Members live under `crates/` and `crates/sinks/`, plus `proving-ground/` (ADR 0032) and an `xtask/` folder at the root for `xtask codegen` and `xtask release`. Each folder name equals its crate name, and internal crates are named `goodfetch-<glossary term>`, apart from the test-only `goodfetch-test-support`. Siblings and shared dependencies are referenced with `.workspace = true`.
 - **A concern becomes its own crate only for one of these reasons:**
   1. it is a separate executable (the binary, a sink process, the sandbox helper, `xtask`, the Proving ground);
-  2. the compiler must enforce a dependency direction (`goodfetch-protocol` never depends on the engine; the Proving ground never depends on engine crates; `goodfetch-conformance` depends only on `goodfetch-protocol`; a Private component's interface with its no-op implementation);
+  2. the compiler must enforce a dependency direction (`goodfetch-protocol` never depends on the engine; the Proving ground never depends on engine crates; `goodfetch-conformance` depends only on `goodfetch-protocol`; `goodfetch-test-support` depends on no Goodfetch crate and is only ever a dev-dependency (ADR 0062); a Private component's interface with its no-op implementation);
   3. it is heavy and rarely changes, so isolating it speeds up incremental builds (generated CDP bindings);
   4. it is a Plugin-kind seam whose built-in implementation pulls dependencies nothing else needs.
 
@@ -116,26 +116,7 @@ For anything non-trivial, a known and widely used project is preferred to writin
 
 ### Tests
 
-Injection, time, randomness and test isolation follow [`TESTING.md`](TESTING.md).
-
-A module is tested according to the kind of dependency it has, using the four categories of `codebase-design`:
-
-- **In-process** (pure logic: URL normalization, robots, frontier rules, extraction, run-state rules): through the module's interface; `proptest` for parsers.
-- **Local-substitutable** (a real local stand-in exists): SQLite in a temporary file; a real Chromium (the Goodfetch build of ADR 0035) against Proving ground pages served locally. CDP is never mocked.
-  _Why:_ a fake browser lets tests pass where a real one fails, which is the false success ADR 0025 measures.
-- **Remote but owned** (Goodfetch's own processes across a boundary: sink processes, process Plugins, the Daemon): the logic is tested through an in-memory adapter of the protocol, and the real processes through the conformance suites.
-- **True external** (model providers, CAPTCHA services): a mock adapter replaying recorded exchanges.
-
-Across all of them:
-
-- **Untrusted input** gets a `cargo-fuzz` target per decoder: CDP messages, JSON-RPC and plugin-protocol framing, HTML and Markdown, sitemaps, run-state import.
-- **Snapshots** use `insta`, with redactions for what varies, for JSON-RPC responses, generated surfaces and extraction output. Snapshot files are never edited by hand.
-- **Layout:** one integration-test binary per crate (`tests/it/main.rs` with modules), run with `cargo-nextest`.
-  _Why:_ each file in `tests/` links its own binary, which multiplies build time.
-- **Doctests only on `goodfetch`**, where they are the examples of ADR 0030.
-- **Test names describe the behaviour** (`resumed_run_never_repeats_an_effect`), with no `test_` prefix.
-- **A flaky test is quarantined with an issue, never retried silently.**
-- The conformance suites of the ADRs stay the interface tests for every contract with several implementations.
+Every test rule lives in [`TESTING.md`](TESTING.md): where tests live, how they are written and named, shared helpers, fixtures, snapshots, injection and determinism, and the test-first process (ADRs 0059 and 0062).
 
 ### Documentation in code
 

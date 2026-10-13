@@ -818,7 +818,7 @@ Each suite contains the one before, so the table gives the first suite that runs
 | the live-view packages' `*.test.ts(x)` | `<goodfetch-live-view>` and its React wrapper | Vitest Browser Mode | Pre-merge |
 | `website/src/**/*.test.ts` | the docs site's build code | Vitest (Node) | Quick |
 | `website/tests/` | the built docs site | Playwright Test | Pre-merge |
-| `docs/**/*.md(x)` code blocks | the docs code samples | Twoslash and Vitest `samples`, pytest-examples, rustdoc, trycmd, the MCP server's tests | Pre-merge |
+| `docs/**/*.md(x)` code blocks | the docs code samples, extracted by `xtask docs-samples` | `twoslash` in the docs build; the TypeScript SDK's Vitest, the Python SDK's pytest, rustdoc, trycmd, the MCP server's tests | Pre-merge |
 
 ### Components
 
@@ -849,7 +849,7 @@ Each suite contains the one before, so the table gives the first suite that runs
 - **Wait with web-first assertions and `expect.poll`.** Never `waitForTimeout` (oxlint refuses it) or `networkidle`.
 - **A console error, an uncaught page error, a CSP violation or a failed same-origin request fails the test**, through the shared fixture.
 - **`toMatchAriaSnapshot` and Vitest's ARIA snapshots follow [Snapshots](#snapshots).**
-- **Tests run under the production CSP.** The binary has no switch that relaxes it, and Playwright's `bypassCSP` is never set: the shared fixture fails a test that sets it, and in test files oxlint refuses `newContext`, `browser.newPage` and `launchPersistentContext`, so every context comes from the fixture. `context.newPage()` is allowed.
+- **Tests run under the production CSP.** The binary has no switch that relaxes it, and Playwright's `bypassCSP` is never set: the shared fixture fails a test that sets it, and in test files oxlint refuses `newContext`, `browser.newPage`, `launchPersistentContext`, `launch`, `connect` and `connectOverCDP`, so every browser and context comes from the fixture. `context.newPage()` is allowed; API calls use the fixture's `request`.
 - **Keep traces on failure** and upload them with the JUnit files.
 
 ### The Console conformance suite
@@ -861,7 +861,7 @@ Each suite contains the one before, so the table gives the first suite that runs
 
 - **One Playwright version for the whole pnpm workspace**, shared by Vitest's provider.
 - **The Console's and the docs site's tests run on one Node line;** their matrix is browsers.
-- **Pre-merge:** Chromium on Linux. **Release:** components, the live-view packages, served tests, Journeys and conformance on every OS runner with every browser Playwright ships for it, plus phone emulation on Chromium and WebKit for served tests; the docs site's build, lychee and Playwright on Linux, on Chromium, Firefox and WebKit; the docs code samples on every OS runner.
+- **Pre-merge:** Chromium on Linux. **Release:** components, the live-view packages, served tests, Journeys and conformance on every OS runner with every browser Playwright ships for it, plus phone emulation on Chromium and WebKit for served tests; the docs site's build, lychee and Playwright on Linux, on Chromium, Firefox and WebKit; the docs code samples as [Docs code samples](#docs-code-samples) says.
 
 ### Docs site
 
@@ -874,8 +874,10 @@ Each suite contains the one before, so the table gives the first suite that runs
 
 ### Docs code samples
 
-- **Every fenced sample in `docs/` is tested by its language's tool:** Twoslash type-checks `ts` and `tsx` blocks in the docs build (on the TypeScript 6 alias) and the `website/` Vitest project `samples` runs them; pytest-examples lints and runs `python` blocks; `#[cfg(doctest)]` includes in `goodfetch` run Rust blocks as doctests; trycmd runs `console` blocks from the binary crate's `tests/it`; an MCP server test plays each request block through `rmcp` and compares the answer block.
+- **Give every fenced block in `docs/` a language;** use `text` for output and prose. The docs build fails on an empty info string.
+- **`xtask docs-samples` extracts every sample** from `.md` and `.mdx` pages into `target/docs-samples/`, with a manifest. A sample missing from the manifest, or a runner whose case count differs from it, fails the check.
+- **Tag a block that can't run `no_run`** after its language. It is still compiled, type-checked or linted. No other marker.
+- **Each surface's tests run its samples:** `twoslash` type-checks `ts` and `tsx` in the docs build (our own remark plugin, on the TypeScript 6 alias) and the TypeScript SDK's tests run them; Ruff lints and the Python SDK's pytest runs `python`; `#[cfg(doctest)]` includes in `goodfetch` run `rust`; trycmd runs the `.trycmd` files from the binary crate's `tests/it` (`...` for any lines, `[..]` within a line); an MCP server test plays each `json` request and answer pair through `rmcp`.
 - **Run samples against the binary built from the commit and a local Proving ground,** never the online one. Hide setup with the tool's own convention (`# ` in Rust, `---cut---` in Twoslash).
-- **Mark a block that can't run `fragment`.** It is still type-checked or compiled.
 - **Only `docs/` (`next`) runs.** Frozen versions were tested at their release.
-- **Pre-merge:** the affected pages' samples on Linux, newest Node line and CPython. **Release:** every sample on every OS runner.
+- **Pre-merge:** the affected samples on one runtime. **Release:** every sample on its surface's full matrix.

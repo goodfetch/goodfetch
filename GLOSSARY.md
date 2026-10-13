@@ -322,6 +322,14 @@ _Avoid_: alert, event (for the message), webhook (for every channel)
 A package that puts Goodfetch inside another tool, such as a workflow tool node or a document loader; one that drives the engine is a Client.
 _Avoid_: connector, plugin, app
 
+**Framework adapter**:
+A package that offers Goodfetch's operations as tools of an agent framework, such as the Vercel AI SDK, LangChain or Mastra.
+_Avoid_: wrapper, toolkit, Integration
+
+**MCP host**:
+An application that connects a model to MCP servers, such as Claude Code, VS Code or ChatGPT, and so reaches Goodfetch through its MCP server.
+_Avoid_: MCP client (for the application), agent app
+
 **Baseline**:
 A previous run, or Partitioned crawl, that a run's results are compared with to report what changed.
 _Avoid_: snapshot, reference run

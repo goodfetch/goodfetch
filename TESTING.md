@@ -68,3 +68,59 @@ Decided in [ADR 0059](docs/adr/0059-dependencies-are-injected-as-values-and-only
 
 - **SDK durations and jitter are options:** tests pass short values and a fixed seed. In TypeScript, Vitest fake timers may drive timer logic that never reaches the engine.
 - **The Console's end-to-end tests set time with Playwright's `page.clock`** (`setFixedTime` first). Its component tests use Vitest fake timers.
+
+## MCP, framework adapters and Integrations
+
+Decided in [ADR 0070](docs/adr/0070-mcp-adapters-and-integrations-are-tested-through-their-platforms-own-clients-against-a-real-engine.md).
+
+### Every surface
+
+- **Drive each surface with its platform's own client, against a real engine or Daemon serving the local Proving ground.** Never mock Goodfetch: no `nock`, fake API or stub listener.
+  _Why:_ a mock of the engine passes where the real one fails, and misses the token, `Host` and `Origin` checks.
+- **Stand in for the platform in this order:** its real runtime run locally, its official test harness, a written adapter of its context.
+- **Keep a Quick check over everything `xtask codegen` generates:** no person-only operation or setting on any MCP profile, Framework adapter, Integration or skill, and each surface's operations map to catalog operations of the same class.
+- **Assert outcomes through the oracle and Error codes**, never a model's wording or a platform's message text.
+
+### MCP server
+
+- **Test the server with `rmcp`'s client:** in-memory in its crate, over stdio and Streamable HTTP in the binary's `tests/it`. MCP Journey variants run there too, on nextest.
+- **Read stdio stdout with the strict framing reader**, logging at `trace`. Any line that is not a JSON-RPC message fails the test.
+- **Run the conformance suite at its pinned version, once per supported revision**, with `--spec-version` and `conformance/mcp/expected-failures/<revision>.yaml`:
+  - against the shipped binary, whose baseline lists only scenarios that need fixture tools or resources, each with a reason (a Quick check refuses other entries);
+  - against the fixture server, with an empty baseline;
+  - once more without `--spec-version` for the extensions the server implements.
+- **Change the suite's version only in a pull request that updates the baselines.**
+- **Run the pinned Inspector CLI with `--format json --stored-auth-only`:** boot smoke of every packaged artifact over stdio and Streamable HTTP, `--strict` on every profile's `tools/list`, and `--verify` on skills once the server serves them.
+- **Cover every supported revision in the client matrix:** TypeScript SDK v1 and v2 clients, the Python SDK and `rmcp`, pinned, over stdio and Streamable HTTP, plus the negotiation cases.
+- **Add a revision to the supported list only with its conformance baseline and its matrix cells, in the same pull request.**
+
+### Framework adapters
+
+- **Drive each tool through the framework's own agent loop with its own scripted model**, never by calling the tool's `execute` alone: `MockLanguageModelV4` for the Vercel AI SDK and Mastra, `FakeListChatModel` or `FakeStreamingChatModel` for LangChain.js, `GenericFakeChatModel` through test support's `bind_tools` subclass for Python LangChain.
+- **Script a read, an Effect and a failing call** in each adapter's tests.
+- **Run `ToolsUnitTests` on every generated Python LangChain tool**, and `ToolsIntegrationTests` on one tool per operation class and every tool a Journey uses, from a pinned `langchain-tests`.
+- **Test the lowest and highest version of each declared peer range, and one of each major inside it**, in the Release suite. Pin the lowest in a test package (pnpm's `lowest-direct` never lowers peers); use uv's `--resolution lowest-direct` in Python.
+- **Give each framework that connects only through MCP a model-free test** of its docs example: its own MCP client connects, lists tools and calls one tool.
+- **Check Dataset loaders against the oracle's records**, including metadata and lazy streaming.
+
+### Integrations
+
+- **Start the Daemon through `goodfetch-test-env`** with its HTTP listener, a token and port 0.
+- **Cover, for each Integration:** starting a run and a Recipe, fetching Records, one trigger per record range, no repeated trigger after a resumed run, a refused token, a refused `hello` version, and every Error code it maps.
+- **Run each platform's offline validator in the Quick suite**, and the Integration in its platform's local runtime or official harness in the Pre-merge suite:
+
+| Integration | Quick | Pre-merge |
+|---|---|---|
+| n8n | `n8n-node lint` (strict); verification rules | pinned n8n image, `n8n execute --id` |
+| Zapier | `zapier-platform validate --without-style` | `createAppTester`, real HTTP |
+| Make | Make Apps Editor JSON schemas; module-to-operation map | none (Live check) |
+| Pipedream | Pipedream ESLint rules, build, key checks | `run` with the `$` adapter |
+| Activepieces | lint, build | `createMockActionContext`; pinned Activepieces image |
+| Power Automate | `ConnectorPackageValidator.ps1`; OpenAPI 2.0 validation | every operation through an OpenAPI 2.0 client |
+| Airbyte source | offline QA checks; manifest validation | CDK standard suite; incremental reads from saved state |
+
+### Live checks and manual tests
+
+- **Run unpinned releases only as Live checks:** the newest conformance suite, Inspector and MCP SDK clients, and each framework's `latest` and prerelease tags, nightly; the n8n scanner after each publish.
+- **Keep real platform accounts out of every suite.** They run weekly and at release candidates, only once the owner has approved each account, behind a repository variable until then.
+- **Test by hand at each release candidate that changes them:** Claude Desktop, ChatGPT, VS Code and Cursor connecting to the MCP server; `paconn validate`; each platform's listing submission.

@@ -44,6 +44,8 @@ Evidence: [workflow tools, Airbyte and AI loaders](https://github.com/Jbmanllr/a
 - An Airbyte source that reads Datasets incrementally by record number. Apify's Airbyte source claims incremental sync but its manifest has none.
 - Dataset loaders for LangChain and LlamaIndex in TypeScript and Python, published as Goodfetch's own packages. LlamaIndex's shared web-readers package is now GPL-3.0.
 
+  > Amended by [ADR 0070](0070-mcp-adapters-and-integrations-are-tested-through-their-platforms-own-clients-against-a-real-engine.md): the LangChain Dataset loader ships in TypeScript and Python inside the LangChain package that carries the Framework adapter; LlamaIndex gets a Python reader only, since LlamaIndex.TS is archived.
+
 **What each Integration can reach**: the docs for each Integration state whether it works with a local Daemon, an exposed Daemon, a tunnel or Goodfetch Cloud. Zapier rejects localhost; Make reaches local services only through its Enterprise on-premise agent; Power Automate's on-premises data gateway supports neither API-key authentication nor custom code.
 
 **The HTTP listener** also serves the thin webhook's fetch URL. Being on HTTP, it keeps ADR 0017's `Host` and `Origin` checks. The Console does not read runs through it: it speaks the protocol over its own WebSocket (ADR 0031).

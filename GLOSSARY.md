@@ -356,6 +356,14 @@ _Avoid_: tool list, API surface
 Driving the engine through a short program written by a model that calls only the Operation catalog.
 _Avoid_: scripting, eval
 
+**Framework adapter**:
+A package that offers Goodfetch's operations as tools of an agent framework, such as the Vercel AI SDK, LangChain or Mastra.
+_Avoid_: wrapper, toolkit, Integration
+
+**MCP host**:
+An application that connects a model to MCP servers, such as Claude Code, VS Code or ChatGPT, and so reaches Goodfetch through its MCP server.
+_Avoid_: MCP client (for the application), agent app
+
 **Success check**:
 A condition declared by the user that the engine evaluates live to decide whether a step or a task succeeded. A Page check judges every page of a Session; a Success check judges an outcome.
 _Avoid_: check (alone), assertion, judge, validator
@@ -405,6 +413,14 @@ _Avoid_: robots (for all of them), policy, rules
 **Audit log**:
 The tamper-evident record of the security and compliance events of a run, a Daemon or a Daemon group, such as secret uses, confirmations and overrides. The Effect journal prevents repeated Effects; the Audit log answers who did what.
 _Avoid_: journal (alone), event log, history
+
+**Secret canary**:
+A recognisable fake secret, cookie or token planted in a test; finding it anywhere that must not hold secrets proves a leak.
+_Avoid_: honeytoken, dummy secret, fake credential
+
+**Egress canary**:
+A forbidden connection that a CI job attempts once its outbound deny is in place, and that must be refused.
+_Avoid_: canary connection, network probe
 
 **Platform signature**:
 The signature macOS or Windows checks before running a Goodfetch executable (an Apple Developer ID signature with notarization, or an Authenticode signature), naming the legal entity that publishes it. The release's Sigstore signature and attestation, which say which workflow built it, are what Goodfetch itself checks.
@@ -479,6 +495,14 @@ _Avoid_: golden files, legacy fixtures, test data (for these files)
 **Scripted engine**:
 A stand-in for the engine used only in tests, which plays one script of protocol messages to a Client and fails on any message it did not expect or any step left unused.
 _Avoid_: fake engine, mock engine, mock server
+
+**Performance budget**:
+The counted costs of Goodfetch's code (instructions, heap allocations, protocol messages and bytes, renders, bundle bytes) that a single change may grow only by a set margin without an explicit, recorded acceptance, and the ceilings resident memory and the Console may never pass.
+_Avoid_: perf test, speed limit, benchmark (for a budget)
+
+**Performance series**:
+The timed measurements of Goodfetch's latest code taken every night on the reference host, read for lasting shifts and never used to fail a single change.
+_Avoid_: nightly benchmark, perf dashboard
 
 **Quick suite**:
 The tests and checks of Goodfetch that run in-process, on what a change touches or on everything, run after every edit.

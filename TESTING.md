@@ -340,9 +340,9 @@ Decided in [ADR 0064](docs/adr/0064-tests-are-never-retried-and-unpinned-checks-
 5. Fix the cause. A longer timeout alone, a sleep or a retry is not a fix. A race or leak in the product is fixed in the product, and the test stays as it was.
 6. The fix takes the test off the list after 200 passing runs; the issue closes when it merges.
 
-- **The quarantine list is one file in the repository** (upstream Chromium tests the Chromium build gate excludes are not on it: see [Goodfetch Chromium](#expected-results)). Each entry has a test ID, its open `flaky-test` issue and a date; the Quick suite's check refuses an entry without an open issue or naming a test that no longer exists.
+- **The quarantine list is one file in the repository** (upstream Chromium tests the Chromium build gate excludes are not on it: see [Goodfetch Chromium's expected results](#expected-results)). Each entry has a test ID, its open `flaky-test` issue and a date; the Quick suite's check refuses an entry without an open issue or naming a test that no longer exists.
 - **Quarantined tests still run** 50 times a day in the daily test-health job (the 10 oldest entries), into the results store.
-- **A quarantined test blocks** (unlike an upstream exclusion of [Goodfetch Chromium](#expected-results)) its milestone's gate, every release (`xtask release` refuses while the list is not empty), and counts its feature as untested.
+- **A quarantined test blocks** (unlike an upstream exclusion of [Goodfetch Chromium's expected results](#expected-results)) its milestone's gate, every release (`xtask release` refuses while the list is not empty), and counts its feature as untested.
 - **A flaky test is never removed or weakened to make a suite pass:** quarantine it, fix it, or replace it with a test covering the same behaviour (for example by moving its unpinned part to a Live check).
 
 ### Live checks
@@ -1182,7 +1182,7 @@ Decided in [ADR 0074](docs/adr/0074-the-goodfetch-chromium-is-gated-where-it-is-
 
 ### The Chromium build gate
 
-- **The build's inputs** are the files under `chromium/` that make the build (the Chromium version, ungoogled-chromium's tag, the fingerprint patch series, Goodfetch's own patches, the build scripts and arguments). **Its test inputs** are the WPT and Khronos pins, the expectations and the launch-arguments file. The digest manifest and the protocol JSON are outputs, in neither set. A pull request that changes either set is a Chromium pull request.
+- **The build's inputs** are the files under `chromium/` that make the build (the Chromium version, ungoogled-chromium's tag, the fingerprint patch series, Goodfetch's own patches, the build scripts and arguments). **Its test inputs** are the WPT and Khronos pins, the expectations, the launch-arguments file and the gate's own workflow file, so a change to how the gate runs never passes on an old verdict. The digest manifest and the protocol JSON are outputs, in neither set. A pull request that changes either set is a Chromium pull request.
 - **The Chromium build gate is a required check on every head:** every pull request (to `main` or a release branch, cherry-picks included) and the merge queue, never behind a path filter.
   - It passes fast when every digest in the committed manifest has a verdict attestation naming this head's two input tree hashes.
   - Otherwise, on any pull request, it builds and tests on every platform the build ships; when only test inputs differ, it fetches both builds and their packages by digest and reruns the tests.

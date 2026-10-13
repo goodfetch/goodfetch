@@ -8,7 +8,9 @@ Delivery mode: autonomous. Agents merge their own pull requests after a fresh re
 
 ## Release status
 
-Release status: pre-release. No Goodfetch version has been published, no one outside the project runs it, and any staging or production environment holds only test data. Change a contract, setting, format or stored shape in place, update every caller and the generated surfaces (`xtask codegen`) in the same change, and add no alias, shim, fallback, deprecation or migration for an earlier state of this repository. The compatibility the product promises its users is V1 scope and is built as its ADRs specify: semver and deprecation from the first release, versioned contract formats and `goodfetch upgrade-files` (ADR 0030), the Usage ledger's second ledger (ADR 0041), and the Clean-up rules' format majors (ADR 0047). The owner switches this to `released` when the first preview is published, and ADR 0030 then governs every breaking change.
+Release status: pre-release. Nothing has been published on any channel, no one outside the project runs Goodfetch, and any running service holds only test data. Change a contract, setting, format or stored shape in place: update every caller, regenerate with `xtask codegen` and commit its output in the same change, and add no alias, shim, fallback, deprecation or migration for an earlier state of this repository. A contract format's version does not change before Goodfetch is published, so no reader for an earlier shape is owed. Deploying to or resetting a running service still follows Delivery.
+
+The compatibility the product promises its users is V1 scope and is built as its ADRs specify, including ADR 0030's versioned contract formats with their readers, `goodfetch upgrade-files`, and semver and deprecation from 1.0 (any `0.y` preview minor may break); the Usage ledger's add-only versions and *must understand* Limits (ADR 0041); and the Clean-up rules' format majors (ADR 0047). The owner switches this to `released` when Goodfetch is first published on any channel (the nightlies and the `0.y` previews start in M4, ADR 0058), and ADR 0030 then governs every breaking change.
 
 ## Code style
 

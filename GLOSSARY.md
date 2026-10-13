@@ -412,8 +412,16 @@ _Avoid_: code signing (alone), signature (alone), certificate
 
 ## Measurement
 
+**Flaky test**:
+A test that passes and fails with the same pinned inputs. Unlike Drift, the fault is in the test or the product, never in the site.
+_Avoid_: flake, intermittent test, unstable test
+
+**Live check**:
+A check of Goodfetch against something it does not pin, such as a vendor, a real SaaS account, a live model or a moving Chrome channel, run outside the test suites and ending in pass, fail or inconclusive.
+_Avoid_: monitor, flaky test, informing job, canary (for a Live check)
+
 **Proving ground**:
-The website Goodfetch owns and generates, whose every page has a known expected result, against which the benchmark and the conformance suites run.
+The website Goodfetch owns and generates, whose every page has a known expected result, against which the benchmark, the Evaluations, the conformance suites and the Journeys run.
 _Avoid_: fixtures site, test site, sandbox, demo site
 
 **Evaluation**:
@@ -431,6 +439,14 @@ _Avoid_: mock model, fake (alone)
 **Model recording**:
 A real exchange with a Model provider, recorded once with its secrets removed, that tests replay in place of the provider.
 _Avoid_: cassette, fixture (alone), snapshot
+
+**Proving ground task**:
+One thing the Proving ground asks a tool to do on one page family, with its starting URL and the expected result its oracle judges against. Called a task where the Proving ground is already the subject.
+_Avoid_: fixture, test case
+
+**Journey**:
+A goal a person reaches through Goodfetch's public surfaces, written as steps from a starting state to an outcome checked from outside the engine, kept under a stable ID and run on each surface that offers it.
+_Avoid_: scenario, user story, critical user journey, flow, end-to-end test (for the Journey itself)
 
 **Size budget**:
 The largest size each released file of Goodfetch may reach on each platform, and the growth a single change may add without an explicit, recorded acceptance.

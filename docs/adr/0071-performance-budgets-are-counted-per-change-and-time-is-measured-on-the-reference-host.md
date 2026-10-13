@@ -41,7 +41,7 @@ Decided in [Performance regression testing](https://github.com/Jbmanllr/automan/
 ### Comparison with the base, in the same job
 
 - **`xtask perf` builds and measures the base, then the head, in one job on one runner:** the merge base in the pull-request tier, the group's base in the merge queue. The base is saved as gungraun's `base` baseline, and the head runs with `--baseline=base`. The runner's CPU then cancels out.
-- **The base build comes from the cache.** The cache-warming job of ADR 0061 also builds the benchmark targets on every push to `main`.
+- **The base build reuses `main`'s cache.** The cache-warming job of ADR 0061 also builds the benchmark targets on every push to `main`, with `Swatinem/rust-cache`'s `cache-workspace-crates` on, since by default it caches only dependencies and the base's own crates would be rebuilt in the job.
 - **`xtask affected` selects** the bench targets of changed crates and of the crates that depend on them.
 - **Threshold: +5%** on instructions and on each heap metric, per benchmark. It is ten times the drift seen across CPUs, and still catches a 5% regression in one change. Improvements are reported, never gated.
 - **Accepting an increase.** A pull request that trips the threshold passes when its body has a **"Performance change"** section listing each tripped benchmark with its measured change and its reason, and the fresh review accepts that section explicitly on the pull request's exact head. This is ADR 0057's rule for a size increase.
@@ -53,7 +53,7 @@ These are exact by construction, so they are ordinary tests with snapshots (`TES
 
 - **Protocol counts.** For a named set of scenarios per surface (each SDK's high-level calls, the CLI's generated commands, MCP tool calls), the requests sent, the answers and events received, and their bytes after the shared redactions:
   - Rust, in the binary crate's `tests/it`, against the real binary;
-  - TypeScript and Python, in their unit tests, against the Scripted engine, which records the requests it receives (assumed from [SDK and CLI test stack](https://github.com/Jbmanllr/automan/issues/285)).
+  - TypeScript and Python, in their unit tests, against the Scripted engine of ADR 0069 (in review in [Decide the SDK and CLI test stack (ADR 0069)](https://github.com/Jbmanllr/automan/pull/304)), which records the requests it receives.
 - **MCP:** the bytes of `tools/list` and of each tool result in those scenarios. For an agent, bytes are context.
 - **Python import cost:** the set of modules `import goodfetch` loads.
 - **Console render budgets,** in Vitest Browser Mode component tests (ADR 0068): named heavy screens are wrapped in React's `<Profiler>`, and the test snapshots the number of commits per action (an event batch on the Runs screen, opening a run, filtering) and the number of DOM elements a 10,000-row list renders.
@@ -80,20 +80,23 @@ These are exact by construction, so they are ordinary tests with snapshots (`TES
   - criterion's wall time for every scenario (`benches/wall.rs`);
   - each SDK's small-call round trip against an Attached engine;
   - startup wall time and peak memory of the binary, with hyperfine 2.0;
-  - the Console's lab metrics (LCP, CLS, TBT) with Lighthouse 13, driven directly against the binary-served Console, the median of 5 runs against Web Vitals' "good" values (LCP ≤ 2.5 s, CLS ≤ 0.1, TBT ≤ 200 ms). Lighthouse CI is not used: it still bundles Lighthouse 12.
-- **It is a paid resource, gated on the owner.** It starts only once the owner approves the reference host's nightly use. Until then it runs nowhere, and the counted gates stand alone. It uses no hosted minutes, so ADR 0032's "nightly tier off while private" rule does not hold it back once approved.
+  - the Console's lab metrics (LCP, CLS, TBT) with Lighthouse 13, driven directly against the binary-served Console, the median of 5 runs against the "good" values: LCP ≤ 2.5 s and CLS ≤ 0.1 from Web Vitals, and TBT ≤ 200 ms from web.dev's TBT guidance (TBT is not a Web Vital; lab tools use it in place of INP). Lighthouse CI is not used: it still bundles Lighthouse 12.
+- **It is a paid resource, gated on the owner.** It starts only once the owner approves the reference host's nightly use. Until then it runs nowhere, and the counted gates stand alone. It uses no hosted minutes, so it runs while the repository is private and the nightly tier is off, an exception to ADR 0032's rule like ADR 0064's test-health job.
 - **It is a Live check** (ADR 0064). It runs through `bench/`'s campaign runner under the reference host's gates, and declares in `bench/` before its first run:
-  - 10 trials per figure each night, interleaved in random order with the last release's binary as a control;
-  - the night's figure is the median;
-  - the statistic is Apache Otava's change-point detection over the series, at its default significance, reporting a lasting shift of 5% or more.
+  - **the control:** a pinned binary named in the declaration. Before the first release it is the build of a `main` commit named when the owner approves the series; from the first release on, the last release. The control changes only by a declared change in `bench/`, which starts a new series;
+  - 10 trials per figure each night, interleaved in random order between `main`'s head and the control;
+  - the night's figure is the ratio of the head's median to the control's, so a change in the machine moves both;
+  - the statistic is Apache Otava's change-point detection over the series of nightly ratios, at its default significance, reporting a lasting shift of 5% or more.
 
-  A shift opens a `live-check` issue naming the first night it shows and the commits since the night before, under ADR 0064's two-day rule. The series never fails a pull request or a merge, and its figures are never published as benchmark results.
+  Otava needs several nights after a change to confirm it, more for a smaller shift ([its basics](https://github.com/apache/otava/blob/main/docs/BASICS.md)), and then dates it to the night it began. So a lasting 5% shift is reported a few nights late, not the next morning; the declaration states the expected number of nights, measured on the series' first month.
+
+  A confirmed shift opens or updates the series' one `live-check` issue (ADR 0064), which lists each shifted figure with the night the shift began and the commits since the night before; ADR 0064's two-day rule applies. The series never fails a pull request or a merge, and its figures are never published as benchmark results.
 - **Per-change wall time on bare metal** (CodSpeed's or Bencher's runners) is not adopted for V1. The series' record is the evidence to reopen it.
 
 ### Relation to the benchmark and to releases
 
 - **ADR 0025 is unchanged.** Counts and the series are early signals. They never relax or replace a family's Δ, and no count alone blocks a release. The startup and binding overhead family keeps its release-gate claim for the round trip.
-- **Drift check.** With the daily test-health job (ADR 0064), a check compares `main`'s head with the last release's counted figures in the results store. A figure up more than 10% since that release, or a resident-memory peak within 10% of its ceiling, opens or updates one `needs-triage` issue per figure. It catches many accepted steps under 5%.
+- **Drift check.** With the daily test-health job (ADR 0064), a check compares `main`'s head with the last release's counted figures in the results store. A figure up more than 10% since that release, or a resident-memory peak within 10% of its ceiling, opens or updates one `needs-triage` issue per figure. It catches many accepted steps under 5%. It only reads the results store, so it fits the test-health job's 15-minute timeout and its ceiling of included minutes. It compares nothing before the first release; until then the figures of `main`'s head are stored by the manual-dispatch Release runs, and then by the merge queue.
 - **Release notes** list each counted figure that changed by more than 1% since the previous minor, as ADR 0057 lists sizes.
 
 ### Suites and commands
@@ -127,17 +130,19 @@ These are exact by construction, so they are ordinary tests with snapshots (`TES
 - **dhat-rs heap tests or a hand-written counting allocator:** rejected. dhat-rs is self-described experimental and wants one test per file; gungraun's DHAT mode already counts, in the same job and with the same thresholds.
 - **Resident memory with a per-change threshold:** rejected. Resident memory varies with scheduling; generous ceilings catch blow-ups without flakiness.
 - **Instruction counts for the TypeScript and Python SDKs:** rejected. Node's JIT under Valgrind is neither stable nor representative, and Python's in-process instrument needs CodSpeed. Their costs are what crosses the wire (counted) and the round trip (timed).
-- **Per-change wall time on vendor bare metal** (CodSpeed macro runners, Bencher): not adopted for V1. It is paid beyond small free tiers, puts a vendor in the merge path, and fork pull requests need extra workflows; the series shows a regression within a day.
+- **Per-change wall time on vendor bare metal** (CodSpeed macro runners, Bencher): not adopted for V1. It is paid beyond small free tiers, puts a vendor in the merge path, and fork pull requests need extra workflows; the series shows a lasting regression within a few nights.
 - **Per-change wall time on the reference host:** rejected. ADR 0032 keeps pull-request code off it.
 - **Lighthouse CI, size-limit's time plugin, Reassure:** rejected. Lighthouse CI bundles Lighthouse 12; size-limit calls its time plugin possibly unstable; Reassure is Jest-only and its authors found Vitest results unsteady.
 - **Only the release benchmark:** rejected. Weeks pass between a regression and its discovery, across many changes to bisect.
 
 ## Consequences
 
-- **Amends ADR 0032.** The reference host is reached by tags, manual dispatch and, once the owner approves, a nightly schedule on `main`'s head, which runs only merged code. It still never runs pull-request code. A note marks the spot.
+- **Amends ADR 0032**, at two spots, each with a note:
+  - the reference host is reached by tags, manual dispatch and, once the owner approves, a nightly schedule on `main`'s head, which runs only merged code. It still never runs pull-request code;
+  - the Performance series runs while the repository is private, though the nightly tier is off then, since it uses no hosted minutes.
 - **Adds to ADR 0025:** the Performance series uses the reference host and `bench/`'s runner, and its figures are never published as benchmark results. The release gate and every Δ are unchanged.
 - **Adds to ADR 0057:** the Console's bundle has its own ceiling and per-change increase check, ahead of the binary's.
-- **Adds to ADR 0061:** the cache-warming job builds the benchmark targets; `xtask affected` selects bench targets; `just perf` joins the recipes and `just pre-merge` runs it; the Performance budgets are those its time budgets exclude.
+- **Adds to ADR 0061:** the cache-warming job builds the benchmark targets and caches workspace crates; `xtask affected` selects bench targets; `just perf` joins the recipes and `just pre-merge` runs it; the Performance budgets are those its time budgets exclude.
 - **Adds to ADR 0064:** the Performance series joins its table of Live checks (nightly on the reference host, blocking nothing directly, owned by area 2); the drift check runs with the daily test-health job; performance figures join the results store.
 - **Adds to ADR 0068 (in review):** render and DOM counts in component tests, and the leak check in served tests.
 - **Adds to ADR 0030's release notes:** each counted figure that changed by more than 1% since the previous minor.

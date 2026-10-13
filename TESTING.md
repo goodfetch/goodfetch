@@ -557,7 +557,7 @@ Decided in [ADR 0071](docs/adr/0071-performance-budgets-are-counted-per-change-a
 
 ### Counts as snapshots
 
-- **Protocol counts are snapshots:** for each named scenario of a surface, the requests sent, the answers and events received, and their bytes after the shared redactions. Rust against the real binary in `tests/it`; TypeScript and Python against the Scripted engine in unit tests.
+- **Protocol counts are snapshots:** for each named scenario of a surface, the requests sent, the answers and events received, and their bytes after the shared redactions. Rust against the real binary in `tests/it`; TypeScript and Python against the Scripted engine of ADR 0069 (in review) in unit tests.
 - **MCP scenarios snapshot the bytes of `tools/list` and of each tool result.**
   _Why:_ for an agent, bytes are context.
 - **The Python SDK snapshots the modules `import goodfetch` loads.**

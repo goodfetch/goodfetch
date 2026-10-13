@@ -58,7 +58,7 @@ Decided in [Journey catalog: format, IDs, seeded data and surfaces](https://gith
 
 - **Each Journey that uses Proving ground pages has its own seed**, written in its file when it is created. The first catalog uses the Journey's number. A Journey that touches no page (J-001, J-009) has no seed. `GOODFETCH_TEST_SEED` (ADR 0059) overrides only the `Entropy` seed of in-process tests, never a Journey's seed, which is part of its data.
 - **Each variant run starts from scratch.** It starts its own Proving ground on port 0 with the Journey's seed, its own Goodfetch home and cleared environment (ADR 0059), the `resolve` mapping of the Proving ground's host names to loopback, and the Proving ground's certificate authority trusted through ADR 0042's per-domain exception. Nothing is shared with another variant, so the Proving ground's per-task observations need no namespace.
-- **The data is pinned by the seed, the Proving ground built from the same commit and each task's digest.** The result document records the seed and the version. Each named Proving ground task is pinned by its `digest`, a hash the Proving ground computes over the task's entry and its expected result. A generator change that alters, moves or removes a task a Journey names therefore fails the catalog check, so the pull request that changes the generator updates the Journeys it moves, digest included, after checking the Journey still fits.
+- **The data is pinned by the seed, the Proving ground built from the same commit and each task's digest.** The result document records the seed and the version. Each named Proving ground task is pinned by its `digest`, a hash the Proving ground computes over the task's entry and its expected result with every URL's port removed, so the digest is the same on whatever port the run binds. A generator change that alters, moves or removes a task a Journey names therefore fails the catalog check, so the pull request that changes the generator updates the Journeys it moves, digest included, after checking the Journey still fits.
 - **Starting state is built through public surfaces** in the Journey's first steps: settings, Limits, a Saved identity from a Proving ground login, an earlier run. No run file, database or home folder is copied in, except an older-format file an upgrade Journey starts from (the upgrade fixtures of [Upgrade and version-mismatch testing](https://github.com/Jbmanllr/automan/issues/287)).
 - **Logins** use accounts the Proving ground derives from the seed, so each variant has its own accounts.
 - **Journeys run against the local copy only**, under ADR 0043's outbound deny. Online-copy results stay conformance reports.
@@ -66,7 +66,12 @@ Decided in [Journey catalog: format, IDs, seeded data and surfaces](https://gith
 
 ### Runners and results
 
-- **Each surface's own runner runs its variants**: nextest for `cli` and `sdk-rust`, Vitest for `sdk-typescript`, pytest for `sdk-python`, Playwright Test for `console`. The MCP, skills, adapter and Integration runners are those their own tickets choose. Each surface keeps its Journey tests in its own package; where exactly is [Test layout, naming, shared helpers and the test-first process](https://github.com/Jbmanllr/automan/issues/277)'s.
+- **Each surface's own runner runs its variants**: nextest for `cli` and `sdk-rust`, Vitest for `sdk-typescript`, pytest for `sdk-python`, Playwright Test for `console`. The MCP, skills, adapter and Integration runners are those their own tickets choose.
+- **Each surface keeps its Journey tests in a `journeys` folder of the package that ships it**, beside its integration tests (ADR 0062, which leaves this to this ADR), one file per Journey:
+  - Rust: `tests/it/journeys/j002.rs` in the `goodfetch` binary's crate for `cli` and in the public `goodfetch` crate for `sdk-rust`, so the ID is in the test's path;
+  - TypeScript: `tests/journeys/J-002.test.ts` in the TypeScript SDK's package, and `tests/journeys/J-002.spec.ts` in the Console's;
+  - Python: `tests/journeys/test_j002.py` in the Python SDK's package, beside `tests/unit/` and `tests/integration/`.
+- **A variant's Proving ground, home and environment come from ADR 0062's test support**: `goodfetch-test-support` in Rust, and `goodfetch-test-env` through the two `test-support/` packages in TypeScript and Python. The engine is the shipped binary, never one the helper links.
 - **Each variant run writes one result document** (area 2's, built by [`goodfetch-conformance` tracer: the harness, the result document and a self-test suite](https://github.com/Jbmanllr/automan/issues/169)) with `kind = "journey"`. It records the variant, each step's outcome (`passed`, `failed`, `not_reached`, `manual`), each task's oracle answer with its evidence, the Proving ground's version and seed, the binary's and the surface package's versions, and the platform and runtime.
 - **The outcome is derived, never set by the test**, in area 2's words:
   - `proved` when every automated step passed, every check passed and every named task is `verified`;
@@ -76,8 +81,9 @@ Decided in [Journey catalog: format, IDs, seeded data and surfaces](https://gith
   A `manual` step leaves the variant `proved` on its automated steps and is listed for the owner test.
 - **How "derived, never set" holds on every runner.**
   - In Rust, the outcome comes from a constructor in `goodfetch-protocol`.
-  - The TypeScript and Python helpers derive it with the same rule, tested against a shared set of outcome vectors (steps and oracle answers with the outcome they give) committed beside the schema.
+  - The TypeScript and Python helpers derive it with the same rule, tested against a shared set of outcome vectors: steps and oracle answers with the outcome they give. The vectors are hand-written data, so they live in `test-support/fixtures/outcome-vectors/` (ADR 0062's place for data several languages read), never in the generated schema bundle.
   - Every reader of result documents (the catalog report, the coverage check, the release gate) loads them through a Rust reader in `goodfetch-protocol` that recomputes the outcome and rejects a document whose stored outcome disagrees. A helper that writes `proved` beside a `false_success` answer fails CI there.
+  - Those readers also compare each `journey` document with its Journey and reject one whose steps, checks and named Proving ground tasks are not exactly the Journey's. A helper that leaves a failed or unreached step out of the document therefore fails CI too.
 
 ### The catalog check and report
 
@@ -127,19 +133,20 @@ Pain slugs are written as `row:` because they are rows of ADR 0037's matrix. The
 
 **[Proving ground tracer: one seeded family, its task list and its oracle](https://github.com/Jbmanllr/automan/issues/158):**
 - The family is `catalog`, ported from the lab's HTTP catalog: paginated listing pages and product pages, each product with its ID, name and price.
-- **Task IDs** are `<family>/<ordinal>` (`catalog/1`), scoped by the seed, which travels with them. Ordinals are append-only within a family: a new kind of task takes the next ordinal, and a removed one leaves a gap that is never reused. This is the concrete form of area 2's "seed-derived id".
-- **The task list** is served as JSON: `proving_ground` (`version`, `seed`) and `tasks`, each with `id`, `family`, `kind` (`crawl` or `extract` for this family), `start_url`, `description` and `digest` (SHA-256 over the canonical JSON of the entry without `digest`, plus the task's expected result).
+- **Task IDs** are `<family>/<ordinal>` (`catalog/1`), scoped by the seed, which travels with them. A family has the same tasks, with the same IDs and kinds, for every seed; the seed changes only their data (pages, products, start URLs and expected results). Ordinals are append-only within a family: a new task takes the next ordinal, and a removed one leaves a gap that is never reused. This is the concrete form of area 2's "seed-derived id".
+- **The task list** is served as JSON: `proving_ground` (`version`, `seed`) and `tasks`, each with `id`, `family`, `kind` (`crawl` or `extract` for this family), `start_url` (with the port `serve` bound), `description` and `digest`.
+- **The digest** is the lowercase hex SHA-256 of one JSON object, `{"entry": …, "expected": …}`: the task's entry without `digest`, and its expected result. Before hashing, every URL in both has its port removed (`http://catalog.test:51234/p/1` becomes `http://catalog.test/p/1`), and the object is serialized in the JSON Canonicalization Scheme (RFC 8785).
 - **`serve` binds port 0 when asked**, and its first output line is one JSON object with `address`, `version` and `seed`, so a test helper reads it.
 - **The version** is the workspace version plus the commit, so the result document pins the generator.
 - **The seed** is an unsigned 64-bit integer, written in decimal.
 - **The oracle's answer** names the task ID it judged.
-- Tests show the same seed gives the same task list, IDs, start URLs and digests included, and that a change to a task's expected result changes its digest.
+- Tests show the same seed on the same port gives the same task list, IDs, start URLs and digests included; two `serve` runs with the same seed on different ports give the same digests; two seeds give the same task IDs and kinds; and a change to a task's expected result changes its digest.
 
 **[`goodfetch-conformance` tracer: the harness, the result document and a self-test suite](https://github.com/Jbmanllr/automan/issues/169):**
 - The result document has a `kind`: `conformance` or `journey`.
 - A `journey` document carries the variant (`journey_id`, `surface`), each step's outcome, each task's oracle answer and evidence, and the versions of the binary and the surface package in place of a target. The common fields (platform, runtime, the Proving ground's version and seed) stay.
 - Both kinds derive their outcome from what they hold, through a constructor in `goodfetch-protocol`, and its reader recomputes the outcome of a loaded document and rejects a mismatch.
-- The outcome vectors are committed beside the schema, and the Rust constructor passes them.
+- The outcome vectors are committed in `test-support/fixtures/outcome-vectors/`, and the Rust constructor passes them.
 - Tests show a sample `journey` document validates against the schema, that one Proving ground task answering `false_success` makes it `failed`, and that the reader rejects a document stored as `proved` beside that answer.
 
 ### IDs that feature coverage references
@@ -182,10 +189,9 @@ Pain slugs are written as `row:` because they are rows of ADR 0037's matrix. The
 - **The glossary** gains *Journey* and *Proving ground task*.
 - **Left to other tickets of the test strategy map,** each building on the interface above:
   - which suite (`Quick`, `Pre-merge`, `Release`) runs which variants, and whether some also run as a nightly job, and the local command that selects them by ID, surface, milestone or area: [Test suites, local commands and time budgets](https://github.com/Jbmanllr/automan/issues/276);
-  - the Journey tests' folders and the helper that starts a variant's Proving ground, home and engine: [Test layout, naming, shared helpers and the test-first process](https://github.com/Jbmanllr/automan/issues/277);
   - the feature inventory and the coverage check: [Feature coverage and traceability](https://github.com/Jbmanllr/automan/issues/279);
   - what a failing or flaky Journey test does: [Flakiness policy and checks that are non-deterministic by nature](https://github.com/Jbmanllr/automan/issues/280);
   - Journeys of AI features and the `skills` surface, on scripted models: [Testing AI features and agent skills](https://github.com/Jbmanllr/automan/issues/281);
   - the `console`, SDK, CLI, MCP, adapter and Integration runners: [Console and docs test stack](https://github.com/Jbmanllr/automan/issues/282), [SDK and CLI test stack](https://github.com/Jbmanllr/automan/issues/285), [MCP, framework adapter and Integration test stack](https://github.com/Jbmanllr/automan/issues/286).
 - **[`goodfetch-conformance` tracer: the harness, the result document and a self-test suite](https://github.com/Jbmanllr/automan/issues/169)** builds the Rust constructor, the reader and the outcome vectors; [Conformance result documents from the TypeScript and Python test runners](https://github.com/Jbmanllr/automan/issues/170) builds the helpers' derivation against them.
-- **The "Test infrastructure" spec** builds the Journey type and its schema, the catalog check and report, the twelve files of the first catalog, and each language's helper that reads a Journey, starts its Proving ground and writes its result document.
+- **The "Test infrastructure" spec** builds the Journey type and its schema, the catalog check and report, the readers' comparison of a document with its Journey, the twelve files of the first catalog, and each language's helper that reads a Journey, starts its Proving ground through ADR 0062's test support and writes its result document.

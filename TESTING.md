@@ -230,7 +230,7 @@ Decided in [ADR 0063](docs/adr/0063-end-to-end-tests-follow-a-catalog-of-numbere
 ### Data and isolation
 
 - **Each Journey that uses Proving ground pages has its own `seed`.** Never share one between Journeys. A Journey that touches no page has none. `GOODFETCH_TEST_SEED` never overrides a Journey's seed.
-- **Pin each Proving ground task a Journey names with its `digest`** from the task list.
+- **Pin each Proving ground task a Journey names with its `digest`** from the task list. The digest ignores the port, so the same seed gives the same digest on every run.
 - **Each variant run starts from scratch:** its own Proving ground on port 0 with the Journey's seed, its own Goodfetch home and cleared environment, `resolve` mapping the Proving ground's hosts to loopback, and its certificate authority trusted through the per-domain exception.
 - **Build the starting state through public surfaces** in the first steps. Never copy in a run file, database or home folder, except an older-format file for an upgrade Journey.
 - **Run against the local copy only.** Online results stay conformance reports.
@@ -244,8 +244,10 @@ Decided in [ADR 0063](docs/adr/0063-end-to-end-tests-follow-a-catalog-of-numbere
   - Vitest: the tag `J-002`, declared from the catalog, `strictTags` on;
   - pytest: `@pytest.mark.journey("J-002")`, registered, `strict_markers` on;
   - Playwright Test: the tag `@J-002`.
+- **Put a surface's Journey tests in a `journeys` folder of the package that ships it**, one file per Journey: `tests/it/journeys/j002.rs` in Rust, `tests/journeys/J-002.test.ts` (Vitest) or `J-002.spec.ts` (Playwright) in TypeScript, `tests/journeys/test_j002.py` in Python.
+- **Start a variant's Proving ground, home and environment through test support** (`goodfetch-test-support`, or `goodfetch-test-env` through the `test-support/` packages), and drive the shipped binary.
 - **One test per variant.**
-- **Each variant run writes one result document with `kind = "journey"`.** Never set its outcome by hand: derive it from the steps, the checks and the oracle's answers, through the Rust constructor or a helper that passes the shared outcome vectors. A step not reached, or any Proving ground task not `verified`, fails the variant. Readers recompute the outcome and reject a document that disagrees.
+- **Each variant run writes one result document with `kind = "journey"`.** Never set its outcome by hand: derive it from the steps, the checks and the oracle's answers, through the Rust constructor or a helper that passes the shared outcome vectors. A step not reached, or any Proving ground task not `verified`, fails the variant. Readers recompute the outcome and reject a document that disagrees, or whose steps, checks and named Proving ground tasks are not exactly its Journey's. The shared outcome vectors are in `test-support/fixtures/outcome-vectors/`.
 - **The catalog check fails** on a file that does not parse, an ID that differs from its file name, repeats or is not below the next free number, a Proving ground task missing from the task list for the seed or whose digest differs, a test naming a retired or unknown Journey or an unlisted surface, two tests for one variant, a variant milestone earlier than its surface, or a retired Journey without a reason.
 
 ### Owner tests

@@ -23,7 +23,8 @@ How Goodfetch is tested: every surface, at every level. Each rule comes with its
 17. [SDK and CLI tests](#sdk-and-cli-tests)
 18. [MCP, framework adapters and Integrations](#mcp-framework-adapters-and-integrations)
 19. [Performance budgets](#performance-budgets)
-20. [Console and docs site](#console-and-docs-site)
+20. [Security](#security)
+21. [Console and docs site](#console-and-docs-site)
 
 Sections 1 to 7, 11 and 12 are decided in [ADR 0062](docs/adr/0062-tests-sit-beside-their-code-and-share-one-test-support-written-once.md).
 
@@ -127,7 +128,7 @@ How each dependency is injected is in [Injection and determinism](#injection-and
 ## Property tests, fuzzing and doctests
 
 - **Parsers and stateful rules get property tests:** `proptest` in Rust, `hypothesis` in Python. Their regression files are committed.
-- **Untrusted input** gets a `cargo-fuzz` target per decoder: CDP messages, JSON-RPC and plugin-protocol framing, HTML and Markdown, sitemaps, run-state import.
+- **Untrusted input** gets a `cargo-fuzz` target for every decoder of input Goodfetch did not write itself, replayed by a plain `#[test]` on every OS. The list and the rest of fuzzing are under [Security](#security) (ADR 0067).
 - **Doctests only on `goodfetch`**, where they are the examples of ADR 0030.
 
 ## Injection and determinism
@@ -177,7 +178,7 @@ Decided in [ADR 0059](docs/adr/0059-dependencies-are-injected-as-values-and-only
 - **Proving ground host names resolve through the `resolve` setting** to loopback, which the run allowlists for tests.
 - **Proxies are tested against the Proving ground's real forward proxy.**
 - **Local addresses use real extra loopback addresses:** `127.0.0.0/8` on Linux and Windows (Windows not yet tested), `lo0` aliases on macOS, a network namespace under sudo where needed.
-- **No test reaches the public internet.** Only the jobs ADR 0043 names go online, to their named endpoints; every other job runs under its deny with the canary.
+- **No test reaches the public internet.** Only the jobs ADR 0043 names go online, to their named endpoints; every other job runs under its deny with its Egress canary.
 - **The keychain provider runs against the real keychain** of each OS (`gnome-keyring` started and unlocked on Ubuntu), with a unique service name per test. Consumers of Secrets use the environment or caller provider.
 - **`daemon install` installs for real on each OS.** The unit file it generates is snapshot-tested.
 
@@ -342,10 +343,10 @@ Decided in [ADR 0064](docs/adr/0064-tests-are-never-retried-and-unpinned-checks-
 
 ### Live checks
 
-- **Each Live check has an owning area and a placement** listed in ADR 0064: real SaaS Sinks, installed Chrome's stable, beta and dev channels (pinned majors are tests), public testnets, the Clean-up rules' daily gate, the online conformance, the benchmark, the Performance series (ADR 0071), the Cloud Run deploy, live-model evaluations, Scorecard; and, from ADR 0070, the newest MCP conformance suite, Inspector and SDK clients, each agent framework's newest releases, the n8n scanner on the published node, and real Integration platform accounts; and, from ADR 0068, the docs site's `docs-external-links` (nightly, or before each release candidate while the nightly tier is off) and `docs-deploy-smoke` (after each production deploy), which block nothing directly ([Console and docs site](#console-and-docs-site)).
+- **Each Live check has an owning area and a placement** listed in ADR 0064: real SaaS Sinks, installed Chrome's stable, beta and dev channels (pinned majors are tests), public testnets, the Clean-up rules' daily gate, the online conformance, the benchmark, the Performance series (ADR 0071), the Cloud Run deploy, live-model evaluations, Scorecard; and, from ADR 0070, the newest MCP conformance suite, Inspector and SDK clients, each agent framework's newest releases, the n8n scanner on the published node, and real Integration platform accounts; and fuzzing (ADR 0067); and, from ADR 0068, the docs site's `docs-external-links` (nightly, or before each release candidate while the nightly tier is off) and `docs-deploy-smoke` (after each production deploy), which block nothing directly ([Console and docs site](#console-and-docs-site)).
 - **Outcomes are pass, fail or inconclusive.** Inconclusive means the external side was unavailable; it never counts as a pass.
-- **Results go to the results store** under the `live` tier.
-- **A fail, or three inconclusive runs in a row, opens or updates one `live-check` issue** in the current milestone, right after `flaky-test` issues on the frontier. If its cause is not stated within two business days, the next minor is not promoted until it is. Patches are not held, and the online conformance never blocks (ADR 0043).
+- **Results go to the results store** under the `live` tier, except fuzzing's, which stay private ([Security](#fuzzing)).
+- **A fail, or three inconclusive runs in a row, opens or updates one `live-check` issue** in the current milestone, right after `flaky-test` issues on the frontier. If its cause is not stated within two business days, the next minor is not promoted until it is. Patches are not held, and the online conformance never blocks (ADR 0043). Fuzzing opens no `live-check` issue: its crashes stay private and block the next minor until fixed ([Security](#fuzzing)).
 - **A `live-check` issue closes** once its cause is written down and either fixed or attributed to an external party with a linked upstream report, so an explained vendor outage never holds a milestone gate.
 - **A measurement declares its trials, threshold and statistic before it runs,** and every trial counts. A failed trial is never replaced.
 
@@ -371,6 +372,7 @@ The fresh review of a pull request checks its tests against this list:
 8. Snapshots are redacted, cover structured output, and every change to one is intended.
 9. Fixtures are under 256 KiB, and generated ones have their `.source.toml` file.
 10. No helper is duplicated; shared setup is in test support.
+11. A new decoder, listener, Plugin kind, widening setting, Secret kind or output has its tests under [Security](#security).
 
 ## Suites, commands and time budgets
 
@@ -797,6 +799,119 @@ Decided in [ADR 0071](docs/adr/0071-performance-budgets-are-counted-per-change-a
 | Resident-memory ceilings | Release, every OS |
 | Drift check against the last release | the daily test-health job |
 | Performance series | a nightly Live check on the reference host, once the owner approves |
+
+## Security
+
+Decided in [ADR 0067](docs/adr/0067-security-is-tested-per-trust-boundary-with-secret-canaries-and-private-fuzzing.md). The Quick, Pre-merge and Release suites are those of [Suites, commands and time budgets](#suites-commands-and-time-budgets): the Pre-merge suite runs on Linux, and the Release suite on the full matrix, in the merge queue once it exists and on manual dispatch before each milestone's owner test and before any release until then. Live checks are those of [Flaky tests and Live checks](#live-checks), in no suite.
+
+### Trust boundaries
+
+Every boundary has its tests. A decision that adds a boundary adds its row in the same change. The OSes column is the whole schedule: a test absent from an OS its row does not give is not skipped.
+
+| Boundary | Tests | Suite | OSes |
+|---|---|---|---|
+| Untrusted decoders | corpus and crasher replay | Quick | every OS |
+| | `cargo fuzz check` | Pre-merge | Linux x64 |
+| | fuzzing | Live check, private repository | Linux x64 |
+| Script sandbox | worker probes and inspection | Pre-merge; Release | Linux; every OS |
+| | V8 memory-corruption scripts, on the test build fetched by digest | Release | Linux x64 |
+| Plugin confinement | rule-to-probe check | Quick | every OS |
+| | probes generated from each policy; engine refusals | Pre-merge; Release | Linux; every OS |
+| Chromium's sandbox | renderer checks; startup probe cases | Pre-merge; Release | Linux; every OS |
+| Egress | SSRF and hostile-input cases in-process | Quick | every OS |
+| | the same cases end to end | Pre-merge; Release | Linux; every OS, rebinding end to end on Linux only |
+| Endpoints and the peer link | endpoint table; protocol fuzzing; MCP conformance over HTTP (placed by ADR 0070) | Pre-merge; Release | Linux; every OS (MCP conformance: as ADR 0070) |
+| | ZAP baseline of the Console | Release | Linux |
+| Secrets | redaction property tests | Quick | every OS |
+| | Secret canary searches | the suite of the test that produces the output | its OSes |
+| | `gitleaks` over job outputs | a step of every CI job | every OS |
+| File outputs | path traversal cases | Pre-merge; Release | Linux; every OS, each OS's own cases |
+| Audit log | tamper property tests | Quick | every OS |
+| Reset gate | ADR 0001's planted Secret canaries | as ADR 0001 sets | as ADR 0001 sets |
+| Unsafe code | ASan run of crates that opt into `unsafe` | Release | Linux glibc |
+| Supply chain and workflows | ADR 0032's gates; image digest pins; CodeQL once public; `gitleaks` over commits until then | Pre-merge | Linux |
+
+**Before the repository is public** (ADR 0032), the Release suite, with every part above, runs on manual dispatch before each milestone's owner test and before any release. CodeQL, GitHub secret scanning and push protection, and the nightly watch jobs start when the repository becomes public. Fuzzing starts when the owner approves its runner minutes.
+
+### Fuzzing
+
+- **Every decoder of input Goodfetch did not write itself has a `cargo-fuzz` target.** Today: JSON-RPC, plugin-protocol, peer-protocol and Script sandbox pipe framing; catalog-call arguments; CDP messages; HTML and Markdown; sitemaps, robots.txt and Site preference files; run-state import; Checkpoint and session-export bundles; Plugin manifests, OCI image indexes and bundle unpacking; Recipes and settings files; Filter lists; Session source formats, `Cookies.binarycookies` included; extraction schemas; URL canonicalisation and the resolved-IP classification.
+- **Write each target's body as a plain function**, and replay its seeds and every past crasher from a `#[test]` on every OS.
+  _Why:_ cargo-fuzz does not build on Windows, and path handling differs most there.
+- **Check more than crashes where a pair exists:** round-trip for encoders and decoders, and the resolved-IP classification against the reference table built from the IANA registries.
+- **Commit seeds and a dictionary per target.** The grown corpus stays private.
+- **Never fuzz in a pull request.** Fuzzing is a Live check that runs only in a private repository, against the main repository's `main`: continuous builds and 600 s of ClusterFuzzLite `code-change` on the affected targets after every push, and `batch` for 3,600 s then `prune` and `coverage` nightly.
+  _Why:_ a public job's logs and artifacts would disclose a crash already on `main` before its fix.
+- **Keep fuzzing's results in the private repository.** They never go to the results store or its published report.
+- **The job that builds and runs fuzz targets holds no secret** and a token with no permissions; a later job stores its results.
+- **Run ClusterFuzzLite's images by digest** from Goodfetch's workflow, never through its action's `:v1` tag.
+- **Send every new crash to a private security advisory draft** on the main repository, never a public issue. Until the main repository is public, which advisories need, open an issue in the private fuzz repository instead. A crash that also crashes the previous continuous build joins its advisory, or opens one. Fix it from the advisory's private fork (before publication, an ordinary pull request), and commit the crasher, minimised with `cargo fuzz tmin`, as a regression input with the fix.
+- **An open fuzz crash blocks the promotion of the next minor** until it is fixed or triage closes it as not a vulnerability. Patches are not held. Never post a private result (the Private component run or fuzzing) on a public commit. The release pipeline reads them from the private repositories when each step starts, with the read-only private gates App: the Private component run for candidates and patches, and also open fuzz crashes for promotion to `x.y.0`. A promotion held while every public gate is green does reveal that a fuzz crash is open; this is accepted, since it shows neither the target nor the input (ADR 0067).
+- **Fuzz, and run the ASan tests, on one nightly toolchain pinned in its own file**, apart from `rust-toolchain.toml`.
+- **Run the tests of every crate that opts into `unsafe` under AddressSanitizer** in the Release suite, on Linux glibc.
+
+### Confinement
+
+- **Generate Plugin confinement cases from the policy.** One probe per rule of each generated seccomp, Landlock, Seatbelt, AppContainer and broker policy, at each network level. A rule without a probe, or a probe without a rule, fails.
+- **Assert the exact error** ADR 0033 gives for a call the seccomp, Landlock or Seatbelt policy refuses: a kill or an allowed call fails the test. Resource-limit probes expect the limit's own Error code.
+- **Pair every refusal with a positive control:** the same probe first succeeds unconfined, in the same test.
+  _Why:_ a probe that fails for an unrelated reason would otherwise pass as a refusal.
+- **Assert the mechanism each runner uses** (Landlock ABI, user namespaces, mount-namespace fallback), so a silent fallback fails. A container under Docker's default seccomp profile on a kernel before 6.12 must refuse with `confinement_unavailable`.
+- **Test the Script sandbox worker as if V8 were broken:** run the probes under the worker's own generated policy, and inspect a live worker (`Seccomp:` and `NoNewPrivs:` on Linux, an AppContainer token on Windows, the spec's method on macOS). In the Release suite, on Linux x64, run corruption scripts on a V8 build with `v8_enable_memory_corruption_api`; each must end as `script_crashed`.
+- **Build the test V8 once per V8 version**, in its own required check on the pull request that changes the version, outside the Pre-merge suite's "all green" check. The job skips when that version's build is already published. A later job attests it and publishes it as a release asset, as the Goodfetch Chromium is. The author commits its digest, which a check matches against the attested asset. A fork's pull request cannot attest, so a V8 change from a fork is rebuilt from a branch of the main repository. The Release suite fetches the build by digest and never builds it.
+- **Check that every renderer is sandboxed** for each browser Goodfetch launches: `Seccomp: 2` and `NoNewPrivs: 1` on Linux (Ubuntu 24.04 with its AppArmor restriction on), `chrome://sandbox` on Windows, Seatbelt on macOS. Test ADR 0049's startup probe in its refuse and record cases.
+
+### Egress and hostile input
+
+- **Keep SSRF cases in one table, as data, and run it at every layer:** the resolved-IP classification in-process, the HTTP tiers, the egress proxy, browser Sessions for every request type of ADR 0014, raw CDP, the relays of ADRs 0042 and 0044, a Borrowed browser, Plugin traffic, and Sinks and webhooks under "no private endpoints".
+- **Cover every family:** encodings; IPv6 forms (IPv4-mapped, NAT64, 6to4, Teredo, zone IDs); every IANA special-purpose block that is not globally reachable; names with mixed answers; redirects of every kind and to non-HTTP schemes; rebinding; the upstream proxy path.
+- **Assert that no connection reached the target**, from the Proving ground's connection-recording fixture, and the typed refusal.
+- **Test rebinding against the Proving ground's DNS fixture**: end to end on Linux in a network and mount namespace whose resolver points at it; in-process on every OS with a scripted sequence of answers. Never use a public rebinding service.
+- **Keep the IANA special-purpose registries committed with their date.** A nightly watch job, which runs none of the product, opens an issue when they change.
+- **Test the hostile-input set where each case can happen:** CR, LF or NUL in header values (Recipes, Sinks, webhooks, CDP); a domain-bound Secret across a cross-origin redirect; path traversal into every file Goodfetch writes from outside input, with each OS's cases; external `$ref` in extraction schemas; no process spawned to compare page content (checked under a seccomp filter that refuses `execve`); decompression bombs, endless bodies, deep nesting and oversized messages ending in their typed limit errors.
+
+### Endpoints
+
+- **Run the endpoint table against every listener:** the Console, the Daemon's socket and WebSocket, the HTTP listener, the ops listener, MCP over HTTP, the Live view, raw CDP, the Attached engine's private endpoint, an Exposed Daemon and the peer link.
+- **Cover every row:** missing, wrong, expired, revoked, out-of-scope and other-listener tokens, and tokens in a query string; a foreign `Host`; a foreign or missing `Origin` on the request and the WebSocket handshake; plain HTTP where TLS is configured; `X-Forwarded-*` from an unconfigured address; each listener's own rules (ADRs 0031, 0049, 0050, 0055, and MCP's audience and no passthrough). Check each refusal in the Audit log.
+- **Fuzz the protocol from the committed JSON Schema bundle** with `proptest` and `proptest-state-machine`, over every transport. Every invalid call gets a typed error and changes no state.
+- **Run the MCP conformance suite against MCP over HTTP**, in the suites and on the platforms [ADR 0070](docs/adr/0070-mcp-adapters-and-integrations-are-tested-through-their-platforms-own-clients-against-a-real-engine.md) gives it.
+- **Run a ZAP baseline scan of the Console in the Release suite:** image by digest, `-silent`, `allow_issue_writing: false`, FAIL rules committed, the crawl bounded by depth rather than time, under ADR 0043's deny so its Egress canary catches a call home.
+
+### Secrets
+
+- **Plant a Secret canary for every kind of secret** (typed password, TOTP seed, proxy password, model API key, webhook signing secret, Sink credential, Session cookie, endpoint token, run data key), through the Proving ground's login flows and every Secret provider.
+- **Search every output for every Secret canary**, raw and JSON-escaped, URL-encoded, base64 and hex. The outputs are:
+  - logs, Run traces, HAR files and console captures, and screenshots and recordings where masking applies;
+  - the Audit log, the Effect journal, and Checkpoints outside their encrypted fields;
+  - Exports and Notifications;
+  - JSON-RPC errors, error messages in run state, and model requests;
+  - the Console's offline cache, `goodfetch doctor`'s file, and the SDKs' `repr`, `toString` and errors.
+
+  _Why:_ redaction is best effort against arbitrary transforms, but Goodfetch's own encodings are known.
+- **Property-test redaction** with generated values that are hard to redact (quotes, backslashes, newlines, `%`, Unicode, very long, empty, common words, values that contain one another), through every formatter and serializer. Commit `proptest-regressions/`.
+- **Scan each CI job's logs, test reports, snapshots and artifacts with the `gitleaks` binary** (pinned by checksum, Secret canaries added as a rule) before they upload. A hit fails the job.
+- **Scan commits,** Model recordings included: with GitHub secret scanning and push protection once the repository is public; until then with `gitleaks` over each pull request's commits in the Pre-merge suite.
+
+### Other rules
+
+- **Property-test the Audit log's hash chain:** an edit, deletion, reordering or truncation of entries or of the tail fails verification, a Daemon group's single chain included.
+- **Add one regression test per bypass** at the layer it slipped through, Goodfetch's own or a class a comparable project disclosed. Cite the advisory in a comment. A nightly watch job lists new advisories of comparable projects and opens an issue.
+- **Never skip a security test where it is scheduled.** The OSes in the boundary table are the schedule, and a test's absence from an OS its row does not give is not a skip. On a scheduled host, never `#[ignore]` it, return early or gate it at run time; where the host lacks a mechanism, assert the refusal (`confinement_unavailable`, `local_address_unavailable`). A missing tool fails the job.
+- **Pin every container image a workflow runs by digest.**
+- **Run CodeQL** on Rust, TypeScript, Python and the workflows in the Pre-merge suite once the repository is public. A high or critical alert blocks the merge.
+
+### Manual security tests
+
+Only these stay manual. They are not Journeys: none has an automated step, and each runs on a release candidate rather than at a milestone's owner test. They are named by title.
+
+| Manual test | When | What a person does | Recorded on |
+|---|---|---|---|
+| Threat-model review | each minor's release candidate | Walks the trust-boundary table against the minor's changes and confirms each new decoder, listener, Plugin kind, widening setting, Secret kind and output has its test | the release pull request |
+| Vulnerability triage | each new fuzz crash, external report and advisory-watch issue | Judges it against `SECURITY.md`'s vulnerability definition; opens the private advisory or closes with a reason | the advisory or issue |
+| Independent security assessment | before 1.0 and each later major; paid, owner-approved | An outside tester attacks the boundaries; each finding gets a fix and a regression test | a report linked from the release notes |
+| Confinement where CI cannot run | each minor's release candidate | WSL1's refusal; Bridge Sinks under Docker Desktop and Podman machine on macOS and Windows; the documented host-firewall recipes for `direct` | the release pull request |
+| Passkeys on real authenticators | each minor's release candidate | Sign-in, step-up and recovery on a platform authenticator and a hardware key | the release pull request |
 
 ## Console and docs site
 

@@ -86,7 +86,7 @@ The design vocabulary is the one of `codebase-design`: a **module** has an **int
 
 - **`unsafe_code` is denied across the workspace.** A module that needs it (the in-house `sandbox_init` binding of ADR 0033, the pipe file descriptors of ADR 0017) opts in with `#![expect(unsafe_code, reason = "…")]`.
 - **Every `unsafe` block carries a `// SAFETY:` comment** (`undocumented_unsafe_blocks`), and `unsafe_op_in_unsafe_fn` is denied.
-- **Miri runs in CI on the opted-in code it can execute (pure-Rust `unsafe`).** FFI and system-call modules, which Miri can't run, are covered by tests on each real OS.
+- **Miri runs in CI on the opted-in code it can execute (pure-Rust `unsafe`).** FFI and system-call modules, which Miri can't run, are covered by tests on each real OS, and by the Release suite's AddressSanitizer run on Linux (ADR 0067).
 - **`unsafe` is never used to get past `Send` or `Sync`.**
 
 ### Logging and secrets
@@ -97,7 +97,7 @@ The design vocabulary is the one of `codebase-design`: a **module** has an **int
 - **Events are structured:** a fixed message plus fields, no `format!` inside a log call.
 - **Logs go to stderr or a file, never stdout**, through the `tracing` subscriber.
 - **Levels:** `error` needs someone to act; `warn` is a degraded but handled state; `info` is a lifecycle step of a run, Session or Daemon; `debug` explains a decision; `trace` is per-message detail.
-- **Credentials, cookies, tokens and keys are `secrecy::SecretString`** (or a wrapper with a hand-written `Debug`), and a unit test proves the secret is not printed.
+- **Credentials, cookies, tokens and keys are `secrecy::SecretString`** (or a wrapper with a hand-written `Debug`). Secret canaries and redaction property tests prove the secret reaches no output ([`TESTING.md`](TESTING.md#secrets), ADR 0067).
 
 ### Dependencies
 
@@ -120,7 +120,7 @@ For anything non-trivial, a known and widely used project is preferred to writin
 
 ### Tests
 
-The test rules live in [`TESTING.md`](TESTING.md) (where tests live, how they are written and named, shared helpers, fixtures, snapshots, injection and determinism, simulation, model checking and crash testing, and the test-first process; ADRs 0059, 0060 and 0062), apart from Design's "Tests go through the interface", the secret-printing test under Logging and secrets, and each language's runner choices below.
+The test rules live in [`TESTING.md`](TESTING.md) (where tests live, how they are written and named, shared helpers, fixtures, snapshots, injection and determinism, simulation, model checking and crash testing, flaky tests and Live checks, the test-first process, suites, AI features and security tests; ADRs 0059, 0060, 0061, 0062, 0064, 0065 and 0067), apart from Design's "Tests go through the interface" and each language's runner choices below.
 
 ### Documentation in code
 

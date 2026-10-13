@@ -26,6 +26,7 @@ How Goodfetch is tested: every surface, at every level. Each rule comes with its
 20. [Security](#security)
 21. [Console and docs site](#console-and-docs-site)
 22. [Feature coverage](#feature-coverage)
+23. [Goodfetch Chromium](#goodfetch-chromium)
 
 Sections 1 to 7, 11 and 12 are decided in [ADR 0062](docs/adr/0062-tests-sit-beside-their-code-and-share-one-test-support-written-once.md).
 
@@ -305,7 +306,7 @@ Decided in [ADR 0064](docs/adr/0064-tests-are-never-retried-and-unpinned-checks-
 - **Runners keep zero retries with every lock on:** nextest `retries = 0` and `flaky-result = "fail"` in every profile, with no per-test override; Vitest `retry: 0` with no per-test `retry`; Playwright `retries: 0` and `failOnFlakyTests: true`; no pytest rerun plugin and no `flaky` marker.
 - **No workflow step retries a test:** no retry action, no shell loop, no `continue-on-error` on a test step.
 - **No test loops until it passes.** Wait on a condition with a deadline (auto-waiting, `expect.poll`, a CDP event, a state you can name); never repeat the action under test until it succeeds.
-- **The no-retry check in the Quick suite refuses all of the above**, and the flags and variables that undo them (nextest `--retries`, `--flaky-result`, `NEXTEST_RETRIES`, `NEXTEST_FLAKY_RESULT`; Vitest `--retry`; Playwright `--retries`). Downloads before the deny of ADR 0043 may retry: they test nothing.
+- **The no-retry check in the Quick suite refuses all of the above**, and the flags and variables that undo them (nextest `--retries`, `--flaky-result`, `NEXTEST_RETRIES`, `NEXTEST_FLAKY_RESULT`; Vitest `--retry`; Playwright `--retries`; Chromium's `--test-launcher-retry-limit` other than 0, a gtest run without it, and `--num-retries`; wptrunner's `--retry-unexpected` above 0, `--rerun` above 1 and `--repeat-until-unexpected`). Downloads before the deny of ADR 0043 may retry: they test nothing.
 - **Re-run a failed job only when no test step failed in it** (lost runner, failed download). The "all green" job fails when an earlier attempt of its run had a failed test step.
 - **Never assert elapsed real time, a rate or a duration.** Those are measurements.
 
@@ -344,7 +345,7 @@ Decided in [ADR 0064](docs/adr/0064-tests-are-never-retried-and-unpinned-checks-
 
 ### Live checks
 
-- **Each Live check has an owning area and a placement** listed in ADR 0064: real SaaS Sinks, installed Chrome's stable, beta and dev channels (pinned majors are tests), public testnets, the Clean-up rules' daily gate, the online conformance, the benchmark, the Performance series (ADR 0071), the Cloud Run deploy, live-model evaluations, Scorecard; and, from ADR 0070, the newest MCP conformance suite, Inspector and SDK clients, each agent framework's newest releases, the n8n scanner on the published node, and real Integration platform accounts; and fuzzing (ADR 0067); and, from ADR 0068, the docs site's `docs-external-links` (nightly, or before each release candidate while the nightly tier is off) and `docs-deploy-smoke` (after each production deploy), which block nothing directly ([Console and docs site](#console-and-docs-site)).
+- **Each Live check has an owning area and a placement** listed in ADR 0064: real SaaS Sinks, installed Chrome's stable, beta and dev channels (pinned majors are tests), public testnets, the Clean-up rules' daily gate, the online conformance, the benchmark, the Performance series (ADR 0071), the Cloud Run deploy, live-model evaluations, Scorecard; and, from ADR 0070, the newest MCP conformance suite, Inspector and SDK clients, each agent framework's newest releases, the n8n scanner on the published node, and real Integration platform accounts; and fuzzing (ADR 0067); and, from ADR 0068, the docs site's `docs-external-links` (nightly, or before each release candidate while the nightly tier is off) and `docs-deploy-smoke` (after each production deploy), which block nothing directly ([Console and docs site](#console-and-docs-site)); and, from ADR 0074, the Chromium patch preview and the Chromium build currency, owned by area 8, which block nothing directly ([Goodfetch Chromium](#goodfetch-chromium)).
 - **Outcomes are pass, fail or inconclusive.** Inconclusive means the external side was unavailable; it never counts as a pass.
 - **Results go to the results store** under the `live` tier, except fuzzing's, which stay private ([Security](#fuzzing)).
 - **A fail, or three inconclusive runs in a row, opens or updates one `live-check` issue** in the current milestone, right after `flaky-test` issues on the frontier. If its cause is not stated within two business days, the next minor is not promoted until it is. Patches are not held, and the online conformance never blocks (ADR 0043). Fuzzing opens no `live-check` issue: its crashes stay private and block the next minor until fixed ([Security](#fuzzing)).
@@ -378,6 +379,7 @@ The fresh review of a pull request checks its tests against this list:
 13. Each mutant that survives in changed code is killed, or the Verification section explains it.
 14. Each new exception names evidence no pinned test can replace.
 15. A spec change and its `features/stories/` file agree.
+16. A new or changed Chromium patch has its row in `chromium/surfaces.toml` and its tests, and each new expectation entry has its category and evidence ([Goodfetch Chromium](#goodfetch-chromium)).
 
 ## Suites, commands and time budgets
 
@@ -823,6 +825,8 @@ Every boundary has its tests. A decision that adds a boundary adds its row in th
 | Plugin confinement | rule-to-probe check | Quick | every OS |
 | | probes generated from each policy; engine refusals | Pre-merge; Release | Linux; every OS |
 | Chromium's sandbox | renderer checks; startup probe cases | Pre-merge; Release | Linux; every OS |
+| | `sandbox_linux_unittests` on both builds (ADR 0074) | Chromium build gate | Linux |
+| | renderer check on the signed bytes | release pipeline | every OS |
 | Egress | SSRF and hostile-input cases in-process | Quick | every OS |
 | | the same cases end to end | Pre-merge; Release | Linux; every OS, rebinding end to end on Linux only |
 | Endpoints and the peer link | endpoint table; protocol fuzzing; MCP conformance over HTTP (placed by ADR 0070) | Pre-merge; Release | Linux; every OS (MCP conformance: as ADR 0070) |
@@ -1060,3 +1064,73 @@ Decided in [ADR 0072](docs/adr/0072-every-feature-in-a-generated-inventory-has-a
 - **Every pull request that changes Rust code runs cargo-mutants `--in-diff`** with nextest on Linux x64, sharded within the 15-minute job budget, in a job that never fails on a survivor and is not part of "all green". While the repository is private, it runs at most four shards per pull-request run and stops at the same 550 minutes; the Verification section then says it was skipped.
 - **List each surviving mutant of your changed code in the Verification section,** with the test that now kills it or why it stays (an equivalent mutant; caught only by a doctest, by a Journey in another runner, or by another OS's test).
 - **Full mutation runs are weekly once the nightly tier is on:** cargo-mutants over the workspace, StrykerJS on the TypeScript SDK runtime and the Console's logic (its `command` runner until a release fixes [stryker-js#6210](https://github.com/stryker-mutator/stryker-js/issues/6210), then its Vitest runner and an in-diff pull-request job), and mutmut on the Python SDK runtime on Linux.
+
+## Goodfetch Chromium
+
+Decided in [ADR 0074](docs/adr/0074-the-goodfetch-chromium-is-gated-where-it-is-built-against-a-control-build-of-the-same-revision.md). Suites are those of [Suites, commands and time budgets](#suites-commands-and-time-budgets); Live checks, diagnostic runs and the results store are those of [Flaky tests and Live checks](#flaky-tests-and-live-checks).
+
+### The Chromium build gate
+
+- **A pull request that changes an input of the Goodfetch Chromium is a Chromium pull request:** the Chromium version, ungoogled-chromium's tag, the fingerprint patch series, Goodfetch's own patches, the build scripts or arguments. It runs the Chromium build gate on every platform the build ships, as its own required check outside "all green", in no suite.
+- **Build where the gate runs, and nowhere else.** The gate builds from the lite and testdata tarballs of the version, checked against Google's hashes. A later job attests and publishes the build, its chromedriver, the Control build and both builds' test packages; only the Goodfetch Chromium and chromedriver are ever shipped.
+- **Commit each platform's digest and the protocol JSON the gate produced.** A check matches the digests against the attested assets. A fork's Chromium pull request is rebuilt from a branch of the main repository.
+- **Never rebuild in a suite or a release.** Suites fetch the build by digest; the release pipeline signs the published bytes.
+- **When only test inputs change** (the WPT pin, the expectations, the launch arguments), the gate fetches both builds and their packages by digest and reruns the tests.
+
+### The Control build
+
+- **The Control build is the gate's tree with Goodfetch's patch series reverted** (fingerprint-chromium's patches and Goodfetch's own), rebuilt incrementally after the published build, with the same build arguments. ungoogled-chromium's own patches stay.
+- **Run every gate test on both builds,** each against its committed expectations, with the same launch arguments.
+  _Why:_ a failure on the Goodfetch Chromium alone is the patches'; on both, it is upstream's. Running the Control build is never a retry: the Goodfetch Chromium's result stands.
+
+### What the gate runs
+
+- **Chromium's own suites:** those `gn refs --all --testonly=true --type=executable` finds linking a patched file, within `unit_tests`, `components_unittests`, `content_unittests`, `blink_unittests`, `blink_platform_unittests`, `headless_browsertests`, `content_browsertests` and `browser_tests`; plus `sandbox_linux_unittests` on Linux, always. Unit suites and `headless_browsertests` run whole; `content_browsertests` and `browser_tests` run the test files in the directories the series touches, listed in the gate's report.
+- **Pass `--test-launcher-retry-limit=0` on every gtest run.** The launcher retries once by default.
+- **Shard with the launcher's own hash sharding,** from packages made from `gn`'s runtime deps, on standard runners; a package too big for one runs on the build runner.
+- **web-platform-tests:** `./wpt run chrome` at the pinned WPT commit (the commit of wpt.fyi's Chrome Stable run for the same version), with the chromedriver built from the same tree, on the directories the surface table names, in `--chunk-type hash` chunks. wpt.fyi's results never gate.
+- **Launch the browser as the engine does:** the `engine` Fingerprint method's arguments with a fixed Identity profile seed, from the file `xtask codegen` writes from the engine's code.
+- **WebGL:** Khronos' `webgl1_conformance` and `webgl2_conformance` through Chromium's `run_gpu_integration_test.py` with `--browser=exact`, on SwiftShader.
+- **Size:** each platform's compressed archive. Growth of more than 5 MB over the previous build needs an acceptance written in the pull request.
+
+### Expected results
+
+- **Keep one current set, in each runner's own format,** under `chromium/expectations/`: filter files per suite and platform for gtests (one `-Suite.Test` line per entry, with its comment), and two wptrunner metadata trees, one per build, written by `wpt update-expectations` and reviewed. Git versions them with the pin.
+- **Give every entry one category and its evidence:**
+  - `upstream`: fails on the Control build too, with a link;
+  - `upstream-flaky`: varies on the Control build;
+  - `intended`: a deliberate effect of a named patch, on the Goodfetch Chromium only, naming its surface row.
+- **The two WPT trees differ only in `intended` entries.** A check enforces it.
+- **An `upstream` entry whose test passes on the Control build fails the gate,** and so does an expected failure that passes. Each Chromium pull request runs the excluded `upstream` gtests once on the Control build and fails on any that pass.
+- **Regenerate the `upstream-flaky` gtest lists in each Chromium pull request** from LUCI Analysis (a flake rate of 1% or more over 30 days), committed with the command that made them. Any other `upstream-flaky` entry needs a diagnostic run that shows both outcomes on the Control build.
+- **Never enter flakiness of the Goodfetch Chromium alone.** It is a patch bug: fix the patch. An entry excludes a flaky test; it never widens a Goodfetch Chromium expectation to "pass or fail".
+- **List the entries added and removed** in the Chromium pull request's description.
+
+### Goodfetch's own tests of the build
+
+- **Give every patch file a row in `chromium/surfaces.toml`,** with the surface it changes, its WPT directories and its Goodfetch tests; infrastructure patches (build fixes, background traffic, the variations seed) get rows of their own. The Quick suite fails on a patch without a row or a row without a test.
+- **Check Identity consistency on the Proving ground:** each surface reports the Identity profile's value in the main frame, a cross-origin iframe, dedicated, shared and service workers, and the HTTP headers; the same seed gives the same values across launches, different seeds give different ones, and nothing changes within a Session.
+- **Check version truth:** user agent, client hints' full version list and `navigator.userAgentData` report the pinned version, and the build's captured HTTP profile matches its own ClientHello and HTTP/2 settings.
+- **Check codecs and fonts:** every codec claimed decodes a Proving ground sample; every font the profile lists renders differently from the fallback, and no host font outside the profile is reachable.
+- **Check that the browser is quiet:** under a NetLog, a launch, an idle minute and a Proving ground navigation connect only to the Proving ground, and a request to a Google host mapped by `resolve` carries the shipped variations seed's `X-Client-Data` header.
+- **Check the CDP protocol in the Quick suite:** every method, event and parameter the driver uses is in the committed protocol JSON.
+- **Fail on any crash dump:** each test that launches the build gives it a crash-dump folder in the test's Goodfetch home.
+- **Smoke the signed bytes** in the release pipeline, on every OS, before publishing: launch, the CDP handshake, the renderer sandbox check and one stealth fixture.
+  _Why:_ signing changes the bytes, and a wrong macOS entitlement breaks a renderer while every signature check passes.
+
+### Where each part runs
+
+| Part | Where |
+|---|---|
+| Surface table check; CDP protocol check | Quick suite |
+| The patch series applies to the pinned version (`validate_patches.py`, fetching only the touched files) | Pre-merge suite on Linux, when a build input changes |
+| Identity consistency, version truth, codecs and fonts, the quiet browser, the renderer checks, the guard matrix and the stealth fixtures, on the build by digest | Pre-merge suite on Linux when affected; Release suite on every OS |
+| Build, Chromium's suites, WPT and WebGL on both builds, expectation checks, size | Chromium build gate, every platform |
+| Signed-bundle smoke | release pipeline, every OS |
+| Chromium patch preview (weekly and at each new Beta major); Chromium build currency (daily) | Live checks |
+
+- **A new major or security update ships only when** the gate is green on every platform, the Chromium pull request passes the Release suite, and the patch passes ADR 0032's gates and the signed-bundle smoke. The online conformance still never blocks.
+- **Triage a red gate without a retry:** read the report's result on both builds, let the diagnostic run (20 runs on each build) tell flaky from broken, then fix the patch or add the entry the evidence supports. Never skip a test without an entry.
+- **A held major never weakens the gate.** The pinned build keeps shipping. If a patch still cannot pass when the next Stable version ships, the owner decides whether that major ships without it.
+- **Budgets:** build ≤ 4 h p50 per platform (6 h cap; stage a build that cannot fit over chained jobs), test stage ≤ 90 min p50 per platform (3 h cap per job). The gate's runner minutes, the macOS runner and a full gate on Beta majors are paid resources the owner approves.
+- **Results** go to the results store under the tier `chromium-build`, as JUnit XML.

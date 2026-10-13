@@ -222,6 +222,10 @@ _Avoid_: fingerprint (alone), persona, profile (alone)
 How a Session's browser comes to present its Identity profile: not changed at all, changed by page scripts, changed through the browser's debugging protocol, or changed inside the browser engine itself.
 _Avoid_: stealth engine, spoofing mode, fingerprinting
 
+**Goodfetch Chromium**:
+The Chromium that Goodfetch builds with its fingerprint patches on each Chrome Stable version, and ships as the browser of the engine-level Fingerprint method.
+_Avoid_: Goodfetch build (alone), patched Chrome, stealth browser, fingerprint-chromium (for Goodfetch's own build)
+
 **Challenge**:
 A check a site's bot protection puts between a client and the content, such as an interstitial page, an invisible browser test or a CAPTCHA.
 _Avoid_: block (for a challenge), captcha (for every kind), wall (for a challenge)
@@ -483,6 +487,14 @@ _Avoid_: requirement, test target, capability (for an inventory entry)
 **Feature inventory**:
 The list of every Feature of Goodfetch, generated from the V1 scope matrix, the specs' user stories and the contracts the code defines, against which "every feature is tested" is checked.
 _Avoid_: feature list, traceability matrix, requirements list
+
+**Chromium build gate**:
+The tests that run where the Goodfetch Chromium is built, on every platform, before its bytes reach a suite or a user, because they need the build's own source tree.
+_Avoid_: browser roll check, Chromium suite, smoke build
+
+**Control build**:
+The Goodfetch Chromium's source tree at the same revision, built with the same arguments but without Goodfetch's patches, against which the Chromium build gate tells a patch's failure from an upstream one.
+_Avoid_: baseline build, vanilla build, reference build
 
 **Size budget**:
 The largest size each released file of Goodfetch may reach on each platform, and the growth a single change may add without an explicit, recorded acceptance.

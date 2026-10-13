@@ -6,7 +6,7 @@ Every framework surveyed tests its own logic with a scripted model and no networ
 
 Decided in [Testing AI features and agent skills](https://github.com/Jbmanllr/automan/issues/281), answered by the agent on the owner's delegation, on the facts of [Testing AI features without flaky tests](https://github.com/Jbmanllr/automan/issues/268) ([findings](https://github.com/Jbmanllr/automan/blob/research/ai-testing/rnd/research/2026-10-13-ai-testing.md)) and [Testing MCP, framework adapters, Integrations and agent skills](https://github.com/Jbmanllr/automan/issues/267) ([findings](https://github.com/Jbmanllr/automan/blob/research/agent-surface-testing/rnd/research/2026-10-13-agent-surface-testing.md)). The rules every test follows are in `TESTING.md`.
 
-The suites are the **Quick**, **Pre-merge** and **Release** suites of ADR 0061 (pending in [Test suites, local commands and time budgets](https://github.com/Jbmanllr/automan/issues/276)), each containing the one before, and the CI tiers are ADR 0032's: pull request, merge queue (which runs the Release suite), nightly and the release pipeline. Live checks are in no suite (ADR 0064).
+The suites are the **Quick**, **Pre-merge** and **Release** suites of [ADR 0061](0061-three-test-suites-each-run-by-one-just-command-under-a-time-budget.md), each containing the one before, and the CI tiers are ADR 0032's: pull request, merge queue (which runs the Release suite), nightly and the release pipeline. Live checks are in no suite (ADR 0064).
 
 ## Decision
 

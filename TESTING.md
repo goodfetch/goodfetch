@@ -26,6 +26,7 @@ How Goodfetch is tested: every surface, at every level. Each rule comes with its
 20. [Security](#security)
 21. [Console and docs site](#console-and-docs-site)
 22. [Feature coverage](#feature-coverage)
+23. [Which stories need a Journey](#which-stories-need-a-journey)
 
 Sections 1 to 7, 11 and 12 are decided in [ADR 0062](docs/adr/0062-tests-sit-beside-their-code-and-share-one-test-support-written-once.md).
 
@@ -539,7 +540,7 @@ Decided in [ADR 0063](docs/adr/0063-end-to-end-tests-follow-a-catalog-of-numbere
 - **List every surface on which a person can reach the goal**, each with the milestone by which it must be proved, never earlier than the surface ships.
 - **Fill `covers` with Feature IDs** (`row:CO-18` for an ADR 0037 row; every kind is in [Feature coverage](#feature-coverage)).
 - **Keep a Journey to its goal.** Edge cases, Error codes and limits go to unit, integration and conformance tests.
-- **Each area's `/to-spec` adds the Journeys of its user stories**, and each ticket names the variants (`J-NNN@<surface>`) it makes pass.
+- **Each area's `/to-spec` adds the Journeys of its stories with `journey = true`** ([Which stories need a Journey](#which-stories-need-a-journey)), and each ticket names the variants (`J-NNN@<surface>`) it makes pass.
 
 ### Data and isolation
 
@@ -1032,7 +1033,7 @@ Decided in [ADR 0072](docs/adr/0072-every-feature-in-a-generated-inventory-has-a
 
 - **Every Feature is tested, excepted or untested.** The gates fail only on untested Features.
 - **A Feature is tested** when, on `main`'s latest Release suite run, at least one test declares it, every declaring test ran and passed in every configuration it runs in, none is quarantined, every declaring Journey's variants of reached milestones are `proved`, and every declaring conformance case's capability is `proved`.
-- **A story with `journey = true` also needs a Journey that covers it.** `/to-spec` sets the flag on stories whose actor is a person using Goodfetch.
+- **A story with `journey = true` also needs a proved variant of a Journey that covers it,** and every story needs a declaring test above the unit level ([Which stories need a Journey](#which-stories-need-a-journey)).
 - **Test a Feature once.** The per-surface completeness and conformance of [SDK and CLI tests](#sdk-and-cli-tests) and of the surface ADRs, and a Journey's variants, prove each surface.
 - **A quarantined test leaves every Feature it declares untested** until its fix merges.
 
@@ -1060,3 +1061,30 @@ Decided in [ADR 0072](docs/adr/0072-every-feature-in-a-generated-inventory-has-a
 - **Every pull request that changes Rust code runs cargo-mutants `--in-diff`** with nextest on Linux x64, sharded within the 15-minute job budget, in a job that never fails on a survivor and is not part of "all green". While the repository is private, it runs at most four shards per pull-request run and stops at the same 550 minutes; the Verification section then says it was skipped.
 - **List each surviving mutant of your changed code in the Verification section,** with the test that now kills it or why it stays (an equivalent mutant; caught only by a doctest, by a Journey in another runner, or by another OS's test).
 - **Full mutation runs are weekly once the nightly tier is on:** cargo-mutants over the workspace, StrykerJS on the TypeScript SDK runtime and the Console's logic (its `command` runner until a release fixes [stryker-js#6210](https://github.com/stryker-mutator/stryker-js/issues/6210), then its Vitest runner and an in-diff pull-request job), and mutmut on the Python SDK runtime on Linux.
+
+## Which stories need a Journey
+
+Decided in [ADR 0075](docs/adr/0075-a-user-story-needs-a-journey-only-when-it-is-a-persons-goal-a-variant-can-reach.md). Journeys sit at the top of the pyramid, so a story gets one only when it is a person's whole goal that a Journey variant can reach. Lower tests prove the rest.
+
+### The flag
+
+- **Apply three tests to each story, in order, from its own "I want" and "so that".** The first test it fails sets `journey = false` and names that test in `not_journey`. A story that passes all three gets `journey = true` and no `not_journey`.
+  1. **`actor`:** the actor is a person using a shipped surface (a user, a developer writing code against an SDK or the CLI, an operator, a Recipe author or user, a Plugin author, a Console user, the person behind an agent). Contributors, maintainers, the owner as releaser, areas, test support, Clients and Client authors, coding agents, Goodfetch Cloud, site owners and readers of the benchmark fail it.
+  2. **`part`:** the story states a whole goal, a task the person sets out to do or see. It fails when its "I want" is one setting's effect, one Error code or a refusal of a wrong input, version, environment or configuration, one event, field or operation detail, or how the engine works. A stop at a Limit the person set, and the failure a person must see during a goal, pass it.
+  3. **`reach`:** the outcome shows through a surface of [Journeys](#journeys), in an isolated variant on one host, with the Proving ground and the services test support gives every variant, and only a person's means (start, stop or kill a process, change a setting, run a command, add or remove a Daemon). It fails when the outcome needs an injected fault, an old released binary, an external account or service, Kubernetes, state outside the variant's Goodfetch home and processes, or the release pipeline's artifacts or channels. An older-format file from the Compatibility corpus is allowed.
+- **Write the result in `features/stories/<area>.toml`:** `journey`, and `not_journey = "actor"`, `"part"` or `"reach"` when it is `false`. The Feature check fails on a missing, unknown or extra reason. The review checks each reason against the story's words.
+
+### Evidence
+
+- **Give every story at least one declaring test above the unit level**: an integration test, a multi-process test, a Simulation or crash test, a conformance case, a Client conformance case or a Journey. An exception also meets this rule. The level is read from where the test sits ([Levels and layout](#levels-and-layout)). Otherwise the story is untested, with the cause "no test above the unit level".
+- **Prove an unflagged story where its condition can be made:**
+  - `actor`: the tests its contract needs (conformance or Client conformance cases, Seam tests, `check` exceptions, Proving ground tests);
+  - `part`: an integration test of the package that owns it, or a test of the binary, asserting the setting, Error code, event or mechanism;
+  - `reach`: the Simulation, crash and partition tests, multi-process tests, skew tests, release rehearsal and deployment smoke runs, or a `live` or `manual` exception.
+- **Test a flagged story's edge cases, Error codes and limits lower down too.** Its Journey proves the goal only.
+
+### Journeys for flagged stories
+
+- **A Journey covers a story only when one of its `[[expect]]` checks asserts the story's outcome.**
+- **When a flagged story's goal is an existing Journey's goal, add the story to that Journey's `covers`** with a check, and a step if the goal needs one. Keep the ID. For any other goal, add a Journey. There is no quota of Journeys per area.
+- **A flagged story is due with its Journey at the later of its own milestone and the earliest milestone of a covering variant.** Until then its other declaring tests decide it. From then on it needs one proved variant.

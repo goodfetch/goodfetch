@@ -493,7 +493,7 @@ The tests that run where the Goodfetch Chromium is built, on every platform, bef
 _Avoid_: browser roll check, Chromium suite, smoke build
 
 **Chromium pull request**:
-A pull request that changes what the Goodfetch Chromium is built or tested from, such as its Chromium version, its patches or its expected results.
+A pull request that changes what the Goodfetch Chromium is built or tested from, such as its Chromium version, its patches, its expected results, or the launch arguments the engine gives it.
 _Avoid_: browser roll, Chromium bump (for the pull request)
 
 **Control build**:

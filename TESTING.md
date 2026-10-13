@@ -22,7 +22,8 @@ How Goodfetch is tested: every surface, at every level. Each rule comes with its
 16. [Upgrades and version mismatches](#upgrades-and-version-mismatches)
 17. [SDK and CLI tests](#sdk-and-cli-tests)
 18. [MCP, framework adapters and Integrations](#mcp-framework-adapters-and-integrations)
-19. [Security](#security)
+19. [Performance budgets](#performance-budgets)
+20. [Security](#security)
 
 Sections 1 to 7, 11 and 12 are decided in [ADR 0062](docs/adr/0062-tests-sit-beside-their-code-and-share-one-test-support-written-once.md).
 
@@ -206,7 +207,7 @@ Decided in [ADR 0060](docs/adr/0060-distributed-and-crash-behaviour-is-simulated
   _Why:_ the Simulation swaps the network there, and nowhere else.
 - **Start threads and block only through the `tasks` module**, whose blocking policy is a value. In the Simulation it runs blocking calls inline, and a dedicated thread's body (the run's SQLite writer actor, for example) as a task on the host's runtime.
   _Why:_ a real thread ends its work at an arbitrary simulated moment, so the run would not replay.
-- **Never build a runtime in the engine.** Only `main` and test helpers build one; `tokio::task::block_in_place` is in `disallowed-methods`.
+- **Never build a runtime in the engine.** Only `main`, test helpers and bench targets (ADR 0071) build one; `tokio::task::block_in_place` is in `disallowed-methods`.
 - **Give every third-party time hook the `Clock`** (rustls's `TimeProvider`), and the test `tracing` subscriber's timer too, so traces carry simulated time.
 - **Emit each transition a TLA+ model names as a `tracing` event** under the model's target, with the model's variable names as fields.
 - **No failpoints.** Inject faults at I/O seams: the crash VFS, the transport adapters, the plugin protocol's in-memory adapter, Toxiproxy, process kills.
@@ -341,7 +342,8 @@ Decided in [ADR 0064](docs/adr/0064-tests-are-never-retried-and-unpinned-checks-
 
 ### Live checks
 
-- **Each Live check has an owning area and a placement** listed in ADR 0064: real SaaS Sinks, installed Chrome's stable, beta and dev channels (pinned majors are tests), public testnets, the Clean-up rules' daily gate, the online conformance, the benchmark, the Cloud Run deploy, live-model evaluations, Scorecard; and, from ADR 0070, the newest MCP conformance suite, Inspector and SDK clients, each agent framework's newest releases, the n8n scanner on the published node, and real Integration platform accounts; and fuzzing (ADR 0067).
+- **Each Live check has an owning area and a placement** listed in ADR 0064: real SaaS Sinks, installed Chrome's stable, beta and dev channels (pinned majors are tests), public testnets, the Clean-up rules' daily gate, the online conformance, the benchmark, the Performance series (ADR 0071), the Cloud Run deploy, live-model evaluations, Scorecard; and, from ADR 0070, the newest MCP conformance suite, Inspector and SDK clients, each agent framework's newest releases, the n8n scanner on the published node, and real Integration platform accounts; and fuzzing (ADR 0067).
+
 - **Outcomes are pass, fail or inconclusive.** Inconclusive means the external side was unavailable; it never counts as a pass.
 - **Results go to the results store** under the `live` tier, except fuzzing's, which stay private ([Security](#fuzzing)).
 - **A fail, or three inconclusive runs in a row, opens or updates one `live-check` issue** in the current milestone, right after `flaky-test` issues on the frontier. If its cause is not stated within two business days, the next minor is not promoted until it is. Patches are not held, and the online conformance never blocks (ADR 0043). Fuzzing opens no `live-check` issue: its crashes stay private and block the next minor until fixed ([Security](#fuzzing)).
@@ -388,7 +390,7 @@ Each suite runs everything the suite before it runs.
 
 - **A Quick-suite test starts no process, browser or container and binds no socket.** Anything that does is a `tests/it` test, or its runner's equivalent.
   _Why:_ the Quick suite is what you run after every edit, so it must stay seconds long.
-- **Checks that are non-deterministic by nature are in no suite**: real SaaS Sinks, live models, the online Proving ground, real vendors, Chrome's beta and dev channels, the benchmark. They keep their own tiers.
+- **Checks that are non-deterministic by nature are in no suite**: real SaaS Sinks, live models, the online Proving ground, real vendors, Chrome's beta and dev channels, the benchmark, the Performance series. They keep their own tiers.
 - **The Release suite gates every merge**, through the merge queue. Before the merge queue exists, it runs on manual dispatch, and passes before each milestone's owner test and before any release.
   _Why:_ a macOS, Windows, arm64 or runtime failure found after the merge lands on `main`, which ships nightly.
 
@@ -744,6 +746,59 @@ Decided in [ADR 0070](docs/adr/0070-mcp-adapters-and-integrations-are-tested-thr
 - **Run unpinned releases only as Live checks:** the newest conformance suite, Inspector and MCP SDK clients, and each framework's `latest` and prerelease tags, nightly; the n8n scanner after each publish.
 - **Keep real platform accounts out of every suite.** They run weekly and at release candidates, only once the owner has approved each account and the Cloudflare Tunnel, its `goodfetch.dev` subdomain and its credential, behind a repository variable until then.
 - **Test by hand at each release candidate that changes them:** Claude Desktop, ChatGPT, VS Code and Cursor connecting to the MCP server; `paconn validate`; each platform's listing submission.
+
+## Performance budgets
+
+Decided in [ADR 0071](docs/adr/0071-performance-budgets-are-counted-per-change-and-time-is-measured-on-the-reference-host.md).
+
+### What gates a change
+
+- **Only counted figures fail a change:** instructions and heap metrics per benchmark, protocol and render counts per scenario, and bundle bytes. No check on a GitHub-hosted runner compares a duration with a threshold.
+  _Why:_ shared runners vary by about 2.7% in wall time, and instruction counts of one binary on one machine repeat exactly.
+- **No test asserts elapsed time, a rate or a duration.** Time is measured only by the Performance series and the benchmark, both Live checks.
+
+### Benchmarks
+
+- **Benchmarks live in the crate's `benches/`:** `scenarios.rs` holds the scenario functions, `instructions.rs` runs them under gungraun's Callgrind with mimalloc as the global allocator, `heap.rs` under gungraun's DHAT with the system allocator, and `wall.rs` under criterion for the Performance series. Scenarios that cross crates (startup, a protocol round trip) live in the binary crate.
+  _Why:_ DHAT counts allocations by replacing `malloc`, which mimalloc never calls.
+- **A benchmark measures one pinned scenario:** inputs from a literal, a fixture or a seed; no network, no sleep, no work whose amount depends on timing.
+- **A bench target builds what it needs the way tests do:** a current-thread runtime, `Clock::paused` and `Entropy::seeded` through `goodfetch-test-support`'s helpers, and the `tasks` module's inline blocking policy, so no thread waits on another. Its root opts in once with `#![expect(clippy::disallowed_methods, reason = "benchmark harness, ADR 0071")]`.
+- **A new or changed benchmark runs 20 times on one build in its pull request.** Every gated figure must spread less than 0.5%, or the benchmark is fixed before it gates.
+- **Changing what a benchmark measures gives it a new ID.** A benchmark with no base is reported, never gated.
+- **Benchmarks build with the `bench` profile** (release settings, thin LTO, `debug = "line-tables-only"`) on the Linux gnu targets.
+
+### The comparison with the base
+
+- **`xtask perf` measures the base and the head in the same job, on the same runner:** the merge base on a pull request, the group's base in the merge queue. Never a stored figure from another machine.
+- **The gate trips at +5%** on instructions, total allocations, total bytes or bytes at the global maximum of any benchmark, and at **+5 kB brotli** on any size-limit entry.
+- **A tripped pull request passes only with a "Performance change" section** in its body, listing each tripped figure with its measured change and reason, accepted explicitly by the fresh review on the exact head.
+- **Run `just perf` before pushing a change to code a benchmark covers.** It uses CI's thresholds; off Linux it runs in the CI image through a container engine, or lists itself as skipped.
+
+### Counts as snapshots
+
+- **Protocol counts are snapshots:** for each named scenario of a surface, the requests sent, the answers and events received, and their bytes after the shared redactions. Rust against the real binary in `tests/it`; TypeScript and Python against the Scripted engine of ADR 0069 in unit tests.
+- **MCP scenarios snapshot the bytes of `tools/list` and of each tool result.**
+  _Why:_ for an agent, bytes are context.
+- **The Python SDK snapshots the modules `import goodfetch` loads.**
+- **Console render budgets are snapshots in component tests:** React commits per action inside `<Profiler>`, and DOM elements rendered for a 10,000-row list. Never render durations.
+- **A changed count is reviewed as a change of expected behaviour**, like every snapshot.
+
+### Ceilings
+
+- **The embedded Console stays under 1 MB brotli,** and its initial route under the ceiling area 12 sets. Only the owner moves a ceiling.
+- **Resident memory stays under its ceiling per OS** for an Attached engine idle after `hello`, an idle Daemon, and a 1,000-page HTTP crawl of the local Proving ground. The check runs in the Release suite.
+- **The Console's JS heap after 10,000 streamed events,** after a forced garbage collection, is within 10% of its value after 1,000.
+
+### Where they run
+
+| Check | Suite |
+|---|---|
+| Count snapshots in unit tests | Quick |
+| Count snapshots against the binary, render and DOM counts, the Console leak check, the Python import set | Pre-merge (Linux x64); Release on every cell |
+| `xtask perf` against the base, and benchmark admission | Pre-merge (Linux x64); Release adds Linux arm64 |
+| Resident-memory ceilings | Release, every OS |
+| Drift check against the last release | the daily test-health job |
+| Performance series | a nightly Live check on the reference host, once the owner approves |
 
 ## Security
 

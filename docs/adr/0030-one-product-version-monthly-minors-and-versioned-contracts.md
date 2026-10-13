@@ -103,6 +103,7 @@ Every Goodfetch package carries one version and is released together: the `goodf
   - **When docs change:** stable docs change only with a release, because the stable version is a frozen copy that only the release updates (above). Docs ahead of the release are a recurring complaint (browser-use #902, scrapy #5324).
   - **Reference pages:** generated from the Operation catalog and the settings schema, one page per operation and per setting, with TypeScript, Python, Rust, CLI and MCP tabs showing each real signature, as Playwright and Pulumi generate every language from one source. TypeDoc, a Griffe-based Python reference, docs.rs and `clap-markdown` give each language its native reference in addition.
   - **Tested examples:** every code sample runs in CI against the Proving ground, through Rust doctests, Twoslash, pytest-examples and scripted CLI and MCP samples. Links are checked with lychee.
+    > Amended by [ADR 0068](0068-the-console-is-tested-in-real-browsers-and-served-by-the-real-binary.md): Python samples are linted by Ruff and run by the Python SDK's pytest from extracted files, not by pytest-examples; each surface's tests run its samples.
   - **For agents:**
     - every page is also served as `.md`, with `llms.txt` and `llms-full.txt`
     - the docs of the installed version are embedded in the binary (zstd-compressed, ADR 0057), read with `goodfetch docs` and served as resources by the engine's MCP server, as Next.js ships its docs in its package

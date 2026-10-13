@@ -507,3 +507,7 @@ _Avoid_: PR checks, CI suite
 **Release suite**:
 The Pre-merge suite for every package across every supported platform, runtime and browser, which every merge (once the merge queue exists) and every release must pass.
 _Avoid_: full suite, nightly suite, matrix (alone)
+
+**Stub gateway**:
+A test-only stand-in for Goodfetch Cloud's gateway, kept in the public repository, that serves the Console through the same operations across per-run engines, so the Console conformance suite can run without Goodfetch Cloud.
+_Avoid_: mock cloud, fake gateway, cloud emulator

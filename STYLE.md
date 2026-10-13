@@ -140,14 +140,15 @@ The test rules live in [`TESTING.md`](TESTING.md) (where tests live, how they ar
 
 ## TypeScript
 
-Applies to `sdks/typescript`, `console/`, `adapters/`, `integrations/` and `bench/` in the pnpm workspace.
+Applies to `sdks/typescript`, `console/`, `adapters/`, `integrations/`, `bench/` and the docs site's `website/` in the pnpm workspace.
 
-- **TypeScript 7 with `strict`, `noUncheckedIndexedAccess`, `exactOptionalPropertyTypes`, `verbatimModuleSyntax`, `isolatedDeclarations` and `erasableSyntaxOnly`.** A TypeScript 6 alias is kept only for tools that need the compiler API (API Extractor, TypeDoc) until TypeScript 7 provides one.
+- **TypeScript 7 with `strict`, `noUncheckedIndexedAccess`, `exactOptionalPropertyTypes`, `verbatimModuleSyntax`, `isolatedDeclarations` and `erasableSyntaxOnly`.** A TypeScript 6 alias is kept only for tools that need the compiler API (API Extractor, TypeDoc, Twoslash) until TypeScript 7 provides one.
 - **Optional fields are written `?: T | undefined`.**
   _Why:_ the published types then work whether or not the consumer enables `exactOptionalPropertyTypes`.
 - **oxlint with type-aware rules, and oxfmt for formatting.** `no-floating-promises` is an error.
   _Why:_ an unawaited promise loses its error silently; oxlint's type-aware rules run on the real TypeScript 7 checker.
-- **Libraries build with tsdown; tests run with Vitest on every supported Node line (ADR 0024), plus smoke scripts of the installed package on Bun, Deno 2 and the edge runtimes (ADR 0069).**
+- **Libraries build with tsdown. Outside `console/` and `website/`, tests run with Vitest on every supported Node line (ADR 0024), plus smoke scripts of the installed package on Bun, Deno 2 and the edge runtimes (ADR 0069).**
+- **The Console and the docs site are tested in browsers, on one Node line:** Vitest Browser Mode and Playwright Test, against the binary for the served Console (ADR 0068, rules in [`TESTING.md`](TESTING.md)).
 - **Packages are ESM-only** (ADR 0024) and pass `publint` and `@arethetypeswrong/cli` before publishing. npm is the only registry.
 - **Named exports only; no TypeScript `enum`s** (string-literal unions instead).
 - **SDK idioms:**

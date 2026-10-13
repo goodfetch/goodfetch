@@ -418,7 +418,7 @@ _Avoid_: flake, intermittent test, unstable test
 
 **Live check**:
 A check of Goodfetch against something it does not pin, such as a vendor, a real SaaS account, a live model or a moving Chrome channel, run outside the test suites and ending in pass, fail or inconclusive.
-_Avoid_: monitor, flaky test, informing job, canary
+_Avoid_: monitor, flaky test, informing job, canary (for a Live check)
 
 **Proving ground**:
 The website Goodfetch owns and generates, whose every page has a known expected result, against which the benchmark and the conformance suites run.

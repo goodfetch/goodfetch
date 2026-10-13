@@ -416,6 +416,14 @@ _Avoid_: code signing (alone), signature (alone), certificate
 The website Goodfetch owns and generates, whose every page has a known expected result, against which the benchmark and the conformance suites run.
 _Avoid_: fixtures site, test site, sandbox, demo site
 
+**Simulation**:
+A test that runs several Goodfetch engines or Daemons in one process over a simulated network and simulated time, all drawn from one seed, so that a failure replays exactly.
+_Avoid_: chaos test, emulation, sim (alone)
+
+**Fault plan**:
+The explicit list of faults, such as crashes, power cuts and partitions, and of Client operations that one test applies at named moments.
+_Avoid_: nemesis, fault schedule, chaos script
+
 **Size budget**:
 The largest size each released file of Goodfetch may reach on each platform, and the growth a single change may add without an explicit, recorded acceptance.
 _Avoid_: size limit (alone), quota, bloat check

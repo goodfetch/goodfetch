@@ -29,9 +29,9 @@ One spec per area. An area goes to `/to-spec` only after every area whose contra
 
 | # | Area | ADRs | Waits on |
 |---:|---|---|---|
-| 1 | Repository, CI and release | 0018, 0030, 0032, 0034, 0039, 0049, 0057 |  |
+| 1 | Repository, CI and release | 0018, 0030, 0032, 0034, 0039, 0049, 0057, 0060 |  |
 | 2 | Proving ground and conformance | 0025 |  |
-| 3 | Engine runtime | 0002–0004, 0024, 0028, 0040, 0041, 0049–0051, 0053–0057 |  |
+| 3 | Engine runtime | 0002–0004, 0024, 0028, 0040, 0041, 0049–0051, 0053–0057, 0060 |  |
 | 4 | Security and egress | 0015–0017, 0042–0044, 0049–0051, 0055, 0056 |  |
 | 5 | Site access | 0019–0023, 0045, 0047–0049, 0052, 0053, 0056 |  |
 | 6 | Collection | 0005–0008, 0026, 0040, 0046, 0054, 0056 |  |

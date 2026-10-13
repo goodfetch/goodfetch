@@ -58,6 +58,8 @@ The design vocabulary is the one of `codebase-design`: a **module** has an **int
 - **No task starts outside an owner's tracker.** Spawn through it (`TaskTracker::spawn`, `TaskTracker::spawn_blocking`); a Clippy `disallowed-methods` rule bans `tokio::spawn`, `tokio::task::spawn_blocking`, `tokio::task::spawn_local`, `Handle::spawn`, `Handle::spawn_blocking`, `Runtime::spawn`, `Runtime::spawn_blocking` and `LocalSet::spawn_local` outside the module that implements this. A tracked task may own a `JoinSet` for a fan-out whose results it awaits before it returns.
   _Why:_ an orphan task outlives its cancelled run and keeps writing.
 - **Never block an async worker.** Blocking I/O and CPU-heavy work go to the owner's tracked `spawn_blocking`, or to a dedicated thread (an actor's, for example) that its owner joins before it stops; `std::thread::sleep`, blocking `std::process::Command` and blocking `std::fs` calls are disallowed in async crates.
+- **Sockets, blocking and runtimes have one place each** (ADR 0060). Sockets are opened only in the `transport` module, which takes the network as a value (`tokio::net` and `std::net` socket types are in `disallowed-types` elsewhere); blocking work follows the `tasks` module's blocking policy, a value (threads, or inline in the Simulation); only `main` and test helpers build a Tokio runtime, and `tokio::task::block_in_place` is in `disallowed-methods`.
+  _Why:_ the same engine code then runs on the OS, the in-memory transport pair and the Simulation, and replays from a seed.
 - **Never hold a lock across `.await`.**
 - **Every public async function has a `# Cancel safety` section** saying what is lost if its future is dropped.
 - **Public futures are `Send`**, checked by a compile-time assertion on the main entry points.
@@ -112,18 +114,18 @@ For anything non-trivial, a known and widely used project is preferred to writin
 
 - **A capability is never a Cargo feature** (ADR 0038): stealth, the Challenge solver, AI and costly controls are settings.
 - **Features exist only on the embeddable `goodfetch` crate**, only for heavy optional dependencies and `test-util`, and they are additive. The binary builds one fixed set, and `cargo-hack` checks every combination of `goodfetch`'s features.
-- **Platform differences use `cfg(target_os = …)`, never features.** Custom `cfg`s are declared for `unexpected_cfgs`.
+- **Platform differences use `cfg(target_os = …)`, never features.** Custom `cfg`s are declared for `unexpected_cfgs`: `goodfetch_loom` for loom tests (ADR 0060), and `tokio_unstable` for the Simulation's build only.
 
 ### Tests
 
-Injection, time, randomness and test isolation follow [`TESTING.md`](TESTING.md).
+Injection, time, randomness, test isolation, simulation, model checking and crash testing follow [`TESTING.md`](TESTING.md).
 
 A module is tested according to the kind of dependency it has, using the four categories of `codebase-design`:
 
 - **In-process** (pure logic: URL normalization, robots, frontier rules, extraction, run-state rules): through the module's interface; `proptest` for parsers.
 - **Local-substitutable** (a real local stand-in exists): SQLite in a temporary file; a real Chromium (the Goodfetch build of ADR 0035) against Proving ground pages served locally. CDP is never mocked.
   _Why:_ a fake browser lets tests pass where a real one fails, which is the false success ADR 0025 measures.
-- **Remote but owned** (Goodfetch's own processes across a boundary: sink processes, process Plugins, the Daemon): the logic is tested through an in-memory adapter of the protocol, and the real processes through the conformance suites.
+- **Remote but owned** (Goodfetch's own processes across a boundary: sink processes, process Plugins, the Daemon): the logic is tested through an in-memory adapter of the protocol and, for several hosts, in the Simulation (ADR 0060), and the real processes through the conformance suites.
 - **True external** (model providers, CAPTCHA services): a mock adapter replaying recorded exchanges.
 
 Across all of them:

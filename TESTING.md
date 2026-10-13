@@ -1158,9 +1158,9 @@ Decided in [ADR 0075](docs/adr/0075-a-user-story-needs-a-journey-only-when-it-is
 
 ### Evidence
 
-- **Give every story at least one declaring test above the unit level**: an integration test, a multi-process test, a Simulation or crash test, a conformance case, a Client conformance case or a Journey. An exception also meets this rule. The level is read from where the test sits ([Levels and layout](#levels-and-layout)). Otherwise the story is untested, with the cause "no test above the unit level".
+- **Give every story at least one declaring test above the unit level**: an integration test (the Simulation, and multi-process and crash tests of the binary, included), a conformance case, a Client conformance case or a Journey. In-process crash-VFS, model-based and loom tests are unit tests. An exception also meets this rule. The level is read from where the test sits: [Levels and layout](#levels-and-layout) for unit and integration tests, `conformance/` for conformance cases, a `journeys` folder for Journeys. Otherwise the story is untested, with the cause "no test above the unit level".
 - **Prove an unflagged story where its condition can be made:**
-  - `actor`: the tests its contract needs (conformance or Client conformance cases, Seam tests, `check` exceptions, Proving ground tests);
+  - `actor`: the tests its contract needs (conformance or Client conformance cases, area 1's `xtask` tests, release rehearsal and smoke runs, `check` exceptions, the Proving ground's own tests);
   - `part`: an integration test of the package that owns it, or a test of the binary, asserting the setting, Error code, event or mechanism;
   - `reach`: the Simulation, crash and partition tests, multi-process tests, skew tests, release rehearsal and deployment smoke runs, or a `live` or `manual` exception.
 - **Test a flagged story's edge cases, Error codes and limits lower down too.** Its Journey proves the goal only.
@@ -1168,5 +1168,5 @@ Decided in [ADR 0075](docs/adr/0075-a-user-story-needs-a-journey-only-when-it-is
 ### Journeys for flagged stories
 
 - **A Journey covers a story only when one of its `[[expect]]` checks asserts the story's outcome.**
-- **When a flagged story's goal is an existing Journey's goal, add the story to that Journey's `covers`** with a check, and a step if the goal needs one. Keep the ID. For any other goal, add a Journey. There is no quota of Journeys per area.
+- **When a flagged story's goal is an existing Journey's goal, or is its starting step (installing what the variant drives), add the story to that Journey's `covers`** with a check, and a step if the goal needs one. Keep the ID. For any other goal, add a Journey. There is no quota of Journeys per area.
 - **A flagged story is due with its Journey at the later of its own milestone and the earliest milestone of a covering variant.** Until then its other declaring tests decide it. From then on it needs one proved variant.

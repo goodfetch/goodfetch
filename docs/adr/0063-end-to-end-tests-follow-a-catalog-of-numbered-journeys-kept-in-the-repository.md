@@ -173,6 +173,7 @@ Pain slugs are written as `row:` because they are rows of ADR 0037's matrix. The
 ## Consequences
 
 - **Adds to ADR 0038**, so ADR 0037's amendment rule carries it to every area's spec: each area's `/to-spec` adds the Journeys of its user stories to the catalog, and its `/to-tickets` names in each ticket the variants that ticket makes `proved`.
+  > Amended by [ADR 0075](0075-a-user-story-needs-a-journey-only-when-it-is-a-persons-goal-a-variant-can-reach.md): only the Journeys of its stories with `journey = true`.
 - **Adds to ADR 0032:** the `journeys/` folder at the root of the repository.
 - **Adds to ADR 0058:**
   - each owner test lists its milestone's variants by Journey ID as "Journeys to try", with their manual steps;

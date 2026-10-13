@@ -39,13 +39,16 @@ Decided in [Which user stories need a Journey](https://github.com/Jbmanllr/autom
 
 ### Evidence for every story
 
-- **Every story, flagged or not, needs at least one declaring test above the unit level**: an integration test, a multi-process test, a Simulation or crash test, a conformance case, a Client conformance case or a Journey. An exception of ADR 0072 also meets this rule. A test's level is where it sits under `TESTING.md`'s Levels and layout, which `xtask features` reads from the declaration's path, so no runner reports it.
+- **Every story, flagged or not, needs at least one declaring test above the unit level**: an integration test (the Simulation in `tests/it/simulation/` and the multi-process and crash tests of the binary, `kill -9` and LazyFS, included), a conformance case, a Client conformance case or a Journey. In-process crash-VFS, model-based and loom tests are unit tests of their module, as `TESTING.md` places them. An exception of ADR 0072 also meets this rule. `xtask features` reads a test's level from the declaration's path, so no runner reports it:
+  - unit or integration by `TESTING.md`'s Levels and layout;
+  - conformance for a case under `conformance/`, `conformance/clients/` included;
+  - Journey for a test in a `journeys` folder (`tests/it/journeys/` in Rust, `tests/journeys/` in TypeScript and Python).
   _Why:_ a story is a promise across a seam, and a unit test proves one module. Matrix rows and generated Features keep ADR 0072's rule, where a unit test alone counts.
 - **Which tests prove each kind of unflagged story:**
 
   | `not_journey` | Proven by |
   |---|---|
-  | `actor` | the tests the story's contract needs: conformance or Client conformance cases for a Client or Goodfetch Cloud, Seam tests or `check` exceptions for contributors and maintainers, Proving ground tests for its readers |
+  | `actor` | the tests the story's contract needs: conformance or Client conformance cases for a Client or Goodfetch Cloud, area 1's `xtask` tests, release rehearsal and smoke runs, or `check` exceptions, for contributors and maintainers; the Proving ground's and the benchmark's own tests for its readers |
   | `part` | an integration test of the package that owns it, or the binary's tests, asserting the setting, Error code, event or mechanism, with conformance where several targets implement it |
   | `reach` | the test that can create the condition: the Simulation, crash and partition tests, multi-process tests, skew tests against released binaries, release rehearsal and deployment smoke runs, or a `live` or `manual` exception |
 
@@ -59,7 +62,7 @@ Decided in [Which user stories need a Journey](https://github.com/Jbmanllr/autom
 ### How Journeys take stories
 
 - **A Journey covers a story only when one of its `[[expect]]` checks asserts that story's "so that" outcome**, as ADR 0072 requires of every declaration.
-- **Extend or add.** A flagged story whose goal is an existing Journey's goal is added to that Journey's `covers`, with a check, and with a step when the goal needs one. Since the goal stays the same, the ID stays. A story with any other goal gets a new Journey. A Journey may cover any number of stories; there is no quota per area.
+- **Extend or add.** A flagged story whose goal is an existing Journey's goal, or is the starting step of that goal (installing what the variant drives, as Playwright's installation suite installs before it uses), is added to that Journey's `covers`, with a check, and with a step when the goal needs one. Since the goal stays the same, the ID stays. A story with any other goal gets a new Journey. A Journey may cover any number of stories; there is no quota per area.
 - **A Journey may also cover an unflagged story** whose outcome it asserts.
 
 ### The rule each later area follows
@@ -84,15 +87,15 @@ Each area's `/to-spec` applies the three tests to every story it writes, records
 - **The "Test infrastructure" spec builds:** the `not_journey` field in the stories type and its schema; the level each declaration has, read from its path; the two new causes in the report; the due milestone of rule 5. It also writes the Journey files below and the extra `covers`, checks and steps of the existing ones.
 - **Changes area 1's spec** ([Spec: Repository, CI and release (V1 area 1)](https://github.com/Jbmanllr/automan/issues/130)) through the delta pass:
   - `journey = true` for stories 1, 2 and 3 (`npm install`, `pip install`, `cargo add`) and 36 (`goodfetch upgrade-files`). Every other story is `false`. The `not_journey` reason is `actor` for stories of contributors, maintainers, the owner and coding agents; `reach` for stories that need release artifacts, channels, registries, signing, the docs site or a CI job; and `part` for the rest.
-  - Stories 1 to 3 are covered by J-002's `sdk-typescript`, `sdk-python` and `sdk-rust` variants, which gain a first step that installs Goodfetch from the commit's packages into a fresh project. Story 36 is covered by the new upgrade Journey below.
+  - Stories 1 to 3 are covered by J-002's `sdk-typescript`, `sdk-python` and `sdk-rust` variants, whose starting step becomes installing Goodfetch from the commit's packages into a fresh project, with a check that the installed package runs; J-002's goal is unchanged. Story 36 is covered by the new upgrade Journey below.
   - The spec's Journeys paragraph no longer says this area adds no Journey and that every story is `journey = false`. It says this area adds no Journey of its own, and that four of its stories are covered by J-002 and the upgrade Journey.
-- **Changes area 2's spec** ([Spec: Proving ground and conformance (V1 area 2)](https://github.com/Jbmanllr/automan/issues/152)): no flag changes. Stories 51, 52 and 77 stay `true`, covered by its one planned Journey. Every other story takes `not_journey = "actor"`: its actor is a reader of the benchmark (stories 13 and 14's AI users included), a competitor, a contributor, a maintainer, the owner or an area. Story 41 keeps its `manual` exception.
+- **Changes area 2's spec** ([Spec: Proving ground and conformance (V1 area 2)](https://github.com/Jbmanllr/automan/issues/152)): no flag changes. Stories 51, 52 and 77 stay `true`, covered by its one planned Journey. Every other story takes `not_journey = "actor"`: its actor is an evaluator or another reader of the benchmark (stories 13 and 14's AI users included), a competitor, its maintainer or its user, a contributor, a maintainer, an operator of CI, the owner, an area, test support, a Journey's author or a surface's test runner. Story 41 keeps its `manual` exception.
 - **Changes area 3's spec** ([Spec: Engine runtime (V1 area 3)](https://github.com/Jbmanllr/automan/issues/213)) through the delta pass:
   - **`journey = true`** for 25 stories: 1, 2, 13, 18, 23, 24, 34, 35, 67, 71, 73, 76, 79, 89, 96, 98, 99, 106, 111, 113, 115, 116, 119, 125 and 128.
   - **`not_journey = "actor"`:** 3, 30, 43, 80 and 109.
-  - **`not_journey = "reach"`:** 5, 9, 21, 22, 26, 31, 32, 45, 59, 60, 65, 66, 72, 77, 78, 83, 84, 97, 101 (the ops listener is no Journey surface), 112, 114 and 124.
-  - **`not_journey = "part"`:** every other story (82 stories).
-  - **Existing Journeys gain `covers`:** J-001 gains `story:3-18`; J-005 gains `story:3-23`; J-006 gains `story:3-67`, `story:3-71`, `story:3-76` and `story:3-79`, and its first step takes the monthly install Limit that `goodfetch init` offers; J-007 gains `story:3-24`; J-009 gains `story:3-89`; J-012 gains `story:3-34`.
+  - **`not_journey = "reach"`:** 21 (a service manager), 77 (a managed Operator policy), 83 (a Politeness store), 101 (the ops listener is no Journey surface) and 114 (Kubernetes). These state whole goals; every other story that also needs a fault or a service fails `part` first.
+  - **`not_journey = "part"`:** every other story (99 stories).
+  - **Existing Journeys gain `covers`:** J-001 gains `story:3-18`, with a check of the idle stop after an idle time shortened through its setting (ADR 0059); J-005 gains `story:3-23`; J-006 gains `story:3-67`, `story:3-71`, `story:3-76` and `story:3-79`, and its first step takes the monthly install Limit that `goodfetch init` offers; J-007 gains `story:3-24`; J-009 gains `story:3-89`; J-012 gains `story:3-34`.
   - **The two M4 Journeys the spec already plans** cover `story:3-115` (a person Limit across a Daemon group, #258) and `story:3-116` and `story:3-119` (a Partitioned crawl read as one run, #248).
   - **Ten new Journeys**, numbered from `journeys/catalog.toml` when the "Test infrastructure" spec writes them:
 
@@ -100,7 +103,7 @@ Each area's `/to-spec` applies the three tests to every story it writes, records
     |---|---|---|---|
     | Run a one-off SDK script on an Attached engine, then two scripts that share the Daemon, both seen in one Console | `sdk-rust`, `sdk-typescript`, `sdk-python` (M2), with a step pinned to `console` | `catalog` | `story:3-1`, `story:3-2`, `row:RT-19` |
     | Pause a Crawl, restart the Daemon and resume it | `cli` (M1); the SDKs (M2) | `catalog` | `story:3-35`, `row:RT-11` |
-    | Run the Daemon in the foreground, drain it with `SIGTERM` and resume its runs when it starts again | `cli` (M1) | `catalog` | `story:3-98`, `story:3-99` |
+    | Run the Daemon in the foreground, drain it with `SIGTERM` and resume its runs when it starts again; its checks are the foreground Daemon's own outcome (the configured address, JSON logs, no runtime file, no idle stop), not Docker, Kubernetes or systemd | `cli` (M1) | `catalog` | `story:3-98`, `story:3-99` |
     | Be told once each at 50 %, 80 % and 100 % of a Limit | `cli`, `console` (M4) | `catalog` | `story:3-73` |
     | Move to a new major with `goodfetch upgrade-files`, leaving the previous major's files unchanged | `cli` (M4), starting from the Compatibility corpus | none | `story:1-36`, `story:3-96` |
     | Form a Daemon group and remove a Group member while its runs go on | `cli` (M4) | `catalog` | `story:3-106`, `story:3-111` |
@@ -109,7 +112,7 @@ Each area's `/to-spec` applies the three tests to every story it writes, records
     | Feed a keep-alive run new work until its input closes | the SDKs (M2) | `catalog` | `story:3-128`, `row:RT-12` |
     | Call an Exposed Daemon from an edge function over WebSocket | `sdk-typescript` (M4) | `catalog` | `story:3-13` |
 
-  - **Due milestones:** stories 1, 2 and 128 are due with their Journeys at M2, since their only variants are on the SDKs. The other flagged stories are due at their own milestones.
+  - **Due milestones later than the story's own:** stories 1, 2 and 128 (M1) are due with their Journeys at M2, since their only variants are on the SDKs; story 96 (M1) is due at M4, since the upgrade Journey's only variant is `cli` at M4. The other flagged stories are due at their own milestones.
   - The spec's Journeys paragraph lists these Journeys. Its Further Notes replace "`journey = true` for every story whose actor is a person using Goodfetch" with the lists above.
 - **The size of the change:** across areas 1 to 3, 32 stories are flagged instead of 132 (4 in area 1, 3 in area 2, 25 in area 3). They are covered by 20 Journeys: J-002, the 6 existing Journeys that gain area 3 stories, area 2's planned Journey, the 2 planned M4 Journeys and the 10 new ones.
 - **No new glossary term.** The flag and its reasons are fields, not domain terms.

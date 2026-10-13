@@ -88,12 +88,13 @@ Decided in [ADR 0063](docs/adr/0063-end-to-end-tests-follow-a-catalog-of-numbere
 
 ### Data and isolation
 
-- **Each Journey has its own `seed`.** Never share one between Journeys.
+- **Each Journey that uses Proving ground pages has its own `seed`.** Never share one between Journeys. A Journey that touches no page has none. `GOODFETCH_TEST_SEED` never overrides a Journey's seed.
+- **Pin each Proving ground task a Journey names with its `digest`** from the task list.
 - **Each variant run starts from scratch:** its own Proving ground on port 0 with the Journey's seed, its own Goodfetch home and cleared environment, `resolve` mapping the Proving ground's hosts to loopback, and its certificate authority trusted through the per-domain exception.
 - **Build the starting state through public surfaces** in the first steps. Never copy in a run file, database or home folder, except an older-format file for an upgrade Journey.
 - **Run against the local copy only.** Online results stay conformance reports.
 - **Drive the shipped artefacts**: the `goodfetch` binary and the SDK packages built from the commit, never an engine linked into the test.
-- **When a generator change moves a task a Journey names, update the Journey in the same pull request.**
+- **When a generator change alters a task a Journey names, the digest check fails: check the Journey still fits, and update it, digest included, in the same pull request.** Task ordinals are append-only within a family; never reuse one.
 
 ### Tests and results
 
@@ -103,8 +104,8 @@ Decided in [ADR 0063](docs/adr/0063-end-to-end-tests-follow-a-catalog-of-numbere
   - pytest: `@pytest.mark.journey("J-002")`, registered, `strict_markers` on;
   - Playwright Test: the tag `@J-002`.
 - **One test per variant.**
-- **Each variant run writes one result document with `kind = "journey"`.** Never set its outcome: it is derived from the steps, the checks and the oracle's answers. A step not reached, or any task not `verified`, fails the variant.
-- **The catalog check fails** on a file that does not parse, an ID that differs from its file name or repeats, a task missing from the Proving ground's task list for the seed, a test naming a retired or unknown Journey or an unlisted surface, two tests for one variant, a variant milestone earlier than its surface, or a retired Journey without a reason.
+- **Each variant run writes one result document with `kind = "journey"`.** Never set its outcome by hand: derive it from the steps, the checks and the oracle's answers, through the Rust constructor or a helper that passes the shared outcome vectors. A step not reached, or any Proving ground task not `verified`, fails the variant. Readers recompute the outcome and reject a document that disagrees.
+- **The catalog check fails** on a file that does not parse, an ID that differs from its file name, repeats or is not below the next free number, a Proving ground task missing from the task list for the seed or whose digest differs, a test naming a retired or unknown Journey or an unlisted surface, two tests for one variant, a variant milestone earlier than its surface, or a retired Journey without a reason.
 
 ### Owner tests
 

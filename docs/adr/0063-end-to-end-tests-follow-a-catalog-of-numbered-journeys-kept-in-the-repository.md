@@ -36,7 +36,7 @@ Decided in [Journey catalog: format, IDs, seeded data and surfaces](https://gith
   | `area` | The ADR 0037 area whose spec owns it |
   | `status` | `active` or `retired`; a retired one names `replaced_by` (a list, possibly empty) and a `reason` |
   | `covers` | Feature IDs it exercises, each `<kind>:<id>`: `row:CO-18` for an ADR 0037 matrix row (parity, Stagehand v3 or pain), and the kinds [Feature coverage and traceability](https://github.com/Jbmanllr/automan/issues/279) adds |
-  | `[proving_ground]` | `seed` (an unsigned 64-bit integer) and `tasks`, the task IDs it uses; empty when the goal touches no page |
+  | `[proving_ground]` | `seed` (an unsigned 64-bit integer) and `tasks`, each Proving ground task it uses as `{ id, digest }`; the whole table is left out when the goal touches no page |
   | `[surfaces]` | Each surface the goal is reachable on, with the milestone (`M1` to `M4`) by which that surface must prove it |
   | `[[steps]]` | Each step in declarative words (Cucumber's rule: the wording survives a change of implementation); `on` pins a step to one surface; `manual` gives the reason a step needs a person |
   | `[[expect]]` | Each check of the outcome; `task` asks the oracle to answer `verified` for that task |
@@ -56,9 +56,9 @@ Decided in [Journey catalog: format, IDs, seeded data and surfaces](https://gith
 
 ### Seeded data and isolation
 
-- **Each Journey has its own seed**, written in its file when it is created. The first catalog uses the Journey's number.
+- **Each Journey that uses Proving ground pages has its own seed**, written in its file when it is created. The first catalog uses the Journey's number. A Journey that touches no page (J-001, J-009) has no seed. `GOODFETCH_TEST_SEED` (ADR 0059) overrides only the `Entropy` seed of in-process tests, never a Journey's seed, which is part of its data.
 - **Each variant run starts from scratch.** It starts its own Proving ground on port 0 with the Journey's seed, its own Goodfetch home and cleared environment (ADR 0059), the `resolve` mapping of the Proving ground's host names to loopback, and the Proving ground's certificate authority trusted through ADR 0042's per-domain exception. Nothing is shared with another variant, so the Proving ground's per-task observations need no namespace.
-- **The data is pinned by the seed plus the Proving ground built from the same commit.** The result document records both. A change to a page family that changes a task a Journey names fails the catalog check below, so the pull request that changes the generator updates the Journeys it moves.
+- **The data is pinned by the seed, the Proving ground built from the same commit and each task's digest.** The result document records the seed and the version. Each named Proving ground task is pinned by its `digest`, a hash the Proving ground computes over the task's entry and its expected result. A generator change that alters, moves or removes a task a Journey names therefore fails the catalog check, so the pull request that changes the generator updates the Journeys it moves, digest included, after checking the Journey still fits.
 - **Starting state is built through public surfaces** in the Journey's first steps: settings, Limits, a Saved identity from a Proving ground login, an earlier run. No run file, database or home folder is copied in, except an older-format file an upgrade Journey starts from (the upgrade fixtures of [Upgrade and version-mismatch testing](https://github.com/Jbmanllr/automan/issues/287)).
 - **Logins** use accounts the Proving ground derives from the seed, so each variant has its own accounts.
 - **Journeys run against the local copy only**, under ADR 0043's outbound deny. Online-copy results stay conformance reports.
@@ -74,13 +74,17 @@ Decided in [Journey catalog: format, IDs, seeded data and surfaces](https://gith
   - `unproved` for a declared variant with no test or no run, computed by the catalog report from the absence of a document.
 
   A `manual` step leaves the variant `proved` on its automated steps and is listed for the owner test.
+- **How "derived, never set" holds on every runner.**
+  - In Rust, the outcome comes from a constructor in `goodfetch-protocol`.
+  - The TypeScript and Python helpers derive it with the same rule, tested against a shared set of outcome vectors (steps and oracle answers with the outcome they give) committed beside the schema.
+  - Every reader of result documents (the catalog report, the coverage check, the release gate) loads them through a Rust reader in `goodfetch-protocol` that recomputes the outcome and rejects a document whose stored outcome disagrees. A helper that writes `proved` beside a `false_success` answer fails CI there.
 
 ### The catalog check and report
 
 The "Test infrastructure" spec builds them. The check fails when:
 1. a file does not parse under the type, or its name differs from its `id`;
 2. two Journeys share an ID, or an ID is not below the next free number;
-3. a task a Journey names is not in the Proving ground's task list for its seed;
+3. a Proving ground task a Journey names is missing from the task list for its seed, or its digest differs from the one the Journey pins;
 4. a test carries the ID of a retired or unknown Journey, or a surface the Journey does not list, or two tests carry the same variant;
 5. a variant's milestone is earlier than its surface's first milestone;
 6. a retired Journey has no `reason`.
@@ -100,16 +104,16 @@ The report lists each variant's latest outcome on `main` by milestone and area. 
 
 ### The first catalog: M1's Journeys
 
-Each Journey below lists its later surfaces too. Families are the Proving ground's; `catalog` is the first one, built by [Proving ground tracer: one seeded family, its task list and its oracle](https://github.com/Jbmanllr/automan/issues/158). The scenarios of [M1 owner test: a fully working extraction and crawl framework](https://github.com/Jbmanllr/automan/issues/289) map one to one onto J-001 to J-010.
+Each Journey below lists its later surfaces too. Families are the Proving ground's; `catalog` is the first one, built by [Proving ground tracer: one seeded family, its task list and its oracle](https://github.com/Jbmanllr/automan/issues/158). The items of [M1 owner test: a fully working extraction and crawl framework](https://github.com/Jbmanllr/automan/issues/289) map one to one onto J-001 to J-010.
 
 | ID | Title | Surfaces (milestone) | Proving ground | Covers |
 |---|---|---|---|---|
-| J-001 | Start the Daemon and open the local Console with no login; the system browser opening is a manual step | `cli`, `console` (M1) | none | `row:SDK-01`, `row:CN-03` |
+| J-001 | Start the Daemon and open the local Console with no login; the system browser opening is a manual step | `cli`, `console` (M1) | none | `row:CN-03` |
 | J-002 | Crawl a site over HTTP to Markdown and export its Dataset as JSON, CSV and Parquet | `cli` (M1); `sdk-rust`, `sdk-typescript`, `sdk-python`, `mcp-stdio`, `mcp-http` (M2) | `catalog` | `row:SA-01`, `row:CO-18`, `row:CO-25`, `row:CO-27`, `row:CO-29` |
 | J-003 | Crawl a JavaScript-rendered site with browser rendering, with screenshots and a PDF of each page | `cli` (M1); the SDKs and MCP (M2) | [rendered and interactive pages](https://github.com/Jbmanllr/automan/issues/166) | `row:SA-05`, `row:CO-15`, `row:CO-20`, `row:CO-21`, `row:SA-09` |
 | J-004 | Follow a running Crawl in the Console: Runs, the run's drawer with its three axes, Datasets, Engine & settings | `console` (M1), the Crawl started by a step pinned to `cli` | `catalog` | `row:CN-03`, `row:CN-04`, `row:RT-15` |
 | J-005 | Resume a Crawl after the Daemon is killed, with no Record delivered twice | `cli` (M1); the SDKs (M2) | `catalog` | `row:RT-10`, `row:RT-11`, `row:durability-resume` |
-| J-006 | Stop a run at an install Limit and see it in `goodfetch usage` and the Console | `cli`, `console` (M1) | `catalog` | `row:CO-08`, `row:cost-unpredictable-runaway` |
+| J-006 | Stop a run at an install Limit and see it in `goodfetch usage` and the Console | `cli`, `console` (M1) | `catalog` | `row:cost-unpredictable-runaway` |
 | J-007 | Two Crawls of one site share Politeness, never more than its in-flight cap together | `cli` (M1) | [Crawl families](https://github.com/Jbmanllr/automan/issues/164) | `row:CO-09`, `row:compliance-site-owner-politeness` |
 | J-008 | Crawl through a proxy, see a Block cause reported and the Session pool react | `cli`, `console` (M1) | [Crawl families](https://github.com/Jbmanllr/automan/issues/164) and the forward proxy | `row:SA-22`, `row:ST-08`, `row:CO-12` |
 | J-009 | See where each setting's value comes from | `cli` (`goodfetch config explain`), `console` (Engine & settings) (M1) | none | `row:RT-22` |
@@ -123,19 +127,20 @@ Pain slugs are written as `row:` because they are rows of ADR 0037's matrix. The
 
 **[Proving ground tracer: one seeded family, its task list and its oracle](https://github.com/Jbmanllr/automan/issues/158):**
 - The family is `catalog`, ported from the lab's HTTP catalog: paginated listing pages and product pages, each product with its ID, name and price.
-- **Task IDs** are `<family>/<ordinal>` (`catalog/1`), the ordinal counting from 1 in the task list's order, the same for the same Proving ground version and seed. This is the concrete form of area 2's "seed-derived id": the seed scopes it, and the seed travels with it.
-- **The task list** is served as JSON: `proving_ground` (`version`, `seed`) and `tasks`, each with `id`, `family`, `kind` (`crawl` or `extract` for this family), `start_url` and `description`.
+- **Task IDs** are `<family>/<ordinal>` (`catalog/1`), scoped by the seed, which travels with them. Ordinals are append-only within a family: a new kind of task takes the next ordinal, and a removed one leaves a gap that is never reused. This is the concrete form of area 2's "seed-derived id".
+- **The task list** is served as JSON: `proving_ground` (`version`, `seed`) and `tasks`, each with `id`, `family`, `kind` (`crawl` or `extract` for this family), `start_url`, `description` and `digest` (SHA-256 over the canonical JSON of the entry without `digest`, plus the task's expected result).
 - **`serve` binds port 0 when asked**, and its first output line is one JSON object with `address`, `version` and `seed`, so a test helper reads it.
 - **The version** is the workspace version plus the commit, so the result document pins the generator.
 - **The seed** is an unsigned 64-bit integer, written in decimal.
 - **The oracle's answer** names the task ID it judged.
-- A test shows the same seed gives the same task list, IDs and start URLs included.
+- Tests show the same seed gives the same task list, IDs, start URLs and digests included, and that a change to a task's expected result changes its digest.
 
 **[`goodfetch-conformance` tracer: the harness, the result document and a self-test suite](https://github.com/Jbmanllr/automan/issues/169):**
 - The result document has a `kind`: `conformance` or `journey`.
 - A `journey` document carries the variant (`journey_id`, `surface`), each step's outcome, each task's oracle answer and evidence, and the versions of the binary and the surface package in place of a target. The common fields (platform, runtime, the Proving ground's version and seed) stay.
-- Both kinds derive their outcome from what they hold, through a constructor in `goodfetch-protocol`; a test cannot write `proved` beside a `false_success` answer.
-- Tests show a sample `journey` document validates against the schema, and that one task answering `false_success` makes it `failed`.
+- Both kinds derive their outcome from what they hold, through a constructor in `goodfetch-protocol`, and its reader recomputes the outcome of a loaded document and rejects a mismatch.
+- The outcome vectors are committed beside the schema, and the Rust constructor passes them.
+- Tests show a sample `journey` document validates against the schema, that one Proving ground task answering `false_success` makes it `failed`, and that the reader rejects a document stored as `proved` beside that answer.
 
 ### IDs that feature coverage references
 
@@ -143,7 +148,7 @@ Pain slugs are written as `row:` because they are rows of ADR 0037's matrix. The
 
 ## Considered Options
 
-- **A test-management service** (Qase, TestRail, Allure TestOps): rejected. The Proving ground and benchmark are published so anyone can rerun them (ADR 0025), and a catalog in a service would be invisible to them. Its reviews happen outside the pull requests that autonomous delivery reviews (AGENTS.md); Qase approves case reviews only in its UI, and TestRail versions cases only in its Enterprise plan. Every CI job runs under ADR 0043's deny, and an uploader would be one more named exception. The services' strength, recording manual runs, is covered by the owner test's issue.
+- **A test-management service** (Qase, TestRail, Allure TestOps): rejected. The Proving ground and benchmark are published so anyone can rerun them (ADR 0025), and a catalog in a service would be invisible to them. Its reviews happen outside the pull requests that autonomous delivery reviews (AGENTS.md); Qase approves case reviews only in its UI, and TestRail has versioned cases since 7.3 (2022) in its Enterprise plan. Every CI job runs under ADR 0043's deny, and an uploader would be one more named exception. The services' strength, recording manual runs, is covered by the owner test's issue.
 - **Metadata in test code with a generated list** (Kubernetes): rejected. A Journey runs in four or more runners (nextest, Vitest, pytest, Playwright Test), so no single runner's code can hold it, and the steps a person follows would be split across languages.
 - **Executable Gherkin** (Cucumber, cucumber-rs, pytest-bdd): rejected. Gherkin has no ID keyword, and step definitions would be written and kept in step with each other in three languages. The declarative step wording is kept without the glue.
 - **Tests generated from the catalog** (Chromium's dPWA): rejected. Chromium generates one language's tests from shared actions; Goodfetch's surfaces differ in idiom (an SDK call, a CLI line, a Console click), so each surface writes its own test against the same steps.
@@ -151,16 +156,18 @@ Pain slugs are written as `row:` because they are rows of ADR 0037's matrix. The
 - **Kebab-case slugs as IDs** (web-features): rejected. A Journey spans areas, and its title grows with each surface and feature; a number never needs to move.
 - **A revision in each ID** (OpenFastTrace's `dsn~name~2`): rejected. Retiring the Journey and assigning a new number gives the same voiding with plain IDs.
 - **One Proving ground shared by every Journey in a job, with a namespace per run** (wptserve's stash): rejected. A fresh instance starts in milliseconds and leaves no observation shared, which is the "start from scratch" rule.
+- **Task IDs from a hash of the task's content:** rejected. IDs are assigned, never derived from content (the findings); the digest is a separate pin that the Journey records, so a changed task fails loudly without renaming anything.
 - **One seed for the whole catalog:** rejected. The owner asked for each Journey's own seeded data, and a catalog-wide seed would couple every Journey to every generator change.
 - **A separate Journey result format, or JUnit properties:** rejected. Area 2's result document is already written by every runner ([Conformance result documents from the TypeScript and Python test runners](https://github.com/Jbmanllr/automan/issues/170)); Playwright's JUnit drops tags.
-- **The owner tests kept as free text:** rejected. Their scenarios would drift from the automated Journeys and never be counted.
+- **The owner tests kept as free text:** rejected. Their items would drift from the automated Journeys and never be counted.
 
 ## Consequences
 
+- **Adds to ADR 0038**, so ADR 0037's amendment rule carries it to every area's spec: each area's `/to-spec` adds the Journeys of its user stories to the catalog, and its `/to-tickets` names in each ticket the variants that ticket makes `proved`.
 - **Adds to ADR 0032:** the `journeys/` folder at the root of the repository.
 - **Adds to ADR 0058:**
   - each owner test lists its milestone's variants by Journey ID as "Journeys to try", with their manual steps;
-  - it is ready only when it is the only open issue of its milestone and every automated variant of that milestone is `proved` on `main`;
+  - it is ready only when it is the only open issue of its milestone and every automated variant of that milestone is `proved` on `main` (amends ADR 0058's readiness rule, which a note there records);
   - a finding on an uncovered goal adds a Journey.
 
   [M1 owner test: a fully working extraction and crawl framework](https://github.com/Jbmanllr/automan/issues/289)'s "Scenarios to try" become "Journeys to try" with J-001 to J-010, plus J-011 and J-012.
@@ -171,13 +178,14 @@ Pain slugs are written as `row:` because they are rows of ADR 0037's matrix. The
   - outcomes are derived by a constructor, never set.
 
   ADR 0037's area table lists this ADR in area 2's row.
-- **Changes area 3's spec** ([Spec: Engine runtime (V1 area 3)](https://github.com/Jbmanllr/automan/issues/213)): its "Scenarios" that need several processes or machines are called multi-process tests, since *scenario* is an `_Avoid_` term for Journey.
+- **Changes area 3's spec** ([Spec: Engine runtime (V1 area 3)](https://github.com/Jbmanllr/automan/issues/213)): its "Scenarios" that need several processes or machines, and the "delivery, leases, credits and admission scenarios" of its in-memory adapter paragraph, are called multi-process tests, since *scenario* is an `_Avoid_` term for Journey.
 - **The glossary** gains *Journey* and *Proving ground task*.
 - **Left to other tickets of the test strategy map,** each building on the interface above:
-  - which tier runs which variants, and the local command that selects them by ID, surface, milestone or area: [Test suites, local commands and time budgets](https://github.com/Jbmanllr/automan/issues/276);
+  - which suite (`Quick`, `Pre-merge`, `Release`) runs which variants, and whether some also run as a nightly job, and the local command that selects them by ID, surface, milestone or area: [Test suites, local commands and time budgets](https://github.com/Jbmanllr/automan/issues/276);
   - the Journey tests' folders and the helper that starts a variant's Proving ground, home and engine: [Test layout, naming, shared helpers and the test-first process](https://github.com/Jbmanllr/automan/issues/277);
   - the feature inventory and the coverage check: [Feature coverage and traceability](https://github.com/Jbmanllr/automan/issues/279);
   - what a failing or flaky Journey test does: [Flakiness policy and checks that are non-deterministic by nature](https://github.com/Jbmanllr/automan/issues/280);
   - Journeys of AI features and the `skills` surface, on scripted models: [Testing AI features and agent skills](https://github.com/Jbmanllr/automan/issues/281);
   - the `console`, SDK, CLI, MCP, adapter and Integration runners: [Console and docs test stack](https://github.com/Jbmanllr/automan/issues/282), [SDK and CLI test stack](https://github.com/Jbmanllr/automan/issues/285), [MCP, framework adapter and Integration test stack](https://github.com/Jbmanllr/automan/issues/286).
+- **[`goodfetch-conformance` tracer: the harness, the result document and a self-test suite](https://github.com/Jbmanllr/automan/issues/169)** builds the Rust constructor, the reader and the outcome vectors; [Conformance result documents from the TypeScript and Python test runners](https://github.com/Jbmanllr/automan/issues/170) builds the helpers' derivation against them.
 - **The "Test infrastructure" spec** builds the Journey type and its schema, the catalog check and report, the twelve files of the first catalog, and each language's helper that reads a Journey, starts its Proving ground and writes its result document.

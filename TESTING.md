@@ -79,8 +79,8 @@ Each suite runs everything the suite before it runs.
 
 | Suite | What it adds | Command | Runs in CI |
 |---|---|---|---|
-| Quick | Format and lint checks; in-process tests of what changed (Rust unit tests in `src/`, never `tests/it`); the committed format fixtures; `xtask codegen --check` | `just quick` (`just quick all` for everything) | First job of every pull request |
-| Pre-merge | Every touched crate's `tests/it`; conformance on the local Proving ground; touched Sinks against their containers; touched SDKs, adapters and Integrations on one runtime; the Console on Chromium; docs examples; ADR 0032's static checks | `just pre-merge` (`just pre-merge all`) | Every pull request, on Linux |
+| Quick | Format and lint checks; in-process tests of what changed (Rust unit tests in `src/`, never `tests/it`); the committed format fixtures; `xtask codegen --check` and `xtask affected`'s own tests | `just quick` (`just quick all` for everything) | First job of every pull request, over the whole workspace |
+| Pre-merge | The `tests/it` of every touched crate and its dependants; conformance on the local Proving ground; touched Sinks against their containers (every Sink until the merge queue exists, ADR 0032); touched SDKs, adapters and Integrations on one runtime; the Console on Chromium; docs examples; ADR 0032's static checks | `just pre-merge` (`just pre-merge all`) | Every pull request, on Linux |
 | Release | Everything, for every package, on the full matrix of ADR 0024; deployment-target smoke runs; tests that need released binaries | `just release` (this host's cell), `just release-ci` (the whole matrix on CI) | Merge queue, nightly, every release |
 
 - **A Quick-suite test starts no process, browser or container and binds no socket.** Anything that does is a `tests/it` test, or its runner's equivalent.
@@ -94,13 +94,13 @@ Each suite runs everything the suite before it runs.
 - **Run `just quick` before every push.** `just hooks` installs an opt-in pre-push hook that does it.
 - **`just test <suite> [packages]`** runs one suite's tests without lints. CI jobs call it, and so can you.
 - **`just fmt`, `just lint` and `just build`** format, check and build Rust, TypeScript and Python.
-- **What changed comes from `xtask affected`**, in CI and locally. Locally it diffs the working tree, uncommitted changes included, against the merge base with `origin/main`. Rust selects through `rdeps(…)`, so dependants run too.
+- **What changed comes from `xtask affected`**, in CI and locally. Until it exists, `just quick` and `just pre-merge` run over the whole workspace. Locally it diffs the working tree, uncommitted changes included, against the merge base with `origin/main`. Rust selects through `rdeps(…)`, so dependants run too.
 - **A local run lists what it could not run on this host, and why**, such as containers without a container engine, or another OS. Its exit code covers what ran. CI is the verdict.
 - **`just release-ci` dispatches the Release suite on your pushed branch** and follows it to the end. It never reaches the reference host.
 
 ### Time budgets
 
-Budgets are the median (p50) of the last 20 runs on `main` and in the merge queue, on GitHub-hosted runners with warm caches.
+Budgets are the median (p50) of a job's last 20 runs in its own tier, on GitHub-hosted runners with warm caches: pull-request runs for Quick and Pre-merge; merge-queue runs (manual-dispatch runs while the repository is private), nightly and release runs for Release.
 
 | Suite | Where | Budget | Hard cap |
 |---|---|---|---|
@@ -112,13 +112,13 @@ Budgets are the median (p50) of the last 20 runs on `main` and in the merge queu
 
 - **Per-test caps stop hangs, never measure speed.** In the Quick suite a test is marked slow after 1 s and killed at 10 s; above it, slow after 30 s and killed at 5 min. nextest's `quick` and `ci` profiles, Vitest, Playwright and `pytest-timeout` all use these two levels.
 - **No run fails for being slow within its cap.**
-  _Why:_ wall time on shared runners varies by a few percent, so a one-run timing gate would be flaky.
-- **A breached budget opens an issue** through the nightly budget check, labelled `needs-triage`. Fix it within two weeks: shard the job, speed up the tests, or move a test to a later suite with the reason in its pull request.
-- **The stress run of new and changed tests counts against the Pre-merge budget.** Shard it to fit; never lower its run count to meet a budget.
+  _Why:_ benchmark suites on shared runners vary by about 2.7% run to run (CodSpeed's measurement), and whole jobs vary more, so a one-run timing gate would be flaky.
+- **A breached budget opens an issue** through the budget check, run nightly and after every manual-dispatch Release run, labelled `needs-triage`. Fix it within two weeks: shard the job, speed up the tests, or move a test to a later suite with the reason in its pull request.
+- **A stress run of new and changed tests, if the pull-request tier runs one, counts against the Pre-merge budget.** Shard it to fit; never lower its run count to meet a budget.
 
 ### Sharding, caching and reports
 
 - **Shards are deterministic:** nextest archives once per target and splits with `--partition hash:m/n`; Vitest and Playwright use `--shard`; pytest uses `pytest-xdist` inside one job. Never split by recorded timings.
-- **Caches save only from `main`** (`Swatinem/rust-cache`, the V8 build). pnpm's and uv's caches are keyed by their lockfiles. Chromium, images and released binaries are cached by digest.
+- **Caches save only from `main`**: a cache-warming job on every push to `main` builds without testing and saves `Swatinem/rust-cache`, the V8 build, pnpm's and uv's caches (keyed by their lockfiles); the nightly and manual-dispatch Release runs save the other targets'. The merge queue saves none, since pull requests can't restore its caches. Chromium, images and released binaries are cached by digest.
 - **CI test builds use the `ci-test` Cargo profile** (`test` with `debug = "line-tables-only"`).
 - **Every run writes JUnit XML**, local or CI. Every CI job uploads it, pass or fail, as `junit-<suite>-<tier>-<os>-<arch>[-<runtime>]-<shard>`, and a failing job writes a summary of its failed tests to its page.

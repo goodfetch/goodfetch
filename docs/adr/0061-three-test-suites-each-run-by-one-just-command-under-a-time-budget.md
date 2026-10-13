@@ -25,16 +25,16 @@ Each suite runs everything the suite before it runs.
   - `xtask codegen --check` and `xtask affected`'s own tests.
   - Nothing that starts a process, a browser or a container, or binds a socket.
 - **Pre-merge suite**: what ADR 0032's pull-request tier runs, on one platform. That is the Quick suite plus:
-  - every crate's `tests/it` binary;
+  - the `tests/it` binary of every touched crate and of the crates that depend on it (`rdeps`);
   - the conformance suites against the local Proving ground with the Goodfetch Chromium;
-  - the touched Sinks' suites against their emulators and containers;
+  - the touched Sinks' suites against their emulators and containers (every Sink's suite until the merge queue exists, as ADR 0032 requires);
   - the touched SDKs, adapters and Integrations on one runtime each;
   - the Console's component and end-to-end tests on Chromium;
   - the docs build and examples when docs change;
   - the static checks ADR 0032 lists.
 - **Release suite**: everything the Pre-merge suite runs, for every package rather than only the touched ones, across the full matrix of ADR 0024:
   - every platform: Linux x64 and arm64 on glibc and musl, macOS arm64 and Intel, Windows x64 and arm64;
-  - every runtime: every supported Node line, Bun, Deno 2, and every supported CPython with its free-threaded build;
+  - every runtime: every supported Node line, Bun, Deno 2, and every supported CPython, with its free-threaded build on Linux (on every OS in the nightly, ADR 0032);
   - browser conformance on every OS;
   - every Sink's suite;
   - the deployment-target smoke runs that CI hosts (ADR 0049);
@@ -46,9 +46,9 @@ Checks that are non-deterministic by nature are not in any suite: real SaaS Sink
 
 | CI tier (ADR 0032) | What it runs |
 |---|---|
-| Pull request | The Quick suite first, as its own job, for the first signal. Then the rest of the Pre-merge suite on Linux, selected by `xtask affected`. "all green" is the only required check. |
+| Pull request | The Quick suite over the whole workspace (`just quick all`) first, as its own job, for the first signal. Then the rest of the Pre-merge suite on Linux, selected by `xtask affected`. "all green" is the only required check. |
 | Merge queue (`merge_group`) | The Release suite. "all green" there is required too. |
-| `main` after a merge | Nothing more: the merge queue already ran the Release suite on the same tree. |
+| `main` after a merge | No tests: the merge queue already ran the Release suite on the same tree. A cache-warming job saves the caches (below). |
 | Nightly | The Release suite again on `main`'s head, then the nightly-only checks and the nightly publish. A second run of the same commit is what result history needs (the flaky-tests findings). |
 | Release candidate, stable release, patch | The Release suite on the release branch's commit, then that release's gates (ADR 0032). |
 
@@ -68,11 +68,12 @@ These are the recipes that [Workspace skeleton and the "all green" pull-request 
 | `just release` | The host OS's cell of the Release suite, with every runtime installed on the host. |
 | `just release-ci` | Dispatches the Release suite's workflow on the current branch's pushed head (`gh workflow run`) and follows it to the end (`gh run watch`). Its exit code is the run's verdict. |
 | `just fmt` | Formats Rust, TypeScript and Python in place. |
-| `just lint` | Checks formatting, then runs Clippy, oxlint, ruff, pyright and the other linters. |
+| `just lint` | Checks formatting, then runs the linters and type checkers `STYLE.md` names: Clippy, oxlint, ruff, pyright, mypy's API check, `typos`, `cargo-deny` and `cargo-shear`. |
 | `just build` | Builds the workspace. |
 | `just test <suite> [packages]` | Runs one suite's tests alone, without lints, for Rust, TypeScript or Python packages. CI jobs call this for their part. |
 | `just hooks` | Opt-in: points `core.hooksPath` at the committed `.githooks/`. Its pre-commit hook checks formatting, and its pre-push hook runs `just quick`. |
 
+- **Until `xtask affected` exists** ([`xtask affected`: change detection for the pull-request tier](https://github.com/Jbmanllr/automan/issues/134), which comes after the skeleton), `just quick` and `just pre-merge` run over the whole workspace, as their `all` forms do.
 - **`xtask affected` is the one source of what changed**, in CI and locally. Locally it diffs the working tree against the merge base. It gives nextest an `rdeps(…)` filterset, so crates that depend on a changed crate are tested too, and gives Vitest and pytest their packages.
 - **A local suite that can't run a part on this host says so.** For example, the sink containers on a machine without a container engine, or another OS's cell. The recipe lists every part it skipped, with the reason, after its results. Its exit code covers what ran. CI is the verdict.
 - **The reference host is never reached from a recipe.** `just release-ci` runs on GitHub-hosted runners only. The benchmark keeps ADR 0025's own command and ADR 0032's trigger rule: tags and manual dispatch by the owner.
@@ -80,7 +81,7 @@ These are the recipes that [Workspace skeleton and the "all green" pull-request 
 
 ### Time budgets
 
-A budget is measured as the median (p50) over the last 20 runs on `main` and in the merge queue, on GitHub-hosted runners with warm caches. A hard cap per job stops hangs.
+A budget is the median (p50) of a job's last 20 runs in its own tier, on GitHub-hosted runners with warm caches: pull-request runs for the Quick and Pre-merge suites, merge-queue runs (manual-dispatch runs while the repository is private) and nightly and release runs for the Release suite. A hard cap per job stops hangs.
 
 | Suite | Where | Budget (p50) | Hard cap |
 |---|---|---|---|
@@ -93,20 +94,22 @@ A budget is measured as the median (p50) over the last 20 runs on `main` and in 
 - **Per-test caps stop hangs. They never measure speed.**
   - nextest's `quick` profile marks a test slow after 1 s and kills it at 10 s. Its `ci` profile marks a test slow after 30 s and kills it at 5 min.
   - Vitest, Playwright and pytest (`pytest-timeout`) get the same two levels: 10 s in the Quick suite, 5 min above it.
-- **No run fails for being slow within its cap.** Shared runners vary by about 2.7% in wall time (the performance-testing findings), so a timing gate on one run would be flaky. A timing gate on the trend is not.
-- **A breach opens an issue.** A nightly budget check reads the durations from the results store ([Flakiness policy and checks that are non-deterministic by nature](https://github.com/Jbmanllr/automan/issues/280) decides it; until it exists, the check reads the GitHub Actions API). When a budget is breached, it opens or updates one issue per suite or job, labelled `needs-triage`. The fix comes within two weeks:
+- **No run fails for being slow within its cap.** Benchmark suites on shared runners vary by about 2.7% from run to run (CodSpeed's own measurement, in the performance-testing findings), and whole jobs vary more with cache hits and queueing. A timing gate on one run would be flaky; a gate on the trend is not.
+- **A breach opens an issue.** A budget check, run nightly and at the end of every manual-dispatch Release run (so it runs while the repository is private), reads the durations from the results store ([Flakiness policy and checks that are non-deterministic by nature](https://github.com/Jbmanllr/automan/issues/280) decides it; until it exists, the check reads the GitHub Actions API). When a budget is breached, it opens or updates one issue per suite or job, labelled `needs-triage`. The fix comes within two weeks:
   - shard the job;
   - speed up the tests;
   - or move a test to a later suite, with the reason in its pull request.
 
-  The pull-request tier's stress run of new and changed tests, which [Flakiness policy and checks that are non-deterministic by nature](https://github.com/Jbmanllr/automan/issues/280) decides, counts against the Pre-merge budget. It is sharded to fit, and its run count is never lowered to meet a budget.
+  If the pull-request tier runs a stress run of new and changed tests ([Flakiness policy and checks that are non-deterministic by nature](https://github.com/Jbmanllr/automan/issues/280) decides it), that run counts against the Pre-merge budget. It is sharded to fit, and its run count is never lowered to meet a budget.
 - **Performance budgets of the product** (instruction counts, allocations, startup, overhead) are not these budgets. [Performance regression testing](https://github.com/Jbmanllr/automan/issues/284) decides them.
 
 ### Sharding and caching
 
 - **Build once per target, run in shards.** `cargo nextest archive` builds a target's tests once, and `--partition hash:m/n` splits them across jobs: adding a test never moves another. Vitest and Playwright use `--shard`. pytest splits across processes with `pytest-xdist` inside one job. Shards are deterministic, never timing-based.
 - **Shard counts are set so each job meets its budget.** A breach issue raises them.
-- **Caches** follow ADR 0032: `Swatinem/rust-cache` and the V8 build cache save only from `main`. The pnpm store and uv's cache are keyed by their lockfiles. The Goodfetch Chromium, container images and released binaries are fetched by digest and cached by digest.
+- **Caches are saved only from `main`**, as ADR 0032 says, and since no tests run there after a merge, a **cache-warming job** runs on every push to `main`. It builds the pull-request tier's Linux dependencies and tests without running them, and saves `Swatinem/rust-cache`, the V8 build cache, the pnpm store and uv's cache. The other targets' caches are saved by the nightly and by manual-dispatch Release runs on `main`.
+  - A pull request restores its base branch's caches, and a run restores the default branch's ([GitHub's cache access rules](https://docs.github.com/en/actions/reference/workflows-and-actions/dependency-caching)). A cache saved in the merge queue would sit on its temporary `gh-readonly-queue/…` branch, which pull requests can't restore (inferred from those rules, which don't name merge-queue branches), so the merge queue saves none.
+  - The pnpm store and uv's cache are keyed by their lockfiles. The Goodfetch Chromium, container images and released binaries are fetched by digest and cached by digest.
 - **Test builds in CI use a `ci-test` Cargo profile** that inherits `test` with `debug = "line-tables-only"`, as uv and Materialize do. Backtraces keep file and line, and builds and the 14 GB runner disk carry less.
 
 ### Reports
@@ -139,8 +142,10 @@ A budget is measured as the median (p50) over the last 20 runs on `main` and in 
   - its CI tiers name the suites they run;
   - `just` gets the recipes above;
   - `xtask affected` also serves local runs, diffing the working tree, and emits nextest filtersets;
-  - "Cargo's `dev` and `test` profiles stay as they are" holds, with a `ci-test` profile added beside them.
-- **[Workspace skeleton and the "all green" pull-request check](https://github.com/Jbmanllr/automan/issues/132)** creates `just fmt`, `lint`, `build`, `test`, `quick`, `pre-merge`, `release`, `release-ci` and `hooks`, plus nextest's `quick` and `ci` profiles with their caps and JUnit output. Each of its acceptance criteria ("`just` recipes cover build, test, lint and format …, and CI calls the same recipes") names these recipes.
+  - "Cargo's `dev` and `test` profiles stay as they are" holds, with a `ci-test` profile added beside them;
+  - the cache-warming job on pushes to `main`.
+- **[`xtask affected`: change detection for the pull-request tier](https://github.com/Jbmanllr/automan/issues/134)** gains scope: a local mode that diffs the working tree, uncommitted changes included, against the merge base with `origin/main`; nextest `rdeps(…)` filtersets; and the package lists Vitest and pytest run. Once it lands, `just quick` and `just pre-merge` switch from the whole workspace to what changed.
+- **[Workspace skeleton and the "all green" pull-request check](https://github.com/Jbmanllr/automan/issues/132)** creates `just fmt`, `lint`, `build`, `test`, `quick`, `pre-merge`, `release`, `release-ci` and `hooks`, plus nextest's `quick` and `ci` profiles with their caps and JUnit output. These recipes meet its criterion "`just` recipes cover build, test, lint and format …, and CI calls the same recipes". Its criterion "`rust-cache` restores on pull requests and saves only from `main`" is met by the cache-warming job.
 - **The "Test infrastructure" spec** builds:
   - the budget check and its issue;
   - the job summaries;

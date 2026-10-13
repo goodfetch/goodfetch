@@ -54,7 +54,7 @@ These are exact by construction, so they are ordinary tests with snapshots (`TES
 
 - **Protocol counts.** For a named set of scenarios per surface (each SDK's high-level calls, the CLI's generated commands, MCP tool calls), the requests sent, the answers and events received, and their bytes after the shared redactions:
   - Rust, in the binary crate's `tests/it`, against the real binary;
-  - TypeScript and Python, in their unit tests, against the Scripted engine of ADR 0069 (in review in [Decide the SDK and CLI test stack (ADR 0069)](https://github.com/Jbmanllr/automan/pull/304)), which records the requests it receives.
+  - TypeScript and Python, in their unit tests, against the Scripted engine of [ADR 0069](0069-sdks-and-the-cli-are-tested-against-a-scripted-engine-and-the-binary-of-the-same-commit.md), which sees every message the Client sends.
 - **MCP:** the bytes of `tools/list` and of each tool result in those scenarios. For an agent, bytes are context.
 - **Python import cost:** the set of modules `import goodfetch` loads.
 - **Console render budgets,** in Vitest Browser Mode component tests (ADR 0068): named heavy screens are wrapped in React's `<Profiler>`, and the test snapshots the number of commits per action (an event batch on the Runs screen, opening a run, filtering) and the number of DOM elements a 10,000-row list renders.

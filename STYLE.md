@@ -93,7 +93,7 @@ The design vocabulary is the one of `codebase-design`: a **module** has an **int
 - **Events are structured:** a fixed message plus fields, no `format!` inside a log call.
 - **Logs go to stderr or a file, never stdout**, through the `tracing` subscriber.
 - **Levels:** `error` needs someone to act; `warn` is a degraded but handled state; `info` is a lifecycle step of a run, Session or Daemon; `debug` explains a decision; `trace` is per-message detail.
-- **Credentials, cookies, tokens and keys are `secrecy::SecretString`** (or a wrapper with a hand-written `Debug`), and a unit test proves the secret is not printed.
+- **Credentials, cookies, tokens and keys are `secrecy::SecretString`** (or a wrapper with a hand-written `Debug`). Secret canaries and redaction property tests prove the secret never reaches an output (ADR 0067, rules in [`TESTING.md`](TESTING.md)).
 
 ### Dependencies
 
@@ -128,7 +128,7 @@ A module is tested according to the kind of dependency it has, using the four ca
 
 Across all of them:
 
-- **Untrusted input** gets a `cargo-fuzz` target per decoder: CDP messages, JSON-RPC and plugin-protocol framing, HTML and Markdown, sitemaps, run-state import.
+- **Untrusted input** gets a `cargo-fuzz` target for every decoder of input Goodfetch did not write itself, replayed by a plain `#[test]` on every OS; the list and the rest of security testing are in [`TESTING.md`](TESTING.md) (ADR 0067).
 - **Snapshots** use `insta`, with redactions for what varies, for JSON-RPC responses, generated surfaces and extraction output. Snapshot files are never edited by hand.
 - **Layout:** one integration-test binary per crate (`tests/it/main.rs` with modules), run with `cargo-nextest`.
   _Why:_ each file in `tests/` links its own binary, which multiplies build time.

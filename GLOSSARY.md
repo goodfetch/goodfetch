@@ -406,6 +406,14 @@ _Avoid_: robots (for all of them), policy, rules
 The tamper-evident record of the security and compliance events of a run, a Daemon or a Daemon group, such as secret uses, confirmations and overrides. The Effect journal prevents repeated Effects; the Audit log answers who did what.
 _Avoid_: journal (alone), event log, history
 
+**Secret canary**:
+A recognisable fake secret planted in a test, whose appearance in any output Goodfetch must keep it out of proves a leak.
+_Avoid_: canary (alone), honeytoken, dummy secret
+
+**Egress canary**:
+The forbidden connection a CI job attempts after its outbound deny starts, which must be refused.
+_Avoid_: canary (alone), probe
+
 **Platform signature**:
 The signature macOS or Windows checks before running a Goodfetch executable (an Apple Developer ID signature with notarization, or an Authenticode signature), naming the legal entity that publishes it. The release's Sigstore signature and attestation, which say which workflow built it, are what Goodfetch itself checks.
 _Avoid_: code signing (alone), signature (alone), certificate

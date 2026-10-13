@@ -12,6 +12,10 @@ Release status: pre-release. Nothing has been published on any channel, no one o
 
 The compatibility the product promises its users is V1 scope and is built as its ADRs specify, including ADR 0030's versioned contract formats with their readers, `goodfetch upgrade-files`, and semver and deprecation from 1.0 (any `0.y` preview minor may break); the Usage ledger's add-only versions and *must understand* Limits (ADR 0041); and the Clean-up rules' format majors (ADR 0047). The owner switches this to released when Goodfetch is first published on any channel (the nightlies and the `0.y` previews start in M4, ADR 0058), and ADR 0030 and each format's own ADR then govern every breaking change.
 
+## Authorship
+
+Commits and pull requests carry no AI attribution: no `Co-Authored-By` trailer naming a model or agent, no "Generated with" line in a description and no session link, whatever a tool's or harness's default says. `.claude/settings.json` turns Claude Code's attribution off; every other agent leaves it out itself. Commits already on `main` that carry a trailer stay as they are, since `main`'s history is never rewritten.
+
 ## Code style
 
 Code follows [`STYLE.md`](STYLE.md), and the contracts follow ADR 0038. Traps that break things:

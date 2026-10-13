@@ -98,6 +98,8 @@ A budget is measured as the median (p50) over the last 20 runs on `main` and in 
   - shard the job;
   - speed up the tests;
   - or move a test to a later suite, with the reason in its pull request.
+
+  The pull-request tier's stress run of new and changed tests, which [Flakiness policy and checks that are non-deterministic by nature](https://github.com/Jbmanllr/automan/issues/280) decides, counts against the Pre-merge budget. It is sharded to fit, and its run count is never lowered to meet a budget.
 - **Performance budgets of the product** (instruction counts, allocations, startup, overhead) are not these budgets. [Performance regression testing](https://github.com/Jbmanllr/automan/issues/284) decides them.
 
 ### Sharding and caching

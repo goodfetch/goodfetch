@@ -114,6 +114,7 @@ Budgets are the median (p50) of the last 20 runs on `main` and in the merge queu
 - **No run fails for being slow within its cap.**
   _Why:_ wall time on shared runners varies by a few percent, so a one-run timing gate would be flaky.
 - **A breached budget opens an issue** through the nightly budget check, labelled `needs-triage`. Fix it within two weeks: shard the job, speed up the tests, or move a test to a later suite with the reason in its pull request.
+- **The stress run of new and changed tests counts against the Pre-merge budget.** Shard it to fit; never lower its run count to meet a budget.
 
 ### Sharding, caching and reports
 

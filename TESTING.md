@@ -576,7 +576,7 @@ Every boundary has its tests. A decision that adds a boundary adds its row in th
 - **The job that builds and runs fuzz targets holds no secret** and a token with no permissions; a later job stores its results.
 - **Run ClusterFuzzLite's images by digest** from Goodfetch's workflow, never through its action's `:v1` tag.
 - **Send every new crash to a private security advisory draft** on the main repository, never a public issue. Until the main repository is public, which advisories need, open an issue in the private fuzz repository instead. A crash that also crashes the previous continuous build joins its advisory, or opens one. Fix it from the advisory's private fork (before publication, an ordinary pull request), and commit the crasher, minimised with `cargo fuzz tmin`, as a regression input with the fix.
-- **An open fuzz crash blocks the promotion of the next minor** until it is fixed or triage closes it as not a vulnerability. Patches are not held. The threat-model review checks that none is open.
+- **An open fuzz crash blocks the promotion of the next minor** until it is fixed or triage closes it as not a vulnerability. Patches are not held. The private fuzz repository reports an open fuzz crashes status, red while any is open, and promotion to `x.y.0` waits for it, as for the Private component run.
 - **Fuzz, and run the ASan tests, on one nightly toolchain pinned in its own file**, apart from `rust-toolchain.toml`.
 - **Run the tests of every crate that opts into `unsafe` under AddressSanitizer** in the Release suite, on Linux glibc.
 
@@ -588,7 +588,7 @@ Every boundary has its tests. A decision that adds a boundary adds its row in th
   _Why:_ a probe that fails for an unrelated reason would otherwise pass as a refusal.
 - **Assert the mechanism each runner uses** (Landlock ABI, user namespaces, mount-namespace fallback), so a silent fallback fails. A container under Docker's default seccomp profile on a kernel before 6.12 must refuse with `confinement_unavailable`.
 - **Test the Script sandbox worker as if V8 were broken:** run the probes under the worker's own generated policy, and inspect a live worker (`Seccomp:` and `NoNewPrivs:` on Linux, an AppContainer token on Windows, the spec's method on macOS). In the Release suite, on Linux x64, run corruption scripts on a V8 build with `v8_enable_memory_corruption_api`; each must end as `script_crashed`.
-- **Build the test V8 once per V8 version**, in a job of the pull request that changes the version, and commit its digest. The Release suite fetches it by digest and never builds it.
+- **Build the test V8 once per V8 version**, in its own required check on the pull request that changes the version, outside the Pre-merge suite's "all green" check. The job skips when that version's build is already published. A later job attests it and publishes it as a release asset, as the Goodfetch Chromium is. The author commits its digest, which a check matches against the attested asset. A fork's pull request cannot attest, so a V8 change from a fork is rebuilt from a branch of the main repository. The Release suite fetches the build by digest and never builds it.
 - **Check that every renderer is sandboxed** for each browser Goodfetch launches: `Seccomp: 2` and `NoNewPrivs: 1` on Linux (Ubuntu 24.04 with its AppArmor restriction on), `chrome://sandbox` on Windows, Seatbelt on macOS. Test ADR 0049's startup probe in its refuse and record cases.
 
 ### Egress and hostile input
@@ -621,7 +621,7 @@ Every boundary has its tests. A decision that adds a boundary adds its row in th
   _Why:_ redaction is best effort against arbitrary transforms, but Goodfetch's own encodings are known.
 - **Property-test redaction** with generated values that are hard to redact (quotes, backslashes, newlines, `%`, Unicode, very long, empty, common words, values that contain one another), through every formatter and serializer. Commit `proptest-regressions/`.
 - **Scan each CI job's logs, test reports, snapshots and artifacts with the `gitleaks` binary** (pinned by checksum, Secret canaries added as a rule) before they upload. A hit fails the job.
-- **Scan commits:** with GitHub secret scanning and push protection once the repository is public; until then with `gitleaks` over each pull request's commits in the Pre-merge suite.
+- **Scan commits,** Model recordings included: with GitHub secret scanning and push protection once the repository is public; until then with `gitleaks` over each pull request's commits in the Pre-merge suite.
 
 ### Other rules
 
@@ -633,7 +633,7 @@ Every boundary has its tests. A decision that adds a boundary adds its row in th
 
 ### Manual security tests
 
-Only these stay manual. Their IDs follow the Journey catalog's format.
+Only these stay manual. They are not Journeys: none has an automated step, and each runs on a release candidate rather than at a milestone's owner test. They are named by title.
 
 | Manual test | When | What a person does | Recorded on |
 |---|---|---|---|

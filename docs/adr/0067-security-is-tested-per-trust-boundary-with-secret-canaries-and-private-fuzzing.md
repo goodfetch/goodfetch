@@ -37,7 +37,7 @@ Decided in [Security testing](https://github.com/Jbmanllr/automan/issues/288) (g
   - A crash whose input also crashes the previous continuous build is a known one: it joins its advisory, or opens one if it has none.
   - A new crash opens a private security advisory draft on the main repository, never a public issue. Repository security advisories exist only on public repositories, so until the main repository is public, a crash opens an issue in the private fuzz repository instead. Either replaces ADR 0064's `live-check` issue.
   - Once the main repository is public, the fix lands from the advisory's private fork under `SECURITY.md`'s coordinated disclosure (ADR 0030); before that, through an ordinary pull request, which is private too. The crasher, minimised with `cargo fuzz tmin`, is committed with the fix as a regression input.
-- **What it blocks.** An open fuzz crash (its advisory draft, or its issue in the private repository) blocks the promotion of the next minor until it is fixed, or until triage (manual test 2) closes it as not a vulnerability. Patches are not held, since a patch may carry the fix. The threat-model review (manual test 1) checks that none is open, since the release pipeline cannot read the private repository's issues.
+- **What it blocks.** An open fuzz crash (its advisory draft, or its issue in the private repository) blocks the promotion of the next minor until it is fixed, or until triage (manual test 2) closes it as not a vulnerability. Patches are not held, since a patch may carry the fix. The private fuzz repository reports an **open fuzz crashes** status on the candidate's commit, red while any is open, as the private repository reports the Private component run (ADR 0032). Promotion to `x.y.0` waits for it with the beta week's other gates, so a crash found during the beta week still holds the minor.
 - **Corpus.** Seeds and a dictionary are committed per target. The grown corpus stays in the private repository.
 - **Toolchain.** Fuzzing and the ASan run use one nightly toolchain pinned in its own file, apart from `rust-toolchain.toml`, since both need `-Zsanitizer`.
 - **OSS-Fuzz.** Its rule is "a significant user base and/or" critical infrastructure, so the owner applies once Goodfetch is published and has users. Its fuzzing then replaces the private batch run. OSS-Fuzz keeps its reports private until fixed.
@@ -49,7 +49,14 @@ Decided in [Security testing](https://github.com/Jbmanllr/automan/issues/288) (g
 - **The Script sandbox, as if V8 were already broken (adds to ADR 0051).**
   - **OS layer:** ADR 0033's probes run under exactly the policy generated for the worker. A live worker is also inspected: `Seccomp:` and `NoNewPrivs:` in `/proc/<pid>/status` on Linux, an AppContainer token on Windows, and on macOS the method the spec finds.
   - **V8 layer:** in the Release suite, on Linux x64, a test build of V8 with `v8_enable_memory_corruption_api` runs corruption scripts through the worker. Each must end as `script_crashed` and reach nothing outside it.
-  - **The test V8 is built once per V8 version, outside the merge queue.** A build job, in no suite, runs on the pull request that changes the V8 version. It stores the build as an attested artifact, and its digest is committed beside the version. The Release-suite job fetches it by digest, as the Goodfetch Chromium is, and only runs the corruption scripts, so it fits ADR 0061's job budgets. A V8 change cannot merge until its test build exists. The build job's runner minutes beyond the plan's included minutes are a paid test resource the owner approves.
+  - **The test V8 is built once per V8 version, outside the merge queue.**
+    - A build job, in no suite, runs on a pull request that changes the V8 version. It skips when a test build of that version is already published.
+    - It is its own required check, not part of the Pre-merge suite's "all green" check, so it does not count against that check's 20-minute budget.
+    - The job that builds holds no secret and a token with no permissions. A later job attests the build and publishes it as a release asset, as the Goodfetch Chromium is (ADR 0035). Release assets do not expire, unlike workflow artifacts and caches, so every later patch of that line can still fetch it.
+    - The pull request's author commits the published digest beside the version, and a check refuses a digest that does not match the attested asset.
+    - A pull request from a fork gets no `id-token` to attest with, so a V8 change from a fork is rebuilt from a branch of the main repository.
+    - The Release-suite job fetches the build by digest before ADR 0043's deny and only runs the corruption scripts, so it fits ADR 0061's job budgets.
+    - A V8 change cannot merge until its test build exists. The build job's runner minutes beyond the plan's included minutes are a paid test resource the owner approves.
   - **If V8 refuses the build under `--jitless`,** the question returns to the owner. It is never skipped.
 - **Chromium's sandbox (adds to ADRs 0017 and 0049).**
   - **Linux:** every renderer of Chrome for Testing and of the Goodfetch Chromium build shows `Seccomp: 2` and `NoNewPrivs: 1`, on Ubuntu 24.04 with its AppArmor restriction on.
@@ -105,7 +112,7 @@ Decided in [Security testing](https://github.com/Jbmanllr/automan/issues/288) (g
   - the Console's offline cache, `goodfetch doctor`'s bug-report file, and the SDKs' `repr`, `toString` and error messages.
 - **Redaction property tests.** Generated secret values that are hard to redact go through each formatter and serializer. Failing cases are committed in `proptest-regressions/`.
 - **CI outputs.** The `gitleaks` binary, pinned by checksum, scans each job's logs, test reports, snapshots and artifacts before they upload, with the Secret canaries as a rule. A hit fails the job. This is a step of every CI job, not a suite test.
-- **Commits.** Once the repository is public, GitHub secret scanning and push protection are on, free there. Until then, the Pre-merge suite runs `gitleaks` over each pull request's commits; GitHub's paid Secret Protection on the private repository waits for the owner's approval as a paid test resource.
+- **Commits.** Commit scanning covers every committed file, Model recordings (ADR 0065) included. Once the repository is public, GitHub secret scanning and push protection are on, free there. Until then, the Pre-merge suite runs `gitleaks` over each pull request's commits; GitHub's paid Secret Protection on the private repository waits for the owner's approval as a paid test resource.
 
 ### Other rules
 
@@ -173,12 +180,14 @@ Only these stay manual:
   - `cargo fuzz check` and the security suites join the pull-request tier on Linux, CodeQL once public, and `gitleaks` over commits until then;
   - `gitleaks` over outputs joins every job;
   - the ASan run, the V8 memory-corruption scripts and the ZAP baseline join the Release suite;
-  - the test V8 build job runs on each pull request that changes the V8 version, and its digest is committed;
+  - the test V8 build job runs on each pull request that changes the V8 version, as its own required check, and publishes the build as an attested release asset whose digest is committed;
+  - promotion to `x.y.0` also waits for the private fuzz repository's open fuzz crashes status, which is red while a fuzz crash is open, beside the Private component run;
   - fuzzing runs in a private repository, under the owner's approval of its minutes;
   - every container image a workflow runs is pinned by digest, as Actions are pinned by SHA;
   - the IANA and advisory watch jobs run none of the product, so they sit outside ADR 0043's rule, like the watchlist job.
 - **Adds to [ADR 0064](0064-tests-are-never-retried-and-unpinned-checks-run-as-live-checks.md)'s Live checks table** a fuzzing row: owned by area 4; tier: every push to `main` and nightly, in the private repository; what it blocks: the promotion of the next minor while a fuzz crash is open; decided in ADR 0067.
 - **Amends ADR 0064 for fuzzing alone.** Its results stay in the private repository, never in the results store, and a crash goes to a private advisory draft, or to an issue in the private repository before the main one is public, never to a `live-check` issue. ADR 0064 carries a one-line note.
+- **Adds to ADR 0043:** the test V8 build joins the pinned downloads. Only the Release-suite job fetches it, by digest, before the deny.
 - **Adds to ADR 0030:** `SECURITY.md` publishes what counts as a vulnerability: anything that crosses a trust boundary of `TESTING.md`'s table, any memory unsafety, and a limit that never fires. A new fuzz crash follows its coordinated disclosure, and an open one blocks the promotion of the next minor, as above.
 - **Adds to ADRs 0017, 0049 and 0051:** the tests of the resolved-IP check, Chromium's sandbox and the Script sandbox worker described above.
 - **Changes area 1's spec** ([Spec: Repository, CI and release (V1 area 1)](https://github.com/Jbmanllr/automan/issues/130)). It gains:
@@ -206,10 +215,9 @@ Only these stay manual:
   - the watch jobs.
 - **The security jobs' time budgets** are those of ADR 0061. The test V8 build job is in no suite, so no suite budget covers it.
 - **Left to other tickets of the map:**
-  - prompt-injection and fake-success pages ([Testing AI features and agent skills](https://github.com/Jbmanllr/automan/issues/281));
   - the MCP test stack ([MCP, framework adapter and Integration test stack](https://github.com/Jbmanllr/automan/issues/286));
   - the Console's test stack and its virtual authenticator ([Console and docs test stack](https://github.com/Jbmanllr/automan/issues/282));
-  - manual-test IDs ([Journey catalog: format, IDs, seeded data and surfaces](https://github.com/Jbmanllr/automan/issues/278)).
+- **Decided since:** prompt-injection and fake-success pages in [ADR 0065](0065-ai-features-are-tested-without-live-models-and-measured-by-oracle-graded-evaluations.md). The Journey catalog in [ADR 0063](0063-end-to-end-tests-follow-a-catalog-of-numbered-journeys-kept-in-the-repository.md) gives no separate manual-test IDs. The five manual security tests are not Journeys. Tests 1 to 3 are reviews, not product use. Tests 4 and 5 run on each minor's release candidate on hosts and hardware CI lacks, and have no automated step, while a Journey's `manual` steps are listed for a milestone's owner test and leave the variant proved on its automated steps. They are named by title and recorded on the release pull request.
 - **Unverified, checked by the first implementation tickets:**
   - whether Landlock is enabled in GitHub's Ubuntu runner kernels;
   - whether V8's memory-corruption API works under `--jitless`;

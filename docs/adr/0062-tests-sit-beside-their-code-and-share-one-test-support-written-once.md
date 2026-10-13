@@ -18,7 +18,7 @@ Decided in [Test layout, naming, shared helpers and the test-first process](http
   - An **integration test** tests one package through its public interface, with real local stand-ins and real processes (ADR 0059).
   - An **end-to-end test** follows a user journey through a shipped surface.
   - Conformance suites stay what ADR 0032 makes them: interface tests of a contract with several implementations.
-- Which level runs in which suite is decided by [Test suites, local commands and time budgets](https://github.com/Jbmanllr/automan/issues/276). Where end-to-end tests live is decided by [Journey catalog: format, IDs, seeded data and surfaces](https://github.com/Jbmanllr/automan/issues/278).
+- Which suite (Quick, Pre-merge or Release) runs each level is decided by [Test suites, local commands and time budgets](https://github.com/Jbmanllr/automan/issues/276). Where end-to-end tests live is decided by [Journey catalog: format, IDs, seeded data and surfaces](https://github.com/Jbmanllr/automan/issues/278).
 
 ### Layout
 
@@ -116,7 +116,7 @@ Decided in [Test layout, naming, shared helpers and the test-first process](http
 
 ## Consequences
 
-- **Amends ADR 0032.** The tree gains `test-support/`: `typescript/` and `python/` hold the private test-support packages, and `fixtures/` the data several languages share. The Rust crate stays under `crates/`.
+- **Adds to ADR 0032.** Its tree gains `test-support/`: `typescript/` and `python/` hold the private test-support packages, and `fixtures/` the data several languages share. The internal `goodfetch-test-support` crate joins `crates/`. ADR 0032's text is not overridden, so it carries no note.
 - **Adds to ADR 0038**, so ADR 0037's amendment rule carries it to every area's spec:
   - the layout of unit and integration tests in every language;
   - `goodfetch-test-support` and its dependency direction;

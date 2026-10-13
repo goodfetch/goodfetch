@@ -18,7 +18,8 @@ How Goodfetch is tested: every surface, at every level. Each rule comes with its
 12. [Suites, commands and time budgets](#suites-commands-and-time-budgets)
 13. [AI features and agent skills](#ai-features-and-agent-skills)
 14. [Journeys](#journeys)
-15. [MCP, framework adapters and Integrations](#mcp-framework-adapters-and-integrations)
+15. [Upgrades and version mismatches](#upgrades-and-version-mismatches)
+16. [MCP, framework adapters and Integrations](#mcp-framework-adapters-and-integrations)
 
 Sections 1 to 7, 10 and 11 are decided in [ADR 0062](docs/adr/0062-tests-sit-beside-their-code-and-share-one-test-support-written-once.md).
 
@@ -468,6 +469,65 @@ Decided in [ADR 0063](docs/adr/0063-end-to-end-tests-follow-a-catalog-of-numbere
 - **List an owner test's "Journeys to try" from the catalog:** every variant of its milestone, by ID and title, with its manual steps.
 - **An owner test is ready only when every automated variant of its milestone is `proved` on `main`.**
 - **A finding on a goal no Journey covers adds a Journey.**
+
+## Upgrades and version mismatches
+
+Decided in [ADR 0066](docs/adr/0066-upgrades-are-tested-from-a-frozen-corpus-and-skew-from-every-released-minor.md). Suites are the Quick, Pre-merge and Release suites of [Test suites, local commands and time budgets](https://github.com/Jbmanllr/automan/issues/276).
+
+### The format registry
+
+- **Every versioned format is registered in `goodfetch-protocol`** with its version, schema and rule. A format read by an engine or spoken by a peer and missing from the registry is a bug.
+  _Why:_ every check below is generated from the registry, so a registered format cannot miss one.
+- **Expected outcomes come from the compatibility functions**, never from a hard-coded version pair. Each function is itself tested against a literal table.
+
+### The Compatibility corpus
+
+- **A new format lands with its `compat/<format>/head/` set and its scenario** in `xtask compat write`.
+- **Never edit a fixture by hand.** Regenerate `head/` with `xtask compat write`; `xtask compat check` fails on drift.
+- **Never change a frozen set** (`compat/<format>/<major>.<minor>/`). If the reading of an old file must change, change its snapshot in a reviewed pull request whose changelog entry says so.
+  _Why:_ a frozen file is what a released version really wrote.
+- **Change a format's schema only with a version bump** once a frozen set exists. `xtask compat check` fails otherwise.
+- **Bump a format's version only on `main`.** A patch never changes one: `xtask release` compares a patch's `head/` versions and schemas with the `x.y.0` tag's.
+- **Freeze from the release tag.** `xtask compat freeze --tag <tag>` copies the tag's `head/`, never `main`'s, which may hold unreleased versions. The release's entry in `compat/releases.toml` records its format versions, and `xtask compat check` requires a frozen set for each.
+- **Fixtures cover the whole schema:** every property in a JSON document and a non-null value in every column. They hold synthetic data and Secret references only.
+- **A corpus test is golden.** It reads, writes back and compares with its snapshot. A migrated SQLite store must also match a fresh store's schema. Checkpoints resume, Plans replay without a model, Recipes run and transcripts replay.
+  _Why:_ "it opens" misses a misread.
+
+### `goodfetch upgrade-files`
+
+- **Each source in `compat/upgrade-paths.toml` is tested from every frozen set:** golden result, idempotent, the previous major's files unchanged, unrelated files untouched. A source not in the table and a newer major are refused.
+
+### Refusals
+
+- **Every refusal is tested from a fabricated version**, generated per format: a newer minor, an older major, a newer major, and each exception's own outcome (Usage-ledger family, Response cache, Clean-up rules, Operator policy). The Error code and message are snapshotted.
+- **A handshake refusal is the reply to `hello`**, before any other message, and the connection then closes. Never test refusal with a time budget.
+- **Test each handshake refusal twice:** in the Quick suite, in process, by sending the fabricated `hello` to the handshake code over an in-memory transport; in the Pre-merge suite, through the conformance harness's own `hello` to a running engine. No build carries a version override.
+  _Why:_ the Quick suite starts no process and binds no socket.
+
+### Released artifacts
+
+- **Skew covers every released minor of the current major**, latest patch of each: SDKs, the Rust crate's client, the CLI and the MCP server against the current Daemon, the SDKs over stdio through `GOODFETCH_ENGINE_PATH` (every Attached engine applies the Daemon's rule at `hello`; this variable is how its version can differ from its SDK's), the Console, the Browser host and first-party Plugins.
+- **An old Client runs its own release's Journeys** ([ADR 0063](docs/adr/0063-end-to-end-tests-follow-a-catalog-of-numbered-journeys-kept-in-the-repository.md)) from its tag, against the current binary given by path. Each variant keeps its own Proving ground and Goodfetch home. A Journey that asserts something outside semver is fixed on `main`, and its variant is excluded by variant ID (`J-NNN@<surface>`), with a reason, in `compat/skew-exclusions.toml`.
+- **Rolling upgrades run under load** in a three-member group, once with the Lead Daemon last (a StatefulSet's default order with the Lead Daemon as pod 0) and once with it first, then a promotion from an older Group backup and the rollbacks.
+- **The Helm upgrade starts from a release's chart,** installed by digest from `compat/releases.toml`, then runs `helm upgrade` to the current chart and `helm test`. Never `ct install --upgrade`.
+  _Why:_ it upgrades from the git target branch and passes with a skip on a SemVer-breaking bump or an unchanged chart.
+- **Older engines open the files the current engine wrote.** The Usage-ledger family opens; a current Checkpoint, Plan, settings file and Schedule file are refused with the upgrade message. Two majors run side by side on one machine.
+- **Old artifacts come only from `compat/releases.toml`,** through the pinned artifact mirror, checked by digest and by `gh attestation verify --bundle --custom-trusted-root`, with the trusted root fetched before the outbound deny. One local command fetches the same set.
+- **Never skip for a missing artifact.** A missing or mismatched artifact fails the job. An empty version list runs the current build against itself.
+  _Why:_ a test that passes because nothing ran hides decay, as SQLite's and Cargo's skipped old-binary tests do.
+
+### Suites
+
+| Check | Suite |
+|---|---|
+| Corpus golden reads, fabricated refusals of files and of `hello` in process, compatibility-function tables, `upgrade-files` from fixtures, `xtask compat check` | Quick |
+| Corpus replays, handshake refusals through the conformance harness, `upgrade-files` against the binary | Pre-merge |
+| Every test that needs released artifacts: the skew matrix, rolling upgrades, older engines, two majors, the Helm upgrade | Release |
+
+- **Tests that need released artifacts belong to the Release suite**, which the merge queue runs. Its nightly rerun and its run on each release's own bytes cover them; none is a nightly-only job.
+- **Group each older minor's skew checks into as few jobs as fit the job budget.** One job per check exceeds the 20 concurrent jobs after two minors.
+- **Never drop a minor, and never move a skew check out of the merge queue.** A Release suite budget breach is fixed with fewer or faster jobs per minor, or with more concurrency or larger runners, a paid resource the owner approves.
+  _Why:_ the Release suite has no later suite to move to, and an untested minor decays.
 
 ## MCP, framework adapters and Integrations
 

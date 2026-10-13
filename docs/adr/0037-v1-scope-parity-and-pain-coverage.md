@@ -29,19 +29,19 @@ One spec per area. An area goes to `/to-spec` only after every area whose contra
 
 | # | Area | ADRs | Waits on |
 |---:|---|---|---|
-| 1 | Repository, CI and release | 0018, 0030, 0032, 0034, 0039, 0049, 0057, 0061, 0062, 0064, 0065 |  |
+| 1 | Repository, CI and release | 0018, 0030, 0032, 0034, 0039, 0049, 0057, 0061, 0062, 0064, 0065, 0066 |  |
 | 2 | Proving ground and conformance | 0025, 0063, 0065 |  |
-| 3 | Engine runtime | 0002–0004, 0024, 0028, 0040, 0041, 0049–0051, 0053–0057 |  |
-| 4 | Security and egress | 0015–0017, 0042–0044, 0049–0051, 0055, 0056 |  |
-| 5 | Site access | 0019–0023, 0045, 0047–0049, 0052, 0053, 0056 |  |
-| 6 | Collection | 0005–0008, 0026, 0040, 0046, 0054, 0056 |  |
-| 7 | Plugin protocol | 0033, 0049, 0056 |  |
+| 3 | Engine runtime | 0002–0004, 0024, 0028, 0040, 0041, 0049–0051, 0053–0057, 0066 |  |
+| 4 | Security and egress | 0015–0017, 0042–0044, 0049–0051, 0055, 0056, 0066 |  |
+| 5 | Site access | 0019–0023, 0045, 0047–0049, 0052, 0053, 0056, 0066 |  |
+| 6 | Collection | 0005–0008, 0026, 0040, 0046, 0054, 0056, 0066 |  |
+| 7 | Plugin protocol | 0033, 0049, 0056, 0066 |  |
 | 8 | Stealth and Challenge solving | 0035, 0056 |  |
-| 9 | AI and agent | 0009–0014, 0051, 0056, 0065 |  |
-| 10 | Scheduling | 0036, 0041, 0055 |  |
+| 9 | AI and agent | 0009–0014, 0051, 0056, 0065, 0066 |  |
+| 10 | Scheduling | 0036, 0041, 0055, 0066 |  |
 | 11 | Client surfaces (SDKs, CLI, MCP, skills, adapters, Integrations, Notifications) | 0011, 0024, 0027, 0049, 0055, 0056, 0065, 0070 |  |
 | 12 | Console | 0029, 0031, 0049, 0055–0057 |  |
-| 13 | Self-hosted deployment and operations | 0024, 0049, 0050, 0053, 0055, 0056 |  |
+| 13 | Self-hosted deployment and operations | 0024, 0049, 0050, 0053, 0055, 0056, 0066 |  |
 | 14 | Cloud-readiness contracts | 0001, 0049, 0056 |  |
 
 Every area also follows ADR 0038, which sets the contracts and code conventions. Each area's `/to-spec` also reads every ADR that amends ADR 0038 or one of the ADRs listed in its row, however the amendment is worded ("Changes ADR", "adds to ADR", "amends", "extends", "narrows", "replaces", "an exception to ADR"), so a later decision reaches every area whose ADR it amends without being listed there. This applies to ADR 0038 and the ADRs listed in the row, not again to the amending ADRs. A row lists the ADRs whose main decisions that area builds: the pull request that records a new ADR adds it to the rows of the areas that build its main decisions, and its fresh review checks it; the amendment rule brings it to the areas whose listed ADRs it amends, and to every area when it amends ADR 0038.

@@ -90,8 +90,8 @@ Each area's `/to-spec` applies the three tests to every story it writes, records
 - **Changes area 3's spec** ([Spec: Engine runtime (V1 area 3)](https://github.com/Jbmanllr/automan/issues/213)) through the delta pass:
   - **`journey = true`** for 25 stories: 1, 2, 13, 18, 23, 24, 34, 35, 67, 71, 73, 76, 79, 89, 96, 98, 99, 106, 111, 113, 115, 116, 119, 125 and 128.
   - **`not_journey = "actor"`:** 3, 30, 43, 80 and 109.
-  - **`not_journey = "reach"`:** 5, 9, 21, 22, 26, 31, 32, 45, 59, 60, 65, 66, 72, 77, 78, 83, 84, 97, 112, 114 and 124.
-  - **`not_journey = "part"`:** every other story (83 stories).
+  - **`not_journey = "reach"`:** 5, 9, 21, 22, 26, 31, 32, 45, 59, 60, 65, 66, 72, 77, 78, 83, 84, 97, 101 (the ops listener is no Journey surface), 112, 114 and 124.
+  - **`not_journey = "part"`:** every other story (82 stories).
   - **Existing Journeys gain `covers`:** J-001 gains `story:3-18`; J-005 gains `story:3-23`; J-006 gains `story:3-67`, `story:3-71`, `story:3-76` and `story:3-79`, and its first step takes the monthly install Limit that `goodfetch init` offers; J-007 gains `story:3-24`; J-009 gains `story:3-89`; J-012 gains `story:3-34`.
   - **The two M4 Journeys the spec already plans** cover `story:3-115` (a person Limit across a Daemon group, #258) and `story:3-116` and `story:3-119` (a Partitioned crawl read as one run, #248).
   - **Ten new Journeys**, numbered from `journeys/catalog.toml` when the "Test infrastructure" spec writes them:

@@ -21,6 +21,7 @@ How Goodfetch is tested: every surface, at every level. Each rule comes with its
 15. [Journeys](#journeys)
 16. [Upgrades and version mismatches](#upgrades-and-version-mismatches)
 17. [SDK and CLI tests](#sdk-and-cli-tests)
+18. [Feature coverage](#feature-coverage)
 
 Sections 1 to 7, 11 and 12 are decided in [ADR 0062](docs/adr/0062-tests-sit-beside-their-code-and-share-one-test-support-written-once.md).
 
@@ -676,3 +677,66 @@ Decided in [ADR 0069](docs/adr/0069-sdks-and-the-cli-are-tested-against-a-script
 | Quick | unit tests, type tests, completeness and property tests, script validation, the case-list check | in-process unit tests, `--help` rendered in-process, `debug_assert`, the exit-code table maps every Error code |
 | Pre-merge | touched SDKs on Linux with the newest Node LTS and CPython: integration, Client conformance, Scripted engine process, one installed-package run | every `tests/it` case, both modes: exit codes and `--help` through the binary, `--json`, pseudo-terminal, interrupts |
 | Release | every Node line, Bun, Deno and CPython on Linux x64, free-threaded builds on every Linux platform; oldest and newest Node and CPython on every other platform; every install path on every OS. Free-threaded builds on macOS and Windows: a nightly-only job | everything, on every platform |
+
+## Feature coverage
+
+Decided in [ADR 0072](docs/adr/0072-every-feature-in-a-generated-inventory-has-a-passing-test-and-code-coverage-and-mutants-are-signals.md). Coverage means every Feature has a passing test, never a percentage. Suites are those of [Suites, commands and time budgets](#suites-commands-and-time-budgets); quarantine is that of [Flaky tests and Live checks](#flaky-tests-and-live-checks).
+
+### The Feature inventory
+
+- **Never edit `features/inventory.json` by hand.** `xtask codegen` generates it from ADR 0037's matrix, `features/stories/`, `features/rows.toml`, `features/areas.toml` and the contracts the code defines, and `xtask codegen --check` fails on drift.
+- **Write a Feature as `<kind>:<id>`.** Declared kinds: `row:` (an ADR 0037 matrix row that is not `excluded`) and `story:<area>-<n>` (a spec's user story). Generated kinds: `operation:`, `error:`, `event:`, `setting:`, `command:`, `exit:`, `format:`, `plugin-kind:`, `block-cause:`, `sink:`, `mcp-profile:`, `skill:`, `adapter:`, `integration:` and `screen:`.
+- **A contract you add is a Feature in the same pull request,** and that pull request adds a test that declares it. The Quick suite fails until it does.
+- **Never renumber or reuse a story ID.** A new story takes its spec's next number; a removed one stays with `status = "retired"` and a `reason`.
+- **Give every declared Feature a milestone** (`/to-tickets` sets it), and every generated Feature an owning area through `features/areas.toml`.
+
+### Declaring what a test proves
+
+- **Declare a Feature only when the test asserts its outcome**, never one the test merely passes through.
+- **Declare it in the runner's own idiom**, never by a file or name pattern:
+  - Rust: `/// Covers: operation:runs.start, error:run_not_found` on the test function, or `//! Covers: …` on a test module for every test in it;
+  - Vitest: the Feature ID as a tag, declared from the inventory, with `strictTags` on;
+  - pytest: `@pytest.mark.covers("<feature id>")` or a module's `pytestmark`, under `strict_markers`;
+  - Playwright Test: an annotation `{ type: "covers", description: "<feature id>" }` per Feature;
+  - Journeys, conformance cases and Client conformance cases: their `covers` list.
+- **A test that declares an `operation:`, `error:`, `event:`, `command:` or `exit:` Feature must reach it.** The exercise audit reads the engine's structured log and test support's command record, and fails a declaring test that never called the operation, received the Error code or event, ran the command or saw the exit code.
+
+### What counts as tested
+
+- **A Feature is tested** when, on `main`'s latest Release suite run, at least one test declares it, every declaring test ran and passed in every configuration it runs in, none is quarantined, every declaring Journey's variants of reached milestones are `proved`, and every declaring conformance case's capability is `proved`.
+- **A story with `journey = true` also needs a Journey that covers it.** `/to-spec` sets the flag on stories whose actor is a person using Goodfetch.
+- **Test a Feature once.** The per-surface completeness and conformance of [SDK and CLI tests](#sdk-and-cli-tests) and of the surface ADRs, and a Journey's variants, prove each surface.
+- **A quarantined test leaves every Feature it declares untested** until its fix merges.
+
+### Exceptions
+
+- **List a Feature no pinned test can prove in `features/exceptions.toml`,** with its `evidence` (`manual`, `live`, `check` or `none`), a `reason` and a `link` to the owner-test step, Live check, CI job or place where it is tested.
+- **Never except a Feature a pinned test can reach.** An exception never counts as tested, and the release pull request lists every one.
+
+### The checks
+
+| Check | Suite or gate | Fails when |
+|---|---|---|
+| Feature check | Quick | the inventory is stale, a declaration names an unknown or retired Feature, a generated Feature has neither a declaring test nor an exception, a row has no milestone, a generated Feature has no area or two, or an exception is incomplete |
+| Exercise audit | Pre-merge (tests that ran), Release (all tests) | a declaring test never reached its Feature |
+| Milestone gate | the owner test (ADR 0058) | a generated Feature, or a declared Feature due at the milestone, is untested |
+| Release gate | `xtask release` | a Feature present in the release is untested |
+
+- **Run `just features`** to see what the changed packages declare and miss.
+
+### Code coverage and mutation testing
+
+- **Never gate on a percentage:** no `--fail-under-*`, no coverage or mutation score in any check, badge or pull request, and no coverage service.
+- **The coverage job runs in no suite** on Linux x64, weekly (nightly once the nightly tier is on): cargo-llvm-cov over nextest and over every run of the instrumented binary through `show-env`, Vitest's `v8` provider on Node and in Browser Mode, coverage.py with branches. Its results never decide a Feature's status. Run `just coverage` locally.
+- **Read coverage for gaps.** A function no test executes that hides a behaviour with no Feature gets a story, a Feature or a test.
+- **Every pull request that changes Rust code runs cargo-mutants `--in-diff`** with nextest on Linux x64, sharded within the 15-minute job budget, in a job that never fails on a survivor.
+- **List each surviving mutant of your changed code in the Verification section,** with the test that now kills it or why it stays (an equivalent mutant; caught only by a doctest, by a Journey in another runner, or by another OS's test).
+- **Full mutation runs are weekly once the nightly tier is on:** cargo-mutants over the workspace, StrykerJS on the TypeScript SDK runtime and the Console's logic (its `command` runner until a release fixes [stryker-js#6210](https://github.com/stryker-mutator/stryker-js/issues/6210), then its Vitest runner and an in-diff pull-request job), and mutmut on the Python SDK runtime on Linux.
+
+### Review
+
+The fresh review also checks that:
+1. each declared Feature is one the test asserts;
+2. each surviving mutant in changed code is killed or explained;
+3. each new exception names evidence no pinned test can replace;
+4. a spec change and its `features/stories/` file agree.

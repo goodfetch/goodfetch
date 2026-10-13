@@ -12,12 +12,14 @@ How Goodfetch is tested: every surface, at every level. Each rule comes with its
 6. [Snapshots](#snapshots)
 7. [Property tests, fuzzing and doctests](#property-tests-fuzzing-and-doctests)
 8. [Injection and determinism](#injection-and-determinism)
-9. [Test-first process](#test-first-process)
-10. [Review checklist](#review-checklist)
-11. [Suites, commands and time budgets](#suites-commands-and-time-budgets)
-12. [Security](#security)
+9. [Flaky tests and Live checks](#flaky-tests-and-live-checks)
+10. [Test-first process](#test-first-process)
+11. [Review checklist](#review-checklist)
+12. [Suites, commands and time budgets](#suites-commands-and-time-budgets)
+13. [AI features and agent skills](#ai-features-and-agent-skills)
+14. [Security](#security)
 
-Sections 1 to 7, 9 and 10 are decided in [ADR 0062](docs/adr/0062-tests-sit-beside-their-code-and-share-one-test-support-written-once.md).
+Sections 1 to 7, 10 and 11 are decided in [ADR 0062](docs/adr/0062-tests-sit-beside-their-code-and-share-one-test-support-written-once.md).
 
 ## Levels and layout
 
@@ -70,7 +72,8 @@ A test's level is the seam it crosses, not its speed:
   _Why:_ a mocked collaborator ties the test to the implementation.
 - **The TypeScript and Python SDKs read their environment from a map an option can replace**, defaulting to the process's own. Tests pass the map instead of patching the environment.
   _Why:_ a patched environment leaks between tests and hides what a call depends on.
-- **A flaky test is quarantined with an issue, never retried silently.**
+- **A test is never retried.** A flaky test is quarantined the same day, with an issue that comes first and blocks its milestone and every release ([Flaky tests and Live checks](#flaky-tests-and-live-checks)).
+  _Why:_ a retry turns a real race into a green run, and people stop trusting red ones.
 
 ## Dependencies in tests
 
@@ -80,7 +83,7 @@ A module is tested according to the kind of dependency it has, using the four ca
 - **Local-substitutable** (a real local stand-in exists): SQLite in a temporary file; a real Chromium (the Goodfetch build of ADR 0035) against Proving ground pages served locally. CDP is never mocked.
   _Why:_ a fake browser lets tests pass where a real one fails, which is the false success ADR 0025 measures.
 - **Remote but owned** (Goodfetch's own processes across a boundary: sink processes, process Plugins, the Daemon): the logic is tested through an in-memory adapter of the protocol, and the real processes through the conformance suites.
-- **True external** (model providers, CAPTCHA services): a mock adapter replaying recorded exchanges. httpmock is the HTTP mock for this.
+- **True external** (model providers, CAPTCHA services): a stand-in adapter. For Model providers, the Scripted model in-process, Model recordings replayed by `httpmock` at the adapter's base URL (matched on the body, secrets removed by an allowlist), and the Proving ground's Fake model end to end; no test calls a live model ([AI features and agent skills](#ai-features-and-agent-skills), ADR 0065).
 
 How each dependency is injected is in [Injection and determinism](#injection-and-determinism).
 
@@ -188,6 +191,67 @@ Decided in [ADR 0059](docs/adr/0059-dependencies-are-injected-as-values-and-only
 - **SDK durations and jitter are options:** tests pass short values and a fixed seed. In TypeScript, Vitest fake timers may drive timer logic that never reaches the engine.
 - **The Console's end-to-end tests set time with Playwright's `page.clock`** (`setFixedTime` first). Its component tests use Vitest fake timers.
 
+## Flaky tests and Live checks
+
+Decided in [ADR 0064](docs/adr/0064-tests-are-never-retried-and-unpinned-checks-run-as-live-checks.md). The Quick, Pre-merge and Release suites and the CI tiers are those of [ADR 0061](docs/adr/0061-three-test-suites-each-run-by-one-just-command-under-a-time-budget.md).
+
+### What is a test
+
+- **A test pins every input:** commit, Proving ground seed, `Entropy` seed, browser build, images by digest, recorded model exchanges. A **flaky test** passes and fails with the same inputs.
+- **A check with an input that moves without a commit is a Live check.** It never goes in a suite.
+  _Why:_ a vendor's change or outage is then never mistaken for a broken change.
+
+### No retries
+
+- **Runners keep zero retries with every lock on:** nextest `retries = 0` and `flaky-result = "fail"` in every profile, with no per-test override; Vitest `retry: 0` with no per-test `retry`; Playwright `retries: 0` and `failOnFlakyTests: true`; no pytest rerun plugin and no `flaky` marker.
+- **No workflow step retries a test:** no retry action, no shell loop, no `continue-on-error` on a test step.
+- **No test loops until it passes.** Wait on a condition with a deadline (auto-waiting, `expect.poll`, a CDP event, a state you can name); never repeat the action under test until it succeeds.
+- **The no-retry check in the Quick suite refuses all of the above**, and the flags and variables that undo them (nextest `--retries`, `--flaky-result`, `NEXTEST_RETRIES`, `NEXTEST_FLAKY_RESULT`; Vitest `--retry`; Playwright `--retries`). Downloads before the deny of ADR 0043 may retry: they test nothing.
+- **Re-run a failed job only when no test step failed in it** (lost runner, failed download). The "all green" job fails when an earlier attempt of its run had a failed test step.
+- **Never assert elapsed real time, a rate or a duration.** Those are measurements.
+
+### Before merge
+
+- **Every new or changed test runs 20 times in the pull request**, and one failure fails it. New: absent from the base commit's listing. Changed: its file changed. The run is sharded to fit the budget; the count is never lowered, and nothing skips it.
+- **Taking a test off the quarantine list takes 200 passing runs** in that pull request.
+- **Tests run in random order, seed printed:** pytest-randomly, Vitest `sequence.shuffle.tests`, Playwright `--shuffle` with `fullyParallel`; nextest runs each test in its own process. The seed comes from the tree hash under test in every run but the constrained test-health run, which takes a fresh one. Pass it back to reproduce an order.
+- **Vitest resets shared state:** `restoreMocks`, `unstubEnvs` and `unstubGlobals` are on.
+- **Leaks and hangs fail:** nextest's leaky result is `fail`, every test has its suite's hang timeout, and the constrained test-health run runs Vitest with `detectAsyncLeaks`.
+
+### After merge
+
+- **Every runner writes JUnit XML in every tier and attempt, pass or fail.** An ingest workflow, which runs none of the product, copies it to the results store: the `test-results` repository beside the main one (private until it is public), one compressed file per run attempt, with a record per test run (test ID, runner, suite, tier, job, OS, architecture, runtime, shard, commit, tree hash, run, attempt, outcome, duration, order and `Entropy` seeds). Nothing is pruned.
+- **Allure Report 3 shows the history,** built from the store by the daily test-health job.
+- **A test is flaky when** it passed and failed on the same tree hash and configuration, or when a diagnostic run passes it at least once: 20 more runs at the same commit and on the same OS, after a failure in the merge queue, a manual-dispatch Release run, the nightly tier or a test-health run. A diagnostic run never changes a verdict.
+- **Test health runs from M1 on, even while the repository is private, with no paid resource:**
+  - the **daily test-health job** (scheduled, Linux, `main`'s head, 15-minute timeout) runs the 10 oldest quarantined tests 50 times each, then the scan and the Allure report;
+  - the **constrained test-health run** (weekly and after each manual-dispatch Release run, Linux, 120-minute timeout) runs the Pre-merge suite with half the runner's CPU and memory, a fresh order seed and `detectAsyncLeaks`;
+  - these and the diagnostic runs share a ceiling of 1,000 included minutes a month. At the ceiling, constrained and then diagnostic runs are skipped until the month ends.
+  - Once the nightly tier is on, both run every night with no ceiling.
+
+### A flaky test found after merge
+
+1. CI opens (or reopens) one `flaky-test` issue for it, in the current milestone.
+2. The same day, add the test to the quarantine list with its issue.
+3. If the test or the code it covers changed in the last 7 days, you may also revert that change: revert the product code, and the tests stay quarantined.
+4. `flaky-test` issues come first on the frontier.
+5. Fix the cause. A longer timeout alone, a sleep or a retry is not a fix. A race or leak in the product is fixed in the product, and the test stays as it was.
+6. The fix takes the test off the list after 200 passing runs; the issue closes when it merges.
+
+- **The quarantine list is one file in the repository.** Each entry has a test ID, its open `flaky-test` issue and a date; the Quick suite's check refuses an entry without an open issue or naming a test that no longer exists.
+- **Quarantined tests still run** 50 times a day in the daily test-health job (the 10 oldest entries), into the results store.
+- **A quarantined test blocks** its milestone's gate, every release (`xtask release` refuses while the list is not empty), and counts its feature as untested.
+- **A flaky test is never removed or weakened to make a suite pass:** quarantine it, fix it, or replace it with a test covering the same behaviour (for example by moving its unpinned part to a Live check).
+
+### Live checks
+
+- **Each Live check has an owning area and a placement** listed in ADR 0064: real SaaS Sinks, installed Chrome's stable, beta and dev channels (pinned majors are tests), public testnets, the Clean-up rules' daily gate, the online conformance, the benchmark, the Cloud Run deploy, live-model evaluations, Scorecard.
+- **Outcomes are pass, fail or inconclusive.** Inconclusive means the external side was unavailable; it never counts as a pass.
+- **Results go to the results store** under the `live` tier.
+- **A fail, or three inconclusive runs in a row, opens or updates one `live-check` issue** in the current milestone, right after `flaky-test` issues on the frontier. If its cause is not stated within two business days, the next minor is not promoted until it is. Patches are not held, and the online conformance never blocks (ADR 0043).
+- **A `live-check` issue closes** once its cause is written down and either fixed or attributed to an external party with a linked upstream report, so an explained vendor outage never holds a milestone gate.
+- **A measurement declares its trials, threshold and statistic before it runs,** and every trial counts. A failed trial is never replaced.
+
 ## Test-first process
 
 - **An agent implementing a ticket follows the `tdd` skill.** The seams named in the spec's Testing Decisions are the seams agreed in advance. A test at another seam needs the pull request to name that seam and the reason, and the fresh review to accept it.
@@ -266,6 +330,96 @@ Budgets are the median (p50) of a job's last 20 runs in its own tier, on GitHub-
 - **The warming job shares the pull-request jobs' rust-cache `shared-key` and profiles.** Linux pull-request caches take priority within GitHub's 10 GB; raising it is a paid resource the owner approves.
 - **CI test builds use the `ci-test` Cargo profile** (`test` with `debug = "line-tables-only"`).
 - **Every run writes JUnit XML**, local or CI. Every CI job uploads it, pass or fail, as `junit-<suite>-<tier>-<os>-<arch>[-<runtime>]-<shard>`, and a failing job writes a summary of its failed tests to its page.
+
+## AI features and agent skills
+
+Decided in [ADR 0065](docs/adr/0065-ai-features-are-tested-without-live-models-and-measured-by-oracle-graded-evaluations.md). Suites are the Quick, Pre-merge and Release suites of [ADR 0061](docs/adr/0061-three-test-suites-each-run-by-one-just-command-under-a-time-budget.md); Live checks are those of [ADR 0064](docs/adr/0064-tests-are-never-retried-and-unpinned-checks-run-as-live-checks.md), in no suite. A **live model** is one a provider serves and Goodfetch doesn't pin (a cloud model, directly or through a gateway); a pinned local model on a pinned server is a test input.
+
+### Stand-ins for a model
+
+| Layer | Stand-in | Suite |
+|---|---|---|
+| In-process AI logic | the Scripted model | Quick |
+| Each adapter's wire format | Model recordings replayed by `httpmock` at the adapter's base URL | Pre-merge |
+| The binary, journeys, AI end to end | the Proving ground's Fake model, in all three formats | Pre-merge |
+| SDK code that calls a model | a model callback registered through the SDK handler | Pre-merge |
+| Local model servers | the real server, pinned, with a pinned small model | Release (Linux cell) |
+
+- **No test of an AI feature calls a live model.** Only the Live checks below reach one.
+  _Why:_ providers no longer offer determinism: current Anthropic models refuse `temperature`, Gemini ignores it, and OpenAI's `seed` is best effort.
+- **The Scripted model fails on a call beyond its script and on unused steps.** Script errors and faults as replies, and assert on the requests it recorded.
+- **AI journeys name the Fake model as their Model provider.** Ask it for faults (rate limit, overload, timeout, cut stream, malformed JSON, refusal, wrong but plausible answer) through the task, never through a test-only switch in the binary.
+- **Check Usage against the Fake model's own token count.**
+
+### What an AI test asserts
+
+- **Assert outcomes Goodfetch owns:** the Success check result, Grounding, the Plan file, the Effect journal, the Record, the Error code, Usage, what the oracle saw. Never a model's wording.
+- **Never rely on temperature or a seed for determinism.**
+- **Snapshot the whole request each AI operation sends, per format, with `insta`** (Quick). A prompt or tool-description change then shows as a reviewed diff.
+
+### Model recordings
+
+- **Record each cell of the matrix:**
+  - per format on the direct provider: text, tool call and result turn, parallel tool calls, structured output, streaming of each, usage (cached and reasoning tokens), prompt caching, search grounding, image input, and the errors the engine branches on;
+  - the named gateways, for the OpenAI-compatible format;
+  - each hosted Decision provider (Jev, OpenAI's Decisions API): a choice, an abstention, a low-confidence choice, and its errors.
+
+  A missing cell fails a Quick check.
+- **Match on method, path and the canonical JSON body.** An unmatched request fails, and so does an unused recording.
+  _Why:_ matching on the path alone replays a stale answer to a changed request.
+- **Replay each stream whole and re-cut at seeded boundaries.** The stream parsers also have `proptest` and a fuzz target.
+- **Keep only allowlisted headers at write time:** `content-type`, the version and beta headers the adapter sends, `retry-after` and the rate-limit headers the adapters read. Remove key query parameters, and replace request and organization IDs. A Quick check fails on anything else, or on anything shaped like a provider key.
+- **Record only against Proving ground pages and tasks.**
+- **Refresh on cause:** a changed request, a provider-check report, or 30 days before a manifest model's retirement. Use the recorder job, which opens a pull request, and review the diff. Never refresh on a timer or automatically.
+- **Write faults that aren't worth recording as explicit `httpmock` stubs**, marked as synthetic.
+
+### Pinned local models and the in-engine model
+
+- **llama.cpp server and Ollama run in the Release suite's Linux cell**, each at a pinned version with a pinned small model downloaded by digest before ADR 0043's deny, with the dependency installs. vLLM joins them on its CPU build where it can serve the model.
+  - Assert protocol behaviour only.
+  - Send every sampling parameter the engine relies on.
+  - Record the server version and model digest.
+- **In the release pipeline**, every model on ADR 0012's tested list runs the same tests. vLLM runs there on a GPU host if its CPU build can't serve the model; that host is a paid resource the owner approves. LM Studio runs there where a runner supports its headless server.
+- **The in-engine Decision provider model is checked on a labelled set with a margin:** on Linux in the Pre-merge suite, and on every OS in the Release suite. Never compare confidences exactly.
+
+### Live checks that reach live models
+
+- **The provider check runs nightly and compares shapes, never content.** It covers fields, types, stream events, error bodies and the headers adapters read, for every recorded cell: direct providers, gateways and hosted Decision providers. A difference opens or updates its `live-check` issue.
+- **Every live job has its own credentials with a hard cap outside Goodfetch**: an Anthropic workspace spend limit, a gateway key limit, or a provider project budget that stops calls.
+- **Every live job stops itself at its per-run cap.** The engine's runs use a currency Limit, Claude Code uses `maxBudgetUsd`, Codex uses a capped key, and the provider check and recorder compute their worst case before starting. Each job prints its worst case first.
+- **Coding agents in live jobs make no other calls:** Claude Code runs with `CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1`, and Codex with its update check and analytics turned off.
+  _Why:_ the job reaches only its named model hosts, and ADR 0043's deny refuses anything else.
+- **Live jobs stay disabled until the owner approves the budget in ADR 0065.** Fork pull requests never receive model keys.
+
+### Evaluations
+
+- **Evaluations are `bench/` campaigns on the local Proving ground**, never tests. They come in three sizes: pull-request (only for changes to prompts, request snapshots, catalog descriptions or skills), nightly (plus a weekly run on larger models), and ADR 0025's release benchmark.
+- **The oracle grades every trial.** No model grades an Evaluation. Record the engine's Success check and Grounding results beside the oracle's verdict.
+- **Run 3 trials per task and model** at the pull-request and nightly sizes, each from a clean Goodfetch home. Every trial counts.
+- **Report** the verified rate with its 95% Wilson interval, pass^3, false successes, safety violations, tokens and dollars per verified result, and the Success check and Grounding disagreements with the oracle. State the bound that "zero" can claim at the trial count (about 3/*n*).
+- **A false success or a safety violation fails an Evaluation at any size** and blocks the next release candidate as a correctness failure.
+- **The regression rule** is the mean over tasks of the paired difference in verified rate against the last accepted baseline on the same models. The difference is in percentage points (never a log ratio), with a block-bootstrap interval. It fails only when the interval's upper bound is below −Δ. An inconclusive result is reported, never a failure.
+- **Δ is proposed at 10 points and waits for the owner's approval.** Until then, a regression opens or updates a `live-check` issue and blocks no release candidate.
+- **A task joins its regression set at pass^3 ≥ 0.9 on every nightly model for five nights.** Add harder tasks once a regression set passes everything for 30 nights. Add a task for every AI bug fixed.
+- **The pull-request size uses development seeds; nightly and release use held-out seeds.**
+  _Why:_ prompts tuned on the tasks that judge them overfit.
+- **Pin models in the manifest, and run old and new side by side for five nights before dropping one.** Record the model, any fingerprint the provider returns, the gateway, the local server's version and digest, the commit, the seed and the prompt snapshot hashes.
+
+### Agent skills and tool descriptions
+
+- **Skills are checked with no model:**
+  - in Quick, `xtask codegen --check` and the Agent Skills frontmatter limits;
+  - in Pre-merge, a check that every operation, command and option they name exists in the catalog, and a run of every example command against the local Proving ground, checked by the oracle.
+- **If area 11 ships the skills as a Claude Code plugin, run `claude plugin validate --strict`** at a pinned version in Pre-merge.
+- **Skill Evaluations run the CLI with and without the skills**, through promptfoo, on Claude Code (small, mid and large models) and Codex. The oracle grades; `skill-used` is a signal. Open an issue on any skill that doesn't beat its baseline on some model.
+- **Snapshot the catalog's MCP projection per profile** (Quick). Keep each description at most 2,048 characters, and record each profile's total tool-definition size in the snapshot.
+- **The tool-selection Evaluation checks a model's first tool call without executing it.**
+
+### Manual tests
+
+- **After a confirmed Evaluation regression, read the failed trials' Run traces** before accepting or fixing it.
+  _Why:_ only a person can tell a wrong grade or a new failure mode from a real regression.
+- **LM Studio**, where no CI runner can host its headless server: run the tested-list cases by hand before each release.
 
 ## Security
 

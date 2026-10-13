@@ -765,7 +765,7 @@ Every boundary has its tests. A decision that adds a boundary adds its row in th
 | Chromium's sandbox | renderer checks; startup probe cases | Pre-merge; Release | Linux; every OS |
 | Egress | SSRF and hostile-input cases in-process | Quick | every OS |
 | | the same cases end to end | Pre-merge; Release | Linux; every OS, rebinding end to end on Linux only |
-| Endpoints and the peer link | endpoint table; protocol fuzzing; MCP conformance over HTTP | Pre-merge; Release | Linux; every OS |
+| Endpoints and the peer link | endpoint table; protocol fuzzing; MCP conformance over HTTP (placed by ADR 0070) | Pre-merge; Release | Linux; every OS (MCP conformance: as ADR 0070) |
 | | ZAP baseline of the Console | Release | Linux |
 | Secrets | redaction property tests | Quick | every OS |
 | | Secret canary searches | the suite of the test that produces the output | its OSes |
@@ -820,7 +820,7 @@ Every boundary has its tests. A decision that adds a boundary adds its row in th
 - **Run the endpoint table against every listener:** the Console, the Daemon's socket and WebSocket, the HTTP listener, the ops listener, MCP over HTTP, the Live view, raw CDP, the Attached engine's private endpoint, an Exposed Daemon and the peer link.
 - **Cover every row:** missing, wrong, expired, revoked, out-of-scope and other-listener tokens, and tokens in a query string; a foreign `Host`; a foreign or missing `Origin` on the request and the WebSocket handshake; plain HTTP where TLS is configured; `X-Forwarded-*` from an unconfigured address; each listener's own rules (ADRs 0031, 0049, 0050, 0055, and MCP's audience and no passthrough). Check each refusal in the Audit log.
 - **Fuzz the protocol from the committed JSON Schema bundle** with `proptest` and `proptest-state-machine`, over every transport. Every invalid call gets a typed error and changes no state.
-- **Run the MCP conformance suite against MCP over HTTP.**
+- **Run the MCP conformance suite against MCP over HTTP**, in the suites and on the platforms [ADR 0070](docs/adr/0070-mcp-adapters-and-integrations-are-tested-through-their-platforms-own-clients-against-a-real-engine.md) gives it.
 - **Run a ZAP baseline scan of the Console in the Release suite:** image by digest, `-silent`, `allow_issue_writing: false`, FAIL rules committed, the crawl bounded by depth rather than time, under ADR 0043's deny so its Egress canary catches a call home.
 
 ### Secrets

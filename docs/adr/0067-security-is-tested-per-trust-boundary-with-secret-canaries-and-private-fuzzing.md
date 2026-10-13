@@ -100,7 +100,7 @@ Decided in [Security testing](https://github.com/Jbmanllr/automan/issues/288) (g
   Each refusal is also checked in the Audit log.
 - **Protocol fuzzing from the schema.** The committed JSON Schema bundle drives `proptest` and `proptest-state-machine` over every operation and transport. Every invalid call gets a typed error and changes no state.
 - **Scanners:**
-  - The MCP conformance suite runs against MCP over HTTP.
+  - The MCP conformance suite runs against MCP over HTTP, scheduled as [ADR 0070](0070-mcp-adapters-and-integrations-are-tested-through-their-platforms-own-clients-against-a-real-engine.md) decides.
   - A ZAP baseline scan of the Console runs in the Release suite, on Linux: image by digest, `-silent`, `allow_issue_writing: false`, its FAIL rules committed, its crawl bounded by depth rather than by time so that it stays pinned, and under ADR 0043's deny, so its Egress canary catches a call home.
   - Nuclei and Schemathesis are not used.
 
@@ -131,7 +131,7 @@ Decided in [Security testing](https://github.com/Jbmanllr/automan/issues/288) (g
 | Part | Placement |
 |---|---|
 | Corpus and crasher replay; in-process SSRF and hostile-input cases; redaction property tests; Audit log tamper tests; the check that every policy rule has a probe | Quick suite |
-| `cargo fuzz check`; confinement, Script sandbox, Chromium sandbox, end-to-end egress, hostile-input and endpoint suites on Linux; MCP conformance over HTTP; CodeQL once public, `gitleaks` over commits until then | Pre-merge suite |
+| `cargo fuzz check`; confinement, Script sandbox, Chromium sandbox, end-to-end egress, hostile-input and endpoint suites on Linux; MCP conformance over HTTP where ADR 0070 places it; CodeQL once public, `gitleaks` over commits until then | Pre-merge suite |
 | Each suite above on every OS its row in `TESTING.md` gives it; the ASan run (Linux glibc); the V8 memory-corruption scripts (Linux x64, on the build fetched by digest); the ZAP baseline (Linux) | Release suite |
 | Push and nightly fuzzing, in a private repository | Live check (ADR 0064), with its own results and blocking rule |
 | The test V8 build | a build job on the pull request that changes the V8 version, in no suite |
@@ -218,9 +218,8 @@ Only these stay manual:
   - the watch jobs.
 - **The security jobs' time budgets** are those of ADR 0061. The test V8 build job is in no suite, so no suite budget covers it.
 - **Left to other tickets of the map:**
-  - the MCP test stack ([MCP, framework adapter and Integration test stack](https://github.com/Jbmanllr/automan/issues/286));
   - the Console's test stack and its virtual authenticator ([Console and docs test stack](https://github.com/Jbmanllr/automan/issues/282));
-- **Decided since:** prompt-injection and fake-success pages in [ADR 0065](0065-ai-features-are-tested-without-live-models-and-measured-by-oracle-graded-evaluations.md). The Journey catalog in [ADR 0063](0063-end-to-end-tests-follow-a-catalog-of-numbered-journeys-kept-in-the-repository.md) gives no separate manual-test IDs. The five manual security tests are not Journeys. Tests 1 to 3 are reviews, not product use. Tests 4 and 5 run on each minor's release candidate on hosts and hardware CI lacks, and have no automated step, while a Journey's `manual` steps are listed for a milestone's owner test and leave the variant proved on its automated steps. They are named by title and recorded on the release pull request.
+- **Decided since:** the MCP test stack, including where MCP conformance runs, in [ADR 0070](0070-mcp-adapters-and-integrations-are-tested-through-their-platforms-own-clients-against-a-real-engine.md). Prompt-injection and fake-success pages in [ADR 0065](0065-ai-features-are-tested-without-live-models-and-measured-by-oracle-graded-evaluations.md). The Journey catalog in [ADR 0063](0063-end-to-end-tests-follow-a-catalog-of-numbered-journeys-kept-in-the-repository.md) gives no separate manual-test IDs. The five manual security tests are not Journeys. Tests 1 to 3 are reviews, not product use. Tests 4 and 5 run on each minor's release candidate on hosts and hardware CI lacks, and have no automated step, while a Journey's `manual` steps are listed for a milestone's owner test and leave the variant proved on its automated steps. They are named by title and recorded on the release pull request.
 - **Unverified, checked by the first implementation tickets:**
   - whether Landlock is enabled in GitHub's Ubuntu runner kernels;
   - whether V8's memory-corruption API works under `--jitless`;

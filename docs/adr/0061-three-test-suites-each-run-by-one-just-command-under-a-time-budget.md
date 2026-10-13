@@ -35,7 +35,7 @@ Each suite runs everything the suite before it runs.
 - **Release suite**: everything the Pre-merge suite runs, for every package rather than only the touched ones, across the full matrix of ADR 0024:
   - every platform: Linux x64 and arm64 on glibc and musl, macOS arm64 and Intel, Windows x64 and arm64;
   - every runtime: every supported Node line, Bun, Deno 2, and every supported CPython, with its free-threaded build on Linux (on every OS in the nightly, ADR 0032);
-    > Amended by [ADR 0068](0068-the-console-is-tested-in-real-browsers-and-served-by-the-real-binary.md): the Console's and the docs site's tests run on one Node line; their matrix is browsers.
+    > Amended by [ADR 0068](0068-the-console-is-tested-in-real-browsers-and-served-by-the-real-binary.md): the Console's and the docs site's tests run on one Node line; their matrix is browsers. The docs site's build, lychee and Playwright pass run on Linux only.
   - browser conformance on every OS;
   - every Sink's suite;
   - the deployment-target smoke runs that CI hosts (ADR 0049);

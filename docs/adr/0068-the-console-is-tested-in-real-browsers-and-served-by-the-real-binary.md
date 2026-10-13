@@ -31,7 +31,7 @@ Decided in [Console and docs test stack](https://github.com/Jbmanllr/automan/iss
   - it validates every request and answer against the committed JSON Schema bundle, so a test cannot hand the Console what the engine could never send;
   - a call the test did not answer fails the test.
 - **It lives in `@goodfetch/test-support`** (ADR 0062).
-- **It is not the Scripted engine** of [SDK and CLI test stack](https://github.com/Jbmanllr/automan/issues/285). A Scripted engine plays one ordered script and fails on any message it did not expect; the adapter answers each operation with the values the test set, in whatever order the screen calls, since a screen's call order is not what its tests assert. Both live in `@goodfetch/test-support` and share its validation against the schema bundle. The Console is not a surface of that ticket's Client conformance case list: what it needs from its target is the Console conformance suite below. If area 12 makes the Console's Client the TypeScript SDK's client (item 2 below), the TypeScript SDK's runs of that case list cover it.
+- **It is not the Scripted engine** of [ADR 0069](0069-sdks-and-the-cli-are-tested-against-a-scripted-engine-and-the-binary-of-the-same-commit.md). A Scripted engine plays one ordered script and fails on any message it did not expect; the adapter answers each operation with the values the test set, in whatever order the screen calls, since a screen's call order is not what its tests assert. Both live in `@goodfetch/test-support` and validate against the same schema bundle: ADR 0069 checks its scripts in the Quick suite, and the adapter checks every message at run time. The Console is not a surface of ADR 0069's Client conformance case list: what it needs from its target is the Console conformance suite below. If area 12 makes the Console's Client the TypeScript SDK's client (item 2 below), the TypeScript SDK's runs of that case list cover it.
 - **MSW is not used.** Its handlers know nothing of the catalog, and they can send what no engine sends. `vi.mock` and `vi.spyOn` stay banned (ADR 0062).
 - **Test data comes from builders with literal defaults** over the generated types; a test overrides what it asserts on. No random data generator.
 
@@ -63,7 +63,7 @@ Decided in [Console and docs test stack](https://github.com/Jbmanllr/automan/iss
   - every test fails on a console error, an uncaught page error, a CSP violation or a failed same-origin request, through the shared fixture;
   - `toMatchAriaSnapshot` and Vitest's ARIA snapshots follow ADR 0062's snapshot rules;
   - traces are kept on failure and uploaded with the JUnit files (ADR 0061).
-- **CSP:** the binary has no switch that relaxes its CSP, as ADR 0059 refused test-only clock controls. The browser does not relax it either: Playwright's `bypassCSP` option is never set. The shared fixture fails a test whose `bypassCSP` option is on, and oxlint's `no-restricted-properties` refuses `newContext`, so every context comes from the fixture. Every served test runs under the CSP. One served test proves an injected inline script and a string-to-script sink are blocked. The binary crate's `tests/it` checks every Console route's headers with an HTTP client, which is ADR 0031's "CI checks these headers".
+- **CSP:** the binary has no switch that relaxes its CSP, as ADR 0059 refused test-only clock controls. The browser does not relax it either: Playwright's `bypassCSP` option is never set. The shared fixture fails a test whose `bypassCSP` option is on, and in test files oxlint's `no-restricted-properties` refuses `newContext`, `browser.newPage` and `launchPersistentContext`, which take context options, so every context in a test comes from the fixture (`context.newPage()` stays allowed). The `@goodfetch/test-support` fixture is the one place that creates contexts. Every served test runs under the CSP. One served test proves an injected inline script and a string-to-script sink are blocked. The binary crate's `tests/it` checks every Console route's headers with an HTTP client, which is ADR 0031's "CI checks these headers".
 - **Unverified:** whether `page.clock`, `routeWebSocket`'s shim, axe's injected script and the virtual authenticator (`credentials.install()`) work under `require-trusted-types-for 'script'`. The first ticket of the "Test infrastructure" spec that builds the Playwright fixtures proves each one under the production CSP. A tool that fails is replaced or reported to the owner; the CSP is not relaxed for it.
 
 ### The Console conformance suite
@@ -87,7 +87,7 @@ Decided in [Console and docs test stack](https://github.com/Jbmanllr/automan/iss
 |---|---|---|
 | Quick | `unit` | build code's Node unit tests |
 | Pre-merge (Linux) | `component` on Chromium; served tests, Journey variants and conformance (Daemon and Stub gateway) on Chromium, as `xtask affected` selects | strict build of every kept version, `lychee --offline`, build-output checks, Playwright on Chromium, when `docs/`, `website/` or the catalog change |
-| Release | `component` on Chromium, Firefox and WebKit (Linux); served tests, Journey variants and conformance on every OS runner, with every browser Playwright ships for it, plus Chromium and WebKit phone emulation | the same on Chromium, Firefox and WebKit |
+| Release | `component` and the live-view packages on every OS runner, with every browser Playwright ships for it; served tests, Journey variants and conformance on every OS runner, with every browser Playwright ships for it, plus Chromium and WebKit phone emulation | the build, lychee and Playwright on Linux, on Chromium, Firefox and WebKit; the docs code samples on every OS runner |
 
 ### The docs site
 
@@ -99,6 +99,22 @@ Decided in [Console and docs test stack](https://github.com/Jbmanllr/automan/iss
   - one test per `sitemap.xml` page of every kept version, named by its path, failing on a non-200 answer, a console error, a hydration error or a failed same-site request;
   - tests of the interactive components (language tabs, version switcher, copy buttons, search). Search is tested against an index built with the site. If area 1's spec picks a hosted search service, its test moves to `docs-deploy-smoke`.
 - **Build code** (plugins, generators) has Node unit tests in the Quick suite; generated pages follow ADR 0062's snapshot rules.
+- **The docs site runs on Linux only.** The site is built once, on Linux, and deployed as files, so another OS changes nothing it serves; its browsers are the matrix.
+
+### Docs code samples
+
+ADR 0030 runs every code sample in CI against the Proving ground, through Rust doctests, Twoslash, pytest-examples and scripted CLI and MCP samples. ADR 0069 left their placement to this decision.
+- **Every fenced sample in `docs/` is checked, each by its own language's tool:**
+  - **TypeScript:** Twoslash type-checks every `ts` and `tsx` block during the strict docs build, so a type error fails the build. Twoslash needs the TypeScript compiler API (its peer range is TypeScript 5.5 or 6), so it runs on `STYLE.md`'s TypeScript 6 alias. A Vitest project, `samples`, in `website/` then runs each block as a module, on Node.
+  - **Python:** pytest-examples, in the Python SDK's tests, lints each `python` block with ruff and runs it.
+  - **Rust:** each page with Rust blocks is included into the `goodfetch` crate under `#[cfg(doctest)]` with `include_str!`, so rustdoc runs its blocks as doctests (the only doctests, as `TESTING.md` says).
+  - **CLI:** `console` blocks are trycmd cases: the binary crate's `tests/it` points trycmd at the pages, runs each command and compares its output, with `...` for the parts that vary.
+  - **MCP:** each exchange is a request block followed by its answer block; a test of the MCP server plays the request through `rmcp` (ADR 0070) and compares the answer.
+  - **Framework pages:** the model-free docs example tests of ADR 0070.
+- **Samples run against the `goodfetch` binary built from the commit and a local Proving ground** from `goodfetch-test-env`, never the online Proving ground. Setup a reader doesn't need is hidden by each tool's own convention (Rust's `# ` lines, Twoslash's `---cut---`). How a sample learns the local Proving ground's origin is the "Test infrastructure" spec's.
+- **A fragment that can't run is marked `fragment`** in its info string. It is still type-checked or compiled, and never run.
+- **Only `docs/` runs**, which is the `next` version. A frozen version is cut from a release tag whose samples passed, so it is not rerun.
+- **Placement:** the Pre-merge suite runs the samples of the pages and surfaces `xtask affected` selects (a changed page, a changed surface, or the catalog), on Linux with the newest Node line and CPython. The Release suite runs every sample on every OS runner, with the newest runtime of each language, since readers run them on every OS.
 - **After each production deploy**, a Live check, `docs-deploy-smoke`, owned by area 1 and blocking nothing directly (ADR 0064), loads the home page, a page of each kept version, a `.md` page, `llms.txt` and `llms-full.txt` through `goodfetch.dev/docs`, and checks their content types.
 - **No Vale and no cspell.** `typos` already reads `docs/`. Many `_Avoid_` terms of the glossary are ordinary words, so the review checks terms.
 
@@ -130,12 +146,13 @@ Decided in [Console and docs test stack](https://github.com/Jbmanllr/automan/iss
 ## Consequences
 
 - **Adds to ADR 0031:** what its Console conformance suite is, its targets and cases, and the Stub gateway; the headers check is an HTTP test in the binary crate; the live-view packages' tests.
-- **Adds to ADR 0030:** the strict Docusaurus settings, the build-output check, lychee offline in the suites, and the docs Playwright pass.
+- **Adds to ADR 0030:** the strict Docusaurus settings, the build-output check, lychee offline in the suites, the docs Playwright pass, and each sample tool's runner, target and suite.
+- **Settles ADR 0069's pointer** for docs code samples and their runs.
 - **Adds to ADR 0064:** two Live checks owned by area 1, both blocking nothing directly: `docs-external-links` (nightly; before each release candidate while the nightly tier is off) and `docs-deploy-smoke` (after each production deploy). `TESTING.md`'s list of Live checks names them.
 - **Adds to ADR 0062:** `@goodfetch/test-support` also gives Playwright fixtures, a Vitest fixture that resets hover, and the in-memory adapter of the protocol; the Console's layout is the table in `TESTING.md`.
-- **Amends ADR 0032's conformance harness:** `conformance/console/` is a Playwright Test package, so not every suite in `conformance/` runs in `goodfetch-conformance`. It writes the same result document through a Playwright reporter. An amendment note marks the sentence.
-- **Amends ADR 0061's Release suite:** the Console's and the docs site's tests run on one Node line, not every supported one. An amendment note marks the runtime bullet.
-- **Changes `STYLE.md`:** its TypeScript section applies to `website/` too, says the Console and the docs site are tested in browsers on one Node line, and limits the every-Node-line rule to the other packages.
+- **Amends ADR 0032's conformance harness:** `conformance/console/` is a Playwright Test package, so not every suite in `conformance/` runs in `goodfetch-conformance`. Like the Journeys (ADR 0063), it writes its own result documents through a Playwright reporter, deriving each outcome through the shared outcome vectors, and ADR 0063's Rust reader recomputes them; it writes no ADR 0069 case log. An amendment note marks the sentence, beside ADR 0069's.
+- **Amends ADR 0061's Release suite:** the Console's and the docs site's tests run on one Node line, not every supported one, and the docs site's build, lychee and Playwright pass run on Linux only. An amendment note marks the runtime bullet.
+- **Changes `STYLE.md`:** its TypeScript section applies to `website/` too, adds Twoslash to the TypeScript 6 alias's tools, says the Console and the docs site are tested in browsers on one Node line, and limits the every-Node-line rule to the other packages.
 - **ADR 0037's area table** lists this ADR in the rows of area 1 (the docs site), area 12 (the Console) and area 14 (the gateway contract the Stub gateway stands for).
 - **Area 12's spec must confirm**, since the Console's stack is its own:
   1. React 19, Base UI through shadcn (`base-mira`) and Vite, as in the prototype; Vitest, Storybook's `react-vite` framework and `vitest-browser-react` depend on Vite and React;
@@ -149,5 +166,5 @@ Decided in [Console and docs test stack](https://github.com/Jbmanllr/automan/iss
   9. that `page.clock`, `routeWebSocket`, axe and the virtual authenticator work under the production CSP's Trusted Types, as the "Test infrastructure" spec's first fixtures ticket proves;
   10. page visibility as a value the Client takes, beside its transport and body fetcher.
 - **Area 14's spec** (Cloud-readiness contracts, not yet written) states the gateway contract the Stub gateway stands for (the Console's operations across per-run engines, its `runs.list` index and its authentication), so the Stub gateway and Goodfetch Cloud's gateway pass the same Console conformance suite.
-- **Changes area 1's spec** ([Spec: Repository, CI and release (V1 area 1)](https://github.com/Jbmanllr/automan/issues/130)): its docs-site section gains the strict build, the offline lychee run, the docs Playwright pass and the two Live checks, and says whether docs search is built with the site; its pnpm workspace pins one Playwright version.
-- **The "Test infrastructure" spec** builds the in-memory adapter of the protocol, the Playwright fixtures (Daemon, sign-in, the failure listener, the `bypassCSP` refusal, browser-state commands), proving first that the Playwright tools work under Trusted Types, the Playwright reporter that writes area 2's result document for Journeys and the Console conformance suite (which [Conformance result documents from the TypeScript and Python test runners](https://github.com/Jbmanllr/automan/issues/170) does not cover), and the local static server for the docs.
+- **Changes area 1's spec** ([Spec: Repository, CI and release (V1 area 1)](https://github.com/Jbmanllr/automan/issues/130)): its docs-site section gains the strict build, the offline lychee run, the docs Playwright pass, the sample runners and the two Live checks, and says whether docs search is built with the site; its pnpm workspace pins one Playwright version.
+- **The "Test infrastructure" spec** builds the in-memory adapter of the protocol, the Playwright fixtures (Daemon, sign-in, the failure listener, the `bypassCSP` refusal, browser-state commands), proving first that the Playwright tools work under Trusted Types, the extraction of `ts` samples for the `samples` project, the Playwright reporter that writes area 2's result document for Journeys and the Console conformance suite (which [Conformance result documents from the TypeScript and Python test runners](https://github.com/Jbmanllr/automan/issues/170) does not cover), and the local static server for the docs.

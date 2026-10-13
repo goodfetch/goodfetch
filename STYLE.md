@@ -59,7 +59,7 @@ The design vocabulary is the one of `codebase-design`: a **module** has an **int
   _Why:_ an orphan task outlives its cancelled run and keeps writing.
 - **Never block an async worker.** Blocking I/O and CPU-heavy work go through the `tasks` module's blocking policy, a value: the owner's tracked blocking threads, or a dedicated thread (an actor's, such as the run's SQLite writer) that `tasks` starts and its owner joins before it stops. In the Simulation the same policy runs blocking calls inline and a dedicated thread's body as a task on the host's runtime (ADR 0060); `std::thread::sleep`, blocking `std::process::Command` and blocking `std::fs` calls are disallowed in async crates.
 - **Sockets and runtimes have one place each** (ADR 0060).
-  - Connections the Simulation carries (stdio of an Attached engine, the Daemon's socket and named pipe, loopback TCP, the WebSocket listener, the private endpoint, the ops listener, the peer link, wake endpoints) are opened only in `goodfetch-engine`'s `transport` module, which takes the network as a value; `rpc` takes its connections from it. `disallowed-types` lists the socket types of `std::net`, `std::os::unix::net`, `tokio::net` and Tokio's named pipes, and `disallowed-methods` lists `tokio::io::stdin`, `tokio::io::stdout` and `std::io::stdin`. Fetch sockets behind the egress checks, the CDP connection, plugin-protocol pipes and third-party clients open their own, each module with an `#[expect]` naming ADR 0060.
+  - Connections the Simulation carries (stdio of an Attached engine, the Daemon's socket and named pipe, loopback TCP, the WebSocket listener, the private endpoint, the ops listener, the peer link, wake endpoints) are opened only in `goodfetch-engine`'s `transport` module, which takes the network as a value; `rpc` takes its connections from it. `disallowed-types` lists the socket types of `std::net`, `std::os::unix::net`, `tokio::net` and Tokio's named pipes, and `disallowed-methods` lists `tokio::io::stdin`, `tokio::io::stdout` and `std::io::stdin`. Fetch sockets behind the egress checks, the CDP connection, plugin-protocol pipes and third-party clients open their own, each module with an `#[expect]` naming ADR 0060. So does the test-only `goodfetch-scripted-engine`, which the Simulation never runs, with an `#[expect]` naming ADRs 0060 and 0069.
   - Only `main` and test helpers build a Tokio runtime (`Runtime::new`, `Builder::new_current_thread`, `Builder::new_multi_thread`, `#[tokio::main]`), and `tokio::task::block_in_place` is in `disallowed-methods`.
   _Why:_ the same engine code then runs on the OS, the in-memory transport pair and the Simulation, and replays from a seed.
 - **Never hold a lock across `.await`.**
@@ -74,7 +74,7 @@ The design vocabulary is the one of `codebase-design`: a **module** has an **int
 - **Time and order come from their handles:** `SystemTime::now`, `std::time::Instant::now`, `tokio::time::Instant::now` and library constructors that read their own clock or randomness (`Ulid::new`) are in `disallowed-methods` outside the `Clock` and `Entropy` modules, `std::env::var`, `var_os` and `vars` outside `main`, and `iter_over_hash_type` is denied (ADR 0059). The handles' test constructors `Clock::paused` and `Entropy::seeded` are in `disallowed-methods` too, opted into only by test modules (ADR 0062).
   _Why:_ a test can then drive every clock the code reads, and hash order never reaches output.
 - **Denied:** `print_stdout` and `print_stderr`, `dbg_macro`, `todo`, `unimplemented`, `unwrap_used` (allowed in tests), `allow_attributes`, `allow_attributes_without_reason`, `clone_on_ref_ptr`, `exit` (outside `main`). `std::io::stdout` and `std::io::stderr` are in `disallowed-methods`.
-- **Only three writers touch stdout or stderr:** the protocol transport, the CLI's output writer (its human output, its `--json` output and its hints on stderr) and the `tracing` subscriber's writer (stderr or a file). Everything else logs through `tracing`.
+- **Only three writers touch stdout or stderr:** the protocol transport, the CLI's output writer (its human output, its `--json` output and its hints on stderr) and the `tracing` subscriber's writer (stderr or a file). Everything else logs through `tracing`. The one exception is the test-only `goodfetch-scripted-engine`, which writes its script's messages to stdout under an `#[expect]` naming ADRs 0060 and 0069.
   _Why:_ when the binary runs as an Attached engine started by an SDK, or as the stdio MCP server, stdout is the JSON-RPC channel, so one stray write corrupts the protocol; and the CLI's `--json` output is under semver (ADR 0030).
 - **Exceptions use `#[expect(lint, reason = "…")]`, never `#[allow]`.**
   _Why:_ `expect` warns when the exception is no longer needed, so stale exceptions disappear.
@@ -142,12 +142,12 @@ The test rules live in [`TESTING.md`](TESTING.md) (where tests live, how they ar
 
 Applies to `sdks/typescript`, `console/`, `adapters/`, `integrations/`, `bench/` and the docs site's `website/` in the pnpm workspace.
 
-- **TypeScript 7 with `strict`, `noUncheckedIndexedAccess`, `exactOptionalPropertyTypes`, `verbatimModuleSyntax`, `isolatedDeclarations` and `erasableSyntaxOnly`.** A TypeScript 6 alias is kept only for tools that need the compiler API (API Extractor, TypeDoc) until TypeScript 7 provides one.
+- **TypeScript 7 with `strict`, `noUncheckedIndexedAccess`, `exactOptionalPropertyTypes`, `verbatimModuleSyntax`, `isolatedDeclarations` and `erasableSyntaxOnly`.** A TypeScript 6 alias is kept only for tools that need the compiler API (API Extractor, TypeDoc, Twoslash) until TypeScript 7 provides one.
 - **Optional fields are written `?: T | undefined`.**
   _Why:_ the published types then work whether or not the consumer enables `exactOptionalPropertyTypes`.
 - **oxlint with type-aware rules, and oxfmt for formatting.** `no-floating-promises` is an error.
   _Why:_ an unawaited promise loses its error silently; oxlint's type-aware rules run on the real TypeScript 7 checker.
-- **Libraries build with tsdown. Outside `console/` and `website/`, tests run with Vitest on every supported Node line (ADR 0024), plus a smoke suite of the built package on Bun and Deno 2.**
+- **Libraries build with tsdown. Outside `console/` and `website/`, tests run with Vitest on every supported Node line (ADR 0024), plus smoke scripts of the installed package on Bun, Deno 2 and the edge runtimes (ADR 0069).**
 - **The Console and the docs site are tested in browsers, on one Node line:** Vitest Browser Mode and Playwright Test, against the binary for the served Console (ADR 0068, rules in [`TESTING.md`](TESTING.md)).
 - **Packages are ESM-only** (ADR 0024) and pass `publint` and `@arethetypeswrong/cli` before publishing. npm is the only registry.
 - **Named exports only; no TypeScript `enum`s** (string-literal unions instead).
@@ -164,7 +164,7 @@ Applies to `sdks/typescript`, `console/`, `adapters/`, `integrations/`, `bench/`
 
 Applies to `sdks/python`, the Python adapters and the uv workspace. Supported versions follow ADR 0024: every CPython not past end of life, including free-threaded builds.
 
-- **pyright in strict mode gates CI**, and mypy checks a small file that exercises the public API.
+- **pyright in strict mode gates CI**, and mypy `--strict` checks the generated code and the type tests that exercise the public API (`TESTING.md`, ADR 0069).
   _Why:_ pyright is what most editors show; the mypy check keeps the types right for mypy users too.
 - **ruff formats and lints**, with the rule sets `E F I UP B C4 ARG T20 TID251 PERF RUF ANN PYI TC ASYNC D`, ignoring `D206` and `D300`, which conflict with ruff's formatter.
   _Why:_ `ASYNC` catches blocking calls inside async code, and `T20` bans `print`.

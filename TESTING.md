@@ -20,7 +20,9 @@ How Goodfetch is tested: every surface, at every level. Each rule comes with its
 14. [AI features and agent skills](#ai-features-and-agent-skills)
 15. [Journeys](#journeys)
 16. [Upgrades and version mismatches](#upgrades-and-version-mismatches)
-17. [Console and docs site](#console-and-docs-site)
+17. [SDK and CLI tests](#sdk-and-cli-tests)
+18. [MCP, framework adapters and Integrations](#mcp-framework-adapters-and-integrations)
+19. [Console and docs site](#console-and-docs-site)
 
 Sections 1 to 7, 11 and 12 are decided in [ADR 0062](docs/adr/0062-tests-sit-beside-their-code-and-share-one-test-support-written-once.md).
 
@@ -339,6 +341,8 @@ Decided in [ADR 0064](docs/adr/0064-tests-are-never-retried-and-unpinned-checks-
 
 ### Live checks
 
+- **Each Live check has an owning area and a placement** listed in ADR 0064: real SaaS Sinks, installed Chrome's stable, beta and dev channels (pinned majors are tests), public testnets, the Clean-up rules' daily gate, the online conformance, the benchmark, the Cloud Run deploy, live-model evaluations, Scorecard; and, from ADR 0070, the newest MCP conformance suite, Inspector and SDK clients, each agent framework's newest releases, the n8n scanner on the published node, and real Integration platform accounts.
+
 - **Each Live check has an owning area and a placement** listed in ADR 0064: real SaaS Sinks, installed Chrome's stable, beta and dev channels (pinned majors are tests), public testnets, the Clean-up rules' daily gate, the online conformance, the benchmark, the Cloud Run deploy, live-model evaluations, Scorecard, and the docs site's `docs-external-links` (nightly, or before each release candidate while the nightly tier is off) and `docs-deploy-smoke` (after each production deploy), which block nothing directly ([Console and docs site](#console-and-docs-site)).
 - **Outcomes are pass, fail or inconclusive.** Inconclusive means the external side was unavailable; it never counts as a pass.
 - **Results go to the results store** under the `live` tier.
@@ -621,6 +625,127 @@ Decided in [ADR 0066](docs/adr/0066-upgrades-are-tested-from-a-frozen-corpus-and
 - **Never drop a minor, and never move a skew check out of the merge queue.** A Release suite budget breach is fixed with fewer or faster jobs per minor, or with more concurrency or larger runners, a paid resource the owner approves.
   _Why:_ the Release suite has no later suite to move to, and an untested minor decays.
 
+## SDK and CLI tests
+
+Decided in [ADR 0069](docs/adr/0069-sdks-and-the-cli-are-tested-against-a-scripted-engine-and-the-binary-of-the-same-commit.md).
+
+### SDKs
+
+- **Unit tests run against the Scripted engine in-process**, through an in-memory transport; integration tests and Journeys run the `goodfetch` binary built from the same commit. `sdk-rust` Journeys run with a Daemon only; `linked` is never a Journey mode.
+  _Why:_ the binary can't fabricate a refused `hello` or a crash mid-call, and a fake alone passes where the engine fails.
+- **Scripts live only in `test-support/fixtures/engine-scripts/`**, never inline in a test. Every message step in them must validate against the committed JSON Schema bundle; only raw-byte steps, deliberately not JSON-RPC, are skipped.
+  _Why:_ one validated corpus keeps the stand-in true to the engine for every SDK at once.
+- **Pass `GOODFETCH_ENGINE_PATH` and `GOODFETCH_HOME` in the SDK's environment-map option**, as the test-support fixtures build it from `goodfetch-test-env`. Never set them in the test's own process; an Attached engine gets exactly that map as its environment.
+- **Process faults use `goodfetch-scripted-engine`**, reached as an Attached engine through `GOODFETCH_ENGINE_PATH` (TypeScript and Python) or as a Daemon through a runtime file in the test's Goodfetch home (every SDK). No build of `goodfetch` carries a fault switch.
+- **No process outlives its test:** the test-support fixtures fail a test that leaves an engine, Daemon or handler process alive after teardown.
+- **Every Client conformance case in `conformance/clients/` is implemented on every surface it lists**, carries its case ID, and runs in both of its surface's modes: named cases `attached` and `daemon` in TypeScript, Python and the CLI, `linked` and `daemon` in Rust, which links the engine and starts no Attached engine. A Quick-suite check fails on a missing implementation or an unknown ID.
+- **For Client conformance cases, each runner writes a case log; only `goodfetch-conformance`'s writer turns it into a result document**, deriving each outcome through `goodfetch-protocol`'s constructor. A log entry never carries an outcome. A declared case missing from the log is `unproved`. Journeys write their own documents ([Journeys](#journeys)). The entry type is in `goodfetch-protocol` and its schema in the bundle; the script format's schema is `test-support/fixtures/engine-scripts/script.schema.json`. Both come from `xtask codegen`.
+- **Completeness tests** check that every catalog operation, Error code and event has its generated counterpart in each SDK.
+- **Generated code is type-checked** by `tsc` with `skipLibCheck: false`, pyright strict and mypy `--strict`.
+- **Mapping and decoding are property-tested** (fast-check, hypothesis): user-data values with any keys, `__proto__` included, come back unchanged.
+- **Type tests:**
+  - TypeScript: `*.test-d.ts` files with `expect-type`'s `expectTypeOf` and `@ts-expect-error`, compiled by `tsc --noEmit` against the built `.d.ts`. Not Vitest's `typecheck` mode, tsd or TSTyche.
+  - Python: `tests/types/` files with `typing.assert_type` and `# type: ignore[code]`, under pyright strict with `reportUnnecessaryTypeIgnoreComment = "error"` and under mypy `--strict`, whose `--warn-unused-ignores` reports an unused ignore.
+- **Python:**
+  - the test-support plugin's `anyio_backend` lists `asyncio` and `trio` explicitly, and a missing trio fails the session;
+  - every Client conformance case runs on asyncio, on trio and through the sync API;
+  - free-threaded builds run the whole suite with `PYTHON_GIL=0`, and fail if the GIL is on; the sync API's unit tests also run under pytest-run-parallel. Every Linux platform in the Release suite; macOS and Windows in a nightly-only job.
+- **TypeScript runtimes:** Vitest runs on Node with the `forks` pool. The `smoke/*.mjs` scripts (only `node:assert`) each run spawned by a Vitest test:
+  - on Bun and Deno 2, with an Attached engine and with a Daemon, covering the runtime-dependent Client conformance cases, whose IDs the script declares;
+  - on `workerd` (Miniflare) and Vercel's edge runtime, against a Daemon only, since they cannot start a process. Deno 2's `daemon` run stands for Deno Deploy (ADR 0049).
+- **Installed packages:**
+  - npm packages install from Verdaccio with no uplink, with npm, pnpm, Yarn, Bun and Deno, into a path with a space and a non-ASCII character, and the smoke scripts check the installed version; `--omit=optional` must fail at first use with Goodfetch's error;
+  - each install keeps its manager's release-age gate on and passes it through ADR 0030's exclusion snippet, read from the source the release notes use; one run per manager without the snippet must not install the packed version (uv's snippet is not tested: `--no-index` has no gate);
+  - wheels install into a fresh environment (`uv pip install --no-index --find-links`, and `pip`) and run `tests/integration` unchanged, on glibc and Alpine;
+  - the crate builds a temporary consumer from `cargo package`'s output.
+- **Models are scripted only through the testing kit's Scripted model** (`goodfetch::testing`, `goodfetch/testing`, `goodfetch.testing`). The kit's test engine helper is an Attached engine in TypeScript and Python and the linked engine in Rust.
+
+### CLI
+
+- **The binary runs under assert_cmd and is snapshotted with insta**, through `goodfetch-test-support`'s helper. One snapshot holds stdout, stderr and the exit code.
+- **Every `--json` test validates stdout against the command's schema** from the bundle, checks that stdout holds nothing else, and snapshots it.
+  _Why:_ `--json` is under semver (ADR 0030), and only a schema puts it in the breakage check.
+- **Warnings, hints, deprecations and the age notice never reach stdout.**
+- **Every exit code in `goodfetch-protocol`'s table has a test through the binary**, one rstest named case per exit code, in `tests/it`. An in-process unit test checks that the table maps every Error code.
+- **Human output is snapshotted under `NO_COLOR=1`, a fixed `COLUMNS`, `TERM=dumb` and a fixed locale.** The `--help` tree is one snapshot rendered in-process from clap's `Command`; one `tests/it` case checks the binary prints the same. A unit test calls clap's `Command::debug_assert`.
+- **Terminal-only behaviour is tested in a pseudo-terminal with expectrl:** colour, progress, and person-only prompts, which must refuse when stdin is not a terminal.
+- **Interrupts are tested through the binary:** a running Crawl sent `SIGINT` (Unix) or `CTRL_BREAK_EVENT` (Windows) checkpoints and exits with its exit code; a second interrupt stops it at once.
+- **A command that runs the engine is tested in both modes**, as rstest cases `attached` and `daemon`, against one snapshot.
+- **Client faults** (a refused protocol version, a dead PID, a dropped connection) come from the Scripted engine run as a Daemon.
+
+### Where they run
+
+| Suite | SDKs | CLI |
+|---|---|---|
+| Quick | unit tests, type tests, completeness and property tests, script validation, the case-list check | in-process unit tests, `--help` rendered in-process, `debug_assert`, the exit-code table maps every Error code |
+| Pre-merge | touched SDKs on Linux with the newest Node LTS and CPython: integration, Client conformance, Scripted engine process, one installed-package run | every `tests/it` case, both modes: exit codes and `--help` through the binary, `--json`, pseudo-terminal, interrupts |
+| Release | every Node line, Bun, Deno and CPython on Linux x64, free-threaded builds on every Linux platform; oldest and newest Node and CPython on every other platform; every install path on every OS. Free-threaded builds on macOS and Windows: a nightly-only job | everything, on every platform |
+
+## MCP, framework adapters and Integrations
+
+Decided in [ADR 0070](docs/adr/0070-mcp-adapters-and-integrations-are-tested-through-their-platforms-own-clients-against-a-real-engine.md).
+
+### Every surface
+
+- **Drive each surface with its platform's own client, against a real engine or Daemon serving the local Proving ground.** No mocking library or hand-written fake of Goodfetch's API: no `nock`, fake HTTP API or stub listener.
+  _Why:_ a fake of the engine passes where the real one fails, and misses the token, `Host` and `Origin` checks.
+- **For Goodfetch's side, use only the doubles ADRs 0062 and 0069 define:** the in-memory adapter of the protocol in Quick-suite unit tests, and the Scripted engine for faults a real engine can't produce on demand.
+- **Stand in for the platform in this order:** its real runtime run locally, its official test harness, a written adapter of its context.
+- **Keep a Quick check over everything `xtask codegen` generates:** no person-only operation or setting on any MCP profile, Framework adapter, Integration or skill, and each surface's operations map to catalog operations of the same class.
+- **Assert outcomes through the oracle and Error codes**, never a model's wording or a platform's message text.
+
+### MCP server
+
+- **Test the server with `rmcp`'s client:** in-memory in its crate, over stdio and Streamable HTTP in the binary's `tests/it`. MCP Journey variants run there too, on nextest.
+- **Read stdio stdout with the strict framing reader**, logging at `trace`. Any line that is not a JSON-RPC message fails the test.
+- **Test two Streamable HTTP sessions at once:** each keeps its own Limits and its own cancellation.
+- **Run the conformance suite at its pinned version, once per supported revision**, with `--expected-failures conformance/mcp/expected-failures/<revision>.yaml`:
+  - `--requirements <revision>` for a revision with a frozen requirement set (today `2025-11-25` and `2026-07-28`), `--spec-version <revision>` for an older one;
+  - against the shipped binary, whose expected-failures file lists only scenarios that need fixture tools or resources, each with a reason (a Quick check refuses other entries);
+  - against the fixture server, with an empty expected-failures file;
+  - once more for the extensions the server implements, each scenario by name with `--scenario` and without `--spec-version`, against `conformance/mcp/expected-failures/extensions.yaml`, since `--requirements` doesn't score extensions. These run at `2026-07-28` only; test an extension the server supports under an older revision with `rmcp` in `tests/it`.
+- **Change the suite's version only in a pull request that updates the expected-failures files.**
+- **Run the pinned Inspector CLI with `--format json --stored-auth-only`:** boot smoke of every packaged artifact over stdio and Streamable HTTP (the OCI image on Linux only), `--strict` on every profile's `tools/list`, and `--verify --require-digests` on skills once the server serves them.
+- **Cover every supported revision in the client matrix:** TypeScript SDK v1 and v2 clients, the Python SDK and `rmcp`, pinned, over stdio and Streamable HTTP, plus the negotiation cases.
+- **Add a revision to the supported list only with its expected-failures file and its matrix cells, in the same pull request.**
+
+### Framework adapters
+
+- **Drive each tool through the framework's own agent loop with its own scripted model**, never by calling the tool's `execute` alone: `MockLanguageModelV4` for the Vercel AI SDK and Mastra, `FakeListChatModel` or `FakeStreamingChatModel` for LangChain.js, `GenericFakeChatModel` through test support's `bind_tools` subclass for Python LangChain.
+- **Script a read, an Effect and a failing call** in each adapter's tests.
+- **Run `ToolsUnitTests` on every generated Python LangChain tool**, and `ToolsIntegrationTests` on one tool per operation class and every tool a Journey uses, from a pinned `langchain-tests`.
+- **Test the lowest and highest version of each declared peer range, and one of each major inside it**, in the Release suite. Pin the lowest in a test package (pnpm's `lowest-direct` never lowers peers); use uv's `--resolution lowest-direct` in Python.
+- **Give each framework that connects only through MCP a model-free test** of its docs example: its own MCP client connects, lists tools and calls one tool.
+- **Check Dataset loaders against the oracle's records**, including metadata and lazy streaming.
+
+### Integrations
+
+- **Start the Daemon through `goodfetch-test-env`** with its HTTP listener, a token and port 0.
+- **Cover, for each Integration:** starting a run and a Recipe, fetching Records, one trigger per record range, no repeated trigger after a resumed run, a refused token, a refused `hello` version, and every Error code it maps.
+- **Produce the refused `hello` and the Error codes the Proving ground can't cause with the Scripted engine run as a Daemon with an HTTP listener**, one script per case; test every other case against the real Daemon.
+- **Run each platform's offline validator in the Quick suite**, and the Integration in its platform's local runtime or official harness in the Pre-merge suite:
+
+| Integration | Quick | Pre-merge |
+|---|---|---|
+| n8n | `n8n-node lint` (strict); verification rules | pinned n8n image, `n8n execute --id` |
+| Zapier | `zapier-platform validate --without-style` | `createAppTester`, real HTTP |
+| Make | Make Apps Editor JSON schemas; module-to-operation map | none (Live check) |
+| Pipedream | Pipedream ESLint rules, build, key checks | `run` with the `$` adapter |
+| Activepieces | lint, build | `createMockActionContext`; pinned Activepieces image |
+| Power Automate | `ConnectorPackageValidator.ps1`; OpenAPI 2.0 validation | every operation through an OpenAPI 2.0 client |
+| Airbyte source | offline QA checks; manifest validation | CDK standard suite; incremental reads from saved state |
+
+### Journey variants
+
+- **Run `adapter-<name>` and `integration-<name>` variants in the package's own runner, on Linux:** Vitest in `tests/journeys/J-NNN.test.ts` for TypeScript adapters and the n8n, Zapier, Pipedream, Activepieces and Power Automate Integrations; pytest in `tests/journeys/test_jNNN.py` for Python adapters, the LlamaIndex reader and the Airbyte source. Make has no automated variant.
+- **Run `http-listener` variants on nextest** in the binary crate's `tests/it/journeys`, against a Daemon's HTTP listener with a token and port 0.
+
+### Live checks and manual tests
+
+- **Run unpinned releases only as Live checks:** the newest conformance suite, Inspector and MCP SDK clients, and each framework's `latest` and prerelease tags, nightly; the n8n scanner after each publish.
+- **Keep real platform accounts out of every suite.** They run weekly and at release candidates, only once the owner has approved each account and the Cloudflare Tunnel, its `goodfetch.dev` subdomain and its credential, behind a repository variable until then.
+- **Test by hand at each release candidate that changes them:** Claude Desktop, ChatGPT, VS Code and Cursor connecting to the MCP server; `paconn validate`; each platform's listing submission.
+
 ## Console and docs site
 
 Decided in [ADR 0068](docs/adr/0068-the-console-is-tested-in-real-browsers-and-served-by-the-real-binary.md). Which accessibility, localization and visual checks run on these runners is decided by [Accessibility, localization and visual regression](https://github.com/Jbmanllr/automan/issues/283).
@@ -641,6 +766,7 @@ Each suite contains the one before, so the table gives the first suite that runs
 | the live-view packages' `*.test.ts(x)` | `<goodfetch-live-view>` and its React wrapper | Vitest Browser Mode | Pre-merge |
 | `website/src/**/*.test.ts` | the docs site's build code | Vitest (Node) | Quick |
 | `website/tests/` | the built docs site | Playwright Test | Pre-merge |
+| `docs/**/*.md(x)` code blocks | the docs code samples | Twoslash and Vitest `samples`, pytest-examples, rustdoc, trycmd, the MCP server's tests | Pre-merge |
 
 ### Components
 
@@ -671,19 +797,19 @@ Each suite contains the one before, so the table gives the first suite that runs
 - **Wait with web-first assertions and `expect.poll`.** Never `waitForTimeout` (oxlint refuses it) or `networkidle`.
 - **A console error, an uncaught page error, a CSP violation or a failed same-origin request fails the test**, through the shared fixture.
 - **`toMatchAriaSnapshot` and Vitest's ARIA snapshots follow [Snapshots](#snapshots).**
-- **Tests run under the production CSP.** The binary has no switch that relaxes it, and Playwright's `bypassCSP` is never set: the shared fixture fails a test that sets it, and oxlint refuses `newContext`, so every context comes from the fixture.
+- **Tests run under the production CSP.** The binary has no switch that relaxes it, and Playwright's `bypassCSP` is never set: the shared fixture fails a test that sets it, and in test files oxlint refuses `newContext`, `browser.newPage` and `launchPersistentContext`, so every context comes from the fixture. `context.newPage()` is allowed.
 - **Keep traces on failure** and upload them with the JUnit files.
 
 ### The Console conformance suite
 
-- **It runs the Console against a target given as configuration:** the Daemon and the Stub gateway here, Goodfetch Cloud's gateway from the private repository. Each target run writes a result document with `kind = "conformance"`.
+- **It runs the Console against a target given as configuration:** the Daemon and the Stub gateway here, Goodfetch Cloud's gateway from the private repository. Each target run writes its own result document with `kind = "conformance"`, like a Journey ([Journeys](#journeys)): its Playwright reporter derives each outcome, and the Rust reader recomputes it. It writes no case log.
 - **Add a case when the Console starts to need something new from its target.**
 
 ### Browsers
 
 - **One Playwright version for the whole pnpm workspace**, shared by Vitest's provider.
 - **The Console's and the docs site's tests run on one Node line;** their matrix is browsers.
-- **Pre-merge:** Chromium on Linux. **Release:** components and the live-view packages on Chromium, Firefox and WebKit; served tests, Journeys and conformance on every OS runner with every browser Playwright ships for it, plus phone emulation on Chromium and WebKit; the docs site on Chromium, Firefox and WebKit.
+- **Pre-merge:** Chromium on Linux. **Release:** components, the live-view packages, served tests, Journeys and conformance on every OS runner with every browser Playwright ships for it, plus phone emulation on Chromium and WebKit for served tests; the docs site's build, lychee and Playwright on Linux, on Chromium, Firefox and WebKit; the docs code samples on every OS runner.
 
 ### Docs site
 
@@ -693,3 +819,11 @@ Each suite contains the one before, so the table gives the first suite that runs
 - **Playwright tests the built site served locally under `/docs/` on port 0,** never a Vercel preview: every `sitemap.xml` page of every kept version answers 200 with no console, hydration or same-site request error, and the interactive components work. Search is tested against an index built with the site; a hosted search service is tested only by `docs-deploy-smoke`.
 - **After each production deploy, the Live check `docs-deploy-smoke`** checks the deployed pages, a `.md` page, `llms.txt` and `llms-full.txt` with their content types.
 - **`typos` checks the docs' spelling.** No Vale, no cspell.
+
+### Docs code samples
+
+- **Every fenced sample in `docs/` is tested by its language's tool:** Twoslash type-checks `ts` and `tsx` blocks in the docs build (on the TypeScript 6 alias) and the `website/` Vitest project `samples` runs them; pytest-examples lints and runs `python` blocks; `#[cfg(doctest)]` includes in `goodfetch` run Rust blocks as doctests; trycmd runs `console` blocks from the binary crate's `tests/it`; an MCP server test plays each request block through `rmcp` and compares the answer block.
+- **Run samples against the binary built from the commit and a local Proving ground,** never the online one. Hide setup with the tool's own convention (`# ` in Rust, `---cut---` in Twoslash).
+- **Mark a block that can't run `fragment`.** It is still type-checked or compiled.
+- **Only `docs/` (`next`) runs.** Frozen versions were tested at their release.
+- **Pre-merge:** the affected pages' samples on Linux, newest Node line and CPython. **Release:** every sample on every OS runner.

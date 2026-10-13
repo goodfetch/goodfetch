@@ -356,6 +356,14 @@ _Avoid_: tool list, API surface
 Driving the engine through a short program written by a model that calls only the Operation catalog.
 _Avoid_: scripting, eval
 
+**Framework adapter**:
+A package that offers Goodfetch's operations as tools of an agent framework, such as the Vercel AI SDK, LangChain or Mastra.
+_Avoid_: wrapper, toolkit, Integration
+
+**MCP host**:
+An application that connects a model to MCP servers, such as Claude Code, VS Code or ChatGPT, and so reaches Goodfetch through its MCP server.
+_Avoid_: MCP client (for the application), agent app
+
 **Success check**:
 A condition declared by the user that the engine evaluates live to decide whether a step or a task succeeded. A Page check judges every page of a Session; a Success check judges an outcome.
 _Avoid_: check (alone), assertion, judge, validator
@@ -467,6 +475,10 @@ _Avoid_: size limit (alone), quota, bloat check
 **Compatibility corpus**:
 The committed files of each contract format: those its current version writes, and one frozen set per released version, which every later engine of that major must read as the release wrote them.
 _Avoid_: golden files, legacy fixtures, test data (for these files)
+
+**Scripted engine**:
+A stand-in for the engine used only in tests, which plays one script of protocol messages to a Client and fails on any message it did not expect or any step left unused.
+_Avoid_: fake engine, mock engine, mock server
 
 **Quick suite**:
 The tests and checks of Goodfetch that run in-process, on what a change touches or on everything, run after every edit.

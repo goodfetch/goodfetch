@@ -133,7 +133,7 @@ One run of a Partitioned crawl, owning the domains assigned to it.
 _Avoid_: shard
 
 **Goodfetch home**:
-The folder holding one user's Goodfetch data, caches and configuration on a machine: the platform's usual folders unless the user names another.
+The folder holding one user's Goodfetch data, caches and configuration on a machine: the operating system's usual folders unless the user names another.
 _Avoid_: data dir, app folder, install folder
 
 **Run index**:

@@ -22,11 +22,11 @@ Decided in [ADR 0059](docs/adr/0059-dependencies-are-injected-as-values-and-only
 
 - **A dependency with a local stand-in gets no handle.** Only `Clock` and `Entropy` are swapped in tests.
   _Why:_ a fake passes where the real thing fails, and a stand-in tests what users run.
-- **Nothing reads time, chooses at random or reads the environment through a global.** `SystemTime::now`, std and Tokio `Instant::now` are banned outside `Clock`, and `std::env::set_var` is `unsafe`.
+- **Nothing reads time, chooses at random or reads the environment through a global.** `disallowed-methods` refuses `SystemTime::now`, std and Tokio `Instant::now` and constructors such as `Ulid::new` outside `Clock` and `Entropy`, and `std::env::var` outside `main`; `std::env::set_var` is `unsafe`.
 
 ### Time
 
-- **A rule that depends on time is a pure function that takes "now"**, tested with no clock: lease expiry, a Schedule's next occurrence (DST included), backoff, the Politeness store's rate math.
+- **A rule that depends on time is a pure function that takes "now"**, tested with no clock: lease expiry, a Schedule's next occurrence (DST included), backoff. The Politeness store's granted shares stay in its Lua script and are tested against a real Valkey.
 - **Code that waits is tested in-process with the test `Clock`** (`#[tokio::test(start_paused = true)]`). Advancing the paused clock moves wall time with it, and `jump_wall` moves wall time alone.
   _Why:_ a default-length lease or a day-long interval then takes no real time.
 - **Keep real I/O out of paused-clock tests**, apart from SQLite on tracked blocking threads.
@@ -41,7 +41,7 @@ Decided in [ADR 0059](docs/adr/0059-dependencies-are-injected-as-values-and-only
 - **A test runs on a fixed seed.** `GOODFETCH_TEST_SEED` overrides it, and the seed is printed when the test starts.
   _Why:_ a test nextest kills on a timeout never reaches a failure message.
 - **Secrets never come from `Entropy`.**
-- **Hash order never reaches output or ordering.** `iter_over_hash_type` is on; use `BTreeMap` or `IndexMap` where order shows.
+- **Hash order never reaches output or ordering.** `iter_over_hash_type` is denied; use `BTreeMap` or `IndexMap` where order shows.
 
 ### Storage, network and OS services
 
@@ -49,7 +49,7 @@ Decided in [ADR 0059](docs/adr/0059-dependencies-are-injected-as-values-and-only
 - **Proving ground host names resolve through the `resolve` setting** to loopback, which the run allowlists for tests.
 - **Proxies are tested against the Proving ground's real forward proxy.**
 - **Local addresses use real extra loopback addresses:** `127.0.0.0/8` on Linux and Windows, `lo0` aliases on macOS, a network namespace under sudo where needed.
-- **Only scheduled live jobs, labelled as such, reach the public internet.** Every other job runs under ADR 0043's deny with its canary.
+- **No test reaches the public internet.** Only the jobs ADR 0043 names go online, to their named endpoints; every other job runs under its deny with the canary.
 - **The keychain provider runs against the real keychain** of each OS (`gnome-keyring` started and unlocked on Ubuntu), with a unique service name per test. Consumers of Secrets use the environment or caller provider.
 - **`daemon install` installs for real on each OS.** The unit file it generates is snapshot-tested.
 

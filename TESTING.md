@@ -68,3 +68,56 @@ Decided in [ADR 0059](docs/adr/0059-dependencies-are-injected-as-values-and-only
 
 - **SDK durations and jitter are options:** tests pass short values and a fixed seed. In TypeScript, Vitest fake timers may drive timer logic that never reaches the engine.
 - **The Console's end-to-end tests set time with Playwright's `page.clock`** (`setFixedTime` first). Its component tests use Vitest fake timers.
+
+## Suites, commands and time budgets
+
+Decided in [ADR 0061](docs/adr/0061-three-test-suites-each-run-by-one-just-command-under-a-time-budget.md).
+
+### The three suites
+
+Each suite runs everything the suite before it runs.
+
+| Suite | What it adds | Command | Runs in CI |
+|---|---|---|---|
+| Quick | Format and lint checks; in-process tests of what changed (Rust unit tests in `src/`, never `tests/it`); the committed format fixtures; `xtask codegen --check` | `just quick` (`just quick all` for everything) | First job of every pull request |
+| Pre-merge | Every touched crate's `tests/it`; conformance on the local Proving ground; touched Sinks against their containers; touched SDKs, adapters and Integrations on one runtime; the Console on Chromium; docs examples; ADR 0032's static checks | `just pre-merge` (`just pre-merge all`) | Every pull request, on Linux |
+| Release | Everything, for every package, on the full matrix of ADR 0024; deployment-target smoke runs; tests that need released binaries | `just release` (this host's cell), `just release-ci` (the whole matrix on CI) | Merge queue, nightly, every release |
+
+- **A Quick-suite test starts no process, browser or container and binds no socket.** Anything that does is a `tests/it` test, or its runner's equivalent.
+  _Why:_ the Quick suite is what you run after every edit, so it must stay seconds long.
+- **Checks that are non-deterministic by nature are in no suite**: real SaaS Sinks, live models, the online Proving ground, real vendors, Chrome's beta and dev channels, the benchmark. They keep their own tiers.
+- **The Release suite gates every merge**, through the merge queue. Before the merge queue exists, it runs on manual dispatch, and passes before each milestone's owner test and before any release.
+  _Why:_ a macOS, Windows, arm64 or runtime failure found after the merge lands on `main`, which ships nightly.
+
+### Commands
+
+- **Run `just quick` before every push.** `just hooks` installs an opt-in pre-push hook that does it.
+- **`just test <suite> [packages]`** runs one suite's tests without lints. CI jobs call it, and so can you.
+- **`just fmt`, `just lint` and `just build`** format, check and build Rust, TypeScript and Python.
+- **What changed comes from `xtask affected`**, in CI and locally. Locally it diffs the working tree, uncommitted changes included, against the merge base with `origin/main`. Rust selects through `rdeps(…)`, so dependants run too.
+- **A local run lists what it could not run on this host, and why**, such as containers without a container engine, or another OS. Its exit code covers what ran. CI is the verdict.
+- **`just release-ci` dispatches the Release suite on your pushed branch** and follows it to the end. It never reaches the reference host.
+
+### Time budgets
+
+Budgets are the median (p50) of the last 20 runs on `main` and in the merge queue, on GitHub-hosted runners with warm caches.
+
+| Suite | Where | Budget | Hard cap |
+|---|---|---|---|
+| Quick | Locally, one crate changed, incremental build | ≤ 60 s (guidance) | none |
+| Quick | CI, whole workspace | tests ≤ 2 min, job ≤ 10 min | 20 min |
+| Pre-merge | Pull request | "all green" ≤ 20 min, each job ≤ 15 min | 30 min per job |
+| Release | Merge queue | ≤ 60 min per group, each job ≤ 45 min | 90 min per job, 120 min for the queue |
+| Release | Nightly and release pipelines | each job ≤ 3 h | 5 h per job |
+
+- **Per-test caps stop hangs, never measure speed.** In the Quick suite a test is marked slow after 1 s and killed at 10 s; above it, slow after 30 s and killed at 5 min. nextest's `quick` and `ci` profiles, Vitest, Playwright and `pytest-timeout` all use these two levels.
+- **No run fails for being slow within its cap.**
+  _Why:_ wall time on shared runners varies by a few percent, so a one-run timing gate would be flaky.
+- **A breached budget opens an issue** through the nightly budget check, labelled `needs-triage`. Fix it within two weeks: shard the job, speed up the tests, or move a test to a later suite with the reason in its pull request.
+
+### Sharding, caching and reports
+
+- **Shards are deterministic:** nextest archives once per target and splits with `--partition hash:m/n`; Vitest and Playwright use `--shard`; pytest uses `pytest-xdist` inside one job. Never split by recorded timings.
+- **Caches save only from `main`** (`Swatinem/rust-cache`, the V8 build). pnpm's and uv's caches are keyed by their lockfiles. Chromium, images and released binaries are cached by digest.
+- **CI test builds use the `ci-test` Cargo profile** (`test` with `debug = "line-tables-only"`).
+- **Every run writes JUnit XML**, local or CI. Every CI job uploads it, pass or fail, as `junit-<suite>-<tier>-<os>-<arch>[-<runtime>]-<shard>`, and a failing job writes a summary of its failed tests to its page.

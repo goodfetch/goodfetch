@@ -419,3 +419,7 @@ _Avoid_: fixtures site, test site, sandbox, demo site
 **Size budget**:
 The largest size each released file of Goodfetch may reach on each platform, and the growth a single change may add without an explicit, recorded acceptance.
 _Avoid_: size limit (alone), quota, bloat check
+
+**Compatibility corpus**:
+The committed files, one frozen set per released version of each contract format, that every later engine of their major must read as that release wrote them.
+_Avoid_: golden files, legacy fixtures, test data (for these files)

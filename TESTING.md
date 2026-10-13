@@ -321,4 +321,6 @@ Decided in [ADR 0066](docs/adr/0066-upgrades-are-tested-from-a-frozen-corpus-and
 | Every test that needs released artifacts: the skew matrix, rolling upgrades, older engines, two majors, the Helm upgrade | Release |
 
 - **Tests that need released artifacts belong to the Release suite**, which the merge queue runs. Its nightly rerun and its run on each release's own bytes cover them; none is a nightly-only job.
-- **The skew matrix runs one job per older minor and per check.** A Release suite budget breach is fixed by sharding or speeding up, never by dropping a minor.
+- **Group each older minor's skew checks into as few jobs as fit the job budget.** One job per check exceeds the 20 concurrent jobs after two minors.
+- **Never drop a minor, and never move a skew check out of the merge queue.** A Release suite budget breach is fixed with fewer or faster jobs per minor, or with more concurrency or larger runners, a paid resource the owner approves.
+  _Why:_ the Release suite has no later suite to move to, and an untested minor decays.

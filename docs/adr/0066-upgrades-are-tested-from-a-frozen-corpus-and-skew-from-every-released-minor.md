@@ -150,8 +150,13 @@ A test fabricates a version by writing the header, or by sending its own `hello`
 
 - The Release suite runs in the merge queue, so every merge passes the whole skew matrix. Its rerun on `main` each night and its run on each release candidate's, stable release's and patch's own bytes cover the same checks. Nothing here is a nightly-only job.
 - None of these checks is a Live check: every version pair is a fixed, released artifact.
-- **The matrix grows with each minor, in parallel jobs.** The generator makes one job per older minor and per check: the five Clients, the two SDKs over stdio, the Console, the Browser host, Plugins, the two rolling-upgrade orders with their promotion and rollbacks, the Helm upgrade and the older-engine checks, about 14 jobs per minor. A new minor adds jobs, not time to an existing job, so the merge queue's wall time stays near that of its slowest job; the growth, about 13 minors a year, costs runner minutes and concurrency.
-- **When the Release suite breaches ADR 0061's merge-queue budget,** ADR 0061's breach rule applies: shard a job, or speed up its tests. Moving skew checks out of the merge queue, or testing only a sample of minors, reverses this decision and needs a new ADR.
+- **The matrix grows with each minor, and so does its wall time.** About 13 minors ship a year, and each brings about 14 checks: the five Clients, the two SDKs over stdio, the Console, the Browser host, Plugins, the two rolling-upgrade orders with their promotion and rollbacks, the Helm upgrade and the older-engine checks. ADR 0061 runs on the free plan's 20 concurrent jobs, so one job per check would exceed it after two minors. From then on, every added minor adds merge-queue time.
+- **Few jobs per minor.** The generator groups each older minor's checks into as few jobs as fit ADR 0061's 45-minute job budget: its artifacts are fetched and its Daemon started once per job. It splits a minor's job only when that job breaches its budget.
+- **When the Release suite breaches ADR 0061's merge-queue budget,** the levers are:
+  - fewer or faster jobs per minor;
+  - more concurrency or larger runners, a paid test resource the owner approves, as ADR 0061 treats the cache limit.
+
+  A minor is never dropped, and no skew check moves out of the merge queue: ADR 0061's "move a test to a later suite" does not apply, since the Release suite has none. Sampling minors or moving skew out of the merge queue reverses this decision and needs a new ADR.
 
 ## Considered Options
 
@@ -161,7 +166,7 @@ A test fabricates a version by writing the header, or by sending its own `hello`
 - **Hand-written fixtures:** rejected. They drift from what the writer emits, so every project above generates its fixtures.
 - **Binary SQLite fixtures:** rejected, apart from one Checkpoint file per version for its envelope. SQLite's file format has been stable since 3.0.0, and text dumps can be reviewed.
 - **Skew only before a release or only nightly:** rejected. A protocol change that breaks an older Client would then land on `main` before anyone sees it; the Release suite runs in the merge queue (ADR 0061).
-- **Skew tested on the last release only** (Stagehand) **or on a sample:** rejected. Docker's untested window decayed. Each minor adds parallel jobs, not merge-queue wall time (see Suites), and ADR 0061's breach rule handles a budget breach without dropping a minor.
+- **Skew tested on the last release only** (Stagehand) **or on a sample:** rejected. Docker's untested window decayed. The matrix's cost grows with each minor, and Suites names the levers that pay for it without dropping one.
 - **chart-testing's `ct install --upgrade` for the Helm upgrade:** rejected. It upgrades from the chart on the git target branch, not from a release, and tests only charts changed against that branch. It passes with "Skipping upgrade test" on a SemVer-breaking version bump, which is any minor bump of a `0.x` chart, or when no previous revision exists.
 - **A skew script written today:** rejected. It may call APIs the old Client lacks, and it checks today's expectations, not the old release's promise.
 - **A version override in the binary** (Playwright's `PW_VERSION_OVERRIDE`): rejected. ADR 0059 keeps test-only controls out of the shipped binary, and the conformance harness can send any `hello`.

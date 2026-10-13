@@ -47,8 +47,10 @@ Decided in [Test layout, naming, shared helpers and the test-first process](http
 - **Parameterized tests name every case:** rstest's `#[case::name]` in Rust, so nextest runs each case as its own test; Vitest's `test.for` with the case name in the title; pytest's `parametrize` with an `id` per case. A loop over cases inside one test is not allowed, since it stops at the first failure and hides the others.
 - **No mocking of owned code, enforced by tools:**
   - `cargo-deny` denies `mockall`, `mockito`, `wiremock`, `faux` and `mry`. httpmock stays allowed for true externals.
-  - oxlint's `vitest/no-restricted-vi-methods` refuses `vi.mock`, `vi.doMock` and `vi.spyOn`.
-  - ruff's `TID251` bans `unittest.mock` and `pytest_mock`.
+  - oxlint's `vitest/no-restricted-vi-methods` refuses at least `vi.mock`, `vi.doMock`, `vi.importMock`, `vi.mockObject`, `vi.spyOn` and `vi.stubGlobal`.
+  - ruff's `TID251` bans `unittest.mock`.
+  - pytest-mock is in no dependency group, which CI checks against `uv.lock`, since its `mocker` fixture needs no import that `TID251` could catch.
+  - The test-support pytest plugin fails the collection of any test that requests `monkeypatch` or `mocker`. Python code under test takes its environment and settings as values (ADR 0059), so no test patches them.
 
   A double is a written adapter at a seam: the in-memory adapter of the protocol for code that is remote but owned, and an adapter replaying recorded exchanges for true externals (`STYLE.md`'s four categories, which move to `TESTING.md`).
 
@@ -63,7 +65,7 @@ Decided in [Test layout, naming, shared helpers and the test-first process](http
   - commands with the cleared environment applied;
   - the shared snapshot redactions and filters.
 - **It depends on no Goodfetch crate.** It works on values only: paths, environment maps, seeds, addresses, processes and settings. A crate it depended on could not use it without two copies of that crate's types, and values are what ADR 0059 injects. Product crates list it only under `[dev-dependencies]`, which CI checks. It is a crate under `STYLE.md`'s second reason, since the compiler enforces its dependency direction.
-- **The test versions of `Clock` and `Entropy` belong to the handles' own interface.** Each is built by a named constructor, `Clock::paused(start)` and `Entropy::seeded(seed)`, in the crate that defines it. Neither needs a test-only dependency, since the paused version reads Tokio's clock, which only a test runtime pauses. `disallowed-methods` refuses both constructors, so each crate's tests opt in once with `#[expect(clippy::disallowed_methods, reason = "…")]`, and `main` builds only the system versions. The seed and the start time come from `goodfetch-test-support` as values.
+- **The test versions of `Clock` and `Entropy` belong to the handles' own interface.** Each is built by a named constructor, `Clock::paused(start)` and `Entropy::seeded(seed)`, in the crate that defines it. Neither adds a test-only dependency to the product crate, since the paused version reads Tokio's clock, which only a test runtime pauses; the tests that pause it need Tokio's `test-util` feature under `[dev-dependencies]`. `disallowed-methods` refuses both constructors, so each test module or integration-test root that calls them opts in with `#[expect(clippy::disallowed_methods, reason = "…")]` (`#![expect]` in `tests/it/main.rs`), never with a crate-wide or `cfg_attr(test, …)` attribute in product code. `main` builds only the system versions. The seed and the start time come from `goodfetch-test-support` as values.
 - **Setup is written once, in Rust.** `goodfetch-test-support` also builds a `goodfetch-test-env` executable. It prepares a test's folder, home and environment, starts what it is asked to (the Proving ground with a seed), and prints one JSON description: paths, the environment map, the seed and the addresses. It tears everything down when its standard input closes.
   - `@goodfetch/test-support`, a private pnpm package in `test-support/typescript/`, gives Vitest fixtures through `test.extend`.
   - `goodfetch-test-support`, a uv workspace package in `test-support/python/`, gives a pytest plugin registered through the `pytest11` entry point.
@@ -130,4 +132,7 @@ Decided in [Test layout, naming, shared helpers and the test-first process](http
 
   [Workspace skeleton and the "all green" pull-request check](https://github.com/Jbmanllr/automan/issues/132) creates the empty `test-support/` folder, the crate and the two packages, with these checks.
 - **[Deterministic simulation and crash testing for leases, fencing, groups and run state](https://github.com/Jbmanllr/automan/issues/275)** builds on `Clock::paused` and `Entropy::seeded`.
-- **The "Test infrastructure" spec** builds `goodfetch-test-support`, `goodfetch-test-env`'s JSON description and the two thin packages, and names the exact `just` recipes for snapshot updates. ADR 0059 already lists the helpers it holds.
+- **The "Test infrastructure" spec** builds `goodfetch-test-support`, `goodfetch-test-env`'s JSON description and the two thin packages, and names the exact `just` recipes for snapshot updates, with the other helpers ADR 0059 lists.
+- **Changes ADR 0059's last consequence.** The test `Clock` and the seeded `Entropy` are not test-support helpers: they are the handles' named constructors, `Clock::paused` and `Entropy::seeded`, in the crate that defines the handles. `goodfetch-test-support` supplies only their seed and start time.
+- **Adds to `STYLE.md`'s lint list:** `Clock::paused` and `Entropy::seeded` join `disallowed-methods`.
+- **Property tests:** parsers and stateful rules get property tests (`proptest` in Rust, `hypothesis` in Python), and their regression files are committed, as `TESTING.md` records.

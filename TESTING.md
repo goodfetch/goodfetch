@@ -15,7 +15,7 @@ How Goodfetch is tested: every surface, at every level. Each rule comes with its
 9. [Test-first process](#test-first-process)
 10. [Review checklist](#review-checklist)
 
-Sections 1 to 6, 9 and 10 are decided in [ADR 0062](docs/adr/0062-tests-sit-beside-their-code-and-share-one-test-support-written-once.md).
+Sections 1 to 7, 9 and 10 are decided in [ADR 0062](docs/adr/0062-tests-sit-beside-their-code-and-share-one-test-support-written-once.md).
 
 ## Levels and layout
 
@@ -61,8 +61,9 @@ A test's level is the seam it crosses, not its speed:
   _Why:_ a loop stops at the first failing case and hides the others; rstest makes each case its own nextest test.
 - **No mocking of owned code:**
   - `cargo-deny` denies `mockall`, `mockito`, `wiremock`, `faux` and `mry`;
-  - oxlint's `vitest/no-restricted-vi-methods` refuses `vi.mock`, `vi.doMock` and `vi.spyOn`;
-  - ruff's `TID251` bans `unittest.mock` and `pytest_mock`.
+  - oxlint's `vitest/no-restricted-vi-methods` refuses at least `vi.mock`, `vi.doMock`, `vi.importMock`, `vi.mockObject`, `vi.spyOn` and `vi.stubGlobal`;
+  - ruff's `TID251` bans `unittest.mock`;
+  - pytest-mock is in no dependency group (CI checks `uv.lock`), and the test-support pytest plugin fails the collection of any test that requests `monkeypatch` or `mocker`. Python code takes its environment and settings as values, so no test patches them.
 
   _Why:_ a mocked collaborator ties the test to the implementation.
 - **A flaky test is quarantined with an issue, never retried silently.**
@@ -84,7 +85,7 @@ How each dependency is injected is in [Injection and determinism](#injection-and
 - **Rust helpers live in `goodfetch-test-support`** (`crates/goodfetch-test-support`, `publish = false`): the per-test folder, `GOODFETCH_HOME` and cleared environment, the printed seed, unique names, reported addresses, the Proving ground started from a seed, commands with the cleared environment, and the shared snapshot redactions and filters.
 - **`goodfetch-test-support` depends on no Goodfetch crate**, and product crates list it only under `[dev-dependencies]`. CI checks both.
   _Why:_ a helper crate that depended on the crate under test would give that crate's tests two copies of its types; values are all ADR 0059 injects.
-- **The test versions of `Clock` and `Entropy` are `Clock::paused(start)` and `Entropy::seeded(seed)`**, in the crate that defines the handles. `disallowed-methods` refuses both; a crate's tests opt in once with `#[expect(clippy::disallowed_methods, reason = "…")]`, and `main` builds only the system versions. The seed and the start time come from `goodfetch-test-support`.
+- **The test versions of `Clock` and `Entropy` are `Clock::paused(start)` and `Entropy::seeded(seed)`**, in the crate that defines the handles. `disallowed-methods` refuses both; each test module or integration-test root that calls them opts in with `#[expect(clippy::disallowed_methods, reason = "…")]` (`#![expect]` in `tests/it/main.rs`), never with a crate-wide or `cfg_attr(test, …)` attribute in product code. `main` builds only the system versions. Tests that pause Tokio's clock enable its `test-util` feature under `[dev-dependencies]`. The seed and the start time come from `goodfetch-test-support`.
 - **TypeScript and Python reuse the Rust setup, never rewrite it.** The `goodfetch-test-env` executable of `goodfetch-test-support` prepares a test's folder, home and environment, starts what it is asked to, prints one JSON description (paths, environment map, seed, addresses), and tears everything down when its standard input closes.
   - `@goodfetch/test-support` (`test-support/typescript/`, private) gives Vitest fixtures through `test.extend`.
   - `goodfetch-test-support` (`test-support/python/`, never published) is a pytest plugin registered through `pytest11`.

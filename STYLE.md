@@ -67,7 +67,7 @@ The design vocabulary is the one of `codebase-design`: a **module** has an **int
 - **Edition 2024, a pinned toolchain in `rust-toolchain.toml`, and the MSRV of ADR 0030 tested in CI.**
 - **Warnings fail CI.** Clippy runs with `--all-targets --all-features`.
 - **Clippy `pedantic` is on as warnings**, with a short allow-list kept in `[workspace.lints]`.
-- **Time and order come from their handles:** `SystemTime::now`, `std::time::Instant::now`, `tokio::time::Instant::now` and library constructors that read their own clock or randomness (`Ulid::new`) are in `disallowed-methods` outside the `Clock` and `Entropy` modules, `std::env::var`, `var_os` and `vars` outside `main`, and `iter_over_hash_type` is denied (ADR 0059).
+- **Time and order come from their handles:** `SystemTime::now`, `std::time::Instant::now`, `tokio::time::Instant::now` and library constructors that read their own clock or randomness (`Ulid::new`) are in `disallowed-methods` outside the `Clock` and `Entropy` modules, `std::env::var`, `var_os` and `vars` outside `main`, and `iter_over_hash_type` is denied (ADR 0059). The handles' test constructors `Clock::paused` and `Entropy::seeded` are in `disallowed-methods` too, opted into only by test modules (ADR 0062).
   _Why:_ a test can then drive every clock the code reads, and hash order never reaches output.
 - **Denied:** `print_stdout` and `print_stderr`, `dbg_macro`, `todo`, `unimplemented`, `unwrap_used` (allowed in tests), `allow_attributes`, `allow_attributes_without_reason`, `clone_on_ref_ptr`, `exit` (outside `main`). `std::io::stdout` and `std::io::stderr` are in `disallowed-methods`.
 - **Only three writers touch stdout or stderr:** the protocol transport, the CLI's output writer (its human output, its `--json` output and its hints on stderr) and the `tracing` subscriber's writer (stderr or a file). Everything else logs through `tracing`.
@@ -116,7 +116,7 @@ For anything non-trivial, a known and widely used project is preferred to writin
 
 ### Tests
 
-Every test rule lives in [`TESTING.md`](TESTING.md): where tests live, how they are written and named, shared helpers, fixtures, snapshots, injection and determinism, and the test-first process (ADRs 0059 and 0062).
+The test rules live in [`TESTING.md`](TESTING.md), apart from Design's "Tests go through the interface", the secret-printing test under Logging and secrets, and each language's runner choices below: where tests live, how they are written and named, shared helpers, fixtures, snapshots, injection and determinism, and the test-first process (ADRs 0059 and 0062).
 
 ### Documentation in code
 

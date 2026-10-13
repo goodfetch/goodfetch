@@ -43,7 +43,7 @@ Decided in [Deterministic simulation and crash testing for leases, fencing, grou
     - The policy's exact shape is decided by the area 3 ticket that first adds blocking work to `tasks`, within these rules.
   - **The engine never builds its own runtime.** `tokio::runtime::Runtime::new`, `tokio::runtime::Builder::new_current_thread`, `tokio::runtime::Builder::new_multi_thread` and `#[tokio::main]` are allowed only in `main` and test helpers. `tokio::task::block_in_place`, which panics on a current-thread runtime, is in `disallowed-methods`.
   - **Third-party time hooks read the `Clock`**, such as rustls's `TimeProvider` for certificate expiry. The `tracing` subscriber's timer reads the `Clock` too, so traces carry simulated time and no real timestamps.
-  - **The Simulation builds with `--cfg tokio_unstable`**, so turmoil seeds each host's runtime randomness (`select!` order). The shipped binary does not, and neither do the other tests. The scenarios compile only under that cfg (`#[cfg(tokio_unstable)] mod simulation;` in `goodfetch-engine`'s `tests/it/main.rs`), in a nextest archive and CI job of their own with their own rust-cache key. That job counts against ADR 0061's Pre-merge budget of 15 min per job, and its cache is a Linux pull-request cache, saved by the cache-warming job, within the 10 GB priority of ADR 0061.
+  - **The Simulation builds with `--cfg tokio_unstable`**, so turmoil seeds each host's runtime randomness (`select!` order). The shipped binary does not, and neither do the other tests. The scenarios compile only under that cfg (`#[cfg(tokio_unstable)] mod simulation;` in `goodfetch-engine`'s `tests/it/main.rs`), in a nextest archive and CI job of their own with their own rust-cache key. That job runs only the `simulation` module (a nextest filter), so the other engine integration tests never run on a Tokio configuration production does not ship. That job counts against ADR 0061's Pre-merge budget of 15 min per job, and its cache is a Linux pull-request cache, saved by the cache-warming job, within the 10 GB priority of ADR 0061.
 - **Scenarios keep an Observation log** (each operation, its answer and each fault, in simulated time) and **invariant checkers** judge it:
   - **Fencing:** no output becomes visible under a stale lease epoch or run epoch, and every committed output is visible exactly once.
   - **One lead:** no two Daemons act as Lead Daemon under overlapping lead epochs, a Schedule fires at most once per occurrence, and one lead grants slices at a time.
@@ -71,7 +71,7 @@ Decided in [Deterministic simulation and crash testing for leases, fencing, grou
 
 - **A crash VFS** under SQLite, built with `sqlite-plugin` and modelled on SQLite's own crash VFS: it holds writes until a sync, and at a crash point either keeps unsynced writes (a process crash) or drops, tears or reorders them from the seed (a power cut). It then refuses every later I/O of the crashed instance. It also injects I/O errors and a full disk at chosen operations. `run_state`, the Usage ledger and the Politeness file take the VFS name as a value when they open a database; production passes none. It runs on every OS.
 - **LazyFS on Linux** under the real binary: the run folder and the Goodfetch home are mounted through it, the engine is killed, LazyFS's cache is cleared, and the run resumes. In default mode every acknowledged commit is present, and in both modes `integrity_check` passes, so fast mode loses commits but never corrupts.
-- **Real process crashes** on every OS (`kill -9`, `TerminateProcess`) of engines, Clients, sink processes and Script sandbox workers, at seeded moments chosen from observed protocol events.
+- **Real process crashes** on every OS (`kill -9`, `TerminateProcess`) of engines, Clients, sink processes and Script sandbox workers, at seeded moments chosen from observed protocol events. The moments come from the test process's own `Entropy`, whose seed `GOODFETCH_TEST_SEED` overrides (ADR 0063).
 - macOS's `fullfsync` reaching the drive is invisible to all of these, so a test asserts the pragma is set.
 
 ### No failpoints
@@ -111,14 +111,14 @@ Following ADR 0062's layout:
 
 ### Suites
 
-[ADR 0061](0061-three-test-suites-each-run-by-one-just-command-under-a-time-budget.md) defines three suites, Quick, Pre-merge and Release, each containing the one before; the Pre-merge suite runs on Linux and the Release suite on every platform of ADR 0024, in the merge queue, nightly on `main` and for every release. This decision places each check in a suite, and names the nightly-only jobs that explore new seeds. Those jobs are in no suite, but they are not Live checks (ADR 0064): every failure they find replays from its seed. They run in the nightly tier once ADR 0032 turns it on, and they repeat tests of normal length with new `GOODFETCH_TEST_SEED` values for the stated time, each test within ADR 0061's 5-minute kill, never one long test.
+[ADR 0061](0061-three-test-suites-each-run-by-one-just-command-under-a-time-budget.md) defines three suites, Quick, Pre-merge and Release, each containing the one before; the Pre-merge suite runs on Linux and the Release suite on every platform of ADR 0024, in the merge queue, nightly on `main` and for every release. This decision places each check in a suite, and names the nightly-only jobs that explore new seeds. Those jobs are in no suite, and they are not Live checks (ADR 0064). A failure in the deterministic layers (model-based tests, the Simulation, loom, TLC) replays from its seed. A failure in the real-process and Toxiproxy jobs is recorded with its seed and classified by ADR 0064's diagnostic run. They run in the nightly tier once ADR 0032 turns it on, and they repeat tests of normal length with new `GOODFETCH_TEST_SEED` values for the stated time, each test within ADR 0061's 5-minute kill, never one long test.
 
-**Model-based tests are unit tests, so they run in the Quick suite too:** `just test quick` runs them with 16 cases (`PROPTEST_CASES`), within the Quick suite's 10-second kill per test, and the Pre-merge suite raises the count to 256. Committed regressions replay in both.
+**Model-based tests are unit tests, so they run in the Quick suite too,** with 16 cases, within its 10-second kill per test. A Pre-merge job of its own reruns them on Linux at 256 cases, selected by a nextest filter. The rerun counts against ADR 0061's Pre-merge budget. Committed regressions replay in both. The count is set per test: these tests take a `ProptestConfig` that `goodfetch-test-support` builds for the suite `just test` runs. The global `PROPTEST_CASES` is never set, so every other property test keeps its count.
 
 | Check | Quick | Pre-merge | Release | Nightly-only job |
 |---|---|---|---|---|
 | Pure time rules, proptest of decision logic | yes | yes | yes | |
-| Model-based tests with the crash VFS | 16 cases and committed regressions | 256 cases and committed regressions | as Pre-merge, every OS | random seeds, 1 h |
+| Model-based tests with the crash VFS | 16 cases and committed regressions | own job: 256 cases and committed regressions | as Pre-merge, every OS | random seeds, 1 h |
 | Simulation (own `tokio_unstable` job) | | committed Fault plans, 16 seeds per scenario, determinism check on 4 seeds, within 10 min | as Pre-merge | random seeds, 2 h |
 | loom | | changed crates, 2 preemptions, within 10 min | every crate, 2 preemptions | every crate, 3 preemptions |
 | TLC | | when a model or a traced module changes: small constants and trace validation of the Simulation's traces, within 10 min | every model, small constants | larger constants, 2 h |
@@ -127,7 +127,7 @@ Following ADR 0062's layout:
 | Toxiproxy cut-offs and partitions | | fixed seeds (Valkey runs on Linux) | yes | random seeds |
 | `kind` lead scenarios | | | Linux x64 | |
 
-A failure in a nightly-only job is a bug, not flakiness, and no release candidate is cut while one is open. A breached budget is fixed as ADR 0061 says: shard the job, speed up the tests, or move a test to a later suite. Case counts and seeds are never lowered and scenarios never removed to fit.
+A failure in a deterministic nightly-only job is a bug, not flakiness. A real-process or Toxiproxy failure goes through ADR 0064's diagnostic run and, if flaky, its quarantine; the reproduction of Regressions rule 3 is still owed when it does not reproduce. No release candidate is cut while either kind is open. A breached budget is fixed as ADR 0061 says: shard the job, speed up the tests, or move a test to a later suite. Case counts and seeds are never lowered and scenarios never removed to fit.
 
 ### Regressions
 

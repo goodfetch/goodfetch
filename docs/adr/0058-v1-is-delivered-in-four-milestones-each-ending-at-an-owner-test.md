@@ -42,6 +42,7 @@ Every V1 capability stays in V1 (ADR 0037); the milestones order the work, they 
 
 **Gates.**
 - Each of M1, M2 and M3 ends with a `ready-for-human` testing issue listing how to install from a local build on macOS and Linux. It is ready once it is the only open issue of its milestone; the frontier skips `ready-for-human` issues, so no agent takes it, and no ticket of the next milestone starts until the owner closes it.
+  > Amended by [ADR 0063](0063-end-to-end-tests-follow-a-catalog-of-numbered-journeys-kept-in-the-repository.md): it is ready only when every automated variant of its milestone is also `proved` on `main`.
 - M4 ends at the release gates of ADRs 0030 and 0032.
 - Nothing is published before M4, on any channel; the owner tests from local builds. **Changes ADRs 0030, 0032 and 0057:** the nightly channel (npm `nightly`, GitHub pre-releases, the nightly Python index, the OCI `nightly` tag) and the `0.y` previews start in M4.
 - Between gates, delivery stays autonomous under AGENTS.md.

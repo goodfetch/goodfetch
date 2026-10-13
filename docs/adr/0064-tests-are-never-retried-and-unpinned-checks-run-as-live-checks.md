@@ -11,7 +11,7 @@ The owner asked for "no flaky tests and no retries". `STYLE.md` said "A flaky te
 
 Decided in [Flakiness policy and checks that are non-deterministic by nature](https://github.com/Jbmanllr/automan/issues/280), on the facts of [Flaky tests without retries](https://github.com/Jbmanllr/automan/issues/270) ([findings](https://github.com/Jbmanllr/automan/blob/research/flaky-tests/rnd/research/2026-10-13-flaky-tests.md)), [Rust test tooling in 2026](https://github.com/Jbmanllr/automan/issues/263), [Testing AI features without flaky tests](https://github.com/Jbmanllr/automan/issues/268) and [Performance regression testing in CI](https://github.com/Jbmanllr/automan/issues/272). The rules every test follows are in `TESTING.md`.
 
-The suites are the Quick, Pre-merge and Release suites, each containing the one before, run in the CI tiers of ADR 0032 (pull request, merge queue, nightly, release pipeline), as [Test suites, local commands and time budgets](https://github.com/Jbmanllr/automan/issues/276) defines them. This ADR uses those names and decides none of them.
+The suites are the Quick, Pre-merge and Release suites, each containing the one before, run in the CI tiers of ADR 0032 (pull request, merge queue, nightly, release pipeline), as [ADR 0061](0061-three-test-suites-each-run-by-one-just-command-under-a-time-budget.md) defines them. This ADR uses those names and decides none of them.
 
 ## Decision
 
@@ -47,7 +47,7 @@ The suites are the Quick, Pre-merge and Release suites, each containing the one 
   - nextest: no shuffle exists, and each test runs in its own process.
   - The seed comes from the tree hash of the commit under test in every run but one, so the same tree always runs in the same order: in the merge queue, that is the tree that becomes `main`'s head. The constrained test-health run (below) takes a fresh seed. Either seed can be passed to reproduce an order.
 - **Shared state is reset by the runner:** Vitest `restoreMocks`, `unstubEnvs` and `unstubGlobals` are on, since shared mocking state is the main cause of order dependence found in JavaScript (Hashemi et al. 2025).
-- **Leaks and hangs fail:** nextest's leaky-test result is `fail`, every test has the hang timeout of its suite (set by [Test suites, local commands and time budgets](https://github.com/Jbmanllr/automan/issues/276)), and the constrained test-health run (below) runs the Vitest tests of the Pre-merge suite with `detectAsyncLeaks`.
+- **Leaks and hangs fail:** nextest's leaky-test result is `fail`, every test has the hang timeout of its suite (set by [ADR 0061](0061-three-test-suites-each-run-by-one-just-command-under-a-time-budget.md)), and the constrained test-health run (below) runs the Vitest tests of the Pre-merge suite with `detectAsyncLeaks`.
 - **No test asserts elapsed real time, a rate or a duration.** Those are measurements, decided by [Performance regression testing](https://github.com/Jbmanllr/automan/issues/284).
 
 ### After merge: the results store and flaky-test detection

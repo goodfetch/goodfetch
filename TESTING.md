@@ -15,6 +15,8 @@ How Goodfetch is tested: every surface, at every level. Each rule comes with its
 9. [Flaky tests and Live checks](#flaky-tests-and-live-checks)
 10. [Test-first process](#test-first-process)
 11. [Review checklist](#review-checklist)
+12. [Suites, commands and time budgets](#suites-commands-and-time-budgets)
+13. [AI features and agent skills](#ai-features-and-agent-skills)
 
 Sections 1 to 7, 10 and 11 are decided in [ADR 0062](docs/adr/0062-tests-sit-beside-their-code-and-share-one-test-support-written-once.md).
 
@@ -80,7 +82,7 @@ A module is tested according to the kind of dependency it has, using the four ca
 - **Local-substitutable** (a real local stand-in exists): SQLite in a temporary file; a real Chromium (the Goodfetch build of ADR 0035) against Proving ground pages served locally. CDP is never mocked.
   _Why:_ a fake browser lets tests pass where a real one fails, which is the false success ADR 0025 measures.
 - **Remote but owned** (Goodfetch's own processes across a boundary: sink processes, process Plugins, the Daemon): the logic is tested through an in-memory adapter of the protocol, and the real processes through the conformance suites.
-- **True external** (model providers, CAPTCHA services): a mock adapter replaying recorded exchanges. httpmock is the HTTP mock for this.
+- **True external** (model providers, CAPTCHA services): a stand-in adapter. For Model providers, the Scripted model in-process, Model recordings replayed by `httpmock` at the adapter's base URL (matched on the body, secrets removed by an allowlist), and the Proving ground's Fake model end to end; no test calls a live model ([AI features and agent skills](#ai-features-and-agent-skills), ADR 0065).
 
 How each dependency is injected is in [Injection and determinism](#injection-and-determinism).
 
@@ -190,7 +192,7 @@ Decided in [ADR 0059](docs/adr/0059-dependencies-are-injected-as-values-and-only
 
 ## Flaky tests and Live checks
 
-Decided in [ADR 0064](docs/adr/0064-tests-are-never-retried-and-unpinned-checks-run-as-live-checks.md). The Quick, Pre-merge and Release suites and the CI tiers are those of [Test suites, local commands and time budgets](https://github.com/Jbmanllr/automan/issues/276).
+Decided in [ADR 0064](docs/adr/0064-tests-are-never-retried-and-unpinned-checks-run-as-live-checks.md). The Quick, Pre-merge and Release suites and the CI tiers are those of [ADR 0061](docs/adr/0061-three-test-suites-each-run-by-one-just-command-under-a-time-budget.md).
 
 ### What is a test
 
@@ -271,3 +273,148 @@ The fresh review of a pull request checks its tests against this list:
 8. Snapshots are redacted, cover structured output, and every change to one is intended.
 9. Fixtures are under 256 KiB, and generated ones have their `.source.toml` file.
 10. No helper is duplicated; shared setup is in test support.
+
+## Suites, commands and time budgets
+
+Decided in [ADR 0061](docs/adr/0061-three-test-suites-each-run-by-one-just-command-under-a-time-budget.md).
+
+### The three suites
+
+Each suite runs everything the suite before it runs.
+
+| Suite | What it adds | Command | Runs in CI |
+|---|---|---|---|
+| Quick | Format and lint checks; in-process tests of what changed (Rust unit tests in `src/`, never `tests/it`); the committed format fixtures; `xtask codegen --check` and `xtask affected`'s own tests | `just quick` (`just quick all` for everything) | First job of every pull request, over the whole workspace |
+| Pre-merge | The `tests/it` of every touched crate and its dependants; conformance on the local Proving ground; touched Sinks against their containers (every Sink until the merge queue exists, ADR 0032); touched SDKs, adapters and Integrations on one runtime; the Console on Chromium; docs examples; ADR 0032's static checks | `just pre-merge` (`just pre-merge all`) | Every pull request, on Linux |
+| Release | Everything, for every package, on the full matrix of ADR 0024; deployment-target smoke runs; tests that need released binaries | `just release` (this host's cell), `just release-ci` (the whole matrix on CI) | Merge queue, nightly, every release |
+
+- **A Quick-suite test starts no process, browser or container and binds no socket.** Anything that does is a `tests/it` test, or its runner's equivalent.
+  _Why:_ the Quick suite is what you run after every edit, so it must stay seconds long.
+- **Checks that are non-deterministic by nature are in no suite**: real SaaS Sinks, live models, the online Proving ground, real vendors, Chrome's beta and dev channels, the benchmark. They keep their own tiers.
+- **The Release suite gates every merge**, through the merge queue. Before the merge queue exists, it runs on manual dispatch, and passes before each milestone's owner test and before any release.
+  _Why:_ a macOS, Windows, arm64 or runtime failure found after the merge lands on `main`, which ships nightly.
+
+### Commands
+
+- **Run `just quick` before every push.** `just hooks` installs an opt-in pre-push hook that does it.
+- **`just test <suite> [packages]`** runs one suite's tests without lints. CI jobs call it, and so can you.
+- **`just fmt`, `just lint` and `just build`** format, check and build Rust, TypeScript and Python.
+- **What changed comes from `xtask affected`**, in CI and locally. Until it exists, `just quick` and `just pre-merge` run over the whole workspace. Locally it diffs the working tree, uncommitted changes included, against the merge base with `origin/main`. Rust selects through `rdeps(…)`, so dependants run too.
+- **A local run lists what it could not run on this host, and why**, such as containers without a container engine, or another OS. Its exit code covers what ran. CI is the verdict.
+- **`just release-ci` dispatches the Release suite on your pushed branch** and follows it to the end. It never reaches the reference host.
+
+### Time budgets
+
+Budgets are the median (p50) of a job's last 20 runs in its own tier, on GitHub-hosted runners with warm caches: pull-request runs for Quick and Pre-merge; merge-queue runs (manual-dispatch runs while the repository is private), nightly and release runs for Release.
+
+| Suite | Where | Budget | Hard cap |
+|---|---|---|---|
+| Quick | Locally, one crate changed, incremental build | ≤ 60 s (guidance) | none |
+| Quick | CI, whole workspace | tests ≤ 2 min, job ≤ 10 min | 20 min |
+| Pre-merge | Pull request | "all green" ≤ 20 min, each job ≤ 15 min | 30 min per job |
+| Release | Merge queue | ≤ 60 min per group, each job ≤ 45 min | 90 min per job, 120 min for the queue |
+| Release | Nightly and release pipelines | each job ≤ 3 h | 5 h per job |
+
+- **Per-test caps stop hangs, never measure speed.** In the Quick suite a test is marked slow after 1 s and killed at 10 s; above it, slow after 30 s and killed at 5 min. nextest's `quick` and `ci` profiles, Vitest, Playwright and `pytest-timeout` all use these two levels.
+- **No run fails for being slow within its cap.**
+  _Why:_ benchmark suites on shared runners vary by about 2.7% run to run (CodSpeed's measurement), and whole jobs vary more, so a one-run timing gate would be flaky.
+- **A breached budget opens an issue** through the budget check, run nightly and after every manual-dispatch Release run, labelled `needs-triage`. Fix it within two weeks: shard the job, speed up the tests, or move a test to a later suite with the reason in its pull request.
+- **A stress run of new and changed tests, if the pull-request tier runs one, counts against the Pre-merge budget.** Shard it to fit; never lower its run count to meet a budget.
+
+### Sharding, caching and reports
+
+- **Shards are deterministic:** nextest archives once per target and splits with `--partition hash:m/n`; Vitest and Playwright use `--shard`; pytest uses `pytest-xdist` inside one job. Never split by recorded timings.
+- **Caches save only from `main`**: a cache-warming job on every push to `main` builds without testing and saves `Swatinem/rust-cache`, the V8 build, pnpm's and uv's caches (keyed by their lockfiles); the nightly and manual-dispatch Release runs save the other targets'. The merge queue saves none, since pull requests can't restore its caches. Chromium, images and released binaries are cached by digest.
+- **The warming job shares the pull-request jobs' rust-cache `shared-key` and profiles.** Linux pull-request caches take priority within GitHub's 10 GB; raising it is a paid resource the owner approves.
+- **CI test builds use the `ci-test` Cargo profile** (`test` with `debug = "line-tables-only"`).
+- **Every run writes JUnit XML**, local or CI. Every CI job uploads it, pass or fail, as `junit-<suite>-<tier>-<os>-<arch>[-<runtime>]-<shard>`, and a failing job writes a summary of its failed tests to its page.
+
+## AI features and agent skills
+
+Decided in [ADR 0065](docs/adr/0065-ai-features-are-tested-without-live-models-and-measured-by-oracle-graded-evaluations.md). Suites are the Quick, Pre-merge and Release suites of [ADR 0061](docs/adr/0061-three-test-suites-each-run-by-one-just-command-under-a-time-budget.md); Live checks are those of [ADR 0064](docs/adr/0064-tests-are-never-retried-and-unpinned-checks-run-as-live-checks.md), in no suite. A **live model** is one a provider serves and Goodfetch doesn't pin (a cloud model, directly or through a gateway); a pinned local model on a pinned server is a test input.
+
+### Stand-ins for a model
+
+| Layer | Stand-in | Suite |
+|---|---|---|
+| In-process AI logic | the Scripted model | Quick |
+| Each adapter's wire format | Model recordings replayed by `httpmock` at the adapter's base URL | Pre-merge |
+| The binary, journeys, AI end to end | the Proving ground's Fake model, in all three formats | Pre-merge |
+| SDK code that calls a model | a model callback registered through the SDK handler | Pre-merge |
+| Local model servers | the real server, pinned, with a pinned small model | Release (Linux cell) |
+
+- **No test of an AI feature calls a live model.** Only the Live checks below reach one.
+  _Why:_ providers no longer offer determinism: current Anthropic models refuse `temperature`, Gemini ignores it, and OpenAI's `seed` is best effort.
+- **The Scripted model fails on a call beyond its script and on unused steps.** Script errors and faults as replies, and assert on the requests it recorded.
+- **AI journeys name the Fake model as their Model provider.** Ask it for faults (rate limit, overload, timeout, cut stream, malformed JSON, refusal, wrong but plausible answer) through the task, never through a test-only switch in the binary.
+- **Check Usage against the Fake model's own token count.**
+
+### What an AI test asserts
+
+- **Assert outcomes Goodfetch owns:** the Success check result, Grounding, the Plan file, the Effect journal, the Record, the Error code, Usage, what the oracle saw. Never a model's wording.
+- **Never rely on temperature or a seed for determinism.**
+- **Snapshot the whole request each AI operation sends, per format, with `insta`** (Quick). A prompt or tool-description change then shows as a reviewed diff.
+
+### Model recordings
+
+- **Record each cell of the matrix:**
+  - per format on the direct provider: text, tool call and result turn, parallel tool calls, structured output, streaming of each, usage (cached and reasoning tokens), prompt caching, search grounding, image input, and the errors the engine branches on;
+  - the named gateways, for the OpenAI-compatible format;
+  - each hosted Decision provider (Jev, OpenAI's Decisions API): a choice, an abstention, a low-confidence choice, and its errors.
+
+  A missing cell fails a Quick check.
+- **Match on method, path and the canonical JSON body.** An unmatched request fails, and so does an unused recording.
+  _Why:_ matching on the path alone replays a stale answer to a changed request.
+- **Replay each stream whole and re-cut at seeded boundaries.** The stream parsers also have `proptest` and a fuzz target.
+- **Keep only allowlisted headers at write time:** `content-type`, the version and beta headers the adapter sends, `retry-after` and the rate-limit headers the adapters read. Remove key query parameters, and replace request and organization IDs. A Quick check fails on anything else, or on anything shaped like a provider key.
+- **Record only against Proving ground pages and tasks.**
+- **Refresh on cause:** a changed request, a provider-check report, or 30 days before a manifest model's retirement. Use the recorder job, which opens a pull request, and review the diff. Never refresh on a timer or automatically.
+- **Write faults that aren't worth recording as explicit `httpmock` stubs**, marked as synthetic.
+
+### Pinned local models and the in-engine model
+
+- **llama.cpp server and Ollama run in the Release suite's Linux cell**, each at a pinned version with a pinned small model downloaded by digest before ADR 0043's deny, with the dependency installs. vLLM joins them on its CPU build where it can serve the model.
+  - Assert protocol behaviour only.
+  - Send every sampling parameter the engine relies on.
+  - Record the server version and model digest.
+- **In the release pipeline**, every model on ADR 0012's tested list runs the same tests. vLLM runs there on a GPU host if its CPU build can't serve the model; that host is a paid resource the owner approves. LM Studio runs there where a runner supports its headless server.
+- **The in-engine Decision provider model is checked on a labelled set with a margin:** on Linux in the Pre-merge suite, and on every OS in the Release suite. Never compare confidences exactly.
+
+### Live checks that reach live models
+
+- **The provider check runs nightly and compares shapes, never content.** It covers fields, types, stream events, error bodies and the headers adapters read, for every recorded cell: direct providers, gateways and hosted Decision providers. A difference opens or updates its `live-check` issue.
+- **Every live job has its own credentials with a hard cap outside Goodfetch**: an Anthropic workspace spend limit, a gateway key limit, or a provider project budget that stops calls.
+- **Every live job stops itself at its per-run cap.** The engine's runs use a currency Limit, Claude Code uses `maxBudgetUsd`, Codex uses a capped key, and the provider check and recorder compute their worst case before starting. Each job prints its worst case first.
+- **Coding agents in live jobs make no other calls:** Claude Code runs with `CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1`, and Codex with its update check and analytics turned off.
+  _Why:_ the job reaches only its named model hosts, and ADR 0043's deny refuses anything else.
+- **Live jobs stay disabled until the owner approves the budget in ADR 0065.** Fork pull requests never receive model keys.
+
+### Evaluations
+
+- **Evaluations are `bench/` campaigns on the local Proving ground**, never tests. They come in three sizes: pull-request (only for changes to prompts, request snapshots, catalog descriptions or skills), nightly (plus a weekly run on larger models), and ADR 0025's release benchmark.
+- **The oracle grades every trial.** No model grades an Evaluation. Record the engine's Success check and Grounding results beside the oracle's verdict.
+- **Run 3 trials per task and model** at the pull-request and nightly sizes, each from a clean Goodfetch home. Every trial counts.
+- **Report** the verified rate with its 95% Wilson interval, pass^3, false successes, safety violations, tokens and dollars per verified result, and the Success check and Grounding disagreements with the oracle. State the bound that "zero" can claim at the trial count (about 3/*n*).
+- **A false success or a safety violation fails an Evaluation at any size** and blocks the next release candidate as a correctness failure.
+- **The regression rule** is the mean over tasks of the paired difference in verified rate against the last accepted baseline on the same models. The difference is in percentage points (never a log ratio), with a block-bootstrap interval. It fails only when the interval's upper bound is below −Δ. An inconclusive result is reported, never a failure.
+- **Δ is proposed at 10 points and waits for the owner's approval.** Until then, a regression opens or updates a `live-check` issue and blocks no release candidate.
+- **A task joins its regression set at pass^3 ≥ 0.9 on every nightly model for five nights.** Add harder tasks once a regression set passes everything for 30 nights. Add a task for every AI bug fixed.
+- **The pull-request size uses development seeds; nightly and release use held-out seeds.**
+  _Why:_ prompts tuned on the tasks that judge them overfit.
+- **Pin models in the manifest, and run old and new side by side for five nights before dropping one.** Record the model, any fingerprint the provider returns, the gateway, the local server's version and digest, the commit, the seed and the prompt snapshot hashes.
+
+### Agent skills and tool descriptions
+
+- **Skills are checked with no model:**
+  - in Quick, `xtask codegen --check` and the Agent Skills frontmatter limits;
+  - in Pre-merge, a check that every operation, command and option they name exists in the catalog, and a run of every example command against the local Proving ground, checked by the oracle.
+- **If area 11 ships the skills as a Claude Code plugin, run `claude plugin validate --strict`** at a pinned version in Pre-merge.
+- **Skill Evaluations run the CLI with and without the skills**, through promptfoo, on Claude Code (small, mid and large models) and Codex. The oracle grades; `skill-used` is a signal. Open an issue on any skill that doesn't beat its baseline on some model.
+- **Snapshot the catalog's MCP projection per profile** (Quick). Keep each description at most 2,048 characters, and record each profile's total tool-definition size in the snapshot.
+- **The tool-selection Evaluation checks a model's first tool call without executing it.**
+
+### Manual tests
+
+- **After a confirmed Evaluation regression, read the failed trials' Run traces** before accepting or fixing it.
+  _Why:_ only a person can tell a wrong grade or a new failure mode from a real regression.
+- **LM Studio**, where no CI runner can host its headless server: run the tested-list cases by hand before each release.

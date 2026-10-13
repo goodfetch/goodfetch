@@ -429,7 +429,7 @@ A check of Goodfetch against something it does not pin, such as a vendor, a real
 _Avoid_: monitor, flaky test, informing job, canary (for a Live check)
 
 **Proving ground**:
-The website Goodfetch owns and generates, whose every page has a known expected result, against which the benchmark and the conformance suites run.
+The website Goodfetch owns and generates, whose every page has a known expected result, against which the benchmark, the Evaluations, the conformance suites and the Journeys run.
 _Avoid_: fixtures site, test site, sandbox, demo site
 
 **Evaluation**:
@@ -448,9 +448,21 @@ _Avoid_: mock model, fake (alone)
 A real exchange with a Model provider, recorded once with its secrets removed, that tests replay in place of the provider.
 _Avoid_: cassette, fixture (alone), snapshot
 
+**Proving ground task**:
+One thing the Proving ground asks a tool to do on one page family, with its starting URL and the expected result its oracle judges against. Called a task where the Proving ground is already the subject.
+_Avoid_: fixture, test case
+
+**Journey**:
+A goal a person reaches through Goodfetch's public surfaces, written as steps from a starting state to an outcome checked from outside the engine, kept under a stable ID and run on each surface that offers it.
+_Avoid_: scenario, user story, critical user journey, flow, end-to-end test (for the Journey itself)
+
 **Size budget**:
 The largest size each released file of Goodfetch may reach on each platform, and the growth a single change may add without an explicit, recorded acceptance.
 _Avoid_: size limit (alone), quota, bloat check
+
+**Compatibility corpus**:
+The committed files of each contract format: those its current version writes, and one frozen set per released version, which every later engine of that major must read as the release wrote them.
+_Avoid_: golden files, legacy fixtures, test data (for these files)
 
 **Quick suite**:
 The tests and checks of Goodfetch that run in-process, on what a change touches or on everything, run after every edit.

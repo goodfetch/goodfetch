@@ -1,12 +1,12 @@
 # AI features are tested without live models, and measured by Evaluations the oracle grades
 
-No test of an AI feature calls a live model. A **live model** here is one a provider serves and Goodfetch doesn't pin: a cloud model, reached directly or through a gateway. A local model at a pinned digest on a pinned server is a test input, not a live model. Goodfetch's AI features (Plans and Repair, `act` and `observe`, AI extraction, Success checks, the Agent loop, Code mode, Decision providers) and its agent skills are tested against three stand-ins: a **Scripted model** in-process, the Proving ground's **Fake model** over the wire, and **Model recordings** of real provider traffic replayed at each adapter's base URL. Live models are reached only by Live checks (ADR 0064): a provider check, a recorder, and **Evaluations**, which measure each AI capability on Proving ground tasks, graded by the Proving ground's oracle and never by a model, under ADR 0025's statistics.
+No test of an AI feature calls a live model. A **live model** here is one a provider serves and Goodfetch doesn't pin: a cloud model, reached directly or through a gateway. A local model at a pinned digest on a pinned server is a test input, not a live model. Goodfetch's AI features (Plans and Repair, `act` and `observe`, AI extraction, Success checks, the Agent loop, Code mode, Decision providers) and its agent skills are tested against three stand-ins: a **Scripted model** in-process, the Proving ground's **Fake model** over the wire, and **Model recordings** of real provider traffic replayed at each adapter's base URL. Live models are reached only by Live checks (ADR 0064, pending in [Flakiness policy and checks that are non-deterministic by nature](https://github.com/Jbmanllr/automan/issues/280)): a provider check, a recorder, and **Evaluations**, which measure each AI capability on Proving ground tasks, graded by the Proving ground's oracle and never by a model, under ADR 0025's statistics.
 
 Every framework surveyed tests its own logic with a scripted model and no network: the Vercel AI SDK's `MockLanguageModelV4`, LangChain's fake chat models, the OpenAI Agents SDK's `ScriptedModel`, Pydantic AI's `TestModel`. None of the Vercel AI SDK, OpenAI Agents SDK, Anthropic SDK or Skyvern CI passes a real model key. Wire formats are tested against responses recorded once: the AI SDK serves real-response fixtures from a local server, Pydantic AI fails a test whose cassette was only partly used, and LangChain replays its cassettes playback-only on every pull request, matching on the body. Recorders that patch HTTP clients break: vcrpy's default matching ignores the body, and Anthropic's SDK v1 warns that vcrpy and respx "can silently fail". Determinism can't come from the providers: current Anthropic models return 400 on a non-default `temperature`, Gemini ignores its sampling parameters from 3.6 Flash, and OpenAI's `seed` is best effort. LLM judges agree with people only partly (Online-Mind2Web), and ADR 0013 never lets a model alone judge success.
 
 Decided in [Testing AI features and agent skills](https://github.com/Jbmanllr/automan/issues/281), answered by the agent on the owner's delegation, on the facts of [Testing AI features without flaky tests](https://github.com/Jbmanllr/automan/issues/268) ([findings](https://github.com/Jbmanllr/automan/blob/research/ai-testing/rnd/research/2026-10-13-ai-testing.md)) and [Testing MCP, framework adapters, Integrations and agent skills](https://github.com/Jbmanllr/automan/issues/267) ([findings](https://github.com/Jbmanllr/automan/blob/research/agent-surface-testing/rnd/research/2026-10-13-agent-surface-testing.md)). The rules every test follows are in `TESTING.md`.
 
-The suites are the **Quick**, **Pre-merge** and **Release** suites of ADR 0061, each containing the one before, and the CI tiers are ADR 0032's: pull request, merge queue (which runs the Release suite), nightly and the release pipeline. Live checks are in no suite (ADR 0064).
+The suites are the **Quick**, **Pre-merge** and **Release** suites of ADR 0061 (pending in [Test suites, local commands and time budgets](https://github.com/Jbmanllr/automan/issues/276)), each containing the one before, and the CI tiers are ADR 0032's: pull request, merge queue (which runs the Release suite), nightly and the release pipeline. Live checks are in no suite (ADR 0064).
 
 ## Decision
 
@@ -150,14 +150,14 @@ Each is a Live check of ADR 0064, owned by area 9, with the placement below.
 
 ## Consequences
 
-- **Amends `STYLE.md`.** Its "True external" testing category now names the stand-ins for Model providers: the Scripted model in-process, Model recordings for wire formats, the Fake model end to end. The rules are in `TESTING.md`.
+- **Amends `TESTING.md`'s Dependencies in tests (ADR 0062).** Its "True external" category now names the stand-ins for Model providers: the Scripted model in-process, Model recordings for wire formats, the Fake model end to end. The rules are in its AI features and agent skills section.
 - **Amends ADR 0043.** Its list of jobs that may reach named endpoints gains these jobs, each reaching only the API hosts of the Model providers, gateways and hosted Decision providers it names:
   - the provider check;
   - the recorder;
   - the pull-request, nightly and weekly Evaluations;
   - the skill Evaluations.
 
-  Their Proving ground is the local copy, under the deny. A one-line note marks the list.
+  Their Proving ground is the local copy, under the deny. Claude Code runs with `CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1` and Codex with its update check and analytics turned off, so neither calls a host the job doesn't name. Pinned model weights are fetched before the deny, with the dependency installs. A one-line note marks the list.
 - **Adds to ADR 0032.** The pull-request tier runs the pull-request Evaluation on prompt-affecting paths. The nightly tier runs the provider check, the Evaluations and their weekly run. The release pipeline runs the tested local models, and vLLM or LM Studio where they need it. While the repository is private, ADR 0032 keeps its nightly tier off and runs its full matrix on manual dispatch, so these nightly Live checks also run on manual dispatch. The pull-request Evaluation runs in the pull-request tier, which runs while the repository is private, once the owner approves the budget.
 - **Adds to ADR 0025.** Its AI use cases become campaigns that also run at the pull-request and nightly sizes, under its oracle, statistics and three views. A false success found at any size blocks the next release candidate as a correctness failure. A regression blocks it only once the owner approves the Evaluations' Δ.
 - **Adds to ADR 0012.** Every adapter takes a base URL. The engine sends every sampling parameter it relies on to local servers. The tested list of local models is what the release pipeline's local-model run passes.
@@ -185,5 +185,6 @@ Each is a Live check of ADR 0064, owned by area 9, with the placement below.
   - whether `httpmock`'s playback enforces body matching (if not, each exchange is registered as an `httpmock` mock with a JSON body matcher);
   - whether OpenAI's and Google's project budgets stop calls;
   - LM Studio's headless server on CI runners;
-  - vLLM's CPU build.
+  - vLLM's CPU build;
+  - that Claude Code and Codex, so configured, reach no host but the named model hosts.
 - **Spend waits for the owner:** the budget and Δ. Until the budget is approved, only the model-free layers run.

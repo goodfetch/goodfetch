@@ -113,3 +113,4 @@ Any test can run beside any other:
 - **ADRs 0003, 0036 and 0051 are unchanged in behaviour.** Their time rules become pure functions over a reading, and their live clocks stay where they are decided.
 - **[Engine tracer: an Attached engine answers `hello` over stdio](https://github.com/Jbmanllr/automan/issues/214)** starts its engine with a per-test `GOODFETCH_HOME` and a cleared environment. The `Clock` and `Entropy` arrive with the first code that reads time or chooses at random.
 - **The "Test infrastructure" spec** builds the shared helpers: the test `Clock`, the seeded `Entropy`, the per-test home and environment, the port report, and the CI setup of `gnome-keyring` and `lo0` aliases.
+  > Amended by [ADR 0062](0062-tests-sit-beside-their-code-and-share-one-test-support-written-once.md): the test `Clock` and seeded `Entropy` are the handles' named constructors, not test-support helpers.

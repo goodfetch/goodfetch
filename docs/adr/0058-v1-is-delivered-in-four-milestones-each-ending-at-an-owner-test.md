@@ -36,7 +36,7 @@ Every V1 capability stays in V1 (ADR 0037); the milestones order the work, they 
   - framework adapters, Integrations, Notifications and the HTTP listener of ADR 0027;
   - Daemon groups, Partitioned crawls, the Politeness store, deployed hosts, and Exposed Daemons with accounts and passkeys;
   - the release pipeline, signing and publishing, the docs site, the online Proving ground and the benchmark (from areas 1 and 2: #138–#144, #146–#150, #168, #173–#189, #202, #203, #205–#209, #211);
-  - four area 1–2 tickets first placed in M1 that wait on M4 work: V8 built from source (#210) and the merge queue's size increase check (#204), both behind the release pipeline, and the process Plugin conformance target (#171) with `goodfetch plugins test` (#212), which serve Plugins. M1 needs none of them: V8 serves only the Script sandbox, and the binary links it from M4 on. **Changes ADR 0057:** its merge-queue increase check and the size estimate posted on pull requests start in M4; M1 only builds `xtask size` itself (#201).
+  - four area 1–2 tickets first placed in M1 that wait on M4 work: V8 built from source (#210) and the merge queue's size increase check (#204), both behind the release pipeline, and the process Plugin conformance target (#171) with `goodfetch plugins test` (#212), which serve Plugins. M1 needs none of them: V8 serves only the Script sandbox, and the binary links it from M4 on. **Changes ADRs 0032 and 0057:** the size estimate posted on pull requests and the merge queue's size checks (the increase check, the crate's ceiling and the OCI tags' check) start in M4; M1 only builds `xtask size` itself (#201).
 
   The governor keeps its provisional defaults until #178's concurrency search, in M4, measures them.
 
@@ -50,6 +50,6 @@ Every V1 capability stays in V1 (ADR 0037); the milestones order the work, they 
 - Every ticket carries one of the four milestones, and every later spec's `/to-tickets` assigns one to each ticket it creates.
 - A ticket's milestone is never later than the earliest milestone of any ticket it blocks, directly or transitively, so a gate never holds back a ticket that an earlier milestone needs. `/to-tickets` checks this when it assigns milestones, and moves a blocker earlier when it finds one later than what it blocks.
 - A milestone is done when it has no open ticket; the earliest milestone with an open ticket is the current one. Each of M1, M2 and M3 holds its testing issue, created with the milestone.
-- The frontier takes the earliest open milestone first, then map order (`docs/agents/issue-tracker.md`).
+- The tracker's frontier query takes the earliest open milestone first, then map order (`docs/agents/issue-tracker.md`).
 - Specs keep ADR 0037's order, and each area spans the milestones its tickets fall in.
 - This ADR decides delivery order, not a capability, so no row of ADR 0037's area table lists it, and ADR 0037's rule on area rows does not apply.

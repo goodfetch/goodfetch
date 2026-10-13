@@ -49,7 +49,7 @@ Used by `/wayfinder`. The **map** is a single issue with **child** issues as tic
 
 V1 is delivered in four GitHub milestones (ADR 0058): `M1 Core`, `M2 Client surfaces`, `M3 Browser automation` and `M4 Everything else`.
 
-- **Create** (once): `gh api repos/<owner>/<repo>/milestones -f title="M1 Core"`, and the same for the other three. Then assign a milestone to every existing open ticket and create the testing issue of M1, M2 and M3.
+- **Create** (once): `gh api repos/<owner>/<repo>/milestones -f title="M1 Core"`, and the same for the other three. Then assign a milestone to every existing open ticket, applying **Order** below (wayfinder tickets that block a milestone's tickets join that milestone), and create the testing issue of M1, M2 and M3.
 - **Assign**: every ticket carries one milestone. `/to-tickets` sets it at creation: `gh issue create --milestone "<name>" ...`, or later `gh issue edit <n> --milestone "<name>"`.
 - **Order**: a ticket's milestone is never later than the earliest milestone of any ticket it blocks, directly or transitively. `/to-tickets` checks this when it assigns milestones, and moves a blocker earlier when it finds one later than what it blocks.
 - **Frontier**: the current milestone is the earliest one that still has an open ticket. When picking implementation work, take tickets from the current milestone, then apply the frontier query above (no open blocker, no assignee, not `ready-for-human`). A milestone spans several specs: order them by ADR 0037's area order, then by each spec's ticket order.

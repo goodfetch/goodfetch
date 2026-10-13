@@ -464,6 +464,10 @@ _Avoid_: scenario, user story, critical user journey, flow, end-to-end test (for
 The largest size each released file of Goodfetch may reach on each platform, and the growth a single change may add without an explicit, recorded acceptance.
 _Avoid_: size limit (alone), quota, bloat check
 
+**Compatibility corpus**:
+The committed files of each contract format: those its current version writes, and one frozen set per released version, which every later engine of that major must read as the release wrote them.
+_Avoid_: golden files, legacy fixtures, test data (for these files)
+
 **Quick suite**:
 The tests and checks of Goodfetch that run in-process, on what a change touches or on everything, run after every edit.
 _Avoid_: unit suite, smoke tests, fast tests

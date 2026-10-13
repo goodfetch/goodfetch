@@ -67,6 +67,7 @@ Releases are **built once and published per registry**: no tool publishes crates
   - **Re-runs.** A re-run skips versions already published, and the tag is pushed only after npm succeeds.
   - **Installers.** The `curl | sh` and PowerShell installers are written by hand. Goodfetch's own Homebrew tap is updated by the release job.
 - **CI tiers.**
+  > Amended by [ADR 0061](0061-three-test-suites-each-run-by-one-just-command-under-a-time-budget.md): the tiers run three suites; the merge queue runs the Release suite, which holds the full matrix below, and `main` reruns nothing after the merge.
   - **Every pull request:**
     - One change-detection job decides what runs; workflow-level path filters are never used on required checks, because a skipped required check stays pending forever.
     - Formatting, lints and unit tests on Linux.

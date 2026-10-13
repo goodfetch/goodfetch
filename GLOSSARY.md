@@ -423,3 +423,15 @@ _Avoid_: size limit (alone), quota, bloat check
 **Compatibility corpus**:
 The committed files of each contract format: those its current version writes, and one frozen set per released version, which every later engine of that major must read as the release wrote them.
 _Avoid_: golden files, legacy fixtures, test data (for these files)
+
+**Quick suite**:
+The tests and checks of Goodfetch that run in-process, on what a change touches or on everything, run after every edit.
+_Avoid_: unit suite, smoke tests, fast tests
+
+**Pre-merge suite**:
+The Quick suite plus the integration, conformance, sink, SDK and Console tests of what a change touches, on one platform, which every pull request must pass.
+_Avoid_: PR checks, CI suite
+
+**Release suite**:
+The Pre-merge suite for every package across every supported platform, runtime and browser, which every merge (once the merge queue exists) and every release must pass.
+_Avoid_: full suite, nightly suite, matrix (alone)

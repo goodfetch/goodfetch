@@ -45,7 +45,7 @@ Decided in [Feature coverage and traceability](https://github.com/Jbmanllr/autom
   | `integration:` | Integration action or trigger (`integration:n8n/start-crawl`) |
   | `screen:` | Console route, read statically from the Console's route definitions in source |
 
-  A new kind is added only by an ADR that amends this one. Every generator reads source files or Rust types in process, so `xtask codegen --check` starts no process and stays in the Quick suite (ADR 0061). If the Console's routes can't be read from source, its build writes `console/routes.json`, which is committed and which the Console's own Pre-merge build checks for drift; the generator reads that file.
+  A new kind is added only by an ADR that amends this one. Every generator reads source files or Rust types in process, so `xtask codegen --check` starts no process and stays in the Quick suite (ADR 0061). If the Console's routes can't be read from source, the Console's build writes a route list into the Console's package, which is committed and which that build checks for drift in the Pre-merge suite; the generator reads that file.
 - **IDs.** Generated IDs are the contract's own name, so they change only when the contract does; a renamed contract is a change every declaring test must follow, which the check enforces. Story IDs are append-only, like Journey IDs (ADR 0063): a new story takes the next number of its spec, a removed one is `retired` with a `reason`, and a number is never reused.
 
 ### The inventory
@@ -101,7 +101,7 @@ A Feature with an entry in `features/exceptions.toml` is **excepted**, by its ev
 
 | Check | Where | Fails when |
 |---|---|---|
-| Feature check (static) | Quick suite | the inventory is stale; a declaration names an unknown or retired Feature; a generated Feature has no declaring test and no exception; a non-excluded matrix row has no milestone; a generated Feature maps to no area or to two; an exception lacks a field or names an unknown Feature |
+| Feature check (static) | Quick suite | the inventory is stale; a declaration names an unknown or retired Feature; a generated Feature has no declaring test and no exception; a non-excluded matrix row has no milestone; a generated Feature maps to no area or to two; an exception lacks a field, names an unknown Feature, or names a Feature a test also declares |
 | Exercise audit | Pre-merge suite (tests that ran), Release suite (all tests) | a declaring test never reached its `operation:`, `error:`, `event:`, `command:` or `exit:` Feature |
 | Milestone gate | the owner test of ADR 0058 | any generated Feature, or any declared Feature due at the milestone, is untested (neither tested nor excepted) on `main`'s latest Release run |
 | Release gate | `xtask release` | any Feature present in the release is untested (neither tested nor excepted) |
@@ -111,7 +111,7 @@ A Feature with an entry in `features/exceptions.toml` is **excepted**, by its ev
 
 ### Code coverage: measured, never gated
 
-- **A coverage job in no suite**, on Linux x64, weekly while ADR 0032's nightly tier is off and nightly once it is on. While the repository is private, its minutes count against ADR 0064's ceiling of 1,000 included minutes a month, with a 60-minute timeout per run; at the ceiling it is the first job skipped, before ADR 0064's constrained and diagnostic runs.
+- **A coverage job in no suite**, on Linux x64, weekly while ADR 0032's nightly tier is off and nightly once it is on. While the repository is private, it has a 60-minute timeout, and its minutes count toward ADR 0064's ceiling of 1,000 included minutes a month under a lower threshold of their own: the coverage job and the in-diff mutation job run only while the month's count is below 550 minutes, which leaves ADR 0064's expected 450 minutes to its own runs.
   - Rust: cargo-llvm-cov over nextest, plus every SDK, Journey and Console run against the instrumented binary through `show-env`;
   - TypeScript: Vitest's `v8` provider, on Node and in Browser Mode;
   - Python: coverage.py with branch measurement, under pytest.
@@ -122,7 +122,7 @@ A Feature with an entry in `features/exceptions.toml` is **excepted**, by its ev
 
 ### Mutation testing: read in review, never scored
 
-- **Rust, every pull request that changes Rust code:** cargo-mutants `--in-diff` with nextest on Linux x64, sharded to fit ADR 0061's 15-minute job budget, in a job outside the suites that never fails on a surviving mutant. It is not part of "all green", the one required check (ADR 0061), so a slow shard never delays the merge signal. Its report is attached to the run. While the repository is private, it runs at most four shards of 15 minutes per pull-request run, and its minutes count against ADR 0064's ceiling; at the ceiling it is skipped right after the coverage job, and the pull request's Verification section says so.
+- **Rust, every pull request that changes Rust code:** cargo-mutants `--in-diff` with nextest on Linux x64, sharded to fit ADR 0061's 15-minute job budget, in a job outside the suites that never fails on a surviving mutant. It is not part of "all green", the one required check (ADR 0061), so a slow shard never delays the merge signal. Its report is attached to the run. While the repository is private, it runs at most four shards of 15 minutes per pull-request run, and it stops at the same 550-minute threshold as the coverage job; a pull request whose job was skipped says so in its Verification section.
 - **The pull request's Verification section lists each mutant that survives in its changed code**, with the test that now kills it or the reason it stays: an equivalent mutant, or one caught only by a doctest, by a Journey in another runner, or by another OS's test (cargo-mutants doesn't read `cfg(target_os)`). The fresh review checks the list.
 - **Full runs, weekly once the nightly tier is on:** cargo-mutants sharded over the workspace; StrykerJS on the TypeScript SDK's hand-written runtime and the Console's logic; mutmut on the Python SDK's hand-written runtime, on Linux. Stryker uses its `command` runner until a release fixes #6210, then its Vitest runner, and the TypeScript packages then gain the same in-diff pull-request job as Rust.
 - **No mutation score is published or gated.** A full run's survivors are a list, read at each milestone gate.
@@ -160,11 +160,12 @@ A Feature with an entry in `features/exceptions.toml` is **excepted**, by its ev
 
 - **Adds to ADR 0038**, so ADR 0037's amendment rule carries it to every area's spec: each area's `/to-spec` writes its stories into `features/stories/`, with their `journey` flags; `/to-tickets` sets each story's and row's milestone and names in each ticket the Features it makes tested; story numbers are append-only.
 - **Adds to ADR 0032:** the `features/` folder at the root of the repository; the coverage job and the mutation jobs.
-- **Amends ADR 0032** (a note there records it): while the repository is private, the weekly coverage job and the pull-request in-diff mutation job run too, within ADR 0064's ceiling of included minutes, skipped first when it is reached.
+- **Amends ADR 0032** (a note there records it): while the repository is private, the weekly coverage job and the pull-request in-diff mutation job run too, within ADR 0064's ceiling of included minutes.
+- **Amends ADR 0064's ceiling** (a note there records it): it also counts the coverage job and the in-diff mutation job, which stop once the month's count reaches 550 minutes, so they never take the minutes of ADR 0064's own runs.
 - **Adds to ADR 0030's release gates:** `xtask release` refuses while a Feature present in the release is untested, and the release pull request lists every exception.
 - **Amends ADR 0058's readiness rule a second time** (a note there records it): an owner test is also ready only when every generated Feature, and every declared Feature due at its milestone, is tested or excepted on `main`'s latest Release run. Its "Journeys to try" gain the milestone's `manual` exceptions.
-- **Adds to ADR 0063:** the Feature kinds `covers` may name are this ADR's; the catalog check's "whether `covers` names existing features" is the Feature check. Its deferrals to [Feature coverage and traceability](https://github.com/Jbmanllr/automan/issues/279) are marked "decided since in ADR 0072".
-- **Adds to ADR 0069:** each Client conformance case has a `covers` list. Its "Mutation testing: not decided" is marked "decided since in ADR 0072".
+- **Adds to ADR 0063:** the Feature kinds `covers` may name are this ADR's; the catalog check's "whether `covers` names existing features" is the Feature check. Its deferrals to [Feature coverage and traceability](https://github.com/Jbmanllr/automan/issues/279) (the Feature kinds, whether `covers` names existing features, the inventory and the "every feature is tested" check) are decided since in this ADR.
+- **Adds to ADR 0069:** each Client conformance case has a `covers` list. Its "Mutation testing: not decided" is decided since in this ADR.
 - **Adds to ADR 0070:** its Integration actions and triggers and its Framework adapters are the `integration:` and `adapter:` kinds (assumed there).
 - **Adds to ADR 0061:** the Feature check in the Quick suite; the exercise audit in the Pre-merge and Release suites. The coverage and mutation jobs are in no suite, and the Rust in-diff mutation job is outside "all green"; its shards keep to the Pre-merge per-job budget of 15 minutes.
 - **Changes the specs of areas 1 to 3** through the delta pass: each gains its `features/stories/<area number>.toml` from its user stories; area 1 builds the checks and jobs; area 2's conformance suites and Client conformance cases carry `covers`; area 3's structured log records each RPC request's method and Error code and each event's type as fields. ADR 0037's area table lists this ADR in the rows of areas 1 and 2.

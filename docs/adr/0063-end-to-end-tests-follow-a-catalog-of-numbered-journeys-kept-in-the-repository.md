@@ -96,7 +96,7 @@ The "Test infrastructure" spec builds them. The check fails when:
 5. a variant's milestone is earlier than its surface's first milestone;
 6. a retired Journey has no `reason`.
 
-The report lists each variant's latest outcome on `main` by milestone and area. Whether `covers` names existing features, and the "every feature is tested" check, are [Feature coverage and traceability](https://github.com/Jbmanllr/automan/issues/279)'s: decided since in [ADR 0072](0072-every-feature-in-a-generated-inventory-has-a-passing-test-and-code-coverage-and-mutants-are-signals.md).
+The report lists each variant's latest outcome on `main` by milestone and area. Whether `covers` names existing features, and the "every feature is tested" check, are [Feature coverage and traceability](https://github.com/Jbmanllr/automan/issues/279)'s.
 
 ### Ownership and review
 
@@ -152,7 +152,7 @@ Pain slugs are written as `row:` because they are rows of ADR 0037's matrix. The
 
 ### IDs that feature coverage references
 
-[Feature coverage and traceability](https://github.com/Jbmanllr/automan/issues/279) counts by: the Journey ID (`J-NNN`), the variant ID (`J-NNN@<surface>`), the surface names above, and each Journey's `covers` list. It owns the feature-ID kinds beyond `row:` and the check that every feature has a test: decided since in [ADR 0072](0072-every-feature-in-a-generated-inventory-has-a-passing-test-and-code-coverage-and-mutants-are-signals.md).
+[Feature coverage and traceability](https://github.com/Jbmanllr/automan/issues/279) counts by: the Journey ID (`J-NNN`), the variant ID (`J-NNN@<surface>`), the surface names above, and each Journey's `covers` list. It owns the feature-ID kinds beyond `row:` and the check that every feature has a test.
 
 ## Considered Options
 
@@ -189,7 +189,7 @@ Pain slugs are written as `row:` because they are rows of ADR 0037's matrix. The
 - **Changes area 3's spec** ([Spec: Engine runtime (V1 area 3)](https://github.com/Jbmanllr/automan/issues/213)): its "Scenarios" that need several processes or machines, and the "delivery, leases, credits and admission scenarios" of its in-memory adapter paragraph, are called multi-process tests, since *scenario* is an `_Avoid_` term for Journey.
 - **The glossary** gains *Journey* and *Proving ground task*.
 - **Left to other tickets of the test strategy map,** each building on the interface above:
-  - the feature inventory and the coverage check: decided since in [ADR 0072](0072-every-feature-in-a-generated-inventory-has-a-passing-test-and-code-coverage-and-mutants-are-signals.md);
+  - the feature inventory and the coverage check: [Feature coverage and traceability](https://github.com/Jbmanllr/automan/issues/279);
   - what a failing or flaky Journey test does: decided since in [ADR 0064](0064-tests-are-never-retried-and-unpinned-checks-run-as-live-checks.md);
   - Journeys of AI features and the `skills` surface: decided since in [ADR 0065](0065-ai-features-are-tested-without-live-models-and-measured-by-oracle-graded-evaluations.md). A Journey that uses an AI feature names the Proving ground's Fake model as its Model provider: the variant's own Proving ground serves it, and the Journey's setup steps point Goodfetch's Model provider setting at it through a public surface, so the shipped binary calls it like any provider. The in-process Scripted model never appears in a Journey;
   - the `console`, SDK, CLI, MCP, adapter and Integration runners: [Console and docs test stack](https://github.com/Jbmanllr/automan/issues/282), [SDK and CLI test stack](https://github.com/Jbmanllr/automan/issues/285), [MCP, framework adapter and Integration test stack](https://github.com/Jbmanllr/automan/issues/286).

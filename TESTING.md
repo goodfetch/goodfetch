@@ -325,7 +325,7 @@ Decided in [ADR 0064](docs/adr/0064-tests-are-never-retried-and-unpinned-checks-
 - **Test health runs from M1 on, even while the repository is private, with no paid resource:**
   - the **daily test-health job** (scheduled, Linux, `main`'s head, 15-minute timeout) runs the 10 oldest quarantined tests 50 times each, then the scan and the Allure report;
   - the **constrained test-health run** (weekly and after each manual-dispatch Release run, Linux, 120-minute timeout) runs the Pre-merge suite with half the runner's CPU and memory, a fresh order seed and `detectAsyncLeaks`;
-  - these and the diagnostic runs share a ceiling of 1,000 included minutes a month. At the ceiling, constrained and then diagnostic runs are skipped until the month ends.
+  - these and the diagnostic runs share a ceiling of 1,000 included minutes a month. At the ceiling, constrained and then diagnostic runs are skipped until the month ends. The coverage and in-diff mutation jobs of [Feature coverage](#feature-coverage) count toward it too, and stop once the month's count reaches 550 minutes.
   - Once the nightly tier is on, both run every night with no ceiling.
 
 ### A flaky test found after merge
@@ -1010,7 +1010,7 @@ Decided in [ADR 0072](docs/adr/0072-every-feature-in-a-generated-inventory-has-a
 ### The Feature inventory
 
 - **Never edit `features/inventory.json` by hand.** `xtask codegen` generates it from ADR 0037's matrix, `features/stories/`, `features/rows.toml`, `features/areas.toml` and the contracts the code defines, and `xtask codegen --check` fails on drift.
-- **Every generator reads source files or Rust types in process.** `screen:` comes from the Console's route definitions read statically; if they can't be, from a committed `console/routes.json` that the Console's Pre-merge build checks for drift. The Quick suite never builds the Console to get it.
+- **Every generator reads source files or Rust types in process.** `screen:` comes from the Console's route definitions read statically; if they can't be, from a route list committed in the Console's package, which the Console's Pre-merge build checks for drift. The Quick suite never builds the Console to get it.
 - **Write a Feature as `<kind>:<id>`.** Declared kinds: `row:` (an ADR 0037 matrix row that is not `excluded`) and `story:<area>-<n>` (a spec's user story). Generated kinds: `operation:`, `error:`, `event:`, `setting:`, `command:`, `exit:`, `format:`, `plugin-kind:`, `block-cause:`, `sink:`, `mcp-profile:`, `skill:`, `adapter:`, `integration:` and `screen:`.
 - **A contract you add is a Feature in the same pull request,** and that pull request adds a test that declares it. The Quick suite fails until it does.
 - **Never renumber or reuse a story ID.** A new story takes its spec's next number; a removed one stays with `status = "retired"` and a `reason`.
@@ -1045,7 +1045,7 @@ Decided in [ADR 0072](docs/adr/0072-every-feature-in-a-generated-inventory-has-a
 
 | Check | Suite or gate | Fails when |
 |---|---|---|
-| Feature check | Quick | the inventory is stale, a declaration names an unknown or retired Feature, a generated Feature has neither a declaring test nor an exception, a non-excluded matrix row has no milestone, a generated Feature has no area or two, or an exception is incomplete |
+| Feature check | Quick | the inventory is stale, a declaration names an unknown or retired Feature, a generated Feature has neither a declaring test nor an exception, a non-excluded matrix row has no milestone, a generated Feature has no area or two, or an exception is incomplete or names a Feature a test also declares |
 | Exercise audit | Pre-merge (tests that ran), Release (all tests) | a declaring test never reached its Feature |
 | Milestone gate | the owner test (ADR 0058) | a generated Feature, or a declared Feature due at the milestone, is untested (neither tested nor excepted) |
 | Release gate | `xtask release` | a Feature present in the release is untested (neither tested nor excepted) |
@@ -1055,8 +1055,8 @@ Decided in [ADR 0072](docs/adr/0072-every-feature-in-a-generated-inventory-has-a
 ### Code coverage and mutation testing
 
 - **Never gate on a percentage:** no `--fail-under-*`, no coverage or mutation score in any check, badge or pull request, and no coverage service.
-- **The coverage job runs in no suite** on Linux x64, weekly (nightly once the nightly tier is on): cargo-llvm-cov over nextest and over every run of the instrumented binary through `show-env`, Vitest's `v8` provider on Node and in Browser Mode, coverage.py with branches. While the repository is private, it has a 60-minute timeout and its minutes count against the 1,000-minute ceiling of [Flaky tests and Live checks](#flaky-tests-and-live-checks); at the ceiling it is skipped first. Its results never decide a Feature's status. Run `just coverage` locally.
+- **The coverage job runs in no suite** on Linux x64, weekly (nightly once the nightly tier is on): cargo-llvm-cov over nextest and over every run of the instrumented binary through `show-env`, Vitest's `v8` provider on Node and in Browser Mode, coverage.py with branches. While the repository is private, it has a 60-minute timeout and runs only while the month's count toward the ceiling of [Flaky tests and Live checks](#flaky-tests-and-live-checks) is below 550 minutes. Its results never decide a Feature's status. Run `just coverage` locally.
 - **Read coverage for gaps.** A function no test executes that hides a behaviour with no Feature gets a story, a Feature or a test.
-- **Every pull request that changes Rust code runs cargo-mutants `--in-diff`** with nextest on Linux x64, sharded within the 15-minute job budget, in a job that never fails on a survivor and is not part of "all green". While the repository is private, it runs at most four shards per pull-request run and counts against the same ceiling, skipped right after the coverage job; the Verification section then says it was skipped.
+- **Every pull request that changes Rust code runs cargo-mutants `--in-diff`** with nextest on Linux x64, sharded within the 15-minute job budget, in a job that never fails on a survivor and is not part of "all green". While the repository is private, it runs at most four shards per pull-request run and stops at the same 550 minutes; the Verification section then says it was skipped.
 - **List each surviving mutant of your changed code in the Verification section,** with the test that now kills it or why it stays (an equivalent mutant; caught only by a doctest, by a Journey in another runner, or by another OS's test).
 - **Full mutation runs are weekly once the nightly tier is on:** cargo-mutants over the workspace, StrykerJS on the TypeScript SDK runtime and the Console's logic (its `command` runner until a release fixes [stryker-js#6210](https://github.com/stryker-mutator/stryker-js/issues/6210), then its Vitest runner and an in-diff pull-request job), and mutmut on the Python SDK runtime on Linux.

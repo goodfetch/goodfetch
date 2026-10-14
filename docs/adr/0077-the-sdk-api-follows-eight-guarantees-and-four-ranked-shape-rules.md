@@ -69,5 +69,6 @@ These act as SDK principles and are decided in their own ADRs: one Operation cat
 
 - **Areas 1 to 3 already have specs.** A shape in them that breaks a principle is raised as a new ticket on the map, never patched silently.
 - **ADR 0028's settings reach code through S2.** [Settings in code](https://github.com/goodfetch/automan/issues/470) decides where the settings that are not arguments go.
+  > Amended by [ADR 0083](0083-a-program-sets-settings-in-one-typed-option-explicit-values-beat-the-environment-and-no-value-is-silently-ignored.md): they go in one `settings` option on each value that opens a scope, typed from the settings schema in each language's form.
 - **ADRs 0016 and 0021 are unchanged here.** G5 gives [Crawl politeness defaults](https://github.com/goodfetch/automan/issues/480) its direction, and that ticket amends them if it must.
 - **The `prototype/sdk-api` branch** holds the API sketch, checked by `tsc`, pyright, mypy and `cargo check`; its README lists these principles by ID as the review list for every ticket on the map.

@@ -6,6 +6,7 @@ At the owner's request, every parameter can be set. That covers retries, timeout
 3. User and project configuration.
 4. A **Recipe** or the developer's code. Every setting the Recipe declares is locked for the Recipe's users unless the developer **exposes** it, optionally with bounds. What the Recipe does not declare, such as the user's own Sinks, Notification channels and credentials, stays the user's to set. A Recipe may expose `session.source` but never sets or locks it (ADR 0056).
 5. The run itself: SDK arguments, CLI flags, environment variables, an Integration's form.
+   > Amended by [ADR 0083](0083-a-program-sets-settings-in-one-typed-option-explicit-values-beat-the-environment-and-no-value-is-silently-ignored.md): environment variables carry no setting, only a closed list of deployment variables that fill connection inputs, which an explicit value beats; layer 4's "developer's code" is a Recipe's code, and a program that is not a Recipe sets the run layer; a project file sent to an Exposed Daemon or Goodfetch Cloud keeps layer 3's rank with the run layer's authority.
 
 A higher layer wins only where no lower layer locked the value. In a Daemon group, settings that only make sense on one machine, such as local addresses, TLS files and browser paths, take a *group member* scope applied only by that Group member (ADR 0055).
 

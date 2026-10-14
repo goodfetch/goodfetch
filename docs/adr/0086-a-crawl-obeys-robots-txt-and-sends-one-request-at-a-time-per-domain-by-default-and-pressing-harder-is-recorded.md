@@ -141,6 +141,7 @@ A request skipped because of Site preferences ends `skipped` (ADR 0079), with on
 - **Amends ADR 0023**: the backoff it lets a run switch off also covers 502, 504 and refused or timed-out connections.
 - **Amends ADR 0040**: a hedge or `tier_race` switched on while `politeness.domain.concurrency` is 1 is refused.
 - **Amends ADR 0054**, whose single-site Partition is capped by the new defaults.
+- **Amends ADR 0083**, whose list of older keys still to get an area loses `respect_site_preferences`, renamed here.
 - **Amends ADRs 0044, 0045, 0049, 0055 and 0060** only to rename the keys they mention: `per_ip_concurrency`, `respect_site_preferences`, `politeness_sharing` and `politeness_degraded_max`. `TESTING.md` takes `politeness.sharing` too.
 - **Areas.**
   - Area 6 (Collection) builds robots.txt fetching and caching, Crawl-delay, the skip reasons and the counting of a handler's navigation.

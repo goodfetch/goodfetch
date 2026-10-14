@@ -42,6 +42,7 @@ Decided in [Injection and determinism: time, randomness, storage, network and OS
   > Amended by [ADR 0083](0083-a-program-sets-settings-in-one-typed-option-explicit-values-beat-the-environment-and-no-value-is-silently-ignored.md): `GOODFETCH_HOME` is a deployment variable, read from the SDK's or the binary's environment map, not a key in `settings` or a configuration file, which it locates.
   - Unset, it means the operating system's usual folders.
   - More specific settings still win: `GOODFETCH_BROWSERS_PATH`, `GOODFETCH_ENGINE_PATH` and `run_state.location`.
+    > Amended by [ADR 0083](0083-a-program-sets-settings-in-one-typed-option-explicit-values-beat-the-environment-and-no-value-is-silently-ignored.md): `GOODFETCH_BROWSERS_PATH` and `GOODFETCH_ENGINE_PATH` are deployment variables, read from the environment map, not settings; `run_state.location` stays a setting.
   - It is also a product feature: portable installs and per-job CI caches, as `CARGO_HOME`, `RUSTUP_HOME` and `DENO_DIR` provide.
   - Tests need it because on Windows `dirs` reads Known Folders, which a child's environment most likely does not move (inferred from `dirs`' docs, not yet tested).
 - **No filesystem trait.** SQLite and files run for real in a per-test temporary folder, which is `STYLE.md`'s stand-in.
@@ -112,6 +113,7 @@ Any test can run beside any other:
   - Lease expiry is a pure function of the monotonic reading.
   - "A real Valkey container" holds on Linux runners. macOS installs Valkey with Homebrew, and Windows has no supported Valkey.
 - **Adds to ADR 0028.** Two settings: `GOODFETCH_HOME` and `resolve`, both under semver from 1.0 (ADR 0030).
+  > Amended by [ADR 0083](0083-a-program-sets-settings-in-one-typed-option-explicit-values-beat-the-environment-and-no-value-is-silently-ignored.md): `GOODFETCH_HOME` is a deployment variable, not a setting; `resolve` stays a setting.
 - **Adds to ADR 0038.** The `Clock` and `Entropy` handles, the clock rule and the value-injection rule apply to every crate. ADR 0037's amendment rule therefore carries them to every area's spec.
 - **Adds to ADR 0053:** the store's Lua script reads the Valkey server's `TIME`.
 - **ADRs 0003, 0036 and 0051 are unchanged in behaviour.** Their time rules become pure functions over a reading, and their live clocks stay where they are decided.

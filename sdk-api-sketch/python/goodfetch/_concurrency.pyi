@@ -56,7 +56,7 @@ class Subscription:
 # Async API.
 
 AsyncListener: TypeAlias = Callable[[T], Awaitable[None] | None]
-"""Gets one source's events one at a time, in order; an awaitable it returns is awaited before the next event, so
+"""Gets its events one at a time, in order; an awaitable it returns is awaited before the next event, so
 lossless events slow their producer and telemetry coalesces (ADR 0024)."""
 
 @final
@@ -123,7 +123,7 @@ class AsyncRunEvents:
 # Sync API: the same concepts, generated from the same catalog (ADR 0038).
 
 Listener: TypeAlias = Callable[[T], None]
-"""Runs on a thread of the connection's pool and gets one source's events one at a time, in order."""
+"""Runs on a thread of the connection's pool and gets its events one at a time, in order."""
 
 @final
 class Route:

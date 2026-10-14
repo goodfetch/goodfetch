@@ -36,7 +36,7 @@ UrlMatcher: TypeAlias = str | re.Pattern[str] | Callable[[str], bool]
 """A glob, a compiled pattern, or a host-side predicate (where it runs is #468's)."""
 
 LoadState: TypeAlias = Literal["domcontentloaded", "load", "networkidle"]
-"""`networkidle`: no request in flight for 500 ms, WebSockets and event streams excluded."""
+"""`networkidle`: no request in flight for 500 ms, WebSockets and server-sent events excluded."""
 
 @final
 @dataclass(frozen=True, kw_only=True)

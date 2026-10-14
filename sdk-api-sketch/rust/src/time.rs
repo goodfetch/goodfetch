@@ -146,7 +146,7 @@ pub enum LoadState {
     /// `load` fired.
     #[default]
     Load,
-    /// No request in flight for 500 ms, WebSockets and event streams excluded.
+    /// No request in flight for 500 ms, WebSockets and server-sent events excluded.
     NetworkIdle,
 }
 
@@ -378,8 +378,8 @@ impl crate::lifecycle::Page {
     /// Removed: a fixed sleep waits for nothing in particular.
     #[deprecated(
         note = "removed: wait for the app's state (wait_for_url, wait_for_response, wait_for_load_state, \
-                Locator::wait_for, Locator::wait_for_count), or use the runtime's own sleep; fails with the \
-                Error code `removed`"
+                Locator::wait_for, Locator::wait_for_count), or use the runtime's own sleep; it takes \
+                `Infallible`, so no call to it compiles"
     )]
     pub fn wait_for_timeout(&self, removed: std::convert::Infallible) -> ! {
         match removed {}

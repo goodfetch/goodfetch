@@ -45,6 +45,9 @@ class LimitSource:
     value: object
     layer: SettingsLayer
     """The layer that set the value."""
+    from_argument: bool
+    """The call's own argument set it, rather than a CLI flag, an environment variable or a form at the same `run`
+    layer (ADR 0080)."""
 
 @final
 @dataclass(frozen=True, kw_only=True)
@@ -161,8 +164,8 @@ class ClosedError(ProgramError): ...
 class CallCancelledError(UnavailableError):
     """Someone else stopped the call in flight: a person, another Client, or the program closing a parent value.
 
-    Not retryable; `observed` says who. The caller's own cancellation propagates `asyncio.CancelledError`
-    instead and never raises this (ADR 0080).
+    Not retryable; `observed` says who, and `fix` names resuming the Run, or the close that stopped the call. The
+    caller's own cancellation propagates `asyncio.CancelledError` instead and never raises this (ADR 0080).
     """
 
 @final

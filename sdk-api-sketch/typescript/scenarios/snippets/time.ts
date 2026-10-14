@@ -14,8 +14,8 @@ export async function searchQuotes(stop: AbortSignal): Promise<number> {
   const page = await run.newPage();
 
   await page.goto("https://quotes.toscrape.com/search.aspx", { timeout: 10_000 });
-  // Choosing an author reloads the tag list. Armed on call, so the response cannot arrive before the waiter (P02).
-  const tags = page.waitForResponse("**/filter.aspx");
+  // Choosing an author posts the form back to search.aspx and reloads the tag list. Armed on call, so the response cannot arrive before the waiter (P02).
+  const tags = page.waitForResponse("**/search.aspx");
   await page.locator("#author").fill("Albert Einstein");
   await tags;
 

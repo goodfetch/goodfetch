@@ -19,8 +19,8 @@ async fn search_quotes() -> Result<usize, Error> {
     let page = run.new_page().await?;
     page.goto("https://quotes.toscrape.com/search.aspx").timeout(Duration::from_secs(10)).await?;
 
-    // Choosing an author reloads the tag list: `during` arms the waiter before driving the action (P02).
-    let (tags, ()) = page.wait_for_response("**/filter.aspx").during(page.locator("#author").fill("Albert Einstein")).await?;
+    // Choosing an author posts the form back to search.aspx and reloads the tag list: `during` arms the waiter before driving the action (P02).
+    let (tags, ()) = page.wait_for_response("**/search.aspx").during(page.locator("#author").fill("Albert Einstein")).await?;
     let _ = tags.status;
 
     // The runtime's own deadline: on expiry the call is dropped, which sends `$/cancel`.

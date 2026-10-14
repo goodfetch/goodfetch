@@ -45,6 +45,8 @@ export interface LimitSource {
   readonly value: unknown;
   /** The layer that set the value. */
   readonly layer: SettingsLayer;
+  /** The call's own argument set it, rather than a CLI flag, an environment variable or a form at the same `run` layer (ADR 0080). */
+  readonly fromArgument: boolean;
 }
 
 /** What a call acted on, rendered by the engine in this SDK's language and kept structured too. */
@@ -121,8 +123,9 @@ export declare class ClosedError extends ProgramError {
 
 /**
  * Someone else stopped the call in flight: a person, another Client, or the program closing a
- * parent value. Not retryable; `observed` says who. The caller's own abort rejects with
- * `signal.reason` instead and never raises this (ADR 0080).
+ * parent value. Not retryable; `observed` says who, and `fix` names resuming the Run, or the close
+ * that stopped the call. The caller's own abort rejects with `signal.reason` instead and never
+ * raises this (ADR 0080).
  */
 export declare class CallCancelledError extends UnavailableError {
   readonly code: "call_cancelled";

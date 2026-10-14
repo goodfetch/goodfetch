@@ -36,8 +36,8 @@ pub enum EngineChoice {
 #[derive(Debug, Clone, Default)]
 #[non_exhaustive]
 pub struct ConnectOptions {
-    /// Which engine to reach.
-    pub engine: EngineChoice,
+    #[expect(dead_code, reason = "a signatures-only sketch: the runtime reads it")]
+    engine: EngineChoice,
     #[expect(dead_code, reason = "a signatures-only sketch: the runtime reads it")]
     timeout: Timeout,
     #[expect(dead_code, reason = "a signatures-only sketch: the runtime reads it")]
@@ -45,6 +45,11 @@ pub struct ConnectOptions {
 }
 
 impl ConnectOptions {
+    /// Which engine to reach; by default [`EngineChoice::Auto`].
+    pub fn engine(self, engine: EngineChoice) -> Self {
+        Self { engine, ..self }
+    }
+
     /// How long starting or finding the engine and `hello` may take; by default, the connect
     /// phase's setting.
     pub fn timeout(self, timeout: Duration) -> Self {
@@ -155,10 +160,16 @@ pub struct Start<'a> {
 }
 
 impl Start<'_> {
-    /// How long the whole Run may last; by default, no timeout. On expiry the Run stops with a
+    /// How long the whole Run may last. A setting like the others (ADR 0028), whose built-in default
+    /// is none. On expiry the Run stops with a
     /// Checkpoint, `stopped` and `incomplete`, and can be resumed.
     pub fn timeout(self, timeout: Duration) -> Self {
         let _ = timeout;
+        unimplemented!()
+    }
+
+    /// No timeout for this Run, even where configuration or a Recipe sets one.
+    pub fn no_timeout(self) -> Self {
         unimplemented!()
     }
 

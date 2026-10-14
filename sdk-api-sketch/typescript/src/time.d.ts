@@ -35,7 +35,7 @@ export interface Request {
   readonly method: string;
 }
 
-/** Load states. `networkidle`: no request in flight for 500 ms, WebSockets and event streams excluded. */
+/** Load states. `networkidle`: no request in flight for 500 ms, WebSockets and server-sent events excluded. */
 export type LoadState = "domcontentloaded" | "load" | "networkidle";
 
 /** A count, exact or bounded. */

@@ -101,6 +101,9 @@ pub struct LimitSource {
     pub value: SettingValue,
     /// The layer that set the value.
     pub layer: SettingsLayer,
+    /// The call's own argument set it, rather than a CLI flag, an environment variable or a form
+    /// at the same `run` layer (ADR 0080).
+    pub from_argument: bool,
 }
 
 /// What a call acted on, rendered by the engine in Rust and kept structured too.
@@ -244,9 +247,18 @@ pub struct DeadlineExceeded {
     pub elapsed: std::time::Duration,
     /// What the call waited for, rendered in Rust.
     pub waited_for: String,
-    /// The enclosing call whose timeout ended this one, as its operation and call ID, when it
-    /// was not the call's own.
-    pub ended_by: Option<(String, String)>,
+    /// The enclosing call whose timeout ended this one, when it was not the call's own.
+    pub ended_by: Option<EndedBy>,
+}
+
+/// The enclosing call whose timeout ended a call.
+#[derive(Debug, Clone)]
+#[non_exhaustive]
+pub struct EndedBy {
+    /// Its SDK call, such as `handler`.
+    pub operation: String,
+    /// Finds it in the Run trace.
+    pub call_id: String,
 }
 
 /// The handler's own error, as text, since the outcome outlives the process.

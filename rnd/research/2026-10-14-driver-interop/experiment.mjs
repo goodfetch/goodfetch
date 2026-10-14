@@ -284,6 +284,22 @@ for (const flag of [false, true]) {
   cl.close(); c.proc.kill(); await sleep(300); rmSync(c.dir, { recursive: true, force: true });
 }
 
+// ---------- P9: the browser's launch proxy versus a context a lent client creates ----------
+{
+  // Port 9 (discard) is closed, so every proxied request fails; '<-loopback>' makes loopback go through the proxy too.
+  const c = await launch(['--proxy-server=http://127.0.0.1:9', '--proxy-bypass-list=<-loopback>']);
+  const cl = await Raw.open(c.wsUrl);
+  hits.length = 0;
+  const { targetId: viaProxy } = await cl.send('Target.createTarget', { url: `${ORIGIN}/p9-default-context` });
+  await sleep(1500);
+  const lent = await Raw.open(c.wsUrl);
+  const { browserContextId } = await lent.send('Target.createBrowserContext', { proxyServer: 'direct://' });
+  await lent.send('Target.createTarget', { url: `${ORIGIN}/p9-lent-context-direct`, browserContextId });
+  await sleep(1500);
+  out('P9 launch proxy vs a lent client context with proxyServer direct://', { serverReceived: hits.filter(h => h.startsWith('/p9')) });
+  lent.close(); cl.close(); c.proc.kill(); await sleep(300); rmSync(c.dir, { recursive: true, force: true });
+}
+
 server.close();
 try { b.proc.kill(); } catch {}
 await sleep(300);

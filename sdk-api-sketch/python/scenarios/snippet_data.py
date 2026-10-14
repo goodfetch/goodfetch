@@ -75,8 +75,8 @@ books = dataset("books", BookRecord)
 async def on_category_page(category_name: str, book_urls: Sequence[str]) -> None:
     for url in book_urls:
         await enqueue(url, book_page, BookPayload(category=category_name))
-    # A misspelled field in a plain dict is a type error, not a surprise in the handler.
-    await enqueue("https://books.toscrape.com/x", book_page, {"categroy": category_name})  # type: ignore[misc]  # pyright: ignore[reportArgumentType]
+    # A plain dict with a wrong field is a type error, not a surprise in the handler.
+    await enqueue("https://books.toscrape.com/x", book_page, {"name": category_name})  # type: ignore[misc]  # pyright: ignore[reportArgumentType]
 
 
 async def on_book_page(url: str, payload: BookPayload) -> None:

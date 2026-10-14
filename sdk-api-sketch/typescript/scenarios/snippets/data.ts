@@ -35,8 +35,8 @@ const books = dataset("books", Book.extend({ url: z.url(), category: z.string() 
 
 export async function onCategoryPage(categoryName: string, bookUrls: readonly string[]): Promise<void> {
   for (const url of bookUrls) await enqueue(url, bookPage, { category: categoryName });
-  // @ts-expect-error a misspelled field is a type error, not a silent undefined in the handler
-  await enqueue("https://books.toscrape.com/x", bookPage, { categroy: categoryName });
+  // @ts-expect-error a wrong field name is a type error, not a silent undefined in the handler
+  await enqueue("https://books.toscrape.com/x", bookPage, { name: categoryName });
 }
 
 export async function onBookPage(url: string, payload: PayloadOutput<typeof bookPage>): Promise<void> {

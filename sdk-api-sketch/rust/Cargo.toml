@@ -1,0 +1,11 @@
+[package]
+name = "goodfetch-sdk-sketch"
+version = "0.0.0"
+edition = "2024"
+publish = false
+
+# Standalone: not part of any Goodfetch workspace.
+[workspace]
+
+[lints.rust]
+missing_docs = "warn"

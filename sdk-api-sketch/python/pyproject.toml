@@ -1,0 +1,16 @@
+[project]
+name = "goodfetch-sdk-sketch"
+version = "0.0.0"
+requires-python = ">=3.11"
+
+[tool.pyright]
+typeCheckingMode = "strict"
+pythonVersion = "3.11"
+include = ["goodfetch", "scenarios"]
+extraPaths = ["."]
+
+[tool.mypy]
+strict = true
+python_version = "3.11"
+mypy_path = "."
+files = ["goodfetch", "scenarios"]

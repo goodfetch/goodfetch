@@ -38,7 +38,7 @@ sdk-api-sketch/
 ./check.sh
 ```
 
-It needs Node 22 or later, uv and a Rust toolchain, and fetches the pinned `tsc`, pyright and mypy versions on first run.
+It needs Node 22 or later, uv and a Rust toolchain, and fetches the pinned `tsc`, pyright and mypy versions on first run, with the schema libraries the snippets use: Zod in TypeScript, Pydantic in Python, `schemars` and serde in Rust.
 
 ## Review list
 

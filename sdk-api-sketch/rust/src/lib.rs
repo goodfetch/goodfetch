@@ -5,11 +5,13 @@
 
 pub mod blocking;
 pub mod concurrency;
+pub mod data;
 pub mod lifecycle;
 pub mod results;
 pub mod time;
 
 pub use concurrency::{ConsoleMessage, EventStream, Record, Route, events};
+pub use data::{Dataset, Label, PathSegment, PayloadInvalid, PayloadSchemaChanged, Schema, SchemaIssue, schemars};
 pub use lifecycle::{Collie, ConnectOptions, EngineChoice, EngineInfo, EngineKind, Goodfetch, Page, Run, Start};
 pub use results::{
     AiWorkResult, BlockCause, Blocked, Claim, DeadlineExceeded, Ended, EndedBy, Error, ErrorCode, ErrorDetails, ErrorGroup, ErrorTarget,

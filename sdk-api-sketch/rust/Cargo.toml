@@ -9,8 +9,12 @@ publish = false
 test-util = []
 
 # `EventStream` implements `futures_core::Stream` for interop; its own `next()` needs no crate (G7).
+# `schemars` and serde carry typed data (#469); `schemars` is re-exported so derives match the SDK's version.
 [dependencies]
 futures-core = "0.3.34"
+schemars = "1.2.3"
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = "1.0.154"
 
 # The concurrency snippet drives streams with `futures-util`'s combinators.
 [dev-dependencies]

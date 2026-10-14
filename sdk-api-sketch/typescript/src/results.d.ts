@@ -31,6 +31,9 @@ export type KnownErrorCode =
   | "not_verified"
   | "deadline_exceeded"
   | "plugin_crashed"
+  | "payload_invalid"
+  | "payload_schema_changed"
+  | "schema_validator_failed"
   | "internal";
 
 /** A code a newer engine sends and this SDK does not know is kept as received (G3). */

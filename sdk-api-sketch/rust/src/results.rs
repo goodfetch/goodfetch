@@ -59,6 +59,10 @@ pub enum ErrorCode {
     CallCancelled,
     /// `plugin_crashed` (ADR 0033).
     PluginCrashed,
+    /// `payload_invalid`: a Payload failed its Label's schema, was not JSON, or was too large (#469).
+    PayloadInvalid,
+    /// `payload_schema_changed`: a resume found Payloads that fail their Label's changed schema (#469).
+    PayloadSchemaChanged,
     /// `internal`.
     Internal,
     /// A code this SDK does not know, as received.
@@ -237,6 +241,10 @@ pub enum ErrorDetails {
     NotVerified(NotVerified),
     /// Of `deadline_exceeded`, every timeout whatever the phase (ADR 0080).
     DeadlineExceeded(DeadlineExceeded),
+    /// Of `payload_invalid`.
+    PayloadInvalid(crate::data::PayloadInvalid),
+    /// Of `payload_schema_changed`.
+    PayloadSchemaChanged(crate::data::PayloadSchemaChanged),
 }
 
 /// Details of `deadline_exceeded`. The error's `limit` names the phase's setting and its layer; a
@@ -456,6 +464,12 @@ pub struct AiWorkResult<T> {
 }
 
 impl<T> AiWorkResult<T> {
+    /// The result as the engine sent it, with the fields this SDK does not know (G3): serde
+    /// ignores them when it builds the typed view, and they stay reachable here.
+    pub fn raw(&self) -> &serde_json::Value {
+        unimplemented!()
+    }
+
     /// Returns the output when the Verdict is `Verified`; otherwise the error `not_verified`.
     pub fn require_verified(self) -> Result<T, Error> {
         unimplemented!()

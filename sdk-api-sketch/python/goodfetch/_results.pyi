@@ -28,6 +28,9 @@ KnownErrorCode: TypeAlias = Literal[
     "not_verified",
     "deadline_exceeded",
     "plugin_crashed",
+    "payload_invalid",
+    "payload_schema_changed",
+    "schema_validator_failed",
     "internal",
 ]
 ErrorCode: TypeAlias = KnownErrorCode | str

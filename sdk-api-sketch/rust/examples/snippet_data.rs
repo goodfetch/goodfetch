@@ -1,0 +1,72 @@
+//! Snippet for Typed data: schemas, Records and Payloads (#469), on golden scenarios 02 and 05.
+
+use goodfetch_sdk_sketch::schemars::{self, JsonSchema};
+use goodfetch_sdk_sketch::{Dataset, Error, Label, Schema};
+use serde::de::DeserializeOwned;
+use serde::{Deserialize, Serialize};
+
+// Provisional signatures, each its owner's to decide: `extract` is #473's, a crawl's Labels,
+// handlers and `enqueue` are #477's, Datasets are #479's.
+async fn extract<T: DeserializeOwned>(instruction: &str, schema: Schema<T>) -> Result<T, Error> {
+    let _ = (instruction, schema);
+    unimplemented!()
+}
+async fn enqueue<P: Serialize>(url: &str, label: &Label<P>, payload: &P) -> Result<(), Error> {
+    let _ = (url, label, payload);
+    unimplemented!()
+}
+
+/// Scenario 02: a typed struct; the price is an exact decimal kept as text, never a float.
+#[derive(Debug, Serialize, Deserialize, JsonSchema)]
+struct Book {
+    title: String,
+    /// Pounds, two decimals.
+    price: String,
+    in_stock: u32,
+    /// One to five.
+    rating: u8,
+    description: String,
+}
+
+async fn typed_extract() -> Result<String, Error> {
+    // Checked by JSON Schema, then by serde itself, inside the retry loop.
+    let book = extract("the book on this page", Schema::<Book>::of()).await?;
+    Ok(format!("{}: £{}", book.title, book.price))
+}
+
+async fn raw_schema() -> Result<serde_json::Value, Error> {
+    // The library-free way down: a hand-written JSON Schema gives a `serde_json::Value`.
+    let doc = serde_json::json!({ "type": "object", "properties": { "price": { "type": "string" } } });
+    extract("the price", Schema::from_json(doc)).await
+}
+
+/// Scenario 05: the category name travels as a typed Payload, apart from the engine's own fields.
+#[derive(Debug, Serialize, Deserialize, JsonSchema)]
+struct BookPayload {
+    category: String,
+}
+
+#[derive(Debug, Serialize, Deserialize, JsonSchema)]
+struct BookRecord {
+    #[serde(flatten)]
+    book: Book,
+    url: String,
+    category: String,
+}
+
+async fn on_category_page(book_page: &Label<BookPayload>, category: &str, book_urls: &[String]) -> Result<(), Error> {
+    for url in book_urls {
+        enqueue(url, book_page, &BookPayload { category: category.to_owned() }).await?;
+    }
+    Ok(())
+}
+
+async fn on_book_page(books: &Dataset<BookRecord>, url: &str, payload: BookPayload) -> Result<(), Error> {
+    let book = extract("the book on this page", Schema::<Book>::of()).await?;
+    books.push(&BookRecord { book, url: url.to_owned(), category: payload.category }).await
+}
+
+fn main() {
+    let _ = (typed_extract, raw_schema, on_category_page, on_book_page);
+    let _ = schemars::schema_for!(Book);
+}

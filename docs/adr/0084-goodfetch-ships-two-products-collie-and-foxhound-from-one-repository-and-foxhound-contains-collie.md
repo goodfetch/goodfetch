@@ -1,0 +1,85 @@
+# Goodfetch ships two Products, Collie and Foxhound, from one repository, and Foxhound contains Collie
+
+Goodfetch becomes the organization and umbrella brand behind two **Products**, each installed on its own. **Collie** drives one browser page at a time: the CDP driver and its guard, the page API, AI actions, and Extraction from the page it is on. **Foxhound** discovers and collects many pages: the Frontier, crawl scope, Politeness, fetch tiers, Datasets and Sinks. Foxhound's executable is built from Collie's crates plus its own, so a crawl handler that renders a page or acts on it calls Collie inside the same process, fenced by its lease (ADR 0003) and journaled (ADR 0010); there is no Foxhound without Collie. Both ship in V1, both build from one commit of one repository, and CI fails when a Collie crate depends on a Foxhound crate.
+
+ADR 0034 rejected separate products because ADRs 0024 and 0002 made one binary the architecture. The research for this decision found:
+- **Every browser-automation product stops at the browser session:** none of Stagehand v4, Playwright, Puppeteer, Browser Use or agent-browser bundles a crawler, Stagehand v4 has no dataset or scheduler either, and its `extract` reads one page ([browser-automation products](https://github.com/goodfetch/automan/blob/research/browser-automation-products/rnd/research/2026-10-14-browser-automation-products.md)). Under one binary, a user who wants what Stagehand does installs the Frontier, DuckDB (+33.0 MB, ADR 0057) and Sinks.
+- **Crawlers run their driver in-process** and hand their handlers a page object of the driver they use ([crawl frameworks](https://github.com/goodfetch/automan/blob/research/crawl-framework-products/rnd/research/2026-10-14-crawl-framework-products.md)).
+- **A larger product that links a smaller one, both shipped, is established practice:** `codex` links and also ships `codex-app-server`, and `uv` contains and also ships the `uv_build` backend, each smaller product built in a build invocation of its own and, for uv, checked by its own `cargo deny … check bans`. A Collie-only probe measured 16.0 MB, about 65 MB if V8 goes into Collie ([multi-product builds](https://github.com/goodfetch/automan/blob/research/multi-product-builds/rnd/research/2026-10-14-multi-product-builds.md)).
+
+Decided in [Product line and the Collie/Foxhound boundary](https://github.com/goodfetch/automan/issues/453), on the map [Goodfetch products: Collie and Foxhound as separately installable products](https://github.com/goodfetch/automan/issues/447): rounds 1 to 3 with the owner, round 4 (where the Goodfetch Chromium lives, how earlier ADRs read) by the agent on the owner's delegation. The evidence is also in the research on [packaging and names](https://github.com/goodfetch/automan/blob/research/product-packaging-and-names/rnd/research/2026-10-14-product-packaging-and-names.md) and [driver interop](https://github.com/goodfetch/automan/blob/research/driver-interop/rnd/research/2026-10-14-driver-interop.md).
+
+## Decision
+
+### Two Products
+
+- **Collie ships as its own executable,** with its SDKs, CLI, MCP server and agent skills. Which capabilities beyond the page it carries (run state, the Script sandbox, Sessions, stealth, a Daemon…) is decided in [Collie's exact capability set](https://github.com/goodfetch/automan/issues/455).
+- **Foxhound ships as an executable that contains Collie's code.** A handler can still lend its page to Playwright, Puppeteer or another library over raw CDP, without the guard or fencing, as decided in [Third-party automation on Foxhound pages, and Collie inside other crawlers](https://github.com/goodfetch/automan/issues/456).
+- **Both ship in V1, on every channel.** Products split what users install, never what V1 contains. The standalone Collie costs one more `cargo build -p` per target, and one more file per target to sign, notarize, measure and ship debug symbols for. Which ADR 0058 milestone delivers it is decided in [Release, signing and testing of two products](https://github.com/goodfetch/automan/issues/459).
+- **Browsers stay outside every executable,** the Goodfetch Chromium included: pinned builds reach the digest-checked browser cache on first use or through the browser install command (ADRs 0024 and 0035). What two Products installed for one user share (the browser cache, Goodfetch home, a Daemon) is decided in [Collie and Foxhound installed on one machine](https://github.com/goodfetch/automan/issues/486).
+
+### What both Products can carry
+
+- **The Daemon, the Run index, the Console, the Usage ledger with its Limits, and Schedules are built from crates that depend on no Foxhound crate,** so either Product can carry them. Foxhound adds its own screens and records (Datasets, Sinks, crawl progress, search across runs) through seams on its own side of the boundary. Which of these Collie ships is decided in Collie's exact capability set; the seams, in [How the products are built, and each product's Size budget](https://github.com/goodfetch/automan/issues/454).
+- **No collective term names them.** The glossary avoids *platform*, so ADRs name the pieces.
+- Agent-facing automation tools now ship a CLI with skills, an MCP server, a daemon and a local dashboard: agent-browser 0.39.1 in one Rust binary, and Playwright, whose `playwright-core` has bundled them since 1.62 ([browser-automation products](https://github.com/goodfetch/automan/blob/research/browser-automation-products/rnd/research/2026-10-14-browser-automation-products.md)). Crawl competitors mostly keep schedules and their web interface in their own clouds, Spider's in-process `cron` and Scrapyd being exceptions ([crawl frameworks](https://github.com/goodfetch/automan/blob/research/crawl-framework-products/rnd/research/2026-10-14-crawl-framework-products.md)), which ADR 0001 rejects.
+
+### Names
+
+- **Goodfetch names the organization and the brand, never anything installed.** Organization-level names stay `goodfetch`: the GitHub organization, the npm scope, `goodfetch.dev` and the `ghcr.io/goodfetch/` prefix.
+- **Every identifier that names the installed software is renamed per Product:** the executable, the crates.io crate, the npm and PyPI packages, the Homebrew formula and the OCI image.
+  - Bare `collie` and `foxhound` are taken on npm and PyPI, a COLLIE mark covering software is registered in the EU (018890716) and the US (Reg. 8190894), `collie` is already on PATH through ColliePWA, and FOXHOUND is a French class-42 mark (4860964), so the Products' identifiers are qualified wherever a bare name collides.
+  - The exact strings, and whether `GOODFETCH_` variables, Goodfetch home and the internal `goodfetch-*` crates keep their names, are decided in [Product names, packages, executables and version line](https://github.com/goodfetch/automan/issues/457).
+- **Trademark clearance covers COLLIE and FOXHOUND** as product names, besides GOODFETCH, before the first public release. Counsel decides. If clearance fails for a Product's name, the remedy is another name for that Product, not another architecture.
+
+### One repository
+
+- **Collie and Foxhound live in one public repository** (ADR 0032), so Foxhound always contains the Collie it was tested with, and a change to the protocol or a shared crate lands in one pull request. Goodfetch Cloud and the Private components stay in the private repository (ADRs 0018, 0032 and 0068).
+- **CI proves the boundary.** No Collie crate depends on a Foxhound crate, directly or through another crate.
+  - `cargo-deny`'s `check bans` runs once per Product, rooted at that Product's own manifest, as uv checks `uv_build`'s graph, so a heavy dependency reaching Collie through a shared crate fails too.
+  - Each Product builds with its own `cargo build -p` per target, since Cargo merges features across the packages of one invocation.
+  - The crate graph and the check's configuration are decided in How the products are built, and each product's Size budget.
+- **Thin per-Product repositories remain possible later,** for issues and a pinned card, without moving code, as ty's code lives in Ruff's repository while `astral-sh/ty` takes its issues.
+- **The Goodfetch Chromium stays in this repository, under `chromium/`** (ADR 0074): its patch files, its build scripts and the inputs of the Chromium build gate.
+  - **A Chromium pull request is one pull request.** It changes the patches, their expected results and the launch arguments that `xtask codegen` writes from the engine's code together, and the gate's verdict attestations bind both input trees on one head (ADR 0074).
+  - **The build is part of the Products' release unit:** it ships in the patch release that carries its Chrome major (ADR 0035), signed by the release pipeline (ADR 0074).
+  - **The layout is Playwright's and Camoufox's.** Playwright keeps its `browser_patches/` for Firefox and WebKit in its main repository, and Camoufox keeps `browser/`, `python/` and `typescript/` in one. Brave, ungoogled-chromium and fingerprint-chromium keep their browser apart because the browser is their product.
+  - **Where it lives changes no legal exposure.** The [legal note](https://github.com/goodfetch/automan/blob/research/stealth-legal-exposure/rnd/research/2026-10-10-stealth-legal-exposure.md) rates masking, patched browsers included, Low to Medium when Goodfetch publishes it as open source, and finds that the legal label "depends more on who acts and how the code is designed and marketed than on where it lives".
+  - **The Products pin the build by digest,** so `chromium/` can move to a repository of its own with its history if counsel's pre-release review (ADR 0035) advises it, or if the gate's load on this repository's CI calls for it.
+
+## Considered Options
+
+- **Collie as a separate process that Foxhound calls** (Products combined at run time, as Crawlee takes Playwright as a peer dependency): rejected.
+  - Fencing and the Effect journal would have to cross a process boundary, with new protocol work and new failure modes.
+  - Separately installed copies skew: Crawlee's README tells users of the Apify SDK to add npm overrides "so that you don't end up with multiple versions of Crawlee installed", since two copies mean two global configurations, which can send `Dataset.pushData` to memory storage ([apify-sdk-js#237](https://github.com/apify/apify-sdk-js/issues/237)).
+  - When Codex moved V8 into an executable of its own, users reported a missing executable, a signed but unnotarized one, stale paths and version mismatches within three months ([multi-product builds](https://github.com/goodfetch/automan/blob/research/multi-product-builds/rnd/research/2026-10-14-multi-product-builds.md)).
+- **Three Products** (Collie, Foxhound without a browser, and one with everything): rejected. Three builds to sign, test and document, and one more choice a user can get wrong; M1's crawler renders pages (ADR 0058), so a Foxhound without a browser is not even the M1 product.
+- **ADR 0034 as it was: one `goodfetch` binary, with Collie and Foxhound as namespaces:** rejected. A user who drives one page would install the crawler, DuckDB and Sinks.
+- **Goodfetch as the name of the full Product, with Goodfetch Collie as the smaller one:** rejected by the owner. It kept FOXHOUND out of a product name, but the owner chose two named Products under one brand.
+- **Separate repositories for Collie and Foxhound:** rejected.
+  - Every protocol or shared-crate change would span repositories, Foxhound would pin Collie's version, and the shared crates would need a third home.
+  - Apify, which runs many repositories, keeps one per release unit (checked 2026-10-14). `crawlee` is a monorepo of 19 packages at one version, and the `browser-pool` and `fingerprint-generator` packages moved into the `crawlee` and `fingerprint-suite` monorepos. Its one split across a release unit, `apify-sdk-js` beside `crawlee`, is where users end up with two Crawlee copies.
+- **A separate public repository for the Goodfetch Chromium,** as Brave's `brave-core`: rejected.
+  - A Chromium change would be two coordinated pull requests and a cross-repository attestation.
+  - A dedicated, starrable repository for a stealth browser, with its own README and topics, is more marketing surface.
+  - It would not protect the owner's self-hosted runner. GitHub says self-hosted runners "should almost never be used for public repositories" ([secure use](https://docs.github.com/en/actions/reference/security/secure-use)), which holds for any public repository, and runner groups limited to selected repositories need the paid Team plan ([manage access](https://docs.github.com/en/actions/how-tos/manage-runners/self-hosted-runners/manage-access)). This repository already plans that runner for the test V8 build (ADRs 0067 and 0076). How fork pull requests are kept off it is decided in [Decide the free Chromium build gate](https://github.com/goodfetch/automan/issues/445), for every job that uses it.
+- **A private repository for the Goodfetch Chromium,** like the Challenge solver: rejected. ADR 0018 keeps private only code whose publication itself creates legal exposure, which the legal note does not find for patched browsers, and ADR 0035's trust argument is a build reproducible from its published patches.
+
+## Consequences
+
+- **Glossary.** Goodfetch, Engine, Collie and Foxhound are rewritten, and Product is added. Collie and Foxhound move to the section that defines the Products, and Extraction now belongs to both. Console and Private component name the engine and the Products instead of Goodfetch.
+- **Earlier ADRs.** In an ADR written before this one, "the `goodfetch` binary" means the executable of each Product that carries the capability in question. Its text changes when the ticket that owns its subject amends it:
+  - How the products are built, and each product's Size budget: the build, the crate graph and each Size budget (ADRs 0038 and 0057);
+  - Product names, packages, executables and version line: identifiers and the version line (ADRs 0030 and 0034);
+  - [Protocol, Operation catalog and SDKs across two products](https://github.com/goodfetch/automan/issues/458): ADRs 0011, 0024 and 0038;
+  - Release, signing and testing of two products: the release and test ADRs;
+  - Collie and Foxhound installed on one machine: shared state.
+
+  [Apply the product-line decisions to the affected specs and tickets](https://github.com/goodfetch/automan/issues/460) then carries every decision into the specs and tickets.
+- **`STYLE.md`**: each Product's executable is a reason for a crate, and Collie's independence from Foxhound is one of the dependency directions the compiler enforces.
+- **ADR 0037's matrix**: the primary package (SDK-01) and modular install (SDK-03) cite this ADR.
+- **Area 1 (Repository, CI and release)** builds the per-Product `cargo-deny` check, the per-Product builds and `chromium/`'s place in the tree; **area 3 (Engine runtime)** builds the engine inside each Product. Each lists this ADR.
+- **Amends ADR 0034.** Goodfetch is the organization and umbrella brand; Collie and Foxhound are Products, each installed on its own, and Foxhound contains Collie. Notes sit at its opening, its rejection of separate products, its identifiers, its rule that sub-names never stand alone, and its trademark clearance.
+- **Amends ADR 0032.** `crates/` builds two Products' executables, and the tree holds `chromium/` (ADR 0074). A note sits under the tree.
+- **Amends ADR 0024.** Clients reach the engine inside a Product's executable. A note sits under its opening, pointing to Protocol, Operation catalog and SDKs across two products.
+- **Amends ADR 0057.** Two executables, each under its own Size budget. A note sits under its opening, pointing to How the products are built, and each product's Size budget.

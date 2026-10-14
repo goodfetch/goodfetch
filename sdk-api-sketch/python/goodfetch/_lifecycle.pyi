@@ -13,9 +13,9 @@ from typing import Literal, Never, Protocol, Self, TypeAlias, final, overload
 
 from goodfetch._concurrency import AsyncListener, AsyncPageEvents, AsyncRunEvents, Listener, PageEvents, RunEvents, Subscription
 from goodfetch._data import JsonValue
-from goodfetch._page import AsyncPageApi, AsyncRouteHandler, PageApi, RouteHandler, UrlPattern
+from goodfetch._page import AsyncPageApi, AsyncRouteHandler, PageApi, RouteHandler
 from goodfetch._settings import ExplainedSetting, PageSettings, RunSettings, SessionSettings, SettingKey, Settings
-from goodfetch._time import AsyncPageWaits, Limits, NotGiven, PageWaits, Timeout
+from goodfetch._time import AsyncPageWaits, Limits, NotGiven, PageWaits, Timeout, UrlMatcher
 
 @final
 @dataclass(frozen=True, kw_only=True)
@@ -111,7 +111,7 @@ class AsyncSession(_AsyncCloseable, _AsyncExplainsSettings):
     def on(self, event: Literal["page"], listener: AsyncListener[AsyncPage]) -> Subscription:
         """A new page in the Session: one it opened, a popup, or a tab a link opened."""
 
-    def route(self, url: UrlPattern, handler: AsyncRouteHandler) -> Subscription:
+    def route(self, url: UrlMatcher, handler: AsyncRouteHandler) -> Subscription:
         """Answers requests of every page of the Session, a popup's first request included; page routes run first."""
 
     def add_init_script(self, script: str, arg: JsonValue | NotGiven = ...) -> Subscription: ...
@@ -223,7 +223,7 @@ class Session(_Closeable, _ExplainsSettings):
     def new_page(self, *, settings: PageSettings = ..., timeout: Timeout = ...) -> Page: ...
     def pages(self) -> list[Page]: ...
     def on(self, event: Literal["page"], listener: Listener[Page]) -> Subscription: ...
-    def route(self, url: UrlPattern, handler: RouteHandler) -> Subscription: ...
+    def route(self, url: UrlMatcher, handler: RouteHandler) -> Subscription: ...
     def add_init_script(self, script: str, arg: JsonValue | NotGiven = ...) -> Subscription: ...
 
 @final

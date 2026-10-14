@@ -35,7 +35,7 @@ use serde::de::DeserializeOwned;
 use crate::concurrency::EventStream;
 use crate::lifecycle::{Page, Session};
 use crate::results::Error;
-use crate::time::{Call, CallFuture, Count, ElementState, LoadState};
+use crate::time::{Call, CallFuture, Count, ElementState, LoadState, UrlMatcher};
 
 // Locators.
 
@@ -853,7 +853,8 @@ impl Locator {
     }
 
     /// Clears the field and inserts the text as typed text arrives, so controlled inputs see it.
-    /// A target that is not editable fails at once with `target_unsupported`.
+    /// A target that cannot hold text fails at once with `target_unsupported`; a read-only one is
+    /// waited for.
     pub fn fill(&self, value: &str) -> Action<action::Text> {
         let _ = value;
         unimplemented!()
@@ -1165,23 +1166,6 @@ impl Response {
     }
 }
 
-/// A glob or a regular expression, matched in the engine (ADR 0081). Routes take no predicate:
-/// filter in the program and let the route fall back.
-#[derive(Debug, Clone)]
-#[non_exhaustive]
-pub enum UrlPattern {
-    /// A glob, such as `**/api/*`.
-    Glob(String),
-    /// A regular expression in the Rust `regex` syntax.
-    Regex(String),
-}
-
-impl From<&str> for UrlPattern {
-    fn from(glob: &str) -> Self {
-        Self::Glob(glob.to_owned())
-    }
-}
-
 /// The network error an aborted request reports to the page, under Playwright's names.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 #[non_exhaustive]
@@ -1190,12 +1174,24 @@ pub enum AbortReason {
     Aborted,
     /// `accessdenied`
     AccessDenied,
+    /// `addressunreachable`
+    AddressUnreachable,
     /// `blockedbyclient`
     BlockedByClient,
+    /// `blockedbyresponse`
+    BlockedByResponse,
+    /// `connectionaborted`
+    ConnectionAborted,
+    /// `connectionclosed`
+    ConnectionClosed,
+    /// `connectionfailed`
+    ConnectionFailed,
     /// `connectionrefused`
     ConnectionRefused,
     /// `connectionreset`
     ConnectionReset,
+    /// `internetdisconnected`
+    InternetDisconnected,
     /// `namenotresolved`
     NameNotResolved,
     /// `timedout`
@@ -1208,8 +1204,8 @@ pub enum AbortReason {
 /// An intercepted request waiting for the program's answer. The first route to answer wins:
 /// [`Route::continue_`], [`Route::fulfill`], [`Route::abort`], or [`Route::fetch`] then
 /// `fulfill`; each takes the route, so it cannot be answered twice. [`Route::fallback`] passes it
-/// to the route registered before this one; dropping it unanswered falls back too, and past the
-/// last route the request goes to the network. What a route sends on still passes the run's
+/// to the route registered before this one, and from the page's first route to the Session's last;
+/// dropping it unanswered falls back too, and past the last route the request goes to the network. What a route sends on still passes the run's
 /// domain policy (ADR 0014) and Filter lists (ADR 0047).
 #[derive(Debug)]
 pub struct Route {
@@ -1662,10 +1658,16 @@ impl WebSocket {
     pub fn frames_received(&self) -> EventStream<WebSocketPayload> {
         unimplemented!()
     }
+
+    /// Waits until it closes: its `close` event.
+    pub fn closed(&self) -> Call<()> {
+        unimplemented!()
+    }
 }
 
 /// A locator handler's turn: the guard found its locator visible before an attempt of a guarded
-/// action and waits until this is dropped, then for the locator to be hidden.
+/// action and waits until this is dropped, then for the locator to be hidden. Meanwhile the action
+/// gives up the page's turn, so the program's own gestures run.
 #[derive(Debug)]
 pub struct LocatorHandlerCall {
     _private: (),
@@ -1972,6 +1974,11 @@ impl Page {
         unimplemented!()
     }
 
+    /// The Session this page belongs to: Playwright's `page.context()`.
+    pub fn session(&self) -> Session {
+        unimplemented!()
+    }
+
     /// Its keyboard.
     pub fn keyboard(&self) -> Keyboard {
         unimplemented!()
@@ -2029,8 +2036,12 @@ impl Page {
         unimplemented!()
     }
 
-    /// Requests matching `url`, each waiting for the program's answer, subscribed when called.
-    pub fn route(&self, url: impl Into<UrlPattern>) -> EventStream<Route> {
+    /// Requests matching `url`, each waiting for the program's answer, subscribed when called. A
+    /// glob or a regular expression matches in the engine; a predicate runs in the program and, like
+    /// a route on every URL, has every request wait for it (ADR 0081). Page routes get a request
+    /// before the Session's. A stream kept but never read holds its requests until whatever waits
+    /// on them reaches its deadline.
+    pub fn route(&self, url: impl Into<UrlMatcher>) -> EventStream<Route> {
         let _ = url.into();
         unimplemented!()
     }
@@ -2063,7 +2074,7 @@ impl Session {
 
     /// Requests of every page of the Session, a popup's first request included; page routes get
     /// them first.
-    pub fn route(&self, url: impl Into<UrlPattern>) -> EventStream<Route> {
+    pub fn route(&self, url: impl Into<UrlMatcher>) -> EventStream<Route> {
         let _ = url.into();
         unimplemented!()
     }

@@ -4,9 +4,9 @@
 
 import type { Listener, PageEvents, RunEvents, Subscription } from "./concurrency.js";
 import type { JsonValue } from "./data.js";
-import type { PageApi, PageCloseOptions, PageFunction, PageResult, RouteHandler, UrlPattern } from "./page.js";
+import type { PageApi, PageCloseOptions, PageFunction, PageResult, RouteHandler } from "./page.js";
 import type { ExplainedSetting, ExplainsSettings, NewPageOptions, SessionSettings, SettingKey, Settings } from "./settings.js";
-import type { CallOptions, Limits, PageWaits, StartOptions, Timeout } from "./time.js";
+import type { CallOptions, Limits, PageWaits, StartOptions, Timeout, UrlMatcher } from "./time.js";
 
 /** Which engine `connect()` reaches. `auto` follows ADR 0024: a Daemon when one is configured or running, otherwise an Attached engine. */
 export type EngineChoice =
@@ -99,7 +99,7 @@ export interface Session extends Closeable, ExplainsSettings {
   pages(): Page[];
   on<K extends keyof SessionEventMap>(event: K, listener: Listener<SessionEventMap[K]>): Subscription;
   /** Answers requests of every page of the Session, a popup's first request included; page routes run first. */
-  route(url: UrlPattern, handler: RouteHandler): Subscription;
+  route(url: UrlMatcher, handler: RouteHandler): Subscription;
   /** Runs before the page's own scripts in every new document of the Session, marked in Provenance. */
   addInitScript<Arg extends JsonValue = JsonValue>(script: PageFunction<Arg, PageResult>, arg?: Arg): Subscription;
 }

@@ -100,7 +100,6 @@ from goodfetch._page import SelectorInvalidError as SelectorInvalidError
 from goodfetch._page import TargetUnsupportedError as TargetUnsupportedError
 from goodfetch._page import TextMatch as TextMatch
 from goodfetch._page import Touchscreen as Touchscreen
-from goodfetch._page import UrlPattern as UrlPattern
 from goodfetch._page import WebError as WebError
 from goodfetch._page import WebSocket as WebSocket
 from goodfetch._page import WebSocketFrame as WebSocketFrame

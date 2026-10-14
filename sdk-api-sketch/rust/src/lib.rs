@@ -20,7 +20,7 @@ pub use page::{
     DialogKind, Download, Evaluate, FileChooser, FilePayload, Filter, Forward, FrameLocator, Fulfill, Headers, InputFiles, Keyboard,
     Locator, LocatorHandlerCall, LocatorHandlerOptions, Modifier, Mouse, MouseButton, Navigation, PageClose, PageRequest, Polling,
     Position, Query, Registration, Request, ResourceType, Response, Route, Screenshot, SelectOption, TextMatch, Touchscreen,
-    UrlPattern, WaitForFunction, WebError, WebSocket, WebSocketPayload, World, action,
+    WaitForFunction, WebError, WebSocket, WebSocketPayload, World, action,
 };
 pub use results::{
     AiWorkResult, BlockCause, Blocked, Claim, DeadlineExceeded, Ended, EndedBy, Error, ErrorCode, ErrorDetails, ErrorGroup, ErrorTarget,

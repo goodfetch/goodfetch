@@ -23,12 +23,13 @@ from dataclasses import dataclass
 from datetime import timedelta
 from pathlib import Path
 from types import TracebackType
-from typing import Literal, Self, TypeAlias, TypedDict, final
+from typing import Literal, Self, TypeAlias, TypedDict, final, overload
 
 from goodfetch._concurrency import AsyncListener, Listener, Subscription
 from goodfetch._data import JsonObject, JsonValue
+from goodfetch._lifecycle import AsyncSession, Session
 from goodfetch._results import PageError, ProgramError, RefusedError, UnavailableError
-from goodfetch._time import Count, LoadState, NotGiven, Timeout
+from goodfetch._time import Count, LoadState, NotGiven, Timeout, UrlMatcher
 
 AriaRole: TypeAlias = Literal[
     "alert",
@@ -181,8 +182,8 @@ class NavigationInterruptedError(PageError):
 class ResponseNotJsonError(PageError):
     """`response_not_json`: `json()` on a body that is not JSON."""
 
-class NavigationFailedError(UnavailableError):
-    """`navigation_failed`: the site could not be reached; `retryable` follows the browser's network error."""
+class NavigationFailedError(PageError):
+    """`navigation_failed`: the site never answered, with the browser's network error. Retryable."""
 
 class PageCrashedError(UnavailableError):
     """`page_crashed`: the renderer crashed."""
@@ -269,8 +270,8 @@ class AsyncLocator(_AsyncLocates):
     def nth(self, index: int) -> AsyncLocator: ...
     @property
     def content_frame(self) -> AsyncFrameLocator: ...
-    async def all(self, *, timeout: Timeout = ...) -> list[AsyncLocator]:
-        """One locator per element matching now. Does not wait."""
+    async def all(self) -> list[AsyncLocator]:
+        """One locator per element matching now. Answers at once, with no timeout."""
 
     # Gestures: guarded, and run one at a time on the page. `force=True` skips the actionability checks and the
     # replay, keeps uniqueness and marks the action unguarded: the setting `action.force` for this call (ADR 0023).
@@ -316,14 +317,16 @@ class AsyncLocator(_AsyncLocates):
         timeout: Timeout = ...,
     ) -> None: ...
     async def fill(self, value: str, *, force: bool = False, timeout: Timeout = ...) -> None:
-        """Clears the field and inserts the text as typed text arrives. A target that is not editable raises
-        `TargetUnsupportedError` at once."""
+        """Clears the field and inserts the text as typed text arrives. A target that cannot hold text raises
+        `TargetUnsupportedError` at once; a read-only one is waited for."""
 
     async def clear(self, *, force: bool = False, timeout: Timeout = ...) -> None: ...
-    async def press(self, key: str, *, delay: timedelta | None = None, timeout: Timeout = ...) -> None:
+    async def press(self, key: str, *, delay: timedelta | None = None, force: bool = False, timeout: Timeout = ...) -> None:
         """A key or a combination, such as `Enter` or `ControlOrMeta+A`."""
 
-    async def press_sequentially(self, text: str, *, delay: timedelta | None = None, timeout: Timeout = ...) -> None:
+    async def press_sequentially(
+        self, text: str, *, delay: timedelta | None = None, force: bool = False, timeout: Timeout = ...
+    ) -> None:
         """Types key by key, for fields that react to each keystroke."""
 
     async def select_option(
@@ -338,7 +341,7 @@ class AsyncLocator(_AsyncLocates):
         """On a `<select>`, or the control a `<label>` points to. Returns the values selected."""
 
     async def select_text(self, *, force: bool = False, timeout: Timeout = ...) -> None: ...
-    async def set_input_files(self, files: InputFiles, *, timeout: Timeout = ...) -> None:
+    async def set_input_files(self, files: InputFiles, *, force: bool = False, timeout: Timeout = ...) -> None:
         """On a file input."""
 
     async def focus(self, *, timeout: Timeout = ...) -> None: ...
@@ -497,10 +500,6 @@ AsyncRouteHandler: TypeAlias = Callable[[AsyncRoute], Awaitable[None]]
 half-changed; the route is removed, and the next call on the value it was registered on raises
 `PageHandlerFailedError`, as ADR 0081's listeners do."""
 
-UrlPattern: TypeAlias = str | re.Pattern[str]
-"""A glob or a compiled pattern, matched in the engine. Routes take no predicate: filter in the handler and
-`fallback()`."""
-
 @final
 class AsyncDialog:
     """A JavaScript dialog waiting for the program's answer."""
@@ -545,7 +544,10 @@ class AsyncWebSocket:
     @property
     def url(self) -> str: ...
     def is_closed(self) -> bool: ...
+    @overload
     def on(self, event: Literal["framesent", "framereceived"], listener: AsyncListener[WebSocketFrame]) -> Subscription: ...
+    @overload
+    def on(self, event: Literal["close"], listener: AsyncListener[None]) -> Subscription: ...
 
 class AsyncKeyboard:
     """Input with no target: nothing to guard, so marked unguarded in Provenance."""
@@ -596,6 +598,25 @@ class AsyncPageRequest:
         timeout: Timeout = ...,
     ) -> AsyncResponse: ...
 
+    async def put(
+        self,
+        url: str,
+        *,
+        headers: Mapping[str, str] | None = None,
+        data: str | bytes | JsonValue | NotGiven = ...,
+        timeout: Timeout = ...,
+    ) -> AsyncResponse: ...
+    async def patch(
+        self,
+        url: str,
+        *,
+        headers: Mapping[str, str] | None = None,
+        data: str | bytes | JsonValue | NotGiven = ...,
+        timeout: Timeout = ...,
+    ) -> AsyncResponse: ...
+    async def delete(self, url: str, *, headers: Mapping[str, str] | None = None, timeout: Timeout = ...) -> AsyncResponse: ...
+    async def head(self, url: str, *, headers: Mapping[str, str] | None = None, timeout: Timeout = ...) -> AsyncResponse: ...
+
 @final
 class AsyncCdpSession:
     """Raw Chrome DevTools Protocol for one page, over the program's own connection: a raw CDP attach under ADR 0017
@@ -631,6 +652,10 @@ class AsyncPageApi(_AsyncLocates):
     async def title(self, *, timeout: Timeout = ...) -> str: ...
     async def content(self, *, timeout: Timeout = ...) -> str: ...
     def is_closed(self) -> bool: ...
+    @property
+    def session(self) -> AsyncSession:
+        """The Session this page belongs to: Playwright's `page.context`."""
+
     @property
     def keyboard(self) -> AsyncKeyboard: ...
     @property
@@ -673,8 +698,10 @@ class AsyncPageApi(_AsyncLocates):
     async def pdf(self, *, format: str | None = None, path: str | Path | None = None, timeout: Timeout = ...) -> bytes:
         """Chromium only."""
 
-    def route(self, url: UrlPattern, handler: AsyncRouteHandler) -> Subscription:
-        """Answers requests matching `url`, registered when called; the handler runs as a task in the page's group."""
+    def route(self, url: UrlMatcher, handler: AsyncRouteHandler) -> Subscription:
+        """Answers requests matching `url`, registered when called; the handler runs as a task in the page's group. A
+        glob or a compiled pattern matches in the engine; a predicate runs here and, like a route on every URL, has
+        every request wait for the program (ADR 0081). Page routes run before the Session's."""
 
     def add_locator_handler(
         self,
@@ -686,7 +713,8 @@ class AsyncPageApi(_AsyncLocates):
     ) -> Subscription:
         """Before each attempt of a guarded action, when `locator` is visible, the guard calls the handler, then waits
         for the locator to be hidden. Handlers run one at a time, their own actions trigger none, and their time
-        counts toward the action's timeout; one that raises fails the action with `PageHandlerFailedError`."""
+        counts toward the action's timeout; one that raises fails the action it interrupted with `PageHandlerFailedError`
+        and stays registered. While a handler runs, the interrupted action gives up the page's turn."""
 
     async def new_cdp_session(self, *, timeout: Timeout = ...) -> AsyncCdpSession:
         """Chromium only: elsewhere it raises `CapabilityUnavailableError`."""
@@ -752,7 +780,7 @@ class Locator(_Locates):
     def nth(self, index: int) -> Locator: ...
     @property
     def content_frame(self) -> FrameLocator: ...
-    def all(self, *, timeout: Timeout = ...) -> list[Locator]: ...
+    def all(self) -> list[Locator]: ...
     def click(
         self,
         *,
@@ -791,8 +819,10 @@ class Locator(_Locates):
     ) -> None: ...
     def fill(self, value: str, *, force: bool = False, timeout: Timeout = ...) -> None: ...
     def clear(self, *, force: bool = False, timeout: Timeout = ...) -> None: ...
-    def press(self, key: str, *, delay: timedelta | None = None, timeout: Timeout = ...) -> None: ...
-    def press_sequentially(self, text: str, *, delay: timedelta | None = None, timeout: Timeout = ...) -> None: ...
+    def press(self, key: str, *, delay: timedelta | None = None, force: bool = False, timeout: Timeout = ...) -> None: ...
+    def press_sequentially(
+        self, text: str, *, delay: timedelta | None = None, force: bool = False, timeout: Timeout = ...
+    ) -> None: ...
     def select_option(
         self,
         value: str | Sequence[str] | None = None,
@@ -803,7 +833,7 @@ class Locator(_Locates):
         timeout: Timeout = ...,
     ) -> list[str]: ...
     def select_text(self, *, force: bool = False, timeout: Timeout = ...) -> None: ...
-    def set_input_files(self, files: InputFiles, *, timeout: Timeout = ...) -> None: ...
+    def set_input_files(self, files: InputFiles, *, force: bool = False, timeout: Timeout = ...) -> None: ...
     def focus(self, *, timeout: Timeout = ...) -> None: ...
     def blur(self, *, timeout: Timeout = ...) -> None: ...
     def scroll_into_view_if_needed(self, *, timeout: Timeout = ...) -> None: ...
@@ -945,7 +975,10 @@ class WebSocket:
     @property
     def url(self) -> str: ...
     def is_closed(self) -> bool: ...
+    @overload
     def on(self, event: Literal["framesent", "framereceived"], listener: Listener[WebSocketFrame]) -> Subscription: ...
+    @overload
+    def on(self, event: Literal["close"], listener: Listener[None]) -> Subscription: ...
 
 class Keyboard:
     def press(self, key: str, *, delay: timedelta | None = None, timeout: Timeout = ...) -> None: ...
@@ -982,6 +1015,15 @@ class PageRequest:
         self, url: str, *, headers: Mapping[str, str] | None = None, data: str | bytes | JsonValue | NotGiven = ..., timeout: Timeout = ...
     ) -> Response: ...
 
+    def put(
+        self, url: str, *, headers: Mapping[str, str] | None = None, data: str | bytes | JsonValue | NotGiven = ..., timeout: Timeout = ...
+    ) -> Response: ...
+    def patch(
+        self, url: str, *, headers: Mapping[str, str] | None = None, data: str | bytes | JsonValue | NotGiven = ..., timeout: Timeout = ...
+    ) -> Response: ...
+    def delete(self, url: str, *, headers: Mapping[str, str] | None = None, timeout: Timeout = ...) -> Response: ...
+    def head(self, url: str, *, headers: Mapping[str, str] | None = None, timeout: Timeout = ...) -> Response: ...
+
 @final
 class CdpSession:
     def send(self, method: str, params: JsonObject | None = None, *, timeout: Timeout = ...) -> JsonValue: ...
@@ -1003,6 +1045,8 @@ class PageApi(_Locates):
     def title(self, *, timeout: Timeout = ...) -> str: ...
     def content(self, *, timeout: Timeout = ...) -> str: ...
     def is_closed(self) -> bool: ...
+    @property
+    def session(self) -> Session: ...
     @property
     def keyboard(self) -> Keyboard: ...
     @property
@@ -1032,7 +1076,7 @@ class PageApi(_Locates):
         timeout: Timeout = ...,
     ) -> bytes: ...
     def pdf(self, *, format: str | None = None, path: str | Path | None = None, timeout: Timeout = ...) -> bytes: ...
-    def route(self, url: UrlPattern, handler: RouteHandler) -> Subscription:
+    def route(self, url: UrlMatcher, handler: RouteHandler) -> Subscription:
         """Answers requests matching `url`, registered when called; the handler runs on the connection's pool."""
 
     def add_locator_handler(

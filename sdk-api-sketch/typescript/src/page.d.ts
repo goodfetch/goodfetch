@@ -17,9 +17,9 @@
 
 import type { Listener, Subscription } from "./concurrency.js";
 import type { JsonObject, JsonValue } from "./data.js";
-import type { Closeable, Page } from "./lifecycle.js";
+import type { Closeable, Page, Session } from "./lifecycle.js";
 import type { PageError, ProgramError, RefusedError, UnavailableError } from "./results.js";
-import type { CallOptions, Count, LoadState } from "./time.js";
+import type { CallOptions, Count, LoadState, UrlMatcher } from "./time.js";
 
 // Locators.
 
@@ -224,8 +224,8 @@ export interface Locator extends Locates {
   nth(index: number): Locator;
   /** The content of the `iframe` this locator matches. */
   contentFrame(): FrameLocator;
-  /** One locator per element matching now. Does not wait. */
-  all(options?: CallOptions): Promise<Locator[]>;
+  /** One locator per element matching now. Answers at once, with no timeout. */
+  all(): Promise<Locator[]>;
 
   // Gestures: guarded, and run one at a time on the page.
   /** Waits until the target is unique, visible, stable, enabled and receiving the click, then clicks; a click that lands elsewhere is cancelled and replayed. */
@@ -237,7 +237,10 @@ export interface Locator extends Locates {
   uncheck(options?: PointerOptions): Promise<void>;
   setChecked(checked: boolean, options?: PointerOptions): Promise<void>;
   dragTo(target: Locator, options?: ActionOptions & { readonly sourcePosition?: Position; readonly targetPosition?: Position }): Promise<void>;
-  /** Clears the field and inserts the text as typed text arrives, so controlled inputs see it. A target that is not editable throws `TargetUnsupportedError` at once. */
+  /**
+   * Clears the field and inserts the text as typed text arrives, so controlled inputs see it. A target
+   * that cannot hold text throws `TargetUnsupportedError` at once; a read-only one is waited for.
+   */
   fill(value: string, options?: ActionOptions): Promise<void>;
   clear(options?: ActionOptions): Promise<void>;
   /** A key or a combination, such as `Enter` or `ControlOrMeta+A`. */
@@ -393,8 +396,9 @@ export type AbortReason =
 /**
  * An intercepted request waiting for the program's answer. The first route to settle it wins:
  * `continue`, `fulfill`, `abort`, or `fetch` then `fulfill`. `fallback` passes it, with its
- * overrides, to the route registered before this one; a handler that ends without settling falls
- * back too, and past the last route the request goes to the network. Settling twice, or after the
+ * overrides, to the route registered before this one, and from the page's first route to the
+ * Session's last; a handler that ends without settling falls back too, and past the last route the
+ * request goes to the network. Settling twice, or after the
  * handler ended, throws `RouteAlreadyHandledError`. What a route sends on still passes the run's
  * domain policy (ADR 0014) and Filter lists (ADR 0047).
  */
@@ -411,13 +415,11 @@ export interface Route {
 
 /**
  * Answers matching requests. Its return value is ignored. If it throws, its request is aborted,
- * never sent half-changed; the route is removed, and the next call on the value it was registered
- * on throws `PageHandlerFailedError`, as ADR 0081's listeners do.
+ * never sent half-changed, and the route is removed; `PageHandlerFailedError` is thrown by a call in
+ * flight that waited on that request, or else by the next call on the value it was registered on,
+ * as ADR 0081's listeners do.
  */
 export type RouteHandler = (route: Route) => void | Promise<void>;
-
-/** A glob or a regular expression, matched in the engine (ADR 0081). Routes take no predicate: filter in the handler and `fallback()`. */
-export type UrlPattern = string | RegExp;
 
 export interface RequestOptions extends CallOptions {
   readonly method?: string;
@@ -626,6 +628,8 @@ export interface PageApi extends Locates {
   title(options?: CallOptions): Promise<string>;
   content(options?: CallOptions): Promise<string>;
   isClosed(): boolean;
+  /** The Session this page belongs to: Playwright's `page.context()`. */
+  session(): Session;
 
   readonly keyboard: Keyboard;
   readonly mouse: Mouse;
@@ -650,13 +654,18 @@ export interface PageApi extends Locates {
   /** Chromium only. */
   pdf(options?: PdfOptions): Promise<Uint8Array>;
 
-  /** Answers requests matching `url`, registered when called. */
-  route(url: UrlPattern, handler: RouteHandler): Subscription;
+  /**
+   * Answers requests matching `url`, registered when called. A glob or a regular expression matches in
+   * the engine; a predicate runs here and, like a route on every URL, has every request wait for the program (ADR 0081).
+   * Page routes run before the Session's.
+   */
+  route(url: UrlMatcher, handler: RouteHandler): Subscription;
   /**
    * Before each attempt of a guarded action, when `locator` is visible, the guard calls the handler
    * in the program, then waits for the locator to be hidden. Handlers run one at a time, their own
    * actions trigger none, and their time counts toward the action's timeout; one that throws fails
-   * the action with `PageHandlerFailedError`.
+   * the action it interrupted with `PageHandlerFailedError` and stays registered. While a handler
+   * runs, the interrupted action gives up the page's turn, so the handler's own gestures run.
    */
   addLocatorHandler(
     locator: Locator,
@@ -714,8 +723,8 @@ export declare class ResponseNotJsonError extends PageError {
   readonly code: "response_not_json";
 }
 
-/** The site could not be reached; `retryable` follows the browser's network error. */
-export declare class NavigationFailedError extends UnavailableError {
+/** The site never answered: the browser's network error, such as `net::ERR_NAME_NOT_RESOLVED`. Retryable. */
+export declare class NavigationFailedError extends PageError {
   readonly code: "navigation_failed";
   readonly details: { readonly netError: string };
 }

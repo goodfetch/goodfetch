@@ -24,6 +24,7 @@ struct Book {
     price: String,
     in_stock: u32,
     /// One to five.
+    #[schemars(range(min = 1, max = 5))]
     rating: u8,
     description: String,
 }
@@ -58,6 +59,8 @@ async fn on_category_page(book_page: &Label<BookPayload>, category: &str, book_u
     for url in book_urls {
         enqueue(url, book_page, &BookPayload { category: category.to_owned() }).await?;
     }
+    // Another type as the Payload does not compile: `enqueue(url, book_page, &Book { .. })` expects
+    // `&BookPayload`, so a wrong Payload never reaches the handler.
     Ok(())
 }
 

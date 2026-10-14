@@ -3,12 +3,15 @@
 //! On the wire every schema is JSON Schema and every value is JSON (ADR 0038). A program writes its
 //! schemas as types deriving `schemars::JsonSchema` and serde's traits, using the [`schemars`] this
 //! crate re-exports so the derive always matches the SDK's version, or as a JSON Schema document by
-//! hand, whose values are [`serde_json::Value`] (G7, G8). The supported `schemars` and `serde` major
-//! ranges are pinned and stated in the release notes; narrowing them follows ADR 0030's rule for
-//! runtimes. A Rust type is both what a program sends and what it receives.
+//! hand, whose values are [`serde_json::Value`] (G7, G8). A crate that does not depend on `schemars`
+//! itself derives through the re-export with `use goodfetch::schemars::{self, JsonSchema}`, or with
+//! `#[schemars(crate = "goodfetch::schemars")]`. `schemars` and serde are in this crate's public API,
+//! so a new major of either is a new major of this crate (C-STABLE). A Rust type is both what a
+//! program sends and what it receives.
 //!
 //! A custom `Deserialize` that returns an error is a rejection, sent back to the model for another
-//! attempt (ADR 0012); a panic stays a panic, so `schema_validator_failed` never reaches Rust.
+//! attempt (ADR 0012); the parse runs in the calling future, so a panic unwinds in the caller's own
+//! call, and `schema_validator_failed` never reaches Rust.
 
 use std::marker::PhantomData;
 

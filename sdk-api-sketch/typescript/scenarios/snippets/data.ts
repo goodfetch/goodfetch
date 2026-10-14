@@ -14,7 +14,7 @@ const Book = z.object({
   title: z.string(),
   price: z.string().regex(/^\d+\.\d{2}$/), // pounds, exact
   inStock: z.number().int(),
-  rating: z.enum(["1", "2", "3", "4", "5"]),
+  rating: z.number().int().min(1).max(5),
   description: z.string(),
 });
 

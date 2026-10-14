@@ -1,10 +1,11 @@
 """Typed data: schemas, Records and Payloads (decided in #469).
 
 On the wire every schema is JSON Schema and every value is JSON (ADR 0038). A program writes its schemas as a Pydantic
-v2 model class, or any type Pydantic's `TypeAdapter` accepts (`list[Book]`, a dataclass, a `TypedDict`), or as a JSON
-Schema document by hand, whose values are `JsonValue` (G7, G8). Pydantic's supported major range is pinned and stated
-in the release notes; narrowing it follows ADR 0030's rule for runtimes. Python has no separate input type: a model is
-both what a program sends and what it receives.
+v2 model class, or any class Pydantic's `TypeAdapter` accepts (`list[Book]`, a dataclass, a `TypedDict`), or as a JSON
+Schema document by hand, whose values are `JsonValue` (G7, G8). A union or an `Annotated` type goes inside a model
+until PEP 747's `TypeForm` can type it as an argument. Pydantic's supported major range is stated in the release notes:
+a new major is added in a minor, and dropping one follows ADR 0030's rule for runtimes. Python has no separate input
+type: a model is both what a program sends and what it receives, dumped in JSON mode on the wire.
 
 Goodfetch's own result models keep the fields a newer engine adds in `model_extra` and are built without validation,
 so nothing new raises (G3); their input models forbid unknown fields.
@@ -97,8 +98,8 @@ class PayloadSchemaChangedError(ProgramError):
 @final
 @dataclass(frozen=True, kw_only=True)
 class SchemaValidatorFailedDetails:
-    schema_name: str
-    """The model or type whose validator raised."""
+    schema: str
+    """The schema as the program names it: the model or type whose validator raised."""
     path: Sequence[str | int]
     """Where in the value the validator was when it raised, when known."""
     exception_type: str

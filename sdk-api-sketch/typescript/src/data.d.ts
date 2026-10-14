@@ -3,8 +3,9 @@
 // schemas with any library that implements Standard Schema and Standard JSON Schema (Zod 4.2+,
 // ArkType 2.1.28+, Valibot 1.2+ through its adapter), or as a JSON Schema document by hand (G7, G8).
 // The SDK depends on no schema library: the interfaces below are copied from @standard-schema/spec
-// 1.1.0, as that spec intends. Goodfetch's own results are passed through unstripped, so a field a
-// newer engine adds stays on the object, and nothing new throws (G3).
+// 1.1.0, as that spec intends. Standard Schema only parses, so a value a program sends is already
+// JSON: the schema's input side. Goodfetch's own results are passed through neither validated nor
+// stripped, so a field a newer engine adds stays on the object, and nothing new throws (G3).
 
 import type { ProgramError } from "./results.js";
 
@@ -123,8 +124,8 @@ export declare class PayloadSchemaChangedError extends ProgramError {
 }
 
 export interface SchemaValidatorFailedDetails {
-  /** The schema library, from Standard Schema's `vendor`. */
-  readonly vendor: string;
+  /** The schema as the program names it; in TypeScript, where a schema has no name, its library (Standard Schema's `vendor`). */
+  readonly schema: string;
   /** Where in the value the validator was when it threw, when known. */
   readonly path: readonly (string | number)[];
   readonly exceptionType: string;

@@ -84,6 +84,10 @@ _Avoid_: worker, agent, sidecar
 A browser the engine did not launch and never closes: the person's running browser, one their own code launched, or a third-party cloud browser reached by its address.
 _Avoid_: external browser, attached browser
 
+**Lent page**:
+A page the engine owns that a program hands, for a time, to another automation library such as Playwright or Puppeteer, through a CDP endpoint that shows only that page's Session; the reverse of a Borrowed browser.
+_Avoid_: shared page, exposed page, remote page
+
 **Plugin**:
 A package that adds implementations of one or more Plugin kinds to the engine, such as delivery to a Sink, a fetch backend or a Secret provider; the reverse of an Integration, which puts a Product inside another tool.
 _Avoid_: extension (a browser extension is something else), add-on, connector, module

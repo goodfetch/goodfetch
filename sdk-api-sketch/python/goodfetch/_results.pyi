@@ -139,7 +139,7 @@ class HandlerFailedDetails:
 
 @final
 class HandlerFailedError(ProgramError):
-    """A handler raised something other than a `GoodfetchError`; `__cause__` holds it in the process that raised it."""
+    """A crawl handler raised something other than a `GoodfetchError`; `__cause__` holds it in the process that raised it."""
 
     @property
     def details(self) -> HandlerFailedDetails: ...

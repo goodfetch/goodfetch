@@ -121,7 +121,7 @@ export interface HandlerFailedDetails {
   /** The stack frames of the user's code. */
   readonly stack: readonly string[];
 }
-/** A handler threw something other than a GoodfetchError. `cause` holds the original in the process that threw it. */
+/** A crawl handler threw something other than a GoodfetchError. `cause` holds the original in the process that threw it. */
 export declare class HandlerFailedError extends ProgramError {
   readonly code: "handler_failed";
   readonly details: HandlerFailedDetails;

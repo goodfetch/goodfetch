@@ -35,7 +35,7 @@ pub enum ErrorCode {
     Closed,
     /// `removed`: a removed name was called, and `fix` names its replacement (#467).
     Removed,
-    /// `handler_failed`: a handler returned an error that is not a Goodfetch [`Error`].
+    /// `handler_failed`: a crawl handler returned an error that is not a Goodfetch [`Error`].
     HandlerFailed,
     /// `hook_failed` (ADR 0033).
     HookFailed,

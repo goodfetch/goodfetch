@@ -34,6 +34,7 @@ The `goodfetch` binary keeps every capability built in, V8 and DuckDB included, 
 ### What stays in the binary
 
 - Every capability stays in the one `goodfetch` binary of ADR 0024: V8 for the Script sandbox (ADR 0051), DuckDB for search and the SQL tab (ADR 0031) and the DuckDB Sink, and the in-binary Sinks of ADR 0026. No capability leaves the binary to meet the Size budget. Browsers, sink processes and Plugins stay downloads, as before, and DuckDB reads run files through table functions the engine registers (below), not through DuckDB's SQLite extension.
+  > Amended by [ADR 0088](0088-collie-carries-every-capability-except-those-only-many-pages-need.md): Collie's executable carries V8 and the Script sandbox, but not DuckDB, the in-binary Sinks or `wreq`, which only Foxhound's carries; search across runs, the SQL tab and the DuckDB Sink are Foxhound's.
 - **Embedded data is stored compressed.** Every channel already compresses its files, so this saves disk space after install (about 6 MB), not download size; the compressed ceiling below is unaffected.
   - The serialized Clean-up rules with zstd (9.06 MB to 3.67 MB), decompressed when they are loaded, in about 6 ms, then dropped once deserialized. **Changes ADR 0047.**
   - The Console's assets precompressed with brotli (0.99 MB to 0.40 MB for the prototype) and served as they are with `Content-Encoding: br`, so no request compresses anything. It needs a small handler, because `tower-http`'s `precompressed_br` expects the uncompressed file beside the `.br` one. **Changes ADR 0031.**

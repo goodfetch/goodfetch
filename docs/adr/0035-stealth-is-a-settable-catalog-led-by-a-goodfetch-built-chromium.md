@@ -74,6 +74,7 @@ The `stealth` Access mode turns on a catalog of items, each of which a run can s
 1. A challenge page on HTTP moves to the browser tier, in the same Access mode (ADR 0020).
 2. The Session waits, with a timeout, for an invisible challenge to clear in the genuine browser.
 3. If the run allows `stealth`, a new `stealth` Session opens.
+   > Amended by [ADR 0088](0088-collie-carries-every-capability-except-those-only-many-pages-need.md): only for a Session that a crawl's Session pool opened. A Session a program or an Agent opened itself skips this step and is never replaced.
 4. If `solve_challenges` is on, deterministic solving: scripted interactive steps (checkbox, slider, press-and-hold), then the configured token services (CapSolver, 2Captcha, CapMonster) and the services that compute the anti-bot sensor data a site expects (such as Hyper Solutions), whose accounts the user brings. Goodfetch never reverse-engineers vendor scripts itself.
 5. If `solve_challenges` is on and the run allows AI escalation, vision models solve puzzles.
 6. A Human pause, if a human channel is configured (ADR 0006).

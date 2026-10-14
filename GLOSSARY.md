@@ -259,7 +259,7 @@ What completes a Challenge on a Session's behalf, whether Goodfetch's own logic,
 _Avoid_: unblocker, bypass, captcha solver (for every kind)
 
 **Session pool**:
-The sessions a run keeps, scoring, rotating and retiring them as they fail.
+The Sessions a crawl keeps, scoring, rotating and retiring them as they fail; a Session a program opens itself is never in it.
 _Avoid_: session manager, account pool
 
 **Saved identity**:
@@ -427,7 +427,7 @@ Whatever turns a Secret reference into its value at the moment of use: the envir
 _Avoid_: vault (for every provider), secret store, credential manager
 
 **Provenance**:
-The record of how a Record was obtained: where and when it was fetched, under which Session and signing identity, by which extractor, Plan or model, and under which Site preferences.
+The record of how a Record, or any other result of a run, was obtained: where and when it was fetched, under which Session and signing identity, by which extractor, Plan or model, and under which Site preferences.
 _Avoid_: lineage, metadata, source (alone)
 
 **Purpose**:

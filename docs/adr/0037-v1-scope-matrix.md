@@ -6,8 +6,8 @@ This matrix is the companion of [ADR 0037](0037-v1-scope-parity-and-pain-coverag
 
 | Status | Parity rows | Stagehand v3 rows | Pains |
 |---|---:|---:|---:|
-| `decided` | 103 | 4 | 24 |
-| `spec` | 38 | 1 | 0 |
+| `decided` | 105 | 5 | 24 |
+| `spec` | 36 | 0 | 0 |
 | `excluded` | 1 | 0 | 0 |
 | `open → #N` | 0 | 0 | 0 |
 | Total | 142 | 5 | 24 |
@@ -48,7 +48,7 @@ This matrix is the companion of [ADR 0037](0037-v1-scope-parity-and-pain-coverag
 |---|---|---|---|---|---|
 | SDK-01 | Primary language and package | `decided` | ADR 0024, ADR 0034, ADR 0084 | 11 Client surfaces | Two Products, Collie and Foxhound, each an executable with a Rust crate and npm and PyPI SDKs (ADR 0084); their package and executable names are [#457](https://github.com/goodfetch/automan/issues/457)'s. |
 | SDK-02 | Same API in several languages | `decided` | ADR 0011, ADR 0024, ADR 0030 | 11 Client surfaces | Every SDK is generated from one Operation catalog, in lockstep versions. |
-| SDK-03 | Modular install | `decided` | ADR 0024, ADR 0033, ADR 0057, ADR 0084 | 1 Repository, CI and release | Collie installs alone; Foxhound contains Collie (ADR 0084). Browsers, sink processes and Plugins are fetched on demand by digest. What each Product carries and its Size budget are [#454](https://github.com/goodfetch/automan/issues/454) and [#455](https://github.com/goodfetch/automan/issues/455)'s. |
+| SDK-03 | Modular install | `decided` | ADR 0024, ADR 0033, ADR 0057, ADR 0084, ADR 0088 | 1 Repository, CI and release | Collie installs alone; Foxhound contains Collie (ADR 0084). Collie carries every capability but those only many pages need: the Frontier and crawl scope, crawl politeness, fetch tiers, the Session pool, Paid fetches, Datasets, Sinks, DuckDB and Partitioned crawls are Foxhound's alone (ADR 0088). Browsers, sink processes and Plugins are fetched on demand by digest. Each Product's Size budget is [#454](https://github.com/goodfetch/automan/issues/454)'s. |
 | SDK-04 | Project scaffolding CLI and templates | `decided` | ADR 0030, ADR 0049 | 11 Client surfaces | `goodfetch init` scaffolds TypeScript, Python and Rust from five starters (crawl, extract, browser automation, AI agent, Recipe), each with a Dockerfile, Compose file, CI workflow, AGENTS.md and skills, embedded in the binary; `--deploy <target>` adds a target's files. |
 | SDK-05 | No-code CLI that crawls or drives a browser | `decided` | ADR 0011, ADR 0034, ADR 0036 | 11 Client surfaces | CLI generated from the catalog with `--json`; code-free catalog runs. |
 | SDK-06 | Typed public API and schemas | `decided` | ADR 0011, ADR 0024, ADR 0028, ADR 0038, ADR 0081, ADR 0082 | 11 Client surfaces | Typed catalog defined in Rust types, generated SDK types, sync and async Python: the async client on AnyIO, the sync one on a private thread per connection that works inside a running loop; Rust async on any executor plus `goodfetch::blocking` (ADR 0081). Schemas come from each language's idiom (Standard Schema with Standard JSON Schema, Pydantic, `schemars`) as JSON Schema, and results keep unknown fields (ADR 0082). |
@@ -120,7 +120,7 @@ This matrix is the companion of [ADR 0037](0037-v1-scope-parity-and-pain-coverag
 | CO-09 | Per-domain politeness incl. latency throttle and token bucket | `spec` | [#71](https://github.com/Jbmanllr/automan/issues/71), ADR 0021, ADR 0053 | 6 Collection | Delay, backoff and crawl-delay decided. Latency throttle and token bucket are opt-in; defaults stay. |
 | CO-10 | Sitemap discovery and loading | `spec` | [#71](https://github.com/Jbmanllr/automan/issues/71), ADR 0016 | 6 Collection | robots.txt is already read on every run. Scope filtering is SC-02. |
 | CO-11 | Callback for skipped or blocked links | `spec` | [#71](https://github.com/Jbmanllr/automan/issues/71), ADR 0005, ADR 0033 | 6 Collection | Learned rules are reported and the `skip` stage exists. This adds an event. |
-| CO-12 | Session pool | `decided` | ADR 0006, ADR 0035, ADR 0002 | 6 Collection | Scoring, rotation and retirement, persisted in run state. |
+| CO-12 | Session pool | `decided` | ADR 0006, ADR 0035, ADR 0002, ADR 0088 | 6 Collection | Scoring, rotation and retirement, persisted in run state. A crawl's, so Foxhound's; a Session a program opened is never rotated or retired (ADR 0088). |
 | CO-13 | Authenticated crawling: log in once, reuse | `decided` | ADR 0006, ADR 0009, ADR 0015, ADR 0035, ADR 0056 | 5 Site access | Recovery chain, scripted login Plans, MFA, saved identities, and logins the user already has (ADR 0056). |
 | CO-14 | Built-in HTML parsers | `decided` | ADR 0007 | 6 Collection | html5ever and scraper for fields; lol-html for streaming. |
 | CO-15 | Per-page choice between HTTP and browser | `decided` | ADR 0020 | 6 Collection | Four fetch tiers chosen per route by sample comparison. |
@@ -205,7 +205,7 @@ This matrix is the companion of [ADR 0037](0037-v1-scope-parity-and-pain-coverag
 
 | ID | Capability | Status | Source | Spec area | Note |
 |---|---|---|---|---|---|
-| V3-01 | `act`, `extract`, `observe` on the crawler's page mid-crawl | `spec` | ADR 0011, ADR 0013, [#72](https://github.com/Jbmanllr/automan/issues/72) | 9 AI and agent | AI operations run on any Session page; per-page model extraction is an explicit mode. The handler-page method shape is spec. |
+| V3-01 | `act`, `extract`, `observe` on the crawler's page mid-crawl | `decided` | ADR 0011, ADR 0013, ADR 0084, ADR 0088, [#72](https://github.com/Jbmanllr/automan/issues/72) | 9 AI and agent | A Foxhound handler's browser page is a Collie page, with the same AI verbs, journaled and fenced by the handler's lease (ADR 0088); per-page model extraction is an explicit mode. The verbs' shape is [#473](https://github.com/goodfetch/automan/issues/473)'s, the handler's page [#477](https://github.com/goodfetch/automan/issues/477)'s. |
 | V3-02 | Local cache of AI results (v3 `cacheDir`) | `decided` | ADR 0009, ADR 0010 | 9 AI and agent | Plans are local, versioned files replayed without a model; a service-held cache was rejected (ADR 0009). |
 | V3-03 | Custom model client (v3 `llmClient`) | `decided` | ADR 0012, ADR 0033 | 9 AI and agent | The SDK model callback, the SDK-handler form of the Model provider kind, still journaled, counted and capped. |
 | V3-04 | Built-in agent loop (v3 `agent().execute()`) | `decided` | ADR 0013 | 9 AI and agent | A thin, journaled built-in agent; dropping it, as Stagehand v4 did, was rejected. |

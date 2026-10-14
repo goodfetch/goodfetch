@@ -9,6 +9,12 @@
 
 import type { CallOptions, Timeout } from "./time.js";
 import type { ProgramError, RefusedError, RunLayerOrigin, SettingsLayer, UnavailableError } from "./results.js";
+import type {
+  ColliePolitenessSettings,
+  CollieSitePreferencesSettings,
+  PolitenessSettings,
+  SitePreferencesSettings,
+} from "./politeness.js";
 
 /** `timeout.*`: ADR 0080's phases, one family. `null` clears a phase's timeout for the whole scope. */
 export interface TimeoutSettings {
@@ -78,21 +84,30 @@ export interface Settings {
   readonly browser?: BrowserSettings;
   readonly network?: NetworkSettings;
   readonly crawl?: CrawlSettings;
+  /** ADR 0086. */
+  readonly politeness?: PolitenessSettings;
+  /** ADR 0086. */
+  readonly sitePreferences?: SitePreferencesSettings;
 }
 
 /**
- * A Collie Run's settings: no `crawl.*`, and no `timeout.run`, which starting the Run spells as its
- * `timeout` (S2). A setting the type cannot rule out, such as `timeout.handler`, is refused with
- * `setting_not_applicable`.
+ * A Collie Run's settings: no `crawl.*`, no `timeout.run`, which starting the Run spells as its
+ * `timeout` (S2), and none of the politeness a crawl's Frontier alone uses (ADR 0086). A setting the
+ * type cannot rule out, such as `timeout.handler`, is refused with `setting_not_applicable`.
  */
 export interface RunSettings {
   readonly timeout?: Omit<TimeoutSettings, "run">;
   readonly browser?: BrowserSettings;
   readonly network?: NetworkSettings;
+  readonly politeness?: ColliePolitenessSettings;
+  readonly sitePreferences?: CollieSitePreferencesSettings;
 }
 
-/** A Session's settings. On a Borrowed browser, any `browser.*` value is refused with `setting_not_applicable`. */
-export type SessionSettings = RunSettings;
+/**
+ * A Session's settings: Politeness and Site preferences are a Run's. On a Borrowed browser, any
+ * `browser.*` value is refused with `setting_not_applicable`.
+ */
+export type SessionSettings = Omit<RunSettings, "politeness" | "sitePreferences">;
 
 /** A page's settings: no part of the Session's identity. */
 export interface PageSettings {
@@ -123,7 +138,20 @@ export type SettingKey =
   | "browser.java_script_enabled"
   | "browser.geolocation"
   | "network.throttle"
-  | "crawl.payload.max_size";
+  | "crawl.payload.max_size"
+  | "politeness.domain.concurrency"
+  | "politeness.domain.delay"
+  | "politeness.backoff.enabled"
+  | "politeness.backoff.initial"
+  | "politeness.backoff.max"
+  | "politeness.ip.concurrency"
+  | "politeness.proxy.concurrency"
+  | "politeness.proxy.rate"
+  | "politeness.sharing"
+  | "politeness.degraded_max"
+  | "site_preferences.respect_robots_txt"
+  | "site_preferences.max_crawl_delay"
+  | "site_preferences.respect_use_signals";
 
 /** One effective value, as `goodfetch config explain` shows it for the scope. */
 export interface ExplainedSetting {

@@ -194,6 +194,96 @@ pub mod crawl {
     }
 }
 
+/// How far a run shares Politeness (ADR 0053). Anything but `Shared` is marked in the run's result.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum PolitenessSharing {
+    /// `shared`, the built-in: through the Politeness store when one is configured, else on the machine.
+    Shared,
+    /// `per_daemon`: on the machine only.
+    PerDaemon,
+    /// `run`: this run alone.
+    Run,
+}
+
+/// `politeness.*` (ADR 0086): one family, so `goodfetch config explain politeness` shows every
+/// limit. With nothing set, a crawl keeps one request in flight per domain, one second between
+/// starts. They govern the requests a crawl's Frontier admits; a program's own navigation is
+/// directed by the program, and only [`politeness::proxy`] and [`politeness::SHARING`] apply to
+/// it. A value that presses a site harder than its built-in default is recorded in the Audit log,
+/// listed in the run's result and logged once as a warning through `tracing`.
+pub mod politeness {
+    use super::{Duration, PolitenessSharing, Setting};
+
+    /// `politeness.sharing`; built-in `Shared`.
+    pub const SHARING: Setting<PolitenessSharing> = Setting::new("politeness.sharing");
+    /// `politeness.degraded_max`: how long an engine cut off from the Politeness store keeps
+    /// admitting within its share (ADR 0053); built-in 10 minutes.
+    pub const DEGRADED_MAX: Setting<Duration> = Setting::new("politeness.degraded_max");
+
+    /// `politeness.domain.*`: per domain, keyed as in ADR 0004, shared by every run of the user.
+    pub mod domain {
+        use super::super::{Duration, Setting};
+
+        /// `politeness.domain.concurrency`: requests in flight per domain; a browser-tier fetch
+        /// counts once, whatever its page loads. Built-in 1; `0` fails with `setting_invalid`.
+        pub const CONCURRENCY: Setting<u32> = Setting::new("politeness.domain.concurrency");
+        /// `politeness.domain.delay`: the least time between two request starts to one domain;
+        /// built-in one second. While robots.txt is respected, a host's Crawl-delay raises it.
+        pub const DELAY: Setting<Duration> = Setting::new("politeness.domain.delay");
+    }
+
+    /// `politeness.backoff.*`: on 429, 502, 503, 504, `Retry-After`, and a connection refused or
+    /// timed out.
+    pub mod backoff {
+        use super::super::{Duration, Setting};
+
+        /// `politeness.backoff.enabled`; built-in `true`. Off, the run records that it ignored
+        /// them (ADR 0023).
+        pub const ENABLED: Setting<bool> = Setting::new("politeness.backoff.enabled");
+        /// `politeness.backoff.initial`: the first wait, doubled at each signal; built-in 2 s.
+        pub const INITIAL: Setting<Duration> = Setting::new("politeness.backoff.initial");
+        /// `politeness.backoff.max`: the longest wait; built-in 60 s.
+        pub const MAX: Setting<Duration> = Setting::new("politeness.backoff.max");
+    }
+
+    /// `politeness.ip.*`: keyed by the IP the engine resolves (ADR 0021).
+    pub mod ip {
+        use super::super::Setting;
+
+        /// `politeness.ip.concurrency`. `None`, the built-in: no limit beyond the domain's.
+        pub const CONCURRENCY: Setting<Option<u32>> = Setting::new("politeness.ip.concurrency");
+    }
+
+    /// `politeness.proxy.*`: per proxy endpoint and credential (ADR 0053); they apply to every run.
+    pub mod proxy {
+        use super::super::Setting;
+
+        /// `politeness.proxy.concurrency`. `None`, the built-in: only the ceiling learned from the
+        /// proxy's refusals.
+        pub const CONCURRENCY: Setting<Option<u32>> = Setting::new("politeness.proxy.concurrency");
+        /// `politeness.proxy.rate`, in requests per second. `None`, the built-in: no rate.
+        pub const RATE: Setting<Option<f64>> = Setting::new("politeness.proxy.rate");
+    }
+}
+
+/// `site_preferences.*` (ADR 0086): what the engine does with the Site preferences it always reads
+/// and records in Provenance (ADR 0016).
+pub mod site_preferences {
+    use super::{Duration, Setting};
+
+    /// `site_preferences.respect_robots_txt`: obey robots.txt (RFC 9309) for crawl requests, its
+    /// Crawl-delay included, start URLs too. Built-in `true`; `false` is recorded.
+    pub const RESPECT_ROBOTS_TXT: Setting<bool> = Setting::new("site_preferences.respect_robots_txt");
+    /// `site_preferences.max_crawl_delay`: the longest Crawl-delay a crawl waits out; a host asking
+    /// for more has its requests skipped with [`SkipReason::CrawlDelay`](crate::SkipReason::CrawlDelay).
+    /// `None`: wait out any. Built-in 30 s.
+    pub const MAX_CRAWL_DELAY: Setting<Option<Duration>> = Setting::new("site_preferences.max_crawl_delay");
+    /// `site_preferences.respect_use_signals`: apply the AI-use signals that concern the run's
+    /// Purpose (ADR 0016). Built-in `false`.
+    pub const RESPECT_USE_SIGNALS: Setting<bool> = Setting::new("site_preferences.respect_use_signals");
+}
+
 /// One effective value, as `goodfetch config explain` shows it for the scope.
 #[derive(Debug, Clone)]
 #[non_exhaustive]

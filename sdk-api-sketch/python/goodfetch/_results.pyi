@@ -251,9 +251,21 @@ class BlockedError(PageError):
 # Outcomes are values.
 
 SkipReason: TypeAlias = (
-    Literal["out_of_scope", "duplicate", "site_preferences", "skipped_by_hook", "skipped_by_handler"] | str
+    Literal[
+        "out_of_scope",
+        "duplicate",
+        "robots_txt",
+        "crawl_delay",
+        "use_signals",
+        "skipped_by_hook",
+        "skipped_by_handler",
+    ]
+    | str
 )
-"""Why a request was skipped; the full list is #477's and #480's."""
+"""Why a request was skipped; the full list is #477's. The Site preferences reasons are ADR 0086's: `robots_txt`, a
+Disallow line of the host's robots.txt, or a robots.txt that stayed unreachable, which RFC 9309 reads as disallowing all;
+`crawl_delay`, a Crawl-delay above `site_preferences.max_crawl_delay`; `use_signals`, an AI-use signal that refuses the
+run's Purpose while `site_preferences.respect_use_signals` is on."""
 
 @final
 @dataclass(frozen=True, kw_only=True)

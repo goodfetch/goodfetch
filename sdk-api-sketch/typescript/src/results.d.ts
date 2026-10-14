@@ -220,11 +220,19 @@ export type RequestOutcome = Attempts &
     | { readonly kind: "unknown"; readonly raw: string }
   );
 
-/** Why a request was skipped; the full list is #477's and #480's. */
+/**
+ * Why a request was skipped; the full list is #477's. The Site preferences reasons are ADR 0086's:
+ * `robots_txt`, a Disallow line of the host's robots.txt, or a robots.txt that stayed unreachable, which RFC 9309
+ * reads as disallowing all;
+ * `crawl_delay`, a Crawl-delay above `site_preferences.max_crawl_delay`; `use_signals`, an AI-use signal
+ * that refuses the run's Purpose while `site_preferences.respect_use_signals` is on.
+ */
 export type SkipReason =
   | "out_of_scope"
   | "duplicate"
-  | "site_preferences"
+  | "robots_txt"
+  | "crawl_delay"
+  | "use_signals"
   | "skipped_by_hook"
   | "skipped_by_handler"
   | (string & {});

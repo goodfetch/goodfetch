@@ -20,7 +20,7 @@ pub use results::{
     SettingValue,
     SettingsLayer, SkipReason, StopReason, TargetDescription, TargetNotUnique, Verdict,
 };
-pub use settings::{ExplainedSetting, Setting, SettingKey, Settings};
+pub use settings::{ExplainedSetting, PolitenessSharing, Setting, SettingKey, Settings};
 pub use time::{
     Call, CallFuture, Count, ElementState, Limits, LoadState, Locator, Money, Request, Response, UrlMatcher, Waiter,
 };

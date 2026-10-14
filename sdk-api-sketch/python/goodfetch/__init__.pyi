@@ -45,6 +45,15 @@ from goodfetch._lifecycle import Goodfetch as Goodfetch
 from goodfetch._lifecycle import Page as Page
 from goodfetch._lifecycle import Run as Run
 from goodfetch._lifecycle import Session as Session
+from goodfetch._politeness import BackoffSettings as BackoffSettings
+from goodfetch._politeness import ColliePolitenessSettings as ColliePolitenessSettings
+from goodfetch._politeness import CollieSitePreferencesSettings as CollieSitePreferencesSettings
+from goodfetch._politeness import DomainPolitenessSettings as DomainPolitenessSettings
+from goodfetch._politeness import IpPolitenessSettings as IpPolitenessSettings
+from goodfetch._politeness import PolitenessSettings as PolitenessSettings
+from goodfetch._politeness import PolitenessSharing as PolitenessSharing
+from goodfetch._politeness import ProxyPolitenessSettings as ProxyPolitenessSettings
+from goodfetch._politeness import SitePreferencesSettings as SitePreferencesSettings
 from goodfetch._results import AiWorkResult as AiWorkResult
 from goodfetch._results import BlockCause as BlockCause
 from goodfetch._results import BlockedDetails as BlockedDetails

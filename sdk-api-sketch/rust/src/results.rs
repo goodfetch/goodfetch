@@ -385,8 +385,14 @@ pub enum SkipReason {
     OutOfScope,
     /// Already seen.
     Duplicate,
-    /// Excluded by Site preferences.
-    SitePreferences,
+    /// A Disallow line of the host's robots.txt, or a robots.txt that stayed unreachable, which RFC 9309
+    /// reads as disallowing all (ADR 0086).
+    RobotsTxt,
+    /// A Crawl-delay above `site_preferences.max_crawl_delay` (ADR 0086).
+    CrawlDelay,
+    /// An AI-use signal that refuses the run's Purpose while
+    /// `site_preferences.respect_use_signals` is on (ADR 0086).
+    UseSignals,
     /// Skipped by a Hook.
     SkippedByHook,
     /// Skipped by the handler.

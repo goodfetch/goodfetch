@@ -21,9 +21,9 @@ from goodfetch._politeness import (
 from goodfetch._results import ProgramError, RefusedError, RunLayerOrigin, SettingsLayer, UnavailableError
 
 class TimeoutSettings(TypedDict, total=False):
-    """`timeout.*`: ADR 0080's phases, one family. `None` clears a phase's timeout for the whole scope."""
+    """`timeout.*`: ADR 0080's phases, one family. `None` clears a phase's timeout for the whole scope. `timeout.connect`
+    is set only in configuration: a connection's own is `connect()`'s `timeout` (S2)."""
 
-    connect: timedelta | None
     action: timedelta | None
     navigation: timedelta | None
     wait: timedelta | None
@@ -38,7 +38,6 @@ class TimeoutSettings(TypedDict, total=False):
 class RunTimeoutSettings(TypedDict, total=False):
     """The phases a Run or a Session can set: not `run`, which starting the Run spells as its `timeout` (S2)."""
 
-    connect: timedelta | None
     action: timedelta | None
     navigation: timedelta | None
     wait: timedelta | None

@@ -16,9 +16,11 @@ import type {
   SitePreferencesSettings,
 } from "./politeness.js";
 
-/** `timeout.*`: ADR 0080's phases, one family. `null` clears a phase's timeout for the whole scope. */
+/**
+ * `timeout.*`: ADR 0080's phases, one family. `null` clears a phase's timeout for the whole scope.
+ * `timeout.connect` is set only in configuration: a connection's own is `connect()`'s `timeout` (S2).
+ */
 export interface TimeoutSettings {
-  readonly connect?: Timeout;
   readonly action?: Timeout;
   readonly navigation?: Timeout;
   readonly wait?: Timeout;

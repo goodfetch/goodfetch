@@ -103,8 +103,8 @@ pub enum SettingsLayer {
     Run,
 }
 
-/// What set a value at the `Run` layer: an explicit value beats the environment, and a call's
-/// argument beats a `Settings` value (ADR 0083).
+/// What set a value at the `Run` layer; a call's argument beats a `Settings` value. The
+/// environment sets no setting (ADR 0083).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum RunLayerOrigin {
@@ -116,8 +116,6 @@ pub enum RunLayerOrigin {
     Flag,
     /// An Integration's form.
     Form,
-    /// A deployment variable.
-    Environment,
 }
 
 /// An effective setting's value as the engine reports it.
@@ -144,7 +142,7 @@ pub struct LimitSource {
     /// The layer that set the value.
     pub layer: SettingsLayer,
     /// Set when `layer` is [`SettingsLayer::Run`]: a call's own argument, a `Settings` value, a
-    /// CLI flag, a form or the environment (ADRs 0080, 0083).
+    /// CLI flag or a form (ADRs 0080, 0083).
     pub origin: Option<RunLayerOrigin>,
 }
 

@@ -37,11 +37,12 @@ class EngineInfo:
     project_file: str | None
     """The project configuration file read, or `None` when none was found or `project` was `None` (ADR 0083)."""
     home: str | None
-    """The Goodfetch home the engine uses (`GOODFETCH_HOME`), or `None` for a remote engine."""
+    """The Goodfetch home the engine uses (`GOODFETCH_HOME`), or `None` for an Exposed Daemon or Goodfetch Cloud."""
     engine_path: str | None
     """The engine binary started (`GOODFETCH_ENGINE_PATH`), or `None` when none was started."""
     url: str | None
-    """The address reached (`GOODFETCH_URL` or `engine`), or `None` for a local engine. `GOODFETCH_TOKEN` never appears."""
+    """The address reached (`GOODFETCH_URL` or `engine`), or `None` for an engine on this machine. `GOODFETCH_TOKEN` never
+    appears."""
 
 # The user's own Playwright objects, matched by shape so no third-party type is required (G7).
 

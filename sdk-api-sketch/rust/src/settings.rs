@@ -86,7 +86,9 @@ impl Settings {
 pub mod timeout {
     use super::{Duration, Setting};
 
-    /// `timeout.connect`.
+    /// `timeout.connect`, set only in configuration: a connection's own is
+    /// [`crate::ConnectOptions::timeout`], and this key in a `Settings` value fails with
+    /// `setting_not_applicable` (S2).
     pub const CONNECT: Setting<Option<Duration>> = Setting::new("timeout.connect");
     /// `timeout.action`: the guard's window (ADR 0019).
     pub const ACTION: Setting<Option<Duration>> = Setting::new("timeout.action");

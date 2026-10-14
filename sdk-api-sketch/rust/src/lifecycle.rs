@@ -122,9 +122,13 @@ pub struct EngineInfo {
     pub protocol_version: String,
     /// The project configuration file read, if any (ADR 0083).
     pub project_file: Option<PathBuf>,
-    /// The Goodfetch home the engine uses (`GOODFETCH_HOME`); `None` for a remote engine.
+    /// The Goodfetch home the engine uses (`GOODFETCH_HOME`); `None` for an Exposed Daemon or
+    /// Goodfetch Cloud.
     pub home: Option<PathBuf>,
-    /// The address reached (`GOODFETCH_URL` or `engine`); `None` for a local engine.
+    /// The engine binary run (`GOODFETCH_ENGINE_PATH`), for the Script sandbox and `plugin-shim`
+    /// (ADR 0024); `None` when none was run.
+    pub engine_path: Option<PathBuf>,
+    /// The address reached (`GOODFETCH_URL` or `engine`); `None` for an engine on this machine.
     /// `GOODFETCH_TOKEN` never appears.
     pub url: Option<String>,
 }

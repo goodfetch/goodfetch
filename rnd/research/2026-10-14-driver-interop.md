@@ -332,7 +332,7 @@ Each of these is reached with a long-lived account credential in the URL. None d
 | Cut the attach when the work item ends | ADR 0003: answers in-flight commands with `attach_ended`, closes the connections, revokes the token; the Browser host cuts on its own clock | Cutting also releases what the lent client held: paused requests and paused OOPIFs and workers resumed when it disconnected **M**. It does not undo state it changed: downloads stayed reset and emulation stayed cleared **M** |
 | Egress through a proxy | ADR 0017: an engine-owned egress proxy under a Session with raw CDP, enforcing the policy "at the network layer" | A browser-level client can create a context with its own `proxyServer` and bypass a proxy set by launch flag **M**. The proxy holds only if it is the browser's only route out. It can also install an extension whose traffic page-level interception never sees **M** |
 | Command allowlist | ADR 0003 rejected checking each raw CDP message against the lease, because it "stops nothing more than cutting the attach does" | Chrome offers no reduced-trust mode for a WebSocket client (§3.1). Target scoping, blocking `Browser.close` and stripping `proxyServer` all need a relay that parses messages, for scoping rather than fencing. Page-level endpoints are no substitute: Playwright and Puppeteer cannot use them **M** |
-| Mark the run | ADRs 0017 and 0056: unguarded results, the run marked as sharing its browser, no Session back to the pool by itself | Every mainstream guest but Browser Use enables `Runtime` **C**, so the Session's stealth posture changes too, not only its guard |
+| Mark the run | ADRs 0017 and 0056: unguarded results, the run marked as sharing its browser, no Session back to the pool by itself | Playwright, Puppeteer, chromiumoxide and BiDi on Chrome enable `Runtime` on every page they wrap **C**, so the Session's stealth posture changes too, not only its guard |
 
 ---
 
@@ -399,7 +399,7 @@ These are considerations for the planning map, not decisions.
    These cover cooperative code; they do not bind a guest that ignores the helper.
 7. **ADR 0019's WebSocket premise is outdated for Node.** Since Playwright 1.61, Node `connectOverCDP(transport)` attaches over any message channel, locally (§2.1). The TS SDK could hand Playwright a CDP channel over its existing JSON-RPC connection with no listening port, as `goodfetch.borrow()` already does in the other direction (ADR 0056). Python Playwright still needs a URL.
 8. **Stagehand v4 can only be given a whole browser.** It refuses foreign pages, installs its extension and drives tabs from inside (§2.3). In Foxhound terms, that is a Borrowed or hosted browser per work item, not a lent page. Stagehand v3 (Node driver, takes Playwright pages) is the version that fits a lent page, and Crawlee itself is stuck on v3.
-9. **Every common guest enables Runtime, except Browser Use.** Provenance already marks the results unguarded, and the Session stays out of the pool (ADR 0017). The stealth side, a Runtime signal on a Session that was clean, is a separate fact worth recording, since a later run reusing a saved identity inherits a site's view of it.
+9. **Most guests enable Runtime on the pages they touch.** Playwright, Puppeteer, chromiumoxide and BiDi on Chrome do; Browser Use's session code does not; what Stagehand v4's extension enables on pages was not checked. Provenance already marks the results unguarded, and the Session stays out of the pool (ADR 0017). The stealth side, a Runtime signal on a Session that was clean, is a separate fact worth recording, since a later run reusing a saved identity inherits a site's view of it.
 10. **For Collie inside other crawlers, the working pattern is Crawlee's**: the tool launches, the crawler attaches Playwright. Its known costs are a page-registration race between two clients, ignored context options, partial fingerprints and version lockstep. Two ways in:
     - scrapy-playwright's `PLAYWRIGHT_BROWSER_PROVIDER` takes any Playwright-compatible driver, which Goodfetch's Playwright-shaped page API (ADR 0019) might satisfy;
     - Crawlee's `BrowserPlugin` is the TS seam.
@@ -414,6 +414,7 @@ These are considerations for the planning map, not decisions.
 - Whether stable headed Chrome (not headless) also lets a port client load an unpacked extension and debug its service worker without `--enable-unsafe-extension-debugging` (P8 ran headless).
 - Whether Chrome 155 still has a separate gate on debugging extension targets that Stagehand's docs describe; none was hit.
 - Why our Proxy-prototype console probe never fired: a V8 change or a probe unlike the published one.
+- Which CDP domains Stagehand v4's extension enables on the pages it drives (Runtime included), through `chrome.debugger`.
 - Stagehand v3's exact attach-time side effects and close semantics on a `cdpUrl` browser.
 - ChromeDriver's attach-time side effects with `debuggerAddress`, and what `quit()` does to a browser it attached to.
 - Steel's and Bright Data's rules for several clients on one session.

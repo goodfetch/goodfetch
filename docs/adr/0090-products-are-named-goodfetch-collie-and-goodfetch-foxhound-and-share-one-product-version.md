@@ -1,12 +1,12 @@
-# The Products are named `goodfetch-collie` and `goodfetch-foxhound` wherever a name is shared, and carry one Product version
+# The Products are named `goodfetch-collie` and `goodfetch-foxhound` in namespaces open to everyone, and carry one Product version
 
-ADR 0084 made Collie and Foxhound two Products under Goodfetch, the organization and umbrella brand, and renamed per Product every identifier that names installed software. This decision sets those identifiers and the version line. What a person installs, runs or imports carries its Product's name: `goodfetch-collie` and `goodfetch-foxhound` wherever the namespace is shared with everyone, the bare Product name under the namespaces Goodfetch owns. What both Products share keeps `goodfetch`. Both Products, and every package of theirs, carry one version and are released together.
+ADR 0084 made Collie and Foxhound two Products under Goodfetch, the organization and umbrella brand, and renamed per Product every identifier that names installed software. This decision sets those identifiers and the version line. What a person installs, runs or imports carries its Product's name: `goodfetch-collie` and `goodfetch-foxhound` wherever the namespace is open to everyone, the bare Product name under the namespaces Goodfetch owns. What both Products share keeps `goodfetch`. Both Products, and every package of theirs, carry one version and are released together.
 
 The [naming, packaging and versioning research](https://github.com/goodfetch/automan/blob/research/product-packaging-and-names/rnd/research/2026-10-14-product-packaging-and-names.md) found, on 2026-10-14:
-- **The bare names are taken where users look for them.** npm `collie` and `foxhound`, PyPI `collie` and `foxhound` and crates.io `collie` belong to other projects. ColliePWA (1,338 stars, a client for AI coding agents) puts `collie` on PATH, with `collie skill` and `collie docs` commands, for the developers Goodfetch addresses. SAP's Playwright-drivable Foxhound browser and a Go scraping framework ship `foxhound` builds.
+- **The bare names are taken where users look for them.** npm `collie` and `foxhound`, PyPI `collie` and `foxhound` and crates.io `collie` belong to other projects. ColliePWA (1,338 stars, a client for AI coding agents) puts `collie` on PATH, with `collie skill` and `collie docs` commands, for the developers Goodfetch addresses. SAP's Playwright-drivable Foxhound browser ships `foxhound-<version>` archives, and a Go scraping framework builds a `foxhound` executable.
 - **Both names are registered marks for software:** COLLIE in the EU (018890716) and the US (8190894), FOXHOUND in France (4860964, class 42).
 - **Every `goodfetch-*` and `@goodfetch/*` name is free.** On 2026-10-15, PyPI and crates.io still return 404 for `goodfetch-collie` and `goodfetch-foxhound`, and npm still reports the `@goodfetch` scope as "Scope not found".
-- **Products that share one engine keep one version.** Every vendor that wraps one native engine pins it exactly; independent lines appear only where products meet over a separately versioned contract, and bring a compatibility table or per-version tags. `uv` contains and also ships `uv_build`, and both are at 0.13.1 on PyPI (2026-10-15).
+- **A product that ships another's engine keeps its version.** Every package that wraps one native engine pins it exactly (Biome, esbuild, Turborepo, Playwright's Python driver), and `uv`, which contains and also ships `uv_build`, releases both at one version (0.13.1 on PyPI, 2026-10-15). Products that only share source code keep separate lines (Ruff and ty, oxlint and oxfmt), and lines that meet over a separately versioned contract bring a compatibility table or per-version tags.
 
 Decided in [Product names, packages, executables and version line](https://github.com/goodfetch/automan/issues/457), on the map [Goodfetch products: Collie and Foxhound as separately installable products](https://github.com/goodfetch/automan/issues/447), by the agent on the owner's delegation ([round 1](https://github.com/goodfetch/automan/issues/457#issuecomment-6179781532)), also on the evidence of the [multi-product builds research](https://github.com/goodfetch/automan/blob/research/multi-product-builds/rnd/research/2026-10-14-multi-product-builds.md).
 
@@ -21,13 +21,15 @@ Decided in [Product names, packages, executables and version line](https://githu
 - **Bare under the namespaces Goodfetch owns:** the npm scope (`@goodfetch/collie`), the GHCR organization (`ghcr.io/goodfetch/collie`) and paths on `goodfetch.dev`. Only Goodfetch can publish there, so the prefix already says who published.
 - **`goodfetch` for everything both Products share:**
   - the GitHub organization, the npm scope, `goodfetch.dev`, the `ghcr.io/goodfetch/` prefix (ADR 0084) and the Homebrew tap `goodfetch/tap`;
-  - the `GOODFETCH_` prefix of every environment variable, setting variables included, and `GOODFETCH_HOME`, `GOODFETCH_BROWSERS_PATH`, `GOODFETCH_URL` and `GOODFETCH_TEST_SEED`;
+  - the `GOODFETCH_` prefix that ADR 0083 reserves, and its deployment variables `GOODFETCH_HOME`, `GOODFETCH_BROWSERS_PATH`, `GOODFETCH_URL`, `GOODFETCH_TOKEN` and `GOODFETCH_TEST_SEED`;
   - Goodfetch home, a folder named `goodfetch` in each operating system's usual folders, as ADR 0031's `~/.local/share/goodfetch/`; what it holds per Product is [Collie and Foxhound installed on one machine](https://github.com/goodfetch/automan/issues/486)'s;
   - the internal crates, `goodfetch-<glossary term>` (`STYLE.md`), published at `0.0.x` (ADR 0030);
   - Python loggers under `goodfetch` and Rust `tracing` targets under `goodfetch::` (ADR 0078), and metrics under `goodfetch.*` (ADR 0050);
   - the sink system columns `_goodfetch_*` (ADR 0026), which stay the same whichever Product writes a row;
   - the helpers either Product may install: the Linux `goodfetch-sandbox` helper and the Windows filter broker (ADR 0033).
-- **One exception: the engine-path variable names its Product.** `GOODFETCH_COLLIE_ENGINE_PATH` and `GOODFETCH_FOXHOUND_ENGINE_PATH` replace `GOODFETCH_ENGINE_PATH`. Each Product's SDKs and crate read only their own, since one path cannot be right for both Products' SDKs in one shell. Biome, esbuild and Turborepo likewise each name their own override (`BIOME_BINARY`, `ESBUILD_BINARY_PATH`, `TURBO_BINARY_PATH`).
+- **One exception: the engine-path variable names its Product.** `GOODFETCH_COLLIE_ENGINE_PATH` and `GOODFETCH_FOXHOUND_ENGINE_PATH` replace `GOODFETCH_ENGINE_PATH`, since one path cannot be right for both Products' SDKs in one shell. Biome, esbuild and Turborepo likewise each name their own override (`BIOME_BINARY`, `ESBUILD_BINARY_PATH`, `TURBO_BINARY_PATH`).
+  - Both Products' SDKs, crates and CLIs know the same closed list of ADR 0083, both variables included, so the other Product's variable is never an unknown name that fails `connect()`.
+  - Each reads only its own Product's variable and ignores the other's.
 
 ### Executables and commands
 
@@ -50,12 +52,12 @@ Decided in [Product names, packages, executables and version line](https://githu
 
 - **npm.** Each package is its Product's TypeScript SDK and a `bin` named after its executable, so `npx @goodfetch/collie` runs `goodfetch-collie`: `npm exec` runs a package's single `bin` entry ([npm docs](https://docs.npmjs.com/cli/v11/commands/npm-exec)). The platform packages use Node's `process.platform` and `process.arch` names (`darwin-arm64`, `darwin-x64`, `linux-arm64`, `linux-x64`, `win32-arm64` and `win32-x64`, one static musl build per Linux architecture, ADR 0024), as `@esbuild/*` and `@biomejs/cli-*` do. They are pinned exactly in `optionalDependencies`, with no install script (ADR 0024).
 - **PyPI.** `py3-none` platform wheels (ADR 0024), each holding its Product's Python SDK and executable.
-- **crates.io.** Each crate is its Product's embeddable crate with the linked engine (ADR 0024) and a binary target of the same name, so `cargo install goodfetch-collie` installs `goodfetch-collie`.
-- **Homebrew.** The tap's repository is `goodfetch/homebrew-tap`, which `brew tap goodfetch/tap` clones. A formula is named after the executable it installs, because a `homebrew/core` formula of the same short name wins over a tap's ([Homebrew docs](https://docs.brew.sh/Taps)).
+- **crates.io.** `cargo install goodfetch-collie` installs the `goodfetch-collie` executable, and `goodfetch_collie` is the Rust SDK's import, its engine linked (ADR 0024); Foxhound's likewise. Any further crate a Product publishes is `goodfetch-<product>-<part>`; how many there are is #458's, and how the executable crates are built is [How the products are built, and each product's Size budget](https://github.com/goodfetch/automan/issues/454)'s.
+- **Homebrew.** The tap's repository is `goodfetch/homebrew-tap`, which `brew tap goodfetch/tap` clones. A formula is named after the executable it installs. `brew install` resolves a short name to `homebrew/core` first ([Homebrew docs](https://docs.brew.sh/Taps)), so a tap formula named `collie` would lose to any later core `collie`, while `goodfetch-collie` keeps one name for the formula and the executable.
 - **OCI.** ADR 0049's tags (`<v>`, `-slim`, `-full`, `-node`, `-python`) apply under each Product's image. Which tags each Product publishes is decided in [Release, signing and testing of two products](https://github.com/goodfetch/automan/issues/459), and what the Browser host runs in [Which executables the Browser host and Goodfetch Cloud's engines run](https://github.com/goodfetch/automan/issues/498). A Helm chart is named after the Product whose image it runs, under `ghcr.io/goodfetch/charts/`.
 - **Releases.** One tag, `vX.Y.Z`, and one GitHub Release per Product version carry both Products' files, each file named after its executable.
 - **Adapters and Integrations** that a registry versions (ADRs 0011 and 0027) are named after the Product they wrap: `@goodfetch/<product>-<target>` on npm and `goodfetch-<product>-<target>` on PyPI, unless the target's ecosystem requires a form, as n8n requires a name that "starts with `n8n-nodes-` or `@<scope>/n8n-nodes-`" ([n8n docs](https://docs.n8n.io/integrations/community-nodes/build-community-nodes/)): `@goodfetch/n8n-nodes-<product>`. Which Product each wraps is #458's.
-- **Agent skills and MCP servers** are named `goodfetch-collie` and `goodfetch-foxhound`, a skill's topic after the Product's name (`goodfetch-collie-<topic>`). Agent Skills names allow lowercase letters, digits and single hyphens, up to 64 characters ([specification](https://agentskills.io/specification)).
+- **Agent skills and MCP servers.** A Product's skill, the name an MCP host's configuration gives its MCP server, and the name that server announces are `goodfetch-collie` or `goodfetch-foxhound`; a skill on one topic is `goodfetch-collie-<topic>`. Agent Skills names allow lowercase letters, digits and single hyphens, up to 64 characters ([specification](https://agentskills.io/specification)).
 - **No meta-package.** `goodfetch` is published on no registry. Foxhound contains Collie, so a package installing both would install two engines for nothing and give a second way to get Foxhound, and Goodfetch would name something installed (ADR 0084).
 
 ### SDK names
@@ -77,18 +79,18 @@ Decided in [Product names, packages, executables and version line](https://githu
 
 ### One Product version
 
-- **Collie, Foxhound and every package of theirs carry one version, the Product version,** and are released together from one commit under ADR 0030's calendar, channels, support policy and gates.
+- **Collie, Foxhound and every package of theirs carry one version, the Product version,** and are released together from one commit under ADR 0030's calendar, channels, support policy and gates. The internal crates stay at `0.0.x` (ADR 0030).
 - **Every release publishes both Products**, even when one has no change of its own, as Changesets' `fixed` groups publish "even when there are no changes" ([naming research](https://github.com/goodfetch/automan/blob/research/product-packaging-and-names/rnd/research/2026-10-14-product-packaging-and-names.md) §4). A Collie change always reaches Foxhound, which contains it, so only a Foxhound-only change gives Collie a release without changes.
 - **Foxhound X.Y.Z contains Collie X.Y.Z.**
 - **Compatibility across Products uses the rules already in place.** A Client and an engine of either Product compare Product versions under ADR 0024's rule: same major, and an engine minor the same as the Client's or newer. Contract formats keep ADR 0030's majors, which change only with a Product major. Whether a Client of one Product may reach the other's engine at all is #458's; what installs of different versions share is #486's.
-- **Installs need not match.** Each SDK runs its own Product's engine (ADR 0024), so a project may upgrade one Product before the other.
+- **One version does not tie installs together.** Nothing makes a project install both Products at the same version; how installs of different versions work together is #458's and #486's.
 
 ### Both Products installed
 
-- **Each Product's package carries only its own executable,** and no package of one Product depends on a package that carries the other's. How Foxhound's SDK reuses Collie's SDK code is #458's.
+- **Each Product's npm package, wheel, Homebrew formula and image carries only its own executable,** and none of them depends on one that carries the other Product's. How Foxhound's SDK reuses Collie's SDK code is #458's, and how its crates use Collie's #454's.
 - **Installing both collides nowhere.** The executables, packages, import names, skill and MCP server names and images all differ.
-- **Collie's engine code is installed twice,** about 16 MB (a Collie-only probe measured 16.0 MB), as installing Ruff and ty, or oxlint and oxfmt, installs their shared code twice.
-- **Two SDKs in one program share no state.** ADR 0078 keeps nothing process-wide, so neither SDK reads a global the other could replace, as a second copy of Crawlee's core replaced its global configuration. Whether one SDK accepts the other's values is #458's; what the installs share at run time (the browser cache, Goodfetch home, a Daemon) is #486's.
+- **Collie's engine code is installed twice:** a Collie-only probe measured 16.0 MB, about 65 MB with V8 (ADR 0084), and what Collie carries is [Collie's exact capability set](https://github.com/goodfetch/automan/issues/455)'s. Installing Ruff and ty, or oxlint and oxfmt, installs their shared code twice too.
+- **Two SDKs in one program share no state.** ADR 0078 keeps nothing process-wide, so neither SDK reads a global the other could also hold, as a second copy of Crawlee's core kept a second global configuration. Whether one SDK accepts the other's values is #458's; what the installs share at run time (the browser cache, Goodfetch home, a Daemon) is #486's.
 
 ### The repository, and the names to claim
 
@@ -97,11 +99,11 @@ Decided in [Product names, packages, executables and version line](https://githu
   1. Create the npm organization `goodfetch` on its free plan ("Unlimited public packages"). "Your organization name will also be your organization scope" ([npm docs](https://docs.npmjs.com/creating-an-organization)), so it holds every npm name above.
   2. Rename the repository to `goodfetch/goodfetch` before configuring trusted publishers, and never create another repository named `automan` in the organization, which would end the redirects.
   3. The PyPI and crates.io names are claimed by their first real upload, a crates.io crate's first one by hand (ADR 0032). A PyPI pending publisher "does not create a project or reserve a project's name until it is actually used to publish" ([PyPI docs](https://docs.pypi.org/trusted-publishers/creating-a-project-through-oidc/)), and a placeholder is squatting under both registries' policies. Until then the names stay unreserved, a risk accepted.
-  4. Unchanged: `goodfetch.dev`, and the clearance and filings of GOODFETCH, COLLIE and FOXHOUND (ADRs 0034 and 0084), whose fees the owner approves.
+  4. Unchanged: `goodfetch.dev`, the clearance search covering GOODFETCH, COLLIE and FOXHOUND, and GOODFETCH's filings (ADRs 0034 and 0084), whose fees the owner approves.
 
 ## Considered Options
 
-- **Bare `collie` and `foxhound` executables, from qualified packages:** rejected. ColliePWA puts `collie` on PATH for the same audience with the same `skill` and `docs` commands, so whichever comes first on PATH silently wins, and an agent skill that runs `collie` may reach the wrong program. `foxhound` meets SAP's browser and the Go scraper's executable. `uvx goodfetch-collie` would also need `--from`.
+- **Bare `collie` and `foxhound` executables, from qualified packages:** rejected. ColliePWA puts `collie` on PATH for the same audience with the same `skill` and `docs` commands, so whichever comes first on PATH silently wins, and an agent skill that runs `collie` may reach the wrong program. `foxhound` meets the Go scraper's executable and SAP's Foxhound browser builds. `uvx goodfetch-collie` would also need `--from`.
 - **Bare names where free, qualified elsewhere** (crates.io `foxhound`): rejected. Two spellings per Product, with nothing to tell users which channel uses which.
 - **Coined short names** (`gfc`, `gff`, `gf-collie`): rejected. They carry no name a reader recognizes, and a short name beside the full one doubles every install line and doc.
 - **A `goodfetch` launcher that dispatches to the installed Products** (`goodfetch collie …`, as `git` and `cargo` find subcommands): rejected. It names something installed after Goodfetch (ADR 0084) and adds an executable to sign, version and find on PATH.
@@ -110,7 +112,7 @@ Decided in [Product names, packages, executables and version line](https://githu
 - **One `GOODFETCH_ENGINE_PATH` for both Products:** rejected. A path exported for one Product would silently redirect the other Product's SDKs in the same shell.
 - **Unscoped npm names** (`goodfetch-collie`): rejected. Anyone can publish a similar unscoped name beside it; only the organization publishes under `@goodfetch/`.
 - **`ghcr.io/goodfetch/goodfetch-collie`:** rejected. The organization prefix already qualifies the image.
-- **A Python namespace package, `goodfetch.collie`,** as `google-cloud-storage` installs `google.cloud.storage`: rejected. Goodfetch publishes no `goodfetch` distribution, and if any distribution in a native namespace ships its own `__init__.py`, "the other sub-packages will not be importable" ([PyPA guide](https://packaging.python.org/en/latest/guides/packaging-namespace-packages/)).
+- **A Python namespace package, `goodfetch.collie`,** as `google-cloud-storage` installs `google.cloud.storage`: rejected. Goodfetch publishes no `goodfetch` distribution, so anyone may publish one, and if it ships a `goodfetch/__init__.py`, "the other sub-packages will not be importable" ([PyPA guide](https://packaging.python.org/en/latest/guides/packaging-namespace-packages/)).
 - **`collie` as the Python import name:** rejected. ShopRunner's PyPI `collie` installs the same import name.
 - **`Goodfetch` as the connection type in both packages:** rejected. A program using both would hold two unrelated `Goodfetch` types, and Goodfetch would name code. **`CollieClient`:** rejected, as ADR 0078 rejected `Client`.
 - **A `goodfetch` meta-package installing both Products,** as `crawlee` pins its 14 `@crawlee/*` parts: rejected. Those parts make one product; Foxhound already contains Collie, so both would install two engines for nothing. **`goodfetch` as Foxhound's alias:** rejected by ADR 0084, which rejected Goodfetch as the full Product's name.
@@ -128,14 +130,16 @@ Decided in [Product names, packages, executables and version line](https://githu
 - **Amends ADR 0078.** The connection types are `Collie` and `Foxhound`. A note sits under its entry point.
 - **Amends ADR 0024.** Each Product's SDKs read their own engine-path variable. A note sits under its packaging consequence.
 - **Amends ADR 0032.** The tree's crates, executables and packages are named per Product, and the repository is `goodfetch/goodfetch`. Notes sit under the tree and its visibility item.
-- **Amends ADR 0049.** Each Product has its image and charts. A note sits under the image table.
+- **Amends ADR 0049.** Each Product has its image and charts. Notes sit under the image table and the Helm chart's publishing item.
+- **Amends ADR 0083.** Its deployment variables keep their names, except the engine-path variable, now one per Product and both on its closed list, and one Product version covers both Products' SDKs. Notes sit under its closed list and its strict reading.
 - **Earlier ADRs.** As ADR 0084 reads "the `goodfetch` binary", an ADR written before this one reads:
   - `goodfetch <command>` as that command of each Product's executable that carries it;
   - the `goodfetch` crate, npm package, PyPI package, image and testing kit as each Product's;
   - `GOODFETCH_ENGINE_PATH` as each Product's engine-path variable;
-  - "product version" and "product major" as the Product version and its major.
+  - "product version" and "product major" as the Product version and its major;
+  - `Goodfetch`, `AsyncGoodfetch` and `Goodfetch::…` as each Product's connection type, and `gf.collie.…` and `gf.foxhound.…` as calls through the connection of the Product that carries them, as #458 shapes it.
 - **Glossary.** **Product version** is added.
 - **`STYLE.md` and `TESTING.md`** name the Products' crates, executables, testing kits and engine-path variables. How each Product's executable is tested stays [Release, signing and testing of two products](https://github.com/goodfetch/automan/issues/459)'s.
-- **ADR 0037.** Matrix rows SDK-01 and SDK-02 and pain row 21 cite this ADR; areas 1 and 11 list it.
-- **Areas.** Area 1 (Repository, CI and release) builds the package names, the tap, the installers, one tag and release per Product version and the release of both Products together; area 11 (Client surfaces) builds the SDK names, each executable's command shape, and the skill and MCP server names.
+- **ADR 0037.** Matrix rows SDK-01 and SDK-02 and pain row 21 cite this ADR; areas 1, 11 and 13 list it.
+- **Areas.** Area 1 (Repository, CI and release) builds the package names, the tap, the installers, one tag and release per Product version and the release of both Products together; area 11 (Client surfaces) builds the SDK names, each executable's command shape, and the skill and MCP server names; area 13 (Self-hosted deployment and operations) builds the images' and charts' names.
 - **Downstream.** [Apply the product-line decisions to the affected specs and tickets](https://github.com/goodfetch/automan/issues/460) carries these names into the specs and tickets, and the SDK sketch of [The SDK API of Collie and Foxhound](https://github.com/goodfetch/automan/issues/461) replaces its `goodfetch` placeholders once #458 settles each Product's SDK structure.

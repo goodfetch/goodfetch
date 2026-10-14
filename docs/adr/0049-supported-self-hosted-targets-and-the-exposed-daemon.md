@@ -75,7 +75,7 @@ Crawlee documents AWS Lambda and Cloud Run but tests neither, and its AWS guide 
 | `goodfetch:<v>-full` | The default plus Camoufox, and Playwright's Firefox and WebKit |
 | `goodfetch:<v>-node`, `goodfetch:<v>-python` | The default plus the language runtime and SDK, the base for `init`'s Dockerfiles and for Lambda |
 
-> Amended by [ADR 0090](0090-products-are-named-goodfetch-collie-and-goodfetch-foxhound-and-share-one-product-version.md): each Product has its image, `ghcr.io/goodfetch/collie` and `ghcr.io/goodfetch/foxhound`, under this tag scheme; which tags each Product publishes is decided in [Release, signing and testing of two products](https://github.com/goodfetch/automan/issues/459), and the Browser host's image in [Which executables the Browser host and Goodfetch Cloud's engines run](https://github.com/goodfetch/automan/issues/498). A Helm chart is named after the Product whose image it runs, under `ghcr.io/goodfetch/charts/`.
+> Amended by [ADR 0090](0090-products-are-named-goodfetch-collie-and-goodfetch-foxhound-and-share-one-product-version.md): each Product has its image, `ghcr.io/goodfetch/collie` and `ghcr.io/goodfetch/foxhound`, under this tag scheme; which tags each Product publishes is decided in [Release, signing and testing of two products](https://github.com/goodfetch/automan/issues/459), and the Browser host's image in [Which executables the Browser host and Goodfetch Cloud's engines run](https://github.com/goodfetch/automan/issues/498).
 
 - Every tag is built on Debian 13 slim (Chromium needs glibc), for amd64 and arm64, runs as the non-root UID 10001, and ships with an SBOM and Sigstore attestations.
 - The Browser host runs from the same image with its own command.
@@ -88,6 +88,7 @@ Crawlee documents AWS Lambda and Cloud Run but tests neither, and its AWS guide 
 - By default it passes Kubernetes' `restricted` Pod Security level: `runAsNonRoot`, every capability dropped, `allowPrivilegeEscalation: false`, a read-only root filesystem with `emptyDir` volumes for `/tmp` and the browser cache, a memory-backed `/dev/shm` of 1 GiB, and the seccomp profile as `Localhost`, installed through an optional Security Profiles Operator `SeccompProfile` the chart can create, or by hand.
 - Two documented values: `seccomp: unconfined`, needed on GKE Autopilot, which forbids custom profiles and drops to the `privileged` level; and `hostUsers: false` with `SYS_ADMIN` inside the pod's user namespace (Kubernetes 1.33 and later, GA in 1.36), which fails `baseline`.
 - Published as a signed OCI artifact on GHCR at the product version, released with the other packages (adds to ADR 0030). Upgrades roll by drain, then resume from the same volume.
+  > Amended by [ADR 0090](0090-products-are-named-goodfetch-collie-and-goodfetch-foxhound-and-share-one-product-version.md): a chart is named after the Product whose image it runs, under `ghcr.io/goodfetch/charts/` (`ghcr.io/goodfetch/charts/foxhound`, for instance); which Products publish one follows their images.
 
 **Project templates** (adds to ADR 0030).
 - `goodfetch init` scaffolds TypeScript, Python and Rust projects from five starters: crawl, extract, browser automation, AI agent and Recipe. The templates are embedded zstd-compressed (ADR 0057).

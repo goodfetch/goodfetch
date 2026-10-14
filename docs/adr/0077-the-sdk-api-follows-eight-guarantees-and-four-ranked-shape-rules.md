@@ -63,7 +63,7 @@ These act as SDK principles and are decided in their own ADRs: one Operation cat
 
 - **Adds to ADR 0038.** The shapes its contracts show users follow these principles, so under ADR 0037's reading rule every area's `/to-spec` reads this ADR. Area 11 (Client surfaces) builds its main decisions and lists it.
 - **Adds to ADR 0030.** A deprecated name also carries its type-level marker (T), and an ecosystem type in the SDK API has its supported major range pinned and stated in the release notes (G7).
-- **How G2 reads ADR 0056.** ADR 0056's SDK relay, written `goodfetch.borrow(browserOrPage)`, carries CDP over "the JSON-RPC connection the SDK already holds". Under G2 that connection is a value the caller holds, so `borrow` is called on it, never on a process-wide instance; [Entry points and lifecycle](https://github.com/goodfetch/automan/issues/465) names that object and the call's spelling. ADR 0056's decision is unchanged.
+- **How G2 reads ADR 0056.** ADR 0056's SDK relay, first written `goodfetch.borrow(browserOrPage)`, carries CDP over "the JSON-RPC connection the SDK already holds". Under G2 that connection is a value the caller holds, so `borrow` is called on it, never on a process-wide instance; [Entry points and lifecycle](https://github.com/goodfetch/automan/issues/465) names that object and the call's spelling. ADR 0056's decision is unchanged.
 
   > Amended by [ADR 0078](0078-an-sdk-program-opens-an-explicit-engine-connection-and-closes-only-what-it-started.md): `borrow` is called on the Run whose Session it serves, `run.borrow(pageOrBrowser)`, itself a value the caller holds under the connection, and its CDP still travels over that connection.
 

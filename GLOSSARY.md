@@ -198,6 +198,14 @@ _Avoid_: account, organization, user (for a customer)
 The URLs a run has discovered but not yet visited, with the list of those already visited and the rules that decide when two URLs are the same page.
 _Avoid_: queue, request list, to-do list
 
+**Label**:
+The name a crawl gives one kind of request, which picks the handler that processes it, the shape of its Payload and the Hooks scoped to it.
+_Avoid_: route, page type, callback (for the name)
+
+**Payload**:
+The data a program attaches to a request for its handler, owned by the program and kept apart from the engine's own fields.
+_Avoid_: userData, user_data, meta, cb_kwargs, context
+
 **Politeness**:
 The per-domain and per-proxy limits on how hard a user's runs press one site or one proxy, shared by those runs.
 _Avoid_: rate limiting, throttling

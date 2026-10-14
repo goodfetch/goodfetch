@@ -2,12 +2,15 @@
 
 Logs go to `logging` loggers under `goodfetch` (`goodfetch.client`, `goodfetch.engine.<area>`); the SDK adds only a
 `NullHandler`. The Run's start verbs, Sessions and the page API are placeholders owned by #478, #476 and #472.
+Timeouts, waits and Limits come from #467 (`_time`).
 """
 
 from collections.abc import Generator
 from dataclasses import dataclass
 from types import TracebackType
 from typing import Literal, Never, Protocol, Self, TypeAlias, final, overload
+
+from goodfetch._time import AsyncPageWaits, Limits, PageWaits, Timeout
 
 @final
 @dataclass(frozen=True, kw_only=True)
@@ -62,8 +65,8 @@ class BorrowableAsyncBrowser(Protocol):
 # Async API.
 
 class _AsyncCloseable:
-    async def close(self) -> None:
-        """Idempotent. Closes children first; any later call on this value fails with the Error code `closed`."""
+    async def close(self, *, timeout: Timeout = ...) -> None:
+        """Idempotent. Its timeout is the close phase's. Closes children first; any later call on this value fails with the Error code `closed`."""
 
     async def __aenter__(self) -> Self: ...
     async def __aexit__(
@@ -71,7 +74,7 @@ class _AsyncCloseable:
     ) -> None: ...
 
 @final
-class AsyncPage(_AsyncCloseable):
+class AsyncPage(_AsyncCloseable, AsyncPageWaits):
     """A page Goodfetch drives. Its API is #472's. Closing it closes only a tab Goodfetch opened."""
 
 @final
@@ -96,8 +99,11 @@ class AsyncRun(_AsyncCloseable):
 class AsyncCollie:
     """Collie, reached from the connection without I/O."""
 
-    async def start(self) -> AsyncRun:
-        """Placeholder start verb: its spelling and options are #478's."""
+    async def start(self, *, timeout: Timeout = ..., limits: Limits | None = None) -> AsyncRun:
+        """Placeholder start verb: its spelling is #478's; `timeout` and `limits` are #467's.
+
+        `timeout` caps the whole Run, with no default: on expiry it stops with a Checkpoint, resumable.
+        """
 
 @final
 class AsyncFoxhound:
@@ -118,7 +124,7 @@ class AsyncGoodfetch(_AsyncCloseable):
     """The engine connection: the entry point. Each one is independent, and many may be open in one process."""
 
     @classmethod
-    def connect(cls, *, engine: EngineChoice = "auto") -> _AsyncConnecting:
+    def connect(cls, *, engine: EngineChoice = "auto", timeout: Timeout = ..., limits: Limits | None = None) -> _AsyncConnecting:
         """Starts or finds the engine and completes `hello` before the connection is returned."""
 
     @property
@@ -131,8 +137,8 @@ class AsyncGoodfetch(_AsyncCloseable):
 # Sync API: the same concepts, generated from the same catalog (ADR 0038).
 
 class _Closeable:
-    def close(self) -> None:
-        """Idempotent. Closes children first; any later call on this value fails with the Error code `closed`."""
+    def close(self, *, timeout: Timeout = ...) -> None:
+        """Idempotent. Its timeout is the close phase's. Closes children first; any later call on this value fails with the Error code `closed`."""
 
     def __enter__(self) -> Self: ...
     def __exit__(
@@ -140,7 +146,7 @@ class _Closeable:
     ) -> None: ...
 
 @final
-class Page(_Closeable):
+class Page(_Closeable, PageWaits):
     """A page Goodfetch drives. Its API is #472's. Closing it closes only a tab Goodfetch opened."""
 
 @final
@@ -165,8 +171,11 @@ class Run(_Closeable):
 class Collie:
     """Collie, reached from the connection without I/O."""
 
-    def start(self) -> Run:
-        """Placeholder start verb: its spelling and options are #478's."""
+    def start(self, *, timeout: Timeout = ..., limits: Limits | None = None) -> Run:
+        """Placeholder start verb: its spelling is #478's; `timeout` and `limits` are #467's.
+
+        `timeout` caps the whole Run, with no default: on expiry it stops with a Checkpoint, resumable.
+        """
 
 @final
 class Foxhound:
@@ -177,7 +186,7 @@ class Goodfetch(_Closeable):
     """The engine connection: the entry point. Each one is independent, and many may be open in one process."""
 
     @classmethod
-    def connect(cls, *, engine: EngineChoice = "auto") -> Goodfetch:
+    def connect(cls, *, engine: EngineChoice = "auto", timeout: Timeout = ..., limits: Limits | None = None) -> Goodfetch:
         """Starts or finds the engine and completes `hello` before returning; use it with `with`."""
 
     @property

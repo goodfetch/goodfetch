@@ -17,6 +17,7 @@ export type ErrorGroup =
 /** The Error codes this sketch shows. */
 export type KnownErrorCode =
   | "closed"
+  | "removed"
   | "handler_failed"
   | "hook_failed"
   | "limit_reached"
@@ -93,7 +94,7 @@ export declare class PageError extends GoodfetchError {
 export declare class ModelError extends GoodfetchError {
   readonly group: "model";
 }
-/** The deadline passed. Raise it, or wait for the right thing; deadlines are #467's.
+/** The deadline passed. Raise the timeout its `limit` names, or wait for the right thing (#467).
  * A code named like its group (`deadline_exceeded`, `internal`) shares the group's class. */
 export declare class DeadlineExceededError extends GoodfetchError {
   readonly group: "deadline_exceeded";
@@ -195,9 +196,10 @@ export type Ended =
   | { readonly kind: "finished" }
   | { readonly kind: "stopped"; readonly reason: StopReason };
 
-/** Why AI work stopped early: a Limit by name, or an abort. */
+/** Why AI work stopped early: a Limit by name, the Run's own timeout (#467), or an abort. */
 export type StopReason =
   | { readonly kind: "limit"; readonly limit: string }
+  | { readonly kind: "timeout" }
   | { readonly kind: "abort" }
   | { readonly kind: "unknown"; readonly raw: string };
 

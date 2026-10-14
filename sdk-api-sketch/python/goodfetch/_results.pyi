@@ -15,6 +15,7 @@ ErrorGroup: TypeAlias = Literal["program", "refused", "page", "model", "deadline
 
 KnownErrorCode: TypeAlias = Literal[
     "closed",
+    "removed",
     "handler_failed",
     "hook_failed",
     "limit_reached",
@@ -234,7 +235,8 @@ class Finished: ...
 class Stopped:
     """AI work that stopped early. A failed ending raises instead."""
 
-    reason: Literal["limit", "abort"] | str
+    reason: Literal["limit", "timeout", "abort"] | str
+    """`timeout`: the Run's own timeout (#467)."""
     limit: str | None
     """The Limit by name, when `reason` is `limit`."""
 

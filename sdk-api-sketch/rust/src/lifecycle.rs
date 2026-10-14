@@ -4,8 +4,13 @@
 //! The Rust crate links the engine (`EngineChoice::Linked`) and borrows a browser through
 //! `session.source = cdp_url`, never through a relay. The Run's start verbs, Sessions and the
 //! page API are placeholders owned by #478, #476 and #472. The error type is ADR 0079's, in `results`.
+//! Timeouts, waits and Limits are #467's, in `time`.
+
+use std::future::IntoFuture;
+use std::time::Duration;
 
 use crate::results::Error;
+use crate::time::{Call, CallFuture, Limits, Timeout};
 
 /// Which engine [`Goodfetch::connect`] reaches.
 #[derive(Debug, Clone, Default)]
@@ -33,6 +38,10 @@ pub enum EngineChoice {
 pub struct ConnectOptions {
     /// Which engine to reach.
     pub engine: EngineChoice,
+    /// How long starting or finding the engine and `hello` may take.
+    pub timeout: Timeout,
+    /// Limits on this Client connection's work (ADR 0041), lowered or set by the program itself.
+    pub limits: Limits,
 }
 
 /// The kind of engine a connection reached.
@@ -95,8 +104,9 @@ impl Goodfetch {
     }
 
     /// Cancels in-flight calls, closes every Run it opened, then stops a linked engine or
-    /// disconnects from a Daemon. Idempotent; takes `&self` so it works through an `Arc`.
-    pub async fn close(&self) -> Result<(), Error> {
+    /// disconnects from a Daemon. Idempotent; takes `&self` so it works through an `Arc`. Its timeout
+    /// is the close phase's.
+    pub fn close(&self) -> Call<'_, ()> {
         unimplemented!()
     }
 }
@@ -113,8 +123,39 @@ pub struct Collie<'a> {
 }
 
 impl Collie<'_> {
-    /// Placeholder start verb: its spelling and options are #478's.
-    pub async fn start(&self) -> Result<Run, Error> {
+    /// Placeholder start verb: its spelling is #478's; its timeout and Limits are #467's.
+    pub fn start(&self) -> Start<'_> {
+        unimplemented!()
+    }
+}
+
+/// Starting a Run, not sent until awaited.
+#[derive(Debug)]
+#[must_use = "a Run does not start until this is awaited"]
+pub struct Start<'a> {
+    _collie: &'a Goodfetch,
+}
+
+impl Start<'_> {
+    /// How long the whole Run may last; by default, no timeout. On expiry the Run stops with a
+    /// Checkpoint, `stopped` and `incomplete`, and can be resumed.
+    pub fn timeout(self, timeout: Duration) -> Self {
+        let _ = timeout;
+        unimplemented!()
+    }
+
+    /// The Run's Limits.
+    pub fn limits(self, limits: Limits) -> Self {
+        let _ = limits;
+        unimplemented!()
+    }
+}
+
+impl<'a> IntoFuture for Start<'a> {
+    type Output = Result<Run, Error>;
+    type IntoFuture = CallFuture<'a, Run>;
+
+    fn into_future(self) -> Self::IntoFuture {
         unimplemented!()
     }
 }
@@ -138,7 +179,7 @@ impl Run {
     }
 
     /// Stops the Run if unfinished, after closing its children. Idempotent.
-    pub async fn close(&self) -> Result<(), Error> {
+    pub fn close(&self) -> Call<'_, ()> {
         unimplemented!()
     }
 }
@@ -151,7 +192,7 @@ pub struct Page {
 
 impl Page {
     /// Closes the tab. Idempotent.
-    pub async fn close(&self) -> Result<(), Error> {
+    pub fn close(&self) -> Call<'_, ()> {
         unimplemented!()
     }
 }

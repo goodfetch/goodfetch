@@ -33,6 +33,8 @@ pub enum ErrorGroup {
 pub enum ErrorCode {
     /// `closed`: a call on a closed value (ADR 0078).
     Closed,
+    /// `removed`: a removed name was called, and `fix` names its replacement (#467).
+    Removed,
     /// `handler_failed`: a handler returned an error that is not a Goodfetch [`Error`].
     HandlerFailed,
     /// `hook_failed` (ADR 0033).
@@ -363,6 +365,8 @@ pub enum Ended {
 pub enum StopReason {
     /// A Limit, by name.
     Limit(String),
+    /// The Run's own timeout (#467).
+    Timeout,
     /// An abort.
     Abort,
     /// A reason this SDK does not know, as received.

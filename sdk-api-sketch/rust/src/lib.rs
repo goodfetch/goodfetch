@@ -5,10 +5,14 @@
 
 pub mod lifecycle;
 pub mod results;
+pub mod time;
 
-pub use lifecycle::{Collie, ConnectOptions, EngineChoice, EngineInfo, EngineKind, Goodfetch, Page, Run};
+pub use lifecycle::{Collie, ConnectOptions, EngineChoice, EngineInfo, EngineKind, Goodfetch, Page, Run, Start};
 pub use results::{
     AiWorkResult, BlockCause, Blocked, Claim, Ended, Error, ErrorCode, ErrorDetails, ErrorGroup, ErrorTarget,
     HandlerFailed, LimitSource, NotVerified, PartialOutput, Reported, RequestOutcome, RequestOutcomeKind, SettingValue,
     SettingsLayer, SkipReason, StopReason, TargetDescription, TargetNotUnique, Verdict,
+};
+pub use time::{
+    Call, CallFuture, Count, ElementState, Limits, LoadState, Locator, Money, Request, Response, Timeout, UrlMatcher, Waiter,
 };

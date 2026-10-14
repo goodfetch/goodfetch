@@ -1,5 +1,8 @@
 // Entry points and lifecycle (ADR 0078, decided in #465).
 // The Run's start verbs, Sessions and the page API are placeholders owned by #478, #476 and #472.
+// Timeouts, waits and Limits come from #467 (time.d.ts).
+
+import type { CallOptions, Limits, PageWaits, StartOptions, Timeout } from "./time.js";
 
 /** Which engine `connect()` reaches. `auto` follows ADR 0024: a Daemon when one is configured or running, otherwise an Attached engine. */
 export type EngineChoice =
@@ -27,12 +30,16 @@ export interface Logger {
 export interface ConnectOptions {
   readonly engine?: EngineChoice;
   readonly logger?: Logger;
+  /** How long starting or finding the engine and `hello` may take. Default: the connect phase's setting. */
+  readonly timeout?: Timeout;
+  /** Limits on this Client connection's work (ADR 0041), lowered or set by the program itself. */
+  readonly limits?: Limits;
 }
 
 /** A value the program holds and closes: `await using`, or `close()` where `await using` is missing (Node 22). */
 export interface Closeable extends AsyncDisposable {
-  /** Idempotent. Closes children first; any later call on this value fails with the Error code `closed`. */
-  close(): Promise<void>;
+  /** Idempotent. Closes children first; any later call on this value fails with the Error code `closed`. Its timeout is the close phase's. */
+  close(options?: CallOptions): Promise<void>;
 }
 
 /** A Playwright or Puppeteer page, matched by shape so no third-party type is required (G7). */
@@ -46,7 +53,7 @@ export type BorrowableBrowser =
   | { target(): unknown; disconnect(): Promise<void> };
 
 /** A page Goodfetch drives. Its API is #472's. Closing it closes only a tab Goodfetch opened. */
-export interface Page extends Closeable {}
+export interface Page extends Closeable, PageWaits {}
 
 /** A Session of a Run. Its API is #476's. Closing it never closes a Borrowed browser. */
 export interface Session extends Closeable {
@@ -65,8 +72,8 @@ export interface Run extends Closeable {
 
 /** Collie, reached from the connection without I/O. */
 export interface Collie {
-  /** Placeholder start verb: its spelling and options are #478's. */
-  start(): Promise<Run>;
+  /** Placeholder start verb: its spelling is #478's; `timeout` and `limits` are #467's. */
+  start(options?: StartOptions): Promise<Run>;
 }
 
 /** Foxhound, reached from the connection without I/O. Its crawl API is #477's. */
@@ -81,6 +88,6 @@ export declare class Goodfetch implements Closeable {
   readonly collie: Collie;
   readonly foxhound: Foxhound;
   /** Cancels in-flight calls, closes every Run it opened and ends every borrow; stops an Attached engine, only disconnects from a Daemon. */
-  close(): Promise<void>;
+  close(options?: CallOptions): Promise<void>;
   [Symbol.asyncDispose](): Promise<void>;
 }

@@ -28,6 +28,8 @@ The suites are the **Quick**, **Pre-merge** and **Release** suites of [ADR 0061]
 - **Matching.** On method, path and the canonical JSON body. A request with no recording fails, and so does a recording left unused.
 - **Streams** replay whole and also re-cut at seeded boundaries (ADR 0059's `Entropy`). The stream parsers also get `proptest` and a fuzz target.
 - **Coverage** is a fixed matrix, and a missing cell fails a check:
+
+  > Amended by [ADR 0076](0076-tests-and-ci-run-on-free-tiers-and-ai-calls-go-through-the-vercel-ai-gateway.md): while there is no revenue, recordings are made through the Vercel AI Gateway and a cell recorded `via gateway` counts; direct-provider, other-gateway and hosted Decision provider cells wait and are reported missing without failing; Gemini's native format is not served by the gateway, so its cells wait.
   - per format on the direct provider: text, a tool call and its result turn, parallel tool calls, structured output, streaming of each, usage including cached and reasoning tokens, prompt caching, provider search grounding, image input, and the errors the engine branches on;
   - the OpenAI-compatible format through the gateways of ADR 0012: text, a tool call, structured output and one error;
   - each hosted Decision provider of ADR 0009 (Jev and OpenAI's Decisions API): a choice, an abstention, a low-confidence choice, and the errors the engine branches on.
@@ -44,6 +46,8 @@ The suites are the **Quick**, **Pre-merge** and **Release** suites of [ADR 0061]
 
 - **Local model servers run for real, in the Release suite's Linux cell:** llama.cpp server and Ollama, pinned, each with a pinned small model on CPU. The model is downloaded by digest before ADR 0043's deny, like a pinned image. Tests assert protocol behaviour only: a parsed answer, a tool call, structured output valid against its schema, usage, a stream that ends. The engine sends every sampling parameter it relies on in each request, and results record the server version and model digest.
 - **vLLM** runs in the same cell on its CPU build where its pinned version serves the model on CPU. Otherwise it runs in the release pipeline on a GPU host, which the owner approves as a paid test resource.
+
+  > Amended by [ADR 0076](0076-tests-and-ci-run-on-free-tiers-and-ai-calls-go-through-the-vercel-ai-gateway.md): the GPU host is declined while there is no revenue; where the CPU build cannot serve the model, vLLM waits.
 - **LM Studio** runs in the release pipeline where a runner supports its headless server, and is a manual test otherwise.
 - **ADR 0012's tested list.** In the release pipeline, every model on the list runs the same protocol tests and the small local task set. A model that fails leaves that release's list.
 - **The in-engine Decision provider model** is pinned by digest. Its choices are checked on a labelled set with a stated margin, on Linux in the Pre-merge suite and on every OS in the Release suite. Confidences are never compared exactly.

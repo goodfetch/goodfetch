@@ -26,8 +26,10 @@ current() {
   local line
   line="$(grep -E "^$1=" "$target" | tail -n 1 || true)"
   line="${line#*=}"
-  line="${line#\'}"; line="${line%\'}"
-  line="${line#\"}"; line="${line%\"}"
+  case "$line" in
+    \'*\') line="${line#\'}"; line="${line%\'}" ;;
+    \"*\") line="${line#\"}"; line="${line%\"}" ;;
+  esac
   printf '%s' "$line"
 }
 
@@ -40,7 +42,7 @@ entries() {
 if [ "${1:-}" = "--check" ]; then
   entries | while IFS=$'\t' read -r name comment; do
     if [ -n "$(current "$name")" ]; then state="set"; else state="empty"; fi
-    printf '%-24s %-6s %s\n' "$name" "$state" "$(printf '%s' "$comment" | sed -n 's/.*needed from: \([^|]*\).*/\1/p')"
+    printf '%-32s %-6s %s\n' "$name" "$state" "$(printf '%s' "$comment" | sed -n 's/.*needed from: \([^|]*\).*/\1/p')"
   done
   exit 0
 fi
@@ -66,21 +68,23 @@ while IFS=$'\t' read -r name comment <&3; do
   echo "  $what"
   printf '%s\n' "$rest" | tr '|' '\n' | sed 's/^ */  /'
   printf '  value (Enter keeps, - clears): '
-  IFS= read -rs value
+  if ! IFS= read -rs value; then
+    echo
+    echo "error: input ended before a value for $name; $target not changed" >&2
+    exit 1
+  fi
   echo
   case "$value" in
     "") value="$old" ;;
     -) value="" ;;
-  esac
-  case "$value" in
-    *"'"*|*$'\n'*) echo "error: $name contains a quote or a newline; not written" >&2; value="$old" ;;
+    *"'"*|*'"'*|*"\\"*|*$'\n'*) echo "error: $name contains a quote, a backslash or a newline; kept the current value" >&2; value="$old" ;;
   esac
   printf "%s='%s'\n" "$name" "$value" >> "$tmp"
 done 3< <(entries)
 
 # Keep names that .env has but .env.example does not list.
 if [ -f "$target" ]; then
-  grep -E '^[A-Z][A-Z0-9_]*=' "$target" | while IFS= read -r line; do
+  { grep -E '^[A-Z][A-Z0-9_]*=' "$target" || true; } | while IFS= read -r line; do
     case " $names " in *" ${line%%=*} "*) ;; *) printf '%s\n' "$line" ;; esac
   done >> "$tmp"
 fi

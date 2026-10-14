@@ -2,12 +2,13 @@
 
 Goodfetch has no revenue, so no test, CI job or build spends money until the owner says there is revenue. Every paid resource the testing ADRs proposed is declined, and each gets a free replacement or waits switched off. Live model calls go through one Vercel AI Gateway key on its free monthly credit and free-tier models. Local secrets live in a git-ignored `.env` that `scripts/env-setup.sh` fills, and CI reads the same names from GitHub Actions secrets.
 
-The testing ADRs were written to an expert bar in which cost never counted against an option, so they proposed about $355 a month of model credits, about $7,500 a year of Chromium build runners, paid fuzzing minutes, GitHub Secret Protection, an independent assessment, the reference host's nightly use and platform accounts, each switched off until approved. On 2026-10-14 the owner declined all of them for now ("decline paid for now, use free tier for CI and builds; for AI use Vercel AI Gateway") and asked for one place to keep the tokens implementation and testing need.
+The testing ADRs were written to an expert bar in which cost never counted against an option, so they proposed about $355 a month of model credits, $150 of benchmark spend per release candidate, about $7,500 a year of Chromium build runners, paid fuzzing minutes, GitHub Secret Protection, an independent assessment, a rented reference host, real SaaS and platform accounts, and a translation service, each switched off until approved. On 2026-10-14 the owner declined all of them for now ("decline paid for now, use free tier for CI and builds; for AI use Vercel AI Gateway") and asked for one place to keep the tokens implementation and testing need.
 
 Facts this rests on, checked on 2026-10-14:
 
-- **Vercel AI Gateway** ([pricing](https://vercel.com/docs/ai-gateway/pricing), [authentication](https://vercel.com/docs/ai-gateway/authentication-and-byok)): every team gets a free tier with a monthly free credit, limited to a subset of models and rate limited per model (a `429` when exceeded). Buying credits moves the team to the paid tier; the free credit then no longer applies. Keys are read from `AI_GATEWAY_API_KEY`, never expire unless revoked, and can carry a budget. It serves OpenAI-compatible requests at `https://ai-gateway.vercel.sh/v1` and Anthropic Messages at `https://ai-gateway.vercel.sh`.
+- **Vercel AI Gateway** ([pricing](https://vercel.com/docs/ai-gateway/pricing), [authentication](https://vercel.com/docs/ai-gateway/authentication-and-byok), [SDKs and APIs](https://vercel.com/docs/ai-gateway/sdks-and-apis)): every team gets a free tier with a monthly free credit, limited to a subset of models, not the full catalog, and rate limited per model (a `429` when exceeded). Buying credits moves the team to the paid tier; the free credit then no longer applies. Add-ons (Custom Reporting, team-wide zero data retention and allowlists, Trace Drains) bill separately. Keys are read from `AI_GATEWAY_API_KEY`, never expire unless revoked, and can carry a budget. It serves OpenAI-compatible requests at `https://ai-gateway.vercel.sh/v1` and Anthropic Messages at `https://ai-gateway.vercel.sh`; its SDKs and APIs page lists no Gemini-native surface.
 - **GitHub Actions** is free on public repositories for standard runners; a private repository on the Free plan has 2,000 included minutes a month, which ADR 0064's ceiling already budgets. A self-hosted runner costs nothing.
+- **Cloudflare Quick Tunnels** ([docs](https://developers.cloudflare.com/cloudflare-one/networks/connectors/cloudflare-tunnel/do-more-with-tunnels/trycloudflare/)): `cloudflared tunnel --url <local address>` gives a temporary `trycloudflare.com` URL with no Cloudflare account or domain, for testing and development, up to 200 in-flight requests, without Server-Sent Events.
 - **Publishing** to npm, PyPI and crates.io uses OIDC trusted publishing (ADR 0032), so no registry token exists anywhere.
 
 ## Decision
@@ -16,41 +17,57 @@ Facts this rests on, checked on 2026-10-14:
 - **CI and builds use free tiers:** GitHub-hosted standard runners within the private plan's included minutes (ADR 0064's ceiling), unlimited once the repository is public, and self-hosted runners on the owner's machine where a build needs more than a hosted runner holds. A self-hosted runner never runs a pull request from a fork.
 - **Live AI calls go through the Vercel AI Gateway** with one key, `AI_GATEWAY_API_KEY`, on the free tier only:
   - the provider check, the recorder, the Evaluations and the skill Evaluations of ADR 0065 call models through the gateway's OpenAI-compatible and Anthropic Messages endpoints;
-  - they use only free-tier models, and a `429` or an exhausted free credit makes the run inconclusive (ADR 0064), never a purchase;
-  - no credits are bought and auto top-up stays off, so the key cannot spend money; that replaces ADR 0065's per-job paid caps;
-  - Model recordings of the OpenAI-compatible and Anthropic formats are made through the gateway; whether the gateway serves Gemini's native format is unverified, and until it is, the Gemini adapter's recordings wait (its Scripted model and Fake model tests run as before);
+  - no credits are bought, auto top-up stays off and the gateway's billable add-ons stay off, so the key cannot spend money; that replaces ADR 0065's per-job paid caps;
+  - a `429` or an exhausted free credit makes the run inconclusive (ADR 0064), never a purchase;
   - local models (llama.cpp, Ollama) and the Scripted and Fake models stay the default for every test, as ADR 0065 decided.
+- **Models: free-tier models only.** ADR 0065's manifest picks its small and larger model per format from the gateway's free tier. A capability Evaluation or a skill Evaluation whose model is not in the free tier (for example a Claude Code tier with no free Claude model) waits, reported inconclusive, until revenue; nothing is bought to run it.
+- **Model recordings made through the gateway are the gateway's rendering of each format**, not the direct provider's: usage and cache fields, rate-limit headers and error bodies may differ. They are recorded and labelled `via gateway`. ADR 0065's coverage matrix accepts a cell recorded `via gateway`; a direct-provider cell, another named gateway's cell and a hosted Decision provider's cell wait until revenue, and the check reports them missing without failing. Gemini's native format is not served by the gateway, so the Gemini adapter's recordings wait; its Scripted model and Fake model tests run as before.
+- **The owner's machine stands in for the reference host.** ADR 0025's rented reference host is declined. The owner's machine (Apple M3 Max, 14 cores, 36 GB of RAM) runs the Performance series (ADR 0071) and the release-candidate benchmark (ADRs 0025 and 0032) when it is on. Its results are labelled with that machine, as unpublished `local-controlled` runs, and are never published as the `reference` host class. Published reference-class runs, and every Δ set from the reference host's spread, wait for revenue.
+- **Accounts and the tunnel still need the owner's go-ahead at M4.** Free platform accounts and the Quick Tunnel cost nothing, but they expose a Daemon to the internet, which is a deployment ADR 0070 and ADR 0032 put under the owner's approval. That approval is about exposure, not money.
 - **Each declined resource and its replacement:**
 
   | Declined | Instead |
   |---|---|
-  | model credits and per-provider keys (ADR 0065) | the gateway's free tier, above |
+  | model credits and per-provider keys (ADR 0065) | the gateway's free tier and its free-tier models, above |
+  | direct-provider recordings and checks, other gateways and hosted Decision providers (ADR 0065) | recordings and checks `via gateway`; the other cells wait, reported missing, never failing |
   | the Evaluation regression margin's paid runs (ADR 0065) | Evaluations sized to the free credit; the margin Δ stays proposed |
+  | a GPU host for vLLM (ADR 0065) | vLLM's CPU build where it serves the model; otherwise vLLM waits |
+  | the rented reference host and its second machine (ADR 0025) | the owner's machine, labelled with it, never published as the reference class |
+  | the release-candidate benchmark's paid services: proxies, CAPTCHA solving, model spend, the $150 per release candidate (ADRs 0025 and 0065) | the benchmark's local families on the owner's machine; families that need a paid service wait |
+  | the Performance series on the reference host (ADR 0071) | the owner's machine, when it is on; no hosted timing |
   | the Chromium build gate's hosted runners and macOS runner (ADR 0074) | a free design decided before M3: the owner's machine as a self-hosted runner, other platforms only at release, the Control build only on demand |
   | private fuzzing minutes beyond the free plan (ADR 0067) | fuzzing within the included minutes; ClusterFuzzLite and OSS-Fuzz once public, which are free |
   | the test V8 build's extra minutes (ADR 0067) | built on the owner's machine as a self-hosted runner |
   | GitHub Secret Protection while private (ADR 0067) | `gitleaks`, as ADR 0067 already does until the repository is public; GitHub's scanning is free once public |
   | an independent security assessment (ADR 0067) | the manual threat-model review; the assessment waits for revenue |
-  | the reference host's nightly use (ADR 0071) | the owner's machine, which is the reference host, when it is on; no hosted timing |
-  | Integration platform accounts and the Cloudflare Tunnel (ADR 0070) | free developer plans and a free Cloudflare Tunnel, used only from M4 |
-  | GPU hosts, a larger cache, larger runners, hosted visual services, Antithesis | not used |
+  | paid Integration platform accounts (ADR 0070) | free developer plans only (Zapier, Make, Pipedream, the Power Apps Developer Plan), from M4 |
+  | a named Cloudflare Tunnel on a `goodfetch.dev` subdomain (ADR 0070) | a Cloudflare Quick Tunnel: no account, no domain, a new `trycloudflare.com` URL each run, which the job sets in each platform's test connection |
+  | real SaaS Sink accounts that bill (ADRs 0026, 0032, 0064) | free tiers only; a Sink with no free tier keeps its emulator suite and its Live check waits |
+  | a paid LocalStack token (ADR 0032) | LocalStack's free open-source licence, applied for; if refused, the affected Sinks use free emulators such as MinIO, or wait |
+  | a paid translation service (ADR 0073) | pseudo-locales only |
+  | a larger cache, larger runners, hosted visual services, Antithesis | not used |
 
-- **Local secrets live in `.env` at the repository root:** git-ignored, mode 600, written only by `scripts/env-setup.sh`, which reads the names, their purpose, the milestone that needs them and the page that creates each from the committed `.env.example`, and never prints a value. `.env.example` is the one list of every secret a contributor may need.
-- **Tests never read `.env`.** Test support clears the environment (ADR 0059). Only the recipes that run Live checks load it, and CI reads the same names from GitHub Actions secrets, which fork pull requests never receive.
+- **Local secrets live in `.env` at the repository root:** git-ignored, mode 600, written only by `scripts/env-setup.sh`, which reads the names, their purpose, the milestone that needs them and the page that creates each from the committed `.env.example`, and never prints a value. `.env.example` is the one list of every secret a contributor may need, and a new secret joins it in the pull request that first needs it.
+- **Tests never read `.env`.** Test support clears the environment (ADR 0059). Only the recipes that run Live checks load it, each on its own: the `justfile` never sets `dotenv-load` globally. CI reads the same names from GitHub Actions secrets, which fork pull requests never receive.
 
 ## Considered Options
 
 - **Keep the paid resources switched off until approved (the testing ADRs as written):** rejected, because a list of pending purchases invites a later agent to request them and keeps paid designs (the Chromium gate's runners) as the plan of record.
 - **One paid model key per provider with hard caps (ADR 0065):** rejected while there is no revenue; the gateway's free tier gives one key, no spend and the same request formats.
+- **Calling the owner's machine the reference host:** rejected. ADR 0025 publishes only dedicated bare-metal Linux; an Apple laptop's figures are a different class, so they stay unpublished.
+- **A named Cloudflare Tunnel on an owned domain:** rejected while there is no revenue; it needs a registered domain, while a Quick Tunnel needs neither an account nor a domain. Its limits (200 in-flight requests, no Server-Sent Events) fit the platforms' request-response calls.
 - **A secrets manager (1Password CLI, Doppler, SOPS):** rejected for now; a git-ignored `.env` written by a script is free, needs no account, and the names move unchanged into any manager later.
 - **Making the repository public now to get unlimited free minutes:** not decided here; it is the owner's call, and this ADR works either way.
 
 ## Consequences
 
-- **Amends ADR 0065:** live model calls go through the Vercel AI Gateway's free tier with one key instead of per-provider credentials and paid caps; the $355 monthly budget and the $150 per release candidate are withdrawn; Gemini recordings wait as above. A one-line note sits at its budget.
-- **Amends ADR 0074:** the hosted build runners and the macOS runner are declined; the gate's free design is decided before M3 in [Decide the free Chromium build gate](https://github.com/Jbmanllr/automan/issues/445), which [Chromium build-and-test path](https://github.com/Jbmanllr/automan/issues/402) waits on. A one-line note sits at its cost.
+- **Amends ADR 0065:** live model calls go through the Vercel AI Gateway's free tier with one key instead of per-provider credentials and paid caps; the $355 monthly budget and the $150 per release candidate are withdrawn; the manifest uses free-tier models; the coverage matrix accepts cells recorded `via gateway`, and the other cells wait without failing; Gemini recordings and the vLLM GPU host wait. One-line notes sit at its matrix, its vLLM line and its budget.
+- **Amends ADR 0025:** the rented reference host and the benchmark's paid services are declined; the owner's machine stands in, unpublished. A one-line note sits at its reference host.
+- **Amends ADR 0071:** the Performance series runs on the owner's machine, labelled with it, instead of the reference host. A one-line note sits at its Performance series.
+- **Amends ADR 0070:** the tunnel is a Cloudflare Quick Tunnel with no `goodfetch.dev` subdomain and no Cloudflare credential, and the accounts are free plans; the owner's go-ahead at M4 remains, for exposure. A one-line note sits at its reach.
+- **Amends ADR 0074:** the hosted build runners and the macOS runner are declined; the gate's free design is decided before M3 in [Decide the free Chromium build gate](https://github.com/Jbmanllr/automan/issues/445), which [Chromium build-and-test path](https://github.com/Jbmanllr/automan/issues/402) waits on. One-line notes sit at its cost and its owner approvals.
 - **Amends ADR 0067:** paid fuzzing minutes, GitHub Secret Protection while private and the independent assessment are declined as in the table. A one-line note sits at its owner approvals.
-- **Adds to ADRs 0070 and 0071:** platform accounts and the tunnel use free plans; the reference host is the owner's machine.
+- **Adds to ADRs 0026, 0032, 0064 and 0073:** real SaaS Sink accounts use free tiers only, LocalStack uses its free open-source licence, and translation uses pseudo-locales only.
 - **Adds to ADR 0032:** the tree gains `scripts/` for repository helper scripts, and `.gitignore` ignores `.env` and `.env.*` except `.env.example`.
-- **`AGENTS.md`** states the no-paid-resources rule; **`TESTING.md`** gains a section on free tiers and local secrets, and its live-model credential rule is edited in place.
+- **`AGENTS.md`** states the no-paid-resources rule; **`TESTING.md`** gains a section on free tiers and local secrets, and every rule that listed a declined resource as awaiting the owner is edited in place.
 - **Owner tickets:** [Owner purchases for security testing](https://github.com/Jbmanllr/automan/issues/441) and [Owner accounts for Integration tests](https://github.com/Jbmanllr/automan/issues/442) record the purchases as declined and the free accounts as M4 work; [Owner confirmations and decisions](https://github.com/Jbmanllr/automan/issues/392) records this decision.

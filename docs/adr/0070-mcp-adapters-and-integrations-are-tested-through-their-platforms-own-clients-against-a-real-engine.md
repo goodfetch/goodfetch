@@ -109,6 +109,8 @@ Decided in [MCP, framework adapter and Integration test stack](https://github.co
 - **Reach:** the account job starts an Exposed Daemon with TLS and a token, serving the local Proving ground, behind a Cloudflare Tunnel on a `goodfetch.dev` subdomain. The tunnel and each platform's API host are named endpoints of that job only (ADR 0043).
 - **Real platform accounts and the tunnel are proposed, not approved.** The owner approves each case by case, like other paid test resources and like every deployment of the online Proving ground on the same domain (ADR 0032): each account (a Zapier developer account with a non-expiring test account, a Make account with a testing app, a Pipedream account, a Power Apps Developer Plan environment), the Cloudflare Tunnel, its `goodfetch.dev` subdomain and DNS record, and the Cloudflare credential the job holds. Until then the job exists and is disabled by a repository variable, and no Exposed Daemon is reachable from outside.
 
+  > Amended by [ADR 0076](0076-tests-and-ci-run-on-free-tiers-and-ai-calls-go-through-the-vercel-ai-gateway.md): while there is no revenue, accounts are free developer plans only and the tunnel is a Cloudflare Quick Tunnel on a temporary `trycloudflare.com` URL, with no `goodfetch.dev` subdomain and no Cloudflare credential; the owner's go-ahead at M4 still applies, because the job exposes a Daemon.
+
 ### Manual tests
 
 At each release candidate that changes them:

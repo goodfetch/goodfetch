@@ -180,6 +180,8 @@ The online conformance against real vendors still runs on that patch and never b
 - **Area 8 (Stealth and Challenge solving)** builds the gate, `chromium/surfaces.toml`, the expectations and the Chromium pull request's job.
 - **The "Test infrastructure" spec** builds: the gate workflow and its runtime-deps packaging, the expectation checks, the `chromium/surfaces.toml` and protocol checks, the codegen of launch arguments, the crash-dump check, and the helpers of the consistency, codec, font and quiet-browser tests.
 - **Owner approvals:** the gate's runner minutes, from the first measured build; the macOS build and gate runner; the full gate on Beta majors.
+
+  > Amended by [ADR 0076](0076-tests-and-ci-run-on-free-tiers-and-ai-calls-go-through-the-vercel-ai-gateway.md): these paid resources are declined while there is no revenue, not pending; the gate's free design is decided before M3.
 - **Unverified, checked by the first implementation tickets:**
   - whether `browser_tests` and the other suites build and run on an ungoogled tree with the testdata tarball added;
   - whether the testdata tarball holds `third_party/webgl`, and whether the WebGL harness runs outside a full checkout;

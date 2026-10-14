@@ -437,7 +437,7 @@ Budgets are the median (p50) of a job's last 20 runs in its own tier, on GitHub-
 
 - **Shards are deterministic:** nextest archives once per target and splits with `--partition hash:m/n`; Vitest and Playwright use `--shard`; pytest uses `pytest-xdist` inside one job. Never split by recorded timings.
 - **Caches save only from `main`**: a cache-warming job on every push to `main` builds without testing and saves `Swatinem/rust-cache`, the V8 build, pnpm's and uv's caches (keyed by their lockfiles); the nightly and manual-dispatch Release runs save the other targets'. The merge queue saves none, since pull requests can't restore its caches. Chromium, images and released binaries are cached by digest.
-- **The warming job shares the pull-request jobs' rust-cache `shared-key` and profiles.** Linux pull-request caches take priority within GitHub's 10 GB; raising it is a paid resource the owner approves.
+- **The warming job shares the pull-request jobs' rust-cache `shared-key` and profiles.** Linux pull-request caches take priority within GitHub's 10 GB; a larger cache is declined while there is no revenue (ADR 0076), so fit within it.
 - **CI test builds use the `ci-test` Cargo profile** (`test` with `debug = "line-tables-only"`).
 - **Every run writes JUnit XML**, local or CI. Every CI job uploads it, pass or fail, as `junit-<suite>-<tier>-<os>-<arch>[-<runtime>]-<shard>`, and a failing job writes a summary of its failed tests to its page.
 
@@ -474,7 +474,7 @@ Decided in [ADR 0065](docs/adr/0065-ai-features-are-tested-without-live-models-a
   - the named gateways, for the OpenAI-compatible format;
   - each hosted Decision provider (Jev, OpenAI's Decisions API): a choice, an abstention, a low-confidence choice, and its errors.
 
-  A missing cell fails a Quick check.
+  A missing cell fails a Quick check. While there is no revenue ([ADR 0076](docs/adr/0076-tests-and-ci-run-on-free-tiers-and-ai-calls-go-through-the-vercel-ai-gateway.md)), cells are recorded through the Vercel AI Gateway and labelled `via gateway`, which counts; the direct-provider, other-gateway and hosted Decision provider cells, and Gemini's native format, which the gateway does not serve, wait and are reported missing without failing.
 - **Match on method, path and the canonical JSON body.** An unmatched request fails, and so does an unused recording.
   _Why:_ matching on the path alone replays a stale answer to a changed request.
 - **Replay each stream whole and re-cut at seeded boundaries.** The stream parsers also have `proptest` and a fuzz target.
@@ -489,12 +489,12 @@ Decided in [ADR 0065](docs/adr/0065-ai-features-are-tested-without-live-models-a
   - Assert protocol behaviour only.
   - Send every sampling parameter the engine relies on.
   - Record the server version and model digest.
-- **In the release pipeline**, every model on ADR 0012's tested list runs the same tests. vLLM runs there on a GPU host if its CPU build can't serve the model; that host is a paid resource the owner approves. LM Studio runs there where a runner supports its headless server.
+- **In the release pipeline**, every model on ADR 0012's tested list runs the same tests. vLLM runs there on its CPU build; a GPU host is declined while there is no revenue (ADR 0076), so where the CPU build can't serve the model, vLLM waits. LM Studio runs there where a runner supports its headless server.
 - **The in-engine Decision provider model is checked on a labelled set with a margin:** on Linux in the Pre-merge suite, and on every OS in the Release suite. Never compare confidences exactly.
 
 ### Live checks that reach live models
 
-- **The provider check runs nightly and compares shapes, never content.** It covers fields, types, stream events, error bodies and the headers adapters read, for every recorded cell: direct providers, gateways and hosted Decision providers. A difference opens or updates its `live-check` issue.
+- **The provider check runs nightly and compares shapes, never content.** It covers fields, types, stream events, error bodies and the headers adapters read, for every recorded cell: direct providers, gateways and hosted Decision providers (while there is no revenue, only the cells recorded `via gateway`; ADR 0076). A difference opens or updates its `live-check` issue.
 - **Every live model call goes through the Vercel AI Gateway on its free tier** ([ADR 0076](docs/adr/0076-tests-and-ci-run-on-free-tiers-and-ai-calls-go-through-the-vercel-ai-gateway.md)): one key, `AI_GATEWAY_API_KEY`, free-tier models only, no credits bought and auto top-up off, so no job can spend money. A `429` or an exhausted free credit makes the run inconclusive, never a purchase.
 - **Every live job stops itself at its per-run cap.** The engine's runs use a currency Limit, Claude Code uses `maxBudgetUsd`, Codex uses a capped key, and the provider check and recorder compute their worst case before starting. Each job prints its worst case first.
 - **Coding agents in live jobs make no other calls:** Claude Code runs with `CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1`, and Codex with its update check and analytics turned off.
@@ -513,7 +513,7 @@ Decided in [ADR 0065](docs/adr/0065-ai-features-are-tested-without-live-models-a
 - **A task joins its regression set at pass^3 ≥ 0.9 on every nightly model for five nights.** Add harder tasks once a regression set passes everything for 30 nights. Add a task for every AI bug fixed.
 - **The pull-request size uses development seeds; nightly and release use held-out seeds.**
   _Why:_ prompts tuned on the tasks that judge them overfit.
-- **Pin models in the manifest, and run old and new side by side for five nights before dropping one.** Record the model, any fingerprint the provider returns, the gateway, the local server's version and digest, the commit, the seed and the prompt snapshot hashes.
+- **Pin models in the manifest, chosen from the gateway's free tier, and run old and new side by side for five nights before dropping one.** An Evaluation or skill Evaluation whose model is not in the free tier waits, reported inconclusive, until revenue (ADR 0076). Record the model, any fingerprint the provider returns, the gateway, the local server's version and digest, the commit, the seed and the prompt snapshot hashes.
 
 ### Agent skills and tool descriptions
 
@@ -635,7 +635,7 @@ Decided in [ADR 0066](docs/adr/0066-upgrades-are-tested-from-a-frozen-corpus-and
 
 - **Tests that need released artifacts belong to the Release suite**, which the merge queue runs. Its nightly rerun and its run on each release's own bytes cover them; none is a nightly-only job.
 - **Group each older minor's skew checks into as few jobs as fit the job budget.** One job per check exceeds the 20 concurrent jobs after two minors.
-- **Never drop a minor, and never move a skew check out of the merge queue.** A Release suite budget breach is fixed with fewer or faster jobs per minor, or with more concurrency or larger runners, a paid resource the owner approves.
+- **Never drop a minor, and never move a skew check out of the merge queue.** A Release suite budget breach is fixed with fewer or faster jobs per minor, or with more concurrency on standard runners; larger runners are declined while there is no revenue (ADR 0076).
   _Why:_ the Release suite has no later suite to move to, and an untested minor decays.
 
 ## SDK and CLI tests
@@ -756,7 +756,7 @@ Decided in [ADR 0070](docs/adr/0070-mcp-adapters-and-integrations-are-tested-thr
 ### Live checks and manual tests
 
 - **Run unpinned releases only as Live checks:** the newest conformance suite, Inspector and MCP SDK clients, and each framework's `latest` and prerelease tags, nightly; the n8n scanner after each publish.
-- **Keep real platform accounts out of every suite.** They run weekly and at release candidates, only once the owner has approved each account and the Cloudflare Tunnel, its `goodfetch.dev` subdomain and its credential, behind a repository variable until then.
+- **Keep real platform accounts out of every suite.** They run weekly and at release candidates, on free developer plans only, through a Cloudflare Quick Tunnel (`cloudflared tunnel --url`, a new `trycloudflare.com` URL each run, no account or domain), and only once the owner gives the go-ahead at M4, because the job exposes a Daemon (ADR 0076); a repository variable keeps the job off until then. Paid accounts are declined while there is no revenue.
 - **Test by hand at each release candidate that changes them:** Claude Desktop, ChatGPT, VS Code and Cursor connecting to the MCP server; `paconn validate`; each platform's listing submission.
 
 ## Performance budgets
@@ -810,7 +810,7 @@ Decided in [ADR 0071](docs/adr/0071-performance-budgets-are-counted-per-change-a
 | `xtask perf` against the base, and benchmark admission | Pre-merge (Linux x64); Release adds Linux arm64 |
 | Resident-memory ceilings | Release, every OS |
 | Drift check against the last release | the daily test-health job |
-| Performance series | a nightly Live check on the reference host, once the owner approves |
+| Performance series | a nightly Live check on the owner's machine when it is on, labelled with that machine; the rented reference host is declined while there is no revenue (ADR 0076) |
 
 ## Security
 
@@ -845,7 +845,7 @@ Every boundary has its tests. A decision that adds a boundary adds its row in th
 | Unsafe code | ASan run of crates that opt into `unsafe` | Release | Linux glibc |
 | Supply chain and workflows | ADR 0032's gates; image digest pins; CodeQL once public; `gitleaks` over commits until then | Pre-merge | Linux |
 
-**Before the repository is public** (ADR 0032), the Release suite, with every part above, runs on manual dispatch before each milestone's owner test and before any release. CodeQL, GitHub secret scanning and push protection, and the nightly watch jobs start when the repository becomes public. Fuzzing starts when the owner approves its runner minutes.
+**Before the repository is public** (ADR 0032), the Release suite, with every part above, runs on manual dispatch before each milestone's owner test and before any release. CodeQL, GitHub secret scanning and push protection, and the nightly watch jobs start when the repository becomes public. Fuzzing runs within the plan's included minutes; paid minutes are declined while there is no revenue (ADR 0076).
 
 ### Fuzzing
 
@@ -923,7 +923,7 @@ Only these stay manual. They are not Journeys: none has an automated step, and e
 |---|---|---|---|
 | Threat-model review | each minor's release candidate | Walks the trust-boundary table against the minor's changes and confirms each new decoder, listener, Plugin kind, widening setting, Secret kind and output has its test | the release pull request |
 | Vulnerability triage | each new fuzz crash, external report and advisory-watch issue | Judges it against `SECURITY.md`'s vulnerability definition; opens the private advisory or closes with a reason | the advisory or issue |
-| Independent security assessment | before 1.0 and each later major; paid, owner-approved | An outside tester attacks the boundaries; each finding gets a fix and a regression test | a report linked from the release notes |
+| Independent security assessment | before 1.0 and each later major; declined while there is no revenue (ADR 0076), the manual threat-model review stands in | An outside tester attacks the boundaries; each finding gets a fix and a regression test | a report linked from the release notes |
 | Confinement where CI cannot run | each minor's release candidate | WSL1's refusal; Bridge Sinks under Docker Desktop and Podman machine on macOS and Windows; the documented host-firewall recipes for `direct` | the release pull request |
 | Passkeys on real authenticators | each minor's release candidate | Sign-in, step-up and recovery on a platform authenticator and a hardware key | the release pull request |
 
@@ -1127,7 +1127,7 @@ Decided in [ADR 0073](docs/adr/0073-accessibility-meets-wcag-2-2-aa-the-console-
 - **Locally, `just` runs the visual projects in the same image through Docker or Podman;** with neither, the step fails with an error naming the fix.
 - **What is screenshotted:** every Storybook story in light and dark; the Console's `tests/screens/` under greyscale, text spacing and 200% text in Vitest's `visual` project in Release, where a style sheet can be injected; the served key screens ADR 0073 lists in light and dark at 1280 × 800, plus phone, Firefox, WebKit, forced colours, more contrast and both pseudo-locales in Release; the docs' page templates, light and dark, desktop and phone.
 - **If the first fixtures ticket finds that a browser's screenshots do not repeat in the pinned image** (ADR 0064's 20 runs), that browser stays out of the `visual` projects, its served tests and axe keep running, and an issue owned by area 12 tracks it; the browser joins the `visual` projects once 20 runs repeat. Never add a tolerance instead. After that, a screenshot test that stops repeating is a Flaky test like any other ([Flaky tests and Live checks](#flaky-tests-and-live-checks)): quarantined, never removed.
-- **No hosted visual service** without the owner's approval as a paid test resource.
+- **No hosted visual service:** declined while there is no revenue (ADR 0076); screenshots compare in the pinned image.
 
 ### Where they run
 
@@ -1252,7 +1252,7 @@ Decided in [ADR 0074](docs/adr/0074-the-goodfetch-chromium-is-gated-where-it-is-
 - **A new major or security update ships only when** the gate is green on every platform, the Chromium pull request passes the Release suite, and the patch passes ADR 0032's gates and the signed-bundle smoke. The online conformance still never blocks.
 - **Triage a red gate without a retry:** read the report's result on both builds, let the gate's diagnostic run (20 runs of each failing test on each build, sharded, 60 minutes per job) tell flaky from broken, then fix the patch or add the entry the evidence supports. Never skip a test without an entry.
 - **A held major never weakens the gate.** The pinned build keeps shipping. If a patch still cannot pass when the next Stable version ships, the owner decides whether that major ships without it.
-- **Budgets:** build ≤ 4 h p50 per platform (6 h cap; stage a build that cannot fit over chained jobs), test stage ≤ 90 min p50 per platform (3 h cap per job). The gate's runner minutes, the macOS runner and a full gate on Beta majors are paid resources the owner approves.
+- **Budgets:** build ≤ 4 h p50 per platform (6 h cap; stage a build that cannot fit over chained jobs), test stage ≤ 90 min p50 per platform (3 h cap per job). The gate's hosted runner minutes, the macOS runner and a full gate on Beta majors are declined while there is no revenue (ADR 0076); the gate's free design is decided before M3.
 - **Results** go to the results store under the tier `chromium-build`, as JUnit XML.
 
 ## Free tiers and local secrets
@@ -1261,6 +1261,8 @@ Decided in [ADR 0076](docs/adr/0076-tests-and-ci-run-on-free-tiers-and-ai-calls-
 
 - **Spend nothing until the owner declares revenue.** No job, build, account or service that bills is created or switched on. Where a paid option would be better, choose the free one and record the paid one as declined.
 - **Run CI on GitHub's free standard runners** within the private plan's included minutes, and on a self-hosted runner on the owner's machine where a build needs more. A self-hosted runner never runs a pull request from a fork.
+- **Time on the owner's machine, never publish it as the reference class.** The Performance series and the release-candidate benchmark run on the owner's machine (Apple M3 Max) when it is on, labelled with that machine; the rented reference host and the benchmark's paid services (proxies, CAPTCHA solving, model spend) are declined, and published reference-class runs wait for revenue.
+- **Use free tiers for outside accounts.** Real SaaS Sink accounts and Integration platform accounts use free plans only; a Sink with no free tier keeps its emulator suite and its Live check waits. LocalStack runs on its free open-source licence; if that is refused, the affected Sinks use free emulators such as MinIO, or wait. Translation uses pseudo-locales only.
 - **Keep local secrets in `.env`, written by `scripts/env-setup.sh`.** It is git-ignored and mode 600; `.env.example` lists every name, what it is for, the milestone that needs it and the page that creates it. Add a new secret to `.env.example` in the pull request that first needs it.
-- **Never read `.env` from a test.** Test support clears the environment (ADR 0059); only the recipes that run Live checks load `.env`, and CI reads the same names from GitHub Actions secrets.
+- **Never read `.env` from a test.** Test support clears the environment (ADR 0059); only the recipes that run Live checks load `.env`, each on its own, so the `justfile` never uses a global `set dotenv-load`. CI reads the same names from GitHub Actions secrets.
 - **Never print, log or commit a secret's value,** including in a failure message or a recording; Secret canaries and `gitleaks` check it (ADR 0067).

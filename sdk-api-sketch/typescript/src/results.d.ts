@@ -150,7 +150,7 @@ export declare class HandlerFailedError extends ProgramError {
 
 /**
  * A listener threw (ADR 0081). It was removed, and this is thrown by the next call on the value it
- * was registered on, or by that value's `close()`; `cause` holds the listener's exception. When no call
+ * was registered on, or by the `close()` that closes that value, its own or a parent's; `cause` holds the listener's exception. When no call
  * or close follows, the SDK logs it at error level instead.
  */
 export declare class ListenerFailedError extends ProgramError {

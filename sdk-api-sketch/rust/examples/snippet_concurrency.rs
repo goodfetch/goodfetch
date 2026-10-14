@@ -69,7 +69,7 @@ async fn titles(run: &Run, limit: usize) -> Result<Vec<String>, Error> {
 fn script() -> Result<usize, Error> {
     let gf = blocking::Goodfetch::connect(ConnectOptions::default())?;
     let run = gf.collie().start().send()?;
-    let page = run.new_page()?;
+    let page = run.new_page().send()?;
     page.goto("https://books.toscrape.com/").timeout(Duration::from_secs(10)).send()?;
     let count = run.records().take(20).count();
     gf.close().send()?;

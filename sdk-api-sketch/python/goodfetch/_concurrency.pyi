@@ -2,8 +2,8 @@
 
 `AsyncGoodfetch` runs on AnyIO, so under asyncio and Trio. Its values belong to the event loop that opened their
 connection: any number of tasks on that loop may share them, and a call from another loop or thread fails at once
-with a `ProgramError` naming `Goodfetch`. `Goodfetch` (sync) runs the async core on a private daemon thread of its
-own connection (ADR 0038) and never touches the caller's event loop, so it also works where one is already running
+with a `ProgramError` naming `Goodfetch`. `Goodfetch` (sync) runs the async core on a private background thread of
+its own connection (ADR 0038) and never touches the caller's event loop, so it also works where one is already running
 (a notebook cell, Streamlit, an agent framework's tool); its values are safe to call from any thread. In a sync call,
 Ctrl+C, or any exception raised in the waiting thread, sends `$/cancel` without waiting and propagates unchanged.
 

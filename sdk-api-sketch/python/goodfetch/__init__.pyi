@@ -65,6 +65,7 @@ from goodfetch._results import HandlerFailedError as HandlerFailedError
 from goodfetch._results import InternalError as InternalError
 from goodfetch._results import KnownErrorCode as KnownErrorCode
 from goodfetch._results import LimitReachedError as LimitReachedError
+from goodfetch._results import ListenerFailedDetails as ListenerFailedDetails
 from goodfetch._results import ListenerFailedError as ListenerFailedError
 from goodfetch._results import LimitSource as LimitSource
 from goodfetch._results import ModelError as ModelError

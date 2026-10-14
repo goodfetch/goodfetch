@@ -40,7 +40,8 @@ export interface PageEventMap {
  * A listener. It gets its events one at a time, in order: a promise it returns is awaited
  * before it gets the next one, so lossless events slow their producer and telemetry coalesces
  * (ADR 0024). If it throws, it is removed, and the next call on the value it was registered on, or
- * that value's `close()`, throws `ListenerFailedError` with the exception as `cause`.
+ * the `close()` that closes that value, its own or a parent's, throws `ListenerFailedError` with
+ * the exception as `cause`.
  */
 export type Listener<T> = (event: T) => void | Promise<void>;
 

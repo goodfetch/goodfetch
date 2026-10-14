@@ -192,7 +192,7 @@ class Foxhound:
 class Goodfetch(_Closeable):
     """The engine connection: the entry point. Each one is independent, and many may be open in one process.
 
-    It runs the async core on a private daemon thread of its own, so it works on any thread, including one whose event
+    It runs the async core on a private background thread of its own, so it works on any thread, including one whose event
     loop is running (a notebook cell); its values are safe to call from any thread (ADR 0081).
     """
 

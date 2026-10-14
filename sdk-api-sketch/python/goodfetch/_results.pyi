@@ -190,14 +190,21 @@ class HandlerFailedError(ProgramError):
     def details(self) -> HandlerFailedDetails: ...
 
 @final
+@dataclass(frozen=True, kw_only=True)
+class ListenerFailedDetails:
+    """Which listener's exception removed it."""
+
+    event: str
+    """The event the listener was registered for."""
+
+@final
 class ListenerFailedError(ProgramError):
     """A listener raised (ADR 0081): it was removed, and the next call on the value it was registered on, or that
-    value's `close()`, raises this with the listener's exception as `__cause__`. When no call or close follows, the SDK
+    close that closes that value, its own or a parent's, raises this with the listener's exception as `__cause__`. When no call or close follows, the SDK
     logs it at error level instead."""
 
     @property
-    def event(self) -> str:
-        """The event the listener was registered for."""
+    def details(self) -> ListenerFailedDetails: ...
 
 @final
 class LimitReachedError(RefusedError): ...

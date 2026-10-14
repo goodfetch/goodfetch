@@ -1,10 +1,11 @@
 //! The same API without `async` (ADR 0081), generated from the same catalog as Python's sync API.
 //!
-//! Each call hands its work to the linked engine's own runtime and waits on a channel. It never
-//! nests a runtime, so it also works inside an async runtime, where it only blocks that thread. A
-//! call is a builder ended by [`Call::send`], as in `reqwest::blocking`; a stream is an
-//! [`Iterator`]. Handles are cheap clones, safe to use from any thread. Only a few calls are sketched
-//! here; the rest mirror the async API.
+//! Each call hands its work to the connection's runtime and waits on a channel. It never nests a
+//! runtime, so it also works inside an async runtime, where it only blocks that thread. A call is a
+//! builder ended by [`Call::send`], as in `reqwest::blocking`; a stream is an [`Iterator`]. Handles
+//! are cheap clones, safe to use from any thread. Helpers that answer requests run handlers on the
+//! `tasks` module's tracked blocking threads (ADR 0060), so blocking handlers are
+//! `Fn + Send + Sync + 'static`. Only a few calls are sketched here; the rest mirror the async API.
 
 use std::fmt;
 use std::marker::PhantomData;
@@ -135,7 +136,7 @@ pub struct Run {
 
 impl Run {
     /// Opens a page.
-    pub fn new_page(&self) -> Result<Page, Error> {
+    pub fn new_page(&self) -> Call<Page> {
         unimplemented!()
     }
 

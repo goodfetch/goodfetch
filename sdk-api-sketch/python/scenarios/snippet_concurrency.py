@@ -32,7 +32,7 @@ async def first_books(limit: int) -> list[str]:
                         await page.locator("li.next a").click()
                     except ListenerFailedError as error:
                         # A listener that raised was removed; its exception surfaces on the page it watched.
-                        log.error("listener for %s failed", error.event)
+                        log.error("listener for %s failed", error.details.event)
                         raise
 
             # A sequence read to its end; leaving the loop with `break` releases it, which unsubscribes (Q10).

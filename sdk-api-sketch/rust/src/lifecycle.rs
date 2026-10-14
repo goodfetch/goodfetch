@@ -203,8 +203,8 @@ impl Run {
         unimplemented!()
     }
 
-    /// Opens a page. Its Session is #476's.
-    pub async fn new_page(&self) -> Result<Page, Error> {
+    /// Opens a page. Its Session is #476's. A call like any other: its future can be spawned.
+    pub fn new_page(&self) -> Call<Page> {
         unimplemented!()
     }
 

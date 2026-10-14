@@ -169,7 +169,7 @@ A named value that shapes how Goodfetch works, such as a timeout, a retry count 
 _Avoid_: config key, knob, preference, option (for a setting)
 
 **Deployment variable**:
-One of the few environment variables Goodfetch reads, each holding a value that differs by machine rather than by program, such as the Goodfetch home or the address of an Exposed Daemon.
+One of the few environment variables Goodfetch reads for its own configuration, each holding a value that differs by machine rather than by program, such as the Goodfetch home or the address of an Exposed Daemon.
 _Avoid_: env setting, config variable
 
 **Operator policy**:

@@ -39,6 +39,7 @@ Decided in [Injection and determinism: time, randomness, storage, network and OS
 ### Storage
 
 - **A `GOODFETCH_HOME` setting** roots one user's Goodfetch data, caches and configuration: run folders, the Run index, the Usage ledger, the Politeness file, the Schedule store, the Response cache, the browser cache, user configuration, and the Daemon's runtime files and socket, so a test Daemon never meets another test's or the user's own.
+  > Amended by [ADR 0083](0083-a-program-sets-settings-in-one-typed-option-explicit-values-beat-the-environment-and-no-value-is-silently-ignored.md): `GOODFETCH_HOME` is a deployment variable, read from the SDK's or the binary's environment map, not a key in `settings` or a configuration file, which it locates.
   - Unset, it means the operating system's usual folders.
   - More specific settings still win: `GOODFETCH_BROWSERS_PATH`, `GOODFETCH_ENGINE_PATH` and `run_state.location`.
   - It is also a product feature: portable installs and per-job CI caches, as `CARGO_HOME`, `RUSTUP_HOME` and `DENO_DIR` provide.
@@ -63,6 +64,7 @@ Decided in [Injection and determinism: time, randomness, storage, network and OS
 - **`daemon install`** (launchd agent, systemd user unit, Windows logon task) installs for real on each runner, as service-manager-rs's CI does. Generating the unit file is a pure function tested with snapshots.
 - **Processes are always spawned for real.**
 - **The environment is a value.** `std::env::set_var` is `unsafe` in Rust 2024, and `unsafe_code` is denied. The settings resolver (ADR 0028) takes an explicit environment map, which `main` reads once; `std::env::var`, `var_os` and `vars` are refused elsewhere by `disallowed-methods`. A child process gets its environment through `Command::env`.
+  > Amended by [ADR 0083](0083-a-program-sets-settings-in-one-typed-option-explicit-values-beat-the-environment-and-no-value-is-silently-ignored.md): the Rust SDK's `connect()`, given no environment map, reads the process environment once, the one reader besides `main`, under an `#[expect]` of the `disallowed-methods` lint.
 - **The clipboard** is reached only by the Console, through Playwright's clipboard permissions. ADR 0033's refusal of the clipboard to Plugins is a sandbox test.
 
 ### Isolation

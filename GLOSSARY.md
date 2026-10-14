@@ -12,6 +12,10 @@ _Avoid_: framework, library, platform, Automan (its former working name)
 One thing Goodfetch ships for people to install, Collie or Foxhound: an executable with its SDKs, CLI, MCP server and agent skills. Goodfetch Cloud is a hosted service, not a Product.
 _Avoid_: edition, flavour, distribution
 
+**Product version**:
+The one version that Collie, Foxhound and every package of theirs carry, released together; a product major is its major.
+_Avoid_: lockstep version, release train
+
 **Collie**:
 The Product that drives one browser page at a time: the CDP driver and its guard, the page API, AI actions, and Extraction from the page it is on.
 _Avoid_: browser module, agent

@@ -75,6 +75,8 @@ Crawlee documents AWS Lambda and Cloud Run but tests neither, and its AWS guide 
 | `goodfetch:<v>-full` | The default plus Camoufox, and Playwright's Firefox and WebKit |
 | `goodfetch:<v>-node`, `goodfetch:<v>-python` | The default plus the language runtime and SDK, the base for `init`'s Dockerfiles and for Lambda |
 
+> Amended by [ADR 0090](0090-products-are-named-goodfetch-collie-and-goodfetch-foxhound-and-share-one-product-version.md): each Product has its image, `ghcr.io/goodfetch/collie` and `ghcr.io/goodfetch/foxhound`, under this tag scheme; which tags each Product publishes is decided in [Release, signing and testing of two products](https://github.com/goodfetch/automan/issues/459), and the Browser host's image in [Which executables the Browser host and Goodfetch Cloud's engines run](https://github.com/goodfetch/automan/issues/498). A Helm chart is named after the Product whose image it runs, under `ghcr.io/goodfetch/charts/`.
+
 - Every tag is built on Debian 13 slim (Chromium needs glibc), for amd64 and arm64, runs as the non-root UID 10001, and ships with an SBOM and Sigstore attestations.
 - The Browser host runs from the same image with its own command.
 

@@ -53,7 +53,7 @@ A test's level is the seam it crosses, not its speed:
 - **Product code has no `#[cfg(test)]` branch and no `pub` item added for tests.** If a test needs one, the module is the wrong shape. The one test-only `cfg` in product code is the `sync` modules' `goodfetch_loom` switch ([Concurrency](#concurrency)).
 - **One integration-test binary per crate, run with `cargo-nextest`.** A crate splits it into named area harnesses (`tests/<area>/main.rs`, `autotests = false`) only when its pull request shows a localized test edit taking more than 5 seconds to rebuild with one harness.
   _Why:_ each file in `tests/` links its own binary. uv's measurement favours one harness until a suite is large.
-- **Tests of the `goodfetch` binary live in its crate's `tests/it`** and find the binary through `CARGO_BIN_EXE_goodfetch`, never a guessed path.
+- **Tests of a Product's executable live in its crate's `tests/it`** and find the executable through `CARGO_BIN_EXE_goodfetch-collie` or `CARGO_BIN_EXE_goodfetch-foxhound`, never a guessed path.
   _Why:_ the build directory's layout may change without notice.
 - **Python tests run with `--import-mode=importlib` and `strict = true`** in `[tool.pytest]`.
   _Why:_ tests outside the package run against the installed wheel, as pytest recommends.
@@ -108,7 +108,7 @@ How each dependency is injected is in [Injection and determinism](#injection-and
 - **TypeScript and Python reuse the Rust setup, never rewrite it.** The `goodfetch-test-env` executable of `goodfetch-test-support` prepares a test's folder, home and environment, starts what it is asked to, prints one JSON description (paths, environment map, seed, addresses), and tears everything down when its standard input closes.
   - `@goodfetch/test-support` (`test-support/typescript/`, private) gives Vitest fixtures through `test.extend`.
   - `goodfetch-test-support` (`test-support/python/`, never published) is a pytest plugin registered through `pytest11`.
-- **`goodfetch`'s `test-util` feature is for people who embed `goodfetch`**, never Goodfetch's own helper home.
+- **The `test-util` feature of `goodfetch-collie` and `goodfetch-foxhound` is for people who embed them**, never Goodfetch's own helper home.
 - **Expected results of Proving ground pages come from its oracle**, never copied into test code.
 - **A helper written twice moves into test support.**
 
@@ -134,7 +134,7 @@ How each dependency is injected is in [Injection and determinism](#injection-and
 
 - **Parsers and stateful rules get property tests:** `proptest` in Rust, `hypothesis` in Python. Their regression files are committed.
 - **Untrusted input** gets a `cargo-fuzz` target for every decoder of input Goodfetch did not write itself, replayed by a plain `#[test]` on every OS. The list and the rest of fuzzing are under [Security](#security) (ADR 0067).
-- **Doctests only on `goodfetch`**, where they are the examples of ADR 0030.
+- **Doctests only on `goodfetch-collie` and `goodfetch-foxhound`**, where they are the examples of ADR 0030.
 
 ## Injection and determinism
 
@@ -154,7 +154,7 @@ Decided in [ADR 0059](docs/adr/0059-dependencies-are-injected-as-values-and-only
 | Environment | an explicit map | a cleared map for each child process |
 | Keychain, service manager, processes | nothing: the real service | the real service, unique names |
 
-- **A dependency with a local stand-in gets no handle.** Only `Clock` and `Entropy` are swapped in tests, and, in the [Simulation](#simulation) alone, `transport`'s network (ADR 0060). That network is a value with product adapters, the OS and the in-memory pair the embeddable `goodfetch` crate uses, so its interface is public for them, not for tests, and it is not a third handle.
+- **A dependency with a local stand-in gets no handle.** Only `Clock` and `Entropy` are swapped in tests, and, in the [Simulation](#simulation) alone, `transport`'s network (ADR 0060). That network is a value with product adapters, the OS and the in-memory pair the Products' embeddable crates use, so its interface is public for them, not for tests, and it is not a third handle.
   _Why:_ a fake passes where the real thing fails, and a stand-in tests what users run.
 - **Nothing reads time, chooses at random or reads the environment through a global.** `disallowed-methods` refuses `SystemTime::now`, std and Tokio `Instant::now` and constructors such as `Ulid::new` outside `Clock` and `Entropy`, and `std::env::var` outside `main`; `std::env::set_var` is `unsafe`.
 
@@ -195,7 +195,7 @@ Decided in [ADR 0059](docs/adr/0059-dependencies-are-injected-as-values-and-only
 4. No fixed ports: bind port 0 and report the address, or use a Unix socket or named pipe in the test's folder.
 5. One Valkey per CI job, with a namespace per test.
 6. Resources shared by the whole user (keychain, service manager) run in a nextest test group, with unique names.
-7. Certificate authorities are made per test: the Proving ground's from its seed, a Daemon group's by `goodfetch group init` into the test's folder.
+7. Certificate authorities are made per test: the Proving ground's from its seed, a Daemon group's by `group init` into the test's folder.
 8. No test reads another test's data or depends on test order.
 
 ### SDKs and the Console
@@ -556,7 +556,7 @@ Decided in [ADR 0063](docs/adr/0063-end-to-end-tests-follow-a-catalog-of-numbere
 - **An AI Journey names the Fake model as its Model provider:** its variant's Proving ground serves it, and the setup steps point the Model provider setting at it through a public surface ([ADR 0065](docs/adr/0065-ai-features-are-tested-without-live-models-and-measured-by-oracle-graded-evaluations.md)). Never the Scripted model, never a live model.
 - **Build the starting state through public surfaces** in the first steps. Never copy in a run file, database or home folder, except an older-format file for an upgrade Journey.
 - **Run against the local copy only.** Online results stay conformance reports.
-- **Drive the shipped artefacts**: the `goodfetch` binary and the SDK packages built from the commit, never an engine linked into the test.
+- **Drive the shipped artefacts**: the Products' executables and the SDK packages built from the commit, never an engine linked into the test.
 - **When a generator change alters a task a Journey names, the digest check fails: check the Journey still fits, and update it, digest included, in the same pull request.** Task ordinals are append-only within a family; never reuse one.
 
 ### Tests and results
@@ -602,7 +602,7 @@ Decided in [ADR 0066](docs/adr/0066-upgrades-are-tested-from-a-frozen-corpus-and
 - **A corpus test is golden.** It reads, writes back and compares with its snapshot. A migrated SQLite store must also match a fresh store's schema. Checkpoints resume, Plans replay without a model, Recipes run and transcripts replay.
   _Why:_ "it opens" misses a misread.
 
-### `goodfetch upgrade-files`
+### `upgrade-files`
 
 - **Each source in `compat/upgrade-paths.toml` is tested from every frozen set:** golden result, idempotent, the previous major's files unchanged, unrelated files untouched. A source not in the table and a newer major are refused.
 
@@ -615,7 +615,7 @@ Decided in [ADR 0066](docs/adr/0066-upgrades-are-tested-from-a-frozen-corpus-and
 
 ### Released artifacts
 
-- **Skew covers every released minor of the current major**, latest patch of each: SDKs, the Rust crate's client, the CLI and the MCP server against the current Daemon, the SDKs over stdio through `GOODFETCH_ENGINE_PATH` (every Attached engine applies the Daemon's rule at `hello`; this variable is how its version can differ from its SDK's), the Console, the Browser host and first-party Plugins.
+- **Skew covers every released minor of the current major**, latest patch of each: SDKs, the Rust crate's client, the CLI and the MCP server against the current Daemon, the SDKs over stdio through their Product's engine-path variable, `GOODFETCH_COLLIE_ENGINE_PATH` or `GOODFETCH_FOXHOUND_ENGINE_PATH` (every Attached engine applies the Daemon's rule at `hello`; this variable is how its version can differ from its SDK's), the Console, the Browser host and first-party Plugins.
 - **An old Client runs its own release's Journeys** ([ADR 0063](docs/adr/0063-end-to-end-tests-follow-a-catalog-of-numbered-journeys-kept-in-the-repository.md)) from its tag, against the current binary given by path. Each variant keeps its own Proving ground and Goodfetch home. A Journey that asserts something outside semver is fixed on `main`, and its variant is excluded by variant ID (`J-NNN@<surface>`), with a reason, in `compat/skew-exclusions.toml`.
 - **Rolling upgrades run under load** in a three-member group, once with the Lead Daemon last (a StatefulSet's default order with the Lead Daemon as pod 0) and once with it first, then a promotion from an older Group backup and the rollbacks.
 - **The Helm upgrade starts from a release's chart,** installed by digest from `compat/releases.toml`, then runs `helm upgrade` to the current chart and `helm test`. Never `ct install --upgrade`.
@@ -644,12 +644,12 @@ Decided in [ADR 0069](docs/adr/0069-sdks-and-the-cli-are-tested-against-a-script
 
 ### SDKs
 
-- **Unit tests run against the Scripted engine in-process**, through an in-memory transport; integration tests and Journeys run the `goodfetch` binary built from the same commit. `sdk-rust` Journeys run with a Daemon only; `linked` is never a Journey mode.
+- **Unit tests run against the Scripted engine in-process**, through an in-memory transport; integration tests and Journeys run the Product's executable built from the same commit. `sdk-rust` Journeys run with a Daemon only; `linked` is never a Journey mode.
   _Why:_ the binary can't fabricate a refused `hello` or a crash mid-call, and a fake alone passes where the engine fails.
 - **Scripts live only in `test-support/fixtures/engine-scripts/`**, never inline in a test. Every message step in them must validate against the committed JSON Schema bundle; only raw-byte steps, deliberately not JSON-RPC, are skipped.
   _Why:_ one validated corpus keeps the stand-in true to the engine for every SDK at once.
-- **Pass `GOODFETCH_ENGINE_PATH` and `GOODFETCH_HOME` in the SDK's environment-map option**, as the test-support fixtures build it from `goodfetch-test-env`. Never set them in the test's own process; an Attached engine gets exactly that map as its environment.
-- **Process faults use `goodfetch-scripted-engine`**, reached as an Attached engine through `GOODFETCH_ENGINE_PATH` (TypeScript and Python) or as a Daemon through a runtime file in the test's Goodfetch home (every SDK). No build of `goodfetch` carries a fault switch.
+- **Pass the Product's engine-path variable and `GOODFETCH_HOME` in the SDK's environment-map option**, as the test-support fixtures build it from `goodfetch-test-env`. Never set them in the test's own process; an Attached engine gets exactly that map as its environment.
+- **Process faults use `goodfetch-scripted-engine`**, reached as an Attached engine through the Product's engine-path variable (TypeScript and Python) or as a Daemon through a runtime file in the test's Goodfetch home (every SDK). No build of either Product carries a fault switch.
 - **No process outlives its test:** the test-support fixtures fail a test that leaves an engine, Daemon or handler process alive after teardown.
 - **Every Client conformance case in `conformance/clients/` is implemented on every surface it lists**, carries its case ID, and runs in both of its surface's modes: named cases `attached` and `daemon` in TypeScript, Python and the CLI, `linked` and `daemon` in Rust, which links the engine and starts no Attached engine. A Quick-suite check fails on a missing implementation or an unknown ID.
 - **For Client conformance cases, each runner writes a case log; only `goodfetch-conformance`'s writer turns it into a result document**, deriving each outcome through `goodfetch-protocol`'s constructor. A log entry never carries an outcome. A declared case missing from the log is `unproved`. Journeys write their own documents ([Journeys](#journeys)). The entry type is in `goodfetch-protocol` and its schema in the bundle; the script format's schema is `test-support/fixtures/engine-scripts/script.schema.json`. Both come from `xtask codegen`.
@@ -681,7 +681,7 @@ Decided in [ADR 0069](docs/adr/0069-sdks-and-the-cli-are-tested-against-a-script
   - each install keeps its manager's release-age gate on and passes it through ADR 0030's exclusion snippet, read from the source the release notes use; one run per manager without the snippet must not install the packed version (uv's snippet is not tested: `--no-index` has no gate);
   - wheels install into a fresh environment (`uv pip install --no-index --find-links`, and `pip`) and run `tests/integration` unchanged, on glibc and Alpine;
   - the crate builds a temporary consumer from `cargo package`'s output.
-- **Models are scripted only through the testing kit's Scripted model** (`goodfetch::testing`, `goodfetch/testing`, `goodfetch.testing`). The kit's test engine helper is an Attached engine in TypeScript and Python and the linked engine in Rust.
+- **Models are scripted only through the testing kit's Scripted model** (`goodfetch_collie::testing`, `@goodfetch/collie/testing`, `goodfetch_collie.testing`, and Foxhound's at the same paths). The kit's test engine helper is an Attached engine in TypeScript and Python and the linked engine in Rust.
 
 ### CLI
 
@@ -910,7 +910,7 @@ Every boundary has its tests. A decision that adds a boundary adds its row in th
   - the Audit log, the Effect journal, and Checkpoints outside their encrypted fields;
   - Exports and Notifications;
   - JSON-RPC errors, error messages in run state, and model requests;
-  - the Console's offline cache, `goodfetch doctor`'s file, and the SDKs' `repr`, `toString` and errors.
+  - the Console's offline cache, `doctor`'s file, and the SDKs' `repr`, `toString` and errors.
 
   _Why:_ redaction is best effort against arbitrary transforms, but Goodfetch's own encodings are known.
 - **Property-test redaction** with generated values that are hard to redact (quotes, backslashes, newlines, `%`, Unicode, very long, empty, common words, values that contain one another), through every formatter and serializer. Commit `proptest-regressions/`.
@@ -980,7 +980,7 @@ Each suite contains the one before, so the table gives the first suite that runs
 
 ### The served Console
 
-- **Browser tests of the Console as users get it run on Playwright Test against the `goodfetch` binary built from the commit.** Never against a Vite server.
+- **Browser tests of the Console as users get it run on Playwright Test against the executable built from the commit.** Never against a Vite server.
 - **Each test starts its own Daemon** through the `@goodfetch/test-support` fixture (`goodfetch-test-env`), with its own home, port 0 and fresh browser context.
 - **Sign in the way a person does:** the binary's single-user sign-in link, Playwright's virtual authenticator for passkeys and step-up, a local OIDC provider pinned by digest. Never write a cookie or storage state yourself.
 - **Make faults where they happen:** `routeWebSocket` with `connectToServer()` for a dropped or stalled connection, the real process for an engine fault. `routeWebSocket` replaces the page's `WebSocket` with a shim that forwards to the real binary; use it only to drop or delay real messages, never to invent one.
@@ -1017,7 +1017,7 @@ Each suite contains the one before, so the table gives the first suite that runs
 - **`xtask docs-samples` extracts every sample** from `.md` and `.mdx` pages into `target/docs-samples/`, with a manifest. The docs build's remark plugin lists every sample block it sees; a difference between that list and the manifest, or a runner whose case count differs from the manifest, fails the check.
 - **Tag a block that can't run `no_run`** after its language. A `rust`, `ts` or `python` block is still compiled, type-checked or linted; a `console` block or an MCP pair is only listed in the manifest.
 - **Mark MCP samples `json mcp-request` and `json mcp-answer`.** Other `json` blocks are not samples.
-- **Each surface's tests run its samples:** `twoslash` type-checks `ts` and `tsx` in the docs build (our own remark plugin, on the TypeScript 6 alias) and the TypeScript SDK's tests run them; Ruff lints and the Python SDK's pytest runs `python`; `#[cfg(doctest)]` includes in `goodfetch` run `rust`; trycmd runs the `.trycmd` files from the binary crate's `tests/it` (`...` for any lines, `[..]` within a line); an MCP server test plays each `mcp-request` and `mcp-answer` pair through `rmcp`.
+- **Each surface's tests run its samples:** `twoslash` type-checks `ts` and `tsx` in the docs build (our own remark plugin, on the TypeScript 6 alias) and the TypeScript SDK's tests run them; Ruff lints and the Python SDK's pytest runs `python`; `#[cfg(doctest)]` includes in `goodfetch-collie` and `goodfetch-foxhound` run `rust`; trycmd runs the `.trycmd` files from the binary crate's `tests/it` (`...` for any lines, `[..]` within a line); an MCP server test plays each `mcp-request` and `mcp-answer` pair through `rmcp`.
 - **Run samples against the binary built from the commit and a local Proving ground,** never the online one. Hide setup with the tool's own convention (`# ` in Rust, `---cut---` in Twoslash).
 - **Only `docs/` (`next`) runs.** Frozen versions were tested at their release.
 - **Pre-merge:** the affected samples on one runtime. **Release:** every sample on its surface's own matrix ([SDK and CLI tests](#sdk-and-cli-tests), [MCP, framework adapters and Integrations](#mcp-framework-adapters-and-integrations)).

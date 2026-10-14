@@ -9,7 +9,7 @@
 // - a sequence the program reads to its end is an EventIterator, read with `for await`.
 // Both subscribe when the method is called, as waiters arm when called, so nothing slips through
 // before the first event. A request that needs the program's answer (a route here; a crawl handler,
-// a dialog, a Hook in code elsewhere) is a callback that runs on the program's event loop, and the
+// a dialog, a Hook in code elsewhere) is a function the program registers, run on its event loop; the
 // engine sends no more at once than the concurrency setting allows.
 //
 // URL globs and regular expressions run in the engine, in the Rust `regex` syntax: no look-around or

@@ -199,9 +199,10 @@ class ListenerFailedDetails:
 
 @final
 class ListenerFailedError(ProgramError):
-    """A listener raised (ADR 0081): it was removed, and the next call on the value it was registered on, or that
-    close that closes that value, its own or a parent's, raises this with the listener's exception as `__cause__`. When no call or close follows, the SDK
-    logs it at error level instead."""
+    """A listener raised (ADR 0081). It was removed, and this is raised once, by the next call on the value it was
+    registered on or by the close that closes that value, its own or a parent's, with the listener's exception as
+    `__cause__`; the value stays open. If the value is released before either, the SDK logs it at error level
+    instead."""
 
     @property
     def details(self) -> ListenerFailedDetails: ...

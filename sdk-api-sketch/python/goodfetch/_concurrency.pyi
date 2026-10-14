@@ -97,20 +97,36 @@ class AsyncPageEvents:
     def on(self, event: Literal["response"], listener: AsyncListener[Response]) -> Subscription: ...
     @overload
     def expect_event(
-        self, event: Literal["console"], *, predicate: Callable[[ConsoleMessage], bool] | None = None, timeout: Timeout = ...
+        self,
+        event: Literal["console"],
+        *,
+        predicate: Callable[[ConsoleMessage], bool] | None = None,
+        timeout: Timeout = ...,
     ) -> AbstractAsyncContextManager[AsyncEventInfo[ConsoleMessage]]: ...
     @overload
     def expect_event(
-        self, event: Literal["response"], *, predicate: Callable[[Response], bool] | None = None, timeout: Timeout = ...
+        self,
+        event: Literal["response"],
+        *,
+        predicate: Callable[[Response], bool] | None = None,
+        timeout: Timeout = ...,
     ) -> AbstractAsyncContextManager[AsyncEventInfo[Response]]:
         """Waits for one event, armed when the block opens (ADR 0080); the predicate runs in the program."""
     @overload
     async def wait_for_event(
-        self, event: Literal["console"], *, predicate: Callable[[ConsoleMessage], bool] | None = None, timeout: Timeout = ...
+        self,
+        event: Literal["console"],
+        *,
+        predicate: Callable[[ConsoleMessage], bool] | None = None,
+        timeout: Timeout = ...,
     ) -> ConsoleMessage: ...
     @overload
     async def wait_for_event(
-        self, event: Literal["response"], *, predicate: Callable[[Response], bool] | None = None, timeout: Timeout = ...
+        self,
+        event: Literal["response"],
+        *,
+        predicate: Callable[[Response], bool] | None = None,
+        timeout: Timeout = ...,
     ) -> Response: ...
 
     def route(self, url: UrlMatcher, handler: Callable[[AsyncRoute], Awaitable[None]]) -> Subscription:
@@ -159,19 +175,35 @@ class PageEvents:
     def on(self, event: Literal["response"], listener: Listener[Response]) -> Subscription: ...
     @overload
     def expect_event(
-        self, event: Literal["console"], *, predicate: Callable[[ConsoleMessage], bool] | None = None, timeout: Timeout = ...
+        self,
+        event: Literal["console"],
+        *,
+        predicate: Callable[[ConsoleMessage], bool] | None = None,
+        timeout: Timeout = ...,
     ) -> AbstractContextManager[EventInfo[ConsoleMessage]]: ...
     @overload
     def expect_event(
-        self, event: Literal["response"], *, predicate: Callable[[Response], bool] | None = None, timeout: Timeout = ...
+        self,
+        event: Literal["response"],
+        *,
+        predicate: Callable[[Response], bool] | None = None,
+        timeout: Timeout = ...,
     ) -> AbstractContextManager[EventInfo[Response]]: ...
     @overload
     def wait_for_event(
-        self, event: Literal["console"], *, predicate: Callable[[ConsoleMessage], bool] | None = None, timeout: Timeout = ...
+        self,
+        event: Literal["console"],
+        *,
+        predicate: Callable[[ConsoleMessage], bool] | None = None,
+        timeout: Timeout = ...,
     ) -> ConsoleMessage: ...
     @overload
     def wait_for_event(
-        self, event: Literal["response"], *, predicate: Callable[[Response], bool] | None = None, timeout: Timeout = ...
+        self,
+        event: Literal["response"],
+        *,
+        predicate: Callable[[Response], bool] | None = None,
+        timeout: Timeout = ...,
     ) -> Response: ...
     def route(self, url: UrlMatcher, handler: Callable[[Route], None]) -> Subscription:
         """Answers matching requests, registered when called. The handler runs on a thread of the connection's pool."""

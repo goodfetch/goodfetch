@@ -9,8 +9,9 @@
 //!
 //! The SDK hosts its engine like `main` (ADR 0060 as amended): a connection builds its linked
 //! engine's Tokio runtime, or a client runtime for a Daemon or Goodfetch Cloud, through the helper
-//! `main` uses, so these futures and streams run on any executor, a single-threaded one included. The SDK spawns nothing on the program's executor:
-//! whatever the engine sends on its own, events and requests that need an answer alike (a route
+//! `main` uses (its tests pass the test helper's), so these futures and streams run on any
+//! executor, a single-threaded one included. The async API spawns nothing on the program's
+//! executor: whatever the engine sends on its own, events and requests that need an answer alike (a route
 //! here; a crawl handler, a dialog or a Hook in code elsewhere), arrives as an [`EventStream`],
 //! subscribed when the method that returns it is called. The program drives it where it likes, so
 //! handlers run inside the future the program awaits, may borrow local state, and need neither

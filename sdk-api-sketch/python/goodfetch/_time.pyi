@@ -33,7 +33,8 @@ Timeout: TypeAlias = timedelta | None | NotGiven
 """`not_given`: the setting's default; `None`: no timeout; a positive `timedelta`: at most that long."""
 
 UrlMatcher: TypeAlias = str | re.Pattern[str] | Callable[[str], bool]
-"""A glob, a compiled pattern, or a host-side predicate (where it runs is #468's)."""
+"""A glob or a compiled pattern, run in the engine in the Rust `regex` syntax (no look-around or backreferences,
+linear time), or a predicate, run in the program (ADR 0081)."""
 
 LoadState: TypeAlias = Literal["domcontentloaded", "load", "networkidle"]
 """`networkidle`: no request in flight for 500 ms, WebSockets and server-sent events excluded."""

@@ -8,6 +8,14 @@ publish = false
 [features]
 test-util = []
 
+# `EventStream` implements `futures_core::Stream` for interop; its own `next()` needs no crate (G7).
+[dependencies]
+futures-core = "0.3.34"
+
+# The concurrency snippet drives streams with `futures-util`'s combinators.
+[dev-dependencies]
+futures-util = "0.3.34"
+
 # Standalone: not part of any Goodfetch workspace.
 [workspace]
 

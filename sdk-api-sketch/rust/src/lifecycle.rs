@@ -4,7 +4,8 @@
 //! The Rust crate links the engine (`EngineChoice::Linked`) and borrows a browser through
 //! `session.source = cdp_url`, never through a relay. The Run's start verbs, Sessions and the
 //! page API are placeholders owned by #478, #476 and #472. The error type is ADR 0079's, in `results`.
-//! Timeouts, waits and Limits are #467's, in `time`.
+//! Timeouts, waits and Limits are #467's, in `time`; events, user code and sharing are #468's, in
+//! `concurrency`.
 
 use std::future::IntoFuture;
 use std::time::Duration;
@@ -93,9 +94,10 @@ pub struct EngineInfo {
 
 /// The engine connection: the entry point. Each one is independent, and many may be open in one process.
 ///
-/// Dropping it without [`Goodfetch::close`] fires the cancellation tree without waiting and emits a
-/// `tracing` warning; Runs resume from their last Checkpoint.
-#[derive(Debug)]
+/// A cheap clone of one connection (ADR 0081). Dropping the last clone without [`Goodfetch::close`]
+/// fires the cancellation tree without waiting and emits a `tracing` warning; Runs resume from their
+/// last Checkpoint.
+#[derive(Debug, Clone)]
 pub struct Goodfetch {
     _private: (),
 }
@@ -122,32 +124,31 @@ impl Goodfetch {
     }
 
     /// Collie, reached without I/O.
-    pub fn collie(&self) -> Collie<'_> {
+    pub fn collie(&self) -> Collie {
         unimplemented!()
     }
 
     /// Cancels in-flight calls, closes every Run it opened, then stops a linked engine or
-    /// disconnects from a Daemon. Idempotent; takes `&self` so it works through an `Arc`. Its timeout
-    /// is the close phase's.
-    pub fn close(&self) -> Call<'_, ()> {
+    /// disconnects from a Daemon, for every clone. Idempotent. Its timeout is the close phase's.
+    pub fn close(&self) -> Call<()> {
         unimplemented!()
     }
 }
 
 impl Drop for Goodfetch {
-    /// Never blocks and never fails (C-DTOR-FAIL, C-DTOR-BLOCK).
+    /// Never blocks and never fails (C-DTOR-FAIL, C-DTOR-BLOCK); acts when the last clone is dropped.
     fn drop(&mut self) {}
 }
 
-/// Collie, borrowed from its connection.
-#[derive(Debug)]
-pub struct Collie<'a> {
-    _connection: &'a Goodfetch,
+/// Collie, a cheap clone that holds its connection.
+#[derive(Debug, Clone)]
+pub struct Collie {
+    _connection: Goodfetch,
 }
 
-impl Collie<'_> {
+impl Collie {
     /// Placeholder start verb: its spelling is #478's; its timeout and Limits are #467's.
-    pub fn start(&self) -> Start<'_> {
+    pub fn start(&self) -> Start {
         unimplemented!()
     }
 }
@@ -155,11 +156,11 @@ impl Collie<'_> {
 /// Starting a Run, not sent until awaited.
 #[derive(Debug)]
 #[must_use = "a Run does not start until this is awaited"]
-pub struct Start<'a> {
-    _collie: &'a Goodfetch,
+pub struct Start {
+    _collie: Goodfetch,
 }
 
-impl Start<'_> {
+impl Start {
     /// How long the whole Run may last. A setting like the others (ADR 0028), whose built-in default
     /// is none. On expiry the Run stops with a
     /// Checkpoint, `stopped` and `incomplete`, and can be resumed.
@@ -180,9 +181,9 @@ impl Start<'_> {
     }
 }
 
-impl<'a> IntoFuture for Start<'a> {
+impl IntoFuture for Start {
     type Output = Result<Run, Error>;
-    type IntoFuture = CallFuture<'a, Run>;
+    type IntoFuture = CallFuture<Run>;
 
     fn into_future(self) -> Self::IntoFuture {
         unimplemented!()
@@ -190,8 +191,8 @@ impl<'a> IntoFuture for Start<'a> {
 }
 
 /// A Run, always opened explicitly. Closing an unfinished Run stops it with a Checkpoint,
-/// resumable by its ID.
-#[derive(Debug)]
+/// resumable by its ID. A cheap clone of one Run (ADR 0081).
+#[derive(Debug, Clone)]
 pub struct Run {
     _private: (),
 }
@@ -208,20 +209,21 @@ impl Run {
     }
 
     /// Stops the Run if unfinished, after closing its children. Idempotent.
-    pub fn close(&self) -> Call<'_, ()> {
+    pub fn close(&self) -> Call<()> {
         unimplemented!()
     }
 }
 
 /// A page Goodfetch drives. Its API is #472's. Closing it closes only a tab Goodfetch opened.
-#[derive(Debug)]
+/// A cheap clone of one page (ADR 0081).
+#[derive(Debug, Clone)]
 pub struct Page {
     _private: (),
 }
 
 impl Page {
     /// Closes the tab. Idempotent.
-    pub fn close(&self) -> Call<'_, ()> {
+    pub fn close(&self) -> Call<()> {
         unimplemented!()
     }
 }

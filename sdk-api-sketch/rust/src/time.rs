@@ -27,23 +27,24 @@ pub(crate) enum Timeout {
     After(Duration),
 }
 
-/// The future of a call, boxed so the sketch can name it.
-pub type CallFuture<'a, T> = Pin<Box<dyn Future<Output = Result<T, Error>> + Send + 'a>>;
+/// The future of a call, boxed so the sketch can name it. It owns what it needs, so it is
+/// `Send + 'static` and can be spawned on any executor (ADR 0081).
+pub type CallFuture<T> = Pin<Box<dyn Future<Output = Result<T, Error>> + Send + 'static>>;
 
 /// One call of the SDK API, not sent until awaited.
 #[must_use = "a call does nothing until it is awaited"]
-pub struct Call<'a, T> {
+pub struct Call<T> {
     timeout: Timeout,
-    _output: PhantomData<&'a T>,
+    _output: PhantomData<fn() -> T>,
 }
 
-impl<T> fmt::Debug for Call<'_, T> {
+impl<T> fmt::Debug for Call<T> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("Call").field("timeout", &self.timeout).finish()
     }
 }
 
-impl<T> Call<'_, T> {
+impl<T> Call<T> {
     /// At most this long, within what remains of any enclosing timeout.
     pub fn timeout(self, timeout: Duration) -> Self {
         let _ = timeout;
@@ -56,9 +57,9 @@ impl<T> Call<'_, T> {
     }
 }
 
-impl<'a, T: Send + 'a> IntoFuture for Call<'a, T> {
+impl<T: Send + 'static> IntoFuture for Call<T> {
     type Output = Result<T, Error>;
-    type IntoFuture = CallFuture<'a, T>;
+    type IntoFuture = CallFuture<T>;
 
     fn into_future(self) -> Self::IntoFuture {
         unimplemented!()
@@ -67,18 +68,18 @@ impl<'a, T: Send + 'a> IntoFuture for Call<'a, T> {
 
 /// A waiter for one page event: awaited alone, or armed around an action with [`Waiter::during`].
 #[must_use = "a waiter does nothing until it is awaited"]
-pub struct Waiter<'a, T> {
+pub struct Waiter<T> {
     timeout: Timeout,
-    _output: PhantomData<&'a T>,
+    _output: PhantomData<fn() -> T>,
 }
 
-impl<T> fmt::Debug for Waiter<'_, T> {
+impl<T> fmt::Debug for Waiter<T> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("Waiter").field("timeout", &self.timeout).finish()
     }
 }
 
-impl<'a, T: Send + 'a> Waiter<'a, T> {
+impl<T: Send + 'static> Waiter<T> {
     /// At most this long, within what remains of any enclosing timeout.
     pub fn timeout(self, timeout: Duration) -> Self {
         let _ = timeout;
@@ -87,6 +88,13 @@ impl<'a, T: Send + 'a> Waiter<'a, T> {
 
     /// No timeout of its own; an enclosing timeout still applies.
     pub fn no_timeout(self) -> Self {
+        unimplemented!()
+    }
+
+    /// Only an event this predicate accepts ends the wait. It runs in the program, on the events the
+    /// engine sends while the waiter is armed, and may use the program's own values (ADR 0081).
+    pub fn matching(self, predicate: impl Fn(&T) -> bool + Send + Sync + 'static) -> Self {
+        let _ = predicate;
         unimplemented!()
     }
 
@@ -101,9 +109,9 @@ impl<'a, T: Send + 'a> Waiter<'a, T> {
     }
 }
 
-impl<'a, T: Send + 'a> IntoFuture for Waiter<'a, T> {
+impl<T: Send + 'static> IntoFuture for Waiter<T> {
     type Output = Result<T, Error>;
-    type IntoFuture = CallFuture<'a, T>;
+    type IntoFuture = CallFuture<T>;
 
     fn into_future(self) -> Self::IntoFuture {
         unimplemented!()
@@ -115,9 +123,11 @@ impl<'a, T: Send + 'a> IntoFuture for Waiter<'a, T> {
 pub enum UrlMatcher {
     /// A glob, such as `**/filter.aspx`.
     Glob(String),
-    /// A regular expression, evaluated by the engine, so no regex crate is required (G7).
+    /// A regular expression, run in the engine in the Rust `regex` syntax: no look-around or
+    /// backreferences, and linear time. A pattern using either fails at the call with a program
+    /// error naming the construct (ADR 0081). No regex crate is required (G7).
     Regex(String),
-    /// A host-side predicate; where it runs is #468's.
+    /// A predicate, run in the program on the events the engine sends while it is armed (ADR 0081).
     Predicate(Box<dyn Fn(&str) -> bool + Send + Sync>),
 }
 
@@ -210,33 +220,34 @@ pub struct Request {
 }
 
 /// A placeholder locator: its constructors and actions are #472's; its waits are #467's.
-/// Its calls borrow the page, not the locator, so a chained `page.locator(…).click()` can be stored.
-#[derive(Debug)]
-pub struct Locator<'a> {
-    _page: PhantomData<&'a ()>,
+/// A cheap clone that holds its page, so its calls own what they need and are `Send + 'static`
+/// (ADR 0081).
+#[derive(Debug, Clone)]
+pub struct Locator {
+    _page: crate::lifecycle::Page,
 }
 
-impl<'a> Locator<'a> {
+impl Locator {
     /// Waits through the guard (ADR 0019) until the action is safe, then acts.
-    pub fn click(&self) -> Call<'a, ()> {
+    pub fn click(&self) -> Call<()> {
         unimplemented!()
     }
 
     /// Fills the field.
-    pub fn fill(&self, value: &str) -> Call<'a, ()> {
+    pub fn fill(&self, value: &str) -> Call<()> {
         let _ = value;
         unimplemented!()
     }
 
     /// Playwright's `wait_for`: one element in the given state.
-    pub fn wait_for(&self, state: ElementState) -> Call<'a, ()> {
+    pub fn wait_for(&self, state: ElementState) -> Call<()> {
         let _ = state;
         unimplemented!()
     }
 
     /// Waits until the number of matches is in range, and returns it: a different behaviour, so a
     /// different name (S3).
-    pub fn wait_for_count(&self, count: Count) -> Call<'a, usize> {
+    pub fn wait_for_count(&self, count: Count) -> Call<usize> {
         let _ = count;
         unimplemented!()
     }
@@ -321,56 +332,56 @@ impl Limits {
 /// The page's navigation and app-state waits. The page itself is #472's.
 impl crate::lifecycle::Page {
     /// Placeholder for #472's navigation. Its timeout is the navigation phase's.
-    pub fn goto(&self, url: &str) -> Call<'_, Option<Response>> {
+    pub fn goto(&self, url: &str) -> Call<Option<Response>> {
         let _ = url;
         unimplemented!()
     }
 
     /// Placeholder locator (#472).
-    pub fn locator(&self, selector: &str) -> Locator<'_> {
+    pub fn locator(&self, selector: &str) -> Locator {
         let _ = selector;
         unimplemented!()
     }
 
     /// Placeholder locator by ARIA role and accessible name (#472).
-    pub fn get_by_role(&self, role: &str, name: &str) -> Locator<'_> {
+    pub fn get_by_role(&self, role: &str, name: &str) -> Locator {
         let _ = (role, name);
         unimplemented!()
     }
 
     /// Waits until the page's URL matches.
-    pub fn wait_for_url(&self, url: impl Into<UrlMatcher>) -> Call<'_, ()> {
+    pub fn wait_for_url(&self, url: impl Into<UrlMatcher>) -> Call<()> {
         let _ = url.into();
         unimplemented!()
     }
 
     /// Waits for a matching response; arm it around its trigger with [`Waiter::during`].
-    pub fn wait_for_response(&self, url: impl Into<UrlMatcher>) -> Waiter<'_, Response> {
+    pub fn wait_for_response(&self, url: impl Into<UrlMatcher>) -> Waiter<Response> {
         let _ = url.into();
         unimplemented!()
     }
 
     /// Waits for a matching request.
-    pub fn wait_for_request(&self, url: impl Into<UrlMatcher>) -> Waiter<'_, Request> {
+    pub fn wait_for_request(&self, url: impl Into<UrlMatcher>) -> Waiter<Request> {
         let _ = url.into();
         unimplemented!()
     }
 
     /// Waits until a matching request has finished, its body read.
-    pub fn wait_for_request_finished(&self, url: impl Into<UrlMatcher>) -> Waiter<'_, Request> {
+    pub fn wait_for_request_finished(&self, url: impl Into<UrlMatcher>) -> Waiter<Request> {
         let _ = url.into();
         unimplemented!()
     }
 
     /// Waits for a load state.
-    pub fn wait_for_load_state(&self, state: LoadState) -> Call<'_, ()> {
+    pub fn wait_for_load_state(&self, state: LoadState) -> Call<()> {
         let _ = state;
         unimplemented!()
     }
 
     /// Waits until a page function returns a truthy value, returned as JSON text; its
     /// serialization contract is #472's.
-    pub fn wait_for_function(&self, page_function: &str) -> Call<'_, String> {
+    pub fn wait_for_function(&self, page_function: &str) -> Call<String> {
         let _ = page_function;
         unimplemented!()
     }

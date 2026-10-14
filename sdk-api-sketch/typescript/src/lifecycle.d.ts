@@ -1,7 +1,8 @@
 // Entry points and lifecycle (ADR 0078, decided in #465).
 // The Run's start verbs, Sessions and the page API are placeholders owned by #478, #476 and #472.
-// Timeouts, waits and Limits come from #467 (time.d.ts).
+// Timeouts, waits and Limits come from #467 (time.d.ts); events and user code from #468 (concurrency.d.ts).
 
+import type { PageEvents, RunEvents } from "./concurrency.js";
 import type { CallOptions, Limits, PageWaits, StartOptions, Timeout } from "./time.js";
 
 /** Which engine `connect()` reaches. `auto` follows ADR 0024: a Daemon when one is configured or running, otherwise an Attached engine. */
@@ -53,7 +54,7 @@ export type BorrowableBrowser =
   | { target(): unknown; disconnect(): Promise<void> };
 
 /** A page Goodfetch drives. Its API is #472's. Closing it closes only a tab Goodfetch opened. */
-export interface Page extends Closeable, PageWaits {}
+export interface Page extends Closeable, PageWaits, PageEvents {}
 
 /** A Session of a Run. Its API is #476's. Closing it never closes a Borrowed browser. */
 export interface Session extends Closeable {
@@ -61,7 +62,7 @@ export interface Session extends Closeable {
 }
 
 /** A Run, always opened explicitly. Closing an unfinished Run stops it with a Checkpoint, resumable by its ID. */
-export interface Run extends Closeable {
+export interface Run extends Closeable, RunEvents {
   readonly id: string;
   newPage(): Promise<Page>;
   /** Borrows the user's own page (ADR 0056's `client_browser`). Ending the borrow never closes it. */

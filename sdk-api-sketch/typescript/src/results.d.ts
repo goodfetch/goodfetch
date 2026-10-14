@@ -22,6 +22,7 @@ export type KnownErrorCode =
   | "removed"
   | "call_cancelled"
   | "handler_failed"
+  | "listener_failed"
   | "hook_failed"
   | "limit_reached"
   | "page_check_failed"
@@ -142,6 +143,16 @@ export interface HandlerFailedDetails {
 export declare class HandlerFailedError extends ProgramError {
   readonly code: "handler_failed";
   readonly details: HandlerFailedDetails;
+}
+
+/**
+ * A listener threw (ADR 0081). It was removed, and this is thrown by the next call on the value it
+ * was registered on, or by that value's `close()`; `cause` holds the listener's exception. When no call
+ * or close follows, the SDK logs it at error level instead.
+ */
+export declare class ListenerFailedError extends ProgramError {
+  readonly code: "listener_failed";
+  readonly details: { readonly event: string };
 }
 
 export declare class LimitReachedError extends RefusedError {

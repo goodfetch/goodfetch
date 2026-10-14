@@ -19,6 +19,7 @@ KnownErrorCode: TypeAlias = Literal[
     "removed",
     "call_cancelled",
     "handler_failed",
+    "listener_failed",
     "hook_failed",
     "limit_reached",
     "page_check_failed",
@@ -184,6 +185,16 @@ class HandlerFailedError(ProgramError):
 
     @property
     def details(self) -> HandlerFailedDetails: ...
+
+@final
+class ListenerFailedError(ProgramError):
+    """A listener raised (ADR 0081): it was removed, and the next call on the value it was registered on, or that
+    value's `close()`, raises this with the listener's exception as `__cause__`. When no call or close follows, the SDK
+    logs it at error level instead."""
+
+    @property
+    def event(self) -> str:
+        """The event the listener was registered for."""
 
 @final
 class LimitReachedError(RefusedError): ...

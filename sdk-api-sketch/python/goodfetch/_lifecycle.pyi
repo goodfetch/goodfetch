@@ -2,7 +2,7 @@
 
 Logs go to `logging` loggers under `goodfetch` (`goodfetch.client`, `goodfetch.engine.<area>`); the SDK adds only a
 `NullHandler`. The Run's start verbs, Sessions and the page API are placeholders owned by #478, #476 and #472.
-Timeouts, waits and Limits come from #467 (`_time`).
+Timeouts, waits and Limits come from #467 (`_time`); events and user code from #468 (`_concurrency`).
 """
 
 from collections.abc import Generator
@@ -10,6 +10,7 @@ from dataclasses import dataclass
 from types import TracebackType
 from typing import Literal, Never, Protocol, Self, TypeAlias, final, overload
 
+from goodfetch._concurrency import AsyncPageEvents, AsyncRunEvents, PageEvents, RunEvents
 from goodfetch._time import AsyncPageWaits, Limits, PageWaits, Timeout
 
 @final
@@ -74,7 +75,7 @@ class _AsyncCloseable:
     ) -> None: ...
 
 @final
-class AsyncPage(_AsyncCloseable, AsyncPageWaits):
+class AsyncPage(_AsyncCloseable, AsyncPageWaits, AsyncPageEvents):
     """A page Goodfetch drives. Its API is #472's. Closing it closes only a tab Goodfetch opened."""
 
 @final
@@ -84,7 +85,7 @@ class AsyncSession(_AsyncCloseable):
     async def new_page(self) -> AsyncPage: ...
 
 @final
-class AsyncRun(_AsyncCloseable):
+class AsyncRun(_AsyncCloseable, AsyncRunEvents):
     """A Run, always opened explicitly. Closing an unfinished Run stops it with a Checkpoint, resumable by its ID."""
 
     @property
@@ -122,7 +123,11 @@ class _AsyncConnecting:
 
 @final
 class AsyncGoodfetch(_AsyncCloseable):
-    """The engine connection: the entry point. Each one is independent, and many may be open in one process."""
+    """The engine connection: the entry point. Each one is independent, and many may be open in one process.
+
+    It runs on AnyIO, under asyncio or Trio. Its values belong to the event loop that opened it; a call from another
+    loop or thread fails with a `ProgramError` naming `Goodfetch` (ADR 0081).
+    """
 
     @classmethod
     def connect(cls, *, engine: EngineChoice = "auto", timeout: Timeout = ..., limits: Limits | None = None) -> _AsyncConnecting:
@@ -147,7 +152,7 @@ class _Closeable:
     ) -> None: ...
 
 @final
-class Page(_Closeable, PageWaits):
+class Page(_Closeable, PageWaits, PageEvents):
     """A page Goodfetch drives. Its API is #472's. Closing it closes only a tab Goodfetch opened."""
 
 @final
@@ -157,7 +162,7 @@ class Session(_Closeable):
     def new_page(self) -> Page: ...
 
 @final
-class Run(_Closeable):
+class Run(_Closeable, RunEvents):
     """A Run, always opened explicitly. Closing an unfinished Run stops it with a Checkpoint, resumable by its ID."""
 
     @property
@@ -185,7 +190,11 @@ class Foxhound:
 
 @final
 class Goodfetch(_Closeable):
-    """The engine connection: the entry point. Each one is independent, and many may be open in one process."""
+    """The engine connection: the entry point. Each one is independent, and many may be open in one process.
+
+    It runs the async core on a private daemon thread of its own, so it works on any thread, including one whose event
+    loop is running (a notebook cell); its values are safe to call from any thread (ADR 0081).
+    """
 
     @classmethod
     def connect(cls, *, engine: EngineChoice = "auto", timeout: Timeout = ..., limits: Limits | None = None) -> Goodfetch:

@@ -3,10 +3,13 @@
 //! Each ticket on the map adds its items in a module of its own and re-exports them here.
 //! Function bodies are `unimplemented!()`, the sketch's one departure from `STYLE.md`.
 
+pub mod blocking;
+pub mod concurrency;
 pub mod lifecycle;
 pub mod results;
 pub mod time;
 
+pub use concurrency::{ConsoleMessage, EventStream, Record, Route, events};
 pub use lifecycle::{Collie, ConnectOptions, EngineChoice, EngineInfo, EngineKind, Goodfetch, Page, Run, Start};
 pub use results::{
     AiWorkResult, BlockCause, Blocked, Claim, DeadlineExceeded, Ended, EndedBy, Error, ErrorCode, ErrorDetails, ErrorGroup, ErrorTarget,

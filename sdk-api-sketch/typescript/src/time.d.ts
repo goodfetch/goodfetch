@@ -20,7 +20,10 @@ export interface CallOptions {
   readonly signal?: AbortSignal;
 }
 
-/** Matches a URL: a glob, a regular expression, or a host-side predicate (where it runs is #468's). */
+/**
+ * Matches a URL. A glob or a regular expression runs in the engine, in the Rust `regex` syntax (no
+ * look-around or backreferences, linear time); a predicate runs in the program (ADR 0081).
+ */
 export type UrlMatcher = string | RegExp | ((url: URL) => boolean);
 
 /** A response the page received. Its full shape is #472's. */

@@ -37,6 +37,9 @@ pub enum ErrorCode {
     Removed,
     /// `handler_failed`: a crawl handler returned an error that is not a Goodfetch [`Error`].
     HandlerFailed,
+    /// `listener_failed`: a listener threw (ADR 0081). Only the TypeScript and Python SDKs raise it:
+    /// Rust has no listeners, since its events are streams the program reads.
+    ListenerFailed,
     /// `hook_failed` (ADR 0033).
     HookFailed,
     /// `limit_reached`.

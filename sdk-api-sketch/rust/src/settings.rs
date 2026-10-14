@@ -86,7 +86,7 @@ impl Settings {
 pub mod timeout {
     use super::{Duration, Setting};
 
-    /// `timeout.connect`, set only in configuration: a connection's own is
+    /// `timeout.connect`, set only in the project file, which `connect` applies: a connection's own is
     /// [`crate::ConnectOptions::timeout`], and this key in a `Settings` value fails with
     /// `setting_not_applicable` (S2).
     pub const CONNECT: Setting<Option<Duration>> = Setting::new("timeout.connect");
@@ -144,9 +144,10 @@ pub enum ColorScheme {
 
 /// `browser.*`: part of a Session's identity, fixed for its life (ADR 0021), so set where a
 /// Session opens or above it, never on a page. Playwright's names where the meaning matches (S3).
-/// A value that conflicts with an identity fixed elsewhere (a `stealth` Identity profile, an
-/// imported login, a Profile directory used in place) fails with `setting_locked`; on a Borrowed
-/// browser, any of them fails with `setting_not_applicable`.
+/// A value set where a Session opens that conflicts with an identity fixed elsewhere (a `stealth`
+/// Identity profile, an imported login, a Profile directory used in place) fails with
+/// `setting_locked`, and on a Borrowed browser's Session any of them fails with
+/// `setting_not_applicable`; an inherited one yields, and `explain_settings` names what fixed it.
 pub mod browser {
     use super::{ColorScheme, Geolocation, Setting, Viewport};
 
@@ -302,6 +303,9 @@ pub struct ExplainedSetting {
     pub file: Option<PathBuf>,
     /// The layer that locked or capped the value, if any.
     pub locked_by: Option<SettingsLayer>,
+    /// The setting that fixed the Session's identity, such as `session.source`, when an inherited
+    /// `browser::*` value yielded to it.
+    pub fixed_by: Option<String>,
 }
 
 /// The scopes a setting can be set at.

@@ -18,7 +18,8 @@ import type {
 
 /**
  * `timeout.*`: ADR 0080's phases, one family. `null` clears a phase's timeout for the whole scope.
- * `timeout.connect` is set only in configuration: a connection's own is `connect()`'s `timeout` (S2).
+ * `timeout.connect` is set only in the project file, which `connect()` applies; a connection's own
+ * is `connect()`'s `timeout` (S2).
  */
 export interface TimeoutSettings {
   readonly action?: Timeout;
@@ -107,8 +108,8 @@ export interface RunSettings {
 }
 
 /**
- * A Session's settings: Politeness and Site preferences are a Run's. On a Borrowed browser, any
- * `browser.*` value is refused with `setting_not_applicable`.
+ * A Session's settings: Politeness and Site preferences are a Run's. Set where a Borrowed browser's
+ * Session opens, any `browser.*` value is refused with `setting_not_applicable`.
  */
 export type SessionSettings = Omit<RunSettings, "politeness" | "sitePreferences">;
 
@@ -169,6 +170,8 @@ export interface ExplainedSetting {
   readonly file?: string;
   /** The layer that locked or capped the value, if any. */
   readonly lockedBy?: SettingsLayer;
+  /** The setting that fixed the Session's identity, such as `session.source`, when an inherited `browser.*` value yielded to it. */
+  readonly fixedBy?: string;
 }
 
 /** Every scope value reads its effective settings; none sets them. */

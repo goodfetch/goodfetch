@@ -22,7 +22,7 @@ from goodfetch._results import ProgramError, RefusedError, RunLayerOrigin, Setti
 
 class TimeoutSettings(TypedDict, total=False):
     """`timeout.*`: ADR 0080's phases, one family. `None` clears a phase's timeout for the whole scope. `timeout.connect`
-    is set only in configuration: a connection's own is `connect()`'s `timeout` (S2)."""
+    is set only in the project file, which `connect()` applies; a connection's own is `connect()`'s `timeout` (S2)."""
 
     action: timedelta | None
     navigation: timedelta | None
@@ -64,9 +64,9 @@ class Geolocation(TypedDict):
 
 class BrowserSettings(TypedDict, total=False):
     """`browser.*`: part of a Session's identity, fixed for its life (ADR 0021), so set where a Session opens or above
-    it, never on a page. Playwright's names where the meaning matches (S3). A value that conflicts with an identity fixed
-    elsewhere (a `stealth` Identity profile, an imported login, a Profile directory used in place) is refused with
-    `setting_locked`."""
+    it, never on a page. Playwright's names where the meaning matches (S3). A value set where a Session opens that conflicts
+    with an identity fixed elsewhere (a `stealth` Identity profile, an imported login, a Profile directory used in place)
+    is refused with `setting_locked`; an inherited one yields, and `explain_settings()` names what fixed it."""
 
     viewport: Viewport | None
     device_scale_factor: float
@@ -119,8 +119,8 @@ class RunSettings(TypedDict, total=False):
     site_preferences: CollieSitePreferencesSettings
 
 class SessionSettings(TypedDict, total=False):
-    """A Session's settings: Politeness and Site preferences are a Run's. On a Borrowed browser, any `browser.*` value
-    is refused with `setting_not_applicable`."""
+    """A Session's settings: Politeness and Site preferences are a Run's. Set where a Borrowed browser's Session opens,
+    any `browser.*` value is refused with `setting_not_applicable`."""
 
     timeout: RunTimeoutSettings
     browser: BrowserSettings
@@ -186,6 +186,9 @@ class ExplainedSetting:
     """The configuration file, when `layer` is `configuration`."""
     locked_by: SettingsLayer | None
     """The layer that locked or capped the value, if any."""
+    fixed_by: str | None
+    """The setting that fixed the Session's identity, such as `session.source`, when an inherited `browser.*` value yielded
+    to it."""
 
 # The Error codes of settings (ADR 0083). Each is checked when the scope opens, or when a call with a per-call argument
 # starts, so it points at the line that set the value; nothing is clamped, dropped or ignored (G3).

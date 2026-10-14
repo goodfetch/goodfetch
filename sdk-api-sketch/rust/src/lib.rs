@@ -2,3 +2,7 @@
 //!
 //! Each ticket on the map adds its items in a module of its own and re-exports them here.
 //! Function bodies are `unimplemented!()`, the sketch's one departure from `STYLE.md`.
+
+pub mod lifecycle;
+
+pub use lifecycle::{Collie, ConnectOptions, EngineChoice, EngineInfo, EngineKind, Error, Goodfetch, Page, Run};

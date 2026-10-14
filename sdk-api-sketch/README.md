@@ -27,6 +27,7 @@ sdk-api-sketch/
 
 - **One file per ticket topic** in each language, for example `typescript/src/lifecycle.d.ts`, `python/goodfetch/_lifecycle.pyi` and `rust/src/lifecycle.rs`, re-exported from the language's entry file.
 - **Each ticket fills its matrix rows.** A grilling ticket fills its rows of `pain-coverage.md` (closes as, feature, scenarios, principles) in the same commit as its signatures and snippets.
+- **Snippets.** A ticket's usage examples sit beside the golden scenarios, type-checked with them, until #483 writes the programs: `typescript/scenarios/snippets/<topic>.ts`, `python/scenarios/snippet_<topic>.py` and `rust/examples/snippet_<topic>.rs`.
 - **Signatures only.** Rust bodies are `unimplemented!()`, the sketch's one departure from `STYLE.md`.
 - **Placeholder names.** The package and import name `goodfetch` stands in until the packaging question of [Goodfetch products: Collie and Foxhound as separately installable products](https://github.com/goodfetch/automan/issues/447) settles names.
 - **Checkers follow `STYLE.md`:** TypeScript 7 with `strict`, `noUncheckedIndexedAccess`, `exactOptionalPropertyTypes`, `verbatimModuleSyntax` and `erasableSyntaxOnly` (`isolatedDeclarations` only applies when emitting declarations, which a sketch of `.d.ts` files never does); pyright strict and mypy `--strict` on Python 3.11; `cargo check` with warnings denied.

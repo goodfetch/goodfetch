@@ -484,6 +484,10 @@ _Avoid_: fixture, test case
 A goal a person reaches through Goodfetch's public surfaces, written as steps from a starting state to an outcome checked from outside the engine, kept under a stable ID and run on each surface that offers it.
 _Avoid_: scenario, user story, critical user journey, flow, end-to-end test (for the Journey itself)
 
+**Golden scenario**:
+A complete program for a task developers commonly write, in every SDK language beside the leader's program for the same task, by which the SDK API's shape is judged. Unlike a Journey, it is judged against a competitor's program, not by the Proving ground's oracle.
+_Avoid_: hero scenario, champion scenario, sample, Journey (for a golden scenario)
+
 **Feature**:
 One behaviour Goodfetch promises, listed in the Feature inventory under a kind and an ID, such as a matrix row, a user story, an operation or an Error code. A Cargo feature is a different thing and keeps its full name.
 _Avoid_: requirement, test target, capability (for an inventory entry)

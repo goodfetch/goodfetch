@@ -30,7 +30,9 @@ Each SDK runs on its language's own model: TypeScript async only; Python an asyn
   - `close()` on any clone closes the value for every clone, and ADR 0078's `Drop` rule acts when the last clone is dropped.
   - AWS's `Client` is `Clone` with an `Arc` inside. Rust drivers that chose otherwise drew complaints: chromiumoxide's `Browser` is not `Clone` ("wrap it in an Arc", #51), fantoccini's methods took `&mut self` (#86), headless_chrome has `Element<'a>`, and octaltree's playwright-rust drew a report that it is not `Send` (#38).
 - **The SDK hosts its engine like `main`.**
-  - A connection with a linked engine builds the engine's Tokio runtime through the helper `main` uses, and stops it on close. A connection to a Daemon or Goodfetch Cloud builds a small client runtime for its transport the same way. Engine code itself still never builds a runtime (ADR 0060).
+  - A connection with a linked engine builds the engine's Tokio runtime through the helper `main` uses, and stops it on close. A connection to a Daemon or Goodfetch Cloud builds a small client runtime for its transport the same way. Engine code itself still never builds a runtime (ADR 0060). Where the helper lives, and which code carries the lint exception, are area 11's spec's.
+  - The runtime is a value the connection takes, as `tasks`' blocking policy and `transport`'s network are (ADR 0060): production builds it through that helper, and the Rust SDK's own tests, over area 3's in-memory transport pair or a linked engine (ADR 0069), pass the test helper's paused current-thread runtime, so their clock is paused as `TESTING.md` asks.
+  - Closing or dropping a connection never drops its runtime on an async worker, where Tokio panics; it shuts the runtime down in the background.
   - The crate's futures and streams only exchange messages with that runtime, so they run on any executor, single-threaded ones included, such as `#[tokio::test]`'s default.
   - The program's blocking code never stalls the engine, and the engine never competes with the program's runtime (G4).
 - **`goodfetch::blocking`** is the same API without `async`, generated from the catalog as Python's sync API is.
@@ -45,7 +47,7 @@ Each SDK runs on its language's own model: TypeScript async only; Python an asyn
   - TypeScript: on the program's event loop. A function the engine calls may return a value or a promise.
   - Python async: as tasks on the connection's loop, inside a task group owned by the value that registered them, so closing that value cancels and awaits them (ADR 0038's tree). Handlers, routes and Hooks are `async def`, which the type checker enforces; predicates are plain functions; listeners may be either.
   - Python sync: on a thread pool the connection owns, never on its private thread, so a slow handler never stalls I/O. User code is plain functions, which on free-threaded builds (ADR 0024) run in parallel.
-  - Rust: the SDK spawns nothing. A request that needs an answer arrives as an `EventStream`, as an event does.
+  - Rust: the async API spawns nothing on the program's executor. A request that needs an answer arrives as an `EventStream`, as an event does.
     - Helpers that answer requests concurrently run handlers inside the future the program awaits. Handlers may therefore borrow local state and need neither `Send` nor `'static`, and they make progress while that future is polled, as ADR 0080's `during` does. The crawl's helpers are [Crawl definition and handler context](https://github.com/goodfetch/automan/issues/477)'s.
     - In `goodfetch::blocking`, those helpers run handlers on the `tasks` module's tracked blocking threads (ADR 0060), and the helper's call waits for them, so blocking handlers are `Fn + Send + Sync + 'static`.
     - axum spawns its handlers onto Tokio, which needs `Send + 'static` closures and a Tokio runtime.
@@ -62,10 +64,10 @@ Each SDK runs on its language's own model: TypeScript async only; Python an asyn
   Playwright offers emitters in all four of its languages and async iterators in none; Stainless's streams are async iterators whose `break` aborts the request; chromiumoxide returns a `Stream`.
 - **Listeners.**
   - **Order and backpressure.** A listener gets its events one at a time, in order. An awaitable it returns is awaited before it gets the next one, so lossless events slow their producer, and telemetry coalesces (ADR 0024) with a `dropped` count (ADR 0078).
-  - **Exceptions.** A listener that throws is removed. The next call on the value it was registered on, or the `close()` that closes that value, its own or a parent's, raises `listener_failed`, a `ProgramError` that names the event and chains the exception. When no call or close follows, the SDK logs it at error level. This follows ADR 0079's `handler_failed`, and structured concurrency's rule that a child's failure reaches its parent. The SDK never lets it end the host, as an unhandled rejection ends a Node process.
+  - **Exceptions.** A listener that throws is removed. The next call on the value it was registered on, or the `close()` that closes that value, its own or a parent's, raises `listener_failed` once, a `ProgramError` that names the event and chains the exception; the value itself stays open. If the value is released without a call or close having raised it, the SDK logs it at error level then. This follows ADR 0079's `handler_failed`, and structured concurrency's rule that a child's failure reaches its parent. The SDK never lets it end the host, as an unhandled rejection ends a Node process.
 - **Subscribing and unsubscribing.**
   - `on` returns a `Subscription` that closes like any value (ADR 0078), but synchronously, since nothing waits (`Symbol.dispose`, `with`).
-  - One event is awaited with `waitForEvent(event, { predicate, timeout, signal })`; Python's are `expect_event` and `wait_for_event`, and Rust's is `wait_for_event`, a `Waiter` whose `matching` adds the predicate, `Send + Sync + 'static` since it runs as the engine's events arrive. Each arms as ADR 0080's waiters do in its language.
+  - One event is awaited with `waitForEvent(event, { predicate, timeout, signal })`; Python's are `expect_event` and `wait_for_event`, and Rust's is `wait_for_event`, a `Waiter` whose `matching` adds the predicate, `Send + Sync + 'static` since the waiter's future, which can be spawned, holds it. Each arms as ADR 0080's waiters do in its language.
   - There is no `off` and no `once` (S2). Playwright 1.59's `route()` already returns a `Disposable`, and `on`'s return type shows the replacement.
 - **Iterators.**
   - An iterator unsubscribes, sending without waiting as ADR 0078's `Drop` rule does, when it ends, when it is closed, or when it is released:
@@ -79,7 +81,7 @@ Each SDK runs on its language's own model: TypeScript async only; Python an asyn
 
 - **Globs and regular expressions run in the engine.**
   - Regular expressions use the Rust `regex` crate's syntax: no look-around or backreferences, and a worst case linear in the input, so a pattern cannot hang the engine (G5).
-  - A TypeScript `RegExp` or Python `re.Pattern` using a construct outside that syntax fails at the call with a `ProgramError`. The error names the construct and suggests a predicate (G3, G6). Area 11's spec maps the flags.
+  - A TypeScript `RegExp` or Python `re.Pattern` using a construct outside that syntax fails at the call with a `ProgramError`. The error names the construct and suggests a predicate (G3, G6). Area 11's spec maps the flags and the classes (`\d`, `\w` and `\b`, ASCII in JavaScript and Unicode in Python and Rust) so that a pattern matches as it does in its own language, and refuses what it cannot map.
   - Selenium's ADR 17685 also sends patterns to the remote end.
 - **A predicate runs in the program**, on the events the engine sends while it is armed, so it may use the program's own variables, as Playwright's do.
 - **Nothing the program passes as a predicate runs in the page.** Page functions (`evaluate`, `waitForFunction`) have their own parameter type with an explicit serializable argument, whose contract is Collie's page API's. Puppeteer's `locator.filter(fn)` runs in the page, so its closures break silently (#11893; "pass variable into evaluate", 293 votes).
@@ -107,8 +109,8 @@ Each SDK runs on its language's own model: TypeScript async only; Python an asyn
 
 ## Consequences
 
-- **Amends ADR 0078.** Rust handles are cheap clones of one value: `close()` closes the value for every clone, and its `Drop` rule acts when the last clone is dropped. A `Subscription` and an iterator close synchronously, and a Rust `EventStream` closes by being dropped, with no warning.
-- **Amends ADR 0060 and `STYLE.md`.** Besides `main`, test helpers and bench targets, the Rust SDK's connection builds a runtime: its linked engine's, or its transport's for a Daemon or Goodfetch Cloud, through the helper `main` uses. Engine code still never builds one.
+- **Amends ADR 0078.** Rust handles are cheap clones of one value: `close()` closes the value for every clone, and its `Drop` rule acts when the last clone is dropped. A `Subscription` closes synchronously in TypeScript and Python (`Symbol.dispose`, `with`), as does a TypeScript iterator's `close()`, and a Rust `EventStream` closes by being dropped, with no warning.
+- **Amends ADR 0060 and `STYLE.md`.** Besides `main`, test helpers and bench targets, the Rust SDK's connection builds a runtime: its linked engine's, or its transport's for a Daemon or Goodfetch Cloud, through the helper `main` uses, or takes the test helper's runtime in its tests. Engine code still never builds one.
 - **Error codes.** `listener_failed` joins `goodfetch-protocol`'s list in the `program` group; only the TypeScript and Python SDK runtimes raise it. The code for a Python async value used from another loop or thread joins the list too, named by area 11's spec, as ADR 0078's code for a forked connection is.
 - **Area 11 (Client surfaces)** builds the AnyIO runtime, the sync client's thread and thread pool, cancellation of sync calls, the other-loop error, Windows without a loop policy, listeners, `Subscription`s and iterators, Rust's cloneable handles, the connection's runtime with its exception to ADR 0060's ban on building one, `EventStream` and `goodfetch::blocking`. **Area 5 (Site access)** builds engine-side URL matching in the `regex` crate's syntax for waits and routes. Each lists this ADR.
 - **ADR 0037's matrix**: typed and sync Python (SDK-06), page events (SA-18) and the results stream (CO-29) follow this ADR.

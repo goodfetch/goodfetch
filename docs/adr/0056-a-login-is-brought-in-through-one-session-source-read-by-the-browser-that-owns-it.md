@@ -65,7 +65,7 @@ Until now Goodfetch could only make a login inside its own Sessions (ADR 0006) a
 | `installed_browser { browser, chromium_profile?, domains }` | A browser installed on this machine, such as Chrome, Edge, Brave, Firefox or Safari | Run-only import | Read by the browser (Chromium family) or from a copy (Firefox, Safari) |
 | `running_browser { browser, domains }` | The person's running browser | Borrowed browser | Read by the browser |
 | `cdp_url { url, headers?, domains?, exclusive? }` | Any browser reachable over CDP; header values are Secret references, `exclusive` declares that nothing else drives it, and `domains` is required for an import and for a run by a Client acting for a model or a Recipe | Borrowed browser | Read by the browser |
-| `client_browser` | A browser the SDK's `borrow()` relays | Borrowed browser | — |
+| `client_browser` | A browser the SDK's `run.borrow()` relays | Borrowed browser | — |
 
 **Who sets it.** Only Operator policy, user and project configuration, the developer's own code or the run layer, or a person in the Console or CLI sets `session.source`. A Recipe may expose it, but never sets or locks it. Plugins never set it. **Changes ADR 0028.**
 
@@ -168,7 +168,10 @@ A Borrowed browser serves one run and one Session, in the context where the logi
   - a running Firefox or Safari, with `running_browser_unsupported`, because neither offers a way in.
 
 **A browser the person's own code launched.** This is the reverse of ADR 0019, where the person's Playwright attaches to Goodfetch's browser.
-- *The SDK relay:* `goodfetch.borrow(browserOrPage)`, in the TypeScript SDK for Playwright and Puppeteer, and in the Python SDK for Playwright's sync and async APIs.
+- *The SDK relay:* `run.borrow(pageOrBrowser)`, in the TypeScript SDK for Playwright and Puppeteer, and in the Python SDK for Playwright's sync and async APIs.
+
+  > Amended by [ADR 0078](0078-an-sdk-program-opens-an-explicit-engine-connection-and-closes-only-what-it-started.md): `borrow` is called on the Run whose Session it serves, never on a process-wide `goodfetch`; it returns a Goodfetch Page for a page and a Session for a browser, and closing either ends the borrow.
+
   - It opens a CDP session from the person's object (`newBrowserCDPSession`, `newCDPSession`, `createCDPSession`) and carries CDP over the JSON-RPC connection the SDK already holds.
   - Commands go to the browser under ADR 0019's per-command timeouts. The browser's events go to the engine under ADR 0024's credits, so a busy page cannot flood the connection.
   - `$/cancel` ends the borrow.

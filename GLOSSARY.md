@@ -164,6 +164,14 @@ _Avoid_: status, success, result (for the verdict)
 A portable package of user code, described by a manifest, that runs the same locally or on Goodfetch Cloud and can be published.
 _Avoid_: actor, app, pack, script
 
+**Setting**:
+A named value that shapes how Goodfetch works, such as a timeout, a retry count or a Sink's guarantee, resolved through layers from its built-in default to the run itself, where a lower layer can cap or lock it.
+_Avoid_: config key, knob, preference, option (for a setting)
+
+**Deployment variable**:
+One of the few environment variables Goodfetch reads, each holding a value that differs by machine rather than by program, such as the Goodfetch home or the address of an Exposed Daemon.
+_Avoid_: env setting, config variable
+
 **Operator policy**:
 The settings an operator fixes for every run on a machine, a Daemon or a Daemon group, including the values runs may not exceed or change.
 _Avoid_: admin config, global settings, defaults

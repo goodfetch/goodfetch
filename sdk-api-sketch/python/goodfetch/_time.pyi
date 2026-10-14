@@ -8,7 +8,7 @@ time spent in a Human pause does not count.
 
 Cancellation is the host's own: cancelling the task (`Task.cancel`, `asyncio.timeout`, `anyio.fail_after`)
 sends `$/cancel` without waiting for the engine and lets `CancelledError` propagate unchanged.
-The page API around the waits (locators, actions, `goto`) is a placeholder owned by #472.
+The page API around the waits (locators, actions, `goto`) is ADR 0085's (`_page`).
 """
 
 import re
@@ -21,6 +21,7 @@ from typing import Generic, Literal, Never, TypeAlias, TypeVar, final
 
 from typing_extensions import deprecated
 
+from goodfetch._page import AsyncRequest, AsyncResponse, Request, Response
 from goodfetch._results import ProgramError
 
 @final
@@ -46,22 +47,6 @@ class Count:
 
     min: int | None = None
     max: int | None = None
-
-@final
-@dataclass(frozen=True, kw_only=True)
-class Response:
-    """A response the page received. Its full shape is #472's."""
-
-    url: str
-    status: int
-
-@final
-@dataclass(frozen=True, kw_only=True)
-class Request:
-    """A request the page sent. Its full shape is #472's."""
-
-    url: str
-    method: str
 
 T = TypeVar("T")
 
@@ -115,48 +100,25 @@ class RemovedError(ProgramError):
 
 # Async API.
 
-class AsyncLocator:
-    """A placeholder locator: its constructors and actions are #472's; its waits are #467's."""
-
-    async def click(self, *, timeout: Timeout = ...) -> None:
-        """Waits through the guard (ADR 0019) until the action is safe, then acts."""
-
-    async def fill(self, value: str, *, timeout: Timeout = ...) -> None: ...
-    async def wait_for(
-        self, *, state: Literal["attached", "detached", "visible", "hidden"] = "visible", timeout: Timeout = ...
-    ) -> None:
-        """Playwright's `wait_for`: one element in the given state."""
-
-    async def wait_for_count(self, count: int | Count, *, timeout: Timeout = ...) -> int:
-        """Waits until the number of matches is in range: a different behaviour, so a different name (S3)."""
-
 class AsyncPageWaits:
     """The page's navigation and app-state waits. An `expect_…` block arms its waiter before the block runs."""
 
-    async def goto(self, url: str, *, wait_until: LoadState = "load", timeout: Timeout = ...) -> Response | None:
-        """Placeholder for #472's navigation. Its timeout is the navigation phase's."""
-
-    def locator(self, selector: str) -> AsyncLocator: ...
-    def get_by_role(self, role: str, *, name: str | re.Pattern[str] | None = None) -> AsyncLocator: ...
     async def wait_for_url(self, url: UrlMatcher, *, wait_until: LoadState = "load", timeout: Timeout = ...) -> None: ...
-    async def wait_for_response(self, url: UrlMatcher, *, timeout: Timeout = ...) -> Response: ...
-    async def wait_for_request(self, url: UrlMatcher, *, timeout: Timeout = ...) -> Request: ...
-    async def wait_for_request_finished(self, url: UrlMatcher, *, timeout: Timeout = ...) -> Request:
+    async def wait_for_response(self, url: UrlMatcher, *, timeout: Timeout = ...) -> AsyncResponse: ...
+    async def wait_for_request(self, url: UrlMatcher, *, timeout: Timeout = ...) -> AsyncRequest: ...
+    async def wait_for_request_finished(self, url: UrlMatcher, *, timeout: Timeout = ...) -> AsyncRequest:
         """Waits until a matching request has finished, its body read."""
 
     async def wait_for_load_state(self, state: LoadState = "load", *, timeout: Timeout = ...) -> None: ...
-    async def wait_for_function(self, page_function: str, arg: object = None, *, timeout: Timeout = ...) -> object:
-        """Waits until a page function returns a truthy value; its serialization contract is #472's."""
-
     def expect_response(
         self, url: UrlMatcher, *, timeout: Timeout = ...
-    ) -> AbstractAsyncContextManager[AsyncEventInfo[Response]]: ...
+    ) -> AbstractAsyncContextManager[AsyncEventInfo[AsyncResponse]]: ...
     def expect_request(
         self, url: UrlMatcher, *, timeout: Timeout = ...
-    ) -> AbstractAsyncContextManager[AsyncEventInfo[Request]]: ...
+    ) -> AbstractAsyncContextManager[AsyncEventInfo[AsyncRequest]]: ...
     def expect_request_finished(
         self, url: UrlMatcher, *, timeout: Timeout = ...
-    ) -> AbstractAsyncContextManager[AsyncEventInfo[Request]]: ...
+    ) -> AbstractAsyncContextManager[AsyncEventInfo[AsyncRequest]]: ...
     @deprecated(
         "Removed: a fixed sleep waits for nothing in particular. Wait for the app's state (wait_for_url, wait_for_response, wait_for_load_state, locator.wait_for, locator.wait_for_count), or use the host's own sleep. Fails with the Error code `removed`."
     )
@@ -164,30 +126,14 @@ class AsyncPageWaits:
 
 # Sync API: the same concepts, generated from the same catalog (ADR 0038).
 
-class Locator:
-    """A placeholder locator: its constructors and actions are #472's; its waits are #467's."""
-
-    def click(self, *, timeout: Timeout = ...) -> None:
-        """Waits through the guard (ADR 0019) until the action is safe, then acts."""
-
-    def fill(self, value: str, *, timeout: Timeout = ...) -> None: ...
-    def wait_for(
-        self, *, state: Literal["attached", "detached", "visible", "hidden"] = "visible", timeout: Timeout = ...
-    ) -> None: ...
-    def wait_for_count(self, count: int | Count, *, timeout: Timeout = ...) -> int: ...
-
 class PageWaits:
     """The page's navigation and app-state waits. An `expect_…` block arms its waiter before the block runs."""
 
-    def goto(self, url: str, *, wait_until: LoadState = "load", timeout: Timeout = ...) -> Response | None: ...
-    def locator(self, selector: str) -> Locator: ...
-    def get_by_role(self, role: str, *, name: str | re.Pattern[str] | None = None) -> Locator: ...
     def wait_for_url(self, url: UrlMatcher, *, wait_until: LoadState = "load", timeout: Timeout = ...) -> None: ...
     def wait_for_response(self, url: UrlMatcher, *, timeout: Timeout = ...) -> Response: ...
     def wait_for_request(self, url: UrlMatcher, *, timeout: Timeout = ...) -> Request: ...
     def wait_for_request_finished(self, url: UrlMatcher, *, timeout: Timeout = ...) -> Request: ...
     def wait_for_load_state(self, state: LoadState = "load", *, timeout: Timeout = ...) -> None: ...
-    def wait_for_function(self, page_function: str, arg: object = None, *, timeout: Timeout = ...) -> object: ...
     def expect_response(self, url: UrlMatcher, *, timeout: Timeout = ...) -> AbstractContextManager[EventInfo[Response]]: ...
     def expect_request(self, url: UrlMatcher, *, timeout: Timeout = ...) -> AbstractContextManager[EventInfo[Request]]: ...
     def expect_request_finished(

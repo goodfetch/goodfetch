@@ -2,8 +2,9 @@
 //!
 //! Logs are `tracing` events under `goodfetch::…` targets; the crate never installs a subscriber.
 //! The Rust crate links the engine (`EngineChoice::Linked`) and borrows a browser through
-//! `session.source = cdp_url`, never through a relay. The Run's start verbs, Sessions and the
-//! page API are placeholders owned by #478, #476 and #472. The error type is ADR 0079's, in `results`.
+//! `session.source = cdp_url`, never through a relay. The Run's start verbs and Sessions are
+//! placeholders owned by #478 and #476; the page API is ADR 0085's, in `page`. The error type is
+//! ADR 0079's, in `results`.
 //! Timeouts, waits and Limits are #467's, in `time`; events, user code and sharing are #468's, in
 //! `concurrency`.
 
@@ -11,6 +12,7 @@ use std::future::IntoFuture;
 use std::path::PathBuf;
 use std::time::Duration;
 
+use crate::page::PageClose;
 use crate::results::Error;
 use crate::settings::{ExplainedSetting, SettingKey, Settings};
 use crate::time::{Call, CallFuture, Limits, Timeout};
@@ -290,8 +292,9 @@ impl Call<Session> {
     }
 }
 
-/// A Session of a Run. Its API is #476's. Closing it never closes a Borrowed browser.
-/// A cheap clone of one Session (ADR 0081).
+/// A Session of a Run: Playwright's context, under the glossary's name (ADR 0085). Its API is
+/// #476's; its page members are in `page`. Closing it never closes a Borrowed browser. There is no
+/// active page. A cheap clone of one Session (ADR 0081).
 #[derive(Debug, Clone)]
 pub struct Session {
     _private: (),
@@ -325,8 +328,9 @@ impl Call<Page> {
     }
 }
 
-/// A page Goodfetch drives. Its API is #472's. Closing it closes only a tab Goodfetch opened.
-/// A cheap clone of one page (ADR 0081).
+/// A page Goodfetch drives: a tab of a Session, opened by `session.new_page()` or by the page
+/// itself (a popup). Its API is ADR 0085's, in `page`. Closing it closes only a tab Goodfetch
+/// opened; on a Borrowed browser it only releases it. A cheap clone of one page (ADR 0081).
 #[derive(Debug, Clone)]
 pub struct Page {
     _private: (),
@@ -334,7 +338,7 @@ pub struct Page {
 
 impl Page {
     /// Closes the tab. Idempotent.
-    pub fn close(&self) -> Call<()> {
+    pub fn close(&self) -> PageClose {
         unimplemented!()
     }
 

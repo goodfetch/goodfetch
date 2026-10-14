@@ -18,7 +18,7 @@
 //! awaits, may borrow local state, and need neither `Send` nor `'static`. Dropping a stream
 //! unsubscribes without blocking. [`crate::blocking`] is the same API without `async`.
 //!
-//! The page's events, routes and the data they carry are placeholders owned by #472;
+//! The page's events, routes, dialogs and the data they carry are ADR 0085's, in `page`;
 //! [`Run::records`] is #479's.
 
 use std::fmt;
@@ -26,9 +26,10 @@ use std::marker::PhantomData;
 use std::pin::Pin;
 use std::task::{Context, Poll};
 
-use crate::lifecycle::{Collie, Goodfetch, Page, Run};
+use crate::lifecycle::{Collie, Goodfetch, Page, Run, Session};
+use crate::page::{CdpSession, Download, FrameLocator, Locator, Response, Route, WebSocket};
 use crate::results::Error;
-use crate::time::{Call, CallFuture, Locator, Request, Response, UrlMatcher, Waiter};
+use crate::time::{CallFuture, Waiter};
 
 /// What the engine sends on its own, read in order. One reader each: a second reader calls the
 /// method again and gets its own subscription. While it is open, an unread lossless sequence slows
@@ -66,78 +67,104 @@ impl<T> Drop for EventStream<T> {
     fn drop(&mut self) {}
 }
 
-/// Page events under Playwright's names (S3), each a value naming the data it carries. The full
-/// list is #472's.
+/// Page events under Playwright's names (S3), each a value naming the data it carries (ADR 0085).
 pub mod events {
+    use crate::lifecycle::Page;
+    use crate::page::{ConsoleMessage, Dialog as DialogRequest, Download as DownloadValue, FileChooser as FileChooserRequest};
+    use crate::page::{Request as RequestValue, Response as ResponseValue, WebError as WebErrorValue, WebSocket as WebSocketValue};
+
     /// A page event and the data it carries.
     pub trait PageEvent: Send + Sync + 'static {
         /// What each event carries.
         type Data: Send + 'static;
     }
 
-    /// `console`: a console message.
+    /// A Session event and the data it carries.
+    pub trait SessionEvent: Send + Sync + 'static {
+        /// What each event carries.
+        type Data: Send + 'static;
+    }
+
+    macro_rules! page_event {
+        ($(#[$doc:meta])* $name:ident => $data:ty) => {
+            $(#[$doc])*
+            #[derive(Debug, Clone, Copy)]
+            pub struct $name;
+
+            impl PageEvent for $name {
+                type Data = $data;
+            }
+        };
+    }
+
+    page_event!(
+        /// `console`: a console message.
+        Console => ConsoleMessage
+    );
+    page_event!(
+        /// `pageerror`: an exception the page's own scripts did not catch.
+        WebError => WebErrorValue
+    );
+    page_event!(
+        /// `request`: a request the page sent.
+        Request => RequestValue
+    );
+    page_event!(
+        /// `requestfinished`: a request finished, its body read.
+        RequestFinished => RequestValue
+    );
+    page_event!(
+        /// `requestfailed`: a request failed; its `failure()` says why.
+        RequestFailed => RequestValue
+    );
+    page_event!(
+        /// `response`: a response the page received.
+        Response => ResponseValue
+    );
+    page_event!(
+        /// `popup`: a page this page opened, in the same Session.
+        Popup => Page
+    );
+    page_event!(
+        /// `download`: a download, kept by the engine with its Run.
+        Download => DownloadValue
+    );
+    page_event!(
+        /// `filechooser`: a file chooser waiting for its files.
+        FileChooser => FileChooserRequest
+    );
+    page_event!(
+        /// `websocket`: a WebSocket the page opened.
+        WebSocket => WebSocketValue
+    );
+    page_event!(
+        /// `load`.
+        Load => ()
+    );
+    page_event!(
+        /// `domcontentloaded`.
+        DomContentLoaded => ()
+    );
+    page_event!(
+        /// `close`: the page closed.
+        Close => ()
+    );
+    page_event!(
+        /// `crash`: the renderer crashed; calls fail with `page_crashed`.
+        Crash => ()
+    );
+    page_event!(
+        /// `dialog`: a dialog waiting for the program's answer. Dropping one unanswered passes it on;
+        /// past the last subscriber, or with none, it is dismissed.
+        Dialog => DialogRequest
+    );
+
+    /// `page`: a new page in the Session, one it opened, a popup, or a tab a link opened.
     #[derive(Debug, Clone, Copy)]
-    pub struct Console;
+    pub struct NewPage;
 
-    /// `request`: a request the page sent.
-    #[derive(Debug, Clone, Copy)]
-    pub struct Request;
-
-    /// `response`: a response the page received.
-    #[derive(Debug, Clone, Copy)]
-    pub struct Response;
-
-    /// `requestfinished`: a request finished, its body read.
-    #[derive(Debug, Clone, Copy)]
-    pub struct RequestFinished;
-
-    impl PageEvent for Console {
-        type Data = super::ConsoleMessage;
-    }
-
-    impl PageEvent for Request {
-        type Data = crate::time::Request;
-    }
-
-    impl PageEvent for Response {
-        type Data = crate::time::Response;
-    }
-
-    impl PageEvent for RequestFinished {
-        type Data = crate::time::Request;
-    }
-}
-
-/// A console message. Its full shape is #472's.
-#[derive(Debug, Clone)]
-#[non_exhaustive]
-pub struct ConsoleMessage {
-    /// `log`, `error`, …
-    pub kind: String,
-    /// Its text.
-    pub text: String,
-}
-
-/// An intercepted request waiting for the program's answer. Its semantics are #472's.
-#[derive(Debug)]
-pub struct Route {
-    _private: (),
-}
-
-impl Route {
-    /// The intercepted request.
-    pub fn request(&self) -> &Request {
-        unimplemented!()
-    }
-
-    /// Lets the request go on unchanged.
-    pub fn continue_(self) -> Call<()> {
-        unimplemented!()
-    }
-
-    /// Fails the request.
-    pub fn abort(self) -> Call<()> {
-        unimplemented!()
+    impl SessionEvent for NewPage {
+        type Data = Page;
     }
 }
 
@@ -170,10 +197,13 @@ impl Page {
         unimplemented!()
     }
 
-    /// Matching requests, each waiting for the program's answer, subscribed when called. One left
-    /// unanswered ends by its timeout.
-    pub fn route(&self, url: impl Into<UrlMatcher>) -> EventStream<Route> {
-        let _ = url.into();
+}
+
+/// The Session's events.
+impl Session {
+    /// The event's stream, subscribed when called.
+    pub fn events<E: events::SessionEvent>(&self, event: E) -> EventStream<E::Data> {
+        let _ = event;
         unimplemented!()
     }
 }
@@ -194,8 +224,13 @@ const _: () = {
     handle::<Goodfetch>();
     handle::<Collie>();
     handle::<Run>();
+    handle::<Session>();
     handle::<Page>();
     handle::<Locator>();
+    handle::<FrameLocator>();
+    handle::<CdpSession>();
+    handle::<Download>();
+    handle::<WebSocket>();
     handle::<crate::data::Dataset<serde_json::Map<String, serde_json::Value>>>();
     spawnable::<CallFuture<()>>();
     spawnable::<EventStream<Response>>();

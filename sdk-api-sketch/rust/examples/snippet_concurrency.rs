@@ -43,7 +43,7 @@ async fn browse(page: &Page) -> Result<String, Error> {
     let seen: HashSet<String> = HashSet::new();
     let (fresh, ()) = page
         .wait_for_event(events::Response)
-        .matching(move |response| !seen.contains(&response.url))
+        .matching(move |response| !seen.contains(response.url()))
         .timeout(Duration::from_secs(5))
         .during(page.locator("li.next a").click())
         .await?;
@@ -51,7 +51,7 @@ async fn browse(page: &Page) -> Result<String, Error> {
         Some(message) => message?.text,
         None => String::new(),
     };
-    Ok(format!("{} {first_log}", fresh.url))
+    Ok(format!("{} {first_log}", fresh.url()))
 }
 
 /// A sequence read to its end; dropping the stream unsubscribes (Q10).

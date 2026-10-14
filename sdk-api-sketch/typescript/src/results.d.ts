@@ -39,6 +39,19 @@ export type KnownErrorCode =
   | "setting_not_applicable"
   | "setting_locked"
   | "capability_unavailable"
+  | "selector_invalid"
+  | "target_unsupported"
+  | "page_function_failed"
+  | "page_value_invalid"
+  | "page_handler_failed"
+  | "route_already_handled"
+  | "navigation_interrupted"
+  | "response_not_json"
+  | "navigation_failed"
+  | "page_crashed"
+  | "body_unavailable"
+  | "download_failed"
+  | "cdp_command_refused"
   | "internal";
 
 /** A code a newer engine sends and this SDK does not know is kept as received (G3). */
@@ -176,6 +189,11 @@ export declare class PageCheckFailedError extends PageError {
   readonly code: "page_check_failed";
 }
 
+/**
+ * Details of `target_not_unique`. Uniqueness is one of the conditions the guard waits for: the call
+ * throws this when its deadline passes with the target still ambiguous (ADR 0085), or at once for a
+ * question that does not wait, such as `isVisible()`.
+ */
 export interface TargetNotUniqueDetails {
   /** Each match, rendered in this SDK's language. */
   readonly matches: readonly string[];

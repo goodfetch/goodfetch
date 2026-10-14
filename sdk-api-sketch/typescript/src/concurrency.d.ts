@@ -15,26 +15,11 @@
 // URL globs and regular expressions run in the engine, in the Rust `regex` syntax: no look-around or
 // backreferences, and linear time. A `RegExp` using either fails at the call with a `ProgramError`
 // naming the construct. A predicate runs here, on the events the engine sends while it is armed, and
-// never in the page: page functions take an explicit argument (#472).
-// The page's events, routes and the data they carry are placeholders owned by #472; `run.records()` is #479's.
+// never in the page: page functions take an explicit argument (ADR 0085).
+// The page's events, routes, dialogs and the data they carry are ADR 0085's (page.d.ts); `run.records()` is #479's.
 
-import type { Page } from "./lifecycle.js";
-import type { CallOptions, Request, Response, UrlMatcher } from "./time.js";
-
-/** A console message. Its full shape is #472's. */
-export interface ConsoleMessage {
-  readonly type: string;
-  readonly text: string;
-}
-
-/** The page's observation events, under Playwright's names (S3). The full list is #472's. */
-export interface PageEventMap {
-  readonly console: ConsoleMessage;
-  readonly request: Request;
-  readonly response: Response;
-  readonly requestfinished: Request;
-  readonly popup: Page;
-}
+import type { DialogHandler, PageEventMap } from "./page.js";
+import type { CallOptions } from "./time.js";
 
 /**
  * A listener. It gets its events one at a time, in order: a promise it returns is awaited
@@ -62,14 +47,6 @@ export interface EventIterator<T> extends AsyncIterableIterator<T>, Disposable {
   close(): void;
 }
 
-/** An intercepted request waiting for the program's answer. Its semantics are #472's. */
-export interface Route {
-  readonly request: Request;
-  continue(options?: CallOptions): Promise<void>;
-  abort(options?: CallOptions): Promise<void>;
-  fulfill(response: { readonly status: number; readonly body?: string }, options?: CallOptions): Promise<void>;
-}
-
 /**
  * The page's events. There is no `off` and no `once`: close the Subscription that `on` returns, and
  * wait for one event with `waitForEvent` (S2).
@@ -77,13 +54,13 @@ export interface Route {
 export interface PageEvents {
   /** Observes an event, subscribed when called. */
   on<K extends keyof PageEventMap>(event: K, listener: Listener<PageEventMap[K]>): Subscription;
+  /** Answers dialogs, registered when called: with none, or none that answers, a dialog is dismissed (ADR 0085). */
+  on(event: "dialog", handler: DialogHandler): Subscription;
   /** Waits for one event, armed when called (ADR 0080). Its predicate runs here and may use the program's variables. */
   waitForEvent<K extends keyof PageEventMap>(
     event: K,
     options?: CallOptions & { readonly predicate?: (event: PageEventMap[K]) => boolean },
   ): Promise<PageEventMap[K]>;
-  /** Answers matching requests, registered when called. The handler runs on the program's event loop. */
-  route(url: UrlMatcher, handler: (route: Route) => void | Promise<void>): Subscription;
 }
 
 /** The Run's sequences. */

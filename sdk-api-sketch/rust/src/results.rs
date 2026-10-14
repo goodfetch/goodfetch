@@ -73,6 +73,35 @@ pub enum ErrorCode {
     SettingLocked,
     /// `capability_unavailable`: the platform cannot provide a capability (ADR 0083).
     CapabilityUnavailable,
+    /// `selector_invalid`: a selector that does not parse, or a Playwright-only engine or `>>`
+    /// (ADR 0085).
+    SelectorInvalid,
+    /// `target_unsupported`: the target is of the wrong kind for the action (ADR 0085).
+    TargetUnsupported,
+    /// `page_function_failed`: the page function threw (ADR 0085).
+    PageFunctionFailed,
+    /// `page_value_invalid`: a value crossing to or from the page is not JSON (ADR 0085).
+    PageValueInvalid,
+    /// `page_handler_failed`: a route, dialog or locator handler threw (ADR 0085). Only the
+    /// TypeScript and Python SDKs raise it: Rust answers those requests in the program's own code.
+    PageHandlerFailed,
+    /// `route_already_handled` (ADR 0085). Only the TypeScript and Python SDKs raise it: a Rust
+    /// route's answers take the route.
+    RouteAlreadyHandled,
+    /// `navigation_interrupted`: another navigation superseded this one (ADR 0085).
+    NavigationInterrupted,
+    /// `response_not_json` (ADR 0085).
+    ResponseNotJson,
+    /// `navigation_failed`: the site could not be reached (ADR 0085).
+    NavigationFailed,
+    /// `page_crashed` (ADR 0085).
+    PageCrashed,
+    /// `body_unavailable`: the browser no longer holds the body (ADR 0085).
+    BodyUnavailable,
+    /// `download_failed` (ADR 0085).
+    DownloadFailed,
+    /// `cdp_command_refused`, a refusal (ADR 0085).
+    CdpCommandRefused,
     /// `internal`.
     Internal,
     /// A code this SDK does not know, as received.

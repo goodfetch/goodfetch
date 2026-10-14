@@ -5,7 +5,7 @@
 //! applies, finite for every phase. A timeout nests: a call inside another gets the smaller of its
 //! own and what remains of the outer one, and time spent in a Human pause does not count.
 //! Cancelling is dropping: a dropped call sends `$/cancel` without blocking (ADR 0078's `Drop` rule).
-//! The page API around the waits (locators, actions, `goto`) is a placeholder owned by #472.
+//! The page API around the waits (locators, actions, `goto`) is ADR 0085's, in `page`.
 
 use std::fmt;
 use std::future::{Future, IntoFuture};
@@ -13,6 +13,7 @@ use std::marker::PhantomData;
 use std::pin::Pin;
 use std::time::Duration;
 
+use crate::page::{Request, Response};
 use crate::results::Error;
 
 /// A call's timeout, in three states, set only through `.timeout(d)` and `.no_timeout()`.
@@ -160,7 +161,7 @@ pub enum LoadState {
     NetworkIdle,
 }
 
-/// The state [`Locator::wait_for`] waits for.
+/// The state [`crate::page::Locator::wait_for`] waits for.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum ElementState {
@@ -196,60 +197,6 @@ impl Count {
     /// Between `min` and `max`, inclusive.
     pub fn between(min: usize, max: usize) -> Self {
         Self { min: Some(min), max: Some(max) }
-    }
-}
-
-/// A response the page received. Its full shape is #472's.
-#[derive(Debug, Clone)]
-#[non_exhaustive]
-pub struct Response {
-    /// The final URL.
-    pub url: String,
-    /// The HTTP status.
-    pub status: u16,
-}
-
-/// A request the page sent. Its full shape is #472's.
-#[derive(Debug, Clone)]
-#[non_exhaustive]
-pub struct Request {
-    /// The URL.
-    pub url: String,
-    /// The HTTP method.
-    pub method: String,
-}
-
-/// A placeholder locator: its constructors and actions are #472's; its waits are #467's.
-/// A cheap clone that holds its page, so its calls own what they need and are `Send + 'static`
-/// (ADR 0081).
-#[derive(Debug, Clone)]
-pub struct Locator {
-    _page: crate::lifecycle::Page,
-}
-
-impl Locator {
-    /// Waits through the guard (ADR 0019) until the action is safe, then acts.
-    pub fn click(&self) -> Call<()> {
-        unimplemented!()
-    }
-
-    /// Fills the field.
-    pub fn fill(&self, value: &str) -> Call<()> {
-        let _ = value;
-        unimplemented!()
-    }
-
-    /// Playwright's `wait_for`: one element in the given state.
-    pub fn wait_for(&self, state: ElementState) -> Call<()> {
-        let _ = state;
-        unimplemented!()
-    }
-
-    /// Waits until the number of matches is in range, and returns it: a different behaviour, so a
-    /// different name (S3).
-    pub fn wait_for_count(&self, count: Count) -> Call<usize> {
-        let _ = count;
-        unimplemented!()
     }
 }
 
@@ -329,26 +276,8 @@ impl Limits {
     }
 }
 
-/// The page's navigation and app-state waits. The page itself is #472's.
+/// The page's navigation and app-state waits. The rest of the page is ADR 0085's, in `page`.
 impl crate::lifecycle::Page {
-    /// Placeholder for #472's navigation. Its timeout is the navigation phase's.
-    pub fn goto(&self, url: &str) -> Call<Option<Response>> {
-        let _ = url;
-        unimplemented!()
-    }
-
-    /// Placeholder locator (#472).
-    pub fn locator(&self, selector: &str) -> Locator {
-        let _ = selector;
-        unimplemented!()
-    }
-
-    /// Placeholder locator by ARIA role and accessible name (#472).
-    pub fn get_by_role(&self, role: &str, name: &str) -> Locator {
-        let _ = (role, name);
-        unimplemented!()
-    }
-
     /// Waits until the page's URL matches.
     pub fn wait_for_url(&self, url: impl Into<UrlMatcher>) -> Call<()> {
         let _ = url.into();
@@ -376,13 +305,6 @@ impl crate::lifecycle::Page {
     /// Waits for a load state.
     pub fn wait_for_load_state(&self, state: LoadState) -> Call<()> {
         let _ = state;
-        unimplemented!()
-    }
-
-    /// Waits until a page function returns a truthy value, returned as JSON text; its
-    /// serialization contract is #472's.
-    pub fn wait_for_function(&self, page_function: &str) -> Call<String> {
-        let _ = page_function;
         unimplemented!()
     }
 

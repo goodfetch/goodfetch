@@ -3,6 +3,7 @@
 export * from "./concurrency.js";
 export * from "./data.js";
 export * from "./lifecycle.js";
+export * from "./page.js";
 export * from "./politeness.js";
 export * from "./results.js";
 export * from "./settings.js";

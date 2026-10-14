@@ -1,7 +1,7 @@
 """Entry points and lifecycle (ADR 0078, decided in #465).
 
 Logs go to `logging` loggers under `goodfetch` (`goodfetch.client`, `goodfetch.engine.<area>`); the SDK adds only a
-`NullHandler`. The Run's start verbs, Sessions and the page API are placeholders owned by #478, #476 and #472.
+`NullHandler`. The Run's start verbs and Sessions are placeholders owned by #478 and #476; the page API is ADR 0085's (`_page`).
 Timeouts, waits and Limits come from #467 (`_time`); events and user code from #468 (`_concurrency`).
 """
 
@@ -11,7 +11,9 @@ from dataclasses import dataclass
 from types import TracebackType
 from typing import Literal, Never, Protocol, Self, TypeAlias, final, overload
 
-from goodfetch._concurrency import AsyncPageEvents, AsyncRunEvents, PageEvents, RunEvents
+from goodfetch._concurrency import AsyncListener, AsyncPageEvents, AsyncRunEvents, Listener, PageEvents, RunEvents, Subscription
+from goodfetch._data import JsonValue
+from goodfetch._page import AsyncPageApi, AsyncRouteHandler, PageApi, RouteHandler, UrlPattern
 from goodfetch._settings import ExplainedSetting, PageSettings, RunSettings, SessionSettings, SettingKey, Settings
 from goodfetch._time import AsyncPageWaits, Limits, NotGiven, PageWaits, Timeout
 
@@ -90,14 +92,29 @@ class _AsyncCloseable:
     ) -> None: ...
 
 @final
-class AsyncPage(_AsyncCloseable, _AsyncExplainsSettings, AsyncPageWaits, AsyncPageEvents):
-    """A page Goodfetch drives. Its API is #472's. Closing it closes only a tab Goodfetch opened."""
+class AsyncPage(_AsyncCloseable, _AsyncExplainsSettings, AsyncPageApi, AsyncPageWaits, AsyncPageEvents):
+    """A page Goodfetch drives: a tab of a Session, opened by `session.new_page()` or by the page itself (a popup).
+    Closing it closes only a tab Goodfetch opened; on a Borrowed browser it only releases it."""
+
+    async def close(self, *, run_before_unload: bool = False, timeout: Timeout = ...) -> None:
+        """Idempotent. `run_before_unload` runs the page's `beforeunload` handlers, the only way such a dialog appears."""
 
 @final
 class AsyncSession(_AsyncCloseable, _AsyncExplainsSettings):
-    """A Session of a Run. Its API is #476's. Closing it never closes a Borrowed browser."""
+    """A Session of a Run: Playwright's context, under the glossary's name (ADR 0085). Its other API is #476's.
+    Closing it never closes a Borrowed browser. There is no active page."""
 
     async def new_page(self, *, settings: PageSettings = ..., timeout: Timeout = ...) -> AsyncPage: ...
+    def pages(self) -> list[AsyncPage]:
+        """The Session's open pages, read without a round trip."""
+
+    def on(self, event: Literal["page"], listener: AsyncListener[AsyncPage]) -> Subscription:
+        """A new page in the Session: one it opened, a popup, or a tab a link opened."""
+
+    def route(self, url: UrlPattern, handler: AsyncRouteHandler) -> Subscription:
+        """Answers requests of every page of the Session, a popup's first request included; page routes run first."""
+
+    def add_init_script(self, script: str, arg: JsonValue | NotGiven = ...) -> Subscription: ...
 
 @final
 class AsyncRun(_AsyncCloseable, _AsyncExplainsSettings, AsyncRunEvents):
@@ -192,14 +209,22 @@ class _Closeable:
     ) -> None: ...
 
 @final
-class Page(_Closeable, _ExplainsSettings, PageWaits, PageEvents):
-    """A page Goodfetch drives. Its API is #472's. Closing it closes only a tab Goodfetch opened."""
+class Page(_Closeable, _ExplainsSettings, PageApi, PageWaits, PageEvents):
+    """A page Goodfetch drives: a tab of a Session, opened by `session.new_page()` or by the page itself (a popup).
+    Closing it closes only a tab Goodfetch opened; on a Borrowed browser it only releases it."""
+
+    def close(self, *, run_before_unload: bool = False, timeout: Timeout = ...) -> None: ...
 
 @final
 class Session(_Closeable, _ExplainsSettings):
-    """A Session of a Run. Its API is #476's. Closing it never closes a Borrowed browser."""
+    """A Session of a Run: Playwright's context, under the glossary's name (ADR 0085). Its other API is #476's.
+    Closing it never closes a Borrowed browser. There is no active page."""
 
     def new_page(self, *, settings: PageSettings = ..., timeout: Timeout = ...) -> Page: ...
+    def pages(self) -> list[Page]: ...
+    def on(self, event: Literal["page"], listener: Listener[Page]) -> Subscription: ...
+    def route(self, url: UrlPattern, handler: RouteHandler) -> Subscription: ...
+    def add_init_script(self, script: str, arg: JsonValue | NotGiven = ...) -> Subscription: ...
 
 @final
 class Run(_Closeable, _ExplainsSettings, RunEvents):

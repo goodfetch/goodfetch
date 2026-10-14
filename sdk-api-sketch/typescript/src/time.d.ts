@@ -2,8 +2,9 @@
 // Every duration in the TypeScript SDK is a `number` of milliseconds, named without a unit suffix.
 // A `timeout` nests: a call inside another gets the smaller of its own timeout and what remains of
 // the outer one, and never extends it; time spent in a Human pause does not count.
-// The page API around the waits (locators, actions, `goto`) is a placeholder owned by #472.
+// The page API around the waits (locators, actions, `goto`) is ADR 0085's (page.d.ts).
 
+import type { Request, Response } from "./page.js";
 import type { ProgramError } from "./results.js";
 import type { RunSettings } from "./settings.js";
 
@@ -27,34 +28,11 @@ export interface CallOptions {
  */
 export type UrlMatcher = string | RegExp | ((url: URL) => boolean);
 
-/** A response the page received. Its full shape is #472's. */
-export interface Response {
-  readonly url: string;
-  readonly status: number;
-}
-
-/** A request the page sent. Its full shape is #472's. */
-export interface Request {
-  readonly url: string;
-  readonly method: string;
-}
-
 /** Load states. `networkidle`: no request in flight for 500 ms, WebSockets and server-sent events excluded. */
 export type LoadState = "domcontentloaded" | "load" | "networkidle";
 
 /** A count, exact or bounded. */
 export type Count = number | { readonly min?: number; readonly max?: number };
-
-/** A placeholder locator: its constructors and actions are #472's; its waits are #467's. */
-export interface Locator {
-  /** Waits through the guard (ADR 0019) until the action is safe, then acts. */
-  click(options?: CallOptions): Promise<void>;
-  fill(value: string, options?: CallOptions): Promise<void>;
-  /** Playwright's `waitFor`: one element in the given state. */
-  waitFor(options?: CallOptions & { readonly state?: "attached" | "detached" | "visible" | "hidden" }): Promise<void>;
-  /** Waits until the number of matches is in range: a different behaviour, so a different name (S3). */
-  waitForCount(count: Count, options?: CallOptions): Promise<number>;
-}
 
 /**
  * The page's navigation and app-state waits. Each waiter is armed when the method is called, not
@@ -62,20 +40,12 @@ export interface Locator {
  * `Promise.all` never miss an event (the engine keeps each page's calls in order).
  */
 export interface PageWaits {
-  /** Placeholder for #472's navigation. Its timeout is the navigation phase's. */
-  goto(url: string, options?: CallOptions & { readonly waitUntil?: LoadState }): Promise<Response | null>;
-  /** Placeholder locators (#472). */
-  locator(selector: string): Locator;
-  getByRole(role: string, options?: { readonly name?: string | RegExp }): Locator;
-
   waitForURL(url: UrlMatcher, options?: CallOptions & { readonly waitUntil?: LoadState }): Promise<void>;
   waitForResponse(url: UrlMatcher, options?: CallOptions): Promise<Response>;
   waitForRequest(url: UrlMatcher, options?: CallOptions): Promise<Request>;
   /** Waits until a matching request has finished, its body read. */
   waitForRequestFinished(url: UrlMatcher, options?: CallOptions): Promise<Request>;
   waitForLoadState(state?: LoadState, options?: CallOptions): Promise<void>;
-  /** Waits until a page function returns a truthy value; its serialization contract is #472's. */
-  waitForFunction<R>(pageFunction: string, arg?: unknown, options?: CallOptions): Promise<R>;
 
   /**
    * @deprecated Removed: a fixed sleep waits for nothing in particular. Wait for the app's state

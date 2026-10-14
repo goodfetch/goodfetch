@@ -14,7 +14,8 @@ use std::time::Duration;
 use crate::concurrency::{Record, events};
 use crate::lifecycle::ConnectOptions;
 use crate::results::Error;
-use crate::time::{Limits, Response};
+use crate::page::Response;
+use crate::time::Limits;
 
 /// One blocking call: set its timeout, then [`Call::send`] it.
 #[must_use = "a call does nothing until it is sent"]

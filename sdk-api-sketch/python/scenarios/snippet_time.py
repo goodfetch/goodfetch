@@ -20,7 +20,7 @@ async def search_quotes() -> int:
 
             # Choosing an author posts the form back to search.aspx and reloads the tag list: the waiter is armed before the block runs (P02).
             async with page.expect_response("**/search.aspx") as tags:
-                await page.locator("#author").fill("Albert Einstein")
+                await page.locator("#author").select_option("Albert Einstein")
             await tags.value
 
             # The host's own deadline cancels the call and sends `$/cancel`; CancelledError propagates.
@@ -44,5 +44,5 @@ def search_quotes_blocking() -> None:
     with Goodfetch.connect() as gf, gf.collie.start(timeout=timedelta(minutes=30)) as run:
         page = run.new_page()
         with page.expect_response("**/search.aspx") as tags:
-            page.locator("#author").fill("Albert Einstein")
+            page.locator("#author").select_option("Albert Einstein")
         log.info("tags reloaded: %s", tags.value.status)

@@ -9,7 +9,7 @@ export async function firstBooks(limit: number, stop: AbortSignal): Promise<stri
   const page = await run.newPage();
 
   // Side activity is observed with a listener, subscribed when called; `using` closes it (Q5, Q11).
-  using _console = page.on("console", (message) => log.debug(message.text));
+  using _console = page.on("console", (message) => log.debug(message.text()));
   // A request that needs an answer runs this callback on the program's event loop (Q8).
   using _images = page.route("**/*.{png,jpg}", (route) => route.abort());
 
@@ -17,7 +17,7 @@ export async function firstBooks(limit: number, stop: AbortSignal): Promise<stri
   // ProgramError naming it. A predicate runs in the program and may use its variables (P22).
   const seen = new Set<string>();
   const nextPage = page.waitForResponse(/\/catalogue\/page-\d+\.html$/);
-  const fresh = page.waitForEvent("response", { predicate: (response) => !seen.has(response.url), signal: stop });
+  const fresh = page.waitForEvent("response", { predicate: (response) => !seen.has(response.url()), signal: stop });
 
   try {
     await page.goto("https://books.toscrape.com/");

@@ -1,8 +1,10 @@
 // Entry points and lifecycle (ADR 0078, decided in #465).
-// The Run's start verbs, Sessions and the page API are placeholders owned by #478, #476 and #472.
+// The Run's start verbs and Sessions are placeholders owned by #478 and #476; the page API is ADR 0085's (page.d.ts).
 // Timeouts, waits and Limits come from #467 (time.d.ts); events and user code from #468 (concurrency.d.ts).
 
-import type { PageEvents, RunEvents } from "./concurrency.js";
+import type { Listener, PageEvents, RunEvents, Subscription } from "./concurrency.js";
+import type { JsonValue } from "./data.js";
+import type { PageApi, PageCloseOptions, PageFunction, PageResult, RouteHandler, UrlPattern } from "./page.js";
 import type { ExplainedSetting, ExplainsSettings, NewPageOptions, SessionSettings, SettingKey, Settings } from "./settings.js";
 import type { CallOptions, Limits, PageWaits, StartOptions, Timeout } from "./time.js";
 
@@ -73,12 +75,33 @@ export type BorrowableBrowser =
   | { newBrowserCDPSession(): Promise<unknown> }
   | { target(): unknown; disconnect(): Promise<void> };
 
-/** A page Goodfetch drives. Its API is #472's. Closing it closes only a tab Goodfetch opened. */
-export interface Page extends Closeable, PageWaits, PageEvents, ExplainsSettings {}
+/**
+ * A page Goodfetch drives: a tab of a Session, opened by `session.newPage()` or by the page itself
+ * (a popup). Closing it closes only a tab Goodfetch opened; on a Borrowed browser it only releases it.
+ */
+export interface Page extends Closeable, PageApi, PageWaits, PageEvents, ExplainsSettings {
+  close(options?: PageCloseOptions): Promise<void>;
+}
 
-/** A Session of a Run. Its API is #476's. Closing it never closes a Borrowed browser. */
+/** The Session's events. */
+export interface SessionEventMap {
+  /** A new page in the Session: one it opened, a popup, or a tab a link opened. */
+  readonly page: Page;
+}
+
+/**
+ * A Session of a Run: Playwright's context, under the glossary's name (ADR 0085). Its other API is
+ * #476's. Closing it never closes a Borrowed browser. There is no active page.
+ */
 export interface Session extends Closeable, ExplainsSettings {
   newPage(options?: NewPageOptions): Promise<Page>;
+  /** The Session's open pages, read without a round trip. */
+  pages(): Page[];
+  on<K extends keyof SessionEventMap>(event: K, listener: Listener<SessionEventMap[K]>): Subscription;
+  /** Answers requests of every page of the Session, a popup's first request included; page routes run first. */
+  route(url: UrlPattern, handler: RouteHandler): Subscription;
+  /** Runs before the page's own scripts in every new document of the Session, marked in Provenance. */
+  addInitScript<Arg extends JsonValue = JsonValue>(script: PageFunction<Arg, PageResult>, arg?: Arg): Subscription;
 }
 
 /** A Run, always opened explicitly. Closing an unfinished Run stops it with a Checkpoint, resumable by its ID. */

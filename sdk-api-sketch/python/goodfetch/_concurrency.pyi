@@ -17,26 +17,34 @@ plain functions, and on free-threaded builds it runs in parallel. The engine sen
 concurrency setting allows. Globs and compiled patterns run in the engine, in the Rust `regex` syntax (no look-around
 or backreferences, linear time); a pattern using either fails at the call with a `ProgramError` naming the construct.
 A predicate runs in the program, on the events the engine sends while it is armed, never in the page.
-The page's events, routes and the data they carry are placeholders owned by #472; `records()` is #479's.
+The page's events, routes, dialogs and the data they carry are ADR 0085's (`_page`); `records()` is #479's.
 """
 
 from collections.abc import Awaitable, Callable, Iterator, Mapping
 from contextlib import AbstractAsyncContextManager, AbstractContextManager
-from dataclasses import dataclass
 from types import TracebackType
 from typing import Generic, Literal, Self, TypeAlias, TypeVar, final, overload
 
-from goodfetch._time import AsyncEventInfo, EventInfo, Request, Response, Timeout, UrlMatcher
+from goodfetch._lifecycle import AsyncPage, Page
+from goodfetch._page import (
+    AsyncDialogHandler,
+    AsyncDownload,
+    AsyncFileChooser,
+    AsyncRequest,
+    AsyncResponse,
+    AsyncWebSocket,
+    ConsoleMessage,
+    DialogHandler,
+    Download,
+    FileChooser,
+    Request,
+    Response,
+    WebError,
+    WebSocket,
+)
+from goodfetch._time import AsyncEventInfo, EventInfo, Timeout
 
 T = TypeVar("T")
-
-@final
-@dataclass(frozen=True, kw_only=True)
-class ConsoleMessage:
-    """A console message. Its full shape is #472's."""
-
-    type: str
-    text: str
 
 @final
 class Subscription:
@@ -60,16 +68,6 @@ AsyncListener: TypeAlias = Callable[[T], Awaitable[None] | None]
 lossless events slow their producer and telemetry coalesces (ADR 0024)."""
 
 @final
-class AsyncRoute:
-    """An intercepted request waiting for the program's answer. Its semantics are #472's."""
-
-    @property
-    def request(self) -> Request: ...
-    async def continue_(self, *, timeout: Timeout = ...) -> None: ...
-    async def abort(self, *, timeout: Timeout = ...) -> None: ...
-    async def fulfill(self, *, status: int, body: str | None = None, timeout: Timeout = ...) -> None: ...
-
-@final
 class AsyncEventIterator(Generic[T]):
     """A sequence read to its end with `async for`, subscribed when the method was called.
 
@@ -87,50 +85,92 @@ class AsyncEventIterator(Generic[T]):
     ) -> None: ...
 
 class AsyncPageEvents:
-    """The page's events, under Playwright's names (S3). The full list is #472's."""
-
+    """The page's events and what each carries, under Playwright's names (S3, ADR 0085)."""
     @overload
     def on(self, event: Literal["console"], listener: AsyncListener[ConsoleMessage]) -> Subscription: ...
     @overload
-    def on(self, event: Literal["request", "requestfinished"], listener: AsyncListener[Request]) -> Subscription: ...
+    def on(self, event: Literal["pageerror"], listener: AsyncListener[WebError]) -> Subscription: ...
     @overload
-    def on(self, event: Literal["response"], listener: AsyncListener[Response]) -> Subscription: ...
+    def on(self, event: Literal["request", "requestfinished", "requestfailed"], listener: AsyncListener[AsyncRequest]) -> Subscription: ...
+    @overload
+    def on(self, event: Literal["response"], listener: AsyncListener[AsyncResponse]) -> Subscription: ...
+    @overload
+    def on(self, event: Literal["popup"], listener: AsyncListener[AsyncPage]) -> Subscription: ...
+    @overload
+    def on(self, event: Literal["download"], listener: AsyncListener[AsyncDownload]) -> Subscription: ...
+    @overload
+    def on(self, event: Literal["filechooser"], listener: AsyncListener[AsyncFileChooser]) -> Subscription: ...
+    @overload
+    def on(self, event: Literal["websocket"], listener: AsyncListener[AsyncWebSocket]) -> Subscription: ...
+    @overload
+    def on(self, event: Literal["load", "domcontentloaded", "close", "crash"], listener: AsyncListener[None]) -> Subscription: ...
+    @overload
+    def on(self, event: Literal["dialog"], handler: AsyncDialogHandler) -> Subscription:
+        """Answers dialogs, registered when called: with none, or none that answers, a dialog is dismissed."""
     @overload
     def expect_event(
-        self,
-        event: Literal["console"],
-        *,
-        predicate: Callable[[ConsoleMessage], bool] | None = None,
-        timeout: Timeout = ...,
+        self, event: Literal["console"], *, predicate: Callable[[ConsoleMessage], bool] | None = None, timeout: Timeout = ...
     ) -> AbstractAsyncContextManager[AsyncEventInfo[ConsoleMessage]]: ...
     @overload
     def expect_event(
-        self,
-        event: Literal["response"],
-        *,
-        predicate: Callable[[Response], bool] | None = None,
-        timeout: Timeout = ...,
-    ) -> AbstractAsyncContextManager[AsyncEventInfo[Response]]:
-        """Waits for one event, armed when the block opens (ADR 0080); the predicate runs in the program."""
+        self, event: Literal["pageerror"], *, predicate: Callable[[WebError], bool] | None = None, timeout: Timeout = ...
+    ) -> AbstractAsyncContextManager[AsyncEventInfo[WebError]]: ...
+    @overload
+    def expect_event(
+        self, event: Literal["request", "requestfinished", "requestfailed"], *, predicate: Callable[[AsyncRequest], bool] | None = None, timeout: Timeout = ...
+    ) -> AbstractAsyncContextManager[AsyncEventInfo[AsyncRequest]]: ...
+    @overload
+    def expect_event(
+        self, event: Literal["response"], *, predicate: Callable[[AsyncResponse], bool] | None = None, timeout: Timeout = ...
+    ) -> AbstractAsyncContextManager[AsyncEventInfo[AsyncResponse]]: ...
+    @overload
+    def expect_event(
+        self, event: Literal["popup"], *, predicate: Callable[[AsyncPage], bool] | None = None, timeout: Timeout = ...
+    ) -> AbstractAsyncContextManager[AsyncEventInfo[AsyncPage]]: ...
+    @overload
+    def expect_event(
+        self, event: Literal["download"], *, predicate: Callable[[AsyncDownload], bool] | None = None, timeout: Timeout = ...
+    ) -> AbstractAsyncContextManager[AsyncEventInfo[AsyncDownload]]: ...
+    @overload
+    def expect_event(
+        self, event: Literal["filechooser"], *, predicate: Callable[[AsyncFileChooser], bool] | None = None, timeout: Timeout = ...
+    ) -> AbstractAsyncContextManager[AsyncEventInfo[AsyncFileChooser]]: ...
+    @overload
+    def expect_event(
+        self, event: Literal["websocket"], *, predicate: Callable[[AsyncWebSocket], bool] | None = None, timeout: Timeout = ...
+    ) -> AbstractAsyncContextManager[AsyncEventInfo[AsyncWebSocket]]: ...
     @overload
     async def wait_for_event(
-        self,
-        event: Literal["console"],
-        *,
-        predicate: Callable[[ConsoleMessage], bool] | None = None,
-        timeout: Timeout = ...,
+        self, event: Literal["console"], *, predicate: Callable[[ConsoleMessage], bool] | None = None, timeout: Timeout = ...
     ) -> ConsoleMessage: ...
     @overload
     async def wait_for_event(
-        self,
-        event: Literal["response"],
-        *,
-        predicate: Callable[[Response], bool] | None = None,
-        timeout: Timeout = ...,
-    ) -> Response: ...
-
-    def route(self, url: UrlMatcher, handler: Callable[[AsyncRoute], Awaitable[None]]) -> Subscription:
-        """Answers matching requests, registered when called. The handler runs as a task on the connection's loop."""
+        self, event: Literal["pageerror"], *, predicate: Callable[[WebError], bool] | None = None, timeout: Timeout = ...
+    ) -> WebError: ...
+    @overload
+    async def wait_for_event(
+        self, event: Literal["request", "requestfinished", "requestfailed"], *, predicate: Callable[[AsyncRequest], bool] | None = None, timeout: Timeout = ...
+    ) -> AsyncRequest: ...
+    @overload
+    async def wait_for_event(
+        self, event: Literal["response"], *, predicate: Callable[[AsyncResponse], bool] | None = None, timeout: Timeout = ...
+    ) -> AsyncResponse: ...
+    @overload
+    async def wait_for_event(
+        self, event: Literal["popup"], *, predicate: Callable[[AsyncPage], bool] | None = None, timeout: Timeout = ...
+    ) -> AsyncPage: ...
+    @overload
+    async def wait_for_event(
+        self, event: Literal["download"], *, predicate: Callable[[AsyncDownload], bool] | None = None, timeout: Timeout = ...
+    ) -> AsyncDownload: ...
+    @overload
+    async def wait_for_event(
+        self, event: Literal["filechooser"], *, predicate: Callable[[AsyncFileChooser], bool] | None = None, timeout: Timeout = ...
+    ) -> AsyncFileChooser: ...
+    @overload
+    async def wait_for_event(
+        self, event: Literal["websocket"], *, predicate: Callable[[AsyncWebSocket], bool] | None = None, timeout: Timeout = ...
+    ) -> AsyncWebSocket: ...
 
 class AsyncRunEvents:
     def records(self) -> AsyncEventIterator[Mapping[str, object]]:
@@ -140,16 +180,6 @@ class AsyncRunEvents:
 
 Listener: TypeAlias = Callable[[T], None]
 """Runs on a thread of the connection's pool and gets its events one at a time, in order."""
-
-@final
-class Route:
-    """An intercepted request waiting for the program's answer. Its semantics are #472's."""
-
-    @property
-    def request(self) -> Request: ...
-    def continue_(self, *, timeout: Timeout = ...) -> None: ...
-    def abort(self, *, timeout: Timeout = ...) -> None: ...
-    def fulfill(self, *, status: int, body: str | None = None, timeout: Timeout = ...) -> None: ...
 
 @final
 class EventIterator(Generic[T]):
@@ -165,48 +195,92 @@ class EventIterator(Generic[T]):
     ) -> None: ...
 
 class PageEvents:
-    """The page's events, under Playwright's names (S3). The full list is #472's."""
-
+    """The page's events and what each carries, under Playwright's names (S3, ADR 0085)."""
     @overload
     def on(self, event: Literal["console"], listener: Listener[ConsoleMessage]) -> Subscription: ...
     @overload
-    def on(self, event: Literal["request", "requestfinished"], listener: Listener[Request]) -> Subscription: ...
+    def on(self, event: Literal["pageerror"], listener: Listener[WebError]) -> Subscription: ...
+    @overload
+    def on(self, event: Literal["request", "requestfinished", "requestfailed"], listener: Listener[Request]) -> Subscription: ...
     @overload
     def on(self, event: Literal["response"], listener: Listener[Response]) -> Subscription: ...
     @overload
+    def on(self, event: Literal["popup"], listener: Listener[Page]) -> Subscription: ...
+    @overload
+    def on(self, event: Literal["download"], listener: Listener[Download]) -> Subscription: ...
+    @overload
+    def on(self, event: Literal["filechooser"], listener: Listener[FileChooser]) -> Subscription: ...
+    @overload
+    def on(self, event: Literal["websocket"], listener: Listener[WebSocket]) -> Subscription: ...
+    @overload
+    def on(self, event: Literal["load", "domcontentloaded", "close", "crash"], listener: Listener[None]) -> Subscription: ...
+    @overload
+    def on(self, event: Literal["dialog"], handler: DialogHandler) -> Subscription:
+        """Answers dialogs, registered when called: with none, or none that answers, a dialog is dismissed."""
+    @overload
     def expect_event(
-        self,
-        event: Literal["console"],
-        *,
-        predicate: Callable[[ConsoleMessage], bool] | None = None,
-        timeout: Timeout = ...,
+        self, event: Literal["console"], *, predicate: Callable[[ConsoleMessage], bool] | None = None, timeout: Timeout = ...
     ) -> AbstractContextManager[EventInfo[ConsoleMessage]]: ...
     @overload
     def expect_event(
-        self,
-        event: Literal["response"],
-        *,
-        predicate: Callable[[Response], bool] | None = None,
-        timeout: Timeout = ...,
+        self, event: Literal["pageerror"], *, predicate: Callable[[WebError], bool] | None = None, timeout: Timeout = ...
+    ) -> AbstractContextManager[EventInfo[WebError]]: ...
+    @overload
+    def expect_event(
+        self, event: Literal["request", "requestfinished", "requestfailed"], *, predicate: Callable[[Request], bool] | None = None, timeout: Timeout = ...
+    ) -> AbstractContextManager[EventInfo[Request]]: ...
+    @overload
+    def expect_event(
+        self, event: Literal["response"], *, predicate: Callable[[Response], bool] | None = None, timeout: Timeout = ...
     ) -> AbstractContextManager[EventInfo[Response]]: ...
     @overload
+    def expect_event(
+        self, event: Literal["popup"], *, predicate: Callable[[Page], bool] | None = None, timeout: Timeout = ...
+    ) -> AbstractContextManager[EventInfo[Page]]: ...
+    @overload
+    def expect_event(
+        self, event: Literal["download"], *, predicate: Callable[[Download], bool] | None = None, timeout: Timeout = ...
+    ) -> AbstractContextManager[EventInfo[Download]]: ...
+    @overload
+    def expect_event(
+        self, event: Literal["filechooser"], *, predicate: Callable[[FileChooser], bool] | None = None, timeout: Timeout = ...
+    ) -> AbstractContextManager[EventInfo[FileChooser]]: ...
+    @overload
+    def expect_event(
+        self, event: Literal["websocket"], *, predicate: Callable[[WebSocket], bool] | None = None, timeout: Timeout = ...
+    ) -> AbstractContextManager[EventInfo[WebSocket]]: ...
+    @overload
     def wait_for_event(
-        self,
-        event: Literal["console"],
-        *,
-        predicate: Callable[[ConsoleMessage], bool] | None = None,
-        timeout: Timeout = ...,
+        self, event: Literal["console"], *, predicate: Callable[[ConsoleMessage], bool] | None = None, timeout: Timeout = ...
     ) -> ConsoleMessage: ...
     @overload
     def wait_for_event(
-        self,
-        event: Literal["response"],
-        *,
-        predicate: Callable[[Response], bool] | None = None,
-        timeout: Timeout = ...,
+        self, event: Literal["pageerror"], *, predicate: Callable[[WebError], bool] | None = None, timeout: Timeout = ...
+    ) -> WebError: ...
+    @overload
+    def wait_for_event(
+        self, event: Literal["request", "requestfinished", "requestfailed"], *, predicate: Callable[[Request], bool] | None = None, timeout: Timeout = ...
+    ) -> Request: ...
+    @overload
+    def wait_for_event(
+        self, event: Literal["response"], *, predicate: Callable[[Response], bool] | None = None, timeout: Timeout = ...
     ) -> Response: ...
-    def route(self, url: UrlMatcher, handler: Callable[[Route], None]) -> Subscription:
-        """Answers matching requests, registered when called. The handler runs on a thread of the connection's pool."""
+    @overload
+    def wait_for_event(
+        self, event: Literal["popup"], *, predicate: Callable[[Page], bool] | None = None, timeout: Timeout = ...
+    ) -> Page: ...
+    @overload
+    def wait_for_event(
+        self, event: Literal["download"], *, predicate: Callable[[Download], bool] | None = None, timeout: Timeout = ...
+    ) -> Download: ...
+    @overload
+    def wait_for_event(
+        self, event: Literal["filechooser"], *, predicate: Callable[[FileChooser], bool] | None = None, timeout: Timeout = ...
+    ) -> FileChooser: ...
+    @overload
+    def wait_for_event(
+        self, event: Literal["websocket"], *, predicate: Callable[[WebSocket], bool] | None = None, timeout: Timeout = ...
+    ) -> WebSocket: ...
 
 class RunEvents:
     def records(self) -> EventIterator[Mapping[str, object]]:

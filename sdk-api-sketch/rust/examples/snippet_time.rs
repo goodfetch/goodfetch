@@ -2,7 +2,7 @@
 
 use std::time::Duration;
 
-use goodfetch_sdk_sketch::{ConnectOptions, Count, Error, Goodfetch, Limits, LoadState, Money};
+use goodfetch_sdk_sketch::{AriaRole, ConnectOptions, Count, Error, Goodfetch, Limits, LoadState, Money, SelectOption};
 
 async fn search_quotes() -> Result<usize, Error> {
     // Limits on this connection's work: a program may set or lower them, never raise them.
@@ -20,13 +20,16 @@ async fn search_quotes() -> Result<usize, Error> {
     page.goto("https://quotes.toscrape.com/search.aspx").timeout(Duration::from_secs(10)).await?;
 
     // Choosing an author posts the form back to search.aspx and reloads the tag list: `during` arms the waiter before driving the action (P02).
-    let (tags, ()) = page.wait_for_response("**/search.aspx").during(page.locator("#author").fill("Albert Einstein")).await?;
-    let _ = tags.status;
+    let (tags, _selected) = page
+        .wait_for_response("**/search.aspx")
+        .during(page.locator("#author").select_option([SelectOption::from("Albert Einstein")]))
+        .await?;
+    let _ = tags.status();
 
     // The runtime's own deadline: on expiry the call is dropped, which sends `$/cancel`.
     let search = page
         .wait_for_response("**/filter.aspx")
-        .during(page.get_by_role("button", "Search").click());
+        .during(page.get_by_role(AriaRole::Button.name("Search")).click());
     let _ = tokio_like_timeout(Duration::from_secs(5), search).await;
 
     let count = page.locator(".results .quote").wait_for_count(Count::at_least(1)).await?;

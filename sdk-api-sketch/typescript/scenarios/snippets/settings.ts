@@ -1,4 +1,5 @@
-// Snippet for Settings in code (#470), on golden scenarios 01, 10 and 12.
+// Snippet for Settings in code (#470), on golden scenarios 01, 10 and 12; the last two are Foxhound's,
+// shown on Collie until Crawl definition and handler context (#477) gives crawls their start verb.
 import { Goodfetch, SettingLockedError, type ExplainedSetting, type Logger } from "goodfetch";
 
 declare const log: Logger; // the program's own logger
@@ -23,6 +24,8 @@ export async function searchQuotes(): Promise<readonly ExplainedSetting[]> {
   await run.newPage({ settings: { browser: { locale: "de-DE" } } });
   // @ts-expect-error A crawl setting on a Collie Run.
   await gf.collie.start({ settings: { crawl: { payload: { maxSize: 1_024 } } } });
+  // @ts-expect-error A Run's own timeout is its `timeout` argument, one spelling (S2).
+  await gf.collie.start({ settings: { timeout: { run: 60_000 } } });
 
   // What the page actually runs with, and which layer set each value (golden scenario 10 asserts on it).
   return page.explainSettings(["timeout.action", "timeout.navigation", "browser.locale"]);
@@ -30,9 +33,10 @@ export async function searchQuotes(): Promise<readonly ExplainedSetting[]> {
 
 // A service reads no project file and passes its own environment map (golden scenario 12).
 export async function startInService(env: Readonly<Record<string, string>>): Promise<string> {
-  await using gf = await Goodfetch.connect({ logger: log, project: null, env });
+  // Every Run on this connection may last four hours unless it says otherwise.
+  await using gf = await Goodfetch.connect({ logger: log, project: null, env, settings: { timeout: { run: 4 * 60 * 60_000 } } });
   try {
-    await using run = await gf.collie.start({ settings: { timeout: { run: null } } });
+    await using run = await gf.collie.start({ timeout: null });
     return run.id;
   } catch (error) {
     // An Operator policy locked the Run's timeout: refused, never silently ignored; `limit` names the policy.

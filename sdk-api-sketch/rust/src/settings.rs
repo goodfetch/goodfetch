@@ -8,12 +8,13 @@
 //! A setting that can be cleared has `T = Option<…>`, and `None` clears it for the scope; a single
 //! call keeps `.no_timeout()` (ADR 0080). The keys below are a sample of the generated ones. A key
 //! set where no scope beneath can use it fails with `setting_not_applicable` when the scope opens.
+//! Deployment variables are no keys here: `connect` reads them from its environment map.
 
 use std::marker::PhantomData;
 use std::path::PathBuf;
 use std::time::Duration;
 
-use crate::results::{RunLayerSource, SettingValue, SettingsLayer};
+use crate::results::{RunLayerOrigin, SettingValue, SettingsLayer};
 
 /// A setting's typed key: its canonical dotted name and the type of its value.
 pub struct Setting<T> {
@@ -101,7 +102,9 @@ pub mod timeout {
     pub const SINK_WRITE: Setting<Option<Duration>> = Setting::new("timeout.sink_write");
     /// `timeout.close`.
     pub const CLOSE: Setting<Option<Duration>> = Setting::new("timeout.close");
-    /// `timeout.run`: the Run's own timeout, with no built-in default.
+    /// `timeout.run`: the default for each Run's own timeout, given at the connection, with no
+    /// built-in default. A Run's own is [`crate::Start::timeout`]; set on a Run, this key fails
+    /// with `setting_not_applicable` (S2).
     pub const RUN: Setting<Option<Duration>> = Setting::new("timeout.run");
 }
 
@@ -139,6 +142,9 @@ pub enum ColorScheme {
 
 /// `browser.*`: part of a Session's identity, fixed for its life (ADR 0021), so set where a
 /// Session opens or above it, never on a page. Playwright's names where the meaning matches (S3).
+/// A value that conflicts with an identity fixed elsewhere (a `stealth` Identity profile, an
+/// imported login, a Profile directory used in place) fails with `setting_locked`; on a Borrowed
+/// browser, any of them fails with `setting_not_applicable`.
 pub mod browser {
     use super::{ColorScheme, Geolocation, Setting, Viewport};
 
@@ -146,8 +152,7 @@ pub mod browser {
     pub const VIEWPORT: Setting<Option<Viewport>> = Setting::new("browser.viewport");
     /// `browser.device_scale_factor`.
     pub const DEVICE_SCALE_FACTOR: Setting<f64> = Setting::new("browser.device_scale_factor");
-    /// `browser.locale`. `None`: matched to the proxy exit, the `standard` Access mode's default;
-    /// under `stealth`, the Identity profile's.
+    /// `browser.locale`. `None`: matched to the proxy exit, the `standard` Access mode's default.
     pub const LOCALE: Setting<Option<String>> = Setting::new("browser.locale");
     /// `browser.timezone_id`. `None`: matched to the proxy exit, as [`LOCALE`].
     pub const TIMEZONE_ID: Setting<Option<String>> = Setting::new("browser.timezone_id");
@@ -195,13 +200,12 @@ pub mod crawl {
 pub struct ExplainedSetting {
     /// The canonical key; one this crate does not know is kept as received (G3).
     pub key: String,
-    /// `GOODFETCH_TOKEN`'s value is never shown, only that it is set; a Secret reference shows as
-    /// the reference.
+    /// A Secret reference shows as the reference.
     pub value: SettingValue,
     /// The layer that set it.
     pub layer: SettingsLayer,
     /// Set when `layer` is [`SettingsLayer::Run`].
-    pub source: Option<RunLayerSource>,
+    pub origin: Option<RunLayerOrigin>,
     /// The configuration file, when `layer` is [`SettingsLayer::Configuration`].
     pub file: Option<PathBuf>,
     /// The layer that locked or capped the value, if any.
@@ -256,14 +260,18 @@ pub struct SettingNotApplicable {
 }
 
 /// Details of `setting_locked`: a value a lower layer locked or capped, or outside a Recipe's
-/// exposed bounds; the error's `limit` names that layer and its value.
+/// exposed bounds, or a `browser.*` value that conflicts with an identity fixed elsewhere; the
+/// error's `limit` names that layer, or the setting that fixed the identity, and its value.
 #[derive(Debug, Clone)]
 #[non_exhaustive]
 pub struct SettingLocked {
     /// The key.
     pub key: String,
-    /// The layer that locked or capped it.
+    /// The layer that locked or capped it, or set the setting that fixed the identity.
     pub locked_by: SettingsLayer,
+    /// The setting that fixed a Session's identity, such as `session.source` or the Access
+    /// mode's; `None` for a lock or a cap.
+    pub fixed_by: Option<String>,
 }
 
 /// Details of `capability_unavailable`: a capability the platform cannot provide; the error's

@@ -13,10 +13,10 @@ pub mod time;
 
 pub use concurrency::{ConsoleMessage, EventStream, Record, Route, events};
 pub use data::{Dataset, Label, PathSegment, PayloadInvalid, PayloadSchemaChanged, Schema, SchemaIssue, schemars};
-pub use lifecycle::{Collie, ConnectOptions, EngineChoice, EngineInfo, EngineKind, Goodfetch, Page, Run, Start};
+pub use lifecycle::{Collie, ConnectOptions, EngineChoice, EngineInfo, EngineKind, Goodfetch, Page, Run, Session, Start};
 pub use results::{
     AiWorkResult, BlockCause, Blocked, Claim, DeadlineExceeded, Ended, EndedBy, Error, ErrorCode, ErrorDetails, ErrorGroup, ErrorTarget,
-    HandlerFailed, LimitSource, NotVerified, PartialOutput, Reported, RequestOutcome, RequestOutcomeKind, RunLayerSource,
+    HandlerFailed, LimitSource, NotVerified, PartialOutput, Reported, RequestOutcome, RequestOutcomeKind, RunLayerOrigin,
     SettingValue,
     SettingsLayer, SkipReason, StopReason, TargetDescription, TargetNotUnique, Verdict,
 };

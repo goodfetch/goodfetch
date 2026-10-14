@@ -3,7 +3,8 @@
 One `settings` keyword on each value that opens a scope (`connect()`, starting a Run, opening a Session or a page); the
 nearest scope wins and is inherited beneath it. A call takes only its task's inputs and `timeout`. There are no setters
 (G2). The types are generated from the settings schema (ADR 0028) as nested `TypedDict`s, as openai-python types its
-request parameters; this file shows a sample of its keys. A missing key: inherited. `None`: cleared, where the type
+request parameters; this file shows a sample of its keys. Deployment variables are no keys here: `connect()` reads them
+from its environment map. A missing key: inherited. `None`: cleared, where the type
 allows it. A value: set. The engine resolves the layers, so the SDK sends only what the program set.
 """
 
@@ -11,7 +12,7 @@ from dataclasses import dataclass
 from datetime import timedelta
 from typing import Literal, NotRequired, TypeAlias, TypedDict, final
 
-from goodfetch._results import ProgramError, RefusedError, RunLayerSource, SettingsLayer, UnavailableError
+from goodfetch._results import ProgramError, RefusedError, RunLayerOrigin, SettingsLayer, UnavailableError
 
 class TimeoutSettings(TypedDict, total=False):
     """`timeout.*`: ADR 0080's phases, one family. `None` clears a phase's timeout for the whole scope."""
@@ -25,7 +26,20 @@ class TimeoutSettings(TypedDict, total=False):
     sink_write: timedelta | None
     close: timedelta | None
     run: timedelta | None
-    """The Run's own timeout; its built-in default is none."""
+    """The default for each Run's own timeout, given at the connection; its built-in default is none. A Run's own is
+    starting it with `timeout`."""
+
+class RunTimeoutSettings(TypedDict, total=False):
+    """The phases a Run or a Session can set: not `run`, which starting the Run spells as its `timeout` (S2)."""
+
+    connect: timedelta | None
+    action: timedelta | None
+    navigation: timedelta | None
+    wait: timedelta | None
+    handler: timedelta | None
+    hook: timedelta | None
+    sink_write: timedelta | None
+    close: timedelta | None
 
 class PageTimeoutSettings(TypedDict, total=False):
     """The phases a page can set."""
@@ -45,12 +59,14 @@ class Geolocation(TypedDict):
 
 class BrowserSettings(TypedDict, total=False):
     """`browser.*`: part of a Session's identity, fixed for its life (ADR 0021), so set where a Session opens or above
-    it, never on a page. Playwright's names where the meaning matches (S3)."""
+    it, never on a page. Playwright's names where the meaning matches (S3). A value that conflicts with an identity fixed
+    elsewhere (a `stealth` Identity profile, an imported login, a Profile directory used in place) is refused with
+    `setting_locked`."""
 
     viewport: Viewport | None
     device_scale_factor: float
     locale: str | None
-    """`None`: matched to the proxy exit, the `standard` Access mode's default. Under `stealth`, the Identity profile's."""
+    """`None`: matched to the proxy exit, the `standard` Access mode's default."""
     timezone_id: str | None
     """`None`: matched to the proxy exit, as `locale`."""
     color_scheme: Literal["light", "dark", "no-preference"]
@@ -83,17 +99,17 @@ class Settings(TypedDict, total=False):
     crawl: CrawlSettings
 
 class RunSettings(TypedDict, total=False):
-    """A Collie Run's settings: no `crawl.*`. A setting the type cannot rule out, such as `timeout.handler`, is refused
-    with `setting_not_applicable`."""
+    """A Collie Run's settings: no `crawl.*` and no `timeout.run`. A setting the type cannot rule out, such as
+    `timeout.handler`, is refused with `setting_not_applicable`."""
 
-    timeout: TimeoutSettings
+    timeout: RunTimeoutSettings
     browser: BrowserSettings
     network: NetworkSettings
 
 class SessionSettings(TypedDict, total=False):
-    """A Session's settings."""
+    """A Session's settings. On a Borrowed browser, any `browser.*` value is refused with `setting_not_applicable`."""
 
-    timeout: TimeoutSettings
+    timeout: RunTimeoutSettings
     browser: BrowserSettings
     network: NetworkSettings
 
@@ -136,9 +152,9 @@ class ExplainedSetting:
     key: SettingKey | str
     """A key this SDK does not know is kept as received (G3)."""
     value: object
-    """`GOODFETCH_TOKEN`'s value is never shown, only that it is set; a Secret reference shows as the reference."""
+    """A Secret reference shows as the reference."""
     layer: SettingsLayer
-    source: RunLayerSource | None
+    origin: RunLayerOrigin | None
     """Set when `layer` is `run`."""
     file: str | None
     """The configuration file, when `layer` is `configuration`."""
@@ -199,10 +215,15 @@ class SettingNotApplicableError(ProgramError):
 class SettingLockedDetails:
     key: str
     locked_by: SettingsLayer
+    """The layer that locked or capped the value, or set the setting that fixed the identity."""
+    fixed_by: str | None
+    """The setting that fixed a Session's identity, such as `session.source` or the Access mode's; `None` for a lock or a
+    cap."""
 
 @final
 class SettingLockedError(RefusedError):
-    """A value a lower layer locked or capped, or outside a Recipe's exposed bounds; `limit` names that layer and its
+    """A value a lower layer locked or capped, or outside a Recipe's exposed bounds, or a `browser.*` value that
+    conflicts with an identity fixed elsewhere; `limit` names that layer, or the setting that fixed the identity, and its
     value."""
 
     @property

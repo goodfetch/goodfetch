@@ -47,8 +47,8 @@ export type ErrorCode = KnownErrorCode | (string & {});
 /** The settings layers of ADR 0028, lowest first. A program that is not a Recipe sets the `run` layer (ADR 0083). */
 export type SettingsLayer = "default" | "operator_policy" | "configuration" | "recipe" | "run";
 
-/** What set a value at the `run` layer, highest first: an explicit value beats the environment (ADR 0083). */
-export type RunLayerSource = "argument" | "settings" | "flag" | "form" | "environment";
+/** What set a value at the `run` layer: an explicit value beats the environment, and a call's argument beats `settings` (ADR 0083). */
+export type RunLayerOrigin = "argument" | "settings" | "flag" | "form" | "environment";
 
 /** Where the limit that ended a call came from (G6). */
 export interface LimitSource {
@@ -58,7 +58,7 @@ export interface LimitSource {
   /** The layer that set the value. */
   readonly layer: SettingsLayer;
   /** Set when `layer` is `run`: a call's own argument, a `settings` option, a CLI flag, a form or the environment (ADRs 0080, 0083). */
-  readonly source?: RunLayerSource;
+  readonly origin?: RunLayerOrigin;
 }
 
 /** What a call acted on, rendered by the engine in this SDK's language and kept structured too. */

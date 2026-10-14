@@ -103,11 +103,11 @@ pub enum SettingsLayer {
     Run,
 }
 
-/// What set a value at the `Run` layer, highest first: an explicit value beats the environment
-/// (ADR 0083).
+/// What set a value at the `Run` layer: an explicit value beats the environment, and a call's
+/// argument beats a `Settings` value (ADR 0083).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[non_exhaustive]
-pub enum RunLayerSource {
+pub enum RunLayerOrigin {
     /// A call's own argument.
     Argument,
     /// A [`Settings`](crate::settings::Settings) value.
@@ -145,7 +145,7 @@ pub struct LimitSource {
     pub layer: SettingsLayer,
     /// Set when `layer` is [`SettingsLayer::Run`]: a call's own argument, a `Settings` value, a
     /// CLI flag, a form or the environment (ADRs 0080, 0083).
-    pub source: Option<RunLayerSource>,
+    pub origin: Option<RunLayerOrigin>,
 }
 
 /// What a call acted on, rendered by the engine in Rust and kept structured too.

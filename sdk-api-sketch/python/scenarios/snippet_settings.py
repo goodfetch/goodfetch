@@ -1,4 +1,8 @@
-"""Snippet for Settings in code (#470), on golden scenarios 01, 10 and 12."""
+"""Snippet for Settings in code (#470), on golden scenarios 01, 10 and 12.
+
+The last two are Foxhound's, shown on Collie until Crawl definition and handler context (#477) gives crawls their start
+verb.
+"""
 
 import logging
 from collections.abc import Mapping
@@ -32,9 +36,10 @@ async def search_quotes() -> list[ExplainedSetting]:
 
 def start_in_service(env: Mapping[str, str]) -> str:
     """A service reads no project file and passes its own environment map (golden scenario 12)."""
-    with Goodfetch.connect(project=None, env=env) as gf:
+    # Every Run on this connection may last four hours unless it says otherwise.
+    with Goodfetch.connect(project=None, env=env, settings={"timeout": {"run": timedelta(hours=4)}}) as gf:
         try:
-            with gf.collie.start(settings={"timeout": {"run": None}}) as run:
+            with gf.collie.start(timeout=None) as run:
                 return run.id
         except SettingLockedError as error:
             # An Operator policy locked the Run's timeout: refused, never silently ignored; `limit` names the policy.

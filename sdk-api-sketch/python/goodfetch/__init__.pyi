@@ -82,7 +82,7 @@ from goodfetch._results import RequestOutcome as RequestOutcome
 from goodfetch._results import RequestOutcomeUnknown as RequestOutcomeUnknown
 from goodfetch._results import RequestSkipped as RequestSkipped
 from goodfetch._results import RequestSucceeded as RequestSucceeded
-from goodfetch._results import RunLayerSource as RunLayerSource
+from goodfetch._results import RunLayerOrigin as RunLayerOrigin
 from goodfetch._results import SettingsLayer as SettingsLayer
 from goodfetch._results import SkipReason as SkipReason
 from goodfetch._results import Stopped as Stopped
@@ -102,6 +102,7 @@ from goodfetch._settings import PageSettings as PageSettings
 from goodfetch._settings import PageTimeoutSettings as PageTimeoutSettings
 from goodfetch._settings import PayloadSettings as PayloadSettings
 from goodfetch._settings import RunSettings as RunSettings
+from goodfetch._settings import RunTimeoutSettings as RunTimeoutSettings
 from goodfetch._settings import SessionSettings as SessionSettings
 from goodfetch._settings import SettingInvalidDetails as SettingInvalidDetails
 from goodfetch._settings import SettingInvalidError as SettingInvalidError

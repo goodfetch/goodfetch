@@ -3,11 +3,12 @@
 // Session or a page); the nearest scope wins and is inherited beneath it. A call takes only its
 // task's inputs and `timeout`. There are no setters (G2).
 // The types are generated from the settings schema (ADR 0028), each segment of a key camelCased;
-// this file shows a sample of its keys. Left out: inherited. `null`: cleared, where the type allows
+// this file shows a sample of its keys. Deployment variables are no keys here: `connect()` reads
+// them from its environment map. Left out: inherited. `null`: cleared, where the type allows
 // it. A value: set. The engine resolves the layers, so the SDK sends only what the program set.
 
 import type { CallOptions, Timeout } from "./time.js";
-import type { ProgramError, RefusedError, RunLayerSource, SettingsLayer, UnavailableError } from "./results.js";
+import type { ProgramError, RefusedError, RunLayerOrigin, SettingsLayer, UnavailableError } from "./results.js";
 
 /** `timeout.*`: ADR 0080's phases, one family. `null` clears a phase's timeout for the whole scope. */
 export interface TimeoutSettings {
@@ -19,7 +20,7 @@ export interface TimeoutSettings {
   readonly hook?: Timeout;
   readonly sinkWrite?: Timeout;
   readonly close?: Timeout;
-  /** The Run's own timeout; its built-in default is none. */
+  /** The default for each Run's own timeout, given at the connection; its built-in default is none. A Run's own is starting it with `timeout`. */
   readonly run?: Timeout;
 }
 
@@ -36,12 +37,14 @@ export interface Geolocation {
 
 /**
  * `browser.*`: part of a Session's identity, fixed for its life (ADR 0021), so set where a Session
- * opens or above it, never on a page. Playwright's names where the meaning matches (S3).
+ * opens or above it, never on a page. Playwright's names where the meaning matches (S3). A value
+ * that conflicts with an identity fixed elsewhere (a `stealth` Identity profile, an imported login,
+ * a Profile directory used in place) is refused with `setting_locked`.
  */
 export interface BrowserSettings {
   readonly viewport?: Viewport | null;
   readonly deviceScaleFactor?: number;
-  /** `null`: matched to the proxy exit, the `standard` Access mode's default. Under `stealth`, the Identity profile's. */
+  /** `null`: matched to the proxy exit, the `standard` Access mode's default. */
   readonly locale?: string | null;
   /** `null`: matched to the proxy exit, as `locale`. */
   readonly timezoneId?: string | null;
@@ -77,11 +80,19 @@ export interface Settings {
   readonly crawl?: CrawlSettings;
 }
 
-/** A Collie Run's settings: no `crawl.*`. A setting the type cannot rule out, such as `timeout.handler`, is refused with `setting_not_applicable`. */
-export type RunSettings = Omit<Settings, "crawl">;
+/**
+ * A Collie Run's settings: no `crawl.*`, and no `timeout.run`, which starting the Run spells as its
+ * `timeout` (S2). A setting the type cannot rule out, such as `timeout.handler`, is refused with
+ * `setting_not_applicable`.
+ */
+export interface RunSettings {
+  readonly timeout?: Omit<TimeoutSettings, "run">;
+  readonly browser?: BrowserSettings;
+  readonly network?: NetworkSettings;
+}
 
-/** A Session's settings. */
-export type SessionSettings = Omit<Settings, "crawl">;
+/** A Session's settings. On a Borrowed browser, any `browser.*` value is refused with `setting_not_applicable`. */
+export type SessionSettings = RunSettings;
 
 /** A page's settings: no part of the Session's identity. */
 export interface PageSettings {
@@ -118,11 +129,11 @@ export type SettingKey =
 export interface ExplainedSetting {
   /** A key this SDK does not know is kept as received (G3). */
   readonly key: SettingKey | (string & {});
-  /** `GOODFETCH_TOKEN`'s value is never shown, only that it is set; a Secret reference shows as the reference. */
+  /** A Secret reference shows as the reference. */
   readonly value: unknown;
   readonly layer: SettingsLayer;
   /** Set when `layer` is `run`. */
-  readonly source?: RunLayerSource;
+  readonly origin?: RunLayerOrigin;
   /** The configuration file, when `layer` is `configuration`. */
   readonly file?: string;
   /** The layer that locked or capped the value, if any. */
@@ -178,10 +189,21 @@ export declare class SettingNotApplicableError extends ProgramError {
   readonly details: SettingNotApplicableDetails;
 }
 
-/** A value a lower layer locked or capped, or outside a Recipe's exposed bounds; `limit` names that layer and its value. */
+export interface SettingLockedDetails {
+  readonly key: string;
+  /** The layer that locked or capped the value, or set the setting that fixed the identity. */
+  readonly lockedBy: SettingsLayer;
+  /** The setting that fixed a Session's identity, such as `session.source` or the Access mode's; `null` for a lock or a cap. */
+  readonly fixedBy: string | null;
+}
+/**
+ * A value a lower layer locked or capped, or outside a Recipe's exposed bounds, or a `browser.*`
+ * value that conflicts with an identity fixed elsewhere; `limit` names that layer, or the setting
+ * that fixed the identity, and its value.
+ */
 export declare class SettingLockedError extends RefusedError {
   readonly code: "setting_locked";
-  readonly details: { readonly key: string; readonly lockedBy: SettingsLayer };
+  readonly details: SettingLockedDetails;
 }
 
 export interface CapabilityUnavailableDetails {

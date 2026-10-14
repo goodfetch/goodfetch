@@ -1,4 +1,6 @@
-//! Snippet for Settings in code (#470), on golden scenarios 01, 10 and 12.
+//! Snippet for Settings in code (#470), on golden scenarios 01, 10 and 12; the last two are
+//! Foxhound's, shown on Collie until Crawl definition and handler context (#477) gives crawls
+//! their start verb.
 
 use std::time::Duration;
 
@@ -24,8 +26,9 @@ async fn search_quotes() -> Result<Vec<ExplainedSetting>, Error> {
             },
         )
         .set(browser::LOCALE, String::from("en-GB"));
-    let run = gf.collie().start().settings(identity).await?;
-    let page = run
+    let run = gf.collie().start().await?;
+    let session = run.new_session().settings(identity).await?;
+    let page = session
         .new_page()
         .settings(Settings::new().set(timeout::ACTION, Duration::from_secs(10)))
         .await?;
@@ -48,13 +51,15 @@ async fn search_quotes() -> Result<Vec<ExplainedSetting>, Error> {
 
 /// A service reads no project file and passes its own environment map (golden scenario 12).
 async fn start_in_service(env: Vec<(String, String)>) -> Result<String, Error> {
-    let gf = Goodfetch::connect(ConnectOptions::default().no_project().env(env)).await?;
-    match gf
-        .collie()
-        .start()
-        .settings(Settings::new().set(timeout::RUN, None))
-        .await
-    {
+    // Every Run on this connection may last four hours unless it says otherwise.
+    let defaults = Settings::new().set(timeout::RUN, Duration::from_secs(4 * 60 * 60));
+    let options = ConnectOptions::default()
+        .no_project()
+        .env(env)
+        .settings(defaults);
+    let gf = Goodfetch::connect(options).await?;
+    // A Run's own timeout is its start's, one spelling (S2).
+    match gf.collie().start().no_timeout().await {
         Ok(run) => Ok(run.id().to_owned()),
         // An Operator policy locked the Run's timeout: refused, never silently ignored.
         Err(error) if error.code() == &ErrorCode::SettingLocked => {

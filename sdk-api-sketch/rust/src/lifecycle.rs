@@ -122,6 +122,11 @@ pub struct EngineInfo {
     pub protocol_version: String,
     /// The project configuration file read, if any (ADR 0083).
     pub project_file: Option<PathBuf>,
+    /// The Goodfetch home the engine uses (`GOODFETCH_HOME`); `None` for a remote engine.
+    pub home: Option<PathBuf>,
+    /// The address reached (`GOODFETCH_URL` or `engine`); `None` for a local engine.
+    /// `GOODFETCH_TOKEN` never appears.
+    pub url: Option<String>,
 }
 
 /// The engine connection: the entry point. Each one is independent, and many may be open in one process.
@@ -219,7 +224,9 @@ impl Start {
         unimplemented!()
     }
 
-    /// Settings for this Run and everything opened beneath it (ADR 0083).
+    /// Settings for this Run and everything opened beneath it (ADR 0083). Its own timeout is
+    /// [`Start::timeout`] or [`Start::no_timeout`]; `timeout::RUN` here fails with
+    /// `setting_not_applicable` (S2).
     pub fn settings(self, settings: Settings) -> Self {
         let _ = settings;
         unimplemented!()
@@ -258,9 +265,49 @@ impl Run {
         unimplemented!()
     }
 
+    /// Placeholder: opening a Session is #476's; its settings are #470's.
+    pub fn new_session(&self) -> Call<Session> {
+        unimplemented!()
+    }
+
     /// The Run's effective settings, with the layer that set each; all of them when `keys` is empty.
     pub fn explain_settings(&self, keys: &[SettingKey]) -> Call<Vec<ExplainedSetting>> {
         let _ = keys;
+        unimplemented!()
+    }
+}
+
+impl Call<Session> {
+    /// Settings for the Session being opened and its pages. On a Borrowed browser, any
+    /// `browser::*` value fails with `setting_not_applicable`.
+    pub fn settings(self, settings: Settings) -> Self {
+        let _ = settings;
+        unimplemented!()
+    }
+}
+
+/// A Session of a Run. Its API is #476's. Closing it never closes a Borrowed browser.
+/// A cheap clone of one Session (ADR 0081).
+#[derive(Debug, Clone)]
+pub struct Session {
+    _private: (),
+}
+
+impl Session {
+    /// Opens a page in this Session.
+    pub fn new_page(&self) -> Call<Page> {
+        unimplemented!()
+    }
+
+    /// The Session's effective settings, with the layer that set each; all of them when `keys` is
+    /// empty.
+    pub fn explain_settings(&self, keys: &[SettingKey]) -> Call<Vec<ExplainedSetting>> {
+        let _ = keys;
+        unimplemented!()
+    }
+
+    /// Closes its pages, then the Session. Idempotent.
+    pub fn close(&self) -> Call<()> {
         unimplemented!()
     }
 }

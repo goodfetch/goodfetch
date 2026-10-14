@@ -20,6 +20,12 @@ export interface EngineInfo {
   readonly protocolVersion: string;
   /** The project configuration file read, or `null` when none was found or `project` was `null` (ADR 0083). */
   readonly projectFile: string | null;
+  /** The Goodfetch home the engine uses (`GOODFETCH_HOME`), or `null` for a remote engine. */
+  readonly home: string | null;
+  /** The engine binary started (`GOODFETCH_ENGINE_PATH`), or `null` when none was started. */
+  readonly enginePath: string | null;
+  /** The address reached (`GOODFETCH_URL` or `engine`), or `null` for a local engine. `GOODFETCH_TOKEN` never appears. */
+  readonly url: string | null;
 }
 
 /** The host's logger. `console`, pino and winston fit it. With none, the SDK is silent (G4). */

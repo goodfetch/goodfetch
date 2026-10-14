@@ -82,7 +82,7 @@ _Avoid_: extension point, hook (a Hook is one kind), slot
 
 **Hook**:
 The Plugin kind whose implementations run at a fixed stage of a request, a navigation, a page, a Record or a run's lifecycle, and may change, skip, retry or fail the work at that stage, or only observe it.
-_Avoid_: middleware (for a Hook scoped by label), callback, interceptor
+_Avoid_: middleware (for a Hook scoped by a Label), callback, interceptor
 
 **Script Hook**:
 A Hook written as a short script that the engine runs in the Script sandbox, so it can travel inside a Recipe or settings without an SDK or a process Plugin.
@@ -197,6 +197,14 @@ _Avoid_: account, organization, user (for a customer)
 **Frontier**:
 The URLs a run has discovered but not yet visited, with the list of those already visited and the rules that decide when two URLs are the same page.
 _Avoid_: queue, request list, to-do list
+
+**Label**:
+The name a crawl gives one kind of request, which picks the handler that processes it, the shape of its Payload and the Hooks scoped to it.
+_Avoid_: route (for a Label), page type (for a Label), callback (for the name)
+
+**Payload**:
+The data a program attaches to a request for its handler, owned by the program and kept apart from the engine's own fields.
+_Avoid_: userData, user_data, meta, cb_kwargs, context
 
 **Politeness**:
 The per-domain and per-proxy limits on how hard a user's runs press one site or one proxy, shared by those runs.

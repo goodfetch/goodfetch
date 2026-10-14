@@ -89,9 +89,10 @@ export interface Money {
 }
 
 /**
- * Limits (ADR 0041) a program sets for its own work, one per kind of Usage. A program may set and
- * lower them, never raise them: only a person raises a Limit. Reaching one stops the Run cleanly,
- * `stopped` and `incomplete`, and the call that hit it throws `LimitReachedError`.
+ * Limits (ADR 0041) a program sets for its own work: one per kind of Usage, plus a price. A program
+ * may set and lower them, never raise them: only a person raises a Limit. Reaching one follows
+ * ADR 0079: a call refused because a Limit is used up throws `LimitReachedError`, and AI work a Limit
+ * stops returns `ended: stopped` with the Limit by name; the Run ends `stopped` and `incomplete`.
  */
 export interface Limits {
   readonly modelTokens?: number;
@@ -100,7 +101,9 @@ export interface Limits {
   readonly browserTime?: number;
   readonly proxyBytes?: number;
   readonly paidSolves?: number;
-  /** Priced through ADR 0012's price table. */
+  /** Only caps: a Paid fetch is made only under a Limit a Client could not set (ADRs 0041, 0045). */
+  readonly paidFetches?: number;
+  /** A price, not a kind of Usage: priced through ADR 0012's price table. */
   readonly cost?: Money;
 }
 
@@ -109,6 +112,20 @@ export interface StartOptions {
   /** How long the whole Run may last. Omitted: no timeout. On expiry the Run stops with a Checkpoint, resumable. */
   readonly timeout?: Timeout;
   readonly limits?: Limits;
+}
+
+/**
+ * Details of `deadline_exceeded`. The error's `limit` names the phase's setting and its layer; a
+ * call's own `timeout` argument is that setting at the `run` layer (ADR 0028).
+ */
+export interface DeadlineExceededDetails {
+  /** The timeout that ran out, in milliseconds. */
+  readonly timeout: number;
+  readonly elapsed: number;
+  /** What the call waited for, rendered in this SDK's language. */
+  readonly waitedFor: string;
+  /** The enclosing call whose timeout ended this one, when it was not the call's own. */
+  readonly endedBy?: { readonly operation: string; readonly callId: string };
 }
 
 /** A removed name was called: its replacement is in `fix`. */

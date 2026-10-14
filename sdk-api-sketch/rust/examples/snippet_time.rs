@@ -6,8 +6,7 @@ use goodfetch_sdk_sketch::{ConnectOptions, Count, Error, Goodfetch, Limits, Load
 
 async fn search_quotes() -> Result<usize, Error> {
     // Limits on this connection's work: a program may set or lower them, never raise them.
-    let mut options = ConnectOptions::default();
-    options.limits = Limits::new().cost(Money::new("2.00", "EUR")?);
+    let options = ConnectOptions::default().limits(Limits::new().cost(Money::new("2.00", "EUR")?));
     let gf = Goodfetch::connect(options).await?;
 
     // The whole Run may last two hours; past that it stops with a Checkpoint and can be resumed.

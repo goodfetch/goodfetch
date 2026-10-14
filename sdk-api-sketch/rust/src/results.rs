@@ -49,8 +49,11 @@ pub enum ErrorCode {
     Blocked,
     /// `not_verified`, from [`AiWorkResult::require_verified`].
     NotVerified,
-    /// `deadline_exceeded`.
+    /// `deadline_exceeded`: every timeout, whatever the phase (ADR 0080).
     DeadlineExceeded,
+    /// `call_cancelled`: someone else stopped the call in flight; a dropped future of the caller's
+    /// own never sees it (ADR 0080).
+    CallCancelled,
     /// `plugin_crashed` (ADR 0033).
     PluginCrashed,
     /// `internal`.
@@ -226,6 +229,24 @@ pub enum ErrorDetails {
     Blocked(Blocked),
     /// Of `not_verified`.
     NotVerified(NotVerified),
+    /// Of `deadline_exceeded`, every timeout whatever the phase (ADR 0080).
+    DeadlineExceeded(DeadlineExceeded),
+}
+
+/// Details of `deadline_exceeded`. The error's `limit` names the phase's setting and its layer; a
+/// call's own timeout is that setting at the `run` layer (ADR 0028).
+#[derive(Debug, Clone)]
+#[non_exhaustive]
+pub struct DeadlineExceeded {
+    /// The timeout that ran out.
+    pub timeout: std::time::Duration,
+    /// How long the call ran.
+    pub elapsed: std::time::Duration,
+    /// What the call waited for, rendered in Rust.
+    pub waited_for: String,
+    /// The enclosing call whose timeout ended this one, as its operation and call ID, when it
+    /// was not the call's own.
+    pub ended_by: Option<(String, String)>,
 }
 
 /// The handler's own error, as text, since the outcome outlives the process.

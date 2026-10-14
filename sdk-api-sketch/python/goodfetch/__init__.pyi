@@ -25,9 +25,12 @@ from goodfetch._results import AiWorkResult as AiWorkResult
 from goodfetch._results import BlockCause as BlockCause
 from goodfetch._results import BlockedDetails as BlockedDetails
 from goodfetch._results import BlockedError as BlockedError
+from goodfetch._results import CallCancelledError as CallCancelledError
 from goodfetch._results import ClosedError as ClosedError
+from goodfetch._results import DeadlineExceededDetails as DeadlineExceededDetails
 from goodfetch._results import DeadlineExceededError as DeadlineExceededError
 from goodfetch._results import Ended as Ended
+from goodfetch._results import EndedBy as EndedBy
 from goodfetch._results import ErrorCode as ErrorCode
 from goodfetch._results import ErrorGroup as ErrorGroup
 from goodfetch._results import ErrorTarget as ErrorTarget

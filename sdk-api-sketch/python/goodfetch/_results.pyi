@@ -8,6 +8,7 @@ The codes below are a representative subset: each area's spec lists its codes, t
 
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
+from datetime import timedelta
 from typing import Generic, Literal, TypeAlias, TypeVar, final
 
 ErrorGroup: TypeAlias = Literal["program", "refused", "page", "model", "deadline_exceeded", "unavailable", "internal"]
@@ -16,6 +17,7 @@ ErrorGroup: TypeAlias = Literal["program", "refused", "page", "model", "deadline
 KnownErrorCode: TypeAlias = Literal[
     "closed",
     "removed",
+    "call_cancelled",
     "handler_failed",
     "hook_failed",
     "limit_reached",
@@ -111,10 +113,38 @@ class ModelError(GoodfetchError):
     """The Model provider's answer was unusable. Change the model or the strategy."""
 
 class DeadlineExceededError(GoodfetchError):
-    """The deadline passed. Raise it, or wait for the right thing; deadlines are #467's.
+    """The deadline passed. Raise the timeout its `limit` names, or wait for the right thing (ADR 0080).
 
-    A code named like its group (`deadline_exceeded`, `internal`) shares the group's class.
+    A code named like its group (`deadline_exceeded`, `internal`) shares the group's class. Every timeout is
+    the code `deadline_exceeded`, whatever the phase.
     """
+
+    @property
+    def details(self) -> DeadlineExceededDetails: ...
+
+@final
+@dataclass(frozen=True, kw_only=True)
+class EndedBy:
+    """The enclosing call whose timeout ended this one."""
+
+    operation: str
+    call_id: str
+
+@final
+@dataclass(frozen=True, kw_only=True)
+class DeadlineExceededDetails:
+    """Details of `deadline_exceeded`.
+
+    The error's `limit` names the phase's setting and its layer; a call's own `timeout` argument is that
+    setting at the `run` layer (ADR 0028).
+    """
+
+    timeout: timedelta
+    elapsed: timedelta
+    waited_for: str
+    """What the call waited for, rendered in Python."""
+    ended_by: EndedBy | None
+    """The enclosing call whose timeout ended this one, when it was not the call's own."""
 
 class UnavailableError(GoodfetchError):
     """Something Goodfetch depends on is unreachable or gone. Usually retryable: retry or fix the setup."""
@@ -126,6 +156,14 @@ class InternalError(GoodfetchError):
 
 @final
 class ClosedError(ProgramError): ...
+
+@final
+class CallCancelledError(UnavailableError):
+    """Someone else stopped the call in flight: a person, another Client, or the program closing a parent value.
+
+    Not retryable; `observed` says who. The caller's own cancellation propagates `asyncio.CancelledError`
+    instead and never raises this (ADR 0080).
+    """
 
 @final
 @dataclass(frozen=True, kw_only=True)

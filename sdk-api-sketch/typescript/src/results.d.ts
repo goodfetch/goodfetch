@@ -4,6 +4,8 @@
 // The codes below are a representative subset: each area's spec lists its codes, their groups
 // and their details in goodfetch-protocol, and codegen writes one class per code.
 
+import type { DeadlineExceededDetails } from "./time.js";
+
 /** A group of Error codes sharing one remedy, carried on the wire as the JSON-RPC numeric class. */
 export type ErrorGroup =
   | "program"
@@ -18,6 +20,7 @@ export type ErrorGroup =
 export type KnownErrorCode =
   | "closed"
   | "removed"
+  | "call_cancelled"
   | "handler_failed"
   | "hook_failed"
   | "limit_reached"
@@ -98,6 +101,8 @@ export declare class ModelError extends GoodfetchError {
  * A code named like its group (`deadline_exceeded`, `internal`) shares the group's class. */
 export declare class DeadlineExceededError extends GoodfetchError {
   readonly group: "deadline_exceeded";
+  /** Every timeout is the code `deadline_exceeded`, whatever the phase (ADR 0080). */
+  readonly details: DeadlineExceededDetails;
 }
 /** Something Goodfetch depends on is unreachable or gone. Usually retryable: retry or fix the setup. */
 export declare class UnavailableError extends GoodfetchError {
@@ -112,6 +117,15 @@ export declare class InternalError extends GoodfetchError {
 
 export declare class ClosedError extends ProgramError {
   readonly code: "closed";
+}
+
+/**
+ * Someone else stopped the call in flight: a person, another Client, or the program closing a
+ * parent value. Not retryable; `observed` says who. The caller's own abort rejects with
+ * `signal.reason` instead and never raises this (ADR 0080).
+ */
+export declare class CallCancelledError extends UnavailableError {
+  readonly code: "call_cancelled";
 }
 
 /** Details of `handler_failed`: the user's own exception, as text, since the outcome outlives the process. */

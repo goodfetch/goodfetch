@@ -91,10 +91,11 @@ class Money:
 @final
 @dataclass(frozen=True, kw_only=True)
 class Limits:
-    """Limits (ADR 0041) a program sets for its own work, one per kind of Usage.
+    """Limits (ADR 0041) a program sets for its own work: one per kind of Usage, plus a price.
 
-    A program may set and lower them, never raise them: only a person raises a Limit. Reaching one stops the
-    Run cleanly, `stopped` and `incomplete`, and the call that hit it raises `LimitReachedError`.
+    A program may set and lower them, never raise them: only a person raises a Limit. Reaching one follows
+    ADR 0079: a call refused because a Limit is used up raises `LimitReachedError`, and AI work a Limit stops
+    returns `Stopped` with the Limit by name; the Run ends `stopped` and `incomplete`.
     """
 
     model_tokens: int | None = None
@@ -103,8 +104,10 @@ class Limits:
     """Browser time of Usage, not elapsed time: that is the Run's `timeout`."""
     proxy_bytes: int | None = None
     paid_solves: int | None = None
+    paid_fetches: int | None = None
+    """Only caps: a Paid fetch is made only under a Limit a Client could not set (ADRs 0041, 0045)."""
     cost: Money | None = None
-    """Priced through ADR 0012's price table."""
+    """A price, not a kind of Usage: priced through ADR 0012's price table."""
 
 class RemovedError(ProgramError):
     """The Error code `removed`: a removed name was called, and `fix` names its replacement."""

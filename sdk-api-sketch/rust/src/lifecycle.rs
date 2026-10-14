@@ -38,10 +38,28 @@ pub enum EngineChoice {
 pub struct ConnectOptions {
     /// Which engine to reach.
     pub engine: EngineChoice,
-    /// How long starting or finding the engine and `hello` may take.
-    pub timeout: Timeout,
-    /// Limits on this Client connection's work (ADR 0041), lowered or set by the program itself.
-    pub limits: Limits,
+    #[expect(dead_code, reason = "a signatures-only sketch: the runtime reads it")]
+    timeout: Timeout,
+    #[expect(dead_code, reason = "a signatures-only sketch: the runtime reads it")]
+    limits: Limits,
+}
+
+impl ConnectOptions {
+    /// How long starting or finding the engine and `hello` may take; by default, the connect
+    /// phase's setting.
+    pub fn timeout(self, timeout: Duration) -> Self {
+        Self { timeout: Timeout::After(timeout), ..self }
+    }
+
+    /// No timeout for connecting.
+    pub fn no_timeout(self) -> Self {
+        Self { timeout: Timeout::Never, ..self }
+    }
+
+    /// Limits on this Client connection's work (ADR 0041), set or lowered by the program itself.
+    pub fn limits(self, limits: Limits) -> Self {
+        Self { limits, ..self }
+    }
 }
 
 /// The kind of engine a connection reached.

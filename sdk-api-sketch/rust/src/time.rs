@@ -15,16 +15,15 @@ use std::time::Duration;
 
 use crate::results::Error;
 
-/// A call's timeout, in three states.
+/// A call's timeout, in three states, set only through `.timeout(d)` and `.no_timeout()`.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
-#[non_exhaustive]
-pub enum Timeout {
+pub(crate) enum Timeout {
     /// The setting's default for the call's phase.
     #[default]
     Default,
     /// No timeout, asked for explicitly.
     Never,
-    /// At most this long. A zero duration fails with a program error naming [`Timeout::Never`].
+    /// At most this long. A zero duration fails with a program error naming `.no_timeout()`.
     After(Duration),
 }
 
@@ -258,11 +257,12 @@ impl Money {
     }
 }
 
-/// Limits (ADR 0041) a program sets for its own work, one per kind of Usage.
+/// Limits (ADR 0041) a program sets for its own work: one per kind of Usage, plus a price.
 ///
 /// A program may set and lower them, never raise them: only a person raises a Limit. Reaching one
-/// stops the Run cleanly, `stopped` and `incomplete`, and the call that hit it fails with
-/// `limit_reached`.
+/// follows ADR 0079: a call refused because a Limit is used up fails with `limit_reached`, and AI
+/// work a Limit stops returns `Ended::Stopped` with the Limit by name; the Run ends `stopped` and
+/// `incomplete`.
 #[derive(Debug, Clone, Default)]
 #[expect(dead_code, reason = "a signatures-only sketch: the engine reads the Limits")]
 pub struct Limits {
@@ -271,6 +271,7 @@ pub struct Limits {
     browser_time: Option<Duration>,
     proxy_bytes: Option<u64>,
     paid_solves: Option<u64>,
+    paid_fetches: Option<u64>,
     cost: Option<Money>,
 }
 
@@ -305,7 +306,13 @@ impl Limits {
         Self { paid_solves: Some(solves), ..self }
     }
 
-    /// A price cap, through ADR 0012's price table.
+    /// Paid fetches. Only caps: a Paid fetch is made only under a Limit a Client could not set
+    /// (ADRs 0041, 0045).
+    pub fn paid_fetches(self, fetches: u64) -> Self {
+        Self { paid_fetches: Some(fetches), ..self }
+    }
+
+    /// A price, not a kind of Usage: priced through ADR 0012's price table.
     pub fn cost(self, cost: Money) -> Self {
         Self { cost: Some(cost), ..self }
     }

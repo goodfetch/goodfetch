@@ -1,0 +1,76 @@
+# An SDK program opens an explicit engine connection and closes only what it started
+
+A program reaches Goodfetch through one value it opens and holds: an engine connection, `Goodfetch`, made by `connect()`. Everything else (Runs, Sessions, Pages, borrows) hangs from it in a tree, and each value closes its children and nothing it did not start. The SDK is a guest in the program: many connections per process, nothing done at import, no signal handler, logs only through the host's logging. Competitors fail here more than anywhere else in their lifecycle: Scrapy's `ReactorNotRestartable` (54 Stack Overflow questions, 228 votes), Browser Use killing a browser it was handed, Playwright's logs that cannot reach Python's `logging` (#6465, +82), and Rust drivers whose `Drop` blocks or panics. Decided in [Entry points and lifecycle](https://github.com/goodfetch/automan/issues/465), on the map [The SDK API of Collie and Foxhound](https://github.com/goodfetch/automan/issues/461), on the evidence of the [research on competitors' APIs](https://github.com/goodfetch/automan/blob/research/consumer-api/rnd/research/2026-10-14-consumer-api.md) (pain 4; [browser drivers](https://github.com/goodfetch/automan/blob/research/consumer-api/rnd/research/research_notes/Consumer%20API%20of%20competitors/browser-drivers.md) P3, P12 and Rust P1, P7; [crawl frameworks](https://github.com/goodfetch/automan/blob/research/consumer-api/rnd/research/research_notes/Consumer%20API%20of%20competitors/crawl-frameworks.md) §6.1 and §6.18; [AI browser automation](https://github.com/goodfetch/automan/blob/research/consumer-api/rnd/research/research_notes/Consumer%20API%20of%20competitors/ai-browser-automation.md) §2.1, §2.2 and §6 rows 5 and 17) and of the [SDK design guidelines research](https://github.com/goodfetch/automan/blob/research/sdk-design-guidelines/rnd/research/2026-10-14-sdk-design-guidelines.md) (§1.2, §1.5, §3.1, §4.1). Principles are cited by their IDs in [ADR 0077](0077-the-sdk-api-follows-eight-guarantees-and-four-ranked-shape-rules.md). Import paths stay placeholders until [Goodfetch products: Collie and Foxhound as separately installable products](https://github.com/goodfetch/automan/issues/447) settles them.
+
+## Decision
+
+### The entry point
+
+- **One explicit async factory.** TypeScript `await Goodfetch.connect(options?)`, Python `AsyncGoodfetch.connect(...)` and `Goodfetch.connect(...)` (sync), Rust `Goodfetch::connect(options).await`. It starts or finds the engine and finishes `hello` before it returns, so a missing binary or a refused version fails there, never at some later first call (G6). Collie and Foxhound are reached from the connection (`gf.collie`, `gf.foxhound`) with no I/O (G2). The name follows `OpenAI` and `Stagehand` (S3); `Engine` would mislead, since closing it never stops a Daemon, and `Client` is the glossary's whole program. The Python pair follows Stainless's `OpenAI`/`AsyncOpenAI`; how the sync API runs is [Concurrency model per language](https://github.com/goodfetch/automan/issues/468)'s.
+- **Which engine.** An `engine` option: `auto` by default, which follows ADR 0024 (a Daemon when one is configured or running, otherwise an Attached engine; in Rust, the linked engine), or `attached`, `daemon`, `linked` (Rust only), or an address with a token for an Exposed Daemon or Goodfetch Cloud. `gf.engine` reports the kind reached, the engine version and the protocol version, and the choice is logged at info (G6). Whether environment variables may set it is [Settings in code](https://github.com/goodfetch/automan/issues/470)'s.
+- **No one-call helper here.** G2 allows a helper that connects, does one task and closes. A verb's own ticket may add one only when a golden scenario shows it earns its place, its docs say it starts an engine, and it is built on `connect()` (S2).
+
+### What a program holds
+
+- **Connection → Run → Session → Page.** The Run is always a value the program opens (`gf.collie.start(…)`, a crawl in Foxhound), never created behind a Page, because Limits, Usage, the Run trace and Checkpoints hang from it (G2, S2). The verbs that start and resume a Run are [The Run in code](https://github.com/goodfetch/automan/issues/478)'s; whether a Run has a default Session is [Sessions, logins, Human pause and secrets in code](https://github.com/goodfetch/automan/issues/476)'s; pages, contexts and frames as values are [Collie's page API](https://github.com/goodfetch/automan/issues/472)'s.
+- **`borrow` is called on the Run.** `run.borrow(page)` returns a Goodfetch Page and `run.borrow(browser)` a Session in the browser's default context, both on ADR 0056's `client_browser` source. Closing the returned value, or the Run, ends the borrow; the user's page and browser are never closed (G4). ADR 0056's relay, its refusals and its rules are unchanged. The Rust crate keeps `cdp_url`.
+
+### Closing
+
+- **Every disposable value** has the language's scoped form and a first-class `close()`: `Symbol.asyncDispose` for `await using` in TypeScript (`close()` stays first-class, since Node 22 has no `await using`), `async with` and `with` in Python, `close(&self).await -> Result` in Rust, through `&self` so it works through an `Arc`.
+- `close()` is idempotent. Any call on a closed value fails with the Error code `closed`. A value never reopens: `connect()` again. Closing a parent closes its children first and waits for them, along ADR 0038's cancellation tree; its deadline is [Time, waits, deadlines, cancellation and budgets](https://github.com/goodfetch/automan/issues/467)'s.
+- **What each `close()` releases:**
+
+  | Value | `close()` |
+  |---|---|
+  | Page | Closes the tab Goodfetch opened; on a Borrowed browser it never touches the person's tabs (ADR 0056). |
+  | Session | Closes its pages and browser context; a browser the engine launched goes back to the governor (ADR 0040); a Borrowed browser is never closed. |
+  | Run | A finished Run is released. An unfinished one is stopped: in-flight work is cancelled, a Checkpoint is written, and it ends with Lifecycle `stopped` and Completeness `incomplete` as an abort by its Client (ADR 0029), resumable by its ID. It never waits for a crawl to finish. |
+  | Connection | Cancels in-flight calls, closes every Run it opened and ends every borrow; then an Attached engine checkpoints and exits, and `close()` waits for it, while a Daemon is only disconnected. |
+
+- **A failed close raises** a typed error, never swallowed (G1): in TypeScript it arrives as a `SuppressedError` when `await using` is already unwinding from another error, in Python as a chained exception.
+- **A Run belongs to the connection that started it.** A Client crash re-queues its leased work items when their leases expire (ADR 0003); a Run with no Client left to serve its handlers checkpoints and waits for its script (ADR 0031). A Run with no handlers in the program (a Recipe run or a code-free catalog run) may be started detached on a Daemon or Goodfetch Cloud, and then outlives the connection; detaching on an Attached engine, which dies with its connection, is refused with a typed Error code. The option's spelling is The Run in code's.
+
+### A guest in the program (G4)
+
+- **Many connections.** Each `connect()` is independent, with its own Attached engine and settings; sharing an engine is the Daemon's job, never a process-wide instance (G2). `connect()` works again after `close()`. Two connections in one process have two resource governors (ADR 0040).
+- **Nothing at import.** Importing an SDK starts, configures and patches nothing: no logging setup, no event-loop patch, no `nest_asyncio`.
+- **Forks.** A connection belongs to the process that opened it; a forked child that uses it gets a typed Error code telling it to connect itself. `workers=N` (ADR 0024) already does so.
+- **Notebooks.** The async API runs under a notebook's running loop. Whether the sync API runs inside a running loop is Concurrency model per language's.
+- **Signals.** An SDK installs no signal handler and no `atexit` hook. It starts its Attached engine in a process group of its own (`setsid` on macOS and Linux, `CREATE_NEW_PROCESS_GROUP` on Windows), so a terminal's Ctrl+C reaches only the host, whose unwinding closes the connection and checkpoints. If the host dies, ADR 0024's parent-death rules still stop the engine.
+
+### Logs
+
+- **Python:** loggers under `goodfetch`: `goodfetch.client` for the SDK's runtime and `goodfetch.engine.<area>` for what the engine relays. The SDK adds only a `NullHandler` and never touches handlers, levels or the root logger. Deprecations (ADR 0030) go through `warnings.warn`.
+- **TypeScript:** a `logger` option taking `{ debug, info, warn, error }`, which `console`, pino and winston fit; with none, the SDK is silent. Deprecations go through `process.emitWarning`, the host's warning channel.
+- **Rust:** `tracing` events under `goodfetch::…` targets; the crate never installs a subscriber.
+- **Every SDK:** logger names and targets are part of the SDK API under semver, message text is not. An expected outcome is never logged at error level (G1).
+- **The engine's logs** reach a Client as log events of its own connection and runs, which area 3's spec already classes as telemetry: coalesced under backpressure with a `dropped` count, never slowing a run. The engine filters them at a level the SDK sets from the host logger's enabled level, and the SDK re-emits them under `goodfetch.engine.*`. A Daemon keeps its own log.
+- **An Attached engine's stderr** is piped, never inherited. The SDK re-emits each line through the host logger at warning level, which carries ADR 0030's age notice, and keeps the last 64 KiB to attach to the error raised when the engine exits unexpectedly (G6).
+
+### Rust
+
+- **`Drop` never blocks and never fails** (C-DTOR-FAIL, C-DTOR-BLOCK). On a value not closed, it fires the cancellation tree without waiting, emits a `tracing` warning, and leaves the rest to the engine; Runs resume from their last Checkpoint.
+- **A scoped helper** `Goodfetch::scope(options, async |gf| { … }).await` opens the connection, lends it to the closure, and closes it on every return and error, after thirtyfour's `run_browser_test`.
+- **Child processes** the crate starts (the `goodfetch` binary for the Script sandbox and `plugin-shim`, ADR 0024) use `kill_on_drop(true)`.
+
+## Considered Options
+
+- **A plain constructor that starts the engine on the first call**, as OpenAI's and httpx's clients do no I/O when built: rejected. It hides when the engine starts and moves a missing binary's error to an arbitrary call; Rust's C-BUILDER also asks for an explicit step when building has side effects.
+- **No root object, each Browser or Crawler starting its own engine**, as Crawlee's crawlers and Scrapy's process do: rejected. Two objects get two engines, ADR 0056's relay has no connection to ride on, and Scrapy's process-global reactor is G2's counter-example.
+- **One Attached engine shared by every connection of a process**: rejected by G2. It is a process-wide instance; a Daemon shares an engine visibly.
+- **An implicit Run behind each Page** (`gf.collie.newPage()`): rejected. Two pages would be two Runs with two sets of Limits and Usage, and there would be two ways to make a Run (S2).
+- **`gf.borrow(page)` returning a Page in an implicit Run**: rejected for the same reason. **`gf.borrow(page)` returning a Session source** passed into settings: rejected, two more steps in [Add an AI step to an existing Playwright program](https://github.com/goodfetch/automan/blob/prototype/sdk-api/sdk-api-sketch/scenarios/09-ai-in-playwright-program.md) for no gain in safety.
+- **Every Run on a Daemon outliving its connection**: rejected. Runs would wait for scripts that may never return, and an Attached engine and a Daemon would behave differently by surprise. **Never detaching**: rejected, since a short script could not submit a long Recipe run.
+- **The Attached engine in the host's process group**, as most drivers leave it: rejected. Ctrl+C kills the engine and its browsers before the host's cleanup runs (chromiumoxide [#251](https://github.com/mattsse/chromiumoxide/issues/251); playwright-rs #59).
+- **Signal handlers in the SDK**, as Crawlee v4 adds a `SIGINT` listener per crawler and Browser Use installs handlers that print: rejected by G4.
+- **Inheriting or discarding an Attached engine's stderr**: rejected. Inheriting prints into the host's terminal; discarding loses the age notice and the crash output chromiumoxide users miss (`LaunchExit` with empty stderr, [#295](https://github.com/mattsse/chromiumoxide/issues/295)).
+- **A default console logger in TypeScript**, as Stainless's SDKs log warnings by default: rejected by G4. Stagehand v4 writes to stderr even with `onLog` set ([#3035](https://github.com/browserbase/stagehand/issues/3035)).
+- **Blocking cleanup in Rust's `Drop`**: rejected. chromiumoxide's `block_on` in `Drop` panicked ([#137](https://github.com/mattsse/chromiumoxide/issues/137)), thirtyfour's blocks the executor ([#268](https://github.com/stevepryde/thirtyfour/issues/268)), and fantoccini's fire-and-forget request is lost when the runtime stops ([#250](https://github.com/jonhoo/fantoccini/issues/250)). Async `Drop` is nightly-only.
+
+## Consequences
+
+- **Changes ADR 0056.** Its SDK relay is spelled `run.borrow(pageOrBrowser)`, on the Run whose Session it serves, instead of `goodfetch.borrow(browserOrPage)`; matrix rows SA-08 and `integ-sdk-llm-runtime` of [ADR 0037](0037-v1-scope-matrix.md) follow.
+- **Adds to ADR 0024.** An SDK starts its Attached engine in a process group of its own and pipes its stderr. ADR 0030's age notice still goes to stderr only, and the SDK relays it through the host's logging.
+- **Area 11 (Client surfaces)** builds these rules and lists this ADR. The per-connection log level is a protocol addition its spec makes with area 3's, whose events already class logs as telemetry. Client conformance cases cover the guest rules in every SDK ([TESTING.md](../../TESTING.md#sdks)).
+- **The `prototype/sdk-api` sketch** holds this ADR's signatures in `lifecycle` files for each language.

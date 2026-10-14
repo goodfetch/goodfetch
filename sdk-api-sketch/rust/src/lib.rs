@@ -8,6 +8,7 @@ pub mod concurrency;
 pub mod data;
 pub mod lifecycle;
 pub mod results;
+pub mod settings;
 pub mod time;
 
 pub use concurrency::{ConsoleMessage, EventStream, Record, Route, events};
@@ -15,9 +16,11 @@ pub use data::{Dataset, Label, PathSegment, PayloadInvalid, PayloadSchemaChanged
 pub use lifecycle::{Collie, ConnectOptions, EngineChoice, EngineInfo, EngineKind, Goodfetch, Page, Run, Start};
 pub use results::{
     AiWorkResult, BlockCause, Blocked, Claim, DeadlineExceeded, Ended, EndedBy, Error, ErrorCode, ErrorDetails, ErrorGroup, ErrorTarget,
-    HandlerFailed, LimitSource, NotVerified, PartialOutput, Reported, RequestOutcome, RequestOutcomeKind, SettingValue,
+    HandlerFailed, LimitSource, NotVerified, PartialOutput, Reported, RequestOutcome, RequestOutcomeKind, RunLayerSource,
+    SettingValue,
     SettingsLayer, SkipReason, StopReason, TargetDescription, TargetNotUnique, Verdict,
 };
+pub use settings::{ExplainedSetting, Setting, SettingKey, Settings};
 pub use time::{
     Call, CallFuture, Count, ElementState, Limits, LoadState, Locator, Money, Request, Response, UrlMatcher, Waiter,
 };

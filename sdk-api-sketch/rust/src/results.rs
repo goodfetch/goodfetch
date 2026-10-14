@@ -63,6 +63,16 @@ pub enum ErrorCode {
     PayloadInvalid,
     /// `payload_schema_changed`: a resume found Payloads that fail their Label's changed schema (#469).
     PayloadSchemaChanged,
+    /// `setting_unknown`: an unknown key or `GOODFETCH_` variable (ADR 0083).
+    SettingUnknown,
+    /// `setting_invalid`: a wrong type or out-of-range value (ADR 0083).
+    SettingInvalid,
+    /// `setting_not_applicable`: a setting no scope beneath can use (ADR 0083).
+    SettingNotApplicable,
+    /// `setting_locked`, a refusal: a lower layer locked or capped the value (ADR 0083).
+    SettingLocked,
+    /// `capability_unavailable`: the platform cannot provide a capability (ADR 0083).
+    CapabilityUnavailable,
     /// `internal`.
     Internal,
     /// A code this SDK does not know, as received.
@@ -76,7 +86,8 @@ impl ErrorCode {
     }
 }
 
-/// The settings layers of ADR 0028, lowest first.
+/// The settings layers of ADR 0028, lowest first. A program that is not a Recipe sets the `Run`
+/// layer (ADR 0083).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum SettingsLayer {
@@ -86,31 +97,55 @@ pub enum SettingsLayer {
     OperatorPolicy,
     /// User and project configuration.
     Configuration,
-    /// A Recipe or the developer's code.
+    /// A Recipe's declared settings and code.
     Recipe,
     /// The run itself.
     Run,
 }
 
-/// A setting's value; its shape is #470's.
+/// What set a value at the `Run` layer, highest first: an explicit value beats the environment
+/// (ADR 0083).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum RunLayerSource {
+    /// A call's own argument.
+    Argument,
+    /// A [`Settings`](crate::settings::Settings) value.
+    Settings,
+    /// A CLI flag.
+    Flag,
+    /// An Integration's form.
+    Form,
+    /// A deployment variable.
+    Environment,
+}
+
+/// An effective setting's value as the engine reports it.
 #[derive(Debug, Clone)]
 pub struct SettingValue {
     _private: (),
+}
+
+impl SettingValue {
+    /// The value as JSON, as configuration files and `config explain` show it.
+    pub fn as_json(&self) -> &serde_json::Value {
+        unimplemented!()
+    }
 }
 
 /// Where the limit that ended a call came from (G6).
 #[derive(Debug, Clone)]
 #[non_exhaustive]
 pub struct LimitSource {
-    /// The setting key, such as `timeouts.action`.
+    /// The setting's canonical key, such as `timeout.action`.
     pub setting: String,
     /// Its value.
     pub value: SettingValue,
     /// The layer that set the value.
     pub layer: SettingsLayer,
-    /// The call's own argument set it, rather than a CLI flag, an environment variable or a form
-    /// at the same `run` layer (ADR 0080).
-    pub from_argument: bool,
+    /// Set when `layer` is [`SettingsLayer::Run`]: a call's own argument, a `Settings` value, a
+    /// CLI flag, a form or the environment (ADRs 0080, 0083).
+    pub source: Option<RunLayerSource>,
 }
 
 /// What a call acted on, rendered by the engine in Rust and kept structured too.
@@ -245,6 +280,16 @@ pub enum ErrorDetails {
     PayloadInvalid(crate::data::PayloadInvalid),
     /// Of `payload_schema_changed`.
     PayloadSchemaChanged(crate::data::PayloadSchemaChanged),
+    /// Of `setting_unknown`.
+    SettingUnknown(crate::settings::SettingUnknown),
+    /// Of `setting_invalid`.
+    SettingInvalid(crate::settings::SettingInvalid),
+    /// Of `setting_not_applicable`.
+    SettingNotApplicable(crate::settings::SettingNotApplicable),
+    /// Of `setting_locked`.
+    SettingLocked(crate::settings::SettingLocked),
+    /// Of `capability_unavailable`.
+    CapabilityUnavailable(crate::settings::CapabilityUnavailable),
 }
 
 /// Details of `deadline_exceeded`. The error's `limit` names the phase's setting and its layer; a

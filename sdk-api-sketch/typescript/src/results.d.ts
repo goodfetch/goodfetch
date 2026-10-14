@@ -34,23 +34,31 @@ export type KnownErrorCode =
   | "payload_invalid"
   | "payload_schema_changed"
   | "schema_validator_failed"
+  | "setting_unknown"
+  | "setting_invalid"
+  | "setting_not_applicable"
+  | "setting_locked"
+  | "capability_unavailable"
   | "internal";
 
 /** A code a newer engine sends and this SDK does not know is kept as received (G3). */
 export type ErrorCode = KnownErrorCode | (string & {});
 
-/** The settings layers of ADR 0028, lowest first. */
+/** The settings layers of ADR 0028, lowest first. A program that is not a Recipe sets the `run` layer (ADR 0083). */
 export type SettingsLayer = "default" | "operator_policy" | "configuration" | "recipe" | "run";
+
+/** What set a value at the `run` layer, highest first: an explicit value beats the environment (ADR 0083). */
+export type RunLayerSource = "argument" | "settings" | "flag" | "form" | "environment";
 
 /** Where the limit that ended a call came from (G6). */
 export interface LimitSource {
-  /** The setting key, such as `timeouts.action`. */
+  /** The setting's canonical key, such as `timeout.action`. */
   readonly setting: string;
   readonly value: unknown;
   /** The layer that set the value. */
   readonly layer: SettingsLayer;
-  /** The call's own argument set it, rather than a CLI flag, an environment variable or a form at the same `run` layer (ADR 0080). */
-  readonly fromArgument: boolean;
+  /** Set when `layer` is `run`: a call's own argument, a `settings` option, a CLI flag, a form or the environment (ADRs 0080, 0083). */
+  readonly source?: RunLayerSource;
 }
 
 /** What a call acted on, rendered by the engine in this SDK's language and kept structured too. */

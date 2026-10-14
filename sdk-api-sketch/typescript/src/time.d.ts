@@ -5,6 +5,7 @@
 // The page API around the waits (locators, actions, `goto`) is a placeholder owned by #472.
 
 import type { ProgramError } from "./results.js";
+import type { RunSettings } from "./settings.js";
 
 /**
  * How long a call may take, in milliseconds. Omitted: the setting's default (finite for every phase).
@@ -110,8 +111,10 @@ export interface Limits {
   readonly cost?: Money;
 }
 
-/** Options of starting a Run. The start verbs are #478's; these two options are #467's. */
+/** Options of starting a Run. The start verbs are #478's; `timeout` and `limits` are #467's, `settings` #470's. */
 export interface StartOptions {
+  /** Settings for this Run and everything opened beneath it (ADR 0083). */
+  readonly settings?: RunSettings;
   /**
    * How long the whole Run may last. Omitted: the setting's value, which has no built-in default;
    * `null`: no timeout. On expiry the Run stops with a Checkpoint, resumable.

@@ -5,13 +5,15 @@ Logs go to `logging` loggers under `goodfetch` (`goodfetch.client`, `goodfetch.e
 Timeouts, waits and Limits come from #467 (`_time`); events and user code from #468 (`_concurrency`).
 """
 
-from collections.abc import Generator
+from collections.abc import Generator, Mapping, Sequence
+from os import PathLike
 from dataclasses import dataclass
 from types import TracebackType
 from typing import Literal, Never, Protocol, Self, TypeAlias, final, overload
 
 from goodfetch._concurrency import AsyncPageEvents, AsyncRunEvents, PageEvents, RunEvents
-from goodfetch._time import AsyncPageWaits, Limits, PageWaits, Timeout
+from goodfetch._settings import ExplainedSetting, PageSettings, RunSettings, SessionSettings, SettingKey, Settings
+from goodfetch._time import AsyncPageWaits, Limits, NotGiven, PageWaits, Timeout
 
 @final
 @dataclass(frozen=True, kw_only=True)
@@ -32,6 +34,8 @@ class EngineInfo:
     kind: Literal["attached", "daemon", "remote"]
     version: str
     protocol_version: str
+    project_file: str | None
+    """The project configuration file read, or `None` when none was found or `project` was `None` (ADR 0083)."""
 
 # The user's own Playwright objects, matched by shape so no third-party type is required (G7).
 
@@ -65,6 +69,10 @@ class BorrowableAsyncBrowser(Protocol):
 
 # Async API.
 
+class _AsyncExplainsSettings:
+    async def explain_settings(self, keys: Sequence[SettingKey] = ..., *, timeout: Timeout = ...) -> list[ExplainedSetting]:
+        """The scope's effective settings, with the layer that set each one; all of them when `keys` is left out."""
+
 class _AsyncCloseable:
     async def close(self, *, timeout: Timeout = ...) -> None:
         """Idempotent. Its timeout is the close phase's. Closes children first; any later call on this value fails with the Error code `closed`."""
@@ -75,22 +83,24 @@ class _AsyncCloseable:
     ) -> None: ...
 
 @final
-class AsyncPage(_AsyncCloseable, AsyncPageWaits, AsyncPageEvents):
+class AsyncPage(_AsyncCloseable, _AsyncExplainsSettings, AsyncPageWaits, AsyncPageEvents):
     """A page Goodfetch drives. Its API is #472's. Closing it closes only a tab Goodfetch opened."""
 
 @final
-class AsyncSession(_AsyncCloseable):
+class AsyncSession(_AsyncCloseable, _AsyncExplainsSettings):
     """A Session of a Run. Its API is #476's. Closing it never closes a Borrowed browser."""
 
-    async def new_page(self) -> AsyncPage: ...
+    async def new_page(self, *, settings: PageSettings = ..., timeout: Timeout = ...) -> AsyncPage: ...
 
 @final
-class AsyncRun(_AsyncCloseable, AsyncRunEvents):
+class AsyncRun(_AsyncCloseable, _AsyncExplainsSettings, AsyncRunEvents):
     """A Run, always opened explicitly. Closing an unfinished Run stops it with a Checkpoint, resumable by its ID."""
 
     @property
     def id(self) -> str: ...
-    async def new_page(self) -> AsyncPage: ...
+    async def new_page(self, *, settings: PageSettings = ..., timeout: Timeout = ...) -> AsyncPage: ...
+    async def new_session(self, *, settings: SessionSettings = ..., timeout: Timeout = ...) -> AsyncSession:
+        """Placeholder: opening a Session is #476's; its settings are #470's."""
     @overload
     async def borrow(self, page: BorrowableAsyncPage, /) -> AsyncPage: ...
     @overload
@@ -100,8 +110,10 @@ class AsyncRun(_AsyncCloseable, AsyncRunEvents):
 class AsyncCollie:
     """Collie, reached from the connection without I/O."""
 
-    async def start(self, *, timeout: Timeout = ..., limits: Limits | None = None) -> AsyncRun:
-        """Placeholder start verb: its spelling is #478's; `timeout` and `limits` are #467's.
+    async def start(
+        self, *, settings: RunSettings = ..., timeout: Timeout = ..., limits: Limits | None = None
+    ) -> AsyncRun:
+        """Placeholder start verb: its spelling is #478's; `timeout` and `limits` are #467's, `settings` #470's.
 
         `timeout` caps the whole Run. Omitted: the setting's value, which has no built-in default; `None`: no timeout.
         On expiry the Run stops with a Checkpoint, resumable.
@@ -122,7 +134,7 @@ class _AsyncConnecting:
     ) -> None: ...
 
 @final
-class AsyncGoodfetch(_AsyncCloseable):
+class AsyncGoodfetch(_AsyncCloseable, _AsyncExplainsSettings):
     """The engine connection: the entry point. Each one is independent, and many may be open in one process.
 
     It runs on AnyIO, under asyncio or Trio. Its values belong to the event loop that opened it; a call from another
@@ -130,8 +142,25 @@ class AsyncGoodfetch(_AsyncCloseable):
     """
 
     @classmethod
-    def connect(cls, *, engine: EngineChoice = "auto", timeout: Timeout = ..., limits: Limits | None = None) -> _AsyncConnecting:
-        """Starts or finds the engine and completes `hello` before the connection is returned."""
+    def connect(
+        cls,
+        *,
+        engine: EngineChoice = "auto",
+        settings: Settings = ...,
+        env: Mapping[str, str] = ...,
+        project: str | PathLike[str] | None | NotGiven = ...,
+        timeout: Timeout = ...,
+        limits: Limits | None = None,
+    ) -> _AsyncConnecting:
+        """Starts or finds the engine and completes `hello` before the connection is returned.
+
+        Left at `auto`, `engine` is filled by `GOODFETCH_URL` when set; a value written here wins over it. `settings` holds
+        every other setting for this connection and everything beneath it. `env` is the environment map, read once here
+        and never at import, by default the process's own (ADRs 0062, 0069): only the deployment variables are read, an
+        unknown `GOODFETCH_` name fails with `SettingUnknownError`, and an Attached engine gets exactly this map.
+        `project` is the project configuration file: left out, found upward from the working directory as the CLI does;
+        `None`, none (ADR 0083).
+        """
 
     @property
     def engine(self) -> EngineInfo: ...
@@ -141,6 +170,10 @@ class AsyncGoodfetch(_AsyncCloseable):
     def foxhound(self) -> AsyncFoxhound: ...
 
 # Sync API: the same concepts, generated from the same catalog (ADR 0038).
+
+class _ExplainsSettings:
+    def explain_settings(self, keys: Sequence[SettingKey] = ..., *, timeout: Timeout = ...) -> list[ExplainedSetting]:
+        """The scope's effective settings, with the layer that set each one; all of them when `keys` is left out."""
 
 class _Closeable:
     def close(self, *, timeout: Timeout = ...) -> None:
@@ -152,22 +185,24 @@ class _Closeable:
     ) -> None: ...
 
 @final
-class Page(_Closeable, PageWaits, PageEvents):
+class Page(_Closeable, _ExplainsSettings, PageWaits, PageEvents):
     """A page Goodfetch drives. Its API is #472's. Closing it closes only a tab Goodfetch opened."""
 
 @final
-class Session(_Closeable):
+class Session(_Closeable, _ExplainsSettings):
     """A Session of a Run. Its API is #476's. Closing it never closes a Borrowed browser."""
 
-    def new_page(self) -> Page: ...
+    def new_page(self, *, settings: PageSettings = ..., timeout: Timeout = ...) -> Page: ...
 
 @final
-class Run(_Closeable, RunEvents):
+class Run(_Closeable, _ExplainsSettings, RunEvents):
     """A Run, always opened explicitly. Closing an unfinished Run stops it with a Checkpoint, resumable by its ID."""
 
     @property
     def id(self) -> str: ...
-    def new_page(self) -> Page: ...
+    def new_page(self, *, settings: PageSettings = ..., timeout: Timeout = ...) -> Page: ...
+    def new_session(self, *, settings: SessionSettings = ..., timeout: Timeout = ...) -> Session:
+        """Placeholder: opening a Session is #476's; its settings are #470's."""
     @overload
     def borrow(self, page: BorrowablePage, /) -> Page: ...
     @overload
@@ -177,8 +212,10 @@ class Run(_Closeable, RunEvents):
 class Collie:
     """Collie, reached from the connection without I/O."""
 
-    def start(self, *, timeout: Timeout = ..., limits: Limits | None = None) -> Run:
-        """Placeholder start verb: its spelling is #478's; `timeout` and `limits` are #467's.
+    def start(
+        self, *, settings: RunSettings = ..., timeout: Timeout = ..., limits: Limits | None = None
+    ) -> Run:
+        """Placeholder start verb: its spelling is #478's; `timeout` and `limits` are #467's, `settings` #470's.
 
         `timeout` caps the whole Run. Omitted: the setting's value, which has no built-in default; `None`: no timeout.
         On expiry the Run stops with a Checkpoint, resumable.
@@ -189,7 +226,7 @@ class Foxhound:
     """Foxhound, reached from the connection without I/O. Its crawl API is #477's."""
 
 @final
-class Goodfetch(_Closeable):
+class Goodfetch(_Closeable, _ExplainsSettings):
     """The engine connection: the entry point. Each one is independent, and many may be open in one process.
 
     It runs the async core on a private background thread of its own, so it works on any thread, including one whose event
@@ -197,8 +234,25 @@ class Goodfetch(_Closeable):
     """
 
     @classmethod
-    def connect(cls, *, engine: EngineChoice = "auto", timeout: Timeout = ..., limits: Limits | None = None) -> Goodfetch:
-        """Starts or finds the engine and completes `hello` before returning; use it with `with`."""
+    def connect(
+        cls,
+        *,
+        engine: EngineChoice = "auto",
+        settings: Settings = ...,
+        env: Mapping[str, str] = ...,
+        project: str | PathLike[str] | None | NotGiven = ...,
+        timeout: Timeout = ...,
+        limits: Limits | None = None,
+    ) -> Goodfetch:
+        """Starts or finds the engine and completes `hello` before returning; use it with `with`.
+
+        Left at `auto`, `engine` is filled by `GOODFETCH_URL` when set; a value written here wins over it. `settings` holds
+        every other setting for this connection and everything beneath it. `env` is the environment map, read once here
+        and never at import, by default the process's own (ADRs 0062, 0069): only the deployment variables are read, an
+        unknown `GOODFETCH_` name fails with `SettingUnknownError`, and an Attached engine gets exactly this map.
+        `project` is the project configuration file: left out, found upward from the working directory as the CLI does;
+        `None`, none (ADR 0083).
+        """
 
     @property
     def engine(self) -> EngineInfo: ...

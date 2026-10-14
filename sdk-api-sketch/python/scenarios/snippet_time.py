@@ -32,7 +32,7 @@ async def search_quotes() -> int:
             try:
                 await page.wait_for_load_state("networkidle", timeout=None)  # explicitly no timeout
             except DeadlineExceededError as error:
-                # Names what it waited for, what it saw and where the limit came from, e.g. `timeouts.wait`.
+                # Names what it waited for, what it saw and where the limit came from, e.g. `timeout.wait`.
                 log.warning("%s (limit %s)", error, error.limit)
                 raise
 

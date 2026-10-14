@@ -29,7 +29,7 @@ export async function searchQuotes(stop: AbortSignal): Promise<number> {
     await page.waitForLoadState("networkidle", { timeout: null }); // explicitly no timeout
   } catch (error) {
     if (error instanceof DeadlineExceededError) {
-      // Names what it waited for, what it saw and where the limit came from, e.g. `timeouts.wait`.
+      // Names what it waited for, what it saw and where the limit came from, e.g. `timeout.wait`.
       log.warn(error.message, { limit: error.limit?.setting, observed: error.observed });
     }
     throw error;

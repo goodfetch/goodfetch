@@ -8,9 +8,11 @@
 //! `concurrency`.
 
 use std::future::IntoFuture;
+use std::path::PathBuf;
 use std::time::Duration;
 
 use crate::results::Error;
+use crate::settings::{ExplainedSetting, SettingKey, Settings};
 use crate::time::{Call, CallFuture, Limits, Timeout};
 
 /// Which engine [`Goodfetch::connect`] reaches.
@@ -33,7 +35,8 @@ pub enum EngineChoice {
     },
 }
 
-/// Options of [`Goodfetch::connect`]. Where the other settings go is #470's.
+/// Options of [`Goodfetch::connect`]: its own, then every other setting in
+/// [`ConnectOptions::settings`] (ADR 0083).
 #[derive(Debug, Clone, Default)]
 #[non_exhaustive]
 pub struct ConnectOptions {
@@ -66,6 +69,33 @@ impl ConnectOptions {
     pub fn limits(self, limits: Limits) -> Self {
         Self { limits, ..self }
     }
+
+    /// Settings for this connection and everything opened beneath it.
+    pub fn settings(self, settings: Settings) -> Self {
+        let _ = settings;
+        unimplemented!()
+    }
+
+    /// The environment map, read once by `connect` and nowhere else: the process's own unless
+    /// replaced here (ADRs 0062, 0069). Only the deployment variables are read, and an unknown
+    /// `GOODFETCH_` name fails with `setting_unknown`. Left at [`EngineChoice::Auto`], `engine` is
+    /// filled by `GOODFETCH_URL` when set.
+    pub fn env(self, env: impl IntoIterator<Item = (String, String)>) -> Self {
+        let _ = env.into_iter();
+        unimplemented!()
+    }
+
+    /// The project configuration file; by default found upward from the working directory, as
+    /// the CLI does.
+    pub fn project(self, path: impl Into<PathBuf>) -> Self {
+        let _ = path.into();
+        unimplemented!()
+    }
+
+    /// Reads no project configuration file, for a service whose working directory means nothing.
+    pub fn no_project(self) -> Self {
+        unimplemented!()
+    }
 }
 
 /// The kind of engine a connection reached.
@@ -90,6 +120,8 @@ pub struct EngineInfo {
     pub version: String,
     /// The protocol's `major.minor`.
     pub protocol_version: String,
+    /// The project configuration file read, if any (ADR 0083).
+    pub project_file: Option<PathBuf>,
 }
 
 /// The engine connection: the entry point. Each one is independent, and many may be open in one process.
@@ -125,6 +157,13 @@ impl Goodfetch {
 
     /// Collie, reached without I/O.
     pub fn collie(&self) -> Collie {
+        unimplemented!()
+    }
+
+    /// The connection's effective settings, with the layer that set each; all of them when `keys`
+    /// is empty.
+    pub fn explain_settings(&self, keys: &[SettingKey]) -> Call<Vec<ExplainedSetting>> {
+        let _ = keys;
         unimplemented!()
     }
 
@@ -179,6 +218,12 @@ impl Start {
         let _ = limits;
         unimplemented!()
     }
+
+    /// Settings for this Run and everything opened beneath it (ADR 0083).
+    pub fn settings(self, settings: Settings) -> Self {
+        let _ = settings;
+        unimplemented!()
+    }
 }
 
 impl IntoFuture for Start {
@@ -212,6 +257,21 @@ impl Run {
     pub fn close(&self) -> Call<()> {
         unimplemented!()
     }
+
+    /// The Run's effective settings, with the layer that set each; all of them when `keys` is empty.
+    pub fn explain_settings(&self, keys: &[SettingKey]) -> Call<Vec<ExplainedSetting>> {
+        let _ = keys;
+        unimplemented!()
+    }
+}
+
+impl Call<Page> {
+    /// Settings for the page being opened. A part of the Session's identity, such as
+    /// `browser::VIEWPORT`, fails with `setting_not_applicable` (ADR 0021).
+    pub fn settings(self, settings: Settings) -> Self {
+        let _ = settings;
+        unimplemented!()
+    }
 }
 
 /// A page Goodfetch drives. Its API is #472's. Closing it closes only a tab Goodfetch opened.
@@ -224,6 +284,12 @@ pub struct Page {
 impl Page {
     /// Closes the tab. Idempotent.
     pub fn close(&self) -> Call<()> {
+        unimplemented!()
+    }
+
+    /// The page's effective settings, with the layer that set each; all of them when `keys` is empty.
+    pub fn explain_settings(&self, keys: &[SettingKey]) -> Call<Vec<ExplainedSetting>> {
+        let _ = keys;
         unimplemented!()
     }
 }

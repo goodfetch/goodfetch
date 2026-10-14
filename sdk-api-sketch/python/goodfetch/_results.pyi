@@ -31,13 +31,21 @@ KnownErrorCode: TypeAlias = Literal[
     "payload_invalid",
     "payload_schema_changed",
     "schema_validator_failed",
+    "setting_unknown",
+    "setting_invalid",
+    "setting_not_applicable",
+    "setting_locked",
+    "capability_unavailable",
     "internal",
 ]
 ErrorCode: TypeAlias = KnownErrorCode | str
 """A code a newer engine sends and this SDK does not know is kept as received (G3)."""
 
 SettingsLayer: TypeAlias = Literal["default", "operator_policy", "configuration", "recipe", "run"]
-"""The settings layers of ADR 0028, lowest first."""
+"""The settings layers of ADR 0028, lowest first. A program that is not a Recipe sets the `run` layer (ADR 0083)."""
+
+RunLayerSource: TypeAlias = Literal["argument", "settings", "flag", "form", "environment"]
+"""What set a value at the `run` layer, highest first: an explicit value beats the environment (ADR 0083)."""
 
 @final
 @dataclass(frozen=True, kw_only=True)
@@ -45,13 +53,13 @@ class LimitSource:
     """Where the limit that ended a call came from (G6)."""
 
     setting: str
-    """The setting key, such as `timeouts.action`."""
+    """The setting's canonical key, such as `timeout.action`."""
     value: object
     layer: SettingsLayer
     """The layer that set the value."""
-    from_argument: bool
-    """The call's own argument set it, rather than a CLI flag, an environment variable or a form at the same `run`
-    layer (ADR 0080)."""
+    source: RunLayerSource | None
+    """Set when `layer` is `run`: a call's own argument, a `settings` keyword, a CLI flag, a form or the environment
+    (ADRs 0080, 0083)."""
 
 @final
 @dataclass(frozen=True, kw_only=True)

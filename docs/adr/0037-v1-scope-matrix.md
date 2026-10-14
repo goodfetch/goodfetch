@@ -137,7 +137,7 @@ This matrix is the companion of [ADR 0037](0037-v1-scope-parity-and-pain-coverag
 | CO-26 | Key-value store | `decided` | [#71](https://github.com/Jbmanllr/automan/issues/71) | 6 Collection | A Key-value store in the run file. Its operations are spec. |
 | CO-27 | Export to CSV or JSON with all keys | `decided` | ADR 0008, ADR 0026 | 6 Collection | Files mode carries the union of all fields. |
 | CO-28 | Storage backends: memory, filesystem, SQL, Redis, custom | `excluded` | ADR 0002, ADR 0033, ADR 0053 | 6 Collection | "Pluggable live storage … rejected" (ADR 0002): it brings back multiple writers. SQL and Redis are reached as Sinks (ADR 0026); a Redis-protocol server may hold Politeness, never run state (ADR 0053). |
-| CO-29 | Stream of pages as they arrive | `decided` | ADR 0008, ADR 0024, ADR 0081 | 6 Collection | Ordered, lossless results stream with credit-based delivery, read with `for await`, `async for` or a Rust `EventStream` and closed by leaving the loop (ADR 0081). |
+| CO-29 | Stream of pages as they arrive | `decided` | ADR 0008, ADR 0024, ADR 0081 | 6 Collection | Ordered, lossless results stream with credit-based delivery, read with `for await`, `async for`, a sync `for` or a Rust `EventStream` and closed by leaving the loop (ADR 0081). |
 | CO-30 | WARC output | `decided` | [#71](https://github.com/Jbmanllr/automan/issues/71) | 6 Collection | WARC from both HTTP and browser tiers. |
 | CO-31 | HTTP response cache and conditional re-crawl (ETag) | `decided` | ADR 0046, ADR 0036 | 6 Collection | Per-user Response cache, off by default: `revalidate` (RFC 9111) and `replay` on every tier; partitioned by Session, country, language and device; 10 GB and 30 days by default; never `replay` for Schedules. |
 

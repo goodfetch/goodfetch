@@ -211,9 +211,11 @@ pub enum PolitenessSharing {
 
 /// `politeness.*` (ADR 0086): one family, so `goodfetch config explain politeness` shows every
 /// limit. With nothing set, a crawl keeps one request in flight per domain, one second between
-/// starts. They govern the requests a crawl's Frontier admits; a program's own navigation is
-/// directed by the program, and only [`politeness::proxy`] and [`politeness::SHARING`] apply to
-/// it. A value that presses a site harder than its built-in default is recorded in the Audit log,
+/// starts. They govern the requests a crawl's Frontier admits and every navigation a crawl handler
+/// makes from its page; a program's own navigation outside a handler is directed by the program,
+/// and only [`politeness::proxy`] and [`politeness::SHARING`] apply to it. They are set on a
+/// connection or a Run; set on a Collie Run, a crawl-only key is refused when the Run opens with
+/// `setting_not_applicable`, since one `Settings` type takes every key (ADR 0083). A value that presses a site harder than its built-in default is recorded in the Audit log,
 /// listed in the run's result and logged once as a warning through `tracing`.
 pub mod politeness {
     use super::{Duration, PolitenessSharing, Setting};
@@ -221,15 +223,18 @@ pub mod politeness {
     /// `politeness.sharing`; built-in `Shared`.
     pub const SHARING: Setting<PolitenessSharing> = Setting::new("politeness.sharing");
     /// `politeness.degraded_max`: how long an engine cut off from the Politeness store keeps
-    /// admitting within its share (ADR 0053); built-in 10 minutes.
+    /// admitting within its share (ADR 0053); built-in 10 minutes. The engine's own, set in
+    /// configuration or an Operator policy only: in a program's `Settings` it is refused with
+    /// `setting_not_applicable`, and its key serves `explain_settings`.
     pub const DEGRADED_MAX: Setting<Duration> = Setting::new("politeness.degraded_max");
 
     /// `politeness.domain.*`: per domain, keyed as in ADR 0004, shared by every run of the user.
     pub mod domain {
         use super::super::{Duration, Setting};
 
-        /// `politeness.domain.concurrency`: requests in flight per domain; a browser-tier fetch
-        /// counts once, whatever its page loads. Built-in 1; `0` fails with `setting_invalid`.
+        /// `politeness.domain.concurrency`: requests in flight per domain, each from its start
+        /// until its response (a browser-tier page until its load event). Built-in 1; `0` fails
+        /// with `setting_invalid`. At 1, switching hedges or `tier_race` on is refused.
         pub const CONCURRENCY: Setting<u32> = Setting::new("politeness.domain.concurrency");
         /// `politeness.domain.delay`: the least time between two request starts to one domain;
         /// built-in one second. While robots.txt is respected, a host's Crawl-delay raises it.
@@ -282,6 +287,11 @@ pub mod site_preferences {
     /// for more has its requests skipped with [`SkipReason::CrawlDelay`](crate::SkipReason::CrawlDelay).
     /// `None`: wait out any. Built-in 30 s.
     pub const MAX_CRAWL_DELAY: Setting<Option<Duration>> = Setting::new("site_preferences.max_crawl_delay");
+    /// `site_preferences.robots_txt_user_agent`: the operator's own product token, as the crawl's
+    /// user agent names it; its robots.txt groups apply, merged with `Goodfetch`'s, before `*`.
+    /// `None`, the built-in: `Goodfetch` alone. Setting it is recorded.
+    pub const ROBOTS_TXT_USER_AGENT: Setting<Option<String>> =
+        Setting::new("site_preferences.robots_txt_user_agent");
     /// `site_preferences.respect_use_signals`: apply the AI-use signals that concern the run's
     /// Purpose (ADR 0016). Built-in `false`.
     pub const RESPECT_USE_SIGNALS: Setting<bool> = Setting::new("site_preferences.respect_use_signals");

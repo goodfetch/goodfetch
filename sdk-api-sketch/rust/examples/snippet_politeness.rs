@@ -36,7 +36,8 @@ async fn own_staging_site() -> Result<(), Error> {
     let gf = Goodfetch::connect(ConnectOptions::default().settings(harder)).await?;
 
     // A Collie Run's program directs its own navigation: a per-domain limit set on it is refused
-    // when the Run opens, never ignored (G3).
+    // when the Run opens, never ignored (G3). Rust's one `Settings` type takes every key, so the
+    // refusal comes at run time, where TypeScript and Python fail to type-check.
     let refused = gf
         .collie()
         .start()
@@ -54,6 +55,18 @@ async fn own_staging_site() -> Result<(), Error> {
         .await?;
     let _ = run.id();
     gf.close().await
+}
+
+/// An operator crawling under its own bot name, which its user agent carries: a site's robots.txt
+/// group for `AcmeBot` binds it too, merged with Goodfetch's. Setting the token is recorded.
+async fn as_own_bot() -> Result<Vec<ExplainedSetting>, Error> {
+    let token = Settings::new().set(site_preferences::ROBOTS_TXT_USER_AGENT, Some(String::from("AcmeBot")));
+    let gf = Goodfetch::connect(ConnectOptions::default().settings(token)).await?;
+    let explained = gf
+        .explain_settings(&[site_preferences::ROBOTS_TXT_USER_AGENT.key()])
+        .await?;
+    gf.close().await?;
+    Ok(explained)
 }
 
 /// A page the site asked crawlers to leave is skipped, a value with its reason, never a failure
@@ -79,5 +92,5 @@ fn why_skipped(outcomes: Vec<RequestOutcome>) -> BTreeMap<String, u32> {
 }
 
 fn main() {
-    let _ = (polite_by_default, own_staging_site, why_skipped);
+    let _ = (polite_by_default, own_staging_site, as_own_bot, why_skipped);
 }

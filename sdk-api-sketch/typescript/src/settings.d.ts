@@ -155,6 +155,7 @@ export type SettingKey =
   | "politeness.degraded_max"
   | "site_preferences.respect_robots_txt"
   | "site_preferences.max_crawl_delay"
+  | "site_preferences.robots_txt_user_agent"
   | "site_preferences.respect_use_signals";
 
 /** One effective value, as `goodfetch config explain` shows it for the scope. */

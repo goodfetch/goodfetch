@@ -39,6 +39,13 @@ export async function ownStagingSite(): Promise<void> {
   log.info("started", { run: run.id });
 }
 
+// An operator crawling under its own bot name, which its user agent carries: a site's robots.txt group
+// for `AcmeBot` binds it too, merged with Goodfetch's. Setting the token is recorded.
+export async function asOwnBot(): Promise<readonly ExplainedSetting[]> {
+  await using gf = await Goodfetch.connect({ settings: { sitePreferences: { robotsTxtUserAgent: "AcmeBot" } } });
+  return gf.explainSettings(["site_preferences.robots_txt_user_agent"]);
+}
+
 // A page the site asked crawlers to leave is skipped, a value with its reason, never a failure (G1).
 export async function whySkipped(): Promise<Map<string, number>> {
   const skipped = new Map<string, number>();

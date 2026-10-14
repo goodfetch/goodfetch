@@ -43,6 +43,13 @@ async def own_staging_site() -> None:
             log.info("started %s", run.id)
 
 
+async def as_own_bot() -> list[ExplainedSetting]:
+    """An operator crawling under its own bot name, which its user agent carries: a site's robots.txt group for
+    `AcmeBot` binds it too, merged with Goodfetch's. Setting the token is recorded."""
+    async with AsyncGoodfetch.connect(settings={"site_preferences": {"robots_txt_user_agent": "AcmeBot"}}) as gf:
+        return await gf.explain_settings(["site_preferences.robots_txt_user_agent"])
+
+
 async def why_skipped(outcomes: AsyncIterable[RequestOutcome]) -> Counter[str]:
     """A page the site asked crawlers to leave is skipped, a value with its reason, never a failure (G1). How a program
     reads outcomes is #478's."""

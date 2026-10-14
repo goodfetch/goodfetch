@@ -162,6 +162,7 @@ SettingKey: TypeAlias = Literal[
     "politeness.degraded_max",
     "site_preferences.respect_robots_txt",
     "site_preferences.max_crawl_delay",
+    "site_preferences.robots_txt_user_agent",
     "site_preferences.respect_use_signals",
 ]
 """A setting's canonical key: dotted snake_case, area first, the same in configuration files, errors and `config

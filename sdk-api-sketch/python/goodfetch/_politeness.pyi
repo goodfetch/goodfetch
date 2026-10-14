@@ -1,9 +1,10 @@
 """Crawl politeness defaults (ADR 0086, decided in #480).
 
 With nothing set, a crawl obeys robots.txt (RFC 9309) and keeps one request in flight per domain, one second between
-starts (G5). These settings govern the requests a crawl's Frontier admits; a program's own navigation (`page.goto`, an
-AI verb or an Agent in its Session) is directed by the program, like a browser's, and only the per-proxy limits and
-`sharing` apply to it. A value that lets a crawl press a site harder than its built-in default is the program's explicit
+starts (G5). These settings govern the requests a crawl's Frontier admits and every navigation a crawl handler makes from
+its page; a program's own navigation outside a handler (`page.goto`, an AI verb or an Agent in its Session) is directed by
+the program, like a browser's, and only the per-proxy limits and `sharing` apply to it, though a 429 it receives still
+backs off a crawl sharing the domain. A value that lets a crawl press a site harder than its built-in default is the program's explicit
 choice: the Audit log records it, the run's result lists it, and the run logs it once as a warning through `logging`.
 An Operator policy or a Recipe may lock any of them (ADR 0028).
 """
@@ -15,7 +16,8 @@ class DomainPolitenessSettings(TypedDict, total=False):
     """`politeness.domain.*`: per domain, keyed as in ADR 0004, and shared by every run of the user (ADR 0053)."""
 
     concurrency: int
-    """Requests in flight per domain; a browser-tier fetch counts once, whatever its page loads. Built-in: 1."""
+    """Requests in flight per domain, each from its start until its response (a browser-tier page until its load event),
+    whatever its page loads. Built-in: 1. At 1, switching hedges or `tier_race` on is refused."""
     delay: timedelta
     """The least time between two request starts to one domain; zero for none. Built-in: one second. While robots.txt
     is respected, a host's Crawl-delay raises it for that host."""
@@ -66,6 +68,9 @@ class SitePreferencesSettings(TypedDict, total=False):
     max_crawl_delay: timedelta | None
     """The longest Crawl-delay a crawl waits out; a host asking for more has its requests skipped with `crawl_delay`.
     `None`: wait out any. Built-in: 30 seconds."""
+    robots_txt_user_agent: str | None
+    """The operator's own product token, as the crawl's user agent names it: its robots.txt groups apply, merged with
+    `Goodfetch`'s, before `*`. Built-in: none. Setting it is recorded."""
     respect_use_signals: bool
     """Apply the AI-use signals that concern the run's Purpose (ADR 0016). Built-in: `False`."""
 

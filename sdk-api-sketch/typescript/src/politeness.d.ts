@@ -1,15 +1,19 @@
 // Crawl politeness defaults (ADR 0086, decided in #480).
 // With nothing set, a crawl obeys robots.txt (RFC 9309) and keeps one request in flight per
 // domain, one second between starts (G5). These settings govern the requests a crawl's Frontier
-// admits; a program's own navigation (`page.goto`, an AI verb or an Agent in its Session) is
-// directed by the program, like a browser's, and only the per-proxy limits and `sharing` apply to
-// it. A value that lets a crawl press a site harder than its built-in default is the program's
+// admits and every navigation a crawl handler makes from its page; a program's own navigation
+// outside a handler (`page.goto`, an AI verb or an Agent in its Session) is directed by the program,
+// like a browser's, and only the per-proxy limits and `sharing` apply to it, though a 429 it
+// receives still backs off a crawl sharing the domain. A value that lets a crawl press a site harder than its built-in default is the program's
 // explicit choice: the Audit log records it, the run's result lists it, and the run logs it once as
 // a warning through the host's logging. An Operator policy or a Recipe may lock any of them (ADR 0028).
 
 /** `politeness.domain.*`: per domain, keyed as in ADR 0004, and shared by every run of the user (ADR 0053). */
 export interface DomainPolitenessSettings {
-  /** Requests in flight per domain; a browser-tier fetch counts once, whatever its page loads. Built-in: 1. */
+  /**
+   * Requests in flight per domain, each from its start until its response (a browser-tier page until its
+   * load event), whatever its page loads. Built-in: 1. At 1, switching hedges or `tier_race` on is refused.
+   */
   readonly concurrency?: number;
   /**
    * The least time between two request starts to one domain, in milliseconds; `0` for none. Built-in: 1_000.
@@ -64,6 +68,11 @@ export interface SitePreferencesSettings {
    * skipped with `crawl_delay`. `null`: wait out any. Built-in: 30_000.
    */
   readonly maxCrawlDelay?: number | null;
+  /**
+   * The operator's own product token, as the crawl's user agent names it: its robots.txt groups apply,
+   * merged with `Goodfetch`'s, before `*`. Built-in: none. Setting it is recorded.
+   */
+  readonly robotsTxtUserAgent?: string | null;
   /** Apply the AI-use signals that concern the run's Purpose (ADR 0016). Built-in: false. */
   readonly respectUseSignals?: boolean;
 }

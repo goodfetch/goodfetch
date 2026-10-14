@@ -9,6 +9,7 @@ Goodfetch must stay competitive with Crawlee and Spider, which ignore robots.txt
 - **Respecting robots.txt by default** (Firecrawl, and Scrapy's project template): rejected, because it would block collection that Crawlee and Spider, which ignore robots.txt by default, allow.
   > Amended by [ADR 0086](0086-a-crawl-obeys-robots-txt-and-sends-one-request-at-a-time-per-domain-by-default-and-pressing-harder-is-recorded.md): adopted for crawl requests. A program's own navigation stays ungated.
 - **Honouring the signals of the declared Purpose by default, but not robots.txt**: rejected for the same reason; nothing is enforced until the user switches it on.
+  > Amended by [ADR 0086](0086-a-crawl-obeys-robots-txt-and-sends-one-request-at-a-time-per-domain-by-default-and-pressing-harder-is-recorded.md): still rejected, for another reason: a Purpose left at its default `search` is not a declaration to judge the signals against. robots.txt is now obeyed by default for crawl requests.
 - **A logged confirmation before stealth on personal data for AI training**, the R&D's working view after the CNIL guidance: reduced to a notice, under this rule.
 
 ## Consequences

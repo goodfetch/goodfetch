@@ -15,6 +15,7 @@ How comparable tools share their limits:
 - **Daemons electing an authority among themselves**: rejected. It means building an election and failover for state whose loss only resets pacing.
 - **Partitioning alone** (ADR 0054): kept for one crawl, where it makes Politeness exact with no store, but it says nothing about independent crawls that reach the same site.
 - **On store loss, failing closed at once or failing open**: rejected. Failing closed at once turns a cache restart into a halt of every run; failing open breaks the very promise the store exists to keep. The degraded mode below keeps runs moving through ordinary outages, and stops admission to shared keys only when an outage outlasts `politeness_degraded_max`, because past that point a crashed engine cannot be told from a cut-off one.
+  > Amended by [ADR 0086](0086-a-crawl-obeys-robots-txt-and-sends-one-request-at-a-time-per-domain-by-default-and-pressing-harder-is-recorded.md): the setting is `politeness.degraded_max`.
 
 ## Consequences
 
@@ -27,6 +28,7 @@ How comparable tools share their limits:
   - A 407 from the proxy is a credential error: it fails the request with the Error code `proxy_auth_failed` and does not change the ceiling.
 - **Per cloud-browser provider** (changes ADR 0040). The ceiling learned per provider from a vendor's refusals is shared the same way, since a vendor's plan limits the whole account.
 - **What stays per run:** the per-domain queues and their order (ADR 0004), learned escalation and tier choice (ADRs 0020 and 0021), and `per_ip_concurrency`, which is keyed by the target's resolved IP.
+  > Amended by [ADR 0086](0086-a-crawl-obeys-robots-txt-and-sends-one-request-at-a-time-per-domain-by-default-and-pressing-harder-is-recorded.md): the setting is `politeness.ip.concurrency`.
 
 **How settings combine.**
 - Each run keeps its own values (ADR 0021, settings per run). A run admits a request to a domain only while the combined count in flight for that key, across every run sharing it, is below the run's own cap. A stricter run therefore waits while a looser one may still go up to its own cap.

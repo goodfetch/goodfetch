@@ -12,7 +12,35 @@ Research of **October 14, 2026** for ticket [#448](https://github.com/goodfetch/
 
 ## 1. Summary
 
-_Draft: the summary is completed once every section is in._
+- **Every product draws its boundary at the browser session.** None ships a crawler, request queue, dataset or key-value store. Repeated work goes to the user's own loop, to the vendor's cloud (rerunnable scripts, Functions, schedules) or to a crawler that takes the driver's page, as Crawlee does with Playwright, Puppeteer and Stagehand v3 (§8.1, §8.2).
+- **Stagehand v4 is three thin SDKs over one runtime inside a Chrome extension.** 4.0.0 shipped 2026-08-10; 4.2.1 is current (2026-10-11).
+  - The MV3 extension holds the CDP driver, `act`/`observe`/`extract` and the model calls. Each SDK embeds it, so the npm install is 33.0 MB, the Python wheel 0.48 MB (v3 wheels were 31–37 MB with a bundled Node server) and the Go module 0.68 MB **M**.
+  - It downloads no browser. Attaching to a borrowed browser means loading the extension over CDP, which needs a shared filesystem and `--enable-unsafe-extension-debugging`.
+  - There is no Playwright page interop, and `agent()` is gone.
+  - Caching, the Model Gateway, stealth, proxies, CAPTCHA solving, ad blocking and recordings are Browserbase-only.
+  - Crawlee's integration still targets v3 (§2).
+- **Playwright 1.64.1 bundles the MCP server, the CLI with skills and a dashboard into `playwright-core` since 1.62.**
+  - It installs 18.3 MB with no third-party dependency. Browsers are a separate ≈470–527 MiB download.
+  - The Python, Java and .NET ports bundle a Node driver: 33–46 MiB wheels, a 204 MB jar, a 214 MB NuGet package **M**.
+  - It is the only guard-grade driver: strictness, actionability and a hit-target interceptor that cancels mis-targeted events.
+  - It offers no stealth by policy, and nothing of it is cloud-gated (§3).
+- **Puppeteer 25.13.0 splits library from "product".** `puppeteer` downloads ≈281–317 MiB of Chrome at postinstall, which package managers now block by default. The Chrome team's DevTools MCP (14.25 MB, zero dependencies) adds a daemon, `--autoConnect` to the person's Chrome and URL-pattern egress rules, and sends usage statistics to Google by default (§4).
+- **Browser Use 0.13.11 is four products split by who runs the agent.** They are a library, a code-mode CLI, a Rust Terminal and a Cloud.
+  - The library unpacks to **262 MB across 107 wheels**, with 37 mostly exact-pinned dependencies **M**; dependency conflicts are its most-reacted recent complaint.
+  - Some of it is closer to Goodfetch than anything else found:
+    - default local ad and cookie-banner extensions;
+    - `rerun_history`, which re-finds elements through a five-level match;
+    - the Terminal's SQLite event log with resumable tasks.
+  - It also clicks through JavaScript when it detects a covered target. Its telemetry, on by default, may include task instructions and URLs (§5).
+- **agent-browser 0.39.1 is one 15.8–18.3 MB Rust binary.** That binary is CLI, daemon, MCP server and local dashboard, replacing a 710 MB Node-and-Playwright install. It now out-downloads Stagehand on npm (1.73M against 1.64M a week), has the strictest domain allowlist found, ships no stealth, and is the runtime under Steel's CLI (§6.1).
+- **Skyvern is the only AI SDK that ships a local server, web UI and database** (SQLite at `~/.skyvern/data.db`, or Postgres), under AGPL-3.0. Its Custom Code block "sandbox" was an `exec` escaped through `object.__subclasses__()` (§6.4). Midscene adds vision AI to someone else's Playwright or Puppeteer page and keeps the only local, file-based decision cache (§6.5).
+- **Against Goodfetch's capabilities (§9):**
+  - **Absent everywhere:** an Effect journal, a replay that verifies its target before acting, and a real Script sandbox.
+  - **Playwright only:** a guard-grade driver.
+  - **Only with a server:** durable run state (Skyvern, Browser Use Terminal).
+  - **Cloud-only almost everywhere:** stealth and Clean-up rules.
+  - **Table stakes for agent-facing products:** a CLI with skills, an MCP server, a daemon and a local dashboard.
+- **Attaching to the person's own Chrome has converged on Chrome 144's remote-debugging toggle** at `chrome://inspect/#remote-debugging`, used by DevTools MCP, agent-browser, Skyvern and browser-harness. Extension bridges are the alternative (Playwright Extension, Midscene, Stagehand), and they draw flag and enterprise-policy complaints (§10).
 
 ---
 
@@ -333,30 +361,157 @@ Skipped: Bytebot (archived), LaVague (unmaintained since January 2025), BrowserO
 
 ---
 
-## 8. Capability equivalence with Goodfetch
+## 8. Boundaries compared
 
-_In progress: the matrix is built once every product section is in._
+### 8.1 At a glance
+
+Sizes are measured (**M**) on macOS arm64 for installs, per platform for binaries and wheels; sections 2 to 6 cite them.
+
+| Product | Ships as | Languages | Install | Browser at install | Borrowed browser | Only in the vendor's cloud |
+|---|---|---|---|---|---|---|
+| Stagehand 4.2.1 | Three SDKs embedding one extension runtime; `browse` CLI | TS, Python, Go | npm 33.0 MB installed; wheel 0.48 MB; Go 0.68 MB | none; uses the installed Chrome | `localBrowser.connect(cdpUrl)`, then loads its extension (shared filesystem, debugging flag) | cache, Model Gateway, stealth, proxies, CAPTCHA, ad blocking, recordings, contexts, hosted MCP |
+| Playwright 1.64.1 | Library, test runner, MCP server and CLI with skills, the last two inside `playwright-core` since 1.62 | JS/TS; Python, Java, .NET over a bundled Node driver | npm 18.3 MB; Python wheels 33–46 MiB; Java jar 204 MB; .NET 214 MB | separate `playwright install`, ≈470–527 MiB | `connectOverCDP` (lower fidelity), `Browser.bind`, MCP `--extension` | nothing (optional Azure test service) |
+| Puppeteer 25.13.0 | `puppeteer-core` library; `puppeteer` adds a browser download; Chrome DevTools MCP apart | JS/TS | core 31.8 MB installed; DevTools MCP 14.7 MB | `puppeteer` postinstall, ≈281–317 MiB | `connect()` by endpoint or `channel`; DevTools MCP `--autoConnect` | nothing |
+| Browser Use 0.13.11 | Agent library, code-mode CLI, harness, Rust Terminal, Cloud | Python (Cloud SDK also TS) | 262 MB unpacked, 107 wheels | `browser-use install` fetches Playwright's Chromium | `cdp_url`, `from_system_chrome()`, CLI attach to the running Chrome | stealth Chromium fork, CAPTCHA, proxies, recordings, rerunnable scripts, cloud profiles |
+| Skyvern 1.0.56 | SDK, local server, UI, database, workflows, MCP | Python (TS client) | SDK 12.5 MB in 26 wheels; server extra not measured | through Playwright | `browser_address` or `cdp-connect`; tunnel to its cloud | anti-bot, proxies, CAPTCHA |
+| Midscene 1.15.4 | AI layer over someone else's page; extension bridge; YAML runner; skills | TS | 166.4 MB installed | none (the driver's) | wraps a Puppeteer or Playwright page; bridge to desktop Chrome | no cloud |
+| agent-browser 0.39.1 | One Rust binary: CLI, daemon, MCP, dashboard | none (CLI, MCP) | 15.8–18.3 MB binary; npm 119 MB for all platforms | `agent-browser install` (Chrome for Testing) | `--cdp`, `--auto-connect`, cloud providers | no cloud of its own |
+| Steel v0.5.4-beta | Browser API server with UI; SDKs; CLI on agent-browser | server TS; SDKs TS, Python | Docker image 1,338 MiB | inside the image | it is the host others connect to | credentials, CAPTCHA, proxies, profiles |
+| Notte 1.9.7 | Agent framework, cloud browsers, functions | Python, Node SDK | wheels under 1 MB each, plus dependencies | Patchright's | `cdp_url` | most of the product |
+| Magnitude 0.3.1 (dormant) | Agent, test runner, MCP | TS | 102.0 MB installed | Patchright's | Playwright page access | no cloud |
+| Lightpanda 1.0.0 | A browser with CDP, BiDi, MCP and an agent | Zig binary | 90–192 MB binary | it is the browser | n/a | Lightpanda Cloud |
+| chromiumoxide 0.9.1 | Rust CDP library | Rust | crate | optional fetcher | `Browser::connect(ws)` | n/a |
+
+**What no browser-automation product here ships:** a crawler, a request queue, a dataset or a key-value store. The boundary every one of them draws is the session: one browser, its pages and its state. Repeated work is left to the user's loop (Stagehand's cookbooks), to the vendor's cloud (Browser Use rerunnable scripts, Browserbase and Notte Functions, Skyvern schedules) or to a crawler that takes the page (Crawlee).
+
+### 8.2 Inside crawlers
+
+- **Crawlee hands the driver's page to user code.** `PlaywrightCrawler` and `PuppeteerCrawler` peer-depend on the driver; `@crawlee/stagehand` creates a Stagehand v3 instance and reattaches Playwright through `connectOverCDP` "to get a compatible handle" (§2.4). Crawlee supplies the queue, sessions, proxy rotation, autoscaling and fingerprints; the driver supplies the page.
+- **Stagehand v4 broke that integration** by removing the Playwright handle and the v3 entry points, and no v4 port exists yet ([apify/crawlee#4196](https://github.com/apify/crawlee/issues/4196)).
+- **Scrapy uses a download handler** ([scrapy-playwright](https://github.com/scrapy-plugins/scrapy-playwright)); Crawl4AI and Firecrawl drive Playwright themselves.
+- **Spider uses its own Rust driver** (chromey), with stealth crates compiled in ([Rust CDP note](https://github.com/goodfetch/automan/blob/research/rust-cdp-clients/rnd/research/2026-10-10-rust-cdp-clients.md)).
+- **Runtimes now reuse each other:** Steel's CLI runs on agent-browser (§6.6), agent-browser and Stagehand accept Lightpanda as an engine, and Midscene adds AI to a Playwright or Puppeteer page it never owns.
+
+### 8.3 Complaint themes
+
+| Theme | Where it shows | Examples |
+|---|---|---|
+| Size and native downloads | Playwright browsers and ports, Puppeteer's postinstall, Browser Use's dependency tree | [playwright#31729](https://github.com/microsoft/playwright/issues/31729), [playwright-java#1196](https://github.com/microsoft/playwright-java/issues/1196), [puppeteer#7740](https://github.com/puppeteer/puppeteer/issues/7740), [puppeteer#603](https://github.com/puppeteer/puppeteer/issues/603), [browser-use#4824](https://github.com/browser-use/browser-use/issues/4824) |
+| Platform support | Playwright's pinned Linux distributions, Windows for agent-browser and Stagehand, no Windows Lightpanda | [playwright#40117](https://github.com/microsoft/playwright/issues/40117), [agent-browser#56](https://github.com/vercel-labs/agent-browser/issues/56), [stagehand#3166](https://github.com/browserbase/stagehand/issues/3166), [lightpanda#369](https://github.com/lightpanda-io/browser/issues/369) |
+| Attaching to a real or existing browser | All of them | [stagehand#507](https://github.com/browserbase/stagehand/issues/507), [playwright#15370](https://github.com/microsoft/playwright/issues/15370), [browser-use#1520](https://github.com/browser-use/browser-use/issues/1520), [agent-browser#42](https://github.com/vercel-labs/agent-browser/issues/42), [playwright-mcp#891](https://github.com/microsoft/playwright-mcp/issues/891) |
+| Replay without a model | Stagehand, Browser Use, Midscene, Magnitude | [stagehand#389](https://github.com/browserbase/stagehand/issues/389), [browser-use#943](https://github.com/browser-use/browser-use/issues/943), [midscene#2240](https://github.com/web-infra-dev/midscene/issues/2240) |
+| False success | Browser Use, agent-browser, Stagehand | [browser-use#5438](https://github.com/browser-use/browser-use/issues/5438), [agent-browser#2083](https://github.com/vercel-labs/agent-browser/issues/2083), [stagehand#2486](https://github.com/browserbase/stagehand/issues/2486) |
+| Egress controls that leak | Stagehand, Browser Use, Skyvern; Playwright MCP disclaims it | [stagehand#2945](https://github.com/browserbase/stagehand/issues/2945), [browser-use#5099](https://github.com/browser-use/browser-use/issues/5099), [skyvern#8577](https://github.com/Skyvern-AI/skyvern/issues/8577) |
+| Stealth missing locally | agent-browser, Playwright, Puppeteer (stale plugins), Steel self-hosted | [agent-browser#120](https://github.com/vercel-labs/agent-browser/issues/120), [playwright#13838](https://github.com/microsoft/playwright/issues/13838), [puppeteer-extra#932](https://github.com/berstend/puppeteer-extra/issues/932), [steel#302](https://github.com/steel-dev/steel-browser/issues/302) |
+| Open core and cloud lock-in | Stagehand most directly | [stagehand#492](https://github.com/browserbase/stagehand/issues/492) |
+| Token and output size | Playwright MCP | [playwright-mcp#395](https://github.com/microsoft/playwright-mcp/issues/395), [#889](https://github.com/microsoft/playwright-mcp/issues/889) |
+| Browser lifecycle | Browser Use, Puppeteer, agent-browser | [browser-use#839](https://github.com/browser-use/browser-use/issues/839), [puppeteer#1825](https://github.com/puppeteer/puppeteer/issues/1825), [agent-browser#1371](https://github.com/vercel-labs/agent-browser/issues/1371) |
 
 ---
 
-## 9. Implications for Goodfetch
+## 9. Capability equivalence with Goodfetch
 
-_In progress._
+The Goodfetch capabilities, as the [glossary](../../GLOSSARY.md) and ADRs define them: **run state** in SQLite that a run resumes from (ADR 0002); the **Effect journal**, so a retried or resumed step never repeats an Effect (ADR 0010); **Plans**, steps with a Target fingerprint replayed without a model, with Drift and bounded Repair (ADR 0009); the **guard**, which requires a unique, visible, enabled, stable, uncovered target and cancels events that land elsewhere (ADR 0019); the **Goodfetch Chromium** and stealth catalog (ADR 0035); one **egress policy** (ADR 0017); **Clean-up rules** for ads, trackers, consent prompts and walls (ADRs 0047, 0048); the **Script sandbox** (ADR 0051); the **Console** (ADR 0031); the **Daemon** (ADR 0036).
+
+**Y** built in and local; **part** partial (the cell says how); **cloud** only in the vendor's paid cloud; **—** none found in the sources of the product's section.
+
+| Product | Run state | Effect journal | Plans | Guard | Stealth build | Egress policy | Clean-up rules | Script sandbox | Console | Daemon |
+|---|---|---|---|---|---|---|---|---|---|---|
+| **Stagehand 4.2** | — (keep-alive browser only) | — (docs: retry `observe()`, never `act()`) | cloud: server-side action cache; locally the user keeps `observe()` selectors | — (one resolve, centre click) | cloud | part: `setDomainPolicy`, fails open, misses workers and WebSockets | cloud: `blockAds` | — (`experimentalBatch` runs in the extension, which holds `debugger`) | cloud | part: `browse` per-session daemon |
+| **Playwright 1.64** | — | — | part: codegen and recordings emit code; Test Agents' healer edits tests | **Y**: strictness, visible, stable, receives events, enabled, plus the hit-target interceptor | — ("out of the scope") | part: `route()` by hand; MCP origins "not a security boundary" | — | — (`browser_run_code_unsafe` is "RCE-equivalent") | **Y**: UI Mode, Trace Viewer, `playwright-cli show` | **Y**: `run-server`, `Browser.bind`, CLI daemon |
+| **Puppeteer 25 + DevTools MCP** | — | — | part: `@puppeteer/replay` replays Recorder JSON | part: visible, enabled, stable, in viewport; no hit-target or uniqueness check | — | part: DevTools MCP URL patterns block navigations and subresources | — | — | — | part: DevTools MCP CLI daemon |
+| **Browser Use 0.13** | part: SQLite event log and resume in the Rust Terminal; JSON history in the library | — | part: `rerun_history` with a five-level element match; Cloud scripts still start a model | part: detects occlusion, then clicks through JavaScript | cloud: hardened Chromium fork | part: navigation-level allow and deny lists, known bypasses | **Y**: uBlock Origin Lite and a cookie-banner extension on by default; cloud banner blocking | — (CLI runs agent-written Python directly) | part: Terminal TUI; cloud live view | part: named browser daemons |
+| **Skyvern 1.0.56** | **Y**: SQLite at `~/.skyvern/data.db` or Postgres | — | part: generated code per successful run, agent fallback regenerates it | part: Playwright's checks for selector actions | cloud | part: blocked-host gate on agent routes only | — | part: `exec` with emptied builtins; escape fixed (#6868) | **Y**: web UI with live stream | **Y**: API server for UI and SDK |
+| **Midscene 1.15** | — | — | part: local YAML plan and XPath cache keyed by prompt | — (the driver's; vision locates) | — | — | — | — | part: HTML report, playground | — |
+| **agent-browser 0.39** | — (session state files) | — (action policy and confirmations) | — | — (refs and waits) | — (requested, #120) | **Y**: subresources, WebSocket, EventSource, beacons, WebRTC, workers fail closed | — | — (`eval` in the page) | **Y**: dashboard on :4848 | **Y**: per-session Rust daemon |
+| **Steel 0.5** | part: DuckDB event log, in memory by default | — | — | — (the client's driver) | part: fingerprint injection; more in cloud | — | — (custom extensions only) | — | **Y**: session viewer | **Y**: it is a browser server |
+| **Notte 1.9** | cloud | — | part: agent run turned into a function, "Breaks if page changes" | — | part: Patchright locally; cloud anti-detection | — | — | unverified (`restrictedpython` dependency) | cloud | cloud |
+| **Magnitude 0.3** | — | — | — (cache never shipped) | — (vision coordinates) | part: Patchright | — | — | — | — | — |
+| **Lightpanda 1.0** | — | — | part: PandaScript replay, no target check | — | — (its own engine) | — | part: built-in ad blocker | — | — | part: CDP and MCP server |
+| **chromiumoxide 0.9** | — | — | — | — | — | — | — | — | — | — |
+
+**Reading the matrix.**
+
+- **No product has an Effect journal.** The nearest things are advice: Stagehand's docs say a failed `act()` "may already have clicked, submitted, or paid", and Browser Use's say to "reconcile external actions before starting duplicate work" after a client timeout ([llms.txt](https://docs.browser-use.com/llms.txt)).
+- **No product verifies a replayed step's target before it acts.** Browser Use's cascade, Midscene's XPath check and Stagehand's cached selector all ask "does it still resolve?", not "is it the same element?".
+- **Playwright is the only guard-grade driver**, and the only one that cancels mis-targeted events. Browser Use detects a covered target and clicks anyway; Stagehand and agent-browser check nothing beyond a box model or a ref.
+- **Durable run state appears only where there is a server:** Skyvern's SQLite or Postgres and Browser Use Terminal's SQLite event log. Both are Python or Rust applications with a UI, not SDKs.
+- **Stealth and Clean-up rules are cloud features almost everywhere.** The local exceptions are Browser Use's default extensions, Lightpanda's ad blocker, Steel's fingerprint injection and the Patchright and Camoufox forks.
+- **A real Script sandbox exists nowhere.** Every code mode found runs model-written code with the host's or the browser's full rights, and two products say so in writing (Playwright MCP, dev-browser).
+- **CLI with skills, MCP, a daemon and a local dashboard are now table stakes** for products aimed at coding agents: Playwright, agent-browser, Chrome DevTools MCP, Browser Use and Stagehand's `browse` all ship at least three of the four.
 
 ---
 
-## 10. Unverified / open
+## 10. Implications for Goodfetch
 
-- Whether stock Chrome Stable accepts Stagehand's `Extensions.loadUnpacked` on a borrowed browser; Stagehand's docs imply yes; not tested.
-- The "Basic stealth" Stagehand's docs list for local mode: no stealth code was found in the 4.2.1 bundles.
-- Whether the hosted Browserbase MCP runs Stagehand v4: npm `@browserbasehq/mcp` 3.0.0 depends on v3.
-- That the .NET `Microsoft.Playwright` package holds Node for every platform: inferred from its csproj and size, not opened.
-- Puppeteer's documented Chrome download sizes ("~170MB macOS, ~282MB Linux") do not match the measured archives.
-- agent-browser's "7 MB" install claim is the changelog's; the measured binaries are 15.8–18.3 MB.
-- Lightpanda's vendor benchmark was not reproduced.
+Considerations for the Collie capability-set and product-boundary tickets; none of them is a decision.
+
+- **The market's boundary is the session, and no competitor bundles a crawler.** A standalone Collie that stops at Sessions, pages, Plans and the AI operations would match what users expect from Stagehand, Playwright or Browser Use; Frontier, Datasets and Sinks would be Foxhound's, as Crawlee is to Playwright today.
+- **Thin clients over one runtime is where the leaders converged.**
+  - Stagehand v4 moved to three SDKs over one embedded runtime and cut its Python install from 31–37 MB wheels to 0.48 MB.
+  - Browser Use's beta wraps a Rust runtime over stdio JSON-RPC.
+  - Playwright has always wrapped a Node driver, and pays for it in 33–46 MiB wheels and ~200 MB Java and .NET packages that carry every platform.
+  - This supports ADR 0024's shape. It also says that how the runtime is packaged per platform, not the client, is what users measure.
+- **Size expectations are set by two ends:**
+  - agent-browser's 16–18 MB Rust binary, which replaced a 710 MB Node and Playwright install, is the benchmark for a native automation tool.
+  - Browsers dominate every real install (Playwright ≈470–527 MiB, Puppeteer ≈281–317 MiB).
+  - ADR 0057's projected 35–45 MB compressed binary is about twice agent-browser and in Playwright Python's band. V8 (Script sandbox, Code mode) is Collie-relevant. DuckDB serves search, the SQL tab and the DuckDB Sink, so it is less clearly a Collie need, which the boundary ticket may want to weigh.
+- **What users expect from a standalone automation product**, by how many products ship it:
+  - **Nearly universal:** a CLI with agent skills, an MCP server (Midscene retired its own), attaching to the person's running Chrome, session state save and restore, and traces or recordings.
+  - **Common:** a daemon that keeps the browser between calls, and a local dashboard.
+  - **Rare:** durable run state, a domain policy enforced at the network layer, and local Clean-up rules.
+  - **Absent:** an Effect journal, a verified replay, a real sandbox, and a local stealth build.
+  - The rare and absent items are where Collie would differ. They are also the parts a "Collie without the engine" would lose if the split cut them out.
+- **Competitors keep in the cloud what Goodfetch puts locally.**
+  - Stagehand, Browser Use, Skyvern, Steel and Notte all gate stealth, CAPTCHA solving, proxies, recordings and caches behind their clouds. The free Browserbase plan has "No captcha solving or stealth mode".
+  - ADRs 0035 and 0047 make the stealth catalog and Clean-up rules local defaults.
+  - That is a product difference worth naming in Collie's positioning. It also means Collie's install carries data (Clean-up rules) and a browser download (the Goodfetch Chromium) that no competitor SDK carries.
+- **The borrowed-browser path has standardised since Chrome 144.**
+  - Chrome DevTools MCP `--autoConnect`, agent-browser `--auto-connect`, Skyvern and browser-harness all attach after the person enables remote debugging at `chrome://inspect/#remote-debugging`.
+  - Extension routes (the Playwright Extension, Midscene's bridge, Stagehand's runtime) are the alternative, and draw enterprise-policy and flag complaints.
+  - ADR 0056's Borrowed browser could be checked against this flow.
+- **Crawlers integrate a browser product by taking its page.**
+  - Crawlee's three integrations do exactly that, and Stagehand v4 broke its own by removing the page handle.
+  - If Foxhound carries Collie as its browser layer, the Collie page API inside a Foxhound handler is the contract that matters.
+  - ADR 0019's raw CDP WebSocket endpoint is the escape hatch Crawlee-style users would reach for.
+- **Dependency hygiene is a complaint in its own right.** Browser Use's 37 exact pins and 262 MB tree draw conflict reports from projects that embed it. Stagehand v4's four-dependency SDK, and Playwright with no third-party runtime dependency at all, show the alternative.
+- **Default telemetry is common, and sometimes includes task data:**
+  - Browser Use's PostHog telemetry "may include… task instructions, URLs visited, action traces".
+  - Chrome DevTools MCP sends usage statistics to Google.
+  - Lightpanda's telemetry is on.
+  - ADR 0043's "nothing leaves the machine unless configured" is a differentiator users can check.
 
 ---
 
-## 11. Sources
+## 11. Unverified / open
 
-Listed inline. Registries: [npm registry](https://registry.npmjs.org/), [npm downloads API](https://api.npmjs.org/downloads/), [PyPI JSON](https://pypi.org/pypi/), [pypistats](https://pypistats.org/api/), [crates.io API](https://crates.io/api/v1/crates/), [Go module proxy](https://proxy.golang.org/), [Maven Central](https://repo1.maven.org/maven2/com/microsoft/playwright/driver-bundle/), [NuGet](https://api.nuget.org/v3-flatcontainer/microsoft.playwright/), all read 2026-10-14.
+- **Installs measured on one platform only.** Every `node_modules` and unpacked-wheel size is for macOS arm64; Linux and Windows installs were not measured. Resolving Browser Use for Linux from macOS failed on platform markers.
+- **Skyvern's server install** (`skyvern[local]`) was not measured: one dependency ships only as an sdist. Where Skyvern stores generated code (local database or cloud) is not documented on the code-caching page.
+- **Browser Use's default extensions:** the field's description names ClearURLs, while the 0.13.11 code fetches Force Background Tab instead. Whether the Terminal's install script serves builds newer than its GitHub releases (last v0.1.8, 2026-06-12) is unknown.
+- **Stagehand:**
+  - Whether stock Chrome Stable accepts `Extensions.loadUnpacked` on a borrowed browser; the docs imply yes; not tested.
+  - The "Basic stealth" its docs list for local mode: no stealth code was found in the 4.2.1 bundles.
+  - Whether the hosted Browserbase MCP runs v4: npm `@browserbasehq/mcp` 3.0.0 depends on v3.
+  - How Director relates to v4.
+- **Midscene's click path** (coordinate input after vision localization) is inferred from its "pure vision" design, not traced in code.
+- **Notte's `restrictedpython` dependency** suggests a confined code path; its use was not traced.
+- **Steel's egress controls** were looked for in its README and package manifest only.
+- **Playwright .NET:** that `Microsoft.Playwright` holds Node for every platform is inferred from its csproj and size; the package was not opened.
+- **Puppeteer's documented Chrome download sizes** ("~170MB macOS, ~282MB Linux") do not match the measured archives; their basis is unknown.
+- **agent-browser's "7 MB" install claim** is the changelog's; the measured binaries are 15.8–18.3 MB.
+- **Lightpanda's vendor benchmark** was not reproduced.
+- **Issue reactions are a weak signal** for Stagehand, Skyvern, Steel and Notte, whose communities sit on Discord; counts there are low.
+
+---
+
+## 12. Sources
+
+Each claim is linked where it is made. The main primary sources, all read on 2026-10-14:
+
+- **Registries:** [npm registry](https://registry.npmjs.org/) and [downloads API](https://api.npmjs.org/downloads/) (week 2026-10-06 to 2026-10-12), [PyPI JSON](https://pypi.org/pypi/) and [pypistats](https://pypistats.org/api/), [crates.io API](https://crates.io/api/v1/crates/), [Go module proxy](https://proxy.golang.org/), [Maven Central](https://repo1.maven.org/maven2/com/microsoft/playwright/driver-bundle/), [NuGet](https://api.nuget.org/v3-flatcontainer/microsoft.playwright/), GHCR and MCR image manifests.
+- **Stagehand:** [repository](https://github.com/browserbase/stagehand) at `main` (packages, CHANGELOG, extension manifest and source, protocol README), the v4 docs sources under [packages/docs/v4](https://github.com/browserbase/stagehand/tree/main/packages/docs/v4) (configuration/browser, configuration/models, best-practices/caching and deployments, migrations/v3 and playwright), the 4.2.1 npm tarball, [Browserbase pricing](https://www.browserbase.com/pricing).
+- **Playwright:** [release notes @v1.64.1](https://github.com/microsoft/playwright/blob/v1.64.1/docs/src/release-notes-js.md), [browsers.json](https://github.com/microsoft/playwright/blob/v1.64.1/packages/playwright-core/browsers.json), [actionability](https://github.com/microsoft/playwright/blob/v1.64.1/docs/src/actionability.md), [injectedScript.ts](https://github.com/microsoft/playwright/blob/v1.64.1/packages/injected/src/injectedScript.ts), [class-browsertype](https://github.com/microsoft/playwright/blob/v1.64.1/docs/src/api/class-browsertype.md), [playwright-mcp README](https://github.com/microsoft/playwright-mcp/blob/main/README.md), [playwright-cli README](https://github.com/microsoft/playwright-cli/blob/main/README.md), [playwright-python setup.py](https://github.com/microsoft/playwright-python/blob/main/setup.py), [Playwright.csproj](https://github.com/microsoft/playwright-dotnet/blob/main/src/Playwright/Playwright.csproj).
+- **Puppeteer and DevTools MCP:** [installation guide @v25.13.0](https://github.com/puppeteer/puppeteer/blob/puppeteer-v25.13.0/docs/guides/installation.md), [ConnectOptions.ts](https://github.com/puppeteer/puppeteer/blob/puppeteer-v25.13.0/packages/puppeteer-core/src/common/ConnectOptions.ts), [page interactions](https://github.com/puppeteer/puppeteer/blob/puppeteer-v25.13.0/docs/guides/page-interactions.md), [chrome-devtools-mcp README and docs](https://github.com/ChromeDevTools/chrome-devtools-mcp).
+- **Browser Use:** [pyproject @0.13.11](https://github.com/browser-use/browser-use/blob/0.13.11/pyproject.toml), [agent/service.py](https://github.com/browser-use/browser-use/blob/0.13.11/browser_use/agent/service.py), [browser/profile.py](https://github.com/browser-use/browser-use/blob/0.13.11/browser_use/browser/profile.py), [default_action_watchdog.py](https://github.com/browser-use/browser-use/blob/0.13.11/browser_use/browser/watchdogs/default_action_watchdog.py), [security_watchdog.py](https://github.com/browser-use/browser-use/blob/0.13.11/browser_use/browser/watchdogs/security_watchdog.py), [cli.py](https://github.com/browser-use/browser-use/blob/0.13.11/browser_use/cli.py), the [docs index](https://docs.browser-use.com/llms.txt) and its pages linked in §5, [browser-harness](https://github.com/browser-use/browser-harness), [Browser Use Terminal](https://github.com/browser-use/terminal).
+- **Others:** [Skyvern README and pyproject](https://github.com/Skyvern-AI/skyvern), [Midscene docs sources](https://github.com/web-infra-dev/midscene/tree/main/apps/site/docs/en), [agent-browser README and CHANGELOG](https://github.com/vercel-labs/agent-browser), [steel-browser](https://github.com/steel-dev/steel-browser) and [Steel docs](https://docs.steel.dev/llms.txt), [Notte](https://github.com/nottelabs/notte), [Magnitude browser-agent](https://github.com/magnitudedev/browser-agent), [Lightpanda](https://github.com/lightpanda-io/browser), [Crawlee stagehand-crawler](https://github.com/apify/crawlee/tree/master/packages/stagehand-crawler).
+- **Issue trackers** of each product, searched through the GitHub REST search API sorted by reactions; each issue is linked where cited.

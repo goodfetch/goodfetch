@@ -15,7 +15,7 @@ Collie's page API is Playwright's (ADR 0019) wherever the meaning is the same, w
 
 - **Playwright's constructors and matching rules** (S3): `locator(selector)`, `getByRole`, `getByText`, `getByLabel`, `getByPlaceholder`, `getByAltText`, `getByTitle`, `getByTestId`. Text matches as a case-insensitive substring after whitespace is normalized, or exactly with `exact`, because a different default under the same name is what models get wrong most (ADR 0077's RustEvo² figure). Regexes run in the engine under ADR 0081's rules.
 - **`locator()` takes CSS, or XPath** when the string starts with `//`, `..` or `xpath=`, as Playwright detects it. Playwright's other selector engines (`text=`, `role=`, `internal:`), `>>` chains and its CSS extensions (`:has-text()`, `:text()`, `:visible`, `:nth-match()`) fail with `selector_invalid`, whose fix names the method that replaces them (`getByText`, `filter({ hasText, visible })`, `nth()`): each has a method, and a string mini-language would be a second way (S2, G3). Standard CSS, `:has()` and `:is()` included, is accepted. There is no `getById` (Playwright declined it, +81).
-- **The test-id attribute is the setting `locator.test_id_attribute`**, `data-testid` by default, set at any scope (ADR 0028), never Playwright's process-wide `selectors.setTestIdAttribute` (G2).
+- **The test-id attribute is the setting `locator.test_id_attribute`**, `data-testid` by default, set at any scope (ADRs 0028, 0083), never Playwright's process-wide `selectors.setTestIdAttribute` (G2).
 - **Composition is declarative and resolved by the engine:** `filter({ hasText, hasNotText, has, hasNot, visible })`, `and`, `or`, `first()`, `last()`, `nth()`, `all()`, and constructors on a locator. No host callback ever runs in the page (ADR 0081).
 - **No handles.** A locator is a lazy value, built without I/O and resolved again at each use. No `ElementHandle` or `JSHandle` exists; `locator.evaluate` hands its element to a page function, and raw CDP is below that (G8). Selenium's stale references and Puppeteer's destroyed contexts are the handle model's pains (browser drivers P5).
 
@@ -30,7 +30,7 @@ Collie's page API is Playwright's (ADR 0019) wherever the meaning is the same, w
 - **Playwright's locator actions under their names** (S3): `click`, `dblclick`, `tap`, `hover`, `check`, `uncheck`, `setChecked`, `dragTo`, `fill`, `clear`, `press`, `pressSequentially`, `selectOption`, `selectText`, `setInputFiles`, `focus`, `blur`, `scrollIntoViewIfNeeded`.
 - **Every action goes through the guard** (ADR 0019) and needs a unique target. Pointer actions also need it visible, stable, enabled and receiving the event, and a gesture that lands elsewhere is cancelled and replayed. Text actions need it visible and enabled, and `fill` and `clear` need it editable, so a read-only field is waited for. Input is trusted browser input, so controlled inputs see real events (P52).
 - **A target of the wrong kind fails at once** with `target_unsupported` (a `PageError`), naming the action, what it accepts and what it found: `fill` on an element that cannot hold text, `selectOption` on anything but a `<select>`, `setInputFiles` on anything but a file input. An element's kind does not change while waiting, where its read-only or disabled state may.
-- **`force` is ADR 0023's per-call switch:** it skips the actionability checks and the replay, keeps uniqueness, and marks the action unguarded in Provenance. It is the setting `action.force` given for one call; a run can set it for all its actions. Playwright's `force` has that meaning (S3).
+- **`force` is ADR 0023's per-call switch:** it skips the actionability checks and the replay, keeps uniqueness, and marks the action unguarded in Provenance. It is the setting `action.force` given for one call, a per-call argument as ADR 0083 allows; a run can set it for all its actions. Playwright's `force` has that meaning (S3).
 - An action that starts a navigation waits for it to commit, as Playwright's do.
 - **Input with no target** keeps Playwright's `page.keyboard`, `page.mouse` and `page.touchscreen` (a canvas, a map, a key for whatever has focus). Nothing can be guarded, so each call is marked unguarded.
 
@@ -118,7 +118,7 @@ ADR 0081 fixed their shapes; under Playwright's names (S3):
 - **`page.newCdpSession()` returns a `CdpSession`:** `send(method, params?)` returning `JsonValue`, events through `on` (an `EventStream` in Rust), and `close()` (G8). Puppeteer's `createCDPSession()` and Playwright's `context.newCDPSession(page)` are the leaders' forms. browser-use left Playwright because its way down was too narrow (browser drivers P12).
 - **It travels over the program's own connection,** so no port or token is opened. It is a raw CDP attach under ADR 0017: the Session's traffic goes through the egress proxy (on a Borrowed browser, ADR 0056's interception instead), no Secret is typed, results are marked unguarded, the attach is in the Audit log, and an attach from a handler is bound to its work item's lease (ADR 0003).
 - **It reaches only its page's target.** The engine refuses with `cdp_command_refused` (a `RefusedError`) commands that close or attach other targets, and on a Borrowed browser anything that would close the browser (G4).
-- On Firefox and WebKit, which run through Playwright's driver (ADR 0019), it raises `capability_unavailable` ([Settings in code](https://github.com/goodfetch/automan/issues/470)'s code for a capability a platform cannot provide).
+- On Firefox and WebKit, which run through Playwright's driver (ADR 0019), it raises ADR 0083's `capability_unavailable`.
 - **Semver covers its shape, never the protocol:** methods, parameters and events are Chromium's and typed `JsonValue`. No generated CDP types enter the SDK API (G7), as Selenium's ADR 17670 keeps raw BiDi out of its public API.
 
 ### What ADR 0019's mapping leaves out
@@ -175,6 +175,7 @@ TypeScript and Python keep Playwright's spellings, including Python's properties
 
 - **Adds to ADR 0019.** This ADR is the mapping its Consequences ask for, in all three SDKs; each Playwright call maps here or is excluded with a reason.
 - **Amends ADR 0080.** A target still ambiguous when its deadline passes raises `target_not_unique`, not `deadline_exceeded`; a note sits under its timeout errors.
+- **Answers ADR 0083's hand-over.** Contexts are Sessions, and pages open with `session.newPage()` or arrive as popups.
 - **Adds to ADR 0023.** The guard's per-call switch is `force`, the setting `action.force` given for one call; it keeps uniqueness.
 - **Adds to ADR 0017.** A CDP session opened from an SDK is a raw CDP attach under its rules, relayed over the program's connection, so it needs no endpoint or token of its own.
 - **Adds to ADR 0047.** User routes run before Filter lists, and what a route sends on is blocked or allowed by them like any request.

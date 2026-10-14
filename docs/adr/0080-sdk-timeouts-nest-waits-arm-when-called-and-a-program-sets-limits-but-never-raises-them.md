@@ -11,7 +11,7 @@ A program says how long things may take with one `timeout`, a duration in its la
 - **One duration type per language (S1, G3):**
   - TypeScript: a `number` of milliseconds, the one unit throughout the TypeScript SDK, named `timeout` without a unit suffix (Playwright's name and `AbortSignal.timeout(ms)`'s unit, S3).
   - Python: `datetime.timedelta` only. A pasted Playwright `timeout=30_000` is then a type error, where a number would silently mean 30,000 seconds or 30 milliseconds.
-  - Rust: `std::time::Duration`. Every call made on a value is a builder that implements `IntoFuture`: `.timeout(d)` or `.no_timeout()`, then `.await`. `ConnectOptions`, which `Goodfetch::connect(options)` takes (ADR 0078), has the same two methods, so no timeout has one spelling throughout the crate.
+  - Rust: `std::time::Duration`. Every call made on a value is a builder that implements `IntoFuture`: `.timeout(d)` or `.no_timeout()`, then `.await`. `ConnectOptions`, which `Goodfetch::connect(options)` takes (ADR 0078), and starting a Run have the same two methods, so `.no_timeout()` is the one spelling of no timeout throughout the crate.
 - **Three states.**
   - Omitted, the setting's default applies. Python's omitted value is a `not_given` sentinel, as in openai-python.
   - An explicit null means no timeout: `null` in TypeScript, `None` in Python, `.no_timeout()` in Rust. An enclosing timeout still applies.
@@ -22,14 +22,14 @@ A program says how long things may take with one `timeout`, a duration in its la
   - navigation: 30 s
   - app-state wait: 30 s
   - crawl handler: 60 s
-  - hook: 10 s
+  - Hook: 10 s
   - sink write: 30 s
   - `close()`: 30 s
 
   There is no mutable setter such as Playwright's `page.setDefaultTimeout`, which changes calls elsewhere in the program (G2). The setting names, and whether Foxhound's defaults differ from Collie's, are [Settings in code](https://github.com/goodfetch/automan/issues/470)'s.
-- **A timeout's error** has one Error code, `deadline_exceeded`, which shares its group's class under ADR 0079's naming rule, whatever the phase: `operation` names the call and `limit` the phase's setting, so per-phase codes would only multiply classes that share one remedy (S2). Its `limit` names the setting and the layer that set it; the call's own argument is that setting at ADR 0028's run layer, which holds SDK arguments. Its typed details carry the timeout's value, the elapsed time and what was waited for, and, when an enclosing timeout ended the call, that call's `operation` and `callId`. `observed` holds the last state seen (G6).
-- **A timeout fails only its call.** In a crawl, it fails that work item, which is then retried under the crawl's retry policy ([Crawl definition and handler context](https://github.com/goodfetch/automan/issues/477)). The Run goes on. Only the Run's own timeout, a Limit or an abort stops a Run.
-- **The Run's own timeout.** Starting a Run takes a `timeout` for the whole Run, with no default, because crawls rightly run for hours and Limits cap their cost. On expiry the Run stops with a Checkpoint, `stopped` and `incomplete` (ADR 0029), with the stop reason `timeout`, and it can be resumed; the resumed Run's clock starts afresh. It is not a Limit: elapsed time is not Usage, and "only a person raises it" has no meaning for a clock.
+- **A timeout's error** has one Error code, `deadline_exceeded`, which shares its group's class under ADR 0079's naming rule, whatever the phase: `operation` names the call and `limit` the phase, so per-phase codes would only multiply classes that share one remedy (S2). Its `limit` names that setting, its value and the layer that set it; a call's own argument is that setting at ADR 0028's run layer, and `limit` says so, since that layer also holds CLI flags, environment variables and an Integration's form. Its typed details carry the timeout's value, the elapsed time and what was waited for, and, when an enclosing timeout ended the call, that call's `operation` and `callId`. `observed` holds the last state seen (G6).
+- **A timeout fails only its call.** In a crawl, it fails that work item, which is then retried under the crawl's retry policy ([Crawl definition and handler context](https://github.com/goodfetch/automan/issues/477)). The Run goes on: no other timeout stops a Run.
+- **The Run's own timeout.** Starting a Run takes a `timeout` for the whole Run. It is a setting like the others (ADR 0028), so configuration or a Recipe may set it, with the same three states, but its built-in default is none, because crawls rightly run for hours and Limits cap their cost. On expiry the Run stops with a Checkpoint, `stopped` and `incomplete` (ADR 0029), with the stop reason `timeout`, and it can be resumed; the resumed Run's clock starts afresh. It is not a Limit: elapsed time is not Usage, and "only a person raises it" has no meaning for a clock.
 
 ### Waits
 
@@ -51,8 +51,7 @@ A program says how long things may take with one `timeout`, a duration in its la
   - TypeScript: `signal?: AbortSignal` on every cancellable call. An abort rejects with `signal.reason`, as `fetch` does, so `AbortSignal.timeout()` and `AbortSignal.any()` compose natively.
   - Python: cancelling the task (`Task.cancel`, `asyncio.timeout`, anyio's `fail_after`) sends `$/cancel` without waiting for the engine's answer, and `CancelledError` propagates unchanged.
   - Rust: dropping a call's future sends `$/cancel` without blocking, under ADR 0078's `Drop` rule.
-
-- **`call_cancelled` is never the caller's own cancellation.** ADR 0038's answer to a cancelled call is named `call_cancelled`, because the class `CancelledError` would be Python's own `asyncio.CancelledError`, which ADR 0079's naming rule refuses. An SDK never raises it for a cancellation its caller asked for. When someone else stops a call in flight (a person stopping the Run from the Console, another Client, the program closing a parent value), the call fails with `call_cancelled`, an `UnavailableError` that is not retryable: what the call needed is gone. `observed` says who stopped it, and `fix` points to resuming the Run, as Playwright's "target page, context or browser has been closed" does.
+- **`call_cancelled` is never the caller's own cancellation.** ADR 0038's answer to a cancelled call is named `call_cancelled`, with the class `CallCancelledError`, because a class `CancelledError` would share its name with Python's `asyncio.CancelledError`, which ADR 0079's naming rule refuses. An SDK never raises it for a cancellation its caller asked for. When someone else stops a call in flight (a person stopping the Run from the Console, another Client, the program closing a parent value), the call fails with `call_cancelled`, an `UnavailableError` that is not retryable: what the call needed is gone, as Playwright's `TargetClosedError` reports that the target page, context or browser has been closed. `observed` says who stopped it, and `fix` follows: resuming the Run when the Run was stopped, or naming the close when the program closed a parent value.
 - **Both apply.** A signal and a timeout both apply, and whichever comes first ends the call. The Run trace records a cancelled call as cancelled. An Effect already sent is never treated as undone (ADR 0010). How the blocking Python client cancels is Concurrency model per language's.
 
 ### Limits in code
@@ -83,9 +82,10 @@ A program says how long things may take with one `timeout`, a duration in its la
 
 ## Consequences
 
+- **Amends ADR 0079.** Its `cancelled` code is `call_cancelled`, in the `unavailable` group; `limit` says when a call's own argument set it; `timeout` joins the stop reasons of AI work.
 - **Amends ADR 0038.** The engine answers a call cancelled through `$/cancel` with the code `call_cancelled`, not `cancelled`.
 - **Amends ADR 0029.** A Run's own timeout is a fifth cause of `stopped`, beside a Limit, an abort, the loss of the engine and exhausted resources: such a Run is never `complete`, and it resumes with a fresh clock.
-- **Error codes.** `removed` joins `goodfetch-protocol`'s list in the `program` group, ADR 0038's `cancelled` is renamed `call_cancelled` and placed in the `unavailable` group, and every timeout is `deadline_exceeded`, with the details above. `timeout` joins the stop reasons of ADR 0079's AI work results and of a Run.
+- **Error codes.** `removed` joins `goodfetch-protocol`'s list in the `program` group, ADR 0038's `cancelled` is renamed `call_cancelled` and placed in the `unavailable` group, and every timeout is `deadline_exceeded`, with the details above. `timeout` joins the stop reasons of AI work results and of a Run.
 - **Area 3 (Engine runtime)** builds the phase timeouts, their nesting and the Run's timeout. **Area 5 (Site access)** builds the waits, the `networkidle` definition and arming in call order. **Area 11 (Client surfaces)** builds each language's duration type, the three states, cancellation and Limits in code. Each lists this ADR.
 - **ADR 0037's matrix**: whole-run and phase timeouts (RT-06) and waits (SA-14) are decided here.
 - **The `prototype/sdk-api` sketch** holds this ADR's signatures in its `time` files for each language. If golden scenarios 02, 08 or 11 show that a Run of its own is a clumsy way to cap one AI step, a call scope for Limits returns to the map as a ticket of its own.

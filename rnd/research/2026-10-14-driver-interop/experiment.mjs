@@ -284,6 +284,20 @@ for (const flag of [false, true]) {
   cl.close(); c.proc.kill(); await sleep(300); rmSync(c.dir, { recursive: true, force: true });
 }
 
+// ---------- P10: Playwright and Puppeteer given a page-level endpoint instead of the browser's ----------
+{
+  const c = await launch();
+  const cl = await Raw.open(c.wsUrl);
+  const { targetId: t } = await cl.send('Target.createTarget', { url: `${ORIGIN}/p10` });
+  await sleep(800);
+  const pageWs = `ws://127.0.0.1:${new URL(c.wsUrl).port}/devtools/page/${t}`;
+  const res = {};
+  try { const pw = await chromium.connectOverCDP(pageWs, { timeout: 5000 }); res.playwright = 'connected, pages: ' + pw.contexts().flatMap(x => x.pages()).length; await pw.close(); } catch (e) { res.playwright = 'error: ' + e.message.split('\n')[0].slice(0, 160); }
+  try { const pp = await withTimeout(puppeteer.connect({ browserWSEndpoint: pageWs, protocolTimeout: 5000 }), 6000); res.puppeteer = pp === 'timeout' ? 'timeout' : 'connected, pages: ' + (await pp.pages()).length; if (pp !== 'timeout') await pp.disconnect(); } catch (e) { res.puppeteer = 'error: ' + e.message.split('\n')[0].slice(0, 160); }
+  out('P10 page-level endpoint', res);
+  cl.close(); c.proc.kill(); await sleep(300); rmSync(c.dir, { recursive: true, force: true });
+}
+
 // ---------- P9: the browser's launch proxy versus a context a lent client creates ----------
 {
   // Port 9 (discard) is closed, so every proxied request fails; '<-loopback>' makes loopback go through the proxy too.

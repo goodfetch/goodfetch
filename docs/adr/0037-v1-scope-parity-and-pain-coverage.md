@@ -38,9 +38,9 @@ One spec per area. An area goes to `/to-spec` only after every area whose contra
 | 7 | Plugin protocol | 0033, 0049, 0056, 0066 |  |
 | 8 | Stealth and Challenge solving | 0035, 0056, 0074 |  |
 | 9 | AI and agent | 0009–0014, 0051, 0056, 0065, 0066, 0082 |  |
-| 10 | Scheduling | 0036, 0041, 0055, 0066 |  |
+| 10 | Scheduling | 0036, 0041, 0055, 0066, 0084 |  |
 | 11 | Client surfaces (SDKs, CLI, MCP, skills, adapters, Integrations, Notifications) | 0011, 0024, 0027, 0049, 0055, 0056, 0065, 0069, 0070, 0071, 0073, 0077, 0078, 0079, 0080, 0081, 0082 |  |
-| 12 | Console | 0029, 0031, 0049, 0055–0057, 0068, 0071, 0073 |  |
+| 12 | Console | 0029, 0031, 0049, 0055–0057, 0068, 0071, 0073, 0084 |  |
 | 13 | Self-hosted deployment and operations | 0024, 0049, 0050, 0053, 0055, 0056, 0066 |  |
 | 14 | Cloud-readiness contracts | 0001, 0049, 0056, 0068 |  |
 

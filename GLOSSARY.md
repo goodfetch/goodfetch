@@ -1,6 +1,6 @@
 # Goodfetch
 
-Goodfetch is the organization behind two open-source Products: Collie, for browser automation, and Foxhound, for crawling and collecting web data, both with AI-assisted workflows. Goodfetch Cloud runs their engine as a hosted service.
+Goodfetch is the organization behind two open-source Products: Collie, for browser automation, and Foxhound, for crawling and collecting web data, both with AI-assisted workflows. Goodfetch Cloud runs their engines as a hosted service.
 
 ## Products and the engine
 
@@ -81,11 +81,11 @@ The Goodfetch process that runs beside a browser and carries out a Session's ope
 _Avoid_: worker, agent, sidecar
 
 **Borrowed browser**:
-A browser Goodfetch did not launch and never closes: the person's running browser, one their own code launched, or a third-party cloud browser reached by its address.
+A browser the engine did not launch and never closes: the person's running browser, one their own code launched, or a third-party cloud browser reached by its address.
 _Avoid_: external browser, attached browser
 
 **Plugin**:
-A package that adds implementations of one or more Plugin kinds to the engine, such as delivery to a Sink, a fetch backend or a Secret provider; the reverse of an Integration, which puts Goodfetch inside another tool.
+A package that adds implementations of one or more Plugin kinds to the engine, such as delivery to a Sink, a fetch backend or a Secret provider; the reverse of an Integration, which puts a Product inside another tool.
 _Avoid_: extension (a browser extension is something else), add-on, connector, module
 
 **Plugin kind**:
@@ -259,7 +259,7 @@ A Session's identity, cookies and storage, kept under a name so that later runs 
 _Avoid_: profile, context, login
 
 **Profile directory**:
-A browser's own folder of a person's browsing data, on which Goodfetch can launch that browser in place; for the Chromium family, the data directory (Chrome's `--user-data-dir`), not the profile folder inside it that Chrome's `--profile-directory` names.
+A browser's own folder of a person's browsing data, on which the engine can launch that browser in place; for the Chromium family, the data directory (Chrome's `--user-data-dir`), not the profile folder inside it that Chrome's `--profile-directory` names.
 _Avoid_: user data dir, profile (alone)
 
 **Session source**:
@@ -339,7 +339,7 @@ A message about the progress or outcome of a run or a Schedule, sent to a person
 _Avoid_: alert, event (for the message), webhook (for every channel)
 
 **Integration**:
-A package that puts Goodfetch inside another tool, such as a workflow tool node or a document loader; one that drives the engine is a Client.
+A package that puts a Product inside another tool, such as a workflow tool node or a document loader; one that drives the engine is a Client.
 _Avoid_: connector, plugin, app
 
 **Baseline**:
@@ -381,7 +381,7 @@ A package that offers Goodfetch's operations as tools of an agent framework, suc
 _Avoid_: wrapper, toolkit, Integration
 
 **MCP host**:
-An application that connects a model to MCP servers, such as Claude Code, VS Code or ChatGPT, and so reaches Goodfetch through its MCP server.
+An application that connects a model to MCP servers, such as Claude Code, VS Code or ChatGPT, and so reaches a Product through its MCP server.
 _Avoid_: MCP client (for the application), agent app
 
 **Success check**:

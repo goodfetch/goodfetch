@@ -1,25 +1,25 @@
 //! Concurrency, events and user code (ADR 0081, decided in #468).
 //!
-//! Every handle ([`Goodfetch`], [`Collie`], [`Run`], [`Page`], [`Locator`]) is a cheap clone of one
-//! value, an `Arc` inside, and is `Send + Sync + 'static`; methods take `&self`, and no public type
-//! has a lifetime parameter. A call owns what it needs, so its future is `Send + 'static` and can be
-//! spawned. `close()` on any clone closes the value for every clone, and dropping the last clone
-//! unclosed fires ADR 0078's `Drop` rule. The SDK keeps no queue: each call goes to the engine when
-//! it is made, and the engine starts a page's calls in arrival order.
+//! Every handle ([`Goodfetch`], [`Collie`], [`Run`], [`Page`], [`Locator`]) is a cheap clone of
+//! one value, an `Arc` inside, and is `Send + Sync + 'static`; methods take `&self`, and no public
+//! type has a lifetime parameter. A call owns what it needs, so its future is `Send + 'static` and
+//! can be spawned. `close()` on any clone closes the value for every clone, and dropping the last
+//! clone unclosed fires ADR 0078's `Drop` rule. The SDK keeps no queue: each call goes to the
+//! engine when it is made, and the engine starts a page's calls in arrival order.
 //!
 //! The SDK hosts its engine like `main` (ADR 0060 as amended): a connection builds its linked
 //! engine's Tokio runtime, or a client runtime for a Daemon or Goodfetch Cloud, through the helper
-//! `main` uses (its tests pass the test helper's), so these futures and streams run on any
-//! executor, a single-threaded one included. The async API spawns nothing on the program's
-//! executor: whatever the engine sends on its own, events and requests that need an answer alike (a route
-//! here; a crawl handler, a dialog or a Hook in code elsewhere), arrives as an [`EventStream`],
-//! subscribed when the method that returns it is called. The program drives it where it likes, so
-//! handlers run inside the future the program awaits, may borrow local state, and need neither
-//! `Send` nor `'static`. Dropping a stream unsubscribes without blocking. [`crate::blocking`] is the
-//! same API without `async`.
+//! `main` uses (unit tests over the in-memory transport pair hand it the paused one), so these
+//! futures and streams run on any executor, a single-threaded one included. The async API spawns
+//! nothing on the program's executor: whatever the engine sends on its own, events and requests
+//! that need an answer alike (a route here; a crawl handler, a dialog or a Hook in code
+//! elsewhere), arrives as an [`EventStream`], subscribed when the method that returns it is
+//! called. The program drives it where it likes, so handlers run inside the future the program
+//! awaits, may borrow local state, and need neither `Send` nor `'static`. Dropping a stream
+//! unsubscribes without blocking. [`crate::blocking`] is the same API without `async`.
 //!
-//! The page's events, routes and the data they carry are placeholders owned by #472; [`Run::records`] is
-//! #479's.
+//! The page's events, routes and the data they carry are placeholders owned by #472;
+//! [`Run::records`] is #479's.
 
 use std::fmt;
 use std::marker::PhantomData;
@@ -66,8 +66,8 @@ impl<T> Drop for EventStream<T> {
     fn drop(&mut self) {}
 }
 
-/// Page events under Playwright's names (S3), each a value naming the data it carries. The full list is
-/// #472's.
+/// Page events under Playwright's names (S3), each a value naming the data it carries. The full
+/// list is #472's.
 pub mod events {
     /// A page event and the data it carries.
     pub trait PageEvent: Send + Sync + 'static {
@@ -141,7 +141,7 @@ impl Route {
     }
 }
 
-/// A Record a crawl committed. A placeholder: its type is #469's.
+/// A Record a crawl committed. A placeholder: a Record has its Dataset's type (ADR 0082).
 #[derive(Debug, Clone)]
 pub struct Record {
     _private: (),
@@ -196,6 +196,7 @@ const _: () = {
     handle::<Run>();
     handle::<Page>();
     handle::<Locator>();
+    handle::<crate::data::Dataset<serde_json::Map<String, serde_json::Value>>>();
     spawnable::<CallFuture<()>>();
     spawnable::<EventStream<Response>>();
     spawnable::<EventStream<Route>>();

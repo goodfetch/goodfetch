@@ -134,7 +134,7 @@ class AsyncPageEvents:
 
 class AsyncRunEvents:
     def records(self) -> AsyncEventIterator[Mapping[str, object]]:
-        """Placeholder for #479: the Run's Records. Their type is #469's; where the sequence starts is #479's."""
+        """Placeholder for #479: the Run's Records. They have their Dataset's type (ADR 0082); how they are read is #479's."""
 
 # Sync API: the same concepts, generated from the same catalog (ADR 0038).
 
@@ -210,4 +210,4 @@ class PageEvents:
 
 class RunEvents:
     def records(self) -> EventIterator[Mapping[str, object]]:
-        """Placeholder for #479: the Run's Records. Their type is #469's; where the sequence starts is #479's."""
+        """Placeholder for #479: the Run's Records. They have their Dataset's type (ADR 0082); how they are read is #479's."""

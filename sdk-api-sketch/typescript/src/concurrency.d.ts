@@ -88,6 +88,6 @@ export interface PageEvents {
 
 /** The Run's sequences. */
 export interface RunEvents {
-  /** Placeholder for #479: the Run's Records. Their type is #469's; where the sequence starts is #479's. */
+  /** Placeholder for #479: the Run's Records. They have their Dataset's type (ADR 0082); how they are read is #479's. */
   records(): EventIterator<Readonly<Record<string, unknown>>>;
 }

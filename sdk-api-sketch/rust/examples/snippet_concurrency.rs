@@ -16,9 +16,8 @@ fn spawnable(page: &Page) -> impl Future<Output = Result<(), Error>> + Send + 's
     async move { page.locator("li.next a").click().await }
 }
 
-/// The async API spawns nothing on the program's executor: what the engine sends on its own arrives
-/// as a stream the program drives
-/// (Q5, Q8).
+/// The async API spawns nothing on the program's executor: what the engine sends on its own
+/// arrives as a stream the program drives (Q5, Q8).
 async fn browse(page: &Page) -> Result<String, Error> {
     // Subscribed when called, so nothing slips through before the first read.
     let mut console = page.events(events::Console);

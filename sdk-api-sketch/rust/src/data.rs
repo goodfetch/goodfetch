@@ -47,10 +47,16 @@ impl Schema<serde_json::Value> {
 
 /// A Run's Dataset of `T`, the type it was declared with, or [`serde_json::Map`] when it declares
 /// none. The engine validates every Record against its JSON Schema; how a Dataset is declared, how
-/// Records are read and what becomes of a rejected one are #479's.
+/// Records are read and what becomes of a rejected one are #479's. A cheap clone (ADR 0081).
 #[derive(Debug)]
 pub struct Dataset<T> {
     _type: PhantomData<fn(T) -> T>,
+}
+
+impl<T> Clone for Dataset<T> {
+    fn clone(&self) -> Self {
+        Self { _type: PhantomData }
+    }
 }
 
 impl<T: Serialize> Dataset<T> {

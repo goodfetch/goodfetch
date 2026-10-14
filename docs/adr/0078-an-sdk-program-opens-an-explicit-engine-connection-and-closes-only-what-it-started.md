@@ -19,6 +19,7 @@ A program reaches Goodfetch through one value it opens and holds: an engine conn
 ### Closing
 
 - **Every disposable value** has the language's scoped form and a first-class `close()`: `Symbol.asyncDispose` for `await using` in TypeScript (`close()` stays first-class, since Node 22 has no `await using`), `async with` and `with` in Python, `close(&self).await -> Result` in Rust, through `&self` so it works through an `Arc`.
+  > Amended by [ADR 0081](0081-each-sdk-follows-its-languages-concurrency-model-and-shapes-events-by-meaning.md): Rust handles are cheap clones of one value, so `close()` on any clone closes the value for every clone. A `Subscription` closes synchronously in TypeScript and Python, since nothing waits, as does a TypeScript iterator's `close()`, and a Rust `EventStream` or blocking `EventIter` closes by being dropped.
 - `close()` is idempotent; any other call on a closed value fails with the Error code `closed`. A value never reopens: `connect()` again. Closing a parent closes its children first and waits for them, along ADR 0038's cancellation tree; its deadline is [Time, waits, deadlines, cancellation and budgets](https://github.com/goodfetch/automan/issues/467)'s.
 - **What each `close()` releases:**
 
@@ -52,6 +53,7 @@ A program reaches Goodfetch through one value it opens and holds: an engine conn
 ### Rust
 
 - **`Drop` never blocks and never fails** (C-DTOR-FAIL, C-DTOR-BLOCK). On a value not closed, it fires the cancellation tree without waiting, emits a `tracing` warning, and leaves the rest to the engine; Runs resume from their last Checkpoint.
+  > Amended by [ADR 0081](0081-each-sdk-follows-its-languages-concurrency-model-and-shapes-events-by-meaning.md): it acts when the last clone of a handle is dropped; dropping an `EventStream` or a blocking `EventIter` is how it closes, with no warning.
 - **A scoped helper** `Goodfetch::scope(options, async |gf| { … }).await` opens the connection, lends it to the closure, and closes it on every return and error.
 - **Child processes** the crate starts (the `goodfetch` binary for the Script sandbox and `plugin-shim`, ADR 0024) use `kill_on_drop(true)`.
 

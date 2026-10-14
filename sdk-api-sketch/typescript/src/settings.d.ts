@@ -46,8 +46,9 @@ export interface Geolocation {
 /**
  * `browser.*`: part of a Session's identity, fixed for its life (ADR 0021), so set where a Session
  * opens or above it, never on a page. Playwright's names where the meaning matches (S3). A value
- * that conflicts with an identity fixed elsewhere (a `stealth` Identity profile, an imported login,
- * a Profile directory used in place) is refused with `setting_locked`.
+ * set where a Session opens that conflicts with an identity fixed elsewhere (a `stealth` Identity
+ * profile, an imported login, a Profile directory used in place) is refused with `setting_locked`;
+ * an inherited one yields, and `explainSettings()` names what fixed it.
  */
 export interface BrowserSettings {
   readonly viewport?: Viewport | null;

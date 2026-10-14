@@ -88,3 +88,9 @@ The following request favors a **measurement lab before the console**: isolated 
 
 - [Contract and method: workflow and shared SQLite](2026-10-08-workflow-and-shared-sqlite.md).
 - [Executed results: 153 qualified cells](../lab/reports/workflow-2026-10-08.md), with Node/Rust sync/Go, idempotent recovery and comparison of the Crawlee pool wake-up.
+
+## 9. Later research — October 2026
+
+| Report | Content |
+| --- | --- |
+| [Goodfetch Cloud architecture and economics](reports/Goodfetch%20Cloud%20architecture%20and%20economics.md) | How comparable clouds are built and priced, the open-source layers around frameworks, AWS runtime, isolation, networking and billing, input costs (proxies, CAPTCHAs, models), workload profiles, unit economics and a revenue model; notes and a runnable model in [research_notes](research_notes/Goodfetch%20Cloud%20architecture%20and%20economics/) |

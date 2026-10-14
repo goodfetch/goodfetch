@@ -128,6 +128,8 @@ The online conformance against real vendors still runs on that patch and never b
 
 ### Platforms, budgets and cost
 
+> Amended by [ADR 0076](0076-tests-and-ci-run-on-free-tiers-and-ai-calls-go-through-the-vercel-ai-gateway.md): the hosted build runners and the rented macOS runner are declined while there is no revenue; the gate's free design is decided before M3.
+
 - **Every platform the build ships** runs the whole gate on its own build: the series has platform code (fonts, GPU strings), and users get these bytes.
 - **macOS has no hosted runner that fits a build.** The macOS gate runs where ADR 0035's macOS build runs, a third-party or self-hosted macOS runner the owner chooses.
 - **Budgets** follow ADR 0061's method (p50 of the last 20 runs, a breach opens an issue):
@@ -178,6 +180,8 @@ The online conformance against real vendors still runs on that patch and never b
 - **Area 8 (Stealth and Challenge solving)** builds the gate, `chromium/surfaces.toml`, the expectations and the Chromium pull request's job.
 - **The "Test infrastructure" spec** builds: the gate workflow and its runtime-deps packaging, the expectation checks, the `chromium/surfaces.toml` and protocol checks, the codegen of launch arguments, the crash-dump check, and the helpers of the consistency, codec, font and quiet-browser tests.
 - **Owner approvals:** the gate's runner minutes, from the first measured build; the macOS build and gate runner; the full gate on Beta majors.
+
+  > Amended by [ADR 0076](0076-tests-and-ci-run-on-free-tiers-and-ai-calls-go-through-the-vercel-ai-gateway.md): these paid resources are declined while there is no revenue, not pending; the gate's free design is decided before M3.
 - **Unverified, checked by the first implementation tickets:**
   - whether `browser_tests` and the other suites build and run on an ungoogled tree with the testdata tarball added;
   - whether the testdata tarball holds `third_party/webgl`, and whether the WebGL harness runs outside a full checkout;

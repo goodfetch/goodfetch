@@ -32,6 +32,8 @@ Decided in [Security testing](https://github.com/Jbmanllr/automan/issues/288) (g
   - **Nightly:** `batch` for 3,600 s over every target, then `prune` and `coverage`.
   - **Containment:** crashes, corpora, coverage, logs and results stay in that repository. They never reach ADR 0064's results store, which becomes public with the main repository, nor its published report. The job that builds and runs the code holds no secret and a token with no permissions; a later job stores its results.
 - **Cost and phases.** Runner minutes in a private repository are paid beyond the plan's included minutes, so fuzzing starts when the owner approves it as a paid test resource. Until then, the replay and `cargo fuzz check` run, and nothing else.
+
+  > Amended by [ADR 0076](0076-tests-and-ci-run-on-free-tiers-and-ai-calls-go-through-the-vercel-ai-gateway.md): paid fuzzing minutes, GitHub Secret Protection while private and the independent assessment are declined while there is no revenue; fuzzing stays within the included minutes, `gitleaks` stands in until the repository is public, and the test V8 build runs on the owner's machine.
 - **Images by digest.** ClusterFuzzLite's images run by digest from Goodfetch's own workflow, never through its action's mutable `:v1` tag. They are pulled before ADR 0043's deny, and the fuzz jobs run under it.
 - **Crashes.**
   - A crash whose input also crashes the previous continuous build is a known one: it joins its advisory, or opens one if it has none.

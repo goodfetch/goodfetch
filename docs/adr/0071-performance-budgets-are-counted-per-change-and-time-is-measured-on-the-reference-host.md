@@ -78,6 +78,8 @@ These are exact by construction, so they are ordinary tests with snapshots (`TES
 ### The Performance series
 
 - **Every night, on `main`'s head, on the reference host** of ADR 0025:
+
+  > Amended by [ADR 0076](0076-tests-and-ci-run-on-free-tiers-and-ai-calls-go-through-the-vercel-ai-gateway.md): while there is no revenue, the rented reference host is declined and the series runs on the owner's machine (Apple M3 Max) when it is on, its results labelled with that machine and never published as the reference class.
   - criterion's wall time for every scenario (`benches/wall.rs`);
   - each SDK's small-call round trip against an Attached engine;
   - startup wall time and peak memory of the binary, with hyperfine 2.0;

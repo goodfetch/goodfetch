@@ -6,6 +6,10 @@ Web scraping and automation framework project. `rnd/` holds the R&D material (pr
 
 Delivery mode: autonomous. Agents merge their own pull requests after a fresh review recorded on the pull request's exact head and green required checks. Deploying to production, running production migrations and resetting a running service's data still need the owner's explicit request. Production means running services (the online Proving ground, Goodfetch Cloud); a release through the gated pipeline of ADRs 0030 and 0032 is not a production deploy, nor are the docs site's deploys from `main` (ADR 0030); neither needs a separate request.
 
+## Money
+
+Goodfetch has no revenue: no paid resource until the owner says so ([ADR 0076](docs/adr/0076-tests-and-ci-run-on-free-tiers-and-ai-calls-go-through-the-vercel-ai-gateway.md)). Never create, enable or propose as pending anything that bills (runners, credits, accounts, services, assessments); choose the free tier or a local alternative, and record the paid option as declined. Live model calls go through the Vercel AI Gateway's free tier. Local secrets live in the git-ignored `.env`, filled by `scripts/env-setup.sh` from `.env.example`.
+
 ## Release status
 
 Release status: pre-release. Nothing has been published on any channel, no one outside the project runs Goodfetch, and any running service holds only test data. Change a contract, setting, format or stored shape in place: update every caller, regenerate with `xtask codegen` and commit its output in the same change, and add no alias, shim, fallback, deprecation or migration for an earlier state of this repository. A contract format's version does not change before Goodfetch is published, so no reader for an earlier shape is owed. Deploying to, migrating or resetting a running service still needs the owner's explicit request (Delivery).

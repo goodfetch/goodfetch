@@ -17,7 +17,7 @@ plain functions, and on free-threaded builds it runs in parallel. The engine sen
 concurrency setting allows. Globs and compiled patterns run in the engine, in the Rust `regex` syntax (no look-around
 or backreferences, linear time); a pattern using either fails at the call with a `ProgramError` naming the construct.
 A predicate runs in the program, on the events the engine sends while it is armed, never in the page.
-The page's events, routes and their payloads are placeholders owned by #472; `records()` is #479's.
+The page's events, routes and the data they carry are placeholders owned by #472; `records()` is #479's.
 """
 
 from collections.abc import Awaitable, Callable, Iterator, Mapping

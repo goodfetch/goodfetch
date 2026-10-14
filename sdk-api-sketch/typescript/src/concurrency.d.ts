@@ -16,7 +16,7 @@
 // backreferences, and linear time. A `RegExp` using either fails at the call with a `ProgramError`
 // naming the construct. A predicate runs here, on the events the engine sends while it is armed, and
 // never in the page: page functions take an explicit argument (#472).
-// The page's events, routes and their payloads are placeholders owned by #472; `run.records()` is #479's.
+// The page's events, routes and the data they carry are placeholders owned by #472; `run.records()` is #479's.
 
 import type { Page } from "./lifecycle.js";
 import type { CallOptions, Request, Response, UrlMatcher } from "./time.js";

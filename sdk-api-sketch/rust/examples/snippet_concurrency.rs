@@ -16,18 +16,23 @@ fn spawnable(page: &Page) -> impl Future<Output = Result<(), Error>> + Send + 's
     async move { page.locator("li.next a").click().await }
 }
 
-/// The SDK spawns nothing: what the engine sends on its own arrives as a stream the program drives
+/// The async API spawns nothing on the program's executor: what the engine sends on its own arrives
+/// as a stream the program drives
 /// (Q5, Q8).
 async fn browse(page: &Page) -> Result<String, Error> {
     // Subscribed when called, so nothing slips through before the first read.
     let mut console = page.events(events::Console);
     // Routes are answered here, inside the future this function awaits, up to eight at once.
-    let answer_routes = page.route("**/*.{png,jpg}").try_for_each_concurrent(8, async |route| route.abort().await);
+    let answer_routes = page
+        .route("**/*.{png,jpg}")
+        .try_for_each_concurrent(8, async |route| route.abort().await);
     let navigate = async {
         page.goto("https://books.toscrape.com/").await?;
         // A regular expression runs in the engine; a lookahead such as `(?=` fails at the call.
         let next_page = UrlMatcher::Regex(r"/catalogue/page-\d+\.html$".to_owned());
-        page.wait_for_response(next_page).during(page.locator("li.next a").click()).await
+        page.wait_for_response(next_page)
+            .during(page.locator("li.next a").click())
+            .await
     };
     // Once the navigation ends, the route future is dropped, and with it the subscription.
     match select(pin!(navigate), pin!(answer_routes)).await {
@@ -70,7 +75,9 @@ fn script() -> Result<usize, Error> {
     let gf = blocking::Goodfetch::connect(ConnectOptions::default())?;
     let run = gf.collie().start().send()?;
     let page = run.new_page().send()?;
-    page.goto("https://books.toscrape.com/").timeout(Duration::from_secs(10)).send()?;
+    page.goto("https://books.toscrape.com/")
+        .timeout(Duration::from_secs(10))
+        .send()?;
     let count = run.records().take(20).count();
     gf.close().send()?;
     Ok(count)

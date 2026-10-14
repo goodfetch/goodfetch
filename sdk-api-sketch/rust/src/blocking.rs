@@ -165,7 +165,7 @@ impl Page {
     }
 
     /// The event's iterator, subscribed when called.
-    pub fn events<E: events::PageEvent>(&self, event: E) -> EventIter<E::Payload> {
+    pub fn events<E: events::PageEvent>(&self, event: E) -> EventIter<E::Data> {
         let _ = event;
         unimplemented!()
     }

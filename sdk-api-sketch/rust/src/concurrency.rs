@@ -18,7 +18,7 @@
 //! `Send` nor `'static`. Dropping a stream unsubscribes without blocking. [`crate::blocking`] is the
 //! same API without `async`.
 //!
-//! The page's events, routes and their payloads are placeholders owned by #472; [`Run::records`] is
+//! The page's events, routes and the data they carry are placeholders owned by #472; [`Run::records`] is
 //! #479's.
 
 use std::fmt;
@@ -66,13 +66,13 @@ impl<T> Drop for EventStream<T> {
     fn drop(&mut self) {}
 }
 
-/// Page events under Playwright's names (S3), each a value naming its payload. The full list is
+/// Page events under Playwright's names (S3), each a value naming the data it carries. The full list is
 /// #472's.
 pub mod events {
-    /// A page event and the payload it carries.
+    /// A page event and the data it carries.
     pub trait PageEvent: Send + Sync + 'static {
         /// What each event carries.
-        type Payload: Send + 'static;
+        type Data: Send + 'static;
     }
 
     /// `console`: a console message.
@@ -92,19 +92,19 @@ pub mod events {
     pub struct RequestFinished;
 
     impl PageEvent for Console {
-        type Payload = super::ConsoleMessage;
+        type Data = super::ConsoleMessage;
     }
 
     impl PageEvent for Request {
-        type Payload = crate::time::Request;
+        type Data = crate::time::Request;
     }
 
     impl PageEvent for Response {
-        type Payload = crate::time::Response;
+        type Data = crate::time::Response;
     }
 
     impl PageEvent for RequestFinished {
-        type Payload = crate::time::Request;
+        type Data = crate::time::Request;
     }
 }
 
@@ -158,14 +158,14 @@ impl Record {
 /// The page's events.
 impl Page {
     /// The event's stream, subscribed when called: Rust's form of `on` (ADR 0081).
-    pub fn events<E: events::PageEvent>(&self, event: E) -> EventStream<E::Payload> {
+    pub fn events<E: events::PageEvent>(&self, event: E) -> EventStream<E::Data> {
         let _ = event;
         unimplemented!()
     }
 
     /// Waits for one event, armed when awaited alone or around an action with
     /// [`Waiter::during`]; [`Waiter::matching`] adds a predicate.
-    pub fn wait_for_event<E: events::PageEvent>(&self, event: E) -> Waiter<E::Payload> {
+    pub fn wait_for_event<E: events::PageEvent>(&self, event: E) -> Waiter<E::Data> {
         let _ = event;
         unimplemented!()
     }

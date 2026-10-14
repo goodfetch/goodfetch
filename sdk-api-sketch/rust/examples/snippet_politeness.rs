@@ -58,7 +58,7 @@ async fn own_staging_site() -> Result<(), Error> {
 }
 
 /// An operator crawling under its own bot name, which its user agent carries: a site's robots.txt
-/// group for `AcmeBot` binds it too, merged with Goodfetch's. Setting the token is recorded.
+/// group for `AcmeBot` binds it too, merged with Foxhound's. Setting the token is recorded.
 async fn as_own_bot() -> Result<Vec<ExplainedSetting>, Error> {
     let token = Settings::new().set(site_preferences::ROBOTS_TXT_USER_AGENT, Some(String::from("AcmeBot")));
     let gf = Goodfetch::connect(ConnectOptions::default().settings(token)).await?;

@@ -70,7 +70,7 @@ class SitePreferencesSettings(TypedDict, total=False):
     `None`: wait out any. Built-in: 30 seconds."""
     robots_txt_user_agent: str | None
     """The operator's own product token, as the crawl's user agent names it: its robots.txt groups apply, merged with
-    `Goodfetch`'s, before `*`. Built-in: none. Setting it is recorded."""
+    `Foxhound`'s, before `*`. Built-in: none. Setting it is recorded."""
     respect_use_signals: bool
     """Apply the AI-use signals that concern the run's Purpose (ADR 0016). Built-in: `False`."""
 

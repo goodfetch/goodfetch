@@ -288,8 +288,8 @@ pub mod site_preferences {
     /// `None`: wait out any. Built-in 30 s.
     pub const MAX_CRAWL_DELAY: Setting<Option<Duration>> = Setting::new("site_preferences.max_crawl_delay");
     /// `site_preferences.robots_txt_user_agent`: the operator's own product token, as the crawl's
-    /// user agent names it; its robots.txt groups apply, merged with `Goodfetch`'s, before `*`.
-    /// `None`, the built-in: `Goodfetch` alone. Setting it is recorded.
+    /// user agent names it; its robots.txt groups apply, merged with `Foxhound`'s, before `*`.
+    /// `None`, the built-in: `Foxhound` alone. Setting it is recorded.
     pub const ROBOTS_TXT_USER_AGENT: Setting<Option<String>> =
         Setting::new("site_preferences.robots_txt_user_agent");
     /// `site_preferences.respect_use_signals`: apply the AI-use signals that concern the run's

@@ -70,7 +70,7 @@ export interface SitePreferencesSettings {
   readonly maxCrawlDelay?: number | null;
   /**
    * The operator's own product token, as the crawl's user agent names it: its robots.txt groups apply,
-   * merged with `Goodfetch`'s, before `*`. Built-in: none. Setting it is recorded.
+   * merged with `Foxhound`'s, before `*`. Built-in: none. Setting it is recorded.
    */
   readonly robotsTxtUserAgent?: string | null;
   /** Apply the AI-use signals that concern the run's Purpose (ADR 0016). Built-in: false. */

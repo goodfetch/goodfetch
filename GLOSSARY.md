@@ -230,6 +230,10 @@ _Avoid_: login, profile, context
 How a Session presents itself to sites, fixed when it opens: standard (an ordinary browser), identified (a declared, signed agent) or stealth (masked).
 _Avoid_: profile, access profile, stealth level
 
+**Gesture**:
+A call that sends input to a page or navigates it, such as a click, a key press or a `goto`; the engine runs one page's gestures one at a time.
+_Avoid_: interaction, command (for a gesture)
+
 **Identity profile**:
 The consistent set of values a Session presents to sites, such as its user agent, network and browser fingerprints, signing key, language and time zone, fixed for the Session's life.
 _Avoid_: fingerprint (alone), persona, profile (alone)

@@ -6,8 +6,8 @@ This matrix is the companion of [ADR 0037](0037-v1-scope-parity-and-pain-coverag
 
 | Status | Parity rows | Stagehand v3 rows | Pains |
 |---|---:|---:|---:|
-| `decided` | 103 | 4 | 24 |
-| `spec` | 38 | 1 | 0 |
+| `decided` | 113 | 4 | 24 |
+| `spec` | 28 | 1 | 0 |
 | `excluded` | 1 | 0 | 0 |
 | `open → #N` | 0 | 0 | 0 |
 | Total | 142 | 5 | 24 |
@@ -88,7 +88,7 @@ This matrix is the companion of [ADR 0037](0037-v1-scope-parity-and-pain-coverag
 | SA-27 | HTTP auth challenge in the browser | `spec` | ADR 0019, ADR 0015 | 5 Site access | Answered from a Secret reference bound to domains. |
 | SA-28 | Close cookie-consent modals | `decided` | ADR 0048, ADR 0047, ADR 0052 | 5 Site access | Consent prompts refused by default through autoconsent, hidden when they offer no refusal and leave the content readable; a consent wall is the Block cause `consent_required`, accepted only on `consent_domains`, and read past without consenting only on a person-approved `wall_domains` (ADR 0052). |
 | SA-29 | Several tabs with an active page | `decided` | ADR 0019, ADR 0031, ADR 0085 | 5 Site access | Tabs and popups are values with no active page: `popup`, `session.pages()` and the Session's `page` event (ADR 0085). The Live view follows popups. |
-| SA-30 | Clipboard read, write, copy, cut, paste | `decided` | ADR 0019, ADR 0085 | 5 Site access | The page's clipboard, not the host's, reached through keyboard shortcuts and `evaluate` with the permission a Session setting; no clipboard API (ADR 0085). |
+| SA-30 | Clipboard read, write, copy, cut, paste | `decided` | ADR 0019, ADR 0085 | 5 Site access | The page's clipboard, not the host's, reached through keyboard shortcuts and `evaluate` with the permission a Session setting ([Sessions, logins, Human pause and secrets in code](https://github.com/goodfetch/automan/issues/476)'s); no clipboard API (ADR 0085). |
 
 ### ST Stealth & challenge solving
 

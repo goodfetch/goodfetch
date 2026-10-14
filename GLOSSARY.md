@@ -200,7 +200,7 @@ _Avoid_: queue, request list, to-do list
 
 **Label**:
 The name a crawl gives one kind of request, which picks the handler that processes it, the shape of its Payload and the Hooks scoped to it.
-_Avoid_: route (for a Label), page type, callback (for the name)
+_Avoid_: route (for a Label), page type (for a Label), callback (for the name)
 
 **Payload**:
 The data a program attaches to a request for its handler, owned by the program and kept apart from the engine's own fields.

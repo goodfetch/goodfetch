@@ -27,7 +27,7 @@ This matrix is the companion of [ADR 0037](0037-v1-scope-parity-and-pain-coverag
 | RT-07 | Routing to handlers by label, typed labels, middleware | `spec` | ADR 0033, ADR 0082, [#71](https://github.com/Jbmanllr/automan/issues/71) | 11 Client surfaces | Label-scoped Hooks replace router middleware. Each Label declares its Payload's schema, an enqueue names its Label by a typed handle, and a Payload is validated at enqueue (ADR 0082); the router's declaration is SDK shape. |
 | RT-08 | Pre- and post-navigation hooks | `decided` | ADR 0033 | 7 Plugin protocol | Hook stages before and after navigation. |
 | RT-09 | User state persisted across restarts | `decided` | [#71](https://github.com/Jbmanllr/automan/issues/71), ADR 0002 | 3 Engine runtime | A Key-value store in the run file checkpoints with the run. The `useState` shape is spec. |
-| RT-10 | Resume an interrupted crawl from persisted state | `decided` | ADR 0002, ADR 0003 | 3 Engine runtime | Frontier, Sessions and journal live in the per-run SQLite file. |
+| RT-10 | Resume an interrupted crawl from persisted state | `decided` | ADR 0002, ADR 0003, ADR 0082 | 3 Engine runtime | Frontier, Sessions and journal live in the per-run SQLite file. A resume after a Label's Payload schema changed re-checks pending Payloads before any work (ADR 0082). |
 | RT-11 | Stop, pause and resume a running crawl | `decided` | ADR 0001, ADR 0002, ADR 0029 | 3 Engine runtime | Pause is checkpoint, stop and resume, not an in-memory pause. |
 | RT-12 | Keep-alive run that waits for new work | `spec` | [#71](https://github.com/Jbmanllr/automan/issues/71), ADR 0005, ADR 0029 | 3 Engine runtime | A run flag plus CO-03's add-requests operation. How a keep-alive run finishes, and its Completeness, are spec under ADR 0029. |
 | RT-13 | In-process scheduled (cron) runs | `decided` | ADR 0036 | 10 Scheduling | Daemon Schedules: cron, interval, Watch, after a run. |
@@ -51,7 +51,7 @@ This matrix is the companion of [ADR 0037](0037-v1-scope-parity-and-pain-coverag
 | SDK-03 | Modular install | `decided` | ADR 0024, ADR 0033, ADR 0057 | 1 Repository, CI and release | One binary with every capability under a Size budget; browsers, sink processes and Plugins fetched on demand by digest. |
 | SDK-04 | Project scaffolding CLI and templates | `decided` | ADR 0030, ADR 0049 | 11 Client surfaces | `goodfetch init` scaffolds TypeScript, Python and Rust from five starters (crawl, extract, browser automation, AI agent, Recipe), each with a Dockerfile, Compose file, CI workflow, AGENTS.md and skills, embedded in the binary; `--deploy <target>` adds a target's files. |
 | SDK-05 | No-code CLI that crawls or drives a browser | `decided` | ADR 0011, ADR 0034, ADR 0036 | 11 Client surfaces | CLI generated from the catalog with `--json`; code-free catalog runs. |
-| SDK-06 | Typed public API and schemas | `decided` | ADR 0011, ADR 0024, ADR 0028, ADR 0038 | 11 Client surfaces | Typed catalog defined in Rust types, generated SDK types, sync and async Python. |
+| SDK-06 | Typed public API and schemas | `decided` | ADR 0011, ADR 0024, ADR 0028, ADR 0038, ADR 0082 | 11 Client surfaces | Typed catalog defined in Rust types, generated SDK types, sync and async Python. Schemas come from each language's idiom (Standard Schema with Standard JSON Schema, Pydantic, `schemars`) as JSON Schema, and results keep unknown fields (ADR 0082). |
 | SDK-07 | Docs for AI coding assistants | `decided` | ADR 0030 | 11 Client surfaces | `llms.txt`, `llms-full.txt`, embedded docs, skills, AGENTS.md. |
 | SDK-08 | Browser provisioning | `decided` | ADR 0024 | 3 Engine runtime | Pinned builds in a digest-checked cache; `goodfetch browsers install`; offline path. |
 
@@ -133,7 +133,7 @@ This matrix is the companion of [ADR 0037](0037-v1-scope-parity-and-pain-coverag
 | CO-22 | File download and streaming | `decided` | [#71](https://github.com/Jbmanllr/automan/issues/71) | 6 Collection | Formats include downloaded files. |
 | CO-23 | Collect every page resource | `decided` | [#71](https://github.com/Jbmanllr/automan/issues/71) | 6 Collection | A browser-tier WARC records every resource response. A standalone resource list would be spec. |
 | CO-24 | Character-encoding handling | `spec` | [#71](https://github.com/Jbmanllr/automan/issues/71), ADR 0007, ADR 0025 | 6 Collection | Detection and forced encoding are spec; odd encodings are Proving ground pages. |
-| CO-25 | Push records to a dataset and read them back | `decided` | ADR 0008, ADR 0026, ADR 0031 | 6 Collection | Dataset of Records, numbered results stream, paging and SQL tab. |
+| CO-25 | Push records to a dataset and read them back | `decided` | ADR 0008, ADR 0026, ADR 0031, ADR 0082 | 6 Collection | Dataset of Records, numbered results stream, paging and SQL tab. A Dataset may declare a schema that types it in code and that the engine validates (ADR 0082). |
 | CO-26 | Key-value store | `decided` | [#71](https://github.com/Jbmanllr/automan/issues/71) | 6 Collection | A Key-value store in the run file. Its operations are spec. |
 | CO-27 | Export to CSV or JSON with all keys | `decided` | ADR 0008, ADR 0026 | 6 Collection | Files mode carries the union of all fields. |
 | CO-28 | Storage backends: memory, filesystem, SQL, Redis, custom | `excluded` | ADR 0002, ADR 0033, ADR 0053 | 6 Collection | "Pluggable live storage … rejected" (ADR 0002): it brings back multiple writers. SQL and Redis are reached as Sinks (ADR 0026); a Redis-protocol server may hold Politeness, never run state (ADR 0053). |
@@ -147,7 +147,7 @@ This matrix is the companion of [ADR 0037](0037-v1-scope-parity-and-pain-coverag
 |---|---|---|---|---|---|
 | AI-01 | Natural-language action on a page | `decided` | ADR 0009, ADR 0011, ADR 0013 | 9 AI and agent | `act` becomes a Plan step. |
 | AI-02 | Observe, then replay without inference | `decided` | ADR 0009 | 9 AI and agent | `observe` and `act` compile into Plans replayed with no model call. |
-| AI-03 | LLM extraction validated by a schema | `decided` | ADR 0013, ADR 0012 | 9 AI and agent | Grounding; per-page model extraction is an explicit mode. |
+| AI-03 | LLM extraction validated by a schema | `decided` | ADR 0013, ADR 0012, ADR 0082 | 9 AI and agent | Grounding; per-page model extraction is an explicit mode. The program's own validation rules join the retry loop (ADR 0082). |
 | AI-04 | Vision input | `decided` | ADR 0013 | 9 AI and agent | Opt-in, on the last rung of the ladder. |
 | AI-05 | Multi-step autonomous agent loop | `decided` | ADR 0013 | 9 AI and agent | A thin, journaled built-in agent over the catalog. |
 | AI-06 | Browser tools for external agent frameworks | `decided` | ADR 0011 | 11 Client surfaces | Generated adapters for Vercel AI SDK, LangChain/LangGraph and Mastra; MCP for the rest. |

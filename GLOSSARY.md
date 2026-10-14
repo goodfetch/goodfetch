@@ -157,7 +157,7 @@ A person's recorded answer about an uncertain Effect: it happened, it did not ha
 _Avoid_: resolution, manual fix, override (for this answer)
 
 **Verdict**:
-A run's statement of whether its Success checks, Page checks and Grounding prove its committed results: verified, rejected by a failed Success check, or needing a person's review.
+A run's or an AI task's statement of whether its Success checks, Page checks and Grounding prove what a run committed or what an AI task returned: verified, rejected by a failed Success check, or needing a person's review.
 _Avoid_: status, success, result (for the verdict)
 
 **Recipe**:

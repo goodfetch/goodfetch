@@ -157,7 +157,7 @@ Applies to `sdks/typescript`, `console/`, `adapters/`, `integrations/`, `bench/`
   - engines and Sessions are disposed with `await using`;
   - event streams are `AsyncIterable`;
   - engine responses are not validated at runtime beyond the protocol version check;
-  - schemas users pass in (for extraction, Datasets and Payloads) are accepted as Standard Schema with Standard JSON Schema (the interfaces Zod, Valibot and ArkType share), whose types the SDK copies rather than depending on a schema library, and converted to JSON Schema (ADR 0082).
+  - schemas users pass in (for extraction, Datasets and Payloads) are accepted as Standard Schema with Standard JSON Schema (the interfaces Zod and ArkType implement, and Valibot through its adapter), whose types the SDK copies rather than depending on a schema library, and converted to JSON Schema (ADR 0082).
 - **Errors are one class per Error code, generated.**
 - **Doc comments are TSDoc.**
 

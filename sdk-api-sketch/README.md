@@ -43,9 +43,9 @@ Every ticket's shapes are reviewed against the principles of [ADR 0077](https://
 - **G1 Honest results:** a failure never looks like a result, an expected outcome is never thrown, and "nothing happened" says why.
 - **G2 No hidden state:** every call acts on a value the caller holds, with no process-wide default instance.
 - **G3 Strict inputs, tolerant results:** unknown or ineffective options fail, and unknown result fields and enum values are kept.
-- **G4 A guest in the user's program:** no owned process, loop, signal handlers or stdout; logs go through the host's logging; it never closes what it did not start.
+- **G4 A guest in the user's program:** it never owns the process, the host's event loop, signal handlers or stdout; logs go through the host's logging; it never closes what it did not start.
 - **G5 Safe defaults for the user and for the sites reached:** anything less safe is an explicit, recorded opt-in.
-- **G6 Diagnosable:** every failure says what was attempted, what was observed, where the limit came from and what would fix it.
+- **G6 Diagnosable:** every failure says what was attempted, what was observed, where the limit came from and what would fix it; every call made in a run is visible in its Run trace.
 - **G7 Goodfetch's own types are enough:** no third-party type is the only way to use an operation.
 - **G8 A way down at each layer:** each layer has a documented way down, and no golden scenario needs one.
 

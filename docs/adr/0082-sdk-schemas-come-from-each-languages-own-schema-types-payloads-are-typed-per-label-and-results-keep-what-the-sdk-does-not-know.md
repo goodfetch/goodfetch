@@ -1,0 +1,90 @@
+# SDK schemas come from each language's own schema types, Payloads are typed per Label, and results keep what the SDK does not know
+
+A program describes the data it wants, keeps and passes along in its own language's schema idiom, and Goodfetch carries it as JSON Schema and JSON. The SDKs depend on no single schema library's internals. The program's own validation rules join the model's retry loop. A Dataset may be typed, and a Payload travels with its request in a field of its own, typed per Label and checked when it is enqueued. Goodfetch's own results keep the fields and values an SDK does not know. This answers the research's pain 14, passing data between handlers ([synthesis](https://github.com/goodfetch/automan/blob/research/consumer-api/rnd/research/2026-10-14-consumer-api.md), [crawl frameworks §6.10](https://github.com/goodfetch/automan/blob/research/consumer-api/rnd/research/research_notes/Consumer%20API%20of%20competitors/crawl-frameworks.md)), and the schema-coupling part of the pain coverage matrix's P19, Stagehand's own pain 4 and the schema-input row of the AI note ([AI browser automation §2.1 and §4.2](https://github.com/goodfetch/automan/blob/research/consumer-api/rnd/research/research_notes/Consumer%20API%20of%20competitors/ai-browser-automation.md)), with the multi-language practice of the [SDK design guidelines research](https://github.com/goodfetch/automan/blob/research/sdk-design-guidelines/rnd/research/2026-10-14-sdk-design-guidelines.md). Decided in [Typed data: schemas, Records and payloads](https://github.com/goodfetch/automan/issues/469), on the map [The SDK API of Collie and Foxhound](https://github.com/goodfetch/automan/issues/461), under ADR 0077's principles.
+
+## Decision
+
+### Schemas
+
+- **On the wire, JSON Schema and JSON.** Every schema the engine sees is a JSON Schema document, and every value is JSON (ADR 0038). One schema form serves extraction, a Dataset and a Label's Payload in each language (S1, S2).
+- **In code, each language's idiom through a standard interface (G7, S1):**
+  - TypeScript: any schema that implements both Standard Schema and Standard JSON Schema, the interfaces Zod (4.2 and later) and ArkType (2.1.28 and later) implement, and Valibot (1.2 and later) through its adapter. The SDK copies the interfaces' types, as the spec intends, and depends on no schema library. A schema's input and output types reach the SDK API, so a call is typed by what the schema describes.
+  - Python: a Pydantic v2 model class, or any class Pydantic's `TypeAdapter` accepts (`list[Book]`, a dataclass, a `TypedDict`). A union or an `Annotated` type goes inside a model until Python can type such a form as an argument (PEP 747).
+  - Rust: a type deriving `schemars::JsonSchema` and serde's traits, through the `schemars` the SDK re-exports, so the derive's version always matches the SDK's. A crate that does not depend on `schemars` itself brings it in scope with `use goodfetch::schemars::{self, JsonSchema}` or names it with `#[schemars(crate = "goodfetch::schemars")]`.
+- **The way down (G8).** A JSON Schema document written by hand is accepted in every language, and the values it describes are Goodfetch's own `JsonValue` in TypeScript and Python, and `serde_json::Value` in Rust, the language's idiom for JSON that G7 allows, which the program narrows.
+- **The wire side of a schema.** A schema can transform values, as a Zod codec or a Pydantic validator does. JSON travels in the form the schema parses from, so the engine receives that side's JSON Schema: Standard JSON Schema's `input`, Pydantic's validation mode, the shape `schemars` derives for deserializing. What a program sends (an enqueue, a push) has the schema's input type, and an SDK that encodes it writes the form the schema parses back: Pydantic's dump uses field names as validation reads them and leaves out computed fields. What it receives (a handler's Payload, an extraction, a Record read back) has the schema's output type, built by the schema's own parse. Pydantic and serde have one type for both.
+
+### Validation
+
+- **The engine checks the JSON Schema; the program's own rules join the retry loop (G1).** For an extraction, every candidate the model returns is checked against the JSON Schema, and then the engine calls back into the SDK, which runs the schema's native validation: Zod's `.refine()`, a Pydantic `@field_validator`, a custom `Deserialize`. A rejection from either check feeds ADR 0012's bounded retry, which tells the model what was wrong. Only the last failure is reported, and its code and group are [Collie's AI verbs and Plans](https://github.com/goodfetch/automan/issues/473)'s to classify (ADR 0079). The native parse also builds the typed value, so it runs anyway. The callback costs one round trip over the program's connection per attempt, beside a model call; the validator itself runs in the program's process.
+- **Elsewhere, a native rejection fails the call.** When an SDK validates a Payload at enqueue, a Record at push, a Payload as its handler receives it, or a Record read back, a rejection is that call's own failure: `payload_invalid` for a Payload, and for a Record the code [Crawl output in code](https://github.com/goodfetch/automan/issues/479) chooses. Only extraction retries.
+- **A validator that throws is the program's bug (G1, G6).** Wherever native validation runs, only the library's own rejection counts as one: Standard Schema issues, Pydantic's `ValidationError`, a serde error. Any other exception stops the call at once with `schema_validator_failed`, a `ProgramError` naming the schema by its JSON Schema `title` where it has one, the field path where known, and the exception's type and message, with the original chained in the process that raised it. A model is never asked to work around a crash, as ADR 0079 keeps a handler's own exception as `handler_failed`. In Rust a `Deserialize` that returns an error is a rejection, and a panic unwinds in the caller's own call, since the parse runs in the calling future, so the code never reaches a Rust program.
+
+### Records
+
+- **A Dataset may declare a schema (G3).** A declared Dataset is typed by it (`Dataset<Book>`), so the type checker catches a wrong Record, and the engine validates each Record against the JSON Schema as the authority for every Client and Sink (ADR 0026's declared schema). An undeclared Dataset takes any JSON object. How a Dataset is declared in code, how Records are pushed or read and what becomes of a rejected one are Crawl output in code's.
+
+### Payloads
+
+- **A Payload is its own field.** The data a program attaches to a request for its handler never shares a field with the engine's own (the Label, depth, attempts), unlike Crawlee's `userData`, which holds its `label` (crawlee-python #1261).
+- **Each Label declares its Payload's schema, or none.**
+- **The destination is a typed handle (G3, T).** An enqueue names its destination by a handle on the Label (`Label<CategoryPayload>`), never by a bare string, so a wrong Payload is a type error (scenario 05's fourth failure point), and so is a misspelled Label. Scrapy's `callback=self.parse_book` is already such a handle. How a crawl declares its Labels and handlers is [Crawl definition and handler context](https://github.com/goodfetch/automan/issues/477)'s, which keeps enqueue's destination typed.
+- **Checked at enqueue (G3, G6).** The SDK validates the Payload natively and the engine against the JSON Schema. A failure raises `payload_invalid` from the enqueue call, naming the Label and each issue's path.
+- **Capped in size (G5).** A Payload lives in the Frontier and in every Checkpoint, so its serialized JSON is capped by the setting `crawl.payload.max_size`, 64 KiB by default. A larger one is refused with `payload_invalid`, whose `limit` names the setting; large content goes to the Key-value store, and the Payload carries its key.
+- **A changed schema is checked before a resume does any work (G1, G6).** The engine keeps a hash of each Label's JSON Schema in the Checkpoint. When a resume finds a Label's JSON Schema changed, it checks every pending Payload of that Label against the new JSON Schema before any work starts. If any fails, the resume is refused with `payload_schema_changed`, naming the Label, how many fail out of how many pending, and the first failure. The program then gives the new field a default, or starts a new Run. A Payload is never migrated silently.
+- **A change only the native rules can see fails one request at a time.** The check covers what JSON Schema expresses; a changed `.refine()` or `@field_validator` leaves the hash alone, and the engine cannot run it. A pending Payload that its handler's native parse then rejects ends that request failed with `payload_invalid`, naming the rule's message, and is never retried, since the same check would reject it again (G1, G6).
+
+### Only JSON values
+
+- **Records and Payloads hold JSON values (G1, G3).** Anything else (a `datetime`, a `Decimal`, a class instance) must be encoded first. Pydantic and serde encode on send, as the program's model says: Pydantic writes a `Decimal` as an exact string. Standard Schema only parses, so in TypeScript a sent value is already JSON, the input side of the schema (an ISO string that a codec parses into a `Date`). A value that is not JSON raises from the call that sent it, naming its field path: `payload_invalid` for a Payload, Crawl output in code's code for a Record. An SDK never turns a value into a string as a fallback, as crawlee-python did (#524, its most-commented issue), which reads back as a different value, and never pickles one, as Scrapy does with `meta` and `cb_kwargs`.
+
+### Results keep what the SDK does not know
+
+ADR 0079 decided how unknown codes, outcome kinds and enum values are kept. For unknown fields on Goodfetch's own results (G3):
+
+- Python: generated result models allow extra fields, which stay in `model_extra`, and are built without validation, as Stainless's SDKs build theirs with `construct`, so drift never raises.
+- TypeScript: result objects are passed through as received, neither validated nor stripped, as in Stainless's SDKs.
+- Rust: serde ignores unknown fields when it builds a result's typed view, and each top-level result keeps the JSON it came from, readable through `raw()`. A flattened map of extra fields on every protocol type would cost more for the same reach.
+- Inputs stay strict in every language: Pydantic input models forbid extra fields, TypeScript's excess-property checks reject them, and in Rust an unknown field or method does not compile. Rust's input types are built through methods, so a field can still be added in a minor.
+
+### Pinned ecosystem types
+
+- **Each SDK's release notes state its supported major ranges (G7).** The TypeScript SDK has no schema library to pin.
+- **A dependency an SDK can support in two majors at once widens in a minor.** Python imports whichever Pydantic the program installed, so supporting a new major of Pydantic beside the current one is a minor release.
+- **A dependency whose types name exactly one major changes major only with Goodfetch's.** The Rust SDK's bound `T: JsonSchema` names one `schemars` major and its re-export names one version, and Cargo treats two majors as two crates, so moving to a new major of `schemars`, serde or serde_json is a new Goodfetch major (ADR 0030's one product version), as the Rust API Guidelines' C-STABLE rule has it. The hand-written JSON Schema stays the way that depends on no `schemars` version.
+- **Narrowing follows ADR 0030's rule for runtimes.** Dropping a major happens in a minor only once that major is past its end of life and the drop was announced one minor ahead; before that, it waits for the SDK's next major. A major's end of life is the date upstream declares or, where upstream declares none, 12 months after its successor's first stable release.
+
+### Error codes
+
+`payload_invalid`, `payload_schema_changed` and `schema_validator_failed` join `goodfetch-protocol`'s list in the `program` group (ADR 0079). None is retryable: the same call fails the same way until the program or its data changes.
+
+## Considered Options
+
+- **One schema library's types as the SDK's input**, as Stagehand takes Zod: rejected by G7. Zod 4 broke Stagehand 2.4–2.5 for about three months (#1029, #938, #1098), and Stagehand v4's quickstart still tells users to keep Zod on one minor (4.4.x).
+- **JSON Schema documents only**, as Skyvern takes: rejected as the main path. Results come back untyped (`dict | list | str | None`), and Skyvern's own TypeScript docs cast them; it stays as the way down.
+- **Standard Schema without Standard JSON Schema**: rejected. The base interface validates but cannot describe itself as JSON Schema, which the engine and the model need.
+- **Prose shape strings**, as Midscene takes: rejected. Nothing checks them.
+- **Ignoring the program's own validation rules**: rejected by G1. A `.refine()` that never runs passes wrong data as valid.
+- **Running the native validation once after the engine's check, outside the retry loop**, as Stagehand re-parses with `schema.parse()`: rejected. A failed refinement could not reach the model, though one more attempt is exactly what fixes most of them.
+- **Plain JSON objects only for Records**, as Crawlee pushes: rejected. A typed Dataset catches a wrong Record at the type checker, and ADR 0026's Sinks want a declared schema.
+- **A free map shared with framework fields**, as Crawlee's `userData` and Scrapy's `meta`: rejected. The research counts four Stack Overflow questions with 168 votes, scrapy#1138 and crawlee-python #524 and #1261 against it.
+- **A Label named by string at enqueue**: rejected. A misspelling surfaces in the handler, at run time.
+- **Validating a Payload only when its request is dispatched**: rejected. After a schema change, a resumed crawl could run for an hour before its first failure.
+- **Running every pending Payload through the program's native rules before a resume**: rejected. A million pending requests would stream through the program before the first fetch, to catch a change that is rarer than a new required field, which the JSON Schema check already catches.
+- **Migrating stale Payloads with defaults**: rejected. It hides a change the program made, while the fix it would guess, a default in the schema, is one line the program can write.
+- **No cap on Payload size**, as Crawlee and Scrapy set none: rejected by G5. A million requests carrying a megabyte each fill a disk silently.
+- **Validating results against the SDK's models**: rejected by G3. openai-python's `parse()` raised `ValidationError` when results drifted.
+- **Any change to a pinned range as breaking**: rejected. Users would wait on an unsupported Pydantic until the SDK's next major, and runtimes already follow a softer rule.
+- **Goodfetch's own Rust derive, built on `schemars` internally**: rejected. Its majors would never reach users, but types that already derive `JsonSchema` for other crates could not be reused, and Goodfetch would maintain a derive macro of its own.
+
+## Consequences
+
+- **Amends ADR 0012.** The validation its bounded retry feeds back to the model includes the program's own rules, run by the SDK on each candidate.
+- **Amends ADR 0030.** An SDK widens in a minor the range of a pinned dependency it can support in two majors at once, such as Pydantic, moves one whose types name exactly one major, such as `schemars`, only in a Goodfetch major, and narrows a range under its rule for dropping a runtime.
+- **Amends ADR 0079.** `schema_validator_failed` joins `handler_failed` and `hook_failed` in always naming the user's exception in its message, since the Run trace outlives the process that raised it.
+- **Adds to ADR 0002.** A Checkpoint holds the hash of each Label's JSON Schema.
+- **Amends ADR 0037's matrix.** RT-07's note says Payload schema validation, since `userData` is an _Avoid_ term of Payload; RT-10, SDK-06, CO-25 and AI-03 cite this ADR.
+- **`STYLE.md`.** Its TypeScript idiom reads Standard Schema with Standard JSON Schema, for extraction, Datasets and Payloads.
+- **`GLOSSARY.md`** gains **Label** and **Payload**.
+- **Area 3 (Engine runtime)** builds the schema hash in the Checkpoint and the refused resume. **Area 6 (Collection)** builds typed Datasets, Payload storage and the size cap. **Area 9 (AI and agent)** builds the validation callback inside ADR 0012's retry loop. **Area 11 (Client surfaces)** builds each language's schema input, the typed Label handle, tolerant results and the error classes. Each lists this ADR.
+- **The `prototype/sdk-api` sketch** holds this ADR's signatures in its `data` files for each language, with provisional `extract`, `enqueue` and `push` signatures in its snippets until their tickets decide them. The concurrency sketch's placeholder `Record` takes its Dataset's type once Crawl output in code decides how Records are read.

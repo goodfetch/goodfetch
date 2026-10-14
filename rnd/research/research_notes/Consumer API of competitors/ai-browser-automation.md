@@ -824,7 +824,7 @@ const { refs } = ab<{ snapshot: string; refs: Record<string, { role: string; nam
 - "Pi with ... plus agent-browser CLI. I don't miss anything" (HN 2026-10-01, https://news.ycombinator.com/item?id=49928094)
 - Persistent session use in a QA product: "agents have a persistent Chromium session they use via the agent-browser CLI" (HN 2026-08-03, https://news.ycombinator.com/item?id=49160592)
 - Counterpoint: "watch it execute commands one by one, it's really inefficient" (HN 2026-05-30, https://news.ycombinator.com/item?id=48337954); "agent-browser is CLI-only" (HN 2026-09-21, https://news.ycombinator.com/item?id=49784241).
-- Token efficiency: CLI tools generally beat MCP on tokens; one benchmark cites ~114k vs ~27k tokens for Playwright MCP vs Playwright CLI (bug0 blog, https://bug0.com/blog/playwright-cli-vs-playwright-mcp-ai-browser-testing-2026, via search summary); a neutral harness exists (https://github.com/nsosio/web-agent-bench) comparing Playwright MCP, agent-browser, browser-use, Stagehand with one model.
+- Token efficiency: CLI tools generally beat MCP on tokens; one benchmark cites ~114k vs ~27k tokens for Playwright MCP vs Playwright CLI (bug0 blog, https://bug0.com/blog/playwright-cli-vs-playwright-mcp-ai-browser-testing-2026, via search summary; **second-hand, origin disputed**, and two later 2026 single-author tests found near-parity once Playwright MCP moved snapshots to files: see §2.6 and its Unverified list); a neutral harness exists (https://github.com/nsosio/web-agent-bench) comparing Playwright MCP, agent-browser, browser-use, Stagehand with one model.
 
 ## 2.5 Skyvern (Skyvern-AI/skyvern)
 

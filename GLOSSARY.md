@@ -24,6 +24,10 @@ _Avoid_: dashboard, inspector, app
 Any program that drives the engine through its operations: an SDK, the CLI, the MCP server, the Console or Goodfetch Cloud. Speaking CDP to a browser does not make a program a Client.
 _Avoid_: frontend, binding, consumer
 
+**SDK API**:
+What a developer writes and calls in a Goodfetch SDK: its objects, methods, types and errors, generated in part from the Operation catalog.
+_Avoid_: consumer API, public surface
+
 **Attached engine**:
 An engine started by one Client for its own use, which stops when that Client goes away.
 _Avoid_: sidecar, child engine

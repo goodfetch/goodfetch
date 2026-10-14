@@ -133,6 +133,7 @@ The test rules live in [`TESTING.md`](TESTING.md) (where tests live, how they ar
 
 ## Protocol and SDKs
 
+- **The SDK API follows the principles of [ADR 0077](docs/adr/0077-the-sdk-api-follows-eight-guarantees-and-four-ranked-shape-rules.md)**: eight guarantees (G1–G8), four ranked shape rules (S1–S4) and a tie-breaker (T), cited by ID.
 - **Contracts are Rust types in `goodfetch-protocol`**, emitted as a committed JSON Schema bundle (ADR 0038). To add or change an operation, edit the types, run `xtask codegen`, and commit what it produces.
 - **Generated code is never edited by hand.** It lives in a `generated/` folder in each SDK, and CI fails when it differs from what `xtask codegen` produces.
 - **Hand-written code in each SDK is the runtime and the ergonomic layer:** engine start and discovery, framing, `hello`, sockets, request correlation, flow-control credits, event resumption, file-backed bodies, cancellation, and the objects users hold.

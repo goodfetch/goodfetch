@@ -14,6 +14,8 @@ Goodfetch has no revenue: no paid resource until the owner says so ([ADR 0076](d
 
 Release status: `pre-release`. Follow the global pre-release policy; regenerate
 changed contract output with `xtask codegen` in the same change.
+Nothing is published yet, so no contract format changes version before the
+first publish (ADR 0066).
 Product-promised compatibility follows ADRs 0030, 0041 and 0047, including
 versioned format readers, upgrade commands and published-version semantics.
 Nightlies and previews count as publication: if any channel is published while

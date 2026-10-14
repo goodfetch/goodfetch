@@ -1,15 +1,27 @@
 # Goodfetch
 
-Goodfetch is an open-source framework for collecting web data, automating browsers and running AI-assisted workflows. Goodfetch Cloud runs the same engine as a hosted service.
+Goodfetch is the organization behind two open-source Products: Collie, for browser automation, and Foxhound, for crawling and collecting web data, both with AI-assisted workflows. Goodfetch Cloud runs their engines as a hosted service.
 
-## Product
+## Products and the engine
 
 **Goodfetch**:
-The open-source framework: the engine and every surface that drives it, such as the SDKs, the CLI, the MCP server and the agent skills.
-_Avoid_: engine (for the whole framework), library, platform, Automan (its former working name)
+The organization and umbrella brand behind Collie, Foxhound and Goodfetch Cloud; not the name of anything installed.
+_Avoid_: framework, library, platform, Automan (its former working name)
+
+**Product**:
+One thing Goodfetch ships for people to install, Collie or Foxhound: an executable with its SDKs, CLI, MCP server and agent skills. Goodfetch Cloud is a hosted service, not a Product.
+_Avoid_: edition, flavour, distribution
+
+**Collie**:
+The Product that drives one browser page at a time: the CDP driver and its guard, the page API, AI actions, and Extraction from the page it is on.
+_Avoid_: browser module, agent
+
+**Foxhound**:
+The Product that discovers and collects many pages: the Frontier, crawl scope, Politeness, fetch tiers, Datasets and Sinks. It contains Collie, which it uses to render pages and act on them.
+_Avoid_: spider, scraper
 
 **Engine**:
-The runtime at the core of Goodfetch that executes every run, whichever surface starts it.
+The runtime inside each Product that executes every run, whichever surface starts it; Foxhound's engine includes Collie's.
 _Avoid_: framework, core, backend
 
 **Goodfetch Cloud**:
@@ -17,7 +29,7 @@ The hosted service that runs the engine for customers on Goodfetch's infrastruct
 _Avoid_: platform, Goodfetch (for the hosted service)
 
 **Console**:
-The web interface for operating Goodfetch, served locally by the engine or by Goodfetch Cloud.
+The web interface for operating a Product, served locally by its engine or by Goodfetch Cloud.
 _Avoid_: dashboard, inspector, app
 
 **Client**:
@@ -61,7 +73,7 @@ The stable name a Client receives when an operation fails, such as `page_check_f
 _Avoid_: error name, error kind, status code
 
 **Private component**:
-A closed component kept outside the open-source framework, used by Goodfetch Cloud and licensed under contract to vetted customers, that holds a capability whose public release would itself create legal exposure.
+A closed component kept outside the open-source Products, used by Goodfetch Cloud and licensed under contract to vetted customers, that holds a capability whose public release would itself create legal exposure.
 _Avoid_: enterprise edition, premium module, closed core
 
 **Browser host**:
@@ -69,11 +81,11 @@ The Goodfetch process that runs beside a browser and carries out a Session's ope
 _Avoid_: worker, agent, sidecar
 
 **Borrowed browser**:
-A browser Goodfetch did not launch and never closes: the person's running browser, one their own code launched, or a third-party cloud browser reached by its address.
+A browser the engine did not launch and never closes: the person's running browser, one their own code launched, or a third-party cloud browser reached by its address.
 _Avoid_: external browser, attached browser
 
 **Plugin**:
-A package that adds implementations of one or more Plugin kinds to the engine, such as delivery to a Sink, a fetch backend or a Secret provider; the reverse of an Integration, which puts Goodfetch inside another tool.
+A package that adds implementations of one or more Plugin kinds to the engine, such as delivery to a Sink, a fetch backend or a Secret provider; the reverse of an Integration, which puts a Product inside another tool.
 _Avoid_: extension (a browser extension is something else), add-on, connector, module
 
 **Plugin kind**:
@@ -113,14 +125,6 @@ _Avoid_: scraping, spidering, scraper
 **Automation**:
 Driving a browser session through actions toward an objective.
 _Avoid_: scraping, scraper, bot
-
-**Foxhound**:
-The name of Goodfetch's Crawl and Extraction capabilities, taken together, never used without Goodfetch.
-_Avoid_: spider, scraper
-
-**Collie**:
-The name of Goodfetch's Automation capabilities, never used without Goodfetch.
-_Avoid_: browser module, agent
 
 ## Execution
 
@@ -263,7 +267,7 @@ A Session's identity, cookies and storage, kept under a name so that later runs 
 _Avoid_: profile, context, login
 
 **Profile directory**:
-A browser's own folder of a person's browsing data, on which Goodfetch can launch that browser in place; for the Chromium family, the data directory (Chrome's `--user-data-dir`), not the profile folder inside it that Chrome's `--profile-directory` names.
+A browser's own folder of a person's browsing data, on which the engine can launch that browser in place; for the Chromium family, the data directory (Chrome's `--user-data-dir`), not the profile folder inside it that Chrome's `--profile-directory` names.
 _Avoid_: user data dir, profile (alone)
 
 **Session source**:
@@ -343,7 +347,7 @@ A message about the progress or outcome of a run or a Schedule, sent to a person
 _Avoid_: alert, event (for the message), webhook (for every channel)
 
 **Integration**:
-A package that puts Goodfetch inside another tool, such as a workflow tool node or a document loader; one that drives the engine is a Client.
+A package that puts a Product inside another tool, such as a workflow tool node or a document loader; one that drives the engine is a Client.
 _Avoid_: connector, plugin, app
 
 **Baseline**:
@@ -385,7 +389,7 @@ A package that offers Goodfetch's operations as tools of an agent framework, suc
 _Avoid_: wrapper, toolkit, Integration
 
 **MCP host**:
-An application that connects a model to MCP servers, such as Claude Code, VS Code or ChatGPT, and so reaches Goodfetch through its MCP server.
+An application that connects a model to MCP servers, such as Claude Code, VS Code or ChatGPT, and so reaches a Product through its MCP server.
 _Avoid_: MCP client (for the application), agent app
 
 **Success check**:

@@ -6,12 +6,11 @@ ADRs 0016 and 0021 chose parity with Crawlee and Spider. A crawl read robots.txt
 
 ### What the defaults govern
 
-- **Crawl requests**: the requests a crawl's Frontier admits (ADR 0004), start URLs, enqueued links, sitemap entries and retries included, and every navigation or fetch a crawl handler makes from the page or context it was given (a `goto`, a click that navigates, a fetch). The crawl, not a person, decides how many handlers run at once, so their navigation is the crawl's. The per-domain limits, the backoff and robots.txt govern them. How a navigation that robots.txt refuses surfaces inside a handler is [Crawl definition and handler context](https://github.com/goodfetch/automan/issues/477)'s.
+- **Crawl requests**: the requests a crawl's Frontier admits (ADR 0004), start URLs, enqueued links, sitemap entries and retries included, and every navigation or fetch a crawl handler makes from the page or context it was given (a `goto`, a click that navigates, a fetch). The crawl, not a person, decides how many handlers run at once, so their navigation is the crawl's. The per-domain limits, the backoff and robots.txt govern them. How a navigation that robots.txt refuses surfaces inside a handler is [Crawl definition and handler context](https://github.com/goodfetch/automan/issues/477)'s. The seam through which Foxhound's Politeness admits navigation on Collie's page API is [How the products are built](https://github.com/goodfetch/automan/issues/454)'s.
 - **In flight** means from a request's start until its response has arrived, a browser-tier page until its load event, not while its handler runs.
-- **A program's own navigation is directed by the program**, as a browser's is by its user: a `page.goto` or a fetch it calls outside a crawl handler, an AI verb acting on its page, an Agent working in its own Session.
-  - robots.txt is still read for it and recorded in Provenance, but neither robots.txt nor the per-domain limits gate it. Its starts count neither in flight nor against the delay.
-  - A 429, a 503 or a `Retry-After` it receives still backs off the domain for crawls sharing the key: that is the site's own signal.
-  - The per-proxy limits and `politeness.sharing` still apply (ADR 0053).
+- **A program's own navigation is outside Politeness**: a `page.goto` or a fetch it calls outside a crawl handler, an AI verb acting on its page, an Agent working in its own Session. That is Collie's work, directed by the program as a browser's is by its user, and ADR 0084 places Politeness in Foxhound.
+  - robots.txt is still read for it and recorded in Provenance. Nothing of Politeness gates it, counts it or learns from it.
+  - Whether Collie carries ADR 0053's per-proxy limits is [Collie's exact capability set](https://github.com/goodfetch/automan/issues/455)'s. Whether a Collie page's 429 should slow a Foxhound crawl on the same machine is [Collie and Foxhound installed on one machine](https://github.com/goodfetch/automan/issues/486)'s.
   - RFC 9309 addresses crawlers, which it calls automatic clients. Google's [user-triggered fetchers](https://developers.google.com/crawling/docs/crawlers-fetchers/google-user-triggered-fetchers) generally ignore robots.txt because a person asked for the fetch. Playwright and Stagehand, the leaders for one page, have no politeness at all (S3).
   - One page at a time is not a burden; a program that opens many pages at once on one site wrote that parallelism itself.
   - An Agent that puts work into a Frontier is crawling, and that crawl is governed.
@@ -34,16 +33,16 @@ ADRs 0016 and 0021 chose parity with Crawlee and Spider. A crawl read robots.txt
 Sources, read at those tags: Scrapy's [`default_settings.py`](https://github.com/scrapy/scrapy/blob/2.19.0/scrapy/settings/default_settings.py) and [release notes](https://github.com/scrapy/scrapy/blob/2.19.0/docs/news.rst), Crawlee's [`basic-crawler.ts`](https://github.com/apify/crawlee/blob/v3.18.2/packages/basic-crawler/src/internals/basic-crawler.ts), Crawl4AI's [`async_configs.py`](https://github.com/unclecode/crawl4ai/blob/v0.9.5/crawl4ai/async_configs.py), Firecrawl's [v2 types](https://github.com/firecrawl/firecrawl/blob/f4fdf7f300415180f45272e893918dbfa3649073/apps/api/src/controllers/v2/types.ts), Nutch's [`nutch-default.xml`](https://github.com/apache/nutch/blob/release-1.23/conf/nutch-default.xml), StormCrawler's [`crawler-default.yaml`](https://github.com/apache/stormcrawler/blob/stormcrawler-3.7.0/core/src/main/resources/crawler-default.yaml) and Heritrix's [`DispositionProcessor`](https://github.com/internetarchive/heritrix3/blob/3.18.0/engine/src/main/java/org/archive/crawler/postprocessor/DispositionProcessor.java).
 
 - **robots.txt is obeyed** (`site_preferences.respect_robots_txt`), following [RFC 9309](https://www.rfc-editor.org/rfc/rfc9309):
-  - The groups that name the product token `Foxhound`, the Product that crawls (ADR 0084), apply, and so do those that name `site_preferences.robots_txt_user_agent` when it is set. They are merged, so a Disallow in either binds. Only when neither has a group does the `*` group apply. This holds in every Access mode. A `standard` Session sends neither token in its user agent, as RFC 9309 §2.2.1 suggests a crawler does; matching them anyway only adds the rules a site wrote for Foxhound or for the operator's name. The token names the crawler, as `Googlebot` does, never the organization: Goodfetch is not the name of anything installed.
+  - The groups that name the product token `Foxhound`, the Product that crawls (ADR 0084), apply, and so do those that name `site_preferences.robots_txt_user_agent` when it is set. They are merged into one group, as RFC 9309 merges the groups that match one token. Only when neither token has a group does the `*` group apply. This holds in every Access mode. RFC 9309 §2.2.1 says a token should appear in the user agent the crawler sends; a `standard` Session sends neither, and matching them anyway only adds the rules a site wrote for Foxhound or for the operator's name. The token names the crawler, as `Googlebot` does, never the organization: Goodfetch is not the name of anything installed.
   - `site_preferences.robots_txt_user_agent` is the operator's own product token (letters, underscores and hyphens), as Crawlee's `respectRobotsTxtFile: { userAgent }`, Scrapy's `ROBOTSTXT_USER_AGENT` and Firecrawl's `robotsUserAgent` let users set one (S3). It belongs in the user agent the crawl sends, which `identified` or a Hook sets (ADR 0033). It can select a group more generous than `*`, so setting it is recorded like a value that presses harder.
   - A robots.txt answered with a 4xx other than 429 restricts nothing, as Google reads RFC 9309 §2.3.1.3.
-  - A 429, a 5xx or an unreachable robots.txt disallows everything, and is never cached as "no rules". robots.txt is the whole host's file, so a 500 here backs off the domain like a 503, and robots.txt is fetched again once the backoff allows. Each failed fetch counts as an attempt of every crawl request waiting on it, so those requests end skipped with `robots_txt` after their retries, like a request whose own fetch keeps failing.
-  - Each host's robots.txt is kept for at most 24 hours per user, beside the Politeness state (ADR 0053), so the user's runs share it. Fetching it counts in the domain's Politeness.
+  - A robots.txt answered with a 429 or a 5xx, or unreachable, is never cached as "no rules". A copy fetched earlier keeps applying meanwhile, however old, as RFC 9309 §2.4 allows; with no copy, everything is disallowed. robots.txt is the whole origin's file, so a 500 here backs off the domain like a 503, and robots.txt is fetched again once the backoff allows. Each failed fetch counts as an attempt of every crawl request waiting on it, so those requests end skipped with `robots_txt` after their retries, like a request whose own fetch keeps failing.
+  - Each origin's robots.txt (scheme, host and port, as RFC 9309 scopes it) is kept for at most 24 hours per user, so the user's runs share it; losing the copy only means fetching it again. Fetching it counts in the domain's Politeness.
   - It applies to start URLs too, so a crawl that does nothing says why (G1).
-- **Crawl-delay is applied with robots.txt.** A host's Crawl-delay raises the delay of its whole domain key, as ADR 0004 keys every per-domain limit and as Crawlee 4.0 applies it per registrable domain; the largest one applies.
+- **Crawl-delay is applied with robots.txt.** A host's Crawl-delay raises the delay of its whole domain key, as ADR 0004 keys every per-domain limit; the largest one applies. Crawlee's unreleased 4.0 keys it by hostname unless `throttleBy: 'registrableDomain'` is set, and ignores it with a warning when no throttling manager covers the domain ([source](https://github.com/apify/crawlee/blob/8cb2eb6/packages/basic-crawler/src/internals/throttling-request-manager.ts)).
   - It is honoured up to `site_preferences.max_crawl_delay`, 30 s by default as in Nutch and StormCrawler.
   - A host asking for more has its crawl requests skipped with `crawl_delay`, whose fix names that setting, and does not raise the delay.
-  - `null` waits out any value; `0` skips every host that sets one. RFC 9309 leaves Crawl-delay out and Google ignores it, but Bing, Crawlee's unreleased 4.0, Nutch, StormCrawler and Heritrix (up to 300 s) honour it. Scrapy has never applied it ([scrapy#892](https://github.com/scrapy/scrapy/issues/892)).
+  - `null` waits out any value; `0` skips every host whose Crawl-delay is above zero. RFC 9309 leaves Crawl-delay out and Google ignores it, but Bing, Crawlee's unreleased 4.0 (through its throttling manager), Nutch, StormCrawler and Heritrix (up to 300 s) honour it. Scrapy has never applied it ([scrapy#892](https://github.com/scrapy/scrapy/issues/892)).
 - **One request in flight per domain, at least one second between two starts** (`politeness.domain.concurrency` 1, `politeness.domain.delay` 1 s). These are Scrapy's template values, chosen in answer to #6597, and StormCrawler's; Nutch waits 5 s and Heritrix at least 3 s.
   - The delay counts between starts, so a domain gets at most one request a second, and fewer as it slows down: a site that takes 3 s to answer gets one request every 3 s.
   - A browser-tier fetch counts as one request, whatever its page loads.
@@ -53,7 +52,7 @@ Sources, read at those tags: Scrapy's [`default_settings.py`](https://github.com
 - **The delay is shared** like the count in flight (ADR 0053): a run admits a request to a domain only once its own delay has passed since the last start any run sharing the key made there. Two runs on one site therefore do not double its rate.
   - The last start lives where ADR 0053 keeps the count in flight: the per-user Politeness file, or the Politeness store, whose script stamps it with the store's own clock, as it does its rates.
   - In ADR 0053's degraded mode each cut-off engine may still admit one request at a time. An outage can therefore multiply a domain's rate by the number of cut-off engines, for at most `politeness.degraded_max`.
-- **Redundant copies need room.** A hedged request's second copy and `tier_race`'s second fetch (ADR 0040) are requests like any other: each needs a free slot and the delay. With `politeness.domain.concurrency` at 1 neither could ever start. So switching either on while it is 1 is refused with `setting_not_applicable` when the Run opens, naming `politeness.domain.concurrency` as the fix (G3).
+- **Redundant copies need room.** In a crawl, a hedged request's second copy and `tier_race`'s second fetch (ADR 0040) are crawl requests like any other: each needs a free slot and the delay. With `politeness.domain.concurrency` at 1 neither could ever start. So a crawl's Run that switches either on while it is 1 is refused with `setting_not_applicable` when it opens, naming `politeness.domain.concurrency` as the fix (G3).
 
 ### Pressing harder is explicit and recorded
 
@@ -85,30 +84,30 @@ The keys follow ADR 0083's naming rule: two families, so `goodfetch config expla
 
 | Key | Built-in | Applies to |
 |---|---|---|
-| `politeness.domain.concurrency` | 1 | crawl requests |
-| `politeness.domain.delay` | 1 s | crawl requests |
-| `politeness.backoff.enabled` | on | crawl requests |
-| `politeness.backoff.initial` | 2 s | crawl requests |
-| `politeness.backoff.max` | 60 s | crawl requests |
-| `politeness.ip.concurrency` (was `per_ip_concurrency`) | none | crawl requests |
-| `politeness.proxy.concurrency` (was `proxy_concurrency`) | none | every run |
-| `politeness.proxy.rate` (was `proxy_rate`), in requests per second | none | every run |
-| `politeness.sharing` (was `politeness_sharing`) | `shared` | every run |
+| `politeness.domain.concurrency` | 1 | a crawl |
+| `politeness.domain.delay` | 1 s | a crawl |
+| `politeness.backoff.enabled` | on | a crawl |
+| `politeness.backoff.initial` | 2 s | a crawl |
+| `politeness.backoff.max` | 60 s | a crawl |
+| `politeness.ip.concurrency` (was `per_ip_concurrency`) | none | a crawl |
+| `politeness.proxy.concurrency` (was `proxy_concurrency`) | none | a crawl |
+| `politeness.proxy.rate` (was `proxy_rate`), in requests per second | none | a crawl |
+| `politeness.sharing` (was `politeness_sharing`) | `shared` | a crawl |
 | `politeness.degraded_max` (was `politeness_degraded_max`) | 10 minutes | the engine |
-| `site_preferences.respect_robots_txt` | on | crawl requests |
-| `site_preferences.max_crawl_delay` | 30 s | crawl requests |
-| `site_preferences.robots_txt_user_agent` | none | crawl requests |
+| `site_preferences.respect_robots_txt` | on | a crawl |
+| `site_preferences.max_crawl_delay` | 30 s | a crawl |
+| `site_preferences.robots_txt_user_agent` | none | a crawl |
 | `site_preferences.respect_use_signals` (was `respect_site_preferences`) | off | every run |
 
-- **Scopes.** These keys are set on a connection or a Run, never on a Session or a page, since ADR 0053 keeps Politeness settings per run. `politeness.degraded_max` is the engine's own, set in configuration or an Operator policy only; a program's `settings` refuses it with `setting_not_applicable`, and `explainSettings` still shows it.
-- **Collie Runs.** A key that applies only to crawl requests, set on a Collie Run, fails with `setting_not_applicable` (ADR 0083). In TypeScript and Python the types leave those keys out of a Collie Run's settings, so the type checker catches the mistake first (G3). In Rust, whose `Settings` takes any key (ADR 0083), the Run refuses it when it opens.
+- **Scopes.** These keys are set on a connection or a Run, never on a Session or a page, since ADR 0053 keeps Politeness settings per run. `politeness.degraded_max` is the engine's own, set in user configuration or an Operator policy only; a program's `settings` refuses it with `setting_not_applicable`, and `explainSettings` still shows it.
+- **Collie Runs.** Politeness is Foxhound's (ADR 0084), so of these keys a Collie Run takes only `site_preferences.respect_use_signals`; any other fails with `setting_not_applicable` (ADR 0083). In TypeScript and Python the types leave them out of a Collie Run's settings, so the type checker catches the mistake first (G3). In Rust, whose `Settings` takes any key (ADR 0083), the Run refuses it when it opens. Whether Collie carries ADR 0053's per-proxy limits is [Collie's exact capability set](https://github.com/goodfetch/automan/issues/455)'s.
 - **Durations** take each language's duration type (ADR 0080).
 
 ### Skip reasons
 
 A request skipped because of Site preferences ends `skipped` (ADR 0079), with one of three reasons, each with its own fix (G1, G6):
 
-- `robots_txt`: a Disallow line of the host's robots.txt, or a robots.txt that stayed unreachable.
+- `robots_txt`: a Disallow line of the origin's robots.txt, or a robots.txt answered with a 429 or a 5xx, or unreachable, with no earlier copy, until the request's retries ran out.
 - `crawl_delay`: a Crawl-delay above `site_preferences.max_crawl_delay`.
 - `use_signals`: an AI-use signal that refuses the run's Purpose while `site_preferences.respect_use_signals` is on.
 
@@ -116,13 +115,13 @@ A request skipped because of Site preferences ends `skipped` (ADR 0079), with on
 
 - **Keeping ADRs 0016 and 0021 as they were**, for parity with Crawlee and Spider: rejected by G5. Eight in flight with no delay is Scrapy's library default, the one site owners reported (#6597 and [#6755](https://github.com/scrapy/scrapy/issues/6755)). The cost of that default falls on the tool's name, and a program that needs Crawlee's pace sets two values.
 - **Safer values in a project template only** (Scrapy 2.13.3): rejected. A program that calls the SDK never sees a template.
-- **Obeying robots.txt and the per-domain limits on every navigation, Collie's included**: rejected. It would break the Playwright-shaped page API (ADR 0019): a Collie program could not open two tabs on one site. RFC 9309 addresses crawlers, and ADR 0083 rules out a default that differs by product, so one setting cannot be on for crawls and off for pages.
+- **Obeying robots.txt and the per-domain limits on every navigation, Collie's included**: rejected. It would break the Playwright-shaped page API (ADR 0019): a Collie program could not open two tabs on one site. RFC 9309 addresses crawlers, ADR 0083 rules out a default that differs by product, so one setting cannot be on for crawls and off for pages, and ADR 0084 places Politeness in Foxhound.
 - **Defaults per Purpose** (robots.txt obeyed only for `ai-train`, say): rejected above.
 - **Two in flight per domain, or a shorter delay** (Crawl4AI's 0.1 s; the research's "1–2 per host"): rejected. With the delay counted between starts, a second request in flight only helps once the site answers more slowly than the delay, which is when it most needs relief.
 - **A longer delay** (Nutch's 5 s, Heritrix's 3 s minimum): rejected. One second is the value a leader chose against this very evidence (S3), and it keeps a single site's crawl practical.
 - **Latency-adaptive pacing by default** (Scrapy's AutoThrottle, Heritrix's delay factor): rejected as the default and kept opt-in (ADR 0037's CO-09). One request in flight with a fixed gap already slows down with the site, and it is predictable.
 - **Leaving a crawl handler's own navigation ungated**: rejected. A crawl running eight handlers, each calling `goto` on one site, would press it eight times over its limit with nothing set.
-- **A Crawl-delay per host inside a domain key**: rejected. It needs a second clock per host for little gain: ADR 0004 keys every per-domain limit by the registrable domain because subdomains usually share one server, and Crawlee 4.0 applies Crawl-delay per domain too.
+- **A Crawl-delay per host inside a domain key**: rejected. It needs a second clock per host for little gain: ADR 0004 keys every per-domain limit by the registrable domain because subdomains usually share one server. Crawlee 4.0 keys Crawl-delay by hostname unless told otherwise, which lets a site spread over subdomains be paced host by host.
 - **Reading a robots.txt answered with 429 as "no rules"**, RFC 9309's literal rule for any 4xx: rejected, as Google rejects it. A 429 asks for less load, and caching it as "no rules" would lift every restriction for a day.
 - **Exempting a hedge or a race's second copy from the limits**: rejected. A second request in flight is exactly what the default rules out; a crawl that wants hedges raises its concurrency, which is recorded.
 - **Waiting out any Crawl-delay, or capping it silently**: rejected. Waiting stalls a crawl for hours on a host that asks for one request a minute. Capping ignores what the host asked, with no record.
@@ -152,5 +151,5 @@ A request skipped because of Site preferences ends `skipped` (ADR 0079), with on
 - **ADR 0037's matrix.** SC-01, CO-09 and pain 6 cite this ADR, and areas 3, 4, 5, 6 and 11 list it.
 - **The V1 benchmark** reports crawl throughput at these defaults and with politeness raised, as ADR 0016 has it publish what each control costs.
 - **Golden scenario 05** sets no politeness value. books.toscrape.com's robots.txt answers 404, so nothing is skipped.
-- **Left to other tickets.** [Crawl definition and handler context](https://github.com/goodfetch/automan/issues/477) decides how a navigation robots.txt refuses surfaces inside a handler, and whether these settings can be set per Label. A page a handler lends to another library through the raw CDP endpoint (ADRs 0019 and 0084) is no longer driven through the engine's page API; whether its navigation stays counted is [Third-party automation on Foxhound pages, and Collie inside other crawlers](https://github.com/goodfetch/automan/issues/456)'s. [The Run in code](https://github.com/goodfetch/automan/issues/478) places the list of values that pressed harder in the Run's result. [The Agent in Collie's SDK API](https://github.com/goodfetch/automan/issues/474) keeps an Agent's own navigation program-directed and decides any opt-in to obey robots.txt for it. Cloudflare credited ChatGPT-User with stopping when robots.txt disallowed it ([report](https://blog.cloudflare.com/perplexity-is-using-stealth-undeclared-crawlers-to-evade-website-no-crawl-directives/)), while OpenAI's [bots page](https://developers.openai.com/api/docs/bots) now says robots.txt may not apply to user-initiated actions.
+- **Left to other tickets.** [Collie's exact capability set](https://github.com/goodfetch/automan/issues/455) decides whether Collie carries ADR 0053's per-proxy limits; [Collie and Foxhound installed on one machine](https://github.com/goodfetch/automan/issues/486) decides whether a Collie page's 429 slows a Foxhound crawl on the same machine; [How the products are built](https://github.com/goodfetch/automan/issues/454) owns the seam through which Foxhound's Politeness admits a handler's navigation on Collie's page API. [Crawl definition and handler context](https://github.com/goodfetch/automan/issues/477) decides how a navigation robots.txt refuses surfaces inside a handler, and whether these settings can be set per Label. A page a handler lends to another library through the raw CDP endpoint (ADRs 0019 and 0084) is no longer driven through the engine's page API; whether its navigation stays counted is [Third-party automation on Foxhound pages, and Collie inside other crawlers](https://github.com/goodfetch/automan/issues/456)'s. [The Run in code](https://github.com/goodfetch/automan/issues/478) places the list of values that pressed harder in the Run's result. [The Agent in Collie's SDK API](https://github.com/goodfetch/automan/issues/474) keeps an Agent's own navigation program-directed and decides any opt-in to obey robots.txt for it. Cloudflare credited ChatGPT-User with stopping when robots.txt disallowed it ([report](https://blog.cloudflare.com/perplexity-is-using-stealth-undeclared-crawlers-to-evade-website-no-crawl-directives/)), while OpenAI's [bots page](https://developers.openai.com/api/docs/bots) now says robots.txt may not apply to user-initiated actions.
 - **The `prototype/sdk-api` sketch** holds the `politeness.*` and `site_preferences.*` settings and the skip reasons in each language, with a snippet on golden scenario 05. The pain coverage matrix closes P12 as API.

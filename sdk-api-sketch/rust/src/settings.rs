@@ -314,7 +314,7 @@ pub struct ExplainedSetting {
     /// The layer that locked or capped the value, if any.
     pub locked_by: Option<SettingsLayer>,
     /// The setting that fixed the Session's identity, such as `session.source`, when an inherited
-    /// `browser::*` value yielded to it.
+    /// `browser::*` value yielded to it; `value` is then the identity's, and `layer` that setting's.
     pub fixed_by: Option<String>,
 }
 

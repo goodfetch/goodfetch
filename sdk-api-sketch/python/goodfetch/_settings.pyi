@@ -189,7 +189,7 @@ class ExplainedSetting:
     """The layer that locked or capped the value, if any."""
     fixed_by: str | None
     """The setting that fixed the Session's identity, such as `session.source`, when an inherited `browser.*` value yielded
-    to it."""
+    to it; `value` is then the identity's, and `layer` that setting's."""
 
 # The Error codes of settings (ADR 0083). Each is checked when the scope opens, or when a call with a per-call argument
 # starts, so it points at the line that set the value; nothing is clamped, dropped or ignored (G3).

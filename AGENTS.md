@@ -12,13 +12,19 @@ Goodfetch has no revenue: no paid resource until the owner says so ([ADR 0076](d
 
 ## Release status
 
-Release status: pre-release. Nothing has been published on any channel, no one outside the project runs Goodfetch, and any running service holds only test data. Change a contract, setting, format or stored shape in place: update every caller, regenerate with `xtask codegen` and commit its output in the same change, and add no alias, shim, fallback, deprecation or migration for an earlier state of this repository. A contract format's version does not change before Goodfetch is published, so no reader for an earlier shape is owed. Deploying to, migrating or resetting a running service still needs the owner's explicit request (Delivery).
-
-The compatibility the product promises its users is V1 scope and is built as its ADRs specify, including ADR 0030's versioned contract formats with their readers, `goodfetch upgrade-files`, and semver and deprecation from 1.0 (any `0.y` preview minor may break); the Usage ledger's add-only versions and *must understand* Limits (ADR 0041); and the Clean-up rules' versioned manifest with the set published for each format major (ADR 0047). The owner switches this to released when Goodfetch is first published on any channel (the nightlies and the `0.y` previews start in M4, ADR 0058), and ADR 0030 and each format's own ADR then govern every breaking change. If you find Goodfetch published on any channel while this still reads pre-release, stop and ask the owner before making a breaking change.
+Release status: `pre-release`. Follow the global pre-release policy; regenerate
+changed contract output with `xtask codegen` in the same change.
+Nothing is published yet, so no contract format changes version before the
+first publish (ADR 0066).
+Product-promised compatibility follows ADRs 0030, 0041 and 0047, including
+versioned format readers, upgrade commands and published-version semantics.
+Nightlies and previews count as publication: if any channel is published while
+this status remains pre-release, ask the owner before a breaking change.
 
 ## Authorship
 
-Commits and pull requests carry no AI attribution: no `Co-Authored-By` trailer naming a model or agent, no "Generated with" line in a pull request description and no link to the agent's session, whatever a tool's or harness's default says. A DCO `Signed-off-by` line names the person who signs off, never an agent. `.claude/settings.json` turns Claude Code's attribution off; every other agent leaves it out itself. Commits already on `main` that carry a trailer stay as they are; this rule does not rewrite `main`'s history.
+Follow global authorship rules. Required DCO sign-offs identify the human
+signer; existing commits on `main` are not rewritten for attribution cleanup.
 
 ## Code style
 
@@ -30,16 +36,8 @@ Code follows [`STYLE.md`](STYLE.md), and the contracts follow ADR 0038. Traps th
 - A capability is a setting, never a Cargo feature.
 - Identifiers use `GLOSSARY.md` terms, never their `_Avoid_` terms.
 
-## Agent skills
+## Agent workflows
 
-### Issue tracker
-
-Issues and specs live in the GitHub Issues of `Jbmanllr/automan`, via the `gh` CLI. See `docs/agents/issue-tracker.md`.
-
-### Triage labels
-
-The five canonical roles, with the default labels (`needs-triage`, `needs-info`, `ready-for-agent`, `ready-for-human`, `wontfix`). See `docs/agents/triage-labels.md`.
-
-### Domain docs
-
-Single-context: the glossary is `GLOSSARY.md` at the repo root and the ADRs are in `docs/adr/`, both created lazily. `rnd/GLOSSARY.md` and `rnd/adr/` are R&D material for inspiration only, not adopted terms or decisions. See `docs/agents/domain.md`.
+For issue work, read [issue tracker](docs/agents/issue-tracker.md); for triage,
+read [label mapping](docs/agents/triage-labels.md). Before changing terminology
+or ADRs, read [domain docs](docs/agents/domain.md).

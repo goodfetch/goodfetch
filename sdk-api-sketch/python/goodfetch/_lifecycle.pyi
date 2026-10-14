@@ -102,7 +102,8 @@ class AsyncCollie:
     async def start(self, *, timeout: Timeout = ..., limits: Limits | None = None) -> AsyncRun:
         """Placeholder start verb: its spelling is #478's; `timeout` and `limits` are #467's.
 
-        `timeout` caps the whole Run, with no default: on expiry it stops with a Checkpoint, resumable.
+        `timeout` caps the whole Run. Omitted: the setting's value, which has no built-in default; `None`: no timeout.
+        On expiry the Run stops with a Checkpoint, resumable.
         """
 
 @final
@@ -174,7 +175,8 @@ class Collie:
     def start(self, *, timeout: Timeout = ..., limits: Limits | None = None) -> Run:
         """Placeholder start verb: its spelling is #478's; `timeout` and `limits` are #467's.
 
-        `timeout` caps the whole Run, with no default: on expiry it stops with a Checkpoint, resumable.
+        `timeout` caps the whole Run. Omitted: the setting's value, which has no built-in default; `None`: no timeout.
+        On expiry the Run stops with a Checkpoint, resumable.
         """
 
 @final

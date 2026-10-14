@@ -109,7 +109,10 @@ export interface Limits {
 
 /** Options of starting a Run. The start verbs are #478's; these two options are #467's. */
 export interface StartOptions {
-  /** How long the whole Run may last. Omitted: no timeout. On expiry the Run stops with a Checkpoint, resumable. */
+  /**
+   * How long the whole Run may last. Omitted: the setting's value, which has no built-in default;
+   * `null`: no timeout. On expiry the Run stops with a Checkpoint, resumable.
+   */
   readonly timeout?: Timeout;
   readonly limits?: Limits;
 }

@@ -168,7 +168,7 @@ impl Start<'_> {
         unimplemented!()
     }
 
-    /// No timeout for this Run, even where configuration or a Recipe sets one.
+    /// No timeout for this Run, where no lower layer locked or capped the setting (ADR 0028).
     pub fn no_timeout(self) -> Self {
         unimplemented!()
     }

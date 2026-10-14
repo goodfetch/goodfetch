@@ -169,11 +169,11 @@ A portable package of user code, described by a manifest, that runs the same loc
 _Avoid_: actor, app, pack, script
 
 **Setting**:
-A named value that shapes how Goodfetch works, such as a timeout, a retry count or a Sink's guarantee, resolved through layers from its built-in default to the run itself, where a lower layer can cap or lock it.
+A named value that shapes how a Product works, such as a timeout, a retry count or a Sink's guarantee, resolved through layers from its built-in default to the run itself, where a lower layer can cap or lock it.
 _Avoid_: config key, knob, preference, option (for a setting)
 
 **Deployment variable**:
-One of the few environment variables Goodfetch reads for its own configuration, each holding a value that differs by machine rather than by program, such as the Goodfetch home or the address of an Exposed Daemon.
+One of the few environment variables a Product reads for its own configuration, each holding a value that differs by machine rather than by program, such as the Goodfetch home or the address of an Exposed Daemon.
 _Avoid_: env setting, config variable
 
 **Operator policy**:

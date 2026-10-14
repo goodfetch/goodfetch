@@ -2,3 +2,8 @@
 node_modules/
 target/
 __pycache__/
+
+# Local secrets (ADR 0076): only .env.example is committed
+.env
+.env.*
+!.env.example

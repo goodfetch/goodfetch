@@ -29,6 +29,7 @@ How Goodfetch is tested: every surface, at every level. Each rule comes with its
 23. [Accessibility, localization and visual regression](#accessibility-localization-and-visual-regression)
 24. [Which stories need a Journey](#which-stories-need-a-journey)
 25. [Goodfetch Chromium](#goodfetch-chromium)
+26. [Free tiers and local secrets](#free-tiers-and-local-secrets)
 
 Sections 1 to 7, 11 and 12 are decided in [ADR 0062](docs/adr/0062-tests-sit-beside-their-code-and-share-one-test-support-written-once.md).
 
@@ -494,11 +495,11 @@ Decided in [ADR 0065](docs/adr/0065-ai-features-are-tested-without-live-models-a
 ### Live checks that reach live models
 
 - **The provider check runs nightly and compares shapes, never content.** It covers fields, types, stream events, error bodies and the headers adapters read, for every recorded cell: direct providers, gateways and hosted Decision providers. A difference opens or updates its `live-check` issue.
-- **Every live job has its own credentials with a hard cap outside Goodfetch**: an Anthropic workspace spend limit, a gateway key limit, or a provider project budget that stops calls.
+- **Every live model call goes through the Vercel AI Gateway on its free tier** ([ADR 0076](docs/adr/0076-tests-and-ci-run-on-free-tiers-and-ai-calls-go-through-the-vercel-ai-gateway.md)): one key, `AI_GATEWAY_API_KEY`, free-tier models only, no credits bought and auto top-up off, so no job can spend money. A `429` or an exhausted free credit makes the run inconclusive, never a purchase.
 - **Every live job stops itself at its per-run cap.** The engine's runs use a currency Limit, Claude Code uses `maxBudgetUsd`, Codex uses a capped key, and the provider check and recorder compute their worst case before starting. Each job prints its worst case first.
 - **Coding agents in live jobs make no other calls:** Claude Code runs with `CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1`, and Codex with its update check and analytics turned off.
   _Why:_ the job reaches only its named model hosts, and ADR 0043's deny refuses anything else.
-- **Live jobs stay disabled until the owner approves the budget in ADR 0065.** Fork pull requests never receive model keys.
+- **Live jobs run on the gateway's free tier from M4.** Fork pull requests never receive model keys.
 
 ### Evaluations
 
@@ -1253,3 +1254,13 @@ Decided in [ADR 0074](docs/adr/0074-the-goodfetch-chromium-is-gated-where-it-is-
 - **A held major never weakens the gate.** The pinned build keeps shipping. If a patch still cannot pass when the next Stable version ships, the owner decides whether that major ships without it.
 - **Budgets:** build ≤ 4 h p50 per platform (6 h cap; stage a build that cannot fit over chained jobs), test stage ≤ 90 min p50 per platform (3 h cap per job). The gate's runner minutes, the macOS runner and a full gate on Beta majors are paid resources the owner approves.
 - **Results** go to the results store under the tier `chromium-build`, as JUnit XML.
+
+## Free tiers and local secrets
+
+Decided in [ADR 0076](docs/adr/0076-tests-and-ci-run-on-free-tiers-and-ai-calls-go-through-the-vercel-ai-gateway.md).
+
+- **Spend nothing until the owner declares revenue.** No job, build, account or service that bills is created or switched on. Where a paid option would be better, choose the free one and record the paid one as declined.
+- **Run CI on GitHub's free standard runners** within the private plan's included minutes, and on a self-hosted runner on the owner's machine where a build needs more. A self-hosted runner never runs a pull request from a fork.
+- **Keep local secrets in `.env`, written by `scripts/env-setup.sh`.** It is git-ignored and mode 600; `.env.example` lists every name, what it is for, the milestone that needs it and the page that creates it. Add a new secret to `.env.example` in the pull request that first needs it.
+- **Never read `.env` from a test.** Test support clears the environment (ADR 0059); only the recipes that run Live checks load `.env`, and CI reads the same names from GitHub Actions secrets.
+- **Never print, log or commit a secret's value,** including in a failure message or a recording; Secret canaries and `gitleaks` check it (ADR 0067).

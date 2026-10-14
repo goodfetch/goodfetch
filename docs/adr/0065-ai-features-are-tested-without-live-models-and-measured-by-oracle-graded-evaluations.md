@@ -107,6 +107,8 @@ Each is a Live check of ADR 0064, owned by area 9, with the placement below.
 
 ### Spend
 
+> Amended by [ADR 0076](0076-tests-and-ci-run-on-free-tiers-and-ai-calls-go-through-the-vercel-ai-gateway.md): while there is no revenue, live model calls go through one Vercel AI Gateway key on the free tier only (no credits bought), which replaces the per-job paid credentials and caps below and withdraws the budget.
+
 - **Every live job has its own credentials and a hard cap outside Goodfetch**, so a cap holds even for model calls the engine doesn't make (ADR 0012 leaves an outside agent's calls outside the engine):
   - Anthropic: one workspace per job, with the workspace's monthly spend limit set to the job's ceiling.
   - Gateways: one key per job, with the key's own spend limit (OpenRouter's per-key `limit`, or the gateway's equivalent).

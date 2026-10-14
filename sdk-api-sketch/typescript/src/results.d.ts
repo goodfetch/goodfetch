@@ -187,7 +187,7 @@ export type SkipReason =
   | "skipped_by_handler"
   | (string & {});
 
-/** A Verdict (ADR 0029), given by Success checks only. Any other value is never `verified`. */
+/** A Verdict, given by checks under ADR 0029's rules and never by the model's claim. Any other value is never `verified`. */
 export type Verdict = "verified" | "rejected" | "needs-review" | (string & {});
 
 /** How AI work ended. A failed ending throws instead. */

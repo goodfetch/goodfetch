@@ -122,6 +122,7 @@ pub struct Error {
 
 impl Error {
     /// Builds an error for a program's own tests (fakes and doubles); the SDK never returns one.
+    #[cfg(feature = "test-util")]
     pub fn fake(code: ErrorCode, message: impl Into<String>) -> Self {
         let _ = (code, message.into());
         unimplemented!()
@@ -332,7 +333,7 @@ pub enum RequestOutcomeKind {
     Unknown(String),
 }
 
-/// A Verdict (ADR 0029), given by Success checks only.
+/// A Verdict, given by checks under ADR 0029's rules and never by the model's claim.
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum Verdict {

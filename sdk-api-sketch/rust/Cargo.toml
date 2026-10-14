@@ -4,6 +4,10 @@ version = "0.0.0"
 edition = "2024"
 publish = false
 
+# Test helpers for a program's own tests (STYLE.md: the only kind of feature besides heavy optional dependencies).
+[features]
+test-util = []
+
 # Standalone: not part of any Goodfetch workspace.
 [workspace]
 

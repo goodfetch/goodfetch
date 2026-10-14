@@ -223,7 +223,7 @@ RequestOutcome: TypeAlias = RequestSucceeded | RequestFailed | RequestSkipped | 
 """A crawl request's ending. The noun "request" is #477's to settle."""
 
 Verdict: TypeAlias = Literal["verified", "rejected", "needs-review"] | str
-"""A Verdict (ADR 0029), given by Success checks only. Any other value is never `verified`."""
+"""A Verdict, given by checks under ADR 0029's rules and never by the model's claim. Any other value is never `verified`."""
 
 @final
 @dataclass(frozen=True, kw_only=True)

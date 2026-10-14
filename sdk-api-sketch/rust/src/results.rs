@@ -264,8 +264,8 @@ pub struct NotVerified {
     pub ended: Ended,
     /// What the model claimed.
     pub reported: Reported,
-    /// The Success checks that failed, or that are missing.
-    pub checks: Vec<String>,
+    /// Why it is not `Verified`: failed, missing or switched-off checks, uncertain Effects.
+    pub reasons: Vec<String>,
 }
 
 /// The Block causes of ADRs 0021, 0035, 0045 and 0048.

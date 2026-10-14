@@ -227,8 +227,8 @@ export interface NotVerifiedDetails {
   readonly verdict: Verdict;
   readonly ended: Ended;
   readonly reported: Reported;
-  /** The Success checks that failed, or that are missing. */
-  readonly checks: readonly string[];
+  /** Why it is not `verified`: failed, missing or switched-off checks, uncertain Effects. */
+  readonly reasons: readonly string[];
 }
 export declare class NotVerifiedError extends PageError {
   readonly code: "not_verified";

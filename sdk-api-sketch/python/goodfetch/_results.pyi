@@ -280,8 +280,8 @@ class NotVerifiedDetails:
     verdict: Verdict
     ended: Ended
     reported: Reported
-    checks: Sequence[str]
-    """The Success checks that failed, or that are missing."""
+    reasons: Sequence[str]
+    """Why it is not `verified`: failed, missing or switched-off checks, uncertain Effects."""
 
 @final
 class NotVerifiedError(PageError):

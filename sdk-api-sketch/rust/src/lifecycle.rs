@@ -3,7 +3,9 @@
 //! Logs are `tracing` events under `goodfetch::…` targets; the crate never installs a subscriber.
 //! The Rust crate links the engine (`EngineChoice::Linked`) and borrows a browser through
 //! `session.source = cdp_url`, never through a relay. The Run's start verbs, Sessions and the
-//! page API are placeholders owned by #478, #476 and #472; the error type is #466's.
+//! page API are placeholders owned by #478, #476 and #472. The error type is ADR 0079's, in `results`.
+
+use crate::results::Error;
 
 /// Which engine [`Goodfetch::connect`] reaches.
 #[derive(Debug, Clone, Default)]
@@ -55,19 +57,6 @@ pub struct EngineInfo {
     pub version: String,
     /// The protocol's `major.minor`.
     pub protocol_version: String,
-}
-
-/// Placeholder error carrying an Error code such as `closed`; its shape is #466's.
-#[derive(Debug)]
-pub struct Error {
-    code: String,
-}
-
-impl Error {
-    /// The Error code.
-    pub fn code(&self) -> &str {
-        &self.code
-    }
 }
 
 /// The engine connection: the entry point. Each one is independent, and many may be open in one process.

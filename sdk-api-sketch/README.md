@@ -16,12 +16,17 @@ sdk-api-sketch/
 ├── rust/
 │   ├── src/            # modules re-exported from lib.rs
 │   └── examples/       # golden scenarios as examples
-└── scenarios/          # one description per golden scenario, with the leader's version and the comparison
+├── scenarios/          # one description per golden scenario: task, leader, pains, failure points, measures
+│   └── leaders/        # the leaders' programs, with their own package manifests
+└── pain-coverage.md    # every researched pain and how the SDK API answers it
 ```
+
+[`scenarios/README.md`](scenarios/README.md) lists the twelve golden scenarios and how they are measured. [`pain-coverage.md`](pain-coverage.md) is the pain coverage matrix.
 
 ## Conventions
 
 - **One file per ticket topic** in each language, for example `typescript/src/lifecycle.d.ts`, `python/goodfetch/_lifecycle.pyi` and `rust/src/lifecycle.rs`, re-exported from the language's entry file.
+- **Each ticket fills its matrix rows.** A grilling ticket fills its rows of `pain-coverage.md` (closes as, feature, scenarios, principles) in the same commit as its signatures and snippets.
 - **Signatures only.** Rust bodies are `unimplemented!()`, the sketch's one departure from `STYLE.md`.
 - **Placeholder names.** The package and import name `goodfetch` stands in until the packaging question of [Goodfetch products: Collie and Foxhound as separately installable products](https://github.com/goodfetch/automan/issues/447) settles names.
 - **Checkers follow `STYLE.md`:** TypeScript 7 with `strict`, `noUncheckedIndexedAccess`, `exactOptionalPropertyTypes`, `verbatimModuleSyntax` and `erasableSyntaxOnly` (`isolatedDeclarations` only applies when emitting declarations, which a sketch of `.d.ts` files never does); pyright strict and mypy `--strict` on Python 3.11; `cargo check` with warnings denied.

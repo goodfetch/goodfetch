@@ -212,11 +212,12 @@ pub enum PolitenessSharing {
 /// `politeness.*` (ADR 0086): one family, so `goodfetch config explain politeness` shows every
 /// limit. With nothing set, a crawl keeps one request in flight per domain, one second between
 /// starts. They govern the requests a crawl's Frontier admits and every navigation a crawl handler
-/// makes from its page; a program's own navigation outside a handler is directed by the program,
-/// and only [`politeness::proxy`] and [`politeness::SHARING`] apply to it. They are set on a
-/// connection or a Run; set on a Collie Run, a crawl-only key is refused when the Run opens with
-/// `setting_not_applicable`, since one `Settings` type takes every key (ADR 0083). A value that presses a site harder than its built-in default is recorded in the Audit log,
-/// listed in the run's result and logged once as a warning through `tracing`.
+/// makes from its page. Politeness is Foxhound's (ADR 0084): a program's own navigation outside a
+/// handler is Collie's, and nothing of Politeness gates or counts it; whether Collie carries the
+/// per-proxy limits is #455's. They are set on a connection or a Run; set on a Collie Run, one is
+/// refused when the Run opens with `setting_not_applicable`, since one `Settings` type takes every
+/// key (ADR 0083). A value that presses a site harder than its built-in default is recorded in the
+/// Audit log, listed in the run's result and logged once as a warning through `tracing`.
 pub mod politeness {
     use super::{Duration, PolitenessSharing, Setting};
 
@@ -237,7 +238,8 @@ pub mod politeness {
         /// with `setting_invalid`. At 1, switching hedges or `tier_race` on is refused.
         pub const CONCURRENCY: Setting<u32> = Setting::new("politeness.domain.concurrency");
         /// `politeness.domain.delay`: the least time between two request starts to one domain;
-        /// built-in one second. While robots.txt is respected, a host's Crawl-delay raises it.
+        /// built-in one second. While robots.txt is respected, a host's Crawl-delay raises it for
+        /// the host's whole domain key.
         pub const DELAY: Setting<Duration> = Setting::new("politeness.domain.delay");
     }
 
@@ -263,7 +265,8 @@ pub mod politeness {
         pub const CONCURRENCY: Setting<Option<u32>> = Setting::new("politeness.ip.concurrency");
     }
 
-    /// `politeness.proxy.*`: per proxy endpoint and credential (ADR 0053); they apply to every run.
+    /// `politeness.proxy.*`: per proxy endpoint and credential (ADR 0053), for a crawl; whether
+    /// Collie carries them is #455's.
     pub mod proxy {
         use super::super::Setting;
 

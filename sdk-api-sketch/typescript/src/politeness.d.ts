@@ -1,12 +1,13 @@
 // Crawl politeness defaults (ADR 0086, decided in #480).
 // With nothing set, a crawl obeys robots.txt (RFC 9309) and keeps one request in flight per
 // domain, one second between starts (G5). These settings govern the requests a crawl's Frontier
-// admits and every navigation a crawl handler makes from its page; a program's own navigation
-// outside a handler (`page.goto`, an AI verb or an Agent in its Session) is directed by the program,
-// like a browser's, and only the per-proxy limits and `sharing` apply to it, though a 429 it
-// receives still backs off a crawl sharing the domain. A value that lets a crawl press a site harder than its built-in default is the program's
-// explicit choice: the Audit log records it, the run's result lists it, and the run logs it once as
-// a warning through the host's logging. An Operator policy or a Recipe may lock any of them (ADR 0028).
+// admits and every navigation a crawl handler makes from its page. Politeness is Foxhound's
+// (ADR 0084): a program's own navigation outside a handler (`page.goto`, an AI verb or an Agent in
+// its Session) is Collie's, directed by the program like a browser's, and nothing of Politeness
+// gates or counts it; whether Collie carries the per-proxy limits is #455's. A value that lets a
+// crawl press a site harder than its built-in default is the program's explicit choice: the Audit
+// log records it, the run's result lists it, and the run logs it once as a warning through the
+// host's logging. An Operator policy or a Recipe may lock any of them (ADR 0028).
 
 /** `politeness.domain.*`: per domain, keyed as in ADR 0004, and shared by every run of the user (ADR 0053). */
 export interface DomainPolitenessSettings {
@@ -17,7 +18,7 @@ export interface DomainPolitenessSettings {
   readonly concurrency?: number;
   /**
    * The least time between two request starts to one domain, in milliseconds; `0` for none. Built-in: 1_000.
-   * While robots.txt is respected, a host's Crawl-delay raises it for that host.
+   * While robots.txt is respected, a host's Crawl-delay raises it for the host's whole domain key.
    */
   readonly delay?: number;
 }
@@ -38,7 +39,7 @@ export interface IpPolitenessSettings {
   readonly concurrency?: number | null;
 }
 
-/** `politeness.proxy.*`: per proxy endpoint and credential (ADR 0053); they apply to every run. */
+/** `politeness.proxy.*`: per proxy endpoint and credential (ADR 0053), for a crawl. Whether Collie carries them is #455's. */
 export interface ProxyPolitenessSettings {
   /** Requests in flight through one proxy. `null`, the built-in: only the ceiling learned from its refusals. */
   readonly concurrency?: number | null;
@@ -77,13 +78,7 @@ export interface SitePreferencesSettings {
   readonly respectUseSignals?: boolean;
 }
 
-/** The politeness a Collie Run can set: its program directs its own navigation, so no per-domain limit, backoff or robots.txt. */
-export interface ColliePolitenessSettings {
-  readonly proxy?: ProxyPolitenessSettings;
-  readonly sharing?: PolitenessSharing;
-}
-
-/** The Site preferences a Collie Run can set. */
+/** The Site preferences a Collie Run can set: Politeness and robots.txt are a crawl's (ADR 0084). */
 export interface CollieSitePreferencesSettings {
   readonly respectUseSignals?: boolean;
 }

@@ -106,7 +106,6 @@ from goodfetch._page import WebSocket as WebSocket
 from goodfetch._page import WebSocketFrame as WebSocketFrame
 from goodfetch._page import World as World
 from goodfetch._politeness import BackoffSettings as BackoffSettings
-from goodfetch._politeness import ColliePolitenessSettings as ColliePolitenessSettings
 from goodfetch._politeness import CollieSitePreferencesSettings as CollieSitePreferencesSettings
 from goodfetch._politeness import DomainPolitenessSettings as DomainPolitenessSettings
 from goodfetch._politeness import IpPolitenessSettings as IpPolitenessSettings

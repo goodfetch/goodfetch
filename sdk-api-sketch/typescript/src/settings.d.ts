@@ -10,7 +10,6 @@
 import type { CallOptions, Timeout } from "./time.js";
 import type { ProgramError, RefusedError, RunLayerOrigin, SettingsLayer, UnavailableError } from "./results.js";
 import type {
-  ColliePolitenessSettings,
   CollieSitePreferencesSettings,
   PolitenessSettings,
   SitePreferencesSettings,
@@ -96,14 +95,13 @@ export interface Settings {
 
 /**
  * A Collie Run's settings: no `crawl.*`, no `timeout.run`, which starting the Run spells as its
- * `timeout` (S2), and none of the politeness a crawl's Frontier alone uses (ADR 0086). A setting the
+ * `timeout` (S2), and no Politeness, which is Foxhound's (ADRs 0084, 0086). A setting the
  * type cannot rule out, such as `timeout.handler`, is refused with `setting_not_applicable`.
  */
 export interface RunSettings {
   readonly timeout?: Omit<TimeoutSettings, "run">;
   readonly browser?: BrowserSettings;
   readonly network?: NetworkSettings;
-  readonly politeness?: ColliePolitenessSettings;
   readonly sitePreferences?: CollieSitePreferencesSettings;
 }
 

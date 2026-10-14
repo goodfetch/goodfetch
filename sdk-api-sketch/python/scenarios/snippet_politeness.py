@@ -36,10 +36,10 @@ async def own_staging_site() -> None:
     ) as gf:
         # A misspelled key fails pyright and mypy; built at runtime, `setting_unknown` names `respect_robots_txt`.
         await AsyncGoodfetch.connect(settings={"site_preferences": {"respect_robots": False}})  # type: ignore[typeddict-unknown-key]  # pyright: ignore[reportArgumentType]
-        # A Collie Run's program directs its own navigation: no per-domain limit (`setting_not_applicable` at runtime).
+        # A Collie Run's program directs its own navigation, outside Politeness (`setting_not_applicable` at runtime).
         await gf.collie.start(settings={"politeness": {"domain": {"concurrency": 2}}})  # type: ignore[typeddict-unknown-key]  # pyright: ignore[reportArgumentType]
-        # Per-proxy limits apply to every run, a Collie Run included.
-        async with await gf.collie.start(settings={"politeness": {"proxy": {"rate": 5.0}}}) as run:
+        # A Collie Run still takes the AI-use signals, which concern any run's results.
+        async with await gf.collie.start(settings={"site_preferences": {"respect_use_signals": True}}) as run:
             log.info("started %s", run.id)
 
 

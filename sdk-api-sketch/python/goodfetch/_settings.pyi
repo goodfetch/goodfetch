@@ -13,7 +13,6 @@ from datetime import timedelta
 from typing import Literal, NotRequired, TypeAlias, TypedDict, final
 
 from goodfetch._politeness import (
-    ColliePolitenessSettings,
     CollieSitePreferencesSettings,
     PolitenessSettings,
     SitePreferencesSettings,
@@ -108,14 +107,13 @@ class Settings(TypedDict, total=False):
     """ADR 0086."""
 
 class RunSettings(TypedDict, total=False):
-    """A Collie Run's settings: no `crawl.*`, no `timeout.run`, and none of the politeness a crawl's Frontier alone
-    uses (ADR 0086). A setting the type cannot rule out, such as `timeout.handler`, is refused with
+    """A Collie Run's settings: no `crawl.*`, no `timeout.run`, and no Politeness, which is Foxhound's (ADRs 0084,
+    0086). A setting the type cannot rule out, such as `timeout.handler`, is refused with
     `setting_not_applicable`."""
 
     timeout: RunTimeoutSettings
     browser: BrowserSettings
     network: NetworkSettings
-    politeness: ColliePolitenessSettings
     site_preferences: CollieSitePreferencesSettings
 
 class SessionSettings(TypedDict, total=False):

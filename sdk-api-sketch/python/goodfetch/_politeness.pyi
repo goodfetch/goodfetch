@@ -1,12 +1,12 @@
 """Crawl politeness defaults (ADR 0086, decided in #480).
 
 With nothing set, a crawl obeys robots.txt (RFC 9309) and keeps one request in flight per domain, one second between
-starts (G5). These settings govern the requests a crawl's Frontier admits and every navigation a crawl handler makes from
-its page; a program's own navigation outside a handler (`page.goto`, an AI verb or an Agent in its Session) is directed by
-the program, like a browser's, and only the per-proxy limits and `sharing` apply to it, though a 429 it receives still
-backs off a crawl sharing the domain. A value that lets a crawl press a site harder than its built-in default is the program's explicit
-choice: the Audit log records it, the run's result lists it, and the run logs it once as a warning through `logging`.
-An Operator policy or a Recipe may lock any of them (ADR 0028).
+starts (G5). These settings govern the requests a crawl's Frontier admits and every navigation a crawl handler makes
+from its page. Politeness is Foxhound's (ADR 0084): a program's own navigation outside a handler (`page.goto`, an AI
+verb or an Agent in its Session) is Collie's, directed by the program like a browser's, and nothing of Politeness gates
+or counts it; whether Collie carries the per-proxy limits is #455's. A value that lets a crawl press a site harder than
+its built-in default is the program's explicit choice: the Audit log records it, the run's result lists it, and the run
+logs it once as a warning through `logging`. An Operator policy or a Recipe may lock any of them (ADR 0028).
 """
 
 from datetime import timedelta
@@ -20,7 +20,7 @@ class DomainPolitenessSettings(TypedDict, total=False):
     whatever its page loads. Built-in: 1. At 1, switching hedges or `tier_race` on is refused."""
     delay: timedelta
     """The least time between two request starts to one domain; zero for none. Built-in: one second. While robots.txt
-    is respected, a host's Crawl-delay raises it for that host."""
+    is respected, a host's Crawl-delay raises it for the host's whole domain key."""
 
 class BackoffSettings(TypedDict, total=False):
     """`politeness.backoff.*`: on 429, 502, 503, 504, `Retry-After`, and a connection refused or timed out."""
@@ -39,7 +39,8 @@ class IpPolitenessSettings(TypedDict, total=False):
     """Requests in flight per resolved IP. `None`, the built-in: no limit beyond the domain's."""
 
 class ProxyPolitenessSettings(TypedDict, total=False):
-    """`politeness.proxy.*`: per proxy endpoint and credential (ADR 0053); they apply to every run."""
+    """`politeness.proxy.*`: per proxy endpoint and credential (ADR 0053), for a crawl; whether Collie carries them is
+    #455's."""
 
     concurrency: int | None
     """Requests in flight through one proxy. `None`, the built-in: only the ceiling learned from its refusals."""
@@ -74,14 +75,7 @@ class SitePreferencesSettings(TypedDict, total=False):
     respect_use_signals: bool
     """Apply the AI-use signals that concern the run's Purpose (ADR 0016). Built-in: `False`."""
 
-class ColliePolitenessSettings(TypedDict, total=False):
-    """The politeness a Collie Run can set: its program directs its own navigation, so no per-domain limit, backoff or
-    robots.txt."""
-
-    proxy: ProxyPolitenessSettings
-    sharing: PolitenessSharing
-
 class CollieSitePreferencesSettings(TypedDict, total=False):
-    """The Site preferences a Collie Run can set."""
+    """The Site preferences a Collie Run can set: Politeness and robots.txt are a crawl's (ADR 0084)."""
 
     respect_use_signals: bool

@@ -30,12 +30,12 @@ export async function ownStagingSite(): Promise<void> {
   });
   // @ts-expect-error A misspelled key fails tsc; built at runtime, `setting_unknown` names `respectRobotsTxt`.
   await Goodfetch.connect({ settings: { sitePreferences: { respectRobots: false } } });
-  // @ts-expect-error A Collie Run's program directs its own navigation: no per-domain limit (`setting_not_applicable` at runtime).
+  // @ts-expect-error A Collie Run's program directs its own navigation, outside Politeness (`setting_not_applicable` at runtime).
   await gf.collie.start({ settings: { politeness: { domain: { concurrency: 2 } } } });
   // @ts-expect-error Nor does robots.txt gate it.
   await gf.collie.start({ settings: { sitePreferences: { respectRobotsTxt: true } } });
-  // Per-proxy limits apply to every run, a Collie Run included.
-  await using run = await gf.collie.start({ settings: { politeness: { proxy: { rate: 5 } } } });
+  // A Collie Run still takes the AI-use signals, which concern any run's results.
+  await using run = await gf.collie.start({ settings: { sitePreferences: { respectUseSignals: true } } });
   log.info("started", { run: run.id });
 }
 

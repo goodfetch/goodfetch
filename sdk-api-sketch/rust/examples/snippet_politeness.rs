@@ -35,8 +35,8 @@ async fn own_staging_site() -> Result<(), Error> {
         .set(site_preferences::RESPECT_ROBOTS_TXT, false);
     let gf = Goodfetch::connect(ConnectOptions::default().settings(harder)).await?;
 
-    // A Collie Run's program directs its own navigation: a per-domain limit set on it is refused
-    // when the Run opens, never ignored (G3). Rust's one `Settings` type takes every key, so the
+    // A Collie Run's program directs its own navigation, outside Politeness: a limit set on it is
+    // refused when the Run opens, never ignored (G3). Rust's one `Settings` type takes every key, so the
     // refusal comes at run time, where TypeScript and Python fail to type-check.
     let refused = gf
         .collie()
@@ -47,11 +47,11 @@ async fn own_staging_site() -> Result<(), Error> {
         let _ = error.code() == &ErrorCode::SettingNotApplicable;
     }
 
-    // Per-proxy limits apply to every run, a Collie Run included.
+    // A Collie Run still takes the AI-use signals, which concern any run's results.
     let run = gf
         .collie()
         .start()
-        .settings(Settings::new().set(politeness::proxy::RATE, Some(5.0)))
+        .settings(Settings::new().set(site_preferences::RESPECT_USE_SIGNALS, true))
         .await?;
     let _ = run.id();
     gf.close().await

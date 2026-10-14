@@ -46,7 +46,7 @@ class Dataset(Generic[T]):
     @property
     def name(self) -> str: ...
     async def push(self, record: T) -> None:
-        """Provisional: push or pull is #479's. A value that is not JSON, and that the model does not encode, raises
+        """Provisional: push or pull is #479's. A value the model cannot dump as JSON raises
         `ProgramError`; nothing is ever turned into a string or pickled."""
 
 class Label(Generic[P]):
@@ -66,14 +66,15 @@ class Label(Generic[P]):
 class PayloadInvalidDetails:
     label: str
     issues: Sequence[SchemaIssue]
-    """Empty when the Payload was refused for its size; the error's `limit` then names `crawl.payload.max_bytes`."""
+    """Empty when the Payload was refused for its size; the error's `limit` then names `crawl.payload.max_size`."""
     size_bytes: int
     """The Payload's size as serialized JSON."""
 
 @final
 class PayloadInvalidError(ProgramError):
-    """A Payload failed its Label's schema, was not JSON, or exceeded `crawl.payload.max_bytes`. Raised by the enqueue
-    call."""
+    """A Payload failed its Label's schema, was not JSON, or exceeded `crawl.payload.max_size`. Raised by the enqueue
+    call, or the failure of a request whose handler's parse rejected a Payload that a changed native rule no longer
+    accepts."""
 
     @property
     def details(self) -> PayloadInvalidDetails: ...
@@ -98,8 +99,8 @@ class PayloadSchemaChangedError(ProgramError):
 @final
 @dataclass(frozen=True, kw_only=True)
 class SchemaValidatorFailedDetails:
-    schema: str
-    """The schema as the program names it: the model or type whose validator raised."""
+    schema: str | None
+    """The schema's JSON Schema `title` (a Pydantic model's name), or None when it has none."""
     path: Sequence[str | int]
     """Where in the value the validator was when it raised, when known."""
     exception_type: str
@@ -108,7 +109,8 @@ class SchemaValidatorFailedDetails:
 @final
 class SchemaValidatorFailedError(ProgramError):
     """The program's own validator raised something other than Pydantic's `ValidationError`, such as a `KeyError` in a
-    `@field_validator`. A rejection goes back to the model for another attempt (ADR 0012); this stops the call at once.
+    `@field_validator`. A rejection is the call's own failure, or, in an extraction, goes back to the model for another
+    attempt (ADR 0012); this stops the call at once.
     `__cause__` holds the original."""
 
     @property

@@ -3,14 +3,15 @@
 //! On the wire every schema is JSON Schema and every value is JSON (ADR 0038). A program writes its
 //! schemas as types deriving `schemars::JsonSchema` and serde's traits, using the [`schemars`] this
 //! crate re-exports so the derive always matches the SDK's version, or as a JSON Schema document by
-//! hand, whose values are [`serde_json::Value`] (G7, G8). A crate that does not depend on `schemars`
+//! hand, whose values are [`serde_json::Value`], Rust's idiom for JSON that G7 allows (G8). A crate that does not depend on `schemars`
 //! itself derives through the re-export with `use goodfetch::schemars::{self, JsonSchema}`, or with
-//! `#[schemars(crate = "goodfetch::schemars")]`. `schemars` and serde are in this crate's public API,
-//! so a new major of either is a new major of this crate (C-STABLE). A Rust type is both what a
+//! `#[schemars(crate = "goodfetch::schemars")]`. `schemars`, serde and serde_json are in this crate's
+//! public API, each naming exactly one major, so a new major of any is a new Goodfetch major
+//! (C-STABLE, ADR 0030). A Rust type is both what a
 //! program sends and what it receives.
 //!
-//! A custom `Deserialize` that returns an error is a rejection, sent back to the model for another
-//! attempt (ADR 0012); the parse runs in the calling future, so a panic unwinds in the caller's own
+//! A custom `Deserialize` that returns an error is a rejection: an extraction sends it back to the
+//! model for another attempt (ADR 0012), and any other call fails with it; the parse runs in the calling future, so a panic unwinds in the caller's own
 //! call, and `schema_validator_failed` never reaches Rust.
 
 use std::marker::PhantomData;
@@ -108,14 +109,15 @@ pub enum PathSegment {
 }
 
 /// Details of `payload_invalid`: a Payload failed its Label's schema, was not JSON, or exceeded
-/// `crawl.payload.max_bytes`. Returned by the enqueue call.
+/// `crawl.payload.max_size`. Returned by the enqueue call, or the outcome of a request whose
+/// handler's parse rejected a Payload that a changed native rule no longer accepts.
 #[derive(Debug, Clone)]
 #[non_exhaustive]
 pub struct PayloadInvalid {
     /// The Label enqueued to.
     pub label: String,
     /// Empty when the Payload was refused for its size; the error's `limit` then names
-    /// `crawl.payload.max_bytes`.
+    /// `crawl.payload.max_size`.
     pub issues: Vec<SchemaIssue>,
     /// The Payload's size as serialized JSON.
     pub size_bytes: u64,

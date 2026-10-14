@@ -71,7 +71,7 @@ export type SchemaOutput<S extends Schema> = S extends StandardSchemaWithJson<un
  */
 export interface Dataset<Input = JsonObject, Output = Input> {
   readonly name: string;
-  /** Provisional: push or pull is #479's. Takes the input type; a value that is not JSON, and that the schema does not encode, throws `ProgramError`. */
+  /** Provisional: push or pull is #479's. Takes the input type; a value that is not JSON throws `ProgramError`: Standard Schema only parses, so a sent value is already JSON. */
   push(record: Input): Promise<void>;
   /** Phantom: carries the output type a Record is read back as. */
   readonly "~output"?: Output;
@@ -98,12 +98,12 @@ export type PayloadOutput<L> = L extends Label<unknown, infer O> ? O : never;
 
 export interface PayloadInvalidDetails {
   readonly label: string;
-  /** Empty when the Payload was refused for its size; `limit` then names `crawl.payload.max_bytes`. */
+  /** Empty when the Payload was refused for its size; `limit` then names `crawl.payload.max_size`. */
   readonly issues: readonly SchemaIssue[];
   /** The Payload's size as serialized JSON. */
   readonly sizeBytes: number;
 }
-/** A Payload failed its Label's schema, was not JSON, or exceeded `crawl.payload.max_bytes`. Thrown by the enqueue call. */
+/** A Payload failed its Label's schema, was not JSON, or exceeded `crawl.payload.max_size`. Thrown by the enqueue call, or the failure of a request whose handler's parse rejected a Payload that a changed native rule no longer accepts. */
 export declare class PayloadInvalidError extends ProgramError {
   readonly code: "payload_invalid";
   readonly details: PayloadInvalidDetails;
@@ -124,8 +124,8 @@ export declare class PayloadSchemaChangedError extends ProgramError {
 }
 
 export interface SchemaValidatorFailedDetails {
-  /** The schema as the program names it; in TypeScript, where a schema has no name, its library (Standard Schema's `vendor`). */
-  readonly schema: string;
+  /** The schema's JSON Schema `title`, or null when it has none. */
+  readonly schema: string | null;
   /** Where in the value the validator was when it threw, when known. */
   readonly path: readonly (string | number)[];
   readonly exceptionType: string;
@@ -133,7 +133,8 @@ export interface SchemaValidatorFailedDetails {
 }
 /**
  * The program's own validator threw instead of returning issues, such as a `.refine()` that throws.
- * A rejection goes back to the model for another attempt (ADR 0012); a throw stops the call at once.
+ * A rejection is the call's own failure, or, in an extraction, goes back to the model for another
+ * attempt (ADR 0012); a throw stops the call at once.
  * `cause` holds the original.
  */
 export declare class SchemaValidatorFailedError extends ProgramError {

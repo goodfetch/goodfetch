@@ -5,6 +5,9 @@ Every Client reports a run on three separate axes instead of one status:
 - **Lifecycle** says where the run is:
   - `running`
   - `stopped`: ended early by a Limit, an abort, the loss of its engine, or exhausted resources (ADR 0040)
+
+    > Amended by [ADR 0080](0080-sdk-timeouts-nest-waits-arm-when-called-and-a-program-sets-limits-but-never-raises-them.md): a Run's own timeout is a fifth cause. A Run it stops is never `complete`, keeps a Checkpoint, and resumes with a fresh clock.
+
   - `finished`: reached its end
   - `failed`: ended by an error in the engine or the user's code
 - **Verdict** says whether the run's committed results are proven by the run's own checks. It is given once the run is no longer `running`, `failed` runs included, and reads the latest evaluation of each check:

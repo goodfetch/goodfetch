@@ -34,6 +34,7 @@ The `goodfetch` binary keeps every capability built in, V8 and DuckDB included, 
 ### What stays in the binary
 
 - Every capability stays in the one `goodfetch` binary of ADR 0024: V8 for the Script sandbox (ADR 0051), DuckDB for search and the SQL tab (ADR 0031) and the DuckDB Sink, and the in-binary Sinks of ADR 0026. No capability leaves the binary to meet the Size budget. Browsers, sink processes and Plugins stay downloads, as before, and DuckDB reads run files through table functions the engine registers (below), not through DuckDB's SQLite extension.
+  > Amended by [ADR 0087](0087-each-product-is-an-executable-crate-that-links-only-its-crates-and-has-its-own-size-budget.md): each capability stays in the executable of every Product that carries it. Foxhound's carries all of them; Collie's carries V8 and the Clean-up rules but not DuckDB, the Sinks or `wreq`, as [Collie's exact capability set](https://github.com/goodfetch/automan/issues/455) decided. No capability leaves an executable to meet a Size budget.
 - **Embedded data is stored compressed.** Every channel already compresses its files, so this saves disk space after install (about 6 MB), not download size; the compressed ceiling below is unaffected.
   - The serialized Clean-up rules with zstd (9.06 MB to 3.67 MB), decompressed when they are loaded, in about 6 ms, then dropped once deserialized. **Changes ADR 0047.**
   - The Console's assets precompressed with brotli (0.99 MB to 0.40 MB for the prototype) and served as they are with `Content-Encoding: br`, so no request compresses anything. It needs a small handler, because `tower-http`'s `precompressed_br` expects the uncompressed file beside the `.br` one. **Changes ADR 0031.**
@@ -53,6 +54,8 @@ The `goodfetch` binary keeps every capability built in, V8 and DuckDB included, 
 | Raw `goodfetch` binary per platform | 160 MB | — |
 | `goodfetch` crate tarball (`.crate`) | 8 MiB | — |
 | Each OCI image tag (ADR 0049) | none | +3 MB compressed |
+
+> Amended by [ADR 0087](0087-each-product-is-an-executable-crate-that-links-only-its-crates-and-has-its-own-size-budget.md): the table is Foxhound's. Collie's ceilings are 50 MB per compressed release file and 120 MB per raw executable, with the same +1 MB threshold, 8 MiB per crate tarball and +3 MB per OCI image tag. Every row, tier and rule of this section applies to each Product's files, and Collie's ceilings move only by changing ADR 0087.
 
 - Every V1 target of ADR 0024 is measured, and the largest must fit. Static musl Linux is the largest so far for V8 (8–12% above macOS), and DuckDB's own musl build is its largest. V8 was measured from the `v8` crate's prebuilt library; ADR 0051's source build with V8's sandbox on gets its first number from the first merge-queue run.
 - The 60 MB ceiling leaves 15–25 MB over the projection, 40 MB under PyPI's per-file limit and about half of what npm is known to accept. The 8 MiB ceiling leaves 2 MiB under crates.io's limit, which has no documented raise. Images get no ceiling because browsers dominate them and their registries allow 10 GB, but an accidental layer still trips the increase check. The crate has no increase threshold: `cargo package` is cheap, so the merge queue checks its ceiling directly.

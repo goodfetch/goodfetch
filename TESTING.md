@@ -55,6 +55,9 @@ A test's level is the seam it crosses, not its speed:
   _Why:_ each file in `tests/` links its own binary. uv's measurement favours one harness until a suite is large.
 - **Tests of the `goodfetch` binary live in its crate's `tests/it`** and find the binary through `CARGO_BIN_EXE_goodfetch`, never a guessed path.
   _Why:_ the build directory's layout may change without notice.
+- **Foxhound's tests live in Foxhound's crates.** No crate outside `crates/foxhound/` takes a Foxhound crate, even as a dev-dependency, and the workspace-wide `cargo-deny` check refuses one (ADR 0087).
+  _Why:_ Collie's tests then build and pass without Foxhound's code.
+- **Each Product's executable crate tests its composition** in the Quick suite, in process: exactly one handler for each operation of its Product's catalog, and Foxhound's composition contains all of Collie's (ADR 0087).
 - **Python tests run with `--import-mode=importlib` and `strict = true`** in `[tool.pytest]`.
   _Why:_ tests outside the package run against the installed wheel, as pytest recommends.
 
@@ -697,6 +700,7 @@ Decided in [ADR 0069](docs/adr/0069-sdks-and-the-cli-are-tested-against-a-script
 - **Interrupts are tested through the binary:** a running Crawl sent `SIGINT` (Unix) or `CTRL_BREAK_EVENT` (Windows) checkpoints and exits with its exit code; a second interrupt stops it at once.
 - **A command that runs the engine is tested in both modes**, as rstest cases `attached` and `daemon`, against one snapshot.
 - **Client faults** (a refused protocol version, a dead PID, a dropped connection) come from the Scripted engine run as a Daemon.
+- **What only Foxhound carries is refused through Collie's executable,** table-driven from the generated list of Foxhound's names: each operation over the protocol, each setting key as a `settings` value, each CLI command with its exit code, and enabling each Plugin kind and Hook stage answer `not_in_product`, with one message snapshot per kind. A configuration file holding a Foxhound key loads, and `config explain` lists it as Foxhound's (ADR 0087).
 
 ### Where they run
 

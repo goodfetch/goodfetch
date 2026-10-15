@@ -266,14 +266,20 @@ impl ResponseChange {
     }
 }
 
-/// Before and after a browser navigation (only on the `browser` tier), and when the page is ready, just
-/// before the handler, on every tier. Page calls follow the handler's tier rules (ADR 0093).
+/// Before and after a navigation (only on the `browser` and `light_browser` tiers), and when the page
+/// is ready, just before the handler, on every tier. Page calls follow the handler's tier rules (ADR
+/// 0093).
 #[derive(Debug)]
 pub struct PageStageContext<P> {
     _payload: PhantomData<P>,
 }
 
 impl<P> PageStageContext<P> {
+    /// The stage: before navigation, after navigation or page ready.
+    pub fn stage(&self) -> &HookStage {
+        unimplemented!()
+    }
+
     /// The crawl request.
     pub fn request(&self) -> &CrawlRequest<P> {
         unimplemented!()
@@ -404,6 +410,57 @@ impl<'a> Crawl<'a> {
     }
 }
 
+/// One call to a Hook in code, for a program that answers [`CrawlRun::hook_requests`] itself
+/// instead of [`Crawl::serve`] (G8). Its Payload and Record are JSON values.
+#[derive(Debug)]
+#[non_exhaustive]
+pub enum HookCall {
+    /// Before request.
+    BeforeRequest(BeforeRequestContext<Value>),
+    /// After response.
+    AfterResponse(AfterResponseContext<Value>),
+    /// Before navigation, after navigation or page ready, as [`PageStageContext::stage`] says.
+    Page(PageStageContext<Value>),
+    /// Before a Record's commit.
+    RecordCommit(RecordCommitContext<UntypedRecord>),
+}
+
+/// A Hook call's answer, matching its stage.
+#[derive(Debug)]
+#[non_exhaustive]
+pub enum HookAnswer {
+    /// Before request's change.
+    Request(RequestChange),
+    /// After response's change.
+    Response(ResponseChange),
+    /// A page stage's.
+    Page,
+    /// The Record to commit.
+    Record(UntypedRecord),
+}
+
+impl HookCall {
+    /// The Hook's name.
+    pub fn hook(&self) -> &str {
+        unimplemented!()
+    }
+
+    /// Ends the call with the Hook's answer, or with an error that ends the work.
+    pub async fn finish(self, answer: Result<HookAnswer, Error>) -> Result<(), Error> {
+        let _ = answer;
+        unimplemented!()
+    }
+}
+
+impl CrawlRun {
+    /// The calls to the crawl's Hooks in code, in order, beside `crawl_requests` (ADR 0093): the
+    /// way down under [`Crawl::serve`]. Dropped unanswered, a call fails its work as a Hook past
+    /// `timeout::HOOK` does.
+    pub fn hook_requests(&self) -> EventStream<HookCall> {
+        unimplemented!()
+    }
+}
+
 /// Details of `hook_failed`: the Hook, then the error as `handler_failed` carries a handler's.
 /// For the program's own error, not retried unless `crawl::retry::HANDLER_FAILED` is on; for a
 /// Goodfetch code returned inside, retried when that code is.
@@ -414,8 +471,8 @@ pub struct HookFailed {
     pub stage: HookStage,
     /// The Hook's name.
     pub hook: String,
-    /// The request's Label.
-    pub label: String,
+    /// The request's Label; `None` at a lifecycle stage, which has no request.
+    pub label: Option<String>,
     /// The error's type name.
     pub error_type: String,
     /// Its message.
@@ -440,10 +497,10 @@ pub struct HeaderForbidden {
 // per kind, and `Goodfetch::*_requests(name)` reads its calls. Settings choose it by that name as they
 // choose an installed Plugin. The only one of a kind that one setting chooses (Fetch backend, Proxy
 // provider) becomes that setting's value at the connection scope, with the run-layer origin
-// `Registered`, the lowest: every other run-layer value replaces it, and configuration does not. Two
-// of such a kind fail `connect` with `setting_invalid` unless its settings choose one, as does a name
-// a built-in or an installed Plugin of its kind already has. A setting naming a handler neither
-// installed nor declared fails with `setting_invalid` when its scope opens. A call waits for its
+// `Registered`, the lowest: every other run-layer value replaces it, configuration does not, and a
+// lock wins with no refusal. Two of such a kind fail `connect` with `setting_invalid` when nothing
+// else sets the key, as does a name a built-in or an installed Plugin of its kind already has. A
+// setting naming a handler neither installed nor declared fails with `setting_invalid` when its scope opens. A call waits for its
 // stream until its own deadline; one dropped unanswered, or held by a stream dropped mid-Run, fails
 // with its kind's code for an unreachable implementation (ADR 0101). Collie's SDK has no Fetch
 // backend or Sink (ADR 0088).
@@ -486,9 +543,10 @@ impl BackendResponse {
     }
 }
 
-/// One call to the program's Fetch backend. Like a third-party backend, it never carries a
-/// logged-in Session's requests: the engine sends those itself, so no cookie or Secret value
-/// passes through the program.
+/// One call to the program's Fetch backend. Like a third-party backend, it never carries a request
+/// that uses a Secret or a logged-in identity (a logged-in Session's, or one whose Hook set a Secret
+/// placeholder): the engine sends those itself, so no cookie or Secret value passes through the
+/// program.
 #[derive(Debug)]
 pub struct FetchCall {
     _private: (),

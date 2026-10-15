@@ -47,7 +47,7 @@ pub use effects::{
     UncertainEffect, UncertainWhy,
 };
 pub use hooks::{
-    AfterResponseContext, BackendRequest, BackendResponse, BeforeRequestContext, FetchCall, HandlerError, HeaderForbidden, HookDuplicate, HookFailed, HookIneffective, HookOn,
+    AfterResponseContext, BackendRequest, BackendResponse, BeforeRequestContext, FetchCall, HandlerError, HookAnswer, HookCall, HeaderForbidden, HookDuplicate, HookFailed, HookIneffective, HookOn,
     HookStage, PageStageContext, ProxyAnswer, ProxyCall, ProxyRequest, RecordCommitContext, RecordHookOn, RequestChange, ResponseChange,
     SdkHandlerFailed, SinkCall, UntypedRecord,
 };

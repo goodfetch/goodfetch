@@ -81,7 +81,7 @@ export interface ConnectOptions {
    * Fetch backends answered by the program's own code, by the name settings choose them by (ADR
    * 0104; ADR 0033's SDK-handler form). The only one on the connection becomes the value of the
    * setting that chooses a Fetch backend, with the run-layer origin `registered`, which every other
-   * run-layer value replaces; two fail `connect()` unless `settings` choose one.
+   * run-layer value replaces and a lock beats; two fail `connect()` when nothing else sets the key.
    */
   readonly fetchBackends?: Readonly<Record<string, FetchBackendHandler>>;
   /** Proxy providers answered by the program's own code, as `fetchBackends` (ADR 0104). */

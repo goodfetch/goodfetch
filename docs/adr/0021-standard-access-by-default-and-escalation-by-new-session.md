@@ -6,6 +6,8 @@ Every Session opens in one Access mode, fixed for its life. `standard`, the defa
 
 > Amended by [ADR 0086](0086-a-crawl-obeys-robots-txt-and-sends-one-request-at-a-time-per-domain-by-default-and-pressing-harder-is-recorded.md): `respect_site_preferences` is now `site_preferences.respect_use_signals`. Crawl requests obey robots.txt in every Access mode unless `site_preferences.respect_robots_txt` is off. The robots.txt groups for the token `Foxhound`, and for `site_preferences.robots_txt_user_agent` when set, apply merged, or else the `*` group. `standard` stays the default and needs no operator contact; `identified` remains the way to be identifiable.
 
+> Amended by [ADR 0089](0089-a-page-is-lent-through-an-endpoint-that-shows-only-its-session-and-collie-joins-other-crawlers-by-borrowing.md): while a library such as Playwright or Puppeteer is attached to a Lent page, `Runtime` may be enabled on the pages it wraps in any Access mode, `standard` included; Provenance records the attach, and a Saved identity saved from a Session that was lent records it.
+
 > Amended by [ADR 0090](0090-products-are-named-goodfetch-collie-and-goodfetch-foxhound-and-share-one-product-version.md): the robots.txt token is `goodfetch-foxhound`, not `Foxhound`.
 
 ## Considered Options

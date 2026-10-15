@@ -10,7 +10,7 @@ Every Client reports a run on three separate axes instead of one status:
   - `failed`: ended by an error in the engine or the user's code
 - **Verdict** says whether the run's committed results are proven by the run's own checks. It is given once the run is no longer `running`, `failed` runs included, and reads the latest evaluation of each check:
   - `verified`: every check the run relies on passed (its Success checks, Page checks and Grounding), none of those checks nor the Target fingerprint check before the first Effect was switched off (ADR 0023), and no Effect is left uncertain. An AI task also needs a declared Success check that passed (ADR 0013).
-    > Amended by [ADR 0091](0091-collies-ai-verbs-live-on-the-page-replay-from-a-plan-file-the-run-names-and-expect-runs-a-success-check.md): a Run whose program calls `act` or `observe` counts as an AI task, so it needs a passing Success check, which `expect` runs; a Run whose only AI steps are `extract` is judged by Grounding.
+    > Amended by [ADR 0091](0091-collies-ai-verbs-live-on-the-page-replay-from-a-plan-file-the-run-names-and-expect-runs-a-success-check.md): a Run whose program calls `act` or `observe` counts as an AI task, so it needs a Success check, which `expect` runs, evaluated after the last such call and passing; a Run whose only AI steps are `extract` is judged by Grounding.
   - `rejected`: a declared Success check failed.
   - `needs-review`: everything else, including an AI task with no Success check, a run whose checks were switched off (ADRs 0013 and 0023), and a run with an uncertain Effect.
 - **Completeness** says whether those results cover the scope: `complete`, `incomplete` or `unverified` (ADR 0005). Like the Verdict, it is given once the run is no longer `running`.

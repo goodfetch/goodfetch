@@ -2,6 +2,8 @@
 
 The engine enforces each run's domain policy on every request type (navigation, subresources, workers, WebSockets, WebRTC, `javascript:` URLs) through browser-protocol interception, and fails closed: a request the policy cannot judge is blocked. Page content is wrapped as untrusted in every observation. Effects an AI decides in the categories payment, account creation, accepting terms, sending messages and deletion ask for confirmation unless the run allows them, and vendor safety signals are journaled. Secrets are `%var%` placeholders the engine types at the moment of input, bound to the domains allowed to receive them, with the target field re-checked first; they never reach the model, Plans, caches, the journal, observations or logs, and are masked in screenshots, recordings and traces. The cookies and storage of a logged-in Session, including one seeded from an import, a Profile directory or a Borrowed browser (ADR 0056), never reach a model or an observation either. Decided in [Adopt AI and agent decisions](https://github.com/Jbmanllr/automan/issues/72).
 
+> Amended by [ADR 0091](0091-collies-ai-verbs-live-on-the-page-replay-from-a-plan-file-the-run-names-and-expect-runs-a-success-check.md): in the SDKs, the observation whose page text is wrapped as untrusted is an `ai` aria snapshot (`ariaSnapshot({ mode: 'ai' })`) and what the AI verbs send their model; a read such as `innerText()` or a default-mode `ariaSnapshot()` returns page text as it is, for the program's own use.
+
 ## Considered Options
 
 - **Allowlists in the client library**: rejected. Domain allowlists were bypassed in Stagehand, Browser Use and Skyvern, and Playwright MCP calls its own filters "not a security boundary".

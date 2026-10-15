@@ -46,6 +46,15 @@ impl TestOptions {
         unimplemented!()
     }
 
+    /// The environment map, as `connect`'s (ADRs 0062, 0083): the process's own unless replaced
+    /// here. Only `GOODFETCH_HOME` (to read its browser cache, never to write),
+    /// `GOODFETCH_BROWSERS_PATH` and this Product's engine-path variable are read from it; the
+    /// engine's own environment stays cleared.
+    pub fn env(self, env: impl IntoIterator<Item = (String, String)>) -> Self {
+        let _ = env.into_iter();
+        unimplemented!()
+    }
+
     /// The project configuration file. Left out: none, as the home and the environment are the
     /// test's own.
     pub fn project(self, path: impl AsRef<Path>) -> Self {

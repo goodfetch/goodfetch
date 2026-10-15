@@ -29,6 +29,12 @@ export interface TestEngineOptions {
    * reached live even while a Run replays.
    */
   readonly settings?: Settings;
+  /**
+   * The environment map, `connect()`'s own option (ADRs 0062, 0083): the process's own when left out.
+   * Only `GOODFETCH_HOME` (to read its browser cache, never to write), `GOODFETCH_BROWSERS_PATH` and
+   * this Product's engine-path variable are read from it; the engine's own environment stays cleared.
+   */
+  readonly env?: Readonly<Record<string, string>>;
   /** The project configuration file. Left out: none, as the home and the environment are the test's own. */
   readonly project?: string;
   /** Model providers the test answers itself, such as a Scripted model, named by `ai.model` as `"<name>/<any>"` (ADR 0101). */

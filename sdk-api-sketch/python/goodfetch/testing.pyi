@@ -9,8 +9,8 @@ or the runner's own. No pytest plugin is needed: a fixture that yields a started
 - `run_handler`: one crawl handler on one saved response, reporting how its attempt ended and what it staged, without a
   Frontier, Hooks or a commit. `run_hook`: one of the crawl's Hooks, by name, the same way.
 - `ScriptedModel`: ADR 0069's Scripted model, a Model provider the test registers.
-- `fake_error`: any `GoodfetchError`, for a test of the program's own error handling. Result values are dataclasses, so
-  a test builds them directly.
+- `fake_error`: any `GoodfetchError`, for a test of the program's own error handling. Result values are generated
+  models (ADRs 0038, 0082), so a test builds them with their constructors.
 """
 
 from collections.abc import Generator, Mapping, Sequence
@@ -195,10 +195,13 @@ class AsyncTestEngine:
         cls,
         *,
         settings: Settings = ...,
+        env: Mapping[str, str] = ...,
         project: str | PathLike[str] | None = None,
         model_providers: Mapping[str, AsyncModelProviderHandler | ScriptedModel] | None = None,
     ) -> _AsyncStarting:
-        """Every host its `resolve` setting (ADR 0059) maps to loopback, such as a test's own server, is allowlisted
+        """`env` is `connect()`'s environment map (ADRs 0062, 0083), the process's own when left out: only
+        `GOODFETCH_HOME` (to read its browser cache, never to write), `GOODFETCH_BROWSERS_PATH` and this Product's
+        engine-path variable are read from it, and the engine's own environment stays cleared. Every host its `resolve` setting (ADR 0059) maps to loopback, such as a test's own server, is allowlisted
         (ADR 0017) and reached live even while a Run replays. `model_providers` are named by `ai.model` as
         `"<name>/<any>"` (ADR 0101)."""
 
@@ -282,6 +285,7 @@ class TestEngine:
         cls,
         *,
         settings: Settings = ...,
+        env: Mapping[str, str] = ...,
         project: str | PathLike[str] | None = None,
         model_providers: Mapping[str, ModelProviderHandler] | None = None,
     ) -> TestEngine: ...

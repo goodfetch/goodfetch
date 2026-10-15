@@ -59,7 +59,7 @@ Decided in [Crawl output in code](https://github.com/goodfetch/automan/issues/47
 
 - **Staged with the attempt (G1).**
   - `ctx.push` checks the Record and stages it. It resolves once the Record is staged, not once it is committed.
-  - The attempt's Records commit together with its enqueues and Key-value store writes, under a valid lease and run epoch, once the handler returns (ADR 0003).
+  - The attempt's Records commit together with its enqueues, its seeds added through `ctx.run.addSeed` and its Key-value store writes, under a valid lease and run epoch, once the handler returns (ADR 0003).
   - An attempt whose handler fails, or that ends early (at `skip`, at `retry`, at an escalation, at the handler's timeout, at a lost lease, or when the program closes the Run; ADR 0093), discards them. A retried request therefore commits its Records once, and a failed one leaves none.
   - A `push` after its attempt ended fails with `attempt_ended`, as an `enqueue` does (ADR 0093), so a forgotten `await` never loses a Record silently (G1).
   - **Re-runs.** A handler runs again on a retry, an escalation, a sample comparison and a lost lease (ADR 0093). Only the committing attempt's Records count, in the Dataset and on the outcome; a discarded attempt's model calls still count in Usage (ADR 0093).
@@ -70,7 +70,7 @@ Decided in [Crawl output in code](https://github.com/goodfetch/automan/issues/47
   - The browser's attempt is the reference, and it is the one that commits, whether the two match or not.
   - Where the comparison also runs with Filter-list blocking off (ADR 0047), the browser attempt whose blocking setting the route keeps is the one that commits.
   - Every other attempt is discarded.
-  - If the browser's attempt fails, the request's attempt has failed, under ADR 0093's retry rules.
+  - If the committing browser attempt fails, the request's attempt has failed, under ADR 0093's retry rules.
 - **A Record that fails raises from `push` (G1, G3, G6).**
   - The code is `record_invalid`, naming the Dataset and each issue's path. It covers:
     - a Record that fails its schema, natively in the SDK or against the JSON Schema in the engine (ADR 0082);
@@ -167,7 +167,9 @@ Decided in [Crawl output in code](https://github.com/goodfetch/automan/issues/47
 - **Sinks are settings.** `sinks.<name>.*` is one family per Sink: its type, the Datasets it receives, its destination (a Secret reference), its write mode and its key, defaulting to its Datasets' keys.
   - It is set on a connection or a crawl's Run, from code, the project file, the CLI or a Recipe alike (ADRs 0028, 0083), because where data goes differs by deployment while the crawl's logic does not.
   - It is Run-wide, so a Label refuses it with `setting_not_applicable` (ADR 0093).
-  - On a Foxhound engine, a Collie Run refuses it with `setting_not_applicable`, since it has no Datasets. A Collie engine refuses it with `not_in_product` (ADR 0087).
+  - **On a Collie Run,** which has no Datasets, only a value set where it applies is refused, so one project file serves a project's Collie programs and its crawls (ADR 0083):
+    - On a Foxhound engine, a value set on the Collie Run itself is refused with `setting_not_applicable`. A Sink inherited from the connection or from configuration is inactive for the Collie Run, as `explainSettings()` shows.
+    - A Collie engine refuses a value given to a Run or a connection with `not_in_product` (ADRs 0087, 0088). User and project configuration and Operator policy may hold `sinks.*`: a Collie engine applies none of it, and `config explain` lists it as Foxhound's (ADR 0087).
   - Each Sink type's keys are area 6's spec.
 - **Checked at start (G3).**
   - A Sink set on the Run itself that names a Dataset the crawl does not declare is refused with `setting_invalid`, naming the closest Dataset.

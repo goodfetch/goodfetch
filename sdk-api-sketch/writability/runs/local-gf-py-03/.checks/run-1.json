@@ -1,0 +1,14 @@
+{
+  "lang": "py",
+  "kind": "gf",
+  "pyright_errors": 5,
+  "mypy_errors": 2,
+  "lenient_errors": 0,
+  "errors": 7,
+  "output": "== pyright (strict) ==\n/private/tmp/claude-501/-Users-jb-Dev-automan/77744178-6af8-4d82-8e7e-cbe4fbb7ef21/scratchpad/t484/runs/local-gf-py-03/scenarios/s03_replay_ai_steps.py\n  /private/tmp/claude-501/-Users-jb-Dev-automan/77744178-6af8-4d82-8e7e-cbe4fbb7ef21/scratchpad/t484/runs/local-gf-py-03/scenarios/s03_replay_ai_steps.py:1:37 - error: Import \"AgentAPI\" is not accessed (reportUnusedImport)\n  /private/tmp/claude-501/-Users-jb-Dev-automan/77744178-6af8-4d82-8e7e-cbe4fbb7ef21/scratchpad/t484/runs/local-gf-py-03/scenarios/s03_replay_ai_steps.py:1:47 - error: Import \"AsyncAgentAPI\" is not accessed (reportUnusedImport)\n  /private/tmp/claude-501/-Users-jb-Dev-automan/77744178-6af8-4d82-8e7e-cbe4fbb7ef21/scratchpad/t484/runs/local-gf-py-03/scenarios/s03_replay_ai_steps.py:1:62 - error: Import \"AsyncRun\" is not accessed (reportUnusedImport)\n  /private/tmp/claude-501/-Users-jb-Dev-automan/77744178-6af8-4d82-8e7e-cbe4fbb7ef21/scratchpad/t484/runs/local-gf-py-03/scenarios/s03_replay_ai_steps.py:1:72 - error: Import \"AsyncPage\" is not accessed (reportUnusedImport)\n  /private/tmp/claude-501/-Users-jb-Dev-automan/77744178-6af8-4d82-8e7e-cbe4fbb7ef21/scratchpad/t484/runs/local-gf-py-03/scenarios/s03_replay_ai_steps.py:1:83 - error: Import \"AsyncSession\" is not accessed (reportUnusedImport)\n5 errors, 0 warnings, 0 informations\n\n== mypy (--strict) ==\nscenarios/s03_replay_ai_steps.py:3: error: Function is missing a return type annotation  [no-untyped-def]\nscenarios/s03_replay_ai_steps.py:3: note: Use \"-> None\" if function does not return a value\nscenarios/s03_replay_ai_steps.py:8: error: Call to untyped function \"main\" in typed context  [no-untyped-call]\nFound 2 errors in 1 file (checked 1 source file)\n",
+  "pass": false,
+  "lenient_pass": true,
+  "n": 1,
+  "time": "2026-10-15T18:06:51",
+  "by": "agent"
+}

@@ -1,0 +1,12 @@
+{
+  "lang": "rs",
+  "kind": "gf",
+  "errors": 0,
+  "warnings": 3,
+  "output": "s04_login_human_pause.rs:137:9: warning: unused `RunReport` that must be used\ns04_login_human_pause.rs:142:5: warning: unused `RunReport` that must be used\ns04_login_human_pause.rs:164:5: warning: unused `RunReport` that must be used",
+  "pass": false,
+  "lenient_pass": true,
+  "n": 1,
+  "time": "2026-10-15T18:16:54",
+  "by": "agent"
+}

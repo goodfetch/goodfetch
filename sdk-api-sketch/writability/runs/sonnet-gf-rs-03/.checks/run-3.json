@@ -1,0 +1,12 @@
+{
+  "lang": "rs",
+  "kind": "gf",
+  "errors": 0,
+  "warnings": 0,
+  "output": "cargo check: no diagnostics in the program",
+  "pass": true,
+  "lenient_pass": true,
+  "n": 3,
+  "time": "2026-10-15T18:09:09",
+  "by": "agent"
+}

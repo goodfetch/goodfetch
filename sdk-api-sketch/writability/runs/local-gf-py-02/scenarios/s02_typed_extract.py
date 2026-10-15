@@ -32,13 +32,15 @@ async def extract_book_data(page: AsyncPage) -> Book:
 app = FastAPI()
 
 @app.post("/extract_book")
-async def extract_book(session: AsyncSession):
-    async with session.new_page() as page:
-        await page.goto("https://books.toscrape.com/catalogue/a-light-in-the-attic_1000/index.html")
-        try:
-            book = await extract_book_data(page)
-            token_usage = TokenUsage(tokens_used=100, cost=0.01)  # Example values
-            return ExtractionResult(book=book)
-        except Exception as e:
-            return ExtractionResult(error=str(e))
+async def extract_book(session: AsyncSession) -> ExtractionResult:
+    page = await session.new_page()
+    await page.goto("https://books.toscrape.com/catalogue/a-light-in-the-attic_1000/index.html")
+    try:
+        book = await extract_book_data(page)
+        token_usage = TokenUsage(tokens_used=100, cost=0.01)  # Example values
+        return ExtractionResult(book=book)
+    except Exception as e:
+        return ExtractionResult(error=str(e))
+    finally:
+        await page.close()
 

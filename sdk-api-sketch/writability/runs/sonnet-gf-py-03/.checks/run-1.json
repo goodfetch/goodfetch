@@ -1,0 +1,14 @@
+{
+  "lang": "py",
+  "kind": "gf",
+  "pyright_errors": 2,
+  "mypy_errors": 2,
+  "lenient_errors": 2,
+  "errors": 4,
+  "output": "== pyright (strict) ==\n/private/tmp/claude-501/-Users-jb-Dev-automan/77744178-6af8-4d82-8e7e-cbe4fbb7ef21/scratchpad/t484/runs/sonnet-gf-py-03/scenarios/s03_replay_ai_steps.py\n  /private/tmp/claude-501/-Users-jb-Dev-automan/77744178-6af8-4d82-8e7e-cbe4fbb7ef21/scratchpad/t484/runs/sonnet-gf-py-03/scenarios/s03_replay_ai_steps.py:68:38 - error: Argument of type \"StepResult[PerformedAction[Locator]]\" cannot be assigned to parameter \"result\" of type \"StepResult[object]\" in function \"_note\"\n  \u00a0\u00a0\"StepResult[PerformedAction[Locator]]\" is not assignable to \"StepResult[object]\"\n  \u00a0\u00a0\u00a0\u00a0Type parameter \"T@StepResult\" is invariant, but \"PerformedAction[Locator]\" is not the same as \"object\" (reportArgumentType)\n  /private/tmp/claude-501/-Users-jb-Dev-automan/77744178-6af8-4d82-8e7e-cbe4fbb7ef21/scratchpad/t484/runs/sonnet-gf-py-03/scenarios/s03_replay_ai_steps.py:74:34 - error: Argument of type \"StepResult[Author]\" cannot be assigned to parameter \"result\" of type \"StepResult[object]\" in function \"_note\"\n  \u00a0\u00a0\"StepResult[Author]\" is not assignable to \"StepResult[object]\"\n  \u00a0\u00a0\u00a0\u00a0Type parameter \"T@StepResult\" is invariant, but \"Author\" is not the same as \"object\" (reportArgumentType)\n2 errors, 0 warnings, 0 informations\n\n== mypy (--strict) ==\nscenarios/s03_replay_ai_steps.py:68: error: Argument 1 to \"_note\" has incompatible type \"StepResult[PerformedAction[Locator]]\"; expected \"StepResult[object]\"  [arg-type]\nscenarios/s03_replay_ai_steps.py:74: error: Argument 1 to \"_note\" has incompatible type \"StepResult[Author]\"; expected \"StepResult[object]\"  [arg-type]\nFound 2 errors in 1 file (checked 1 source file)\n",
+  "pass": false,
+  "lenient_pass": false,
+  "n": 1,
+  "time": "2026-10-15T18:03:36",
+  "by": "agent"
+}

@@ -1,0 +1,14 @@
+{
+  "lang": "py",
+  "kind": "gf",
+  "pyright_errors": 2,
+  "mypy_errors": 0,
+  "lenient_errors": 0,
+  "errors": 2,
+  "output": "== pyright (strict) ==\n/private/tmp/claude-501/-Users-jb-Dev-automan/77744178-6af8-4d82-8e7e-cbe4fbb7ef21/scratchpad/t484/runs/haiku-gf-py-03/scenarios/s03_replay_ai_steps.py\n  /private/tmp/claude-501/-Users-jb-Dev-automan/77744178-6af8-4d82-8e7e-cbe4fbb7ef21/scratchpad/t484/runs/haiku-gf-py-03/scenarios/s03_replay_ai_steps.py:67:5 - error: Type of \"sources\" is partially unknown\n  \u00a0\u00a0Type of \"sources\" is \"list[Unknown]\" (reportUnknownVariableType)\n  /private/tmp/claude-501/-Users-jb-Dev-automan/77744178-6af8-4d82-8e7e-cbe4fbb7ef21/scratchpad/t484/runs/haiku-gf-py-03/scenarios/s03_replay_ai_steps.py:68:5 - error: Type of \"repaired\" is partially unknown\n  \u00a0\u00a0Type of \"repaired\" is \"list[Unknown]\" (reportUnknownVariableType)\n2 errors, 0 warnings, 0 informations\n\n== mypy (--strict) ==\nSuccess: no issues found in 1 source file\n",
+  "pass": false,
+  "lenient_pass": true,
+  "n": 1,
+  "time": "2026-10-15T18:05:14",
+  "by": "agent"
+}

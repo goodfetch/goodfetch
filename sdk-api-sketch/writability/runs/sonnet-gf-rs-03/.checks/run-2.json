@@ -1,0 +1,12 @@
+{
+  "lang": "rs",
+  "kind": "gf",
+  "errors": 0,
+  "warnings": 1,
+  "output": "s03_replay_ai_steps.rs:14:34: warning: unused import: `self`",
+  "pass": false,
+  "lenient_pass": true,
+  "n": 2,
+  "time": "2026-10-15T18:08:00",
+  "by": "agent"
+}

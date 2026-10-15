@@ -1,0 +1,14 @@
+{
+  "lang": "py",
+  "kind": "gf",
+  "pyright_errors": 0,
+  "mypy_errors": 1,
+  "lenient_errors": 0,
+  "errors": 1,
+  "output": "== pyright (strict) ==\n0 errors, 0 warnings, 0 informations\n\n== mypy (--strict) ==\nscenarios/s04_login_human_pause.py:55: error: Function is missing a return type annotation  [no-untyped-def]\nFound 1 error in 1 file (checked 1 source file)\n",
+  "pass": false,
+  "lenient_pass": true,
+  "n": 1,
+  "time": "2026-10-15T18:14:20",
+  "by": "agent"
+}

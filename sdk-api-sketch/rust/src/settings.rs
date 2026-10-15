@@ -15,6 +15,7 @@ use std::path::PathBuf;
 use std::time::Duration;
 
 use crate::results::{RunLayerOrigin, SettingValue, SettingsLayer};
+use crate::sessions::{HttpCredentials, PageCheck, Permission, SecretReference, SessionSource};
 
 /// A setting's typed key: its canonical dotted name and the type of its value.
 pub struct Setting<T> {
@@ -108,6 +109,9 @@ pub mod timeout {
     /// built-in default. A Run's own is [`crate::Start::timeout`]; set on a Run, this key fails
     /// with `setting_not_applicable` (S2).
     pub const RUN: Setting<Option<Duration>> = Setting::new("timeout.run");
+    /// `timeout.human_pause`: how long a Human pause may wait for a person; built-in 24 hours
+    /// (ADR 0092).
+    pub const HUMAN_PAUSE: Setting<Option<Duration>> = Setting::new("timeout.human_pause");
 }
 
 /// A browser window's size in CSS pixels.
@@ -149,7 +153,7 @@ pub enum ColorScheme {
 /// `setting_locked`, and on a Borrowed browser's Session any of them fails with
 /// `setting_not_applicable`; an inherited one yields, and `explain_settings` names what fixed it.
 pub mod browser {
-    use super::{ColorScheme, Geolocation, Setting, Viewport};
+    use super::{ColorScheme, Geolocation, Permission, Setting, Viewport};
 
     /// `browser.viewport`.
     pub const VIEWPORT: Setting<Option<Viewport>> = Setting::new("browser.viewport");
@@ -165,6 +169,52 @@ pub mod browser {
     pub const JAVA_SCRIPT_ENABLED: Setting<bool> = Setting::new("browser.java_script_enabled");
     /// `browser.geolocation`.
     pub const GEOLOCATION: Setting<Option<Geolocation>> = Setting::new("browser.geolocation");
+    /// `browser.headless`: built-in `true`, `false` under `stealth` (ADR 0035). A person at the
+    /// keyboard sees the window (ADR 0092).
+    pub const HEADLESS: Setting<bool> = Setting::new("browser.headless");
+    /// `browser.permissions`: granted to every page of the Session; none by default, no setter
+    /// later (ADR 0092).
+    pub const PERMISSIONS: Setting<Vec<Permission>> = Setting::new("browser.permissions");
+}
+
+/// `session.*` (ADRs 0056, 0006, 0092). Opening a Session spells its own source as
+/// `Call::<Session>::source`; [`session::SOURCE`] is the default for the Sessions opened beneath a
+/// connection or a Run.
+pub mod session {
+    use super::{HttpCredentials, PageCheck, SessionSource, Setting};
+
+    /// `session.source`: where a Session's login comes from (ADR 0056). Only the program's own
+    /// code, configuration, an Operator policy or a person sets it; a Recipe never.
+    pub const SOURCE: Setting<SessionSource> = Setting::new("session.source");
+    /// `session.page_check` (ADR 0006). `None`: the built-in detector, pages weakly checked.
+    pub const PAGE_CHECK: Setting<Option<PageCheck>> = Setting::new("session.page_check");
+    /// `session.http_credentials`: sent only to a listed domain that challenges.
+    pub const HTTP_CREDENTIALS: Setting<Vec<HttpCredentials>> = Setting::new("session.http_credentials");
+
+    /// `session.recovery.*`.
+    pub mod recovery {
+        use super::super::Setting;
+
+        /// `session.recovery.human_pause`: whether ADR 0006's ladder may end in a Human pause;
+        /// built-in `true`.
+        pub const HUMAN_PAUSE: Setting<bool> = Setting::new("session.recovery.human_pause");
+    }
+}
+
+/// `proxy.*`: part of a Session's identity, one proxy per Session (ADR 0021), with Playwright's
+/// fields. Pools by kind and provider adapters are this family's too; area 8's spec names their
+/// keys. Secret placeholders are bound with [`Settings::secret`].
+pub mod proxy {
+    use super::{SecretReference, Setting};
+
+    /// `proxy.server`, such as `http://proxy.example:3128`; `None`: no proxy.
+    pub const SERVER: Setting<Option<String>> = Setting::new("proxy.server");
+    /// `proxy.bypass`: comma-separated domains that skip the proxy.
+    pub const BYPASS: Setting<String> = Setting::new("proxy.bypass");
+    /// `proxy.username`.
+    pub const USERNAME: Setting<String> = Setting::new("proxy.username");
+    /// `proxy.password`, a Secret reference, never a value.
+    pub const PASSWORD: Setting<SecretReference> = Setting::new("proxy.password");
 }
 
 /// Emulated network conditions, which Playwright closed as not planned (#8622).

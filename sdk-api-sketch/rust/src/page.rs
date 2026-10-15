@@ -35,6 +35,7 @@ use serde::de::DeserializeOwned;
 use crate::concurrency::EventStream;
 use crate::lifecycle::{Page, Session};
 use crate::results::Error;
+use crate::sessions::TextInput;
 use crate::time::{Call, CallFuture, Count, ElementState, LoadState, UrlMatcher};
 
 // Locators.
@@ -855,8 +856,10 @@ impl Locator {
     /// Clears the field and inserts the text as typed text arrives, so controlled inputs see it.
     /// A target that cannot hold text fails at once with `target_unsupported`; a read-only one is
     /// waited for.
-    pub fn fill(&self, value: &str) -> Action<action::Text> {
-        let _ = value;
+    /// A Secret placeholder is typed by the engine, checked against the domain of the field's frame
+    /// (ADR 0092); reads of the field then show `%name%`.
+    pub fn fill(&self, value: impl Into<TextInput>) -> Action<action::Text> {
+        let _ = value.into();
         unimplemented!()
     }
 
@@ -876,9 +879,10 @@ impl Locator {
         unimplemented!()
     }
 
-    /// Types key by key, for fields that react to each keystroke.
-    pub fn press_sequentially(&self, text: &str) -> Action<action::Keys> {
-        let _ = text;
+    /// Types key by key, for fields that react to each keystroke; a Secret placeholder as `fill`
+    /// types it.
+    pub fn press_sequentially(&self, text: impl Into<TextInput>) -> Action<action::Keys> {
+        let _ = text.into();
         unimplemented!()
     }
 
@@ -1274,9 +1278,9 @@ impl Forward {
         unimplemented!()
     }
 
-    /// Sets a header.
-    pub fn header(self, name: &str, value: &str) -> Self {
-        let _ = (name, value);
+    /// Sets a header; a Secret placeholder is checked against the request's URL (ADR 0092).
+    pub fn header(self, name: &str, value: impl Into<TextInput>) -> Self {
+        let _ = (name, value.into());
         unimplemented!()
     }
 
@@ -1398,9 +1402,9 @@ impl fmt::Debug for ApiRequest {
 }
 
 impl ApiRequest {
-    /// Sets a header.
-    pub fn header(self, name: &str, value: &str) -> Self {
-        let _ = (name, value);
+    /// Sets a header; a Secret placeholder is checked against the request's URL (ADR 0092).
+    pub fn header(self, name: &str, value: impl Into<TextInput>) -> Self {
+        let _ = (name, value.into());
         unimplemented!()
     }
 

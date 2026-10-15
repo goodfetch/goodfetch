@@ -1,10 +1,12 @@
 // Entry points and lifecycle (ADR 0078, decided in #465).
-// The Run's start verbs and Sessions are placeholders owned by #478 and #476; the page API is ADR 0085's (page.d.ts).
+// The Run's start verbs are a placeholder owned by #478; Sessions, logins and secrets are ADR 0092's
+// (sessions.d.ts); the page API is ADR 0085's (page.d.ts).
 // Timeouts, waits and Limits come from #467 (time.d.ts); events and user code from #468 (concurrency.d.ts).
 
 import type { Listener, PageEvents, RunEvents, Subscription } from "./concurrency.js";
 import type { JsonValue } from "./data.js";
 import type { PageApi, PageCloseOptions, PageFunction, PageResult, RouteHandler } from "./page.js";
+import type { Identities, PausesForHuman, ResolveSecret, SessionLogins, SessionSource } from "./sessions.js";
 import type { ExplainedSetting, ExplainsSettings, NewPageOptions, SessionSettings, SettingKey, Settings } from "./settings.js";
 import type { CallOptions, Limits, PageWaits, StartOptions, Timeout, UrlMatcher } from "./time.js";
 
@@ -57,6 +59,8 @@ export interface ConnectOptions {
   readonly env?: Readonly<Record<string, string>>;
   /** The project configuration file. Left out: found upward from the working directory, as the CLI does. `null`: none. */
   readonly project?: string | null;
+  /** Answers `caller:` Secret references from the program's own store, at the moment of use (ADR 0092). */
+  readonly resolveSecret?: ResolveSecret;
 }
 
 /** A value the program holds and closes: `await using`, or `close()` where `await using` is missing (Node 22). */
@@ -79,7 +83,7 @@ export type BorrowableBrowser =
  * A page Goodfetch drives: a tab of a Session, opened by `session.newPage()` or by the page itself
  * (a popup). Closing it closes only a tab Goodfetch opened; on a Borrowed browser it only releases it.
  */
-export interface Page extends Closeable, PageApi, PageWaits, PageEvents, ExplainsSettings {
+export interface Page extends Closeable, PageApi, PageWaits, PageEvents, PausesForHuman, ExplainsSettings {
   close(options?: PageCloseOptions): Promise<void>;
 }
 
@@ -90,10 +94,10 @@ export interface SessionEventMap {
 }
 
 /**
- * A Session of a Run: Playwright's context, under the glossary's name (ADR 0085). Its other API is
- * #476's. Closing it never closes a Borrowed browser. There is no active page.
+ * A Session of a Run: Playwright's context, under the glossary's name (ADR 0085), with its cookies and
+ * login (ADR 0092). Closing it never closes a Borrowed browser. There is no active page.
  */
-export interface Session extends Closeable, ExplainsSettings {
+export interface Session extends Closeable, SessionLogins, ExplainsSettings {
   newPage(options?: NewPageOptions): Promise<Page>;
   /** The Session's open pages, read without a round trip. */
   pages(): Page[];
@@ -104,12 +108,29 @@ export interface Session extends Closeable, ExplainsSettings {
   addInitScript<Arg extends JsonValue = JsonValue>(script: PageFunction<Arg, PageResult>, arg?: Arg): Subscription;
 }
 
+/** Options of opening a Session (ADR 0092). */
+export interface NewSessionOptions extends CallOptions {
+  /** `session.source` for this Session alone: where its login comes from (ADR 0056). Left out: the Run's or the connection's. */
+  readonly source?: SessionSource;
+  /**
+   * ADR 0006's scripted login step: called with a page of this Session on its login page, where the
+   * program's own code runs (ADR 0081). The Page check judges the page it leaves; it counts toward the
+   * two recoveries a page gets, and an exception is chained to `LoggedOutError`.
+   */
+  readonly login?: (page: Page) => Promise<void>;
+  readonly settings?: SessionSettings;
+}
+
 /** A Run, always opened explicitly. Closing an unfinished Run stops it with a Checkpoint, resumable by its ID. */
 export interface Run extends Closeable, RunEvents, ExplainsSettings {
   readonly id: string;
+  /**
+   * Opens a page in the Run's default Session, which the first call opens with the Run's settings and
+   * every later call shares; `page.session()` reaches it. Once it is closed, this throws `ClosedError`.
+   */
   newPage(options?: NewPageOptions): Promise<Page>;
-  /** Placeholder: opening a Session is #476's; its settings are #470's. */
-  newSession(options?: CallOptions & { readonly settings?: SessionSettings }): Promise<Session>;
+  /** Opens a Session of its own. */
+  newSession(options?: NewSessionOptions): Promise<Session>;
   /** Borrows the user's own page (ADR 0056's `client_browser`). Ending the borrow never closes it. */
   borrow(page: BorrowablePage): Promise<Page>;
   /** Borrows the user's own browser, in its default context. Ending the borrow never closes it. */
@@ -133,6 +154,8 @@ export declare class Goodfetch implements Closeable, ExplainsSettings {
   readonly engine: EngineInfo;
   readonly collie: Collie;
   readonly foxhound: Foxhound;
+  /** The install's Saved identities (ADR 0092). */
+  readonly identities: Identities;
   /** Cancels in-flight calls, closes every Run it opened and ends every borrow; stops an Attached engine, only disconnects from a Daemon. */
   close(options?: CallOptions): Promise<void>;
   [Symbol.asyncDispose](): Promise<void>;

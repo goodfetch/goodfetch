@@ -9,6 +9,7 @@ pub mod data;
 pub mod lifecycle;
 pub mod page;
 pub mod results;
+pub mod sessions;
 pub mod settings;
 pub mod time;
 
@@ -27,6 +28,12 @@ pub use results::{
     HandlerFailed, LimitSource, NotVerified, PartialOutput, Reported, RequestOutcome, RequestOutcomeKind, RunLayerOrigin,
     SettingValue,
     SettingsLayer, SkipReason, StopReason, TargetDescription, TargetNotUnique, Verdict,
+};
+pub use sessions::{
+    BrowserName, ClearCookies, Cookie, CookieInput, ExportKey, HttpCredentials, HumanPauseDeclined, HumanPauseResult, Identities,
+    LoggedOut, LoginRequest, PageCheck, PageMatch, Pause, Permission, RecoveryStep, ResolvedBy, SameSite, SavedIdentity, SecretBinding,
+    SecretDomainNotAllowed, SecretInputRefused, SecretPlaceholder, SecretReference, SecretRequest, SecretUnavailable, SecretUnbound,
+    SessionNotSavable, SessionSource, StateFileFormat, TextInput, secret,
 };
 pub use settings::{ExplainedSetting, PolitenessSharing, Setting, SettingKey, Settings};
 pub use time::{Call, CallFuture, Count, ElementState, Limits, LoadState, Money, UrlMatcher, Waiter};

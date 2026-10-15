@@ -10,6 +10,7 @@ allows it. A value: set. The engine resolves the layers, so the SDK sends only w
 
 from dataclasses import dataclass
 from datetime import timedelta
+from collections.abc import Sequence
 from typing import Literal, NotRequired, TypeAlias, TypedDict, final
 
 from goodfetch._politeness import (
@@ -17,6 +18,7 @@ from goodfetch._politeness import (
     PolitenessSettings,
     SitePreferencesSettings,
 )
+from goodfetch._sessions import Permission, ProxySettings, SecretsSettings, SessionLoginSettings, SessionScopeLoginSettings
 from goodfetch._results import ProgramError, RefusedError, RunLayerOrigin, SettingsLayer, UnavailableError
 
 class TimeoutSettings(TypedDict, total=False):
@@ -33,6 +35,8 @@ class TimeoutSettings(TypedDict, total=False):
     run: timedelta | None
     """The default for each Run's own timeout, given at the connection; its built-in default is none. A Run's own is
     starting it with `timeout`."""
+    human_pause: timedelta | None
+    """`timeout.human_pause`: how long a Human pause may wait for a person; 24 hours by default (ADR 0092)."""
 
 class RunTimeoutSettings(TypedDict, total=False):
     """The phases a Run or a Session can set: not `run`, which starting the Run spells as its `timeout` (S2)."""
@@ -44,6 +48,7 @@ class RunTimeoutSettings(TypedDict, total=False):
     hook: timedelta | None
     sink_write: timedelta | None
     close: timedelta | None
+    human_pause: timedelta | None
 
 class PageTimeoutSettings(TypedDict, total=False):
     """The phases a page can set."""
@@ -51,6 +56,7 @@ class PageTimeoutSettings(TypedDict, total=False):
     action: timedelta | None
     navigation: timedelta | None
     wait: timedelta | None
+    human_pause: timedelta | None
 
 class Viewport(TypedDict):
     width: int
@@ -76,6 +82,11 @@ class BrowserSettings(TypedDict, total=False):
     color_scheme: Literal["light", "dark", "no-preference"]
     java_script_enabled: bool
     geolocation: Geolocation | None
+    headless: bool
+    """`browser.headless`: `True` by default, `False` under `stealth` (ADR 0035). A person at the keyboard sees the window
+    (ADR 0092)."""
+    permissions: Sequence[Permission]
+    """`browser.permissions`: granted to every page of the Session; none by default, no setter later (ADR 0092)."""
 
 class NetworkThrottle(TypedDict):
     """Emulated network conditions, which Playwright closed as not planned (#8622)."""
@@ -105,6 +116,12 @@ class Settings(TypedDict, total=False):
     """ADR 0086."""
     site_preferences: SitePreferencesSettings
     """ADR 0086."""
+    session: SessionLoginSettings
+    """`session.*` (ADRs 0056, 0006, 0092)."""
+    secrets: SecretsSettings
+    """`secrets.<name>`: the Secret placeholders' bindings (ADR 0092)."""
+    proxy: ProxySettings
+    """`proxy.*` (ADRs 0021, 0092)."""
 
 class RunSettings(TypedDict, total=False):
     """A Collie Run's settings: no `crawl.*`, no `timeout.run`, and no Politeness, which is Foxhound's (ADRs 0084,
@@ -115,14 +132,21 @@ class RunSettings(TypedDict, total=False):
     browser: BrowserSettings
     network: NetworkSettings
     site_preferences: CollieSitePreferencesSettings
+    session: SessionLoginSettings
+    secrets: SecretsSettings
+    proxy: ProxySettings
 
 class SessionSettings(TypedDict, total=False):
-    """A Session's settings: Politeness and Site preferences are a Run's. Set where a Borrowed browser's Session opens,
-    any `browser.*` value is refused with `setting_not_applicable`."""
+    """A Session's settings: Politeness and Site preferences are a Run's, and `session.source` is `new_session()`'s
+    `source`, one spelling (S2). Set where a Borrowed browser's Session opens, any `browser.*` value is refused with
+    `setting_not_applicable`."""
 
     timeout: RunTimeoutSettings
     browser: BrowserSettings
     network: NetworkSettings
+    session: SessionScopeLoginSettings
+    secrets: SecretsSettings
+    proxy: ProxySettings
 
 class PageSettings(TypedDict, total=False):
     """A page's settings: no part of the Session's identity."""
@@ -139,6 +163,7 @@ SettingKey: TypeAlias = Literal[
     "timeout.sink_write",
     "timeout.close",
     "timeout.run",
+    "timeout.human_pause",
     "browser.viewport",
     "browser.device_scale_factor",
     "browser.locale",
@@ -146,6 +171,8 @@ SettingKey: TypeAlias = Literal[
     "browser.color_scheme",
     "browser.java_script_enabled",
     "browser.geolocation",
+    "browser.headless",
+    "browser.permissions",
     "network.throttle",
     "crawl.payload.max_size",
     "politeness.domain.concurrency",
@@ -162,6 +189,14 @@ SettingKey: TypeAlias = Literal[
     "site_preferences.max_crawl_delay",
     "site_preferences.robots_txt_user_agent",
     "site_preferences.respect_use_signals",
+    "session.source",
+    "session.page_check",
+    "session.recovery.human_pause",
+    "session.http_credentials",
+    "proxy.server",
+    "proxy.bypass",
+    "proxy.username",
+    "proxy.password",
 ]
 """A setting's canonical key: dotted snake_case, area first, the same in configuration files, errors and `config
 explain`. A sample."""

@@ -6,5 +6,6 @@ export * from "./lifecycle.js";
 export * from "./page.js";
 export * from "./politeness.js";
 export * from "./results.js";
+export * from "./sessions.js";
 export * from "./settings.js";
 export * from "./time.js";

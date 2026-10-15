@@ -36,6 +36,13 @@ KnownErrorCode: TypeAlias = Literal[
     "setting_not_applicable",
     "setting_locked",
     "capability_unavailable",
+    "secret_unbound",
+    "secret_unavailable",
+    "secret_domain_not_allowed",
+    "secret_input_refused",
+    "logged_out",
+    "human_pause_declined",
+    "session_not_savable",
     "internal",
 ]
 ErrorCode: TypeAlias = KnownErrorCode | str

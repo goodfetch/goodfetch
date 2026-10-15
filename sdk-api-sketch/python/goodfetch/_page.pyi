@@ -29,6 +29,7 @@ from goodfetch._concurrency import AsyncListener, Listener, Subscription
 from goodfetch._data import JsonObject, JsonValue
 from goodfetch._lifecycle import AsyncSession, Session
 from goodfetch._results import PageError, ProgramError, RefusedError, UnavailableError
+from goodfetch._sessions import HeadersInput, JsonValueWithSecrets, SecretPlaceholder
 from goodfetch._time import Count, LoadState, NotGiven, Timeout, UrlMatcher
 
 AriaRole: TypeAlias = Literal[
@@ -316,16 +317,17 @@ class AsyncLocator(_AsyncLocates):
         force: bool = False,
         timeout: Timeout = ...,
     ) -> None: ...
-    async def fill(self, value: str, *, force: bool = False, timeout: Timeout = ...) -> None:
+    async def fill(self, value: str | SecretPlaceholder, *, force: bool = False, timeout: Timeout = ...) -> None:
         """Clears the field and inserts the text as typed text arrives. A target that cannot hold text raises
-        `TargetUnsupportedError` at once; a read-only one is waited for."""
+        `TargetUnsupportedError` at once; a read-only one is waited for. A Secret placeholder is typed by the engine,
+        checked against the domain of the field's frame (ADR 0092); reads of the field then show `%name%`."""
 
     async def clear(self, *, force: bool = False, timeout: Timeout = ...) -> None: ...
     async def press(self, key: str, *, delay: timedelta | None = None, force: bool = False, timeout: Timeout = ...) -> None:
         """A key or a combination, such as `Enter` or `ControlOrMeta+A`."""
 
     async def press_sequentially(
-        self, text: str, *, delay: timedelta | None = None, force: bool = False, timeout: Timeout = ...
+        self, text: str | SecretPlaceholder, *, delay: timedelta | None = None, force: bool = False, timeout: Timeout = ...
     ) -> None:
         """Types key by key, for fields that react to each keystroke."""
 
@@ -462,7 +464,7 @@ class AsyncRoute:
         *,
         url: str | None = None,
         method: str | None = None,
-        headers: Mapping[str, str] | None = None,
+        headers: HeadersInput | None = None,
         post_data: str | bytes | None = None,
     ) -> None: ...
     async def fulfill(
@@ -481,7 +483,7 @@ class AsyncRoute:
         *,
         url: str | None = None,
         method: str | None = None,
-        headers: Mapping[str, str] | None = None,
+        headers: HeadersInput | None = None,
         post_data: str | bytes | None = None,
     ) -> None: ...
     async def fetch(
@@ -489,7 +491,7 @@ class AsyncRoute:
         *,
         url: str | None = None,
         method: str | None = None,
-        headers: Mapping[str, str] | None = None,
+        headers: HeadersInput | None = None,
         post_data: str | bytes | None = None,
         timeout: Timeout = ...,
     ) -> AsyncResponse:
@@ -582,19 +584,19 @@ class AsyncPageRequest:
         url: str,
         *,
         method: str = "GET",
-        headers: Mapping[str, str] | None = None,
+        headers: HeadersInput | None = None,
         params: Mapping[str, str | int | bool] | None = None,
-        data: str | bytes | JsonValue | NotGiven = ...,
+        data: str | bytes | JsonValueWithSecrets | NotGiven = ...,
         max_redirects: int | None = None,
         timeout: Timeout = ...,
     ) -> AsyncResponse: ...
-    async def get(self, url: str, *, headers: Mapping[str, str] | None = None, timeout: Timeout = ...) -> AsyncResponse: ...
+    async def get(self, url: str, *, headers: HeadersInput | None = None, timeout: Timeout = ...) -> AsyncResponse: ...
     async def post(
         self,
         url: str,
         *,
-        headers: Mapping[str, str] | None = None,
-        data: str | bytes | JsonValue | NotGiven = ...,
+        headers: HeadersInput | None = None,
+        data: str | bytes | JsonValueWithSecrets | NotGiven = ...,
         timeout: Timeout = ...,
     ) -> AsyncResponse: ...
 
@@ -602,20 +604,20 @@ class AsyncPageRequest:
         self,
         url: str,
         *,
-        headers: Mapping[str, str] | None = None,
-        data: str | bytes | JsonValue | NotGiven = ...,
+        headers: HeadersInput | None = None,
+        data: str | bytes | JsonValueWithSecrets | NotGiven = ...,
         timeout: Timeout = ...,
     ) -> AsyncResponse: ...
     async def patch(
         self,
         url: str,
         *,
-        headers: Mapping[str, str] | None = None,
-        data: str | bytes | JsonValue | NotGiven = ...,
+        headers: HeadersInput | None = None,
+        data: str | bytes | JsonValueWithSecrets | NotGiven = ...,
         timeout: Timeout = ...,
     ) -> AsyncResponse: ...
-    async def delete(self, url: str, *, headers: Mapping[str, str] | None = None, timeout: Timeout = ...) -> AsyncResponse: ...
-    async def head(self, url: str, *, headers: Mapping[str, str] | None = None, timeout: Timeout = ...) -> AsyncResponse: ...
+    async def delete(self, url: str, *, headers: HeadersInput | None = None, timeout: Timeout = ...) -> AsyncResponse: ...
+    async def head(self, url: str, *, headers: HeadersInput | None = None, timeout: Timeout = ...) -> AsyncResponse: ...
 
 @final
 class AsyncCdpSession:
@@ -817,11 +819,11 @@ class Locator(_Locates):
         force: bool = False,
         timeout: Timeout = ...,
     ) -> None: ...
-    def fill(self, value: str, *, force: bool = False, timeout: Timeout = ...) -> None: ...
+    def fill(self, value: str | SecretPlaceholder, *, force: bool = False, timeout: Timeout = ...) -> None: ...
     def clear(self, *, force: bool = False, timeout: Timeout = ...) -> None: ...
     def press(self, key: str, *, delay: timedelta | None = None, force: bool = False, timeout: Timeout = ...) -> None: ...
     def press_sequentially(
-        self, text: str, *, delay: timedelta | None = None, force: bool = False, timeout: Timeout = ...
+        self, text: str | SecretPlaceholder, *, delay: timedelta | None = None, force: bool = False, timeout: Timeout = ...
     ) -> None: ...
     def select_option(
         self,
@@ -908,7 +910,7 @@ class Route:
         *,
         url: str | None = None,
         method: str | None = None,
-        headers: Mapping[str, str] | None = None,
+        headers: HeadersInput | None = None,
         post_data: str | bytes | None = None,
     ) -> None: ...
     def fulfill(
@@ -927,7 +929,7 @@ class Route:
         *,
         url: str | None = None,
         method: str | None = None,
-        headers: Mapping[str, str] | None = None,
+        headers: HeadersInput | None = None,
         post_data: str | bytes | None = None,
     ) -> None: ...
     def fetch(
@@ -935,7 +937,7 @@ class Route:
         *,
         url: str | None = None,
         method: str | None = None,
-        headers: Mapping[str, str] | None = None,
+        headers: HeadersInput | None = None,
         post_data: str | bytes | None = None,
         timeout: Timeout = ...,
     ) -> Response: ...
@@ -1004,25 +1006,25 @@ class PageRequest:
         url: str,
         *,
         method: str = "GET",
-        headers: Mapping[str, str] | None = None,
+        headers: HeadersInput | None = None,
         params: Mapping[str, str | int | bool] | None = None,
-        data: str | bytes | JsonValue | NotGiven = ...,
+        data: str | bytes | JsonValueWithSecrets | NotGiven = ...,
         max_redirects: int | None = None,
         timeout: Timeout = ...,
     ) -> Response: ...
-    def get(self, url: str, *, headers: Mapping[str, str] | None = None, timeout: Timeout = ...) -> Response: ...
+    def get(self, url: str, *, headers: HeadersInput | None = None, timeout: Timeout = ...) -> Response: ...
     def post(
-        self, url: str, *, headers: Mapping[str, str] | None = None, data: str | bytes | JsonValue | NotGiven = ..., timeout: Timeout = ...
+        self, url: str, *, headers: HeadersInput | None = None, data: str | bytes | JsonValueWithSecrets | NotGiven = ..., timeout: Timeout = ...
     ) -> Response: ...
 
     def put(
-        self, url: str, *, headers: Mapping[str, str] | None = None, data: str | bytes | JsonValue | NotGiven = ..., timeout: Timeout = ...
+        self, url: str, *, headers: HeadersInput | None = None, data: str | bytes | JsonValueWithSecrets | NotGiven = ..., timeout: Timeout = ...
     ) -> Response: ...
     def patch(
-        self, url: str, *, headers: Mapping[str, str] | None = None, data: str | bytes | JsonValue | NotGiven = ..., timeout: Timeout = ...
+        self, url: str, *, headers: HeadersInput | None = None, data: str | bytes | JsonValueWithSecrets | NotGiven = ..., timeout: Timeout = ...
     ) -> Response: ...
-    def delete(self, url: str, *, headers: Mapping[str, str] | None = None, timeout: Timeout = ...) -> Response: ...
-    def head(self, url: str, *, headers: Mapping[str, str] | None = None, timeout: Timeout = ...) -> Response: ...
+    def delete(self, url: str, *, headers: HeadersInput | None = None, timeout: Timeout = ...) -> Response: ...
+    def head(self, url: str, *, headers: HeadersInput | None = None, timeout: Timeout = ...) -> Response: ...
 
 @final
 class CdpSession:

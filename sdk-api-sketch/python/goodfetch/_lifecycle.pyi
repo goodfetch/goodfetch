@@ -1,11 +1,12 @@
 """Entry points and lifecycle (ADR 0078, decided in #465).
 
 Logs go to `logging` loggers under `goodfetch` (`goodfetch.client`, `goodfetch.engine.<area>`); the SDK adds only a
-`NullHandler`. The Run's start verbs and Sessions are placeholders owned by #478 and #476; the page API is ADR 0085's (`_page`).
+`NullHandler`. The Run's start verbs are a placeholder owned by #478; Sessions, logins and secrets are ADR 0092's
+(`_sessions`); the page API is ADR 0085's (`_page`).
 Timeouts, waits and Limits come from #467 (`_time`); events and user code from #468 (`_concurrency`).
 """
 
-from collections.abc import Generator, Mapping, Sequence
+from collections.abc import Awaitable, Callable, Generator, Mapping, Sequence
 from os import PathLike
 from dataclasses import dataclass
 from types import TracebackType
@@ -14,6 +15,17 @@ from typing import Literal, Never, Protocol, Self, TypeAlias, final, overload
 from goodfetch._concurrency import AsyncListener, AsyncPageEvents, AsyncRunEvents, Listener, PageEvents, RunEvents, Subscription
 from goodfetch._data import JsonValue
 from goodfetch._page import AsyncPageApi, AsyncRouteHandler, PageApi, RouteHandler
+from goodfetch._sessions import (
+    AsyncIdentities,
+    AsyncPausesForHuman,
+    AsyncResolveSecret,
+    AsyncSessionLogins,
+    Identities,
+    PausesForHuman,
+    ResolveSecret,
+    SessionLogins,
+    SessionSource,
+)
 from goodfetch._settings import ExplainedSetting, PageSettings, RunSettings, SessionSettings, SettingKey, Settings
 from goodfetch._time import AsyncPageWaits, Limits, NotGiven, PageWaits, Timeout, UrlMatcher
 
@@ -92,7 +104,7 @@ class _AsyncCloseable:
     ) -> None: ...
 
 @final
-class AsyncPage(_AsyncCloseable, _AsyncExplainsSettings, AsyncPageApi, AsyncPageWaits, AsyncPageEvents):
+class AsyncPage(_AsyncCloseable, _AsyncExplainsSettings, AsyncPageApi, AsyncPageWaits, AsyncPageEvents, AsyncPausesForHuman):
     """A page Goodfetch drives: a tab of a Session, opened by `session.new_page()` or by the page itself (a popup).
     Closing it closes only a tab Goodfetch opened; on a Borrowed browser it only releases it."""
 
@@ -100,9 +112,9 @@ class AsyncPage(_AsyncCloseable, _AsyncExplainsSettings, AsyncPageApi, AsyncPage
         """Idempotent. `run_before_unload` runs the page's `beforeunload` handlers, the only way such a dialog appears."""
 
 @final
-class AsyncSession(_AsyncCloseable, _AsyncExplainsSettings):
-    """A Session of a Run: Playwright's context, under the glossary's name (ADR 0085). Its other API is #476's.
-    Closing it never closes a Borrowed browser. There is no active page."""
+class AsyncSession(_AsyncCloseable, _AsyncExplainsSettings, AsyncSessionLogins):
+    """A Session of a Run: Playwright's context, under the glossary's name (ADR 0085), with its cookies and login
+    (ADR 0092). Closing it never closes a Borrowed browser. There is no active page."""
 
     async def new_page(self, *, settings: PageSettings = ..., timeout: Timeout = ...) -> AsyncPage: ...
     def pages(self) -> list[AsyncPage]:
@@ -122,9 +134,24 @@ class AsyncRun(_AsyncCloseable, _AsyncExplainsSettings, AsyncRunEvents):
 
     @property
     def id(self) -> str: ...
-    async def new_page(self, *, settings: PageSettings = ..., timeout: Timeout = ...) -> AsyncPage: ...
-    async def new_session(self, *, settings: SessionSettings = ..., timeout: Timeout = ...) -> AsyncSession:
-        """Placeholder: opening a Session is #476's; its settings are #470's."""
+    async def new_page(self, *, settings: PageSettings = ..., timeout: Timeout = ...) -> AsyncPage:
+        """Opens a page in the Run's default Session, which the first call opens with the Run's settings and every later
+        call shares; `page.session` reaches it. Once it is closed, this raises `ClosedError`."""
+    async def new_session(
+        self,
+        *,
+        source: SessionSource = ...,
+        login: Callable[[AsyncPage], Awaitable[None]] | None = None,
+        settings: SessionSettings = ...,
+        timeout: Timeout = ...,
+    ) -> AsyncSession:
+        """Opens a Session of its own (ADR 0092).
+
+        `source` is `session.source` for this Session alone (ADR 0056); left out, the Run's or the connection's. `login`
+        is ADR 0006's scripted login step: called with a page of this Session on its login page, on the program's own
+        loop (ADR 0081); the Page check judges the page it leaves, it counts toward the two recoveries a page gets, and
+        an exception is chained to `LoggedOutError`.
+        """
     @overload
     async def borrow(self, page: BorrowableAsyncPage, /) -> AsyncPage: ...
     @overload
@@ -175,6 +202,7 @@ class AsyncGoodfetch(_AsyncCloseable, _AsyncExplainsSettings):
         project: str | PathLike[str] | None | NotGiven = ...,
         timeout: Timeout = ...,
         limits: Limits | None = None,
+        resolve_secret: AsyncResolveSecret | None = None,
     ) -> _AsyncConnecting:
         """Starts or finds the engine and completes `hello` before the connection is returned.
 
@@ -183,7 +211,8 @@ class AsyncGoodfetch(_AsyncCloseable, _AsyncExplainsSettings):
         and never at import, by default the process's own (ADRs 0062, 0069): only the deployment variables are read, an
         unknown `GOODFETCH_` name fails with `SettingUnknownError`, and an Attached engine gets exactly this map.
         `project` is the project configuration file: left out, found upward from the working directory as the CLI does;
-        `None`, none (ADR 0083).
+        `None`, none (ADR 0083). `resolve_secret` answers `caller:` Secret references from the program's own store, at
+        the moment of use (ADR 0092).
         """
 
     @property
@@ -192,6 +221,9 @@ class AsyncGoodfetch(_AsyncCloseable, _AsyncExplainsSettings):
     def collie(self) -> AsyncCollie: ...
     @property
     def foxhound(self) -> AsyncFoxhound: ...
+    @property
+    def identities(self) -> AsyncIdentities:
+        """The install's Saved identities (ADR 0092)."""
 
 # Sync API: the same concepts, generated from the same catalog (ADR 0038).
 
@@ -209,16 +241,16 @@ class _Closeable:
     ) -> None: ...
 
 @final
-class Page(_Closeable, _ExplainsSettings, PageApi, PageWaits, PageEvents):
+class Page(_Closeable, _ExplainsSettings, PageApi, PageWaits, PageEvents, PausesForHuman):
     """A page Goodfetch drives: a tab of a Session, opened by `session.new_page()` or by the page itself (a popup).
     Closing it closes only a tab Goodfetch opened; on a Borrowed browser it only releases it."""
 
     def close(self, *, run_before_unload: bool = False, timeout: Timeout = ...) -> None: ...
 
 @final
-class Session(_Closeable, _ExplainsSettings):
-    """A Session of a Run: Playwright's context, under the glossary's name (ADR 0085). Its other API is #476's.
-    Closing it never closes a Borrowed browser. There is no active page."""
+class Session(_Closeable, _ExplainsSettings, SessionLogins):
+    """A Session of a Run: Playwright's context, under the glossary's name (ADR 0085), with its cookies and login
+    (ADR 0092). Closing it never closes a Borrowed browser. There is no active page."""
 
     def new_page(self, *, settings: PageSettings = ..., timeout: Timeout = ...) -> Page: ...
     def pages(self) -> list[Page]: ...
@@ -232,9 +264,17 @@ class Run(_Closeable, _ExplainsSettings, RunEvents):
 
     @property
     def id(self) -> str: ...
-    def new_page(self, *, settings: PageSettings = ..., timeout: Timeout = ...) -> Page: ...
-    def new_session(self, *, settings: SessionSettings = ..., timeout: Timeout = ...) -> Session:
-        """Placeholder: opening a Session is #476's; its settings are #470's."""
+    def new_page(self, *, settings: PageSettings = ..., timeout: Timeout = ...) -> Page:
+        """Opens a page in the Run's default Session, shared by every later call; `page.session` reaches it."""
+    def new_session(
+        self,
+        *,
+        source: SessionSource = ...,
+        login: Callable[[Page], None] | None = None,
+        settings: SessionSettings = ...,
+        timeout: Timeout = ...,
+    ) -> Session:
+        """Opens a Session of its own; `login` runs on the connection's thread pool (ADR 0081)."""
     @overload
     def borrow(self, page: BorrowablePage, /) -> Page: ...
     @overload
@@ -275,6 +315,7 @@ class Goodfetch(_Closeable, _ExplainsSettings):
         project: str | PathLike[str] | None | NotGiven = ...,
         timeout: Timeout = ...,
         limits: Limits | None = None,
+        resolve_secret: ResolveSecret | None = None,
     ) -> Goodfetch:
         """Starts or finds the engine and completes `hello` before returning; use it with `with`.
 
@@ -292,3 +333,5 @@ class Goodfetch(_Closeable, _ExplainsSettings):
     def collie(self) -> Collie: ...
     @property
     def foxhound(self) -> Foxhound: ...
+    @property
+    def identities(self) -> Identities: ...

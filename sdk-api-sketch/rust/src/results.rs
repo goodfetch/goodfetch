@@ -102,6 +102,20 @@ pub enum ErrorCode {
     DownloadFailed,
     /// `cdp_command_refused`, a refusal (ADR 0085).
     CdpCommandRefused,
+    /// `secret_unbound`: no scope binds the Secret placeholder (ADR 0092).
+    SecretUnbound,
+    /// `secret_unavailable`: the Secret provider gave no value (ADR 0092).
+    SecretUnavailable,
+    /// `secret_domain_not_allowed`, a refusal (ADR 0092).
+    SecretDomainNotAllowed,
+    /// `secret_input_refused`, a refusal: other code may read this browser (ADR 0092).
+    SecretInputRefused,
+    /// `logged_out`: recovery did not bring the login back (ADR 0092).
+    LoggedOut,
+    /// `human_pause_declined`, a refusal by a person (ADR 0092).
+    HumanPauseDeclined,
+    /// `session_not_savable`: the Session's cookies live outside run state (ADR 0092).
+    SessionNotSavable,
     /// `internal`.
     Internal,
     /// A code this SDK does not know, as received.
@@ -317,6 +331,20 @@ pub enum ErrorDetails {
     SettingLocked(crate::settings::SettingLocked),
     /// Of `capability_unavailable`.
     CapabilityUnavailable(crate::settings::CapabilityUnavailable),
+    /// Of `secret_unbound`.
+    SecretUnbound(crate::sessions::SecretUnbound),
+    /// Of `secret_unavailable`.
+    SecretUnavailable(crate::sessions::SecretUnavailable),
+    /// Of `secret_domain_not_allowed`.
+    SecretDomainNotAllowed(crate::sessions::SecretDomainNotAllowed),
+    /// Of `secret_input_refused`.
+    SecretInputRefused(crate::sessions::SecretInputRefused),
+    /// Of `logged_out`.
+    LoggedOut(crate::sessions::LoggedOut),
+    /// Of `human_pause_declined`.
+    HumanPauseDeclined(crate::sessions::HumanPauseDeclined),
+    /// Of `session_not_savable`.
+    SessionNotSavable(crate::sessions::SessionNotSavable),
 }
 
 /// Details of `deadline_exceeded`. The error's `limit` names the phase's setting and its layer; a

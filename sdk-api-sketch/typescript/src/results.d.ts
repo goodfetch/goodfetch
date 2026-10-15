@@ -52,6 +52,13 @@ export type KnownErrorCode =
   | "body_unavailable"
   | "download_failed"
   | "cdp_command_refused"
+  | "secret_unbound"
+  | "secret_unavailable"
+  | "secret_domain_not_allowed"
+  | "secret_input_refused"
+  | "logged_out"
+  | "human_pause_declined"
+  | "session_not_savable"
   | "internal";
 
 /** A code a newer engine sends and this SDK does not know is kept as received (G3). */

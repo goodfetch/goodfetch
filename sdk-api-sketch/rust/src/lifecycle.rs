@@ -2,9 +2,9 @@
 //!
 //! Logs are `tracing` events under `goodfetch::…` targets; the crate never installs a subscriber.
 //! The Rust crate links the engine (`EngineChoice::Linked`) and borrows a browser through
-//! `session.source = cdp_url`, never through a relay. The Run's start verbs and Sessions are
-//! placeholders owned by #478 and #476; the page API is ADR 0085's, in `page`. The error type is
-//! ADR 0079's, in `results`.
+//! `session.source = cdp_url`, never through a relay. The Run's start verbs are a placeholder owned
+//! by #478; Sessions, logins and secrets are ADR 0092's, in `sessions`; the page API is ADR 0085's,
+//! in `page`. The error type is ADR 0079's, in `results`.
 //! Timeouts, waits and Limits are #467's, in `time`; events, user code and sharing are #468's, in
 //! `concurrency`.
 
@@ -32,7 +32,8 @@ pub enum EngineChoice {
     Address {
         /// The endpoint.
         url: String,
-        /// The token, which #476 turns into a Secret reference.
+        /// The token, a value from the program's own store: a Secret reference resolves in the
+        /// engine, which the token is needed to reach (ADR 0092). It never appears anywhere.
         token: String,
     },
 }
@@ -261,7 +262,9 @@ impl Run {
         unimplemented!()
     }
 
-    /// Opens a page. Its Session is #476's. A call like any other: its future can be spawned.
+    /// Opens a page in the Run's default Session, which the first call opens with the Run's
+    /// settings and every later call shares; `page.session()` reaches it. Once it is closed, this
+    /// fails with `closed`. A call like any other: its future can be spawned.
     pub fn new_page(&self) -> Call<Page> {
         unimplemented!()
     }
@@ -271,7 +274,8 @@ impl Run {
         unimplemented!()
     }
 
-    /// Placeholder: opening a Session is #476's; its settings are #470's.
+    /// Opens a Session of its own (ADR 0092): its source with `.source(..)`, its settings with
+    /// `.settings(..)`.
     pub fn new_session(&self) -> Call<Session> {
         unimplemented!()
     }
@@ -292,8 +296,8 @@ impl Call<Session> {
     }
 }
 
-/// A Session of a Run: Playwright's context, under the glossary's name (ADR 0085). Its API is
-/// #476's; its page members are in `page`. Closing it never closes a Borrowed browser. There is no
+/// A Session of a Run: Playwright's context, under the glossary's name (ADR 0085). Its page members
+/// are in `page`, its cookies and login in `sessions` (ADR 0092). Closing it never closes a Borrowed browser. There is no
 /// active page. A cheap clone of one Session (ADR 0081).
 #[derive(Debug, Clone)]
 pub struct Session {

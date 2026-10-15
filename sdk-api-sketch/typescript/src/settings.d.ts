@@ -14,6 +14,7 @@ import type {
   PolitenessSettings,
   SitePreferencesSettings,
 } from "./politeness.js";
+import type { Permission, ProxySettings, SecretsSettings, SessionLoginSettings } from "./sessions.js";
 
 /**
  * `timeout.*`: ADR 0080's phases, one family. `null` clears a phase's timeout for the whole scope.
@@ -30,6 +31,8 @@ export interface TimeoutSettings {
   readonly close?: Timeout;
   /** The default for each Run's own timeout, given at the connection; its built-in default is none. A Run's own is starting it with `timeout`. */
   readonly run?: Timeout;
+  /** `timeout.human_pause`: how long a Human pause may wait for a person; 24 hours by default (ADR 0092). */
+  readonly humanPause?: Timeout;
 }
 
 export interface Viewport {
@@ -60,6 +63,10 @@ export interface BrowserSettings {
   readonly colorScheme?: "light" | "dark" | "no-preference";
   readonly javaScriptEnabled?: boolean;
   readonly geolocation?: Geolocation | null;
+  /** `browser.headless`: `true` by default, `false` under `stealth` (ADR 0035). A person at the keyboard sees the window (ADR 0092). */
+  readonly headless?: boolean;
+  /** `browser.permissions`: granted to every page of the Session; none by default, no setter later (ADR 0092). */
+  readonly permissions?: readonly Permission[];
 }
 
 /** Emulated network conditions, which Playwright closed as not planned (#8622). */
@@ -91,6 +98,12 @@ export interface Settings {
   readonly politeness?: PolitenessSettings;
   /** ADR 0086. */
   readonly sitePreferences?: SitePreferencesSettings;
+  /** `session.*` (ADRs 0056, 0006, 0092). */
+  readonly session?: SessionLoginSettings;
+  /** `secrets.<name>`: the Secret placeholders' bindings (ADR 0092). */
+  readonly secrets?: SecretsSettings;
+  /** `proxy.*` (ADRs 0021, 0092). */
+  readonly proxy?: ProxySettings;
 }
 
 /**
@@ -103,17 +116,23 @@ export interface RunSettings {
   readonly browser?: BrowserSettings;
   readonly network?: NetworkSettings;
   readonly sitePreferences?: CollieSitePreferencesSettings;
+  readonly session?: SessionLoginSettings;
+  readonly secrets?: SecretsSettings;
+  readonly proxy?: ProxySettings;
 }
 
 /**
- * A Session's settings: Politeness and Site preferences are a Run's. Set where a Borrowed browser's
- * Session opens, any `browser.*` value is refused with `setting_not_applicable`.
+ * A Session's settings: Site preferences are a Run's, and `session.source` is opening the Session's
+ * `source` argument, one spelling (S2). Set where a Borrowed browser's Session opens, any `browser.*`
+ * value is refused with `setting_not_applicable`.
  */
-export type SessionSettings = Omit<RunSettings, "politeness" | "sitePreferences">;
+export interface SessionSettings extends Omit<RunSettings, "sitePreferences" | "session"> {
+  readonly session?: Omit<SessionLoginSettings, "source">;
+}
 
 /** A page's settings: no part of the Session's identity. */
 export interface PageSettings {
-  readonly timeout?: Pick<TimeoutSettings, "action" | "navigation" | "wait">;
+  readonly timeout?: Pick<TimeoutSettings, "action" | "navigation" | "wait" | "humanPause">;
 }
 
 /** Options of opening a page. Where pages and Sessions are opened is #472's and #476's. */
@@ -132,6 +151,7 @@ export type SettingKey =
   | "timeout.sink_write"
   | "timeout.close"
   | "timeout.run"
+  | "timeout.human_pause"
   | "browser.viewport"
   | "browser.device_scale_factor"
   | "browser.locale"
@@ -139,6 +159,8 @@ export type SettingKey =
   | "browser.color_scheme"
   | "browser.java_script_enabled"
   | "browser.geolocation"
+  | "browser.headless"
+  | "browser.permissions"
   | "network.throttle"
   | "crawl.payload.max_size"
   | "politeness.domain.concurrency"
@@ -154,7 +176,16 @@ export type SettingKey =
   | "site_preferences.respect_robots_txt"
   | "site_preferences.max_crawl_delay"
   | "site_preferences.robots_txt_user_agent"
-  | "site_preferences.respect_use_signals";
+  | "site_preferences.respect_use_signals"
+  | "session.source"
+  | "session.page_check"
+  | "session.recovery.human_pause"
+  | "session.http_credentials"
+  | "proxy.server"
+  | "proxy.bypass"
+  | "proxy.username"
+  | "proxy.password"
+  | `secrets.${string}`;
 
 /** One effective value, as `goodfetch config explain` shows it for the scope. */
 export interface ExplainedSetting {

@@ -19,6 +19,7 @@ import type { Listener, Subscription } from "./concurrency.js";
 import type { JsonObject, JsonValue } from "./data.js";
 import type { Closeable, Page, Session } from "./lifecycle.js";
 import type { PageError, ProgramError, RefusedError, UnavailableError } from "./results.js";
+import type { HeadersInput, JsonValueWithSecrets, SecretPlaceholder } from "./sessions.js";
 import type { CallOptions, Count, LoadState, UrlMatcher } from "./time.js";
 
 // Locators.
@@ -240,13 +241,15 @@ export interface Locator extends Locates {
   /**
    * Clears the field and inserts the text as typed text arrives, so controlled inputs see it. A target
    * that cannot hold text throws `TargetUnsupportedError` at once; a read-only one is waited for.
+   * A Secret placeholder is typed by the engine, checked against the domain of the field's frame
+   * (ADR 0092); reads of the field then show `%name%`.
    */
-  fill(value: string, options?: ActionOptions): Promise<void>;
+  fill(value: string | SecretPlaceholder, options?: ActionOptions): Promise<void>;
   clear(options?: ActionOptions): Promise<void>;
   /** A key or a combination, such as `Enter` or `ControlOrMeta+A`. */
   press(key: string, options?: KeyOptions): Promise<void>;
-  /** Types key by key, for fields that react to each keystroke. */
-  pressSequentially(text: string, options?: KeyOptions): Promise<void>;
+  /** Types key by key, for fields that react to each keystroke; a Secret placeholder as `fill` types it. */
+  pressSequentially(text: string | SecretPlaceholder, options?: KeyOptions): Promise<void>;
   /** On a `<select>`, or the control a `<label>` points to. Returns the values selected. */
   selectOption(values: SelectOptionValue | readonly SelectOptionValue[], options?: ActionOptions): Promise<string[]>;
   selectText(options?: ActionOptions): Promise<void>;
@@ -358,11 +361,11 @@ export interface Response {
   json(options?: CallOptions): Promise<JsonValue>;
 }
 
-/** Changes a route passes on with the request. */
+/** Changes a route passes on with the request. A placeholder in a header is checked against the request's URL (ADR 0092). */
 export interface RequestOverrides {
   readonly url?: string;
   readonly method?: string;
-  readonly headers?: Headers;
+  readonly headers?: HeadersInput;
   readonly postData?: string | Uint8Array;
 }
 
@@ -423,10 +426,11 @@ export type RouteHandler = (route: Route) => void | Promise<void>;
 
 export interface RequestOptions extends CallOptions {
   readonly method?: string;
-  readonly headers?: Headers;
+  /** A Secret placeholder in a header or a JSON string is resolved by the engine, checked against the request's URL (ADR 0092). */
+  readonly headers?: HeadersInput;
   readonly params?: Readonly<Record<string, string | number | boolean>>;
   /** A string or bytes as they are; a JSON value as JSON. */
-  readonly data?: string | Uint8Array | JsonValue;
+  readonly data?: string | Uint8Array | JsonValueWithSecrets;
   readonly maxRedirects?: number;
 }
 

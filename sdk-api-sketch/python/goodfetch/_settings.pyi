@@ -19,7 +19,7 @@ from goodfetch._politeness import (
     PolitenessSettings,
     SitePreferencesSettings,
 )
-from goodfetch._sessions import Permission, ProxySettings, SecretsSettings, SessionLoginSettings, SessionScopeLoginSettings
+from goodfetch._sessions import PageCheck, Permission, ProxySettings, SecretsSettings, SessionLoginSettings, SessionScopeLoginSettings, SessionSource
 from goodfetch._results import ProgramError, RefusedError, RunLayerOrigin, SettingsLayer, UnavailableError
 
 class TimeoutSettings(TypedDict, total=False):
@@ -226,14 +226,22 @@ class LabelCrawlSettings(TypedDict, total=False):
     handle_statuses: list[int]
     handler: CrawlHandlerSettings
 
+class LabelSessionSettings(TypedDict, total=False):
+    source: SessionSource
+    page_check: PageCheck | None
+
 class LabelSettings(TypedDict, total=False):
-    """A Label's settings (ADR 0093): what shapes one crawl request and its page. Politeness, Site preferences, scope,
-    Session identity and Run-wide keys are refused with `setting_not_applicable`: two Labels on one domain share its
+    """A Label's settings (ADR 0093): what shapes one crawl request and its page. `session.source`,
+    `session.page_check` and `secrets.*` give the Label's requests Sessions of a pool of their own (ADR 0092); Labels
+    that set none share the Run's pool. The Session's identity (`browser.*`, `proxy.*`, `network.*`), Politeness, Site
+    preferences, scope and Run-wide keys are refused with `setting_not_applicable`: two Labels on one domain share its
     Politeness with every run of the user (ADR 0053)."""
 
     timeout: LabelTimeoutSettings
     fetch: LabelFetchSettings
     crawl: LabelCrawlSettings
+    session: LabelSessionSettings
+    secrets: SecretsSettings
 
 class RunSettings(TypedDict, total=False):
     """A Collie Run's settings: no `crawl.*`, no `timeout.run`, and no Politeness, which is Foxhound's (ADRs 0084,

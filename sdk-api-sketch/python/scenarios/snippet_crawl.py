@@ -14,6 +14,7 @@ from goodfetch import (
     AsyncCrawl,
     AsyncCrawlContext,
     AsyncGoodfetch,
+    AsyncPage,
     AsyncRoute,
     CrawlRequestFailed,
     CrawlRequestOutcome,
@@ -201,3 +202,27 @@ async def on_ai_book(ctx: AsyncCrawlContext[None]) -> None:
     if not fields.title:
         ctx.retry("the title had not rendered")  # `retry_requested`, under crawl.retry.max
     await books.push(Book(**fields.model_dump(), url=ctx.page.url, category="unknown"))
+
+
+# A Label with Sessions of its own (ADRs 0092, 0093): the account's orders need the saved login, the catalogue does not.
+async def sign_in(page: AsyncPage) -> None:
+    await page.get_by_role("button", name="Sign in").click()
+
+
+shop = AsyncCrawl()
+catalogue = shop.label("catalogue")
+orders = shop.label(
+    "orders",
+    settings={
+        "session": {
+            "source": {"kind": "saved_identity", "name": "shop-account"},
+            "page_check": {"expected_page": {"selector": "table.orders"}, "login_page": {"url": "**/login*"}},
+        }
+    },
+    login=sign_in,
+)
+
+
+@shop.handle(orders)
+async def on_orders(ctx: AsyncCrawlContext[None]) -> None:
+    log.info("orders: %d rows", await ctx.page.locator("table.orders tr").count())

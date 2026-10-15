@@ -30,6 +30,14 @@ export interface LabelOptions<S extends Schema | undefined> {
   readonly payload?: S;
   /** Settings for this Label's requests: a scope between the Run and each request. */
   readonly settings?: LabelSettings;
+  /** The scripted login step of the Sessions this Label's requests use (ADRs 0006, 0092), called with the Session's page on the login page. */
+  readonly login?: (page: Page) => Promise<void>;
+}
+
+/** Options of a crawl's declaration. */
+export interface CrawlOptions {
+  /** The scripted login step of the Run's Session pool (ADRs 0006, 0092); a Label's own `login` wins for its Sessions. */
+  readonly login?: (page: Page) => Promise<void>;
 }
 
 /** A Label's handler. It may return a promise; its value is ignored. */
@@ -41,7 +49,7 @@ export type Handler<L extends Label<unknown, unknown>> = (ctx: CrawlContext<L>) 
  * are never persisted.
  */
 export declare class Crawl {
-  constructor();
+  constructor(options?: CrawlOptions);
   /**
    * Declares a Label and returns its typed handle. A second Label of the same name throws
    * `LabelDuplicateError` at once.
@@ -135,7 +143,9 @@ export interface EnqueuedLinks {
  * engine serves `page` from the fetched document; a call only a browser can serve (a gesture,
  * `evaluate`, a network wait, a screenshot, an acting AI verb), or a wait for something the static
  * document lacks, ends the attempt and runs the request again in the browser, unless `fetch.tier`
- * forces the tier, when it throws `BrowserRequiredError`. A question (`count()`, `isVisible()`)
+ * forces the tier, when it throws `BrowserRequiredError`. So does a page failing its Session's
+ * `session.page_check.expectedPage` (ADR 0092): it escalates, or fails with `page_check_failed` on
+ * the browser tier or a forced one. A question (`count()`, `isVisible()`)
  * answers at once and never escalates.
  *
  * A context belongs to one attempt. Once the attempt has ended (`skip`, `retry`, an escalation, the

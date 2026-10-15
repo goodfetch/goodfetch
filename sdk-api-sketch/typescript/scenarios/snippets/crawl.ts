@@ -154,4 +154,29 @@ aiCrawl.handle(aiBook, async ({ page, retry }) => {
   await books.push({ ...fields, url: page.url(), category: "unknown" });
 });
 
-export const definitions = { crawl, quotesCrawl, aiCrawl };
+// A Label with Sessions of its own (ADRs 0092, 0093): the account's orders need the saved login, the
+// catalogue does not. A page that is not the expected page escalates over HTTP, and fails with
+// `page_check_failed` in the browser; a login page is a lost login, which `login` brings back.
+const shop = new Crawl();
+const catalogue = shop.label("catalogue");
+const orders = shop.label("orders", {
+  settings: {
+    session: {
+      source: { kind: "saved_identity", name: "shop-account" },
+      pageCheck: { expectedPage: { selector: "table.orders" }, loginPage: { url: "**/login*" } },
+    },
+  },
+  login: async (page) => {
+    await page.getByRole("button", { name: "Sign in" }).click();
+  },
+});
+shop.handle(catalogue, async ({ page, enqueueLinks }) => {
+  await enqueueLinks(page.locator("a.product"), catalogue);
+});
+shop.handle(orders, async ({ page }) => {
+  log.info("orders", { rows: await page.locator("table.orders tr").count() });
+});
+// @ts-expect-error the Session's identity is the Run's, the same in every pool: a Label refuses it
+shop.label("localized", { settings: { browser: { locale: "fr-FR" } } });
+
+export const definitions = { crawl, quotesCrawl, aiCrawl, shop };

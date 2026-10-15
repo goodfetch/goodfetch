@@ -25,6 +25,7 @@ from goodfetch._time import Timeout
 
 P = TypeVar("P")
 Q = TypeVar("Q")
+L = TypeVar("L")
 
 UrlPattern: TypeAlias = str | re.Pattern[str]
 """A URL pattern matched in the engine: a glob, or a compiled pattern in the Rust `regex` syntax (ADR 0081). No predicate:
@@ -195,31 +196,33 @@ class CrawlContext(_ContextBase[P]):
 AsyncHandler: TypeAlias = Callable[[AsyncCrawlContext[P]], Awaitable[None]]
 Handler: TypeAlias = Callable[[CrawlContext[P]], None]
 
-class _Declares:
+class _Declares(Generic[L]):
     @overload
-    def label(self, name: str, *, settings: LabelSettings = ...) -> Label[None]:
-        """Declares a Label and returns its typed handle. A second Label of the same name raises `LabelDuplicateError`."""
+    def label(self, name: str, *, settings: LabelSettings = ..., login: L | None = None) -> Label[None]:
+        """Declares a Label and returns its typed handle. A second Label of the same name raises `LabelDuplicateError`.
+        `login` is the scripted login step of the Sessions its requests use (ADRs 0006, 0092)."""
     @overload
-    def label(self, name: str, *, payload: type[P], settings: LabelSettings = ...) -> Label[P]:
+    def label(self, name: str, *, payload: type[P], settings: LabelSettings = ..., login: L | None = None) -> Label[P]:
         """A Pydantic model, or any class Pydantic's `TypeAdapter` accepts (ADR 0082)."""
     @overload
-    def label(self, name: str, *, payload: JsonSchema, settings: LabelSettings = ...) -> Label[JsonValue]:
+    def label(self, name: str, *, payload: JsonSchema, settings: LabelSettings = ..., login: L | None = None) -> Label[JsonValue]:
         """A JSON Schema written by hand: the way down."""
 
 @final
-class AsyncCrawl(_Declares):
+class AsyncCrawl(_Declares[Callable[[AsyncPage], Awaitable[None]]]):
     """A crawl's declaration, for `AsyncGoodfetch`: its Labels and their `async def` handlers."""
 
-    def __init__(self) -> None: ...
+    def __init__(self, *, login: Callable[[AsyncPage], Awaitable[None]] | None = None) -> None:
+        """`login` is the scripted login step of the Run's Session pool (ADRs 0006, 0092); a Label's own wins."""
     def handle(self, label: Label[P]) -> Callable[[AsyncHandler[P]], AsyncHandler[P]]:
         """Attaches the Label's one handler and returns it unchanged. A second one raises `LabelDuplicateError`; a Label
         left without one makes the Run's start raise `LabelUnhandledError`."""
 
 @final
-class Crawl(_Declares):
+class Crawl(_Declares[Callable[[Page], None]]):
     """A crawl's declaration, for `Goodfetch` (sync): its Labels and their plain-function handlers."""
 
-    def __init__(self) -> None: ...
+    def __init__(self, *, login: Callable[[Page], None] | None = None) -> None: ...
     def handle(self, label: Label[P]) -> Callable[[Handler[P]], Handler[P]]: ...
 
 # The crawl's Error codes (ADR 0093).

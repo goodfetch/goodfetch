@@ -96,7 +96,10 @@ impl<'a> Crawl<'a> {
     }
 
     /// Declares a Label with an explicit schema (a hand-written JSON Schema is the way down) and
-    /// its own settings: a scope between the Run and each request (ADR 0093).
+    /// its own settings: a scope between the Run and each request (ADR 0093). Its Session settings
+    /// (`session.source`, `session.page_check`, `secrets.*`) give its requests Sessions of a pool of
+    /// their own; the Session's identity, Politeness, Site preferences and scope are refused with
+    /// `setting_not_applicable`.
     pub fn label_with<P>(&mut self, name: &str, payload: Schema<P>, settings: Settings) -> Result<Label<P>, Error> {
         let _ = (name, payload, settings);
         unimplemented!()
@@ -109,6 +112,26 @@ impl<'a> Crawl<'a> {
         F: AsyncFn(CrawlContext<P>) -> Result<(), Error> + 'a,
     {
         let _ = (label, handler);
+        unimplemented!()
+    }
+
+    /// The scripted login step of the Run's Session pool (ADRs 0006, 0092), called with the
+    /// Session's page on the login page; a Label's own, from [`Crawl::login_for`], wins.
+    pub fn login<F>(&mut self, login: F)
+    where
+        F: AsyncFn(Page) -> Result<(), Error> + 'a,
+    {
+        let _ = login;
+        unimplemented!()
+    }
+
+    /// The scripted login step of the Sessions this Label's requests use, which its
+    /// `session::SOURCE` and `session::PAGE_CHECK` settings give a pool of their own (ADR 0093).
+    pub fn login_for<P, F>(&mut self, label: &Label<P>, login: F) -> Result<(), Error>
+    where
+        F: AsyncFn(Page) -> Result<(), Error> + 'a,
+    {
+        let _ = (label, login);
         unimplemented!()
     }
 

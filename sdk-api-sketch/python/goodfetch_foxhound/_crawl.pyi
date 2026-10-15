@@ -15,6 +15,7 @@ attempt and runs the request again in the browser, unless `fetch.tier` forces th
 import re
 from collections.abc import Awaitable, Callable, Mapping, Sequence
 from dataclasses import dataclass
+from datetime import datetime
 from typing import Generic, Literal, NoReturn, TypeAlias, TypeVar, final, overload
 
 from goodfetch_collie_client._data import JSONObject, JSONSchema, JSONValue
@@ -365,12 +366,24 @@ class RetryRequestedError(PageError):
 
 @final
 class ResponseNotOKError(PageError):
-    """A final 4xx that is no Block cause and not in `crawl.handle_statuses`. Not retryable."""
+    """A final 4xx that is no Block cause, or a 3xx that is not followed (ADR 0118), not in `crawl.handle_statuses`. Not
+    retryable."""
+
+@final
+@dataclass(frozen=True, kw_only=True)
+class ResponseUnavailableDetails:
+    status: int | None
+    """`None` when the domain's `Retry-After` held the request unsent."""
+    retry_after: datetime | None
+    """The time the site's `Retry-After` asked for, or `None`."""
 
 @final
 class ResponseUnavailableError(PageError):
     """A final 5xx or 408 after the request's retries, not in `crawl.handle_statuses`: the site is failing for now.
-    Retryable."""
+    Also a request a `Retry-After` past `politeness.retry_after.max` held (ADR 0118). Retryable."""
+
+    @property
+    def details(self) -> ResponseUnavailableDetails: ...
 
 @final
 class HandlerLostError(UnavailableError):

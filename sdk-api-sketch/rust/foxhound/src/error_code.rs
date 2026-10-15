@@ -41,11 +41,11 @@ pub const BROWSER_REQUIRED: ErrorCode = ErrorCode::new("browser_required");
 pub const RESPONSES_NOT_KEPT: ErrorCode = ErrorCode::new("responses_not_kept");
 /// `retry_requested`: an attempt the handler ended with `ctx.retry()` (ADR 0093).
 pub const RETRY_REQUESTED: ErrorCode = ErrorCode::new("retry_requested");
-/// `response_not_ok`: a final 4xx that is no Block cause and not in `crawl.handle_statuses`;
-/// not retryable (ADR 0093).
+/// `response_not_ok`: a final 4xx that is no Block cause, or a 3xx that is not followed (ADR 0118),
+/// not in `crawl.handle_statuses`; not retryable (ADR 0093).
 pub const RESPONSE_NOT_OK: ErrorCode = ErrorCode::new("response_not_ok");
-/// `response_unavailable`, a page error: a final 5xx or 408 after the request's retries;
-/// retryable (ADR 0093).
+/// `response_unavailable`, a page error: a final 5xx or 408 after the request's retries, or a
+/// request a `Retry-After` past `politeness.retry_after.max` held (ADR 0118); retryable (ADR 0093).
 pub const RESPONSE_UNAVAILABLE: ErrorCode = ErrorCode::new("response_unavailable");
 /// `handler_lost`: the program's process or connection was lost mid-attempt (a crash, a signal
 /// it does not handle, or a linked engine that died with it, counted on resume from the Run's
@@ -69,6 +69,7 @@ pub const DATASET_KEY_INVALID: ErrorCode = ErrorCode::new("dataset_key_invalid")
 
 // Each Foxhound code's details type (ADR 0099).
 impl goodfetch_collie_client::ErrorDetails for crate::outcomes::HandlerFailed {}
+impl goodfetch_collie_client::ErrorDetails for crate::outcomes::ResponseUnavailable {}
 impl goodfetch_collie_client::ErrorDetails for crate::hooks::HookFailed {}
 impl goodfetch_collie_client::ErrorDetails for crate::hooks::HeaderForbidden {}
 impl goodfetch_collie_client::ErrorDetails for crate::hooks::HookIneffective {}

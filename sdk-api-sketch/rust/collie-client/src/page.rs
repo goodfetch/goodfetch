@@ -1485,7 +1485,9 @@ impl ApiRequest {
         unimplemented!()
     }
 
-    /// At most this many redirects.
+    /// At most this many redirects: Playwright's, 20 by default, the browser-fetch tier's most;
+    /// `0` returns the 3xx itself. Past the count, `too_many_redirects`; above 20,
+    /// `setting_invalid` (ADR 0118).
     pub fn max_redirects(self, redirects: u32) -> Self {
         let _ = redirects;
         unimplemented!()

@@ -199,6 +199,40 @@ class ResponseNotJSONError(PageError):
 class NavigationFailedError(PageError):
     """`navigation_failed`: the site never answered, with the browser's network error. Retryable."""
 
+@final
+@dataclass(frozen=True, kw_only=True)
+class TooManyRedirectsDetails:
+    url: str
+    """The URL the chain started from."""
+    chain: Sequence[str]
+    """Each hop followed, in order."""
+
+@final
+class TooManyRedirectsError(PageError):
+    """`too_many_redirects` (ADR 0118): a redirect chain longer than the browser's 20, `page.request`'s `max_redirects`
+    or a crawl's `fetch.redirect.max`. A loop answers the same way again, so not retryable."""
+
+    @property
+    def details(self) -> TooManyRedirectsDetails: ...
+
+@final
+@dataclass(frozen=True, kw_only=True)
+class ResponseTruncatedDetails:
+    url: str
+    received_bytes: int
+    expected_bytes: int | None
+    """`None` when the body had no length, such as a chunked or an HTTP/2 one."""
+
+@final
+class ResponseTruncatedError(PageError):
+    """`response_truncated` (ADR 0118): a body that broke off, short of its `Content-Length`, a chunked body missing its
+    last chunk, a reset stream or a compressed stream cut before its end. Raised by a navigation waiting for
+    `domcontentloaded` or `load` whose main document was cut, by a cut response's body read, and by a cut
+    `page.request`; never part of a body returned as the whole. Retryable."""
+
+    @property
+    def details(self) -> ResponseTruncatedDetails: ...
+
 class PageCrashedError(UnavailableError):
     """`page_crashed`: the renderer crashed."""
 
@@ -459,7 +493,8 @@ class AsyncResponse:
     def request(self) -> AsyncRequest: ...
     async def body(self, *, timeout: Timeout = ...) -> bytes:
         """Read on demand. Never fails for a response from `wait_for_request_finished`, `route.fetch()` or
-        `page.request`; elsewhere a body the browser has dropped raises `BodyUnavailableError`."""
+        `page.request`; elsewhere a body the browser has dropped raises `BodyUnavailableError`. A body that broke off
+        raises `ResponseTruncatedError` (ADR 0118)."""
 
     async def text(self, *, timeout: Timeout = ...) -> str: ...
     async def json(self, *, timeout: Timeout = ...) -> JSONValue:

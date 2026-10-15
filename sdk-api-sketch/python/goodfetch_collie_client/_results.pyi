@@ -388,6 +388,9 @@ class BlockedDetails:
     block_cause: BlockCause
     url: str
     status: int | None
+    retry_after: datetime | None
+    """For `rate_limit`, the time the site's `Retry-After` asks for, read in either form, or `None`. Collie never waits
+    on it: the program directs its own navigation (ADR 0118)."""
 
 @final
 class BlockedError(PageError):

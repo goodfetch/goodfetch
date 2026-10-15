@@ -475,15 +475,23 @@ export declare class RetryRequestedError extends PageError {
   readonly code: "retry_requested";
   readonly details: { readonly message: string };
 }
-/** A final 4xx that is no Block cause and not in `crawl.handle_statuses`. Not retryable. */
+/** A final 4xx that is no Block cause, or a 3xx that is not followed (ADR 0118), not in `crawl.handle_statuses`. Not retryable. */
 export declare class ResponseNotOKError extends PageError {
   readonly code: "response_not_ok";
   readonly details: { readonly status: number };
 }
-/** A final 5xx or 408 after the request's retries, not in `crawl.handle_statuses`: the site is failing for now. Retryable. */
+/**
+ * A final 5xx or 408 after the request's retries, not in `crawl.handle_statuses`: the site is failing
+ * for now. Also a request a `Retry-After` past `politeness.retry_after.max` held (ADR 0118). Retryable.
+ */
 export declare class ResponseUnavailableError extends PageError {
   readonly code: "response_unavailable";
-  readonly details: { readonly status: number };
+  readonly details: {
+    /** `null` when the domain's `Retry-After` held the request unsent. */
+    readonly status: number | null;
+    /** The time the site's `Retry-After` asked for, or `null`. */
+    readonly retryAfter: Date | null;
+  };
 }
 /**
  * The program stopped answering for this attempt with no word: its process ended (a crash, or a

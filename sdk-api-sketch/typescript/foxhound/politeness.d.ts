@@ -28,13 +28,30 @@ export interface DomainPolitenessSettings {
   readonly delay?: number;
 }
 
-/** `politeness.backoff.*`: on 429, 502, 503, 504, `Retry-After`, and a connection refused or timed out. */
+/** `politeness.backoff.*`: on 429, 502, 503, 504, an HTTP/2 `ENHANCE_YOUR_CALM`, and a connection refused or timed out. */
 export interface BackoffSettings {
-  /** Built-in: true. Off, the run records that it ignored them (ADR 0023). */
+  /** Built-in: true. Off, the run records that it ignored them and `Retry-After` (ADR 0023). */
   readonly enabled?: boolean;
-  /** The first wait, in milliseconds, doubled at each signal. Built-in: 2_000. */
+  /**
+   * The least wait, in milliseconds. Each wait is drawn from the `Entropy` handle between this and
+   * three times the previous one, at most `max`: decorrelated jitter, never below it (ADR 0118). Built-in: 2_000.
+   */
   readonly initial?: number;
-  /** The longest wait, in milliseconds. Built-in: 60_000. */
+  /** The longest computed wait, in milliseconds; a `Retry-After` may ask for more. Built-in: 60_000. */
+  readonly max?: number;
+}
+
+/**
+ * `politeness.retry_after.*` (ADR 0118): a `Retry-After` in seconds or as an HTTP-date, on a 429,
+ * 502, 503, 504 or a 3xx, holds its domain for the longer of it and the backoff. Nothing is sent to
+ * the domain before the site's time, whatever this is set to, so it presses no site harder.
+ */
+export interface RetryAfterSettings {
+  /**
+   * The longest `Retry-After` a domain is waited for, in milliseconds. Past it, the requests the wait
+   * holds end `failed` with `response_unavailable`, its `retryAfter` set, for `retryFailed()` later.
+   * Built-in: 900_000 (15 minutes).
+   */
   readonly max?: number;
 }
 
@@ -48,6 +65,7 @@ export interface IPPolitenessSettings {
 export interface PolitenessSettings extends ColliePolitenessSettings {
   readonly domain?: DomainPolitenessSettings;
   readonly backoff?: BackoffSettings;
+  readonly retryAfter?: RetryAfterSettings;
   readonly ip?: IPPolitenessSettings;
 }
 

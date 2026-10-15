@@ -371,7 +371,9 @@ export interface Response {
   /**
    * Read on demand. Never fails for a response from `waitForRequestFinished`, `route.fetch()` or
    * `page.request`, whose bodies the engine keeps; elsewhere a body the browser has dropped throws
-   * `BodyUnavailableError`.
+   * `BodyUnavailableError`. A body that broke off (short of its `Content-Length`, a chunked body
+   * missing its last chunk, a reset stream, a compressed stream cut before its end) throws
+   * `ResponseTruncatedError`, never part of a body as the whole (ADR 0118).
    */
   body(options?: CallOptions): Promise<Uint8Array>;
   text(options?: CallOptions): Promise<string>;
@@ -449,6 +451,10 @@ export interface RequestOptions extends CallOptions {
   readonly params?: Readonly<Record<string, string | number | boolean>>;
   /** A string or bytes as they are; a JSON value as JSON. */
   readonly data?: string | Uint8Array | JSONValueWithSecrets;
+  /**
+   * Playwright's: 20 by default, the browser-fetch tier's most (ADR 0118); `0` returns the 3xx itself.
+   * Past the count, `TooManyRedirectsError`; above 20, `SettingInvalidError`.
+   */
   readonly maxRedirects?: number;
 }
 
@@ -772,6 +778,34 @@ export declare class ResponseNotJSONError extends PageError {
 export declare class NavigationFailedError extends PageError {
   readonly code: "navigation_failed";
   readonly details: { readonly netError: string };
+}
+
+/**
+ * A redirect chain longer than the browser's 20, `page.request`'s `maxRedirects` or a crawl's
+ * `fetch.redirect.max`: a loop answers the same way again, so not retryable (ADR 0118).
+ */
+export declare class TooManyRedirectsError extends PageError {
+  readonly code: "too_many_redirects";
+  readonly details: {
+    /** The URL the chain started from. */
+    readonly url: string;
+    /** Each hop followed, in order. */
+    readonly chain: readonly string[];
+  };
+}
+
+/**
+ * A body that broke off: a navigation waiting for `domcontentloaded` or `load` whose main document
+ * was cut, a cut response's body read, or a cut `page.request`. Retryable (ADR 0118).
+ */
+export declare class ResponseTruncatedError extends PageError {
+  readonly code: "response_truncated";
+  readonly details: {
+    readonly url: string;
+    readonly receivedBytes: number;
+    /** `null` when the body had no length, such as a chunked or an HTTP/2 one. */
+    readonly expectedBytes: number | null;
+  };
 }
 
 export declare class PageCrashedError extends UnavailableError {

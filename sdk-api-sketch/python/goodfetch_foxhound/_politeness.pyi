@@ -27,14 +27,25 @@ class DomainPolitenessSettings(TypedDict, total=False):
     is respected, a host's Crawl-delay raises it for the host's whole domain key."""
 
 class BackoffSettings(TypedDict, total=False):
-    """`politeness.backoff.*`: on 429, 502, 503, 504, `Retry-After`, and a connection refused or timed out."""
+    """`politeness.backoff.*`: on 429, 502, 503, 504, an HTTP/2 `ENHANCE_YOUR_CALM`, and a connection refused or timed
+    out."""
 
     enabled: bool
-    """Built-in: `True`. Off, the run records that it ignored them (ADR 0023)."""
+    """Built-in: `True`. Off, the run records that it ignored them and `Retry-After` (ADR 0023)."""
     initial: timedelta
-    """The first wait, doubled at each signal. Built-in: two seconds."""
+    """The least wait. Each wait is drawn from the `Entropy` handle between this and three times the previous one, at
+    most `max`: decorrelated jitter, never below it (ADR 0118). Built-in: two seconds."""
     max: timedelta
-    """The longest wait. Built-in: 60 seconds."""
+    """The longest computed wait; a `Retry-After` may ask for more. Built-in: 60 seconds."""
+
+class RetryAfterSettings(TypedDict, total=False):
+    """`politeness.retry_after.*` (ADR 0118): a `Retry-After` in seconds or as an HTTP-date, on a 429, 502, 503, 504 or a
+    3xx, holds its domain for the longer of it and the backoff. Nothing is sent to the domain before the site's time,
+    whatever this is set to, so it presses no site harder."""
+
+    max: timedelta
+    """The longest `Retry-After` a domain is waited for. Past it, the requests the wait holds end failed with
+    `response_unavailable`, its `retry_after` set, for `retry_failed()` later. Built-in: 15 minutes."""
 
 class IPPolitenessSettings(TypedDict, total=False):
     """`politeness.ip.*`: keyed by the IP the engine resolves (ADR 0021)."""
@@ -48,6 +59,7 @@ class PolitenessSettings(ColliePolitenessSettings, total=False):
 
     domain: DomainPolitenessSettings
     backoff: BackoffSettings
+    retry_after: RetryAfterSettings
     ip: IPPolitenessSettings
 
 class SitePreferencesSettings(CollieSitePreferencesSettings, total=False):

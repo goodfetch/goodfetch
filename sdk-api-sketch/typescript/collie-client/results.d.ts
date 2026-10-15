@@ -48,6 +48,8 @@ export type KnownErrorCode =
   | "page_navigated_during_call"
   | "response_not_json"
   | "navigation_failed"
+  | "too_many_redirects"
+  | "response_truncated"
   | "page_crashed"
   | "body_unavailable"
   | "download_failed"
@@ -342,6 +344,11 @@ export declare class BlockedError extends PageError {
     readonly url: string;
     /** `null` when the site answered with no response, such as a reset connection. */
     readonly status: number | null;
+    /**
+     * For `rate_limit`, the time the site's `Retry-After` asks for, read in either form, or `null`.
+     * Collie never waits on it: the program directs its own navigation (ADR 0118).
+     */
+    readonly retryAfter: Date | null;
   };
 }
 

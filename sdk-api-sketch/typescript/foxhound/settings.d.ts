@@ -57,7 +57,10 @@ export interface CrawlSettings {
   /** `crawl.max_requests`: requests admitted to the Frontier. Reaching it refuses further enqueues with `max_requests` and ends the Run `incomplete`. Built-in: none. */
   readonly maxRequests?: number | null;
   readonly retry?: CrawlRetrySettings;
-  /** `crawl.handle_statuses`: statuses outside 2xx whose responses go to the handler instead of failing with `response_not_ok`. Built-in: none. */
+  /**
+   * `crawl.handle_statuses`: statuses outside 2xx whose responses go to the handler instead of failing
+   * with `response_not_ok`; a redirect status listed here is not followed (ADR 0118). Built-in: none.
+   */
   readonly handleStatuses?: readonly number[];
   readonly handler?: {
     /** `crawl.handler.concurrency`: handlers running at once in the program, the engine's leases to it (ADR 0081). On a Label, within the Run's. Built-in: 16. */
@@ -78,6 +81,30 @@ export interface FetchSettings {
   readonly tierRace?: boolean;
   /** `fetch.kept_responses.*`: the responses a handler reads with `keptResponse` and `keptResponses` (ADR 0110). */
   readonly keptResponses?: KeptResponsesSettings;
+  /** `fetch.redirect.*` (ADR 0118). */
+  readonly redirect?: RedirectSettings;
+  /** `fetch.refresh.*` (ADR 0118). */
+  readonly refresh?: RefreshSettings;
+}
+
+/**
+ * `fetch.redirect.*` (ADR 0118): every tier follows Fetch's redirect statuses (301, 302, 303, 307,
+ * 308) with Fetch's method and header rules, each hop through the navigation gate. A redirect status
+ * listed in `crawl.handle_statuses` reaches the handler unfollowed: the one way not to follow.
+ */
+export interface RedirectSettings {
+  /** `fetch.redirect.max`: from 1 to 20, the browser's most; past it, `too_many_redirects`. Built-in: 20. */
+  readonly max?: number;
+}
+
+/**
+ * `fetch.refresh.*` (ADR 0118): a crawl request's document that refreshes to another URL (a `Refresh`
+ * header, or `<meta http-equiv="refresh">` outside `<noscript>`) is one more hop, made at once on every
+ * tier. A refresh to the document itself is a reload, never followed.
+ */
+export interface RefreshSettings {
+  /** `fetch.refresh.max_delay`, in milliseconds: a longer refresh is left on the page. `null`: any. Built-in: 100_000, Scrapy's. */
+  readonly maxDelay?: number | null;
 }
 
 /**
@@ -162,7 +189,10 @@ export type SettingKey =
   | "fetch.tier"
   | "fetch.tier_race"
   | "fetch.kept_responses.urls"
-  | "fetch.kept_responses.max_size";
+  | "fetch.kept_responses.max_size"
+  | "fetch.redirect.max"
+  | "fetch.refresh.max_delay"
+  | "politeness.retry_after.max";
 
 /** A crawl Run's settings: every setting but `timeout.run`, which starting the Run spells as its `timeout` (S2). */
 export type CrawlRunSettings = Omit<Settings, "timeout"> & { readonly timeout?: Omit<TimeoutSettings, "run"> };
@@ -178,7 +208,7 @@ export type CrawlRunSettings = Omit<Settings, "timeout"> & { readonly timeout?: 
  */
 export interface LabelSettings extends Omit<PageSettings, "timeout"> {
   readonly timeout?: NonNullable<PageSettings["timeout"]> & Pick<TimeoutSettings, "handler" | "hook">;
-  readonly fetch?: Pick<FetchSettings, "tier" | "keptResponses">;
+  readonly fetch?: Pick<FetchSettings, "tier" | "keptResponses" | "redirect" | "refresh">;
   readonly crawl?: Pick<CrawlSettings, "retry" | "handleStatuses" | "handler">;
   readonly session?: SessionLoginSettings;
   readonly secrets?: SecretsSettings;

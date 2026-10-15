@@ -242,6 +242,10 @@ from goodfetch_collie_client._page import Modifier as Modifier
 from goodfetch_collie_client._page import Mouse as Mouse
 from goodfetch_collie_client._page import MouseButton as MouseButton
 from goodfetch_collie_client._page import NavigationFailedError as NavigationFailedError
+from goodfetch_collie_client._page import TooManyRedirectsDetails as TooManyRedirectsDetails
+from goodfetch_collie_client._page import TooManyRedirectsError as TooManyRedirectsError
+from goodfetch_collie_client._page import ResponseTruncatedDetails as ResponseTruncatedDetails
+from goodfetch_collie_client._page import ResponseTruncatedError as ResponseTruncatedError
 from goodfetch_collie_client._page import NavigationInterruptedError as NavigationInterruptedError
 from goodfetch_collie_client._page import PageNavigatedDuringCallError as PageNavigatedDuringCallError
 from goodfetch_collie_client._page import PageAPI as PageAPI

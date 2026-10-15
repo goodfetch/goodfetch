@@ -16,6 +16,16 @@ pub struct HandlerFailed {
     pub stack: Vec<String>,
 }
 
+/// Details of `response_unavailable`: the site is failing for now (ADRs 0093, 0118).
+#[derive(Debug, Clone)]
+#[non_exhaustive]
+pub struct ResponseUnavailable {
+    /// The final status; `None` when the domain's `Retry-After` held the request unsent.
+    pub status: Option<u16>,
+    /// The time the site's `Retry-After` asked for, past `politeness.retry_after.max`.
+    pub retry_after: Option<std::time::SystemTime>,
+}
+
 /// Why a crawl request was skipped (ADR 0093's full list).
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]

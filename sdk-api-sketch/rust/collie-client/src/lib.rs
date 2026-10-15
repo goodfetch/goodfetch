@@ -88,8 +88,8 @@ pub use results::{
     AiWorkResult, BlockCause, Blocked, BoxError, CallCancelled, CancelledBy, Claim, ClosedValue,
     DeadlineExceeded, Ended, EndedBy, Error, ErrorDetails, ErrorGroup, ErrorTarget, FileWriteFailed,
     FileWriteReason, FileWriteSide, LimitSource, NotVerified, PartialOutput, PathNotWritable,
-    Reported, RunLayerOrigin, ScriptedModelDetails, SettingValue, SettingsLayer, StopReason,
-    TargetDescription, TargetNotUnique, Verdict,
+    Reported, ResponseTruncated, RunLayerOrigin, ScriptedModelDetails, SettingValue, SettingsLayer,
+    StopReason, TargetDescription, TargetNotUnique, TooManyRedirects, Verdict,
 };
 pub use run::{
     AbortedBy, Checkpoint, Completeness, KeyValueStoreReader, Lifecycle, NothingDone,

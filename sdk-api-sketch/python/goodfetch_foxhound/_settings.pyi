@@ -101,7 +101,7 @@ class CrawlSettings(TypedDict, total=False):
     retry: CrawlRetrySettings
     handle_statuses: list[int]
     """`crawl.handle_statuses`: statuses outside 2xx whose responses go to the handler instead of failing with
-    `response_not_ok`. Built-in: none."""
+    `response_not_ok`; a redirect status listed here is not followed (ADR 0118). Built-in: none."""
     handler: CrawlHandlerSettings
     keep_alive: bool
     """`crawl.keep_alive`: the Run stays `running` with an empty Frontier, waiting for `add_seed`, until `finish()` lets it
@@ -127,6 +127,26 @@ class FetchSettings(TypedDict, total=False):
     """ADR 0040's `tier_race`. Built-in: False."""
     kept_responses: KeptResponsesSettings
     """The responses a handler reads with `kept_response` and `kept_responses` (ADR 0110)."""
+    redirect: RedirectSettings
+    """`fetch.redirect.*` (ADR 0118)."""
+    refresh: RefreshSettings
+    """`fetch.refresh.*` (ADR 0118)."""
+
+class RedirectSettings(TypedDict, total=False):
+    """`fetch.redirect.*` (ADR 0118): every tier follows Fetch's redirect statuses (301, 302, 303, 307, 308) with Fetch's
+    method and header rules, each hop through the navigation gate. A redirect status listed in `crawl.handle_statuses`
+    reaches the handler unfollowed: the one way not to follow."""
+
+    max: int
+    """`fetch.redirect.max`: from 1 to 20, the browser's most; past it, `too_many_redirects`. Built-in: 20."""
+
+class RefreshSettings(TypedDict, total=False):
+    """`fetch.refresh.*` (ADR 0118): a crawl request's document that refreshes to another URL (a `Refresh` header, or
+    `<meta http-equiv="refresh">` outside `<noscript>`) is one more hop, made at once on every tier. A refresh to the
+    document itself is a reload, never followed."""
+
+    max_delay: timedelta | None
+    """`fetch.refresh.max_delay`: a longer refresh is left on the page. `None`: any. Built-in: 100 seconds, Scrapy's."""
 
 SinkWriteMode: TypeAlias = Literal["append", "upsert", "insert_only", "replace", "history"]
 class SinkSettings(TypedDict, total=False):
@@ -172,6 +192,8 @@ class LabelTimeoutSettings(PageTimeoutSettings, total=False):
 class LabelFetchSettings(TypedDict, total=False):
     tier: Literal["auto"] | FetchTier
     kept_responses: KeptResponsesSettings
+    redirect: RedirectSettings
+    refresh: RefreshSettings
 
 class LabelCrawlSettings(TypedDict, total=False):
     retry: CrawlRetrySettings
@@ -259,4 +281,7 @@ SettingKey: TypeAlias = CollieSettingKey | Literal[
     "fetch.tier_race",
     "fetch.kept_responses.urls",
     "fetch.kept_responses.max_size",
+    "fetch.redirect.max",
+    "fetch.refresh.max_delay",
+    "politeness.retry_after.max",
 ]

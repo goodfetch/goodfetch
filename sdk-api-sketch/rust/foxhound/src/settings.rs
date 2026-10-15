@@ -87,7 +87,8 @@ pub mod crawl {
     /// with `MaxRequests` and ends the Run `incomplete`. Built-in: none (ADR 0093).
     pub const MAX_REQUESTS: Setting<Option<u64>> = Setting::new("crawl.max_requests");
     /// `crawl.handle_statuses`: statuses outside 2xx whose responses go to the handler instead of
-    /// failing with `response_not_ok`. Built-in: none (ADR 0093).
+    /// failing with `response_not_ok`; a redirect status listed here is not followed (ADR 0118).
+    /// Built-in: none (ADR 0093).
     pub const HANDLE_STATUSES: Setting<Vec<u16>> = Setting::new("crawl.handle_statuses");
     /// `crawl.keep_alive`: the Run stays `running` with an empty Frontier, waiting for `add_seed`,
     /// until `finish()` lets it end once drained (ADR 0102, ADR 0037's RT-12). Built-in: false.
@@ -188,6 +189,29 @@ pub mod fetch {
         /// as `body_unavailable`. Built-in: 16 MiB.
         pub const MAX_SIZE: Setting<u64> = Setting::new("fetch.kept_responses.max_size");
     }
+
+    /// `fetch.redirect.*` (ADR 0118): every tier follows Fetch's redirect statuses (301, 302, 303,
+    /// 307, 308) with Fetch's method and header rules, each hop through the navigation gate. A
+    /// redirect status in `crawl.handle_statuses` reaches the handler unfollowed: the one way not to
+    /// follow.
+    pub mod redirect {
+        use crate::settings::Setting;
+
+        /// `fetch.redirect.max`: from 1 to 20, the browser's most; past it, `too_many_redirects`.
+        /// Built-in: 20.
+        pub const MAX: Setting<u32> = Setting::new("fetch.redirect.max");
+    }
+
+    /// `fetch.refresh.*` (ADR 0118): a crawl request's document that refreshes to another URL (a
+    /// `Refresh` header, or `<meta http-equiv="refresh">` outside `<noscript>`) is one more hop, made
+    /// at once on every tier. A refresh to the document itself is a reload, never followed.
+    pub mod refresh {
+        use crate::settings::{Duration, Setting};
+
+        /// `fetch.refresh.max_delay`: a longer refresh is left on the page; `None` follows any.
+        /// Built-in: 100 s, Scrapy's.
+        pub const MAX_DELAY: Setting<Option<Duration>> = Setting::new("fetch.refresh.max_delay");
+    }
 }
 
 /// `politeness.*` (ADR 0086): one family, so `goodfetch-foxhound config explain politeness` shows
@@ -223,18 +247,34 @@ pub mod politeness {
         pub const DELAY: Setting<Duration> = Setting::new("politeness.domain.delay");
     }
 
-    /// `politeness.backoff.*`: on 429, 502, 503, 504, `Retry-After`, and a connection refused or
-    /// timed out.
+    /// `politeness.backoff.*`: on 429, 502, 503, 504, an HTTP/2 `ENHANCE_YOUR_CALM`, and a
+    /// connection refused or timed out.
     pub mod backoff {
         use super::super::{Duration, Setting};
 
         /// `politeness.backoff.enabled`; built-in `true`. Off, the run records that it ignored
-        /// them (ADR 0023).
+        /// them and `Retry-After` (ADR 0023).
         pub const ENABLED: Setting<bool> = Setting::new("politeness.backoff.enabled");
-        /// `politeness.backoff.initial`: the first wait, doubled at each signal; built-in 2 s.
+        /// `politeness.backoff.initial`: the least wait. Each wait is drawn from the `Entropy`
+        /// handle between it and three times the previous one, at most `MAX`: decorrelated jitter,
+        /// never below it (ADR 0118); built-in 2 s.
         pub const INITIAL: Setting<Duration> = Setting::new("politeness.backoff.initial");
-        /// `politeness.backoff.max`: the longest wait; built-in 60 s.
+        /// `politeness.backoff.max`: the longest computed wait, which a `Retry-After` may exceed;
+        /// built-in 60 s.
         pub const MAX: Setting<Duration> = Setting::new("politeness.backoff.max");
+    }
+
+    /// `politeness.retry_after.*` (ADR 0118): a `Retry-After` in seconds or as an HTTP-date, on a
+    /// 429, 502, 503, 504 or a 3xx, holds its domain for the longer of it and the backoff. Nothing is
+    /// sent to the domain before the site's time, whatever this is set to, so it presses no site
+    /// harder.
+    pub mod retry_after {
+        use super::super::{Duration, Setting};
+
+        /// `politeness.retry_after.max`: the longest `Retry-After` a domain is waited for. Past it,
+        /// the requests the wait holds end failed with `response_unavailable`, its `retry_after`
+        /// set, for `retry_failed()` later. Built-in: 15 minutes.
+        pub const MAX: Setting<Duration> = Setting::new("politeness.retry_after.max");
     }
 
     /// `politeness.ip.*`: keyed by the IP the engine resolves (ADR 0021).

@@ -43,7 +43,8 @@ pub use hooks::{
     UntypedRecord,
 };
 pub use outcomes::{
-    CrawlRequestOutcome, CrawlRequestOutcomeKind, CrawlRequestRef, HandlerFailed, SkipReason,
+    CrawlRequestOutcome, CrawlRequestOutcomeKind, CrawlRequestRef, HandlerFailed, ResponseUnavailable,
+    SkipReason,
 };
 pub use output::{
     Compression, DatasetDuplicate, DatasetKeyInvalid, DatasetRecord, DatasetUnknown, Export,

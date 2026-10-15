@@ -275,6 +275,10 @@ from goodfetch_collie_client import Money as Money
 from goodfetch_collie_client import Mouse as Mouse
 from goodfetch_collie_client import MouseButton as MouseButton
 from goodfetch_collie_client import NavigationFailedError as NavigationFailedError
+from goodfetch_collie_client import TooManyRedirectsDetails as TooManyRedirectsDetails
+from goodfetch_collie_client import TooManyRedirectsError as TooManyRedirectsError
+from goodfetch_collie_client import ResponseTruncatedDetails as ResponseTruncatedDetails
+from goodfetch_collie_client import ResponseTruncatedError as ResponseTruncatedError
 from goodfetch_collie_client import NavigationInterruptedError as NavigationInterruptedError
 from goodfetch_collie_client import PageNavigatedDuringCallError as PageNavigatedDuringCallError
 from goodfetch_collie_client import NetworkSettings as NetworkSettings
@@ -511,6 +515,7 @@ from goodfetch_foxhound._crawl import LinkInfo as LinkInfo
 from goodfetch_foxhound._crawl import LinkPattern as LinkPattern
 from goodfetch_foxhound._crawl import NotAddedReason as NotAddedReason
 from goodfetch_foxhound._crawl import ResponseNotOKError as ResponseNotOKError
+from goodfetch_foxhound._crawl import ResponseUnavailableDetails as ResponseUnavailableDetails
 from goodfetch_foxhound._crawl import ResponseUnavailableError as ResponseUnavailableError
 from goodfetch_foxhound._crawl import RetryRequestedError as RetryRequestedError
 from goodfetch_foxhound._crawl import Seed as Seed

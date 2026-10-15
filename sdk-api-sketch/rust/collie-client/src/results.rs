@@ -148,6 +148,12 @@ impl ErrorCode {
     pub const RESPONSE_NOT_JSON: ErrorCode = ErrorCode::new("response_not_json");
     /// `navigation_failed`: the site could not be reached (ADR 0085).
     pub const NAVIGATION_FAILED: ErrorCode = ErrorCode::new("navigation_failed");
+    /// `too_many_redirects`: a redirect chain longer than the browser's 20, `max_redirects` or a
+    /// crawl's `fetch.redirect.max`; a loop answers the same way again, so not retryable (ADR 0118).
+    pub const TOO_MANY_REDIRECTS: ErrorCode = ErrorCode::new("too_many_redirects");
+    /// `response_truncated`: a body that broke off, from a navigation waiting for
+    /// `domcontentloaded` or `load`, a body read or `page.request()`; retryable (ADR 0118).
+    pub const RESPONSE_TRUNCATED: ErrorCode = ErrorCode::new("response_truncated");
     /// `page_crashed` (ADR 0085).
     pub const PAGE_CRASHED: ErrorCode = ErrorCode::new("page_crashed");
     /// `body_unavailable`: the browser no longer holds the body (ADR 0085).
@@ -525,6 +531,8 @@ pub trait ErrorDetails: Clone + 'static {}
 impl ErrorDetails for crate::plugins::SdkHandlerFailed {}
 impl ErrorDetails for TargetNotUnique {}
 impl ErrorDetails for Blocked {}
+impl ErrorDetails for TooManyRedirects {}
+impl ErrorDetails for ResponseTruncated {}
 impl ErrorDetails for NotVerified {}
 impl ErrorDetails for crate::models::LimitReached {}
 impl ErrorDetails for DeadlineExceeded {}
@@ -760,6 +768,31 @@ pub struct Blocked {
     pub url: String,
     /// `None` when the site answered with no response, such as a reset connection.
     pub status: Option<u16>,
+    /// For `RateLimited`, the time the site's `Retry-After` asks for, read in either form. Collie
+    /// never waits on it: the program directs its own navigation (ADR 0118).
+    pub retry_after: Option<std::time::SystemTime>,
+}
+
+/// Details of `too_many_redirects` (ADR 0118).
+#[derive(Debug, Clone)]
+#[non_exhaustive]
+pub struct TooManyRedirects {
+    /// The URL the chain started from.
+    pub url: String,
+    /// Each hop followed, in order.
+    pub chain: Vec<String>,
+}
+
+/// Details of `response_truncated` (ADR 0118): never part of a body returned as the whole.
+#[derive(Debug, Clone)]
+#[non_exhaustive]
+pub struct ResponseTruncated {
+    /// The response's URL.
+    pub url: String,
+    /// The bytes that arrived.
+    pub received_bytes: u64,
+    /// `None` when the body had no length, such as a chunked or an HTTP/2 one.
+    pub expected_bytes: Option<u64>,
 }
 
 /// Why AI work was not verified.

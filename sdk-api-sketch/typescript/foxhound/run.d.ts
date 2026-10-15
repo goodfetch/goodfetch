@@ -17,7 +17,8 @@ import type { RecordCounts } from "./output.js";
  * Why a due crawl request is held back. A reason a newer engine sends is kept as received (G3).
  * - `domain_concurrency`, `domain_delay`: the domain's slots and delay (ADR 0086);
  * - `crawl_delay`: a host's Crawl-delay, which raised its domain's delay;
- * - `backoff`: after a 429, 502, 503, 504, or a connection refused or timed out (ADRs 0021, 0086);
+ * - `backoff`: after a 429, 502, 503, 504, an HTTP/2 `ENHANCE_YOUR_CALM`, or a connection refused or timed out, and
+ *   a `Retry-After`'s wait, with `politeness.retry_after.max` as its setting when the site's time is the longer (ADRs 0021, 0086, 0118);
  * - `robots_txt`: the origin's robots.txt, not served yet;
  * - `handler_concurrency`: `crawl.handler.concurrency` handlers already running in the program;
  * - `governor`: ADR 0040's resource governor, admitting nothing new under memory pressure;

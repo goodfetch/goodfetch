@@ -19,7 +19,7 @@ Decided in [Hooks and injectable components in the SDK API](https://github.com/g
 
 It also builds on decisions in review when it was made:
 - ADR 0101 ([PR #515](https://github.com/goodfetch/automan/pull/515)): the program's own Model provider;
-- ADR 0102 ([PR #521](https://github.com/goodfetch/automan/pull/521)): the Run's progress, outcomes and report;
+- ADR 0102 ([PR #521](https://github.com/goodfetch/automan/pull/521)): the Run's progress, outcomes and report.
 
 ## Decision
 
@@ -90,6 +90,7 @@ Every context carries `request` (id, URL, Label, typed Payload, depth, attempt) 
 
 - **The URL and headers, never the method or the body.** A crawl request carries its method, headers and body from its enqueue or seed (ADR 0093), so a crawl of a POST or GraphQL API states each request where it knows it, and a Hook reads them (to sign a request, say) without rebuilding them. The method and the body are part of the request's identity in the Frontier (ADR 0093), and whether a non-GET request is an Effect is [Effects a program declares in code](https://github.com/goodfetch/automan/issues/500)'s ([PR #523](https://github.com/goodfetch/automan/pull/523)). A Hook that changed them would change what the Frontier had deduplicated, what robots.txt and Politeness read, and whether the request is an Effect (ADR 0010), unseen (G5).
 - **A header set to `null` is removed.**
+- **Bearer tokens are area 5's.** Whether a crawl request may carry `Authorization` built from a Secret placeholder, set by its enqueue or by a Hook in code, for an API behind a Bearer token, and what the engine's interception does with a route's `Authorization` or `Cookie` override on a crawl request's own fetch, are area 5's spec, under ADR 0092's rule on where a placeholder goes. Until then, a handler sends such a call with `page.request`, which takes a placeholder in any header (ADR 0092).
 - **The engine's own headers are refused.** ADR 0033's forbidden headers (`Host`, `Cookie`, `Authorization`, `Proxy-*`, method overrides) fail the Hook with `header_forbidden`, wrapped in `hook_failed`.
 - **Secrets.** A header's value may be a Secret placeholder, bound by `secrets.*` and checked against the request's URL, as in `page.request` and a route's overrides (ADR 0092). The engine adds cookies, Secret values and the Session's credentials after the last Hook, so no Secret value passes through the program, and the headers a Hook reads never hold them.
 - **A rewritten URL is checked against the crawl's scope and the run's domain policy,** whatever form the Hook takes. A rewrite that leaves them ends the request `skipped` (`out_of_scope`, `domain_policy`, ADR 0093).
@@ -100,11 +101,11 @@ Every context carries `request` (id, URL, Label, typed Payload, depth, attempt) 
 - **Hooks come before routes.** A crawl request's fetch passes, in this order:
   1. its before-request Hooks, those named in settings, then the crawl's in code;
   2. on a tier where the page's routes see the request (`page.route`, `session.route`, ADR 0085), those routes, which see the Hook's URL and headers, and whose overrides win, since they come later;
-  3. the run's domain policy and Filter lists, on what the last of them sends on (ADRs 0014, 0047, 0085);
+  3. the run's domain policy and Filter lists, on what the last of them sends on (ADRs 0014, 0047, 0085), and ADR 0087's navigation gate, with its Politeness permit and robots.txt, for the host it goes to;
   4. the engine's own interception, which adds cookies, Secret values and the Session's credentials, so neither a Hook nor a route reads them.
 
   An after-response Hook sees the response the page received, one a route fulfilled included.
-- **A route holds a crawl request's own fetch to a Hook's rules.** On the request's own document fetch, the original request a route reads (ADR 0085) is the one its last before-request Hook left. A route's override of the method or the body fails the route with `page_value_invalid`, and the request is aborted as when a route throws (ADR 0085), since the Frontier, robots.txt, Politeness and the Effect classing would not see it (G5). A route's new URL is checked as a Hook's rewrite is (above), so one that leaves the scope, the domain policy, robots.txt or Site preferences ends the request `skipped` with that reason, and nothing is sent. The page's other requests (its scripts, images and calls) keep ADR 0085's rules.
+- **A route holds a crawl request's own fetch to a Hook's rules.** On the request's own document fetch, the original request a route reads (ADR 0085) is the one its last before-request Hook left. A route's override of the method or the body fails the route with `page_value_invalid`, and the request is aborted as when a route throws (ADR 0085), so its attempt fails with that code, since the Frontier, robots.txt, Politeness and the Effect classing would not see it (G5). A route's new URL is checked as a Hook's rewrite is (above), so one that leaves the scope, the domain policy, robots.txt or Site preferences ends the request `skipped` with that reason, and nothing is sent. The page's other requests (its scripts, images and calls) keep ADR 0085's rules.
 
 ### Running and failing
 

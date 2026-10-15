@@ -77,6 +77,7 @@ Each SDK runs on its language's own model: TypeScript async only; Python an asyn
     - Rust: dropping the stream, with no warning, since dropping is how a stream closes.
   - Each iterator has one reader; a second reader calls the method again.
   - While open, an unread lossless sequence slows its Run (ADR 0024), and a telemetry sequence keeps only the latest value. Where each sequence starts is its owning ticket's ([Crawl output in code](https://github.com/goodfetch/automan/issues/479) for Records).
+    > Amended by [ADR 0100](0100-collies-agent-is-one-bounded-call-on-a-page-judged-by-the-programs-success-check-and-replayed-whole-from-the-plan.md): an Agent's steps are lossless and start at the task's first step, whenever `steps()` is called; the sequence ends when the task ends, and raises the task's error when it failed.
 
 ### Patterns and predicates
 

@@ -293,6 +293,24 @@ impl<P> PageStageContext<P> {
     pub fn page(&self) -> &Page {
         unimplemented!()
     }
+
+    /// Reads `stream`, one of this page's (its routes, its events, dialogs included, or a locator
+    /// handler's turns), for the rest of the attempt, inside [`Crawl::serve`], calling `handler`
+    /// with each item (ADR 0111): what a Hook subscribes before navigation lasts past its return.
+    /// Routes are answered concurrently, other items one at a time in order. A failing `handler`
+    /// follows its kind's rule: a route's request is aborted and the route removed, then
+    /// `page_handler_failed` (ADR 0085); a listener is removed, then `listener_failed` (ADR 0081);
+    /// a dialog gets its default; a locator handler fails the action it interrupted and stays. On
+    /// a context read from [`CrawlRun::hook_requests`], which no `serve` answers, it fails at once
+    /// with `setting_invalid`: the program reads the stream itself.
+    pub fn for_each<T, F>(&self, stream: EventStream<T>, handler: F) -> Result<(), Error>
+    where
+        T: 'static,
+        F: AsyncFn(T) -> Result<(), Error> + 'static,
+    {
+        let _ = (stream, handler);
+        unimplemented!()
+    }
 }
 
 /// Before a Record's commit, with the attempt's other outputs (ADR 0003). The engine checks the

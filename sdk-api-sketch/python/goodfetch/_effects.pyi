@@ -97,7 +97,7 @@ class DeclaresEffects:
         the Run elsewhere; declaring it again while its body runs, or after this attempt got its answer, raises
         `EffectKeyReusedError`, except that on a borrowed browser (ADR 0089) a key declared again after its answer
         returns that answer, since the other crawler's retries reach the Run as new calls. While the body runs in an
-        attempt, staging an output with it (`enqueue`, `add_seed`, a pushed Record) raises `EffectStagingRefusedError`:
+        attempt, staging an output with it (`enqueue`, `add_seed`, `ctx.push`, a Key-value store write) raises `EffectStagingRefusedError`:
         stage it after the declaration, from the output. A body that raises before the engine sent anything raises its
         own error unchanged; one
         that raises after a send raises `EffectUncertainError` from it, unless `repeatable`, which declares the body
@@ -159,7 +159,7 @@ class EffectOutputInvalidError(ProgramError):
 class EffectStagingRefusedDetails:
     key: str
     """The running body's key."""
-    staged: Literal["enqueue", "seed", "record"] | str
+    staged: Literal["enqueue", "seed", "record", "key_value"] | str
 
 @final
 class EffectStagingRefusedError(ProgramError):

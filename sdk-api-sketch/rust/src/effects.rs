@@ -147,7 +147,8 @@ impl Run {
     /// body runs, or after this attempt got its answer, fails with `effect_key_reused`, except that
     /// on a borrowed browser (ADR 0089) a key declared again after its answer returns that answer,
     /// since the other crawler's retries reach the Run as new calls. While the body runs in an
-    /// attempt, staging an output with it (`enqueue`, `add_seed`, a pushed Record) fails with
+    /// attempt, staging an output with it (`enqueue`, `add_seed`, `ctx.push`, a Key-value
+    /// store write) fails with
     /// `effect_staging_refused`: stage it after the declaration, from the output. A body that
     /// fails before the engine sent anything returns its own error unchanged; one that fails after a
     /// send fails with `effect_uncertain`, its source the original, unless
@@ -271,6 +272,8 @@ pub enum StagedOutput {
     Seed,
     /// A pushed Record.
     Record,
+    /// A Key-value store write through `ctx.run()` (ADR 0103).
+    KeyValue,
     /// A value a newer engine sends, kept as received (G3).
     Unknown(String),
 }

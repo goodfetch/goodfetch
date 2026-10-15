@@ -63,7 +63,7 @@ export interface DeclaresEffects {
    * attempt got its answer, throws `EffectKeyReusedError`, except that on a borrowed browser (ADR 0089)
    * a key declared again after its answer returns that answer, since the other crawler's retries reach
    * the Run as new calls. While the body runs in an attempt, staging an output with it (`enqueue`,
-   * `addSeed`, a pushed Record) throws `EffectStagingRefusedError`: stage it after the declaration,
+   * `addSeed`, `ctx.push`, a Key-value store write) throws `EffectStagingRefusedError`: stage it after the declaration,
    * from the output. A body that throws before the engine sent anything throws its own error unchanged; one that throws after a send throws
    * `EffectUncertainError`, chaining it, unless `repeatable`. An abort, or the end of the attempt
    * (`AttemptEndedError`), propagates unchanged, and the next declaration of the key acts on what was
@@ -134,5 +134,5 @@ export declare class EffectOutputInvalidError extends ProgramError {
  */
 export declare class EffectStagingRefusedError extends ProgramError {
   readonly code: "effect_staging_refused";
-  readonly details: { readonly key: string; readonly staged: "enqueue" | "seed" | "record" | (string & {}) };
+  readonly details: { readonly key: string; readonly staged: "enqueue" | "seed" | "record" | "key_value" | (string & {}) };
 }

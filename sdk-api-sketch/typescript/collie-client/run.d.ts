@@ -15,7 +15,7 @@ import type { KeyValueStore } from "./output.js";
 import type { PlanReport } from "./ai.js";
 import type { LimitScope, RunUsage } from "./models.js";
 import type { ExplainedSetting } from "./settings.js";
-import type { LimitSource, ProgramError, RefusedError, UnavailableError, Verdict } from "./results.js";
+import type { ExhaustedResource, LimitSource, ProgramError, RefusedError, UnavailableError, Verdict } from "./results.js";
 import type { CallOptions } from "./time.js";
 
 /**
@@ -39,7 +39,11 @@ export type RunStopReason =
   /** `program`: its own `stop()` or `close()`; `person`: from the Console; `schedule`: ADR 0036's scheduler. */
   | { readonly kind: "abort"; readonly by: "program" | "person" | "schedule" | (string & {}) }
   | { readonly kind: "engine_lost" }
-  | { readonly kind: "resources" }
+  /**
+   * The engine's memory (ADR 0040) or storage (ADR 0122) ran out. For storage, `path` is a folder on the
+   * full filesystem (null on Goodfetch Cloud); a start with the Run's ID resumes it once space is freed.
+   */
+  | { readonly kind: "resources"; readonly resource: ExhaustedResource; readonly path: string | null }
   | { readonly kind: "unknown"; readonly raw: string };
 
 /**
@@ -66,6 +70,18 @@ export interface WaitingPause {
 }
 
 /** A Run's progress: a telemetry value, coalesced under load (ADR 0024). */
+/**
+ * A filesystem the Run writes to, at its storage level (ADR 0122). At `low` the Run sheds Run trace
+ * video and new Response cache entries and carries `storage_low`; at `critical` it stops resumably.
+ */
+export interface StorageState {
+  readonly level: "normal" | "low" | "critical" | (string & {});
+  /** A folder on that filesystem, or null where the engine has no folder of its own (Goodfetch Cloud). */
+  readonly path: string | null;
+  /** In bytes, available to the engine's user; null when the engine cannot read it. */
+  readonly freeBytes: number | null;
+}
+
 export interface RunProgress {
   readonly lifecycle: Lifecycle;
   /** `none` when nothing works the Run, as after a crash, until a start with its ID resumes it. */
@@ -77,6 +93,8 @@ export interface RunProgress {
   readonly pauses: readonly WaitingPause[];
   /** The program's own line, set with `setProgressMessage` (ADR 0037's RT-15). */
   readonly message: string | null;
+  /** The worst storage level among the filesystems the Run writes to (ADR 0122). */
+  readonly storage: StorageState;
   /** When the engine took this value. */
   readonly at: Date;
 }
@@ -121,7 +139,7 @@ export interface PluginRun {
   readonly missingConfinement: readonly string[];
 }
 
-/** A warning the Run carries: a `stealth` choice (ADR 0035), stale Clean-up rules (ADR 0047), throttled CPU (ADR 0049), a degraded Politeness store (ADR 0053), a Plugin's reported figures (ADR 0033). A newer engine's code is kept (G3). */
+/** A warning the Run carries: a `stealth` choice (ADR 0035), stale Clean-up rules (ADR 0047), throttled CPU (ADR 0049), a degraded Politeness store (ADR 0053), a Plugin's reported figures (ADR 0033), a failed Plan file or recording write (`path_not_writable`, `file_write_failed`; ADR 0116), or `storage_low`, naming the folder, the free space and what was shed (ADR 0122). A newer engine's code is kept (G3). */
 export interface RunWarning {
   readonly code: string;
   readonly message: string;
@@ -220,14 +238,16 @@ export interface RunControl {
    * of its own: the Run's own bounds it, and a `timeout` or `signal` given here ends only the wait.
    * A failed write of the Plan file or the Response recording throws `PathNotWritableError` or
    * `FileWriteFailedError` once the Run has ended; `openRun(runId).report()` reads its report, which
-   * keeps a warning naming the code (ADR 0116).
+   * keeps a warning naming the code (ADR 0116). A Run stopped for full storage whose stop could not be
+   * recorded throws `ResourcesExhaustedError`; a start with its ID resumes it (ADR 0122).
    */
   finish(options?: CallOptions): Promise<RunReport>;
   /**
    * Stops the Run at its next safe point with a Checkpoint, `stopped` and `incomplete` as an abort by
    * its program, and returns its report. Resumable by its ID. Its wait is bounded by `timeout.close`,
    * as `close()`'s is, or by `timeout`; past it, it throws `DeadlineExceededError` naming the setting,
-   * and the Run still stops at its next safe point.
+   * and the Run still stops at its next safe point. On a filesystem at the `critical` storage level it
+   * writes no Checkpoint copy there (ADR 0122).
    */
   stop(options?: CallOptions): Promise<RunReport>;
   /** The Run's progress: its first value at once, then the latest after each change, until the Run ends. Leave the loop to read one. */
@@ -236,7 +256,8 @@ export interface RunControl {
   setProgressMessage(message: string, options?: CallOptions): Promise<void>;
   /**
    * Writes a Checkpoint now (ADR 0002), where the engine keeps the Run's. Resolves only once its file
-   * is whole; a write the engine cannot make throws `FileWriteFailedError` with `side: "engine"` (ADR 0116).
+   * is whole; a write the engine cannot make throws `FileWriteFailedError` with `side: "engine"` (ADR 0116),
+   * at once while that filesystem is at the `critical` storage level (ADR 0122).
    */
   checkpoint(options?: CallOptions): Promise<Checkpoint>;
   /** The Run trace recorded so far; `null` when the Run keeps none, which the report's `weakened` shows. */

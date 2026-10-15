@@ -92,8 +92,14 @@ pub enum RunStopReason {
     Abort(AbortedBy),
     /// The loss of its engine.
     EngineLost,
-    /// Exhausted resources (ADR 0040).
-    Resources,
+    /// The engine's memory (ADR 0040) or storage (ADR 0122) ran out. A start with the Run's ID
+    /// resumes it once memory or space is freed.
+    Resources {
+        /// What ran out.
+        resource: crate::results::ExhaustedResource,
+        /// For storage: a folder on the full filesystem, or `None` on Goodfetch Cloud.
+        path: Option<PathBuf>,
+    },
     /// A value this SDK does not know, as received.
     Unknown(String),
 }
@@ -167,8 +173,37 @@ pub struct RunProgress {
     pub pauses: Vec<WaitingPause>,
     /// The program's own line, set with [`Run::set_progress_message`] (ADR 0037's RT-15).
     pub message: Option<String>,
+    /// The worst storage level among the filesystems the Run writes to (ADR 0122).
+    pub storage: StorageState,
     /// When the engine took this value.
     pub at: SystemTime,
+}
+
+/// A filesystem the Run writes to, at its storage level (ADR 0122).
+#[derive(Debug, Clone)]
+#[non_exhaustive]
+pub struct StorageState {
+    /// Its level.
+    pub level: StorageLevel,
+    /// A folder on that filesystem, or `None` where the engine has no folder of its own (Goodfetch
+    /// Cloud).
+    pub path: Option<PathBuf>,
+    /// In bytes, available to the engine's user; `None` when the engine cannot read it.
+    pub free_bytes: Option<u64>,
+}
+
+/// A filesystem's storage level, set by `storage.low_free` and `storage.critical_free` (ADR 0122).
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum StorageLevel {
+    /// Enough space.
+    Normal,
+    /// The Run sheds Run trace video and new Response cache entries and carries `storage_low`.
+    Low,
+    /// Every Run whose essential writes are there stops resumably.
+    Critical,
+    /// A value this SDK does not know, as received.
+    Unknown(String),
 }
 
 /// A Checkpoint, as ADR 0002 reports it, written where the engine keeps the Run's: its own folder
@@ -283,7 +318,8 @@ impl Run {
     /// it, and `.timeout(..)` or dropping the future ends only the wait. A failed write of the Plan
     /// file or the Response recording fails with `path_not_writable` or `file_write_failed` once the
     /// Run has ended; `open_run(run_id).report()` reads its report, which keeps a warning naming the code
-    /// (ADR 0116).
+    /// (ADR 0116). A Run stopped for full storage whose stop could not be recorded fails with
+    /// `resources_exhausted`; a start with its ID resumes it (ADR 0122).
     pub fn finish(&self) -> Call<RunReport> {
         unimplemented!()
     }
@@ -291,7 +327,8 @@ impl Run {
     /// Stops the Run at its next safe point with a Checkpoint, `stopped` and `incomplete` as an
     /// abort by its program, and returns its report. Resumable by its ID. Its wait is bounded by
     /// `timeout.close`, as `close()`'s is, or by `.timeout(..)`; past it, it fails with
-    /// `deadline_exceeded` naming the setting, and the Run still stops at its next safe point.
+    /// `deadline_exceeded` naming the setting, and the Run still stops at its next safe point. On a
+    /// filesystem at the `critical` storage level it writes no Checkpoint copy there (ADR 0122).
     pub fn stop(&self) -> Call<RunReport> {
         unimplemented!()
     }
@@ -310,7 +347,7 @@ impl Run {
 
     /// Writes a Checkpoint now (ADR 0002), where the engine keeps the Run's. Resolves only once its
     /// file is whole; a write the engine cannot make fails with `file_write_failed` on the engine's
-    /// side (ADR 0116).
+    /// side (ADR 0116), at once while that filesystem is at the `critical` storage level (ADR 0122).
     pub fn checkpoint(&self) -> Call<Checkpoint> {
         unimplemented!()
     }
@@ -392,7 +429,9 @@ pub struct PluginRun {
 
 /// A warning the Run carries: a `stealth` choice (ADR 0035), stale Clean-up rules (ADR 0047),
 /// throttled CPU (ADR 0049), a degraded Politeness store (ADR 0053), a Plugin's reported figures
-/// (ADR 0033). A newer engine's code is kept.
+/// (ADR 0033), a failed Plan file or recording write (`path_not_writable`, `file_write_failed`;
+/// ADR 0116), or `storage_low`, naming the folder, the free space and what was shed (ADR 0122). A
+/// newer engine's code is kept.
 #[derive(Debug, Clone)]
 #[non_exhaustive]
 pub struct RunWarning {

@@ -122,6 +122,24 @@ async def pay_in_frame(page: AsyncPage) -> None:
         await page.get_by_role("link", name="Orders").click()
 
 
+async def all_rows(page: AsyncPage) -> dict[str, str]:
+    """A virtualized list renders only its visible rows, and no read scrolls (ADR 0121): the docs recipe scrolls the
+    last rendered row into view and collects rows by key until none is new. On Chromium a row inside a closed shadow
+    root is reached like any other."""
+    rows = page.get_by_role("table", name="Orders").get_by_role("row")
+    found: dict[str, str] = {}
+    while True:
+        seen = await rows.evaluate_all(
+            "els => Object.fromEntries(els.map(el => [el.getAttribute('aria-rowindex') ?? '', el.textContent ?? '']))"
+        )
+        before = len(found)
+        if isinstance(seen, dict):
+            found.update({key: text for key, text in seen.items() if isinstance(text, str)})
+        if len(found) == before:
+            return found
+        await rows.last.scroll_into_view_if_needed()  # resolved again at each use: recycled nodes never go stale
+
+
 def heap_metrics() -> JSONValue:
     """The way down, in the sync API: raw CDP for one page, under ADR 0017's rules, Chromium only."""
     with Collie.connect() as collie, collie.start() as run, run.new_page() as page:

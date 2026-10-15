@@ -1,5 +1,6 @@
 //! Snippet for Collie's page API (#472, ADR 0085).
 
+use std::collections::BTreeMap;
 use std::future::IntoFuture;
 use std::pin::pin;
 use std::time::Duration;
@@ -107,6 +108,27 @@ async fn last_scrolling_page(page: &Page) -> Result<Option<Value>, Error> {
     }
 }
 
+/// A virtualized list renders only its visible rows, and no read scrolls (ADR 0121): the docs
+/// recipe scrolls the last rendered row into view and collects rows by key until none is new. On
+/// Chromium a row inside a closed shadow root is reached like any other.
+async fn all_rows(page: &Page) -> Result<BTreeMap<String, String>, Error> {
+    let rows = page
+        .get_by_role(AriaRole::Table.name("Orders"))
+        .get_by_role(AriaRole::Row);
+    let mut all = BTreeMap::new();
+    loop {
+        let seen: BTreeMap<String, String> = rows
+            .evaluate_all("els => Object.fromEntries(els.map(el => [el.getAttribute('aria-rowindex') ?? '', el.textContent ?? '']))")
+            .await?;
+        let before = all.len();
+        all.extend(seen);
+        if all.len() == before {
+            return Ok(all);
+        }
+        rows.last().scroll_into_view_if_needed().await?; // resolved again: recycled nodes never go stale
+    }
+}
+
 /// Page functions: JavaScript source, one explicit JSON argument, typed results.
 async fn read_stats(page: &Page) -> Result<usize, Error> {
     let long_tags: usize = page
@@ -178,6 +200,7 @@ fn main() {
         einstein_quotes,
         click_next,
         last_scrolling_page,
+        all_rows,
         read_stats,
         pay_in_frame,
         heap_metrics,

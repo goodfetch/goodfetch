@@ -369,6 +369,11 @@ export interface Response {
   headers(): Headers;
   request(): Request;
   /**
+   * `true` when a site's service worker answered the request itself, typically from its own cache,
+   * so it reached no network and no route answered it (ADR 0121). Playwright's accessor.
+   */
+  fromServiceWorker(): boolean;
+  /**
    * Read on demand. Never fails for a response from `waitForRequestFinished`, `route.fetch()` or
    * `page.request`, whose bodies the engine keeps; elsewhere a body the browser has dropped throws
    * `BodyUnavailableError`. A body that broke off (short of its `Content-Length`, a chunked body
@@ -376,8 +381,15 @@ export interface Response {
    * `ResponseTruncatedError`, never part of a body as the whole (ADR 0118).
    */
   body(options?: CallOptions): Promise<Uint8Array>;
+  /**
+   * The body decoded with the response's own encoding, where Playwright always decodes UTF-8 (ADR
+   * 0119): a navigation's document response with the encoding its document was decoded with, so it
+   * agrees with `page.content()`; any other with its BOM, its `Content-Type` charset, the `<meta>`
+   * prescan for HTML or the XML declaration for XML, then UTF-8. Bad bytes become U+FFFD; it never
+   * throws on them.
+   */
   text(options?: CallOptions): Promise<string>;
-  /** A body that is not JSON throws `ResponseNotJSONError`. Narrow the value with the program's own schema. */
+  /** UTF-8 whatever the charset (RFC 8259). A body that is not JSON throws `ResponseNotJSONError`. Narrow the value with the program's own schema. */
   json(options?: CallOptions): Promise<JSONValue>;
 }
 

@@ -65,7 +65,9 @@ export type CrawlRequestOutcome = Attempts & { readonly request: CrawlRequestRef
  * - `hook`: a before-request Hook (ADR 0033);
  * - `handler`: the handler called `ctx.skip()`;
  * - `model_allowance`: a `ModelAllowanceReachedError` escaped the handler once the Run's Model allowance
- *   was reached (ADR 0107); the Run then ends `incomplete` though it finishes.
+ *   was reached (ADR 0107); the Run then ends `incomplete` though it finishes;
+ * - `content_type`: a response whose type the Label's `crawl.content_types` does not list, skipped
+ *   before its body is read, with a message naming the type (ADR 0119).
  */
 export type SkipReason =
   | "out_of_scope"
@@ -77,6 +79,7 @@ export type SkipReason =
   | "hook"
   | "handler"
   | "model_allowance"
+  | "content_type"
   | (string & {});
 
 
@@ -103,6 +106,7 @@ export type KnownErrorCode =
   | "attempt_ended"
   | "browser_required"
   | "responses_not_kept"
+  | "response_not_document"
   | "retry_requested"
   | "response_not_ok"
   | "response_unavailable"

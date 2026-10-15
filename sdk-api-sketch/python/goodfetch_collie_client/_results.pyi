@@ -51,6 +51,7 @@ KnownErrorCode: TypeAlias = Literal[
     "run_state_unavailable",
     "path_not_writable",
     "file_write_failed",
+    "resources_exhausted",
     "model_not_found",
     "model_capability_missing",
     "model_handler_failed",
@@ -315,6 +316,34 @@ class FileWriteFailedError(UnavailableError):
 
     @property
     def details(self) -> FileWriteFailedDetails: ...
+
+ExhaustedResource: TypeAlias = Literal["memory", "storage"] | str
+"""The resource a Run ran out of: memory (ADR 0040) or storage (ADR 0122). A newer engine's is kept (G3)."""
+
+@final
+@dataclass(frozen=True, kw_only=True)
+class ResourcesExhaustedDetails:
+    resource: ExhaustedResource
+    path: str | None
+    """For storage: a folder on the full filesystem, or `None` where the engine has no folder of its own (Goodfetch
+    Cloud)."""
+    free_bytes: int | None
+    """For storage: the free space when the engine stopped, in bytes."""
+    limit: LimitSource | None
+    """The setting that set the level, `storage.critical_free` or ADR 0040's, with its value and layer."""
+
+@final
+class ResourcesExhaustedError(UnavailableError):
+    """The engine's memory or storage ran out (ADRs 0040, 0122), and the setup must change.
+
+    Raised only where no Run report says it: a start refused while the filesystem the Run's file would go to is at the
+    `critical` storage level, and the call waiting on a Run whose stop could not be recorded, which a start with its ID
+    resumes. A Run that stopped and recorded it returns its report with `stop_reason.kind == "resources"` instead.
+    `fix` names the folder to free, or `storage.critical_free`, and the start to make again.
+    """
+
+    @property
+    def details(self) -> ResourcesExhaustedDetails: ...
 
 @final
 @dataclass(frozen=True, kw_only=True)

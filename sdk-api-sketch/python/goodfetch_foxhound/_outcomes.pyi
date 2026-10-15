@@ -27,6 +27,7 @@ SkipReason: TypeAlias = (
         "hook",
         "handler",
         "model_allowance",
+        "content_type",
     ]
     | str
 )
@@ -122,6 +123,7 @@ KnownErrorCode: TypeAlias = CollieKnownErrorCode | Literal[
     "attempt_ended",
     "browser_required",
     "responses_not_kept",
+    "response_not_document",
     "retry_requested",
     "response_not_ok",
     "response_unavailable",

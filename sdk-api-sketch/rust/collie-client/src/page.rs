@@ -1202,6 +1202,12 @@ impl Response {
         unimplemented!()
     }
 
+    /// `true` when a site's service worker answered the request itself, typically from its own
+    /// cache, so it reached no network and no route answered it (ADR 0121). Playwright's accessor.
+    pub fn from_service_worker(&self) -> bool {
+        unimplemented!()
+    }
+
     /// Read on demand. Never fails for a response from `wait_for_request_finished`,
     /// [`Route::fetch`] or [`PageRequest`], whose bodies the engine keeps; elsewhere a body the
     /// browser has dropped fails with `body_unavailable`.
@@ -1209,13 +1215,17 @@ impl Response {
         unimplemented!()
     }
 
-    /// The body as text.
+    /// The body decoded with the response's own encoding, where Playwright always decodes UTF-8
+    /// (ADR 0119): a navigation's document response with the encoding its document was decoded
+    /// with, so it agrees with `page.content()`; any other with its BOM, its `Content-Type`
+    /// charset, the `<meta>` prescan for HTML or the XML declaration for XML, then UTF-8. Bad bytes
+    /// become U+FFFD; it never fails on them.
     pub fn text(&self) -> Call<String> {
         unimplemented!()
     }
 
-    /// The body as JSON; one that is not JSON fails with `response_not_json`. Deserialize it into
-    /// the program's own type.
+    /// The body as JSON, read as UTF-8 whatever the charset (RFC 8259); one that is not JSON fails
+    /// with `response_not_json`. Deserialize it into the program's own type.
     pub fn json(&self) -> Call<serde_json::Value> {
         unimplemented!()
     }

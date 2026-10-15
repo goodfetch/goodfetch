@@ -166,6 +166,9 @@ impl ErrorCode {
     /// `file_write_failed`: full or failing storage, on the program's machine or where the engine
     /// keeps its files (ADR 0116).
     pub const FILE_WRITE_FAILED: ErrorCode = ErrorCode::new("file_write_failed");
+    /// `resources_exhausted`, an unavailable error that is not retryable: the engine's memory or
+    /// storage ran out, raised only where no Run report says it (ADRs 0040, 0122).
+    pub const RESOURCES_EXHAUSTED: ErrorCode = ErrorCode::new("resources_exhausted");
     /// `cdp_command_refused`, a refusal (ADR 0085).
     pub const CDP_COMMAND_REFUSED: ErrorCode = ErrorCode::new("cdp_command_refused");
     /// `session_reserved`: a second `page.lend()` on a Session while one attach is open, or a lend
@@ -591,6 +594,7 @@ impl ErrorDetails for crate::recording::RecordingInvalid {}
 impl ErrorDetails for ScriptedModelDetails {}
 impl ErrorDetails for PathNotWritable {}
 impl ErrorDetails for FileWriteFailed {}
+impl ErrorDetails for ResourcesExhausted {}
 
 // A file saved to the program's path, or written by the engine for the program to save: an Export,
 // a Download, a Checkpoint, a Run trace, a screenshot's or a PDF's `path` (ADR 0116). Two codes,
@@ -663,6 +667,37 @@ pub struct FileWriteFailed {
     pub reason: FileWriteReason,
     /// The OS's own name, such as `ENOSPC` or `ERROR_DISK_FULL`.
     pub os_code: Option<String>,
+}
+
+/// The resource a Run ran out of (ADRs 0040, 0122).
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum ExhaustedResource {
+    /// The engine's memory allowance (ADR 0040).
+    Memory,
+    /// A filesystem the Run writes to, at the `critical` storage level or failing a write (ADR 0122).
+    Storage,
+    /// A value this SDK does not know, as received.
+    Unknown(String),
+}
+
+/// Details of `resources_exhausted`, raised only where no Run report says it: a start refused
+/// while the filesystem the Run's file would go to is at the `critical` storage level, and the
+/// call waiting on a Run whose stop could not be recorded, which a start with its ID resumes. A Run
+/// that stopped and recorded it returns its report with [`crate::RunStopReason::Resources`]
+/// instead. `fix` names the folder to free, or `storage.critical_free`, and the start to make again.
+#[derive(Debug, Clone)]
+#[non_exhaustive]
+pub struct ResourcesExhausted {
+    /// What ran out.
+    pub resource: ExhaustedResource,
+    /// For storage: a folder on the full filesystem, or `None` where the engine has no folder of
+    /// its own (Goodfetch Cloud).
+    pub path: Option<PathBuf>,
+    /// For storage: the free space when the engine stopped, in bytes.
+    pub free_bytes: Option<u64>,
+    /// The setting that set the level, `storage.critical_free` or ADR 0040's, with its value and layer.
+    pub limit: Option<LimitSource>,
 }
 
 /// Details of `deadline_exceeded`. The error's `limit` names the phase's setting and its layer; a

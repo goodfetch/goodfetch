@@ -55,6 +55,7 @@ export type KnownErrorCode =
   | "download_failed"
   | "path_not_writable"
   | "file_write_failed"
+  | "resources_exhausted"
   | "cdp_command_refused"
   | "session_reserved"
   | "borrow_requires_cdp"
@@ -273,6 +274,28 @@ export declare class FileWriteFailedError extends UnavailableError {
     readonly path: string | null;
     readonly reason: FileWriteReason;
     readonly osCode: string | null;
+  };
+}
+
+/** The resource a Run ran out of: memory (ADR 0040) or storage (ADR 0122). A newer engine's is kept (G3). */
+export type ExhaustedResource = "memory" | "storage" | (string & {});
+/**
+ * The engine's memory or storage ran out (ADRs 0040, 0122), and the setup must change. Thrown only where no
+ * Run report says it: a start refused while the filesystem the Run's file would go to is at the
+ * `critical` storage level, and the call waiting on a Run whose stop could not be recorded, which a start
+ * with its ID resumes. A Run that stopped and recorded it returns its report with `stopReason`
+ * `resources` instead. `fix` names the folder to free, or `storage.critical_free`, and the start to make again.
+ */
+export declare class ResourcesExhaustedError extends UnavailableError {
+  readonly code: "resources_exhausted";
+  readonly details: {
+    readonly resource: ExhaustedResource;
+    /** For storage: a folder on the full filesystem, or null where the engine has no folder of its own (Goodfetch Cloud). */
+    readonly path: string | null;
+    /** For storage: the free space when the engine stopped, in bytes. */
+    readonly freeBytes: number | null;
+    /** The setting that set the level, `storage.critical_free` or ADR 0040's, with its value and layer. */
+    readonly limit: LimitSource | null;
   };
 }
 

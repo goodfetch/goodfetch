@@ -206,12 +206,20 @@ pub mod plan {
 }
 
 pub mod extract {
-    //! `extract.*` (ADR 0091).
+    //! `extract.*` (ADRs 0091, 0123).
     use super::Setting;
     use crate::ai::ExtractMode;
 
     /// Compiled (the default) or model; `extract()` takes it for one call as `.mode(..)`.
     pub const MODE: Setting<ExtractMode> = Setting::new("extract.mode");
+    /// `extract.locale`: the BCP 47 locale every locale-dependent Value transform reads under, such as
+    /// `de-DE` (ADR 0123). The compile must use it, and Grounding refuses a transform under any other.
+    /// `None`, the default: the compile chooses from the page's evidence, sharing the element's `lang`
+    /// language. Never the machine's.
+    pub const LOCALE: Setting<Option<String>> = Setting::new("extract.locale");
+    /// `extract.timezone_id`: the IANA time zone of a date-time whose text states none, and of a
+    /// relative time. `None`, the default: the Session's `browser.timezone_id`. Never the machine's.
+    pub const TIMEZONE_ID: Setting<Option<String>> = Setting::new("extract.timezone_id");
 }
 
 pub mod observation {
@@ -260,6 +268,24 @@ pub mod browser {
     /// Access modes it warns once, since a site can see the missing loads.
     pub const BLOCK_RESOURCES: Setting<Vec<BlockedResourceType>> =
         Setting::new("browser.block_resources");
+    /// `browser.service_workers`: whether a site's service workers run, Playwright's
+    /// `serviceWorkers` values (S3, ADR 0121). [`ServiceWorkers::Allow`] by default on Chromium,
+    /// where a worker's own requests pass the engine's interception and a request it answers
+    /// itself is marked `from_service_worker()`; set [`ServiceWorkers::Block`] when a route or the
+    /// Response cache must act on every request. `Block` on Firefox and WebKit, where an explicit
+    /// `Allow` fails with `capability_unavailable`. `Block` never patches `register`:
+    /// registration fails as a browser's own refusal does.
+    pub const SERVICE_WORKERS: Setting<ServiceWorkers> = Setting::new("browser.service_workers");
+
+    /// Whether a site's service workers run (ADR 0121).
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    #[non_exhaustive]
+    pub enum ServiceWorkers {
+        /// `allow`.
+        Allow,
+        /// `block`.
+        Block,
+    }
 
     /// A resource type `browser.block_resources` takes (ADRs 0047, 0117).
     #[derive(Debug, Clone, Copy, PartialEq, Eq)]

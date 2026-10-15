@@ -86,10 +86,31 @@ pub mod crawl {
     /// `crawl.max_requests`: requests admitted to the Frontier. Reaching it refuses further enqueues
     /// with `MaxRequests` and ends the Run `incomplete`. Built-in: none (ADR 0093).
     pub const MAX_REQUESTS: Setting<Option<u64>> = Setting::new("crawl.max_requests");
+    /// `crawl.max_url_length`: characters of a URL as parsed; a longer one is not added with
+    /// `MaxUrlLength`, and the finished Run is `unverified`. Built-in: 2,083, Scrapy's; `None` for
+    /// none (ADR 0120).
+    pub const MAX_URL_LENGTH: Setting<Option<u32>> = Setting::new("crawl.max_url_length");
+    /// `crawl.max_path_segments`: a URL with a longer path is not added with `MaxPathSegments`, and
+    /// the finished Run is `unverified`. Built-in: 20, Heritrix's; `None` for none (ADR 0120).
+    pub const MAX_PATH_SEGMENTS: Setting<Option<u32>> = Setting::new("crawl.max_path_segments");
+    /// `crawl.max_segment_repeats`: how many times a path segment, or a run of segments, may follow
+    /// itself; past it a URL is not added with `MaxSegmentRepeats`, and the finished Run is
+    /// `unverified`. Built-in: 2, Heritrix's; `None` for none (ADR 0120).
+    pub const MAX_SEGMENT_REPEATS: Setting<Option<u32>> = Setting::new("crawl.max_segment_repeats");
+    /// `crawl.keep_url_fragment`: the fragment stays in a request's key, for a Label whose requests
+    /// are hash routes. Such a Label is served only on `light_browser` or `browser`, and a resume may
+    /// not change it. Built-in: false (ADR 0120).
+    pub const KEEP_URL_FRAGMENT: Setting<bool> = Setting::new("crawl.keep_url_fragment");
     /// `crawl.handle_statuses`: statuses outside 2xx whose responses go to the handler instead of
     /// failing with `response_not_ok`; a redirect status listed here is not followed (ADR 0118).
     /// Built-in: none (ADR 0093).
     pub const HANDLE_STATUSES: Setting<Vec<u16>> = Setting::new("crawl.handle_statuses");
+    /// `crawl.content_types`: the media types the handler takes (`type/subtype`, `type/*`, `*/*`),
+    /// the type computed by MIME sniffing as Chrome computes it. Any other response that would
+    /// reach the handler ends `skipped` with `ContentType` before its body is read. For an
+    /// accepted type that is no HTML document, the page holds no document and `ctx.response()`
+    /// holds the body (ADR 0119). Built-in: `text/html` and `application/xhtml+xml`.
+    pub const CONTENT_TYPES: Setting<Vec<String>> = Setting::new("crawl.content_types");
     /// `crawl.keep_alive`: the Run stays `running` with an empty Frontier, waiting for `add_seed`,
     /// until `finish()` lets it end once drained (ADR 0102, ADR 0037's RT-12). Built-in: false.
     pub const KEEP_ALIVE: Setting<bool> = Setting::new("crawl.keep_alive");
@@ -107,8 +128,8 @@ pub mod crawl {
         use super::super::Setting;
         use crate::crawl::LinkPattern;
 
-        /// Which hosts a crawl may reach, measured against every seed after the Frontier's URL
-        /// rules, so `www.` is no other host (ADR 0005).
+        /// Which hosts a crawl may reach, measured against every seed, hosts compared as the WHATWG
+        /// parser leaves them and one leading `www.` label ignored (ADR 0120).
         #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
         #[non_exhaustive]
         pub enum Strategy {
@@ -173,6 +194,12 @@ pub mod fetch {
     pub const TIER: Setting<TierChoice> = Setting::new("fetch.tier");
     /// `fetch.tier_race`, ADR 0040's `tier_race`. Built-in: false.
     pub const TIER_RACE: Setting<bool> = Setting::new("fetch.tier_race");
+    /// `fetch.encoding`: a WHATWG Encoding label forced on the crawl request's document on every
+    /// tier, after its BOM; an unknown label is refused with `setting_invalid`. With none, every
+    /// tier reads a BOM, the `Content-Type` charset, the `<meta>` prescan, then UTF-8 for a valid
+    /// UTF-8 body, and a body it would have to guess escalates to the browser (ADR 0119).
+    /// Built-in: none.
+    pub const ENCODING: Setting<Option<String>> = Setting::new("fetch.encoding");
 
     /// `fetch.kept_responses.*` (ADR 0110): the responses a handler reads with
     /// `ctx.kept_response` and `ctx.kept_responses`, on a crawl's Run or its Labels. A Label that
@@ -211,6 +238,17 @@ pub mod fetch {
         /// `fetch.refresh.max_delay`: a longer refresh is left on the page; `None` follows any.
         /// Built-in: 100 s, Scrapy's.
         pub const MAX_DELAY: Setting<Option<Duration>> = Setting::new("fetch.refresh.max_delay");
+    }
+}
+
+/// `export.*`: options of the Export formats (ADR 0103). Every text format is UTF-8 (ADR 0119).
+pub mod export {
+    /// `export.csv.*`.
+    pub mod csv {
+        use crate::settings::Setting;
+
+        /// `export.csv.bom`: start a CSV Export with a UTF-8 BOM, for spreadsheets. Built-in: false.
+        pub const BOM: Setting<bool> = Setting::new("export.csv.bom");
     }
 }
 

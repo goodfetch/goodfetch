@@ -67,7 +67,8 @@ class PayloadSettings(TypedDict, total=False):
 
 CrawlScopeStrategy: TypeAlias = Literal["same_hostname", "same_domain", "same_origin", "all"]
 class CrawlScopeSettings(TypedDict, total=False):
-    """`crawl.scope.*`: checked on every enqueue and every redirect (ADR 0093)."""
+    """`crawl.scope.*`: checked on every enqueue and every redirect (ADR 0093), hosts compared as the WHATWG parser
+    leaves them and one leading `www.` label ignored (ADR 0120)."""
 
     strategy: CrawlScopeStrategy
     """Built-in: `same_hostname`, Crawlee's default."""
@@ -98,10 +99,28 @@ class CrawlSettings(TypedDict, total=False):
     max_requests: int | None
     """`crawl.max_requests`: requests admitted to the Frontier. Reaching it refuses further enqueues with `max_requests`
     and ends the Run `incomplete`. Built-in: none."""
+    max_url_length: int | None
+    """`crawl.max_url_length`: characters of a URL as parsed; a longer one is not added with `max_url_length`, and the
+    finished Run is `unverified`. Built-in: 2,083, Scrapy's; `None` for none (ADR 0120)."""
+    max_path_segments: int | None
+    """`crawl.max_path_segments`: a URL with a longer path is not added with `max_path_segments`, and the finished Run is
+    `unverified`. Built-in: 20, Heritrix's; `None` for none (ADR 0120)."""
+    max_segment_repeats: int | None
+    """`crawl.max_segment_repeats`: how many times a path segment, or a run of segments, may follow itself; past it a URL
+    is not added with `max_segment_repeats`, and the finished Run is `unverified`. Built-in: 2, Heritrix's; `None` for
+    none (ADR 0120)."""
+    keep_url_fragment: bool
+    """`crawl.keep_url_fragment`: the fragment stays in a request's key, for a Label whose requests are hash routes. Such
+    a Label is served only on `light_browser` or `browser`, and a resume may not change it. Built-in: False (ADR 0120)."""
     retry: CrawlRetrySettings
     handle_statuses: list[int]
     """`crawl.handle_statuses`: statuses outside 2xx whose responses go to the handler instead of failing with
     `response_not_ok`; a redirect status listed here is not followed (ADR 0118). Built-in: none."""
+    content_types: list[str]
+    """`crawl.content_types`: the media types the handler takes (`type/subtype`, `type/*`, `*/*`), the type computed by
+    MIME sniffing as Chrome computes it. Any other response that would reach the handler ends `skipped` with
+    `content_type` before its body is read. For an accepted type that is no HTML document, the page holds no document
+    and `ctx.response` holds the body (ADR 0119). Built-in: `text/html` and `application/xhtml+xml`."""
     handler: CrawlHandlerSettings
     keep_alive: bool
     """`crawl.keep_alive`: the Run stays `running` with an empty Frontier, waiting for `add_seed`, until `finish()` lets it
@@ -131,6 +150,11 @@ class FetchSettings(TypedDict, total=False):
     """`fetch.redirect.*` (ADR 0118)."""
     refresh: RefreshSettings
     """`fetch.refresh.*` (ADR 0118)."""
+    encoding: str | None
+    """`fetch.encoding`: a WHATWG Encoding label forced on the crawl request's document on every tier, after its BOM; an
+    unknown label is refused with `setting_invalid`. With none, every tier reads a BOM, the `Content-Type` charset, the
+    `<meta>` prescan, then UTF-8 for a valid UTF-8 body, and a body it would have to guess escalates to the browser (ADR
+    0119). Built-in: none."""
 
 class RedirectSettings(TypedDict, total=False):
     """`fetch.redirect.*` (ADR 0118): every tier follows Fetch's redirect statuses (301, 302, 303, 307, 308) with Fetch's
@@ -147,6 +171,15 @@ class RefreshSettings(TypedDict, total=False):
 
     max_delay: timedelta | None
     """`fetch.refresh.max_delay`: a longer refresh is left on the page. `None`: any. Built-in: 100 seconds, Scrapy's."""
+
+class ExportCSVSettings(TypedDict, total=False):
+    bom: bool
+    """`export.csv.bom`: start a CSV Export with a UTF-8 BOM, for spreadsheets. Built-in: False."""
+
+class ExportSettings(TypedDict, total=False):
+    """`export.*`: options of the Export formats (ADR 0103). Every text format is UTF-8 (ADR 0119)."""
+
+    csv: ExportCSVSettings
 
 SinkWriteMode: TypeAlias = Literal["append", "upsert", "insert_only", "replace", "history"]
 class SinkSettings(TypedDict, total=False):
@@ -179,6 +212,7 @@ class CrawlRunSettings(TypedDict, total=False):
     extract: ExtractSettings
     observation: ObservationSettings
     sinks: Mapping[str, SinkSettings]
+    export: ExportSettings
     checkpoint: CheckpointSettings
     effect: EffectSettings
 
@@ -194,11 +228,14 @@ class LabelFetchSettings(TypedDict, total=False):
     kept_responses: KeptResponsesSettings
     redirect: RedirectSettings
     refresh: RefreshSettings
+    encoding: str | None
 
 class LabelCrawlSettings(TypedDict, total=False):
     retry: CrawlRetrySettings
     handle_statuses: list[int]
+    content_types: list[str]
     handler: CrawlHandlerSettings
+    keep_url_fragment: bool
 
 class LabelSettings(TypedDict, total=False):
     """A Label's settings (ADR 0093): every setting a page takes, what shapes one crawl request, every `session.*` key
@@ -249,6 +286,8 @@ class Settings(TypedDict, total=False):
     """`proxy.*` (ADRs 0021, 0092)."""
     sinks: Mapping[str, SinkSettings]
     """`sinks.<name>.*`, keyed by the Sink's name (ADR 0103). Foxhound's: a Collie Run has no Datasets."""
+    export: ExportSettings
+    """`export.*`: the Export formats' options (ADRs 0103, 0119)."""
     checkpoint: CheckpointSettings
     effect: EffectSettings
     """`effect.*`: what the Effect journal keeps of a declared Effect (ADR 0106)."""
@@ -273,9 +312,14 @@ SettingKey: TypeAlias = CollieSettingKey | Literal[
     "crawl.scope.exclude",
     "crawl.max_depth",
     "crawl.max_requests",
+    "crawl.max_url_length",
+    "crawl.max_path_segments",
+    "crawl.max_segment_repeats",
+    "crawl.keep_url_fragment",
     "crawl.retry.max",
     "crawl.retry.handler_failed",
     "crawl.handle_statuses",
+    "crawl.content_types",
     "crawl.handler.concurrency",
     "fetch.tier",
     "fetch.tier_race",
@@ -284,4 +328,6 @@ SettingKey: TypeAlias = CollieSettingKey | Literal[
     "fetch.redirect.max",
     "fetch.refresh.max_delay",
     "politeness.retry_after.max",
+    "fetch.encoding",
+    "export.csv.bom",
 ]

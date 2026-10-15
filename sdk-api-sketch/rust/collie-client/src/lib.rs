@@ -86,15 +86,17 @@ pub use recording::{
 };
 pub use results::{
     AiWorkResult, BlockCause, Blocked, BoxError, CallCancelled, CancelledBy, Claim, ClosedValue,
-    DeadlineExceeded, Ended, EndedBy, Error, ErrorDetails, ErrorGroup, ErrorTarget, FileWriteFailed,
-    FileWriteReason, FileWriteSide, LimitSource, NotVerified, PartialOutput, PathNotWritable,
-    Reported, ResponseTruncated, RunLayerOrigin, ScriptedModelDetails, SettingValue, SettingsLayer,
-    StopReason, TargetDescription, TargetNotUnique, TooManyRedirects, Verdict,
+    DeadlineExceeded, Ended, EndedBy, Error, ErrorDetails, ErrorGroup, ErrorTarget,
+    ExhaustedResource, FileWriteFailed, FileWriteReason, FileWriteSide, LimitSource, NotVerified,
+    PartialOutput, PathNotWritable, Reported, ResourcesExhausted, ResponseTruncated, RunLayerOrigin,
+    ScriptedModelDetails, SettingValue, SettingsLayer, StopReason, TargetDescription,
+    TargetNotUnique, TooManyRedirects, Verdict,
 };
 pub use run::{
     AbortedBy, Checkpoint, Completeness, KeyValueStoreReader, Lifecycle, NothingDone,
     PauseRaisedBy, PluginRun, RunFailure, RunInputDifference, RunProgress, RunReport,
-    RunStopReason, RunTrace, RunView, RunWarning, StartedAs, VerdictReason, WaitingPause,
+    RunStopReason, RunTrace, RunView, RunWarning, StartedAs, StorageLevel, StorageState,
+    VerdictReason, WaitingPause,
 };
 pub use sessions::{
     ArtifactDownloadFailed, ArtifactUnavailableOffline, BrowserName, BrowserNotInstalled,

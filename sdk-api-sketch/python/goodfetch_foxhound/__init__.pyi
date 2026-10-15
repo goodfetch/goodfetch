@@ -172,6 +172,7 @@ from goodfetch_collie_client import ErrorGroup as ErrorGroup
 from goodfetch_collie_client import ErrorTarget as ErrorTarget
 from goodfetch_collie_client import EventInfo as EventInfo
 from goodfetch_collie_client import EventIterator as EventIterator
+from goodfetch_collie_client import ExhaustedResource as ExhaustedResource
 from goodfetch_collie_client import expect as expect
 from goodfetch_collie_client import ExplainedSetting as ExplainedSetting
 from goodfetch_collie_client import ExtractionIncompleteDetails as ExtractionIncompleteDetails
@@ -346,6 +347,8 @@ from goodfetch_collie_client import Reported as Reported
 from goodfetch_collie_client import ReportedTokens as ReportedTokens
 from goodfetch_collie_client import Request as Request
 from goodfetch_collie_client import ResolveSecret as ResolveSecret
+from goodfetch_collie_client import ResourcesExhaustedDetails as ResourcesExhaustedDetails
+from goodfetch_collie_client import ResourcesExhaustedError as ResourcesExhaustedError
 from goodfetch_collie_client import ResourceType as ResourceType
 from goodfetch_collie_client import Response as Response
 from goodfetch_collie_client import ResponseExpectations as ResponseExpectations
@@ -447,6 +450,7 @@ from goodfetch_collie_client import StepReport as StepReport
 from goodfetch_collie_client import StepResult as StepResult
 from goodfetch_collie_client import StepSource as StepSource
 from goodfetch_collie_client import Stopped as Stopped
+from goodfetch_collie_client import StorageState as StorageState
 from goodfetch_collie_client import StoredBytes as StoredBytes
 from goodfetch_collie_client import StructuredOutputStrategy as StructuredOutputStrategy
 from goodfetch_collie_client import Subscription as Subscription
@@ -498,6 +502,7 @@ from goodfetch_foxhound._crawl import AttemptEndedError as AttemptEndedError
 from goodfetch_foxhound._crawl import AttemptEndReason as AttemptEndReason
 from goodfetch_foxhound._crawl import BrowserRequiredError as BrowserRequiredError
 from goodfetch_foxhound._crawl import ResponsesNotKeptError as ResponsesNotKeptError
+from goodfetch_foxhound._crawl import ResponseNotDocumentError as ResponseNotDocumentError
 from goodfetch_foxhound._crawl import Crawl as Crawl
 from goodfetch_foxhound._crawl import CrawlContext as CrawlContext
 from goodfetch_foxhound._crawl import CrawlRequest as CrawlRequest

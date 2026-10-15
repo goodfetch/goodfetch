@@ -122,6 +122,23 @@ export async function payInFrame(page: Page): Promise<void> {
   await page.getByRole("link", { name: "Orders" }).click();
 }
 
+// A virtualized list renders only its visible rows, and no read scrolls (ADR 0121): the docs recipe
+// scrolls the last rendered row into view and collects rows by key until none is new. On Chromium a
+// row inside a closed shadow root is reached like any other.
+export async function allRows(page: Page): Promise<Map<string, string>> {
+  const rows = page.getByRole("table", { name: "Orders" }).getByRole("row");
+  const all = new Map<string, string>();
+  for (;;) {
+    const seen = await rows.evaluateAll((els: Element[]) =>
+      els.map((el): [string, string] => [el.getAttribute("aria-rowindex") ?? "", el.textContent ?? ""]),
+    );
+    const before = all.size;
+    for (const [key, text] of seen) all.set(key, text);
+    if (all.size === before) return all;
+    await rows.last().scrollIntoViewIfNeeded(); // resolved again at each use: recycled nodes never go stale
+  }
+}
+
 // The way down: raw CDP for one page, under ADR 0017's rules, Chromium only.
 export async function heapSize(page: Page): Promise<JSONValue> {
   await using cdp = await page.newCDPSession();

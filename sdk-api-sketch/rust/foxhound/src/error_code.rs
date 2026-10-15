@@ -39,6 +39,10 @@ pub const BROWSER_REQUIRED: ErrorCode = ErrorCode::new("browser_required");
 /// `responses_not_kept`: `ctx.kept_response` or `ctx.kept_responses` on a request whose Label
 /// keeps nothing; the fix names `fetch.kept_responses.urls` (ADR 0110).
 pub const RESPONSES_NOT_KEPT: ErrorCode = ErrorCode::new("responses_not_kept");
+/// `response_not_document`: a call on the document of a crawl page whose response the Label
+/// accepted but is no HTML document (a PDF, JSON, an image). It never escalates; the fix says to
+/// read `ctx.response()` (ADR 0119). Not retryable.
+pub const RESPONSE_NOT_DOCUMENT: ErrorCode = ErrorCode::new("response_not_document");
 /// `retry_requested`: an attempt the handler ended with `ctx.retry()` (ADR 0093).
 pub const RETRY_REQUESTED: ErrorCode = ErrorCode::new("retry_requested");
 /// `response_not_ok`: a final 4xx that is no Block cause, or a 3xx that is not followed (ADR 0118),

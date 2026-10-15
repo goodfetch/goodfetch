@@ -127,7 +127,8 @@ export interface CrawlRunProgress extends RunProgress {
 
 /** A URL rule the Frontier learned, with its evidence (ADR 0005). */
 export interface LearnedRule {
-  readonly kind: "no_effect_parameter" | "trap_path" | "cursor_pagination" | (string & {});
+  /** `equivalent_form`: `www.` and the bare host, `http` and `https`, a trailing slash or an index file shown to be one resource by a redirect, page signatures or `rel=canonical` (ADR 0120). */
+  readonly kind: "no_effect_parameter" | "equivalent_form" | "trap_path" | "cursor_pagination" | (string & {});
   readonly domain: string;
   readonly rule: string;
   readonly evidence: string;

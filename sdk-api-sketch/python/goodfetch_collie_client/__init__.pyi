@@ -301,6 +301,7 @@ from goodfetch_collie_client._results import EndedBy as EndedBy
 from goodfetch_collie_client._results import ErrorCode as ErrorCode
 from goodfetch_collie_client._results import ErrorGroup as ErrorGroup
 from goodfetch_collie_client._results import ErrorTarget as ErrorTarget
+from goodfetch_collie_client._results import ExhaustedResource as ExhaustedResource
 from goodfetch_collie_client._results import FileWriteFailedDetails as FileWriteFailedDetails
 from goodfetch_collie_client._results import FileWriteFailedError as FileWriteFailedError
 from goodfetch_collie_client._results import FileWriteReason as FileWriteReason
@@ -324,6 +325,8 @@ from goodfetch_collie_client._results import PathNotWritableError as PathNotWrit
 from goodfetch_collie_client._results import ProgramError as ProgramError
 from goodfetch_collie_client._results import RefusedError as RefusedError
 from goodfetch_collie_client._results import Reported as Reported
+from goodfetch_collie_client._results import ResourcesExhaustedDetails as ResourcesExhaustedDetails
+from goodfetch_collie_client._results import ResourcesExhaustedError as ResourcesExhaustedError
 from goodfetch_collie_client._results import RunLayerOrigin as RunLayerOrigin
 from goodfetch_collie_client._results import SettingsLayer as SettingsLayer
 from goodfetch_collie_client._results import Stopped as Stopped
@@ -366,6 +369,7 @@ from goodfetch_collie_client._run import RunTrace as RunTrace
 from goodfetch_collie_client._run import RunView as RunView
 from goodfetch_collie_client._run import RunWarning as RunWarning
 from goodfetch_collie_client._run import StartedAs as StartedAs
+from goodfetch_collie_client._run import StorageState as StorageState
 from goodfetch_collie_client._run import VerdictReason as VerdictReason
 from goodfetch_collie_client._run import WaitingPause as WaitingPause
 from goodfetch_collie_client._run import WeakenedSetting as WeakenedSetting

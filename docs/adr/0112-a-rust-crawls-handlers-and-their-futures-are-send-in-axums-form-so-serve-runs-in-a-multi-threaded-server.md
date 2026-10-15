@@ -26,7 +26,7 @@ Decided in [Send bounds on a Rust crawl's handlers](https://github.com/goodfetch
 
 The form was chosen on S1 and S3 (Rust's idiom, under the name and shape axum users already write), T (one form that every async closure fits) and G3 (a closure that is not `Send` fails to compile, with rustc's message).
 
-- **A crawl's handler** is `F: FnOnce(CrawlContext<P>) -> Fut + Clone + Send + Sync + 'a`, with `Fut: Future<Output = …> + Send + 'a`. `serve` clones the handler for each crawl request and calls the clone once, as axum does for each HTTP request. The output type is ADR 0093's, as [A Rust crawl handler's own error](https://github.com/goodfetch/goodfetch/issues/528) settles it. Whatever error type it gives, a `Send` future needs that error to be `Send`.
+- **A crawl's handler** is `F: FnOnce(CrawlContext<P>) -> Fut + Clone + Send + Sync + 'a`, with `Fut: Future<Output = Result<(), BoxError>> + Send + 'a`. `serve` clones the handler for each crawl request and calls the clone once, as axum does for each HTTP request. The output type is [ADR 0109](0109-a-rust-programs-own-code-returns-any-error-as-a-box-error-read-as-the-other-sdks-read-an-exception.md)'s `BoxError`, `Box<dyn std::error::Error + Send + Sync + 'static>`, which a `Send` future needs and has.
 - **Every async closure fits.** RFC 3668 makes every async closure `FnOnce`, and a closure is `Clone` when its captures are. Two forms work unchanged:
   - `async |ctx| { … }` borrowing the declaring function's locals, as scenario 12 borrows its Dataset;
   - `async move |ctx| { … }` owning clones of the Labels and Datasets it uses, as scenarios 05, 08 and 10 return a `Crawl<'static>`.
@@ -48,7 +48,7 @@ The form was chosen on S1 and S3 (Rust's idiom, under the name and shape axum us
 
 - **Not `'static`.** Handlers, Hooks, a crawl's login steps and Effect bodies keep the `'a` that lets them borrow the declaring function's locals (ADR 0081). axum requires its handler future to be `'static`, and scenario 12 meets that by declaring its crawl inside the handler. `Crawl<'a>` and `LabelDeclaration<'a, P>` are declarations, not handles, so they are the exception to ADR 0081's rule that no public type has a lifetime parameter, as ADR 0093's borrowing handlers already made them. A program that spawns `serve` builds a `Crawl<'static>` from handlers that own clones, and spawns `async move { crawl.serve(&run).await }`.
 - **The blocking API is unchanged.** `goodfetch_foxhound::blocking`'s handlers, Hooks and login steps are already `Fn + Send + Sync + 'static` (ADR 0081).
-- **Checked at compile time** (C-SEND-SYNC, ADR 0081): `Crawl<'static>` is `Send + Sync`, and so is `LabelDeclaration<'static, P>` whenever `P` is, and `serve`'s future is `Send`. A handler that holds an `Rc` across an `.await` fails to compile, with rustc naming the value that is not `Send` (G3).
+- **Checked at compile time** (C-SEND-SYNC, ADR 0081): `Crawl<'static>` and `LabelDeclaration<'static, P>` are `Send + Sync`, and `serve`'s future is `Send`. A handler that holds an `Rc` across an `.await` fails to compile, with rustc naming the value that is not `Send` (G3).
 
 ## Considered Options
 
@@ -69,6 +69,6 @@ The form was chosen on S1 and S3 (Rust's idiom, under the name and shape axum us
 - **Amends ADR 0104.** A Rust crawl's Hooks take the handlers' form, and are `Send` with `Send` futures. A note sits under "Declaring a Hook".
 - **Amends ADR 0111.** `ctx.for_each`'s handler is `FnOnce(T) -> Fut + Clone + Send + Sync + 'static`, with `Fut: Send + 'static` and `T: Send + 'static`, so `serve`'s future stays `Send`. A note sits under its bounds.
 - **Amends ADR 0106.** A Rust Effect body is `FnOnce(Effect) -> Fut + Send` with a `Send` future, given `Effect` by value, and its declaration's future is `Send`. A note sits under "Each language's form".
-- **Leaves to [A Rust crawl handler's own error](https://github.com/goodfetch/goodfetch/issues/528)** the error type a handler returns, which this ADR requires to be `Send`.
+- **`TESTING.md`**'s concurrency conformance cases gain the Rust checks: `Crawl` `Send + Sync` and `serve`'s future `Send` at compile time, a `serve` spawned on a multi-threaded runtime with borrowing and owning handlers, and a compile-fail test for a handler holding an `Rc` across an `.await`.
 - **Area 11 (Client surfaces)** builds the bounds, the per-request clone, the compile-time checks, and a compile-fail test for a handler that is not `Send`. ADR 0037's SDK-06 and RT-07 list this ADR.
 - **The `prototype/sdk-api` sketch** has these bounds in `crawl.rs` (`for_each` included), `hooks.rs`, `effects.rs`, `run.rs`, `sessions.rs` and `agent.rs`, the compile-time checks in `crawl.rs`, and a `serve` spawned on Tokio beside a program answering `crawl_requests()` with `Rc` state in `snippet_concurrency.rs`.

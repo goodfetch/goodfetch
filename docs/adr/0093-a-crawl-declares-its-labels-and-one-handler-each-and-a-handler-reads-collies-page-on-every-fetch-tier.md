@@ -212,6 +212,8 @@ Decided in [Crawl definition and handler context](https://github.com/goodfetch/g
 | `UnavailableError` | `handler_lost` | yes |
 | `RefusedError` | `site_preferences_refused` | no |
 
+> Amended by [ADR 0110](0110-a-crawl-handler-reads-the-responses-its-labels-settings-kept-from-its-own-navigation.md): `responses_not_kept`, a `ProgramError` that is not retryable, joins them.
+
 ## Considered Options
 
 - **Per-request callbacks** (Scrapy, Scrapling): rejected. A function cannot cross the connection or a Checkpoint, so it needs a registry of names, which a Label already is. **One handler that switches on the Label** (Spider-rs): rejected; every program writes its own router, with no Payload typed per kind.
@@ -293,5 +295,5 @@ Decided in [Crawl definition and handler context](https://github.com/goodfetch/g
   - Hooks and injectable components in the SDK API: Hooks scoped by Label in code, cross-cutting request headers, URL rewrites, and a stage before a retry.
   - Testing a user's crawl or automation: building a `CrawlContext` from a saved response.
     > Amended by [ADR 0105](0105-a-programs-tests-replay-a-response-recording-in-a-test-engine-that-reaches-no-site.md): a test builds no `CrawlContext`; `runHandler` builds it from a saved document and runs the handler.
-  - [Effects a program declares in code](https://github.com/goodfetch/goodfetch/issues/500): a declared Effect must be checked rather than repeated, since a handler re-runs on a retry, an escalation, a sample comparison and a lost lease.
+  - [Effects a program declares in code](https://github.com/goodfetch/goodfetch/issues/500) (ADR 0106): a declared Effect must be checked rather than repeated, since a handler re-runs on a retry, an escalation, a sample comparison and a lost lease.
   - **Merge order.** ADR 0092 merged first and carries this ADR's note under its "Amends ADR 0083" item: `session.source`, `session.http_credentials`, `session.recovery.human_pause`, `session.page_check` and `secrets.*` are also set on a Label. Links to ADRs on `main` become relative.

@@ -1,6 +1,6 @@
 # A saved file is written whole or not at all, and a failed write says whether its path or its storage failed
 
-When a program saves a file, the path ends up holding either the whole file or what it held before. A write that fails raises one of two Error codes, split by remedy. `path_not_writable` means the path the program chose cannot be written, so the program must change. `file_write_failed` means the storage failed: a full disk, a quota or an I/O error on the program's machine, or any failure where the engine keeps its files, so the setup must change. This covers every file a program saves (an Export, a Download, a Checkpoint, a Run trace, a screenshot or PDF given a `path`) and every file the engine writes for it to save.
+When a program saves a file, the path ends up holding either the whole file or what it held before. A write that fails raises one of two Error codes, split by remedy. `path_not_writable` means the path the program chose cannot be written, so the program must change. `file_write_failed` means the storage failed: a full disk, a quota or an I/O error on the program's machine, or any failure where the engine keeps its files, so the setup must change. This covers every file a program saves (an Export, a Download, a Checkpoint, a Run trace, a screenshot or PDF given a `path`, a Plan file, a Response recording) and every file the engine writes for it to save.
 
 **What this answers.**
 - Golden scenario 05's failure point 7, "the export fails (disk full, path not writable)". It scored **generic** in all three Goodfetch programs: [ADR 0103](0103-a-handler-pushes-records-staged-with-its-attempt-into-datasets-its-crawl-declares-and-a-reader-never-slows-the-crawl.md) gives `run.export` and `saveAs` no Error code for a write that fails, and ADR 0079's groups left open which group each failure belongs to.
@@ -24,9 +24,11 @@ Decided in [Error code of a failed Export write](https://github.com/goodfetch/go
     - `saveAs(path)` on an `Export` (ADR 0103);
     - `saveAs(path)` on a `Download` (ADR 0085);
     - `saveAs(path)` on a `Checkpoint` or a `RunTrace` (ADR 0102);
-    - the `path` option of `screenshot()` and `pdf()` (ADR 0085).
+    - the `path` option of `screenshot()` and `pdf()` (ADR 0085);
+    - a Run's Plan file, which the SDK writes back at the `plan` path when a version is promoted (ADR 0091), and its Response recording, which it writes at its path when a recording Run ends (ADR 0105).
   - These share one name or one option with one meaning: copy a file to the program's machine. They therefore fail one way (S2, S3).
   - A `screenshot()` or `pdf()` whose file write fails raises, and does not return its bytes.
+  - A Plan file or a Response recording is already written atomically (ADRs 0091, 0105). A failed write of either raises the same codes from the call during which the write happens, such as the call that ends the Run; the file at the path is left as it was. What the Run keeps so the write can be made again is area 9's spec for a Plan and area 11's for a recording.
 - **Every write the engine makes of a file it hands the program:**
   - `run.export` writing the Export;
   - `run.checkpoint` writing the Checkpoint;
@@ -79,8 +81,9 @@ ADR 0079 gives each code exactly one group, named for its remedy, and one retrya
   - it creates missing parent folders, as Playwright, Crawlee and Scrapy do;
   - it replaces an existing file, as Playwright's `copyFile` and `createWriteStream` do;
   - it resolves a relative path against the program's working directory.
-- **Either process may write the program's path.** The SDK runtime may write it, or a local engine may copy the file there directly, as Playwright's server does. Both follow this rule and raise these codes.
-- **On the engine's side.** `run.export`, `run.checkpoint` and `run.trace` (when it writes its copy) return their value only once its file is complete, with its size (and, for an Export, its SHA-256, ADR 0103), and the engine removes an unfinished file. So an `Export`, a `Checkpoint` or a `RunTrace` a program holds is always whole.
+- **Either process may write the program's path.** The SDK runtime may write it, or a local engine may copy the file there directly, as Playwright's server does. Both follow this rule and raise these codes, and a full disk there is `file_write_failed` with side `program`, since `side` names the storage that failed, not the process.
+- **On Windows,** where a leading dot does not hide a file, the temporary file also gets the hidden attribute.
+- **On the engine's side.** `run.export`, `run.checkpoint` and `run.trace` (when it writes its copy) return their value only once its file is complete, with its size and digest (an Export's SHA-256, ADR 0103; a Checkpoint's digest, ADR 0102), and the engine removes an unfinished file. So an `Export`, a `Checkpoint` or a `RunTrace` a program holds is always whole.
 
 ### Golden scenario 05
 
@@ -107,6 +110,7 @@ Failure point 7 becomes **typed** in all three languages, with no change to the 
 - **Amends ADR 0103.** `run.export` and `Export.saveAs` raise `path_not_writable` or `file_write_failed`, and a saved Export is written whole or not at all. Notes sit under its Exports section and its Error codes.
 - **Amends ADR 0085.** `Download.saveAs` and the `path` option of `screenshot()` and `pdf()` follow the same rule and codes, beside `download_failed`. Notes sit under its Files section and its Error codes table.
 - **Amends ADR 0102.** `run.checkpoint()`, `run.trace()`'s copy, and their `saveAs` follow the same rule and codes. Notes sit under its Checkpoints and The Run trace sections.
+- **Amends ADRs 0091 and 0105.** A failed write of the Plan file or the Response recording raises `path_not_writable` or `file_write_failed` from the call during which it happens, leaving the file as it was. Notes sit under ADR 0091's promotion bullet and ADR 0105's `mode: "record"` bullet.
 - **Error codes.**
   - `path_not_writable` joins `goodfetch-protocol` in the `program` group, and `file_write_failed` in the `unavailable` group. Neither is retryable.
   - Both join through `xtask codegen`'s naming checks (ADR 0079), with an exit code each in ADR 0069's table.

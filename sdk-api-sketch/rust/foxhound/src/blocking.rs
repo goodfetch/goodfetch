@@ -212,6 +212,18 @@ impl<P> CrawlContext<P> {
         unimplemented!()
     }
 
+    /// Reads `items`, one of this page's, for the rest of the attempt, calling `handler` with each
+    /// on the `tasks` module's tracked blocking threads, as the async context's `for_each` does
+    /// (ADR 0111).
+    pub fn for_each<T, F>(&self, items: EventIter<T>, handler: F) -> Result<(), Error>
+    where
+        T: Send + 'static,
+        F: Fn(T) -> Result<(), BoxError> + Send + Sync + 'static,
+    {
+        let _ = (items, handler);
+        unimplemented!()
+    }
+
     /// Adds one URL to the Frontier, as the async context does.
     pub fn enqueue<Q: serde::Serialize>(&self, url: &str, label: &crate::Label<Q>, payload: Q) -> Call<crate::Enqueued> {
         let _ = (url, label, payload);

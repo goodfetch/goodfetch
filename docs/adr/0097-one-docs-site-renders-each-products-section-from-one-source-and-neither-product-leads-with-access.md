@@ -123,8 +123,10 @@ Decided in [Docs site and positioning of two Products](https://github.com/goodfe
   5. **Porting rules for a coding agent.**
   6. **The competitor's version and date.**
 - **The "after" code is docs samples, so it runs in CI** (ADR 0068).
-- **The "before" code is type-checked, never run.** Each "before" program is a file beside its guide, with a manifest pinning the competitor's version, type-checked against it (tsc, pyright, rustc) as golden scenarios' leader programs are. The page includes the file rather than a fenced block, so it is not a docs sample. A guide a golden scenario backs reuses that scenario's programs.
-- **The Live check `migration-guides-current`,** owned by area 11, run nightly (or before each release candidate while the nightly tier is off, as ADR 0068's `docs-external-links`) and blocking nothing directly (ADR 0064), reads the registries. It fails when a guide's competitor has a newer major than the one pinned, or a newer minor for a `0.y` competitor such as Browser Use, since SemVer lets anything change before 1.0.0 and such projects ship breaking changes in minors, as ADR 0030 reads Goodfetch's own `0.y.z` previews. It only reads registries, so it costs nothing (ADR 0076).
+- **The "before" code is type-checked, never run.** Each "before" program is a file beside its guide, with a manifest pinning the competitor's version, type-checked against it (tsc, pyright, rustc) as golden scenarios' leader programs are. The page includes the file rather than a fenced block, so it is not a docs sample. A guide a golden scenario backs reuses that scenario's programs. The type-check runs in the Pre-merge suite when the guide or its manifest changes, and in the Release suite.
+- **The Live check `migration-guides-current`,** owned by area 11, run nightly (or before each release candidate while the nightly tier is off, as ADR 0068's `docs-external-links`) and blocking nothing directly (ADR 0064), reads the registries. It fails when a guide's competitor has a newer major than the one pinned, or a newer minor for a `0.y` competitor such as Browser Use, since SemVer lets anything change before 1.0.0 and such projects ship breaking changes in minors, as ADR 0030 reads Goodfetch's own `0.y.z` previews.
+  - A pin the manifest marks as held, with its reason, is checked against the newest release of its own major (or minor at `0.y`) instead. The Crawlee-with-Stagehand guide holds Stagehand 3 because Crawlee's integration accepts only Stagehand 3, and its check also fails once that integration accepts a newer Stagehand major. The v3 part of the Stagehand guide holds Stagehand 3 because it documents v3.
+  - It only reads registries, so it costs nothing (ADR 0076).
 
 ### Per-Product artifacts
 
@@ -160,6 +162,7 @@ Decided in [Docs site and positioning of two Products](https://github.com/goodfe
     - the Console's message catalog;
     - every package's description and keywords.
   - Its list is one file: "bypass" in any form, "undetectable", "undetected" and "solve any CAPTCHA". Counsel's review may extend it.
+  - It matches words, not meanings. A key such as ADR 0092's `proxy.bypass` passes as code, and its description is worded without the word ("hosts reached without the proxy"), as every other sentence the check fails is rewritten.
   - It is not Vale: ADR 0068 keeps Vale out, and a list of four phrases needs no prose linter.
 - **The marketing site's repository keeps the same list.**
 - **Counsel's review before V1** (ADR 0035) covers both Products' stealth pages, the registry metadata and the marketing site.
@@ -183,7 +186,7 @@ Decided in [Docs site and positioning of two Products](https://github.com/goodfe
 - **Only the five guides the ticket listed:** rejected. It misses Browser Use, the leader of a golden scenario, and Spider, a parity reference.
 - **Guides from Puppeteer, Selenium, Firecrawl and Crawl4AI too:** rejected for V1. No golden scenario backs them. Collie's page API is Playwright-shaped, so Playwright's own guide from Puppeteer bridges Puppeteer users.
 - **Running the "before" code of guides:** rejected. Running it would drive real browsers and call live models in CI for a competitor's program; type-checking against the pinned version keeps it honest at no cost.
-- **Running each sample of a shared page on both executables:** rejected. A test runs once, on Collie unless it needs Foxhound (#459), and Foxhound's rendering differs only in names, which the type checks and the compile catch.
+- **Running each sample of a page rendered for both Products on both executables:** rejected. A test runs once, on Collie unless it needs Foxhound (#459), and Foxhound's rendering differs only in names, which the type checks and the compile catch.
 - **The wording policy kept by review only:** rejected. It would miss registry metadata, where the field's defeat wording lives, and would drift as agents write docs.
 - **Vale for the wording check,** as GitLab, Temporal, Datadog and Grafana run it: rejected. It amends ADR 0068 to enforce four phrases.
 
@@ -195,13 +198,14 @@ Decided in [Docs site and positioning of two Products](https://github.com/goodfe
 
   Notes sit under its reference pages and its "For agents" item.
 - **Amends ADR 0035.** The wording policy covers every text published about either Product, its list gains "undetected" and every form of "bypass", `xtask wording` enforces it, and counsel's review before V1 covers both Products' stealth pages, the registry metadata and the marketing site. Notes sit under the policy and under its counsel review.
-- **Amends ADR 0068.** The build-output test and `docs-deploy-smoke` check each section's llms files and the root's, the extractor also reads the published packages' READMEs, samples run per rendering (a shared page's once, on Collie's executable), a Foxhound rendering's Python is also type-checked by pyright, and a migration guide's "before" programs are included files, not samples. Notes sit under its build-output test, its deploy smoke check, its extractor, its `no_run` rule and its samples' binary.
+- **Amends ADR 0068.** The build-output test and `docs-deploy-smoke` check each section's llms files and the root's, the extractor also reads the published packages' READMEs, samples run per rendering (those of a page rendered for both Products once, on Collie's executable), a Foxhound rendering's Python is also type-checked by pyright, and a migration guide's "before" programs are included files, not samples. Notes sit under its build-output test, its deploy smoke check, its extractor, its `no_run` rule and its samples' binary.
 - **Amends ADR 0061.** The Quick suite also runs `xtask wording`. A note sits under its Quick suite.
+- **Amends ADR 0088.** What Collie's docs may name about competitors appears only in migration guides and benchmark results. A note sits under its positioning item.
 - **ADR 0037.**
   - Matrix row SDK-07 and pain row 8 cite this ADR.
   - The sentence under the Stagehand v3 rows places the Crawlee-with-Stagehand guide in Foxhound's docs.
   - Areas 1 and 11 list this ADR.
-- **`TESTING.md`.** Its docs-site rules check llms files per section and the root, and run `xtask wording` in the Quick suite; its docs-sample rules extract the packages' READMEs, run a shared page's samples on Collie's executable, check Foxhound's rendering statically and keep guides' "before" programs out of the samples; its Live checks list `migration-guides-current`.
+- **`TESTING.md`.** Its docs-site rules check llms files per section and the root, and run `xtask wording` in the Quick suite; its docs-sample rules extract the packages' READMEs, run the samples of a page rendered for both Products on Collie's executable, check Foxhound's rendering statically and keep guides' "before" programs out of the samples; its Live checks list `migration-guides-current`.
 - **Glossary.** No new term. The sections are named after their Products, and the glossary's _Avoid_ "platform" holds.
 - **Areas.**
   - Area 1 (Repository, CI and release) builds the sections, the generator, the switcher, scoped search, per-section llms files and the wording check.

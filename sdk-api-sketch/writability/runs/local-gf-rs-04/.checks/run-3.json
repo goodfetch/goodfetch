@@ -1,0 +1,12 @@
+{
+  "lang": "rs",
+  "kind": "gf",
+  "errors": 11,
+  "warnings": 2,
+  "output": "s04_login_human_pause.rs:4:33: error[E0603]: struct `Session` is private: private struct\ns04_login_human_pause.rs:3:5: warning: unused import: `futures_util::future::FutureExt`\ns04_login_human_pause.rs:5:5: warning: unused import: `goodfetch_foxhound::crawl::Crawl`\ns04_login_human_pause.rs:13:23: error[E0282]: type annotations needed: cannot infer type\ns04_login_human_pause.rs:16:5: error[E0282]: type annotations needed: cannot infer type\ns04_login_human_pause.rs:19:5: error[E0282]: type annotations needed: cannot infer type\ns04_login_human_pause.rs:20:5: error[E0282]: type annotations needed: cannot infer type\ns04_login_human_pause.rs:23:5: error[E0282]: type annotations needed: cannot infer type\ns04_login_human_pause.rs:26:5: error[E0282]: type annotations needed: cannot infer type\ns04_login_human_pause.rs:29:32: error[E0282]: type annotations needed: cannot infer type\ns04_login_human_pause.rs:30:5: error[E0282]: type annotations needed: cannot infer type\ns04_login_human_pause.rs:33:5: error[E0282]: type annotations needed: cannot infer type\ns04_login_human_pause.rs:36:30: error[E0282]: type annotations needed: cannot infer type",
+  "pass": false,
+  "lenient_pass": false,
+  "n": 3,
+  "time": "2026-10-15T22:19:08",
+  "by": "agent"
+}

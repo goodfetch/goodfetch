@@ -1,0 +1,12 @@
+{
+  "model": "qwen2.5-coder:14b",
+  "num_ctx": 32768,
+  "turns": 6,
+  "checks": 1,
+  "end": "replied",
+  "seconds": 210,
+  "prompt_tokens": 24437,
+  "output_tokens": 1354,
+  "text_tool_calls": 5,
+  "final_text": "thor').innerText,\\n                tag: quote.querySelector('.tag').innerText.split(', ').map(tag => tag.trim())\\n            });\\n        });\\n        return quotes;\\n    }\\\").await?;\\n\\n    if quotes.is_empty() {\\n        println!(\\\"No quotes found.\\\");\\n    } else {\\n        for quote in quotes {\\n            println!(\\\"Text: {:?}, Author: {:?}, Tag: {:?}\\\", quote.text, quote.author, quote.tag);\\n        }\\n    }\\n\\n    session.close().await?;\\n    foxhound.close().await?;\\n\\n    Ok(());\\n}\"}"
+}

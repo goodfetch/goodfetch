@@ -1,0 +1,12 @@
+{
+  "model": "qwen2.5-coder:14b",
+  "num_ctx": 32768,
+  "turns": 3,
+  "checks": 0,
+  "end": "replied",
+  "seconds": 435,
+  "prompt_tokens": 7449,
+  "output_tokens": 2546,
+  "text_tool_calls": 2,
+  "final_text": "io::main]\\nasync fn main() -> Result<(), Error> {\\n    let foxhound = Foxhound::new();\\n    let crawl_name = \\\"scenario_07\\\";\\n\\n    println!(\\\"First run\\\");\\n    foxhound.scope(ConnectOptions::default(), || run(&foxhound, crawl_name)).await;\\n\\n    println!(\\\"Second run\\\");\\n    foxhound.scope(ConnectOptions::default(), || run(&foxhound, crawl_name)).await;\\n\\n    println!(\\\"Third run\\\");\\n    foxhound.scope(ConnectOptions::default(), || run(&foxhound, crawl_name)).await;\\n\\n    Ok(()\\n}\"\n  }\n}"
+}

@@ -1,0 +1,12 @@
+{
+  "model": "qwen2.5-coder:14b",
+  "num_ctx": 32768,
+  "turns": 9,
+  "checks": 3,
+  "end": "replied",
+  "seconds": 375,
+  "prompt_tokens": 30614,
+  "output_tokens": 2290,
+  "text_tool_calls": 8,
+  "final_text": "DONE 3 FAILED"
+}

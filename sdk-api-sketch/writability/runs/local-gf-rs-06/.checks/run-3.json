@@ -1,0 +1,12 @@
+{
+  "lang": "rs",
+  "kind": "gf",
+  "errors": 0,
+  "warnings": 1,
+  "output": "s06_mixed_fetch_crawl.rs:1:1: warning: missing documentation for the crate",
+  "pass": false,
+  "lenient_pass": true,
+  "n": 3,
+  "time": "2026-10-15T22:21:56",
+  "by": "agent"
+}

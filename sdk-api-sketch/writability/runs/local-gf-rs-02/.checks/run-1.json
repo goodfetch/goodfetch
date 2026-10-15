@@ -1,0 +1,12 @@
+{
+  "lang": "rs",
+  "kind": "gf",
+  "errors": 1,
+  "warnings": 0,
+  "output": "s02_typed_extract.rs:1:36: error[E0601]: `main` function not found in crate `w_local_gf_rs_02`: consider adding a `main` function to `s02_typed_extract.rs`",
+  "pass": false,
+  "lenient_pass": false,
+  "n": 1,
+  "time": "2026-10-15T22:13:52",
+  "by": "agent"
+}

@@ -1,0 +1,12 @@
+{
+  "lang": "rs",
+  "kind": "gf",
+  "errors": 7,
+  "warnings": 0,
+  "output": "s09_ai_in_playwright_program.rs:17:5: error: expected expression, found `let` statement\ns09_ai_in_playwright_program.rs:14:18: error: expected `;`, found keyword `let`: help: add `;` here\ns09_ai_in_playwright_program.rs:7:5: error[E0433]: failed to resolve: use of unresolved module or unlinked crate `collie_client`: use of unresolved module or unlinked crate `collie_client`\ns09_ai_in_playwright_program.rs:17:19: error[E0433]: failed to resolve: use of unresolved module or unlinked crate `collie_client`: use of unresolved module or unlinked crate `collie_client`\ns09_ai_in_playwright_program.rs:17:9: error[E0282]: type annotations needed\ns09_ai_in_playwright_program.rs:18:9: error[E0282]: type annotations needed\ns09_ai_in_playwright_program.rs:19:9: error[E0282]: type annotations needed",
+  "pass": false,
+  "lenient_pass": false,
+  "n": 2,
+  "time": "2026-10-15T22:33:58",
+  "by": "agent"
+}

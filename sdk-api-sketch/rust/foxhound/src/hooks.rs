@@ -302,11 +302,13 @@ impl<P> PageStageContext<P> {
     /// `page_handler_failed` (ADR 0085); a listener is removed, then `listener_failed` (ADR 0081);
     /// a dialog gets its default; a locator handler fails the action it interrupted and stays. On
     /// a context read from [`CrawlRun::hook_requests`], which no `serve` answers, it fails at once
-    /// with `setting_invalid`: the program reads the stream itself.
-    pub fn for_each<T, F>(&self, stream: EventStream<T>, handler: F) -> Result<(), Error>
+    /// with `setting_invalid`: the program reads the stream itself. `serve` holds `handler`, so it
+    /// takes a handler's form and is `Send`, as its future is (ADR 0112).
+    pub fn for_each<T, F, Fut>(&self, stream: EventStream<T>, handler: F) -> Result<(), Error>
     where
-        T: 'static,
-        F: AsyncFn(T) -> Result<(), Error> + 'static,
+        T: Send + 'static,
+        F: FnOnce(T) -> Fut + Clone + Send + Sync + 'static,
+        Fut: Future<Output = Result<(), Error>> + Send + 'static,
     {
         let _ = (stream, handler);
         unimplemented!()

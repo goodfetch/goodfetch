@@ -390,11 +390,13 @@ impl<P> CrawlContext<P> {
 
     /// Reads `stream`, one of this page's, for the rest of the attempt, inside [`Crawl::serve`],
     /// calling `handler` with each item, as [`crate::PageStageContext::for_each`] does (ADR 0111).
-    /// On a context read from [`CrawlRun::crawl_requests`] it fails with `setting_invalid`.
-    pub fn for_each<T, F>(&self, stream: EventStream<T>, handler: F) -> Result<(), Error>
+    /// On a context read from [`CrawlRun::crawl_requests`] it fails with `setting_invalid`. `serve`
+    /// holds `handler`, so it takes a handler's form and is `Send`, as its future is (ADR 0112).
+    pub fn for_each<T, F, Fut>(&self, stream: EventStream<T>, handler: F) -> Result<(), Error>
     where
-        T: 'static,
-        F: AsyncFn(T) -> Result<(), Error> + 'static,
+        T: Send + 'static,
+        F: FnOnce(T) -> Fut + Clone + Send + Sync + 'static,
+        Fut: Future<Output = Result<(), Error>> + Send + 'static,
     {
         let _ = (stream, handler);
         unimplemented!()

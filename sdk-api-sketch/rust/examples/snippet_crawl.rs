@@ -6,7 +6,7 @@ use std::time::Duration;
 use goodfetch_sdk_sketch::schemars::{self, JsonSchema};
 use goodfetch_sdk_sketch::settings::{crawl, fetch, timeout};
 use goodfetch_sdk_sketch::{
-    ConnectOptions, Crawl, CrawlContext, ElementState, Enqueued, Error, FetchTier, Goodfetch, LabelDeclaration, Schema, Seed, Settings,
+    ConnectOptions, Crawl, CrawlContext, ElementState, Enqueued, Error, DatasetDeclaration, FetchTier, Goodfetch, LabelDeclaration, Schema, Seed, Settings,
 };
 use serde::{Deserialize, Serialize};
 
@@ -39,7 +39,7 @@ struct BookPayload {
 /// future of `serve`, so they need neither `Send` nor `'static` (ADR 0081).
 async fn scenario_05() -> Result<(), Error> {
     let mut crawl = Crawl::new();
-    let books = crawl.dataset_with("books", Schema::<Book>::of(), &["url"])?;
+    let books = crawl.dataset(DatasetDeclaration::<Book>::new("books").key(&["url"]))?;
     let home = crawl.label::<()>("home")?;
     let category = crawl.label::<CategoryPayload>("category")?;
     let book = crawl.label(

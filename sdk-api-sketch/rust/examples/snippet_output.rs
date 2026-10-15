@@ -2,7 +2,7 @@
 
 use goodfetch_sdk_sketch::schemars::{self, JsonSchema};
 use goodfetch_sdk_sketch::{
-    ConnectOptions, Crawl, CrawlContext, CrawlRun, Dataset, Error, ErrorDetails, ExportFormat, Goodfetch, Schema, Seed, Settings,
+    ConnectOptions, Crawl, CrawlContext, CrawlRun, Dataset, DatasetDeclaration, Error, ErrorDetails, ExportFormat, Goodfetch, Seed, Settings,
     SinkConfig, SinkWriteMode,
 };
 use serde::{Deserialize, Serialize};
@@ -33,7 +33,7 @@ struct CategoryPayload {
 /// Records, and its Key-value store writes, with its attempt.
 async fn scenario_05() -> Result<(), Error> {
     let mut crawl = Crawl::new();
-    let books = crawl.dataset_with("books", Schema::<Book>::of(), &["url"])?;
+    let books = crawl.dataset(DatasetDeclaration::<Book>::new("books").key(&["url"]))?;
     let skipped = crawl.dataset::<serde_json::Map<String, serde_json::Value>>("skipped")?; // any JSON object
     let category = crawl.label::<CategoryPayload>("category")?;
 

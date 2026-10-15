@@ -6,7 +6,7 @@
 use goodfetch_sdk_sketch::schemars::{self, JsonSchema};
 use goodfetch_sdk_sketch::settings::{ai, extract, plan};
 use goodfetch_sdk_sketch::testing::{AttemptEnd, HandlerInput, SavedResponse, ScriptedModel, ScriptedReply, TestEngine, TestOptions};
-use goodfetch_sdk_sketch::{Crawl, CrawlContext, Dataset, Error, ErrorCode, ErrorDetails, ExtractMode, Label, ModelReference, Recording, Schema, Seed, Settings};
+use goodfetch_sdk_sketch::{Crawl, CrawlContext, Dataset, DatasetDeclaration, Error, ErrorCode, ErrorDetails, ExtractMode, Label, ModelReference, Recording, Schema, Seed, Settings};
 use serde::{Deserialize, Serialize};
 
 const BOOK: &str = "https://books.toscrape.com/catalogue/a-light-in-the-attic_1000/index.html";
@@ -45,7 +45,7 @@ async fn on_book(books: &Dataset<Book>, ctx: CrawlContext<BookPayload>) -> Resul
 /// 1. One handler, one saved page: no network, no browser, no Frontier.
 async fn book_page_gives_its_book() -> Result<(), Error> {
     let mut crawl = Crawl::new();
-    let books = crawl.dataset_with("books", Schema::<Book>::of(), &["url"])?;
+    let books = crawl.dataset(DatasetDeclaration::<Book>::new("books").key(&["url"]))?;
     let book = crawl.label::<BookPayload>("book")?;
     crawl.handle(&book, async |ctx: CrawlContext<BookPayload>| on_book(&books, ctx).await)?;
     let engine = TestEngine::start(TestOptions::default()).await?;
@@ -68,7 +68,7 @@ async fn book_page_gives_its_book() -> Result<(), Error> {
 /// 2. The whole crawl, from the responses a live run recorded with `Recording::record(..)`.
 async fn crawl_collects_every_book_from_the_recording() -> Result<(), Error> {
     let mut crawl = Crawl::new();
-    let books = crawl.dataset_with("books", Schema::<Book>::of(), &["url"])?;
+    let books = crawl.dataset(DatasetDeclaration::<Book>::new("books").key(&["url"]))?;
     let home = crawl.label::<()>("home")?;
     let book = crawl.label::<BookPayload>("book")?;
     crawl.handle(&home, async |ctx: CrawlContext<()>| {

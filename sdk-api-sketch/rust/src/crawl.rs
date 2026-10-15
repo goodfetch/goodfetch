@@ -98,20 +98,13 @@ impl<'a> Crawl<'a> {
         unimplemented!()
     }
 
-    /// Declares a Dataset of `T`, with the schema `schemars` derives, and returns its typed handle
-    /// (ADR 0103): there is no default Dataset, so every push names one. `serde_json::Map` takes
-    /// any JSON object. A second Dataset of the same name fails at once with `dataset_duplicate`.
-    pub fn dataset<T: JsonSchema + Serialize + DeserializeOwned>(&mut self, name: &str) -> Result<Dataset<T>, Error> {
-        let _ = name;
-        unimplemented!()
-    }
-
-    /// Declares a Dataset with an explicit schema (a hand-written JSON Schema is the way down) and
-    /// a key: the top-level fields that identify a Record, which Sinks' keyed write modes and
-    /// Baseline comparisons use. A field the schema does not require fails with
-    /// `dataset_key_invalid`.
-    pub fn dataset_with<T>(&mut self, name: &str, schema: Schema<T>, key: &[&str]) -> Result<Dataset<T>, Error> {
-        let _ = (name, schema, key);
+    /// Declares a Dataset and returns its typed handle (ADR 0103): there is no default Dataset, so
+    /// every push names one. A bare name declares a Dataset of `T` with the schema `schemars`
+    /// derives (`serde_json::Map` takes any JSON object); a [`DatasetDeclaration`] adds its schema
+    /// and key (ADR 0099: one name, with `impl Into` for the second argument shape). A second
+    /// Dataset of the same name fails at once with `dataset_duplicate`.
+    pub fn dataset<T>(&mut self, declaration: impl Into<DatasetDeclaration<T>>) -> Result<Dataset<T>, Error> {
+        let _ = declaration.into();
         unimplemented!()
     }
 
@@ -144,6 +137,48 @@ impl<'a> Crawl<'a> {
     pub async fn serve(&self, run: &CrawlRun) -> Result<crate::run::CrawlRunReport, Error> {
         let _ = run;
         unimplemented!()
+    }
+}
+
+/// A Dataset's declaration with its options, the builder methods named after the options of
+/// TypeScript's `crawl.dataset(name, { schema, key })` (ADR 0099). A `&str` converts into one with
+/// none.
+pub struct DatasetDeclaration<T> {
+    _record: PhantomData<fn(T) -> T>,
+}
+
+impl<T> fmt::Debug for DatasetDeclaration<T> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str("DatasetDeclaration(..)")
+    }
+}
+
+impl<T: JsonSchema + Serialize + DeserializeOwned> DatasetDeclaration<T> {
+    /// A Dataset named `name` of `T`, with the schema `schemars` derives.
+    pub fn new(name: &str) -> Self {
+        let _ = name;
+        unimplemented!()
+    }
+}
+
+impl<T> DatasetDeclaration<T> {
+    /// An explicit schema in place of the derived one; [`Schema::from_json`] is the way down.
+    pub fn schema(self, schema: Schema<T>) -> Self {
+        let _ = schema;
+        unimplemented!()
+    }
+
+    /// The top-level fields that identify a Record, which Sinks' keyed write modes and Baseline
+    /// comparisons use. A field the schema does not require fails with `dataset_key_invalid`.
+    pub fn key(self, key: &[&str]) -> Self {
+        let _ = key;
+        unimplemented!()
+    }
+}
+
+impl<T: JsonSchema + Serialize + DeserializeOwned> From<&str> for DatasetDeclaration<T> {
+    fn from(name: &str) -> Self {
+        Self::new(name)
     }
 }
 

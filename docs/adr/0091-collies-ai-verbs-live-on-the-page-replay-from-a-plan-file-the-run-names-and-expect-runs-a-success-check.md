@@ -40,6 +40,7 @@ Collie's AI verbs, `act`, `observe` and `extract`, are methods of the page and o
   - for `act` and each `observe` candidate, the target as a ladder of locators (role and name, test id, CSS, XPath) judged by its Target fingerprint, never one bare selector. Stagehand's absolute XPaths are "a dealbreaker" for its users (#1555), and Browser Use's replay matches in five levels;
   - for `act`, the method and arguments with placeholders, and whether the engine classed the action an Effect, and in which ADR 0014 category;
   - for `extract` in compiled mode, per field a locator ladder relative to the scope and a transform from a closed, deterministic list, so values are copied from the page (ADR 0013);
+    > Amended by [ADR 0123](0123-a-typed-value-read-from-page-text-comes-from-an-engine-transform-under-a-stated-locale-and-time-zone.md): the closed list is ADR 0123's Value transforms (`text`, `match`, `number`, `currency`, `date`, `date_time`, `relative_time`, `map`), each locale-dependent one stating its locale and time zone; a replayed transform whose text does not parse is Drift of its step; and an entry holding a locale-dependent transform keys its variant also by the element's language and the Session's `browser.locale` and `browser.timezone_id`.
   - the model that compiled it.
 
   The file is JSON, snake_case (ADR 0038), written in a stable order so diffs stay small, and versioned under ADR 0030.
@@ -57,6 +58,7 @@ Collie's AI verbs, `act`, `observe` and `extract`, are methods of the page and o
 ### Compiled and model extraction
 
 - **`mode: "compiled" | "model"` on `extract`**, the setting `extract.mode`, `compiled` by default (ADR 0013). Compiled: the model writes each field's locators and transform once, kept in the Plan, and values are copied from the page at every call. Model: the model reads the page at every call, every value is checked by Grounding, and nothing is kept in the Plan. Crawlee for Python's `PydanticAiSelectorExtractor` learns selectors once; Firecrawl and Crawlee's `PydanticAiCrawler` read every page with a model.
+  > Amended by [ADR 0123](0123-a-typed-value-read-from-page-text-comes-from-an-engine-transform-under-a-stated-locale-and-time-zone.md): in model mode the model answers each field with the page text it read and its Value transform, and the engine checks the text and computes the value; `extract.locale` and `extract.timezone_id` fix the locale and the time zone transforms use.
 
 ### `expect` runs a Success check
 

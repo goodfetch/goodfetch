@@ -212,6 +212,10 @@ _Avoid_: snapshot, savepoint, backup
 A cap on the Usage of one run, or of every run counted against a scope (a Schedule, a Partitioned crawl, the install or a Daemon, a person, a named token or a Connection), over a period or a Connection's lifetime; reaching it stops runs cleanly and refuses new ones until the period ends or a person raises it.
 _Avoid_: budget, quota, spending cap
 
+**Price table**:
+The list prices of third parties' Usage, per model and per metered proxy, with fixed rates between currencies, shipped with each release and changed only in configuration or, for a Plugin's, its manifest, through which a currency Limit reserves and a price is reported; an estimate, never a bill.
+_Avoid_: price list, cost map, rate card
+
 **Schedule**:
 A standing instruction, kept by the Daemon or Goodfetch Cloud, that starts runs of one target when its time comes or its trigger fires.
 _Avoid_: cron job, periodic job, monitor, trigger (for the whole Schedule)
@@ -435,6 +439,10 @@ _Avoid_: function tool, custom action, skill, Plugin
 **Model provider**:
 Whatever answers a run's model calls: a model company reached directly, a gateway, a local model server, or a model run inside the engine.
 _Avoid_: LLM vendor, backend
+
+**Model reference**:
+The name by which a program chooses a model: a Model provider's name, a slash, and that provider's own identifier for the model, such as `anthropic/claude-sonnet-4-5`.
+_Avoid_: model name, model string, model ID (for the whole reference)
 
 **Decision provider**:
 A Model provider whose model picks one option from a fixed list with a confidence, or abstains.

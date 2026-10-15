@@ -25,14 +25,14 @@ Decided in [Third-party automation on Foxhound pages, and Collie inside other cr
     - the `Extensions` domain, which installs code that drives tabs out of the endpoint's sight;
     - crashing the browser;
     - ignoring certificate errors (TLS verification is never switchable, ADRs 0016 and 0042).
-  - **Refused on a Daemon with accounts (an Exposed Daemon or a Daemon group included) and in Goodfetch Cloud,** whose browser's machine serves more people than the program's own: commands that read a file on the browser's machine by path, such as an upload from a path or a `file:` load, as ADR 0056 refuses a server path on a Daemon with accounts.
+  - **Refused on a Daemon with accounts (an Exposed Daemon or a Daemon group included) and in Goodfetch Cloud,** where the browser's machine also serves people other than the program's own: commands that read a file on the browser's machine by path, such as an upload from a path or a `file:` load, as ADR 0056 refuses a server path on a Daemon with accounts.
   - **Fail closed:** a browser-level command the spec's table does not class is refused. A Live check on each supported library's newest release catches a library that starts sending a new one.
 - **Closing the lent page itself is allowed,** as it is for a CDP session. The program's Page then reports `closed` (ADR 0078).
 - **The endpoint is a WebSocket for every library and engine,** under ADR 0017's rules: loopback by default, `Host` and `Origin` checked, a token for each attach, and TLS when exposed. A token for each attach narrows ADR 0017's per-Session token for every lend, as ADR 0003 already does for a handler's attach. The token travels in a header, never in the address, as ADR 0067's endpoint table requires; Playwright, Puppeteer and Browser Use all send headers when they connect. Python's sync client needs no relay thread, because the library connects from the program's own thread.
 - **When the attach ends,** by `close()`, the library's `Browser.close`, its last connection closing, the lease (ADR 0003), the page closing or the Run ending:
-  - the engine closes the pages the library created; popups opened from the lent page stay Pages of the Session, as any popup does;
+  - the engine closes the pages the library created and the popups opened from them; popups opened from the lent page stay Pages of the Session, as any popup does;
   - it re-applies the Session's and the page's own state (device emulation, permissions, the Identity profile's overrides) before any other use, because when a CDP session detaches, Chromium clears device emulation, whoever set it, and the permission overrides that CDP session made (DI §3.2);
-  - the token is revoked, so Browser Use's automatic reconnects after a dropped connection (three, over up to 54 s) are refused, and the program lends the page again.
+  - the token is revoked, so Browser Use's automatic reconnects after a dropped connection (three retries with backoff, while its actions wait up to 54 s) are refused, and the program lends the page again.
 
 ### What a Lent page keeps and loses
 
@@ -43,7 +43,7 @@ Decided in [Third-party automation on Foxhound pages, and Collie inside other cr
 | Session | In a handler, reserved for the attach (ADR 0003); out of the Session pool afterwards unless saved explicitly (ADR 0017); its state re-applied when the attach ends. |
 | Stealth | The Fingerprint method stays, but no Access mode keeps `standard`'s promise that `Runtime` is never enabled (ADR 0021). Playwright, Puppeteer, chromiumoxide and chromium-bidi enable `Runtime` on the pages they wrap, and the first three add named utility worlds (DI §3.3). Human-like input applies only to the engine's own actions. Records taken during the attach say so in Provenance, and a Saved identity saved from a Session that was lent records it. |
 | Egress | On a browser the engine or a Browser host launched, ADR 0017's egress proxy stays the Session's only way out: refusing new contexts and extensions closes both bypasses the research measured. On any other browser (a Borrowed browser, a third-party cloud browser), egress stays interception only, which the library can switch off, with the rebinding gap recorded (ADRs 0014 and 0056). |
-| AI safety | ADR 0014's enforcement covers the engine's own AI. A library's own model, such as Browser Use's, gets no Effect confirmation and no untrusted-content wrapping, and the library can read the Session's cookies, as any raw CDP client can (ADR 0017); only the domain policy still holds below it. |
+| AI safety | ADR 0014's enforcement now covers the engine's own AI only. A library's own model, such as Browser Use's, gets no Effect confirmation and no untrusted-content wrapping, and the library can read the Session's cookies, as any raw CDP client can (ADR 0017). Only the domain policy still holds below it, as the Egress row says: below the browser on a browser the engine or a Browser host launched, by interception alone elsewhere. |
 | Politeness | In a crawl handler, the library's navigation is the crawl's, as the handler's own is (ADR 0086). Each top-level document request the library starts on the pages it sees waits at the engine's interception until Politeness admits it, through the seam that admits a handler's own navigation ([How the products are built](https://github.com/goodfetch/automan/issues/454)); the wait counts against the lease, and robots.txt refuses a disallowed one there. Each navigation is admitted once: one the program's own page calls start is admitted as ADR 0086 says, never again at the hold. Where interception no longer sees the library's requests (ADR 0047's case), they go ungated, and the Run trace says so. In a Collie program, outside any crawl handler, the library's navigation is outside Politeness, as the program's own is. |
 | Ad blocking, consent | As ADRs 0047 and 0048 rule for any raw CDP client. |
 | Effect journal, Plans | The library's actions are not journaled and never become Plans. |
@@ -108,14 +108,14 @@ Decided in [Third-party automation on Foxhound pages, and Collie inside other cr
   - It is a second path to test, and the overload is typed only in `overrides.d.ts`, not in the API docs, and was once removed ([PR #40972](https://github.com/microsoft/playwright/pull/40972) restored it after #40195).
   - It works only where the engine shares the program's machine: it forces `isLocal`, which assumes a shared file system, and a Daemon elsewhere or Goodfetch Cloud has none.
   - Python's `connect_over_cdp` and Browser Use take only an address.
-- **Stagehand v4 on a dedicated browser with its extension allowed:** rejected. It would install a third-party extension with the `debugger` permission into Foxhound's browser, out of the endpoint's sight, for verbs Collie already has.
+- **Stagehand v4 on a dedicated browser with its extension allowed:** rejected. It would install a third-party extension with the `debugger` permission into the engine's browser, out of the endpoint's sight, for verbs Collie already has.
 - **Lending on every generated surface:** rejected. A CDP address handed to a model lets it drive a browser outside the engine's AI safety (ADR 0014).
 - **Crawler-specific packages** (a `CollieCrawler` class, a Scrapy package): rejected.
   - Each would couple a Goodfetch package to a crawler's releases. Crawlee's own Stagehand crawlers show the cost: held at Stagehand v3 in both languages, and Crawlee for Python postponed the port "until v2".
   - ADR 0027 rejects hand-written per-tool Integrations, and `run.borrow()` is one call.
 - **Collie as the crawler's browser provider** (Crawlee v4's `RemoteBrowserPool`, scrapy-playwright's `PLAYWRIGHT_CDP_URL` or `PLAYWRIGHT_BROWSER_PROVIDER`): rejected.
   - `RemoteBrowserPool` and `PLAYWRIGHT_CDP_URL` create browser contexts on the endpoint, which a Lent page refuses.
-  - `PLAYWRIGHT_BROWSER_PROVIDER` wants Playwright's own `Browser`, `BrowserContext` and `Page` objects in the crawler's process, which Collie's Playwright-shaped page API does not claim to be (ADR 0019).
+  - `PLAYWRIGHT_BROWSER_PROVIDER` wants Playwright-compatible `Browser`, `BrowserContext` and `Page` objects in the crawler's process, which Collie's Playwright-shaped page API does not claim to be (ADR 0019).
   - Crawlee skips its own fingerprints on a remote browser anyway.
   - Foxhound is the Product for a crawl in the engine's own browser.
 - **One Session per borrowed browser, refusing a second context:** rejected. It refuses Crawlee's incognito pages and scrapy-playwright's named contexts, the crawlers' ordinary setups.
@@ -124,6 +124,7 @@ Decided in [Third-party automation on Foxhound pages, and Collie inside other cr
 ## Consequences
 
 - **Amends ADR 0003.** Its rejected per-message lease check does not cover scoping: the endpoint of a Lent page parses each message to keep it inside the Session, while the lease is still enforced by cutting the attach. A note sits under that option.
+- **Amends ADR 0014.** Its enforcement covers the engine's own AI: a library attached to a Lent page, a model-driven one included, acts outside it except for the domain policy. A note sits under its opening.
 - **Amends ADR 0017.** A Lent page's endpoint refuses new browser contexts, extensions and the commands above, keeps downloads the Run's, and gives every lend its own token, narrowing the per-Session token; the engine re-applies the Session's state when the attach ends. A note sits under its raw CDP consequence.
 - **Amends ADR 0019.** Pages are lent to Playwright, Puppeteer or Browser Use. The endpoint lends one page, shows only its Session, and stays a WebSocket by choice: Playwright's Node `connectOverCDP` can now take a transport, but Python and engines on another machine need an address. A note sits under its consequence on Playwright and Puppeteer code.
 - **Amends ADR 0021.** While a library is attached to a Lent page, `standard` no longer keeps `Runtime` off on the pages it wraps; Provenance records the attach. A note sits under its opening.
@@ -136,7 +137,7 @@ Decided in [Third-party automation on Foxhound pages, and Collie inside other cr
 - **Adds to ADR 0064:** two Live checks owned by area 11, each blocking nothing directly: `lend-libraries-newest`, each supported library's newest release on a Lent page, and `crawler-examples-newest`, the crawler guides' examples on each crawler's newest release. Both run nightly, or before each release candidate while the nightly tier is off. `TESTING.md`'s list of Live checks names them.
 - **Adds to ADR 0067:** a Lent page layer in its SSRF table, whose client also tries a browser context with its own proxy and an extension.
 - **`GLOSSARY.md`** gains **Lent page**.
-- **`TESTING.md`** gains the lending conformance cases, the crawler guides' examples, the two Live checks and the Lent page's layer of the SSRF table.
+- **`TESTING.md`** gains the lending conformance cases, the crawler guides' examples, the two Live checks, the Lent page's layer of the SSRF table and the Quick check's refusal of `page.lend` on generated surfaces.
 - **Areas.**
   - **Area 4** builds the refusals that keep files, contexts and extensions on the engine's side, and the Lent page's layer of the SSRF table, whose client also tries a browser context with its own proxy and an extension (ADR 0067).
   - **Area 5** builds the endpoint's scoping, its command table, the attach's end, the state re-applied and the hold at interception that admits a Lent page's navigation.
@@ -153,5 +154,5 @@ Decided in [Third-party automation on Foxhound pages, and Collie inside other cr
   - what each library's own download API reports when its download-behaviour command has no effect, so the guides point to the Run's downloads;
   - lending a page borrowed through `run.borrow(page)`, which needs a browser-level relay session over the program's connection;
   - the error a library sees when robots.txt refuses its navigation, and how a Politeness hold meets the library's own navigation timeout;
-  - that no passed command removes the engine's interceptor;
+  - that no passed command removes the engine's interception;
   - each supported library's connect, close and reconnect against the endpoint, at its floor and its newest release, and how each helper sends the token (Puppeteer 25.13 deprecates its top-level `headers` for `wsOptions.headers`).

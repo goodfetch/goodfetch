@@ -721,7 +721,7 @@ Decided in [ADR 0070](docs/adr/0070-mcp-adapters-and-integrations-are-tested-thr
   _Why:_ a fake of the engine passes where the real one fails, and misses the token, `Host` and `Origin` checks.
 - **For Goodfetch's side, use only the doubles ADRs 0062 and 0069 define:** the in-memory adapter of the protocol in Quick-suite unit tests, and the Scripted engine for faults a real engine can't produce on demand.
 - **Stand in for the platform in this order:** its real runtime run locally, its official test harness, a written adapter of its context.
-- **Keep a Quick check over everything `xtask codegen` generates:** no person-only operation or setting on any MCP profile, Framework adapter, Integration or skill, and each surface's operations map to catalog operations of the same class.
+- **Keep a Quick check over everything `xtask codegen` generates:** no person-only operation or setting, and no `page.lend` ([ADR 0089](docs/adr/0089-a-page-is-lent-through-an-endpoint-that-shows-only-its-session-and-collie-joins-other-crawlers-by-borrowing.md)), on any MCP profile, Framework adapter, Integration or skill, and each surface's operations map to catalog operations of the same class.
 - **Assert outcomes through the oracle and Error codes**, never a model's wording or a platform's message text.
 
 ### MCP server

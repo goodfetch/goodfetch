@@ -107,6 +107,16 @@ class CrawlSettings(TypedDict, total=False):
     """`crawl.keep_alive`: the Run stays `running` with an empty Frontier, waiting for `add_seed`, until `finish()` lets it
     end once drained (ADR 0102, ADR 0037's RT-12). Built-in: False."""
 
+class KeptResponsesSettings(TypedDict, total=False):
+    """`fetch.kept_responses.*` (ADR 0110), on a crawl's Run or its Labels. A Label that sets `urls` while forcing `http` or
+    `browser_fetch` fails the Run's start with `setting_not_applicable`: those tiers run no script."""
+
+    urls: list[URLPattern]
+    """The URLs of the responses kept on a request's page from the start of its navigation, matched in the engine.
+    Built-in: none."""
+    max_size: int
+    """Bytes of kept bodies per attempt; a body past it reads as `body_unavailable`. Built-in: 16 MiB."""
+
 class FetchSettings(TypedDict, total=False):
     """`fetch.*`: the fetch tiers of ADR 0020 (ADR 0093)."""
 
@@ -115,6 +125,8 @@ class FetchSettings(TypedDict, total=False):
     0023)."""
     tier_race: bool
     """ADR 0040's `tier_race`. Built-in: False."""
+    kept_responses: KeptResponsesSettings
+    """The responses a handler reads with `kept_response` and `kept_responses` (ADR 0110)."""
 
 SinkWriteMode: TypeAlias = Literal["append", "upsert", "insert_only", "replace", "history"]
 class SinkSettings(TypedDict, total=False):
@@ -159,6 +171,7 @@ class LabelTimeoutSettings(PageTimeoutSettings, total=False):
 
 class LabelFetchSettings(TypedDict, total=False):
     tier: Literal["auto"] | FetchTier
+    kept_responses: KeptResponsesSettings
 
 class LabelCrawlSettings(TypedDict, total=False):
     retry: CrawlRetrySettings
@@ -244,4 +257,6 @@ SettingKey: TypeAlias = CollieSettingKey | Literal[
     "crawl.handler.concurrency",
     "fetch.tier",
     "fetch.tier_race",
+    "fetch.kept_responses.urls",
+    "fetch.kept_responses.max_size",
 ]

@@ -36,6 +36,9 @@ pub const ATTEMPT_ENDED: ErrorCode = ErrorCode::new("attempt_ended");
 /// `browser_required`: a call only a browser can serve while `fetch.tier` forces a tier without
 /// one (ADR 0093).
 pub const BROWSER_REQUIRED: ErrorCode = ErrorCode::new("browser_required");
+/// `responses_not_kept`: `ctx.kept_response` or `ctx.kept_responses` on a request whose Label
+/// keeps nothing; the fix names `fetch.kept_responses.urls` (ADR 0110).
+pub const RESPONSES_NOT_KEPT: ErrorCode = ErrorCode::new("responses_not_kept");
 /// `retry_requested`: an attempt the handler ended with `ctx.retry()` (ADR 0093).
 pub const RETRY_REQUESTED: ErrorCode = ErrorCode::new("retry_requested");
 /// `response_not_ok`: a final 4xx that is no Block cause and not in `crawl.handle_statuses`;

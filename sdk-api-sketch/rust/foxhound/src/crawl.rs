@@ -33,7 +33,7 @@ use crate::data::{Dataset, Label};
 use crate::lifecycle::{Page, Run};
 use crate::page::{Locator, Response};
 use crate::results::{BoxError, Error};
-use crate::time::{CallFuture, Limits};
+use crate::time::{Call, CallFuture, Limits, UrlMatcher};
 
 /// A URL pattern matched in the engine (ADR 0081). No predicate: every link would cross the
 /// connection.
@@ -384,6 +384,27 @@ impl<P> CrawlContext<P> {
 
     /// The main document's final response, after redirects; its body is always kept.
     pub fn response(&self) -> &Response {
+        unimplemented!()
+    }
+
+    /// The first response kept for this attempt whose URL matches (ADR 0110): kept because its
+    /// Label's `fetch::kept_responses::URLS` names it, on the request's page and its frames, from
+    /// the start of its navigation, so one the page loaded before the handler ran is found. Waits
+    /// for one under `timeout.wait`, as a waiter armed when the navigation started, so it needs no
+    /// `during`, and resolves once its body has arrived, so the body never fails unless past
+    /// `fetch::kept_responses::MAX_SIZE` (`body_unavailable`). Past the timeout,
+    /// `deadline_exceeded` naming the matcher; on a Label that keeps nothing, `responses_not_kept`
+    /// at once. On `http` and `browser_fetch` it escalates (`browser_required` under a forced
+    /// tier); `discovered_api` answers from its replayed calls.
+    pub fn kept_response(&self, url: impl Into<UrlMatcher>) -> Call<Response> {
+        let _ = url.into();
+        unimplemented!()
+    }
+
+    /// The responses kept for this attempt so far, in arrival order, without waiting; `url`
+    /// filters them. Same rules as [`CrawlContext::kept_response`].
+    pub fn kept_responses(&self, url: Option<UrlMatcher>) -> Call<Vec<Response>> {
+        let _ = url;
         unimplemented!()
     }
 

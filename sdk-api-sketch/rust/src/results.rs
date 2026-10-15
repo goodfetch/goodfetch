@@ -101,9 +101,6 @@ pub enum ErrorCode {
     BodyUnavailable,
     /// `download_failed` (ADR 0085).
     DownloadFailed,
-    /// `use_signal_refused`, a refusal: a document whose AI-use signal refuses the Run's Purpose
-    /// while `site_preferences.respect_use_signals` is on (ADR 0085).
-    UseSignalRefused,
     /// `cdp_command_refused`, a refusal (ADR 0085).
     CdpCommandRefused,
     /// `secret_unbound`: no scope binds the Secret placeholder (ADR 0092).

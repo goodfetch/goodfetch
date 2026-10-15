@@ -14,8 +14,9 @@ the guard's guarantees:
 - Routes and dialog handlers answer requests: later ones first, the first to settle wins, one that settles nothing
   falls through, and past the last one a request goes to the network and a dialog gets Playwright's default, so a
   handler that answers nothing never stalls the page.
-- A gesture that waits on the program (a locator handler's turn, a dialog or route answer) gives up its page's turn,
-  so a handler's own gestures run.
+- A gesture that waits on the program (a locator handler's turn before an attempt, or a route's answer to a request
+  it waits on, after its input) gives up its page's turn, only between its own inputs, so a handler's own gestures run
+  and no two gestures' inputs interleave. An open dialog blocks input, so a dialog handler answers before it acts.
 
 Waits come from ADR 0080 (`_time`), events and subscriptions from ADR 0081 (`_concurrency`).
 """
@@ -199,10 +200,6 @@ class BodyUnavailableError(UnavailableError):
 class DownloadFailedError(UnavailableError):
     """`download_failed`."""
 
-class UseSignalRefusedError(RefusedError):
-    """`use_signal_refused`: a document whose AI-use signal refuses the Run's Purpose while
-    `site_preferences.respect_use_signals` is on; `limit` names that setting."""
-
 class CdpCommandRefusedError(RefusedError):
     """`cdp_command_refused`: a command beyond the session's page, or one that would close a Borrowed browser."""
 
@@ -327,9 +324,10 @@ class AsyncLocator(_AsyncLocates, AsyncAiVerbs):
         timeout: Timeout = ...,
     ) -> None: ...
     async def fill(self, value: str | SecretPlaceholder, *, force: bool = False, timeout: Timeout = ...) -> None:
-        """Clears the field and inserts the text as typed text arrives. A target that cannot hold text raises
-        `TargetUnsupportedError` at once; a read-only one is waited for. A Secret placeholder is typed by the engine,
-        checked against the domain of the field's frame (ADR 0092); reads of the field then show `%name%`."""
+        """Clears the field and inserts the text as typed text arrives; on a `<label>`, into its control. A target that
+        cannot hold text raises `TargetUnsupportedError` at once; a read-only one is waited for. A Secret placeholder is
+        typed by the engine, checked against the domain of the field's frame (ADR 0092); reads of the field then show
+        `%name%`."""
 
     async def clear(self, *, force: bool = False, timeout: Timeout = ...) -> None: ...
     async def press(self, key: str, *, delay: timedelta | None = None, force: bool = False, timeout: Timeout = ...) -> None:
@@ -353,7 +351,7 @@ class AsyncLocator(_AsyncLocates, AsyncAiVerbs):
 
     async def select_text(self, *, force: bool = False, timeout: Timeout = ...) -> None: ...
     async def set_input_files(self, files: InputFiles, *, force: bool = False, timeout: Timeout = ...) -> None:
-        """On a file input."""
+        """On a file input, or the one a `<label>` points to."""
 
     async def focus(self, *, timeout: Timeout = ...) -> None: ...
     async def blur(self, *, timeout: Timeout = ...) -> None: ...

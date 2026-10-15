@@ -13,8 +13,10 @@
 // - Routes and dialog handlers answer requests: later ones first, the first to settle wins, one that
 //   settles nothing falls through, and past the last one a request goes to the network and a dialog
 //   gets Playwright's default, so a handler that answers nothing never stalls the page.
-// - A gesture that waits on the program (a locator handler's turn, a dialog or route answer) gives up
-//   its page's turn, so a handler's own gestures run.
+// - A gesture that waits on the program (a locator handler's turn before an attempt, or a route's
+//   answer to a request it waits on, after its input) gives up its page's turn, only between its own
+//   inputs, so a handler's own gestures run and no two gestures' inputs interleave. An open dialog
+//   blocks input, so a dialog handler answers before it acts on the page.
 // Waits come from ADR 0080 (time.d.ts), events and Subscriptions from ADR 0081 (concurrency.d.ts).
 
 import type { AiVerbs, AriaSnapshots } from "./ai.js";
@@ -243,8 +245,9 @@ export interface Locator extends Locates, AiVerbs, AriaSnapshots {
   setChecked(checked: boolean, options?: PointerOptions): Promise<void>;
   dragTo(target: Locator, options?: ActionOptions & { readonly sourcePosition?: Position; readonly targetPosition?: Position }): Promise<void>;
   /**
-   * Clears the field and inserts the text as typed text arrives, so controlled inputs see it. A target
-   * that cannot hold text throws `TargetUnsupportedError` at once; a read-only one is waited for.
+   * Clears the field and inserts the text as typed text arrives, so controlled inputs see it. On a
+   * `<label>`, acts on its control. A target that cannot hold text throws `TargetUnsupportedError` at
+   * once; a read-only one is waited for.
    * A Secret placeholder is typed by the engine, checked against the domain of the field's frame
    * (ADR 0092); reads of the field then show `%name%`.
    */
@@ -257,7 +260,7 @@ export interface Locator extends Locates, AiVerbs, AriaSnapshots {
   /** On a `<select>`, or the control a `<label>` points to. Returns the values selected. */
   selectOption(values: SelectOptionValue | readonly SelectOptionValue[], options?: ActionOptions): Promise<string[]>;
   selectText(options?: ActionOptions): Promise<void>;
-  /** On a file input. */
+  /** On a file input, or the one a `<label>` points to. */
   setInputFiles(files: InputFiles, options?: ActionOptions): Promise<void>;
   focus(options?: CallOptions): Promise<void>;
   blur(options?: CallOptions): Promise<void>;
@@ -758,12 +761,6 @@ export declare class BodyUnavailableError extends UnavailableError {
 export declare class DownloadFailedError extends UnavailableError {
   readonly code: "download_failed";
   readonly details: { readonly reason: string };
-}
-
-/** A document whose AI-use signal refuses the Run's Purpose while `site_preferences.respect_use_signals` is on; `limit` names that setting. */
-export declare class UseSignalRefusedError extends RefusedError {
-  readonly code: "use_signal_refused";
-  readonly details: { readonly signal: string; readonly value: string; readonly purpose: string };
 }
 
 export declare class CdpCommandRefusedError extends RefusedError {

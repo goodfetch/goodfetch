@@ -18,8 +18,11 @@
 //! - Routes and dialogs arrive as [`EventStream`]s the program drives (ADR 0081). Later routes get
 //!   a request first; the first answer wins; an item dropped unanswered falls through, and past the
 //!   last one a request goes to the network and a dialog gets Playwright's default, so a handler
-//!   that answers nothing never stalls the page. A gesture that waits on the program gives up its
-//!   page's turn, so a handler's own gestures run.
+//!   that answers nothing never stalls the page. A gesture that waits on the program (a locator
+//!   handler's turn before an attempt, or a route's answer to a request it waits on, after its
+//!   input) gives up its page's turn, only between its own inputs, so a handler's own gestures run
+//!   and no two gestures' inputs interleave. An open dialog blocks input, so a dialog's answer
+//!   comes before any gesture on the page.
 //!
 //! Every call is a builder implementing `IntoFuture`, with `.timeout(d)` and `.no_timeout()`
 //! (ADR 0080); a question that never waits ([`Query`]) has neither.
@@ -892,7 +895,8 @@ impl Locator {
         unimplemented!()
     }
 
-    /// Clears the field and inserts the text as typed text arrives, so controlled inputs see it.
+    /// Clears the field and inserts the text as typed text arrives, so controlled inputs see it; on
+    /// a `<label>`, into its control.
     /// A target that cannot hold text fails at once with `target_unsupported`; a read-only one is
     /// waited for.
     /// A Secret placeholder is typed by the engine, checked against the domain of the field's frame
@@ -934,7 +938,7 @@ impl Locator {
         unimplemented!()
     }
 
-    /// On a file input.
+    /// On a file input, or the one a `<label>` points to.
     pub fn set_input_files(&self, files: impl Into<InputFiles>) -> Action<action::Upload> {
         let _ = files.into();
         unimplemented!()

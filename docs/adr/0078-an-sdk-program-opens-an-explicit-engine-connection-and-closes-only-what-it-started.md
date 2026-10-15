@@ -16,6 +16,8 @@ A program reaches Goodfetch through one value it opens and holds: an engine conn
   > Amended by [ADR 0083](0083-a-program-sets-settings-in-one-typed-option-explicit-values-beat-the-environment-and-no-value-is-silently-ignored.md): the environment sets the engine only through `GOODFETCH_URL`, which fills `engine` when the code leaves it at `auto`; the connection's other settings go in its `settings` option.
 
   > Amended by [ADR 0095](0095-both-products-speak-one-protocol-from-one-catalog-marked-by-product-and-their-sdks-share-collies-client-packages.md): `gf.engine` also reports the engine's Product and Product version, from the engine's reply to `hello`.
+
+  > Amended by [ADR 0098](0098-both-products-share-one-goodfetch-home-and-one-daemon-per-major-run-by-the-fullest-product-installed.md): `auto` also runs the engine it would run with no Daemon, with a warning, when the running Daemon refuses the connection by Product or protocol version and cannot hand over to its major's pick; `daemon` fails at connect.
 - **No one-call helper here.** G2 allows a helper that connects, does one task and closes. A verb's own ticket may add one only when a golden scenario shows it earns its place, its docs say it starts an engine, and it is built on `connect()` (S2).
 
 ### What a program holds

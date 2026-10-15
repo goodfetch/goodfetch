@@ -124,7 +124,10 @@ async fn collect_quotes() -> Result<Vec<Quote>, Error> {
     // navigation, a sample comparison of an HTTP Label's page included: no code runs in time.
     let no_media = Settings::new().set(
         browser::BLOCK_RESOURCES,
-        vec![browser::BlockedResourceType::Image, browser::BlockedResourceType::Font],
+        vec![
+            browser::BlockedResourceType::Image,
+            browser::BlockedResourceType::Font,
+        ],
     );
     let run = foxhound
         .start_crawl(&crawl, seeds)

@@ -41,7 +41,8 @@ console.log(outcome(result));
 // The answer sits in `ended`: `finished` holds the output, `stopped` its reason and the Grounded partial.
 function outcome(result: AgentResult<Answer>): Outcome {
   const ended = result.ended;
-  if (ended.kind === "stopped") return { ended: "stopped", reason: ended.reason, partial: ended.partial };
+  if (ended.kind === "stopped")
+    return { ended: "stopped", reason: ended.reason, partial: ended.partial };
   if (result.verdict === "verified") return { ended: "verified", answer: result.requireVerified() };
   return { ended: "reported", claim: result.reported?.claim ?? "none", answer: ended.output };
 }

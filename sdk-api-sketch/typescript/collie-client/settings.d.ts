@@ -90,8 +90,8 @@ export interface BrowserSettings {
   /**
    * `browser.block_resources`: resource types the engine's interception blocks on every page of the
    * Session, before any navigation, so every browser fetch of a crawl is covered (ADRs 0047, 0117).
-   * Empty by default. Set directly on a Label whose `fetch.tier` runs no browser, it is refused with
-   * `setting_not_applicable`. In the `standard` and `stealth` Access modes it warns once, since a site
+   * Empty by default. Set on the Run or above it: a Label refuses it with `setting_not_applicable`, as
+   * every `browser.*` key (ADR 0093). In the `standard` and `stealth` Access modes it warns once, since a site
    * can see the missing loads. Finer blocking, by URL or by page, is a before-navigation Hook's route.
    */
   readonly blockResources?: readonly BlockedResourceType[];

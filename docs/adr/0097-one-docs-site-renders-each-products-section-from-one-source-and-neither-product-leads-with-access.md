@@ -28,7 +28,7 @@ Decided in [Docs site and positioning of two Products](https://github.com/goodfe
 
   | Path | Holds |
   |---|---|
-  | `goodfetch.dev/docs/` | The chooser, the release notes and the benchmark results, each item naming its Product |
+  | `goodfetch.dev/docs/` | The chooser, the release notes and the benchmark results, each item naming the Products it reaches (ADR 0094) |
   | `goodfetch.dev/docs/collie/` | Collie's docs |
   | `goodfetch.dev/docs/foxhound/` | Foxhound's docs, Collie's included |
 

@@ -68,8 +68,12 @@ export interface HookContext<L extends AnyLabel> {
 export interface BeforeRequestContext<L extends AnyLabel> extends HookContext<L> {
   /** The tier about to fetch. */
   readonly tier: ReportedFetchTier;
+  /** The method the request was enqueued with, `GET` by default (ADR 0093). A Hook reads it and never changes it. */
+  readonly method: string;
+  /** The body the request was enqueued with, or `null`. A Hook reads it (to sign the request, say) and never changes it. */
+  readonly body: Uint8Array | null;
   /**
-   * The request's headers as built so far, the Hooks before this one included. Cookies, Secret
+   * The request's headers as built so far, the enqueue's own and the Hooks before this one included. Cookies, Secret
    * values and the Session's credentials are added after the last Hook, so none of them is here.
    */
   readonly headers: Readonly<Record<string, string>>;
@@ -79,7 +83,7 @@ export interface BeforeRequestContext<L extends AnyLabel> extends HookContext<L>
   skip(message: string): never;
 }
 
-/** What a before-request Hook changes. A crawl request stays a GET: a crawl that must POST does it from a handler with `page.request`. */
+/** What a before-request Hook changes: the URL and headers, never the method or the body the request was enqueued with (ADR 0093). */
 export interface RequestChange {
   /**
    * A new URL, checked against the crawl's scope and the run's domain policy, else the request ends
@@ -113,7 +117,7 @@ export interface ResponseChange {
 }
 
 /**
- * Before and after a browser navigation (only on the `browser` tier), and when the page is
+ * Before and after a navigation (only on the `browser` and `light_browser` tiers), and when the page is
  * ready, just before the handler, on every tier. Page calls follow the handler's tier rules: one
  * only a browser can serve escalates, or throws `BrowserRequiredError` under a forced tier.
  */
@@ -148,7 +152,8 @@ export interface HookFailedDetails extends HandlerFailedDetails {
   readonly stage: ReportedHookStage;
   /** The Hook's name. */
   readonly hook: string;
-  readonly label: string;
+  /** `null` at a lifecycle stage, which has no request. */
+  readonly label: string | null;
   /** The Goodfetch code raised inside the Hook, whose retryable flag this error carries; `null` for the program's own exception. */
   readonly wrappedCode: ErrorCode | null;
 }
@@ -161,7 +166,7 @@ export declare class HookFailedError extends ProgramError {
   readonly code: "hook_failed";
   readonly details: HookFailedDetails;
 }
-/** A Hook that can never run: an empty `labels` or `datasets` list, at once, or, when the Run starts, a navigation Hook all of whose Labels force a tier other than `browser`. */
+/** A Hook that can never run: an empty `labels` or `datasets` list, at once, or, when the Run starts, a navigation Hook all of whose Labels force a tier that does not navigate (`http`, `discovered_api`, `browser_fetch`). */
 export declare class HookIneffectiveError extends ProgramError {
   readonly code: "hook_ineffective";
   readonly details: { readonly hook: string; readonly stage: ReportedHookStage };
@@ -179,27 +184,30 @@ export declare class HeaderForbiddenError extends ProgramError {
 
 // SDK handlers: a program's own implementation of a Plugin kind (ADR 0033).
 //
-// Registered on `connect()`, one option per kind, each a map keyed by name (`modelProviders` is
-// ADR 0101's; `resolveSecret` ADR 0092's; Hooks are declared on the `Crawl`), each serving every Run
-// of its connection. Settings choose one by name as they choose an installed Plugin. The only one of
-// a kind that one setting chooses (Fetch backend, Proxy provider) becomes that setting's value at the
-// connection scope, in the run layer with the origin `registered`, the lowest: every other run-layer
-// value replaces it, and configuration does not. Two of such a kind fail `connect()` with
-// `setting_invalid` unless its own `settings` choose one, as does a handler named as a built-in or an
-// installed Plugin. A setting naming a handler that is neither installed nor registered fails with
-// `setting_invalid` when its scope opens, and a resume whose program no longer registers one its Run
-// used is refused before any work. A Product's SDK has only its own kinds' options: Collie's has no
-// `fetchBackends` or `sinks` (ADR 0088).
-// Each kind's handler is generated from its plugin-protocol method group (area 7's spec): the
-// shapes below are provisional. A handler runs with the program's full rights, never confined. A
+// Registered on `connect()`, one option per kind, each a map keyed by name (`modelProviders` is ADR
+// 0101's; `resolveSecret` ADR 0092's; Hooks are declared on the `Crawl`), each serving every Run of
+// its connection. Settings choose one by name as they choose an installed Plugin. The only one of a
+// kind that one setting chooses (Fetch backend, Proxy provider) becomes that setting's value at the
+// connection scope, in the run layer with the origin `registered`, the lowest: every other
+// run-layer value replaces it, and configuration does not; a lock on the key wins with no refusal.
+// Two of such a kind fail `connect()` with `setting_invalid` when nothing else sets the key, as
+// does a handler named as a built-in or an installed Plugin. A setting naming a handler that is
+// neither installed nor registered fails with `setting_invalid` when its scope opens, and a resume
+// whose program no longer registers one its Run used is refused before any work. A Product's SDK
+// has only its own kinds' options: Collie's has no `fetchBackends` or `sinks` (ADR 0088). Each
+// kind's handler is generated from its plugin-protocol method group (area 7's spec): the shapes
+// below are provisional. A handler runs with the program's full rights, never confined. A
 // GoodfetchError it throws keeps its code; any other exception is its kind's
 // `<kind>_handler_failed`, whose message names it, as ADR 0101's `model_handler_failed`.
 
 /** The request a Fetch backend is handed: a target the engine already checked under the page class and the run's domain policy (ADR 0033). */
 export interface BackendRequest {
   readonly url: string;
-  readonly method: "GET" | "HEAD";
+  /** The crawl request's own method (ADR 0093). */
+  readonly method: string;
   readonly headers: Readonly<Record<string, string>>;
+  /** The crawl request's own body, or `null`. */
+  readonly body: Uint8Array | null;
 }
 /** A Fetch backend's answer. A redirect's target comes back as a new request, checked again. */
 export interface BackendResponse {
@@ -208,8 +216,9 @@ export interface BackendResponse {
   readonly body: Uint8Array;
 }
 /**
- * The HTTP tiers' transport. Like a third-party backend, it never carries a logged-in Session's
- * requests: the engine sends those itself, so no cookie or Secret value passes through the program.
+ * The HTTP tiers' transport. Like a third-party backend, it never carries a request that uses a
+ * Secret or a logged-in identity (a logged-in Session's, or one whose Hook set a Secret placeholder):
+ * the engine sends those itself, so no cookie or Secret value passes through the program.
  */
 export type FetchBackendHandler = (request: BackendRequest, options: CallOptions) => Promise<BackendResponse>;
 

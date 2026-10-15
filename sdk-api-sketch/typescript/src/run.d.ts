@@ -8,7 +8,7 @@
 
 import type { RecordingReport } from "./recording.js";
 import type { EventIterator } from "./concurrency.js";
-import type { ReportedFetchTier } from "./crawl.js";
+import type { NotAddedReason, ReportedFetchTier } from "./crawl.js";
 import type { UncertainEffect } from "./effects.js";
 import type { Closeable } from "./lifecycle.js";
 import type { KeyValueStore, RecordCounts } from "./output.js";
@@ -41,15 +41,27 @@ export type RunStopReason =
   | { readonly kind: "resources" }
   | { readonly kind: "unknown"; readonly raw: string };
 
-/** A Human pause waiting for a person (ADR 0092). */
+/**
+ * A Human pause waiting for a person (ADR 0092). It begins and ends as a change of `progress()`; the
+ * person learns of it from ADR 0027's Notification and the Console's "Needs you". Its time counts
+ * toward no timeout, the Run's included, while its Usage counts toward Limits.
+ */
 export interface WaitingPause {
   /** The Session whose work waits. */
   readonly session: string;
+  /** The page it holds, by the page's ID, when it holds one. */
+  readonly page: string | null;
   /** The program's `reason`, or the engine's own, such as a login on a domain. */
   readonly reason: string | null;
-  /** `program`: `page.pause()`; `engine`: a pause the engine raised, such as ADR 0006's login recovery. */
+  /** The `until` condition as text, the Locator's or the URL matcher's description; `null`: a person's "Done" ends it. */
+  readonly until: string | null;
+  /** `program`: `page.pause()`; `engine`: a pause the engine raised. */
   readonly raisedBy: "program" | "engine" | (string & {});
+  /** For an engine's pause, the step that raised it: ADR 0006's login recovery or ADR 0035's Challenge ladder. */
+  readonly step: "login_recovery" | "challenge" | (string & {}) | null;
   readonly since: Date;
+  /** When it runs out: the first of `timeout.human_pause` and, in a scheduled run, ADR 0036's pause timeout; `null` when it waits without limit. */
+  readonly deadline: Date | null;
 }
 
 /** A Run's progress: a telemetry value, coalesced under load (ADR 0024). */
@@ -111,12 +123,23 @@ export interface InFlightRequest {
   readonly waiting: { readonly reason: WaitReason; readonly setting: LimitSource | null } | null;
 }
 
-/** A sitemap seed's sitemaps, read while the Run works (ADR 0093's R3): counted, never listed one by one. */
+/** A sitemap the engine could not read. */
+export interface UnreadSitemap {
+  readonly url: string;
+  /** `fetch_failed`, with the response status when one came; `robots_txt`, which disallows it; `unparsable`. */
+  readonly reason: "fetch_failed" | "robots_txt" | "unparsable" | (string & {});
+  readonly status: number | null;
+}
+
+/** A sitemap seed's sitemaps, read while the Run works (ADR 0093's R3): its entries counted, never listed one by one. */
 export interface SitemapTotals {
   readonly sitemapsRead: number;
-  readonly urlsAdded: number;
-  /** URLs that matched none of the seed's rules, so were not added. */
-  readonly urlsUnmatched: number;
+  /** At most a fixed number, the rest counted in `moreSitemapsUnread`. */
+  readonly sitemapsUnread: readonly UnreadSitemap[];
+  readonly moreSitemapsUnread: number;
+  readonly entriesAdded: number;
+  /** The entries not added, by reason: `no_rule` for one that matched no rule, and an enqueue's other reasons (ADR 0093). */
+  readonly entriesNotAdded: Readonly<Partial<Record<NotAddedReason, number>>>;
 }
 
 /** Why the crawl runs as many requests at once as it does (P47). */
@@ -158,6 +181,8 @@ export interface CrawlRunProgress extends RunProgress {
   readonly waiting: readonly WaitGroup[];
   readonly inFlight: readonly InFlightRequest[];
   readonly concurrency: CrawlConcurrency;
+  /** `true` while `crawl.keep_alive` holds the Run `running` with an empty Frontier and nothing in flight, until `addSeed` gives it work; idle time counts toward the Run's own timeout. */
+  readonly idle: boolean;
   /** Per sitemap seed's URL. */
   readonly sitemaps: Readonly<Record<string, SitemapTotals>>;
 }
@@ -214,6 +239,27 @@ export interface LearnedRule {
 }
 
 /**
+ * The Run trace (ADR 0031), copied to this machine as an Export is (ADR 0103): what was recorded so
+ * far, in the format ADR 0031 exports it in. A person replays it in the Console at `consoleUrl`.
+ */
+export interface RunTrace {
+  /** In bytes. */
+  readonly size: number;
+  /** Copies it to a file on this machine, wherever the engine runs. */
+  saveAs(path: string, options?: CallOptions): Promise<void>;
+  /** Its bytes, streamed to this machine. */
+  stream(): AsyncIterable<Uint8Array>;
+}
+
+/** Why a Run is not `verified`, naming the AI task concerned, an Agent's included, by its `callId` (ADR 0100). */
+export interface VerdictReason {
+  /** Such as `success_check_failed`, `no_success_check`, `check_switched_off` or `effect_uncertain`; a newer engine's is kept (G3). */
+  readonly code: string;
+  readonly message: string;
+  readonly callId: string | null;
+}
+
+/**
  * Why a Run did nothing (G1):
  * - `already_ended`: the start found the Run ended;
  * - `no_seed_handled`: no seed reached a handler, each refused when added or skipped when fetched, counted by reason;
@@ -232,9 +278,10 @@ export interface RunReport {
   readonly lifecycle: Lifecycle;
   /** Set when `lifecycle` is `stopped`. */
   readonly stopReason: RunStopReason | null;
+  /** The Run's Verdict (ADR 0029), reading every check it relies on, each AI task's Success check included. */
   readonly verdict: Verdict;
   /** Why it is not `verified`: failed, missing or switched-off checks, uncertain Effects (ADR 0079). */
-  readonly verdictReasons: readonly string[];
+  readonly verdictReasons: readonly VerdictReason[];
   /** Each Effect left uncertain, waiting for a person to reconcile it in the Console (ADRs 0029, 0106). */
   readonly uncertainEffects: readonly UncertainEffect[];
   readonly completeness: Completeness;
@@ -242,7 +289,7 @@ export interface RunReport {
   readonly completenessReasons: readonly string[];
   /** The final figures (ADR 0101), the uncapped mark included (ADR 0041). */
   readonly usage: RunUsage;
-  /** What became of the Run's Plan (ADR 0091): every Run has one, its file `null` when it named none. */
+  /** What became of the Run's Plan (ADR 0091): every Run has one, its file `null` when it named none. Each Agent task is one entry (ADR 0100). */
   readonly plan: PlanReport;
   /** The Operator policy version it ran under (ADR 0031). */
   readonly policyVersion: string | null;
@@ -323,6 +370,8 @@ export interface RunControl {
   setProgressMessage(message: string, options?: CallOptions): Promise<void>;
   /** Writes a Checkpoint now (ADR 0002), where the engine keeps the Run's. */
   checkpoint(options?: CallOptions): Promise<Checkpoint>;
+  /** The Run trace recorded so far; `null` when the Run keeps none, which the report's `weakened` shows. */
+  trace(options?: CallOptions): Promise<RunTrace | null>;
 }
 
 /**
@@ -339,6 +388,8 @@ export interface RunView extends Closeable {
    * Run with no live writer that has not ended, throws `RunInterruptedError`.
    */
   report(options?: CallOptions): Promise<RunReport>;
+  /** The Run trace recorded so far; `null` when the Run keeps none. */
+  trace(options?: CallOptions): Promise<RunTrace | null>;
   /** Its Key-value store's reads, on every Run (ADR 0103). */
   readonly keyValueStore: Pick<KeyValueStore, "get" | "getBytes" | "keys">;
 }

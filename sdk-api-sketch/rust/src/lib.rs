@@ -47,7 +47,7 @@ pub use effects::{
     UncertainEffect, UncertainWhy,
 };
 pub use hooks::{
-    AfterResponseContext, BackendRequest, BackendResponse, BeforeRequestContext, FetchCall, HandlerError, HeaderForbidden, HookDuplicate, HookFailed, HookIneffective, HookOn,
+    AfterResponseContext, BackendRequest, BackendResponse, BeforeRequestContext, FetchCall, HandlerError, HookAnswer, HookCall, HeaderForbidden, HookDuplicate, HookFailed, HookIneffective, HookOn,
     HookStage, PageStageContext, ProxyAnswer, ProxyCall, ProxyRequest, RecordCommitContext, RecordHookOn, RequestChange, ResponseChange,
     SdkHandlerFailed, SinkCall, UntypedRecord,
 };
@@ -80,7 +80,7 @@ pub use run::{
     AbortedBy, Checkpoint, Completeness, CrawlConcurrency, CrawlRequestCounts, CrawlRequestTotals, CrawlRunProgress, CrawlRunReport,
     CrawlRunView, DatasetTotals, EndedRequestBreakdown, GovernorState, InFlightRequest, KeyValueStoreReader, LearnedRule, Lifecycle,
     NothingDone, OutcomeKind, OutcomesFilter, PauseRaisedBy, PluginRun, RequestPhase, RetryFailed, RunFailure, RunInputDifference, RunProgress,
-    RunReport, RunStopReason, RunView, RunWarning, SinkDeliveryStatus, SitemapTotals, StartedAs, WaitGroup, WaitReason, WaitingDomain, WaitingPause,
+    RunReport, RunStopReason, RunView, RunWarning, SinkDeliveryStatus, SitemapTotals, StartedAs, RunTrace, UnreadSitemap, VerdictReason, WaitGroup, WaitReason, WaitingDomain, WaitingPause,
 };
 pub use sessions::{
     BrowserName, ClearCookies, Cookie, CookieInput, ExportKey, HttpCredentials, HumanPauseDeclined, HumanPauseResult, Identities,

@@ -48,8 +48,14 @@ class _BeforeRequestBase(_HookContext[P]):
     def tier(self) -> FetchTier | str:
         """The tier about to fetch: every attempt, escalation and sample-comparison run comes here again."""
     @property
+    def method(self) -> str:
+        """The method the request was enqueued with, `GET` by default (ADR 0093). A Hook reads it and never changes it."""
+    @property
+    def body(self) -> bytes | None:
+        """The body the request was enqueued with, or `None`. A Hook reads it (to sign the request, say), never changes it."""
+    @property
     def headers(self) -> Mapping[str, str]:
-        """The headers as built so far, the Hooks before this one included. Cookies, Secret values and the Session's
+        """The headers as built so far, the enqueue's own and the Hooks before this one included. Cookies, Secret values and the Session's
         credentials are added after the last Hook, so none of them is here."""
     @property
     def previous_error(self) -> GoodfetchError | None:
@@ -73,8 +79,8 @@ class AsyncBeforeRequestContext(_BeforeRequestBase[P]):
 @final
 @dataclass(frozen=True, kw_only=True)
 class RequestChange:
-    """What a before-request Hook changes. A crawl request stays a GET: a crawl that must POST does it from a handler
-    with `page.request`."""
+    """What a before-request Hook changes: the URL and headers, never the method or the body the request was enqueued
+    with (ADR 0093)."""
 
     url: str | None = None
     """A new URL, checked against the crawl's scope and the run's domain policy (not an enqueue's other checks); a Hook in
@@ -117,8 +123,8 @@ class ResponseChange:
 
 @final
 class PageStageContext(_HookContext[P]):
-    """Before and after a browser navigation (only on the `browser` tier), and when the page is ready, just before the
-    handler, on every tier. Page calls follow the handler's tier rules (ADR 0093)."""
+    """Before and after a navigation (only on the `browser` and `light_browser` tiers), and when the page is ready, just
+    before the handler, on every tier. Page calls follow the handler's tier rules (ADR 0093)."""
 
     @property
     def tier(self) -> FetchTier | str: ...
@@ -276,7 +282,8 @@ class HookFailedDetails:
     stage: ReportedHookStage
     hook: str
     """The Hook's name."""
-    label: str
+    label: str | None
+    """`None` at a lifecycle stage, which has no request."""
     exception_type: str
     exception_message: str
     stack: Sequence[str]
@@ -302,7 +309,7 @@ class HookIneffectiveDetails:
 @final
 class HookIneffectiveError(ProgramError):
     """A Hook that can never run: an empty `labels` or `datasets` list, at once, or, when the Run starts, a navigation
-    Hook all of whose Labels force a tier other than `browser`."""
+    Hook all of whose Labels force a tier that does not navigate (`http`, `discovered_api`, `browser_fetch`)."""
 
     @property
     def details(self) -> HookIneffectiveDetails: ...
@@ -332,17 +339,17 @@ class HeaderForbiddenError(ProgramError):
     @property
     def details(self) -> HeaderForbiddenDetails: ...
 
-# SDK handlers: a program's own implementation of a Plugin kind (ADR 0033), registered on `connect()` in one argument per
-# kind, each a mapping keyed by name (`model_providers` is ADR 0101's, `resolve_secret` ADR 0092's; Hooks are declared on
-# the `Crawl`). Settings choose one by name as they choose an installed Plugin. The only one of a kind that one setting
-# chooses (Fetch backend, Proxy provider) becomes that setting's value at the connection scope, with the run-layer origin
-# `registered`, the lowest: every other run-layer value replaces it, and configuration does not. Two of such a kind fail
-# `connect()` with `SettingInvalidError` unless its `settings` choose one, as does a handler named as a built-in or an
-# installed Plugin. Collie's SDK has no `fetch_backends` or `sinks` (ADR 0088). Each kind's handler is
-# generated from its plugin-protocol method group (area 7's spec): the shapes below are provisional. A `GoodfetchError` it
-# raises keeps its code; any other exception is its kind's `<kind>_handler_failed`, whose message names it, as ADR
-# 0101's `model_handler_failed`. The async client takes coroutine functions, run in the connection's task group; the
-# sync client takes plain functions, run on its thread pool (ADR 0081).
+# SDK handlers: a program's own implementation of a Plugin kind (ADR 0033), registered on `connect()` in one argument
+# per kind, each a mapping keyed by name (`model_providers` is ADR 0101's, `resolve_secret` ADR 0092's; Hooks are
+# declared on the `Crawl`). Settings choose one by name as they choose an installed Plugin. The only one of a kind that
+# one setting chooses (Fetch backend, Proxy provider) becomes that setting's value at the connection scope, with the
+# run-layer origin `registered`, the lowest: every other run-layer value replaces it, configuration does not, and a lock
+# wins with no refusal. Two of such a kind fail `connect()` with `SettingInvalidError` when nothing else sets the key,
+# as does a handler named as a built-in or an installed Plugin. Collie's SDK has no `fetch_backends` or `sinks` (ADR
+# 0088). Each kind's handler is generated from its plugin-protocol method group (area 7's spec): the shapes below are
+# provisional. A `GoodfetchError` it raises keeps its code; any other exception is its kind's `<kind>_handler_failed`,
+# whose message names it, as ADR 0101's `model_handler_failed`. The async client takes coroutine functions, run in the
+# connection's task group; the sync client takes plain functions, run on its thread pool (ADR 0081).
 
 @final
 @dataclass(frozen=True, kw_only=True)
@@ -350,8 +357,11 @@ class BackendRequest:
     """A target the engine already checked under the page class and the run's domain policy (ADR 0033)."""
 
     url: str
-    method: Literal["GET", "HEAD"]
+    method: str
+    """The crawl request's own method (ADR 0093)."""
     headers: Mapping[str, str]
+    body: bytes | None
+    """The crawl request's own body, or `None`."""
 
 @final
 @dataclass(frozen=True, kw_only=True)
@@ -361,8 +371,9 @@ class BackendResponse:
     body: bytes
 
 AsyncFetchBackendHandler: TypeAlias = Callable[[BackendRequest], Awaitable[BackendResponse]]
-"""The HTTP tiers' transport. It never carries a logged-in Session's requests: the engine sends those itself, so no
-cookie or Secret value passes through the program."""
+"""The HTTP tiers' transport. It never carries a request that uses a Secret or a logged-in identity (a logged-in
+Session's, or one whose Hook set a Secret placeholder): the engine sends those itself, so no cookie or Secret value
+passes through the program."""
 FetchBackendHandler: TypeAlias = Callable[[BackendRequest], BackendResponse]
 
 @final

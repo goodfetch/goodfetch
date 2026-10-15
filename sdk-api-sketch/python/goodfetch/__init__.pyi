@@ -396,6 +396,7 @@ from goodfetch._results import Verdict as Verdict
 from goodfetch._run import AsyncCheckpoint as AsyncCheckpoint
 from goodfetch._run import AsyncKeyValueStoreReader as AsyncKeyValueStoreReader
 from goodfetch._run import AsyncRunControl as AsyncRunControl
+from goodfetch._run import AsyncRunTrace as AsyncRunTrace
 from goodfetch._run import AsyncRunView as AsyncRunView
 from goodfetch._run import Checkpoint as Checkpoint
 from goodfetch._run import CheckpointInfo as CheckpointInfo
@@ -434,11 +435,14 @@ from goodfetch._run import RunReport as RunReport
 from goodfetch._run import RunStateUnavailableDetails as RunStateUnavailableDetails
 from goodfetch._run import RunStateUnavailableError as RunStateUnavailableError
 from goodfetch._run import RunStopReason as RunStopReason
+from goodfetch._run import RunTrace as RunTrace
 from goodfetch._run import RunView as RunView
 from goodfetch._run import RunWarning as RunWarning
 from goodfetch._run import SinkDeliveryStatus as SinkDeliveryStatus
 from goodfetch._run import SitemapTotals as SitemapTotals
 from goodfetch._run import StartedAs as StartedAs
+from goodfetch._run import UnreadSitemap as UnreadSitemap
+from goodfetch._run import VerdictReason as VerdictReason
 from goodfetch._run import WaitGroup as WaitGroup
 from goodfetch._run import WaitReason as WaitReason
 from goodfetch._run import WaitingDomain as WaitingDomain

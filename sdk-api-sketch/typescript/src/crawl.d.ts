@@ -101,9 +101,9 @@ export declare class Crawl {
   beforeRequest<const Ls extends readonly AnyLabel[] = readonly AnyLabel[]>(hook: BeforeRequestHook<Ls[number]>, options?: HookOptions<Ls>): void;
   /** After the final response, before the status rule: it may rewrite the body, mark a block or ask for a retry. */
   afterResponse<const Ls extends readonly AnyLabel[] = readonly AnyLabel[]>(hook: AfterResponseHook<Ls[number]>, options?: HookOptions<Ls>): void;
-  /** Before the browser navigates: set cookies, block resources, add init scripts. Only on the `browser` tier. */
+  /** Before the browser navigates: set cookies, block resources, add init scripts. Only on the `browser` and `light_browser` tiers. */
   beforeNavigation<const Ls extends readonly AnyLabel[] = readonly AnyLabel[]>(hook: PageStageHook<Ls[number]>, options?: HookOptions<Ls>): void;
-  /** After the browser navigated, before the engine's own page work (consent, challenges, the expected page). Only on the `browser` tier. */
+  /** After the browser navigated, before the engine's own page work (consent, challenges, the expected page). Only on the `browser` and `light_browser` tiers. */
   afterNavigation<const Ls extends readonly AnyLabel[] = readonly AnyLabel[]>(hook: PageStageHook<Ls[number]>, options?: HookOptions<Ls>): void;
   /** Just before the handler, on every tier, with the handler's page: the router middleware of Crawlee's `router.use`. */
   pageReady<const Ls extends readonly AnyLabel[] = readonly AnyLabel[]>(hook: PageStageHook<Ls[number]>, options?: HookOptions<Ls>): void;

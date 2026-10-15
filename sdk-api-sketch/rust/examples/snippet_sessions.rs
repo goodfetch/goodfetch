@@ -90,9 +90,10 @@ async fn session_with_login(run: &Run) -> Result<Session, Error> {
         .await
 }
 
-/// `caller:` references, answered from the program's own store at the moment of use.
+/// `caller:` references, answered from the program's own store at the moment of use: the program
+/// declared it answers them with `ConnectOptions::default().resolve_secret()` (ADR 0104).
 async fn answer_secrets(gf: Goodfetch) -> Result<(), Error> {
-    let mut requests = gf.secret_requests();
+    let mut requests = gf.secret_requests()?;
     while let Some(request) = requests.next().await {
         let request = request?;
         let value = read_vault(request.name());

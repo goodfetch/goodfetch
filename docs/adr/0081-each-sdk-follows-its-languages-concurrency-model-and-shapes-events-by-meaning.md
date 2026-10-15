@@ -46,13 +46,17 @@ Each SDK runs on its language's own model: TypeScript async only; Python an asyn
 - **Where user code runs.** This covers the requests that need the program's answer (a crawl handler, a route, a dialog handler, a Hook in code) and listeners:
   - TypeScript: on the program's event loop. A function the engine calls may return a value or a promise.
   - Python async: as tasks on the connection's loop, inside a task group owned by the value that registered them, so closing that value cancels and awaits them (ADR 0038's tree). Handlers, routes and Hooks are `async def`, which the type checker enforces; predicates are plain functions; listeners may be either.
+    > Amended by [ADR 0093](0093-a-crawl-declares-its-labels-and-one-handler-each-and-a-handler-reads-collies-page-on-every-fetch-tier.md): a crawl's handlers are registered on a `Crawl`, which has no lifecycle, so they run in the task group of the Run started from it; closing that Run cancels and awaits them.
   - Python sync: on a thread pool the connection owns, never on its private thread, so a slow handler never stalls I/O. User code is plain functions, which on free-threaded builds (ADR 0024) run in parallel.
   - Rust: the async API spawns nothing on the program's executor. A request that needs an answer arrives as an `EventStream`, as an event does.
+    > Amended by [ADR 0092](0092-sessions-open-from-their-source-page-pause-waits-for-a-person-and-a-secret-is-a-placeholder-bound-to-domains.md): a step the program performs inside a call it awaits, such as the scripted login step, is a closure given where its scope opens and run inside that call's future; a request that may come while no call of the program is in flight stays an `EventStream`.
     - Helpers that answer requests concurrently run handlers inside the future the program awaits. Handlers may therefore borrow local state and need neither `Send` nor `'static`, and they make progress while that future is polled, as ADR 0080's `during` does. The crawl's helpers are [Crawl definition and handler context](https://github.com/goodfetch/automan/issues/477)'s.
+      > Amended by [ADR 0093](0093-a-crawl-declares-its-labels-and-one-handler-each-and-a-handler-reads-collies-page-on-every-fetch-tier.md): the crawl's helper is `crawl.serve(&run)`, which answers the Run's crawl requests with the handlers declared on the `Crawl`; `run.crawl_requests()` is the `EventStream` beneath it.
     - In `goodfetch::blocking`, those helpers run handlers on the `tasks` module's tracked blocking threads (ADR 0060), and the helper's call waits for them, so blocking handlers are `Fn + Send + Sync + 'static`.
     - axum spawns its handlers onto Tokio, which needs `Send + 'static` closures and a Tokio runtime.
 - **How many at once.** The engine sends a Client at most as many requests as the Run's handler concurrency setting allows (its leases, ADR 0003), so the SDK keeps no queue of its own; `workers=N` processes multiply it (ADR 0024). The setting's name is [Settings in code](https://github.com/goodfetch/automan/issues/470)'s and Crawl definition and handler context's.
   > Amended by [ADR 0083](0083-a-program-sets-settings-in-one-typed-option-explicit-values-beat-the-environment-and-no-value-is-silently-ignored.md): the setting's name follows ADR 0083's rule, under `crawl.*`; its exact key and per-route form are [Crawl definition and handler context](https://github.com/goodfetch/automan/issues/477)'s.
+  > Amended by [ADR 0093](0093-a-crawl-declares-its-labels-and-one-handler-each-and-a-handler-reads-collies-page-on-every-fetch-tier.md): the setting is `crawl.handler.concurrency`, 16 by default, and set on a Label it also caps that Label's handlers, within the Run's.
 
 ### Events
 
@@ -78,6 +82,7 @@ Each SDK runs on its language's own model: TypeScript async only; Python an asyn
   - Each iterator has one reader; a second reader calls the method again.
   - While open, an unread lossless sequence slows its Run (ADR 0024), and a telemetry sequence keeps only the latest value. Where each sequence starts is its owning ticket's ([Crawl output in code](https://github.com/goodfetch/automan/issues/479) for Records).
     > Amended by [ADR 0103](0103-a-handler-pushes-records-staged-with-its-attempt-into-datasets-its-crawl-declares-and-a-reader-never-slows-the-crawl.md): Records are read with `run.records(dataset, { after })` on a crawl's Run, from the Dataset's first Record or after a given number, and an unread Records sequence never slows its Run, since the Records it reads are already committed to run state.
+    > Amended by [ADR 0100](0100-collies-agent-is-one-bounded-call-on-a-page-judged-by-the-programs-success-check-and-replayed-whole-from-the-plan.md): an Agent's steps are lossless and start at the task's first step, whenever `steps()` is called; the sequence ends when the task ends, and raises the task's error when it failed.
 
 ### Patterns and predicates
 

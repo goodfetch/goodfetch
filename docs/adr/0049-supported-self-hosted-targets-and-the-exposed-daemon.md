@@ -40,6 +40,8 @@ Crawlee documents AWS Lambda and Cloud Run but tests neither, and its AWS guide 
 | Cloudflare Workers, Vercel Functions, Deno Deploy, as Clients only | Supported | The SDK in `workerd` (Miniflare), Vercel's edge-runtime and Deno against a Daemon |
 | ECS and Fargate, Azure Container Apps, Fly.io, Railway, Render | Documented | None |
 
+> Amended by [ADR 0094](0094-both-products-are-released-and-signed-together-and-each-test-runs-on-collie-unless-it-needs-foxhound.md): every Supported target is supported for both Products. CI runs each Product's image on it with that Product's smoke run, and the Cloud Run deploy of each release candidate deploys both images.
+
 **Edge and serverless Clients** (adds to ADR 0024).
 - Both SDKs gain a WebSocket transport to an Exposed Daemon or Goodfetch Cloud, the carriage the Console already uses (ADR 0031), configured by `GOODFETCH_URL` and a scoped token. Page bodies stream through `page.body`.
 - On an edge runtime, a Client makes request-scoped calls (fetch, extract or act on one page, start a Recipe run and poll or subscribe to it). Handler code that must outlive a request runs as a Recipe on the Daemon. Asking for in-function handlers on an edge runtime fails with a typed Error code.
@@ -75,6 +77,8 @@ Crawlee documents AWS Lambda and Cloud Run but tests neither, and its AWS guide 
 | `goodfetch:<v>-full` | The default plus Camoufox, and Playwright's Firefox and WebKit |
 | `goodfetch:<v>-node`, `goodfetch:<v>-python` | The default plus the language runtime and SDK, the base for `init`'s Dockerfiles and for Lambda |
 
+> Amended by [ADR 0094](0094-both-products-are-released-and-signed-together-and-each-test-runs-on-collie-unless-it-needs-foxhound.md): each Product publishes all five tags under its own image, and `nightly`, with its own executable as the image's last layer; Collie's `-slim` drives remote browsers only, since fetch tiers are Foxhound's.
+
 - Every tag is built on Debian 13 slim (Chromium needs glibc), for amd64 and arm64, runs as the non-root UID 10001, and ships with an SBOM and Sigstore attestations.
 - The Browser host runs from the same image with its own command.
 
@@ -86,6 +90,7 @@ Crawlee documents AWS Lambda and Cloud Run but tests neither, and its AWS guide 
 - By default it passes Kubernetes' `restricted` Pod Security level: `runAsNonRoot`, every capability dropped, `allowPrivilegeEscalation: false`, a read-only root filesystem with `emptyDir` volumes for `/tmp` and the browser cache, a memory-backed `/dev/shm` of 1 GiB, and the seccomp profile as `Localhost`, installed through an optional Security Profiles Operator `SeccompProfile` the chart can create, or by hand.
 - Two documented values: `seccomp: unconfined`, needed on GKE Autopilot, which forbids custom profiles and drops to the `privileged` level; and `hostUsers: false` with `SYS_ADMIN` inside the pod's user namespace (Kubernetes 1.33 and later, GA in 1.36), which fails `baseline`.
 - Published as a signed OCI artifact on GHCR at the product version, released with the other packages (adds to ADR 0030). Upgrades roll by drain, then resume from the same volume.
+  > Amended by [ADR 0094](0094-both-products-are-released-and-signed-together-and-each-test-runs-on-collie-unless-it-needs-foxhound.md): Collie's and Foxhound's charts come from one chart source that differs only by the image it runs, which a Quick check proves by rendering both; the `kind` test runs each chart, and ADR 0066's upgrade runs Foxhound's.
 
 **Project templates** (adds to ADR 0030).
 - `goodfetch init` scaffolds TypeScript, Python and Rust projects from five starters: crawl, extract, browser automation, AI agent and Recipe. The templates are embedded zstd-compressed (ADR 0057).

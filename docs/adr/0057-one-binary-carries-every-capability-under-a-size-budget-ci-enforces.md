@@ -44,6 +44,7 @@ The `goodfetch` binary keeps every capability built in, V8 and DuckDB included, 
 
 - The release profile uses fat LTO with one codegen unit, `opt-level = 3`, unwinding on panic, and `strip`. Pull-request and merge-queue builds keep thin LTO.
 - Each release publishes the debug symbols of every binary beside it (split DWARF or `.dSYM` on Unix, `.pdb` on Windows), Sigstore-signed and attested like the binaries, so a crash backtrace can be read. **Changes ADR 0030.**
+  > Amended by [ADR 0094](0094-both-products-are-released-and-signed-together-and-each-test-runs-on-collie-unless-it-needs-foxhound.md): each Product's executable has its own debug symbols per target, named after it.
 
 ### The Size budget
 
@@ -72,8 +73,10 @@ The `goodfetch` binary keeps every capability built in, V8 and DuckDB included, 
 ### PyPI (changes ADR 0030)
 
 - **Nightly wheels leave PyPI.** They are attached to the nightly GitHub pre-release, which has no total size limit, and listed by a simple repository index (PEP 503, with PEP 691's JSON form) that the nightly job publishes on `goodfetch.dev`. Each file is listed with its SHA-256 and keeps its attestation. The index lists the last 30 nightlies. Users install with `pip install --pre goodfetch --index-url https://goodfetch.dev/nightly/simple --extra-index-url https://pypi.org/simple`, or a uv index pinned to the `goodfetch` package. npm keeps its `nightly` tag, and the OCI image its `nightly` tag: neither has a quota.
+  > Amended by [ADR 0094](0094-both-products-are-released-and-signed-together-and-each-test-runs-on-collie-unless-it-needs-foxhound.md): the nightly index lists each Product's wheels on its own project page.
 - PyTorch ([nightly index](https://download.pytorch.org/whl/nightly/)), JAX ([installation](https://docs.jax.dev/en/latest/installation.html)) and the Scientific Python projects ([SPEC 4](https://scientific-python.org/specs/spec-0004/)) publish nightlies to their own index the same way. uv, ruff, Deno, polars and Playwright publish none to PyPI (their PyPI release lists, read 2026-10-12).
 - **The project quota.** About 50 releases a year (a release candidate and a minor every 4 weeks, a patch per Chrome major), six wheels each at about 40 MB, use about 12 GB a year, more than PyPI's 10 GB default. Before the first public release Goodfetch asks for 100 GB through [pypi/support](https://github.com/pypi/support), as DuckDB was granted ([support#6896](https://github.com/pypi/support/issues/6896)). The release job reads the project's usage and warns when it passes 70% of the quota, so the next increase is asked for before a publish can fail.
+  > Amended by [ADR 0094](0094-both-products-are-released-and-signed-together-and-each-test-runs-on-collie-unless-it-needs-foxhound.md): `goodfetch-collie` and `goodfetch-foxhound` are two PyPI projects, each under its own 10 GB default. Foxhound's use is this estimate and Collie's about 9 GB a year; the owner asks for 100 GB for each right after its first upload, and the release job warns past 70% of either.
 
 ### How DuckDB reads run files (changes ADR 0031)
 

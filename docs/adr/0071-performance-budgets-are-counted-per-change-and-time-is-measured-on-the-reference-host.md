@@ -34,6 +34,7 @@ Decided in [Performance regression testing](https://github.com/Jbmanllr/automan/
 
   Scenarios that cross crates (startup, a protocol round trip) live in the binary crate. Benchmarks are not tests and add no integration-test binary.
 - **Startup** is two binary benchmarks in the binary crate: an Attached engine started over stdio, answering `hello`, and exiting at end of input; and `goodfetch --version`.
+  > Amended by [ADR 0094](0094-both-products-are-released-and-signed-together-and-each-test-runs-on-collie-unless-it-needs-foxhound.md): each Product's executable crate has its own startup benchmarks.
 - **Build:** Cargo's `bench` profile, which is the release settings with thin LTO and `debug = "line-tables-only"` (gungraun needs symbols), on `x86_64-unknown-linux-gnu` and `aarch64-unknown-linux-gnu`. Valgrind runs on neither Windows nor Apple-silicon macOS, so the counts come from Linux. The gnu build's counts stand for the static musl release binary, which the release benchmark measures.
 - **A benchmark measures one pinned scenario:** inputs from a literal, a fixture or a seed, no network, no sleep, and no work whose amount depends on timing.
 - **A bench target builds what it needs the way a test does.** It builds a current-thread Tokio runtime, `Clock::paused` and `Entropy::seeded` through the same `goodfetch-test-support` helpers tests use, and passes the `tasks` module's inline blocking policy of ADR 0060, so no thread waits on another and the counts repeat. ADR 0060 and `STYLE.md` allowed runtimes only in `main` and test helpers, and ADR 0062 the test constructors only in test modules: bench targets join both lists. Each bench target's root opts in once with `#![expect(clippy::disallowed_methods, reason = "benchmark harness, ADR 0071")]`, never with a crate-wide attribute in product code.
@@ -73,6 +74,7 @@ These are exact by construction, so they are ordinary tests with snapshots (`TES
   - an HTTP crawl of 1,000 local Proving ground pages at the default concurrency.
 
   Each OS has its own ceiling per scenario. The ticket that builds the check sets it at 1.5 times the highest peak of 20 runs, rounded up, with the owner's approval, and only the owner moves it. The 50% margin is far above run-to-run spread (rustc-perf calls max RSS "much more variable than instruction count"), so the check gives one verdict for one build.
+  > Amended by [ADR 0094](0094-both-products-are-released-and-signed-together-and-each-test-runs-on-collie-unless-it-needs-foxhound.md): each Product has its own ceilings for an idle Attached engine and an idle Daemon, and the 1,000-page crawl is Foxhound's. The Performance series measures both executables and each Console build.
 - **The Console's leak check:** a served Playwright test (ADR 0068) streams 10,000 events into the Runs screen. The JS heap after a forced garbage collection, read over CDP, is within 10% of its value after the first 1,000 events. A ratio, so the machine does not matter.
 
 ### The Performance series

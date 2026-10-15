@@ -88,6 +88,7 @@ A Feature with an entry in `features/exceptions.toml` is **excepted**, by its ev
 - **A unit test alone counts**, except for rule 5. `/to-spec` sets `journey = true` on stories whose actor is a person using Goodfetch (a user, an operator, an agent's user), and off on stories of contributors, maintainers and areas.
   > Amended by [ADR 0075](0075-a-user-story-needs-a-journey-only-when-it-is-a-persons-goal-a-variant-can-reach.md): `/to-spec` sets `journey = true` only on stories that pass its three tests (`actor`, `part`, `reach`), records the failed test as `not_journey` otherwise, and a story needs a test above the unit level.
 - **A Feature is tested once, not once per surface.** Surfaces are generated from one catalog (ADR 0038), and the surface ADRs already require their own completeness: generated API completeness and every Client conformance case on every surface (ADR 0069), the MCP client matrix (ADR 0070), and a Journey on every surface it lists (ADR 0063).
+  > Amended by [ADR 0094](0094-both-products-are-released-and-signed-together-and-each-test-runs-on-collie-unless-it-needs-foxhound.md): nor once per Product. The inventory records the Products that carry each Feature, and `xtask features report` gives each Product's view.
 - **The check counts Features, not depth.** One test makes a Feature tested; depth comes from the stories, the review and the mutation signal.
 
 ### Exceptions

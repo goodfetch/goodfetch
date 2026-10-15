@@ -205,7 +205,7 @@ Permalink base: `https://github.com/browser-use/browser-use/blob/a71d5478e4187cb
 - **System prompts.** `system_prompt.md` (270 lines) and `system_prompt_no_thinking.md` (246 lines) differ in only 60 diff lines.
 
 **MCP server duplicates the tool contract**
-- It hand-writes JSON schemas for 15 tools ([mcp/server.py#L220-L460](https://github.com/browser-use/browser-use/blob/a71d5478e4187cbe5295aab6403dfe7e4a6861a4/browser_use/mcp/server.py#L220-L460)) instead of deriving them from the action registry.
+- It hand-writes JSON schemas for 16 tools ([mcp/server.py#L220-L460](https://github.com/browser-use/browser-use/blob/a71d5478e4187cbe5295aab6403dfe7e4a6861a4/browser_use/mcp/server.py#L220-L460)) instead of deriving them from the action registry.
 - It dispatches with an `if/elif` chain ([L502-L580](https://github.com/browser-use/browser-use/blob/a71d5478e4187cbe5295aab6403dfe7e4a6861a4/browser_use/mcp/server.py#L502-L580)).
 - `browser_close` is still dispatched, but its tool definition is commented out ([L383-L390](https://github.com/browser-use/browser-use/blob/a71d5478e4187cbe5295aab6403dfe7e4a6861a4/browser_use/mcp/server.py#L383-L390)).
 

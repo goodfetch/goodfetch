@@ -184,9 +184,12 @@ impl SecretRequest {
 }
 
 impl Goodfetch {
-    /// The `caller:` references the engine asks this program to resolve, subscribed when called.
-    /// With no stream open, such a reference fails with `secret_unavailable`.
-    pub fn secret_requests(&self) -> EventStream<SecretRequest> {
+    /// The `caller:` references the engine asks this program to resolve, once
+    /// [`ConnectOptions::resolve_secret`](crate::ConnectOptions::resolve_secret) declared it (ADR
+    /// 0104). Undeclared, or while another stream is open, it fails with `setting_invalid`. A request
+    /// waits for its stream until its own deadline, and one dropped unanswered fails with
+    /// `secret_unavailable`.
+    pub fn secret_requests(&self) -> Result<EventStream<SecretRequest>, Error> {
         unimplemented!()
     }
 

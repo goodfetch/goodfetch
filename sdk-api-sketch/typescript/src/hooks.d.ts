@@ -68,8 +68,12 @@ export interface HookContext<L extends AnyLabel> {
 export interface BeforeRequestContext<L extends AnyLabel> extends HookContext<L> {
   /** The tier about to fetch. */
   readonly tier: ReportedFetchTier;
+  /** The method the request was enqueued with, `GET` by default (ADR 0093). A Hook reads it and never changes it. */
+  readonly method: string;
+  /** The body the request was enqueued with, or `null`. A Hook reads it (to sign the request, say) and never changes it. */
+  readonly body: Uint8Array | null;
   /**
-   * The request's headers as built so far, the Hooks before this one included. Cookies, Secret
+   * The request's headers as built so far, the enqueue's own and the Hooks before this one included. Cookies, Secret
    * values and the Session's credentials are added after the last Hook, so none of them is here.
    */
   readonly headers: Readonly<Record<string, string>>;
@@ -79,7 +83,7 @@ export interface BeforeRequestContext<L extends AnyLabel> extends HookContext<L>
   skip(message: string): never;
 }
 
-/** What a before-request Hook changes. A crawl request stays a GET: a crawl that must POST does it from a handler with `page.request`. */
+/** What a before-request Hook changes: the URL and headers, never the method or the body the request was enqueued with (ADR 0093). */
 export interface RequestChange {
   /**
    * A new URL, checked against the crawl's scope and the run's domain policy, else the request ends
@@ -199,8 +203,11 @@ export declare class HeaderForbiddenError extends ProgramError {
 /** The request a Fetch backend is handed: a target the engine already checked under the page class and the run's domain policy (ADR 0033). */
 export interface BackendRequest {
   readonly url: string;
-  readonly method: "GET" | "HEAD";
+  /** The crawl request's own method (ADR 0093). */
+  readonly method: string;
   readonly headers: Readonly<Record<string, string>>;
+  /** The crawl request's own body, or `null`. */
+  readonly body: Uint8Array | null;
 }
 /** A Fetch backend's answer. A redirect's target comes back as a new request, checked again. */
 export interface BackendResponse {

@@ -79,7 +79,7 @@ export async function crawlWithHooks(): Promise<void> {
 // Typed mistakes, caught before anything runs.
 export function mistakes(): void {
   crawl.beforeRequest(
-    // @ts-expect-error a crawl request stays a GET: a Hook changes its URL and headers, never its method
+    // @ts-expect-error a Hook changes a crawl request's URL and headers, never the method it was enqueued with
     () => ({ method: "POST" }),
     { labels: [book] },
   );

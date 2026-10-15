@@ -102,7 +102,7 @@ async def crawl_with_hooks() -> None:
             pass
 
 
-# Typed mistakes, caught before anything runs: a Hook scoped to `books` returns a Book, and a crawl request stays a GET.
+# Typed mistakes, caught before anything runs: a Hook scoped to `books` returns a Book, and a Hook never changes a crawl request's method.
 @crawl.before_record_commit(datasets=[books])  # type: ignore[arg-type]  # pyright: ignore[reportArgumentType]
 async def wrong_record(ctx: AsyncRecordCommitContext[object, Book]) -> str:
     return "not a Book"

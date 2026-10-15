@@ -48,8 +48,14 @@ class _BeforeRequestBase(_HookContext[P]):
     def tier(self) -> FetchTier | str:
         """The tier about to fetch: every attempt, escalation and sample-comparison run comes here again."""
     @property
+    def method(self) -> str:
+        """The method the request was enqueued with, `GET` by default (ADR 0093). A Hook reads it and never changes it."""
+    @property
+    def body(self) -> bytes | None:
+        """The body the request was enqueued with, or `None`. A Hook reads it (to sign the request, say), never changes it."""
+    @property
     def headers(self) -> Mapping[str, str]:
-        """The headers as built so far, the Hooks before this one included. Cookies, Secret values and the Session's
+        """The headers as built so far, the enqueue's own and the Hooks before this one included. Cookies, Secret values and the Session's
         credentials are added after the last Hook, so none of them is here."""
     @property
     def previous_error(self) -> GoodfetchError | None:
@@ -73,8 +79,8 @@ class AsyncBeforeRequestContext(_BeforeRequestBase[P]):
 @final
 @dataclass(frozen=True, kw_only=True)
 class RequestChange:
-    """What a before-request Hook changes. A crawl request stays a GET: a crawl that must POST does it from a handler
-    with `page.request`."""
+    """What a before-request Hook changes: the URL and headers, never the method or the body the request was enqueued
+    with (ADR 0093)."""
 
     url: str | None = None
     """A new URL, checked against the crawl's scope and the run's domain policy (not an enqueue's other checks); a Hook in
@@ -351,8 +357,11 @@ class BackendRequest:
     """A target the engine already checked under the page class and the run's domain policy (ADR 0033)."""
 
     url: str
-    method: Literal["GET", "HEAD"]
+    method: str
+    """The crawl request's own method (ADR 0093)."""
     headers: Mapping[str, str]
+    body: bytes | None
+    """The crawl request's own body, or `None`."""
 
 @final
 @dataclass(frozen=True, kw_only=True)

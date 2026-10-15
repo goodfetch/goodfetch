@@ -148,7 +148,19 @@ impl<P> BeforeRequestContext<P> {
         unimplemented!()
     }
 
-    /// The headers as built so far, the Hooks before this one included. Cookies, Secret values
+    /// The method the request was enqueued with, `GET` by default (ADR 0093). A Hook reads it and
+    /// never changes it.
+    pub fn method(&self) -> &str {
+        unimplemented!()
+    }
+
+    /// The body the request was enqueued with, if any. A Hook reads it (to sign the request, say)
+    /// and never changes it.
+    pub fn body(&self) -> Option<&[u8]> {
+        unimplemented!()
+    }
+
+    /// The headers as built so far, the enqueue's own and the Hooks before this one included. Cookies, Secret values
     /// and the Session's credentials are added after the last Hook, so none of them is here.
     pub fn headers(&self) -> &Headers {
         unimplemented!()
@@ -167,8 +179,8 @@ impl<P> BeforeRequestContext<P> {
     }
 }
 
-/// What a before-request Hook changes. A crawl request stays a GET: a crawl that must POST does it
-/// from a handler with `page.request()`.
+/// What a before-request Hook changes: the URL and headers, never the method or the body the request
+/// was enqueued with (ADR 0093).
 #[derive(Debug, Clone, Default)]
 #[must_use = "a change does nothing until the Hook returns it"]
 pub struct RequestChange {
@@ -518,10 +530,12 @@ pub type HandlerError = Box<dyn std::error::Error + Send + Sync + 'static>;
 pub struct BackendRequest {
     /// The target.
     pub url: String,
-    /// `GET` or `HEAD`.
+    /// The crawl request's own method (ADR 0093).
     pub method: String,
     /// The headers to send.
     pub headers: Headers,
+    /// The crawl request's own body, if any.
+    pub body: Option<Vec<u8>>,
 }
 
 /// A Fetch backend's answer; a redirect's target comes back as a new request, checked again.
@@ -714,6 +728,13 @@ impl ConnectOptions {
     /// takes no `type`.
     pub fn sink(self, name: &str) -> Self {
         let _ = name;
+        unimplemented!()
+    }
+
+    /// Declares that the program answers `caller:` Secret references, which
+    /// [`Goodfetch::secret_requests`] reads (ADR 0092). Without it, such a reference fails with
+    /// `secret_unavailable`, its `fix` naming this method, whether or not a stream is open.
+    pub fn resolve_secret(self) -> Self {
         unimplemented!()
     }
 }

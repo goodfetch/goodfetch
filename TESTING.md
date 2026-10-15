@@ -718,6 +718,7 @@ Decided in [ADR 0069](docs/adr/0069-sdks-and-the-cli-are-tested-against-a-script
 - **A command that runs the engine is tested in both modes**, as rstest cases `attached` and `daemon`, against one snapshot.
 - **Client faults** (a refused protocol version, a dead PID, a dropped connection) come from the Scripted engine run as a Daemon.
 - **What only Foxhound carries is refused through Collie's executable,** table-driven from the generated list of Foxhound's names: each operation over the protocol, each setting key as a `settings` value, each CLI command with its exit code, and enabling each Plugin kind and Hook stage answer `not_in_product`, with one message snapshot per kind. A configuration file holding a Foxhound key loads, and `config explain` lists it as Foxhound's (ADR 0087).
+- **A Recipe is held to the Product its manifest names, on both engines** (ADR 0096). `init` writes the Product of the executable that ran it. Collie refuses a Recipe that names Foxhound with `not_in_product` before its run starts. On Foxhound's engine, a Recipe that names Collie answers `not_in_product` to a Foxhound-only call and to a Foxhound Client connecting to its run, and the `fix` says to name Foxhound in the manifest.
 
 ### Where they run
 
@@ -1016,7 +1017,7 @@ Each suite contains the one before, so the table gives the first suite that runs
 
 ### The Console conformance suite
 
-- **It runs the Console against a target given as configuration:** each Product's Daemon, serving its own Console build, and the Stub gateway here, Goodfetch Cloud's gateway from the private repository. The Stub gateway serves Foxhound's Console build and starts each run's engine from the executable of the run's Product (ADR 0096). Each target run writes its own result document with `kind = "conformance"`, like a Journey ([Journeys](#journeys)): its Playwright reporter derives each outcome, and the Rust reader recomputes it. It writes no case log.
+- **It runs the Console against a target given as configuration:** each Product's Daemon, serving its own Console build, and the Stub gateway here, Goodfetch Cloud's gateway from the private repository. The Stub gateway serves Foxhound's Console build and starts each run's engine from the executable of the run's Product (ADR 0096). Its cases cover the rule that picks each run's Product: a Collie Client's run lands on Collie's engine and its `crawl.start` answers `not_in_product`; a Foxhound Client's run lands on Foxhound's; a Recipe that names Foxhound lands on Foxhound's whoever starts it; a run started from the Console lands by what its target names; Foxhound's screens show only for a run on Foxhound's engine, and a Foxhound-only call on a run of Collie's engine answers `not_in_product`, naming the run's Product. Each target run writes its own result document with `kind = "conformance"`, like a Journey ([Journeys](#journeys)): its Playwright reporter derives each outcome, and the Rust reader recomputes it. It writes no case log.
 - **Add a case when the Console starts to need something new from its target.**
 
 ### Browsers

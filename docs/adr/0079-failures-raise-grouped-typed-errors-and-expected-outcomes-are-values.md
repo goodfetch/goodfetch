@@ -66,6 +66,8 @@ Every SDK reports what happened in two ways that never mix: a failure raises a t
   - `blocked`, with a Block cause.
 
   Retries are a count, not an outcome: every outcome carries `attempts` and the errors of the failed attempts, so a request retried and then failed counts once. Live states (pending, in flight, a Human pause) are [The Run in code](https://github.com/goodfetch/automan/issues/478)'s, dropped and rejected Records (ADR 0033) are [Crawl output in code](https://github.com/goodfetch/automan/issues/479)'s, and the handler's `skip` and `retry` are Crawl definition and handler context's, which also settles the noun; until then the type is `RequestOutcome`.
+
+  > Amended by [ADR 0103](0103-a-handler-pushes-records-staged-with-its-attempt-into-datasets-its-crawl-declares-and-a-reader-never-slows-the-crawl.md): a `succeeded` outcome also carries `records`, counting for each Dataset the Records its commit committed, dropped and rejected; a "Record before commit" Hook's answer never fails the request.
 - **AI work that can claim success** (an Agent's task, a Plan replayed toward a goal) carries three separate fields:
   - `ended`: `finished`, or `stopped` with its reason (a Limit by name, an abort); a failed ending raises instead;
     > Amended by [ADR 0080](0080-sdk-timeouts-nest-waits-arm-when-called-and-a-program-sets-limits-but-never-raises-them.md): `timeout`, the Run's own timeout, is a stop reason too.

@@ -53,6 +53,8 @@ Evidence: [sinks, notifications and integrations research](https://github.com/Jb
 - replace (written apart, then swapped in atomically)
 - history (versions with valid-from and valid-to)
 
+> Amended by [ADR 0103](0103-a-handler-pushes-records-staged-with-its-attempt-into-datasets-its-crawl-declares-and-a-reader-never-slows-the-crawl.md): the user-declared fields default to the Dataset's `key`, which its crawl declares, and a Sink's own key overrides them; a Dataset with neither has no keyed write mode. Sinks are configured as `sinks.<name>.*` settings on a connection or a crawl's Run, refused on a Label and on a Collie Run.
+
 The last record in a batch wins. "Only new or changed" delivers what change tracking reports against the Baseline. A record missing since the Baseline can be soft-deleted, by a complete run only (ADR 0036). The engine refuses a mode a destination cannot support. On Sheets and Notion, the engine does the lookup itself.
 
 **Schema.** The declared schema comes first; otherwise it is inferred.

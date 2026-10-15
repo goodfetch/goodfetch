@@ -42,10 +42,12 @@ from goodfetch._hooks import (
 from goodfetch._page import AsyncPageApi, AsyncRouteHandler, PageApi, RouteHandler
 from goodfetch._sessions import (
     AsyncIdentities,
+    AsyncPageStorage,
     AsyncPausesForHuman,
     AsyncResolveSecret,
     AsyncSessionStateApi,
     Identities,
+    PageStorage,
     PausesForHuman,
     ResolveSecret,
     SessionStateApi,
@@ -142,6 +144,7 @@ class AsyncPage(
     AsyncPageApi,
     AsyncPageWaits,
     AsyncPageEvents,
+    AsyncPageStorage,
     AsyncPausesForHuman,
     AsyncAiVerbs,
     AsyncElementReferences,
@@ -442,7 +445,7 @@ class _Closeable:
     ) -> None: ...
 
 @final
-class Page(_Closeable, _ExplainsSettings, PageApi, PageWaits, PageEvents, PausesForHuman, AiVerbs, ElementReferences, RawCall, AgentApi):
+class Page(_Closeable, _ExplainsSettings, PageApi, PageWaits, PageEvents, PageStorage, PausesForHuman, AiVerbs, ElementReferences, RawCall, AgentApi):
     """A page Goodfetch drives: a tab of a Session, opened by `session.new_page()` or by the page itself (a popup).
     Closing it closes only a tab Goodfetch opened; on a Borrowed browser it only releases it."""
 

@@ -19,8 +19,6 @@ use std::path::PathBuf;
 use std::str::FromStr;
 use std::time::{Duration, SystemTime};
 
-use serde::{Serialize, Serializer};
-
 use crate::concurrency::EventStream;
 use crate::lifecycle::{Goodfetch, Page, Session};
 use crate::page::{Locator, TextMatch};
@@ -57,7 +55,8 @@ impl FromStr for SecretReference {
 
 /// A Secret placeholder: the name by which the program asks for a secret to be typed or sent. It
 /// holds no value; `secrets.<name>` binds it, and the engine refuses an unbound one with
-/// `secret_unbound`.
+/// `secret_unbound`. It is not serializable, so no serde value carries it into a page function or
+/// a fulfilled body: a JSON body takes one through [`crate::ApiRequest::json_secret`].
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SecretPlaceholder {
     name: String,
@@ -67,15 +66,6 @@ impl SecretPlaceholder {
     /// The placeholder's name, which `%name%` also names in an AI instruction.
     pub fn name(&self) -> &str {
         &self.name
-    }
-}
-
-/// Serialized as the SDK's placeholder marker inside a JSON body ([`crate::ApiRequest::json`]),
-/// which the engine replaces, checked against the request's URL.
-impl Serialize for SecretPlaceholder {
-    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-        let _ = serializer;
-        unimplemented!()
     }
 }
 
@@ -711,7 +701,55 @@ impl IntoFuture for Pause {
     }
 }
 
+/// A page's `localStorage` or `sessionStorage` for its current origin, Playwright's `WebStorage`.
+/// Offered in the SDKs only (ADRs 0011, 0014); outside a bound source's `domains`, refused. A value
+/// set is session state, kept by a Saved identity.
+#[derive(Debug, Clone)]
+pub struct WebStorage {
+    _page: Page,
+}
+
+impl WebStorage {
+    /// Every item, as name and value.
+    pub fn items(&self) -> Call<Vec<(String, String)>> {
+        unimplemented!()
+    }
+
+    /// One item's value, `None` when absent.
+    pub fn get_item(&self, name: &str) -> Call<Option<String>> {
+        let _ = name;
+        unimplemented!()
+    }
+
+    /// Sets an item, replacing any value of that name.
+    pub fn set_item(&self, name: &str, value: &str) -> Call<()> {
+        let _ = (name, value);
+        unimplemented!()
+    }
+
+    /// Removes an item.
+    pub fn remove_item(&self, name: &str) -> Call<()> {
+        let _ = name;
+        unimplemented!()
+    }
+
+    /// Removes every item.
+    pub fn clear(&self) -> Call<()> {
+        unimplemented!()
+    }
+}
+
 impl Page {
+    /// Playwright's `page.localStorage`, for the page's current origin.
+    pub fn local_storage(&self) -> WebStorage {
+        unimplemented!()
+    }
+
+    /// Playwright's `page.sessionStorage`, for the page's current origin.
+    pub fn session_storage(&self) -> WebStorage {
+        unimplemented!()
+    }
+
     /// Playwright's `page.pause()`, with the Human pause's meaning: the program waits while a person
     /// acts in this page, in its window when it is headful on their desktop, else in the Live view
     /// on any device. It is a gesture: the page's later gestures wait for it; reads and waits run.
@@ -746,7 +784,7 @@ pub struct SecretUnavailable {
     /// The provider asked, such as `env`, `keychain` or `caller`.
     pub provider: String,
     /// `missing`, `locked`, `unreachable` or `resolver_failed`; the code is not retryable.
-    pub cause: String,
+    pub failure: String,
 }
 
 /// Details of `secret_domain_not_allowed`, a refusal: the field's frame or the request is outside

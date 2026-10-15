@@ -340,6 +340,48 @@ class SessionStateApi:
     ) -> None: ...
     def save_identity(self, name: str, *, timeout: Timeout = ...) -> SavedIdentity: ...
 
+@final
+@dataclass(frozen=True, kw_only=True)
+class WebStorageItem:
+    name: str
+    value: str
+
+@final
+class AsyncWebStorage:
+    """A page's `localStorage` or `sessionStorage` for its current origin, Playwright's `WebStorage` (1.61). Offered in
+    the SDKs only (ADRs 0011, 0014); outside a bound source's `domains`, refused. A value set is session state, kept by a
+    Saved identity."""
+
+    async def items(self, *, timeout: Timeout = ...) -> builtins.list[WebStorageItem]: ...
+    async def get_item(self, name: str, *, timeout: Timeout = ...) -> str | None: ...
+    async def set_item(self, name: str, value: str, *, timeout: Timeout = ...) -> None: ...
+    async def remove_item(self, name: str, *, timeout: Timeout = ...) -> None: ...
+    async def clear(self, *, timeout: Timeout = ...) -> None: ...
+
+@final
+class WebStorage:
+    """The sync client's `WebStorage`."""
+
+    def items(self, *, timeout: Timeout = ...) -> builtins.list[WebStorageItem]: ...
+    def get_item(self, name: str, *, timeout: Timeout = ...) -> str | None: ...
+    def set_item(self, name: str, value: str, *, timeout: Timeout = ...) -> None: ...
+    def remove_item(self, name: str, *, timeout: Timeout = ...) -> None: ...
+    def clear(self, *, timeout: Timeout = ...) -> None: ...
+
+class AsyncPageStorage:
+    """A page's storage, under Playwright for Python's names."""
+
+    @property
+    def local_storage(self) -> AsyncWebStorage: ...
+    @property
+    def session_storage(self) -> AsyncWebStorage: ...
+
+class PageStorage:
+    @property
+    def local_storage(self) -> WebStorage: ...
+    @property
+    def session_storage(self) -> WebStorage: ...
+
 # The Human pause.
 
 @final
@@ -394,7 +436,7 @@ class SecretUnavailableDetails:
     reference: str
     provider: str
     """The provider asked, such as `env`, `keychain` or `caller`."""
-    cause: Literal["missing", "locked", "unreachable", "resolver_failed"] | str
+    failure: Literal["missing", "locked", "unreachable", "resolver_failed"] | str
     """Which failure: the code is not retryable."""
 
 @final

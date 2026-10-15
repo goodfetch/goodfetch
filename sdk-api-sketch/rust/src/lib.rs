@@ -85,7 +85,7 @@ pub use sessions::{
     BrowserName, ClearCookies, Cookie, CookieInput, ExportKey, HttpCredentials, HumanPauseDeclined, HumanPauseResult, Identities,
     LoggedOut, PageCheck, PageMatch, Pause, Permission, RecoveryStep, ResolvedBy, SameSite, SavedIdentity, SecretBinding,
     SecretDomainNotAllowed, SecretInputRefused, SecretPlaceholder, SecretReference, SecretRequest, SecretUnavailable, SecretUnbound,
-    SessionNotSavable, SessionSource, StateFileFormat, TextInput, secret,
+    SessionNotSavable, SessionSource, StateFileFormat, TextInput, WebStorage, secret,
 };
 pub use settings::{ExplainedSetting, PolitenessSharing, Setting, SettingKey, Settings};
 pub use time::{Call, CallFuture, Count, ElementState, Limits, LoadState, Money, UrlMatcher, Waiter};

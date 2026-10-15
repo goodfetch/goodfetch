@@ -271,6 +271,31 @@ export interface SessionStateApi {
   saveIdentity(name: string, options?: CallOptions): Promise<SavedIdentity>;
 }
 
+/** One item of a page's storage. */
+export interface WebStorageItem {
+  readonly name: string;
+  readonly value: string;
+}
+
+/**
+ * A page's `localStorage` or `sessionStorage` for its current origin, Playwright's `WebStorage` (1.61).
+ * Offered in the SDKs only (ADRs 0011, 0014); outside a bound source's `domains`, refused. A value set
+ * is session state, kept by a Saved identity.
+ */
+export interface WebStorage {
+  items(options?: CallOptions): Promise<WebStorageItem[]>;
+  getItem(name: string, options?: CallOptions): Promise<string | null>;
+  setItem(name: string, value: string, options?: CallOptions): Promise<void>;
+  removeItem(name: string, options?: CallOptions): Promise<void>;
+  clear(options?: CallOptions): Promise<void>;
+}
+
+/** A page's storage, under Playwright's names. */
+export interface PageStorage {
+  readonly localStorage: WebStorage;
+  readonly sessionStorage: WebStorage;
+}
+
 // The Human pause.
 
 /** Options of `page.pause()`. */
@@ -325,7 +350,7 @@ export interface SecretUnavailableDetails {
   /** The provider asked, such as `env`, `keychain` or `caller`. */
   readonly provider: string;
   /** Which failure: the code is not retryable. */
-  readonly cause: "missing" | "locked" | "unreachable" | "resolver_failed" | (string & {});
+  readonly failure: "missing" | "locked" | "unreachable" | "resolver_failed" | (string & {});
 }
 /** The provider gave no value: a missing variable, a locked keychain, an unreachable vault, or `resolveSecret` missing or throwing. */
 export declare class SecretUnavailableError extends UnavailableError {

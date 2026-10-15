@@ -488,6 +488,11 @@ from goodfetch._sessions import SessionScopeLoginSettings as SessionScopeLoginSe
 from goodfetch._sessions import SessionSource as SessionSource
 from goodfetch._sessions import StateFileSource as StateFileSource
 from goodfetch._sessions import secret as secret
+from goodfetch._sessions import AsyncPageStorage as AsyncPageStorage
+from goodfetch._sessions import AsyncWebStorage as AsyncWebStorage
+from goodfetch._sessions import PageStorage as PageStorage
+from goodfetch._sessions import WebStorage as WebStorage
+from goodfetch._sessions import WebStorageItem as WebStorageItem
 from goodfetch._settings import AgentSettings as AgentSettings
 from goodfetch._settings import BrowserSettings as BrowserSettings
 from goodfetch._settings import CapabilityUnavailableDetails as CapabilityUnavailableDetails

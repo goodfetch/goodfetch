@@ -78,6 +78,8 @@ export async function cookiesAndProxy(): Promise<number> {
   await page.goto("https://quotes.toscrape.com/");
   await page.request.get("https://quotes.toscrape.com/api/quotes", { headers: { authorization: secret("token") } });
   const cookies = await session.cookies("https://quotes.toscrape.com");
+  // Playwright's storage API, for the page's current origin; kept across runs by a Saved identity.
+  await page.localStorage.setItem("theme", "dark");
 
   // @ts-expect-error No field to check: keyboard input takes no Secret placeholder.
   await page.keyboard.type(secret("token"));

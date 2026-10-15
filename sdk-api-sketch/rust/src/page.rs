@@ -1479,6 +1479,14 @@ impl ApiRequest {
         unimplemented!()
     }
 
+    /// Sets the string at this JSON Pointer of the JSON body to a Secret placeholder, which the
+    /// engine resolves at its own interception, checked against the request's URL at every hop
+    /// (ADR 0092).
+    pub fn json_secret(self, pointer: &str, placeholder: crate::sessions::SecretPlaceholder) -> Self {
+        let _ = (pointer, placeholder);
+        unimplemented!()
+    }
+
     /// At most this many redirects.
     pub fn max_redirects(self, redirects: u32) -> Self {
         let _ = redirects;

@@ -15,7 +15,7 @@ import type { KeyValueStore } from "./output.js";
 import type { FetchBackendHandler, ProxyProviderHandler, SinkHandler } from "./hooks.js";
 import type { PageApi, PageCloseOptions, PageFunction, PageResult, RouteHandler } from "./page.js";
 import type { RunControl, RunView } from "./run.js";
-import type { Identities, PausesForHuman, ResolveSecret, SessionStateApi, SessionSource } from "./sessions.js";
+import type { Identities, PageStorage, PausesForHuman, ResolveSecret, SessionStateApi, SessionSource } from "./sessions.js";
 import type { ExplainedSetting, ExplainsSettings, NewPageOptions, SessionSettings, SettingKey, Settings } from "./settings.js";
 import type { CallOptions, Limits, PageWaits, StartOptions, Timeout, UrlMatcher } from "./time.js";
 
@@ -115,6 +115,7 @@ export interface Page
     PageApi,
     PageWaits,
     PageEvents,
+    PageStorage,
     PausesForHuman,
     ExplainsSettings,
     AiVerbs,

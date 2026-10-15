@@ -84,6 +84,8 @@ async def cookies_and_proxy() -> int:
             await page.goto("https://quotes.toscrape.com/")
             await page.request.get("https://quotes.toscrape.com/api/quotes", headers={"authorization": secret("token")})
             cookies = await session.cookies("https://quotes.toscrape.com")
+            # Playwright's storage API, for the page's current origin; kept across runs by a Saved identity.
+            await page.local_storage.set_item("theme", "dark")
 
             # No field to check: keyboard input takes no Secret placeholder.
             await page.keyboard.type(secret("token"))  # type: ignore[arg-type]  # pyright: ignore[reportArgumentType]

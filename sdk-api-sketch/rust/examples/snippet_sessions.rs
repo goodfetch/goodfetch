@@ -133,6 +133,13 @@ async fn cookies_and_proxy(gf: &Goodfetch) -> Result<usize, Error> {
         .get("https://quotes.toscrape.com/api/quotes")
         .header("authorization", secret("token"))
         .await?;
+    // A Secret placeholder in a JSON body, through a JSON Pointer: a placeholder is not serializable.
+    page.request()
+        .post("https://quotes.toscrape.com/api/login")
+        .json(serde_json::json!({ "user": "alice", "password": "" }))
+        .json_secret("/password", secret("password"))
+        .await?;
+    page.local_storage().set_item("theme", "dark").await?;
     let cookies = session.cookies(&["https://quotes.toscrape.com"]).await?;
     for identity in gf.identities().list().await? {
         let _ = (identity.name, identity.cookies_expire);

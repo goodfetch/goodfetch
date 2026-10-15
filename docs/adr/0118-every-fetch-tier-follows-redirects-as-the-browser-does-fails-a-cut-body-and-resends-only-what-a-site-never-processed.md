@@ -1,0 +1,213 @@
+# Every fetch tier follows redirects as the browser does, fails a cut body, and resends only what a site never processed
+
+A crawl request reaches its handler only as a whole document, after the same redirects on every fetch tier. A fetch follows at most 20 redirects, as the browser does, and a refresh stub's target as one more. A body that broke off fails its attempt. A request the site never processed is sent again once, at no cost to the request's retries or the site's Politeness. A site's `Retry-After` is never cut short, and the backoff is spread with jitter. Before this, ADR 0020 said only that "the engine sets decompression, redirects and timeouts itself", and ADR 0037's SA-24 read that as decided. No hop limit, loop outcome or method rule was stated, and nothing said what a truncated body, a dropped connection or a `Retry-After` of hours does.
+
+**What this answers.** Rows U12, U13, H02, H05, H07, H15 and H24 of the [pitfall catalog](https://github.com/goodfetch/goodfetch/blob/prototype/sdk-api/sdk-api-sketch/pitfalls.md): redirect chains and loops, refresh stubs on the HTTP tiers, stale DNS answers and a broken IPv6 path, HTTP/2 GOAWAY and stale keep-alive connections, a `Retry-After` of hours, backoff without jitter, and truncated bodies stored as pages. The evidence is items 1.17, 1.18, 2.2, 2.3, 2.6 to 2.10, 2.12, 2.17 and 2.25 of the [common pitfalls research](https://github.com/goodfetch/goodfetch/blob/research/common-pitfalls/rnd/research/2026-10-16-common-pitfalls.md).
+
+**Specs and leaders, re-read on 2026-10-16.**
+- **Redirects.**
+  - The [Fetch standard](https://fetch.spec.whatwg.org/#http-redirect-fetch) returns a network error "If request's redirect count is 20" (step 7).
+  - Its step 12 turns a 301 or 302 POST, and a 303 with any method but GET or HEAD, into a GET with no body and no request-body headers.
+  - Its step 13 removes `Authorization` "the moment another origin is seen".
+  - Its step 6 fails a `Location` whose scheme is not HTTP(S).
+  - Chromium has `kMaxRedirects = 20` ([url_request.h](https://raw.githubusercontent.com/chromium/chromium/main/net/url_request/url_request.h)) and returns `ERR_TOO_MANY_REDIRECTS` past it ([url_request_job.cc](https://raw.githubusercontent.com/chromium/chromium/main/net/url_request/url_request_job.cc)).
+  - Playwright's [`maxRedirects`](https://playwright.dev/docs/api/class-apirequestcontext#api-request-context-fetch-option-max-redirects) defaults to 20, and 0 does not follow.
+  - Scrapy's `REDIRECT_MAX_TIMES` is 20, and a status in `handle_httpstatus_list` reaches the spider instead of being followed ([downloader middleware](https://docs.scrapy.org/en/latest/topics/downloader-middleware.html)).
+  - Googlebot follows 10, and Nutch follows none inline (research 1.17).
+  - RFC 9110 [§15.4](https://www.rfc-editor.org/rfc/rfc9110.html#section-15.4) asks a client to "detect and intervene in cyclical redirections". [§10.2.3](https://www.rfc-editor.org/rfc/rfc9110.html#section-10.2.3) makes a `Retry-After` on a 3xx the least wait before the redirected request.
+- **Refresh stubs.**
+  - The HTML standard runs the same [shared declarative refresh steps](https://html.spec.whatwg.org/multipage/document-lifecycle.html#initialise-the-document-object) for a `Refresh` header as for `<meta http-equiv="refresh">`. A refresh with no URL reloads the document.
+  - Scrapy follows one with up to 100 s of delay (`METAREFRESH_MAXDELAY`) at once, and ignores one inside `<noscript>` since 2.11.2.
+- **Truncated bodies.**
+  - RFC 9112 [§8](https://www.rfc-editor.org/rfc/rfc9112.html#section-8): a client "MUST record the message as incomplete".
+  - Scrapy's `DOWNLOAD_FAIL_ON_DATALOSS`, on by default, raises a retryable `ResponseDataLossError`.
+  - [WARC 1.1](https://iipc.github.io/warc-specifications/specifications/warc-format/warc-1.1/#warc-truncated) records a response cut by the network with `WARC-Truncated: disconnect`.
+- **Transport failures.**
+  - RFC 9113 [§6.8](https://www.rfc-editor.org/rfc/rfc9113.html#section-6.8): streams above a GOAWAY's last stream ID were not processed. [§8.7](https://www.rfc-editor.org/rfc/rfc9113.html#section-8.7): REFUSED_STREAM can be retried whatever the method.
+  - RFC 9110 [§15.5.20](https://www.rfc-editor.org/rfc/rfc9110.html#section-15.5.20): a 421 may be retried on another connection.
+  - RFC 9112 [§9.3.1](https://www.rfc-editor.org/rfc/rfc9112.html#section-9.3.1) lets a client retry an idempotent request on a connection that closed under it.
+  - RFC 9110 [§9.2.2](https://www.rfc-editor.org/rfc/rfc9110.html#section-9.2.2): "A client SHOULD NOT automatically retry a failed automatic retry."
+  - Chromium's [http_network_transaction.cc](https://raw.githubusercontent.com/chromium/chromium/main/net/http/http_network_transaction.cc) resends a request whose reused keep-alive connection resets or closes before any header ("we resend a request only if we reused a keep-alive connection"). It also resends on REFUSED_STREAM, on a 421 with pooling off, on `HTTP_1_1_REQUIRED` over HTTP/1.1, and on a 408 over a reused HTTP/1.1 connection, all inside one navigation.
+- **Backoff and `Retry-After`.**
+  - The [AWS Architecture Blog](https://aws.amazon.com/blogs/architecture/exponential-backoff-and-jitter/) finds no jitter "the clear loser" and Equal Jitter "the loser". Between Full and Decorrelated Jitter, it finds the choice "less clear".
+  - The [Builders' Library](https://builder.aws.com/content/3EumjoZascWd1oZiEgL8ORlv3qE/timeouts-retries-and-backoff-with-jitter) advises retrying "at a single point in the stack".
+  - urllib3 caps `Retry-After` at 21,600 s, with no jitter by default.
+  - Crawlee's unreleased 4.0 (its `master`) stops a crawl with `PersistentRateLimitError` after 900 s without one request getting through (research 2.8).
+- **Resolution.**
+  - RFC 8305 [§8](https://www.rfc-editor.org/rfc/rfc8305.html#section-8) recommends a 250 ms connection attempt delay and a 50 ms resolution delay. hyper-util's default is 300 ms ([`set_happy_eyeballs_timeout`](https://docs.rs/hyper-util/latest/hyper_util/client/legacy/connect/struct.HttpConnector.html#method.set_happy_eyeballs_timeout)).
+  - hickory-resolver keeps answers for their TTL ([`ResolverOpts`](https://docs.rs/hickory-resolver/latest/hickory_resolver/config/struct.ResolverOpts.html)).
+  - RFC 2308 [§7.1](https://www.rfc-editor.org/rfc/rfc2308.html#section-7.1) keeps a server failure five minutes at most.
+
+Decided in [Redirect limits, truncated bodies and transport failures on the fetch tiers](https://github.com/goodfetch/goodfetch/issues/549), on the map [The SDK API of Collie and Foxhound](https://github.com/goodfetch/goodfetch/issues/461), raised by the [Common pitfalls catalog](https://github.com/goodfetch/goodfetch/issues/547). Every answer was decided by the agent on the owner's delegation, with its [grilling record](https://github.com/goodfetch/goodfetch/issues/549#issuecomment-6204511037). Principles are cited by their IDs in [ADR 0077](0077-the-sdk-api-follows-eight-guarantees-and-four-ranked-shape-rules.md). The two new codes are Collie's, in its client package, since a Collie navigation and `page.request` raise them too; a Foxhound crawl request uses them as it uses `navigation_failed` ([ADR 0095](0095-both-products-speak-one-protocol-from-one-catalog-marked-by-product-and-their-sdks-share-collies-client-packages.md)).
+
+## Decision
+
+### Redirects
+
+- **What is followed.** One of Fetch's redirect statuses (301, 302, 303, 307, 308) with a `Location` that parses to an HTTP(S) URL. It is followed on every tier, so a handler gets the same document whatever its tier, and a sample comparison sees the same chain (S1, S3).
+  - **Any other 3xx fails at once with `response_not_ok`**, like a 4xx (ADR 0093). That covers a status Fetch does not follow (300, 305, 306, or a 304 that the Response cache did not ask for), a redirect with no `Location`, and one whose `Location` does not parse or names another scheme.
+  - **A redirect status listed in `crawl.handle_statuses` is not followed.** The handler gets the 3xx as its response, as Scrapy's `handle_httpstatus_list` does. That is the one way not to follow a redirect (S2).
+- **At most `fetch.redirect.max` redirects,** 20 by default, the number of Fetch, Chromium, Scrapy and Playwright's `maxRedirects`.
+  - It is set down to a Label, and takes 1 to 20. Any other value is refused with `setting_invalid` when its scope opens (G3), since the browser cannot follow more than 20 and not following is said through `crawl.handle_statuses`.
+  - Past it, the attempt fails with `too_many_redirects`, a `PageError` that is not retryable, since a loop answers the same way again (G5). The request then ends `failed` with it.
+  - No cycle is detected before the count. A site that sets a cookie at A and redirects through B back to A, which then answers 200, visits a URL twice by design, and the count is how Fetch and Chromium intervene in a loop.
+- **Method, body and headers follow Fetch,** so every tier sends what the browser sends:
+  - a 301 or 302 turns a POST into a GET, and a 303 turns any method but GET or HEAD into a GET, both without the body and its request-body headers;
+  - a 307 or 308 keeps the method and the body;
+  - `Authorization` is dropped once the chain reaches another origin, and a Secret placeholder resolves only for its own domains on every hop (ADR 0092);
+  - each hop's cookies come from the Session's jar for that hop's URL.
+  - The crawl request keeps its Frontier identity, the method, URL and body hash it was admitted with (ADR 0093).
+- **Each hop goes through the navigation gate** (ADR 0087), on every tier:
+  - the crawl's scope (`out_of_scope`), the domain policy (`domain_policy`) and robots.txt (`robots_txt`), as ADR 0093 already checks every redirect;
+  - the hop's domain's limits and delay. Each hop takes its own permit, and the previous hop's 3xx releases its own. A loop therefore costs a site at most `fetch.redirect.max` requests at the domain's pace, never a burst (G5).
+  - A permit's wait counts against no timeout (ADR 0093).
+- **A `Retry-After` on a redirect** delays its next hop by at least that long (RFC 9110 §10.2.3), bounded like any other `Retry-After` (below).
+- **The record.** `ctx.response` is the final document's response, with the redirect chain ADR 0093 gives it, a refresh hop marked as one. The Run trace records each hop and its wait.
+- **On a Collie page.**
+  - A navigation past the browser's 20 raises `too_many_redirects`, where Chromium reports `ERR_TOO_MANY_REDIRECTS`. Any other network error still raises `navigation_failed` (ADR 0085).
+  - `page.request` keeps Playwright's `maxRedirects` option, 20 by default; `0` returns the 3xx. Past the count it raises `too_many_redirects`. A value above 20 is refused with `setting_invalid`, since the browser-fetch tier that sends it cannot go past 20 (ADR 0083 makes a call's argument a run-layer value).
+  - A Collie navigation ignores a `Retry-After` on a 3xx, as browsers do: it is the program's own navigation, outside Politeness (ADR 0086).
+
+### Refresh stubs and script redirects
+
+- **A crawl request's document that refreshes to another URL is followed as one more hop of its chain,** on every tier, when its delay is at most `fetch.refresh.max_delay`.
+  - The refresh is the document's first refresh directive, as the HTML standard reads it: a `Refresh` header, or a `<meta http-equiv="refresh">` outside `<noscript>`. A browser that runs scripts ignores what `<noscript>` holds.
+  - `fetch.refresh.max_delay` is 100 s by default, Scrapy's value, set down to a Label. `null` follows any delay, and `0` only an instant refresh. A longer delay usually belongs to a page with content of its own, such as a session-timeout refresh to a logout page.
+  - The hop goes at once, without waiting the delay, as Scrapy's does. It counts toward `fetch.redirect.max` and goes through the gate like any hop. In the browser, the engine's own navigation replaces the stub before the stub's timer fires, so every tier hands the handler the same document (S1).
+  - A refresh with no URL, or to the document's own URL, is a reload. It is never followed, and the handler gets the document.
+- **A redirect by the page's own script is seen only where scripts run.** A document tier never sees one. A sample whose browser attempt ended on another URL than the document tier's attempt never matches, so that Label's tier choice stays the browser (ADR 0020).
+- **This rule is the crawl request's document's.** A handler's own `goto` and a Collie program's navigation get the page their tier gives. The browser runs a refresh itself, as a navigation the page starts, gated and counted inside a handler (ADR 0087). A document tier runs none.
+
+### A body that broke off
+
+- **What counts as cut.** A body that ends before its `Content-Length`, a chunked body that ends without its last chunk, an HTTP/2 stream reset after its headers or ended by its connection, and a compressed body whose stream stops before its end.
+  - A body delimited by its connection's close, with no length and no chunking, is complete at the close, as browsers read it.
+  - A body labelled with a coding it does not use is [Decoding a response the same way on every tier](https://github.com/goodfetch/goodfetch/issues/550)'s question, not a cut one.
+- **A crawl request's cut document fails its attempt with `response_truncated`,** a `PageError` that is retryable, on every tier, counted against `crawl.retry.max`. It never reaches the handler (G1). When retries run out, the request ends `failed` with it. It does not back off the domain: like a 500, it usually belongs to one response.
+  - Its details carry the URL, the bytes received and the bytes expected, `null` when the body had no length.
+  - `crawl.handle_statuses` does not apply, since the status was not the failure.
+- **On a Collie page.**
+  - A navigation that waits for `domcontentloaded` or `load` raises `response_truncated` when its main document was cut. One that returned at `commit` leaves it to the body's read.
+  - `body()`, `text()` and `json()` of a cut response raise it, and so does a `page.request` whose body was cut. A cut body is never returned as a whole one.
+  - The `requestfailed` event and `request.failure()` keep Playwright's meaning, the browser's network error.
+- **Caches and recordings.** The Response cache never stores a cut response (ADR 0046). A Response recording keeps it with `WARC-Truncated: disconnect`, and a replay of it raises `response_truncated` as the live fetch did (ADR 0105), so a program can test its handling offline.
+
+### Requests a site never processed
+
+- **The engine's HTTP transports send a request again, once, on a new connection,** when one of these happens:
+  - an HTTP/2 GOAWAY whose last stream ID is below the request's stream (RFC 9113 §6.8);
+  - an HTTP/2 REFUSED_STREAM (RFC 9113 §8.7);
+  - a 421, sent again on a connection of the origin's own, never coalesced (RFC 9110 §15.5.20);
+  - an HTTP/2 `HTTP_1_1_REQUIRED`, sent again over HTTP/1.1, which that origin then keeps for the Run;
+  - a reused idle connection that closes or resets before any byte of the response arrives, or answers 408 on HTTP/1.1 (RFC 9112 §9.3.1, §9.5).
+- **Which methods.** The first four are sent again whatever the method: the site said it processed nothing. The last is sent again only for a read: a crawl request, which ADR 0106 makes a read whatever its method, or an idempotent method (RFC 9110 §9.2.2).
+- **Once.** A resend that fails is never resent (RFC 9110 §9.2.2).
+- **A resend counts as nothing.** It is not an attempt, not a retry under `crawl.retry.max`, and no new request start in Politeness: it holds its hop's permit, as the browser's own resends do inside one navigation. The Run trace records each one, and its bytes count in Usage. Counting them would fail and slow the HTTP tiers where the browser tier succeeds, and move a Label's tier choice to the browser for a server's routine draining of connections.
+- **Every other transport failure ends the attempt with `navigation_failed`,** the network error in its details, retryable, on every tier, as ADR 0085 names a site that never answered. That includes a failed resend, a name that does not resolve, a refused or timed-out connection, a TLS failure and a reset on a fresh connection. A refused or timed-out connection also backs off the domain (ADR 0086).
+- **An HTTP/2 `ENHANCE_YOUR_CALM` from a site** backs off the domain as a 503 does (G5). From a proxy, it is a proxy refusal (ADR 0053).
+- **The browser tiers.** The browser and `page.request`, which the browser-fetch tier sends, rely on the browser's own resends, which cover the same cases.
+
+### `Retry-After`
+
+- **Its two forms** (RFC 9110 §10.2.3): a number of seconds, and an HTTP-date in each of RFC 9110 §5.6.7's three formats.
+  - A date is measured against the response's own `Date` header when it has one, and against the engine's clock otherwise, so a clock skewed on either side changes nothing.
+  - A value that does not parse, `0`, or a date already past adds no wait beyond the backoff. The Run trace notes a value that does not parse.
+- **Where it is read.** On a 429, 502, 503 or 504, the responses that back off the domain (ADR 0086), and on a 3xx, where it delays that request's next hop.
+- **How long the domain waits.** The longer of its backoff and the `Retry-After`, past `politeness.backoff.max`, up to `politeness.retry_after.max`. That is 15 minutes by default, the bound Crawlee's unreleased 4.0 sets on a crawl with no request getting through. ADR 0053 keeps the time per domain and shares it with every run on the key.
+- **Past `politeness.retry_after.max`,** the engine still sends nothing to the domain before the time the site asked (G5). It does not wait for it either:
+  - the request whose response asked ends as that response ends, with no retry spent: a 503, 502 or 504 `failed` with `response_unavailable`, a 429 by its Block cause (ADRs 0021, 0093);
+  - a 3xx's request ends `failed` with `response_unavailable`, carrying that status;
+  - each crawl request admitted to the domain while the site's time is further away than `politeness.retry_after.max` ends `failed` with `response_unavailable` too. Its status is `null`, since nothing was sent.
+  - Each such error's details carry the time the site asked for (`retryAfter`), and its `fix` names `politeness.retry_after.max`. The Run finishes `incomplete`, and `retryFailed()` re-admits those requests once the site is back (ADR 0102).
+  - This is ADR 0086's answer to a long Crawl-delay: neither waiting it out nor capping it silently.
+- **`politeness.retry_after.max` presses no site harder,** whatever its value, since nothing is sent sooner. It is therefore not among ADR 0086's recorded values. Switching `politeness.backoff.enabled` off still ignores `Retry-After`, and the run records it (ADR 0023).
+- **On a Collie page,** nothing waits on a `Retry-After`: the program directs its own navigation, and a site's 429 there is reported on the call that met it (ADR 0098). Its `BlockedError` for the Block cause `rate_limit` carries the parsed time as `retryAfter`, or `null` (G6).
+
+### Jitter
+
+- **The domain's backoff is spread with decorrelated jitter.** Each wait is drawn from the `Entropy` handle (ADR 0059) between `politeness.backoff.initial` and three times the previous wait, at most `politeness.backoff.max`. It still starts at 2 s and grows toward 60 s, as ADR 0021 says. Domains behind one origin or one proxy that back off together then come back apart.
+  - It never draws below `politeness.backoff.initial`. Full jitter can, and ADR 0086 counts a shorter wait as pressing a site harder.
+- **A crawl retry gets no timer of its own.** It is admitted again under its domain's delay and backoff, the one place where waits are set (the Builders' Library's single retry layer).
+- **A resend goes at once,** since the site processed nothing, as the browser's do.
+- **The per-domain delay is not jittered.** It is a floor between two starts (ADR 0086).
+
+### The engine's resolver
+
+The engine resolves names itself on Linux, and for Sessions with a local address on every OS (ADRs 0024, 0044). Its answers are kept as the records say:
+- an answer, for its TTL, never for a fixed time;
+- an NXDOMAIN or an empty answer, for its negative TTL (RFC 2308);
+- a server failure or a timeout, not at all, so a retry asks again.
+
+An answer whose every address fails to connect is dropped before its TTL ends, so the next attempt resolves the name again (RFC 8305 §9).
+
+**Happy Eyeballs.** The engine's HTTP transports race the address families the Session holds under RFC 8305. They query AAAA and A together, with its 50 ms resolution delay and its 250 ms delay between connection attempts.
+- A Session that holds a local address of one family only uses that family; ADR 0044's `address_family_unavailable` stands.
+- The browsers race their own.
+- Behind a proxy, the race is to the proxy's address, since the proxy resolves the site.
+- These are built-in values. Area 3's spec gives them keys under ADR 0083's rule, as ADR 0028 makes every parameter settable.
+
+### Settings and Error codes
+
+| Key | Built-in | Scope |
+|---|---|---|
+| `fetch.redirect.max` | 20, from 1 to 20 | a crawl, down to a Label |
+| `fetch.refresh.max_delay` | 100 s; `null` for any | a crawl, down to a Label |
+| `politeness.retry_after.max` | 15 minutes | a crawl, on a connection or a Run |
+
+`fetch.*` and `politeness.*` are a crawl's (ADRs 0086, 0093): a Collie engine refuses them with `not_in_product`, and a Collie Run on a Foxhound engine with `setting_not_applicable`. Durations take each language's duration type (ADR 0080).
+
+| Group | Code | Retryable | Package |
+|---|---|---|---|
+| `PageError` | `too_many_redirects` | no | Collie client |
+| `PageError` | `response_truncated` | yes | Collie client |
+
+Their classes are `TooManyRedirectsError` and `ResponseTruncatedError` under ADR 0079's naming rule. `too_many_redirects` carries the first URL, the hops followed and the count's setting or option. `response_truncated` carries the URL and the bytes received and expected. `ResponseUnavailableError` gains `retryAfter`, and its `status` may be `null`.
+
+## Considered Options
+
+- **10 redirects, as Googlebot:** rejected. A document tier would fail where the browser goes on, and a Label's tier choice would change on a chain of eleven (S1).
+- **A limit above 20:** rejected. The browser stops at 20, so the tiers would disagree.
+- **Detecting a cycle by a repeated URL:** rejected. It breaks a site that sets a cookie and redirects back to the URL it started from, and Fetch, Chromium and Scrapy all rely on the count.
+- **`fetch.redirect.max: 0` to stop following:** rejected by S2. `crawl.handle_statuses` already hands a status to the handler, as Scrapy's `handle_httpstatus_list` does, and two settings for one choice could disagree.
+- **`too_many_redirects` retryable, or `navigation_failed` for it:** rejected. A loop answers the same way next time, and each retry costs a site 20 more requests (G5).
+- **A redirect's hops sharing one permit:** rejected. A hop to another domain would hold the first domain's slot while waiting for the second's, and two such chains in opposite directions would wait on each other forever.
+- **Following instant refreshes only:** rejected. It misses the common stub that redirects after a few seconds.
+- **A refresh stub failing its comparison so it escalates to the browser:** rejected. Every stub would cost the browser, and a forced document tier would still hand the stub to its handler.
+- **Waiting a refresh's delay:** rejected. It slows every stub for nothing, since the site asked for the target page, not for the wait.
+- **Keeping a cut body, marked incomplete:** rejected by G1. Every handler would have to check a flag, and one that forgets reads half a page as a whole one.
+- **A cut body backing off the domain:** rejected. Like a 500, it usually belongs to one response, and a failing site already backs off through its refused and timed-out connections and 5xx.
+- **Counting each transport resend as an attempt and a Politeness start:** rejected. The browser's own resends count as nothing inside one navigation, so the HTTP tiers would fail where the browser tier succeeds.
+- **A setting to switch resends off:** rejected. The browser tier's resends cannot be switched off, and the HTTP tiers would differ from it.
+- **Resending a non-read after a reused connection closed:** rejected by RFC 9110 §9.2.2. The site may have processed it.
+- **Waiting out any `Retry-After`** (urllib3, up to six hours): rejected. One site's maintenance window would hold a Run for hours, with nothing to do.
+- **Capping a `Retry-After` at `politeness.backoff.max` and sending anyway:** rejected by G5. It ignores what the site asked, as capping a Crawl-delay would (ADR 0086).
+- **Skipping the held requests with a new reason:** rejected. A skip is a decision, so `retryFailed()` would not re-admit them once the site is back, and the site did not refuse the pages.
+- **Stopping the whole crawl** (Crawlee's `PersistentRateLimitError`): rejected. One domain's wait would end the work on every other domain.
+- **No jitter:** rejected. Domains behind one origin or proxy would come back together, the waves of the AWS study.
+- **Full jitter:** rejected. It draws waits shorter than `politeness.backoff.initial`, which ADR 0086 counts as pressing a site harder. **Equal jitter:** rejected as AWS's weakest jittered form.
+- **A backoff timer per retried request:** rejected. The domain's delay and backoff already space its retries, and a second layer of waits is the multiplied retry the Builders' Library warns about.
+- **DNS answers kept for a fixed time** (Scrapy's cache has no documented TTL handling): rejected. A fixed time either outlives a record or queries the resolver for nothing.
+- **Trying IPv6, then IPv4, one after the other:** rejected. A broken IPv6 path stalls each connection for a full connect timeout, the failure RFC 8305 exists to avoid.
+
+## Consequences
+
+- **Amends ADR 0020.** "The engine sets … redirects" is this ADR's rules on every tier: Fetch's statuses, method and header rules, `fetch.redirect.max`, refresh stubs, cut bodies and transport resends. A sample comparison whose browser attempt ended on another URL never matches. Notes sit under its redirects consequence and its sample comparison.
+- **Amends ADR 0021.** The backoff's waits are drawn with decorrelated jitter between its first and longest wait. A `Retry-After` is honoured past `politeness.backoff.max`, up to `politeness.retry_after.max`, in both its forms. A note sits under its Politeness defaults.
+- **Amends ADR 0086.** `politeness.retry_after.max` joins its Settings table, and is not a value that presses harder. An HTTP/2 `ENHANCE_YOUR_CALM` backs off like a 503. Each redirect hop is a request start under the domain's limits and delay. Notes sit under "A failing site slows the crawl" and its Settings table.
+- **Amends ADR 0093.** Which responses reach a handler gains the 3xx rules, `too_many_redirects`, `response_truncated` and `navigation_failed` for transport failures. `fetch.redirect.max` and `fetch.refresh.max_delay` join its settings, and `response_unavailable` covers a request a long `Retry-After` held. Notes sit under its responses list, its settings and its Error codes.
+- **Amends ADR 0085.** A navigation past the browser's 20 redirects raises `too_many_redirects`, a cut main document or body `response_truncated`, and `page.request`'s `maxRedirects` stops at 20. Notes sit under its Navigation section and its Error codes table.
+- **Adds to ADRs 0046 and 0105.** The Response cache never stores a cut response, and a Response recording keeps one with `WARC-Truncated: disconnect`, replayed as `response_truncated`. Notes sit under ADR 0046's list of what is never stored and ADR 0105's recording.
+- **Adds to ADR 0102.** The wait reason `backoff` also covers a `Retry-After`'s wait, its setting `politeness.retry_after.max` when the site's time is the longer. A note sits under `CrawlRunProgress`.
+- **Adds to ADR 0044.** The engine's resolver keeps answers for their TTL, and its HTTP transports race the Session's address families under RFC 8305. A note sits under its DNS consequence.
+- **Error codes.** `too_many_redirects` (not retryable) and `response_truncated` (retryable) join `goodfetch-protocol` in the `page` group through `xtask codegen`'s naming checks (ADR 0079). They are Collie's codes, so Rust has `ErrorCode::TOO_MANY_REDIRECTS` and `ErrorCode::RESPONSE_TRUNCATED` (ADR 0099).
+- **`TESTING.md`** gains the fetch edge conformance cases, and the in-process cases of the backoff's jitter and the resolver's cache, under its Time section.
+- **Who builds what.**
+  - **Area 5 (Site access)** builds the redirect rules, refresh stubs, cut-body detection and transport resends in each transport and the browser tiers.
+  - **Area 3 (Engine runtime)** builds the jittered backoff, the `Retry-After` bound, the resolver's cache and Happy Eyeballs, and names their keys.
+  - **Area 11 (Client surfaces)** builds the two classes and the new details in each SDK.
+  - Each lists this ADR.
+- **ADR 0037's matrix:** SA-24 (redirect control and limits) cites this ADR for its rules, SA-01 (plain HTTP fetching) for cut bodies and resends, and CO-09 (per-domain politeness) for the `Retry-After` bound and the jitter. Their statuses do not change.
+- **Other tickets.**
+  - [Proving ground: ported HTTP-incident, access-policy and identity pages](https://github.com/goodfetch/goodfetch/issues/162) gains the pages the cases need: each kind of cut body, GOAWAY, REFUSED_STREAM, a 421, `HTTP_1_1_REQUIRED`, `ENHANCE_YOUR_CALM`, a keep-alive connection closed at reuse, `Retry-After` in each form and on a 3xx, refresh stubs, and a host whose IPv6 path drops packets.
+  - [Decoding a response the same way on every tier](https://github.com/goodfetch/goodfetch/issues/550) keeps the mislabelled `Content-Encoding` of row H25.
+- **The `prototype/sdk-api` sketch** holds the two classes in the Collie client's `page` files, `retryAfter` on `BlockedError` and `ResponseUnavailableError`, the three settings in Foxhound's `settings` and `politeness` files, and a snippet in each language. Rows U12, U13, H02, H05, H07, H15 and H24 of its pitfall catalog close as Handled.

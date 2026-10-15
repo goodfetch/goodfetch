@@ -35,7 +35,7 @@ Decided in [Docs site and positioning of two Products](https://github.com/goodfe
 - **Both sections always show the same Product version.** Both Product trees sit in one Docusaurus docs instance, so the version cut of ADR 0030's release pull request copies both. Docusaurus versions each docs instance with its own command, while one instance's folders share its one version line.
 - **A header switcher moves between the Products,** keeping the page when the other section has it.
 - **Search returns the reader's section and the root pages only.** Docusaurus's contextual search filters by docs instance and version, not by section, so the scoping comes from path contexts or facet filters. Which search tool, and how it scopes, is area 1's.
-- **No section belongs to neither Product but the root.** The glossary has no collective term for the pieces both Products carry (ADR 0084), and no "platform" section collects them.
+- **Only the root holds pages outside the two sections.** The glossary has no collective term for the pieces both Products carry (ADR 0084), and no "platform" section collects them.
 
 ### One source, rendered per Product
 
@@ -53,7 +53,7 @@ Decided in [Docs site and positioning of two Products](https://github.com/goodfe
   - Each page names the Product its entry belongs to.
   - A setting Collie refuses with `setting_not_applicable` (ADR 0083) appears only in Foxhound's reference.
 - **A generator renders each Product's tree before the build,** as playwright.dev renders each language's tree from `microsoft/playwright/docs/src`.
-  - MDX partials with props are not used: a prop in a heading shows raw in Docusaurus's table of contents (issue #9772).
+  - MDX partials with props are not used: a prop in a heading shows raw in Docusaurus's table of contents ([facebook/docusaurus#9772](https://github.com/facebook/docusaurus/issues/9772)).
   - The generator's markers, and where its output is written, are area 1's.
 
 ### Choosing a Product

@@ -20,7 +20,7 @@ T = Path(__file__).resolve().parent.parent
 OLLAMA = "http://127.0.0.1:11434/api/chat"
 NUM_CTX = 32768
 MAX_TURNS = 80
-MAX_SECONDS = 40 * 60
+MAX_SECONDS = 20 * 60
 MAX_CHECKS = 3
 CONTEXT_CHARS = 70_000  # about 20k tokens of messages; the oldest tool outputs are elided past it
 

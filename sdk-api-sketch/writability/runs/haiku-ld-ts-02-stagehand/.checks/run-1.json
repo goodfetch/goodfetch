@@ -1,0 +1,11 @@
+{
+  "lang": "ts",
+  "kind": "leader",
+  "errors": 3,
+  "output": "02-typed-extract.stagehand.ts(192,45): error TS2339: Property 'name' does not exist on type '{ type: \"text\"; } | { type: \"json_schema\"; name: string; description?: string | undefined; schema: JSONType; }'.\n  Property 'name' does not exist on type '{ type: \"text\"; }'.\n02-typed-extract.stagehand.ts(192,71): error TS2339: Property 'description' does not exist on type '{ type: \"text\"; } | { type: \"json_schema\"; name: string; description?: string | undefined; schema: JSONType; }'.\n  Property 'description' does not exist on type '{ type: \"text\"; }'.\n02-typed-extract.stagehand.ts(192,99): error TS2339: Property 'schema' does not exist on type '{ type: \"text\"; } | { type: \"json_schema\"; name: string; description?: string | undefined; schema: JSONType; }'.\n  Property 'schema' does not exist on type '{ type: \"text\"; }'.\n",
+  "pass": false,
+  "lenient_pass": false,
+  "n": 1,
+  "time": "2026-10-15T19:53:50",
+  "by": "agent"
+}

@@ -35,7 +35,7 @@ Playwright keeps a route until `unroute` or the page closes ([`page.route`](http
 
 - **The way down.** A context read from `run.crawl_requests()` or `run.hook_requests()` (ADRs 0093, 0104) has no `serve` answering its attempt. There `for_each` fails at once with `setting_invalid`, the code ADR 0104 gives a misused stream, and its `fix` names the stream to read. The program then reads the page's stream itself, as a Collie program does (G8).
 - **Blocking.** The contexts of `goodfetch_foxhound::blocking` take an `EventIter` and an `Fn(T) -> Result<(), Error> + Send + Sync + 'static`. The blocking `serve` runs that function on the `tasks` module's tracked blocking threads, as it runs handlers (ADR 0081).
-- **Tests.** `runHandler` and `runHook` serve their one attempt (ADR 0105), so what `for_each` reads there answers that attempt's requests.
+- **Tests.** `runHandler` serves its one attempt (ADR 0105), so what its handler hands to `for_each` answers that attempt's later requests. `runHook` ends with the Hook, so a Hook's route is exercised by a crawl started on a Response recording (ADR 0105).
 - **What does not change:** TypeScript and Python, a Collie program's streams, which it reads with `during`, `select` or a task of its own, and ADR 0104's Hook answers.
 
 ### Golden scenario 06

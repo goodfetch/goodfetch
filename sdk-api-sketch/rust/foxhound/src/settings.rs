@@ -86,6 +86,21 @@ pub mod crawl {
     /// `crawl.max_requests`: requests admitted to the Frontier. Reaching it refuses further enqueues
     /// with `MaxRequests` and ends the Run `incomplete`. Built-in: none (ADR 0093).
     pub const MAX_REQUESTS: Setting<Option<u64>> = Setting::new("crawl.max_requests");
+    /// `crawl.max_url_length`: characters of a URL as parsed; a longer one is not added with
+    /// `MaxUrlLength`, and the finished Run is `unverified`. Built-in: 2,083, Scrapy's; `None` for
+    /// none (ADR 0120).
+    pub const MAX_URL_LENGTH: Setting<Option<u32>> = Setting::new("crawl.max_url_length");
+    /// `crawl.max_path_segments`: a URL with a longer path is not added with `MaxPathSegments`, and
+    /// the finished Run is `unverified`. Built-in: 20, Heritrix's; `None` for none (ADR 0120).
+    pub const MAX_PATH_SEGMENTS: Setting<Option<u32>> = Setting::new("crawl.max_path_segments");
+    /// `crawl.max_segment_repeats`: how many times a path segment, or a run of segments, may follow
+    /// itself; past it a URL is not added with `MaxSegmentRepeats`, and the finished Run is
+    /// `unverified`. Built-in: 2, Heritrix's; `None` for none (ADR 0120).
+    pub const MAX_SEGMENT_REPEATS: Setting<Option<u32>> = Setting::new("crawl.max_segment_repeats");
+    /// `crawl.keep_url_fragment`: the fragment stays in a request's key, for a Label whose requests
+    /// are hash routes. Such a Label is served only on `light_browser` or `browser`, and a resume may
+    /// not change it. Built-in: false (ADR 0120).
+    pub const KEEP_URL_FRAGMENT: Setting<bool> = Setting::new("crawl.keep_url_fragment");
     /// `crawl.handle_statuses`: statuses outside 2xx whose responses go to the handler instead of
     /// failing with `response_not_ok`. Built-in: none (ADR 0093).
     pub const HANDLE_STATUSES: Setting<Vec<u16>> = Setting::new("crawl.handle_statuses");
@@ -112,8 +127,8 @@ pub mod crawl {
         use super::super::Setting;
         use crate::crawl::LinkPattern;
 
-        /// Which hosts a crawl may reach, measured against every seed after the Frontier's URL
-        /// rules, so `www.` is no other host (ADR 0005).
+        /// Which hosts a crawl may reach, measured against every seed, hosts compared as the WHATWG
+        /// parser leaves them and one leading `www.` label ignored (ADR 0120).
         #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
         #[non_exhaustive]
         pub enum Strategy {

@@ -206,12 +206,20 @@ pub mod plan {
 }
 
 pub mod extract {
-    //! `extract.*` (ADR 0091).
+    //! `extract.*` (ADRs 0091, 0123).
     use super::Setting;
     use crate::ai::ExtractMode;
 
     /// Compiled (the default) or model; `extract()` takes it for one call as `.mode(..)`.
     pub const MODE: Setting<ExtractMode> = Setting::new("extract.mode");
+    /// `extract.locale`: the BCP 47 locale every locale-dependent Value transform reads under, such as
+    /// `de-DE` (ADR 0123). The compile must use it, and Grounding refuses a transform under any other.
+    /// `None`, the default: the compile chooses from the page's evidence, sharing the element's `lang`
+    /// language. Never the machine's.
+    pub const LOCALE: Setting<Option<String>> = Setting::new("extract.locale");
+    /// `extract.timezone_id`: the IANA time zone of a date-time whose text states none, and of a
+    /// relative time. `None`, the default: the Session's `browser.timezone_id`. Never the machine's.
+    pub const TIMEZONE_ID: Setting<Option<String>> = Setting::new("extract.timezone_id");
 }
 
 pub mod observation {

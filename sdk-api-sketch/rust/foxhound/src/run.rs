@@ -314,7 +314,9 @@ pub struct CrawlUncertainEffect {
 #[derive(Debug, Clone)]
 #[non_exhaustive]
 pub struct LearnedRule {
-    /// `no_effect_parameter`, `trap_path` or `cursor_pagination`.
+    /// `no_effect_parameter`, `equivalent_form` (`www.` and the bare host, `http` and `https`, a
+    /// trailing slash or an index file, shown one resource by a redirect, page signatures or
+    /// `rel=canonical`, ADR 0120), `trap_path` or `cursor_pagination`.
     pub kind: String,
     /// The registrable domain it applies to.
     pub domain: String,

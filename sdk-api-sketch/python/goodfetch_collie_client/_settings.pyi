@@ -79,10 +79,21 @@ class PlanSettings(TypedDict, total=False):
     """Replay only: never call a model and never write the Plan; a missing step or a Drift raises. Default: `False`."""
 
 class ExtractSettings(TypedDict, total=False):
-    """`extract.*` (ADR 0091)."""
+    """`extract.*` (ADRs 0091, 0123)."""
 
     mode: Literal["compiled", "model"]
     """`compiled` (the default) or `model`; `extract()` takes it for one call as `mode`."""
+    locale: str | None
+    """The BCP 47 locale every locale-dependent Value transform reads under, such as `de-DE` (ADR 0123).
+
+    The compile must use it, and Grounding refuses a transform under any other. `None`, the default: the
+    compile chooses from the page's evidence, sharing the element's `lang` language. Never the machine's.
+    """
+    timezone_id: str | None
+    """The IANA time zone of a date-time whose text states none, and of a relative time.
+
+    `None`, the default: the Session's `browser.timezone_id`. Never the machine's, never a model's guess.
+    """
 
 class ObservationSettings(TypedDict, total=False):
     """`observation.*` (ADR 0091)."""
@@ -136,8 +147,8 @@ class NetworkThrottle(TypedDict):
 class NetworkSettings(TypedDict, total=False):
     throttle: NetworkThrottle | None
 
-"""`crawl.scope.strategy`: which hosts a crawl may reach, measured against every seed after the Frontier's URL rules, so
-`www.` is no other host (ADR 0005)."""
+"""`crawl.scope.strategy`: which hosts a crawl may reach, measured against every seed, hosts compared as the WHATWG
+parser leaves them and one leading `www.` label ignored (ADR 0120)."""
 
 class CheckpointSettings(TypedDict, total=False):
     """`checkpoint.*` (ADRs 0002, 0102)."""
@@ -267,6 +278,8 @@ SettingKey: TypeAlias = Literal[
     "ai.allowance.calls",
     "plan.frozen",
     "extract.mode",
+    "extract.locale",
+    "extract.timezone_id",
     "observation.max_size",
     "browser.viewport",
     "browser.device_scale_factor",

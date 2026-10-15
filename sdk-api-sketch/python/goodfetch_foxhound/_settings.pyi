@@ -67,7 +67,8 @@ class PayloadSettings(TypedDict, total=False):
 
 CrawlScopeStrategy: TypeAlias = Literal["same_hostname", "same_domain", "same_origin", "all"]
 class CrawlScopeSettings(TypedDict, total=False):
-    """`crawl.scope.*`: checked on every enqueue and every redirect (ADR 0093)."""
+    """`crawl.scope.*`: checked on every enqueue and every redirect (ADR 0093), hosts compared as the WHATWG parser
+    leaves them and one leading `www.` label ignored (ADR 0120)."""
 
     strategy: CrawlScopeStrategy
     """Built-in: `same_hostname`, Crawlee's default."""
@@ -98,6 +99,19 @@ class CrawlSettings(TypedDict, total=False):
     max_requests: int | None
     """`crawl.max_requests`: requests admitted to the Frontier. Reaching it refuses further enqueues with `max_requests`
     and ends the Run `incomplete`. Built-in: none."""
+    max_url_length: int | None
+    """`crawl.max_url_length`: characters of a URL as parsed; a longer one is not added with `max_url_length`, and the
+    finished Run is `unverified`. Built-in: 2,083, Scrapy's; `None` for none (ADR 0120)."""
+    max_path_segments: int | None
+    """`crawl.max_path_segments`: a URL with a longer path is not added with `max_path_segments`, and the finished Run is
+    `unverified`. Built-in: 20, Heritrix's; `None` for none (ADR 0120)."""
+    max_segment_repeats: int | None
+    """`crawl.max_segment_repeats`: how many times a path segment, or a run of segments, may follow itself; past it a URL
+    is not added with `max_segment_repeats`, and the finished Run is `unverified`. Built-in: 2, Heritrix's; `None` for
+    none (ADR 0120)."""
+    keep_url_fragment: bool
+    """`crawl.keep_url_fragment`: the fragment stays in a request's key, for a Label whose requests are hash routes. Such
+    a Label is served only on `light_browser` or `browser`, and a resume may not change it. Built-in: False (ADR 0120)."""
     retry: CrawlRetrySettings
     handle_statuses: list[int]
     """`crawl.handle_statuses`: statuses outside 2xx whose responses go to the handler instead of failing with
@@ -199,6 +213,7 @@ class LabelCrawlSettings(TypedDict, total=False):
     handle_statuses: list[int]
     content_types: list[str]
     handler: CrawlHandlerSettings
+    keep_url_fragment: bool
 
 class LabelSettings(TypedDict, total=False):
     """A Label's settings (ADR 0093): every setting a page takes, what shapes one crawl request, every `session.*` key
@@ -275,6 +290,10 @@ SettingKey: TypeAlias = CollieSettingKey | Literal[
     "crawl.scope.exclude",
     "crawl.max_depth",
     "crawl.max_requests",
+    "crawl.max_url_length",
+    "crawl.max_path_segments",
+    "crawl.max_segment_repeats",
+    "crawl.keep_url_fragment",
     "crawl.retry.max",
     "crawl.retry.handler_failed",
     "crawl.handle_statuses",

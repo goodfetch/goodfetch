@@ -189,6 +189,8 @@ pub enum ErrorCode {
     LimitRaiseRefused,
     /// `run_state_unavailable`: the Run index lists the Run, but its state is missing or unreadable.
     RunStateUnavailable,
+    /// `run_not_found`: the ID names no Run in the Run index.
+    RunNotFound,
     /// `model_not_found`: the provider says the model does not exist or is not available to this
     /// key (ADR 0101).
     ModelNotFound,
@@ -503,8 +505,8 @@ pub enum ErrorDetails {
     DatasetKeyInvalid(crate::output::DatasetKeyInvalid),
     /// Of `value_invalid`.
     ValueInvalid(crate::output::ValueInvalid),
-    /// Of `run_id_invalid`, `run_conflict`, `run_ended`, `run_in_use`, `limit_raise_refused` and
-    /// `run_state_unavailable` (ADR 0102).
+    /// Of `run_id_invalid`, `run_conflict`, `run_ended`, `run_in_use`, `limit_raise_refused`,
+    /// `run_state_unavailable` and `run_not_found` (ADR 0102).
     Run(crate::run::RunFailure),
     /// Of `agent_tool_failed`.
     AgentToolFailed(crate::agent::AgentToolFailed),

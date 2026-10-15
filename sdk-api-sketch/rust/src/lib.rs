@@ -69,8 +69,9 @@ pub use results::{
 };
 pub use run::{
     AbortedBy, Checkpoint, Completeness, CrawlConcurrency, CrawlRequestCounts, CrawlRequestTotals, CrawlRunProgress, CrawlRunReport,
-    GovernorState, InFlightRequest, Lifecycle, NothingDone, OutcomeKind, OutcomesFilter, PauseRaisedBy, RequestPhase, RetryFailed,
-    RunFailure, RunInputDifference, RunProgress, RunReport, RunStopReason, StartedAs, WaitGroup, WaitReason, WaitingDomain, WaitingPause,
+    CrawlRunView, DatasetTotals, GovernorState, InFlightRequest, KeyValueStoreReader, Lifecycle, NothingDone, OutcomeKind, OutcomesFilter,
+    PauseRaisedBy, RequestPhase, RetryFailed, RunFailure, RunInputDifference, RunProgress, RunReport, RunStopReason, RunView, SinkDeliveryStatus,
+    StartedAs, WaitGroup, WaitReason, WaitingDomain, WaitingPause,
 };
 pub use sessions::{
     BrowserName, ClearCookies, Cookie, CookieInput, ExportKey, HttpCredentials, HumanPauseDeclined, HumanPauseResult, Identities,

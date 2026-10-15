@@ -1,10 +1,11 @@
 // Snippet for The Run in code (#478, ADR 0102), on golden scenario 07 with scenario 05's crawl.
-import { Goodfetch, seed, type Crawl, type CrawlRun, type CrawlRunReport, type Label, type Logger, type Run } from "goodfetch";
+import { Goodfetch, seed, type Crawl, type CrawlRun, type CrawlRunReport, type Dataset, type Label, type Logger, type Run } from "goodfetch";
 
 declare const log: Logger;
 // Scenario 05's declaration (crawl.ts): Labels `home`, `category` and `book`, one handler each.
 declare const books: Crawl;
 declare const home: Label<undefined>;
+declare const bookRecords: Dataset<{ readonly title: string; readonly price: string }>;
 
 // Scenario 07: one program, run again under the same ID after a kill, then with `--retry-failed`,
 // then once more with nothing left to do.
@@ -15,6 +16,7 @@ export async function scenario07(argv: readonly string[]): Promise<CrawlRunRepor
     seeds: [seed("https://books.toscrape.com/", home)],
   });
   if (run.startedAs === "resumed") log.info("resuming", { run: run.id });
+  for (const answer of run.seeds) if (!answer.added) log.warn("seed not added", { url: answer.url, reason: answer.reason });
   if (argv.includes("--retry-failed")) {
     const readmitted = await run.retryFailed(); // only `failed`, in this same Run and its Dataset
     log.info("retrying", { readmitted });
@@ -48,6 +50,15 @@ export async function failedUrls(run: CrawlRun): Promise<string[]> {
   const urls: string[] = [];
   for await (const outcome of run.outcomes({ kinds: ["failed"] })) urls.push(outcome.request.url);
   return urls;
+}
+
+// Yesterday's crawl, read by its ID from another program: nothing resumed, nothing driven.
+export async function exportYesterday(gf: Goodfetch): Promise<void> {
+  await using view = await gf.foxhound.openCrawlRun("books-2026-10-14");
+  const report = await view.report(); // at once: it has ended
+  log.info("books", { committed: report.records["books"]?.committed, sinks: report.sinks });
+  const csv = await view.export(bookRecords, { format: "csv" });
+  await csv.saveAs("books.csv");
 }
 
 // A Collie Run under an ID: run again after a crash, it finds its Sessions and its Effect journal, so an

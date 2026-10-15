@@ -7,13 +7,13 @@ import type { AgentApi } from "./agent.js";
 import type { AiVerbs, AriaSnapshots, ElementReferences } from "./ai.js";
 import type { Connection, RawCall } from "./catalog.js";
 import type { Listener, PageEvents, RunEvents, Subscription } from "./concurrency.js";
-import type { Crawl, CrawlRun, CrawlStartOptions } from "./crawl.js";
+import type { Crawl, CrawlRun, CrawlRunView, CrawlStartOptions } from "./crawl.js";
 import type { JsonObject, JsonValue } from "./data.js";
 import type { ModelProviderHandler, ReadsUsage } from "./models.js";
 import type { KeyValueStore } from "./output.js";
 import type { FetchBackendHandler, ProxyProviderHandler, SinkHandler } from "./hooks.js";
 import type { PageApi, PageCloseOptions, PageFunction, PageResult, RouteHandler } from "./page.js";
-import type { RunControl } from "./run.js";
+import type { RunControl, RunView } from "./run.js";
 import type { Identities, PausesForHuman, ResolveSecret, SessionStateApi, SessionSource } from "./sessions.js";
 import type { ExplainedSetting, ExplainsSettings, NewPageOptions, SessionSettings, SettingKey, Settings } from "./settings.js";
 import type { CallOptions, Limits, PageWaits, StartOptions, Timeout, UrlMatcher } from "./time.js";
@@ -192,6 +192,8 @@ export interface Collie {
    * is gone.
    */
   start(options?: StartOptions): Promise<Run>;
+  /** Opens a Run by its ID to read it, never to drive it: a detached Run, another program's, or one that ended. Throws `RunNotFoundError`. */
+  openRun(id: string, options?: CallOptions): Promise<RunView>;
 }
 
 /** Foxhound, reached from the connection without I/O. A Foxhound connection also carries Collie's `start` (ADR 0095). */
@@ -204,6 +206,8 @@ export interface Foxhound {
    * has pending requests of a Label no longer declared (ADR 0093).
    */
   startCrawl(crawl: Crawl, options: CrawlStartOptions): Promise<CrawlRun>;
+  /** Opens a crawl's Run by its ID to read it, as `Collie.openRun` does, with its outcomes, Records and Exports. */
+  openCrawlRun(id: string, options?: CallOptions): Promise<CrawlRunView>;
 }
 
 /** The engine connection: the entry point. Each one is independent, and many may be open in one process. */

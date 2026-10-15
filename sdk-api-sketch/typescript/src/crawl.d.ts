@@ -27,12 +27,13 @@ import type {
   Export,
   ExportOptions,
   KeyField,
+  KeyValueStore,
   RecordsOptions,
   RejectedRecord,
 } from "./output.js";
 import type { Locator, Response } from "./page.js";
 import type { CrawlRequestOutcome, PageError, ProgramError, RefusedError, UnavailableError } from "./results.js";
-import type { CrawlRunProgress, CrawlRunReport } from "./run.js";
+import type { CrawlRunProgress, CrawlRunReport, RunView } from "./run.js";
 import type { CrawlRunSettings, LabelSettings } from "./settings.js";
 import type { CallOptions, Limits, Timeout } from "./time.js";
 
@@ -300,12 +301,22 @@ export interface CrawlRun extends Run {
   rejectedRecords(dataset: Dataset<unknown, unknown>, options?: RecordsOptions): EventIterator<RejectedRecord>;
   /** Writes an Export of the Records committed so far (ADR 0026), to save or stream wherever the engine runs. */
   export(dataset: Dataset<unknown, unknown>, options: ExportOptions): Promise<Export>;
+  /** Each seed's answer, given once at the start: added with its ID, or not added with its reason. On a resume, the answers given when the Run began. */
+  readonly seeds: readonly Enqueued[];
   /**
    * Adds a seed to the running crawl (ADR 0037's CO-03), committed at once, or staged with the attempt
    * when called through a handler's `ctx.run`. A seed widens the scope by its host, where a handler's
    * `enqueue` is checked against it; one the domain policy refuses is not added (`domain_policy`).
    */
   addSeed<L extends Label<unknown, unknown>>(url: string | URL, label: L, ...args: PayloadArgs<L, EnqueueOptions>): Promise<Enqueued>;
+}
+
+/** A crawl's Run read by a program that does not drive it, opened with `openCrawlRun` (ADR 0102). Its Records are read with the program's own Dataset handles. */
+export interface CrawlRunView extends RunView, Pick<CrawlRun, "outcomes" | "records" | "rejectedRecords" | "export"> {
+  progress(): EventIterator<CrawlRunProgress>;
+  report(options?: CallOptions): Promise<CrawlRunReport>;
+  /** Its Key-value store's reads. */
+  readonly keyValueStore: Pick<KeyValueStore, "get" | "getBytes" | "keys">;
 }
 
 // The crawl's Error codes (ADR 0093).

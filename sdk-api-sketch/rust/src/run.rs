@@ -14,9 +14,12 @@ use std::path::{Path, PathBuf};
 use std::time::SystemTime;
 
 use crate::concurrency::EventStream;
-use crate::crawl::{CrawlRun, FetchTier};
-use crate::data::Label;
-use crate::lifecycle::Run;
+use crate::crawl::{CrawlRun, Enqueued, FetchTier, Foxhound};
+use crate::data::{Dataset, Label, Schema};
+use crate::lifecycle::{Collie, Run};
+use crate::output::{DatasetRecord, ExportCall, ExportFormat, RejectedRecord, StoredBytes};
+use schemars::JsonSchema;
+use serde::de::DeserializeOwned;
 use crate::models::RunUsage;
 use crate::results::{BlockCause, CrawlRequestOutcome, CrawlRequestRef, ErrorCode, LimitSource, SkipReason, Verdict};
 use crate::time::{Call, CallFuture};
@@ -315,10 +318,10 @@ pub enum NothingDone {
         /// When it ended.
         ended_at: SystemTime,
     },
-    /// Every seed was skipped, counted by reason.
-    NoSeedAdmitted {
-        /// The seeds' skip reasons.
-        skipped: Vec<(SkipReason, u64)>,
+    /// No seed reached a handler: each was refused when added or skipped when fetched.
+    NoSeedHandled {
+        /// The seeds' reasons, counted.
+        by_reason: Vec<(SkipReason, u64)>,
     },
     /// A resume or a retry found nothing left.
     NothingPending,
@@ -387,6 +390,31 @@ pub struct CrawlRequestTotals {
     pub by_block_cause: Vec<(BlockCause, u64)>,
 }
 
+/// A Dataset's Records over the Run (ADR 0103).
+#[derive(Debug, Clone)]
+#[non_exhaustive]
+pub struct DatasetTotals {
+    /// Committed.
+    pub committed: u64,
+    /// Dropped by a "Record before commit" Hook.
+    pub dropped: u64,
+    /// In the rejection table.
+    pub rejected: u64,
+    /// The dropped ones, by the Hook's reason.
+    pub dropped_by_reason: Vec<(String, u64)>,
+}
+
+/// A Sink's delivery (ADR 0026), as it stood when the report was read: a Sink may go on delivering
+/// after the Run ends.
+#[derive(Debug, Clone)]
+#[non_exhaustive]
+pub struct SinkDeliveryStatus {
+    /// `complete`, `complete_with_rejections`, `behind` or `failed`.
+    pub status: String,
+    /// Its dead letters.
+    pub dead_letters: u64,
+}
+
 /// A crawl's Run report.
 #[derive(Debug, Clone)]
 #[non_exhaustive]
@@ -396,6 +424,10 @@ pub struct CrawlRunReport {
     pub run: RunReport,
     /// Its requests.
     pub requests: CrawlRequestTotals,
+    /// Per Dataset name.
+    pub records: Vec<(String, DatasetTotals)>,
+    /// Per Sink name.
+    pub sinks: Vec<(String, SinkDeliveryStatus)>,
 }
 
 impl Run {
@@ -509,6 +541,12 @@ impl CrawlRun {
         unimplemented!()
     }
 
+    /// Each seed's answer, given once at the start: added with its ID, or not added with its reason.
+    /// On a resume, the answers given when the Run began.
+    pub fn seeds(&self) -> &[Enqueued] {
+        unimplemented!()
+    }
+
     /// Lets the crawl finish: once its Frontier is empty and nothing is in flight, or, under
     /// `crawl::KEEP_ALIVE`, once drained after this call. [`crate::Crawl::serve`] returns the same
     /// report when the Run ends; this future does not serve requests, so it ends a keep-alive crawl
@@ -541,6 +579,143 @@ impl CrawlRun {
     /// fresh `crawl::retry::MAX`. A skip is a decision and is never re-admitted. On an ended Run it
     /// returns the Run to `running`, its Verdict and Completeness given anew when it ends (ADR 0029).
     pub fn retry_failed(&self) -> RetryFailed {
+        unimplemented!()
+    }
+}
+
+impl Collie {
+    /// Opens a Run by its ID to read it, never to drive it: a detached Run, another program's, or
+    /// one that ended. Fails with `run_not_found`.
+    pub fn open_run(&self, id: &str) -> Call<RunView> {
+        let _ = id;
+        unimplemented!()
+    }
+}
+
+impl Foxhound {
+    /// Opens a crawl's Run by its ID to read it, as [`Collie::open_run`] does, with its outcomes,
+    /// Records and Exports.
+    pub fn open_crawl_run(&self, id: &str) -> Call<CrawlRunView> {
+        let _ = id;
+        unimplemented!()
+    }
+}
+
+/// A Run read by a program that does not drive it (ADR 0102). It never gives the Run work and
+/// takes no writer lock (ADR 0031); closing it frees only the view. A cheap clone.
+#[derive(Debug, Clone)]
+pub struct RunView {
+    _private: (),
+}
+
+impl RunView {
+    /// The Run's ID.
+    pub fn id(&self) -> &str {
+        unimplemented!()
+    }
+
+    /// The Run's progress, as [`Run::progress`]'s.
+    pub fn progress(&self) -> EventStream<RunProgress> {
+        unimplemented!()
+    }
+
+    /// The Run's report: at once for an ended Run, at its end for a live one, which it never ends.
+    pub fn report(&self) -> Call<RunReport> {
+        unimplemented!()
+    }
+
+    /// Frees the view; the Run goes on.
+    pub fn close(&self) -> Call<()> {
+        unimplemented!()
+    }
+}
+
+/// A crawl's Run read by a program that does not drive it. Its Records are read with the program's
+/// own Dataset handles. A cheap clone.
+#[derive(Debug, Clone)]
+pub struct CrawlRunView {
+    _private: (),
+}
+
+impl CrawlRunView {
+    /// The Run's ID.
+    pub fn id(&self) -> &str {
+        unimplemented!()
+    }
+
+    /// The crawl's progress.
+    pub fn progress(&self) -> EventStream<CrawlRunProgress> {
+        unimplemented!()
+    }
+
+    /// The crawl's report, as [`RunView::report`]'s.
+    pub fn report(&self) -> Call<CrawlRunReport> {
+        unimplemented!()
+    }
+
+    /// The outcomes, as [`CrawlRun::outcomes`]'s.
+    pub fn outcomes(&self, filter: OutcomesFilter) -> EventStream<CrawlRequestOutcome> {
+        let _ = filter;
+        unimplemented!()
+    }
+
+    /// The Dataset's committed Records, as `CrawlRun::records`' (ADR 0103).
+    pub fn records<T: DeserializeOwned>(&self, dataset: &Dataset<T>) -> EventStream<DatasetRecord<T>> {
+        let _ = dataset;
+        unimplemented!()
+    }
+
+    /// The Dataset's rejection table.
+    pub fn rejected_records<T>(&self, dataset: &Dataset<T>) -> EventStream<RejectedRecord> {
+        let _ = dataset;
+        unimplemented!()
+    }
+
+    /// An Export of the Records committed so far (ADR 0026).
+    pub fn export<T>(&self, dataset: &Dataset<T>, format: ExportFormat) -> ExportCall {
+        let _ = (dataset, format);
+        unimplemented!()
+    }
+
+    /// Its Key-value store's reads.
+    pub fn key_value_store(&self) -> KeyValueStoreReader {
+        unimplemented!()
+    }
+
+    /// Frees the view; the Run goes on.
+    pub fn close(&self) -> Call<()> {
+        unimplemented!()
+    }
+}
+
+/// A Key-value store's reads, for a Run view.
+#[derive(Debug, Clone)]
+pub struct KeyValueStoreReader {
+    _private: (),
+}
+
+impl KeyValueStoreReader {
+    /// The value under the key, as `KeyValueStore::get`'s.
+    pub fn get<T: DeserializeOwned + JsonSchema>(&self, key: &str) -> Call<Option<T>> {
+        let _ = key;
+        unimplemented!()
+    }
+
+    /// The value under the key, checked against a hand-written JSON Schema.
+    pub fn get_with(&self, key: &str, schema: Schema<serde_json::Value>) -> Call<Option<serde_json::Value>> {
+        let _ = (key, schema);
+        unimplemented!()
+    }
+
+    /// The bytes under the key, or `None`.
+    pub fn get_bytes(&self, key: &str) -> Call<Option<StoredBytes>> {
+        let _ = key;
+        unimplemented!()
+    }
+
+    /// The keys starting with `prefix`; `""` for all.
+    pub fn keys(&self, prefix: &str) -> EventStream<String> {
+        let _ = prefix;
         unimplemented!()
     }
 }
@@ -593,6 +768,11 @@ pub enum RunFailure {
     LimitRaiseRefused {
         /// The Limit, by name.
         limit: String,
+    },
+    /// `run_not_found`: the ID names no Run in the Run index.
+    NotFound {
+        /// The ID.
+        id: String,
     },
     /// `run_state_unavailable`: the Run's state is missing or unreadable.
     StateUnavailable {

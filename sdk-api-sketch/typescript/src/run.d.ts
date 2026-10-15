@@ -8,6 +8,8 @@
 
 import type { EventIterator } from "./concurrency.js";
 import type { ReportedFetchTier } from "./crawl.js";
+import type { Closeable } from "./lifecycle.js";
+import type { RecordCounts } from "./output.js";
 import type { RunUsage } from "./models.js";
 import type { BlockCause, CrawlRequestRef, LimitSource, ProgramError, RefusedError, SkipReason, UnavailableError, Verdict } from "./results.js";
 import type { CallOptions } from "./time.js";
@@ -161,12 +163,12 @@ export interface CheckpointOptions extends CallOptions {
 /**
  * Why a Run did nothing (G1):
  * - `already_ended`: the start found the Run ended;
- * - `no_seed_admitted`: every seed was skipped, counted by reason;
+ * - `no_seed_handled`: no seed reached a handler, each refused when added or skipped when fetched, counted by reason;
  * - `nothing_pending`: a resume or a retry found nothing left.
  */
 export type NothingDone =
   | { readonly reason: "already_ended"; readonly endedAt: Date }
-  | { readonly reason: "no_seed_admitted"; readonly skipped: Readonly<Partial<Record<SkipReason, number>>> }
+  | { readonly reason: "no_seed_handled"; readonly byReason: Readonly<Partial<Record<SkipReason, number>>> }
   | { readonly reason: "nothing_pending" }
   | { readonly reason: "unknown"; readonly raw: string };
 
@@ -208,9 +210,25 @@ export interface CrawlRequestTotals {
   readonly byBlockCause: Readonly<Partial<Record<BlockCause, number>>>;
 }
 
+/** A Dataset's Records over the Run (ADR 0103). */
+export interface DatasetTotals extends RecordCounts {
+  /** The dropped ones, by the Hook's reason. */
+  readonly droppedByReason: Readonly<Record<string, number>>;
+}
+
+/** A Sink's delivery (ADR 0026), as it stood when the report was read: a Sink may go on delivering after the Run ends. */
+export interface SinkDeliveryStatus {
+  readonly status: "complete" | "complete_with_rejections" | "behind" | "failed" | (string & {});
+  readonly deadLetters: number;
+}
+
 /** A crawl's Run report. */
 export interface CrawlRunReport extends RunReport {
   readonly requests: CrawlRequestTotals;
+  /** Per Dataset name. */
+  readonly records: Readonly<Record<string, DatasetTotals>>;
+  /** Per Sink name. */
+  readonly sinks: Readonly<Record<string, SinkDeliveryStatus>>;
 }
 
 /** What every Run does besides its pages: end, report, show progress and write Checkpoints. */
@@ -235,7 +253,25 @@ export interface RunControl {
   checkpoint(options?: CheckpointOptions): Promise<Checkpoint>;
 }
 
+/**
+ * A Run read by a program that does not drive it, opened by its ID with `openRun` (ADR 0102): a
+ * detached Run, another program's, or one that has ended. It never gives the Run work and takes no
+ * writer lock (ADR 0031); closing it frees only the view.
+ */
+export interface RunView extends Closeable {
+  readonly id: string;
+  progress(): EventIterator<RunProgress>;
+  /** The Run's report: at once for an ended Run, at its end for a live one, which it never ends. */
+  report(options?: CallOptions): Promise<RunReport>;
+}
+
 // The Run's Error codes (ADR 0102).
+
+/** The ID names no Run in the Run index. */
+export declare class RunNotFoundError extends ProgramError {
+  readonly code: "run_not_found";
+  readonly details: { readonly id: string };
+}
 
 /** An ID the engine refuses, such as one with characters a folder name cannot hold. */
 export declare class RunIdInvalidError extends ProgramError {

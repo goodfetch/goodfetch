@@ -3,9 +3,10 @@
 use std::time::Duration;
 
 use goodfetch_sdk_sketch::settings::{checkpoint, crawl};
+use goodfetch_sdk_sketch::output::ExportFormat;
 use goodfetch_sdk_sketch::{
-    ConnectOptions, Crawl, CrawlRun, CrawlRunReport, Error, Goodfetch, Label, NothingDone, OutcomeKind, OutcomesFilter, Run, Seed,
-    Settings, StartedAs,
+    ConnectOptions, Crawl, CrawlRun, CrawlRunReport, Dataset, Enqueued, Error, Goodfetch, Label, NothingDone, OutcomeKind,
+    OutcomesFilter, Run, Seed, Settings, StartedAs,
 };
 
 /// Scenario 07: one program, run again under the same ID after a kill, then with `retry_failed`,
@@ -19,6 +20,11 @@ async fn scenario_07(books: &Crawl<'_>, home: &Label<()>, retry_failed: bool) ->
         .await?;
     if run.started_as() == &StartedAs::Resumed {
         // carrying on where the killed process stopped
+    }
+    for answer in run.seeds() {
+        if let Enqueued::NotAdded { url, reason } = answer {
+            let _ = (url, reason); // a seed the domain policy refused, say
+        }
     }
     if retry_failed {
         let readmitted = run.retry_failed().await?; // only `failed`, in this same Run and its Dataset
@@ -53,6 +59,16 @@ async fn failed_urls(run: &CrawlRun) -> Result<Vec<String>, Error> {
         urls.push(outcome?.request.url);
     }
     Ok(urls)
+}
+
+/// Yesterday's crawl, read by its ID from another program: nothing resumed, nothing driven.
+async fn export_yesterday(gf: &Goodfetch, books: &Dataset<serde_json::Value>) -> Result<(), Error> {
+    let view = gf.foxhound().open_crawl_run("books-2026-10-14").await?;
+    let report = view.report().await?; // at once: it has ended
+    let _ = (&report.records, &report.sinks);
+    let csv = view.export(books, ExportFormat::Csv).await?;
+    csv.save_as("books.csv").await?;
+    view.close().await
 }
 
 /// A Collie Run under an ID: run again after a crash, it finds its Sessions and its Effect journal,
@@ -94,5 +110,5 @@ async fn fed(gf: &Goodfetch, books: &Crawl<'_>, home: &Label<()>, urls: Vec<Stri
 }
 
 fn main() {
-    let _ = (scenario_07, follow, failed_urls, place_order, fed);
+    let _ = (scenario_07, follow, failed_urls, export_yesterday, place_order, fed);
 }

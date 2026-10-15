@@ -28,7 +28,7 @@ from goodfetch._concurrency import (
 )
 from goodfetch._data import JsonValue
 from goodfetch._models import AsyncModelProviderHandler, ModelProviderHandler, RunUsage
-from goodfetch._output import AsyncExport, AsyncKeyValueStore, DatasetRecord, Export, ExportFormat, KeyValueStore, RejectedRecord
+from goodfetch._output import AsyncExport, AsyncKeyValueStore, DatasetRecord, Export, ExportFormat, KeyValueStore, RejectedRecord, StoredBytes
 from goodfetch._hooks import (
     AsyncFetchBackendHandler,
     AsyncProxyProviderHandler,
@@ -52,7 +52,7 @@ from goodfetch._sessions import (
 from goodfetch._crawl import AsyncCrawl, Crawl, Enqueued, Seed
 from goodfetch._data import Dataset, Label
 from goodfetch._results import CrawlRequestOutcome
-from goodfetch._run import AsyncRunControl, CrawlRunProgress, CrawlRunReport, RunControl, RunProgress, RunReport
+from goodfetch._run import AsyncRunControl, AsyncRunView, CrawlRunProgress, CrawlRunReport, RunControl, RunProgress, RunReport, RunView
 from goodfetch._settings import CrawlRunSettings, ExplainedSetting, PageSettings, RunSettings, SessionSettings, SettingKey, Settings
 from goodfetch._time import AsyncPageWaits, Limits, NotGiven, PageWaits, Timeout, UrlMatcher
 
@@ -235,6 +235,9 @@ class AsyncCollie:
         `plan` is the Run's Plan file, relative to the working directory: an input of the Run (ADR 0091), read here and
         written back here when a new version is promoted. Left out, the Plan lives only in the Run trace.
         """
+    async def open_run(self, id: str, *, timeout: Timeout = ...) -> AsyncRunView[RunReport, RunProgress]:
+        """Opens a Run by its ID to read it, never to drive it: a detached Run, another program's, or one that ended.
+        Raises `RunNotFoundError`."""
 
 @final
 class AsyncCrawlRun(_AsyncCloseable, _AsyncExplainsSettings, AsyncRunEvents, AsyncRunControl[CrawlRunReport, CrawlRunProgress]):
@@ -242,6 +245,10 @@ class AsyncCrawlRun(_AsyncCloseable, _AsyncExplainsSettings, AsyncRunEvents, Asy
 
     @property
     def id(self) -> str: ...
+    @property
+    def seeds(self) -> Sequence[Enqueued]:
+        """Each seed's answer, given once at the start: added with its ID, or not added with its reason. On a resume, the
+        answers given when the Run began."""
     def outcomes(
         self, *, kinds: Sequence[Literal["succeeded", "failed", "skipped", "blocked"]] | None = None, labels: Sequence[Label[Any]] | None = None
     ) -> AsyncEventIterator[CrawlRequestOutcome]:
@@ -289,6 +296,32 @@ class AsyncCrawlRun(_AsyncCloseable, _AsyncExplainsSettings, AsyncRunEvents, Asy
         through a handler's `ctx.run`. A seed widens the scope by its host, where a handler's `enqueue` is checked against
         it; one the domain policy refuses is not added (`domain_policy`)."""
 
+class AsyncKeyValueStoreReader:
+    """A Key-value store's reads, for a Run view: `AsyncKeyValueStore` without its writes."""
+
+    @overload
+    async def get(self, key: str, *, timeout: Timeout = ...) -> JsonValue | None: ...
+    @overload
+    async def get(self, key: str, schema: type[_T], *, timeout: Timeout = ...) -> _T | None: ...
+    async def get_bytes(self, key: str, *, timeout: Timeout = ...) -> StoredBytes | None: ...
+    def keys(self, *, prefix: str = "") -> AsyncEventIterator[str]: ...
+
+@final
+class AsyncCrawlRunView(AsyncRunView[CrawlRunReport, CrawlRunProgress]):
+    """A crawl's Run read by a program that does not drive it, opened with `open_crawl_run` (ADR 0102). Its Records are
+    read with the program's own Dataset handles."""
+
+    def outcomes(
+        self, *, kinds: Sequence[Literal["succeeded", "failed", "skipped", "blocked"]] | None = None, labels: Sequence[Label[Any]] | None = None
+    ) -> AsyncEventIterator[CrawlRequestOutcome]: ...
+    def records(self, dataset: Dataset[_T], *, after: int = 0) -> AsyncEventIterator[DatasetRecord[_T]]: ...
+    def rejected_records(self, dataset: Dataset[Any], *, after: int = 0) -> AsyncEventIterator[RejectedRecord]: ...
+    async def export(
+        self, dataset: Dataset[Any], *, format: ExportFormat, compression: Literal["gzip", "zstd"] | None = None, timeout: Timeout = ...
+    ) -> AsyncExport: ...
+    @property
+    def key_value_store(self) -> AsyncKeyValueStoreReader: ...
+
 @final
 class AsyncFoxhound:
     """Foxhound, reached from the connection without I/O."""
@@ -309,6 +342,9 @@ class AsyncFoxhound:
         `AsyncCollie.start`'s does, the seeds and the Plan file being inputs that must match. Raises `LabelUnhandledError`
         when a Label has no handler, and `LabelUnknownError` when a resumed Run has pending requests of a Label no longer
         declared (ADR 0093). A Foxhound connection also carries Collie's `start` (ADR 0095)."""
+    async def open_crawl_run(self, id: str, *, timeout: Timeout = ...) -> AsyncCrawlRunView:
+        """Opens a crawl's Run by its ID to read it, as `AsyncCollie.open_run` does, with its outcomes, Records and
+        Exports."""
 
 @final
 class _AsyncConnecting:
@@ -470,6 +506,7 @@ class Collie:
         `plan` is the Run's Plan file, relative to the working directory: an input of the Run (ADR 0091), read here and
         written back here when a new version is promoted. Left out, the Plan lives only in the Run trace.
         """
+    def open_run(self, id: str, *, timeout: Timeout = ...) -> RunView[RunReport, RunProgress]: ...
 
 @final
 class CrawlRun(_Closeable, _ExplainsSettings, RunEvents, RunControl[CrawlRunReport, CrawlRunProgress]):
@@ -478,6 +515,10 @@ class CrawlRun(_Closeable, _ExplainsSettings, RunEvents, RunControl[CrawlRunRepo
 
     @property
     def id(self) -> str: ...
+    @property
+    def seeds(self) -> Sequence[Enqueued]:
+        """Each seed's answer, given once at the start: added with its ID, or not added with its reason. On a resume, the
+        answers given when the Run began."""
     def outcomes(
         self, *, kinds: Sequence[Literal["succeeded", "failed", "skipped", "blocked"]] | None = None, labels: Sequence[Label[Any]] | None = None
     ) -> EventIterator[CrawlRequestOutcome]: ...
@@ -508,6 +549,31 @@ class CrawlRun(_Closeable, _ExplainsSettings, RunEvents, RunControl[CrawlRunRepo
         timeout: Timeout = ...,
     ) -> Enqueued: ...
 
+class KeyValueStoreReader:
+    """`AsyncKeyValueStoreReader` in the sync API."""
+
+    @overload
+    def get(self, key: str, *, timeout: Timeout = ...) -> JsonValue | None: ...
+    @overload
+    def get(self, key: str, schema: type[_T], *, timeout: Timeout = ...) -> _T | None: ...
+    def get_bytes(self, key: str, *, timeout: Timeout = ...) -> StoredBytes | None: ...
+    def keys(self, *, prefix: str = "") -> EventIterator[str]: ...
+
+@final
+class CrawlRunView(RunView[CrawlRunReport, CrawlRunProgress]):
+    """`AsyncCrawlRunView` in the sync API."""
+
+    def outcomes(
+        self, *, kinds: Sequence[Literal["succeeded", "failed", "skipped", "blocked"]] | None = None, labels: Sequence[Label[Any]] | None = None
+    ) -> EventIterator[CrawlRequestOutcome]: ...
+    def records(self, dataset: Dataset[_T], *, after: int = 0) -> EventIterator[DatasetRecord[_T]]: ...
+    def rejected_records(self, dataset: Dataset[Any], *, after: int = 0) -> EventIterator[RejectedRecord]: ...
+    def export(
+        self, dataset: Dataset[Any], *, format: ExportFormat, compression: Literal["gzip", "zstd"] | None = None, timeout: Timeout = ...
+    ) -> Export: ...
+    @property
+    def key_value_store(self) -> KeyValueStoreReader: ...
+
 @final
 class Foxhound:
     """Foxhound, reached from the connection without I/O."""
@@ -524,6 +590,7 @@ class Foxhound:
         plan: str | PathLike[str] | None = None,
     ) -> CrawlRun:
         """`AsyncFoxhound.start_crawl` in the sync API."""
+    def open_crawl_run(self, id: str, *, timeout: Timeout = ...) -> CrawlRunView: ...
 
 class Connection(_Closeable, _ExplainsSettings, RawCall):
     """Any connection, as `AsyncConnection`: what `Collie` and `Foxhound` share."""

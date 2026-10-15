@@ -81,6 +81,7 @@ export type KnownErrorCode =
   | "run_in_use"
   | "limit_raise_refused"
   | "run_state_unavailable"
+  | "run_not_found"
   | "model_not_found"
   | "model_capability_missing"
   | "model_handler_failed"

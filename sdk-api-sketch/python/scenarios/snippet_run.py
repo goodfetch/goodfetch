@@ -4,21 +4,30 @@ import logging
 from collections.abc import AsyncIterable
 from datetime import timedelta
 
+from pydantic import BaseModel
+
 from goodfetch import (
     AsyncCrawl,
     AsyncCrawlRun,
     AsyncGoodfetch,
     AsyncRun,
     CrawlRunReport,
+    EnqueueNotAdded,
     Goodfetch,
     seed,
 )
 
 log = logging.getLogger(__name__)
 
+
+class BookRecord(BaseModel):
+    title: str
+    price: str
+
 # Scenario 05's declaration (snippet_crawl.py) has Labels `home`, `category` and `book`, one handler each.
 books = AsyncCrawl()
 home = books.label("home")
+book_records = books.dataset("books", schema=BookRecord)
 
 
 async def scenario_07(retry_failed: bool) -> CrawlRunReport:
@@ -33,6 +42,9 @@ async def scenario_07(retry_failed: bool) -> CrawlRunReport:
         async with run:
             if run.started_as == "resumed":
                 log.info("resuming %s", run.id)
+            for answer in run.seeds:
+                if isinstance(answer, EnqueueNotAdded):
+                    log.warning("seed not added: %s (%s)", answer.url, answer.reason)
             if retry_failed:
                 readmitted = await run.retry_failed()  # only `failed`, in this same Run and its Dataset
                 log.info("retrying %d requests", readmitted)
@@ -67,6 +79,16 @@ async def now(run: AsyncRun) -> None:
 async def failed_urls(run: AsyncCrawlRun) -> list[str]:
     """The failed URLs, from the Run's committed state, also once it has ended."""
     return [outcome.request.url async for outcome in run.outcomes(kinds=["failed"])]
+
+
+async def export_yesterday(gf: AsyncGoodfetch) -> None:
+    """Yesterday's crawl, read by its ID from another program: nothing resumed, nothing driven."""
+    async with await gf.foxhound.open_crawl_run("books-2026-10-14") as view:
+        report = await view.report()  # at once: it has ended
+        books_totals = report.records.get("books")
+        log.info("books committed: %s, sinks: %s", books_totals.committed if books_totals else 0, report.sinks)
+        csv = await view.export(book_records, format="csv")
+        await csv.save_as("books.csv")
 
 
 async def place_order(order_id: str) -> None:

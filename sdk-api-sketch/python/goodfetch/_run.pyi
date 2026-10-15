@@ -11,7 +11,8 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from datetime import datetime
 from os import PathLike
-from typing import Generic, Literal, TypeAlias, TypeVar, final
+from types import TracebackType
+from typing import Generic, Literal, Self, TypeAlias, TypeVar, final
 
 from goodfetch._concurrency import AsyncEventIterator, EventIterator
 from goodfetch._models import RunUsage
@@ -206,13 +207,14 @@ class NothingDone:
     """Why a Run did nothing (G1).
 
     - `already_ended`: the start found the Run ended, at `ended_at`;
-    - `no_seed_admitted`: every seed was skipped, counted by reason in `skipped`;
+    - `no_seed_handled`: no seed reached a handler, each refused when added or skipped when fetched, counted in
+      `by_reason`;
     - `nothing_pending`: a resume or a retry found nothing left.
     """
 
-    reason: Literal["already_ended", "no_seed_admitted", "nothing_pending"] | str
+    reason: Literal["already_ended", "no_seed_handled", "nothing_pending"] | str
     ended_at: datetime | None
-    skipped: Mapping[SkipReason, int]
+    by_reason: Mapping[SkipReason, int]
 
 @dataclass(frozen=True, kw_only=True)
 class RunReport:
@@ -258,10 +260,34 @@ class CrawlRequestTotals:
 
 @final
 @dataclass(frozen=True, kw_only=True)
+class DatasetTotals:
+    """A Dataset's Records over the Run (ADR 0103)."""
+
+    committed: int
+    dropped: int
+    rejected: int
+    dropped_by_reason: Mapping[str, int]
+    """The dropped ones, by the Hook's reason."""
+
+@final
+@dataclass(frozen=True, kw_only=True)
+class SinkDeliveryStatus:
+    """A Sink's delivery (ADR 0026), as it stood when the report was read: a Sink may go on delivering after the Run
+    ends."""
+
+    status: Literal["complete", "complete_with_rejections", "behind", "failed"] | str
+    dead_letters: int
+
+@final
+@dataclass(frozen=True, kw_only=True)
 class CrawlRunReport(RunReport):
     """A crawl's Run report."""
 
     requests: CrawlRequestTotals
+    records: Mapping[str, DatasetTotals]
+    """Per Dataset name."""
+    sinks: Mapping[str, SinkDeliveryStatus]
+    """Per Sink name."""
 
 _Report = TypeVar("_Report", bound=RunReport, covariant=True)
 _Progress = TypeVar("_Progress", bound=RunProgress, covariant=True)
@@ -303,7 +329,43 @@ class RunControl(Generic[_Report, _Progress]):
     def set_progress_message(self, message: str, *, timeout: Timeout = ...) -> None: ...
     def checkpoint(self, *, path: str | PathLike[str] | None = None, timeout: Timeout = ...) -> Checkpoint: ...
 
+class AsyncRunView(Generic[_Report, _Progress]):
+    """A Run read by a program that does not drive it, opened by its ID with `open_run` (ADR 0102): a detached Run,
+    another program's, or one that has ended. It never gives the Run work and takes no writer lock (ADR 0031); closing it
+    frees only the view."""
+
+    @property
+    def id(self) -> str: ...
+    def progress(self) -> AsyncEventIterator[_Progress]: ...
+    async def report(self, *, timeout: Timeout = ...) -> _Report:
+        """The Run's report: at once for an ended Run, at its end for a live one, which it never ends."""
+    async def close(self) -> None: ...
+    async def __aenter__(self) -> Self: ...
+    async def __aexit__(
+        self, exc_type: type[BaseException] | None, exc: BaseException | None, tb: TracebackType | None
+    ) -> None: ...
+
+class RunView(Generic[_Report, _Progress]):
+    """`AsyncRunView` in the sync API."""
+
+    @property
+    def id(self) -> str: ...
+    def progress(self) -> EventIterator[_Progress]: ...
+    def report(self, *, timeout: Timeout = ...) -> _Report: ...
+    def close(self) -> None: ...
+    def __enter__(self) -> Self: ...
+    def __exit__(
+        self, exc_type: type[BaseException] | None, exc: BaseException | None, tb: TracebackType | None
+    ) -> None: ...
+
 # The Run's Error codes (ADR 0102).
+
+@final
+class RunNotFoundError(ProgramError):
+    """The ID names no Run in the Run index."""
+
+    @property
+    def details(self) -> RunIdDetails: ...
 
 @final
 @dataclass(frozen=True, kw_only=True)

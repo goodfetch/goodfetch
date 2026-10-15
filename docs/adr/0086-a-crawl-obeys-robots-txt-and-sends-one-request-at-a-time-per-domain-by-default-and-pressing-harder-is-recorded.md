@@ -100,6 +100,8 @@ The keys follow ADR 0083's naming rule: two families, so `goodfetch config expla
 | `site_preferences.robots_txt_user_agent` | none | a crawl |
 | `site_preferences.respect_use_signals` (was `respect_site_preferences`) | off | every run |
 
+> Amended by [ADR 0088](0088-collie-carries-every-capability-except-those-only-many-pages-need.md): `politeness.proxy.concurrency`, `politeness.proxy.rate` and `politeness.sharing` also apply to a program's own navigation through that proxy, in both Products, since they protect the user's account with the proxy's vendor.
+
 - **Scopes.** These keys are set on a connection or a Run, never on a Session or a page, since ADR 0053 keeps Politeness settings per run. `politeness.degraded_max` is the engine's own, set in user configuration or an Operator policy only; a program's `settings` refuses it with `setting_not_applicable`, and `explainSettings` still shows it.
 - **Collie Runs.** Politeness is Foxhound's (ADR 0084), so of these keys a Collie Run takes only `site_preferences.respect_use_signals`; any other fails with `setting_not_applicable` (ADR 0083). In TypeScript and Python the types leave them out of a Collie Run's settings, so the type checker catches the mistake first (G3). In Rust, whose `Settings` takes any key (ADR 0083), the Run refuses it when it opens. Whether Collie carries ADR 0053's per-proxy limits is [Collie's exact capability set](https://github.com/goodfetch/automan/issues/455)'s.
   > Amended by [ADR 0088](0088-collie-carries-every-capability-except-those-only-many-pages-need.md): a Collie Run also takes `politeness.proxy.concurrency`, `politeness.proxy.rate` and `politeness.sharing`, since Collie carries the per-proxy limits and their sharing.

@@ -99,6 +99,7 @@ Decided in [Collie's exact capability set](https://github.com/goodfetch/automan/
 ### Collie's results
 
 - Collie has no Datasets, Records, Exports, Sinks or DuckDB (ADR 0084). An extraction or an AI task returns its result to its caller, with its Provenance and the run's Verdict, as Stagehand's `extract` returns a value and leaves storage to its caller (same note, §2.4).
+  > Amended by [ADR 0091](0091-collies-ai-verbs-live-on-the-page-replay-from-a-plan-file-the-run-names-and-expect-runs-a-success-check.md): a single AI verb call (`act`, `observe`, `extract`) returns a `StepResult` with its output, how its step was resolved and its Usage, and no Verdict: the run's Verdict comes with its report once it finishes (ADR 0029), and an Agent's task returns its own (ADR 0079's `AiWorkResult`). The rest of a value's Provenance is kept in the Run trace.
 - A run's Key-value store stays in Collie: Code mode programs and Script Hooks keep their lasting state there (ADR 0051), and a program keeps its own state there across a resume.
 
 ### Collie inside Foxhound

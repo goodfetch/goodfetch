@@ -172,11 +172,15 @@ Each code has one class under ADR 0079's naming rule, and none shadows a built-i
 
 `page_handler_failed` and `route_already_handled` are raised by the TypeScript and Python SDKs only: Rust answers those requests in the program's own code, and its answers take the route.
 
+> Amended by [ADR 0111](0111-a-rust-crawl-hands-what-it-subscribes-on-its-page-to-serve-which-reads-it-for-the-rest-of-the-attempt.md): the Rust SDK raises `page_handler_failed` for a route, dialog or locator handler that a crawl reads through `ctx.for_each`, under the rules above; `route_already_handled` still cannot happen in Rust.
+
 ### Forms per language
 
 TypeScript and Python keep Playwright's spellings, including Python's properties (`response.ok`, `locator.first`, `frame_locator.owner`), `continue_` and `abort(error_code=)`. Rust's calls are builders implementing `IntoFuture` (ADR 0080), a question that never waits returns a `Query` with no timeout, the selector-less frame locator is `any_frame()`, an init script returns a `Registration` removed on drop, and answering a route or a dialog takes it, so dropping one unanswered gives its default.
 
 > Amended by [ADR 0099](0099-every-surface-spells-each-catalog-name-by-its-own-rule-shapes-come-from-declared-kinds-and-call-is-the-way-down.md): Rust's route answer is `r#continue()`, by ADR 0099's rule for reserved words.
+
+> Amended by [ADR 0111](0111-a-rust-crawl-hands-what-it-subscribes-on-its-page-to-serve-which-reads-it-for-the-rest-of-the-attempt.md): `Registration::keep()` keeps an init script until its page or Session closes, so a crawl's Hook can add one for the rest of its attempt.
 
 > Amended by [ADR 0099](0099-every-surface-spells-each-catalog-name-by-its-own-rule-shapes-come-from-declared-kinds-and-call-is-the-way-down.md): Rust's selector-less frame locator is `frame_locator(None)`: one `frame_locator` takes `impl Into<Option<&str>>`, as TypeScript's `frameLocator(selector?)` is one member, and there is no `any_frame()`.
 

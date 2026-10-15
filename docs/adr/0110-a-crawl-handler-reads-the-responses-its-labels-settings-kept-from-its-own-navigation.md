@@ -1,0 +1,70 @@
+# A crawl handler reads the responses its Label's settings kept from its own navigation
+
+A crawl Label names the responses its handler will need with the setting `fetch.kept_responses.urls`, and the engine keeps every response matching it on the request's page, with its body, from the start of the request's navigation until its attempt ends. The handler reads them from its `CrawlContext`: `keptResponse(url)` waits for the first that matches, as a waiter armed when the navigation started, and `keptResponses(url?)` lists those kept so far. So a handler reads the JSON a page loaded while the engine navigated without loading the page again. Golden scenario 06 found the gap ([API sketch: type-checked stubs and golden scenarios](https://github.com/goodfetch/goodfetch/issues/483)): on `quotes.toscrape.com/scroll` the first page of quotes comes from `/api/quotes?page=1`, which the page requests during the engine's own navigation, before any handler runs. A waiter armed in the handler is too late (ADR 0080's waiters arm when called), the page API keeps no list of past requests ([ADR 0085](0085-collies-page-api-keeps-playwrights-names-strictness-waits-values-cross-as-json-and-unanswered-requests-fall-through.md)), and the navigation Hooks of [ADR 0104](0104-a-crawl-declares-its-hooks-per-stage-in-code-a-hook-returns-its-change-and-a-program-registers-its-own-plugins-by-name.md) return nothing. Every program, the leaders' included, therefore reloaded the page with its waiter armed: a second fetch of the page and of its API call. The leaders answer it in three ways, each with a cost (checked 2026-10-15):
+- **A buffer of past requests.** Playwright 1.56 added [`page.requests()`](https://playwright.dev/docs/api/class-page#page-requests), which "Returns up to (currently) 100 last network request from this page" that "might be collected" unless read at once.
+- **A hook that arms a listener before the navigation.** Crawlee 3.18 passes one mutable `crawlingContext` to its `preNavigationHooks` and then to the handler ([`browser-crawler.ts`](https://github.com/apify/crawlee/blob/v3.18.2/packages/browser-crawler/src/internals/browser-crawler.ts#L659)), so a hook hangs an untyped promise on it. scrapy-playwright 0.0.48 attaches a request's `playwright_page_event_handlers` "before making any request" ([README](https://github.com/scrapy-plugins/scrapy-playwright#playwright_page_init_callback)). Puppeteer has only the `response` event and [`waitForResponse`](https://pptr.dev/api/puppeteer.page.waitforresponse).
+- **A collector declared before the traffic.** WebDriver BiDi's [`network.addDataCollector`](https://w3c.github.io/webdriver-bidi/#command-network-addDataCollector) names the bodies to keep, each under a size limit, and [`network.getData`](https://w3c.github.io/webdriver-bidi/#command-network-getData) fails with "unavailable network data" for data not collected or evicted. This ADR takes that form.
+
+It answers pain rows P30 and P49 of the [pain coverage matrix](https://github.com/goodfetch/goodfetch/blob/prototype/sdk-api/sdk-api-sketch/pain-coverage.md). Decided in [Reading the responses of a handler's own navigation](https://github.com/goodfetch/goodfetch/issues/529), on the map [The SDK API of Collie and Foxhound](https://github.com/goodfetch/goodfetch/issues/461), every answer by the agent on the owner's delegation ([grilling record](https://github.com/goodfetch/goodfetch/issues/529#issuecomment-6194798013)), under the principles of [ADR 0077](0077-the-sdk-api-follows-eight-guarantees-and-four-ranked-shape-rules.md), building on [ADR 0093](0093-a-crawl-declares-its-labels-and-one-handler-each-and-a-handler-reads-collies-page-on-every-fetch-tier.md) (the handler's context and its fetch tiers) and [ADR 0105](0105-a-programs-tests-replay-a-response-recording-in-a-test-engine-that-reaches-no-site.md) (`runHandler`).
+
+## Decision
+
+### The setting
+
+- **`fetch.kept_responses.urls`:** a list of URL patterns (globs and regular expressions, matched in the engine at its interception, ADR 0081), empty by default. The responses whose URL matches one are kept for the handler. A predicate cannot be a setting, since a setting crosses as JSON and the engine matches at interception with no round trip to the program; a handler filters what was kept with one instead (below).
+- **`fetch.kept_responses.max_size`:** the bytes of kept bodies one attempt holds, 16 MiB by default, a finite default as ADR 0080 gives every phase. A matching response past it is still kept and listed, but reading its body raises `body_unavailable` (ADR 0085), whose fix names this setting, and the Run trace records it (G6).
+- **Where it is set.** On a crawl's Run and on its Labels, where nearest scope wins (ADR 0083). It is Foxhound's, as every `fetch.*` key: a Collie engine refuses it with `not_in_product`, and a Collie Run on a Foxhound engine with `setting_not_applicable` (ADR 0093). The Label is where it belongs: the crawl states there, before any navigation, what its handler's page must have loaded, beside the Label's tier and Payload schema.
+- **Nothing is kept unless named,** so ADR 0085's rule that no page keeps a buffer of its traffic holds for every other page, a Collie page included (G2). A Collie program navigates its own page and arms its waiter before its own `goto` (ADRs 0080, 0104).
+
+### What is kept
+
+- **The window:** from the start of the crawl request's navigation (its redirects included) until its attempt ends, on the request's own page and its frames. A popup and a page the handler opens keep nothing. A `reload` or `goto` inside the handler keeps adding to it. `ctx.response`, the main document's response (ADR 0093), is not among them.
+- **A response is kept once its body has arrived,** with the body, so a kept response's body never fails, as a response obtained through `waitForRequestFinished` never does (ADR 0085). A request that failed is no response and is not kept, as `waitForResponse` ignores it.
+- **Kept responses belong to the attempt:** never persisted, never in the Run's state, and gone when the attempt ends. A retry or an escalation navigates again and keeps afresh. They fetch nothing, so no Politeness permit and no Usage beyond what the page loaded anyway.
+
+### What a handler reads
+
+- **`ctx.keptResponse(url, { timeout })`** returns the first kept `Response` whose URL matches, in arrival order, waiting for one under `timeout.wait`. It is a waiter armed when the navigation started, so no response slips past it, whether it arrived before the handler ran or is still in flight when it starts (ADR 0080's promise kept). Past its timeout it raises `deadline_exceeded` naming `timeout.wait` and the matcher, with a fix naming `fetch.kept_responses.urls`.
+- **`ctx.keptResponses(url?)`** returns those kept so far, in arrival order, without waiting: for a page whose number of calls varies, read once the page shows what it loaded. Both forms exist, as `locator.waitFor` and `locator.all()` do: one waits for a response the page is known to load, the other reads what came.
+- **`url`** is a `URLMatcher` (ADR 0081): a glob or a regular expression is matched in the engine, and a predicate runs in the program over what was kept.
+- **Nothing to read.** On a request whose scope keeps nothing (`fetch.kept_responses.urls` empty), either call raises `responses_not_kept`, a `ProgramError`, at once and with no wait, whose fix names `fetch.kept_responses.urls` (G3). A call after the attempt ended fails with `attempt_ended`, as every call on the context does (ADR 0093).
+- **Per language:** `keptResponse` and `keptResponses` in TypeScript (methods of the context, as `push` and `enqueue` are), `kept_response` and `kept_responses` in Python's async and sync contexts, and `kept_response` and `kept_responses` in Rust, both futures returning a `Result`. A Rust `kept_response` needs no `.during`, since it was armed at the navigation's start.
+- **The names say what is returned:** only what the setting kept. Playwright's `requests()` and a plain `responses` would promise every request of the page (S3, T), and `ctx.response` stays the main document's.
+
+### On every fetch tier
+
+ADR 0093 serves the handler's page on every tier and escalates what a tier cannot answer exactly; kept responses follow the same rule (S2):
+- `browser` and `light_browser`, which run the page's scripts, keep and serve them as above.
+- `discovered_api` serves them from the JSON calls it replays, as it serves the page's network waits (ADR 0093).
+- On `http` and `browser_fetch` the page's scripts never ran, so an empty list would pass a JavaScript page as one that loaded nothing (G1). Either call escalates the attempt to the browser under `fetch.tier: auto`, as a network wait no replayed call answers does, and fails with `browser_required` naming `fetch.tier` under a forced tier.
+- **A setting that can never serve is refused.** A Label that sets `fetch.kept_responses.urls` while forcing `http` or `browser_fetch` through `fetch.tier` fails the Run's start with `setting_not_applicable`, as ADR 0104 refuses a navigation Hook all of whose Labels force a tier that does not navigate (G3).
+
+### In tests
+
+`runHandler` (ADR 0105) applies the Label's settings, so `fetch.kept_responses.*` holds there too. With `tier: "browser"`, the page's calls are answered from the input's `recording` and kept as in a crawl. On the default `http` tier a read ends the attempt `escalated`, naming the call; under a Label's forced `http` tier, the start's refusal above applies.
+
+### Golden scenario 06
+
+The scrolling Label keeps `/api/quotes?page=N` and forces the browser, and its handler reads page 1 with `keptResponse`, with no reload. Each later page is still awaited by its number, with the waiter armed before the scroll that triggers it (ADR 0080).
+
+## Considered Options
+
+- **A before-navigation Hook that arms waiters whose results the handler reads:** rejected. ADR 0104's navigation stages return nothing and each context belongs to one call, so the waiter has no typed way to the handler; Crawlee's answer, one mutable context shared by hooks and handler, is what ADR 0104 rejected. Each request would pay a round trip to the program before its navigation. Navigation stages run only on the tiers that navigate, so a handler that works in the browser would miss on `discovered_api`, while ADR 0093 runs one handler unchanged on every tier (S2, G3).
+- **Playwright's `page.requests()` under its name:** rejected, as ADR 0085 rejected it. It holds the last 100 requests, collected unless read at once, with bodies the browser may have dropped, so the navigation's call can be gone or its body fail on a busy page (G1, G6). Under its name, a buffer that keeps another set would break S3's "familiar names only where the meaning matches".
+- **Keeping every response of the navigation with no setting:** rejected. It is the buffer ADR 0085 refused, paid by every crawl page whether its handler reads it or not, and bodies would be either unbounded or silently dropped (G1, G5).
+- **The window ending when the handler starts:** rejected. A script's call still in flight then would be missed, silently (G1).
+- **Only a list, or only a wait:** rejected. A list alone races with a call in flight; a wait alone cannot read a page whose number of calls varies.
+- **An empty list on `http` and `browser_fetch`:** rejected by G1. It is the silent success of a JavaScript page fetched over HTTP that ADR 0093's escalation exists to prevent.
+- **A member of the page (`page.keptResponses()`) rather than of the context:** rejected. What is kept is the crawl request's attempt, set on its Label, and a Collie page keeps nothing (S2).
+- **Declining, with the reload as the documented way:** rejected by G5. Every such page and its API call are fetched twice, against a site whose Politeness admits one request at a time (ADR 0086), and a reload may show something else.
+
+## Consequences
+
+- **Amends ADR 0093.** The handler's `CrawlContext` gains `keptResponse` and `keptResponses`. On `http` and `browser_fetch` both escalate, or fail with `browser_required` under a forced tier, and `discovered_api` serves them from its replayed calls. Notes sit under "What a handler receives" and "Fetch tiers, per Label, and escalation".
+- **Amends ADR 0085.** Its rejection of `requests()` stands for every page, but a crawl handler reads the responses its Label kept through its context. A note sits under the excluded `consoleMessages()`, `pageErrors()` and `requests()`.
+- **Amends ADR 0083.** A crawl's Label also takes `fetch.kept_responses.urls` and `fetch.kept_responses.max_size`. A note sits under ADR 0093's note on the Label as a scope.
+- **Error codes.** `responses_not_kept` joins `goodfetch-protocol` as a Foxhound code in the `ProgramError` group, not retryable, through `xtask codegen`'s naming checks (ADRs 0079, 0099).
+- **`TESTING.md`** gains the kept responses conformance cases.
+- **Area 5 (Site access)** builds the keeping at the engine's interception, its window and its cap. **Area 6 (Collection)** builds the tier rule, `discovered_api`'s answers and the refusal at the Run's start. **Area 11 (Client surfaces)** builds the settings' types, the two members per language and `responses_not_kept`. Each lists this ADR.
+- **ADR 0037's matrix:** network and console events (SA-18) cites this ADR.
+- **The `prototype/sdk-api` sketch** holds the settings and the two members in each language's crawl and settings files, golden scenario 06 reads page 1 with `keptResponse`, and the pain coverage matrix's rows P30 and P49 name them.

@@ -41,7 +41,7 @@ ADR 0093 serves the handler's page on every tier and escalates what a tier canno
 
 ### In tests
 
-`runHandler` (ADR 0105) applies the Label's settings, so `fetch.kept_responses.*` holds there too. With `tier: "browser"`, the page's calls are answered from the input's `recording` and kept as in a crawl. On the default `http` tier a read ends the attempt `escalated`, naming the call; under a Label's forced `http` tier, the start's refusal above applies.
+`runHandler` (ADR 0105) applies the Label's settings, so `fetch.kept_responses.*` holds there too. With `tier: "browser"`, the page's calls are answered from the input's `recording` and kept as in a crawl. On the default `http` tier a read ends the attempt `escalated`, naming the call, and under a Label's forced `http` or `browser_fetch` tier it fails the attempt with `browser_required`, as ADR 0105 rules for every call only a browser serves. `runHandler` starts no crawl, so the refusal at a Run's start above is not among what it throws.
 
 ### Golden scenario 06
 

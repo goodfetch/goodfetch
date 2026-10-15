@@ -13,7 +13,7 @@ import { parseClientHello, type ClientHello } from './tls-fingerprint.ts';
 let certificate: { key: Buffer; cert: Buffer } | undefined;
 export function localCertificate() {
   if (!certificate) {
-    const directory = mkdtempSync(join(tmpdir(), 'automan-tls-'));
+    const directory = mkdtempSync(join(tmpdir(), 'goodfetch-tls-'));
     execFileSync('openssl', ['req', '-x509', '-newkey', 'ec', '-pkeyopt', 'ec_paramgen_curve:prime256v1', '-nodes', '-days', '2', '-subj', '/CN=localhost', '-addext', 'subjectAltName=DNS:localhost', '-keyout', join(directory, 'key.pem'), '-out', join(directory, 'cert.pem')], { stdio: 'ignore' });
     certificate = { key: readFileSync(join(directory, 'key.pem')), cert: readFileSync(join(directory, 'cert.pem')) };
   }

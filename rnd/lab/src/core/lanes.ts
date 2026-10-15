@@ -48,15 +48,15 @@ export const drivers: Record<LaneName, LaneDriver> = {
   workflow: {
     validate: config => validateWorkflowCampaign(config as WorkflowCampaign), blocks: config => (config as WorkflowCampaign).blocks, seed: config => (config as WorkflowCampaign).seed,
     combinations: config => workflowCombinations(config as WorkflowCampaign), label: cell => `${cell.backend}-c${cell.concurrency}-b${cell.batchJobs}-${cell.fault}${cell.poolWake ? '-' + cell.poolWake : ''}`,
-    prepare: async config => (config as WorkflowCampaign).backends.includes('spider-http') ? await hashFile(join(labRoot, 'adapters/rust/target/http/release/automan-lab-spider')) : null,
+    prepare: async config => (config as WorkflowCampaign).backends.includes('spider-http') ? await hashFile(join(labRoot, 'adapters/rust/target/http/release/goodfetch-lab-spider')) : null,
     runCell: (config, cell, block, directory) => runWorkflowCell(config as WorkflowCampaign, cell as WorkflowCell, block, directory),
-    binaryChanges: async (_config, spider) => spider && spider !== await hashFile(join(labRoot, 'adapters/rust/target/http/release/automan-lab-spider')) ? 1 : 0
+    binaryChanges: async (_config, spider) => spider && spider !== await hashFile(join(labRoot, 'adapters/rust/target/http/release/goodfetch-lab-spider')) ? 1 : 0
   },
   runtime: {
     validate: config => { const c = config as RuntimeCampaign; if (!c || !/^[a-z0-9-]{1,80}$/.test(c.name) || !integer(c.blocks, 1, 20) || !integer(c.seed, 0, 2 ** 32 - 1) || !Array.isArray(c.cells) || !c.cells.length) throw new Error('invalid runtime campaign'); },
     blocks: config => (config as RuntimeCampaign).blocks, seed: config => (config as RuntimeCampaign).seed,
     combinations: config => (config as RuntimeCampaign).cells.map((cell, index) => ({ ...cell, index }) as Json), label: cell => `cell-${cell.index}`,
-    prepare: () => nativeHashes([sqliteLibrary, 'sqlite.node', 'automan-workflow-rust', ...(process.platform === 'darwin' ? ['process-probe'] : [])]),
+    prepare: () => nativeHashes([sqliteLibrary, 'sqlite.node', 'goodfetch-workflow-rust', ...(process.platform === 'darwin' ? ['process-probe'] : [])]),
     runCell: (config, cell, block, directory) => runRuntimeCell(config as RuntimeCampaign, Number(cell.index), block, directory),
     binaryChanges: async (_config, before) => { const after = await nativeHashes(Object.keys(before as Record<string, string>)); return Object.entries(before as Record<string, string>).filter(([file, hash]) => after[file] !== hash).length; }
   },

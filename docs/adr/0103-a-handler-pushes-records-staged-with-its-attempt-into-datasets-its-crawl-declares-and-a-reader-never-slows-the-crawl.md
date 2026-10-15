@@ -3,8 +3,8 @@
 A crawl's handler pushes each Record through its context into a Dataset its crawl declares. The Record is staged with the attempt and commits once with it, numbered in its Dataset. A program reads committed Records back as a stream that starts at the Dataset's first Record and never slows the crawl. Sinks are settings, an Export is a file the program saves wherever the engine runs, and every Run keeps a Key-value store.
 
 **What this answers.**
-- Pain 11 of the [research on competitors' APIs](https://github.com/goodfetch/automan/blob/research/consumer-api/rnd/research/2026-10-14-consumer-api.md) (duplicate or partial results on retry), and its open questions 13 (push or pull) and 14 (a schema per Dataset, or plain dicts).
-- The [crawl frameworks note](https://github.com/goodfetch/automan/blob/research/consumer-api/rnd/research/research_notes/Consumer%20API%20of%20competitors/crawl-frameworks.md) §4.2 and §6.14.
+- Pain 11 of the [research on competitors' APIs](https://github.com/goodfetch/goodfetch/blob/research/consumer-api/rnd/research/2026-10-14-consumer-api.md) (duplicate or partial results on retry), and its open questions 13 (push or pull) and 14 (a schema per Dataset, or plain dicts).
+- The [crawl frameworks note](https://github.com/goodfetch/goodfetch/blob/research/consumer-api/rnd/research/research_notes/Consumer%20API%20of%20competitors/crawl-frameworks.md) §4.2 and §6.14.
 - What ADRs 0079, 0081, 0082 and 0093 handed over: dropped and rejected Records, where the Records sequence starts, how a Dataset is declared and the code of a rejected Record, and pushing from the handler.
 
 **Competitors, re-read at tagged releases on 2026-10-15.**
@@ -15,7 +15,7 @@ A crawl's handler pushes each Record through its context into a Dataset its craw
 - **Scrapling 0.4.15's `stream()`** slows the crawl through a buffer of 100 ([engine.py](https://github.com/D4Vinci/Scrapling/blob/v0.4.15/scrapling/spiders/engine.py#L460)).
 - **Crawl4AI 0.9.5's `arun_many()`** returns a list or a generator, depending on `config.stream` ([async_webcrawler.py](https://github.com/unclecode/crawl4ai/blob/v0.9.5/crawl4ai/async_webcrawler.py#L1101-L1137)).
 
-Decided in [Crawl output in code](https://github.com/goodfetch/automan/issues/479), on the map [The SDK API of Collie and Foxhound](https://github.com/goodfetch/automan/issues/461). Every answer was decided by the agent on the owner's delegation, with its [grilling record](https://github.com/goodfetch/automan/issues/479#issuecomment-6181693852) and its rounds [6](https://github.com/goodfetch/automan/issues/479#issuecomment-6187750572), [7](https://github.com/goodfetch/automan/issues/479#issuecomment-6188077007), [8](https://github.com/goodfetch/automan/issues/479#issuecomment-6189578875) and [9](https://github.com/goodfetch/automan/issues/479#issuecomment-6189790528), after the fresh reviews and ADR 0093's merge. Principles are cited by their IDs in [ADR 0077](0077-the-sdk-api-follows-eight-guarantees-and-four-ranked-shape-rules.md). Datasets and Sinks are Foxhound's (ADR 0084), and so are the Records and Exports made from them. Collie keeps a run's Key-value store, as [Collie's exact capability set](https://github.com/goodfetch/automan/issues/455) decides ([ADR 0088](0088-collie-carries-every-capability-except-those-only-many-pages-need.md)).
+Decided in [Crawl output in code](https://github.com/goodfetch/goodfetch/issues/479), on the map [The SDK API of Collie and Foxhound](https://github.com/goodfetch/goodfetch/issues/461). Every answer was decided by the agent on the owner's delegation, with its [grilling record](https://github.com/goodfetch/goodfetch/issues/479#issuecomment-6181693852) and its rounds [6](https://github.com/goodfetch/goodfetch/issues/479#issuecomment-6187750572), [7](https://github.com/goodfetch/goodfetch/issues/479#issuecomment-6188077007), [8](https://github.com/goodfetch/goodfetch/issues/479#issuecomment-6189578875) and [9](https://github.com/goodfetch/goodfetch/issues/479#issuecomment-6189790528), after the fresh reviews and ADR 0093's merge. Principles are cited by their IDs in [ADR 0077](0077-the-sdk-api-follows-eight-guarantees-and-four-ranked-shape-rules.md). Datasets and Sinks are Foxhound's (ADR 0084), and so are the Records and Exports made from them. Collie keeps a run's Key-value store, as [Collie's exact capability set](https://github.com/goodfetch/goodfetch/issues/455) decides ([ADR 0088](0088-collie-carries-every-capability-except-those-only-many-pages-need.md)).
 
 ## Decision
 
@@ -84,6 +84,7 @@ Decided in [Crawl output in code](https://github.com/goodfetch/automan/issues/47
   - **When the stage runs.** Once the handler returns, before the commit, and only on the Records of the attempt that is about to commit.
     - A discarded attempt's Records never reach a Hook.
     - A Hook that fails (`hook_failed`) fails the attempt, which discards everything it staged and is retried under the work item's policy (ADR 0033).
+      > Amended by [ADR 0104](0104-a-crawl-declares-its-hooks-per-stage-in-code-a-hook-returns-its-change-and-a-program-registers-its-own-plugins-by-name.md): under that policy a Hook's own exception is retried only when `crawl.retry.handler_failed` is on, and a Goodfetch code raised inside it when its retryable flag says so.
   - A Hook's answer never fails the request.
   - A transformed Record is checked against its schema again, and is rejected if it no longer fits.
   - A `succeeded` outcome carries `records`: for each Dataset, how many Records were committed, dropped and rejected. A request that succeeded with nothing committed says why (G1).
@@ -176,7 +177,8 @@ Decided in [Crawl output in code](https://github.com/goodfetch/automan/issues/47
   - A Sink set on the Run itself that names a Dataset the crawl does not declare is refused with `setting_invalid`, naming the closest Dataset.
   - A Sink inherited from the connection or from configuration delivers only the Datasets it names that the crawl declares. It is inactive for a crawl that declares none of them, as `explainSettings()` shows, so one project file can serve several crawls (ADR 0083).
   - **A departure from G3, named.** A misspelled Dataset in an inherited Sink is never refused, since that Sink may serve another crawl. `explainSettings()` and the run's report show it inactive.
-- **A Sink written in the program** (ADR 0026's SDK-handler form) is a Plugin in code. [Hooks and injectable components in the SDK API](https://github.com/goodfetch/automan/issues/481) decides it.
+- **A Sink written in the program** (ADR 0026's SDK-handler form) is a Plugin in code. [Hooks and injectable components in the SDK API](https://github.com/goodfetch/goodfetch/issues/481) decides it.
+  > Amended by [ADR 0104](0104-a-crawl-declares-its-hooks-per-stage-in-code-a-hook-returns-its-change-and-a-program-registers-its-own-plugins-by-name.md): it is registered on `connect()` by name (`sinks`), serves the `sinks.<name>` entry of its name, and takes no `type` there.
 - **A reader is not a Sink.** `run.records()` keeps no delivery state in the engine.
 
 ### Raw responses
@@ -227,7 +229,7 @@ Nothing is added to the SDK API.
   - **Area 10 (Scheduling):** change tracking by key for a Schedule's Baseline.
   - **Area 11 (Client surfaces):** `crawl.dataset`, `ctx.push`, `records`, `rejectedRecords`, `export`, the Key-value store, and each language's error classes.
 - **Other tickets of the map.**
-  - [The Run in code](https://github.com/goodfetch/automan/issues/478) reads outcomes with their Record counts, each Sink's delivery status, and opens a past Run by ID.
-  - [Hooks and injectable components in the SDK API](https://github.com/goodfetch/automan/issues/481) shapes the "Record before commit" Hook and SDK-handler Sinks.
-  - [Testing a user's crawl or automation](https://github.com/goodfetch/automan/issues/482) records what a test handler pushed.
+  - [The Run in code](https://github.com/goodfetch/goodfetch/issues/478) reads outcomes with their Record counts, each Sink's delivery status, and opens a past Run by ID.
+  - [Hooks and injectable components in the SDK API](https://github.com/goodfetch/goodfetch/issues/481) shapes the "Record before commit" Hook and SDK-handler Sinks.
+  - [Testing a user's crawl or automation](https://github.com/goodfetch/goodfetch/issues/482) records what a test handler pushed.
 - **The `prototype/sdk-api` sketch** holds these signatures in its `output` files for each language, with their snippets.

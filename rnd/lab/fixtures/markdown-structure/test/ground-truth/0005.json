@@ -6,7 +6,7 @@
    "primary": "headings"
   },
   "case": "with-break",
-  "source": "automan-curated"
+  "source": "goodfetch-curated"
  },
  "ground_truth": {
   "main_content": "## First line second line\n\nAfter.\n\n### Plain\n\nEnd.\n",

@@ -6,7 +6,7 @@
    "primary": "lists"
   },
   "case": "unordered",
-  "source": "automan-curated"
+  "source": "goodfetch-curated"
  },
  "ground_truth": {
   "main_content": "Fruits:\n\n- Apple\n- Banana\n- Cherry\n",

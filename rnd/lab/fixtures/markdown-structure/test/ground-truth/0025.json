@@ -6,7 +6,7 @@
    "primary": "code"
   },
   "case": "backticks-inside",
-  "source": "automan-curated"
+  "source": "goodfetch-curated"
  },
  "ground_truth": {
   "main_content": "Markdown sample:\n\n````\n```js\nlet a = 1;\n```\n````\n",

@@ -15,7 +15,7 @@ import { randomBytes } from 'node:crypto';
 
 export type Profile = 'identified' | 'standard';
 export type HttpTier = 'node-https' | 'impit-chrome' | 'browser-fetch';
-export const productToken = 'AutomanLab';
+export const productToken = 'GoodfetchLab';
 export class ProfileLockedError extends Error { readonly code = 'E_PROFILE_LOCKED'; }
 export type SessionOptions = { profile: Profile; httpTier: HttpTier; purpose: Purpose; connection: CdpConnection; keys?: KeyStore; agentOrigin?: string; contactUrl?: string; timeoutMs: number; retryBudget?: number; proxyPool?: ProxyPool };
 export type SiteResponse = { status: number; headers: Headers; body: string; url: string };
@@ -71,7 +71,7 @@ export class IdentitySession {
     if (options.proxyPool) { if (options.httpTier !== 'browser-fetch') throw new Error('proxies are wired for the in-browser HTTP tier only'); session.egress = await startEgress(options.proxyPool, session.stickyId, session.budget, options.timeoutMs); }
     ({ browserContextId: session.contextId } = await connection.send('Target.createBrowserContext', { disposeOnDetach: true, ...(session.egress ? { proxyServer: session.egress.url, proxyBypassList: '<-loopback>;127.0.0.1' } : {}) }) as { browserContextId: string });
     const { userAgent } = await connection.send('Browser.getVersion') as { userAgent: string };
-    session.userAgent = options.profile === 'identified' ? `${userAgent} ${productToken}/0.1 (+${options.contactUrl ?? 'https://automan.invalid/bot'})` : userAgent;
+    session.userAgent = options.profile === 'identified' ? `${userAgent} ${productToken}/0.1 (+${options.contactUrl ?? 'https://goodfetch.invalid/bot'})` : userAgent;
     session.unsubscribe = connection.on(message => { void session.onPaused(message); });
     await session.calibrate();
     if (options.httpTier === 'impit-chrome') {

@@ -68,7 +68,7 @@ Prioritize people who have a **dated switch** to tell.
 
 ## 3. Pitfalls to avoid
 
-- Do not present Automan before the end: the interview is about their story.
+- Do not present Goodfetch before the end: the interview is about their story.
 - Do not ask "would you use…" or "would you pay…": ask what happened and how much it cost.
 - Follow up on every generality ("it's often slow") with a specific case ("when was the last time?").
 - Record figures as stated, with their unit (per month, per page, per task).

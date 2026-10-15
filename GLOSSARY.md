@@ -106,7 +106,7 @@ _Avoid_: extension point, hook (a Hook is one kind), slot
 
 **Hook**:
 The Plugin kind whose implementations run at a fixed stage of a request, a navigation, a page, a Record or a run's lifecycle, and may change, skip, retry or fail the work at that stage, or only observe it.
-_Avoid_: middleware (for a Hook scoped by a Label), callback, interceptor
+_Avoid_: middleware (for a Hook scoped by a Label), pipeline (for a Hook before a Record's commit), callback, interceptor
 
 **Script Hook**:
 A Hook written as a short script that the engine runs in the Script sandbox, so it can travel inside a Recipe or settings without an SDK or a process Plugin.
@@ -115,6 +115,10 @@ _Avoid_: inline hook, user script
 **Script sandbox**:
 The confined place where the engine runs Code mode programs and Script Hooks, with only the catalog calls it allows and with time and memory limits.
 _Avoid_: code-mode sandbox, VM, isolate, JS runtime
+
+**SDK handler**:
+An implementation of a Plugin kind written in a program's own code and given to its SDK, which the engine calls over the program's connection; it runs with the program's rights and is never confined.
+_Avoid_: injectable component, provider (for the form), callback
 
 **Plugin index**:
 The signed list of community Plugins that people search to find one, with each Plugin's conformance results.
@@ -397,7 +401,7 @@ The record of the Effects and model calls of a run, consulted so that a retried,
 _Avoid_: action log, history
 
 **Operation catalog**:
-The single list of engine operations, each classed read, idempotent write or Effect, that every surface exposes to people and agents.
+The single list of engine operations, each classed read, idempotent write or Effect and marked with the smallest Product that carries it; every surface of a Product exposes that Product's operations to people and agents.
 _Avoid_: tool list, API surface
 
 **Code mode**:
@@ -405,7 +409,7 @@ Driving the engine through a short program written by a model that calls only th
 _Avoid_: scripting, eval
 
 **Framework adapter**:
-A package that offers Goodfetch's operations as tools of an agent framework, such as the Vercel AI SDK, LangChain or Mastra.
+A package that offers a Product's operations as tools of an agent framework, such as the Vercel AI SDK, LangChain or Mastra.
 _Avoid_: wrapper, toolkit, Integration
 
 **MCP host**:

@@ -55,7 +55,7 @@ export async function startEgress(pool: ProxyPool, session: string, budget: { re
     sockets.add(client); client.on('close', () => sockets.delete(client)); client.on('error', () => client.destroy());
     for (;;) {
       const index = pool.stickyFor(session);
-      if (index === null) { state.exhausted = true; client.end('HTTP/1.1 502 Bad Gateway\r\nX-Automan-Error: E_PROXY_EXHAUSTED\r\n\r\n'); return; }
+      if (index === null) { state.exhausted = true; client.end('HTTP/1.1 502 Bad Gateway\r\nX-Goodfetch-Error: E_PROXY_EXHAUSTED\r\n\r\n'); return; }
       try {
         const upstream = await tunnelThrough(pool.proxies[index]!, session, req.url ?? '', timeoutMs);
         sockets.add(upstream); upstream.on('close', () => sockets.delete(upstream)); upstream.on('error', () => { upstream.destroy(); client.destroy(); });
@@ -64,7 +64,7 @@ export async function startEgress(pool: ProxyPool, session: string, budget: { re
       } catch {
         // A failed upstream is a rotation: it costs one retry from the session budget and waits out its cooldown.
         pool.markDown(index); state.failovers++;
-        if (budget.retries >= budget.limit) { state.exhausted = true; client.end('HTTP/1.1 502 Bad Gateway\r\nX-Automan-Error: E_PROXY_EXHAUSTED\r\n\r\n'); return; }
+        if (budget.retries >= budget.limit) { state.exhausted = true; client.end('HTTP/1.1 502 Bad Gateway\r\nX-Goodfetch-Error: E_PROXY_EXHAUSTED\r\n\r\n'); return; }
         budget.retries++;
       }
     }

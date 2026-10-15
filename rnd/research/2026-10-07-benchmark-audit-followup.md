@@ -4,7 +4,7 @@ Survey of October 7, 2026. This document examines sources and scripts; it does n
 
 ## Conclusion
 
-**None of the benchmarks examined makes it possible to rank Stagehand, Crawlee and Spider-rs for all of Automan's tasks.** The Spider benchmark compares a Rust library with Colly, the Node `crawler` package and wget; Crawlee and Stagehand do not appear in it. An agent benchmark compares Stagehand 3.2.1 with Browser Use and Sentinel on a few tasks. A crawler benchmark mainly measures Markdown outputs and their usefulness for a document retrieval pipeline. These experiments concern different contracts.
+**None of the benchmarks examined makes it possible to rank Stagehand, Crawlee and Spider-rs for all of Goodfetch's tasks.** The Spider benchmark compares a Rust library with Colly, the Node `crawler` package and wget; Crawlee and Stagehand do not appear in it. An agent benchmark compares Stagehand 3.2.1 with Browser Use and Sentinel on a few tasks. A crawler benchmark mainly measures Markdown outputs and their usefulness for a document retrieval pipeline. These experiments concern different contracts.
 
 The published results remain useful for formulating hypotheses. They demonstrate neither "Rust is always faster", nor "a script always beats an agent", nor the current reliability of Stagehand 4.1.0. An honest ranking requires equivalent pages, outputs and final states, as well as the costs of failed attempts.
 
@@ -74,17 +74,17 @@ The [Stagehand evals](https://www.stagehand.dev/evals) page describes a model ev
 
 The [audited Reddit testimonials](2026-10-07-reddit-evidence-followup.md) report problems with sessions, cost and apparent success. They do not provide a common protocol for the trio. An April 2025 report announcing more than 500,000 tokens for an agent does not automatically describe the current Stagehand 4. A gain from a Browserbase + Stagehand stack cannot be attributed to the SDK alone.
 
-## 5. What Automan must publish to prove its advantage
+## 5. What Goodfetch must publish to prove its advantage
 
 The general protocol remains detailed in [benchmark and runtime](2026-10-07-benchmark-and-runtime.md). This research specifies the comparators to isolate:
 
 | Contract | Relevant comparators | Verified result |
 | --- | --- | --- |
-| HTTP crawl | Spider HTTP, Crawlee HTTP/Cheerio, Scrapy, Colly async, Automan HTTP | Same set of URLs, expected content, coverage, errors |
-| Rendered crawl | Spider Chrome, Crawlee Playwright, Crawl4AI, Automan CDP | Same content after JavaScript, declared resources and isolation |
-| Known actions | Playwright, Stagehand page/locator, agent-browser CLI, Automan plans | Observed final state, unique effects, safe recoveries |
-| Semantic discovery | Stagehand act/observe/extract, Browser Use, Skyvern, spider_agent, Automan | Same model if compatible, same budget and task oracle |
-| Repeated execution with drift | Stagehand cache/replay, Scrapling heuristics, Automan workflows | Success after controlled mutations, false successes, stale data |
+| HTTP crawl | Spider HTTP, Crawlee HTTP/Cheerio, Scrapy, Colly async, Foxhound HTTP | Same set of URLs, expected content, coverage, errors |
+| Rendered crawl | Spider Chrome, Crawlee Playwright, Crawl4AI, Foxhound CDP | Same content after JavaScript, declared resources and isolation |
+| Known actions | Playwright, Stagehand page/locator, agent-browser CLI, Collie plans | Observed final state, unique effects, safe recoveries |
+| Semantic discovery | Stagehand act/observe/extract, Browser Use, Skyvern, spider_agent, Collie | Same model if compatible, same budget and task oracle |
+| Repeated execution with drift | Stagehand cache/replay, Scrapling heuristics, Goodfetch workflows | Success after controlled mutations, false successes, stale data |
 | Incident and recovery | Framework + storage actually configured | No undeclared lost work, no duplicate effects, actionable diagnosis |
 
 Publish separately cold and warm startup, initial decision and replay, browser and LLM time, volume actually validated, total memory including child processes, p50/p95 with enough samples, total cost of all attempts per success and anonymized traces. Pin versions, machines, authorized sites, caches, proxies, concurrency, robots policies and delays. A ranking without these contracts often confuses less work with more performance.

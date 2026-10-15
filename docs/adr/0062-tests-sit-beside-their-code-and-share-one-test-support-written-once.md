@@ -7,7 +7,7 @@ The owner asked for unit, integration and end-to-end tests that go through publi
 - **One separately compiled helper crate.** uv moved its `TestContext` into a `uv-test` crate, Cargo has `cargo-test-support`, and Nushell has `nu-test-support`.
 - **One harness for several languages.** Temporal and Pulumi drive every SDK's cases from one harness written in the core's language.
 
-Decided in [Test layout, naming, shared helpers and the test-first process](https://github.com/Jbmanllr/automan/issues/277) ([grilling record](https://github.com/Jbmanllr/automan/issues/277#issuecomment-6152108165)). The facts come from [Rust test tooling in 2026](https://github.com/Jbmanllr/automan/issues/263) ([findings](https://github.com/Jbmanllr/automan/blob/research/rust-test-tooling/rnd/research/2026-10-13-rust-test-tooling.md)), [Testing TypeScript and Python SDKs over a separate engine](https://github.com/Jbmanllr/automan/issues/266) ([findings](https://github.com/Jbmanllr/automan/blob/research/sdk-testing/rnd/research/2026-10-13-sdk-testing.md)) and [Testing a web console and a docs site](https://github.com/Jbmanllr/automan/issues/265) ([findings](https://github.com/Jbmanllr/automan/blob/research/web-console-testing/rnd/research/2026-10-13-web-console-testing.md)). The rules every test follows are in `TESTING.md`.
+Decided in [Test layout, naming, shared helpers and the test-first process](https://github.com/goodfetch/goodfetch/issues/277) ([grilling record](https://github.com/goodfetch/goodfetch/issues/277#issuecomment-6152108165)). The facts come from [Rust test tooling in 2026](https://github.com/goodfetch/goodfetch/issues/263) ([findings](https://github.com/goodfetch/goodfetch/blob/research/rust-test-tooling/rnd/research/2026-10-13-rust-test-tooling.md)), [Testing TypeScript and Python SDKs over a separate engine](https://github.com/goodfetch/goodfetch/issues/266) ([findings](https://github.com/goodfetch/goodfetch/blob/research/sdk-testing/rnd/research/2026-10-13-sdk-testing.md)) and [Testing a web console and a docs site](https://github.com/goodfetch/goodfetch/issues/265) ([findings](https://github.com/goodfetch/goodfetch/blob/research/web-console-testing/rnd/research/2026-10-13-web-console-testing.md)). The rules every test follows are in `TESTING.md`.
 
 ## Decision
 
@@ -18,7 +18,7 @@ Decided in [Test layout, naming, shared helpers and the test-first process](http
   - An **integration test** tests one package through its public interface, with real local stand-ins and real processes (ADR 0059).
   - An **end-to-end test** follows a user journey through a shipped surface.
   - Conformance suites stay what ADR 0032 makes them: interface tests of a contract with several implementations.
-- Which suite (Quick, Pre-merge or Release) runs each level is decided by [Test suites, local commands and time budgets](https://github.com/Jbmanllr/automan/issues/276). Where end-to-end tests live is decided by [Journey catalog: format, IDs, seeded data and surfaces](https://github.com/Jbmanllr/automan/issues/278).
+- Which suite (Quick, Pre-merge or Release) runs each level is decided by [Test suites, local commands and time budgets](https://github.com/goodfetch/goodfetch/issues/276). Where end-to-end tests live is decided by [Journey catalog: format, IDs, seeded data and surfaces](https://github.com/goodfetch/goodfetch/issues/278).
 
 ### Layout
 
@@ -32,7 +32,7 @@ Decided in [Test layout, naming, shared helpers and the test-first process](http
   > Amended by [ADR 0060](0060-distributed-and-crash-behaviour-is-simulated-on-tokio-model-checked-and-faulted-at-io-seams.md): the `sync` modules' `goodfetch_loom` switch is the one test-only `cfg` in product code.
 - **A Rust crate splits its integration tests into named area harnesses** (`tests/<area>/main.rs`, with `autotests = false`) only when its pull request shows a localized test edit taking more than 5 seconds to rebuild with one harness. uv measured 7.52 s falling to 2.60 s with area harnesses, and per-file binaries cost more everywhere.
 - **Tests of the `goodfetch` binary** live in the binary crate's `tests/it`, and find the binary through `CARGO_BIN_EXE_goodfetch`, never a guessed path under the build directory.
-- **Python tests run with `--import-mode=importlib` and pytest 9's `strict = true`.** pytest's mirrored `tests/unit/` path is the nearest it supports without shipping tests in the wheel. The installed-wheel run of [SDK and CLI test stack](https://github.com/Jbmanllr/automan/issues/285) can then run `tests/integration` unchanged.
+- **Python tests run with `--import-mode=importlib` and pytest 9's `strict = true`.** pytest's mirrored `tests/unit/` path is the nearest it supports without shipping tests in the wheel. The installed-wheel run of [SDK and CLI test stack](https://github.com/goodfetch/goodfetch/issues/285) can then run `tests/integration` unchanged.
 
 ### Writing a test
 
@@ -74,7 +74,7 @@ Decided in [Test layout, naming, shared helpers and the test-first process](http
   - `@goodfetch/test-support`, a private pnpm package in `test-support/typescript/`, gives Vitest fixtures through `test.extend`.
   - `goodfetch-test-support`, a uv workspace package in `test-support/python/`, gives a pytest plugin registered through the `pytest11` entry point.
   - Both packages call `goodfetch-test-env`, are never published, and duplicate none of its setup.
-- **`goodfetch`'s `test-util` feature stays what ADR 0038 makes it:** test utilities for people who embed `goodfetch`. It is never Goodfetch's own helper home. What it holds is decided by [SDK and CLI test stack](https://github.com/Jbmanllr/automan/issues/285), as are the SDK fakes of the engine. If those fakes are generated from the catalog file, they live in the two test-support packages.
+- **`goodfetch`'s `test-util` feature stays what ADR 0038 makes it:** test utilities for people who embed `goodfetch`. It is never Goodfetch's own helper home. What it holds is decided by [SDK and CLI test stack](https://github.com/goodfetch/goodfetch/issues/285), as are the SDK fakes of the engine. If those fakes are generated from the catalog file, they live in the two test-support packages.
 - **Expected results of Proving ground pages come from its oracle**, never copied into test code.
 - **A helper written twice moves into test support.**
 
@@ -83,7 +83,7 @@ Decided in [Test layout, naming, shared helpers and the test-first process](http
 - **Fixtures live in a `fixtures/` folder beside the tests that read them.** Data that several languages read lives once, in `test-support/fixtures/`.
 - **A test copies a fixture into its own temporary folder before changing it.**
 - **No fixture file exceeds 256 KiB.** Larger or repetitive data is generated from a seed, by the Proving ground or by a generator in test support. Git LFS is not used.
-- **A generated fixture or a recorded exchange is committed with a `<name>.source.toml` file beside it.** It names the generator or the recording job, its version, the seed or the recording date, and the command that regenerates it. Secrets are redacted from recordings. When recorded model exchanges are made is decided by [Testing AI features and agent skills](https://github.com/Jbmanllr/automan/issues/281).
+- **A generated fixture or a recorded exchange is committed with a `<name>.source.toml` file beside it.** It names the generator or the recording job, its version, the seed or the recording date, and the command that regenerates it. Secrets are redacted from recordings. When recorded model exchanges are made is decided by [Testing AI features and agent skills](https://github.com/goodfetch/goodfetch/issues/281).
 
 ### Snapshots
 
@@ -127,17 +127,17 @@ Decided in [Test layout, naming, shared helpers and the test-first process](http
   - the handles' named test constructors and their `disallowed-methods` entries;
   - the ban on mocking libraries for owned code.
 - **Changes `STYLE.md`.** Its Tests section moves into `TESTING.md` and becomes a pointer. Its crate reasons name `goodfetch-test-support` under the second reason.
-- **`TESTING.md` gains a contents list and these sections:** Levels and layout, Writing a test, Dependencies in tests, Shared helpers, Fixtures and data files, Snapshots, Property tests, fuzzing and doctests, Test-first process, and Review checklist. The line on flaky tests moves unchanged; [Flakiness policy and checks that are non-deterministic by nature](https://github.com/Jbmanllr/automan/issues/280) owns it.
-- **Changes area 1's spec** ([Spec: Repository, CI and release (V1 area 1)](https://github.com/Jbmanllr/automan/issues/130)):
+- **`TESTING.md` gains a contents list and these sections:** Levels and layout, Writing a test, Dependencies in tests, Shared helpers, Fixtures and data files, Snapshots, Property tests, fuzzing and doctests, Test-first process, and Review checklist. The line on flaky tests moves unchanged; [Flakiness policy and checks that are non-deterministic by nature](https://github.com/goodfetch/goodfetch/issues/280) owns it.
+- **Changes area 1's spec** ([Spec: Repository, CI and release (V1 area 1)](https://github.com/goodfetch/goodfetch/issues/130)):
   - the top-level layout adds `test-support/`;
   - the workspace adds `goodfetch-test-support` and the two private packages;
   - CI checks that `goodfetch-test-support` appears only under `[dev-dependencies]` and depends on no Goodfetch crate;
   - CI enforces the mocking bans, the 256 KiB fixture limit and the snapshot checks.
 
-  [Workspace skeleton and the "all green" pull-request check](https://github.com/Jbmanllr/automan/issues/132) creates the empty `test-support/` folder, the crate and the two packages, with these checks.
-- **[Deterministic simulation and crash testing for leases, fencing, groups and run state](https://github.com/Jbmanllr/automan/issues/275)** builds on `Clock::paused` and `Entropy::seeded`.
+  [Workspace skeleton and the "all green" pull-request check](https://github.com/goodfetch/goodfetch/issues/132) creates the empty `test-support/` folder, the crate and the two packages, with these checks.
+- **[Deterministic simulation and crash testing for leases, fencing, groups and run state](https://github.com/goodfetch/goodfetch/issues/275)** builds on `Clock::paused` and `Entropy::seeded`.
 - **The "Test infrastructure" spec** builds `goodfetch-test-support`, `goodfetch-test-env`'s JSON description and the two thin packages, and names the exact `just` recipes for snapshot updates, with the other helpers ADR 0059 lists.
-- **[SDK and CLI test stack](https://github.com/Jbmanllr/automan/issues/285) and the Client surfaces area's spec** design the TypeScript and Python SDKs to read their environment from a replaceable map, as decided above.
+- **[SDK and CLI test stack](https://github.com/goodfetch/goodfetch/issues/285) and the Client surfaces area's spec** design the TypeScript and Python SDKs to read their environment from a replaceable map, as decided above.
 - **Changes ADR 0059's last consequence.** The test `Clock` and the seeded `Entropy` are not test-support helpers: they are the handles' named constructors, `Clock::paused` and `Entropy::seeded`, in the crate that defines the handles. `goodfetch-test-support` supplies only their seed and start time.
 - **Adds to `STYLE.md`'s lint list:** `Clock::paused` and `Entropy::seeded` join `disallowed-methods`.
 - **Property tests:** parsers and stateful rules get property tests (`proptest` in Rust, `hypothesis` in Python), and their regression files are committed, as `TESTING.md` records.

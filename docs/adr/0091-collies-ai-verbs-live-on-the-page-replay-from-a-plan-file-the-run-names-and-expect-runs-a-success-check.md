@@ -64,6 +64,7 @@ Collie's AI verbs, `act`, `observe` and `extract`, are methods of the page and o
 - **Its timeout is `timeout.wait`, 30 s**, not Playwright's 5 s: a slow page that gets there would otherwise read as `rejected` (G1).
 - **Excluded:**
   - `toHaveScreenshot`: visual comparison belongs to [Testing a user's crawl or automation](https://github.com/goodfetch/goodfetch/issues/482).
+    > Amended by [ADR 0105](0105-a-programs-tests-replay-a-response-recording-in-a-test-engine-that-reaches-no-site.md): `toHaveScreenshot` is not added. `screenshot()` returns bytes for the test runner's own comparison, and a page replayed from a Response recording renders the same each time.
   - `toPass` and `expect.poll`: host retry loops that the engine cannot evaluate; waits cover them.
   - `expect.soft`: a failed Success check is recorded anyway, and the program can catch it.
   - `expect.configure`: a setter; settings carry the timeout (G2).
@@ -141,6 +142,7 @@ A navigation an AI step starts toward a domain the run's policy forbids raises t
   - Crawl definition and handler context: `extract` on an HTTP-tier response, with the same signature (S1), answered by ADR 0093, whose handler page is a Collie page on every fetch tier; the crawl's `plan` option goes with the Run's start options to The Run in code.
   - The Run in code: finishing a Collie Run, its report, and where `PlanReport` sits.
   - Testing a user's crawl or automation: replaying Plans in tests, and visual comparison.
+    > Amended by [ADR 0105](0105-a-programs-tests-replay-a-response-recording-in-a-test-engine-that-reaches-no-site.md): a test starts its Run with its Plan and `plan.frozen`, with a Response recording for the pages, so an AI step replays with neither a request nor a model call; visual comparison stays the test runner's.
   - Mapping the catalog to each language and surface: the per-language forms of `expect`, `not` and the overloads.
 - **TESTING.md** gains AI verb conformance cases.
 - **The `prototype/sdk-api` sketch** holds this ADR's signatures in its `ai` files for each language.

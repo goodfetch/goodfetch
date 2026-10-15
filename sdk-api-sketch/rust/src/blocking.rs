@@ -250,6 +250,7 @@ impl Crawl {
 
     /// Answers the Run's crawl requests on tracked threads, `crawl::handler::CONCURRENCY` at once,
     /// blocks until the Run ends, and returns its report.
+    /// A handler's panic is caught and ends its attempt with `handler_failed` (ADR 0093).
     pub fn serve(&self, run: &crate::CrawlRun) -> Result<crate::CrawlRunReport, Error> {
         let _ = run;
         unimplemented!()

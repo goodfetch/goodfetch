@@ -116,7 +116,8 @@ class _ContextBase(Generic[P]):
 @final
 class AsyncCrawlContext(_ContextBase[P]):
     """What an `async def` handler receives, the same on every fetch tier. A context belongs to one attempt: once it has
-    ended (`skip`, `retry`, an escalation, the handler's timeout, a lost lease, the Run's close), every call on it raises
+    ended (the handler's return, `skip`, `retry`, an escalation, the handler's timeout, a lost lease, the Run's close),
+    every call on it raises
     `AttemptEndedError`, and what the attempt staged is discarded."""
 
     @property
@@ -309,9 +310,10 @@ class ResponseUnavailableError(PageError):
 
 @final
 class HandlerLostError(UnavailableError):
-    """The program stopped answering for this attempt with no word: its process ended or its connection dropped.
-    Retryable, and counted against `crawl.retry.max`. The program's own stop (`close()`, `KeyboardInterrupt`) counts
-    nothing."""
+    """The program stopped answering for this attempt with no word: its process ended (a crash, or a signal it does not
+    handle: close the Run on SIGINT or SIGTERM), its connection dropped, or its Attached engine died with it and the Run
+    was resumed from its committed state. Retryable, and counted against `crawl.retry.max`. The program's own stop
+    (`close()`, `KeyboardInterrupt`) counts nothing."""
 
 @final
 class SitePreferencesRefusedError(RefusedError):

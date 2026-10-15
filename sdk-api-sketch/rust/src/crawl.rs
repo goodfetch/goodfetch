@@ -224,8 +224,8 @@ impl<P> CrawlRequest<P> {
 }
 
 /// What a handler receives, the same on every fetch tier. A context belongs to one attempt: once
-/// it has ended (`skip`, `retry`, an escalation, the handler's timeout, a lost lease, the Run's
-/// close), every call
+/// it has ended (the handler's return, `skip`, `retry`, an escalation, the handler's timeout, a
+/// lost lease, the Run's close), every call
 /// on it fails with `attempt_ended`, and what the attempt staged is discarded.
 #[derive(Debug)]
 pub struct CrawlContext<P> {

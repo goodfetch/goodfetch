@@ -184,8 +184,10 @@ pub enum ErrorCode {
     /// `response_unavailable`, a page error: a final 5xx or 408 after the request's retries;
     /// retryable (ADR 0093).
     ResponseUnavailable,
-    /// `handler_lost`: the program's process or connection was lost mid-attempt; retryable, and
-    /// counted against `crawl.retry.max`. The program's own stop counts nothing (ADR 0093).
+    /// `handler_lost`: the program's process or connection was lost mid-attempt (a crash, a signal
+    /// it does not handle, or a linked engine that died with it, counted on resume from the Run's
+    /// committed state); retryable, and counted against `crawl.retry.max`. The program's own stop
+    /// counts nothing (ADR 0093).
     HandlerLost,
     /// `site_preferences_refused`: a handler's own navigation that Site preferences refuse (ADR 0093).
     SitePreferencesRefused,

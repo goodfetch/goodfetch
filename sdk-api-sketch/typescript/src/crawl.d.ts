@@ -195,16 +195,19 @@ export interface EnqueuedLinks {
 /**
  * What a handler receives, the same on every fetch tier. Every tier but `browser` serves what it
  * can exactly: `http` and `browser_fetch` the fetched document, `discovered_api` the document and
- * network waits from the JSON calls it replays, `light_browser` scripts without layout. A call a tier
- * cannot serve (a gesture, `evaluate`, an unanswered network wait, a screenshot, an acting AI verb),
+ * network waits from the JSON calls it replays, `light_browser` scripts without layout. On the
+ * document tiers `goto`, `reload` and `page.session().newPage()` are served over the same tier
+ * through the navigation gate (ADR 0087). A call a tier cannot serve (on the document tiers another
+ * gesture, a popup, `evaluate`, an unanswered network wait, a screenshot, an acting AI verb; on
+ * `light_browser`, what needs layout or pixels),
  * a wait for something a static document lacks, or a page failing its Session's
  * `session.page_check.expectedPage` (ADR 0092) ends the attempt and runs the request again in the
  * browser, unless `fetch.tier` forces the tier, when the call throws `BrowserRequiredError` and the
  * page fails with `page_check_failed`. `page.request` never escalates. A question (`count()`,
  * `isVisible()`) answers at once and never escalates.
  *
- * A context belongs to one attempt. Once the attempt has ended (`skip`, `retry`, an escalation, the
- * handler's timeout, a lost lease, the Run's close), every call on it throws `AttemptEndedError`, and what the attempt
+ * A context belongs to one attempt. Once the attempt has ended (the handler's return, `skip`, `retry`,
+ * an escalation, the handler's timeout, a lost lease, the Run's close), every call on it throws `AttemptEndedError`, and what the attempt
  * staged is discarded.
  */
 export interface CrawlContext<L extends Label<unknown, unknown> = Label<undefined>> {

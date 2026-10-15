@@ -32,7 +32,7 @@ async def list_books(page: Page) -> None:
             print(result.output)
             await run.finish()
     except GoodfetchError as error:
-        # Typed (`model_unavailable`, `extraction_incomplete`, `borrow_requires_cdp`, …), with its `fix`.
+        # Typed (`model_unavailable`, `page_navigated_during_call`, `borrow_requires_cdp`, …), with its `fix`.
         log.warning(
             "The AI step failed (%s): %s; the program carries on", error.code, error.fix
         )

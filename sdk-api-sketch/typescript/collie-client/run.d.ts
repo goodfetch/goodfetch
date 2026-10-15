@@ -104,7 +104,7 @@ export interface Checkpoint {
   /**
    * Copies it to a file on this machine, wherever the engine runs, whole or not at all: it creates
    * missing parent folders and replaces an existing file, and a failed write throws
-   * `PathNotWritableError` or `FileWriteFailedError`, leaving the path as it was (ADR 0108).
+   * `PathNotWritableError` or `FileWriteFailedError`, leaving the path as it was (ADR 0116).
    */
   saveAs(path: string, options?: CallOptions): Promise<void>;
   /** Its bytes, streamed to this machine. */
@@ -137,7 +137,7 @@ export interface RunTrace {
   /**
    * Copies it to a file on this machine, wherever the engine runs, whole or not at all: it creates
    * missing parent folders and replaces an existing file, and a failed write throws
-   * `PathNotWritableError` or `FileWriteFailedError`, leaving the path as it was (ADR 0108).
+   * `PathNotWritableError` or `FileWriteFailedError`, leaving the path as it was (ADR 0116).
    */
   saveAs(path: string, options?: CallOptions): Promise<void>;
   /** Its bytes, streamed to this machine. */
@@ -233,7 +233,7 @@ export interface RunControl {
   setProgressMessage(message: string, options?: CallOptions): Promise<void>;
   /**
    * Writes a Checkpoint now (ADR 0002), where the engine keeps the Run's. Resolves only once its file
-   * is whole; a write the engine cannot make throws `FileWriteFailedError` with `side: "engine"` (ADR 0108).
+   * is whole; a write the engine cannot make throws `FileWriteFailedError` with `side: "engine"` (ADR 0116).
    */
   checkpoint(options?: CallOptions): Promise<Checkpoint>;
   /** The Run trace recorded so far; `null` when the Run keeps none, which the report's `weakened` shows. */

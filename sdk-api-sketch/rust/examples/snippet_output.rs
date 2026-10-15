@@ -77,7 +77,7 @@ async fn scenario_05() -> Result<(), Error> {
     foxhound.close().await
 }
 
-/// A failed save (ADR 0108): the path's fault or the storage's, and the path is never half-written.
+/// A failed save (ADR 0116): the path's fault or the storage's, and the path is never half-written.
 async fn save_or_explain(exported: &Export, path: &str) -> Result<bool, Error> {
     let Err(error) = exported.save_as(path).await else {
         return Ok(true);

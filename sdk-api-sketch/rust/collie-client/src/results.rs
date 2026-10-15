@@ -138,6 +138,12 @@ impl ErrorCode {
     pub const ROUTE_ALREADY_HANDLED: ErrorCode = ErrorCode::new("route_already_handled");
     /// `navigation_interrupted`: another navigation superseded this one (ADR 0085).
     pub const NAVIGATION_INTERRUPTED: ErrorCode = ErrorCode::new("navigation_interrupted");
+    /// `page_navigated_during_call` (ADR 0114): on a page other code also drives (a shared
+    /// `cdp_url`, a Lent page while a library is attached, a page with an open CDP session), an AI
+    /// verb's page committed a navigation to a new document that the verb did not start, between its
+    /// first read of the page and its return. Nothing was written to the Plan, and an `act` sent no
+    /// input. Retryable; its details carry `url` and `navigated_to`.
+    pub const PAGE_NAVIGATED_DURING_CALL: ErrorCode = ErrorCode::new("page_navigated_during_call");
     /// `response_not_json` (ADR 0085).
     pub const RESPONSE_NOT_JSON: ErrorCode = ErrorCode::new("response_not_json");
     /// `navigation_failed`: the site could not be reached (ADR 0085).
@@ -149,10 +155,10 @@ impl ErrorCode {
     /// `download_failed` (ADR 0085).
     pub const DOWNLOAD_FAILED: ErrorCode = ErrorCode::new("download_failed");
     /// `path_not_writable`, a program error: the path given to `save_as` (or a `path` option)
-    /// cannot be written for a reason the path causes (ADR 0108).
+    /// cannot be written for a reason the path causes (ADR 0116).
     pub const PATH_NOT_WRITABLE: ErrorCode = ErrorCode::new("path_not_writable");
     /// `file_write_failed`: full or failing storage, on the program's machine or where the engine
-    /// keeps its files (ADR 0108).
+    /// keeps its files (ADR 0116).
     pub const FILE_WRITE_FAILED: ErrorCode = ErrorCode::new("file_write_failed");
     /// `cdp_command_refused`, a refusal (ADR 0085).
     pub const CDP_COMMAND_REFUSED: ErrorCode = ErrorCode::new("cdp_command_refused");
@@ -572,11 +578,11 @@ impl ErrorDetails for PathNotWritable {}
 impl ErrorDetails for FileWriteFailed {}
 
 // A file saved to the program's path, or written by the engine for the program to save: an Export,
-// a Download, a Checkpoint, a Run trace, a screenshot's or a PDF's `path` (ADR 0108). Two codes,
+// a Download, a Checkpoint, a Run trace, a screenshot's or a PDF's `path` (ADR 0116). Two codes,
 // split by remedy, neither retryable. A save goes to a hidden temporary file beside the path,
 // renamed over it once whole, so the path holds the whole file or what it held before.
 
-/// Why a write failed: `std::io::ErrorKind`'s names (ADR 0108).
+/// Why a write failed: `std::io::ErrorKind`'s names (ADR 0116).
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum FileWriteReason {

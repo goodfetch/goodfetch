@@ -140,7 +140,9 @@ class CDPURLSource(TypedDict):
     headers: NotRequired[Mapping[str, SecretReference]]
     domains: NotRequired[Sequence[str]]
     exclusive: NotRequired[bool]
-    """Nothing else drives this browser, so secrets may be typed into it (ADR 0056)."""
+    """Nothing else drives this browser, so secrets may be typed into it (ADR 0056). Left out, the program awaits each
+    Collie call before its other code acts on the page, and an AI verb whose document a navigation it did not start
+    replaces raises `PageNavigatedDuringCallError` (ADR 0114)."""
 
 SessionSource: TypeAlias = (
     SavedIdentitySource

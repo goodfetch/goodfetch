@@ -272,6 +272,7 @@ from goodfetch_collie_client import Mouse as Mouse
 from goodfetch_collie_client import MouseButton as MouseButton
 from goodfetch_collie_client import NavigationFailedError as NavigationFailedError
 from goodfetch_collie_client import NavigationInterruptedError as NavigationInterruptedError
+from goodfetch_collie_client import PageNavigatedDuringCallError as PageNavigatedDuringCallError
 from goodfetch_collie_client import NetworkSettings as NetworkSettings
 from goodfetch_collie_client import NetworkThrottle as NetworkThrottle
 from goodfetch_collie_client import NotGiven as NotGiven

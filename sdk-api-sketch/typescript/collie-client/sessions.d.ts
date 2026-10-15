@@ -127,7 +127,11 @@ export type SessionSource =
       readonly url: string;
       readonly headers?: Readonly<Record<string, SecretReference>>;
       readonly domains?: readonly string[];
-      /** Nothing else drives this browser, so secrets may be typed into it (ADR 0056). */
+      /**
+       * Nothing else drives this browser, so secrets may be typed into it (ADR 0056). Left out, the
+       * program awaits each Collie call before its other code acts on the page, and an AI verb whose
+       * document a navigation it did not start replaces throws `PageNavigatedDuringCallError` (ADR 0114).
+       */
       readonly exclusive?: boolean;
     };
 

@@ -45,6 +45,7 @@ export type KnownErrorCode =
   | "page_handler_failed"
   | "route_already_handled"
   | "navigation_interrupted"
+  | "page_navigated_during_call"
   | "response_not_json"
   | "navigation_failed"
   | "page_crashed"
@@ -223,7 +224,7 @@ export declare class CallCancelledError extends UnavailableError {
 }
 
 // A file saved to the program's path, or written by the engine for the program to save: an Export,
-// a Download, a Checkpoint, a Run trace, a screenshot's or a PDF's `path` (ADR 0108). Two codes, split
+// a Download, a Checkpoint, a Run trace, a screenshot's or a PDF's `path` (ADR 0116). Two codes, split
 // by remedy, neither retryable. A save goes to a hidden temporary file beside the path, renamed over
 // it once whole, so the path holds the whole file or what it held before, never a partial one.
 

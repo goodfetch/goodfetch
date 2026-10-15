@@ -60,7 +60,7 @@ export interface CrawlSettings {
   readonly maxUrlLength?: number | null;
   /** `crawl.max_path_segments`: a URL with a longer path is not added with `max_path_segments`, and the finished Run is `unverified`. Built-in: 20, Heritrix's; `null` for none (ADR 0120). */
   readonly maxPathSegments?: number | null;
-  /** `crawl.max_segment_repeats`: how many times a path segment, or a run of segments, may follow itself (`/a/a/a`, `/a/b/a/b/a/b`); past it a URL is not added with `max_segment_repeats`, and the finished Run is `unverified`. Built-in: 2, Heritrix's; `null` for none (ADR 0120). */
+  /** `crawl.max_segment_repeats`: how many times a path segment, or a run of segments, may appear back to back, so `/a/a` passes and `/a/a/a` or `/a/b/a/b/a/b` does not; past it a URL is not added with `max_segment_repeats`, and the finished Run is `unverified`. Built-in: 2, Heritrix's; `null` for none (ADR 0120). */
   readonly maxSegmentRepeats?: number | null;
   /**
    * `crawl.keep_url_fragment`: the fragment stays in a request's key, for a Label whose requests are

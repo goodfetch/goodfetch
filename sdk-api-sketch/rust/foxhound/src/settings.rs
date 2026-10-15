@@ -93,8 +93,8 @@ pub mod crawl {
     /// `crawl.max_path_segments`: a URL with a longer path is not added with `MaxPathSegments`, and
     /// the finished Run is `unverified`. Built-in: 20, Heritrix's; `None` for none (ADR 0120).
     pub const MAX_PATH_SEGMENTS: Setting<Option<u32>> = Setting::new("crawl.max_path_segments");
-    /// `crawl.max_segment_repeats`: how many times a path segment, or a run of segments, may follow
-    /// itself; past it a URL is not added with `MaxSegmentRepeats`, and the finished Run is
+    /// `crawl.max_segment_repeats`: how many times a path segment, or a run of segments, may appear
+    /// back to back (`/a/a` passes, `/a/a/a` does not); past it a URL is not added with `MaxSegmentRepeats`, and the finished Run is
     /// `unverified`. Built-in: 2, Heritrix's; `None` for none (ADR 0120).
     pub const MAX_SEGMENT_REPEATS: Setting<Option<u32>> = Setting::new("crawl.max_segment_repeats");
     /// `crawl.keep_url_fragment`: the fragment stays in a request's key, for a Label whose requests

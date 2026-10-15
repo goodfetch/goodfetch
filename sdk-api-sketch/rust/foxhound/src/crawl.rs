@@ -502,7 +502,8 @@ pub enum NotAddedReason {
     MaxUrlLength,
     /// A path longer than `crawl::MAX_PATH_SEGMENTS` (ADR 0120).
     MaxPathSegments,
-    /// A segment, or a run of segments, repeated past `crawl::MAX_SEGMENT_REPEATS` (ADR 0120).
+    /// A segment, or a run of segments, appearing back to back more times than
+    /// `crawl::MAX_SEGMENT_REPEATS` (ADR 0120).
     MaxSegmentRepeats,
     /// A matched element with no link.
     NoLink,

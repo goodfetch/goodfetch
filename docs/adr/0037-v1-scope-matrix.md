@@ -52,7 +52,7 @@ This matrix is the companion of [ADR 0037](0037-v1-scope-parity-and-pain-coverag
 | SDK-04 | Project scaffolding CLI and templates | `decided` | ADR 0030, ADR 0049 | 11 Client surfaces | `goodfetch init` scaffolds TypeScript, Python and Rust from five starters (crawl, extract, browser automation, AI agent, Recipe), each with a Dockerfile, Compose file, CI workflow, AGENTS.md and skills, embedded in the binary; `--deploy <target>` adds a target's files. |
 | SDK-05 | No-code CLI that crawls or drives a browser | `decided` | ADR 0011, ADR 0034, ADR 0036 | 11 Client surfaces | CLI generated from the catalog with `--json`; code-free catalog runs. |
 | SDK-06 | Typed public API and schemas | `decided` | ADR 0011, ADR 0024, ADR 0028, ADR 0038, ADR 0081, ADR 0082 | 11 Client surfaces | Typed catalog defined in Rust types, generated SDK types, sync and async Python: the async client on AnyIO, the sync one on a private thread per connection that works inside a running loop; Rust async on any executor plus `goodfetch::blocking` (ADR 0081). Schemas come from each language's idiom (Standard Schema with Standard JSON Schema, Pydantic, `schemars`) as JSON Schema, and results keep unknown fields (ADR 0082). |
-| SDK-07 | Docs for AI coding assistants | `decided` | ADR 0030 | 11 Client surfaces | `llms.txt`, `llms-full.txt`, embedded docs, skills, AGENTS.md. |
+| SDK-07 | Docs for AI coding assistants | `decided` | ADR 0030, ADR 0097 | 11 Client surfaces | `llms.txt`, `llms-full.txt`, embedded docs, skills, AGENTS.md, each per Product: rendered from one source with the Product's own names, Foxhound's containing Collie's (ADR 0097). |
 | SDK-08 | Browser provisioning | `decided` | ADR 0024 | 3 Engine runtime | Pinned builds in a digest-checked cache; `goodfetch browsers install`; offline path. |
 
 ### SA Site access
@@ -211,7 +211,7 @@ This matrix is the companion of [ADR 0037](0037-v1-scope-parity-and-pain-coverag
 | V3-04 | Built-in agent loop (v3 `agent().execute()`) | `decided` | ADR 0013 | 9 AI and agent | A thin, journaled built-in agent; dropping it, as Stagehand v4 did, was rejected. |
 | V3-05 | Local or remote browser chosen by configuration (v3 `env`) | `decided` | ADR 0022, ADR 0001, ADR 0028 | 5 Site access | Local browser, Browser host, or a third-party CDP browser such as Browserbase; the cloud is an ordinary protocol client. |
 
-No v3 API compatibility layer is offered (ADR 0037). A Crawlee+Stagehand migration guide is part of the docs (spec area 11 Client surfaces).
+No v3 API compatibility layer is offered (ADR 0037). A Crawlee+Stagehand migration guide is part of Foxhound's docs (ADR 0097, spec area 11 Client surfaces).
 
 ## Pains
 
@@ -224,7 +224,7 @@ No v3 API compatibility layer is offered (ADR 0037). A Crawlee+Stagehand migrati
 | 5 | `cost-unpredictable-runaway` | `decided` | ADR 0041, ADR 0012, ADR 0036, ADR 0010 | 3 Engine runtime; 10 Scheduling | Limits on the install or Daemon, a person, a named token and a Client connection, held by a per-user Usage ledger every engine of every major reserves against; uncapped runs marked; only a person raises a Limit. Credit billing is Goodfetch Cloud's. |
 | 6 | `compliance-site-owner-politeness` | `decided` | ADR 0045, ADR 0021, ADR 0004, ADR 0016 | 5 Site access; 4 Security and egress | 402 is the Block cause `payment_required`, never evaded; opt-in Paid fetches through Cloudflare's headers and x402, capped and journaled; RSL read as a Site preference. Goodfetch cannot reduce the bot traffic other tools send or the blocks site owners place on shared IP ranges. |
 | 7 | `compliance-security-privacy` | `decided` | ADR 0014, ADR 0015, ADR 0016, ADR 0017 | 4 Security and egress | Certifications such as SOC 2 attach to an organization operating a service, so they belong to Goodfetch Cloud, not to the framework. |
-| 8 | `dx-setup-docs` | `decided` | ADR 0024, ADR 0028, ADR 0030 | 11 Client surfaces; 1 Repository, CI and release | Support channels and response times are a project-governance commitment, not an engine feature. |
+| 8 | `dx-setup-docs` | `decided` | ADR 0024, ADR 0028, ADR 0030, ADR 0097 | 11 Client surfaces; 1 Repository, CI and release | One docs site with a section per Product, a chooser, and migration guides from each leader (ADR 0097). Support channels and response times are a project-governance commitment, not an engine feature. |
 | 9 | `agent-deterministic-replay` | `decided` | ADR 0009, ADR 0010, ADR 0013 | 9 AI and agent | Plans are versioned files replayed without a model; the recorder also emits TypeScript or Python code. |
 | 10 | `silent-false-success` | `decided` | ADR 0006, ADR 0013, ADR 0026, ADR 0029 | 6 Collection; 9 AI and agent | Page check, Success checks, Grounding, typed Challenge causes and the three-axis report. |
 | 11 | `agent-unreliable-drift` | `decided` | ADR 0009, ADR 0013, ADR 0019 | 9 AI and agent | Goodfetch does not make a model succeed at an arbitrary task; it makes an agent's failure visible (Success checks, Verdict) and its success repeatable (Plans). |

@@ -1007,11 +1007,12 @@ Each suite contains the one before, so the table gives the first suite that runs
 ### Docs site
 
 - **Docusaurus throws on every broken reference:** `onBrokenLinks`, `onBrokenAnchors`, `onDuplicateRoutes` and `markdown.hooks`' `onBrokenMarkdownLinks`, `onBrokenMarkdownImages` and `onUnusedMarkdownDirectives`.
-- **Every kept version is built, and every page has its `.md` twin, an `llms.txt` entry and its content in `llms-full.txt`.**
+- **Every kept version is built, and every page has its `.md` twin, an `llms.txt` entry and its content in `llms-full.txt`,** in its own Product's section (`/docs/collie/`, `/docs/foxhound/`); the root `llms.txt` lists both sections ([ADR 0097](docs/adr/0097-one-docs-site-renders-each-products-section-from-one-source-and-neither-product-leads-with-access.md)).
 - **lychee runs with `--offline --include-fragments --root-dir <root>` in the suites**, over the built site copied to `<root>/docs/`, so absolute `/docs/` links resolve. External links are the Live check `docs-external-links`.
 - **Playwright tests the built site served locally under `/docs/` on port 0,** never a Vercel preview: every `sitemap.xml` page of every kept version answers 200 with no console, hydration or same-site request error, and the interactive components work. Search is tested against an index built with the site; a hosted search service is tested only by `docs-deploy-smoke`.
-- **After each production deploy, the Live check `docs-deploy-smoke`** checks the deployed pages, a `.md` page, `llms.txt` and `llms-full.txt` with their content types.
+- **After each production deploy, the Live check `docs-deploy-smoke`** checks the deployed pages, and a `.md` page, `llms.txt` and `llms-full.txt` of each Product's section and the root `llms.txt`, with their content types.
 - **`typos` checks the docs' spelling.** No Vale, no cspell.
+- **The wording check runs in Pre-merge** ([ADR 0097](docs/adr/0097-one-docs-site-renders-each-products-section-from-one-source-and-neither-product-leads-with-access.md)): an `xtask` check fails on a term of ADR 0035's list ("bypass" in any form, "undetectable", "undetected", "solve any CAPTCHA"), word-bounded and case-insensitive, in the prose of the docs pages (not `docs/adr/`, `docs/agents/` or `rnd/`), READMEs, skills, the catalog's, settings schema's and Error codes' texts, the Console's message catalog and package descriptions and keywords. Code is skipped. Rewrite the sentence; extend the list only on counsel's review.
 
 ### Docs code samples
 
@@ -1021,6 +1022,7 @@ Each suite contains the one before, so the table gives the first suite that runs
 - **Mark MCP samples `json mcp-request` and `json mcp-answer`.** Other `json` blocks are not samples.
 - **Each surface's tests run its samples:** `twoslash` type-checks `ts` and `tsx` in the docs build (our own remark plugin, on the TypeScript 6 alias) and the TypeScript SDK's tests run them; Ruff lints and the Python SDK's pytest runs `python`; `#[cfg(doctest)]` includes in `goodfetch` run `rust`; trycmd runs the `.trycmd` files from the binary crate's `tests/it` (`...` for any lines, `[..]` within a line); an MCP server test plays each `mcp-request` and `mcp-answer` pair through `rmcp`.
 - **Run samples against the binary built from the commit and a local Proving ground,** never the online one. Hide setup with the tool's own convention (`# ` in Rust, `---cut---` in Twoslash).
+- **Extract from each Product's rendering** ([ADR 0097](docs/adr/0097-one-docs-site-renders-each-products-section-from-one-source-and-neither-product-leads-with-access.md)). A page rendered for both Products runs its samples once, on Collie's executable; its Foxhound rendering is checked statically against Foxhound's packages, never run: Twoslash for `ts`, Ruff and pyright for `python`, a `no_run` doctest for `rust`. A page rendered for Foxhound only runs on Foxhound's executable.
 - **Only `docs/` (`next`) runs.** Frozen versions were tested at their release.
 - **Pre-merge:** the affected samples on one runtime. **Release:** every sample on its surface's own matrix ([SDK and CLI tests](#sdk-and-cli-tests), [MCP, framework adapters and Integrations](#mcp-framework-adapters-and-integrations)).
 

@@ -103,6 +103,7 @@ Every Goodfetch package carries one version and is released together: the `goodf
   - **Kept versions:** stable (the latest minor), `next` from `main`, and a frozen copy of the last minor of each previous major still supported. Each item carries "Added in" and "Deprecated in" badges generated from the catalog, and a banner marks `next` and old majors.
   - **When docs change:** stable docs change only with a release, because the stable version is a frozen copy that only the release updates (above). Docs ahead of the release are a recurring complaint (browser-use #902, scrapy #5324).
   - **Reference pages:** generated from the Operation catalog and the settings schema, one page per operation and per setting, with TypeScript, Python, Rust, CLI and MCP tabs showing each real signature, as Playwright and Pulumi generate every language from one source. TypeDoc, a Griffe-based Python reference, docs.rs and `clap-markdown` give each language its native reference in addition.
+    > Amended by [ADR 0097](0097-one-docs-site-renders-each-products-section-from-one-source-and-neither-product-leads-with-access.md): the site has a section per Product, `/docs/collie/` and `/docs/foxhound/`, each rendered from one source with its own Product's names; an operation or setting gets a generated page in each section whose Product carries it, naming the Product it belongs to.
   - **Tested examples:** every code sample runs in CI against the Proving ground, through Rust doctests, Twoslash, pytest-examples and scripted CLI and MCP samples. Links are checked with lychee.
     > Amended by [ADR 0068](0068-the-console-is-tested-in-real-browsers-and-served-by-the-real-binary.md): Python samples are linted by Ruff and run by the Python SDK's pytest from extracted files, not by pytest-examples; each surface's tests run its samples.
   - **For agents:**
@@ -112,6 +113,8 @@ Every Goodfetch package carries one version and is released together: the `goodf
     - `goodfetch init` writes a short AGENTS.md index
 
     No separate docs MCP server is run.
+
+    > Amended by [ADR 0097](0097-one-docs-site-renders-each-products-section-from-one-source-and-neither-product-leads-with-access.md): each Product's section has its own `.md` twins, `llms.txt` and `llms-full.txt`, with a root `llms.txt` listing both; each executable embeds and serves its own Product's section, and its skills are rendered from the same source.
   - **Goodfetch Cloud:** its docs stay apart from the framework's. The framework docs never present a Cloud-only feature as available, and pages on features both offer say where each runs.
 - **Left to the specs.** Release automation (release-plz or another tool for a lockstep, multi-registry release) and where the docs source lives in the repository, an item of the repository layout in the [V1 map](https://github.com/Jbmanllr/automan/issues/61). The docs domain is `goodfetch.dev` (ADR 0034).
 - ADR 0051 keeps the engine's V8 no more than one Chrome Stable major behind, through a fork of the `v8` crate when the crate lags, with a release check.

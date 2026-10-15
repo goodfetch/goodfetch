@@ -85,7 +85,7 @@ A browser the engine did not launch and never closes: the person's running brows
 _Avoid_: external browser, attached browser
 
 **Lent page**:
-A page the engine owns that a program hands, for a time, to another automation library such as Playwright or Puppeteer, through a CDP endpoint that shows only that page's Session; the reverse of a Borrowed browser.
+A page of a Session that a program hands, for a time, to another automation library such as Playwright or Puppeteer, through a CDP endpoint that shows only that page's Session; the reverse of a Borrowed browser.
 _Avoid_: shared page, exposed page, remote page
 
 **Plugin**:

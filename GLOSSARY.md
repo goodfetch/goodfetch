@@ -238,10 +238,6 @@ _Avoid_: login, profile, context
 How a Session presents itself to sites, fixed when it opens: standard (an ordinary browser), identified (a declared, signed agent) or stealth (masked).
 _Avoid_: profile, access profile, stealth level
 
-**Gesture**:
-A call that sends input to a page or navigates it, such as a click, a key press or a `goto`; the engine runs one page's gestures one at a time.
-_Avoid_: interaction, command (for a gesture)
-
 **Identity profile**:
 The consistent set of values a Session presents to sites, such as its user agent, network and browser fingerprints, signing key, language and time zone, fixed for the Session's life.
 _Avoid_: fingerprint (alone), persona, profile (alone)
@@ -317,6 +313,10 @@ _Avoid_: screencast, stream, remote desktop
 **Run trace**:
 The recording of what a run's Sessions did, such as their screens, page snapshots and network traffic, kept so a person can replay it.
 _Avoid_: session recording, replay (for the recording), video
+
+**Gesture**:
+A call that sends input to a page or navigates it, such as a click, a key press or a navigation; the engine runs one page's gestures one at a time.
+_Avoid_: interaction, command (for a gesture)
 
 **Page check**:
 A declaration by a run's code of what an expected page and a login page look like, against which every page fetched in a session is judged.

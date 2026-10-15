@@ -49,6 +49,7 @@ Decided in [Crawl definition and handler context](https://github.com/goodfetch/a
   - `response`: the main document's final `Response`, after redirects, with its status, headers, redirect chain and a body always kept;
   - `tier`: the fetch tier of this attempt;
   - `run`: the crawl's Run, through which [Crawl output in code](https://github.com/goodfetch/automan/issues/479) reaches Datasets and the Key-value store;
+    > Amended by [ADR 0103](0103-a-handler-pushes-records-staged-with-its-attempt-into-datasets-its-crawl-declares-and-a-reader-never-slows-the-crawl.md): Records are pushed with `ctx.push(dataset, record)`, a member of the context beside `enqueue`, not through `ctx.run`; `ctx.run` reaches the Key-value store, whose writes through it are staged with the attempt.
   - `enqueue`, `enqueueLinks`, `skip` and `retry`.
 - **No second way to reach the same thing** (S2, G4): no `log` (the program's own logger), no `session` (`page.session()`), no `sendRequest` (`page.request`, ADR 0085), no selector API beside the page (Parsel- or Cheerio-like), and no `extendTimeout()` (a Label's `timeout.handler`).
 - **A context belongs to one attempt.** An attempt ends when its handler returns, and early at `skip`, at `retry`, at an escalation, at the handler's timeout, at a lost lease, or when the program closes the Run. A call made after that, such as a TypeScript `enqueue` that was never awaited or a context stored for later, fails too, so a forgotten `await` never silently loses a link (G1). From then on, every call on its context fails with `attempt_ended`, naming why. An attempt whose handler returned commits what it staged; one that ended early discards it (ADR 0003). Catching it changes nothing, since the decision stands. In Python its class derives from `BaseException`, as `asyncio.CancelledError` does, so `except Exception:` lets it through; it still carries its code and group.
@@ -258,6 +259,7 @@ Decided in [Crawl definition and handler context](https://github.com/goodfetch/a
 - **Left to other tickets.**
   - The Run in code: the start and resume verbs, and reading outcomes.
   - Crawl output in code: pushing Records from `ctx.run`, staged with the attempt.
+    > Amended by [ADR 0103](0103-a-handler-pushes-records-staged-with-its-attempt-into-datasets-its-crawl-declares-and-a-reader-never-slows-the-crawl.md): Records are pushed with `ctx.push`, staged with the attempt and committed or discarded with its enqueues; a push after the attempt ended fails with `attempt_ended`, as an enqueue does.
   - Hooks and injectable components in the SDK API: Hooks scoped by Label in code, cross-cutting request headers, URL rewrites, and a stage before a retry.
   - Testing a user's crawl or automation: building a `CrawlContext` from a saved response.
   - [Effects a program declares in code](https://github.com/goodfetch/automan/issues/500): a declared Effect must be checked rather than repeated, since a handler re-runs on a retry, an escalation, a sample comparison and a lost lease.

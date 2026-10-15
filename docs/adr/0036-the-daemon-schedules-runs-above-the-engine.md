@@ -40,6 +40,7 @@ The open-source framework schedules runs itself. A Schedule starts runs of one t
   - **The benchmark:** ADR 0025's change-triggered agent runs as a Schedule with a Watch.
 - **After a run:** a Schedule fires when a run of another Schedule or Recipe finishes with a chosen outcome, verified by default. A chain that would lead back to the same Schedule, directly or through Recipe triggers, is refused.
 - **Acting on change without a Watch** comes from change tracking against the Baseline, the "only new or changed" Sink mode (ADR 0026) and a new "records changed" Notification event, as Firecrawl's monitor and Browse AI do.
+  > Amended by [ADR 0103](0103-a-handler-pushes-records-staged-with-its-attempt-into-datasets-its-crawl-declares-and-a-reader-never-slows-the-crawl.md): change tracking identifies a Record across runs by its Dataset's `key`; how it compares the Records of a Dataset with no key is area 6's spec.
 - Watches never use the Response cache, and a Schedule whose target sets `replay` is refused (ADR 0046).
 - **Inbound webhooks** need no trigger of their own: ADR 0027's HTTP listener already lets a workflow tool start a run.
 

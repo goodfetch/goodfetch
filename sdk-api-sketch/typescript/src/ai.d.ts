@@ -291,10 +291,10 @@ export declare class EffectUncertainError extends PageError {
   readonly details: { readonly instruction: string; readonly journalId: string };
 }
 
-/** A person declined the confirmation of an AI Effect in one of ADR 0014's categories. */
-export declare class EffectRefusedError extends RefusedError {
-  readonly code: "effect_refused";
-  readonly details: { readonly instruction: string; readonly category: string };
+/** An AI Effect in one of ADR 0014's categories was not confirmed: a person declined its Human pause, or the pause expired (ADR 0092). */
+export declare class EffectNotConfirmedError extends RefusedError {
+  readonly code: "effect_not_confirmed";
+  readonly details: { readonly instruction: string; readonly category: string; readonly by: "person" | "timeout" | (string & {}) };
 }
 
 /** `expect`'s condition was still false at its timeout. `limit` names `timeout.wait` and its layer. */

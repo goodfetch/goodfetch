@@ -8,8 +8,8 @@ from goodfetch._ai import AsyncLocatorExpectations as AsyncLocatorExpectations
 from goodfetch._ai import AsyncPageExpectations as AsyncPageExpectations
 from goodfetch._ai import AsyncResponseExpectations as AsyncResponseExpectations
 from goodfetch._ai import Drift as Drift
-from goodfetch._ai import EffectRefusedDetails as EffectRefusedDetails
-from goodfetch._ai import EffectRefusedError as EffectRefusedError
+from goodfetch._ai import EffectNotConfirmedDetails as EffectNotConfirmedDetails
+from goodfetch._ai import EffectNotConfirmedError as EffectNotConfirmedError
 from goodfetch._ai import EffectUncertainDetails as EffectUncertainDetails
 from goodfetch._ai import EffectUncertainError as EffectUncertainError
 from goodfetch._ai import ExtractMode as ExtractMode

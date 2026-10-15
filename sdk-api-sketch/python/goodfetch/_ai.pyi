@@ -493,16 +493,18 @@ class EffectUncertainError(PageError):
 
 @final
 @dataclass(frozen=True, kw_only=True)
-class EffectRefusedDetails:
+class EffectNotConfirmedDetails:
     instruction: str
     category: str
+    by: Literal["person", "timeout"] | str
 
 @final
-class EffectRefusedError(RefusedError):
-    """A person declined the confirmation of an AI Effect in one of ADR 0014's categories."""
+class EffectNotConfirmedError(RefusedError):
+    """An AI Effect in one of ADR 0014's categories was not confirmed: a person declined its Human pause, or the pause
+    expired (ADR 0092)."""
 
     @property
-    def details(self) -> EffectRefusedDetails: ...
+    def details(self) -> EffectNotConfirmedDetails: ...
 
 @final
 @dataclass(frozen=True, kw_only=True)

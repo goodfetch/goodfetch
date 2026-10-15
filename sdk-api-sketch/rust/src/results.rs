@@ -134,8 +134,9 @@ pub enum ErrorCode {
     /// `effect_uncertain`: an `act` whose action was an Effect failed after the action was sent; never
     /// retried, a person reconciles it (ADR 0091).
     EffectUncertain,
-    /// `effect_refused`, a refusal: a person declined an AI Effect's confirmation (ADR 0091).
-    EffectRefused,
+    /// `effect_not_confirmed`, a refusal: an AI Effect's confirmation was declined or its Human pause
+    /// expired (ADR 0091).
+    EffectNotConfirmed,
     /// `success_check_failed`: `expect`'s condition was still false at its timeout (ADR 0091).
     SuccessCheckFailed,
     /// `variables_mismatch`: a placeholder nothing fills, a variable no placeholder uses, or a name

@@ -51,7 +51,7 @@ A program hands Collie's built-in Agent one objective with `page.agent(task, opt
   - Each value must appear in a page the task observed, or in the result of one of its Agent tools (the program's own data), or follow from a declared transform. Grounding records where each value was found, which is how a Plan reads it again.
   - A value that does not is fed back once through ADR 0012's retry. If it stays ungrounded, the output is returned with `verdict: needs-review` naming the field, since a valid `T` the checks cannot prove is a Verdict's business (ADR 0029).
 - **`reported`** is the model's claim, `done` or `gave_up` with its message. It is absent when no model claimed anything in this task: it stopped before a claim, or it was replayed whole with no model call.
-- **`ended`** is `finished` when the model reported done or gave up, or when a replay reached its end and its Success check ran; otherwise `stopped` with its reason (below).
+- **`ended`** is `finished` when the model reported done or gave up, or when a replay reached its end and its Success check ran (a task that declares none is never `verified`, so its entry is never promoted and never replayed); otherwise `stopped` with its reason (below).
 - **`partial`, from a `note` action** (G1, S1). The Agent has a built-in action that notes what it has found so far against the schema. `partial` holds the latest noted or answered value of each top-level field, or of each element for a list output, that is valid against its own part of the schema and Grounded, and nothing else. It is set only when `output` is not.
   - TypeScript types it `PartialOf<T>`: `Partial<T>` for an object, the elements for a list.
   - Python gives a mapping or a list of validated values.
@@ -117,12 +117,13 @@ A program hands Collie's built-in Agent one objective with `page.agent(task, opt
 - **One Plan entry per task** (G2, S2). ADR 0091 keys Plan entries per call and leaves "a Plan replayed toward a goal", which "keeps ADR 0009's whole-sequence rule", to this ticket; golden scenario 11 asks to "keep the steps taken so that they can be repeated without a model".
   - The entry lives in the Run's Plan file (ADR 0091's `plan`).
   - It is keyed by the verb, the task with its placeholders, the hash of the schema's JSON Schema and the names of the program's tools, with one variant per start page layout.
-  - It holds the actions that succeeded, in order, each as ADR 0091's `act` step: its frame path, locator ladder, Target fingerprint, method and arguments with placeholders, and Effect class.
+  - It holds the actions that succeeded, in order, each as ADR 0091's `act` step: its frame path, locator ladder, Target fingerprint, method and arguments with placeholders, and Effect class, and the last Effect before the recorded run first observed its target.
   - It holds the tool calls with their arguments.
   - Per output field, it holds the step at which Grounding found the value and the locator ladder and transform it was read with, so the output is read again at that step with no model, as ADR 0013's compiled mode. A value found in a tool's result is taken from that tool call again.
 - **Replayed whole, under ADR 0009's rule read across pages** (G1).
   - ADR 0009 checks every step's target before the first Effect. A task that crosses pages has steps whose page exists only after an Effect, such as a confirmation page after an order is placed, and no replay can observe that page beforehand.
-  - So, before each Effect, the replay checks against their Target fingerprints the Effect's own target and every remaining step's target on a page already open, having checked every earlier step as it replayed it; a step on a page not yet open is checked when its page opens, before it acts. The replay never navigates ahead to look. A Drift seen before an Effect therefore stops the replay before anything changes on the site, which is the lab failure ADR 0009 guards against, a consent box ticked before the Drift was seen.
+  - So, before each Effect, the replay checks against their Target fingerprints the Effect's own target and every remaining step's target that the recorded run observed before this Effect on a page already open, having checked every earlier step as it replayed it.
+  - Any other step is checked when the replay reaches it, before it acts: one on a page not yet open, or one whose target the recorded run first saw after an Effect, such as a "Checkout" button that appears once an item is in the cart. The replay never navigates ahead to look, and a target the site shows only after an Effect is not taken for Drift before it. A Drift seen before an Effect therefore stops the replay before anything changes on the site, which is the lab failure ADR 0009 guards against, a consent box ticked before the Drift was seen.
   - Then the output is read and the Success check runs, as in a live task. Replayed steps report `origin: plan`, with no model call.
 
   A replayed task repeats the decisions the model made, and the Success check is what vouches for them. Browser Use's `rerun_history` still calls a model for extraction and a summary, and its beta ignores the recorded run; Skyvern and Notte turn a run into code on their servers. "Replay without the model" is AI pain 1.
@@ -215,7 +216,7 @@ Under ADR 0079's rule, the call raises when it cannot keep its promise, and AI w
   - The Agent's own step cap is `agent.max_steps`, which is not a Limit.
 - **Amends ADR 0083.** `timeout.agent` joins the timeout family. `agent.max_steps`, `agent.max_stalled_steps`, `agent.domains`, `agent.human_pause` and `session.recovery.agent` join the settings schema. The call's `maxSteps`, `domains`, `model` and `timeout` are those settings at the run layer.
 - **Amends ADR 0009.**
-  - For a sequence that crosses pages, its Target fingerprint check before the first Effect reads: before each Effect, every target the replay can reach without performing it is checked.
+  - For a sequence that crosses pages, its Target fingerprint check before the first Effect reads: before each Effect, the Effect's own target and every remaining target the recorded run observed before it, on a page already open, are checked; any other step is checked when it is reached, before it acts.
   - An Agent's task gets no Repair: on Drift, or on a failed Success check after a replay, the loop takes over from there, and its steps replace the rest of the entry.
 - **Amends ADR 0006.** `session.recovery.agent` switches the AI agent login step of the recovery ladder.
 - **Amends ADR 0013.** An Agent's output may also be Grounded in the result of one of its Agent tools, the program's own data, and `GLOSSARY.md`'s **Grounding** says so.

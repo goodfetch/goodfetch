@@ -81,7 +81,7 @@ A closed component kept outside the open-source Products, used by Goodfetch Clou
 _Avoid_: enterprise edition, premium module, closed core
 
 **Browser host**:
-The Goodfetch process that runs beside a browser and carries out a Session's operations for an engine running elsewhere.
+The process, started from either Product's executable, that sits beside a browser and carries out a Session's operations for an engine running elsewhere.
 _Avoid_: worker, agent, sidecar
 
 **Borrowed browser**:
@@ -436,6 +436,10 @@ _Avoid_: classifier, router
 The requirement that every extracted value appears in the page it was read from (for an Agent's task, any page the task observed), or in the program's own data that an Agent tool returned, or follows from a declared transform.
 _Avoid_: verification, fact-check
 
+**Element reference**:
+A short name the engine gives an element in an AI accessibility snapshot of a page, such as `e12`, by which a model or a program acts on that element for as long as it stays in the page.
+_Avoid_: handle, element ID, node ID
+
 **Human pause**:
 The state of a Session's work while it waits for a person to complete a login, MFA, a CAPTCHA, a confirmation, a review or another step a program asks for.
 _Avoid_: manual step, HITL
@@ -529,7 +533,7 @@ One thing the Proving ground asks a tool to do on one page family, with its star
 _Avoid_: fixture, test case
 
 **Journey**:
-A goal a person reaches through Goodfetch's public surfaces, written as steps from a starting state to an outcome checked from outside the engine, kept under a stable ID and run on each surface that offers it.
+A goal a person reaches through a Product's public surfaces, written as steps from a starting state to an outcome checked from outside the engine, kept under a stable ID and run on each surface that offers it.
 _Avoid_: scenario, user story, critical user journey, flow, end-to-end test (for the Journey itself)
 
 **Golden scenario**:

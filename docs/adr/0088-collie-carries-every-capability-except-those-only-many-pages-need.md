@@ -99,6 +99,7 @@ Decided in [Collie's exact capability set](https://github.com/goodfetch/automan/
 ### Collie's results
 
 - Collie has no Datasets, Records, Exports, Sinks or DuckDB (ADR 0084). An extraction or an AI task returns its result to its caller, with its Provenance and the run's Verdict, as Stagehand's `extract` returns a value and leaves storage to its caller (same note, §2.4).
+  > Amended by [ADR 0091](0091-collies-ai-verbs-live-on-the-page-replay-from-a-plan-file-the-run-names-and-expect-runs-a-success-check.md): a single AI verb call (`act`, `observe`, `extract`) returns a `StepResult` with its output, how its step was resolved and its Usage, and no Verdict: the run's Verdict comes with its report once it finishes (ADR 0029), and an Agent's task returns its own (ADR 0079's `AiWorkResult`). The rest of a value's Provenance is kept in the Run trace.
 - A run's Key-value store stays in Collie: Code mode programs and Script Hooks keep their lasting state there (ADR 0051), and a program keeps its own state there across a resume.
 
 ### Collie inside Foxhound
@@ -110,6 +111,7 @@ Decided in [Collie's exact capability set](https://github.com/goodfetch/automan/
 
 - **Collie's `cargo-deny` ban list** keeps out at least DuckDB (`duckdb`, `libduckdb-sys`), `wreq`, and the crates only Sinks or Paid fetches need, such as `x402-rs` and `alloy`. The crate graph, the checks and each Size budget are [ADR 0087](0087-each-product-is-an-executable-crate-that-links-only-its-crates-and-has-its-own-size-budget.md)'s.
 - **What Collie refuses.** An operation, a command or a Recipe that needs a capability only Foxhound carries, and such a setting given to a Run or connection on a Collie engine, are refused with `not_in_product`, as [ADR 0087](0087-each-product-is-an-executable-crate-that-links-only-its-crates-and-has-its-own-size-budget.md) decides; it also lets a configuration file hold Foxhound's keys.
+  > Amended by [ADR 0096](0096-the-browser-host-runs-from-either-products-executable-and-goodfetch-cloud-runs-each-run-on-the-product-it-needs.md): a Recipe needs the Product its manifest names, which `init` writes and Collie refuses with `not_in_product` when it names Foxhound; whichever engine runs a Recipe holds its code to that Product, so on Foxhound's engine a Foxhound-only operation, Plugin kind or Hook stage on the run of a Recipe that names Collie is refused, whether the Recipe's code or a Client calls or enables it.
 - **Collie's Operation catalog** holds the operations of everything Collie carries. How the catalog is split or marked per Product, what `hello` announces, which Integrations and MCP profiles each Product gets, and how surfaces are packaged are [Protocol, Operation catalog and SDKs across two products](https://github.com/goodfetch/automan/issues/458)'s.
 
 ## Considered Options

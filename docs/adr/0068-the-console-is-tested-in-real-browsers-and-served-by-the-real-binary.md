@@ -49,6 +49,7 @@ Decided in [Console and docs test stack](https://github.com/Jbmanllr/automan/iss
   - `console/tests/served/`: the Console's integration tests through the served Console.
   - `console/tests/journeys/J-NNN.spec.ts`: the `console` variants of Journeys (ADR 0063).
   - `conformance/console/`: the Console conformance suite (below).
+  > Amended by [ADR 0094](0094-both-products-are-released-and-signed-together-and-each-test-runs-on-collie-unless-it-needs-foxhound.md): each Product's Console build is tested served by its own executable, a screen both carry on Collie's; a served test on Foxhound's executable checks that every route of Collie's build is in Foxhound's and renders.
 - **Each test starts its own Daemon** through a Playwright fixture of `@goodfetch/test-support`, which calls `goodfetch-test-env` (ADR 0062): its own Goodfetch home, cleared environment, port 0, and its own Proving ground when it needs pages. Each test gets a fresh browser context.
 - **Sign-in follows the product's own path:** the single-user sign-in link the binary gives, Playwright's virtual WebAuthn authenticator for passkeys and step-up, and a local OIDC provider, pinned by digest, for single sign-on. A test never writes a cookie or storage state it did not get from the Console.
 - **Time:** the server's durations are short settings (ADR 0059); the browser's clock is `page.clock`.
@@ -70,8 +71,10 @@ Decided in [Console and docs test stack](https://github.com/Jbmanllr/automan/iss
 
 - **It is the Console's browser suite pointed at a target.** It runs on Playwright Test, takes its target's endpoint and authentication as configuration, and writes area 2's result document with `kind = "conformance"` for each target.
 - **Targets:** the Daemon; the Stub gateway; Goodfetch Cloud's gateway, run from the private repository.
+  > Amended by [ADR 0096](0096-the-browser-host-runs-from-either-products-executable-and-goodfetch-cloud-runs-each-run-on-the-product-it-needs.md): the targets are each Product's Daemon, serving its own Console build, the Stub gateway and Goodfetch Cloud's gateway.
 - **Cases** cover what the Console needs from its target: `runs.list`, event resumption from a position and the snapshot when the position is gone, lossless events, "Needs you", large files by handle, sign-in and step-up, the SSE-plus-`POST` fallback, the read-only banner and reconnection, the content origin, and the security headers.
 - **The Stub gateway** is a test-only executable in the public repository (`publish = false`), built by area 12. It serves the same Console with the same headers, starts an Attached engine per run, keeps its own index for `runs.list`, forwards every other operation to the engine that owns the run, and authenticates the way the Cloud gateway does. It proves the Console uses nothing a Daemon offers beyond the catalog. Area 14 confirms the gateway contract it stands for.
+  > Amended by [ADR 0096](0096-the-browser-host-runs-from-either-products-executable-and-goodfetch-cloud-runs-each-run-on-the-product-it-needs.md): it serves Foxhound's Console build, as Goodfetch Cloud does, and starts each run's Attached engine from the executable of the Product that run gets, both Products' executables taken by path from the same commit, so it depends on no Foxhound crate. Its cases include runs on both Products' engines, routed and announced as Goodfetch Cloud's gateway does.
 
 ### The live-view packages
 

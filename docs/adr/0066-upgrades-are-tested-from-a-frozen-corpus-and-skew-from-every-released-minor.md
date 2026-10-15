@@ -84,6 +84,7 @@ Generated for each registered format, each with its Error code and message snaps
 - **Clean-up rules channel** with sets of several minors: the newest readable set is used (ADR 0047).
 - **An Operator policy found only for an older major:** the engine refuses to start and names `upgrade-files` (ADR 0030).
 - **Handshakes** (the JSON-RPC protocol, the Browser host, the plugin protocol's range, the peer protocol): a refused version is refused in the reply to `hello`, before any other message, and the connection closes. This replaces a time budget, such as Stagehand's 5 seconds, with a check that cannot flake.
+  > Amended by [ADR 0096](0096-the-browser-host-runs-from-either-products-executable-and-goodfetch-cloud-runs-each-run-on-the-product-it-needs.md): between an engine and a Browser host only another major is refused; a fabricated `hello` of a newer or older minor checks that both sides settle on the lower one, and a Session needing more than an older Browser host's minor checks that the engine fails it with `browser_host_outdated` before sending it to the Browser host.
 
 A test fabricates a version by writing the header, or by sending its own `hello`. No build carries a version override (ADR 0059). Each handshake refusal is tested twice:
 - in the Quick suite, in process: the handshake code receives the fabricated `hello` over an in-memory transport, and the test checks the reply and that the transport closes;
@@ -95,12 +96,15 @@ A test fabricates a version by writing the header, or by sending its own `hello`
   - **Clients:** the TypeScript SDK, the Python SDK, the Rust crate's client, the CLI and the MCP server, against the current Daemon, on Linux with one runtime each. The SDKs also run over stdio, with `GOODFETCH_ENGINE_PATH` pointing at the current binary, the hotfix path of ADR 0030 (see the amendment to ADR 0024 below).
   - **The Console:** a Console page served by an older Daemon keeps working after the current Daemon replaces it on the same Goodfetch home.
   - **The Browser host:** older engines against the current Browser host.
+    > Amended by [ADR 0096](0096-the-browser-host-runs-from-either-products-executable-and-goodfetch-cloud-runs-each-run-on-the-product-it-needs.md): the Browser host runs in both directions: older engines against the current Browser host, and the current engine against older Browser hosts, which settle on the lower minor.
   - **Plugins:** older first-party Plugins, as OCI artifacts by digest, through the plugin conformance suite against the current engine.
 
   An SDK and the Attached engine it ships with never skew (ADR 0024); only `GOODFETCH_ENGINE_PATH` pairs an SDK with another engine. The `0.y` previews have no cross-minor skew, because each preview counts as a major (ADR 0030).
+  > Amended by [ADR 0094](0094-both-products-are-released-and-signed-together-and-each-test-runs-on-collie-unless-it-needs-foxhound.md): each Product's Clients, SDKs over stdio (through its own engine-path variable) and Console build run against the current executable of the same Product. A Collie Client on a Foxhound engine, which [Protocol, Operation catalog and SDKs across two products](https://github.com/goodfetch/automan/issues/458) admits, has its Product check at `hello` tested for every pair of Products with fabricated `hello`s, as version refusals are; files shared across Products follow [Collie and Foxhound installed on one machine](https://github.com/goodfetch/automan/issues/486).
 - **What an old Client runs.** The old release's own Journeys ([ADR 0063](0063-end-to-end-tests-follow-a-catalog-of-numbered-journeys-kept-in-the-repository.md)), checked out at its tag with its own seeds. The old tag's Journey helper runs each variant with the old release's Client against the current binary, given by path. Each variant keeps ADR 0063's fresh start: its own Proving ground and its own Goodfetch home, shared with no other variant, so a Journey that starts, stops or moves the Daemon starts the current one. The Journeys assert what that release promised, and a minor keeps every promise.
   - A Journey that asserts something outside semver (ADR 0030) is fixed on `main`.
   - On an old tag, such a Journey's variant is excluded by its variant ID (`J-NNN@<surface>`) in `compat/skew-exclusions.toml`, with a reason, in a reviewed change.
+  > Amended by [ADR 0094](0094-both-products-are-released-and-signed-together-and-each-test-runs-on-collie-unless-it-needs-foxhound.md): each old Journey runs against the current executable of its Product.
 - **Rolling upgrades.** A three-member Daemon group starts on each older minor of the major and runs under load: a Partitioned crawl, a Schedule and live Limits. Its Group members are upgraded one at a time, once with the Lead Daemon last (the order a StatefulSet's default rolling update gives when the Lead Daemon is pod 0) and once with it first. The test checks ADR 0055's guarantees:
   - no Record lost or duplicated beyond the Sink's Guarantee class;
   - no Limit exceeded;
@@ -119,9 +123,11 @@ A test fabricates a version by writing the header, or by sending its own `hello`
   - any skipped step fails the job.
 
   During the previews, which have no cross-minor upgrade, the Helm upgrade runs the current chart against itself, as every empty version list does.
+  > Amended by [ADR 0094](0094-both-products-are-released-and-signed-together-and-each-test-runs-on-collie-unless-it-needs-foxhound.md): rolling upgrades and the Helm upgrade run on Foxhound, whose load includes a Partitioned crawl; Collie's chart is the same chart with Collie's image (ADR 0049).
 - **Older engines and newer files:**
   - each older minor of the major, and the last minor of each supported earlier major, opens the Usage ledger, the known-certificates store and the Politeness file the current engine wrote, enforces what it reads and refuses flagged Limits it cannot;
   - each older minor refuses a current Checkpoint, Plan, settings file and Schedule file with the upgrade message.
+  > Amended by [ADR 0094](0094-both-products-are-released-and-signed-together-and-each-test-runs-on-collie-unless-it-needs-foxhound.md): an older Collie opens the formats both Products carry, an older Foxhound Foxhound's own.
 - **Two majors on one machine.** The previous major's last release and the current build run on one machine:
   - their Daemons never restart each other;
   - only the active major fires Schedules;

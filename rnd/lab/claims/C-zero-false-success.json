@@ -1,6 +1,6 @@
 {
   "id": "C-zero-false-success",
-  "statement": "The Automan driver produces no false successes on the actionability matrix, where competing native primitives do.",
+  "statement": "The Collie driver produces no false successes on the actionability matrix, where competing native primitives do.",
   "decisionId": "D-browser-driver",
   "metricId": "false-success-count",
   "comparator": {

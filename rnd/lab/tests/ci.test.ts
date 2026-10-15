@@ -20,7 +20,7 @@ test('the local CI succeeds only when every step succeeds', async () => {
 });
 
 test('a failed test step names each failing test with the first lines of its error', async () => {
-  const dir = await mkdtemp(join(tmpdir(), 'automan-ci-'));
+  const dir = await mkdtemp(join(tmpdir(), 'goodfetch-ci-'));
   await writeFile(join(dir, 'assertion.test.ts'), `import { test } from 'node:test'; import assert from 'node:assert/strict';
 test('passes', () => {});
 test('waits too little', () => { assert.equal(1, 2, 'deadline missed'); });\n`);

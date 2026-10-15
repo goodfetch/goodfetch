@@ -7,7 +7,7 @@ No single tool covers Goodfetch: every Rust simulator runs one process, and none
 - etcd model-checks its Raft library in TLA+ with trace validation ([etcd-io/raft](https://github.com/etcd-io/raft/blob/main/tla/README.md)), and its robustness suite adds failpoints, `kill` and LazyFS.
 - SQLite tests crashes through a VFS that drops unsynced writes ([testing](https://sqlite.org/testing.html)).
 
-Decided in [Deterministic simulation and crash testing for leases, fencing, groups and run state](https://github.com/Jbmanllr/automan/issues/275), answered by the agent on the owner's delegation, on the facts of [Deterministic time, randomness, storage and OS services in a multi-process Tokio system](https://github.com/Jbmanllr/automan/issues/264) ([findings](https://github.com/Jbmanllr/automan/blob/research/deterministic-testing/rnd/research/2026-10-13-deterministic-testing.md)) and [Rust test tooling in 2026](https://github.com/Jbmanllr/automan/issues/263) ([findings](https://github.com/Jbmanllr/automan/blob/research/rust-test-tooling/rnd/research/2026-10-13-rust-test-tooling.md)). It builds on ADR 0059's `Clock` and `Entropy` and on ADR 0062's test layout and `goodfetch-test-support`. The rules every test follows are in `TESTING.md`.
+Decided in [Deterministic simulation and crash testing for leases, fencing, groups and run state](https://github.com/goodfetch/goodfetch/issues/275), answered by the agent on the owner's delegation, on the facts of [Deterministic time, randomness, storage and OS services in a multi-process Tokio system](https://github.com/goodfetch/goodfetch/issues/264) ([findings](https://github.com/goodfetch/goodfetch/blob/research/deterministic-testing/rnd/research/2026-10-13-deterministic-testing.md)) and [Rust test tooling in 2026](https://github.com/goodfetch/goodfetch/issues/263) ([findings](https://github.com/goodfetch/goodfetch/blob/research/rust-test-tooling/rnd/research/2026-10-13-rust-test-tooling.md)). It builds on ADR 0059's `Clock` and `Entropy` and on ADR 0062's test layout and `goodfetch-test-support`. The rules every test follows are in `TESTING.md`.
 
 ## Decision
 
@@ -161,10 +161,10 @@ A failure in a deterministic nightly-only job is a bug, not flakiness. A real-pr
 
 ## Consequences
 
-- **[Engine tracer: an Attached engine answers `hello` over stdio](https://github.com/Jbmanllr/automan/issues/214) builds on plain Tokio.** There is no runtime swap. From its first code, its stdio connection comes from `transport`, it spawns tasks and threads and blocks only through `tasks`, and it leaves runtime construction to `main`.
+- **[Engine tracer: an Attached engine answers `hello` over stdio](https://github.com/goodfetch/goodfetch/issues/214) builds on plain Tokio.** There is no runtime swap. From its first code, its stdio connection comes from `transport`, it spawns tasks and threads and blocks only through `tasks`, and it leaves runtime construction to `main`.
 - **Amends ADR 0038.** Its Structured concurrency allowed blocking work "on dedicated threads their owner joins". Dedicated threads now come only from the `tasks` module, which runs their bodies as tasks in the Simulation, and `std::thread` spawning joins the banned spawn functions. It also adds, for every crate: the `transport` seam with the network as a value, the socket, stdin and runtime-construction bans, and the ban on `block_in_place`. ADR 0037's amendment rule therefore carries them to every area's spec.
 - **Amends `STYLE.md`:** its dedicated-thread rule changes as above, these rules join its concurrency and lint rules, and the `goodfetch_loom` cfg joins its custom cfgs. `TESTING.md`'s "Remote but owned" adds the Simulation.
-- **Changes area 3's spec** ([Spec: Engine runtime (V1 area 3)](https://github.com/Jbmanllr/automan/issues/213)):
+- **Changes area 3's spec** ([Spec: Engine runtime (V1 area 3)](https://github.com/goodfetch/goodfetch/issues/213)):
   - Its scenarios with several processes add Toxiproxy partitions and cut-offs, LazyFS, and seeded kill moments.
   - Its in-memory adapter scenarios move into the Simulation and the model-based tests above.
   - It gains a `transport` module beside `rpc`, which takes its connections from it, and the ops listener's socket comes from `transport` too.

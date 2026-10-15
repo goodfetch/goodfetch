@@ -1,5 +1,5 @@
 // A minimal MCP server over stdio (JSON-RPC 2.0, protocol 2025-06-18) exposing the page tools of one browser page. It attaches
-// to the page through the browser's DevTools endpoint given on the command line, as an Automan MCP server would.
+// to the page through the browser's DevTools endpoint given on the command line, as a Collie MCP server would.
 import { createInterface } from 'node:readline';
 import { CdpConnection, CdpPage } from '../cdp-node/cdp.ts';
 import { PageTools, toolDefinitions } from '../../src/ai/page-tools.ts';
@@ -13,7 +13,7 @@ const reply = (id: unknown, body: Record<string, unknown>) => process.stdout.wri
 for await (const line of createInterface({ input: process.stdin })) {
   const message = JSON.parse(line) as { id?: unknown; method: string; params?: Record<string, unknown> };
   if (message.id === undefined) continue; // notifications need no answer
-  if (message.method === 'initialize') reply(message.id, { result: { protocolVersion: '2025-06-18', capabilities: { tools: {} }, serverInfo: { name: 'automan-page', version: '0.1.0' } } });
+  if (message.method === 'initialize') reply(message.id, { result: { protocolVersion: '2025-06-18', capabilities: { tools: {} }, serverInfo: { name: 'goodfetch-page', version: '0.1.0' } } });
   else if (message.method === 'tools/list') reply(message.id, { result: { tools: toolDefinitions.map(t => ({ name: t.name, description: t.description, inputSchema: t.parameters })) } });
   else if (message.method === 'tools/call') {
     const { name, arguments: args } = message.params as { name: string; arguments?: Record<string, unknown> };

@@ -12,7 +12,7 @@ export type AdmissionPolicy = 'fifo-global' | 'fair-domain';
 export type AdmissionConfig = { policies: AdmissionPolicy[]; scenario: string; domains: { name: string; ratePerSecond: number; light: boolean }[]; durationMs: number; serviceMs: number; workers: number; domainLimit: number; capacity: number; domainCapacity: number; batchMax: number; blocks: number; seed: number; timeoutMs: number; crashAtMs?: number };
 export type AdmissionCell = { policy: AdmissionPolicy; scenario: string; fault: 'none' | 'crash' };
 export const admissionCombinations = (config: AdmissionConfig): AdmissionCell[] => config.policies.map(policy => ({ policy, scenario: config.scenario, fault: config.crashAtMs ? 'crash' : 'none' }));
-export const admissionBinary = () => join(labRoot, '.native/automan-workflow-rust');
+export const admissionBinary = () => join(labRoot, '.native/goodfetch-workflow-rust');
 type Submission = { jobId: string; domain: string; sentAt: number; respondedAt: number | null; admitted: boolean | null; code: string | null; attempts: number; duplicate?: boolean; error?: string };
 const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 

@@ -6,7 +6,7 @@
    "primary": "lists"
   },
   "case": "paragraph-items",
-  "source": "automan-curated"
+  "source": "goodfetch-curated"
  },
  "ground_truth": {
   "main_content": "- First point.\n\n- Second point, longer.\n\nDone.\n",

@@ -1,6 +1,6 @@
-# Automan — crawl, resource and worker capability matrix
+# Goodfetch — crawl, resource and worker capability matrix
 
-State of the sources as of **October 7, 2026**. The Automan contracts are **proposed**, they do not describe an existing implementation. Scope: Crawlee TS/Python, Spider, Scrapy, Colly, Crawl4AI, Firecrawl, Scrapling, Katana, Apache StormCrawler and relevant browser transports/clients. It does not claim to cover every project in the world or every option of every repository.
+State of the sources as of **October 7, 2026**. The Goodfetch contracts are **proposed**, they do not describe an existing implementation. Scope: Crawlee TS/Python, Spider, Scrapy, Colly, Crawl4AI, Firecrawl, Scrapling, Katana, Apache StormCrawler and relevant browser transports/clients. It does not claim to cover every project in the world or every option of every repository.
 
 Supplementary research: **`sources_reviewed = 10`**, two Exa calls of five results for Katana and StormCrawler, followed by primary inspection of the sources. Reuse of previous research ([engines](2026-10-07-crawl-engines.md), [Crawlee/Spider contracts](2026-10-07-crawlee-spider-contracts-followup.md), [engines/workers/browsers](2026-10-07-engines-workers-browsers.md)) without recounting their results. The archives and files were read; no benchmark or run of these projects was performed for this matrix.
 
@@ -23,11 +23,11 @@ Supplementary research: **`sources_reviewed = 10`**, two Exa calls of five resul
 
 ## 2. Families: do not adopt the wrong level of abstraction
 
-| Tool | Core role | Runtime / acquisition | Browser | Observed native distribution | Useful position for Automan |
+| Tool | Core role | Runtime / acquisition | Browser | Observed native distribution | Useful position for Goodfetch |
 |---|---|---|---|---|---|
 | Crawlee TS | URL processing, handlers, queue, sessions, autoscale, storage | Node/TS, replaceable HTTP clients; optional Impit | Playwright/Puppeteer; separate Stagehand adapter | A local async pool is not a distributed fleet; multi-client queue depending on the backend | Functional reference and ecosystem bridge. |
 | Crawlee Python | Same family, distinct storage clients | Async Python, HTTP and parsing | Playwright; Stagehand REST + Playwright/CDP | SQL/Redis coordinate claims; worker deployment remains to be provided | Reference for queues independent of the browser engine. |
-| Spider | Rust HTTP/rendering/budget collection, smart and hooks | Rust/Tokio, reqwest | Chromey → Chrome/Chromium CDP; optional features | `decentralized` + `spider_worker` HTTP Rust/Warp/Hyper | Adapter and specialized components; durable frontier owned by Automan. |
+| Spider | Rust HTTP/rendering/budget collection, smart and hooks | Rust/Tokio, reqwest | Chromey → Chrome/Chromium CDP; optional features | `decentralized` + `spider_worker` HTTP Rust/Warp/Hyper | Adapter and specialized components; durable frontier owned by Foxhound. |
 | Scrapy | Scheduler/downloader/middlewares/pipelines | Python; engine/downloader/scraper boundaries | Plugins such as scrapy-playwright | Distribution via extensions, not a universal base fleet | Contracts for middlewares, pipelines and local resume. |
 | Colly | Callback-based Go HTTP collector | Go/net/http, customizable transport | No integrated JS rendering equivalent to Playwright | Goroutine queue; injectable storage | Simple HTTP baseline, per-domain limits and callbacks. |
 | Crawl4AI | Content/corpus/extraction for AI, deep crawling | Python, HTTP/browser strategies | Playwright, managed browser/CDP, sessions | Local dispatcher; Docker/API service distinct from a durable distributed queue | Extraction, cache, sessions and memory control. |
@@ -40,7 +40,7 @@ Sources: pinned references above; [Spider worker](https://github.com/spider-rs/s
 
 ## 3. Frontier, discovery and scheduling matrix
 
-| Capability | Crawlee verified | Spider verified | Supplementary references / limit | Proposed Automan contract |
+| Capability | Crawlee verified | Spider verified | Supplementary references / limit | Proposed Goodfetch contract |
 |---|---|---|---|---|
 | Seeds, list and dynamic queue | `RequestList`/`RequestQueue`, `addRequests`, labels/userData/router | `Website`, extra links, runtime queue under `sync` | KA stdin/list/URL inputs; ST spouts | `CrawlSpec` typed seeds + source + scope; idempotent addition during a run. |
 | Canonical URL and dedup | Configurable unique key; queue already distinguishes present/handled | Visited sets, normalization and signatures depending on features | SC fingerprints; CO request IDs; SL fingerprints | Transport URL preserved; work key includes method/body and task context; entity dedup separate from URL dedup. |
@@ -59,7 +59,7 @@ Sources: [Crawlee queue V2](https://github.com/apify/crawlee/blob/v3.18.2/packag
 
 ## 4. Pool matrix: four different resources
 
-| Resource/capability | Crawlee | Spider | Other verified lessons | Proposed Automan contract |
+| Resource/capability | Crawlee | Spider | Other verified lessons | Proposed Goodfetch contract |
 |---|---|---|---|---|
 | HTTP connections | Replaceable client; transport lifecycle outside BrowserPool | reqwest reused; compression/stream/H2 in manifest | CO reusable net/http transport; Impit/curl_cffi profiling | Connection pool partitioned by endpoint/proxy/TLS profile/identity; socket/byte budgets; keep-alive and DNS measured. |
 | Browser processes | BrowserPool selects/relaunches/retires browsers | BrowserController/OnceBrowser; lazy smart upgrade, reuse during the crawl | C4 managed/CDP cache; KA Rod pool; ST configurable Playwright | Local/remote `BrowserHost` pool with health checks, warm capacity, resource limits, draining, crash recovery. |
@@ -71,7 +71,7 @@ Sources: [Crawlee queue V2](https://github.com/apify/crawlee/blob/v3.18.2/packag
 | Proxy pool / stickiness | ProxyConfiguration tied to the session; rotation/tiers depending on setup | RequestProxy/proxy routing and retry directives | CO custom proxy funcs; distinct impersonation transports | Proxy pool with capabilities/cost/health, sticky identity, cooldown and trace of changes; external providers as adapters. |
 | Fingerprints | BrowserPool generation/injection/cache; adapter restrictions | Chrome fingerprint/config and optional components | SL Patchright/challenge logic; Impit HTTP/TLS | Consistent headers/TLS/browser/locale/timezone bundle, versioned config; measure success, do not promise undetectability. |
 | Pool hooks | pre/post launch, create page, close page | Specific hooks/script/fetchers | Hooks themselves can create deadlock/latency | Async extensions with a deadline; declared capabilities, safe context; hook order and scope tested. |
-| Browser borrow / remote | Backend plugin and launcher; CDP via adapter | Retained controller provided to `fetch_chrome_persisted` | C4 CDP cache refcount; KA ChromeWSURL; ST CDP or remote Playwright | Explicit owned versus borrowed; close the resources created by Automan; the user browser's lifecycle is preserved. |
+| Browser borrow / remote | Backend plugin and launcher; CDP via adapter | Retained controller provided to `fetch_chrome_persisted` | C4 CDP cache refcount; KA ChromeWSURL; ST CDP or remote Playwright | Explicit owned versus borrowed; close the resources created by Goodfetch; the user browser's lifecycle is preserved. |
 | Concurrent acquisition | Page pool and AutoscaledPool are distinct | Static semaphore by default, opt-in adaptive handle | C4 memory adaptive dispatcher; SC downloader slots | Multidimensional resource scheduler; preserve context/page/LLM/sink reservations, avoid double counters and lost permits. |
 
 Sources: [BrowserPool and defaults](https://github.com/apify/crawlee/blob/v3.18.2/packages/browser-pool/src/browser-pool.ts#L357), [BrowserCrawler/session/proxy](https://github.com/apify/crawlee/blob/v3.18.2/packages/browser-crawler/src/internals/browser-crawler.ts), [Spider browser lifecycle](https://github.com/spider-rs/spider/blob/e4b53c5b582357e46433fa9ba3d91f930fb67cb4/spider/src/website.rs#L9180), [Spider retained controller](https://github.com/spider-rs/spider/blob/e4b53c5b582357e46433fa9ba3d91f930fb67cb4/spider/src/website.rs#L7575), [Crawl4AI BrowserManager](https://github.com/unclecode/crawl4ai/blob/v0.9.4/crawl4ai/browser_manager.py), [Scrapling sessions](https://github.com/D4Vinci/Scrapling/blob/v0.4.15/scrapling/spiders/session.py), [Katana pool](https://github.com/projectdiscovery/katana/blob/v1.8.0/pkg/engine/headless/browser/browser.go), [Katana pool and borrowed browser tests](https://github.com/projectdiscovery/katana/blob/v1.8.0/pkg/engine/headless/browser/cwu_test.go).
@@ -82,13 +82,13 @@ Sources: [BrowserPool and defaults](https://github.com/apify/crawlee/blob/v3.18.
 
 ## 5. Durability, resume and retry scope matrix
 
-| Mechanism | What is actually present | What this does not establish | Proposed Automan contract |
+| Mechanism | What is actually present | What this does not establish | Proposed Goodfetch contract |
 |---|---|---|---|
 | C-TS RequestQueueV2 | Claim with lock, extension, reclaim, handled; local storage backend or configured service | Transaction with dataset/business effects; unchanged resume boundary after a crash | Lease token + epoch fencing; attempt separate from the job; atomic commit of result/state when they share the store. |
 | C-PY SQL | Block expiry/client_key; `FOR UPDATE SKIP LOCKED` for PG/MySQL/MariaDB, another claim path for other dialects | Same behavior/performance for all dialects; global cloud guarantee | Backend contract tests per dialect; multi-worker capability announced only after concurrency/kill tests. |
 | C-PY Redis | Lua scripts for atomic claim and stale recovery; sets or Bloom depending on strategy | Durability independent of the Redis config; dataset/job atomicity; absence of false positives in Bloom mode | Explicit durable store; exact dedup by default for completeness; Bloom only as an accelerator or an accepted-loss mode. |
 | C-TS storage defaults | `persistStorage=true` and **`purgeOnStart=true`** | Automatic resume of the same run with default queues | Stable Run ID, resume explicitly tied to the run; no implicit purge of durable state in production mode. |
-| SP SQLite disk | Tables `resources(id,url)` and `signatures`: visited/signatures; persist=false by default, opt-in retention | Pending frontier, leases, step checkpoints and atomic sink | The Spider adapter publishes discoveries; the Automan durable frontier remains the source of truth. |
+| SP SQLite disk | Tables `resources(id,url)` and `signatures`: visited/signatures; persist=false by default, opt-in retention | Pending frontier, leases, step checkpoints and atomic sink | The Spider adapter publishes discoveries; the Foxhound durable frontier remains the source of truth. |
 | SP queue and pages | In-memory Tokio broadcast; `ChannelGuard` with a 250ms timeout; optional spool | Durable job/result journal; absence of loss due to consumer lag | Backpressured IPC/streams + referenced durable spool; acknowledge after commit, handle late messages explicitly. |
 | SC JOBDIR | Disk priority queue + persisted dupefilter; non-serializable requests may stay in memory | Each external callback being atomic; browser snapshots | Serializable Request schema independent of the SDK; refuse or isolate non-persistable callbacks in a durable run. |
 | CO queue/storage | Goroutine queue; Storage `GetRequest()` pop; memory by default; separate visited/cookies Storage | Claim/ack/lease API in the base interface; exactly-once | Do not adapt a simple pop while claiming to preserve durable semantics; the adapter must declare its guarantees. |
@@ -103,7 +103,7 @@ Direct sources: [C-TS queue](https://github.com/apify/crawlee/blob/v3.18.2/packa
 
 ## 6. Workers and autoscaling matrix
 
-| Capability | Verified market state | Proposed Automan contract / dependency |
+| Capability | Verified market state | Proposed Goodfetch contract / dependency |
 |---|---|---|
 | Local async | Crawlee AutoscaledPool, Spider Tokio, Colly goroutines, C4 dispatcher, Scrapling AnyIO, Katana fetchers/input parallelism | Local worker = job executor, not a new definition of the job. Identical primitives locally/remotely. |
 | Process isolation | Browsers have their own processes; control/runtime can be another process | Rust sidecar; browser crash isolated from the control plane; limits/process group/kill and cleanup tested. |
@@ -120,7 +120,7 @@ Sources: [Crawlee autoscale](https://github.com/apify/crawlee/blob/v3.18.2/packa
 
 ## 7. Extraction, outputs, validation and observability matrix
 
-| Capability | Verified overlap | Limit / gap | Proposed Automan contract |
+| Capability | Verified overlap | Limit / gap | Proposed Goodfetch contract |
 |---|---|---|---|
 | HTML/DOM parsing | Crawlee Cheerio/JSDOM/LinkeDOM/Parsel/BS; SP lol_html streaming; SC selectors; SL parsing; KA goquery | The parser choice alone does not predict browser/network/LLM cost | Raw response + DOM provenance; deterministic parse first; explicitly versioned normalization. |
 | Markdown/clean content | C4 particularly strong; FC formats; SP conversions depending on modules; competing extractors | Cleaning can remove evidence/text useful to the business | Content profiles, preserve raw + transform lineage; tested exclusion/inclusion options. |
@@ -141,10 +141,10 @@ Sources: [Crawlee Dataset and non-transaction](https://github.com/apify/crawlee/
 |---|---|---|---|
 | Scrapy | Scheduler, priorities, dupefilter, JOBDIR, downloader middleware retry/cookies/robots, AutoThrottle, pipelines/signals | Session/browser leases and step journal, native Rust adapter, guarantees for externalized sinks | Python adapter/interop, adopt its boundaries and contract tests; do not rewrite the product around its Python callbacks. |
 | Colly | HTTP callbacks, domains/limit, cookies/visited storage, cache, queue workers | Base queue pop without ack/lease; rendering and agents; workflow checkpoint | HTTP baseline and simple API; do not inherit its queue contract for durability. |
-| Crawl4AI | Browser reuse/context/session, CDP cache refcount, cache, MemoryAdaptiveDispatcher, rate limiter, BFS/deep crawl/content | Durable, distributed and atomic frontier not established; session invalidation/exclusivity to be enforced; additional attribution | Extraction adapter and content quality reference; Automan runtime owns budgets/leases/resume. |
-| Scrapling | Scheduler tracks pending+inflight, pickle+seen snapshot, restore; SessionManager, throttling/Retry-After, adaptive parsing | Local periodic checkpoint≠durable operations; pickle file is not a multi-language contract; auth/sink atomicity not established | Reuse at the Python adapter level, with Automan's own state format and validation; reference target for extraction/repair. |
+| Crawl4AI | Browser reuse/context/session, CDP cache refcount, cache, MemoryAdaptiveDispatcher, rate limiter, BFS/deep crawl/content | Durable, distributed and atomic frontier not established; session invalidation/exclusivity to be enforced; additional attribution | Extraction adapter and content quality reference; Goodfetch runtime owns budgets/leases/resume. |
+| Scrapling | Scheduler tracks pending+inflight, pickle+seen snapshot, restore; SessionManager, throttling/Retry-After, adaptive parsing | Local periodic checkpoint≠durable operations; pickle file is not a multi-language contract; auth/sink atomicity not established | Reuse at the Python adapter level, with Goodfetch's own state format and validation; reference target for extraction/repair. |
 | Katana | Standard + hybrid + full-headless modes; Rod pool; JS/XHR/forms; rate/scope/filter; authenticated CDP and recorded flow | `resume.cfg` roots only, not the full frontier; reconnaissance/exploration≠strict workflow; no distributed lease | Discovery adapter or plugin inspiration; test graph/dedup/confinement before automatic admission. |
-| StormCrawler | Continuous frontier, status/metadata/nextFetchDate, URLPartitioner, politeness, spouts/bolts, SQL/OpenSearch/URLFrontier, Playwright/Tika/WARC | Storm/Java operational dependency; best-effort action order and ack stream do not establish the success of an application workflow | Reference for the crawl control plane; optional large-scale bridge; do not impose Storm on Automan's core. |
+| StormCrawler | Continuous frontier, status/metadata/nextFetchDate, URLPartitioner, politeness, spouts/bolts, SQL/OpenSearch/URLFrontier, Playwright/Tika/WARC | Storm/Java operational dependency; best-effort action order and ack stream do not establish the success of an application workflow | Reference for the crawl control plane; optional large-scale bridge; do not impose Storm on Goodfetch's core. |
 | Firecrawl | Multi-format API, engine registry, NuQ service queue, PG locks/heartbeat, worker service integration | Some engines are remote wrappers; cloud features not fully contained; AGPL core; snapshot≠stable release | Product/benchmark reference and API adapter; no broad copying into a permissive core without an explicit license decision. |
 
 For Katana, **v1.8.0** has distinct `Headless` and `HeadlessHybrid` in its options and its runner; do not reuse an old description simply saying "headless mode is always hybrid". For StormCrawler, the `PageActions` chain logs and absorbs action failures: the actions facilitate content collection, they do not constitute the equivalent of a workflow that fails if an essential postcondition is not satisfied. [Katana engine choice](https://github.com/projectdiscovery/katana/blob/v1.8.0/internal/runner/runner.go#L96), [Katana browser options](https://github.com/projectdiscovery/katana/blob/v1.8.0/pkg/engine/headless/headless.go), [Storm PageActions](https://github.com/apache/stormcrawler/blob/stormcrawler-3.7.0/external/playwright/src/main/java/org/apache/stormcrawler/protocol/playwright/PageActions.java).
@@ -170,7 +170,7 @@ For Katana, **v1.8.0** has distinct `Headless` and `HeadlessHybrid` in its optio
 
 These licenses are **file/package facts**, not a complete legal audit of all dependencies. Copies, forks and distributions must preserve the necessary notices. DrissionPage/Selenium-Driverless are not retained as a permissive foundation: the commercial restrictions identified in the initial report are not compatible with reuse presumed to be free.
 
-## 10. Automan target contract: sources of truth and invariants
+## 10. Goodfetch target contract: sources of truth and invariants
 
 ### Proposed objects and owners
 
@@ -218,7 +218,7 @@ Priorities order validation, **not a reduction of ambition or a small-team estim
 | F-17 P2 | Multi-backend race/hedge/quality comparison | F-06/F-09/F-10 | Safe acquisition only; siblings cancelled and costs accounted for; quality result≥baseline. |
 | F-18 P3 | Crawlee/Scrapy/Spider/Katana/Storm/Firecrawl API bridges | F-01/F-02/F-06 | Each adapter passes the contract suite; capability gaps visible, source/cloud version pinned. |
 
-**Structuring dependency:** advance F-02/F-03/F-06 before multiplying engines and workers. Without them, Automan would accumulate market features while leaving the three identified gaps — durability, commit and session concurrency — to user code.
+**Structuring dependency:** advance F-02/F-03/F-06 before multiplying engines and workers. Without them, Goodfetch would accumulate market features while leaving the three identified gaps — durability, commit and session concurrency — to user code.
 
 ## 12. Proof protocol and build/reuse choice
 
@@ -230,6 +230,6 @@ Proposed decision: **own protocol/journal/frontier/identity/result-policy; reuse
 
 - Facts from pinned sources, without full validation of installation or network/DB/Chrome stress.
 - The Firecrawl snapshot and the stable code of the other projects are not interchangeable; private SaaS infrastructure is not extrapolated.
-- The "Automan" rows are contract proposals; they require an implementation and their acceptance tests.
+- The "Goodfetch" rows are contract proposals; they require an implementation and their acceptance tests.
 - Several capabilities require flags/features/plugins/backends; the cited defaults and restrictions take precedence over README slogans.
 - Detailed agent/perception/repair capabilities belong to the supplementary browser/agent report; this matrix focuses on their safe integration with crawl/pools/workers.

@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; connect-src 'none'; img-src data:; object-src 'none'; base-uri 'none'; form-action 'none'">
   <meta name="color-scheme" content="light">
-  <title>Automan — console mockup</title>
+  <title>Goodfetch — console mockup</title>
   <style>
     :root{--paper:#F7F9FC;--white:#FFFFFF;--ink:#172B4D;--blue:#2453C6;--teal:#087F72;--amber:#9A5B00;--line:#DCE3EE;--muted:#586A83;--bluewash:#EDF2FF;--tealwash:#EAF6F3;--amberwash:#FFF5E5;--danger:#A13137;--dangerwash:#FFF0F0;--radius:8px}
     *{box-sizing:border-box}body{margin:0;background:var(--paper);color:var(--ink);font:14px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}button,input,select,textarea{font:inherit}button{cursor:pointer}a{color:var(--blue)}button:disabled{cursor:not-allowed;opacity:.5}button:focus-visible,a:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-visible,summary:focus-visible,[tabindex]:focus-visible{outline:3px solid var(--blue);outline-offset:3px}button,input,select,textarea{border-radius:5px}h1,h2,h3,p{margin:0}h1{font-size:26px;line-height:1.2;letter-spacing:-.6px}h2{font-size:19px;line-height:1.35;letter-spacing:-.2px}h3{font-size:15px}small,.small{font-size:12px}.muted{color:var(--muted)}.mono,code,pre{font-family:Consolas,"Liberation Mono",monospace}.nowrap{white-space:nowrap}.sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}.skip{position:fixed;z-index:20;top:8px;left:12px;transform:translateY(-150%);background:var(--white);padding:10px 16px;border:2px solid var(--blue)}.skip:focus{transform:none}
@@ -26,7 +26,7 @@
   <a href="#content" class="skip">Skip to content</a>
   <div class="demo"><strong>Mockup — simulated data</strong><span>No engine, service or account connected</span></div>
   <header class="topbar">
-    <div class="brand"><span class="brand-mark" aria-hidden="true">A</span>Automan</div>
+    <div class="brand"><span class="brand-mark" aria-hidden="true">G</span>Goodfetch</div>
     <nav class="primary-nav" aria-label="Console views">
       <button class="nav-btn" data-view="workflows" aria-current="page">Workflows</button>
       <button class="nav-btn" data-view="runs">Runs</button>
@@ -173,7 +173,7 @@
       if(action==='cancel-simulation'){clearTimeout(simulationTimer);state.simulating=false;const r=selectedRun();if(r){r.status='canceled';r.duration='Interrupted'}render();toast('Simulation canceled. Partial data is not qualified.')}
       if(action==='copy-proof')copy(currentSteps()[Math.min(state.step,currentSteps().length-1)].code);
       if(action==='copy-trace')copy(currentSteps().map((s,i)=>'+ '+i+'s '+s.title+' | '+s.source).join('\n'));
-      if(action==='export-data'){const csv=state.workflow==='fournisseur'?'file;date;account;simulated\nexport-purchasing-2026-10-07.csv;2026-10-07;purchasing-demo;true':'reference;equipment;price_eur;source;simulated\n'+rows.map(r=>r.join(';')+';true').join('\n');const url=URL.createObjectURL(new Blob(['\ufeff'+csv],{type:'text/csv;charset=utf-8'}));const a=document.createElement('a');a.href=url;a.download='automan-simulated-sample.csv';a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);toast('Simulated CSV sample generated locally.')}
+      if(action==='export-data'){const csv=state.workflow==='fournisseur'?'file;date;account;simulated\nexport-purchasing-2026-10-07.csv;2026-10-07;purchasing-demo;true':'reference;equipment;price_eur;source;simulated\n'+rows.map(r=>r.join(';')+';true').join('\n');const url=URL.createObjectURL(new Blob(['\ufeff'+csv],{type:'text/csv;charset=utf-8'}));const a=document.createElement('a');a.href=url;a.download='goodfetch-simulated-sample.csv';a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);toast('Simulated CSV sample generated locally.')}
       if(action==='reset-filters'){state.runFilter='all';render();toast('All simulated runs are shown.')}
       if(action==='qualify'){state.qualifying=true;state.qualified=false;render();qualificationTimer=setTimeout(()=>{state.qualifying=false;state.qualified=true;render();toast(state.guard?'Simulated qualification: 3 checks passed.':'Simulated qualification: a target ambiguity blocks activation.')},1000)}
       if(action==='activate-repair'){state.repair='active';workflows.find(w=>w.id==='tarifs').version=8;workflows.find(w=>w.id==='tarifs').status='ready';render();toast('Version v8 activated in the simulation. Plan v7 is kept.')}

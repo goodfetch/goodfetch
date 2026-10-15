@@ -202,7 +202,7 @@ This section groups Intuned, Libretto, Simplex, Notte, BrowserBook, Smooth and H
 
 ## 15. Recurring gaps that no competitor in the corpus fills
 
-These are hypotheses for the lab to settle, not demonstrated advantages of Automan:
+These are hypotheses for the lab to settle, not demonstrated advantages of Goodfetch:
 
 1. **Local, versionable cache and replay, independent of any cloud.** Stagehand's cache is tied to Browserbase and persistence is paid (`hn-87`, `hn-88`, `github-42`); this is a lock-in issue.
 2. **Typed failures, with no false success.** A block must not come back as a 500, an empty list must not pass for a success, a queue must not claim to be handled when it is not (`github-80`, `github-78`, `github-91`, `github-29`). See `C-zero-false-success`.

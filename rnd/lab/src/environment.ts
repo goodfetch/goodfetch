@@ -33,7 +33,7 @@ export async function environment() {
   const lockHashes: Record<string, string | null> = {};
   for (const file of ['pnpm-lock.yaml', 'adapters/rust/Cargo.lock', 'adapters/storage-rust/Cargo.lock']) { try { lockHashes[file] = await hashFile(join(labRoot, file)); } catch { lockHashes[file] = null; } }
   const binaryHashes: Record<string,string|null> = {};
-  for(const file of ['adapters/rust/target/http/release/automan-lab-spider','adapters/rust/target/chrome/release/automan-lab-spider','adapters/rust/target/smart/release/automan-lab-spider','adapters/rust/target/http/release/automan-lab-storage']) { try { binaryHashes[file]=await hashFile(join(labRoot,file)); } catch { binaryHashes[file]=null; } }
+  for(const file of ['adapters/rust/target/http/release/goodfetch-lab-spider','adapters/rust/target/chrome/release/goodfetch-lab-spider','adapters/rust/target/smart/release/goodfetch-lab-spider','adapters/rust/target/http/release/goodfetch-lab-storage']) { try { binaryHashes[file]=await hashFile(join(labRoot,file)); } catch { binaryHashes[file]=null; } }
   return { node: process.version, nodeExecutable: process.execPath, os: platform(), release: release(), architecture: arch(), cpu: cpus()[0]?.model, logicalCpuCount: cpus().length,
     totalMemoryBytes: totalmem(), browser: { executablePath, version: browserVersion, sha256: await hashFile(executablePath), requestedViewport: { width: 1280, height: 720 }, headless: true }, lockHashes, binaryHashes, sourceHashes: await sourceFingerprint() };
 }

@@ -6,7 +6,7 @@
    "primary": "lists"
   },
   "case": "inline-markup",
-  "source": "automan-curated"
+  "source": "goodfetch-curated"
  },
  "ground_truth": {
   "main_content": "- **Bold** start\n- Has [a link](/docs)\n- Has `code` inside\n",

@@ -17,10 +17,10 @@
 A selector-based extraction does not use an LLM. `access: "auto"` selects HTTP or browser according to capabilities/history and validation, without introducing an agent loop. The schema provides types; the validators carry the business contract.
 
 ```ts
-import { automan } from "@automan/sdk";
+import { Foxhound } from "@goodfetch/foxhound";
 import { z } from "zod";
 
-const client = await automan.connect({ target: "local" });
+const client = await Foxhound.connect({ target: "local" });
 
 const result = await client.extract({
   url: "https://catalogue.example/products/p-17",
@@ -133,7 +133,7 @@ const run = await client.crawl({
 });
 ```
 
-This callback stays in the Node process of the attached client. It is not serialized as JSON to Rust and is not resumed in the middle of its lines after a crash. For the cloud, `automan package build` creates a versioned package with runtime/handler, dependencies, schemas, permissions and tests; the engine hands it work units in an isolated host. Handlers must respect their retry contract and avoid hidden non-idempotent mutations in a collection.
+This callback stays in the Node process of the attached client. It is not serialized as JSON to Rust and is not resumed in the middle of its lines after a crash. For the cloud, `goodfetch-foxhound package build` creates a versioned package with runtime/handler, dependencies, schemas, permissions and tests; the engine hands it work units in an isolated host. Handlers must respect their retry contract and avoid hidden non-idempotent mutations in a collection.
 
 `emit` and `discover` acknowledge **staging**, tied to the request/attempt/lease epoch. The engine publishes data and new requests together with the acknowledgement after the handler succeeds and validation passes. A failed handler does not silently publish its provisional outputs. An explicit partial-results policy can publish a validated subset and its partial state; the callback's direct external effects remain outside this transaction.
 
@@ -224,15 +224,15 @@ A `waiting` run can resume with `runs.resume` once its wait is resolved. A termi
 ## 8. CLI
 
 ```sh
-automan extract 'https://catalogue.example/products/p-17' --recipe product --json
-automan run supplier.monthly-export --input ./month.json --wait --json
-automan crawl catalogue.collect --seeds ./urls.txt --queue catalogue --resume
-automan runs inspect run_demo_42 --events --json
-automan runs cancel run_demo_42
-automan workflows repair supplier.monthly-export --from-run run_demo_42 --suggest
-automan package build ./supplier-workflow
-automan serve --local
-automan mcp --stdio --profile read
+goodfetch-foxhound extract 'https://catalogue.example/products/p-17' --recipe product --json
+goodfetch-foxhound run supplier.monthly-export --input ./month.json --wait --json
+goodfetch-foxhound crawl catalogue.collect --seeds ./urls.txt --queue catalogue --resume
+goodfetch-foxhound runs inspect run_demo_42 --events --json
+goodfetch-foxhound runs cancel run_demo_42
+goodfetch-foxhound workflows repair supplier.monthly-export --from-run run_demo_42 --suggest
+goodfetch-foxhound package build ./supplier-workflow
+goodfetch-foxhound serve --local
+goodfetch-foxhound mcp --stdio --profile read
 ```
 
 The paths are example parameters. `--json` reserves stdout for data; logs/diagnostics go to stderr. `--events` produces bounded NDJSON events and a terminal state. Proposed exit codes: 0 verified success/successful administrative command, 1 failure, 2 partial, 3 decision required, 4 unknown effect, 130 user interruption. Scripts can choose to wait for the terminal state or to detach; the run outlives the CLI when the daemon owns its execution.
@@ -245,18 +245,18 @@ Proposed profiles: `read`, `browser`, `workflows`, `operator`. The advertised ca
 
 | Tool | Purpose and result |
 | --- | --- |
-| `automan_capabilities` | Available capabilities, limitations, detailed schemas on demand |
-| `automan_extract` | One-off extraction with schema/policy and referenced result |
-| `automan_browser_open` | Scoped session/page and qualified backend |
-| `automan_browser_observe` | Bounded observation with references and generation |
-| `automan_browser_act` | Typed action and postcondition; effect permissions checked |
-| `automan_workflow_run` | Durable run of a version or explicit reference |
-| `automan_run_inspect` | State, checks, costs and paginated next events |
-| `automan_run_cancel` | Idempotent cancellation request |
-| `automan_dataset_read` | Projection/pagination and provenance |
-| `automan_repair_propose` | Bounded candidate attached to the failed run, never implicit promotion |
+| `foxhound_capabilities` | Available capabilities, limitations, detailed schemas on demand |
+| `foxhound_extract` | One-off extraction with schema/policy and referenced result |
+| `foxhound_browser_open` | Scoped session/page and qualified backend |
+| `foxhound_browser_observe` | Bounded observation with references and generation |
+| `foxhound_browser_act` | Typed action and postcondition; effect permissions checked |
+| `foxhound_workflow_run` | Durable run of a version or explicit reference |
+| `foxhound_run_inspect` | State, checks, costs and paginated next events |
+| `foxhound_run_cancel` | Idempotent cancellation request |
+| `foxhound_dataset_read` | Projection/pagination and provenance |
+| `foxhound_repair_propose` | Bounded candidate attached to the failed run, never implicit promotion |
 
-stdio mode serves local agents, Streamable HTTP remote uses. The adapter follows the negotiated MCP version, the authorization and the tool model of the current specification; the bidirectionality of Automan's internal RPC does not define that of MCP. Run events are data inspectable via a compatible tool/resource, not JSON-RPC requests arbitrarily initiated by the server. [MCP transports 2026-07-28](https://modelcontextprotocol.io/specification/2026-07-28/basic/transports), [authorization](https://modelcontextprotocol.io/specification/2026-07-28/basic/authorization).
+stdio mode serves local agents, Streamable HTTP remote uses. The adapter follows the negotiated MCP version, the authorization and the tool model of the current specification; the bidirectionality of Foxhound's internal RPC does not define that of MCP. Run events are data inspectable via a compatible tool/resource, not JSON-RPC requests arbitrarily initiated by the server. [MCP transports 2026-07-28](https://modelcontextprotocol.io/specification/2026-07-28/basic/transports), [authorization](https://modelcontextprotocol.io/specification/2026-07-28/basic/authorization).
 
 No `eval`/arbitrary code in the standard profile. An explicit advanced capability can serve trusted code with its own permissions. Resources/artifacts have references, scopes and access duration. Tool annotations help the client, but do not replace permission enforcement by the engine.
 

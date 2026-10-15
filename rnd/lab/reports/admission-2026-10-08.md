@@ -1,6 +1,6 @@
 # Open admission and multi-domain scheduling (D-durable-runtime, D-scheduling), October 8, 2026
 
-Prototype in the Rust runtime (`admission` mode of `automan-workflow-rust`), measured in `local-dev` on committed sources, on a Mac in use. Retained runs:
+Prototype in the Rust runtime (`admission` mode of `goodfetch-workflow-rust`), measured in `local-dev` on committed sources, on a Mac in use. Retained runs:
 - `durable-admission-2026-10-08T19-43-14-860Z-b8ad5b`: without overload;
 - `durable-scheduler-2026-10-08T19-43-56-509Z-dfabee`: one heavy domain in overload;
 - `durable-admission-recovery-2026-10-08T19-50-26-865Z-f4c814`: crash under overload (heavy domain at 150 jobs/s), request timeout of 2 s.

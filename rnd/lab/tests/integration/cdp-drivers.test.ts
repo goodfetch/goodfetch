@@ -12,7 +12,7 @@ import { runEngine } from '../../src/core/engine.ts';
 import type { BenchCampaign } from '../../src/core/campaign.ts';
 import type { HostSnapshot } from '../../src/core/host.ts';
 
-const rustBuilt = existsSync(join(labRoot, 'adapters/cdp-rust/target/release/automan-lab-cdp'));
+const rustBuilt = existsSync(join(labRoot, 'adapters/cdp-rust/target/release/goodfetch-lab-cdp'));
 const cases: [string, string, 'native' | 'guarded'][] = [['js-catalog', 'normal', 'native'], ['form', 'delayed', 'guarded'], ['shadow', 'normal', 'guarded'], ['clicks', 'normal', 'guarded'],
   ...['normal', 'overlay', 'delayed', 'hidden', 'moving', 'rerender', 'never-enabled', 'never-uncovered', 'ambiguous'].map(variant => ['actionability', variant, 'guarded'] as [string, string, 'guarded'])];
 
@@ -41,7 +41,7 @@ test('a driver-browser profile shapes the link between each driver and the harne
   const campaign: BenchCampaign = { schemaVersion: 2, id: 'driver-link-contract', lane: 'bench', decisionIds: [], hostClass: { requested: 'local-dev', allowDowngrade: false }, seed: 9, blocks: 1, warmup: 0, iterations: 2,
     concurrency: 1, mode: 'closed', timeoutMs: 20_000, maxDurationMs: 120_000, maxRestarts: 1, backends: ['node-cdp', 'playwright'], scenarios: ['form'], fixtures: { pages: 1, actions: 1 },
     browserHost: 'harness', network: { link: 'driver-browser', rttMs: 30 }, actionPolicies: { 'node-cdp': 'guarded', playwright: 'native' } };
-  const { run, attempts } = await runEngine(campaign, { outputRoot: await mkdtemp(join(tmpdir(), 'automan-driver-')), skipProvenance: true, hostSnapshot: quiet });
+  const { run, attempts } = await runEngine(campaign, { outputRoot: await mkdtemp(join(tmpdir(), 'goodfetch-driver-')), skipProvenance: true, hostSnapshot: quiet });
   assert.equal(run.network!.link, 'driver-browser');
   assert.equal(run.network!.calibration.withinTolerance, true);
   assert.deepEqual(attempts.filter(a => a.status !== 'verified').map(a => a.reasons), []);

@@ -32,7 +32,7 @@ When an Effect is left uncertain (ADRs 0002 and 0010), a person **reconciles** i
 
 An answer applies to one uncertain occurrence of the Effect. A later answer to the same occurrence replaces the earlier one. Once a retry has run, its own journal entry governs. Each answer is recorded in the Audit log with the person who gave it.
 
-Decided in [Prototype: V1 Console screens and flows](https://github.com/Jbmanllr/automan/issues/80), where the prototype showed these states on real-looking runs.
+Decided in [Prototype: V1 Console screens and flows](https://github.com/goodfetch/goodfetch/issues/80), where the prototype showed these states on real-looking runs.
 
 ## Considered Options
 

@@ -1,6 +1,6 @@
-# Automan
+# Goodfetch
 
-Automan brings together web data collection, browser automation and model-assisted workflows. This vocabulary is shared by the framework, the interfaces and the hosted service.
+Goodfetch brings together web data collection, browser automation and model-assisted workflows. This vocabulary is shared by the framework, the interfaces and the hosted service.
 
 ## Automation
 
@@ -25,7 +25,7 @@ Production and qualification of a new version of a plan after a detected drift; 
 _Avoid_: self-healing as a universal guarantee.
 
 **Agent**:
-Decision loop that chooses operations based on the objective and the observations; it can be provided by Automan or by an external system.
+Decision loop that chooses operations based on the objective and the observations; it can be provided by Goodfetch or by an external system.
 _Avoid_: agent for a mere model-based extraction.
 
 ## Collection and results
@@ -74,4 +74,4 @@ _Avoid_: permanent lock, proof of exactly-once execution.
 
 **Workflow package**:
 Distributable unit that brings together versioned workflows, their input and output contracts, their required capabilities and their tests.
-_Avoid_: Actor in the public Automan contract, a term reserved for the comparison with Apify.
+_Avoid_: Actor in the public Goodfetch contract, a term reserved for the comparison with Apify.

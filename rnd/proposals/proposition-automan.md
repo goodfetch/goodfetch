@@ -1,6 +1,6 @@
-# Automan: framework and platform proposal
+# Goodfetch: framework and platform proposal
 
-**Design dossier of October 7, 2026. Status: proposal.** No Automan engine, hosted service or Automan benchmark is implemented yet. The attached mockup illustrates the product with simulated data.
+**Design dossier of October 7, 2026. Status: proposal.** No Goodfetch engine, hosted service or Goodfetch benchmark is implemented yet. The attached mockup illustrates the product with simulated data.
 
 ## 1. Recommended direction
 
@@ -8,7 +8,7 @@ Build **a common web automation engine, with a durable crawl frontier, several m
 
 The consolidation sought is the union of capabilities and their contracts, rather than a merger of the Crawlee, Spider and Stagehand repositories. These projects have different state, recovery and session models; stacking their schedulers and caches would introduce competing responsibilities. The details of the verified differences are in the [collection](../research/2026-10-07-crawl-capability-matrix.md) and [automation/agents](../research/2026-10-07-agent-capability-matrix.md) matrices.
 
-**Proposed choices: Rust + Tokio for the engine; native HTTP and Chromium/CDP for execution; Playwright for the reference and compatibility capabilities; TypeScript and Python for the SDKs; React/shadcn for the web; SwiftUI/AppKit for macOS.** Rust and CDP complement each other: the first is a host language/runtime, the second a browser control protocol. Neither this choice nor the research demonstrates Automan performance superiority.
+**Proposed choices: Rust + Tokio for the engine; native HTTP and Chromium/CDP for execution; Playwright for the reference and compatibility capabilities; TypeScript and Python for the SDKs; React/shadcn for the web; SwiftUI/AppKit for macOS.** Rust and CDP complement each other: the first is a host language/runtime, the second a browser control protocol. Neither this choice nor the research demonstrates Goodfetch performance superiority.
 
 The product ambition includes all the requested functions. The development stages are ordered by dependency and evidence, without assuming a small team or an arbitrary deadline.
 
@@ -84,7 +84,7 @@ The **complete documentation is a development deliverable**, to be produced with
 
 ## 6. The differentiation to build
 
-Competitors already have several of the sought mechanisms: adaptive HTTP, action cache, code caching, agents, self-localization and replay. Automan must make their combination more useful:
+Competitors already have several of the sought mechanisms: adaptive HTTP, action cache, code caching, agents, self-localization and replay. Goodfetch must make their combination more useful:
 
 - **A single local/cloud semantics**: portability of plans, results, authorized sessions and diagnostics.
 - **Observable reliability**: completeness or identity errors detected even without an exception; no success announced for an unknown effect.
@@ -96,7 +96,7 @@ These are design goals, not yet an established advantage. The main measure will 
 
 ## 7. Open framework and monetizable services
 
-The open framework contains the useful execution: durable frontier, HTTP/browser, pools, plans, optional agents, repair, CLI/MCP, local storage, instrumentation and execution of self-hosted workers. The fundamental functions do not require an Automan cloud key. Models and proxies can be brought by the user.
+The open framework contains the useful execution: durable frontier, HTTP/browser, pools, plans, optional agents, repair, CLI/MCP, local storage, instrumentation and execution of self-hosted workers. The fundamental functions do not require a Goodfetch cloud key. Models and proxies can be brought by the user.
 
 The service sells operations: hosted browsers and workers, recurring scheduling, storage and retention, integrated proxies, geographic distribution, organization and identity management, reserved capacity, retained diagnostics, integrations and workflow maintenance. A package registry/marketplace can then distribute versioned automations; each package declares its inputs, outputs, capabilities and costs.
 

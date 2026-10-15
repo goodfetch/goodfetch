@@ -9,7 +9,7 @@ The owner asked for "no flaky tests and no retries". `STYLE.md` said "A flaky te
 - **A quarantine works only with an owner, a clock and a place where the test still runs** (Mozilla's 2 + 2 business days, Uber's ticket deadline, Chromium's reviver builders).
 - **Checks against systems a project does not control run outside its blocking suites** everywhere: Kubernetes' Informing jobs, Chromium's FYI builders, Mozilla's tier-1 ban on sites "whose content we do not control", LangChain's daily live-credential tests.
 
-Decided in [Flakiness policy and checks that are non-deterministic by nature](https://github.com/Jbmanllr/automan/issues/280), on the facts of [Flaky tests without retries](https://github.com/Jbmanllr/automan/issues/270) ([findings](https://github.com/Jbmanllr/automan/blob/research/flaky-tests/rnd/research/2026-10-13-flaky-tests.md)), [Rust test tooling in 2026](https://github.com/Jbmanllr/automan/issues/263), [Testing AI features without flaky tests](https://github.com/Jbmanllr/automan/issues/268) and [Performance regression testing in CI](https://github.com/Jbmanllr/automan/issues/272). The rules every test follows are in `TESTING.md`.
+Decided in [Flakiness policy and checks that are non-deterministic by nature](https://github.com/goodfetch/goodfetch/issues/280), on the facts of [Flaky tests without retries](https://github.com/goodfetch/goodfetch/issues/270) ([findings](https://github.com/goodfetch/goodfetch/blob/research/flaky-tests/rnd/research/2026-10-13-flaky-tests.md)), [Rust test tooling in 2026](https://github.com/goodfetch/goodfetch/issues/263), [Testing AI features without flaky tests](https://github.com/goodfetch/goodfetch/issues/268) and [Performance regression testing in CI](https://github.com/goodfetch/goodfetch/issues/272). The rules every test follows are in `TESTING.md`.
 
 The suites are the Quick, Pre-merge and Release suites, each containing the one before, run in the CI tiers of ADR 0032 (pull request, merge queue, nightly, release pipeline), as [ADR 0061](0061-three-test-suites-each-run-by-one-just-command-under-a-time-budget.md) defines them. This ADR uses those names and decides none of them.
 
@@ -48,7 +48,7 @@ The suites are the Quick, Pre-merge and Release suites, each containing the one 
   - The seed comes from the tree hash of the commit under test in every run but one, so the same tree always runs in the same order: in the merge queue, that is the tree that becomes `main`'s head. The constrained test-health run (below) takes a fresh seed. Either seed can be passed to reproduce an order.
 - **Shared state is reset by the runner:** Vitest `restoreMocks`, `unstubEnvs` and `unstubGlobals` are on, since shared mocking state is the main cause of order dependence found in JavaScript (Hashemi et al. 2025).
 - **Leaks and hangs fail:** nextest's leaky-test result is `fail`, every test has the hang timeout of its suite (set by [ADR 0061](0061-three-test-suites-each-run-by-one-just-command-under-a-time-budget.md)), and the constrained test-health run (below) runs the Vitest tests of the Pre-merge suite with `detectAsyncLeaks`.
-- **No test asserts elapsed real time, a rate or a duration.** Those are measurements, decided by [Performance regression testing](https://github.com/Jbmanllr/automan/issues/284).
+- **No test asserts elapsed real time, a rate or a duration.** Those are measurements, decided by [Performance regression testing](https://github.com/goodfetch/goodfetch/issues/284).
 
 ### After merge: the results store and flaky-test detection
 
@@ -86,7 +86,7 @@ This settles the map's fog "Where test results are kept over time and shown".
 - **A quarantined test blocks:**
   - its milestone, whose `ready-for-human` gate issue (ADR 0058) is ready only once it is the only open issue left;
   - every release: `xtask release` refuses to cut or promote while the list is not empty;
-  - the coverage of the feature it tests, which counts as untested in the check of [Feature coverage and traceability](https://github.com/Jbmanllr/automan/issues/279).
+  - the coverage of the feature it tests, which counts as untested in the check of [Feature coverage and traceability](https://github.com/goodfetch/goodfetch/issues/279).
 - **A flaky test is never removed or weakened to make a suite pass:** it is quarantined, fixed, or replaced by a test covering the same behaviour (for example when its unpinned part moves to a Live check and the rest stays a test).
 
 ### Live checks
@@ -102,7 +102,7 @@ This settles the map's fog "Where test results are kept over time and shown".
 | Online conformance against real vendors | release candidate, Chrome-major and stealth patches | never a release | ADRs 0033, 0043 |
 | Benchmark on the reference host | release candidate | the release, by ADR 0025's correctness and Δ rule | ADRs 0025, 0030 |
 | Cloud Run deploy | release candidate | nothing directly | ADR 0049 |
-| Live-model evaluations | decided by the AI testing ticket | decided by the AI testing ticket | [Testing AI features and agent skills](https://github.com/Jbmanllr/automan/issues/281) |
+| Live-model evaluations | decided by the AI testing ticket | decided by the AI testing ticket | [Testing AI features and agent skills](https://github.com/goodfetch/goodfetch/issues/281) |
 | OpenSSF Scorecard | nightly | nothing | ADR 0032 |
 
   "Nothing directly" means only the `live-check` issue rules below apply. A channel moves without a commit, so each channel is a Live check. Each stable major of the last eight weeks and Extended Stable run pinned by version in the nightly matrix, so they are tests; the current stable major is among them, so the channel's Live check only shows when an update within the major breaks something.
@@ -112,7 +112,7 @@ This settles the map's fog "Where test results are kept over time and shown".
 - **A fail, or three inconclusive results in a row, opens or updates one issue per Live check**, labelled `live-check`, for its owning area, in the current milestone. It comes on the frontier right after `flaky-test` issues.
 - **An open `live-check` issue whose cause is not stated within two business days blocks the promotion of the next minor** until the cause is written down: a Goodfetch bug (fixed like any bug) or an external change (recorded). The Kubernetes Informing rule. Patches are not held, and the online conformance keeps ADR 0043's rule that it never blocks.
 - **A `live-check` issue closes once its cause is written down and either fixed in Goodfetch or attributed to an external party with a linked upstream report** (the vendor's issue, status-page incident or changelog entry). So an explained vendor outage or testnet change never holds a milestone gate; a later failure reopens the issue.
-- **A measurement declares its trial count, threshold and statistic before it runs** (the lab's method), and every trial counts. A failed trial is never replaced by another. Live-model evaluations use pass^k with Wilson intervals; the values belong to [Testing AI features and agent skills](https://github.com/Jbmanllr/automan/issues/281).
+- **A measurement declares its trial count, threshold and statistic before it runs** (the lab's method), and every trial counts. A failed trial is never replaced by another. Live-model evaluations use pass^k with Wilson intervals; the values belong to [Testing AI features and agent skills](https://github.com/goodfetch/goodfetch/issues/281).
 
 ## Considered Options
 
@@ -136,11 +136,11 @@ This settles the map's fog "Where test results are kept over time and shown".
 ## Consequences
 
 - **Amends `TESTING.md`.** "A flaky test is quarantined with an issue, never retried silently", the line ADR 0062 moved there from `STYLE.md`, becomes "A test is never retried; a flaky test is quarantined the same day, with an issue that comes first and blocks its milestone and every release". The rules are its section Flaky tests and Live checks.
-- **Changes area 1's spec** ([Spec: Repository, CI and release (V1 area 1)](https://github.com/Jbmanllr/automan/issues/130)):
+- **Changes area 1's spec** ([Spec: Repository, CI and release (V1 area 1)](https://github.com/goodfetch/goodfetch/issues/130)):
   - user story 65 becomes "a flaky test never retried, quarantined the same day with an issue that blocks releases";
   - in "What makes a good test here", "A flaky test is quarantined with an issue" becomes "A test is never retried, and a flaky one is handled by ADR 0064";
   - the "all green" job also checks earlier attempts; `xtask` gains the no-retry check, the quarantine-list check, the scan and the release refusal; the ingest workflow, the daily test-health job, the constrained test-health run, the diagnostic runs and the `test-results` repository are its jobs.
-- **Changes area 3's spec** ([Spec: Engine runtime (V1 area 3)](https://github.com/Jbmanllr/automan/issues/213)). "flaky tests quarantined with an issue" becomes "flaky tests never retried, and handled by ADR 0064".
+- **Changes area 3's spec** ([Spec: Engine runtime (V1 area 3)](https://github.com/goodfetch/goodfetch/issues/213)). "flaky tests quarantined with an issue" becomes "flaky tests never retried, and handled by ADR 0064".
 - **Amends ADR 0032.** Its rule that the nightly tier is off while the repository is private now excepts the daily test-health job, and the weekly constrained test-health run, within a ceiling of included minutes; a note marks the spot. Once on, the nightly tier hosts both every night. The diagnostic runs follow failures in any tier.
 - **Adds to ADR 0030's release gates** two blockers: a non-empty quarantine list blocks every release, and a `live-check` issue whose cause is unstated after two business days blocks the promotion of a minor.
 - **Adds to ADR 0058.** `flaky-test` and `live-check` issues sit in the current milestone, so its gate waits for them. A `live-check` issue closes once its cause is written down and fixed or attributed upstream, so only an unexplained or unfixed Live-check failure holds a gate.

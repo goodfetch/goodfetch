@@ -5,7 +5,7 @@ ADR 0084 made Collie the Product that drives one browser page at a time and Foxh
 - **Agent-facing tools ship the shared side.** A CLI with skills, an MCP server, a daemon and a local dashboard are table stakes: Playwright, agent-browser, Chrome DevTools MCP, Browser Use and Stagehand's `browse` each ship at least three of the four (same note, §9).
 - **The many-pages part is what makes the executables differ.** DuckDB (+33.0 MB), the in-binary Sinks (about +11 MB: the seven sink libraries' 21.5 MB less MongoDB's and SQL Server's, which ADR 0026 runs as sink processes) and `wreq` (+5.5 MB) come to about 50 MB. The Collie set measured 18.6 MB with the filter-list engine, about 22.7 MB with its embedded data and about 65 MB with a prebuilt V8 ([multi-product builds](https://github.com/goodfetch/automan/blob/research/multi-product-builds/rnd/research/2026-10-14-multi-product-builds.md) §7.1–§7.2), against ADR 0057's 95–120 MB projected for the whole set, now Foxhound's.
 
-Decided in [Collie's exact capability set](https://github.com/goodfetch/automan/issues/455), on the map [Goodfetch products: Collie and Foxhound as separately installable products](https://github.com/goodfetch/automan/issues/447), by the agent on the owner's delegation of 2026-10-14 ([grilling record](https://github.com/goodfetch/automan/issues/455#issuecomment-6179818426), [round 4](https://github.com/goodfetch/automan/issues/455#issuecomment-6181411312), [corrections](https://github.com/goodfetch/automan/issues/455#issuecomment-6181950280)), and confirmed by the owner ([confirmation](https://github.com/goodfetch/automan/issues/455#issuecomment-6187800565)). The evidence is also in the research on [crawl frameworks](https://github.com/goodfetch/automan/blob/research/crawl-framework-products/rnd/research/2026-10-14-crawl-framework-products.md).
+Decided in [Collie's exact capability set](https://github.com/goodfetch/automan/issues/455), on the map [Goodfetch products: Collie and Foxhound as separately installable products](https://github.com/goodfetch/automan/issues/447), by the agent on the owner's delegation of 2026-10-14 ([grilling record](https://github.com/goodfetch/automan/issues/455#issuecomment-6179818426), [round 4](https://github.com/goodfetch/automan/issues/455#issuecomment-6181411312), [corrections](https://github.com/goodfetch/automan/issues/455#issuecomment-6181950280)), and confirmed by the owner, who also decided Q18, which the fourth review raised ([confirmation](https://github.com/goodfetch/automan/issues/455#issuecomment-6187800565)). The evidence is also in the research on [crawl frameworks](https://github.com/goodfetch/automan/blob/research/crawl-framework-products/rnd/research/2026-10-14-crawl-framework-products.md).
 
 ## Decision
 
@@ -21,7 +21,7 @@ Decided in [Collie's exact capability set](https://github.com/goodfetch/automan/
 | Runs | Run state in SQLite, Checkpoints and resume, the run epoch, a run's Key-value store, the run's report and Reconciliation | 0002, 0003, 0029, 0051 |
 | AI | The Effect journal; Plans with Target fingerprints, Drift, Repair and Decision providers; the recorder; Success checks, Grounding and Verdicts; the built-in Agent; the engine's AI safety; model calls through gateways, local servers and the SDK callback | 0009, 0010, 0012–0014 |
 | Extraction | Extraction from the page it is on: the default extractor, AI extraction with Grounding, compiled selectors, Extractor Plugins, and Clean-up rules applied to content | 0007, 0013, 0047 |
-| Driver | The CDP driver and the guard, the browser and browser-fetch tiers, the raw CDP endpoint, Firefox and WebKit through Playwright's driver | 0019, 0020 |
+| Driver | The CDP driver and the guard, the browser and browser-fetch tiers, the raw CDP endpoint, Lent pages (`page.lend()`), Firefox and WebKit through Playwright's driver | 0019, 0020, 0089 |
 | Sessions | Access modes and Identity profiles; proxies with their pools, provider adapters and per-proxy limits; local addresses; Session sources, Saved identities, Profile directories and Borrowed browsers; the Page check, login recovery, MFA and the Human pause | 0006, 0021, 0035, 0044, 0053, 0056 |
 | Site access | The stealth catalog and the Goodfetch Chromium (a download, never part of the executable, ADR 0084), block detection and the Challenge solver; Filter lists, Consent prompts, Walls and the Wall allowance; the Response cache; third-party CDP browsers, Browser hosts and the Browser host's own work | 0022, 0035, 0046–0048, 0052 |
 | Security | The egress policy and the endpoint rule; certificate exceptions and the TLS relay; Secret references, Secret providers and field encryption; the Audit log; the switchable controls and their reporting; Purpose and Site preferences read and recorded; nothing sent unless configured | 0014–0017, 0023, 0042, 0043 |
@@ -42,7 +42,7 @@ Decided in [Collie's exact capability set](https://github.com/goodfetch/automan/
 | Partitioned crawls | 0054 | They split a crawl's domains |
 | The Fetch backend and Sink Plugin kinds; the Hook stages before request, after response and Record before commit | 0033 | They act on a Frontier's requests and a Dataset's Records |
 
-### Sessions a program opened are never replaced
+### Sessions a program or an Agent opened are never replaced
 
 - **The Session pool is Foxhound's.** The engine retires and replaces only Sessions that a crawl's Session pool opened.
 - **A Session a program or an Agent opened itself is never retired, rotated or replaced**, in either Product and whatever its Session source. The program holds that Session and its pages (ADR 0077's G2), and a replacement would carry other cookies, another identity and none of the page's state. Crawlee supplies "the queue, sessions, proxy rotation, autoscaling and fingerprints; the driver supplies the page" ([browser-automation products](https://github.com/goodfetch/automan/blob/research/browser-automation-products/rnd/research/2026-10-14-browser-automation-products.md) §8.2), and the research found no browser-automation product that rotates a program's session under it.
@@ -71,14 +71,14 @@ Decided in [Collie's exact capability set](https://github.com/goodfetch/automan/
 - **Requests that are not a Session's go through the engine's own HTTP client,** such as those to the endpoints an operator configures (Model providers, Secret providers, search providers, Notification channels) and Plugins' `net.fetch`, which may reach the run's sites but never carries a Session's cookies (ADR 0033).
 - **Paid fetches are Foxhound's.** ADR 0045 answers "a site that asks a crawler to pay": its `max_price_per_page`, its Completeness rule for pages left in scope and its Provenance mark on Records are crawl concepts, and it brings `x402-rs` and `alloy`, which nothing else in Collie needs.
   - A Collie page that asks for payment gets the Block cause `payment_required`, reported as any other Block cause, and Collie never pays.
-  - `pay_domains` given to a Collie Run is refused like any other setting Collie does not carry (below).
+  - `pay_domains` given to a Run on a Collie engine is refused like any other setting Collie does not carry (below).
   - Adding Paid fetches to Collie later, for Agents paying through x402, would be additive.
 - **The Response cache is Collie's.** It serves browsers through the engine's interception (ADR 0046), and its `replay` mode is the offline loop for developing an automation, as Playwright's HAR replay is ([browser-automation products](https://github.com/goodfetch/automan/blob/research/browser-automation-products/rnd/research/2026-10-14-browser-automation-products.md) §3.1). Whether the SDK API's testing story uses it is [Testing a user's crawl or automation](https://github.com/goodfetch/automan/issues/482)'s.
 
 ### Remote browsers and the Browser host
 
 - **Collie drives remote browsers:** third-party CDP browsers and Browser hosts alike (ADR 0022).
-- **Everything a Browser host does is Collie's work:** the guard over a pipe, egress enforcement, the certificate relay, Filter-list matching, live hiding, the Consent prompt runner and memory reporting (ADRs 0022, 0040, 0042, 0047). So either Product's executable can serve as a Browser host with no Foxhound code.
+- **Everything a Browser host does is Collie's work:** the guard over a pipe, egress enforcement, the certificate relay, Filter-list matching, live hiding, the Consent prompt runner, memory reporting and the endpoint through which a hosted page is lent (ADRs 0022, 0040, 0042, 0047, 0089). So either Product's executable can serve as a Browser host with no Foxhound code.
 - Which executable and image Goodfetch ships for the Browser host and for Goodfetch Cloud's engines, and how a Browser host is versioned against its engine, are [Which executables the Browser host and Goodfetch Cloud's engines run](https://github.com/goodfetch/automan/issues/498)'s.
 
 ### The shared side
@@ -102,13 +102,13 @@ Decided in [Collie's exact capability set](https://github.com/goodfetch/automan/
 
 ### Collie inside Foxhound
 
-- **A Foxhound handler's browser page is a Collie page:** the same object, with the same AI verbs, journaled and fenced by the handler's lease (ADR 0084). ADR 0037's row V3-01 (`act`, `extract` and `observe` on a crawler's page) is therefore decided.
+- **A Foxhound handler's browser page is a Collie page:** the same object, with the same AI verbs, journaled and fenced by the handler's lease (ADR 0084). ADR 0037's row V3-01 (`act`, `extract` and `observe` on a crawler's page) is therefore decided. A Crawlee or Scrapy handler reaches the same verbs on its crawler's page through `run.borrow(page)` ([ADR 0089](0089-a-page-is-lent-through-an-endpoint-that-shows-only-its-session-and-collie-joins-other-crawlers-by-borrowing.md)).
 - The verbs' shape is [Collie's AI verbs and Plans](https://github.com/goodfetch/automan/issues/473)'s, and how a handler receives its page [Crawl definition and handler context](https://github.com/goodfetch/automan/issues/477)'s.
 
 ### What the build and the surfaces take from this
 
 - **Collie's `cargo-deny` ban list** keeps out at least DuckDB (`duckdb`, `libduckdb-sys`), `wreq`, and the crates only Sinks or Paid fetches need, such as `x402-rs` and `alloy`. The crate graph, the checks and each Size budget are [ADR 0087](0087-each-product-is-an-executable-crate-that-links-only-its-crates-and-has-its-own-size-budget.md)'s.
-- **What Collie refuses.** An operation, a command or a Recipe that needs a capability only Foxhound carries, and such a setting given to a Collie Run or connection, are refused with `not_in_product`, as [ADR 0087](0087-each-product-is-an-executable-crate-that-links-only-its-crates-and-has-its-own-size-budget.md) decides; it also lets a configuration file hold Foxhound's keys.
+- **What Collie refuses.** An operation, a command or a Recipe that needs a capability only Foxhound carries, and such a setting given to a Run or connection on a Collie engine, are refused with `not_in_product`, as [ADR 0087](0087-each-product-is-an-executable-crate-that-links-only-its-crates-and-has-its-own-size-budget.md) decides; it also lets a configuration file hold Foxhound's keys.
 - **Collie's Operation catalog** holds the operations of everything Collie carries. How the catalog is split or marked per Product, what `hello` announces, which Integrations and MCP profiles each Product gets, and how surfaces are packaged are [Protocol, Operation catalog and SDKs across two products](https://github.com/goodfetch/automan/issues/458)'s.
 
 ## Considered Options

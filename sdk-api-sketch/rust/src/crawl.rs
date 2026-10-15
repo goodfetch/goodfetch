@@ -527,6 +527,12 @@ impl StartCrawl {
         unimplemented!()
     }
 
+    /// The Run's Response recording (ADR 0105), an input like its seeds: replayed, or recorded into.
+    pub fn recording(self, recording: crate::recording::Recording) -> Self {
+        let _ = recording;
+        unimplemented!()
+    }
+
     /// Settings for this Run and everything opened beneath it (ADR 0083).
     pub fn settings(self, settings: Settings) -> Self {
         let _ = settings;

@@ -316,6 +316,13 @@ from goodfetch._politeness import PolitenessSettings as PolitenessSettings
 from goodfetch._politeness import PolitenessSharing as PolitenessSharing
 from goodfetch._politeness import ProxyPolitenessSettings as ProxyPolitenessSettings
 from goodfetch._politeness import SitePreferencesSettings as SitePreferencesSettings
+from goodfetch._recording import Recording as Recording
+from goodfetch._recording import RecordingInvalidDetails as RecordingInvalidDetails
+from goodfetch._recording import RecordingInvalidError as RecordingInvalidError
+from goodfetch._recording import RecordingMiss as RecordingMiss
+from goodfetch._recording import RecordingReport as RecordingReport
+from goodfetch._recording import ResponseNotRecordedDetails as ResponseNotRecordedDetails
+from goodfetch._recording import ResponseNotRecordedError as ResponseNotRecordedError
 from goodfetch._results import AiWorkResult as AiWorkResult
 from goodfetch._results import BlockCause as BlockCause
 from goodfetch._results import BlockedDetails as BlockedDetails

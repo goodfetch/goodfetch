@@ -12,6 +12,7 @@ export * from "./models.js";
 export * from "./output.js";
 export * from "./page.js";
 export * from "./politeness.js";
+export * from "./recording.js";
 export * from "./results.js";
 export * from "./run.js";
 export * from "./sessions.js";

@@ -12,7 +12,7 @@
     "noEmit": true,
     "skipLibCheck": false,
     "types": [],
-    "paths": { "goodfetch": ["./src/index.d.ts"] }
+    "paths": { "goodfetch": ["./src/index.d.ts"], "goodfetch/testing": ["./src/testing.d.ts"] }
   },
   "include": ["src/**/*.d.ts", "scenarios/**/*.ts"]
 }

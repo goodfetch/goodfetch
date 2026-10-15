@@ -20,6 +20,11 @@ serde_json = "1.0.154"
 [dev-dependencies]
 futures-util = "0.3.34"
 
+# The testing kit's snippet uses `goodfetch::testing`, behind `test-util` (ADR 0069).
+[[example]]
+name = "snippet_testing"
+required-features = ["test-util"]
+
 # Standalone: not part of any Goodfetch workspace.
 [workspace]
 

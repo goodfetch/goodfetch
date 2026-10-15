@@ -29,6 +29,7 @@ sdk-api-sketch/
 - **Each ticket fills its matrix rows.** A grilling ticket fills its rows of `pain-coverage.md` (closes as, feature, scenarios, principles) in the same commit as its signatures and snippets.
 - **Snippets.** A ticket's usage examples sit beside the golden scenarios, type-checked with them, until #483 writes the programs: `typescript/scenarios/snippets/<topic>.ts`, `python/scenarios/snippet_<topic>.py` and `rust/examples/snippet_<topic>.rs`.
 - **Signatures only.** Rust bodies are `unimplemented!()`, the sketch's one departure from `STYLE.md`.
+- **The testing kit is its own entry** (ADR 0069): `typescript/src/testing.d.ts` is the `goodfetch/testing` subpath, `python/goodfetch/testing.pyi` the `goodfetch.testing` module, and `rust/src/testing.rs` sits behind the `test-util` feature, which `check.sh` turns on with every other feature.
 - **Placeholder names.** The package and import name `goodfetch` stands in until the packaging question of [Goodfetch products: Collie and Foxhound as separately installable products](https://github.com/goodfetch/automan/issues/447) settles names.
 - **Names follow ADR 0099** ([Mapping the catalog to each language and surface](https://github.com/goodfetch/automan/issues/471)).
   - **One rule per language.** Every name is the catalog's snake_case words, spelled by one rule per language:

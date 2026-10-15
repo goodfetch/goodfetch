@@ -95,6 +95,11 @@ export type KnownErrorCode =
   | "agent_tool_failed"
   | "agent_tool_invalid"
   | "success_check_threw"
+  | "response_not_recorded"
+  | "recording_invalid"
+  | "scripted_model_exhausted"
+  | "scripted_model_unused"
+  | "hook_unknown"
   | "internal";
 
 /** A code a newer engine sends and this SDK does not know is kept as received (G3). */

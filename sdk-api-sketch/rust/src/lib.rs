@@ -15,10 +15,13 @@ pub mod lifecycle;
 pub mod models;
 pub mod output;
 pub mod page;
+pub mod recording;
 pub mod results;
 pub mod run;
 pub mod sessions;
 pub mod settings;
+#[cfg(feature = "test-util")]
+pub mod testing;
 pub mod time;
 
 pub use agent::{
@@ -61,11 +64,12 @@ pub use page::{
     Position, Query, Registration, Request, ResourceType, Response, Route, Screenshot, SelectOption, TextMatch, Touchscreen,
     WaitForFunction, WebError, WebSocket, WebSocketPayload, World, action,
 };
+pub use recording::{Recording, RecordingInvalid, RecordingMiss, RecordingMode, RecordingReport, ResponseNotRecorded};
 pub use results::{
     AiWorkResult, BlockCause, Blocked, Claim, DeadlineExceeded, Ended, EndedBy, Error, ErrorCode, ErrorDetails, ErrorGroup, ErrorTarget,
     HandlerFailed, LimitSource, NotVerified, PartialOutput, Reported, CrawlRequestOutcome, CrawlRequestOutcomeKind, CrawlRequestRef, RunLayerOrigin,
     SettingValue,
-    SettingsLayer, SkipReason, StopReason, TargetDescription, TargetNotUnique, Verdict,
+    ScriptedModelDetails, SettingsLayer, SkipReason, StopReason, TargetDescription, TargetNotUnique, Verdict,
 };
 pub use run::{
     AbortedBy, Checkpoint, Completeness, CrawlConcurrency, CrawlRequestCounts, CrawlRequestTotals, CrawlRunProgress, CrawlRunReport,

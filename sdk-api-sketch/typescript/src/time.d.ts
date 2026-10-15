@@ -4,6 +4,7 @@
 // the outer one, and never extends it; time spent in a Human pause does not count.
 // The page API around the waits (locators, actions, `goto`) is ADR 0085's (page.d.ts).
 
+import type { Recording } from "./recording.js";
 import type { Request, Response } from "./page.js";
 import type { ProgramError } from "./results.js";
 import type { RunSettings } from "./settings.js";
@@ -114,6 +115,11 @@ export interface StartOptions {
    * reads it here and writes a promoted version back here. Left out, the Plan lives only in the Run trace.
    */
   readonly plan?: string;
+  /**
+   * The Run's Response recording (ADR 0105), an input like `plan`, read and written here: `replay`
+   * answers every request from it and sends none, `record` writes what the Run received when it ends.
+   */
+  readonly recording?: Recording;
 }
 
 /**

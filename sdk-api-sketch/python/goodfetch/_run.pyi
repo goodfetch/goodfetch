@@ -14,6 +14,7 @@ from os import PathLike
 from types import TracebackType
 from typing import Generic, Literal, Self, TypeAlias, TypeVar, final
 
+from goodfetch._recording import RecordingReport
 from goodfetch._concurrency import AsyncEventIterator, EventIterator
 from goodfetch._models import RunUsage
 from goodfetch._results import (
@@ -240,6 +241,8 @@ class RunReport:
     nothing_done: NothingDone | None
     console_url: str | None
     """The Run's page in the Console, where its Run trace replays, when the engine knows a Console address (ADR 0031)."""
+    recording: RecordingReport | None
+    """What the Run did with its Response recording (ADR 0105): `None` when it named none. A replayed Run says so here."""
     started_at: datetime
     ended_at: datetime
 

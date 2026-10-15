@@ -13,6 +13,7 @@ from types import TracebackType
 from typing import Any, Literal, Never, Protocol, Self, TypeAlias, TypeVar, final, overload
 
 from goodfetch._agent import AgentApi, AsyncAgentApi
+from goodfetch._recording import Recording
 from goodfetch._ai import AiVerbs, AsyncAiVerbs, AsyncElementReferences, ElementReferences
 from goodfetch._catalog import AsyncRawCall, RawCall
 from goodfetch._concurrency import (
@@ -218,6 +219,7 @@ class AsyncCollie:
         timeout: Timeout = ...,
         limits: Limits | None = None,
         plan: str | PathLike[str] | None = None,
+        recording: Recording | None = None,
     ) -> AsyncRun:
         """Starts a Run and returns once it is started (ADR 0102).
 
@@ -234,6 +236,9 @@ class AsyncCollie:
 
         `plan` is the Run's Plan file, relative to the working directory: an input of the Run (ADR 0091), read here and
         written back here when a new version is promoted. Left out, the Plan lives only in the Run trace.
+
+        `recording` is the Run's Response recording (ADR 0105), an input like `plan`, read and written here: `replay`
+        answers every request from it and sends none, `record` writes what the Run received when it ends.
         """
     async def open_run(self, id: str, *, timeout: Timeout = ...) -> AsyncRunView[RunReport, RunProgress]:
         """Opens a Run by its ID to read it, never to drive it: a detached Run, another program's, or one that ended.
@@ -336,6 +341,7 @@ class AsyncFoxhound:
         timeout: Timeout = ...,
         limits: Limits | None = None,
         plan: str | PathLike[str] | None = None,
+        recording: Recording | None = None,
     ) -> AsyncCrawlRun:
         """Starts a Run of the crawl from its seeds, which define its scope, and returns once it is started; its handlers
         run from then on (ADR 0102, Firecrawl's `start_crawl`). An `id` naming an existing Run behaves as
@@ -489,6 +495,7 @@ class Collie:
         timeout: Timeout = ...,
         limits: Limits | None = None,
         plan: str | PathLike[str] | None = None,
+        recording: Recording | None = None,
     ) -> Run:
         """Starts a Run and returns once it is started (ADR 0102).
 
@@ -588,6 +595,7 @@ class Foxhound:
         timeout: Timeout = ...,
         limits: Limits | None = None,
         plan: str | PathLike[str] | None = None,
+        recording: Recording | None = None,
     ) -> CrawlRun:
         """`AsyncFoxhound.start_crawl` in the sync API."""
     def open_crawl_run(self, id: str, *, timeout: Timeout = ...) -> CrawlRunView: ...

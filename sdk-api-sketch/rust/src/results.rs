@@ -224,6 +224,17 @@ pub enum ErrorCode {
     /// `success_check_threw`, a program error: the Agent's Success check returned an error other
     /// than `success_check_failed`, kept as the `source()`: a bug, never a rejection (ADR 0100).
     SuccessCheckThrew,
+    /// `response_not_recorded`, a refusal: a replaying Run's recording lacks the request, which was
+    /// never sent; not retryable (ADR 0105).
+    ResponseNotRecorded,
+    /// `recording_invalid`: the Response recording cannot be read or is not WARC (ADR 0105).
+    RecordingInvalid,
+    /// `scripted_model_exhausted`: a call went beyond a Scripted model's replies (ADR 0105).
+    ScriptedModelExhausted,
+    /// `scripted_model_unused`: a test engine closed with a Scripted model's replies left (ADR 0105).
+    ScriptedModelUnused,
+    /// `hook_unknown`: the testing kit was asked for a Hook the crawl does not hold (ADR 0105).
+    HookUnknown,
     /// `internal`.
     Internal,
     /// A code this SDK does not know, as received.
@@ -513,6 +524,12 @@ pub enum ErrorDetails {
     AgentToolFailed(crate::agent::AgentToolFailed),
     /// Of `agent_tool_invalid`.
     AgentToolInvalid(crate::agent::AgentToolInvalid),
+    /// Of `response_not_recorded`.
+    ResponseNotRecorded(crate::recording::ResponseNotRecorded),
+    /// Of `recording_invalid`.
+    RecordingInvalid(crate::recording::RecordingInvalid),
+    /// Of `scripted_model_exhausted` and `scripted_model_unused`.
+    ScriptedModel(ScriptedModelDetails),
 }
 
 /// Details of `deadline_exceeded`. The error's `limit` names the phase's setting and its layer; a
@@ -538,6 +555,18 @@ pub struct EndedBy {
     pub operation: String,
     /// Finds it in the Run trace.
     pub call_id: String,
+}
+
+/// Details of `scripted_model_exhausted` and `scripted_model_unused`.
+#[derive(Debug, Clone)]
+#[non_exhaustive]
+pub struct ScriptedModelDetails {
+    /// The name it was registered under.
+    pub provider: String,
+    /// The calls it answered.
+    pub calls: u64,
+    /// Its replies left.
+    pub remaining: u64,
 }
 
 /// The handler's own error, as text, since the outcome outlives the process.

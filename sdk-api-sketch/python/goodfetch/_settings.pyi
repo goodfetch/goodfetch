@@ -264,6 +264,9 @@ class CrawlRunSettings(TypedDict, total=False):
     politeness: PolitenessSettings
     site_preferences: SitePreferencesSettings
     ai: AiSettings
+    plan: PlanSettings
+    extract: ExtractSettings
+    observation: ObservationSettings
     sinks: Mapping[str, SinkSettings]
     checkpoint: CheckpointSettings
 

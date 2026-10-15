@@ -362,6 +362,9 @@ pub struct RunReport {
     /// The Run's page in the Console, where its Run trace replays, when the engine knows a Console
     /// address (ADR 0031).
     pub console_url: Option<String>,
+    /// What the Run did with its Response recording (ADR 0105): `None` when it named none. A
+    /// replayed Run says so here.
+    pub recording: Option<crate::recording::RecordingReport>,
     /// When it started.
     pub started_at: SystemTime,
     /// When it ended.

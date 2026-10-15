@@ -6,6 +6,7 @@
 // ADR 0078's `close()` is unchanged. Progress is a telemetry sequence (ADRs 0024, 0081); a crawl's
 // outcomes are read from its committed state (crawl.d.ts).
 
+import type { RecordingReport } from "./recording.js";
 import type { EventIterator } from "./concurrency.js";
 import type { ReportedFetchTier } from "./crawl.js";
 import type { Closeable } from "./lifecycle.js";
@@ -193,6 +194,8 @@ export interface RunReport {
   readonly nothingDone: NothingDone | null;
   /** The Run's page in the Console, where its Run trace replays, when the engine knows a Console address (ADR 0031). */
   readonly consoleUrl: string | null;
+  /** What the Run did with its Response recording (ADR 0105): `null` when it named none. A replayed Run says so here. */
+  readonly recording: RecordingReport | null;
   readonly startedAt: Date;
   readonly endedAt: Date;
 }

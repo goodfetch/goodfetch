@@ -1,0 +1,348 @@
+"""The testing kit, `goodfetch.testing` (ADRs 0069 and 0105, decided in #482): public and under semver.
+
+Each Product ships its own (ADRs 0090, 0095); crawl handlers and Hooks are Foxhound's (ADR 0084). It fits any test runner:
+plain values closed with `async with` or `with`, failures raised as `GoodfetchError`s, and assertions left to `assert`
+or the runner's own. No pytest plugin is needed: a fixture that yields a started `AsyncTestEngine` is three lines.
+
+- `AsyncTestEngine` and `TestEngine`: ADR 0069's test engine, a real engine set up for one test. Nothing it does leaves
+  the machine unless a Run records: every Run that names no Response recording replays an empty one.
+- `run_handler`: one crawl handler on one saved response, reporting how its attempt ended and what it staged, without a
+  Frontier, Hooks or a commit. `run_hook`: one of the crawl's Hooks, by name, the same way.
+- `ScriptedModel`: ADR 0069's Scripted model, a Model provider the test registers.
+- `fake_error`: any `GoodfetchError`, for a test of the program's own error handling. Result values are dataclasses, so
+  a test builds them directly.
+"""
+
+from collections.abc import Generator, Mapping, Sequence
+from dataclasses import dataclass
+from os import PathLike
+from types import TracebackType
+from typing import Any, Literal, TypeAlias, TypeVar, final, overload
+
+from goodfetch._crawl import AsyncCrawl, Crawl, Enqueued, FetchTier
+from goodfetch._data import Dataset, JsonValue, Label
+from goodfetch._lifecycle import AsyncGoodfetch, Goodfetch
+from goodfetch._models import AsyncModelProviderHandler, ModelProviderHandler, ModelRequest, ModelResponse, ModelUsage
+from goodfetch._output import StoredBytes
+from goodfetch._results import GoodfetchError, ProgramError
+from goodfetch._settings import Settings
+
+P = TypeVar("P")
+T = TypeVar("T")
+E = TypeVar("E", bound=GoodfetchError)
+
+@final
+@dataclass(frozen=True, kw_only=True)
+class SavedResponse:
+    """The document a handler runs on, given as `route.fulfill` gives a response, or read from a saved file."""
+
+    status: int = 200
+    headers: Mapping[str, str] | None = None
+    content_type: str | None = None
+    """Default: from `path`'s extension, else `text/html`."""
+    body: str | bytes | None = None
+    path: str | PathLike[str] | None = None
+    """A file on the program's machine, relative to the working directory, such as a page saved from a browser."""
+
+@final
+@dataclass(frozen=True, kw_only=True)
+class Returned:
+    """The handler returned: what it staged would commit."""
+
+    kind: Literal["returned"] = "returned"
+
+@final
+@dataclass(frozen=True, kw_only=True)
+class Skipped:
+    """`ctx.skip(message)`."""
+
+    message: str
+    kind: Literal["skipped"] = "skipped"
+
+@final
+@dataclass(frozen=True, kw_only=True)
+class RetryRequested:
+    """`ctx.retry(message)`."""
+
+    message: str
+    kind: Literal["retry_requested"] = "retry_requested"
+
+@final
+@dataclass(frozen=True, kw_only=True)
+class Escalated:
+    """A call the tier cannot serve; in a crawl, the request would run again in the browser."""
+
+    call: str
+    """That call, rendered as the program wrote it (ADR 0079)."""
+    kind: Literal["escalated"] = "escalated"
+
+@final
+@dataclass(frozen=True, kw_only=True)
+class Failed:
+    """The handler raised: its own exception as `handler_failed`, or the code a `GoodfetchError` keeps."""
+
+    error: GoodfetchError
+    kind: Literal["failed"] = "failed"
+
+@final
+@dataclass(frozen=True, kw_only=True)
+class UnknownEnd:
+    """A kind this SDK does not know, as received (G3)."""
+
+    raw: str
+    kind: Literal["unknown"] = "unknown"
+
+AttemptEnd: TypeAlias = Returned | Skipped | RetryRequested | Escalated | Failed | UnknownEnd
+
+@final
+@dataclass(frozen=True, kw_only=True)
+class StagedRequest:
+    """An enqueue or a seed the attempt staged, with the answer it got."""
+
+    url: str
+    label: str
+    payload: JsonValue
+    answer: Enqueued
+
+@final
+@dataclass(frozen=True, kw_only=True)
+class StagedWrite:
+    """A Key-value store write the attempt staged; `None` for a delete."""
+
+    key: str
+    value: JsonValue | StoredBytes | None
+
+@final
+class AttemptResult:
+    """One attempt of a handler: how it ended and everything it staged, kept even when it ended early, where a crawl would
+    discard it (ADR 0003). Nothing is committed."""
+
+    @property
+    def ended(self) -> AttemptEnd: ...
+    @property
+    def tier(self) -> FetchTier | str: ...
+    def records(self, dataset: Dataset[T]) -> Sequence[T]:
+        """The Records pushed to a Dataset, as `run.records()` would read them back."""
+    @property
+    def enqueued(self) -> Sequence[StagedRequest]: ...
+    @property
+    def seeds(self) -> Sequence[StagedRequest]:
+        """`ctx.run.add_seed()` calls."""
+    @property
+    def key_value_writes(self) -> Sequence[StagedWrite]: ...
+    @property
+    def usage(self) -> ModelUsage:
+        """Model calls made by AI verbs in the handler (ADR 0101)."""
+
+@final
+@dataclass(frozen=True, kw_only=True)
+class HookResult:
+    """What a Hook did: `answered` with its value, the call that ended the work, or `failed` with its error."""
+
+    kind: Literal["answered", "skipped", "blocked", "retry_requested", "dropped", "rejected", "failed"] | str
+    value: JsonValue | None = None
+    message: str | None = None
+    error: GoodfetchError | None = None
+
+@final
+class ScriptedModel:
+    """ADR 0069's Scripted model: answers call n with reply n, records every request, and reports Usage from its replies.
+    A call beyond its replies raises `ScriptedModelExhaustedError`; register it in `model_providers`, sync or async."""
+
+    def __init__(self, replies: Sequence[ModelResponse | GoodfetchError]) -> None: ...
+    def __call__(self, request: ModelRequest) -> ModelResponse: ...
+    @property
+    def requests(self) -> Sequence[ModelRequest]:
+        """Every request it answered, in order, for a test to check what the engine asked."""
+    @property
+    def remaining(self) -> int: ...
+
+def fake_error(error_class: type[E], *, message: str = ..., details: object = ...) -> E:
+    """Builds the error a call would raise: its class, group, retryable flag and details, for a test of the program's own
+    error handling."""
+
+@final
+class _AsyncStarting:
+    def __await__(self) -> Generator[None, None, AsyncTestEngine]: ...
+    async def __aenter__(self) -> AsyncTestEngine: ...
+    async def __aexit__(
+        self, exc_type: type[BaseException] | None, exc: BaseException | None, tb: TracebackType | None
+    ) -> None: ...
+
+@final
+class AsyncTestEngine:
+    """A real engine for one test, for `AsyncGoodfetch`: a temporary Goodfetch home removed when it closes, a cleared
+    environment, no project file unless named, `offline` (ADR 0043), short durations, and no Model provider unless the
+    test registers or configures one, so a call that needs a model with none raises `ModelNotConfiguredError`. Every Run
+    started from `connection` that names no Response recording replays an empty one: a request off the machine raises
+    `ResponseNotRecordedError`, naming it. An Attached engine (ADR 0069)."""
+
+    @classmethod
+    def start(
+        cls,
+        *,
+        settings: Settings = ...,
+        resolve: Mapping[str, str] | None = None,
+        project: str | PathLike[str] | None = None,
+        model_providers: Mapping[str, AsyncModelProviderHandler | ScriptedModel] | None = None,
+    ) -> _AsyncStarting:
+        """`resolve` is ADR 0059's map, host to address; its hosts are allowlisted for this engine (ADR 0017) and reached
+        live even while a Run replays. `model_providers` are named by `ai.model` as `"<name>/<any>"` (ADR 0101)."""
+
+    @property
+    def connection(self) -> AsyncGoodfetch:
+        """A connection to this engine, `AsyncGoodfetch.connect()`'s type: everything a program does works on it."""
+
+    @overload
+    async def run_handler(
+        self,
+        crawl: AsyncCrawl,
+        label: Label[None],
+        *,
+        url: str,
+        response: SavedResponse | None = None,
+        recording: str | PathLike[str] | None = None,
+        tier: FetchTier | None = None,
+        attempt: int = 1,
+        depth: int = 0,
+    ) -> AttemptResult: ...
+    @overload
+    async def run_handler(
+        self,
+        crawl: AsyncCrawl,
+        label: Label[P],
+        *,
+        url: str,
+        payload: P,
+        response: SavedResponse | None = None,
+        recording: str | PathLike[str] | None = None,
+        tier: FetchTier | None = None,
+        attempt: int = 1,
+        depth: int = 0,
+    ) -> AttemptResult:
+        """Runs the Label's handler, the one the crawl attached, on one request, with the Label's settings, in a Run of its
+        own. Nothing else of the crawl runs: no Frontier, no Hooks, no commit. `response` is the document; left out, the
+        response `recording` holds for `url`. `recording` is replayed for everything else the handler reaches. `tier` is
+        `http` by default, or the one the Label's `fetch.tier` forces: no browser starts, and a call only a browser serves
+        ends the attempt `Escalated`; `browser` renders the document. Raises when it cannot run the handler
+        (`ResponseNotRecordedError` for the document, `PayloadInvalidError`, `LabelUnknownError`, `LabelUnhandledError`);
+        once the handler ran, how its attempt ended is a value."""
+
+    async def run_hook(
+        self,
+        crawl: AsyncCrawl,
+        name: str,
+        *,
+        label: Label[Any],
+        url: str,
+        payload: JsonValue = None,
+        response: SavedResponse | None = None,
+        recording: str | PathLike[str] | None = None,
+        dataset: Dataset[Any] | None = None,
+        record: JsonValue = None,
+    ) -> HookResult:
+        """Runs one of the crawl's Hooks alone, by the name Hooks carry (#481), its stage's context built as `run_handler`
+        builds a handler's. A name the crawl does not hold raises `HookUnknownError`, naming the closest."""
+
+    async def close(self) -> None:
+        """Closes the connection and the engine and removes the home. Raises `ScriptedModelUnusedError` if a Scripted model
+        registered here has replies left."""
+
+    async def __aenter__(self) -> AsyncTestEngine: ...
+    async def __aexit__(
+        self, exc_type: type[BaseException] | None, exc: BaseException | None, tb: TracebackType | None
+    ) -> None: ...
+
+@final
+class TestEngine:
+    """`AsyncTestEngine` for the sync `Goodfetch` and `Crawl`, used with `with`."""
+
+    @classmethod
+    def start(
+        cls,
+        *,
+        settings: Settings = ...,
+        resolve: Mapping[str, str] | None = None,
+        project: str | PathLike[str] | None = None,
+        model_providers: Mapping[str, ModelProviderHandler] | None = None,
+    ) -> TestEngine: ...
+    @property
+    def connection(self) -> Goodfetch: ...
+    @overload
+    def run_handler(
+        self,
+        crawl: Crawl,
+        label: Label[None],
+        *,
+        url: str,
+        response: SavedResponse | None = None,
+        recording: str | PathLike[str] | None = None,
+        tier: FetchTier | None = None,
+        attempt: int = 1,
+        depth: int = 0,
+    ) -> AttemptResult: ...
+    @overload
+    def run_handler(
+        self,
+        crawl: Crawl,
+        label: Label[P],
+        *,
+        url: str,
+        payload: P,
+        response: SavedResponse | None = None,
+        recording: str | PathLike[str] | None = None,
+        tier: FetchTier | None = None,
+        attempt: int = 1,
+        depth: int = 0,
+    ) -> AttemptResult: ...
+    def run_hook(
+        self,
+        crawl: Crawl,
+        name: str,
+        *,
+        label: Label[Any],
+        url: str,
+        payload: JsonValue = None,
+        response: SavedResponse | None = None,
+        recording: str | PathLike[str] | None = None,
+        dataset: Dataset[Any] | None = None,
+        record: JsonValue = None,
+    ) -> HookResult: ...
+    def close(self) -> None: ...
+    def __enter__(self) -> TestEngine: ...
+    def __exit__(self, exc_type: type[BaseException] | None, exc: BaseException | None, tb: TracebackType | None) -> None: ...
+
+@final
+@dataclass(frozen=True, kw_only=True)
+class ScriptedModelDetails:
+    provider: str
+    calls: int
+    remaining: int
+
+@final
+class ScriptedModelExhaustedError(ProgramError):
+    """A call went beyond the Scripted model's replies: the AI call that made it fails with this code (ADR 0101)."""
+
+    @property
+    def details(self) -> ScriptedModelDetails: ...
+
+@final
+@dataclass(frozen=True, kw_only=True)
+class HookUnknownDetails:
+    name: str
+    closest: str | None
+
+@final
+class HookUnknownError(ProgramError):
+    """`run_hook` named a Hook the crawl does not hold."""
+
+    @property
+    def details(self) -> HookUnknownDetails: ...
+
+@final
+class ScriptedModelUnusedError(ProgramError):
+    """The test engine closed with replies of a Scripted model unused: the code under test called the model less than the
+    test expected."""
+
+    @property
+    def details(self) -> ScriptedModelDetails: ...

@@ -8,6 +8,8 @@ typeCheckingMode = "strict"
 pythonVersion = "3.11"
 include = ["goodfetch", "scenarios"]
 extraPaths = ["."]
+# A stub-only sketch: a submodule such as `goodfetch.testing` has no source to find.
+reportMissingModuleSource = "none"
 
 [tool.mypy]
 strict = true

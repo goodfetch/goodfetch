@@ -7,6 +7,7 @@
 // Outcomes and skip reasons are in results.d.ts, the settings in settings.d.ts. Datasets, pushing and
 // reading Records are ADR 0103's (output.d.ts).
 
+import type { Recording } from "./recording.js";
 import type { EventIterator } from "./concurrency.js";
 import type { Dataset, JsonObject, Label, PayloadInput, PayloadOutput, Schema, SchemaInput, SchemaOutput } from "./data.js";
 import type {
@@ -255,6 +256,8 @@ export interface CrawlStartOptions {
   readonly limits?: Limits;
   /** The Run's Plan file (ADR 0091), an input of the Run like its seeds. */
   readonly plan?: string;
+  /** The Run's Response recording (ADR 0105), an input like its seeds: replayed, or recorded into. */
+  readonly recording?: Recording;
 }
 
 /** Which outcomes `outcomes()` reads, filtered in the engine (ADR 0081). */

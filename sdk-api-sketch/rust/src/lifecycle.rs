@@ -255,6 +255,14 @@ impl Start {
         unimplemented!()
     }
 
+    /// The Run's Response recording (ADR 0105), an input like its Plan file, read and written
+    /// here: replayed, every request is answered from it and none is sent; recorded, it receives
+    /// what the Run fetched when the Run ends.
+    pub fn recording(self, recording: crate::recording::Recording) -> Self {
+        let _ = recording;
+        unimplemented!()
+    }
+
     /// Settings for this Run and everything opened beneath it (ADR 0083). Its own timeout is
     /// [`Start::timeout`] or [`Start::no_timeout`]; `timeout::RUN` here fails with
     /// `setting_not_applicable` (S2).

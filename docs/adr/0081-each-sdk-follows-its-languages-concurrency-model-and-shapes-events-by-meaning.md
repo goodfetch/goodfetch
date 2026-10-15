@@ -26,6 +26,7 @@ Each SDK runs on its language's own model: TypeScript async only; Python an asyn
 
 - **Handles are cheap clones.**
   - Every handle (the connection, Collie, a Run, a Session, a Page, a `Locator`) is a cheap clone of one value, with an `Arc` inside, and is `Send + Sync + 'static`. Methods take `&self`, and no public type has a lifetime parameter.
+    > Amended by [ADR 0112](0112-a-rust-crawls-handlers-and-their-futures-are-send-in-axums-form-so-serve-runs-in-a-multi-threaded-server.md): a crawl's declarations, `Crawl<'a>` and `LabelDeclaration<'a, P>`, are not handles and are the exception to this rule: their lifetime lets handlers, Hooks and login steps borrow the declaring function's locals (ADR 0093). They are `Send + Sync`, and `Send + Sync + 'static` when what they hold borrows nothing.
   - A call's builder and its future own what they need, so the future is `Send + 'static` and can be spawned. Compile-time assertions check all of this (C-SEND-SYNC).
   - `close()` on any clone closes the value for every clone, and ADR 0078's `Drop` rule acts when the last clone is dropped.
   - AWS's `Client` is `Clone` with an `Arc` inside. Rust drivers that chose otherwise drew complaints: chromiumoxide's `Browser` is not `Clone` ("wrap it in an Arc", #51), fantoccini's methods took `&mut self` (#86), headless_chrome has `Element<'a>`, and octaltree's playwright-rust drew a report that it is not `Send` (#38).

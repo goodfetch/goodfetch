@@ -1,6 +1,6 @@
 # A Rust crawl's handlers and their futures are `Send`, in axum's form, so `serve` runs in a multi-threaded server
 
-A Rust crawl's handlers, its Hooks and login steps, what it hands to `ctx.for_each`, and every Effect body are `Send`, and so are the futures they return. Each closure the SDK calls again and again is written in axum's form, `FnOnce(…) -> Fut + Clone + Send + Sync`, cloned for each call, and an Effect body, called once, is `FnOnce(Effect) -> Fut + Send`. So `crawl.serve(&run)` returns a `Send` future that runs inside an axum handler or a spawned task, and a program whose state cannot be `Send` answers `run.crawl_requests()` itself.
+A Rust crawl's handlers, its Hooks and login steps, what it hands to `ctx.for_each`, and every Effect body are `Send`, and so are the futures they return. Each async closure the SDK calls again and again is written in axum's form, `FnOnce(…) -> Fut + Clone + Send + Sync`, cloned for each call, and an Effect body, called once, is `FnOnce(Effect) -> Fut + Send`. So `crawl.serve(&run)` returns a `Send` future that runs inside an axum handler or a spawned task, and a program whose state cannot be `Send` answers `run.crawl_requests()` itself.
 
 `Send` is Rust's marker for a value that may move to another thread. A multi-threaded runtime, Tokio's default and the one axum uses, may resume a task on any thread, so everything a task holds across an `.await` must be `Send`.
 
@@ -64,7 +64,7 @@ The form was chosen on S1 and S3 (Rust's idiom, under the name and shape axum us
 
 ## Consequences
 
-- **Amends ADR 0081.** A crawl's handlers, its Hooks and login steps and a Session's login step are `Send`, with `Send` futures, in axum's `FnOnce + Clone` form; an Effect body is `FnOnce(Effect) -> Fut + Send`, with a `Send` future. They still run inside the future the program awaits and may borrow, but are no longer free of `Send`. A note sits under "Where user code runs".
+- **Amends ADR 0081.** A crawl's handlers, its Hooks and login steps and a Session's login step are `Send`, with `Send` futures, in axum's `FnOnce + Clone` form; an Effect body is `FnOnce(Effect) -> Fut + Send`, with a `Send` future. They still run inside the future the program awaits and may borrow, but are no longer free of `Send`. `Crawl<'a>` and `LabelDeclaration<'a, P>`, declarations rather than handles, are the exception to its rule that no public type has a lifetime parameter. Notes sit under "Where user code runs" and "Handles are cheap clones".
 - **Amends ADR 0093.** A Rust crawl's handlers and login steps are `FnOnce(…) -> Fut + Clone + Send + Sync + 'a` with `Send` futures, and `serve`'s future is `Send`. A note sits under "Where handlers run".
 - **Amends ADR 0104.** A Rust crawl's Hooks take the handlers' form, and are `Send` with `Send` futures. A note sits under "Declaring a Hook".
 - **Amends ADR 0111.** `ctx.for_each`'s handler is `FnOnce(T) -> Fut + Clone + Send + Sync + 'static`, with `Fut: Send + 'static` and `T: Send + 'static`, so `serve`'s future stays `Send`. A note sits under its bounds.

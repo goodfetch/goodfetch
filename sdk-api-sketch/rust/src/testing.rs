@@ -266,9 +266,15 @@ impl HookInput {
         unimplemented!()
     }
 
-    /// The method, `GET` by default, and the body, none by default, it was enqueued with.
-    pub fn request_body(self, method: &str, body: Option<Vec<u8>>) -> Self {
-        let _ = (method, body);
+    /// The method it was enqueued with, `GET` by default.
+    pub fn method(self, method: &str) -> Self {
+        let _ = method;
+        unimplemented!()
+    }
+
+    /// The body it was enqueued with, none by default.
+    pub fn body(self, body: impl Into<Vec<u8>>) -> Self {
+        let _ = body.into();
         unimplemented!()
     }
 
@@ -284,10 +290,21 @@ impl HookInput {
         unimplemented!()
     }
 
-    /// The attempt before failed with this error, for a Hook's retry branch; with `attempt` and
-    /// `depth`. Left out: a first attempt at depth 0.
-    pub fn previous(self, error: Error, attempt: u32, depth: u32) -> Self {
-        let _ = (error, attempt, depth);
+    /// The error of the attempt before, for a Hook's retry branch. Left out: none.
+    pub fn previous_error(self, error: Error) -> Self {
+        let _ = error;
+        unimplemented!()
+    }
+
+    /// The attempt number, 1 by default.
+    pub fn attempt(self, attempt: u32) -> Self {
+        let _ = attempt;
+        unimplemented!()
+    }
+
+    /// The request's depth, 0 by default.
+    pub fn depth(self, depth: u32) -> Self {
+        let _ = depth;
         unimplemented!()
     }
 
@@ -303,7 +320,7 @@ impl HookInput {
         unimplemented!()
     }
 
-    /// The Record a "Record before commit" Hook sees, in its Dataset.
+    /// The Record a Hook before a Record's commit sees, in its Dataset.
     pub fn record<T: serde::Serialize>(self, dataset: &Dataset<T>, record: T) -> Self {
         let _ = (dataset, record);
         unimplemented!()
@@ -367,7 +384,7 @@ impl TestEngine {
         unimplemented!()
     }
 
-    /// Runs one of the crawl's Hooks, by the name Hooks carry (#481), alone, its context built from
+    /// Runs one of the crawl's Hooks, by the name Hooks carry (ADR 0104), alone, its context built from
     /// `input` as `run_handler` builds a handler's. A name the crawl does not hold fails with
     /// `hook_unknown`, naming the closest.
     pub async fn run_hook(&self, crawl: &Crawl<'_>, name: &str, input: HookInput) -> Result<HookResult, Error> {

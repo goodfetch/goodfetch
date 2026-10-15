@@ -192,7 +192,7 @@ export declare class TestEngine implements AsyncDisposable {
    */
   runHandler<L extends Label<unknown, unknown>>(crawl: Crawl, label: L, input: HandlerInput<L>): Promise<AttemptResult>;
   /**
-   * Runs one of the crawl's Hooks alone, by the name Hooks carry (#481), its stage's context built from
+   * Runs one of the crawl's Hooks alone, by the name Hooks carry (ADR 0104), its stage's context built from
    * `input` as `runHandler` builds a handler's. A name the crawl does not hold throws `HookUnknownError`,
    * naming the closest.
    */

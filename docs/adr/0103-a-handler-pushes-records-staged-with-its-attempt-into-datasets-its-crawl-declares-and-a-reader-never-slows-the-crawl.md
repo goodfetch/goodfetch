@@ -83,6 +83,7 @@ Decided in [Crawl output in code](https://github.com/goodfetch/goodfetch/issues/
   - **When the stage runs.** Once the handler returns, before the commit, and only on the Records of the attempt that is about to commit.
     - A discarded attempt's Records never reach a Hook.
     - A Hook that fails (`hook_failed`) fails the attempt, which discards everything it staged and is retried under the work item's policy (ADR 0033).
+      > Amended by [ADR 0104](0104-a-crawl-declares-its-hooks-per-stage-in-code-a-hook-returns-its-change-and-a-program-registers-its-own-plugins-by-name.md): under that policy a Hook's own exception is retried only when `crawl.retry.handler_failed` is on, and a Goodfetch code raised inside it when its retryable flag says so.
   - A Hook's answer never fails the request.
   - A transformed Record is checked against its schema again, and is rejected if it no longer fits.
   - A `succeeded` outcome carries `records`: for each Dataset, how many Records were committed, dropped and rejected. A request that succeeded with nothing committed says why (G1).
@@ -176,6 +177,7 @@ Decided in [Crawl output in code](https://github.com/goodfetch/goodfetch/issues/
   - A Sink inherited from the connection or from configuration delivers only the Datasets it names that the crawl declares. It is inactive for a crawl that declares none of them, as `explainSettings()` shows, so one project file can serve several crawls (ADR 0083).
   - **A departure from G3, named.** A misspelled Dataset in an inherited Sink is never refused, since that Sink may serve another crawl. `explainSettings()` and the run's report show it inactive.
 - **A Sink written in the program** (ADR 0026's SDK-handler form) is a Plugin in code. [Hooks and injectable components in the SDK API](https://github.com/goodfetch/goodfetch/issues/481) decides it.
+  > Amended by [ADR 0104](0104-a-crawl-declares-its-hooks-per-stage-in-code-a-hook-returns-its-change-and-a-program-registers-its-own-plugins-by-name.md): it is registered on `connect()` by name (`sinks`), serves the `sinks.<name>` entry of its name, and takes no `type` there.
 - **A reader is not a Sink.** `run.records()` keeps no delivery state in the engine.
 
 ### Raw responses

@@ -417,7 +417,7 @@ What identifies a Plan step's target to a person, checked before any Effect to t
 _Avoid_: fingerprint (alone, it means a browser or TLS identity), selector, locator
 
 **Drift**:
-The state of a Plan step whose target no longer matches its Target fingerprint.
+The state of a Plan step whose target no longer matches its Target fingerprint, or whose page text no longer parses under the Value transform the step keeps.
 _Avoid_: breakage, flake
 
 **Repair**:

@@ -43,7 +43,7 @@ When an extracted field is a number, an amount's currency or a date, and the pag
 - **Machine-readable values come first.** `number`, `date` and `date_time` read from a `<time datetime>`, a `<data value>` or a `content` attribute use the invariant forms (ISO 8601, a plain decimal with a dot), whatever the locale, and the compile prefers them. HTML gives these attributes "a machine-readable form" of their element's contents ([HTML](https://html.spec.whatwg.org/multipage/text-level-semantics.html#the-time-element)).
 - **Output forms.**
   - A `number` never passes through a float. It writes a JSON number where the field's JSON Schema takes a number, and text where it takes a string, the exact decimal of ADR 0082 (scenario 02's `"51.77"`).
-  - A field whose JSON Schema neither type nor format accepts the transform's output is refused when the transform is written, never coerced.
+  - A field whose JSON Schema neither type nor format accepts the transform's output is never coerced: the answer that wrote that transform fails Grounding and is fed back through ADR 0012's bounded retry, as any ungrounded answer is.
 - **Grounding of a `map`** vouches for its source text, which must be one of the table's keys exactly. The table itself is kept in the Plan, where its diff shows it, and a first compile is promoted only after a `verified` Run (ADR 0091).
 - **The list is versioned with the Plan file (ADR 0030).** A new transform is added in a minor, under this ADR's rules: deterministic, every parameter stated, recorded in Provenance.
 
@@ -57,6 +57,7 @@ When an extracted field is a number, an amount's currency or a date, and the pag
 - **A text that does not parse is not a value.**
   - In compiled mode, a replayed transform that does not parse is Drift of its step: the call gets ADR 0091's one Repair, and after it, or under `plan.frozen`, fails with `plan_drift`. Its `Drift` names the field, the text and the transform.
   - In model mode, the failure is fed back through ADR 0012's bounded retry, and in the end fails with `extraction_invalid`, whose issue names the text and the transform.
+  - In an Agent's output, it is an answer that fails Grounding: given back to the model once, then `needs-review` naming the field (ADR 0100). A value Grounded in an Agent tool's result is the program's own data, and no transform reads it.
 
 ### Which locale and time zone
 
@@ -68,8 +69,9 @@ When an extracted field is a number, an amount's currency or a date, and the pag
   - A page's `lang` alone cannot be the rule: `en` does not say whether "01/02" is January or February.
   - The Session's `browser.locale` alone cannot be the rule either: it is what the site was asked for, not what it served.
 - **Replay never parses under a locale the page no longer uses.**
-  - For a Plan entry that holds a locale-dependent transform, the variant's key (ADR 0091's "one variant per page layout") also holds the element's language and the Session's `browser.locale` and `browser.timezone_id`.
-  - A page served in another language, or to a Session of another locale or zone, is a new variant, compiled once.
+  - For a Plan entry that holds a locale-dependent transform, the variant's key (ADR 0091's "one variant per page layout") also holds every input a locale or zone is resolved from: the element's language, the Session's `browser.locale` and `browser.timezone_id`, and the values of `extract.locale` and `extract.timezone_id` in effect for the call.
+  - A page served in another language, to a Session of another locale or zone, or under another `extract.locale` or `extract.timezone_id`, is a new variant, compiled once.
+  - The Plan keeps each transform's resolved locale and zone. Since the key holds every input they were resolved from, a replay uses them only where those inputs are the same, and a changed setting never replays the old locale or zone.
   - Strict parsing alone cannot catch "1,099", which is 1099 under `en-US` and 1.099 under `de-DE`.
   - A program that fixes `browser.locale` and `browser.timezone_id` keeps one variant.
 - **A date-time that prints no offset takes its time zone (an IANA name) in this order:**
@@ -110,12 +112,14 @@ When an extracted field is a number, an amount's currency or a date, and the pag
 - **Amends ADR 0091.**
   - The closed list of compiled transforms is this ADR's.
   - In model mode, the model answers each field with its text and transform, and the engine computes the value.
-  - A replayed transform that does not parse is Drift.
-  - The variant key of an entry holding a locale-dependent transform also holds the element's language and the Session's locale and time zone.
+  - A replayed transform that does not parse is Drift, which `GLOSSARY.md`'s **Drift** now covers beside a target that no longer matches its Target fingerprint.
+  - The variant key of an entry holding a locale-dependent transform also holds the element's language, the Session's locale and time zone, and `extract.locale` and `extract.timezone_id`.
   - `extract.locale` and `extract.timezone_id` join `extract.mode`.
   - Notes sit under its Plan section and Compiled and model extraction.
 - **Amends ADR 0100.** An Agent's output fields follow the same transforms and the same answer form. A note sits under its Grounding bullet.
-- **Adds to ADR 0083.** `extract.locale` and `extract.timezone_id` are new settings, `null` by default, set at any scope that takes `extract.*`.
+- **Adds to ADR 0083.** `extract.locale` and `extract.timezone_id` are new settings, `null` by default, set at any scope that takes `extract.*`. A locale tag the engine has no CLDR data for fails with `setting_invalid`, whose message names the closest tag it has.
+- **Amends ADR 0117.** `scriptedExtraction(data)` keeps its typed `data`. The testing kit answers in the model's answer form: for each value it finds the page text from which a Value transform under the page's locale gives that value, and answers with that text and transform under `model`, or with the locators and transform that read it under `compiled`. A date printed "01.02.2026" is found for `2026-02-01`. A note sits under its `scriptedExtraction` bullet, and one under ADR 0105's Scripted model.
+- **Adds to ADR 0105.** A relative time read from a Response recording is anchored at the recorded fetch time.
 - **Adds to ADR 0059.** A relative time's anchor is the document's fetch time from the `Clock`, recorded in Provenance, so its tests need no clock.
 - **`GLOSSARY.md`** gains **Value transform**, and **Grounding** names it.
 - **`TESTING.md`** gains the Value transform conformance cases.

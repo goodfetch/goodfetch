@@ -40,6 +40,7 @@ Two programs treated a fixed Run ID as a label and met a Run that had already en
 Two tests scripted the extracted data as a model reply, while `extract.mode` defaults to `compiled` and a compile request expects locators. ADR 0105 left compiled steps to Plan replay, which a test without a Plan cannot use.
 
 - **`scriptedExtraction(data)`** (`scripted_extraction` in Python, `ScriptedReply::Extraction` in Rust; S2, T) is a Scripted model reply that answers one `extract` call in its active mode (ADR 0091's `extract.mode`): under `model`, with `data`; under `compiled`, the default, with the locators that read `data` from the page, which the testing kit writes by finding each value on the page, as Grounding locates one. The compiled step then reads the page with them as it would in production.
+  > Amended by [ADR 0123](0123-a-typed-value-read-from-page-text-comes-from-an-engine-transform-under-a-stated-locale-and-time-zone.md): the kit answers in the model's answer form. For each value of `data` it finds the page text from which a Value transform under the page's locale gives that value ("01.02.2026" for `2026-02-01`), and answers with that text and transform under `model`, or with the locators and transform that read it under `compiled`.
 - **A value not on the page** gets no locator, so the step raises ADR 0091's `extraction_incomplete`, naming the field, as a real compile would (G1). No new Error code.
 - The Scripted model's other replies, and its `scripted_model_exhausted` and `scripted_model_unused`, are unchanged.
 

@@ -76,6 +76,7 @@ A program hands Collie's built-in Agent one objective with `page.agent(task, opt
   - `limit`: a Limit by name, after which the Run stops too (ADR 0080);
     > Amended by [ADR 0107](0107-a-runs-model-allowance-refuses-its-model-calls-once-spent-while-the-run-goes-on.md): `model_allowance`: the Run's Model allowance (`ai.allowance.*`) is reached, naming the setting, its value and its layer; the Run goes on, and a task that starts after it is reached returns it with no step.
   - `abort`: someone other than the caller stopped the task, with who: a person in the Console, another Client, or the program closing the page or the Run.
+    > Amended by [ADR 0113](0113-a-human-pause-whose-page-closes-raises-call-cancelled-naming-what-closed-and-a-lost-live-view-ends-no-pause.md): `by` also takes `browser`, for a page or browser closed in the browser outside every Client.
 
   The leaders split here: OpenAI Agents, Pydantic AI, Midscene and Playwright 1.58 raise at their cap, while the AI SDK, Stagehand v3, Notte and Browser Use return. The caller's own cancellation keeps its language's form (ADR 0080).
 
@@ -182,6 +183,8 @@ Under ADR 0079's rule, the call raises when it cannot keep its promise, and AI w
 | Another exception from an Agent tool; two tools share a name or take a built-in's | `agent_tool_failed`; `agent_tool_invalid`, each a `ProgramError` |
 | Another exception from the Success check function | `success_check_threw`, a `ProgramError` |
 | A placeholder neither filled nor bound, a variable no placeholder uses, or a name that is both | `variables_mismatch` (ADR 0091) |
+
+> Amended by [ADR 0114](0114-a-program-and-collie-take-turns-on-a-page-other-code-drives-and-an-ai-verb-fails-when-a-navigation-it-did-not-start-replaces-its-document.md): on a page other code also drives, a navigation to a new document that the task did not start is not raised: it is a step's outcome given back to the model, naming both addresses, and a task replayed from the Plan stops replaying there for the live loop, as on Drift, or under `plan.frozen` or with no model configured fails with `page_navigated_during_call`.
 
 **What a raised error carries** (G1, G6). An error raised after steps were taken carries the task's `usage` (ADR 0101). It also carries `agentTask`: the steps taken, the partial answer as JSON, valid and Grounded as `partial` is, and the Agent tools whose Effect the task left uncertain. ADR 0079 asks that data gathered before a failure travel on the error. The steps are also in the Run trace under the error's `callId`.
 

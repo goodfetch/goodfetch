@@ -9,10 +9,14 @@ The leaders fail here in three ways ([crawl frameworks](https://github.com/goodf
 - **Hooks with no deadline of their own.** Crawlee 3.18's navigation hooks run only inside the outer handler timeout ([basic-crawler.ts](https://github.com/apify/crawlee/blob/v3.18.2/packages/basic-crawler/src/internals/basic-crawler.ts#L2025-L2034)); v4 bounds them ([upgrade guide](https://github.com/apify/crawlee/blob/8cb2eb61a0356a96205c08e02ed49cadc97081e5/docs/upgrading/upgrading-v4/upgrading-v4.md#L436-L442)).
 - **Fetching tied to parsing.** Crawlee's crawler class picks both, and crawlee-python's [Design Inspiration From Scrapy](https://github.com/apify/crawlee-python/discussions/855) discussion asks to decouple them.
 
-Decided in [Hooks and injectable components in the SDK API](https://github.com/goodfetch/automan/issues/481), on the map [The SDK API of Collie and Foxhound](https://github.com/goodfetch/automan/issues/461), every answer decided by the agent on the owner's delegation, with its [grilling record](https://github.com/goodfetch/automan/issues/481#issuecomment-6181739598), [round 5](https://github.com/goodfetch/automan/issues/481#issuecomment-6181969007), [round 6](https://github.com/goodfetch/automan/issues/481#issuecomment-6187768415) and [round 7](https://github.com/goodfetch/automan/issues/481#issuecomment-6188086570). Principles are cited by their IDs in [ADR 0077](0077-the-sdk-api-follows-eight-guarantees-and-four-ranked-shape-rules.md). Collie's page API and its routes are [ADR 0085](0085-collies-page-api-keeps-playwrights-names-strictness-waits-values-cross-as-json-and-unanswered-requests-fall-through.md)'s. It builds on decisions in review when it was made:
-- [ADR 0093](0093-a-crawl-declares-its-labels-and-one-handler-each-and-a-handler-reads-collies-page-on-every-fetch-tier.md) ([PR #512](https://github.com/goodfetch/automan/pull/512)): the crawl, its Labels and handlers;
-- ADR 0088 ([PR #504](https://github.com/goodfetch/automan/pull/504)): which Hook stages are Collie's;
-- ADR 0092 ([PR #509](https://github.com/goodfetch/automan/pull/509)): Secret placeholders and `resolveSecret`;
+Decided in [Hooks and injectable components in the SDK API](https://github.com/goodfetch/automan/issues/481), on the map [The SDK API of Collie and Foxhound](https://github.com/goodfetch/automan/issues/461), every answer decided by the agent on the owner's delegation, with its [grilling record](https://github.com/goodfetch/automan/issues/481#issuecomment-6181739598), [round 5](https://github.com/goodfetch/automan/issues/481#issuecomment-6181969007), [round 6](https://github.com/goodfetch/automan/issues/481#issuecomment-6187768415) and [round 7](https://github.com/goodfetch/automan/issues/481#issuecomment-6188086570). Principles are cited by their IDs in [ADR 0077](0077-the-sdk-api-follows-eight-guarantees-and-four-ranked-shape-rules.md). It builds on these adopted decisions:
+- [ADR 0085](0085-collies-page-api-keeps-playwrights-names-strictness-waits-values-cross-as-json-and-unanswered-requests-fall-through.md): Collie's page API and its routes;
+- [ADR 0088](0088-collie-carries-every-capability-except-those-only-many-pages-need.md): which Hook stages are Collie's;
+- [ADR 0090](0090-products-are-named-goodfetch-collie-and-goodfetch-foxhound-and-share-one-product-version.md): the Products' crate and connection names;
+- [ADR 0092](0092-sessions-open-from-their-source-page-pause-waits-for-a-person-and-a-secret-is-a-placeholder-bound-to-domains.md): Secret placeholders and `resolveSecret`;
+- [ADR 0093](0093-a-crawl-declares-its-labels-and-one-handler-each-and-a-handler-reads-collies-page-on-every-fetch-tier.md): the crawl, its Labels, handlers and crawl requests, each with its method, headers and body.
+
+It also builds on decisions in review when it was made:
 - ADR 0101 ([PR #515](https://github.com/goodfetch/automan/pull/515)): the program's own Model provider;
 - ADR 0102 ([PR #521](https://github.com/goodfetch/automan/pull/521)): the Run's progress, outcomes and report;
 - ADR 0103 ([PR #516](https://github.com/goodfetch/automan/pull/516)): Datasets and Sinks in code.
@@ -43,7 +47,7 @@ Decided in [Hooks and injectable components in the SDK API](https://github.com/g
 - **One method per stage on the `Crawl`,** beside its Labels and handlers (ADR 0093). Hooks, like handlers, are never persisted, so the `Crawl` a Run resumes with brings them back.
   - **TypeScript:** `beforeRequest`, `afterResponse`, `beforeNavigation`, `afterNavigation`, `pageReady`, `beforeRecordCommit`, each taking the Hook and `{ labels, name }`.
   - **Python:** the same names in snake_case, as decorators on `Crawl` (plain functions) and `AsyncCrawl` (`async def`), each returning the function unchanged so a test calls it as it is, as `@crawl.handle(label)` does.
-  - **Rust:** methods taking `AsyncFn` closures with a `HookOn` scope, answered inside `crawl.serve(&run)` as handlers are. They may borrow, and need neither `Send` nor `'static` (ADR 0081). On `goodfetch::blocking::Crawl` they are `Fn + Send + Sync + 'static`, as its handlers are. Beside `run.crawl_requests()`, the way down beneath `serve` for handlers (ADR 0093), `run.hook_requests()` streams the Hook calls, so a program that answers its requests itself answers its Hooks too (G8).
+  - **Rust:** methods taking `AsyncFn` closures with a `HookOn` scope, answered inside `crawl.serve(&run)` as handlers are. They may borrow, and need neither `Send` nor `'static` (ADR 0081). On `goodfetch_foxhound::blocking::Crawl` they are `Fn + Send + Sync + 'static`, as its handlers are. Beside `run.crawl_requests()`, the way down beneath `serve` for handlers (ADR 0093), `run.hook_requests()` streams the Hook calls, so a program that answers its requests itself answers its Hooks too (G8).
 
   One method per stage gives each stage its own typed context and doc comment.
 - **Stage names.** The Operation catalog names the stages `before_request`, `after_response`, `before_navigation`, `after_navigation`, `page_ready`, `before_record_commit` and `request_ended`. The lifecycle stages keep ADR 0033's names until area 7's spec writes them. The same names serve Plugin manifests, Script Hooks and the Run trace (S1).
@@ -65,7 +69,7 @@ Every context carries `request` (id, URL, Label, typed Payload, depth, attempt) 
 
 | Stage | Also in the context | Returns | Ends the work with |
 |---|---|---|---|
-| before request | the tier about to fetch, the headers as built so far, `previousError` | `{ url?, headers? }`, or nothing | `skip(message)`: `skipped`, reason `hook` |
+| before request | the tier about to fetch, the request's `method` and `body` as enqueued, the headers as built so far (the enqueue's own included), `previousError` | `{ url?, headers? }`, or nothing | `skip(message)`: `skipped`, reason `hook` |
 | after response | the final `response`, after redirects | `{ body? }`, or nothing | `block(cause)`: ends the attempt `blocked` with that Block cause; ADR 0021 escalates by new Session, and the request ends `blocked` once escalation runs out. `retry(message)`: `retry_requested` (ADR 0093) |
 | before navigation, after navigation, page ready | `page`, Collie's page (ADR 0085) | nothing | page calls only |
 | before a Record's commit | `dataset`, `record` | the Record to commit, changed or not, or nothing | `drop(reason)`: counted, never stored; `reject(reason)`: into the Dataset's rejection table, read with `run.rejectedRecords` (ADR 0103) |
@@ -84,7 +88,7 @@ Every context carries `request` (id, URL, Label, typed Payload, depth, attempt) 
 
 ### What a before-request Hook may change
 
-- **The URL and headers, never the method or a body.** A crawl request is a GET (ADR 0093). A crawl that must POST does it from a handler with `page.request` (ADR 0085). Politeness counts that request (ADR 0086), and [Effects a program declares in code](https://github.com/goodfetch/automan/issues/500) ([PR #523](https://github.com/goodfetch/automan/pull/523)) decides whether it is an Effect. A Hook that turned a GET into a POST would change what the Frontier had deduplicated, what robots.txt and Politeness read, and whether the request is an Effect (ADR 0010), unseen (G5).
+- **The URL and headers, never the method or the body.** A crawl request carries its method, headers and body from its enqueue or seed (ADR 0093), so a crawl of a POST or GraphQL API states each request where it knows it, and a Hook reads them (to sign a request, say) without rebuilding them. The method and the body are part of the request's identity in the Frontier (ADR 0093), and whether a non-GET request is an Effect is [Effects a program declares in code](https://github.com/goodfetch/automan/issues/500)'s ([PR #523](https://github.com/goodfetch/automan/pull/523)). A Hook that changed them would change what the Frontier had deduplicated, what robots.txt and Politeness read, and whether the request is an Effect (ADR 0010), unseen (G5).
 - **A header set to `null` is removed.**
 - **The engine's own headers are refused.** ADR 0033's forbidden headers (`Host`, `Cookie`, `Authorization`, `Proxy-*`, method overrides) fail the Hook with `header_forbidden`, wrapped in `hook_failed`.
 - **Secrets.** A header's value may be a Secret placeholder, bound by `secrets.*` and checked against the request's URL, as in `page.request` and a route's overrides (ADR 0092). The engine adds cookies, Secret values and the Session's credentials after the last Hook, so no Secret value passes through the program, and the headers a Hook reads never hold them.
@@ -112,6 +116,7 @@ Every context carries `request` (id, URL, Label, typed Payload, depth, attempt) 
 - **Retries.**
   - The program's own exception is not retried unless `crawl.retry.handler_failed` is on. A bug in a Hook fails the same way on every attempt, and each attempt fetches the page again (G5).
   - A wrapped code is retried when its retryable flag says so (ADRs 0051, 0079).
+  - Either retry draws on the request's `crawl.retry.max`, which its Hooks share with its handler (ADR 0093).
 - **A Hook that raises at the Record stage fails the attempt's commit.** Everything the attempt staged is discarded together, so no attempt half-commits (ADR 0003).
 
 ### What a program may replace
@@ -134,6 +139,7 @@ The research's injectable components map onto Plugin kinds (ADR 0033), or onto n
   - **TypeScript:** `fetchBackends`, `proxyProviders`, `sinks`, and so on for each kind, generated from the catalog's kinds.
   - **Python:** the same in snake_case: coroutine functions on the async client, run in the connection's task group; plain functions on the sync client, run on its thread pool (ADR 0081).
   - **Rust:** `ConnectOptions` declares each handler's name, one builder method per kind (`fetch_backend(name)`, `proxy_provider(name)`, `sink(name)`), and `gf.fetch_requests(name)`, `gf.proxy_requests(name)` and `gf.sink_requests(name)` read its calls as an `EventStream`, since the async API spawns nothing (ADR 0081). Reading a name not declared fails with `setting_invalid`, and so does a second stream for a name while one is open, since calls that need an answer have one reader. A call waits for its stream until its own deadline. A call dropped unanswered, or held by a stream dropped mid-Run, fails with its kind's code for an unreachable implementation, which area 7's spec names for each kind, as a dropped model call is `model_unavailable` (ADR 0101), and is retried as that code is.
+  - **Rust's Secret provider is declared the same way.** `ConnectOptions::resolve_secret()` declares that the program answers `caller:` references, and ADR 0092's `gf.secret_requests()` reads them under the rules above. Without the declaration a `caller:` reference raises `secret_unavailable`, its `fix` naming the option, as in TypeScript and Python, whether or not a stream happens to be open (S1, G2). A request dropped unanswered is `secret_unavailable` too (ADR 0092).
   - **In every language, a program's own implementation of a kind is this SDK-handler form, with every engine.** On a linked engine (ADR 0078), the Rust-trait form of ADR 0033 is the engine's seam for its built-ins, not part of the SDK API, so a Rust program has one form, as the others have (S1, S2).
 
   A map keyed by name makes a duplicate name impossible. A handler serves every Run of its connection, as an installed Plugin serves every Run of its engine. A Product's SDK has only the options of its own kinds: Collie's has no `fetchBackends` or `sinks`, since the Fetch backend and Sink kinds are Foxhound's (ADR 0088).
@@ -155,7 +161,7 @@ The research's injectable components map onto Plugin kinds (ADR 0033), or onto n
 - **Failures.**
   - A `GoodfetchError` a handler raises keeps its code.
   - Any other exception is its kind's `<kind>_handler_failed`, a `ProgramError` carrying the handler's name and the exception's type, message and stack. Like `handler_failed`, its message always names that exception (ADR 0079), as ADR 0101's `model_handler_failed` does. `<kind>` is the kind's short name in the catalog: `fetch`, `proxy`, `sink`, and ADR 0101's `model`.
-  - In Rust, `fail(error)` takes any error, a `goodfetch::Error` keeping its code and any other becoming `<kind>_handler_failed`, so a Rust handler's own failure is as diagnosable as a TypeScript one's (G6). ADR 0101's draft fails a Rust model call with a `goodfetch::Error` only; [Models, usage and cost in the SDK API](https://github.com/goodfetch/automan/issues/475) is asked to align.
+  - In Rust, `fail(error)` takes any error, the SDK's own `Error` (`goodfetch_foxhound::Error`, `goodfetch_collie::Error`, ADR 0090) keeping its code and any other becoming `<kind>_handler_failed`, so a Rust handler's own failure is as diagnosable as a TypeScript one's (G6). ADR 0101's draft fails a Rust model call with a `goodfetch::Error` only; [Models, usage and cost in the SDK API](https://github.com/goodfetch/automan/issues/475) is asked to align.
   - ADR 0092's `resolveSecret` keeps `secret_unavailable`, as decided there.
 - **Retries of a handler's failure.**
   - A Sink's is retried on ADR 0008's schedule, since its delivery ID makes a retry safe.
@@ -189,7 +195,7 @@ They join `goodfetch-protocol`'s list in the `program` group (ADR 0079).
 - **Import paths with integer orders,** as Scrapy: rejected. Declaration order says the same with nothing to pick.
 - **One `hook(stage, fn)` method:** rejected. Per-stage methods each carry their own typed context and documentation, and Python's decorators read as Crawlee for Python's.
 - **Mutating a request object in the context** (Crawlee's hooks): rejected. The SDK would diff what changed, a refused header would be found only after the Hook returned, and Rust would hold a mutable borrow across awaits. **Scrapy's union of return types:** rejected by S2, and returning a response would let a Hook fake a page.
-- **A before-request Hook that sets the method and a body,** as Scrapy's `FormRequest` and Crawlee's `method` and `payload` allow: rejected by G5. It would change the request unseen by deduplication, robots.txt and the Effect classing; a handler POSTs with `page.request`.
+- **A before-request Hook that sets the method and a body,** as Scrapy's `FormRequest` and Crawlee's `method` and `payload` allow on a request: rejected by G5. It would change the request unseen by deduplication, robots.txt and the Effect classing. A crawl request takes its method and body at its enqueue (ADR 0093), where Scrapy and Crawlee take them too.
 - **Retrying a Hook's own exception by default,** as Crawlee retries an error in a navigation hook: rejected by G5. **Never retrying it, with no switch:** rejected. A transient failure in the program's own service would fail its request for good, where the handler's switch already exists.
 - **A replaced Session pool, a storage client and a tier predictor,** as Crawlee v4 accepts: rejected, above.
 - **One generic `connect({ plugins: [...] })` list for every kind:** rejected. It was this ticket's first answer, replaced once ADR 0101 registered Model providers per kind: two forms for one concept break S1. **Rust traits run on the connection's runtime:** rejected for the same reason, beside ADR 0092's and ADR 0101's streams, and so is keeping the Rust-trait form public on a linked engine.
@@ -213,12 +219,15 @@ They join `goodfetch-protocol`'s list in the `program` group (ADR 0079).
   - SDK handlers are registered by name, one option per kind, and fail as `<kind>_handler_failed`.
 - **Amends ADR 0079.** `hook_failed` names its stage, Hook and Label, and its wrapped code. An SDK handler's exception is its kind's `<kind>_handler_failed`, whose message, like `handler_failed`'s, always names the program's exception, in Rust's `Display` too.
 - **Amends ADR 0083.** The only SDK handler of a kind that one setting chooses becomes that setting's connection value, in the run layer with the origin `registered`, below every other run-layer origin.
-- **Amends ADR 0093** (its notes are added once it merges):
+- **Amends ADR 0093:**
   - `crawl.retry.handler_failed` also covers `hook_failed` and a crawl request failed through an SDK handler;
-  - headers and URL rewrites, not bodies, belong to a before-request Hook;
+  - a before-request Hook changes a crawl request's URL and headers, never the method or body it was enqueued with, and its context shows them;
   - the scope is checked on a Hook's rewrite too, and `out_of_scope` covers a rewrite leaving it;
   - a Label takes `timeout.hook`;
-  - Hooks are declared on the `Crawl`.
+  - Hooks are declared on the `Crawl`;
+  - RT-04 becomes `decided`, since before request is the stage before a retry.
+- **Amends ADR 0092.** A before-request Hook's header is among the places a Secret placeholder may go, checked against the request's URL at every hop. Rust declares its Secret provider when connecting (`ConnectOptions::resolve_secret()`), and `gf.secret_requests()` reads what it declared.
+- **Amends ADR 0088.** The new stage `request_ended` is Foxhound's, beside before request, after response and before a Record's commit.
 - **Amends ADR 0026.** A program's Sink is registered on its connection by name, serves the `sinks.<name>` entry of its name, and is the SDK-handler form in Rust too; a Rust-trait Sink is no third-party form.
 - **`goodfetch-protocol`** gains `header_forbidden`, `hook_ineffective`, `hook_duplicate` and each kind's `<kind>_handler_failed`, through `xtask codegen`'s naming checks (ADR 0079).
 - **`GLOSSARY.md`.**
@@ -238,7 +247,5 @@ They join `goodfetch-protocol`'s list in the `program` group (ADR 0079).
 - **Left to other tickets.**
   - [The Run in code](https://github.com/goodfetch/automan/issues/478): a discrete event for an observe-only stage its progress and report do not already show, such as Limit reached or migration.
   - [Models, usage and cost in the SDK API](https://github.com/goodfetch/automan/issues/475): Rust's declared names and `fail(error)` taking any error, for `model_requests`; and no Rust-trait Model provider in the SDK API.
-  - [Sessions, logins, Human pause and secrets in code](https://github.com/goodfetch/automan/issues/476): a before-request Hook's header among the places a Secret placeholder may go, and a declared `gf.secret_requests()` in Rust, as the other kinds' streams are declared when connecting.
-  - [Collie's capability set](https://github.com/goodfetch/automan/pull/504): `request_ended` among the Hook stages that are Foxhound's.
   - [Testing a user's crawl or automation](https://github.com/goodfetch/automan/issues/482) ([PR #522](https://github.com/goodfetch/automan/pull/522)): building a Hook's context to call a Hook in a test.
   - [API sketch: type-checked stubs and golden scenarios](https://github.com/goodfetch/automan/issues/483): placing a before-request Hook in golden scenario 05 or 08.

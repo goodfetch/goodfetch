@@ -42,6 +42,8 @@ Decided in [Collie's exact capability set](https://github.com/goodfetch/automan/
 | Partitioned crawls | 0054 | They split a crawl's domains |
 | The Fetch backend and Sink Plugin kinds; the Hook stages before request, after response and Record before commit | 0033 | They act on a Frontier's requests and a Dataset's Records |
 
+> Amended by [ADR 0104](0104-a-crawl-declares-its-hooks-per-stage-in-code-a-hook-returns-its-change-and-a-program-registers-its-own-plugins-by-name.md): the new observe-only Hook stage `request_ended`, which receives a crawl request's outcome, is Foxhound's too.
+
 ### Sessions a program or an Agent opened are never replaced
 
 - **The Session pool is Foxhound's.** The engine retires and replaces only Sessions that a crawl's Session pool opened.

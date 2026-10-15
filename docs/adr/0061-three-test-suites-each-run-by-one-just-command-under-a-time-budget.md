@@ -82,6 +82,8 @@ These are the recipes that [Workspace skeleton and the "all green" pull-request 
 | `just test <suite> [packages]` | Runs one suite's tests alone, without lints, for Rust, TypeScript or Python packages. CI jobs call this for their part. |
 | `just hooks` | Opt-in: points `core.hooksPath` at the committed `.githooks/`. Its pre-commit hook checks formatting, and its pre-push hook runs `just quick`. |
 
+> Amended by [ADR 0108](0108-while-the-repository-is-private-the-release-suite-runs-its-macos-cells-on-the-owners-machine-and-its-hosted-cells-under-a-ceiling.md): while the repository is private, `just release-ci` also takes the cells to run, all by default, and on `main` a commit of `main`, its head by default; off `main` it tests the branch's pushed head, hosted cells only. A commit's verdict may then span several dispatches.
+
 - **Until `xtask affected` exists** ([`xtask affected`: change detection for the pull-request tier](https://github.com/goodfetch/goodfetch/issues/134), which comes after the skeleton), `just quick` and `just pre-merge` run over the whole workspace, as their `all` forms do.
 - **`xtask affected` is the one source of what changed**, in CI and locally. Locally it diffs the working tree against the merge base. It gives nextest an `rdeps(…)` filterset, so crates that depend on a changed crate are tested too, and gives Vitest and pytest their packages.
 - **A local suite that can't run a part on this host says so.** For example, the sink containers on a machine without a container engine, or another OS's cell. The recipe lists every part it skipped, with the reason, after its results. Its exit code covers what ran. CI is the verdict.

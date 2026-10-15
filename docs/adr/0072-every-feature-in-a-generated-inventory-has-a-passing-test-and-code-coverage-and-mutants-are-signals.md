@@ -111,7 +111,7 @@ A Feature with an entry in `features/exceptions.toml` is **excepted**, by its ev
 | Release gate | `xtask release` | any Feature present in the release is untested (neither tested nor excepted) |
 
 - **Before the merge queue exists**, the Release suite runs on manual dispatch (ADR 0061), and the two gates read the latest such run on `main`.
-  > Amended by [ADR 0108](0108-while-the-repository-is-private-the-release-suite-runs-its-macos-cells-on-the-owners-machine-and-its-hosted-cells-under-a-ceiling.md): while the repository is private, "the latest such run" is `main`'s latest commit whose cells have all run, across its dispatches; a dispatch that ran only some cells is not read.
+  > Amended by [ADR 0108](0108-while-the-repository-is-private-the-release-suite-runs-its-macos-cells-on-the-owners-machine-and-its-hosted-cells-under-a-ceiling.md): while the repository is private, "the latest such run" is `main`'s latest commit whose cells have all run, across its dispatches; a commit some of whose cells have not run yet is not read.
 - **The release pull request lists every exception**, with its evidence kind.
 
 ### Code coverage: measured, never gated

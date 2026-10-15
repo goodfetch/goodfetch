@@ -82,7 +82,7 @@ Each SDK runs on its language's own model: TypeScript async only; Python an asyn
   - Each iterator has one reader; a second reader calls the method again.
   - While open, an unread lossless sequence slows its Run (ADR 0024), and a telemetry sequence keeps only the latest value. Where each sequence starts is its owning ticket's ([Crawl output in code](https://github.com/goodfetch/automan/issues/479) for Records).
     > Amended by [ADR 0100](0100-collies-agent-is-one-bounded-call-on-a-page-judged-by-the-programs-success-check-and-replayed-whole-from-the-plan.md): an Agent's steps are lossless and start at the task's first step, whenever `steps()` is called; the sequence ends when the task ends, and raises the task's error when it failed.
-    > Amended by [ADR 0102](0102-a-program-names-its-run-by-an-id-that-a-start-resumes-ends-it-with-a-run-report-and-reads-what-waits-and-why.md): a sequence read from the Run's committed state, as a crawl's `outcomes()`, starts at its first entry and never slows its Run; the rule above covers what the engine must deliver. The Run's progress is `progress()`, whose first value is the Run's progress at once.
+    > Amended by [ADR 0102](0102-a-program-names-its-run-by-an-id-that-a-start-resumes-ends-it-with-a-run-report-and-reads-what-waits-and-why.md): a sequence read from the Run's committed state, as a crawl's `outcomes()`, starts at its first entry, or at the next commit with `after: "now"`, and never slows its Run; the rule above covers what the engine must deliver. The Run's progress is `progress()`, whose first value is the Run's progress at once.
 
 ### Patterns and predicates
 

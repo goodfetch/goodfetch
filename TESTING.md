@@ -357,7 +357,7 @@ Decided in [ADR 0064](docs/adr/0064-tests-are-never-retried-and-unpinned-checks-
 - **Test health runs from M1 on, even while the repository is private, with no paid resource:**
   - the **daily test-health job** (scheduled, Linux, `main`'s head, 15-minute timeout) runs the 10 oldest quarantined tests 50 times each, then the scan and the Allure report;
   - the **constrained test-health run** (weekly and after each manual-dispatch Release run, Linux, 120-minute timeout) runs the Pre-merge suite with half the runner's CPU and memory, a fresh order seed and `detectAsyncLeaks`;
-  - these and the diagnostic runs share a ceiling of 1,000 included minutes a month. At the ceiling, constrained and then diagnostic runs are skipped until the month ends. The coverage and in-diff mutation jobs of [Feature coverage](#feature-coverage) count toward it too, and stop once the month's count reaches 550 minutes.
+  - these and the diagnostic runs share a ceiling of 1,000 included minutes a month, counted in the Linux-equivalent minutes of [Suites, commands and time budgets](#suites-commands-and-time-budgets). A diagnostic run of a cell on the owner's machine runs there and counts nothing. At the ceiling, constrained and then diagnostic runs are skipped until the month ends. The coverage and in-diff mutation jobs of [Feature coverage](#feature-coverage) count toward it too, and stop once the month's count reaches 550 minutes.
   - Once the nightly tier is on, both run every night with no ceiling.
 
 ### A flaky test found after merge
@@ -415,7 +415,7 @@ The fresh review of a pull request checks its tests against this list:
 
 ## Suites, commands and time budgets
 
-Decided in [ADR 0061](docs/adr/0061-three-test-suites-each-run-by-one-just-command-under-a-time-budget.md).
+Decided in [ADR 0061](docs/adr/0061-three-test-suites-each-run-by-one-just-command-under-a-time-budget.md), with the private-period matrix in [ADR 0108](docs/adr/0108-while-the-repository-is-private-the-release-suite-runs-its-macos-cells-on-the-owners-machine-and-its-hosted-cells-under-a-ceiling.md).
 
 ### The three suites
 
@@ -433,6 +433,14 @@ Each suite runs everything the suite before it runs.
 - **Checks that are non-deterministic by nature are in no suite**: real SaaS Sinks, live models, the online Proving ground, real vendors, Chrome's beta and dev channels, the benchmark, the Performance series. They keep their own tiers.
 - **The Release suite gates every merge**, through the merge queue. Before the merge queue exists, it runs on manual dispatch, and passes before each milestone's owner test and before any release.
   _Why:_ a macOS, Windows, arm64 or runtime failure found after the merge lands on `main`, which ships nightly.
+- **While the repository is private, a manual-dispatch Release run is a smaller matrix** ([ADR 0108](docs/adr/0108-while-the-repository-is-private-the-release-suite-runs-its-macos-cells-on-the-owners-machine-and-its-hosted-cells-under-a-ceiling.md)):
+  - Linux x64 and arm64 (glibc and musl) and Windows x64 run on GitHub-hosted runners;
+  - macOS arm64, and macOS x64 under Rosetta 2 (labelled `macos-x64 (Rosetta 2)`), run on the owner's machine;
+  - native macOS Intel and Windows arm64 first run once the repository is public, before the first release.
+
+  A passing run is every one of those cells green on one commit. A red cell is never dispatched again on the same commit.
+  _Why:_ the full matrix on hosted runners costs about 1,350 of the 2,000 included minutes a run, two thirds of it macOS.
+- **Keep the hosted cells of manual-dispatch Release runs under 600 included minutes a month.** Count in Linux-equivalent minutes: Linux 1, Linux arm64 1, Windows 2, macOS 11. The workflow's first job reads the month's count; if the run would pass 600, no hosted cell starts. The summary names the minutes needed and the date the month turns, the run fails, and no diagnostic run follows.
 
 ### Commands
 
@@ -445,7 +453,7 @@ Each suite runs everything the suite before it runs.
 
 ### Time budgets
 
-Budgets are the median (p50) of a job's last 20 runs in its own tier, on GitHub-hosted runners with warm caches: pull-request runs for Quick and Pre-merge; merge-queue runs (manual-dispatch runs while the repository is private), nightly and release runs for Release.
+Budgets are the median (p50) of a job's last 20 runs in its own tier, on GitHub-hosted runners with warm caches: pull-request runs for Quick and Pre-merge; merge-queue runs (manual-dispatch runs while the repository is private), nightly and release runs for Release. Cells on the owner's machine are labelled with it and kept out of the budgets; they keep the 90-minute job cap.
 
 | Suite | Where | Budget | Hard cap |
 |---|---|---|---|
@@ -965,7 +973,7 @@ Every boundary has its tests. A decision that adds a boundary adds its row in th
 | Unsafe code | ASan run of crates that opt into `unsafe` | Release | Linux glibc |
 | Supply chain and workflows | ADR 0032's gates; image digest pins; CodeQL once public; `gitleaks` over commits until then | Pre-merge | Linux |
 
-**Before the repository is public** (ADR 0032), the Release suite, with every part above, runs on manual dispatch before each milestone's owner test and before any release. CodeQL, GitHub secret scanning and push protection, and the nightly watch jobs start when the repository becomes public. Fuzzing runs within the plan's included minutes; paid minutes are declined while there is no revenue (ADR 0076).
+**Before the repository is public** (ADR 0032), the Release suite, with every part above, runs on manual dispatch before each milestone's owner test and before any release, on the private-period matrix of [Suites, commands and time budgets](#suites-commands-and-time-budgets). CodeQL, GitHub secret scanning and push protection, and the nightly watch jobs start when the repository becomes public. Fuzzing runs within the plan's included minutes; paid minutes are declined while there is no revenue (ADR 0076).
 
 ### Fuzzing
 
@@ -1385,10 +1393,13 @@ Decided in [ADR 0074](docs/adr/0074-the-goodfetch-chromium-is-gated-where-it-is-
 
 ## Free tiers and local secrets
 
-Decided in [ADR 0076](docs/adr/0076-tests-and-ci-run-on-free-tiers-and-ai-calls-go-through-the-vercel-ai-gateway.md).
+Decided in [ADR 0076](docs/adr/0076-tests-and-ci-run-on-free-tiers-and-ai-calls-go-through-the-vercel-ai-gateway.md); the owner's machine in the private-period Release suite in [ADR 0108](docs/adr/0108-while-the-repository-is-private-the-release-suite-runs-its-macos-cells-on-the-owners-machine-and-its-hosted-cells-under-a-ceiling.md).
 
 - **Spend nothing until the owner declares revenue.** No job, build, account or service that bills is created or switched on. Where a paid option would be better, choose the free one and record the paid one as declined.
 - **Run CI on GitHub's free standard runners** within the private plan's included minutes, and on a self-hosted runner on the owner's machine where a build needs more. A self-hosted runner never runs a pull request from a fork.
+- **Reach the owner's machine from the Release suite only through `workflow_dispatch`** ([ADR 0108](docs/adr/0108-while-the-repository-is-private-the-release-suite-runs-its-macos-cells-on-the-owners-machine-and-its-hosted-cells-under-a-ceiling.md)). The runner is registered on the repository with the label `owner-machine`. Only the Release suite's workflow names that label, and only its dispatch jobs; a Quick-suite check refuses any other workflow or event that does. The runner runs as its own standard macOS user, with no secret, a `contents: read` token and no access to the owner's home, keychain or `.env`. Once the repository is public, the Release suite runs only on hosted runners.
+  _Why:_ the runner executes whatever a branch's workflow asks, so only a person's dispatch from the repository's own branches may reach it.
+- **Let running out of minutes block, never bill.** The account keeps no payment method for Actions, so GitHub blocks usage past the included minutes. A self-hosted runner costs nothing today, but GitHub postponed, without cancelling, a $0.002-a-minute charge for self-hosted runners in private repositories. If it returns and would bill money, the owner's-machine cells stop.
 - **Time on the owner's machine, never publish it as the reference class.** The Performance series and the release-candidate benchmark run on the owner's machine (Apple M3 Max) when it is on, labelled with that machine; the rented reference host and the benchmark's paid services (proxies, CAPTCHA solving, model spend) are declined, and published reference-class runs wait for revenue.
 - **Use free tiers for outside accounts.** Real SaaS Sink accounts and Integration platform accounts use free plans only; a Sink with no free tier keeps its emulator suite and its Live check waits. LocalStack runs on its free open-source licence; if that is refused, the affected Sinks use free emulators such as MinIO, or wait. Translation uses pseudo-locales only.
 - **Keep local secrets in `.env`, written by `scripts/env-setup.sh`.** It is git-ignored and mode 600; `.env.example` lists every name, what it is for, the milestone that needs it and the page that creates it. Add a new secret to `.env.example` in the pull request that first needs it.

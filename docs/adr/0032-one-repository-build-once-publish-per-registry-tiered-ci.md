@@ -125,6 +125,8 @@ Releases are **built once and published per registry**: no tool publishes crates
     > Amended by [ADR 0071](0071-performance-budgets-are-counted-per-change-and-time-is-measured-on-the-reference-host.md): the Performance series runs nightly on the reference host while the repository is private too, once the owner approves, since it uses no hosted minutes.
     >
     > Amended by [ADR 0072](0072-every-feature-in-a-generated-inventory-has-a-passing-test-and-code-coverage-and-mutants-are-signals.md): a weekly coverage job and the pull-request in-diff mutation job run while the repository is private too, within ADR 0064's ceiling, below a threshold of their own.
+    >
+    > Amended by [ADR 0108](0108-while-the-repository-is-private-the-release-suite-runs-its-macos-cells-on-the-owners-machine-and-its-hosted-cells-under-a-ceiling.md): the full matrix on manual dispatch is, while private, ADR 0108's matrix: macOS cells on the owner's machine, the other hosted cells under a ceiling of included minutes.
 
 - ADR 0033 adds two release artifacts built, attested and published with the engine: the Linux `goodfetch-sandbox` helper and the Windows filter broker.
 - ADR 0039 signs and notarizes every macOS and Windows executable between build and attestation, in signing jobs that alone reach a `release` environment, and keeps Homebrew a formula.

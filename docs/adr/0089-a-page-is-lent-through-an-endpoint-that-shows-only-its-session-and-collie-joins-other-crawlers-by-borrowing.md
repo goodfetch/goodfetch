@@ -13,7 +13,7 @@ Decided in [Third-party automation on Foxhound pages, and Collie inside other cr
 
 ### A Lent page
 
-- **The endpoint shows a browser with one context, the lent page's Session.** In it, the library sees the lent page, the targets opened from it (popups, frames, workers) and the pages the library itself creates. It never sees another Session or the Session's other pages, including pages the program opens during the attach. The Session is already reserved for the attach (ADR 0003). This extends the scoping that [Collie's page API](https://github.com/goodfetch/automan/issues/472) gives `page.newCdpSession()`, which reaches only its page's target, to a library that needs a whole browser's endpoint.
+- **The endpoint shows a browser with one context, the lent page's Session.** In it, the library sees the lent page, the targets opened from it (popups, frames, workers) and the pages the library itself creates. It never sees another Session or the Session's other pages, including pages the program opens during the attach. In a handler, the Session is already reserved for the attach (ADR 0003). This extends the scoping that [Collie's page API](https://github.com/goodfetch/automan/issues/472) gives `page.newCdpSession()`, which reaches only its page's target, to a library that needs a whole browser's endpoint.
 - **Every command is classed:**
   - **Passed:** commands on the lent page's targets and the targets it opens.
   - **Rescoped:** a command with an optional browser context (permissions, cookies, `Target.createTarget`) gets the Session's context when it names none, and naming another is refused. Target discovery and auto-attach show only the Session's context, and attach the library only to the pages and targets it sees.
@@ -29,10 +29,10 @@ Decided in [Third-party automation on Foxhound pages, and Collie inside other cr
   - **Fail closed:** a browser-level command the spec's table does not class is refused. A Live check on each supported library's newest release catches a library that starts sending a new one.
 - **Closing the lent page itself is allowed,** as it is for a CDP session. The program's Page then reports `closed` (ADR 0078).
 - **The endpoint is a WebSocket for every library and engine,** under ADR 0017's rules: loopback by default, `Host` and `Origin` checked, a token for each attach, and TLS when exposed. The token travels in a header, never in the address, as ADR 0067's endpoint table requires; Playwright, Puppeteer and Browser Use all send headers when they connect. Python's sync client needs no relay thread, because the library connects from the program's own thread.
-- **When the attach ends,** by `close()`, the lease (ADR 0003) or the page closing:
+- **When the attach ends,** by `close()`, the library's `Browser.close`, its last connection closing, the lease (ADR 0003), the page closing or the Run ending:
   - the engine closes the pages the library created; popups opened from the lent page stay Pages of the Session, as any popup does;
   - it re-applies the Session's and the page's own state (device emulation, permissions, the Identity profile's overrides) before any other use, because when a CDP session detaches, Chromium clears device emulation, whoever set it, and the permission overrides that CDP session made (DI §3.2);
-  - the token is revoked, so Browser Use's automatic reconnects (three, over up to 54 s) are refused.
+  - the token is revoked, so Browser Use's automatic reconnects after a dropped connection (three, over up to 54 s) are refused, and the program lends the page again.
 
 ### What a Lent page keeps and loses
 
@@ -40,10 +40,10 @@ Decided in [Third-party automation on Foxhound pages, and Collie inside other cr
 |---|---|
 | Guard | The library's actions never pass it. The program's own page calls still work; their results are marked unguarded and no Secret is typed (ADR 0017). |
 | Fencing | In a handler, the attach is bound to the work item's lease and cut at its end with `attach_ended` (ADR 0003). The cut also releases requests and child targets the library paused, so the lease bounds a stall. Commands sent before the cut are unfenced. |
-| Session | Reserved for the attach (ADR 0003); out of the Session pool afterwards unless saved explicitly (ADR 0017); its state re-applied when the attach ends. |
-| Stealth | The Fingerprint method stays. Playwright, Puppeteer, chromiumoxide and chromium-bidi enable `Runtime` and add named utility worlds on the pages they wrap (DI §3.3), and human-like input applies only to the engine's own actions. Records taken during the attach say so in Provenance, and a Saved identity saved from a lent Session records that it was lent. |
+| Session | In a handler, reserved for the attach (ADR 0003); out of the Session pool afterwards unless saved explicitly (ADR 0017); its state re-applied when the attach ends. |
+| Stealth | The Fingerprint method stays. Playwright, Puppeteer, chromiumoxide and chromium-bidi enable `Runtime` on the pages they wrap, and the first three add named utility worlds (DI §3.3), and human-like input applies only to the engine's own actions. Records taken during the attach say so in Provenance, and a Saved identity saved from a Session that was lent records it. |
 | Egress | On a browser the engine launched, ADR 0017's egress proxy stays the Session's only way out: refusing new contexts and extensions closes both bypasses the research measured. On a Borrowed browser's page, egress stays interception only, which the library can switch off, with the rebinding gap recorded (ADRs 0014 and 0056). |
-| Politeness | In a crawl handler, the library's navigation is the crawl's, as the handler's own is (ADR 0086). Each top-level document request of the pages it sees waits at the engine's interception until Politeness admits it, the wait counting against the lease, and robots.txt refuses a disallowed one there. Where interception no longer sees the library's requests (ADR 0047's case), they go ungated, and the Run trace says so. In a Collie program, outside any crawl handler, the library's navigation is outside Politeness, as the program's own is. |
+| Politeness | In a crawl handler, the library's navigation is the crawl's, as the handler's own is (ADR 0086). Each top-level document request the library starts on the pages it sees waits at the engine's interception until Politeness admits it, through the seam that admits a handler's own navigation ([How the products are built](https://github.com/goodfetch/automan/issues/454)); the wait counts against the lease, and robots.txt refuses a disallowed one there. Each navigation is admitted once: one the program's own page calls start is admitted as ADR 0086 says, never again at the hold. Where interception no longer sees the library's requests (ADR 0047's case), they go ungated, and the Run trace says so. In a Collie program, outside any crawl handler, the library's navigation is outside Politeness, as the program's own is. |
 | Ad blocking, consent | As ADRs 0047 and 0048 rule for any raw CDP client. |
 | Effect journal, Plans | The library's actions are not journaled and never become Plans. |
 | Usage, Limits | The library's own model calls, such as Browser Use's, are outside Usage and Limits (ADR 0041); the docs send AI work that must be counted to Collie's own verbs. |
@@ -53,7 +53,7 @@ Decided in [Third-party automation on Foxhound pages, and Collie inside other cr
 
 - **Supported, each with a helper, a guide and conformance cases:** Playwright in TypeScript and Python, Puppeteer in TypeScript, Browser Use in Python.
 - **Not supported:**
-  - Stagehand v4, which needs a whole browser and installs its extension with a shared file system (DI §2.3); its load is refused, and its users have Collie's `act`, `observe` and `extract` and its built-in agent (ADR 0013);
+  - Stagehand v4, which needs a whole browser and installs its extension with a shared file system (DI §2.3); its load is refused, and its users have Collie's `act`, `observe` and `extract` and its built-in Agent (ADR 0013);
   - Stagehand v3, as ADR 0037 offers no v3 layer;
   - Selenium, ChromeDriver and WebDriver BiDi: ChromeDriver attached to a running browser leaves "some commands" unsupported, BiDi on Chrome runs chromium-bidi, which enables `Runtime`, and Firefox allows one BiDi session (DI §2.6);
   - Rust CDP crates: chromiumoxide's `close()` kills the browser, and a Rust program has Collie's page API and its CDP session.
@@ -74,7 +74,7 @@ Decided in [Third-party automation on Foxhound pages, and Collie inside other cr
 - **Lending belongs to the page,** so Collie carries it and Foxhound's handlers inherit it.
   - In a handler, the attach is bound to the work item's lease (ADR 0003).
   - In a Collie program, outside any work item, it lasts until it is closed, its page closes or its Run ends, under its token's lifetime (ADR 0017).
-  - A hosted page lends through the Browser host's endpoint (ADRs 0003 and 0022), and a page of a Borrowed browser under the same rules; nothing closes a Borrowed browser (ADR 0056).
+  - A hosted page lends through the Browser host's endpoint, with the same scoping, under ADR 0022's opt-in for a raw CDP endpoint on a hosted browser (ADR 0003). A page of a Borrowed browser lends under the same rules, and nothing closes a Borrowed browser (ADR 0056).
 
 ### Collie inside other crawlers
 
@@ -85,7 +85,7 @@ Decided in [Third-party automation on Foxhound pages, and Collie inside other cr
 - **What it loses** is ADR 0056's: the guard's guarantee (results unguarded, since the crawler's driver holds the page too), typing Secrets, egress enforced below the browser (interception only, with the rebinding gap recorded), stealth (the Session is `standard`, with the crawler's browser's identity), the Session pool, and resuming on another machine.
 - **Retries stay the crawler's:** Collie sees a retried handler as new calls in the same Run. How a program names its own Effects is [Effects a program declares in code](https://github.com/goodfetch/automan/issues/500)'s.
 - **Guides with tested examples:**
-  - Crawlee for JavaScript (`PlaywrightCrawler` and `PuppeteerCrawler`), Crawlee for Python (`PlaywrightCrawler`), and Scrapy with scrapy-playwright (`playwright_include_page`).
+  - Crawlee for JavaScript (`PlaywrightCrawler` and `PuppeteerCrawler`), Crawlee for Python (`PlaywrightCrawler`), and Scrapy with scrapy-playwright (`playwright_include_page`), each run at a pinned crawler version.
   - All three run handlers asynchronously, so they use the async clients, and ADR 0056's open question on Python's sync relay does not block them.
   - They cover Chromium pages only: `run.borrow()` refuses a Firefox or WebKit page with `borrow_requires_cdp` (ADR 0056).
   - Crawl4AI's page hooks and any other program holding a Playwright or Puppeteer page reach Collie the same way, untested.
@@ -95,7 +95,7 @@ Decided in [Third-party automation on Foxhound pages, and Collie inside other cr
 - **A Crawlee-style driver adapter,** where a library launches the browser and Foxhound's handlers drive through that library's page: rejected.
   - The crawl would run without the guard, the Effect journal, the Goodfetch Chromium or the egress proxy, in the SDK's process, where a Daemon or Goodfetch Cloud cannot reach it.
   - It reopens ADR 0019's rejection of Playwright as the driver and ADR 0033's rejection of a browser backend that launches what it names. Every browser source a user has already comes in as a Borrowed browser or through a browser backend Plugin.
-  - Crawlee's Stagehand crawler shows the cost: "low-level browser properties cannot be modified", five launch options pass through, and Crawlee for Python applies no canvas, WebGL or screen fingerprint (CF §1, §4).
+  - Crawlee's Stagehand crawler shows the cost: "low-level browser properties cannot be modified", five launch options pass through, and in Python it applies no canvas, WebGL or screen fingerprint (CF §1, §4).
 - **A raw browser endpoint, as ADR 0019 first read:** rejected. It lends every Session in the browser process.
 - **A dedicated browser process for each lend:** rejected. It costs a browser launch and its memory per lend, and `Browser.close` and the proxy bypass still need the same handling.
 - **Passing every command and only recording it:** rejected. Puppeteer's `close()` would end the browser, and a new browser context or an extension would bypass the egress proxy, before any record is read (DI §6, P7–P9).
@@ -123,13 +123,14 @@ Decided in [Third-party automation on Foxhound pages, and Collie inside other cr
 
 - **Amends ADR 0003.** Its rejected per-message lease check does not cover scoping: the endpoint of a Lent page parses each message to keep it inside the Session, while the lease is still enforced by cutting the attach. A note sits under that option.
 - **Amends ADR 0017.** A Lent page's endpoint refuses new browser contexts, extensions and the commands above, keeps downloads the Run's, and the engine re-applies the Session's state when the attach ends. A note sits under its raw CDP consequence.
-- **Amends ADR 0019.** The endpoint lends one page, shows only its Session, and stays a WebSocket by choice: Playwright's Node `connectOverCDP` can now take a transport, but Python and remote engines need an address. A note sits under its consequence on Playwright and Puppeteer code.
-- **Amends ADR 0056.** Through `run.borrow()`, each browser context a borrowed page belongs to is one Session of the run. A note sits under its Borrowed browsers section's opening.
-- **Amends ADR 0086.** It left to this ticket whether a lent page's navigation stays counted: in a crawl handler it does, gated at interception. A note sits under its "Left to other tickets" item.
-- **Amends ADR 0040.** A Borrowed browser still serves one run, but through `run.borrow()` it can serve several of its Sessions, one per borrowed browser context. A note sits under its "Never across runs" item.
-- **Amends ADR 0070.** Its Quick check over generated surfaces also refuses `page.lend` on every MCP profile, Framework adapter, Integration and skill. A note sits under that item.
-- **Adds to ADR 0064:** two Live checks owned by area 11, each blocking nothing directly: `lend-libraries-newest`, each supported library's newest release on a Lent page, and `crawler-examples-newest`, the crawler guides' examples on each crawler's newest release. Both run nightly, or before each release candidate while the nightly tier is off. `TESTING.md`'s list of Live checks names them.
+- **Amends ADR 0019.** The endpoint lends one page, shows only its Session, and stays a WebSocket by choice: Playwright's Node `connectOverCDP` can now take a transport, but Python and engines on another machine need an address. A note sits under its consequence on Playwright and Puppeteer code.
 - **Amends ADR 0037's matrix.** SA-07, SA-08, RT-21 and pain 12 cite this ADR. Areas 4 (Security and egress), 5 (Site access) and 11 (Client surfaces) list it.
+- **Amends ADR 0040.** A Borrowed browser still serves one run, but through `run.borrow()` it can serve several of its Sessions, one per borrowed browser context. A note sits under its "Never across runs" item.
+- **Amends ADR 0056.** Through `run.borrow()`, each browser context a borrowed page belongs to is one Session of the run. A note sits under its Borrowed browsers section's opening.
+- **Amends ADR 0070.** Its Quick check over generated surfaces also refuses `page.lend` on every MCP profile, Framework adapter, Integration and skill, and Code mode never offers it. A note sits under that item.
+- **Amends ADR 0086.** It left to this ticket whether a Lent page's navigation stays counted: in a crawl handler it does, gated at interception and admitted once. A note sits under its "Left to other tickets" item.
+- **Adds to ADR 0064:** two Live checks owned by area 11, each blocking nothing directly: `lend-libraries-newest`, each supported library's newest release on a Lent page, and `crawler-examples-newest`, the crawler guides' examples on each crawler's newest release. Both run nightly, or before each release candidate while the nightly tier is off. `TESTING.md`'s list of Live checks names them.
+- **Adds to ADR 0067:** a Lent page layer in its SSRF table, whose client also tries a browser context with its own proxy and an extension.
 - **`GLOSSARY.md`** gains **Lent page**.
 - **`TESTING.md`** gains the lending conformance cases, the crawler guides' examples, the two Live checks and the Lent page's layer of the SSRF table.
 - **Areas.**
@@ -145,4 +146,7 @@ Decided in [Third-party automation on Foxhound pages, and Collie inside other cr
   - the endpoint's command table, including which page-level commands reach other Sessions (a browser-wide cache or cookie clear);
   - that auto-attach can follow the lent page's tree alone, through Chromium's experimental `Target.autoAttachRelated` (DI §3.1) or the endpoint's own filtering;
   - which commands read files on the browser's machine;
+  - lending a page borrowed through `run.borrow(page)`, which needs a browser-level relay session over the program's connection;
+  - the error a library sees when robots.txt refuses its navigation, and how a Politeness hold meets the library's own navigation timeout;
+  - that no passed command removes the engine's interceptor;
   - each supported library's connect, close and reconnect against the endpoint, at its floor and its newest release, and how each helper sends the token (Puppeteer 25.13 deprecates its top-level `headers` for `wsOptions.headers`).

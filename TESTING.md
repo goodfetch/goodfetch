@@ -64,6 +64,23 @@ A test's level is the seam it crosses, not its speed:
 - **Python tests run with `--import-mode=importlib` and `strict = true`** in `[tool.pytest]`.
   _Why:_ tests outside the package run against the installed wheel, as pytest recommends.
 
+### Which Product's executable a test runs
+
+Decided in [ADR 0094](docs/adr/0094-both-products-are-released-and-signed-together-and-each-test-runs-on-collie-unless-it-needs-foxhound.md).
+
+- **A test that runs an executable runs Collie's when Collie carries everything it needs, and Foxhound's otherwise:** once, never once per Product. A test that needs Foxhound anywhere in its setup or steps, such as a rolling upgrade under a Partitioned crawl, runs on Foxhound's.
+  _Why:_ Foxhound's executable links Collie's crates, so a test of Collie's covers the code users of either Product run, and the containment checks below cover what Foxhound adds around it.
+- **A test that measures an executable itself runs on each Product's:** its size (ADR 0087), its startup benchmarks and its idle memory.
+- **Each package is tested against its own Product's executable:** each executable crate's `tests/it` (its CLI, MCP server, exit codes and `--help` tree), and each Product's SDK packages, Console build, image and Helm chart.
+- **One test build per target serves both Products:** the in-process tests and both executables come from the same workspace invocation. Never add a test build per Product.
+  _Why:_ Cargo unifies features across the packages of one invocation, so Collie's executable in a test links the same shared code as Foxhound's, and a second build would compile again every crate whose features differ. Each Product's own `cargo build -p` (ADR 0087) is run from its own bytes by the release before it publishes.
+- **Foxhound proves that it contains Collie at the seams where its executable is composed,** never by running Collie's tests again:
+  1. its engine composition contains Collie's (ADR 0087's composition test);
+  2. a Quick check fails unless every generated contract of Collie's (catalog entries, setting keys, Error codes, events, CLI commands with their flags, MCP tools) is in Foxhound's, the same;
+  3. a served test on Foxhound's executable visits every route of Collie's Console build and checks that it renders;
+  4. each Collie Journey's `cli` variant also runs on Foxhound's executable, as `J-NNN@foxhound-cli` ([Journeys](#journeys)).
+- **A conformance suite runs on the smallest Product that carries its contract:** browser conformance and the Plugin kinds Collie carries on Collie's executable, Sinks and Fetch backends on Foxhound's. Of the [Session ownership and proxy limit cases](#sdks), those on a Session a program or an Agent opened and on a Collie Run's proxy limits run on Collie's, and the one on a crawl's Session pool on Foxhound's.
+
 ## Writing a test
 
 - **One behaviour per test, through the interface.** Several assertions are fine when they check that one behaviour.
@@ -142,7 +159,7 @@ How each dependency is injected is in [Injection and determinism](#injection-and
 
 - **Parsers and stateful rules get property tests:** `proptest` in Rust, `hypothesis` in Python. Their regression files are committed.
 - **Untrusted input** gets a `cargo-fuzz` target for every decoder of input Goodfetch did not write itself, replayed by a plain `#[test]` on every OS. The list and the rest of fuzzing are under [Security](#security) (ADR 0067).
-- **Doctests only on the public crates** (`goodfetch-collie`, `goodfetch-foxhound` and `goodfetch-collie-client`, ADRs 0090 and 0095), where they are the examples of ADR 0030. `goodfetch-collie-client`'s doctests connect through `goodfetch-collie`, a dev-dependency; how that cycle is published is [Release, signing and testing of two products](https://github.com/goodfetch/automan/issues/459)'s.
+- **Doctests only on the public crates** (`goodfetch-collie`, `goodfetch-foxhound` and `goodfetch-collie-client`, ADRs 0090 and 0095), where they are the examples of ADR 0030. `goodfetch-collie-client`'s doctests connect through `goodfetch-collie`, a path-only dev-dependency, which `cargo publish` drops, since a published crate keeps only the dev-dependencies that specify a `version` ([Cargo reference](https://doc.rust-lang.org/cargo/reference/specifying-dependencies.html#development-dependencies)).
 
 ## Injection and determinism
 
@@ -553,6 +570,9 @@ Decided in [ADR 0063](docs/adr/0063-end-to-end-tests-follow-a-catalog-of-numbere
 - **Write `goal` with RFC 2119 words**, readable as a specification without the code.
 - **Write steps declaratively** ("export the Dataset as CSV"), never as clicks or flags, so the wording survives a change of implementation. Pin a step with `on` only when the goal needs that surface; give `manual` a reason only when no automated check can do it.
 - **List every surface on which a person can reach the goal**, each with the milestone by which it must be proved, never earlier than the surface ships.
+- **Name the Journey's `product`:** `collie` when Collie carries every step, `foxhound` otherwise. Its surfaces are that Product's.
+- **A Collie Journey with a `cli` surface also runs as `J-NNN@foxhound-cli`:** the same test, given Foxhound's executable, in the same suites. It is the only variant that names a Product.
+  _Why:_ it shows end to end that Foxhound's executable keeps Collie's behaviour, where the other containment checks show only that Collie's definitions are there.
 - **Fill `covers` with Feature IDs** (`row:CO-18` for an ADR 0037 row; every kind is in [Feature coverage](#feature-coverage)).
 - **Keep a Journey to its goal.** Edge cases, Error codes and limits go to unit, integration and conformance tests.
 - **Each area's `/to-spec` adds the Journeys of its stories with `journey = true`** ([Which stories need a Journey](#which-stories-need-a-journey)), and each ticket names the variants (`J-NNN@<surface>`) it makes pass.
@@ -580,13 +600,14 @@ Decided in [ADR 0063](docs/adr/0063-end-to-end-tests-follow-a-catalog-of-numbere
 - **Journey tests run with their package's integration tests**: in the Pre-merge suite when the package is touched, and in the Release suite.
 - **One test per variant.**
 - **Each variant run writes one result document with `kind = "journey"`.** Never set its outcome by hand: derive it from the steps, the checks and the oracle's answers, through the Rust constructor or a helper that passes the shared outcome vectors. A step not reached, or any Proving ground task not `verified`, fails the variant. Readers recompute the outcome and reject a document that disagrees, or whose steps, checks and named Proving ground tasks are not exactly its Journey's. The shared outcome vectors are in `test-support/fixtures/outcome-vectors/`.
-- **The catalog check fails** on a file that does not parse, an ID that differs from its file name, repeats or is not below the next free number, a Proving ground task missing from the task list for the seed or whose digest differs, a test naming a retired or unknown Journey or an unlisted surface, two tests for one variant, a variant milestone earlier than its surface, or a retired Journey without a reason.
+- **The catalog check fails** on a file that does not parse, an ID that differs from its file name, repeats or is not below the next free number, a Proving ground task missing from the task list for the seed or whose digest differs, a test naming a retired or unknown Journey or an unlisted surface (`foxhound-cli` counts as listed only on a Collie Journey that lists `cli`, with `cli`'s first milestone), two tests for one variant, a variant milestone earlier than its surface, or a retired Journey without a reason.
 
 ### Owner tests
 
 - **List an owner test's "Journeys to try" from the catalog:** every variant of its milestone, by ID and title, with its manual steps, plus the milestone's `manual` exceptions of [Feature coverage](#feature-coverage).
 - **An owner test is ready only when every automated variant of its milestone is `proved` on `main`,** and no Feature due at its milestone is untested ([Feature coverage](#feature-coverage)).
 - **A finding on a goal no Journey covers adds a Journey.**
+- **An owner test installs both Products' executables** from a local build, and its list holds the Journeys of both Products.
 
 ## Upgrades and version mismatches
 
@@ -627,9 +648,12 @@ Decided in [ADR 0066](docs/adr/0066-upgrades-are-tested-from-a-frozen-corpus-and
 
 - **Skew covers every released minor of the current major**, latest patch of each: SDKs, each Product's Rust crate's client, the CLI and the MCP server against the current Daemon, the SDKs over stdio through their Product's engine-path variable, `GOODFETCH_COLLIE_ENGINE_PATH` or `GOODFETCH_FOXHOUND_ENGINE_PATH` (every Attached engine applies the Daemon's rule at `hello`; this variable is how its version can differ from its SDK's), the Console, the Browser host and first-party Plugins.
 - **An old Client runs its own release's Journeys** ([ADR 0063](docs/adr/0063-end-to-end-tests-follow-a-catalog-of-numbered-journeys-kept-in-the-repository.md)) from its tag, against the current binary given by path. Each variant keeps its own Proving ground and Goodfetch home. A Journey that asserts something outside semver is fixed on `main`, and its variant is excluded by variant ID (`J-NNN@<surface>`), with a reason, in `compat/skew-exclusions.toml`.
+- **Skew runs per Product:** each Product's Clients, SDKs over stdio and Console build against the current executable of the same Product, and each old Journey against the current executable of its Product. An older Collie opens the current files of the formats both Products carry; an older Foxhound, those of Foxhound's.
+- **Test a pair across Products where a promise covers it:** the Product check of `hello` that [ADR 0095](docs/adr/0095-both-products-speak-one-protocol-from-one-catalog-marked-by-product-and-their-sdks-share-collies-client-packages.md) adds, for every pair of Products, with fabricated `hello`s as version refusals are (the [Product check's cases](#refusals)); and, where [Collie and Foxhound installed on one machine](https://github.com/goodfetch/automan/issues/486) lets two installs share a file, an older Collie opening the one the current Foxhound wrote. A released Collie Client is not run again against Foxhound's executable: the containment checks show Foxhound serves Collie's operations unchanged.
 - **Rolling upgrades run under load** in a three-member group, once with the Lead Daemon last (a StatefulSet's default order with the Lead Daemon as pod 0) and once with it first, then a promotion from an older Group backup and the rollbacks.
 - **The Helm upgrade starts from a release's chart,** installed by digest from `compat/releases.toml`, then runs `helm upgrade` to the current chart and `helm test`. Never `ct install --upgrade`.
   _Why:_ it upgrades from the git target branch and passes with a skip on a SemVer-breaking bump or an unchanged chart.
+- **Rolling upgrades and the Helm upgrade run on Foxhound,** whose load includes a Partitioned crawl. A Quick check renders Collie's and Foxhound's charts with `helm template` and fails on any difference but the image.
 - **Older engines open the files the current engine wrote.** The Usage-ledger family opens; a current Checkpoint, Plan, settings file and Schedule file are refused with the upgrade message. Two majors run side by side on one machine.
 - **Old artifacts come only from `compat/releases.toml`,** through the pinned artifact mirror, checked by digest and by `gh attestation verify --bundle --custom-trusted-root`, with the trusted root fetched before the outbound deny. One local command fetches the same set.
 - **Never skip for a missing artifact.** A missing or mismatched artifact fails the job. An empty version list runs the current build against itself.
@@ -661,6 +685,7 @@ Decided in [ADR 0069](docs/adr/0069-sdks-and-the-cli-are-tested-against-a-script
 - **Pass the Product's engine-path variable and `GOODFETCH_HOME` in the SDK's environment-map option**, as the test-support fixtures build it from `goodfetch-test-env`. Never set them in the test's own process; an Attached engine gets exactly that map as its environment.
 - **Process faults use `goodfetch-scripted-engine`**, reached as an Attached engine through the Product's engine-path variable (TypeScript and Python) or as a Daemon through a runtime file in the test's Goodfetch home (every SDK). No build of either Product carries a fault switch.
 - **No process outlives its test:** the test-support fixtures fail a test that leaves an engine, Daemon or handler process alive after teardown.
+- **Each Product's SDK packages run against their own Product's executable**, and each implements every Client conformance case and passes the completeness checks for its own Product's catalog.
 - **Every Client conformance case in `conformance/clients/` is implemented on every surface it lists**, carries its case ID, and runs in both of its surface's modes: named cases `attached` and `daemon` in TypeScript, Python and the CLI, `linked` and `daemon` in Rust, which links the engine and starts no Attached engine. A Quick-suite check fails on a missing implementation or an unknown ID.
 - **For Client conformance cases, each runner writes a case log; only `goodfetch-conformance`'s writer turns it into a result document**, deriving each outcome through `goodfetch-protocol`'s constructor. A log entry never carries an outcome. A declared case missing from the log is `unproved`. Journeys write their own documents ([Journeys](#journeys)). The entry type is in `goodfetch-protocol` and its schema in the bundle; the script format's schema is `test-support/fixtures/engine-scripts/script.schema.json`. Both come from `xtask codegen`.
 - **Lifecycle conformance cases** ([ADR 0078](docs/adr/0078-an-sdk-program-opens-an-explicit-engine-connection-and-closes-only-what-it-started.md)) run in every SDK: two connections at once in one process, a second `connect()` after `close()`, `closed` on a call after `close()`, nothing written to stdout or stderr by the SDK, no signal handler or event-loop patch after import or `connect()`, Ctrl+C reaching only the test's own process, a Borrowed page left open after its borrow ends, and an Attached engine's unexpected exit raising an error that carries its stderr tail.
@@ -714,7 +739,8 @@ Decided in [ADR 0069](docs/adr/0069-sdks-and-the-cli-are-tested-against-a-script
   - npm packages install from Verdaccio with no uplink, with npm, pnpm, Yarn, Bun and Deno, into a path with a space and a non-ASCII character, and the smoke scripts check the installed version; `--omit=optional` must fail at first use with Goodfetch's error;
   - each install keeps its manager's release-age gate on and passes it through ADR 0030's exclusion snippet, read from the source the release notes use; one run per manager without the snippet must not install the packed version (uv's snippet is not tested: `--no-index` has no gate);
   - wheels install into a fresh environment (`uv pip install --no-index --find-links`, and `pip`) and run `tests/integration` unchanged, on glibc and Alpine;
-  - each Product's crate builds a temporary consumer from `cargo package`'s output.
+  - each Product's crate builds a temporary consumer from `cargo package`'s output;
+  - one environment per package manager installs both Products' packages, and both executables run there.
 - **Models are scripted only through the testing kit's Scripted model** (`goodfetch_collie::testing`, `@goodfetch/collie/testing`, `goodfetch_collie.testing`, and Foxhound's `goodfetch_foxhound::testing`, `@goodfetch/foxhound/testing` and `goodfetch_foxhound.testing`). The kit's test engine helper is an Attached engine in TypeScript and Python and the linked engine in Rust.
 
 ### CLI
@@ -724,6 +750,7 @@ Decided in [ADR 0069](docs/adr/0069-sdks-and-the-cli-are-tested-against-a-script
   _Why:_ `--json` is under semver (ADR 0030), and only a schema puts it in the breakage check.
 - **Warnings, hints, deprecations and the age notice never reach stdout.**
 - **Every exit code in `goodfetch-protocol`'s table has a test through the binary**, one rstest named case per exit code, in `tests/it`. An in-process unit test checks that the table maps every Error code.
+- **Test a command both executables carry through Collie's.** Foxhound's `--help` snapshot and the containment checks of [Which Product's executable a test runs](#which-products-executable-a-test-runs) show it unchanged there.
 - **Human output is snapshotted under `NO_COLOR=1`, a fixed `COLUMNS`, `TERM=dumb` and a fixed locale.** The `--help` tree is one snapshot rendered in-process from clap's `Command`; one `tests/it` case checks the binary prints the same. A unit test calls clap's `Command::debug_assert`.
 - **Terminal-only behaviour is tested in a pseudo-terminal with expectrl:** colour, progress, and person-only prompts, which must refuse when stdin is not a terminal.
 - **Interrupts are tested through the binary:** a running Crawl sent `SIGINT` (Unix) or `CTRL_BREAK_EVENT` (Windows) checkpoints and exits with its exit code; a second interrupt stops it at once.
@@ -749,7 +776,7 @@ Decided in [ADR 0070](docs/adr/0070-mcp-adapters-and-integrations-are-tested-thr
   _Why:_ a fake of the engine passes where the real one fails, and misses the token, `Host` and `Origin` checks.
 - **For Goodfetch's side, use only the doubles ADRs 0062 and 0069 define:** the in-memory adapter of the protocol in Quick-suite unit tests, and the Scripted engine for faults a real engine can't produce on demand.
 - **Stand in for the platform in this order:** its real runtime run locally, its official test harness, a written adapter of its context.
-- **Keep a Quick check over everything `xtask codegen` generates:** no person-only operation or setting, and no `page.lend` ([ADR 0089](docs/adr/0089-a-page-is-lent-through-an-endpoint-that-shows-only-its-session-and-collie-joins-other-crawlers-by-borrowing.md)), on any MCP profile, Framework adapter, Integration or skill, and each surface's operations map to catalog operations of the same class. No surface of Collie's carries an entry marked Foxhound, and Foxhound's carry every entry of Collie's under the same name (ADR 0095). The same check lists the public items of `goodfetch-collie-client` and `goodfetch-collie` and refuses any of Foxhound's.
+- **Keep a Quick check over everything `xtask codegen` generates:** no person-only operation or setting, and no `page.lend` ([ADR 0089](docs/adr/0089-a-page-is-lent-through-an-endpoint-that-shows-only-its-session-and-collie-joins-other-crawlers-by-borrowing.md)), on any MCP profile, Framework adapter, Integration or skill, and each surface's operations map to catalog operations of the same class. No surface of Collie's carries an entry marked Foxhound (ADR 0095); that Foxhound's carry every entry of Collie's under the same name is the containment check of [Which Product's executable a test runs](#which-products-executable-a-test-runs). The same check lists the public items of `goodfetch-collie-client` and `goodfetch-collie` and refuses any of Foxhound's.
 - **Assert outcomes through the oracle and Error codes**, never a model's wording or a platform's message text.
 
 ### MCP server
@@ -844,6 +871,7 @@ Decided in [ADR 0071](docs/adr/0071-performance-budgets-are-counted-per-change-a
 
 - **The embedded Console stays under 1 MB brotli,** and its initial route under the ceiling area 12 sets. Only the owner moves a ceiling.
 - **Resident memory stays under its ceiling per OS** for an Attached engine idle after `hello`, an idle Daemon, and a 1,000-page HTTP crawl of the local Proving ground. The check runs in the Release suite.
+- **Each Product's executable has its own startup benchmarks and its own ceilings** for an idle Attached engine and an idle Daemon; the 1,000-page crawl runs on Foxhound's.
 - **The Console's JS heap after 10,000 streamed events,** after a forced garbage collection, is within 10% of its value after 1,000.
 
 ### Where they run
@@ -1019,6 +1047,7 @@ Each suite contains the one before, so the table gives the first suite that runs
 
 - **Browser tests of the Console as users get it run on Playwright Test against the executable built from the commit.** Never against a Vite server.
 - **Each test starts its own Daemon** through the `@goodfetch/test-support` fixture (`goodfetch-test-env`), with its own home, port 0 and fresh browser context.
+- **Test each Product's Console build served by its own executable:** a screen both Products carry on Collie's, Foxhound's screens on Foxhound's, and a route walk on Foxhound's that checks every route of Collie's build is there and renders.
 - **Sign in the way a person does:** the binary's single-user sign-in link, Playwright's virtual authenticator for passkeys and step-up, a local OIDC provider pinned by digest. Never write a cookie or storage state yourself.
 - **Make faults where they happen:** `routeWebSocket` with `connectToServer()` for a dropped or stalled connection, the real process for an engine fault. `routeWebSocket` replaces the page's `WebSocket` with a shim that forwards to the real binary; use it only to drop or delay real messages, never to invent one.
 - **Find by role, label or text.** `data-testid` only where an element has no accessible role or name; never CSS classes or XPath.
@@ -1056,6 +1085,7 @@ Each suite contains the one before, so the table gives the first suite that runs
 - **Mark MCP samples `json mcp-request` and `json mcp-answer`.** Other `json` blocks are not samples.
 - **Each surface's tests run its samples:** `twoslash` type-checks `ts` and `tsx` in the docs build (our own remark plugin, on the TypeScript 6 alias) and the TypeScript SDK's tests run them; Ruff lints and the Python SDK's pytest runs `python`; `#[cfg(doctest)]` includes in `goodfetch-collie` and `goodfetch-foxhound` run `rust`; trycmd runs the `.trycmd` files from each executable crate's `tests/it` (`...` for any lines, `[..]` within a line); an MCP server test plays each `mcp-request` and `mcp-answer` pair through `rmcp`.
 - **Run samples against the binary built from the commit and a local Proving ground,** never the online one. Hide setup with the tool's own convention (`# ` in Rust, `---cut---` in Twoslash).
+- **Run a sample against the executable of the Product its page documents,** Collie's for what both Products carry.
 - **Only `docs/` (`next`) runs.** Frozen versions were tested at their release.
 - **Pre-merge:** the affected samples on one runtime. **Release:** every sample on its surface's own matrix ([SDK and CLI tests](#sdk-and-cli-tests), [MCP, framework adapters and Integrations](#mcp-framework-adapters-and-integrations)).
 
@@ -1090,6 +1120,7 @@ Decided in [ADR 0072](docs/adr/0072-every-feature-in-a-generated-inventory-has-a
 - **A Feature is tested** when, on `main`'s latest Release suite run, at least one test declares it, every declaring test ran and passed in every configuration it runs in, none is quarantined, every declaring Journey's variants of reached milestones are `proved`, and every declaring conformance case's capability is `proved`.
 - **A story with `journey = true` also needs a proved variant of a Journey that covers it,** and every story needs a declaring test above the unit level ([Which stories need a Journey](#which-stories-need-a-journey)).
 - **Test a Feature once.** The per-surface completeness and conformance of [SDK and CLI tests](#sdk-and-cli-tests) and of the surface ADRs, and a Journey's variants, prove each surface.
+- **Once, not once per Product.** The inventory records the Products that carry each Feature, from ADR 0087's generated table of Foxhound's names, and `xtask features report` gives each Product's view.
 - **A quarantined test leaves every Feature it declares untested** until its fix merges.
 
 ### Exceptions

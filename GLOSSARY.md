@@ -525,7 +525,7 @@ One thing the Proving ground asks a tool to do on one page family, with its star
 _Avoid_: fixture, test case
 
 **Journey**:
-A goal a person reaches through Goodfetch's public surfaces, written as steps from a starting state to an outcome checked from outside the engine, kept under a stable ID and run on each surface that offers it.
+A goal a person reaches through a Product's public surfaces, written as steps from a starting state to an outcome checked from outside the engine, kept under a stable ID and run on each surface that offers it.
 _Avoid_: scenario, user story, critical user journey, flow, end-to-end test (for the Journey itself)
 
 **Golden scenario**:

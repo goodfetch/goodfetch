@@ -48,6 +48,7 @@ It also builds on decisions in review when it was made:
   - **TypeScript:** `beforeRequest`, `afterResponse`, `beforeNavigation`, `afterNavigation`, `pageReady`, `beforeRecordCommit`, each taking the Hook and `{ labels, name }`.
   - **Python:** the same names in snake_case, as decorators on `Crawl` (plain functions) and `AsyncCrawl` (`async def`), each returning the function unchanged so a test calls it as it is, as `@crawl.handle(label)` does.
   - **Rust:** methods taking `AsyncFn` closures with a `HookOn` scope, answered inside `crawl.serve(&run)` as handlers are. They may borrow, and need neither `Send` nor `'static` (ADR 0081). On `goodfetch_foxhound::blocking::Crawl` they are `Fn + Send + Sync + 'static`, as its handlers are. Beside `run.crawl_requests()`, the way down beneath `serve` for handlers (ADR 0093), `run.hook_requests()` streams the Hook calls, so a program that answers its requests itself answers its Hooks too (G8). It has one reader, so a second stream while one is open fails with `setting_invalid`, and a call dropped unanswered fails its work as a Hook past `timeout.hook` does.
+    > Amended by [ADR 0109](0109-a-rust-programs-own-code-returns-any-error-as-a-box-error-read-as-the-other-sdks-read-an-exception.md): a Rust Hook returns its change or a `BoxError`, so `?` on any error of the program is the Hook's own exception (`hook_failed` with no wrapped code), and `HookCall::finish` takes a `BoxError`; a Hook's panic inside `serve` is `hook_failed` too.
 
   One method per stage gives each stage its own typed context and doc comment.
 - **Stage names.** The Operation catalog names the stages `before_request`, `after_response`, `before_navigation`, `after_navigation`, `page_ready`, `before_record_commit` and `request_ended`. The lifecycle stages keep ADR 0033's names until area 7's spec writes them. The same names serve Plugin manifests, Script Hooks and the Run trace (S1).
@@ -83,6 +84,7 @@ Every context carries `request` (id, URL, Label, typed Payload, depth, attempt) 
   - Rust returns a value rather than holding a mutable borrow across an await.
 
   The calls that end the work never return, as a handler's `skip` and `retry` (ADR 0093). They are typed `never` in TypeScript and `NoReturn` in Python; Rust returns them as `Err`.
+  > Amended by [ADR 0109](0109-a-rust-programs-own-code-returns-any-error-as-a-box-error-read-as-the-other-sdks-read-an-exception.md): Rust's `skip`, `block`, `retry`, `drop_record` and `reject` return a `BoxError` holding their `Error`, so `return Err(ctx.skip(…))` is the form.
 - **Hooks run in turn,** each seeing what those before it changed.
 - **After response runs on every final response,** before ADR 0093's status rule. A soft block served with a 200 is marked there, and a 404 still fails unless `crawl.handle_statuses` lets it through.
 - **Page stages follow the handler's tier rules (ADR 0093).** A call only a browser can serve escalates under `fetch.tier: auto`, or fails with `browser_required` under a forced tier.
@@ -174,6 +176,7 @@ The research's injectable components map onto Plugin kinds (ADR 0033), or onto n
   - A `GoodfetchError` a handler raises keeps its code.
   - Any other exception is its kind's `<kind>_handler_failed`, a `ProgramError` carrying the handler's name and the exception's type, message and stack. Like `handler_failed`, its message always names that exception (ADR 0079), as ADR 0101's `model_handler_failed` does. `<kind>` is the kind's short name in the catalog: `fetch`, `proxy`, `sink`, and ADR 0101's `model`.
   - In Rust, `fail(error)` takes any error, the SDK's own `Error` (`goodfetch_foxhound::Error`, `goodfetch_collie::Error`, ADR 0090) keeping its code and any other becoming `<kind>_handler_failed`, so a Rust handler's own failure is as diagnosable as a TypeScript one's (G6). ADR 0101's draft fails a Rust model call with a `goodfetch::Error` only; [Models, usage and cost in the SDK API](https://github.com/goodfetch/goodfetch/issues/475) is asked to align.
+    > Amended by [ADR 0109](0109-a-rust-programs-own-code-returns-any-error-as-a-box-error-read-as-the-other-sdks-read-an-exception.md): "any error" is `BoxError`, one type for every function of the program, read by the outermost error, with the details ADR 0109 gives a Rust error.
   - ADR 0092's `resolveSecret` keeps `secret_unavailable`, as decided there.
 - **Retries of a handler's failure.**
   - A Sink's is retried on ADR 0008's schedule, since its delivery ID makes a retry safe.

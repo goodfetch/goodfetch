@@ -107,6 +107,7 @@ Decided in [Crawl definition and handler context](https://github.com/goodfetch/g
 - **`ctx.skip(message)`** ends the request `skipped`, with the reason `handler` and the message.
 - **`ctx.retry(message)`** ends the attempt with `retry_requested`, a `PageError` that is retryable, counted against `crawl.retry.max`. When retries run out, the request ends `failed` with that error.
 - **Both unwind the handler.** TypeScript types them `never` and Python `NoReturn`. A Rust handler returns `Err(ctx.skip(…))`, since its handlers return `Result<(), goodfetch_foxhound::Error>`. Skipping is a call, not a thrown failure the program fakes (G1).
+  > Amended by [ADR 0109](0109-a-rust-programs-own-code-returns-any-error-as-a-box-error-read-as-the-other-sdks-read-an-exception.md): a Rust handler returns `Result<(), BoxError>`, so `?` on any error of the program ends the attempt with `handler_failed`, while the SDK's own `Error` keeps its code; `ctx.skip()` and `ctx.retry()` return a `BoxError` holding their `Error`, so `return Err(ctx.skip(…))` stays the form, and `CrawlCall::finish` and a login step take `BoxError` too.
 - **Retries.**
   - **`crawl.retry.max` is 2,** so three attempts, as Scrapy's `RETRY_TIMES`, the gentler of the two leaders (G5).
   - **What is retried:** an attempt whose error is retryable, such as a navigation timeout raised inside the handler (a `GoodfetchError` keeps its code and retryable flag, ADR 0079), and a handler past `timeout.handler` (ADR 0080).
@@ -119,6 +120,7 @@ Decided in [Crawl definition and handler context](https://github.com/goodfetch/g
     - its Attached or linked engine died with it: a resume counts each attempt that the Run's committed state shows in flight (the run file, or an imported Checkpoint) as `handler_lost`. The engine commits a lease before it hands the request to the program, so no handler runs on a lease the run file does not hold.
   - **The program's own stop counts nothing,** and the request returns to pending in the Run's committed state: `close()`, which commits after its attempts end, a dropped Rust `serve` future or Run (ADR 0078's `Drop`, which sends `$/cancel`, ADR 0080), or Python's `KeyboardInterrupt` unwinding into `close()`.
   - **A Rust handler's panic** is caught by `serve`, and by the blocking `serve`, and ends that attempt with `handler_failed`, as an exception does in TypeScript and Python: a panic is a bug, not a stop.
+    > Amended by [ADR 0109](0109-a-rust-programs-own-code-returns-any-error-as-a-box-error-read-as-the-other-sdks-read-an-exception.md): a crawl Hook's or a login step's panic inside `serve` is caught the same way and is that function's own error (`hook_failed`, or `logged_out`'s cause).
   - **Hooks share the budget.** A Hook's retry and a retryable `hook_failed` (ADR 0033) draw on the same `crawl.retry.max`, so one request never gets two retry budgets.
   - **Not retries:** escalations and sample-comparison runs. A block's escalation by new Session follows ADR 0021.
 - **Which responses reach a handler**, as Scrapy's `HttpErrorMiddleware` decides it:

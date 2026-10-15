@@ -109,6 +109,7 @@ A program hands Collie's built-in Agent one objective with `page.agent(task, opt
   - a `GoodfetchError` ends the task with its own code;
   - a cancellation is never wrapped;
   - any other exception, or in Rust an error that is not a Goodfetch one, ends the task with `agent_tool_failed`, a `ProgramError` chaining it and naming its type and message.
+    > Amended by [ADR 0109](0109-a-rust-programs-own-code-returns-any-error-as-a-box-error-read-as-the-other-sdks-read-an-exception.md): in Rust an Agent tool and the Success check return a `BoxError`, read by the outermost error; the type they name from Rust reads `BoxError`, and the message carries the error's `source()` chain.
 
   A bug must not read as the model's problem. An answer the model should act on is a value the tool returns; in Pydantic AI too, an exception other than `ModelRetry` or `ToolFailed` ends the run. A tool that is not read-only and raised leaves its Effect uncertain in the Effect journal (ADR 0010), so the Run's Verdict waits for a person to reconcile it (ADR 0029); `agent_tool_failed` says so in its details, and whatever error ends the task lists the tool in `agentTask`.
   > Amended by [ADR 0106](0106-a-program-declares-an-effect-as-a-keyed-block-whose-output-the-effect-journal-keeps-judged-by-what-the-engine-sent.md): a raise from a `repeatable` tool leaves no uncertain Effect.

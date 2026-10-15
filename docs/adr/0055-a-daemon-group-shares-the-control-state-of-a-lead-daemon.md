@@ -84,4 +84,5 @@ How comparable self-hosted tools run several instances:
 - `replicas` may be any number, and the `lead` value names the Lead Daemon's pod, pod 0 by default. The chart refuses a `replicas` value that would remove the Lead Daemon's pod, and sets `persistentVolumeClaimRetentionPolicy.whenScaled: Retain`, so a removed pod's volume stays for `runs adopt`.
 - A `Service` reaches any Group member for new connections; a headless `Service` gives each pod the stable name the peer link uses.
 - With more than one pod, the chart refuses to render unless a Politeness store is set or `politeness_sharing: per_daemon` is set in its Operator policy (ADR 0053), and unless a shared Secret provider is set.
+  > Amended by [ADR 0086](0086-a-crawl-obeys-robots-txt-and-sends-one-request-at-a-time-per-domain-by-default-and-pressing-harder-is-recorded.md): the key is `politeness.sharing`.
 - **Goodfetch Cloud** keeps its own gateway, ledger and index per Tenant (ADRs 0001 and 0031); a Daemon group is the self-hosted form of the same operations.

@@ -20,6 +20,7 @@ How comparable tools spread one crawl:
 - Each Partition is an ordinary run: its own single writer, Frontier, run epoch (ADR 0003), Effect journal and Completeness.
 - Politeness inside the crawl is exact without a Politeness store, since one Partition owns each domain; ADR 0053 still shares it with other crawls.
 - A crawl of one large site stays in one Partition. Politeness caps that site at 8 requests in flight by default, far below one engine's capacity.
+  > Amended by [ADR 0086](0086-a-crawl-obeys-robots-txt-and-sends-one-request-at-a-time-per-domain-by-default-and-pressing-harder-is-recorded.md): the default is now 1 request in flight and at least 1 s between starts, still far below one engine's capacity.
 
 **Forwarding links.**
 - A link whose key another Partition owns is sent to that Partition over the peer link (ADR 0055), at least once, and the owner deduplicates it against its Frontier, so it lands there exactly once. Forwarding uses ADR 0024's credit-based backpressure and is fenced by the sender's run epoch.

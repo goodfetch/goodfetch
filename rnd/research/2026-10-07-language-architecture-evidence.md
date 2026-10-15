@@ -20,7 +20,7 @@ Survey of **October 7, 2026**. This note reuses the dossier's inspections and di
 
 These convergences remain partial. The Stagehand extension and the native daemon do not have the same lifecycle; the Crawlee crawler and an agent do not have the same recovery rules. No shared protocol makes their `Page` objects interchangeable. Schemas guarantee a message shape; functional parity also requires behavior tests.
 
-## Advantages and costs for Automan
+## Advantages and costs for Goodfetch
 
 The following table is a **design analysis**, not a community verdict.
 
@@ -37,4 +37,4 @@ For the announced ambition, **canonical Rust with TypeScript/Python SDKs** is a 
 
 The engine should separate crawl frontier, durable plans, sessions, HTTP/browser acquisition, semantic resolution and validation. A native CDP backend remains a candidate to be qualified; Playwright provides a reference and a compatibility backend. The versioned protocol must make capabilities, errors, cancellation, budgets and ownership explicit. Routing chooses the path suited to the expected result, without imposing an HTTP attempt before each browser.
 
-The decision becomes verifiable with a common corpus: fresh and complete output, wrong target still clickable, CDP loss after an effect, auth expiry and sink interruption. Publish full cost, valid throughput, total memory, false successes and interventions. **Rust can improve a component; only the system benchmark will prove Automan's advantage.**
+The decision becomes verifiable with a common corpus: fresh and complete output, wrong target still clickable, CDP loss after an effect, auth expiry and sink interruption. Publish full cost, valid throughput, total memory, false successes and interventions. **Rust can improve a component; only the system benchmark will prove Goodfetch's advantage.**

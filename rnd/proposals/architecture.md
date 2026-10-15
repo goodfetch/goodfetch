@@ -1,4 +1,4 @@
-# Proposed Automan architecture
+# Proposed Goodfetch architecture
 
 **October 7, 2026 — design proposal, no implementation at this stage.** This document expands on the [language/runtime ADR](../adr/0001-runtime-language.md). The example APIs and the qualification objectives are described separately in [api.md](api.md) and in the [R&D plan gates](../plan/rd-plan.md#7-promotion-gates-without-invented-figures).
 
@@ -29,7 +29,7 @@ An async task, a tab, a process and a machine are four different units. A worker
 
 ### 1.3 Reuse components, keep the contracts
 
-Existing projects serve as references and targeted dependencies. The complete Spider engine does not become the hidden owner of the Automan frontier; Crawlee can orchestrate an Automan adapter in an external integration, but then **Crawlee owns the queue**. A Stagehand backend exposes its version and cache limits. It does not reimplement the platform's pools.
+Existing projects serve as references and targeted dependencies. The complete Spider engine does not become the hidden owner of the Foxhound frontier; Crawlee can orchestrate a Foxhound adapter in an external integration, but then **Crawlee owns the queue**. A Stagehand backend exposes its version and cache limits. It does not reimplement the platform's pools.
 
 | Component | Proposed choice | Why / remaining qualification |
 | --- | --- | --- |
@@ -126,9 +126,9 @@ A policy distinguishes temporary transport failure, `Retry-After` throttling, lo
 
 Limits compose: the transport can retry a safe operation, but reports its attempts to the run; the workflow decides on business resumption. A provider's result is journaled; a history replay does not call this provider again if the step is committed and reusable. The contract avoids building a universal engine that replays arbitrary code.
 
-Temporal's operational literature makes explicit the crash after an effect and before the recording: an activity can be executed several times, even if its completion is observed only once. Automan adopts this distinction, without integrating Temporal as a mandatory dependency. [Activity Definition](https://docs.temporal.io/activity-definition).
+Temporal's operational literature makes explicit the crash after an effect and before the recording: an activity can be executed several times, even if its completion is observed only once. Goodfetch adopts this distinction, without integrating Temporal as a mandatory dependency. [Activity Definition](https://docs.temporal.io/activity-definition).
 
-**Why not mandatory Temporal?** It is suited to long-running, multi-service orchestrations; it adds a service, replay constraints and operations that are not necessary for local collection. Automan proposes a bounded plan executor with transactional state; a Temporal connector can launch and follow a run as an idempotent activity. If future general workflows exceed this contract, the decision will have to be re-examined rather than reproducing all of Temporal.
+**Why not mandatory Temporal?** It is suited to long-running, multi-service orchestrations; it adds a service, replay constraints and operations that are not necessary for local collection. Goodfetch proposes a bounded plan executor with transactional state; a Temporal connector can launch and follow a run as an idempotent activity. If future general workflows exceed this contract, the decision will have to be re-examined rather than reproducing all of Temporal.
 
 ## 4. Pools, workers, concurrency and autoscaling
 
@@ -222,7 +222,7 @@ A TypeScript/Python callback provided to the SDK runs in that language; it canno
 
 The cloud accepts a package containing code, manifests, lockfiles and an entrypoint, or a portable plan. An isolated Node/Python handler host receives the tasks from the worker; the engine keeps frontier, leases and result. The manifest pins runtime, versions, schemas, dependencies, capabilities, resources and tests. The build produces an immutable version and its digest. A thin SDK therefore does not mean that user code never needs Node/Python.
 
-A Crawlee adapter can use Automan only for a session or an extraction. In this mode, Automan does not add a second queue owner. The external commit/export contract remains that of the integration.
+A Crawlee adapter can use Goodfetch only for a session or an extraction. In this mode, Goodfetch does not add a second queue owner. The external commit/export contract remains that of the integration.
 
 ### 6.3 Perception and typed decisions
 
@@ -232,7 +232,7 @@ A decision returns a target among candidates, an extraction conforming to a sche
 
 Proposed resolution: primary locator → deterministic alternatives and identity → structural comparison → typed model → vision/agent according to policy. A similarity is not a probability of success. Do not silently choose the first tie. A locator that still matches the wrong element must fail through identity or postcondition validation.
 
-### 6.4 Optional Automan agent and external agents
+### 6.4 Optional Goodfetch agent and external agents
 
 The built-in agent has an objective, declared tools, bounded state/memory, recorded decisions, action/token/cost/time budgets and a terminal condition. It uses the same tools as an external agent. The user can choose the model/provider, bring their own key or call a local provider; deterministic mode is functional without a provider.
 
@@ -264,7 +264,7 @@ The critical validator is defined before the repair. An AI proposal cannot remov
 | Plan | Qualified parameterized plan and alternatives | Workflow version, expected structure, backend/capabilities, identity contract and tests; drift/regression invalidates |
 | Data | Extracted result, possibly HTTP response | Request + identity scope + schema/pipeline; explicit freshness/TTL, bypass and revalidation |
 
-Secrets are not visible cache keys. Sensitive scopes use internal identifiers and access separation; no implicit pooling between tenants/accounts. Caches are local/self-hostable, exportable when permitted, inspectable and invalidatable. Their availability does not require Browserbase or Automan cloud. Comparison of competing caches: [agent matrix](../research/2026-10-07-agent-capability-matrix.md).
+Secrets are not visible cache keys. Sensitive scopes use internal identifiers and access separation; no implicit pooling between tenants/accounts. Caches are local/self-hostable, exportable when permitted, inspectable and invalidatable. Their availability does not require Browserbase or Goodfetch cloud. Comparison of competing caches: [agent matrix](../research/2026-10-07-agent-capability-matrix.md).
 
 ### 7.3 Self-repair cycle
 
@@ -295,9 +295,9 @@ A repair in progress can unblock an attempt of the run with an event and a pinne
 ### 8.1 Transport contracts
 
 - **Rust library**: internal typed calls for embedded execution.
-- **Private RPC**: versioned Automan schema; stdio for ephemeral SDK/CLI, authenticated local IPC for app/daemon, secure channel for controlling remote workers. Version/capabilities handshake, IDs, deadlines, cancellation and events; stdout reserved for messages, logs on stderr.
+- **Private RPC**: versioned Goodfetch schema; stdio for ephemeral SDK/CLI, authenticated local IPC for app/daemon, secure channel for controlling remote workers. Version/capabilities handshake, IDs, deadlines, cancellation and events; stdout reserved for messages, logs on stderr.
 - **Public API**: HTTPS REST for durable resources/actions, SSE for events and progress resumable by cursor; artifacts via authorized upload/download. A launched run remains inspectable if the connection disappears.
-- **MCP**: adapter of the public contract, stdio and Streamable HTTP conforming to the negotiated version. The MCP protocol and the Automan private RPC are not assumed to have identical semantics.
+- **MCP**: adapter of the public contract, stdio and Streamable HTTP conforming to the negotiated version. The MCP protocol and the Goodfetch private RPC are not assumed to have identical semantics.
 
 The current MCP protocol consulted is 2026-07-28; its per-request version/capabilities rules and the absence of server-initiated JSON-RPC requests are not replaced by the private bidirectional handshake. Older revisions require their own adaptation. [MCP transports](https://modelcontextprotocol.io/specification/2026-07-28/basic/transports), [platform options](../research/2026-10-07-product-platform-options.md).
 

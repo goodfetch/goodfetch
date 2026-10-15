@@ -6,7 +6,7 @@
    "primary": "mixed"
   },
   "case": "blockquote-list",
-  "source": "automan-curated"
+  "source": "goodfetch-curated"
  },
  "ground_truth": {
   "main_content": "> Remember:\n>\n> - back up\n> - test restores\n\nThen go.\n",

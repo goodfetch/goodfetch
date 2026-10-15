@@ -9,7 +9,7 @@ import { labRoot } from '../src/registry.ts';
 // failureLog is a file the step writes a failure summary to; a failed step prints it, so a flake is named from one run.
 export type CiStep = { name: string; command: string; args: string[]; failureLog?: string };
 // Timer-precision tests run alone, after the parallel suite, whose startup burst would delay their timers.
-export const defaultSteps = (failureLog = join(tmpdir(), `automan-ci-${process.pid}-test-failures.txt`)): CiStep[] => {
+export const defaultSteps = (failureLog = join(tmpdir(), `goodfetch-ci-${process.pid}-test-failures.txt`)): CiStep[] => {
   const nodeTest = (...args: string[]) => ['--test', ...args, '--test-reporter=spec', '--test-reporter-destination=stdout', '--test-reporter=./tools/test-failures.ts', `--test-reporter-destination=${failureLog}`];
   return [
     { name: 'typecheck', command: process.execPath, args: ['node_modules/typescript/bin/tsc', '--noEmit'] },

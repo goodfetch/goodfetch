@@ -9,7 +9,7 @@ The ADRs already require `cargo-fuzz` per decoder (`TESTING.md`) and Miri (`STYL
 - **No scanner covers the protocol.** ZAP's API scan and Schemathesis import OpenAPI or GraphQL only, and nothing actively scans a WebSocket. The MCP conformance suite does test MCP over HTTP.
 - **Redaction is best effort.** Playwright's maintainers call trace filtering "heuristics/best effort", and Playwright MCP keeps one redaction regression test per leak.
 
-Decided in [Security testing](https://github.com/Jbmanllr/automan/issues/288) (grilling ticket), on the facts of [Security testing](https://github.com/Jbmanllr/automan/issues/273) ([findings](https://github.com/Jbmanllr/automan/blob/research/security-testing/rnd/research/2026-10-13-security-testing.md)). The agent answered the grilling on the owner's delegation. The rules every test follows are in `TESTING.md`.
+Decided in [Security testing](https://github.com/goodfetch/goodfetch/issues/288) (grilling ticket), on the facts of [Security testing](https://github.com/goodfetch/goodfetch/issues/273) ([findings](https://github.com/goodfetch/goodfetch/blob/research/security-testing/rnd/research/2026-10-13-security-testing.md)). The agent answered the grilling on the owner's delegation. The rules every test follows are in `TESTING.md`.
 
 **Suites and tiers.** [ADR 0061](0061-three-test-suites-each-run-by-one-just-command-under-a-time-budget.md) defines three suites, each containing the one before: the **Quick suite**, the **Pre-merge suite** (every pull request, on Linux) and the **Release suite** (the full matrix: the merge queue, nightly and every release; on manual dispatch before each milestone's owner test and before any release while the merge queue does not exist). Every OS before a merge therefore comes from the Release suite in the merge queue. Checks with an input that moves without a commit are **Live checks**, in no suite ([ADR 0064](0064-tests-are-never-retried-and-unpinned-checks-run-as-live-checks.md)).
 
@@ -195,18 +195,18 @@ Only these stay manual:
 - **Adds to ADR 0043:** the test V8 build joins CI's pinned artifact mirror, as a CI-only entry that the Release-suite job fetches by digest before the deny. It is not one of the product's pinned downloads.
 - **Adds to ADR 0030:** `SECURITY.md` publishes what counts as a vulnerability: anything that crosses a trust boundary of `TESTING.md`'s table, any memory unsafety, and a limit that never fires. A new fuzz crash follows its coordinated disclosure, and an open one blocks the promotion of the next minor, as above.
 - **Adds to ADRs 0017, 0049 and 0051:** the tests of the resolved-IP check, Chromium's sandbox and the Script sandbox worker described above.
-- **Changes area 1's spec** ([Spec: Repository, CI and release (V1 area 1)](https://github.com/Jbmanllr/automan/issues/130)). It gains:
+- **Changes area 1's spec** ([Spec: Repository, CI and release (V1 area 1)](https://github.com/goodfetch/goodfetch/issues/130)). It gains:
   - the jobs above;
   - the private repository's fuzzing workflows;
   - the digest pin check for images;
   - repository settings for secret scanning, push protection and code-scanning merge protection once public.
-- **Changes area 2's spec** ([Spec: Proving ground and conformance (V1 area 2)](https://github.com/Jbmanllr/automan/issues/152)). The Proving ground gains:
+- **Changes area 2's spec** ([Spec: Proving ground and conformance (V1 area 2)](https://github.com/goodfetch/goodfetch/issues/152)). The Proving ground gains:
   - the DNS rebinding fixture;
   - a fixture that records every connection;
   - redirect, header, download-name and decompression-bomb pages;
   - login flows that plant Secret canaries;
   - a public page that calls the local Daemon, beside the origin-escape pages.
-- **Changes area 3's spec** ([Spec: Engine runtime (V1 area 3)](https://github.com/Jbmanllr/automan/issues/213)):
+- **Changes area 3's spec** ([Spec: Engine runtime (V1 area 3)](https://github.com/goodfetch/goodfetch/issues/213)):
   - its fuzzing line gains the Script sandbox's pipe protocol and catalog-call arguments;
   - Seam 2 gains the worker's OS-layer inspection.
 - **Areas 4 (Security and egress) and 7 (Plugin protocol)** build the suites of their boundaries by these rules. ADR 0037's rows for areas 1, 2 and 4 list this ADR.
@@ -220,7 +220,7 @@ Only these stay manual:
   - the watch jobs.
 - **The security jobs' time budgets** are those of ADR 0061. The test V8 build job is in no suite, so no suite budget covers it.
 - **Left to other tickets of the map:**
-  - the Console's test stack and its virtual authenticator ([Console and docs test stack](https://github.com/Jbmanllr/automan/issues/282));
+  - the Console's test stack and its virtual authenticator ([Console and docs test stack](https://github.com/goodfetch/goodfetch/issues/282));
 - **Decided since:** the MCP test stack, including where MCP conformance runs, in [ADR 0070](0070-mcp-adapters-and-integrations-are-tested-through-their-platforms-own-clients-against-a-real-engine.md). Prompt-injection and fake-success pages in [ADR 0065](0065-ai-features-are-tested-without-live-models-and-measured-by-oracle-graded-evaluations.md). The Journey catalog in [ADR 0063](0063-end-to-end-tests-follow-a-catalog-of-numbered-journeys-kept-in-the-repository.md) gives no separate manual-test IDs. The five manual security tests are not Journeys. Tests 1 to 3 are reviews, not product use. Tests 4 and 5 run on each minor's release candidate on hosts and hardware CI lacks, and have no automated step, while a Journey's `manual` steps are listed for a milestone's owner test and leave the variant proved on its automated steps. They are named by title and recorded on the release pull request.
 - **Unverified, checked by the first implementation tickets:**
   - whether Landlock is enabled in GitHub's Ubuntu runner kernels;

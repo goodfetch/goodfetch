@@ -6,7 +6,7 @@
    "primary": "mixed"
   },
   "case": "article",
-  "source": "automan-curated"
+  "source": "goodfetch-curated"
  },
  "ground_truth": {
   "main_content": "# Guide\n\nShort intro with a [reference](https://example.test/ref).\n\n## Install\n\n1. Download\n2. Run `setup`\n\n```sh\n./setup --all\n```\n\n## Options\n\n| Flag | Effect |\n| --- | --- |\n| --all | everything |\n",

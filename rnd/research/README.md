@@ -1,6 +1,6 @@
 # Index of competitive research and benchmarks
 
-**Research of October 7, 2026.** This index brings together the market notes, technical analyses, audits of published benchmarks and conclusions used to design Automan. The reports contain their sources, inspected versions/commits and limitations.
+**Research of October 7, 2026.** This index brings together the market notes, technical analyses, audits of published benchmarks and conclusions used to design Goodfetch. The reports contain their sources, inspected versions/commits and limitations.
 
 **Benchmark status:** the initial notes analyze public protocols and results. The following phase built the [local lab](../lab/README.md) and ran controlled campaigns on crawling, browser primitives and storage. These exploratory measurements qualify configurations on fixtures; they constitute neither a ranking of all the players listed nor proof of universal superiority.
 
@@ -53,8 +53,8 @@ The current product proposals are in the [consolidated report](../proposals/prop
 | --- | --- | --- |
 | [Audit of public benchmarks](2026-10-07-benchmark-audit-followup.md) | Spider versus Colly, the Node `crawler` package and wget; Stagehand 3.2.1 / Browser Use / Sentinel agent benchmark; Markdown/RAG crawler benchmark; Stagehand evaluations | Inspection of public methods, code and results, pinned commits; Node expression verified and JSON totals recalculated; benchmark tasks not run |
 | [Stagehand, CDP and latency](2026-10-07-stagehand-cdp-latency.md) | Published 50-action flow, Stagehand v4 batch versus Playwright, RTT and placement | Reading of the maintainers' result; one published run, not reproduced; no generalization to all tasks |
-| [Performance, runtime and evidence protocol](2026-10-07-benchmark-and-runtime.md) | Lightpanda benchmark; publications on memory/compilation/repair; BrowserGym/WebArena/WorkArena; cost, reliability and metrics | Source analysis and protocol proposal; illustrative figures explicitly identified; no Automan benchmark run |
-| [Crawl engines](2026-10-07-crawl-engines.md) | Arguments and microbenchmarks of transports/engines, notably Impit and Spider | Figures and configurations from the sources analyzed; no proof of an overall Automan gain |
+| [Performance, runtime and evidence protocol](2026-10-07-benchmark-and-runtime.md) | Lightpanda benchmark; publications on memory/compilation/repair; BrowserGym/WebArena/WorkArena; cost, reliability and metrics | Source analysis and protocol proposal; illustrative figures explicitly identified; no Goodfetch benchmark run |
+| [Crawl engines](2026-10-07-crawl-engines.md) | Arguments and microbenchmarks of transports/engines, notably Impit and Spider | Figures and configurations from the sources analyzed; no proof of an overall Goodfetch gain |
 
 **Central interpretation:** the experiments do not all provide the same service. An HTTP crawl, a Markdown conversion and a multi-step agent cannot be ranked from a single pages-per-second table. The dossier seeks to identify asymmetries and missing evidence, rather than to declare a universal winner.
 

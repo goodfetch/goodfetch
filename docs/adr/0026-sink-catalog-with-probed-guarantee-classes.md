@@ -17,9 +17,9 @@ A destination's name does not fix what it can guarantee. AWS S3 and R2 have cond
 - **Keyed**: a retry lands on the same key, sometimes only within a dedup window.
 - **At-least-once**: the receiver dedups on the delivery ID.
 
-A run can require a minimum class and is refused before it starts if a Sink cannot meet it. No surveyed product fences sink writes with a run epoch; the closest are Kafka transactions and Snowpipe Streaming channels, which fence a producer or channel but not a resumed run. Users' two most frequent complaints are silent failure and duplicates. Decided in [Export connectors and integrations catalog](https://github.com/Jbmanllr/automan/issues/88).
+A run can require a minimum class and is refused before it starts if a Sink cannot meet it. No surveyed product fences sink writes with a run epoch; the closest are Kafka transactions and Snowpipe Streaming channels, which fence a producer or channel but not a resumed run. Users' two most frequent complaints are silent failure and duplicates. Decided in [Export connectors and integrations catalog](https://github.com/goodfetch/goodfetch/issues/88).
 
-Evidence: [sinks, notifications and integrations research](https://github.com/Jbmanllr/automan/blob/research/sinks-integrations-catalog/rnd/research/2026-10-11-sinks-integrations/README.md), including [delivery best practice](https://github.com/Jbmanllr/automan/blob/research/sinks-integrations-catalog/rnd/research/2026-10-11-sinks-integrations/g-best-practice.md) and [65 coded user pains](https://github.com/Jbmanllr/automan/blob/research/sinks-integrations-catalog/rnd/research/2026-10-11-sinks-integrations/f-user-pains.md).
+Evidence: [sinks, notifications and integrations research](https://github.com/goodfetch/goodfetch/blob/research/sinks-integrations-catalog/rnd/research/2026-10-11-sinks-integrations/README.md), including [delivery best practice](https://github.com/goodfetch/goodfetch/blob/research/sinks-integrations-catalog/rnd/research/2026-10-11-sinks-integrations/g-best-practice.md) and [65 coded user pains](https://github.com/goodfetch/goodfetch/blob/research/sinks-integrations-catalog/rnd/research/2026-10-11-sinks-integrations/f-user-pains.md).
 
 ## Considered Options
 

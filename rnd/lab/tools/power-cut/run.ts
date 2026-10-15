@@ -3,7 +3,7 @@
 // killed with SIGKILL, so whatever the guest kernel had not flushed to its virtual disk is lost, as on a power cut of the guest.
 // After Docker restarts, every acknowledged batch must be present and whole. The host disk itself is not cut: this proves the
 // sinks' flush discipline inside the guest, not the behaviour of the Mac's physical disk.
-// Usage: AUTOMAN_PG_URL=... node tools/power-cut/run.ts <trials> <out.json>
+// Usage: LAB_PG_URL=... node tools/power-cut/run.ts <trials> <out.json>
 import { spawn, execFileSync } from 'node:child_process';
 import { createInterface } from 'node:readline';
 import { writeFile } from 'node:fs/promises';
@@ -12,7 +12,7 @@ import { fileURLToPath } from 'node:url';
 import { pg, pgUrl } from '../../src/sinks.ts';
 
 const here = dirname(fileURLToPath(import.meta.url));
-const image = 'node:24.20.0-bookworm-slim', box = 'automan-lab-power', pgBox = 'automan-lab-pg';
+const image = 'node:24.20.0-bookworm-slim', box = 'goodfetch-lab-power', pgBox = 'goodfetch-lab-pg';
 const formats = ['sqlite-wal-full', 'sqlite-wal-normal', 'jsonl-durable', 'jsonl-buffered', 'duckdb-table', 'parquet-batch'];
 const docker = (...args: string[]) => execFileSync('docker', args, { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim();
 const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));

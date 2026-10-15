@@ -6,7 +6,7 @@
    "primary": "code"
   },
   "case": "html-entities",
-  "source": "automan-curated"
+  "source": "goodfetch-curated"
  },
  "ground_truth": {
   "main_content": "```html\n<div class=\"a\">\n  <p>x &amp; y</p>\n</div>\n```\n",

@@ -1,10 +1,10 @@
 # Every costly safety or reliability control can be switched off, and the results say so
 
-ADR 0016 made the costly security controls switchable. At the owner's request the same rule now covers reliability: a control that costs speed or resources is on by default and can be switched off per run, or per call where that makes sense. Each switch-off is recorded in the Audit log, and the results it touches say what was skipped, so the engine never claims a guarantee it did not apply. Controls with no run-time cost stay locked, as in ADR 0016: secrets never reach the model, endpoints require a token, releases are signed. Decided in [Adopt site-access decisions](https://github.com/Jbmanllr/automan/issues/76).
+ADR 0016 made the costly security controls switchable. At the owner's request the same rule now covers reliability: a control that costs speed or resources is on by default and can be switched off per run, or per call where that makes sense. Each switch-off is recorded in the Audit log, and the results it touches say what was skipped, so the engine never claims a guarantee it did not apply. Controls with no run-time cost stay locked, as in ADR 0016: secrets never reach the model, endpoints require a token, releases are signed. Decided in [Adopt site-access decisions](https://github.com/goodfetch/goodfetch/issues/76).
 
 ## Considered Options
 
-- **Fixed guarantees**: rejected. Users trade checks for speed on pages they trust: Playwright skips its checks with `force: true`, and Stagehand v4 checks nothing before acting; in the lab, native Stagehand ran a 50-click task in 945 ms against 2,715 ms for native Playwright ([qualification](https://github.com/Jbmanllr/automan/blob/main/rnd/lab/reports/qualification-2026-10-07.md)).
+- **Fixed guarantees**: rejected. Users trade checks for speed on pages they trust: Playwright skips its checks with `force: true`, and Stagehand v4 checks nothing before acting; in the lab, native Stagehand ran a 50-click task in 945 ms against 2,715 ms for native Playwright ([qualification](https://github.com/goodfetch/goodfetch/blob/main/rnd/lab/reports/qualification-2026-10-07.md)).
 - **Switches without marks in the results**: rejected. A fast run and a checked run would look the same, which is the false success ADR 0013 exists to prevent.
 
 ## Consequences

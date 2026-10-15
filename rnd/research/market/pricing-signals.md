@@ -2,7 +2,7 @@
 
 **Status:** v1, desk research. **Date:** 2026-10-08. **Corpus:** 421 items ([corpus.jsonl](corpus.jsonl)). Codes used: `wtp-price-points` (46 items), `cost-unpredictable-runaway` (28), `cost-infra-proxy-spend` (19), `build-vs-buy-switching` (31).
 
-> **Warning: desk research does not measure willingness to pay.** This document lists what people **say** they paid, refused or found unfair, as well as the prices that **vendors display**. These signals are self-selected, since people complain more readily than they praise. They are often promotional (`[P]`) and say nothing about a price accepted for Automan. The budgets in job postings pay for **human labor, not software**, and the Upwork sample leans toward the low end of the market ($3-70/h, $35-700 fixed price). The `D-pricing` decision requires interviews and a price test (§5).
+> **Warning: desk research does not measure willingness to pay.** This document lists what people **say** they paid, refused or found unfair, as well as the prices that **vendors display**. These signals are self-selected, since people complain more readily than they praise. They are often promotional (`[P]`) and say nothing about a price accepted for Goodfetch. The budgets in job postings pay for **human labor, not software**, and the Upwork sample leans toward the low end of the market ($3-70/h, $35-700 fixed price). The `D-pricing` decision requires interviews and a price test (§5).
 
 ## 1. Observed price points, by segment
 

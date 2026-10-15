@@ -6,7 +6,7 @@
    "primary": "lists"
   },
   "case": "nested",
-  "source": "automan-curated"
+  "source": "goodfetch-curated"
  },
  "ground_truth": {
   "main_content": "1. Prepare\n   - Fetch sources\n   - Check hashes\n     - SHA-256 only\n2. Build\n",

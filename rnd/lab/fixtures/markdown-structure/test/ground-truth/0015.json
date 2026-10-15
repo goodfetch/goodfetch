@@ -6,7 +6,7 @@
    "primary": "tables"
   },
   "case": "with-links",
-  "source": "automan-curated"
+  "source": "goodfetch-curated"
  },
  "ground_truth": {
   "main_content": "Mirrors:\n\n| Region | Link |\n| --- | --- |\n| EU | [eu mirror](https://eu.example.test/) |\n| US | [us mirror](https://us.example.test/) |\n",

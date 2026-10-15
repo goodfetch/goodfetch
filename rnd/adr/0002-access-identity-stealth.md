@@ -64,7 +64,7 @@ Each option is declared in the workflow's plan or policy, visible in the log and
 3. **Third-party solver adapter**: open interface, account and key provided by the customer. Open source.
 4. **Managed solving** in the cloud: contractual offering, verified workspace.
 
-Recommendation: ship 1 to 3 with the framework and open tier 4 after legal review, particularly for exposure in the United States. The *trafficking* risk raised in Reddit v. SerpApi targets the tool provider; it therefore concerns Automan as publisher, not only its customers.
+Recommendation: ship 1 to 3 with the framework and open tier 4 after legal review, particularly for exposure in the United States. The *trafficking* risk raised in Reddit v. SerpApi targets the tool provider; it therefore concerns Goodfetch as publisher, not only its customers.
 
 ### 5. Safeguards
 

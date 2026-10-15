@@ -6,7 +6,7 @@
    "primary": "code"
   },
   "case": "blank-lines",
-  "source": "automan-curated"
+  "source": "goodfetch-curated"
  },
  "ground_truth": {
   "main_content": "```\nfirst()\n\nsecond()\n\n\nthird()\n```\n",

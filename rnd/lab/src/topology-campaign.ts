@@ -20,7 +20,7 @@ export const topologyCombinations = (config: TopologyConfig): TopologyCell[] => 
 type Container = { id: string; cdpPort: number };
 const docker = async (...args: string[]) => (await run('docker', args, { timeout: 60_000 })).stdout.trim();
 async function start(image: string, timeoutMs: number): Promise<Container> {
-  const id = await docker('run', '-d', '--rm', '--label', 'automan-lab=topology', '-p', '127.0.0.1::9222', image);
+  const id = await docker('run', '-d', '--rm', '--label', 'goodfetch-lab=topology', '-p', '127.0.0.1::9222', image);
   const cdpPort = Number((await docker('port', id, '9222')).split('\n')[0]!.split(':').pop());
   const deadline = performance.now() + timeoutMs;
   for (;;) { try { const response = await fetch(`http://127.0.0.1:${cdpPort}/json/version`); if (response.ok) return { id, cdpPort }; } catch { /* not listening yet */ } if (performance.now() > deadline) throw new Error('container browser did not start'); await new Promise(resolve => setTimeout(resolve, 20)); }

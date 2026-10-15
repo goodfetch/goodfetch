@@ -1,6 +1,6 @@
 # Fair per-domain admission by default, with fairness before priority
 
-The engine admits work through bounded per-domain queues served round-robin under a global cap, rather than through one global queue: with one heavy domain under overload, small domains got 2.6 times more work in the lab, and Scrapy made a similar change its default in 2.14 after one domain took every global slot. A domain is the registrable domain under the full Public Suffix List, private entries included, and a recipe can override the key. Decided in [Adopt runtime and state decisions](https://github.com/Jbmanllr/automan/issues/70).
+The engine admits work through bounded per-domain queues served round-robin under a global cap, rather than through one global queue: with one heavy domain under overload, small domains got 2.6 times more work in the lab, and Scrapy made a similar change its default in 2.14 after one domain took every global slot. A domain is the registrable domain under the full Public Suffix List, private entries included, and a recipe can override the key. Decided in [Adopt runtime and state decisions](https://github.com/goodfetch/goodfetch/issues/70).
 
 ## Considered Options
 

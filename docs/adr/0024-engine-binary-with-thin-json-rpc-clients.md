@@ -4,6 +4,8 @@ The TypeScript and Python SDKs, the CLI, the MCP server and Goodfetch Cloud all 
 
 > Amended by [ADR 0084](0084-goodfetch-ships-two-products-collie-and-foxhound-from-one-repository-and-foxhound-contains-collie.md): Clients reach the engine inside one of two Products' executables, Collie's or Foxhound's, which contains Collie's code. Which one a Client starts or reaches, and what `hello` announces, is decided in [Protocol, Operation catalog and SDKs across two products](https://github.com/goodfetch/automan/issues/458).
 
+> Amended by [ADR 0095](0095-both-products-speak-one-protocol-from-one-catalog-marked-by-product-and-their-sdks-share-collies-client-packages.md): both Products speak this one protocol. `hello` also carries the Product a Client needs and its Product version, and the reply the engine's; an engine accepts a Client whose needed Product its own contains, so a Collie engine refuses a Foxhound Client with `not_in_product`. Each Product's Rust crate, `goodfetch-collie` or `goodfetch-foxhound`, links its own engine, and both build on `goodfetch-collie-client`, which links none.
+
 ## Considered Options
 
 - **In-process native bindings** (napi-rs for Node, PyO3 for Python): rejected. Faster on tiny calls and capable of zero-copy pages, but a dead process leaves its in-flight work stuck as in progress, napi cannot cancel a hung JavaScript handler and passes no JavaScript stack, napi's plain `call_async` aborts the process on a synchronous throw, and PyO3 needs a separate free-threaded wheel without which uv refuses to install and pip downloads a 146 MB Rust toolchain and still fails.
@@ -17,6 +19,8 @@ The TypeScript and Python SDKs, the CLI, the MCP server and Goodfetch Cloud all 
 
 - The protocol is the product's main internal contract. An Attached engine runs the exact engine version its SDK ships with; a Daemon or a cloud engine accepts a Client with the same major and the same or an older minor, and refuses anything else with a clean error. The Browser host of ADR 0022 speaks the same protocol with the same handshake, over TLS and a token when reached remotely (ADR 0017).
   > Amended by [ADR 0066](0066-upgrades-are-tested-from-a-frozen-corpus-and-skew-from-every-released-minor.md): every Attached engine applies the Daemon's rule at `hello`; with the engine its SDK ships the versions are equal, and `GOODFETCH_ENGINE_PATH` is how they can differ.
+
+  > Amended by [ADR 0095](0095-both-products-speak-one-protocol-from-one-catalog-marked-by-product-and-their-sdks-share-collies-client-packages.md): before this rule, an engine checks the Product the Client needs, and refuses one its own Product does not contain with `not_in_product`, in the reply to `hello`. The rule still compares protocol versions, never Product versions.
 - Operations are coarse or batched, because a small call costs 1.6–2x as much as in-process (paired ratios of 0.47 in Node and 0.64 in Python; medians of 54 against 26 µs and 120 against 99 µs): little next to fetching and rendering a page, a lot across many tiny calls.
 - The Playwright-shaped page API of ADR 0019 is a set of Operation catalog calls over this protocol, so every SDK gets it from the same catalog.
 - Page bodies travel as handles backed by files in the run's directory: a Client on the same machine reads the file directly, a remote one streams it through `page.body`.

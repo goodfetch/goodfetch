@@ -377,7 +377,7 @@ The record of the Effects and model calls of a run, consulted so that a retried,
 _Avoid_: action log, history
 
 **Operation catalog**:
-The single list of engine operations, each classed read, idempotent write or Effect, that every surface exposes to people and agents.
+The single list of engine operations, each classed read, idempotent write or Effect and marked with the smallest Product that carries it; every surface of a Product exposes that Product's operations to people and agents.
 _Avoid_: tool list, API surface
 
 **Code mode**:
@@ -385,7 +385,7 @@ Driving the engine through a short program written by a model that calls only th
 _Avoid_: scripting, eval
 
 **Framework adapter**:
-A package that offers Goodfetch's operations as tools of an agent framework, such as the Vercel AI SDK, LangChain or Mastra.
+A package that offers a Product's operations as tools of an agent framework, such as the Vercel AI SDK, LangChain or Mastra.
 _Avoid_: wrapper, toolkit, Integration
 
 **MCP host**:

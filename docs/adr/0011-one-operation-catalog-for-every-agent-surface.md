@@ -2,6 +2,8 @@
 
 The engine exposes one typed Operation catalog, each operation classed read, idempotent write or Effect, and generates every agent surface from it: an MCP server (stdio and Streamable HTTP), the SDK methods, the CLI with `--json`, agent skills, and thin tool adapters for the Vercel AI SDK, LangChain/LangGraph (TypeScript and Python) and Mastra; the Claude Agent SDK uses the MCP server directly. Coding agents get the CLI plus skills, agent apps get MCP, and both can use code mode: a short model-written program that runs in the Script sandbox (ADR 0051) with no network or files, only catalog calls (journaled), and time and memory limits; it is opt-in in MCP profiles. The same sandbox runs Script Hooks (ADR 0033). Profiles trim the catalog so tool definitions stay short. Decided in [Adopt AI and agent decisions](https://github.com/Jbmanllr/automan/issues/72).
 
+> Amended by [ADR 0095](0095-both-products-speak-one-protocol-from-one-catalog-marked-by-product-and-their-sdks-share-collies-client-packages.md): the catalog stays one, and each entry names the smallest Product that carries it, Collie or Foxhound. Each Product's surfaces are generated from its own catalog, Foxhound's carrying every entry of Collie's under the same name. MCP profiles are catalog entries with the same mark, so a Collie profile offers the same tools in both Products, and Framework adapters exist once per Product.
+
 Evidence: lab [code-mode report](https://github.com/Jbmanllr/automan/blob/main/rnd/lab/reports/code-mode-journal-2026-10-09.md) and [AI-in-the-loop browser frameworks](https://github.com/Jbmanllr/automan/blob/research/ai-browser-frameworks/rnd/research/2026-10-10-ai-browser-frameworks.md) §6.
 
 ## Considered Options

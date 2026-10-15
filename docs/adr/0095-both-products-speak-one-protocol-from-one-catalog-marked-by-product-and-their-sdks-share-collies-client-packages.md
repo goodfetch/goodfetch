@@ -1,0 +1,139 @@
+# Both Products speak one protocol from one Operation catalog marked by Product, and their SDKs share Collie's client packages
+
+ADR 0084 made Collie and Foxhound two Products, Foxhound's executable containing Collie's code, and left to this decision how the protocol, the Operation catalog and the SDKs serve them. Both Products speak one protocol. One catalog lists every operation, each entry marked with the smallest Product that carries it, and each Product's surfaces are generated from its own entries, Foxhound's from both. A Client announces in `hello` the Product it needs, and an engine accepts it when its own Product contains that one. Each language gets a Collie client package with no executable, on which both Products' SDK packages build, so a Foxhound handler's page and a Collie program's page are the same type. The research for the map found, rechecked on 2026-10-15:
+- **Products built on a smaller one share its protocol and its types.** Codex's CLI and app server share `codex-app-server-protocol` ([multi-product builds](https://github.com/goodfetch/automan/blob/research/multi-product-builds/rnd/research/2026-10-14-multi-product-builds.md) §5.5); Stagehand v4's three SDKs speak one protocol gated by one `protocolVersion` ([browser-automation products](https://github.com/goodfetch/automan/blob/research/browser-automation-products/rnd/research/2026-10-14-browser-automation-products.md) §2.1). `playwright@1.64.1`'s `index.d.ts` is `export * from 'playwright-core'`, `puppeteer@25.13.0` pins `puppeteer-core` at exactly `25.13.0`, and Crawlee hands its handlers the driver's own page type ([crawl frameworks](https://github.com/goodfetch/automan/blob/research/crawl-framework-products/rnd/research/2026-10-14-crawl-framework-products.md) §3).
+- **Separate copies of one set of types break.** Two copies of `@langchain/core` break `instanceof` ([langchainjs#3918](https://github.com/langchain-ai/langchainjs/issues/3918)), and two copies of `@crawlee/core` keep two configurations ([naming, packaging and versioning](https://github.com/goodfetch/automan/blob/research/product-packaging-and-names/rnd/research/2026-10-14-product-packaging-and-names.md) §3.2).
+- **One source can serve several products' descriptions.** GitHub publishes one OpenAPI document per product (`api.github.com`, `ghec`, each `ghes-3.x`), "automatically kept up to date with the description used to validate GitHub API requests" ([rest-api-description](https://github.com/github/rest-api-description)). MCP's `initialize` negotiates capability objects because servers differ feature by feature ([lifecycle](https://modelcontextprotocol.io/specification/2025-06-18/basic/lifecycle)), while Playwright's remote `connect()`, Stagehand v4 and Docker exchange versions only (packaging research §4).
+- **Browser-automation vendors ship workflow-tool Integrations too:** Browserbase ships an n8n node and a Pipedream component ([workflow tools and loaders research](https://github.com/goodfetch/automan/blob/research/sinks-integrations-catalog/rnd/research/2026-10-11-sinks-integrations/b1-integrations.md)).
+
+Decided in [Protocol, Operation catalog and SDKs across two products](https://github.com/goodfetch/automan/issues/458), on the map [Goodfetch products: Collie and Foxhound as separately installable products](https://github.com/goodfetch/automan/issues/447), by the agent on the owner's delegation of 2026-10-14 ([rounds 1 to 3](https://github.com/goodfetch/automan/issues/458#issuecomment-6181102575), [grilling record](https://github.com/goodfetch/automan/issues/458#issuecomment-6181108777)). It builds on [Collie's exact capability set](https://github.com/goodfetch/automan/issues/455) (ADR 0088), [Product names, packages, executables and version line](https://github.com/goodfetch/automan/issues/457) (ADR 0090) and [How the products are built, and each product's Size budget](https://github.com/goodfetch/automan/issues/454) (ADR 0087).
+
+## Decision
+
+### One protocol
+
+- **Both Products' engines speak one JSON-RPC protocol,** defined in `goodfetch-protocol` (ADR 0038) and versioned by one `major.minor` (ADR 0030). Foxhound's engine serves Collie's operations unchanged.
+- A protocol per Product would put two version lines on one wire, bump both for any change to an operation of Collie's, and make the Console, the Browser host and Goodfetch Cloud speak two. One line costs only this: an operation added for Foxhound also raises the minor a Collie Client sees.
+
+### One Operation catalog, marked by Product
+
+- **Each entry names the smallest Product that carries it:** `collie` for what both Products carry, since Foxhound contains Collie, or `foxhound` for what only Foxhound carries. Nothing is Collie's alone: Foxhound's executable carries everything Collie's does by construction (ADR 0087), so the mark is one value, not a list.
+- **The mark is on every entry a surface is generated from:** operations, events, Error codes, setting keys, Plugin kinds and Hook stages, CLI commands and MCP profiles. The settings schema's list of the Products that honour a key (ADR 0087) is read from it.
+- **A Product's catalog is its own entries plus those of the Product it contains.** ADR 0087's generated table of the names only Foxhound carries, and each executable crate's test of one handler per operation of its Product's catalog, come from the mark.
+- **Names carry no Product:** `crawl.start`, never `foxhound.crawl.start`. An entry may widen from Foxhound to Collie in a minor, which adds it to Collie; narrowing an entry out of Collie removes it there, so it is a breaking change, only in a major (ADR 0030).
+- **One bundle and one catalog file stay committed** (ADR 0038). Each generator reads the projection of the Product it generates for.
+
+### `hello`
+
+- **A Client's `hello` adds the Product it needs and its own Product version.** The engine's reply adds the engine's Product and Product version, which the connection's `engine` value reports (ADR 0078).
+- **No capability list.** Within a Product, every engine of one version has the same catalog, because a capability is a setting, never a Cargo feature (ADRs 0038 and 0087). What varies within a Product (installed Plugins, Operator policy, installed browsers) is read through operations, as before.
+- **The version check stays on the protocol's `major.minor`,** under ADR 0024's rule as amended by ADR 0066. Product versions are reported, not compared.
+
+### Which Client reaches which engine
+
+- **An engine accepts a Client whose needed Product its own contains.** A Foxhound engine accepts Clients of both Products; a Collie engine refuses a Client that needs Foxhound.
+- **The refusal is `not_in_product`** (ADR 0087: an `UnavailableError`, not retryable), sent as the reply to `hello` before any other message, and the connection then closes, as a refused version does (ADR 0066). Its details name the engine's Product and version and the Product the Client needs; its `fix` says to connect to an engine of that Product or to run with it. A Foxhound program on a Collie engine therefore fails at `connect()`, never at its first crawl call (ADR 0078, G6).
+- **The Product check comes before the version check,** since its fix (another Product's engine) makes the version moot.
+- **An engine never narrows its catalog per connection.** An accepted Client may call every operation of the engine's Product, a raw catalog call from a Collie Client (G8) included; a call outside the engine's Product is refused with `not_in_product` (ADR 0087).
+- **Who announces which Product:**
+  - each SDK, its own;
+  - the CLI and the MCP server, when they are Clients of a Daemon (ADR 0024), their executable's;
+  - the Console, its engine's;
+  - an engine reaching a Browser host, Collie, since a Browser host's work is Collie's (ADR 0088);
+  - an Integration, the Product it is built for (below).
+- **Every Group member of a Daemon group runs the same Product.** The peer protocol's handshake carries it, and a Daemon of the other Product is refused with `not_in_product`: runs move between Group members (ADR 0055), and a Collie member could not resume a Foxhound run.
+
+### The SDK packages
+
+- **Each language has a Collie client package with no executable,** on which both Products' SDK packages build:
+
+  | | TypeScript | Python | Rust |
+  |---|---|---|---|
+  | Collie client package | `@goodfetch/collie-client` | `goodfetch-collie-client`, imported as `goodfetch_collie_client`, one pure `py3-none-any` wheel | `goodfetch-collie-client` |
+  | Collie | `@goodfetch/collie` | `goodfetch-collie` | `goodfetch-collie` |
+  | Foxhound | `@goodfetch/foxhound` | `goodfetch-foxhound` | `goodfetch-foxhound` |
+
+  - It is named after Collie, whose code it is, and "client" because it is the Client side with no engine inside. It carries the Product version and falls under semver (ADR 0030).
+  - It holds the hand-written runtime (transports, `hello`, framing, request correlation, credits, cancellation, event resumption, file-backed bodies), the generated layer of Collie's catalog, and every value a Collie connection hands out: Runs, Sessions, Pages, Locators, results, the error classes of Collie's Error codes and Collie's settings types.
+- **Each Product's package adds its connection type and finds its own executable,** and depends on the client package at exactly its own version.
+  - `@goodfetch/collie` holds `Collie`, which finds Collie's executable through the platform packages it depends on itself, re-exports the client package, and keeps its `bin` and testing kit (ADR 0090).
+  - `@goodfetch/foxhound` holds `Foxhound`, the generated layer of Foxhound's own entries and the objects only Foxhound hands out, and re-exports the client package.
+  - Python's and Rust's packages are laid out the same way.
+- **Values are the same types in both SDKs.** A Foxhound handler's page is the client package's Page, as it is in a Collie program, so a helper typed for one accepts the other, and an `except` or a `match` on a Collie error class catches it from either connection.
+- **Programs import only from their Product's package.** Only a library meant to serve both Products imports the client package itself (S2).
+- **The connection type stays out of the client package.** It would have to find a Product's executable without depending on that Product's package, which pnpm's strict layout and Yarn's Plug'n'Play refuse, or through registration at import, against G2 and G4.
+
+### What hangs from each connection
+
+- **The connection is the Product:** `Collie` or `Foxhound` (ADR 0090), with no `collie` or `foxhound` property. ADR 0078's `gf.collie.start(…)` becomes `collie.start(…)`; the verbs are [The Run in code](https://github.com/goodfetch/automan/issues/478)'s.
+- **A Foxhound connection carries every member of a Collie connection under the same names,** plus Foxhound's own, so moving a program from Collie to Foxhound changes its import and its connection type only.
+- **The members both connections share are declared once, in the client package,** as the type a function takes to accept either connection: an interface in TypeScript, a base class in Python, a trait in Rust. `Foxhound` cannot extend a `Collie` that lives in Collie's own package. The type's name is [Mapping the catalog to each language and surface](https://github.com/goodfetch/automan/issues/471)'s.
+
+### The Rust crates
+
+- **Three public crates:** `goodfetch-collie-client`, the client with Collie's values and no engine; `goodfetch-collie`, with `Collie`, the linked Collie engine and its binary target (ADR 0090); and `goodfetch-foxhound`, with `Foxhound`, Foxhound's values, the linked Foxhound engine and its binary target.
+- **Neither Product's crate depends on the other's.** `goodfetch-foxhound` reaches Collie's engine through the internal crates Collie's composition is built from (ADR 0087), which stay at `0.0.x` (ADR 0030).
+- **Neither Product crate's library target compiles its executable's own dependencies,** V8 first (ADR 0051). Cargo compiles every non-optional dependency of a package whichever target needs it ([cargo#1982](https://github.com/rust-lang/cargo/issues/1982), open since 2015), so the binary target's own dependencies sit behind a feature its `[[bin]]` requires, off by default. How `cargo install` then reads is [Release, signing and testing of two products](https://github.com/goodfetch/automan/issues/459)'s.
+
+### Surfaces per Product
+
+- **Each Product's surfaces are generated from its own catalog, and Foxhound's carry every entry of Collie's under the same name.**
+- **CLI and MCP server:** one per executable (ADR 0090), each from its own catalog. Foxhound's executable carries every command of Collie's unchanged.
+- **Agent skills:** one source per topic, rendered for each Product that carries it, with its executable's name and its catalog. Collie's topics ship with both Products, Foxhound's only with Foxhound.
+- **Code mode and Script Hooks:** their globals are the namespaces of their Product's catalog (ADR 0051).
+- **MCP profiles are catalog entries with the same mark.** A Collie profile offers the same tools in both Products' servers, so an MCP host's configuration moves from Collie to Foxhound by changing the executable only. Foxhound's own profiles may combine Collie's and Foxhound's operations. Each Product's default profile is one of its own, and Code mode stays opt-in in both (ADR 0088). Which profiles exist is area 11's spec.
+- **Framework adapters** (the Vercel AI SDK, LangChain and LangGraph in TypeScript and Python, Mastra, ADR 0011) exist once per Product, named `@goodfetch/<product>-<target>` and `goodfetch-<product>-<target>` (ADR 0090), each depending on its Product's SDK package. Foxhound's offer Collie's tools too.
+- **Integrations** (ADR 0027):
+  - each workflow tool (n8n, Zapier, Make, Pipedream, Activepieces, Power Automate) gets one Integration per Product. Collie's start runs and Recipes and return their results, with Notifications as triggers; Foxhound's add crawls, Records and the record-range triggers;
+  - the Airbyte source and the LangChain and LlamaIndex Dataset loaders read Datasets, so they are Foxhound's only.
+- **Reference pages mark each operation's Product.** How the docs site presents two Products is [Docs site and positioning of two Products](https://github.com/goodfetch/automan/issues/499)'s.
+
+### Where the packages live
+
+- **`sdks/typescript/` and `sdks/python/` each hold `collie-client/`, `collie/` and `foxhound/`.** The Rust crates sit on their Product's side of the crate graph, `goodfetch-foxhound` under `crates/foxhound/` (ADR 0087). `adapters/` and `integrations/` hold one folder per Product.
+- **CI checks the SDK packages' declared dependencies** in the pull-request tier, as cargo-deny checks the crates (ADR 0087): Foxhound's packages depend on no Collie package but the client package, so never on one carrying Collie's executable (ADR 0090); Collie's depend on no Foxhound package; the client package depends on neither Product's package.
+
+## Considered Options
+
+- **A protocol per Product:** rejected, above.
+- **A catalog per Product, Foxhound's including Collie's by reference:** rejected. Two files to keep consistent and an inclusion rule, for what one mark gives.
+- **One unmarked catalog, with what an engine carries found at run time:** rejected. Collie's surfaces would show Foxhound's operations, against ADR 0084.
+- **The Product in operation names** (`foxhound.crawl.start`): rejected. Moving an operation from Foxhound to Collie, as ADR 0088 foresees for Paid fetches, would rename it, which is breaking.
+- **A capability list in `hello`,** as MCP and LSP negotiate: rejected. Within a Product it would be a second source of the catalog that could disagree with the first.
+- **Engines that accept every Client and refuse per call:** rejected. A Foxhound program on a Collie engine would connect and fail at its first crawl call, against G6.
+- **Each Product's engine accepting only its own Product's Clients:** rejected. A Collie program could not use a Foxhound Daemon or a Goodfetch Cloud engine that runs Foxhound, though Foxhound contains Collie.
+- **Comparing Product versions in `hello`:** rejected. The protocol carries its own version (ADR 0030), and a Product minor that leaves the protocol unchanged would refuse Clients for nothing.
+- **Each Product's SDK built from shared sources, with nothing shared at install,** as Ruff and ty install their shared code twice: rejected. `goodfetch_foxhound.Page` and `goodfetch_collie.Page` would be different types, so a helper typed for one fails pyright and rustc on the other, an `except` for one error class misses the other's copy, and every library for pages would need a version per Product.
+- **Foxhound's package depending on Collie's:** rejected. It would install Collie's executable with every Foxhound, which ADR 0090 forbids.
+- **The connection type in the client package:** rejected, above.
+- **A Collie facet on Foxhound's connection** (`foxhound.collie.start(…)`): rejected. One more concept and two spellings of starting a Run (S2). **A Foxhound connection without Collie's members:** rejected. A Foxhound program that logs in once before crawling would need Collie's package too.
+- **One Integration per workflow tool for both Products:** rejected. It would have to be named after Goodfetch, which names nothing installed (ADRs 0084 and 0090). **Workflow-tool Integrations for Foxhound only:** rejected. Collie's users would lack a surface browser-automation vendors already ship.
+- **MCP profiles chosen per server:** rejected. One profile name could then mean two tool sets.
+
+## Consequences
+
+- **Amends ADR 0011.** Each catalog entry names its Product, each Product's surfaces are generated from its own catalog, Foxhound's carrying Collie's entries under the same names, and MCP profiles and Framework adapters are per Product. A note sits under its opening.
+- **Amends ADR 0024.** `hello` carries the Product a Client needs, and an engine refuses a Client whose Product it does not contain; each Product's Rust crate links its own engine, and the Collie client crate links none. Notes sit under its opening and under its protocol-version consequence.
+- **Amends ADR 0027.** Workflow-tool Integrations exist per Product; the Airbyte source and the Dataset loaders are Foxhound's. A note sits under its list of Integrations.
+- **Amends ADR 0030.** Semver covers each Product's catalog: an entry leaving Collie's is breaking for Collie, one joining it is additive. The client packages are released with every Product version, and the API breakage checks cover them. A note sits under "What semver covers from 1.0".
+- **Amends ADR 0032.** `sdks/typescript/` and `sdks/python/` hold the client package and each Product's package, `adapters/` and `integrations/` one folder per Product, and the pull-request tier runs the SDK packages' dependency check. A note sits under the tree.
+- **Amends ADR 0038.** Each operation in `goodfetch-protocol` also names its Product; each SDK package generates only its Product's own entries, the hand-written runtime living in the client package; and each SDK generates error classes for its Product's Error codes, a code from outside them arriving as its group's class (ADR 0079). Notes sit under its opening and under "What is generated and what is hand-written".
+- **Amends ADR 0078.** The connection is the Product, a Foxhound connection carries Collie's members, and the values below it come from the client package. A note sits under its entry point.
+- **Adds to ADR 0055:** every Group member of a Daemon group runs one Product.
+- **Adds to ADR 0069:** the Scripted engine also answers `hello` as either Product.
+- **Earlier ADRs.** In an ADR written before this one, the Operation catalog a surface exposes is that surface's Product's catalog: Code mode's globals (ADR 0051), the MCP projection (ADR 0065) and the generated-surface checks (ADR 0070) are per Product.
+- **Error codes.** `not_in_product` (ADR 0087) is also the refusal of `hello` and of the peer protocol's handshake.
+- **Glossary.** *Operation catalog* says each operation is marked with its Product and each Product's surfaces expose that Product's operations; *Framework adapter* offers a Product's operations. No new term: the client package is a package, not domain language.
+- **`STYLE.md`.** The hand-written runtime lives in each language's client package; each SDK package generates only its own Product's entries.
+- **`TESTING.md`.** The Product check of `hello` is tested as version refusals are; the generated-surface check refuses Foxhound's entries on Collie's surfaces; Product conformance cases and type tests run in every SDK. How each Product's surfaces and the skew between Products are tested stays [Release, signing and testing of two products](https://github.com/goodfetch/automan/issues/459)'s.
+- **ADR 0037's matrix.** SDK-01, SDK-02, AI-06 and pain row 3 cite this ADR. Areas 1, 3 and 11 list it.
+- **Areas.**
+  - Area 1 (Repository, CI and release) builds the package layout, the client packages' release and the dependency check.
+  - Area 3 (Engine runtime) builds the Product mark in `goodfetch-protocol` and the Product check of `hello` and of the peer protocol.
+  - Area 11 (Client surfaces) builds the three packages per language, the connection types, and every surface per Product.
+- **Downstream.**
+  - [Collie and Foxhound installed on one machine](https://github.com/goodfetch/automan/issues/486) decides what an SDK does when the Daemon it finds refuses its Product, as ADR 0024 restarts an idle Daemon on a refused version.
+  - [Which executables the Browser host and Goodfetch Cloud's engines run](https://github.com/goodfetch/automan/issues/498) decides whether Goodfetch Cloud routes a connection by the Product it announces.
+  - [Mapping the catalog to each language and surface](https://github.com/goodfetch/automan/issues/471) names the shared connection type.
+  - [API sketch: type-checked stubs and golden scenarios](https://github.com/goodfetch/automan/issues/483) replaces the sketch's `goodfetch` placeholder with the three packages per language.
+  - [Apply the product-line decisions to the affected specs and tickets](https://github.com/goodfetch/automan/issues/460) carries this into the specs and tickets.

@@ -41,6 +41,7 @@ Decided in [Crawl output in code](https://github.com/goodfetch/goodfetch/issues/
 ### Datasets are declared on the crawl
 
 - **The declaration.** `crawl.dataset(name, { schema, key })`, `dataset(name, schema=…, key=…)` in Python, and `crawl.dataset::<T>(name)` or `crawl.dataset_with(name, schema, key)` in Rust.
+  > Amended by [ADR 0099](0099-every-surface-spells-each-catalog-name-by-its-own-rule-shapes-come-from-declared-kinds-and-call-is-the-way-down.md): Rust's is one `crawl.dataset`, taking `impl Into<DatasetDeclaration<T>>`: a bare name, `crawl.dataset::<T>(name)`, or `crawl.dataset(DatasetDeclaration::<T>::new(name).schema(schema).key(&[…]))`, whose builder methods are named after TypeScript's `schema` and `key` options; there is no `dataset_with`.
   - It returns a typed `Dataset<I, O>` handle, with no I/O, as `crawl.label()` does (ADR 0093).
   - With no schema, it takes any JSON object (ADR 0082).
   - The engine knows every Dataset when the Run starts, so a Sink naming one is checked before the first Record (ADR 0026).
@@ -116,6 +117,7 @@ Decided in [Crawl output in code](https://github.com/goodfetch/goodfetch/issues/
 - **Where it starts.** At the Dataset's first Record, or after `after`, which resumes a reader from the last number it handled (ADR 0008). Starting at the moment of the call would silently miss the Records committed before it (G1); Spider's `subscribe()` does.
 - **When it ends.**
   - It follows the Run live, and ends once the Run has ended and every Record has been read.
+    > Amended by [ADR 0102](0102-a-program-names-its-run-by-an-id-that-a-start-resumes-ends-it-with-a-run-report-and-reads-what-waits-and-why.md): on a Run with no live writer, which has not ended, a view's `records()` and `rejectedRecords()` end after the last committed Record, as its `progress()` and `outcomes()` do, rather than wait for a program to resume it.
   - On a Run that has already ended, it reads to the last Record.
   - Through a handler's `ctx.run`, `records` and `rejectedRecords` read what has committed when called, then end: the Run cannot end while the handler holds its request. `export` works there as it does on the Run.
   - Through the program's own Run value, captured by a handler, they follow the Run live as anywhere else and wait until the handler's timeout. A handler reads through `ctx.run`.
@@ -232,4 +234,5 @@ Nothing is added to the SDK API.
   - [The Run in code](https://github.com/goodfetch/goodfetch/issues/478) reads outcomes with their Record counts, each Sink's delivery status, and opens a past Run by ID.
   - [Hooks and injectable components in the SDK API](https://github.com/goodfetch/goodfetch/issues/481) shapes the "Record before commit" Hook and SDK-handler Sinks.
   - [Testing a user's crawl or automation](https://github.com/goodfetch/goodfetch/issues/482) records what a test handler pushed.
+    > Amended by [ADR 0105](0105-a-programs-tests-replay-a-response-recording-in-a-test-engine-that-reaches-no-site.md): `runHandler`'s `AttemptResult.records(dataset)` returns each Record the attempt pushed, as its Dataset's schema parses it, even when a crawl would discard the attempt; a Record's committed form and what Hooks drop or reject are read with `run.records()` and `run.rejectedRecords()` from a crawl started on a Response recording.
 - **The `prototype/sdk-api` sketch** holds these signatures in its `output` files for each language, with their snippets.

@@ -48,6 +48,7 @@ Each SDK runs on its language's own model: TypeScript async only; Python an asyn
   - Python async: as tasks on the connection's loop, inside a task group owned by the value that registered them, so closing that value cancels and awaits them (ADR 0038's tree). Handlers, routes and Hooks are `async def`, which the type checker enforces; predicates are plain functions; listeners may be either.
   - Python sync: on a thread pool the connection owns, never on its private thread, so a slow handler never stalls I/O. User code is plain functions, which on free-threaded builds (ADR 0024) run in parallel.
   - Rust: the async API spawns nothing on the program's executor. A request that needs an answer arrives as an `EventStream`, as an event does.
+    > Amended by [ADR 0092](0092-sessions-open-from-their-source-page-pause-waits-for-a-person-and-a-secret-is-a-placeholder-bound-to-domains.md): a step the program performs inside a call it awaits, such as the scripted login step, is a closure given where its scope opens and run inside that call's future; a request that may come while no call of the program is in flight stays an `EventStream`.
     - Helpers that answer requests concurrently run handlers inside the future the program awaits. Handlers may therefore borrow local state and need neither `Send` nor `'static`, and they make progress while that future is polled, as ADR 0080's `during` does. The crawl's helpers are [Crawl definition and handler context](https://github.com/goodfetch/automan/issues/477)'s.
     - In `goodfetch::blocking`, those helpers run handlers on the `tasks` module's tracked blocking threads (ADR 0060), and the helper's call waits for them, so blocking handlers are `Fn + Send + Sync + 'static`.
     - axum spawns its handlers onto Tokio, which needs `Send + 'static` closures and a Tokio runtime.
@@ -77,6 +78,7 @@ Each SDK runs on its language's own model: TypeScript async only; Python an asyn
     - Rust: dropping the stream, with no warning, since dropping is how a stream closes.
   - Each iterator has one reader; a second reader calls the method again.
   - While open, an unread lossless sequence slows its Run (ADR 0024), and a telemetry sequence keeps only the latest value. Where each sequence starts is its owning ticket's ([Crawl output in code](https://github.com/goodfetch/automan/issues/479) for Records).
+    > Amended by [ADR 0100](0100-collies-agent-is-one-bounded-call-on-a-page-judged-by-the-programs-success-check-and-replayed-whole-from-the-plan.md): an Agent's steps are lossless and start at the task's first step, whenever `steps()` is called; the sequence ends when the task ends, and raises the task's error when it failed.
 
 ### Patterns and predicates
 

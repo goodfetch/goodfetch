@@ -56,7 +56,11 @@ Checked when the scope opens, or when a call with a per-call argument starts, so
 | A value a lower layer locked or capped, or outside a Recipe's exposed bounds; or a `browser.*` value that conflicts with an identity fixed elsewhere (below). `limit` names the layer, or the setting that fixed the identity and its layer | `setting_locked` | `RefusedError` |
 | A capability the platform cannot provide; its fix names the setting that turns it off | `capability_unavailable` | `UnavailableError` |
 
+> Amended by [ADR 0087](0087-each-product-is-an-executable-crate-that-links-only-its-crates-and-has-its-own-size-budget.md): on a Collie engine, a key only Foxhound honours is refused with `not_in_product` (`UnavailableError`), naming Foxhound, before the scope check, so a `crawl.*` setting there is not `setting_not_applicable`. User and project configuration and Operator policy may hold the other Product's keys, since one project or one Goodfetch home can serve both: a Product applies its own and `config explain` lists the others as Foxhound's.
+
 A capability is a setting, never a Cargo feature (ADR 0038), and one binary carries every capability (ADR 0057), so the types are the same in every build: Spider's 132 Cargo features change field types, and its default `io_uring` panicked in Docker. ADR 0033's `confinement_unavailable`, a security refusal for a Plugin's network level, stays its own code.
+
+> Amended by [ADR 0087](0087-each-product-is-an-executable-crate-that-links-only-its-crates-and-has-its-own-size-budget.md): there are two executables, one per Product, and every build of a Product has the same types; what separates the Products is the crates each links, never a Cargo feature.
 
 ### Reading settings
 

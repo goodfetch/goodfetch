@@ -100,6 +100,8 @@ The "Test infrastructure" spec builds them. The check fails when:
 5. a variant's milestone is earlier than its surface's first milestone;
 6. a retired Journey has no `reason`.
 
+> Amended by [ADR 0094](0094-both-products-are-released-and-signed-together-and-each-test-runs-on-collie-unless-it-needs-foxhound.md): a Collie Journey that lists `cli` also has the variant `J-NNN@foxhound-cli`, which rule 5 checks against `cli`'s first milestone; a test carrying `foxhound-cli` for a Foxhound Journey, or for a Collie Journey without `cli`, fails rule 4.
+
 The report lists each variant's latest outcome on `main` by milestone and area. Whether `covers` names existing features, and the "every feature is tested" check, are [Feature coverage and traceability](https://github.com/Jbmanllr/automan/issues/279)'s.
 
 ### Ownership and review

@@ -185,6 +185,7 @@ Under ADR 0079's rule, the call raises when it cannot keep its promise, and AI w
 ### Outside agents
 
 - **Unchanged from ADR 0011** (S2). The Agent is one more catalog operation, classed Effect, so the CLI, MCP and the Framework adapters reach it where their profiles include it. How those surfaces state a Success check inside the task is their own design ([Mapping the catalog to each language and surface](https://github.com/goodfetch/goodfetch/issues/471)); until then, they evaluate the catalog's `expect` after the task returns.
+  > Amended by [ADR 0099](0099-every-surface-spells-each-catalog-name-by-its-own-rule-shapes-come-from-declared-kinds-and-call-is-the-way-down.md): the Agent's MCP tool is `page_agent`, and a CLI command for it, where area 11's spec offers one, reads `page agent`; which MCP profiles include it, and how the CLI and MCP state a Success check inside the task, are area 11's spec, and until then the interim above holds.
 - **An outside agent** drives the same page operations the built-in Agent uses, reads ADR 0091's `ai` aria snapshots with element references, and states its Success check through the catalog's `expect`. Its run gets the same Verdict, and no model's word makes it `verified` (ADR 0029).
 - **A program running its own loop** (OpenAI Agents, the AI SDK) uses `ariaSnapshot({ mode: "ai" })`, `getByRef`, the page API and `expect` from the SDK, or ADR 0011's Framework adapters.
 
@@ -236,6 +237,7 @@ Under ADR 0079's rule, the call raises when it cannot keep its promise, and AI w
   - [The Run in code](https://github.com/goodfetch/goodfetch/issues/478) gives the Run's report, where the Run's Verdict and `PlanReport` sit, and reading the Run trace from code.
   - [Effects a program declares in code](https://github.com/goodfetch/goodfetch/issues/500) decides whether an Agent tool takes a function that tells whether its Effect already happened.
   - [Mapping the catalog to each language and surface](https://github.com/goodfetch/goodfetch/issues/471) spells the Agent's CLI command, MCP tool and profiles, and how those surfaces state a Success check inside the task.
+    > Amended by [ADR 0099](0099-every-surface-spells-each-catalog-name-by-its-own-rule-shapes-come-from-declared-kinds-and-call-is-the-way-down.md): it names the MCP tool `page_agent` and any CLI command `page agent`, and gives the profiles and the in-task Success check to area 11's spec.
   - [Testing a user's crawl or automation](https://github.com/goodfetch/goodfetch/issues/482) replays a task's Plan entry in tests.
   - [API sketch: type-checked stubs and golden scenarios](https://github.com/goodfetch/goodfetch/issues/483) writes golden scenario 11's programs.
   - The map's fog item "A call scope for Limits" gets nothing from scenario 11, whose whole program is one task in its own Run; scenario 08's model cap is [Capping a crawl's model use without stopping its Run](https://github.com/goodfetch/goodfetch/issues/513)'s.

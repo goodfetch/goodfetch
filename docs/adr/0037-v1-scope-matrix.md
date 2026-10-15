@@ -53,7 +53,7 @@ This matrix is the companion of [ADR 0037](0037-v1-scope-parity-and-pain-coverag
 | SDK-05 | No-code CLI that crawls or drives a browser | `decided` | ADR 0011, ADR 0034, ADR 0036 | 11 Client surfaces | CLI generated from the catalog with `--json`; code-free catalog runs. |
 | SDK-06 | Typed public API and schemas | `decided` | ADR 0011, ADR 0024, ADR 0028, ADR 0038, ADR 0081, ADR 0082, ADR 0090 | 11 Client surfaces | Typed catalog defined in Rust types, generated SDK types, sync and async Python: the async client on AnyIO, the sync one on a private thread per connection that works inside a running loop; Rust async on any executor plus each Product's `blocking` module, such as `goodfetch_collie::blocking` (ADRs 0081 and 0090). Schemas come from each language's idiom (Standard Schema with Standard JSON Schema, Pydantic, `schemars`) as JSON Schema, and results keep unknown fields (ADR 0082). |
 | SDK-07 | Docs for AI coding assistants | `decided` | ADR 0030 | 11 Client surfaces | `llms.txt`, `llms-full.txt`, embedded docs, skills, AGENTS.md. |
-| SDK-08 | Browser provisioning | `decided` | ADR 0024, ADR 0090 | 3 Engine runtime | Pinned builds in a digest-checked cache; `browsers install` in each Product's executable (ADR 0090); offline path. |
+| SDK-08 | Browser provisioning | `decided` | ADR 0024, ADR 0090 | 3 Engine runtime | Pinned builds in a digest-checked cache; `browsers install`, in the executables ADR 0090 names; offline path. |
 
 ### SA Site access
 

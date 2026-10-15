@@ -5,7 +5,7 @@ Goodfetch is the organization behind two open-source Products: Collie, for brows
 ## Products and the engine
 
 **Goodfetch**:
-The organization and umbrella brand behind Collie, Foxhound and Goodfetch Cloud; not the name of anything installed.
+The organization and umbrella brand behind Collie, Foxhound and Goodfetch Cloud; not the name of a Product or of anything a person installs to get one.
 _Avoid_: framework, library, platform, Automan (its former working name)
 
 **Product**:
@@ -17,8 +17,12 @@ The Product that drives one browser page at a time: the CDP driver and its guard
 _Avoid_: browser module, agent
 
 **Foxhound**:
-The Product that discovers and collects many pages: the Frontier, crawl scope, Politeness, fetch tiers, Datasets and Sinks. It contains Collie, which it uses to render pages and act on them.
+The Product that discovers and collects many pages: the Frontier, crawl scope, Politeness toward sites, the HTTP fetch tiers, Datasets and Sinks. It contains Collie, which it uses to render pages and act on them.
 _Avoid_: spider, scraper
+
+**Product version**:
+The one version that Collie, Foxhound and the packages people install carry, released together; a product major is its major.
+_Avoid_: lockstep version, release train
 
 **Engine**:
 The runtime inside each Product that executes every run, whichever surface starts it; Foxhound's engine includes Collie's.
@@ -83,6 +87,10 @@ _Avoid_: worker, agent, sidecar
 **Borrowed browser**:
 A browser the engine did not launch and never closes: the person's running browser, one their own code launched, or a third-party cloud browser reached by its address.
 _Avoid_: external browser, attached browser
+
+**Lent page**:
+A page of a Session that a program hands, for a time, to another automation library such as Playwright or Puppeteer, through a CDP endpoint that shows only that page's Session; the reverse of a Borrowed browser.
+_Avoid_: shared page, exposed page, remote page
 
 **Plugin**:
 A package that adds implementations of one or more Plugin kinds to the engine, such as delivery to a Sink, a fetch backend or a Secret provider; the reverse of an Integration, which puts a Product inside another tool.
@@ -263,7 +271,7 @@ What completes a Challenge on a Session's behalf, whether Goodfetch's own logic,
 _Avoid_: unblocker, bypass, captcha solver (for every kind)
 
 **Session pool**:
-The sessions a run keeps, scoring, rotating and retiring them as they fail.
+The Sessions a crawl keeps, scoring, rotating and retiring them as they fail; a Session a program or an Agent opens itself is never in it.
 _Avoid_: session manager, account pool
 
 **Saved identity**:
@@ -317,6 +325,10 @@ _Avoid_: screencast, stream, remote desktop
 **Run trace**:
 The recording of what a run's Sessions did, such as their screens, page snapshots and network traffic, kept so a person can replay it.
 _Avoid_: session recording, replay (for the recording), video
+
+**Gesture**:
+A call that sends input to a page or navigates it, such as a click, a key press or a navigation; the engine runs one page's gestures one at a time.
+_Avoid_: interaction, command (for a gesture)
 
 **Page check**:
 A declaration by a run's code of what an expected page and a login page look like, against which every page fetched in a session is judged.
@@ -431,7 +443,7 @@ Whatever turns a Secret reference into its value at the moment of use: the envir
 _Avoid_: vault (for every provider), secret store, credential manager
 
 **Provenance**:
-The record of how a Record was obtained: where and when it was fetched, under which Session and signing identity, by which extractor, Plan or model, and under which Site preferences.
+The record of how a Record, or any other result of a run, was obtained: where and when it was fetched, under which Session and signing identity, by which extractor, Plan or model, and under which Site preferences.
 _Avoid_: lineage, metadata, source (alone)
 
 **Purpose**:
@@ -533,7 +545,7 @@ The Goodfetch Chromium's source tree at the same revision, built with the same a
 _Avoid_: baseline build, vanilla build, reference build
 
 **Size budget**:
-The largest size each released file of Goodfetch may reach on each platform, and the growth a single change may add without an explicit, recorded acceptance.
+The largest size each released file of a Product may reach on each platform, and the growth a single change may add without an explicit, recorded acceptance.
 _Avoid_: size limit (alone), quota, bloat check
 
 **Compatibility corpus**:

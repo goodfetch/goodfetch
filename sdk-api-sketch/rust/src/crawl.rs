@@ -9,9 +9,9 @@
 //! `tasks` module's tracked threads instead.
 //!
 //! A handler receives one [`CrawlContext`] on every fetch tier: Collie's page over the request's
-//! document. On the HTTP and discovered-API tiers a call only a browser can serve, or a wait for
-//! something the static document lacks, ends the attempt and runs the request again in the
-//! browser, unless `fetch::TIER` forces the tier, when it fails with `browser_required`.
+//! document. Every tier but `browser` serves what it can exactly; a call only a browser can serve,
+//! or a wait for something a static document lacks, ends the attempt and runs the request again in
+//! the browser, unless `fetch::TIER` forces the tier, when it fails with `browser_required`.
 
 use std::fmt;
 use std::future::IntoFuture;
@@ -57,6 +57,8 @@ pub enum FetchTier {
     DiscoveredApi,
     /// HTTP sent from inside the Session's browser, so its identity does not change.
     BrowserFetch,
+    /// ADR 0020's optional light engine: scripts without layout.
+    LightBrowser,
     /// The browser.
     Browser,
     /// A tier this SDK does not know, as received (G3).
@@ -96,10 +98,11 @@ impl<'a> Crawl<'a> {
     }
 
     /// Declares a Label with an explicit schema (a hand-written JSON Schema is the way down) and
-    /// its own settings: a scope between the Run and each request (ADR 0093). Its Session settings
-    /// (`session.source`, `session.page_check`, `secrets.*`) give its requests Sessions of a pool of
-    /// their own; the Session's identity, Politeness, Site preferences and scope are refused with
-    /// `setting_not_applicable`.
+    /// its own settings: a scope between the Run and each request (ADR 0093). What a Session holds
+    /// (`session.source`, `session.http_credentials`, `secrets.*`, or a login from
+    /// [`Crawl::login_for`]) gives its requests a Session pool of their own, while
+    /// `session.page_check` judges its pages in whichever pool serves them; the Session's identity,
+    /// Politeness, Site preferences and scope are refused with `setting_not_applicable`.
     pub fn label_with<P>(&mut self, name: &str, payload: Schema<P>, settings: Settings) -> Result<Label<P>, Error> {
         let _ = (name, payload, settings);
         unimplemented!()
@@ -155,8 +158,9 @@ impl<'a> Crawl<'a> {
 
     /// Answers the Run's crawl requests with these handlers and Hooks (ADR 0104),
     /// `crawl::handler::CONCURRENCY` requests at once, inside this future, until the Run ends, then
-    /// returns its report (ADR 0102): serving is what lets a crawl finish. Dropping it stops
-    /// answering: each request it leased is re-run, counting a `handler_lost` attempt.
+    /// returns its report (ADR 0102): serving is what lets a crawl finish. Dropping it is the
+    /// program's own stop: it sends `$/cancel`, and the requests it leased return to pending
+    /// without counting an attempt.
     pub async fn serve(&self, run: &CrawlRun) -> Result<crate::run::CrawlRunReport, Error> {
         let _ = run;
         unimplemented!()
@@ -425,8 +429,8 @@ impl IntoFuture for EnqueueLinks {
 }
 
 /// One crawl request leased to the program, for a program that answers them itself: the way down
-/// under [`Crawl::serve`] (G8). Dropped unanswered, its attempt ends with `handler_lost`, counted
-/// against `crawl.retry.max`.
+/// under [`Crawl::serve`] (G8). Dropped unanswered, it returns to pending without counting an
+/// attempt; only a lost process or connection counts, as `handler_lost`.
 #[derive(Debug)]
 pub struct CrawlCall {
     _private: (),

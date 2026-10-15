@@ -44,7 +44,7 @@ export type UrlPattern = string | RegExp;
  * The fetch tiers of ADR 0020. `auto`, the default, learns the tier per Label on a domain by sample
  * comparison; any other value forces it (ADR 0023), and Provenance records that it was forced.
  */
-export type FetchTier = "http" | "discovered_api" | "browser_fetch" | "browser";
+export type FetchTier = "http" | "discovered_api" | "browser_fetch" | "light_browser" | "browser";
 /** A tier a newer engine reports and this SDK does not know is kept as received (G3). */
 export type ReportedFetchTier = FetchTier | (string & {});
 
@@ -127,7 +127,7 @@ export interface Seed {
   readonly "~seed": true;
 }
 /** Builds a seed, typed as `enqueue` is. */
-export declare function seed<L extends Label<unknown, unknown>>(url: string | URL, label: L, ...args: PayloadArgs<L, EnqueueOptions>): Seed;
+export declare function seed<L extends Label<unknown, unknown>>(url: string | URL, label: L, ...args: PayloadArgs<L, never>): Seed;
 
 /** One crawl request of Label `L`, as its handler sees it. The engine's fields are kept apart from the Payload (ADR 0082). */
 export interface CrawlRequest<L extends Label<unknown, unknown> = Label<undefined>> {
@@ -192,19 +192,18 @@ export interface EnqueuedLinks {
 }
 
 /**
- * What a handler receives, the same on every fetch tier. On the HTTP and discovered-API tiers the
- * engine serves `page` from the fetched document; a call only a browser can serve (a gesture,
- * `evaluate`, a network wait, a screenshot, an acting AI verb), or a wait for something the static
- * document lacks, ends the attempt and runs the request again in the browser, unless `fetch.tier`
- * forces the tier, when it throws `BrowserRequiredError`. The non-browser tiers are `http` and
- * `browser_fetch`, served from the document, and `discovered_api`, which also serves network waits
- * from the JSON calls it replays; `page.request` never escalates. So does a page failing its Session's
- * `session.page_check.expectedPage` (ADR 0092): it escalates, or fails with `page_check_failed` on
- * the browser tier or a forced one. A question (`count()`, `isVisible()`)
- * answers at once and never escalates.
+ * What a handler receives, the same on every fetch tier. Every tier but `browser` serves what it
+ * can exactly: `http` and `browser_fetch` the fetched document, `discovered_api` the document and
+ * network waits from the JSON calls it replays, `light_browser` scripts without layout. A call a tier
+ * cannot serve (a gesture, `evaluate`, an unanswered network wait, a screenshot, an acting AI verb),
+ * a wait for something a static document lacks, or a page failing its Session's
+ * `session.page_check.expectedPage` (ADR 0092) ends the attempt and runs the request again in the
+ * browser, unless `fetch.tier` forces the tier, when the call throws `BrowserRequiredError` and the
+ * page fails with `page_check_failed`. `page.request` never escalates. A question (`count()`,
+ * `isVisible()`) answers at once and never escalates.
  *
  * A context belongs to one attempt. Once the attempt has ended (`skip`, `retry`, an escalation, the
- * handler's timeout, a lost lease), every call on it throws `AttemptEndedError`, and what the attempt
+ * handler's timeout, a lost lease, the Run's close), every call on it throws `AttemptEndedError`, and what the attempt
  * staged is discarded.
  */
 export interface CrawlContext<L extends Label<unknown, unknown> = Label<undefined>> {
@@ -363,23 +362,25 @@ export declare class ResponseNotOkError extends PageError {
   readonly details: { readonly status: number };
 }
 /** A final 5xx or 408 after the request's retries, not in `crawl.handle_statuses`: the site is failing for now. Retryable. */
-export declare class ResponseUnavailableError extends UnavailableError {
+export declare class ResponseUnavailableError extends PageError {
   readonly code: "response_unavailable";
   readonly details: { readonly status: number };
 }
 /**
- * The program stopped answering for this attempt: its process ended, its connection dropped, or
- * Rust's `serve` future was dropped. Retryable, and counted against `crawl.retry.max`; an attempt the
- * program's own `close()` stops counts nothing.
+ * The program stopped answering for this attempt with no word: its process ended or its connection
+ * dropped. Retryable, and counted against `crawl.retry.max`. The program's own stop (`close()`, a
+ * dropped Rust `serve` future) counts nothing.
  */
 export declare class HandlerLostError extends UnavailableError {
   readonly code: "handler_lost";
 }
 /**
- * A handler's own navigation or fetch that Site preferences refuse (ADR 0086), refused before it is
- * sent. If it escapes the handler, the request ends `skipped` with the same reason.
+ * A handler's own navigation or fetch that Site preferences refuse, refused before it is sent: a
+ * crawl request's reasons, `robots_txt`, `crawl_delay`, or `use_signals` while
+ * `site_preferences.respect_use_signals` is on (ADR 0086). If it escapes the handler, the request ends
+ * `skipped` with the same reason. A Collie program's own navigation is never refused for a use signal.
  */
 export declare class SitePreferencesRefusedError extends RefusedError {
   readonly code: "site_preferences_refused";
-  readonly details: { readonly url: string; readonly reason: "robots_txt" | "crawl_delay" | (string & {}) };
+  readonly details: { readonly url: string; readonly reason: "robots_txt" | "crawl_delay" | "use_signals" | (string & {}) };
 }

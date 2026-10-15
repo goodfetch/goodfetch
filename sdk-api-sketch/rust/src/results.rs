@@ -170,10 +170,11 @@ pub enum ErrorCode {
     /// `response_not_ok`: a final 4xx that is no Block cause and not in `crawl.handle_statuses`;
     /// not retryable (ADR 0093).
     ResponseNotOk,
-    /// `response_unavailable`: a final 5xx or 408 after the request's retries; retryable (ADR 0093).
+    /// `response_unavailable`, a page error: a final 5xx or 408 after the request's retries;
+    /// retryable (ADR 0093).
     ResponseUnavailable,
-    /// `handler_lost`: the program stopped answering for this attempt; retryable, and counted
-    /// against `crawl.retry.max` (ADR 0093).
+    /// `handler_lost`: the program's process or connection was lost mid-attempt; retryable, and
+    /// counted against `crawl.retry.max`. The program's own stop counts nothing (ADR 0093).
     HandlerLost,
     /// `site_preferences_refused`: a handler's own navigation that Site preferences refuse (ADR 0093).
     SitePreferencesRefused,

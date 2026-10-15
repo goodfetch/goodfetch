@@ -386,6 +386,14 @@ pub mod crawl {
     }
 }
 
+/// `locator.*` (ADR 0085), settable at any scope, a crawl's Label included (ADR 0093).
+pub mod locator {
+    use super::Setting;
+
+    /// `locator.test_id_attribute`: the attribute `get_by_test_id` matches, `data-testid` by default.
+    pub const TEST_ID_ATTRIBUTE: Setting<String> = Setting::new("locator.test_id_attribute");
+}
+
 /// `fetch.*`: the fetch tiers of ADR 0020 (ADR 0093).
 pub mod fetch {
     use super::Setting;
@@ -446,7 +454,7 @@ pub mod politeness {
 
         /// `politeness.domain.concurrency`: requests in flight per domain, each from its start
         /// until its response (a browser-tier page until its load event). Built-in 1; `0` fails
-        /// with `setting_invalid`. At 1, a crawl's Run that switches hedges or `tier_race` on is
+        /// with `setting_invalid`. At 1, a crawl's Run that switches hedges or `fetch.tier_race` on is
         /// refused.
         pub const CONCURRENCY: Setting<u32> = Setting::new("politeness.domain.concurrency");
         /// `politeness.domain.delay`: the least time between two request starts to one domain;

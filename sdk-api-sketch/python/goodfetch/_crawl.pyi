@@ -6,9 +6,10 @@ handler through the decorator `@crawl.handle(label)`, which returns the function
 carries the crawl out; its start and resume verbs are #478's, so `Foxhound.start` is provisional. Handlers run as ADR
 0081 says: as tasks in the Run's task group (async), or on the connection's thread pool (sync).
 
-A handler receives one context on every fetch tier: Collie's page over the request's document. On the HTTP and
-discovered-API tiers a call only a browser can serve, or a wait for something the static document lacks, ends the attempt
-and runs the request again in the browser, unless `fetch.tier` forces the tier, when it raises `BrowserRequiredError`.
+A handler receives one context on every fetch tier: Collie's page over the request's document. Every tier but `browser`
+serves what it can exactly; a call only a browser can serve, or a wait for something a static document lacks, ends the
+attempt and runs the request again in the browser, unless `fetch.tier` forces the tier, when it raises
+`BrowserRequiredError`.
 """
 
 import re
@@ -33,7 +34,7 @@ UrlPattern: TypeAlias = str | re.Pattern[str]
 """A URL pattern matched in the engine: a glob, or a compiled pattern in the Rust `regex` syntax (ADR 0081). No predicate:
 every link would cross the connection."""
 
-FetchTier: TypeAlias = Literal["http", "discovered_api", "browser_fetch", "browser"]
+FetchTier: TypeAlias = Literal["http", "discovered_api", "browser_fetch", "light_browser", "browser"]
 """The fetch tiers of ADR 0020. `fetch.tier` takes these or `auto`, the default, learned per Label on a domain."""
 
 NotAddedReason: TypeAlias = (
@@ -302,16 +303,18 @@ class ResponseNotOkError(PageError):
     """A final 4xx that is no Block cause and not in `crawl.handle_statuses`. Not retryable."""
 
 @final
-class ResponseUnavailableError(UnavailableError):
+class ResponseUnavailableError(PageError):
     """A final 5xx or 408 after the request's retries, not in `crawl.handle_statuses`: the site is failing for now.
     Retryable."""
 
 @final
 class HandlerLostError(UnavailableError):
-    """The program stopped answering for this attempt: its process ended or its connection dropped. Retryable, and
-    counted against `crawl.retry.max`; an attempt the program's own `close()` stops counts nothing."""
+    """The program stopped answering for this attempt with no word: its process ended or its connection dropped.
+    Retryable, and counted against `crawl.retry.max`. The program's own stop (`close()`, `KeyboardInterrupt`) counts
+    nothing."""
 
 @final
 class SitePreferencesRefusedError(RefusedError):
-    """A handler's own navigation or fetch that Site preferences refuse (ADR 0086), refused before it is sent. If it
-    escapes the handler, the request ends `skipped` with the same reason."""
+    """A handler's own navigation or fetch that Site preferences refuse, refused before it is sent: a crawl request's
+    reasons, `robots_txt`, `crawl_delay`, or `use_signals` while `site_preferences.respect_use_signals` is on (ADR 0086).
+    If it escapes the handler, the request ends `skipped` with the same reason."""

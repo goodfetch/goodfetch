@@ -308,8 +308,8 @@ export type CrawlRequestOutcome = Attempts & { readonly request: CrawlRequestRef
  * - `robots_txt`: a Disallow line of the origin's robots.txt, or a robots.txt answered with a 429 or a
  *   5xx, or unreachable, with no earlier copy, until the request's retries ran out (ADR 0086); also a
  *   handler's own navigation refused for it whose `SitePreferencesRefusedError` escaped the handler;
- * - `crawl_delay`: a Crawl-delay above `site_preferences.max_crawl_delay` (ADR 0086);
- * - `use_signals`: an AI-use signal that refuses the run's Purpose while `site_preferences.respect_use_signals` is on (ADR 0086);
+ * - `crawl_delay`: a Crawl-delay above `site_preferences.max_crawl_delay` (ADR 0086), also for an escaped refusal of a handler's navigation;
+ * - `use_signals`: an AI-use signal that refuses the run's Purpose while `site_preferences.respect_use_signals` is on (ADR 0086), also for an escaped refusal of a handler's navigation;
  * - `hook`: a before-request Hook (ADR 0033);
  * - `handler`: the handler called `ctx.skip()`.
  */

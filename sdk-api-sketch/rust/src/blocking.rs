@@ -252,7 +252,9 @@ impl Default for Crawl {
     }
 }
 
-/// What a blocking handler receives: [`crate::CrawlContext`] without `async`.
+/// What a blocking handler receives: [`crate::CrawlContext`] without `async`. As this module says,
+/// only a few calls are sketched; `response`, `tier`, `run`, `enqueue_links` and `enqueue`'s
+/// options mirror the async context.
 #[derive(Debug)]
 pub struct CrawlContext<P> {
     _payload: PhantomData<P>,

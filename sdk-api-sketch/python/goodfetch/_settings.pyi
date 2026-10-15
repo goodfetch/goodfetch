@@ -282,6 +282,10 @@ class LabelCrawlSettings(TypedDict, total=False):
     handle_statuses: list[int]
     handler: CrawlHandlerSettings
 
+class LabelLocatorSettings(TypedDict, total=False):
+    test_id_attribute: str
+    """`locator.test_id_attribute`, settable at any scope (ADR 0085)."""
+
 class LabelSettings(TypedDict, total=False):
     """A Label's settings (ADR 0093): every setting a page takes, what shapes one crawl request, every `session.*` key
     and `secrets.*`. `session.source`, `session.http_credentials`, `secrets.*` and a `login` step give the Label's
@@ -290,6 +294,7 @@ class LabelSettings(TypedDict, total=False):
     Site preferences, scope and Run-wide keys are refused with `setting_not_applicable`: two Labels on one domain share
     its Politeness with every run of the user (ADR 0053)."""
 
+    locator: LabelLocatorSettings
     timeout: LabelTimeoutSettings
     extract: ExtractSettings
     observation: ObservationSettings

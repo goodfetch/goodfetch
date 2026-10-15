@@ -63,24 +63,19 @@ async fn collect_quotes() -> Result<Vec<Quote>, Error> {
     let scroll = crawl.label(LabelDeclaration::<()>::new("scroll").settings(browser))?;
 
     // Runs only where a browser navigates, so unscoped it covers every browser page, a sample
-    // comparison of an HTTP Label's page included. The route must outlive the Hook, so the program
-    // answers it on a task of its own, which ends when the page closes.
+    // comparison of an HTTP Label's page included. The route outlives the Hook: `serve` answers it
+    // for the rest of the attempt.
     let no_media = HookOn::every_label().named("no-images-or-fonts");
     crawl.before_navigation(no_media, async |ctx: PageStageContext<Value>| {
-        let mut routes = ctx.page().route("**/*");
-        tokio::spawn(async move {
-            while let Some(route) = routes.next().await {
-                let route = route?;
-                match route.request().resource_type() {
-                    ResourceType::Image | ResourceType::Font => {
-                        route.abort().reason(AbortReason::BlockedByClient).await?
-                    }
-                    _ => route.fallback().await?,
+        let routes = ctx.page().route("**/*");
+        ctx.for_each(routes, async |route| {
+            match route.request().resource_type() {
+                ResourceType::Image | ResourceType::Font => {
+                    route.abort().reason(AbortReason::BlockedByClient).await
                 }
+                _ => route.fallback().await,
             }
-            Ok::<(), Error>(())
-        });
-        Ok(())
+        })
     })?;
 
     let read_quotes = async |ctx: CrawlContext<()>| {

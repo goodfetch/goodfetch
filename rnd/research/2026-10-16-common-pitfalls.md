@@ -23,7 +23,7 @@ State observed on **2026-10-16**. This is the research for [Common pitfalls cata
 
 ## Synthesis
 
-The four parts below describe 109 failure modes. Grouped by domain, with the closures the catalog records:
+The four parts below describe 110 failure modes. Grouped by domain, with the closures the catalog records:
 
 | Domain | What goes wrong | Where the leaders converge | Where they split |
 |---|---|---|---|

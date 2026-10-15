@@ -1,0 +1,8 @@
+{
+  "kind": "gf",
+  "lang": "rs",
+  "program": "s06_mixed_fetch_crawl.rs",
+  "given": [],
+  "scenario": "06",
+  "model": "local"
+}

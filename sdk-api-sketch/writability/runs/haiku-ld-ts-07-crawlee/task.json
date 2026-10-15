@@ -1,0 +1,12 @@
+{
+  "kind": "leader",
+  "lang": "ts",
+  "program": "07-resume-and-retry.crawlee.ts",
+  "given": [
+    "05-two-page-crawl.crawlee.ts"
+  ],
+  "env": "ld",
+  "scenario": "07",
+  "model": "haiku",
+  "lib": "Crawlee 3.18.2 (`crawlee`)"
+}

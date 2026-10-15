@@ -1,0 +1,10 @@
+{
+  "kind": "leader",
+  "lang": "py",
+  "program": "s04_login_human_pause_playwright.py",
+  "given": [],
+  "env": "pw",
+  "scenario": "04",
+  "model": "sonnet",
+  "lib": "Playwright for Python 1.64.0 (`playwright`)"
+}

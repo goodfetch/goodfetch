@@ -1,0 +1,10 @@
+{
+  "kind": "leader",
+  "lang": "py",
+  "program": "s05_two_page_crawl_scrapy.py",
+  "given": [],
+  "env": "scrapy",
+  "scenario": "05",
+  "model": "local",
+  "lib": "Scrapy 2.19.0 (`scrapy`)"
+}

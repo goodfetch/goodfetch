@@ -9,6 +9,7 @@ program. The transcript and a summary are saved to RUN_DIR/.agent/.
 """
 
 import json
+import re
 import subprocess
 import sys
 import time
@@ -132,6 +133,24 @@ def grep(args: dict, roots: list[Path]) -> str:
     return "\n".join(l[:400] for l in lines) or "no match"
 
 
+def calls_in_text(text: str) -> list[dict]:
+    """Tool calls a model wrote as text (qwen2.5-coder through ollama writes them as JSON in a code
+    fence or in <tool_call> tags instead of the API's tool_calls)."""
+    found = []
+    blocks = re.findall(r"<tool_call>\s*(.*?)\s*</tool_call>", text, re.S)
+    blocks += re.findall(r"```(?:json)?\s*(\{.*?\})\s*```", text, re.S)
+    if not blocks and text.strip().startswith("{"):
+        blocks = [text.strip()]
+    for b in blocks:
+        try:
+            obj = json.loads(b)
+        except json.JSONDecodeError:
+            continue
+        if isinstance(obj, dict) and isinstance(obj.get("name"), str):
+            found.append({"function": {"name": obj["name"], "arguments": obj.get("arguments") or obj.get("parameters") or {}}})
+    return found
+
+
 def main() -> None:
     rundir = Path(sys.argv[1]).resolve()
     model = sys.argv[2] if len(sys.argv) > 2 else "qwen2.5-coder:14b"
@@ -164,7 +183,9 @@ def main() -> None:
         stats["output_tokens"] += resp.get("eval_count", 0)
         msg = resp["message"]
         messages.append({k: v for k, v in msg.items() if k in ("role", "content", "tool_calls")})
-        calls = msg.get("tool_calls") or []
+        calls = msg.get("tool_calls") or calls_in_text(msg.get("content") or "")
+        if calls and not msg.get("tool_calls"):
+            stats["text_tool_calls"] = stats.get("text_tool_calls", 0) + len(calls)
         if not calls:
             end = "replied"
             break

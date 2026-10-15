@@ -1,0 +1,10 @@
+{
+  "kind": "leader",
+  "lang": "ts",
+  "program": "03-replay-ai-steps.stagehand.ts",
+  "given": [],
+  "env": "ld",
+  "scenario": "03",
+  "model": "local",
+  "lib": "Stagehand 4.2.1 (`@browserbasehq/stagehand`), with zod 4.4.3"
+}

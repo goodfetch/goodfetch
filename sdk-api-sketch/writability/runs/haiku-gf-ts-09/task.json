@@ -1,0 +1,8 @@
+{
+  "kind": "gf",
+  "lang": "ts",
+  "program": "09-ai-in-playwright-program.ts",
+  "given": [],
+  "scenario": "09",
+  "model": "haiku"
+}

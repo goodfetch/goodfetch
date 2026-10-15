@@ -1,0 +1,8 @@
+{
+  "kind": "gf",
+  "lang": "py",
+  "program": "scenarios/s08_ai_in_crawl_handler.py",
+  "given": [],
+  "scenario": "08",
+  "model": "haiku"
+}

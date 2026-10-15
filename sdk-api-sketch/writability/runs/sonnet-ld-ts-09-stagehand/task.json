@@ -1,0 +1,10 @@
+{
+  "kind": "leader",
+  "lang": "ts",
+  "program": "09-ai-in-playwright-program.stagehand.ts",
+  "given": [],
+  "env": "ld3",
+  "scenario": "09",
+  "model": "sonnet",
+  "lib": "Stagehand 3.7.3 (`@browserbasehq/stagehand`) on the program's Playwright 1.64.1, with zod 4"
+}

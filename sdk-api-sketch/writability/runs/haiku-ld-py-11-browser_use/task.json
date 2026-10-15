@@ -1,0 +1,10 @@
+{
+  "kind": "leader",
+  "lang": "py",
+  "program": "s11_agent_goal_browser_use.py",
+  "given": [],
+  "env": "bu",
+  "scenario": "11",
+  "model": "haiku",
+  "lib": "Browser Use 0.13.11 (`browser_use`)"
+}

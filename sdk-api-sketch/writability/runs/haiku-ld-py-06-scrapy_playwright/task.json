@@ -1,0 +1,10 @@
+{
+  "kind": "leader",
+  "lang": "py",
+  "program": "s06_mixed_fetch_crawl_scrapy_playwright.py",
+  "given": [],
+  "env": "scrapypw",
+  "scenario": "06",
+  "model": "haiku",
+  "lib": "Scrapy 2.19.0 with scrapy-playwright 0.0.48"
+}

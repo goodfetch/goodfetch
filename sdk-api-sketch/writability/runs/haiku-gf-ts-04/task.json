@@ -1,0 +1,8 @@
+{
+  "kind": "gf",
+  "lang": "ts",
+  "program": "04-login-human-pause.ts",
+  "given": [],
+  "scenario": "04",
+  "model": "haiku"
+}

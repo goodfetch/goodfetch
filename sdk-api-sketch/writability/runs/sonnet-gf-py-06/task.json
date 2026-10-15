@@ -1,0 +1,8 @@
+{
+  "kind": "gf",
+  "lang": "py",
+  "program": "scenarios/s06_mixed_fetch_crawl.py",
+  "given": [],
+  "scenario": "06",
+  "model": "sonnet"
+}

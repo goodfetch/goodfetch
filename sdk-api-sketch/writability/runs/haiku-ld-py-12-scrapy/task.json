@@ -1,0 +1,10 @@
+{
+  "kind": "leader",
+  "lang": "py",
+  "program": "s12_crawl_in_a_service_scrapy.py",
+  "given": [],
+  "env": "scrapy",
+  "scenario": "12",
+  "model": "haiku",
+  "lib": "Scrapy 2.19.0 with FastAPI 0.143.1 (and uvicorn 0.54.0)"
+}

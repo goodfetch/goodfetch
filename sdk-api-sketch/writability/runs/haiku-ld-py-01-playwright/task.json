@@ -1,0 +1,10 @@
+{
+  "kind": "leader",
+  "lang": "py",
+  "program": "s01_dependent_form_playwright.py",
+  "given": [],
+  "env": "pw",
+  "scenario": "01",
+  "model": "haiku",
+  "lib": "Playwright for Python 1.64.0 (`playwright`)"
+}

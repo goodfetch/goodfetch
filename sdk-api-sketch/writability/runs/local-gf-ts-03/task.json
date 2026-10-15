@@ -1,0 +1,8 @@
+{
+  "kind": "gf",
+  "lang": "ts",
+  "program": "03-replay-ai-steps.ts",
+  "given": [],
+  "scenario": "03",
+  "model": "local"
+}

@@ -1,0 +1,8 @@
+{
+  "kind": "gf",
+  "lang": "ts",
+  "program": "11-agent-goal.ts",
+  "given": [],
+  "scenario": "11",
+  "model": "haiku"
+}

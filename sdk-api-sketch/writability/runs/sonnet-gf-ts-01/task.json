@@ -1,0 +1,8 @@
+{
+  "kind": "gf",
+  "lang": "ts",
+  "program": "01-dependent-form.ts",
+  "given": [],
+  "scenario": "01",
+  "model": "sonnet"
+}

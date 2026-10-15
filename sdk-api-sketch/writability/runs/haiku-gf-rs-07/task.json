@@ -1,0 +1,10 @@
+{
+  "kind": "gf",
+  "lang": "rs",
+  "program": "s07_resume_and_retry.rs",
+  "given": [
+    "s05_two_page_crawl.rs"
+  ],
+  "scenario": "07",
+  "model": "haiku"
+}

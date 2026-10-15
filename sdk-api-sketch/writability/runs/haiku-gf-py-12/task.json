@@ -1,0 +1,8 @@
+{
+  "kind": "gf",
+  "lang": "py",
+  "program": "scenarios/s12_crawl_in_a_service.py",
+  "given": [],
+  "scenario": "12",
+  "model": "haiku"
+}

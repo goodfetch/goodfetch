@@ -1,0 +1,10 @@
+{
+  "kind": "leader",
+  "lang": "ts",
+  "program": "01-dependent-form.playwright.ts",
+  "given": [],
+  "env": "ld",
+  "scenario": "01",
+  "model": "sonnet",
+  "lib": "Playwright 1.64.1 (the `playwright` package)"
+}

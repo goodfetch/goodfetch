@@ -1,0 +1,12 @@
+{
+  "kind": "leader",
+  "lang": "py",
+  "program": "s07_resume_and_retry_scrapy.py",
+  "given": [
+    "s05_two_page_crawl_scrapy.py"
+  ],
+  "env": "scrapy",
+  "scenario": "07",
+  "model": "sonnet",
+  "lib": "Scrapy 2.19.0 (`scrapy`)"
+}

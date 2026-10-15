@@ -1,0 +1,8 @@
+{
+  "kind": "gf",
+  "lang": "ts",
+  "program": "12-crawl-in-a-service.ts",
+  "given": [],
+  "scenario": "12",
+  "model": "local"
+}

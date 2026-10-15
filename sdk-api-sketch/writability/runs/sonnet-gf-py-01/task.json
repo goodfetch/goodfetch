@@ -1,0 +1,8 @@
+{
+  "kind": "gf",
+  "lang": "py",
+  "program": "scenarios/s01_dependent_form.py",
+  "given": [],
+  "scenario": "01",
+  "model": "sonnet"
+}

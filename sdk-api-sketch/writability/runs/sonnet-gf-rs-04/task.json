@@ -1,0 +1,8 @@
+{
+  "kind": "gf",
+  "lang": "rs",
+  "program": "s04_login_human_pause.rs",
+  "given": [],
+  "scenario": "04",
+  "model": "sonnet"
+}

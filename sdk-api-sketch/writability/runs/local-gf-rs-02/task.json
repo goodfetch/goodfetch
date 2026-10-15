@@ -1,0 +1,8 @@
+{
+  "kind": "gf",
+  "lang": "rs",
+  "program": "s02_typed_extract.rs",
+  "given": [],
+  "scenario": "02",
+  "model": "local"
+}

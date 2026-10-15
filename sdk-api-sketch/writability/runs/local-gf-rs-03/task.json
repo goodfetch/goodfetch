@@ -1,0 +1,8 @@
+{
+  "kind": "gf",
+  "lang": "rs",
+  "program": "s03_replay_ai_steps.rs",
+  "given": [],
+  "scenario": "03",
+  "model": "local"
+}

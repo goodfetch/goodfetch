@@ -1,0 +1,10 @@
+{
+  "kind": "leader",
+  "lang": "ts",
+  "program": "08-ai-in-crawl-handler.crawlee-stagehand.ts",
+  "given": [],
+  "env": "ld3",
+  "scenario": "08",
+  "model": "haiku",
+  "lib": "Crawlee 3.18.2 with Stagehand 3.7.3 (`crawlee`, `@crawlee/stagehand` 3.18.2, `@browserbasehq/stagehand` 3.7.3), with zod 4"
+}

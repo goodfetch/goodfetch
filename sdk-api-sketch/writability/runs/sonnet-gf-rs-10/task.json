@@ -1,0 +1,11 @@
+{
+  "kind": "gf",
+  "lang": "rs",
+  "program": "s10_offline_crawl_tests.rs",
+  "given": [
+    "s05_two_page_crawl.rs",
+    "s08_ai_in_crawl_handler.rs"
+  ],
+  "scenario": "10",
+  "model": "sonnet"
+}

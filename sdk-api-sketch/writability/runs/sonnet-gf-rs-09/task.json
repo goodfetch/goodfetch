@@ -1,0 +1,8 @@
+{
+  "kind": "gf",
+  "lang": "rs",
+  "program": "s09_ai_in_playwright_program.rs",
+  "given": [],
+  "scenario": "09",
+  "model": "sonnet"
+}

@@ -1,0 +1,11 @@
+{
+  "kind": "gf",
+  "lang": "py",
+  "program": "scenarios/s10_offline_crawl_tests.py",
+  "given": [
+    "scenarios/s05_two_page_crawl.py",
+    "scenarios/s08_ai_in_crawl_handler.py"
+  ],
+  "scenario": "10",
+  "model": "haiku"
+}

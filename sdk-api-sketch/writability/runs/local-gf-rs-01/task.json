@@ -1,0 +1,8 @@
+{
+  "kind": "gf",
+  "lang": "rs",
+  "program": "s01_dependent_form.rs",
+  "given": [],
+  "scenario": "01",
+  "model": "local"
+}

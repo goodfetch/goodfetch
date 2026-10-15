@@ -1,0 +1,8 @@
+{
+  "kind": "gf",
+  "lang": "ts",
+  "program": "02-typed-extract.ts",
+  "given": [],
+  "scenario": "02",
+  "model": "local"
+}

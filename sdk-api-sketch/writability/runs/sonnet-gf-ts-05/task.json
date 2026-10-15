@@ -1,0 +1,8 @@
+{
+  "kind": "gf",
+  "lang": "ts",
+  "program": "05-two-page-crawl.ts",
+  "given": [],
+  "scenario": "05",
+  "model": "sonnet"
+}

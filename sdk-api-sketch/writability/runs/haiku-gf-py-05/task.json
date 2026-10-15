@@ -1,0 +1,8 @@
+{
+  "kind": "gf",
+  "lang": "py",
+  "program": "scenarios/s05_two_page_crawl.py",
+  "given": [],
+  "scenario": "05",
+  "model": "haiku"
+}

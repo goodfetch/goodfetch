@@ -1,0 +1,11 @@
+{
+  "kind": "gf",
+  "lang": "ts",
+  "program": "10-offline-crawl-tests.ts",
+  "given": [
+    "05-two-page-crawl.ts",
+    "08-ai-in-crawl-handler.ts"
+  ],
+  "scenario": "10",
+  "model": "local"
+}

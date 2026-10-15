@@ -1,0 +1,8 @@
+{
+  "kind": "gf",
+  "lang": "rs",
+  "program": "s11_agent_goal.rs",
+  "given": [],
+  "scenario": "11",
+  "model": "haiku"
+}

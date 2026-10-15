@@ -1,0 +1,8 @@
+{
+  "kind": "gf",
+  "lang": "py",
+  "program": "scenarios/s09_ai_in_playwright_program.py",
+  "given": [],
+  "scenario": "09",
+  "model": "local"
+}

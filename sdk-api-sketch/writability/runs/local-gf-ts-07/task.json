@@ -1,0 +1,10 @@
+{
+  "kind": "gf",
+  "lang": "ts",
+  "program": "07-resume-and-retry.ts",
+  "given": [
+    "05-two-page-crawl.ts"
+  ],
+  "scenario": "07",
+  "model": "local"
+}

@@ -1,0 +1,10 @@
+{
+  "kind": "gf",
+  "lang": "py",
+  "program": "scenarios/s07_resume_and_retry.py",
+  "given": [
+    "scenarios/s05_two_page_crawl.py"
+  ],
+  "scenario": "07",
+  "model": "haiku"
+}

@@ -1,0 +1,10 @@
+{
+  "kind": "leader",
+  "lang": "py",
+  "program": "s08_ai_in_crawl_handler_crawlee.py",
+  "given": [],
+  "env": "crawlee",
+  "scenario": "08",
+  "model": "haiku",
+  "lib": "Crawlee for Python 1.11.0 with its PydanticAI and Playwright extras (`crawlee[pydantic-ai,playwright]`)"
+}

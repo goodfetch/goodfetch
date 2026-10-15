@@ -198,6 +198,8 @@ A `cdp_url` the engine alone drives, such as a cloud browser, keeps ADR 0022's g
 
 **Which `cdp_url` addresses are allowed.** As for Plugin endpoints (ADRs 0017 and 0033), a `cdp_url` counts as operator-configured when it is set in Operator policy or in user and project configuration, or is a run value that Operator policy allows; a value from the person's own code or CLI, but not one from a Client acting for a model, may also use loopback, except on an Exposed Daemon. Otherwise it is treated as an address a page can reach, and private ranges are refused.
 
+> Amended by [ADR 0115](0115-a-cdp-url-the-engine-cannot-use-and-a-missing-browser-build-fail-with-one-error-code-per-remedy.md): an address these rules refuse raises `cdp_url_not_allowed` (a `RefusedError`). Opening a Session on a `cdp_url` otherwise fails with `cdp_url_unreachable` (an `UnavailableError`, retryable) when nothing answers, `cdp_url_not_browser` (a `ProgramError`) when what answers is not a browser speaking CDP, and `cdp_url_unauthorized` (a `RefusedError`) on a 401 or 403; each names the address, and none is retried until a timeout.
+
 **Audit.** Every import and every borrow is recorded in the Audit log.
 
 **Third-party cloud browsers** that Goodfetch reaches by URL, without creating them, are Borrowed browsers. A cloud browser that a browser backend Plugin creates (ADR 0033) is released by that Plugin.

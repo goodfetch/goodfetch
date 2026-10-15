@@ -124,8 +124,8 @@ The test rules live in [`TESTING.md`](TESTING.md) (where tests live, how they ar
 
 ### Documentation in code
 
-- **`missing_docs` warns on `goodfetch` and `goodfetch-protocol`.**
-- **Each public function of `goodfetch` and `goodfetch-protocol` documents `# Errors`** (with the Error codes it can return), **`# Cancel safety`** if it is async and **`# Panics`** if it can panic; on `goodfetch` it also has **an example** that runs as a doctest.
+- **`missing_docs` warns on the public crates and `goodfetch-protocol`.** The public crates are `goodfetch` and `goodfetch-collie-client` (ADR 0095).
+- **Each public function of the public crates and `goodfetch-protocol` documents `# Errors`** (with the Error codes it can return), **`# Cancel safety`** if it is async and **`# Panics`** if it can panic; on the public crates it also has **an example** that runs as a doctest.
 - **Internal crates document what a caller outside the module must know**: their `//!` headers, `# Errors` where a caller would otherwise guess, and `# Cancel safety` on every public async function (ADR 0038).
 - **The catalog's description of an operation is its only text source:** MCP tool descriptions, SDK docstrings and reference pages are generated from it.
   _Why:_ what a model reads in a tool description directly affects agent accuracy, and the surfaces then never disagree.

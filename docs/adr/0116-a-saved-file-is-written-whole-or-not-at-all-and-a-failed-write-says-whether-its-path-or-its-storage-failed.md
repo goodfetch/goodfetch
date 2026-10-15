@@ -25,12 +25,13 @@ Decided in [Error code of a failed Export write](https://github.com/goodfetch/go
     - `saveAs(path)` on a `Download` (ADR 0085);
     - `saveAs(path)` on a `Checkpoint` or a `RunTrace` (ADR 0102);
     - the `path` option of `screenshot()` and `pdf()` (ADR 0085);
-    - a Run's Plan file, which the SDK writes back at the `plan` path when a version is promoted (ADR 0091), and its Response recording, which it writes at its path when a recording Run ends (ADR 0105).
+    - a Run's Plan file, which the SDK writes at the `plan` path when a Run promotes a version, and when a later Run naming the file starts with a version a person accepted (ADR 0091), and its Response recording, which it writes at its path when a recording Run ends (ADR 0105).
   - These share one name or one option with one meaning: copy a file to the program's machine. They therefore fail one way (S2, S3).
   - A `screenshot()` or `pdf()` whose file write fails raises, and does not return its bytes.
   - A Plan file or a Response recording is already written atomically (ADRs 0091, 0105), and the file at the path is left as it was when its write fails.
-  - **At the Run's end.** Both are written by the call that ends the Run (`finish()`, `stop()`, `close()`, Rust's `serve`; ADR 0102). A failed write makes that call raise its code once the Run has ended (G1).
-    - The Run's ending is unchanged, and its report keeps a `RunWarning` naming the code and the path. The program reads that report with `openRun(id).report()` (ADR 0102).
+  - **At a Run's start.** A version a person accepted is written by the call that starts the next Run naming the file (`collie.start`, `foxhound.startCrawl`; ADRs 0091, 0102), before replaying. A failed write makes that call raise its code, and the Run does no work; the accepted version stays accepted with its Run in the Run index, so the next start writes it again (G1).
+  - **At the Run's end.** A promoted version and a recording are written by the call that ends the Run (`finish()`, `stop()`, `close()`, Rust's `serve`; ADR 0102). A failed write makes that call raise its code once the Run has ended (G1).
+    - The Run's ending is unchanged, and its report keeps a `RunWarning` whose code is the Error code and whose message names the path. The program reads that report with `openRun(id).report()` (ADR 0102).
     - New Plan versions whose write failed stay pending with the Run for a person, as versions not promoted do (ADR 0102).
     - When the Run itself ended `failed`, that call raises the Run's own error, as ADR 0102 says, and the write's failure is only the warning.
     - What the Run keeps so a recording's write can be made again is area 11's spec.
@@ -115,7 +116,7 @@ Failure point 7 becomes **typed** in all three languages, with no change to the 
 - **Amends ADR 0103.** `run.export` and `Export.saveAs` raise `path_not_writable` or `file_write_failed`, and a saved Export is written whole or not at all. Notes sit under its Exports section and its Error codes.
 - **Amends ADR 0085.** `Download.saveAs` and the `path` option of `screenshot()` and `pdf()` follow the same rule and codes, beside `download_failed`. Notes sit under its Files section and its Error codes table.
 - **Amends ADR 0102.** `run.checkpoint()`, `run.trace()`'s copy, and their `saveAs` follow the same rule and codes. Notes sit under its Checkpoints and The Run trace sections.
-- **Amends ADRs 0091 and 0105.** A failed write of the Plan file or the Response recording raises `path_not_writable` or `file_write_failed` from the call during which it happens, leaving the file as it was. Notes sit under ADR 0091's promotion bullet and ADR 0105's `mode: "record"` bullet.
+- **Amends ADRs 0091 and 0105.** A failed write of the Plan file or the Response recording raises `path_not_writable` or `file_write_failed` from the call during which it happens (a Run's start for an accepted Plan version, its end otherwise), leaving the file as it was. Notes sit under ADR 0091's promotion bullet and ADR 0105's `mode: "record"` bullet.
 - **Amends ADR 0102 again.** The call that ends a Run raises a failed write of its Plan file or Response recording once the Run has ended, unless the Run itself failed; the report keeps a `RunWarning`, and Plan versions not written stay pending. A note sits under its Ending a Run's promotion bullet.
 - **Adds to ADR 0079.** Reasons of a failed file write that an SDK does not know are kept as strings, as its other open values are. A note sits under its newer engine's values.
 - **Error codes.**

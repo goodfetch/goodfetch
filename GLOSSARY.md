@@ -38,7 +38,7 @@ _Avoid_: frontend, binding, consumer
 
 **Connection**:
 A Client's open link to one engine, through which a program reaches its Runs, and the scope of the settings and Limits set where it opens. Closing it never stops a Daemon.
-_Avoid_: client (for the connection), engine (for the connection), session
+_Avoid_: client (for the Connection), engine (for the Connection), session (a Session is a browsing identity)
 
 **SDK API**:
 What a developer writes and calls in a Goodfetch SDK: its objects, methods, types and errors, generated in part from the Operation catalog.

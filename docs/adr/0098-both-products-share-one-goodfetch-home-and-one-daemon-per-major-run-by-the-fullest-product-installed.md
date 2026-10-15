@@ -70,7 +70,7 @@ Decided in [Collie and Foxhound installed on one machine](https://github.com/goo
 ### The Browser cache's clean-up
 
 - **A build is deleted only when all three hold:**
-  - no executable that counts as installed pins it;
+  - no executable that counts as installed pins it, and no installed Plugin declares it (ADR 0033);
   - it has not been used or installed for `browser_cache.max_unused_age`;
   - no process holds it. A launched browser holds a shared lock on its build. Deletion takes an exclusive lock without waiting, renames the build, then deletes it, as Bazel deletes install bases, and a deletion cut off midway finishes on the next run.
 - **An engine never deletes what it cannot read,** such as an entry in a newer format or of a kind it does not know, so an older engine never deletes a newer one's downloads. uv's `cache prune`, which deletes every bucket the running uv does not know, is the failure avoided.

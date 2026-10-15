@@ -153,7 +153,7 @@ The folder holding one user's Goodfetch data, caches and configuration on a mach
 _Avoid_: data dir, app folder, install folder
 
 **Browser cache**:
-The per-user folder, shared by both Products and every major, of pinned browser builds, the executable copies a Daemon runs from and the engine's other pinned downloads, each checked by digest. Plugin runtimes have their own runtime cache beside it.
+The per-user folder, shared by both Products and every major, of pinned browser builds, among them those Plugins declare, the executable copies a Daemon runs from and the engine's other pinned downloads, each checked by digest. Plugin runtimes have their own runtime cache beside it.
 _Avoid_: browser registry, browsers folder
 
 **Run index**:

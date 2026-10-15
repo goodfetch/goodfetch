@@ -40,13 +40,15 @@ Decided in [Collie and Foxhound installed on one machine](https://github.com/goo
 - **Whatever starts the Daemon starts the pick:** a Client, `daemon start`, the per-user service, or an Attached engine that needs a Console link (ADR 0031). It runs from the versioned copy ADR 0024 already runs the Daemon from, so a Collie Client can start Foxhound's Daemon.
 - **A Daemon that is not its major's pick hands over to the pick** once it hosts no live run and no Client other than a Console, which reconnects (ADR 0066). The pick changes only when an install, an upgrade, a removal or a raised lowest minor does. A Daemon that finds a shared store's lowest minor raised past itself takes no new run and hands over once its live runs end; the next Daemon rebuilds their Run index rows from their own state (ADR 0031).
 - **One service per major** (ADR 0030): `daemon install`, from either executable, registers a service that starts the pick.
-- **A Client the Daemon refuses**, by Product (`not_in_product`, ADR 0095) or by protocol version (ADR 0024), while the Daemon cannot hand over (it is busy, or it is already the pick). A Client the Daemon can hand over for waits for the pick and connects to it:
+- **A Client the Daemon refuses**, by Product (`not_in_product`, ADR 0095) or by protocol version (ADR 0024), while the Daemon cannot hand over (it is busy, or it is already the pick):
   - with `engine: auto`, it runs the engine it would run with no Daemon, an Attached engine or, in Rust, the linked one, and logs a warning naming the cause and the fix (ADR 0077's G6). The run still appears in the Run index, and the Daemon forwards live actions to it (ADR 0031);
   - with `engine: daemon`, or the CLI's `--daemon`, it fails at connect with the refusal, whose `fix` adds to ADR 0095's:
     - the `daemon restart` command of its own Product's executable at its version: the one it would run attached, given by its path, such as `node_modules/.bin/goodfetch-foxhound daemon restart`, or, for a Rust Client, which links the engine and runs none, that executable's install command first. That command records its executable as it runs, so one installed but never run is counted, and restarts the Daemon on the pick, or says which version the shared stores need;
     - when that executable would still not be the pick, as for a Collie Client while an older Foxhound that can be the pick counts as installed, Foxhound at the Client's version or newer, to install and run.
 
   Every release publishes both Products at one version (ADR 0090), so every refusal can end: once the Client's own executable is the pick, or else once a Foxhound at the Client's version or newer, which the shared stores accept, has run and so become the pick.
+
+  A refused Client the Daemon can hand over for, because the Daemon is idle and not the pick, waits for the pick and connects to it.
 - **Unchanged:** an Exposed Daemon started by `daemon run` (ADR 0049) runs the Product its operator chose and has no pick, and every Group member of a Daemon group runs one Product (ADR 0095).
 
 ### One Console per user and major

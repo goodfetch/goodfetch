@@ -182,7 +182,7 @@ Under ADR 0079's rule, the call raises when it cannot keep its promise, and AI w
 | Another exception from the Success check function | `success_check_threw`, a `ProgramError` |
 | A placeholder neither filled nor bound, a variable no placeholder uses, or a name that is both | `variables_mismatch` (ADR 0091) |
 
-> Amended by [ADR 0114](0114-a-program-and-collie-take-turns-on-a-page-other-code-drives-and-an-ai-verb-fails-when-a-navigation-it-did-not-start-replaces-its-document.md): on a page other code also drives, a navigation to a new document that the task did not start is not raised: it is a step's outcome given back to the model, naming both addresses, and a task replayed from the Plan meets it as Drift.
+> Amended by [ADR 0114](0114-a-program-and-collie-take-turns-on-a-page-other-code-drives-and-an-ai-verb-fails-when-a-navigation-it-did-not-start-replaces-its-document.md): on a page other code also drives, a navigation to a new document that the task did not start is not raised: it is a step's outcome given back to the model, naming both addresses, and a task replayed from the Plan stops replaying there for the live loop, as on Drift, or under `plan.frozen` fails with `page_navigated_during_call`.
 
 **What a raised error carries** (G1, G6). An error raised after steps were taken carries the task's `usage` (ADR 0101). It also carries `agentTask`: the steps taken, the partial answer as JSON, valid and Grounded as `partial` is, and the Agent tools whose Effect the task left uncertain. ADR 0079 asks that data gathered before a failure travel on the error. The steps are also in the Run trace under the error's `callId`.
 

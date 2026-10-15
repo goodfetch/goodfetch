@@ -1,15 +1,21 @@
-//! Snippet for Concurrency model per language (#468).
+//! Snippet for Concurrency model per language (#468), and Send bounds on a Rust crawl's handlers
+//! (#531, ADR 0112).
 
+use std::cell::RefCell;
 use std::collections::HashSet;
 use std::future::Future;
 use std::pin::pin;
+use std::rc::Rc;
 use std::time::Duration;
 
 use futures_util::TryStreamExt;
 use futures_util::future::{Either, select};
 use goodfetch_foxhound::schemars::{self, JsonSchema};
-use goodfetch_foxhound::{ConnectOptions, CrawlRun, Dataset, Error, Page, UrlMatcher, blocking, events};
-use serde::Deserialize;
+use goodfetch_foxhound::{
+    ConnectOptions, Crawl, CrawlContext, CrawlRun, CrawlRunReport, Dataset, Error, Foxhound, Page, Seed, UrlMatcher, blocking,
+    events,
+};
+use serde::{Deserialize, Serialize};
 
 /// Handles are cheap clones and a call owns what it needs, so its future can be spawned on any
 /// executor (Q4).
@@ -57,7 +63,7 @@ async fn browse(page: &Page) -> Result<String, Error> {
 }
 
 /// A book's title, as a crawl's Dataset holds it.
-#[derive(Debug, Deserialize, JsonSchema)]
+#[derive(Debug, Serialize, Deserialize, JsonSchema)]
 struct Title {
     title: String,
 }
@@ -76,6 +82,37 @@ async fn titles(run: &CrawlRun, books: &Dataset<Title>, limit: usize) -> Result<
     Ok(titles)
 }
 
+/// A crawl served on a task of its own (ADR 0112). Each handler is cloned for each request, so an
+/// `async move` closure owns clones of the handles it uses and the `Crawl` is `'static`; handlers
+/// and their futures are `Send`, so `serve`'s future is too, and Tokio's multi-threaded runtime
+/// spawns it, as axum runs it in scenario 12.
+async fn spawned(foxhound: &Foxhound) -> Result<CrawlRunReport, Box<dyn std::error::Error + Send + Sync>> {
+    let mut crawl = Crawl::new();
+    let titles = crawl.dataset::<Title>("titles")?;
+    let book = crawl.label::<()>("book")?;
+    crawl.handle(&book, async move |ctx: CrawlContext<()>| {
+        let title = ctx.page().locator("h1").text_content().await?;
+        ctx.push(&titles, &Title { title }).await
+    })?;
+    let seed = Seed::new("https://books.toscrape.com/catalogue/sharp-objects_997/index.html", &book, ());
+    let run = foxhound.start_crawl(&crawl, [seed]).await?;
+    let serving = tokio::spawn(async move { crawl.serve(&run).await });
+    Ok(serving.await??)
+}
+
+/// State that is not `Send` stays in the program, which answers the crawl requests itself: the
+/// stream beneath `serve` takes no closure and asks no bound (ADR 0112, G8).
+async fn answered_here(run: &CrawlRun) -> Result<usize, Error> {
+    let seen = Rc::new(RefCell::new(Vec::new()));
+    let mut calls = run.crawl_requests();
+    while let Some(call) = calls.next().await {
+        let call = call?;
+        seen.borrow_mut().push(call.context().request().url().to_owned());
+        call.finish(Ok(())).await?;
+    }
+    Ok(seen.borrow().len())
+}
+
 /// The same API without `async`, for programs that have no runtime (Q7).
 fn script() -> Result<usize, Error> {
     let foxhound = blocking::Foxhound::connect(ConnectOptions::default())?;
@@ -92,5 +129,5 @@ fn script() -> Result<usize, Error> {
 }
 
 fn main() {
-    let _ = (spawnable, browse, titles, script);
+    let _ = (spawnable, browse, titles, spawned, answered_here, script);
 }

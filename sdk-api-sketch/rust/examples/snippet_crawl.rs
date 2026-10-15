@@ -36,7 +36,8 @@ struct BookPayload {
 }
 
 /// Scenario 05: three kinds of page. Handlers borrow `books` and the Labels: they run inside the
-/// future of `serve`, so they need neither `Send` nor `'static` (ADR 0081).
+/// future of `serve`, so they need not be `'static` (ADR 0081); they are `Send`, as their futures
+/// are (ADR 0112).
 async fn scenario_05() -> Result<(), Error> {
     let mut crawl = Crawl::new();
     let books = crawl.dataset(DatasetDeclaration::<Book>::new("books").key(&["url"]))?;

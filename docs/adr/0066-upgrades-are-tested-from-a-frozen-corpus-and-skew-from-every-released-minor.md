@@ -122,7 +122,7 @@ A test fabricates a version by writing the header, or by sending its own `hello`
 - **Older engines and newer files:**
   - each older minor of the major, and the last minor of each supported earlier major, opens the Usage ledger, the known-certificates store and the Politeness file the current engine wrote, enforces what it reads and refuses flagged Limits it cannot;
   - each older minor refuses a current Checkpoint, Plan, settings file and Schedule file with the upgrade message.
-  > Amended by [ADR 0098](0098-both-products-share-one-goodfetch-home-and-one-daemon-per-major-run-by-the-fullest-product-installed.md): each older minor of the major also opens the Run index, the Schedule store, the Saved identity store, user configuration and the Operator policy the current engine wrote, and refuses them only when their lowest minor is newer than itself; the list of installed executables opens as the Usage ledger does.
+  > Amended by [ADR 0098](0098-both-products-share-one-goodfetch-home-and-one-daemon-per-major-run-by-the-fullest-product-installed.md): each older minor of the major also opens the Run index, the Schedule store, the Saved identity store, user configuration and the Operator policy the current engine wrote, and refuses them only when their lowest minor is newer than itself; the list of installed executables opens as the Usage ledger does. Of settings files, only a project's is still refused.
 - **Two majors on one machine.** The previous major's last release and the current build run on one machine:
   - their Daemons never restart each other;
   - only the active major fires Schedules;

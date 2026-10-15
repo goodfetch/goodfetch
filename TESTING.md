@@ -632,19 +632,6 @@ Decided in [ADR 0066](docs/adr/0066-upgrades-are-tested-from-a-frozen-corpus-and
 - **Never skip for a missing artifact.** A missing or mismatched artifact fails the job. An empty version list runs the current build against itself.
   _Why:_ a test that passes because nothing ran hides decay, as SQLite's and Cargo's skipped old-binary tests do.
 
-### Two Products on one machine
-
-Decided in [ADR 0098](docs/adr/0098-both-products-share-one-goodfetch-home-and-one-daemon-per-major-run-by-the-fullest-product-installed.md). Skew between the two Products' released versions is [Release, signing and testing of two products](https://github.com/goodfetch/automan/issues/459)'s.
-
-- **Run both executables of one commit in one Goodfetch home** (Pre-merge suite):
-  - a Foxhound Client that meets a Collie Daemon gets a Foxhound Daemon once the Collie one hosts no live run;
-  - a Collie Client never moves the Daemon to Collie while a Foxhound counts as installed, so Clients of the two Products alternating restart it at most once;
-  - a Client the Daemon refuses runs attached with a warning under `engine: auto`, and fails at connect with `not_in_product` under `engine: daemon`;
-  - a Collie run and a Foxhound run through one proxy set to `politeness.proxy.concurrency: 1` never have two requests in flight through it, and a 429 a Collie page meets leaves the Politeness file's domain limits unchanged.
-- **"Installed" and the clean-up run on the injected Clock** (Quick suite): an entry whose executable is gone still counts within `browser_cache.max_unused_age`; a build pinned by a counting entry, launched within that age, or held by a running browser is kept; an entry the engine cannot read is kept.
-- **Kill the clean-up after its rename** with the real-process crash tests: the next run finishes the deletion, and no browser ever launches from a half-deleted build.
-- **A Collie engine leaves Foxhound's entries untouched:** rewriting user configuration keeps Foxhound's keys byte for byte; resuming a run that needs Foxhound answers `not_in_product` and leaves the run file's hash unchanged; a Collie Daemon records each occurrence of a Schedule that needs Foxhound as missed with `not_in_product`.
-
 ### Suites
 
 | Check | Suite |
@@ -657,6 +644,19 @@ Decided in [ADR 0098](docs/adr/0098-both-products-share-one-goodfetch-home-and-o
 - **Group each older minor's skew checks into as few jobs as fit the job budget.** One job per check exceeds the 20 concurrent jobs after two minors.
 - **Never drop a minor, and never move a skew check out of the merge queue.** A Release suite budget breach is fixed with fewer or faster jobs per minor, or with more concurrency on standard runners; larger runners are declined while there is no revenue (ADR 0076).
   _Why:_ the Release suite has no later suite to move to, and an untested minor decays.
+
+### Two Products on one machine
+
+Decided in [ADR 0098](docs/adr/0098-both-products-share-one-goodfetch-home-and-one-daemon-per-major-run-by-the-fullest-product-installed.md). Skew between the two Products' released versions is [Release, signing and testing of two products](https://github.com/goodfetch/automan/issues/459)'s.
+
+- **Run both executables of one commit in one Goodfetch home** (Pre-merge suite):
+  - a Foxhound Client that meets a Collie Daemon gets a Foxhound Daemon once the Collie one hosts no live run;
+  - a Collie Client never moves the Daemon to Collie while a Foxhound counts as installed, so Clients of the two Products alternating restart it at most once;
+  - a Client the Daemon refuses runs attached with a warning under `engine: auto`, and fails at connect with `not_in_product` under `engine: daemon`;
+  - a Collie run and a Foxhound run through one proxy set to `politeness.proxy.concurrency: 1` never have two requests in flight through it, and a 429 a Collie page meets leaves the Politeness file's domain limits unchanged.
+- **"Installed" and the clean-up run on the test `Clock`** (Quick suite): an entry whose executable is gone still counts within `browser_cache.max_unused_age`; a build pinned by a counting entry, launched within that age, or held by a running browser is kept; an entry the engine cannot read is kept; a program's entry that links a newer Foxhound through its Rust crate, and an executable's entry gone from its path with no versioned copy, keep their builds but are never the pick.
+- **Kill the clean-up after its rename** with the real-process crash tests: the next run finishes the deletion, and no browser ever launches from a half-deleted build.
+- **A Collie engine leaves Foxhound's entries untouched:** rewriting user configuration keeps Foxhound's keys byte for byte; resuming a run that needs Foxhound answers `not_in_product` and leaves the run file's hash unchanged; a Collie Daemon records each occurrence of a Schedule that needs Foxhound as missed with `not_in_product`.
 
 ## SDK and CLI tests
 

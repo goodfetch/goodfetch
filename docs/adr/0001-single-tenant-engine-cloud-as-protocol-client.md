@@ -2,6 +2,8 @@
 
 Goodfetch Cloud must power an actor platform, a crawl and extraction API, and hosted browsers, yet the engine has no notion of tenants or prices: in Goodfetch Cloud each run gets its own engine (a local Daemon hosts many runs, ADR 0024), and the cloud isolates runs (container or VM) and turns usage into prices, as Apify, Spider Cloud and Browserbase do with their open-source libraries. The cloud drives the engine through the same JSON-RPC protocol as the SDKs, where usage, limits and lifecycle signals (checkpoint, abort, migrate, resume) are ordinary messages, so one conformance suite covers both and anything the cloud does can be reproduced locally. Decided in [Cloud readiness: which cloud businesses the engine must serve](https://github.com/Jbmanllr/automan/issues/69).
 
+> Amended by [ADR 0096](0096-the-browser-host-runs-from-either-products-executable-and-goodfetch-cloud-runs-each-run-on-the-product-it-needs.md): each run gets the engine of the smallest Product that serves it, Foxhound's when a Foxhound Client starts it or what starts it names something only Foxhound carries, Collie's otherwise; every engine and Browser host Goodfetch Cloud runs is a published Product executable, unmodified, with Private components added only as process Plugins.
+
 ## Considered Options
 
 - **Multi-tenant engine** (one process serves many tenants): rejected. One crash or hang in it would stop every tenant's runs, and the lab showed that a pool reused without reset leaks one tenant's cookie to the next 30 times out of 30.

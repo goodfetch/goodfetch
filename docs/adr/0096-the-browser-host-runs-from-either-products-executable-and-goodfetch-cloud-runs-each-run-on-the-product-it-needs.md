@@ -1,0 +1,89 @@
+# The Browser host runs from either Product's executable and ships in Collie's image, and Goodfetch Cloud runs each run on the published executable of the Product it needs
+
+ADR 0084 made Collie and Foxhound two Products, Foxhound's executable containing Collie's code, and ADR 0088 found that everything a Browser host does (ADR 0022) is Collie's work. This decides which executable runs where Goodfetch runs away from the user's machine. A Browser host is the `browser-host` command of Collie's executable, which Foxhound's carries too; Goodfetch ships it in Collie's image, signed and versioned as Collie is, and a Browser host and the engine that drives it settle on the lower of their two minors, since a hosted Browser host is often newer than the engines that drive it, and a person's own Browser host older than the engine it connects to. Goodfetch Cloud runs only the published executables, unmodified: each run on Collie's engine unless it needs Foxhound, and every Browser host on Collie's image. It serves Foxhound's Console build, which shows runs of both Products, and the Stub gateway does the same.
+
+The [research for this decision](https://github.com/goodfetch/automan/blob/research/hosted-executables/rnd/research/2026-10-15-hosted-executables.md) found, on 2026-10-15:
+- **The process beside a browser is a role of the product's own artifact.** Selenium Grid 4.51 starts every role, browser Nodes included, from one `selenium-server` jar, and its per-browser images package that jar. Playwright's `run-server` is a command of the client's own package, run in its official image. Lightpanda 1.0's CDP server is the `serve` command of its one binary, and Browserless 2.57 builds one server into an image per browser.
+- **Hosted platforms give each run the image it needs.** An Apify run starts its Actor's build, a Docker image built on a base image for its language and browser stack, not one image for every run.
+- **A component that connects out runs behind its service, and services absorb that.** Kubernetes lets a kubelet be up to three minors older than its API server, never newer. Docker's client negotiates "the highest version of the API supported by both", and Browserless carries five Playwright server minors to serve older clients. Playwright alone refuses any major.minor mismatch at connect, with an HTTP 428.
+
+Decided in [Which executables the Browser host and Goodfetch Cloud's engines run](https://github.com/goodfetch/automan/issues/498), on the map [Goodfetch products: Collie and Foxhound as separately installable products](https://github.com/goodfetch/automan/issues/447), by the agent on the owner's delegation ([rounds 1 to 3](https://github.com/goodfetch/automan/issues/498#issuecomment-6181200921), [grilling record](https://github.com/goodfetch/automan/issues/498#issuecomment-6181204948)).
+
+## Decision
+
+### The Browser host is a command of both executables
+
+- **`goodfetch-collie browser-host` and `goodfetch-foxhound browser-host`** (ADR 0090's names) are one command: Foxhound's composition starts from Collie's (ADR 0087), and a command both executables carry keeps one name, its flags, its output and its exit codes (ADR 0090).
+- **It listens for engines** (ADR 0022: TLS and a token when reached remotely, ADR 0017) **or connects out to one** (a person's own browser, ADR 0056). Its flags are the Site access area's spec's.
+- **It serves only the Browser host's operations.** No Console, MCP server, HTTP listener, Run index or Daemon listens in that process, so what the executable links beyond the Browser host's work (run state, model calls, V8) is not reachable through it.
+- **It stays in the public Products.** ADR 0022 left whether it leaves the public framework to ADR 0018's rule: publishing it creates no legal exposure, and the one Private component that works beside a browser, the Challenge solver, plugs into it as a process Plugin (ADRs 0033 and 0035).
+- **A person who lends their own browser** (ADR 0056) runs the command of whichever Product they installed, from any channel. Both SDK packages carry their Product's executable (ADR 0090), so a program's own install already has it.
+
+### Shipped in Collie's image
+
+- **Goodfetch ships and documents the Browser host from Collie's image,** `ghcr.io/goodfetch/collie` (ADR 0090), in its default and `-full` tags, which carry the browsers (ADR 0049). `-slim` has no browser to host, and `-node` and `-python` add only a language runtime a Browser host does not use.
+- **Every Browser host Goodfetch deploys runs it:** the optional Browser host `Deployment` of each Product's Helm chart, at the chart's Product version, and Goodfetch Cloud's hosted browsers.
+- **Why Collie's.** It is the smaller image that carries everything a Browser host does; Foxhound's adds DuckDB, the in-binary Sinks and `wreq`, about 60 MB raw that a Browser host never uses (ADR 0088). One image for the role also gives one artifact to skew-test, attest and document.
+- **Signed, versioned and measured as Collie is.** ADR 0039's Platform signature on each Product's executable already covers a Browser host on a person's Mac or Windows machine; the image carries ADR 0049's SBOM and attestations; its version is the Product version (ADR 0090). It has no Size budget of its own: Collie's ceilings and the +3 MB check on each image tag apply (ADR 0087).
+
+### A Browser host and its engine settle on the lower minor
+
+- **A Browser host and the engine that drives it accept each other within one major, whatever their minors, and settle on the lower of the two,** as Group members do over the peer protocol (ADR 0055). Each side speaks each older minor of its major.
+- **Both orders happen.** Hosted Browser hosts are upgraded ahead of their users' engines (Goodfetch Cloud, an operator's Helm release). A person's own Browser host (ADR 0056) runs behind the shared Daemon or Goodfetch Cloud it connects to. Under the Daemon's rule (ADR 0024), which serves only Clients of the same or an older minor, an older Browser host would refuse a newer engine, and each Goodfetch Cloud minor would stop every person's Browser host until they upgraded.
+- **A different major is refused** in the reply to `hello`, before any other message (ADR 0066).
+- **What an older Browser host lacks is refused, not guessed.** Each operation and field of the protocol records the minor that added it, in the Rust types that generate the catalog (ADR 0038). An operation or setting a Session needs beyond the settled minor fails with `browser_host_outdated`, an `UnavailableError` (fix the setup, ADR 0079), not retryable, whose details name the Browser host's version and the version the Session needs, and whose `fix` names the upgrade.
+- **Either Product's engine drives a Browser host from either executable.** The Browser host's operations are Collie's, which both engines contain. What `hello` announces besides the version is [Protocol, Operation catalog and SDKs across two products](https://github.com/goodfetch/automan/issues/458)'s.
+
+### Goodfetch Cloud runs the published executables
+
+- **Every engine and Browser host Goodfetch Cloud runs is a published Product executable, unmodified,** from the Products' images or from images built on them that add only Goodfetch Cloud's configuration and Private components as process Plugins (ADR 0035). Goodfetch Cloud links no code into an engine. So any Goodfetch Cloud run can be reproduced on the same published Product (ADR 0001), and the public conformance suites cover the engines it runs.
+- **Each run gets the engine of the smallest Product that serves it,** ADR 0001's own engine per run:
+  - **Foxhound's** when a Foxhound Client starts the run, since its program may call Foxhound's operations at any point, or when what starts it names anything only Foxhound carries: its operation, a Recipe whose manifest names Foxhound, a setting key, a Plugin kind or a Hook stage, from the list of Foxhound's names that ADR 0087 has `xtask codegen` write;
+  - **Collie's** otherwise.
+
+  A Collie program thus meets in Goodfetch Cloud the engine, the refusals and the `config explain` it meets on Collie locally, and a Foxhound program those of Foxhound, as each SDK runs its own Product's engine (ADR 0090).
+- **A Recipe's manifest names the Product it runs on.** `init` writes the Product whose executable runs it. Collie refuses a Recipe that names Foxhound with `not_in_product` (ADR 0087) before the run starts; Foxhound runs either.
+- **Goodfetch Cloud chooses each run's Product version, image tag and placement,** within ADR 0024's rule for Clients.
+- **Goodfetch Cloud serves Foxhound's Console build,** the one that can show runs of both Products. It shows a run's Foxhound screens (Datasets, Sinks, crawl progress) only for a run on Foxhound's engine. Which screens a tenant's plan shows, and Goodfetch Cloud's own multi-tenant screens (ADR 0018), are the Cloud map's.
+
+### The Stub gateway does what Goodfetch Cloud's gateway does
+
+- **It serves Foxhound's Console build** with the production headers, **and starts each run's Attached engine from the executable of the Product that run gets** under the rule above, both of the same commit.
+- **It takes both executables by path,** as the conformance harness takes its target, so it depends on no Foxhound crate and sits outside `crates/foxhound/` (ADR 0087).
+- **The Console conformance suite's targets** are each Product's Daemon, serving its own Console build, the Stub gateway, and Goodfetch Cloud's gateway from the private repository. Which suites run which targets is [Release, signing and testing of two products](https://github.com/goodfetch/automan/issues/459)'s.
+- **The gateway contract** that the Cloud-readiness area states (ADR 0068) adds the rule that picks each run's Product.
+
+## Considered Options
+
+- **A Browser host executable of its own** (`goodfetch-browser-host`), a composition of Collie's page crates without run state, model calls, V8 or the Console: rejected.
+  - It is a third executable per target to build, sign, notarize, measure, version, skew-test and ship on every channel, and a person lending their browser (ADR 0056) would install it beside a Product.
+  - When Codex moved V8 into a companion executable, users reported a missing copy, an unnotarized one, stale paths and version skew within three months ([multi-product builds](https://github.com/goodfetch/automan/blob/research/multi-product-builds/rnd/research/2026-10-14-multi-product-builds.md) §1).
+  - It would save at most about 25 MB compressed (Collie's file is 30–38 MB, ADR 0087) in an image that carries two Chromium builds (ADR 0049); Playwright's comparable image is 940.6 MiB compressed ([browser-automation products](https://github.com/goodfetch/automan/blob/research/browser-automation-products/rnd/research/2026-10-14-browser-automation-products.md) §3). What an attacker can reach is set by what the command serves, not by what the file links.
+- **The command in Collie's executable only:** rejected. Foxhound contains everything Collie does (ADRs 0084 and 0087), and a Foxhound user would install Collie to lend a browser.
+- **Foxhound's image for Browser hosts, or both images documented:** rejected. The larger image adds nothing a Browser host uses, and two artifacts for one role double the skew rows and the docs.
+- **A private or Cloud-only Browser host:** rejected. ADR 0018 keeps a capability public unless publishing it creates legal exposure, and CL-05 of ADR 0037's matrix promises a self-hostable Browser host.
+- **The Daemon's rule for the Browser host** (a Browser host serves engines of the same or an older minor), ADR 0066's tested direction alone: rejected. It breaks a person's own Browser host at every upgrade of the engine it connects to, the case Kubernetes allows for the kubelet.
+- **Exact version match,** as Playwright's `connect` requires: rejected. Hosted Browser hosts and every user's engine would have to upgrade in lockstep.
+- **A Browser host that updates itself, with a deadline after which it is refused,** as GitHub stops queuing jobs to a self-hosted runner 30 days behind its latest release: rejected. ADR 0030 rejected online update checks and ADR 0043 lets nothing leave the machine unless configured, and the lower-minor rule already covers the whole major that ADR 0066 tests.
+- **Several Browser host versions in one image,** as Browserless bundles five Playwright server minors: not needed. A Browser host that speaks each older minor of its major does the same in one executable.
+- **Foxhound's engine for every Goodfetch Cloud run:** rejected. It saves routing and keeps one engine image warm, but a Collie program would run on a Product its user never installed: Foxhound in its `hello` and the Run index, and settings and operations accepted that Collie refuses with `not_in_product`, so a run that works in Goodfetch Cloud could fail on the user's own Collie. The routing it saves is a lookup in a list every engine already carries (ADR 0087), and Collie's image already runs in Goodfetch Cloud for its Browser hosts. Apify, the one hosted platform the research found documented, likewise runs each Actor's own image, not one image for every run.
+- **The Client's Product alone:** rejected. A run a Schedule starts has no Client, and a Recipe published to Goodfetch Cloud must run on the Product it needs, whoever starts it.
+- **A Goodfetch Cloud build of the engine,** with private crates linked in: rejected. Goodfetch Cloud's behaviour could no longer be reproduced locally nor proved by the public suites (ADR 0001), and ADR 0018 lets a capability leave the public Products only as a Private component, which ships as a process Plugin (ADR 0035).
+- **Collie's Console build in Goodfetch Cloud, or one build per tenant by Product:** rejected. Collie's build cannot show a Foxhound run, and choosing per tenant is packaging, the Cloud map's.
+- **A Stub gateway per Product:** rejected. It would test a gateway Goodfetch Cloud does not run, and leave untested a Foxhound Console showing runs on Collie's engine.
+
+## Consequences
+
+- **Amends ADR 0001.** Each run gets the engine of the smallest Product that serves it, a published executable run unmodified. A note sits under its opening.
+- **Amends ADR 0022.** The Browser host is the `browser-host` command of either Product's executable, shipped in Collie's image and kept in the public Products, and it settles on the lower minor with its engine. Notes sit under its opening and under its item on the handshake and the public framework.
+- **Amends ADR 0024.** The Browser host's handshake settles on the lower minor instead of following the Daemon's rule. A note sits under its consequence on the protocol.
+- **Amends ADR 0030.** Between an engine and a Browser host, the JSON-RPC protocol settles on the lower minor, as the peer protocol does. A note sits under the protocol in its contract list.
+- **Amends ADR 0049.** The Browser host runs from Collie's image, in the tags that carry a browser, and each Product's Helm chart runs Collie's image for its Browser host `Deployment`. Notes sit under both items.
+- **Amends ADR 0066.** The skew matrix runs the Browser host in both directions: older engines against the current Browser host, and the current engine against older Browser hosts. A note sits under the Browser host's row.
+- **Amends ADR 0068.** The Stub gateway serves Foxhound's Console build and starts each run's engine from its Product's executable, taken by path; the conformance targets are each Product's Daemon. Notes sit under the targets and the Stub gateway.
+- **Error codes.** `browser_host_outdated` joins `goodfetch-protocol` in the `unavailable` group, not retryable.
+- **The Recipe manifest** (ADR 0030) gains the Product its Recipe runs on. Nothing is published, so its version does not change (ADR 0066).
+- **Glossary.** *Browser host* names the process of either Product, no longer a Goodfetch process (ADR 0084).
+- **`TESTING.md`.** The skew line runs the Browser host in both directions.
+- **ADR 0037.** Matrix row CL-05 cites this ADR. Areas 5 (Site access: the `browser-host` command, its version rule and `browser_host_outdated`), 12 (Console: the Stub gateway, and Foxhound's Console showing Collie's runs), 13 (Self-hosted deployment and operations: the image and the Helm charts) and 14 (Cloud-readiness contracts: the rule that picks each run's Product) list it; area 3 (Engine runtime) builds the Recipe manifest's Product and lists it too.
+- **Left to other tickets.** Which image tags each Product publishes and which suites run which skew and conformance targets are [Release, signing and testing of two products](https://github.com/goodfetch/automan/issues/459)'s; what `hello` announces, and whether a Client of one Product reaches the other's engine, [Protocol, Operation catalog and SDKs across two products](https://github.com/goodfetch/automan/issues/458)'s; how the docs present the Browser host and Goodfetch Cloud, [Docs site and positioning of two Products](https://github.com/goodfetch/automan/issues/499)'s. [Apply the product-line decisions to the affected specs and tickets](https://github.com/goodfetch/automan/issues/460) carries this into the specs and tickets.

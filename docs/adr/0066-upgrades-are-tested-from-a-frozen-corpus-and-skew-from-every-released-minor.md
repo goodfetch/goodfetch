@@ -95,6 +95,7 @@ A test fabricates a version by writing the header, or by sending its own `hello`
   - **Clients:** the TypeScript SDK, the Python SDK, the Rust crate's client, the CLI and the MCP server, against the current Daemon, on Linux with one runtime each. The SDKs also run over stdio, with `GOODFETCH_ENGINE_PATH` pointing at the current binary, the hotfix path of ADR 0030 (see the amendment to ADR 0024 below).
   - **The Console:** a Console page served by an older Daemon keeps working after the current Daemon replaces it on the same Goodfetch home.
   - **The Browser host:** older engines against the current Browser host.
+    > Amended by [ADR 0096](0096-the-browser-host-runs-from-either-products-executable-and-goodfetch-cloud-runs-each-run-on-the-product-it-needs.md): the Browser host runs in both directions: older engines against the current Browser host, and the current engine against older Browser hosts, which settle on the lower minor.
   - **Plugins:** older first-party Plugins, as OCI artifacts by digest, through the plugin conformance suite against the current engine.
 
   An SDK and the Attached engine it ships with never skew (ADR 0024); only `GOODFETCH_ENGINE_PATH` pairs an SDK with another engine. The `0.y` previews have no cross-minor skew, because each preview counts as a major (ADR 0030).

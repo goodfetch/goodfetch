@@ -615,7 +615,7 @@ Decided in [ADR 0066](docs/adr/0066-upgrades-are-tested-from-a-frozen-corpus-and
 
 ### Released artifacts
 
-- **Skew covers every released minor of the current major**, latest patch of each: SDKs, the Rust crate's client, the CLI and the MCP server against the current Daemon, the SDKs over stdio through `GOODFETCH_ENGINE_PATH` (every Attached engine applies the Daemon's rule at `hello`; this variable is how its version can differ from its SDK's), the Console, the Browser host and first-party Plugins.
+- **Skew covers every released minor of the current major**, latest patch of each: SDKs, the Rust crate's client, the CLI and the MCP server against the current Daemon, the SDKs over stdio through `GOODFETCH_ENGINE_PATH` (every Attached engine applies the Daemon's rule at `hello`; this variable is how its version can differ from its SDK's), the Console, the Browser host in both directions (older engines against the current Browser host, and the current engine against older Browser hosts, which settle on the lower minor) and first-party Plugins.
 - **An old Client runs its own release's Journeys** ([ADR 0063](docs/adr/0063-end-to-end-tests-follow-a-catalog-of-numbered-journeys-kept-in-the-repository.md)) from its tag, against the current binary given by path. Each variant keeps its own Proving ground and Goodfetch home. A Journey that asserts something outside semver is fixed on `main`, and its variant is excluded by variant ID (`J-NNN@<surface>`), with a reason, in `compat/skew-exclusions.toml`.
 - **Rolling upgrades run under load** in a three-member group, once with the Lead Daemon last (a StatefulSet's default order with the Lead Daemon as pod 0) and once with it first, then a promotion from an older Group backup and the rollbacks.
 - **The Helm upgrade starts from a release's chart,** installed by digest from `compat/releases.toml`, then runs `helm upgrade` to the current chart and `helm test`. Never `ct install --upgrade`.
@@ -995,7 +995,7 @@ Each suite contains the one before, so the table gives the first suite that runs
 
 ### The Console conformance suite
 
-- **It runs the Console against a target given as configuration:** the Daemon and the Stub gateway here, Goodfetch Cloud's gateway from the private repository. Each target run writes its own result document with `kind = "conformance"`, like a Journey ([Journeys](#journeys)): its Playwright reporter derives each outcome, and the Rust reader recomputes it. It writes no case log.
+- **It runs the Console against a target given as configuration:** each Product's Daemon, serving its own Console build, and the Stub gateway here, Goodfetch Cloud's gateway from the private repository. The Stub gateway serves Foxhound's Console build and starts each run's engine from the executable of the run's Product (ADR 0096). Each target run writes its own result document with `kind = "conformance"`, like a Journey ([Journeys](#journeys)): its Playwright reporter derives each outcome, and the Rust reader recomputes it. It writes no case log.
 - **Add a case when the Console starts to need something new from its target.**
 
 ### Browsers

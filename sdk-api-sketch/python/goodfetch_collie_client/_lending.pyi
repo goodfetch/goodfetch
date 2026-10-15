@@ -51,7 +51,12 @@ class AsyncLendsPage:
     """Lending belongs to the page, so Collie carries it and Foxhound's handlers inherit it."""
 
     async def lend(self, *, timeout: Timeout = ...) -> AsyncCDPEndpoint:
-        """Raises `SessionReservedError` while another attach on the page's Session is open."""
+        """Raises `SessionReservedError` while another attach on the page's Session is open.
+
+        While the library is attached, await each of the program's own Collie calls on the page before the library acts:
+        an AI verb whose document a navigation it did not start replaces raises `PageNavigatedDuringCallError` (ADR
+        0114).
+        """
 
 class LendsPage:
     def lend(self, *, timeout: Timeout = ...) -> CDPEndpoint: ...

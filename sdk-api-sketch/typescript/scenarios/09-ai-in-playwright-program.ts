@@ -25,7 +25,7 @@ try {
   console.log(books);
   await run.finish();
 } catch (error) {
-  // A typed GoodfetchError (`model_unavailable`, `extraction_incomplete`, `borrow_requires_cdp`, …) with its `fix`.
+  // A typed GoodfetchError (`model_unavailable`, `page_navigated_during_call`, `borrow_requires_cdp`, …) with its `fix`.
   console.error("The AI step failed; the program carries on:", error);
 }
 

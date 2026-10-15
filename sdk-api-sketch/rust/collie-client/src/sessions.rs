@@ -280,7 +280,10 @@ pub enum SessionSource {
         headers: Vec<(String, SecretReference)>,
         /// The registrable domains the Session may reach.
         domains: Vec<String>,
-        /// Nothing else drives this browser, so secrets may be typed into it (ADR 0056).
+        /// Nothing else drives this browser, so secrets may be typed into it (ADR 0056). When
+        /// `false`, the program awaits each Collie call before its other code acts on the page, and an
+        /// AI verb whose document a navigation it did not start replaces fails with
+        /// `page_navigated_during_call` (ADR 0114).
         exclusive: bool,
     },
 }

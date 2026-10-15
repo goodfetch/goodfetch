@@ -45,6 +45,7 @@ export type KnownErrorCode =
   | "page_handler_failed"
   | "route_already_handled"
   | "navigation_interrupted"
+  | "page_navigated_during_call"
   | "response_not_json"
   | "navigation_failed"
   | "page_crashed"

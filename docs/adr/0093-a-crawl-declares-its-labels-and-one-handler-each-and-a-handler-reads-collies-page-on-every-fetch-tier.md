@@ -87,6 +87,8 @@ Decided in [Crawl definition and handler context](https://github.com/goodfetch/a
   - **A refused navigation that no call waits on,** such as the page's own JavaScript redirect or a popup's first navigation, is aborted at interception by ADR 0087's gate, and the page keeps its document (a popup stays blank). It is a `requestfailed` event whose failure names the Site preference, and the Run trace records it. A waiter armed for that navigation (`waitForURL`, a load-state wait after it, a popup's load) raises `site_preferences_refused`. Nothing else raises, and the request is not skipped: the handler asked for nothing the site refused.
 
   One code covers every Site-preferences refusal, each with its reason. A Collie program's own navigation is untouched: AI-use signals refuse no call on its page (ADR 0085).
+
+  > Amended by [ADR 0100](0100-collies-agent-is-one-bounded-call-on-a-page-judged-by-the-programs-success-check-and-replayed-whole-from-the-plan.md): inside an Agent's task (`page.agent`), a handler navigation's `site_preferences_refused` is a failed action given back to the model, as every refusal inside the task is, not raised from `page.agent`.
 - **If it escapes the handler,** the request ends `skipped` with that same reason, not `failed`, since the site asked not to be crawled there. A handler that catches it carries on (G1, G5).
 - **A permit's wait** for the gate's per-domain limits, delay and backoff counts against neither `timeout.navigation` nor `timeout.handler`, as time in a Human pause counts against nothing (ADR 0080), and the engine renews the work item's lease meanwhile. Politeness's waits never become failures and retries, each fetching again (G5). The Run's own timeout and its Limits still apply, and the Run's live status names the wait and its setting (The Run in code).
 
@@ -146,6 +148,9 @@ Decided in [Crawl definition and handler context](https://github.com/goodfetch/a
 - **A Label is a settings scope** between the Run and its requests. It takes:
   - every setting a page takes (ADRs 0083, 0085, 0091), such as `timeout.action`, `timeout.navigation`, `timeout.wait` and `locator.test_id_attribute`;
   - `timeout.handler`, `fetch.tier`, `crawl.retry.*`, `crawl.handle_statuses` and `crawl.handler.concurrency`;
+
+    > Amended by [ADR 0100](0100-collies-agent-is-one-bounded-call-on-a-page-judged-by-the-programs-success-check-and-replayed-whole-from-the-plan.md): an enclosing `timeout.handler` that ends an Agent's task first fails it with `deadline_exceeded` naming that call (ADR 0080), so a Label that runs an Agent sets a longer `timeout.handler`.
+
   - every `session.*` key and `secrets.*` (ADR 0092), with a `login` step as an option of its declaration.
 - **Sessions per Label.** A Label that sets what a Session holds (`session.source`, `session.http_credentials`, `secrets.*` or a `login` step) gets Sessions from a pool of its own; Labels that set none share the Run's pool. So one crawl mixes anonymous and logged-in pages, as Scrapling routes requests to declared sessions with `sid=`, without a second Run that would split its Limits and Completeness. `session.page_check` and `session.recovery.human_pause` judge the Label's pages in whichever pool serves them, so a Page check per Label splits nothing.
 - **What a Label refuses**, with `setting_not_applicable`: the Session's identity (`browser.*`, `proxy.*`, `network.*`), which takes the Run's values in every pool, and Politeness, Site preferences, scope and Run-wide keys. The TypeScript and Python types leave them out, and Rust refuses them when the Run starts (G3).

@@ -28,6 +28,7 @@ Every figure Goodfetch publishes about its performance comes in three views: raw
     - schema.org data and hidden APIs
     - the same entity under small structure changes
     - AJAX loading, infinite scroll, shadow DOM and iframes
+    > Amended by [ADR 0121](0121-service-workers-run-under-the-engines-interception-the-back-forward-cache-is-off-locators-reach-closed-shadow-roots-and-a-read-never-scrolls-a-list.md): hand-made pages add a service worker that answers one JSON call from its cache and passes another to the network, a page reached by Back, a virtualized list of 1,000 rows declaring its count, and targets inside closed shadow roots, attached by script and declared in HTML.
     - logins with MFA and logins that expire
     - geo and language variants, odd encodings, huge pages, PDFs and downloads, sitemaps
     - content that changes on a known schedule, for change tracking

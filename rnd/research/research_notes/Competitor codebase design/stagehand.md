@@ -194,7 +194,7 @@ Not counted above: a 1,689-line built JS copy of the facade committed twice ([B/
   - SDK options are Zod-validated (`StagehandCreateOptionsSchema`, [sdk-ts/src/clientSchemas.ts](https://github.com/browserbase/stagehand/blob/10418f98831285b3cddca5328c8013a94f22672a/packages/sdk-ts/src/clientSchemas.ts)), resolved into `Resolved*` types, and then partly forwarded as `stagehand.init` params.
   - Debug knobs are environment variables read deep inside the transport, such as `STAGEHAND_CDP_LOG`, which writes with `appendFileSync` and bypasses the logger ([cdpClient.ts#L308-L330](https://github.com/browserbase/stagehand/blob/10418f98831285b3cddca5328c8013a94f22672a/packages/sdk-ts/src/cdpClient.ts#L308-L330)).
 - **Errors are the weakest contract.**
-  - 19 error classes across extension, sdk-ts and integrations, all `extends Error` directly, with no common base and no codes.
+  - 26 error classes across extension (6), sdk-ts (5) and integrations (15), 28 with the CLI's two, all `extends Error` directly, with no common base and no codes.
   - There are 126 bare `throw new Error(...)` in the extension and sdk-ts outside tests.
   - On the wire, Zod failures map to `invalidParams`. Every domain error becomes JSON-RPC `-32603 internalError` with `data: {name}` ([extension/clients/rpcClient.ts#L238-L250](https://github.com/browserbase/stagehand/blob/10418f98831285b3cddca5328c8013a94f22672a/packages/extension/clients/rpcClient.ts#L238-L250)).
   - The TS SDK rethrows a plain `Error` and restores only the name `TimeoutError` ([sdk-ts/src/rpcClient.ts#L435-L441](https://github.com/browserbase/stagehand/blob/10418f98831285b3cddca5328c8013a94f22672a/packages/sdk-ts/src/rpcClient.ts#L435-L441)).

@@ -1,9 +1,10 @@
 //! The Agent in Collie's SDK API (ADR 0100, decided in #474).
 //!
 //! - [`Page::agent`] runs ADR 0013's built-in Agent on one task, to its end: a thin, journaled loop
-//!   over the Operation catalog's page operations, the program's Agent tools and a `record` action.
+//!   over the Operation catalog's page operations, the program's Agent tools and a `note` action.
 //!   It starts on the page, may use the tabs it opens, and carries nothing into the next call (G2).
-//!   The whole task is one gesture of the page (ADR 0085).
+//!   The whole task is one gesture of the page (ADR 0085); it gives up the page's turn while an
+//!   Agent tool or its Success check runs.
 //! - The program states the Success check with [`crate::expect`] (ADR 0091) in
 //!   [`AgentCall::success_check`]. The engine runs it each time the model reports done; a failure
 //!   goes back to the model, and the Verdict reads its latest evaluation (ADR 0029).
@@ -14,7 +15,9 @@
 //! - [`AgentCall::start`] gives an [`AgentTask`] whose [`AgentTask::steps`] is a lossless
 //!   [`EventStream`] that starts at the task's first step (ADR 0081).
 //! - With the Run's Plan ([`crate::Start::plan`], ADR 0091), the task is one Plan entry, replayed
-//!   whole with no model call and repaired once on Drift by resuming the loop (ADR 0009).
+//!   whole with no model call (before each Effect, every target reachable without it is checked).
+//!   On Drift, or a failed Success check after the replay, the loop takes over live from there: no
+//!   Repair (amends ADR 0009).
 
 use std::fmt;
 use std::future::{Future, IntoFuture};
@@ -24,6 +27,7 @@ use std::time::Duration;
 use schemars::JsonSchema;
 use serde::de::DeserializeOwned;
 
+use crate::ai::Drift;
 use crate::concurrency::EventStream;
 use crate::data::Schema;
 use crate::lifecycle::Page;
@@ -42,8 +46,6 @@ pub enum AgentStepOrigin {
     Model,
     /// Replayed from the Plan, no model call.
     Plan,
-    /// Decided by the model after the replay drifted, in the task's one Repair.
-    Repair,
     /// A value this SDK does not know, as received.
     Unknown(String),
 }
@@ -67,7 +69,7 @@ pub enum AgentActionOutcome {
 #[non_exhaustive]
 pub struct AgentAction {
     /// The catalog operation, such as `locator.click` or `page.goto`; `tool:<name>` for an Agent
-    /// tool; `record` for the built-in action that records the answer so far.
+    /// tool; `note` for the built-in action that notes the answer so far.
     pub operation: String,
     /// Its arguments, `%name%` placeholders where a variable or a secret was typed, never the value.
     pub arguments: Vec<serde_json::Value>,
@@ -86,8 +88,12 @@ pub struct AgentAction {
 pub struct AgentStep {
     /// From 1.
     pub index: u32,
-    /// Model, Plan or Repair.
+    /// Model or Plan.
     pub origin: AgentStepOrigin,
+    /// On the first live step after a replay drifted, or after its Success check failed: what the
+    /// Plan expected and what the page showed (ADR 0091). The replay ended there and the loop took
+    /// over.
+    pub drift: Option<Drift>,
     /// The model's own words for this step: a signal, never proof. Empty for a replayed step.
     pub message: String,
     /// What it did.
@@ -103,8 +109,9 @@ pub struct AgentStep {
 // The result and the task.
 
 /// What a task resolves to: ADR 0079's three separate fields, the output and what the task did.
-/// `output` is a valid `T` whose values Grounding found on the pages the task observed; a value it
-/// could not find leaves the Verdict at needs-review, naming the field.
+/// `output` is a valid `T` whose values Grounding found on the pages the task observed or in its
+/// Agent tools' results; a value it could not find leaves the Verdict at needs-review, naming the
+/// field.
 #[derive(Debug)]
 #[non_exhaustive]
 #[must_use = "the Verdict says whether the output is proven"]
@@ -123,8 +130,9 @@ pub struct AgentResult<T> {
     pub steps: Vec<AgentStep>,
     /// The whole task's model calls and their price (ADR 0101).
     pub usage: ModelUsage,
-    /// The page the task ended on: its own, or a tab it opened, which the program now holds. Its
-    /// other tabs are closed.
+    /// The page the task ended on: its own, or a tab it opened, which the program now holds. The
+    /// other tabs it opened are closed as `page.close()` closes them: on a Borrowed browser,
+    /// released.
     pub page: Page,
 }
 
@@ -155,8 +163,9 @@ impl<T> fmt::Debug for AgentTask<T> {
 }
 
 impl<T> AgentTask<T> {
-    /// The task's steps, lossless, from step 1 whenever it is called, ending when the task ends.
-    /// Each call is a reader of its own; an unread open stream slows the task (ADR 0081).
+    /// The task's steps, lossless, from step 1 whenever it is called, ending when the task ends and
+    /// yielding the task's error when it failed. Each call is a reader of its own; an unread open
+    /// stream slows the task (ADR 0081).
     pub fn steps(&self) -> EventStream<AgentStep> {
         unimplemented!()
     }
@@ -189,8 +198,9 @@ pub enum ConfirmationCategory {
     Unknown(String),
 }
 
-/// The error an Agent tool returns: any error of the program. It ends the task with
-/// `agent_tool_failed`, which keeps it as its `source()`.
+/// The error an Agent tool returns: any error of the program. A [`crate::Error`] boxed in it ends the
+/// task with its own code; any other ends it with `agent_tool_failed`, which keeps it as its
+/// `source()`.
 pub type ToolError = Box<dyn std::error::Error + Send + Sync + 'static>;
 
 /// A function of the program that the Agent may call as an action: an Agent tool.
@@ -207,8 +217,9 @@ impl fmt::Debug for AgentTool {
 impl AgentTool {
     /// A tool whose input is `I`, a type deriving `JsonSchema` and `Deserialize` (ADR 0082), checked
     /// before `run` is called with it and the task's current page. Its JSON is what the model reads,
-    /// bounded by `observation.max_size`. The name must be unique within a task and no built-in
-    /// action's, or the task fails with `agent_tool_invalid`. It is an Effect unless
+    /// bounded by `observation.max_size`, and a source Grounding accepts; the task gives up the
+    /// page's turn while it runs. The name must be unique within a task and no built-in action's,
+    /// or the task fails with `agent_tool_invalid`. It is an Effect unless
     /// [`AgentTool::read_only`]: journaled and never redone (ADR 0010).
     pub fn new<I, F, Fut>(name: &str, description: &str, run: F) -> Self
     where
@@ -225,8 +236,8 @@ impl AgentTool {
         unimplemented!()
     }
 
-    /// Asks a person for confirmation before each call, unless the run allows the category
-    /// (ADR 0014).
+    /// Asks a person for confirmation before every call (ADR 0014), since the run allowances of
+    /// these categories name domains and a tool has none.
     pub fn category(self, category: ConfirmationCategory) -> Self {
         let _ = category;
         unimplemented!()
@@ -256,8 +267,10 @@ impl<T> AgentCall<T> {
         unimplemented!()
     }
 
-    /// The Success check, stated with [`crate::expect`]: each `expect` in it is a Success check the
-    /// engine evaluates live. Without one, the Verdict is needs-review (ADR 0013).
+    /// The Success check, stated with [`crate::expect`], run each time the model reports done: each
+    /// `expect` in it is a Success check the engine evaluates live. Without one, the Verdict is
+    /// needs-review (ADR 0013). An error other than `success_check_failed` ends the task with its own
+    /// code.
     pub fn success_check<F, Fut>(self, check: F) -> Self
     where
         F: Fn(Page) -> Fut + Send + Sync + 'static,
@@ -275,7 +288,7 @@ impl<T> AgentCall<T> {
 
     /// `agent.domains` for this task: by default the registrable domain of the page it starts on.
     /// An entry matches its host and their subdomains; `"*"` allows wherever the run's domain
-    /// policy does.
+    /// policy does. It bounds the task's navigations, never the subresources a page loads.
     pub fn domains<I, S>(self, domains: I) -> Self
     where
         I: IntoIterator<Item = S>,
@@ -304,8 +317,9 @@ impl<T> AgentCall<T> {
         unimplemented!()
     }
 
-    /// `timeout.agent` for this task: 10 minutes by default. Reaching it stops the task with
-    /// [`crate::StopReason::Timeout`]; it is no error.
+    /// `timeout.agent` for this task: 10 minutes by default. Reaching it cancels the step in flight
+    /// and stops the task with [`crate::StopReason::Timeout`]; it is no error. An enclosing call's
+    /// timeout fails it with `deadline_exceeded` naming that call; `timeout.ai` does not apply.
     pub fn timeout(self, timeout: Duration) -> Self {
         let _ = timeout;
         unimplemented!()
@@ -341,13 +355,15 @@ impl Page {
 
 // The Agent's Error details (ADR 0079's naming rule).
 
-/// Details of `agent_tool_failed`: a tool returned an error, and the task ended. The tool's error is
-/// the error's `source()`.
+/// Details of `agent_tool_failed`: a tool returned an error that is not a [`crate::Error`], and the
+/// task ended. The tool's error is the error's `source()`.
 #[derive(Debug, Clone)]
 #[non_exhaustive]
 pub struct AgentToolFailed {
     /// The tool's name.
     pub tool: String,
+    /// The tool's error, as its `Display` wrote it.
+    pub message: String,
     /// The tool was not read-only, so its Effect is left uncertain for a person to reconcile
     /// (ADR 0029).
     pub effect_uncertain: bool,
@@ -361,4 +377,23 @@ pub struct AgentToolInvalid {
     pub tool: String,
     /// `duplicate` or `built_in_name`.
     pub problem: String,
+}
+
+/// Details of `success_check_threw`: the Success check returned an error other than
+/// `success_check_failed` that is not a Goodfetch code, kept as the error's `source()`.
+#[derive(Debug, Clone)]
+#[non_exhaustive]
+pub struct SuccessCheckThrew {
+    /// The error, as its `Display` wrote it.
+    pub message: String,
+}
+
+/// On an error `page.agent` fails with after the task took steps (ADR 0100).
+#[derive(Debug)]
+#[non_exhaustive]
+pub struct AgentTaskProgress {
+    /// The steps taken.
+    pub steps: Vec<AgentStep>,
+    /// The partial answer as JSON: only values valid against their part of the schema and Grounded.
+    pub partial: Option<serde_json::Value>,
 }

@@ -11,6 +11,7 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta
 from typing import Generic, Literal, TypeAlias, TypeVar, final
 
+from goodfetch._agent import AgentTaskProgress
 from goodfetch._models import ModelUsage
 
 ErrorGroup: TypeAlias = Literal["program", "refused", "page", "model", "deadline_exceeded", "unavailable", "internal"]
@@ -165,6 +166,10 @@ class GoodfetchError(Exception):
     @property
     def usage(self) -> ModelUsage | None:
         """What the call's model calls consumed before it failed, when it made any (ADR 0101)."""
+
+    @property
+    def agent_task(self) -> AgentTaskProgress | None:
+        """On an error `page.agent` raises after its task took steps: the steps and the partial answer (ADR 0100)."""
 
 # The seven groups by remedy. A code this SDK does not know is raised as its group's class.
 
@@ -422,15 +427,19 @@ class Finished: ...
 class Stopped:
     """AI work that stopped early. A failed ending raises instead.
 
-    `limit`: a Limit, after which the Run stops too. `timeout`: the Agent's own `timeout.agent` or the Run's. `steps`: the
+    `limit`: a Limit, after which the Run stops too. `timeout`: the Agent's own `timeout.agent` or the Run's. `max_steps`: the
     Agent's step cap, `agent.max_steps`. `no_progress`: its stall rule, `agent.max_stalled_steps`. These two stop only the
     task. `abort`: someone other than the caller stopped it (ADRs 0079, 0080, 0100)."""
 
-    reason: Literal["limit", "timeout", "steps", "no_progress", "abort"] | str
+    reason: Literal["limit", "timeout", "max_steps", "no_progress", "abort"] | str
     limit: str | None
     """The Limit by name, when `reason` is `limit`."""
     source: LimitSource | None
-    """The setting that stopped it, its value and its layer, when `reason` is `timeout`, `steps` or `no_progress` (G6)."""
+    """The setting that stopped it, its value and its layer, when `reason` is `timeout`, `max_steps` or `no_progress`
+    (G6)."""
+    by: Literal["person", "client", "program"] | str | None
+    """Who stopped it, when `reason` is `abort`: a person in the Console, another Client, or the program closing the page
+    or the Run."""
 
 Ended: TypeAlias = Finished | Stopped
 

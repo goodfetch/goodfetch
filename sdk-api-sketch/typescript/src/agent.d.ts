@@ -1,8 +1,9 @@
 // The Agent in Collie's SDK API (ADR 0100, decided in #474).
 // - `page.agent(task, options)` runs ADR 0013's built-in Agent on one task, to its end: a thin,
 //   journaled loop over the Operation catalog's page operations, the program's Agent tools and a
-//   `record` action. It starts on the page, may use the tabs it opens, and carries nothing into the
-//   next call (G2). The whole task is one gesture of the page (ADR 0085).
+//   `note` action. It starts on the page, may use the tabs it opens, and carries nothing into the
+//   next call (G2). The whole task is one gesture of the page (ADR 0085); it gives up the page's turn
+//   while an Agent tool or its Success check runs.
 // - The program states the Success check with `expect` (ADR 0091) in `successCheck`. The engine runs
 //   it each time the model reports done; a failure goes back to the model, and the Verdict reads its
 //   latest evaluation (ADR 0029). A model's "done" is a signal, never proof (ADR 0013).
@@ -11,23 +12,22 @@
 //   values: `ended: stopped` with its reason, and a Grounded `partial`.
 // - The steps are a lossless sequence that starts at the task's first step (ADR 0081).
 // - With the Run's `plan` (ADR 0091), the task is one Plan entry, replayed whole with no model call
-//   and repaired once on Drift by resuming the loop from the step that drifted (ADR 0009).
+//   (before each Effect, every target reachable without it is checked). On Drift, or a failed Success
+//   check after the replay, the loop takes over live from there: no Repair (amends ADR 0009).
 
 import type { EventIterator } from "./concurrency.js";
 import type { JsonValue, Schema, SchemaOutput } from "./data.js";
 import type { Page } from "./lifecycle.js";
 import type { ModelReference, ModelUsage } from "./models.js";
 import type { Locator } from "./page.js";
+import type { Drift } from "./ai.js";
 import type { AiWorkResult, GoodfetchError, ProgramError } from "./results.js";
 import type { CallOptions } from "./time.js";
 
 // Steps.
 
-/**
- * Where a step came from. `model`: decided by the model now. `plan`: replayed from the Plan, no model
- * call. `repair`: decided by the model after the replay drifted, in the task's one Repair.
- */
-export type AgentStepOrigin = "model" | "plan" | "repair" | (string & {});
+/** Where a step came from. `model`: decided by the model now. `plan`: replayed from the Plan, no model call. */
+export type AgentStepOrigin = "model" | "plan" | (string & {});
 
 /** How one action of a step ended. A failure goes back to the model; it never throws from `page.agent`. */
 export type AgentActionOutcome =
@@ -41,7 +41,7 @@ export type AgentActionOutcome =
 export interface AgentAction {
   /**
    * The catalog operation, such as `locator.click` or `page.goto`; `tool:<name>` for an Agent tool;
-   * `record` for the built-in action that records the answer so far.
+   * `note` for the built-in action that notes the answer so far.
    */
   readonly operation: string;
   /** Its arguments, `%name%` placeholders where a variable or a secret was typed, never the value. */
@@ -61,6 +61,11 @@ export interface AgentStep {
   /** From 1. */
   readonly index: number;
   readonly origin: AgentStepOrigin;
+  /**
+   * On the first live step after a replay drifted, or after its Success check failed: what the Plan
+   * expected and what the page showed (ADR 0091's `Drift`). The replay ended there and the loop took over.
+   */
+  readonly drift: Drift | undefined;
   /** The model's own words for this step: a signal, never proof. Empty for a replayed step. */
   readonly message: string;
   readonly actions: readonly AgentAction[];
@@ -77,25 +82,31 @@ export interface AgentStep {
 /**
  * What a task returns: ADR 0079's three separate fields (`ended`, `verdict`, `reported`), the output,
  * and what the task did. `output` is a valid `T` whose values Grounding found on the pages the task
- * observed; a value it could not find leaves the Verdict at `needs-review`, naming the field.
+ * observed or in its Agent tools' results; a value it could not find leaves the Verdict at
+ * `needs-review`, naming the field.
  */
 export interface AgentResult<T> extends AiWorkResult<T> {
   /** Every step, in order. */
   readonly steps: readonly AgentStep[];
   /** The whole task's model calls and their price (ADR 0101). */
   readonly usage: ModelUsage;
-  /** The page the task ended on: its own page, or a tab it opened, which the program now holds. Its other tabs are closed. */
+  /**
+   * The page the task ended on: its own page, or a tab it opened, which the program now holds. The
+   * other tabs it opened are closed as `page.close()` closes them: on a Borrowed browser, released.
+   */
   readonly page: Page;
 }
 
 /**
- * A running task. It started when `page.agent` was called; await it for the result.
- * `steps()` reads the steps as they happen.
+ * A running task. It started when `page.agent` was called; await it for the result. `steps()` reads
+ * the steps as they happen. A hand-written promise shape, as `Call<T>` is a hand-written builder.
  */
 export interface AgentTask<T> extends Promise<AgentResult<T>> {
   /**
-   * The task's steps, lossless, from step 1 whenever it is called, ending when the task ends. Each
-   * call is a reader of its own; an unread open iterator slows the task (ADR 0081).
+   * The task's steps, lossless, from step 1 whenever it is called, ending when the task ends, and
+   * throwing the task's error when it failed; a failure seen here counts as handled, so a program that
+   * reads only the steps meets no unhandled rejection. Each call is a reader of its own; an unread
+   * open iterator slows the task (ADR 0081).
    */
   steps(): EventIterator<AgentStep>;
 }
@@ -113,7 +124,7 @@ export type ConfirmationCategory =
 
 /** What an Agent tool receives besides its input. */
 export interface AgentToolCall {
-  /** The page the task is on when the model calls the tool. */
+  /** The page the task is on when the model calls the tool. The task gives up its turn meanwhile, so the tool's gestures run. */
   readonly page: Page;
   /** Aborted when the task ends or is cancelled while the tool runs. */
   readonly signal: AbortSignal;
@@ -129,12 +140,16 @@ export interface AgentToolDefinition<S extends Schema> {
   readonly input: S;
   /** `false` by default: the tool is an Effect, journaled and never redone (ADR 0010), as a site's WebMCP tool (ADR 0011). */
   readonly readOnly?: boolean;
-  /** Asks a person for confirmation before each call, unless the run allows the category (ADR 0014). */
+  /**
+   * Asks a person for confirmation before every call (ADR 0014): the run allowances of these categories
+   * name domains (ADRs 0045, 0048), and a tool has none. A decline ends the task with `EffectNotConfirmedError`.
+   */
   readonly category?: ConfirmationCategory;
   /**
    * Runs where the program's code runs (ADR 0081). Its JSON is what the model reads, bounded by
-   * `observation.max_size`. An exception ends the task with `AgentToolFailedError`: an answer the
-   * model should act on is a value it returns.
+   * `observation.max_size`, and a source Grounding accepts. A `GoodfetchError` it throws ends the task
+   * with its own code, and any other exception with `AgentToolFailedError`; a cancellation is never
+   * wrapped. An answer the model should act on is a value it returns.
    */
   run(input: SchemaOutput<S>, call: AgentToolCall): Promise<JsonValue>;
 }
@@ -153,14 +168,18 @@ export declare function agentTool<S extends Schema>(definition: AgentToolDefinit
 // Options.
 
 /**
- * Options of a task. `timeout` is `timeout.agent` (10 minutes) for this task: reaching it stops the
- * task with the reason `timeout`, it does not throw. Aborting `signal` cancels the task.
+ * Options of a task. `timeout` is `timeout.agent` (10 minutes) for this task: reaching it cancels the
+ * step in flight and stops the task with the reason `timeout`; it does not throw. An enclosing call's
+ * timeout, such as a crawl handler's, throws `DeadlineExceededError` naming that call. `timeout.ai`
+ * does not apply to the task. Aborting `signal` cancels the task.
  */
 export interface AgentOptions extends CallOptions {
   /**
-   * The Success check, stated with `expect` (ADR 0091) on the page the task is on. Each `expect` in it
-   * is a Success check the engine evaluates live. Without one, the Verdict is `needs-review` (ADR 0013).
-   * Anything it throws other than `SuccessCheckFailedError` fails the task with `SuccessCheckThrewError`.
+   * The Success check, stated with `expect` (ADR 0091) on the page the task is on, run each time the
+   * model reports done. Each `expect` in it is a Success check the engine evaluates live, within
+   * `timeout.wait` unless given a shorter timeout. Without one, the Verdict is `needs-review` (ADR 0013).
+   * Another `GoodfetchError` it throws ends the task with its own code; any other exception, with
+   * `SuccessCheckThrewError`.
    */
   readonly successCheck?: (page: Page) => Promise<void>;
   /** `agent.max_steps` for this task: 20 by default. Reaching it stops only the task. */
@@ -168,6 +187,7 @@ export interface AgentOptions extends CallOptions {
   /**
    * `agent.domains` for this task: by default the registrable domain of the page the task starts on.
    * An entry matches its host and their subdomains; `"*"` allows wherever the run's domain policy does.
+   * It bounds the task's navigations, never the subresources a page loads.
    */
   readonly domains?: readonly string[];
   readonly tools?: readonly AgentTool[];
@@ -196,10 +216,20 @@ export interface AgentSettings {
   readonly maxSteps?: number;
   /** Stalled steps in a row that stop a task: 3 by default. */
   readonly maxStalledSteps?: number;
-  /** Where a task may go: by default the registrable domain of the page it starts on. */
+  /** Where a task may navigate: by default the registrable domain of the page it starts on; `null` restores that default. */
   readonly domains?: readonly string[] | null;
-  /** Whether the model may ask a person through a Human pause: `false` by default (ADR 0092). */
+  /**
+   * Whether the model may ask a person through a Human pause: `false` by default (ADR 0092). The answer,
+   * a decline or the pause running out goes back to the model.
+   */
   readonly humanPause?: boolean;
+}
+
+/** On an error `page.agent` throws after the task took steps (ADR 0100). */
+export interface AgentTaskProgress {
+  readonly steps: readonly AgentStep[];
+  /** The partial answer as JSON: only values valid against their part of the schema and Grounded. */
+  readonly partial: JsonValue | undefined;
 }
 
 // The Agent's Error codes (ADR 0079's naming rule).
@@ -211,7 +241,7 @@ export interface AgentToolFailedDetails {
   /** The tool was not read-only, so its Effect is left uncertain for a person to reconcile (ADR 0029). */
   readonly effectUncertain: boolean;
 }
-/** An Agent tool threw: the task ended. `cause` holds the original, in the process that threw it. */
+/** An Agent tool threw something other than a `GoodfetchError`: the task ended. `cause` holds the original, in the process that threw it. */
 export declare class AgentToolFailedError extends ProgramError {
   readonly code: "agent_tool_failed";
   readonly details: AgentToolFailedDetails;

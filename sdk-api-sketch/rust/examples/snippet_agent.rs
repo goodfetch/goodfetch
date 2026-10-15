@@ -64,8 +64,8 @@ async fn cheapest_five_star_travel_book() -> Result<Option<Answer>, Error> {
 /// How the work ended, its Verdict and the model's claim are three separate fields (ADR 0079).
 fn report(result: AgentResult<Answer>) -> Result<Option<Answer>, Error> {
     if let Ended::Stopped(reason) = &result.ended {
-        // `Steps`, `NoProgress` and `Timeout` carry the setting that stopped it; `Limit` names the Limit.
-        if let StopReason::Steps(source) | StopReason::NoProgress(source) | StopReason::Timeout(source) = reason {
+        // `MaxSteps`, `NoProgress` and `Timeout` carry the setting that stopped it; `Limit` names the Limit.
+        if let StopReason::MaxSteps(source) | StopReason::NoProgress(source) | StopReason::Timeout(source) = reason {
             tracing_like(&format!("stopped by {}", source.setting));
         }
         tracing_like(&format!("partial: {:?}", result.partial.as_ref().map(|p| p.json())));
@@ -105,6 +105,10 @@ async fn cheapest_unowned_book(run: &Run) -> Result<Answer, Error> {
         .inspect_err(|error| {
             if error.code() == &ErrorCode::AgentToolFailed {
                 tracing_like("a tool failed; its error is the source");
+            }
+            // Whatever ended the task, the steps taken and the Grounded partial answer travel on the error.
+            if let Some(progress) = error.agent_task() {
+                tracing_like(&format!("partial: {:?}", progress.partial));
             }
         })?;
     // Each page action carries its code in Rust, to turn the task into plain page API calls.

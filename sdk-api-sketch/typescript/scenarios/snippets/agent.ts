@@ -3,6 +3,7 @@ import { z } from "zod";
 import {
   AgentToolFailedError,
   Goodfetch,
+  GoodfetchError,
   agentTool,
   expect,
   type AgentResult,
@@ -58,7 +59,7 @@ export async function cheapestFiveStarTravelBook(): Promise<Answer | undefined> 
 function report(result: AgentResult<Answer>): Answer | undefined {
   if (result.ended.kind === "stopped") {
     const reason = result.ended.reason;
-    // `steps`, `no_progress` and `timeout` name the setting that stopped it; `limit` names the Limit.
+    // `max_steps`, `no_progress` and `timeout` name the setting that stopped it; `limit` names the Limit.
     log.warn("agent stopped", { reason: reason.kind, partial: result.partial, claimed: result.reported?.claim });
     return undefined;
   }
@@ -98,6 +99,8 @@ export async function cheapestUnownedBook(run: Run): Promise<Answer> {
     return result.requireVerified();
   } catch (error) {
     if (error instanceof AgentToolFailedError) log.error(`tool ${error.details.tool} threw`, { message: error.details.exceptionMessage });
+    // Whatever ended the task, the steps taken and the Grounded partial answer travel on the error.
+    if (error instanceof GoodfetchError) log.warn("partial answer", { partial: error.agentTask?.partial });
     throw error;
   }
 }

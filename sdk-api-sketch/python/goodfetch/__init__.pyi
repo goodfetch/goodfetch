@@ -6,6 +6,8 @@ Each ticket on the map adds its stubs in a module of its own and re-exports them
 from goodfetch._agent import ActionDone as ActionDone
 from goodfetch._agent import ActionFailed as ActionFailed
 from goodfetch._agent import ActionJournaled as ActionJournaled
+from goodfetch._agent import ActionUnknown as ActionUnknown
+from goodfetch._agent import AgentTaskProgress as AgentTaskProgress
 from goodfetch._agent import AgentAction as AgentAction
 from goodfetch._agent import AgentActionOutcome as AgentActionOutcome
 from goodfetch._agent import AgentApi as AgentApi

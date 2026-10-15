@@ -27,7 +27,7 @@ pub mod time;
 
 pub use agent::{
     AgentAction, AgentActionOutcome, AgentCall, AgentResult, AgentStep, AgentStepOrigin, AgentTask, AgentTool, AgentToolFailed,
-    AgentToolInvalid, ConfirmationCategory, ToolError,
+    AgentTaskProgress, AgentToolInvalid, ConfirmationCategory, SuccessCheckThrew, ToolError,
 };
 pub use ai::{
     Act, AriaSnapshot, AriaSnapshotMode, Drift, EffectNotConfirmed, EffectUncertain, Expectable, Expected, Extract, ExtractMode, ExtractionIncomplete, ExtractionInvalid,

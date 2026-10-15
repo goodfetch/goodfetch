@@ -427,6 +427,12 @@ impl Error {
     pub fn usage(&self) -> Option<&crate::models::ModelUsage> {
         unimplemented!()
     }
+
+    /// On an error `page.agent` fails with after its task took steps: the steps and the partial
+    /// answer (ADR 0100).
+    pub fn agent_task(&self) -> Option<&crate::agent::AgentTaskProgress> {
+        unimplemented!()
+    }
 }
 
 impl fmt::Display for Error {
@@ -557,6 +563,8 @@ pub enum ErrorDetails {
     AgentToolFailed(crate::agent::AgentToolFailed),
     /// Of `agent_tool_invalid`.
     AgentToolInvalid(crate::agent::AgentToolInvalid),
+    /// Of `success_check_threw`.
+    SuccessCheckThrew(crate::agent::SuccessCheckThrew),
     /// Of `response_not_recorded`.
     ResponseNotRecorded(crate::recording::ResponseNotRecorded),
     /// Of `recording_invalid`.
@@ -784,12 +792,12 @@ pub enum StopReason {
     /// A timeout: the Agent's own `timeout.agent`, or the Run's.
     Timeout(LimitSource),
     /// The Agent's step cap, `agent.max_steps`; only the task stops.
-    Steps(LimitSource),
+    MaxSteps(LimitSource),
     /// The Agent's stall rule, `agent.max_stalled_steps`; only the task stops.
     NoProgress(LimitSource),
-    /// Someone other than the caller stopped it: a person, another Client, or the program closing
-    /// the page or the Run.
-    Abort,
+    /// Someone other than the caller stopped it: a person in the Console (`person`), another
+    /// Client (`client`), or the program closing the page or the Run (`program`).
+    Abort(String),
     /// A reason this SDK does not know, as received.
     Unknown(String),
 }

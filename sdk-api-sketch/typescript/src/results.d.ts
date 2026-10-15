@@ -4,6 +4,7 @@
 // The codes below are a representative subset: each area's spec lists its codes, their groups
 // and their details in goodfetch-protocol, and codegen writes one class per code.
 
+import type { AgentTaskProgress } from "./agent.js";
 import type { ModelUsage } from "./models.js";
 import type { RecordCounts } from "./output.js";
 import type { DeadlineExceededDetails } from "./time.js";
@@ -157,6 +158,8 @@ export declare abstract class GoodfetchError extends Error {
   readonly details?: unknown;
   /** What the call's model calls consumed before it failed, when it made any: a failed call's spend is never hidden (ADR 0101). */
   readonly usage?: ModelUsage;
+  /** On an error `page.agent` throws after its task took steps: the steps and the partial answer (ADR 0100). */
+  readonly agentTask?: AgentTaskProgress;
 }
 
 // The seven groups by remedy. A code this SDK does not know is thrown as its group's class.
@@ -349,9 +352,10 @@ export type Ended =
 export type StopReason =
   | { readonly kind: "limit"; readonly limit: string }
   | { readonly kind: "timeout"; readonly source: LimitSource }
-  | { readonly kind: "steps"; readonly source: LimitSource }
+  | { readonly kind: "max_steps"; readonly source: LimitSource }
   | { readonly kind: "no_progress"; readonly source: LimitSource }
-  | { readonly kind: "abort" }
+  /** Who stopped it: a person in the Console, another Client, or the program closing the page or the Run. */
+  | { readonly kind: "abort"; readonly by: "person" | "client" | "program" | (string & {}) }
   | { readonly kind: "unknown"; readonly raw: string };
 
 /** What the model said about its own work: a signal, never proof (ADR 0013). */

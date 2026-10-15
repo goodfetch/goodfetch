@@ -65,7 +65,7 @@ async def cheapest_five_star_travel_book() -> Answer | None:
 def report(result: AsyncAgentResult[Answer]) -> Answer | None:
     """How the work ended, its Verdict and the model's claim are three separate fields (ADR 0079)."""
     if isinstance(result.ended, Stopped):
-        # `steps`, `no_progress` and `timeout` name the setting that stopped it in `source`; `limit` names the Limit.
+        # `max_steps`, `no_progress` and `timeout` name the setting that stopped it in `source`; `limit` names the Limit.
         claim = result.reported.claim if result.reported else None
         log.warning("agent stopped (%s); partial %s; claimed %s", result.ended.reason, result.partial, claim)
         return None
@@ -100,6 +100,8 @@ async def cheapest_unowned_book(run: AsyncRun) -> Answer:
         ).result()
     except AgentToolFailedError as error:
         log.error("tool %s raised: %s", error.details.tool, error.details.exception_message)
+        # Whatever ended the task, the steps taken and the Grounded partial answer travel on the error.
+        log.warning("partial answer: %s", error.agent_task.partial if error.agent_task else None)
         raise
     # Each page action carries its code in Python, to turn the task into plain page API calls.
     log.debug("as code: %s", [a.code for s in result.steps for a in s.actions if a.code])

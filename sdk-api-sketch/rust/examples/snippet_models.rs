@@ -69,7 +69,7 @@ async fn typed_book(local: bool) -> Result<Option<Book>, Error> {
         }
         Err(error) if *error.code() == ErrorCode::ExtractionIncomplete => None,
         Err(error) => {
-            // An invalid answer names the model and the strategy; what the attempts cost is on the error too.
+            // An invalid answer names the model and the strategy; what the attempts spent is on the error too.
             if let (Some(ErrorDetails::ExtractionInvalid(invalid)), Some(spent)) =
                 (error.details(), error.usage())
             {
@@ -128,7 +128,8 @@ async fn providers() -> Result<(), Error> {
         .set(ai::MODEL, Some("vercel/openai/gpt-5-mini".into())) // the Vercel AI Gateway (ADR 0076)
         .set(ai::STRUCTURED_OUTPUT, StructuredOutput::Auto)
         .model_provider("lab", lab)
-        .set(timeout::MODEL, Some(Duration::from_secs(120))); // a slow server
+        .set(timeout::MODEL, Some(Duration::from_secs(120))) // a slow server, so both are raised
+        .set(timeout::AI, Some(Duration::from_secs(300)));
     let gf = Goodfetch::connect(ConnectOptions::default().settings(settings)).await?;
     let run = gf
         .collie()

@@ -62,7 +62,7 @@ async def typed_book(local: bool) -> Book | None:
             log.warning("fields not on the page: %s", error.details.missing)
             return None
         except ExtractionInvalidError as error:
-            # Names the model and the strategy; what the failed attempts cost is on the error too.
+            # Names the model and the strategy; what the failed attempts spent is on the error too.
             spent = usage_fields(error.usage) if error.usage is not None else {}
             log.error("%s never fitted the schema with %s: %s", error.details.model, error.details.strategy, spent)
             raise
@@ -96,7 +96,7 @@ async def providers() -> None:
                     }
                 },
             },
-            "timeout": {"model": timedelta(minutes=2)},  # a slow server: one model request may take 2 minutes
+            "timeout": {"model": timedelta(minutes=2), "ai": timedelta(minutes=5)},  # a slow server, so both are raised
         },
     ) as gf:
         async with await gf.collie.start(settings={"ai": {"model": "lab/qwen3-vl-32b"}}) as run:

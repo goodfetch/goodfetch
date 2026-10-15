@@ -4,8 +4,9 @@
   AI verbs' per-call `model=` (ADR 0091), which is that setting at the run layer. `ai.model` has no default: no model
   is called unless one is configured (ADR 0043).
 - Model providers are built in (`openai`, `anthropic`, `google`, `vercel`, `openrouter`, and the local `ollama`,
-  `llamacpp`, `lmstudio`, `vllm`), declared under `ai.providers.<name>`, or a handler registered on the connection
-  (ADR 0033's SDK-handler form of the Model provider kind).
+  `llamacpp`, `lmstudio`, `vllm`), declared under `ai.providers.<name>`, a Model provider Plugin the operator allowed
+  (ADR 0033), named by its manifest, or a handler registered on the connection (ADR 0033's SDK-handler form).
+  Provider names form one namespace.
 - Capabilities are declared, never sniffed from a name; prices come from the price table, set only in configuration.
 - Every AI result carries its `ModelUsage`, priced; `run.usage()` gives the Run's totals, what remains of each Limit and
   ADR 0041's uncapped mark. An error from a call that made model calls carries its `usage` too.
@@ -18,7 +19,7 @@ from typing import Literal, TypeAlias, TypedDict, final
 
 from goodfetch._data import JsonSchema
 from goodfetch._results import ModelError, ProgramError, RefusedError, UnavailableError
-from goodfetch._sessions import HeadersInput, SecretReference
+from goodfetch._sessions import SecretReference
 from goodfetch._time import Money
 
 ModelReference: TypeAlias = str
@@ -58,7 +59,7 @@ class ModelDeclaration(TypedDict, total=False):
 class ModelProviderSettings(TypedDict, total=False):
     """`ai.providers.<name>`: a Model provider the program declares, or a built-in it changes.
 
-    Declared at the connection, a Run or a Session. `api_key` and secret `headers` go only to `base_url`. A built-in's
+    Declared at the connection, a Run or a Session. `api_key` and `headers` go only to `base_url`. A built-in's
     default key (its conventional variable, such as `env:OPENAI_API_KEY`) goes only to its own address, so a built-in
     pointed elsewhere sends none. `api_key`, `headers` and `base_url` are set by the program's own code, configuration
     or an Operator policy: a Recipe and a Client acting for a model, an Integration included, never set them
@@ -67,7 +68,8 @@ class ModelProviderSettings(TypedDict, total=False):
     format: ModelFormat
     base_url: str
     api_key: SecretReference | None
-    headers: HeadersInput
+    headers: Mapping[str, SecretReference]
+    """Header values are Secret references, as ADR 0056's `cdp_url` headers."""
     models: Mapping[str, ModelDeclaration]
     """Capabilities by the provider's own model ID."""
 
@@ -134,6 +136,8 @@ class ModelRequest:
 
     model: str
     """The model ID after the provider's name in the Model reference."""
+    run_id: str
+    """The Run asking."""
     messages: Sequence[ModelMessage]
     tools: Sequence[ModelTool]
     tool_choice: ModelToolChoice
@@ -308,10 +312,27 @@ class ModelContextExceededDetails:
 @dataclass(frozen=True, kw_only=True)
 class ModelOutputInvalidDetails:
     model: ModelReference
-    strategy: StructuredOutputStrategy
+    strategy: StructuredOutputStrategy | str
+    """A newer engine's value is kept as received (G3)."""
     attempts: int
     problem: str
     """The last attempt's problem."""
+
+@final
+@dataclass(frozen=True, kw_only=True)
+class ModelRequestRejectedDetails:
+    model: ModelReference
+    status: int | None
+    request_id: str | None
+    provider_message: str | None
+
+@final
+class ModelRequestRejectedError(ProgramError):
+    """The provider rejected the request for another reason (a 400 or 422), such as a strategy `ai.structured_output`
+    forces, or the last rung of `auto`'s ladder."""
+
+    @property
+    def details(self) -> ModelRequestRejectedDetails: ...
 
 @final
 class ModelNotFoundError(ProgramError):

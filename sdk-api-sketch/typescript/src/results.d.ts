@@ -94,6 +94,7 @@ export type KnownErrorCode =
   | "model_declined"
   | "model_context_exceeded"
   | "model_output_invalid"
+  | "model_request_rejected"
   | "agent_tool_failed"
   | "agent_tool_invalid"
   | "success_check_threw"

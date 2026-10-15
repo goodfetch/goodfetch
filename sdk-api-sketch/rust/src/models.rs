@@ -5,7 +5,8 @@
 //!   which is that setting at the run layer. It has no default: no model is called unless one is
 //!   configured (ADR 0043).
 //! - Model providers are built in (`openai`, `anthropic`, `google`, `vercel`, `openrouter`, and the
-//!   local `ollama`, `llamacpp`, `lmstudio`, `vllm`), declared with [`Settings::model_provider`], or
+//!   local `ollama`, `llamacpp`, `lmstudio`, `vllm`), declared with [`Settings::model_provider`], a
+//!   Model provider Plugin the operator allowed (ADR 0033), named by its manifest, or
 //!   answered by the program through [`Goodfetch::model_requests`] (ADR 0033's SDK-handler form, an
 //!   [`EventStream`] as ADR 0092's `secret_requests`, since the async API spawns nothing, ADR 0081).
 //! - Capabilities are declared, never sniffed from a name; prices come from the price table, set only
@@ -19,7 +20,6 @@ use std::time::Duration;
 
 use crate::concurrency::EventStream;
 use crate::lifecycle::{Goodfetch, Run};
-use crate::page::Headers;
 use crate::results::Error;
 use crate::sessions::SecretReference;
 use crate::settings::Settings;
@@ -71,7 +71,7 @@ pub enum ModelFormat {
 }
 
 /// How the engine gets JSON that fits a schema.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum StructuredOutputStrategy {
     /// The provider's own schema mode.
@@ -80,10 +80,12 @@ pub enum StructuredOutputStrategy {
     Tool,
     /// The schema in the prompt, with JSON repair.
     Prompt,
+    /// A strategy a newer engine reports, as received (G3).
+    Unknown(String),
 }
 
 /// `ai.structured_output`.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum StructuredOutput {
     /// The built-in: the best strategy the model declares, or `Native` for one it does not know,
@@ -185,9 +187,10 @@ impl ModelProvider {
         unimplemented!()
     }
 
-    /// Headers sent with every request.
-    pub fn headers(self, headers: Headers) -> Self {
-        let _ = headers;
+    /// A header sent with every request; its value is a Secret reference, as ADR 0056's
+    /// `cdp_url` headers.
+    pub fn header(self, name: &str, value: SecretReference) -> Self {
+        let _ = (name, value);
         unimplemented!()
     }
 
@@ -439,7 +442,7 @@ pub struct ModelUsageOf {
 }
 
 /// What model calls consumed: on every AI result, and on every error from a call that made model
-/// calls. A step replayed from the Plan sends no call and costs nothing.
+/// calls. A step replayed from the Plan sends no call and is priced zero.
 #[derive(Debug, Clone, Default)]
 #[non_exhaustive]
 pub struct ModelUsage {
@@ -675,6 +678,37 @@ pub enum UnavailableReason {
     RateLimited,
     /// A reason this SDK does not know, as received.
     Unknown(String),
+}
+
+/// Details of `model_declined`.
+#[derive(Debug, Clone)]
+#[non_exhaustive]
+pub struct ModelDeclined {
+    /// The failure.
+    pub failure: ModelFailure,
+    /// The provider's reason, when it gave one.
+    pub reason: Option<String>,
+}
+
+/// Details of `model_context_exceeded`.
+#[derive(Debug, Clone)]
+#[non_exhaustive]
+pub struct ModelContextExceeded {
+    /// The failure.
+    pub failure: ModelFailure,
+    /// The model's context window, when known.
+    pub context_window: Option<u64>,
+}
+
+/// Details of `model_request_rejected`: a request the provider rejected for another reason (a
+/// 400 or 422), such as a strategy `ai.structured_output` forces.
+#[derive(Debug, Clone)]
+#[non_exhaustive]
+pub struct ModelRequestRejected {
+    /// The failure.
+    pub failure: ModelFailure,
+    /// The provider's message, when it sent one.
+    pub provider_message: Option<String>,
 }
 
 /// Details of `model_unavailable`.

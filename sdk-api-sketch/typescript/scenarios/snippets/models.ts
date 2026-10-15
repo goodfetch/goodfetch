@@ -51,7 +51,7 @@ export async function typedBook(local: boolean): Promise<z.infer<typeof Book> | 
       return undefined;
     }
     if (error instanceof ExtractionInvalidError) {
-      // Names the model and the strategy; what the failed attempts cost is on the error too.
+      // Names the model and the strategy; what the failed attempts spent is on the error too.
       const { model, strategy, issues } = error.details;
       log.error("the model never fitted the schema", { model, strategy, issues, ...(error.usage ? usageFields(error.usage) : {}) });
     }
@@ -84,7 +84,7 @@ export async function providers(): Promise<void> {
           },
         },
       },
-      timeout: { model: 120_000 }, // a slow server: one model request may take 2 minutes
+      timeout: { model: 120_000, ai: 300_000 }, // a slow server: one model request may take 2 minutes, an AI call 5
     },
   });
   await using run = await gf.collie.start({ settings: { ai: { model: "lab/qwen3-vl-32b" } } });

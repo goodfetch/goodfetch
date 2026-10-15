@@ -275,8 +275,8 @@ export declare class ExtractionInvalidError extends ModelError {
   readonly details: {
     readonly attempts: number;
     readonly model: ModelReference;
-    /** The strategy of the last attempt (ADR 0101). */
-    readonly strategy: StructuredOutputStrategy;
+    /** The strategy of the last attempt (ADR 0101); a newer engine's value is kept as received. */
+    readonly strategy: StructuredOutputStrategy | (string & {});
     /** The last attempt's problems, per field. */
     readonly issues: readonly { readonly path: readonly (string | number)[]; readonly message: string }[];
   };

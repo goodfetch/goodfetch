@@ -3,8 +3,9 @@
 //   for a scope, or the AI verbs' per-call `model` (ADR 0091), which is that setting at the run layer.
 //   `ai.model` has no default: no model is called unless one is configured (ADR 0043).
 // - Model providers are built in (`openai`, `anthropic`, `google`, `vercel`, `openrouter`, and the
-//   local `ollama`, `llamacpp`, `lmstudio`, `vllm`), declared under `ai.providers.<name>`, or an SDK
-//   handler registered on the connection (ADR 0033's SDK-handler form of the Model provider kind).
+//   local `ollama`, `llamacpp`, `lmstudio`, `vllm`), declared under `ai.providers.<name>`, a Model
+//   provider Plugin the operator allowed (ADR 0033), named by its manifest, or an SDK handler
+//   registered on the connection (ADR 0033's SDK-handler form). Provider names form one namespace.
 // - Capabilities are declared, never sniffed from a name; prices come from the price table, set only
 //   in configuration, so no Client can lower the price a person's currency Limit is held to.
 // - Every AI result carries its `ModelUsage`, priced; `run.usage()` gives the Run's totals, what
@@ -13,7 +14,7 @@
 
 import type { JsonSchema } from "./data.js";
 import type { ModelError, ProgramError, RefusedError, UnavailableError } from "./results.js";
-import type { HeadersInput, SecretReference } from "./sessions.js";
+import type { SecretReference } from "./sessions.js";
 import type { CallOptions, Money } from "./time.js";
 
 // Naming a model.
@@ -64,7 +65,7 @@ export interface ModelDeclaration {
 
 /**
  * `ai.providers.<name>`: a Model provider the program declares, or a built-in it changes (a proxy in
- * front of OpenAI), at the connection, a Run or a Session. `apiKey` and secret `headers` go only to
+ * front of OpenAI), at the connection, a Run or a Session. `apiKey` and `headers` go only to
  * `baseUrl`. A built-in's default key (its conventional variable, such as `env:OPENAI_API_KEY`) goes
  * only to its own address, so a built-in pointed elsewhere sends none. `apiKey`, `headers` and
  * `baseUrl` are set by the program's own code, configuration or an Operator policy: a Recipe and a
@@ -75,7 +76,8 @@ export interface ModelProviderSettings {
   readonly format?: ModelFormat;
   readonly baseUrl?: string;
   readonly apiKey?: SecretReference | null;
-  readonly headers?: HeadersInput;
+  /** Header values are Secret references, as ADR 0056's `cdp_url` headers. */
+  readonly headers?: Readonly<Record<string, SecretReference>>;
   /** Capabilities by the provider's own model ID. */
   readonly models?: Readonly<Record<string, ModelDeclaration>>;
 }
@@ -126,6 +128,8 @@ export interface ModelToolCall {
 export interface ModelRequest {
   /** The model ID after the provider's name in the Model reference. */
   readonly model: string;
+  /** The Run asking. */
+  readonly runId: string;
   readonly messages: readonly ModelMessage[];
   readonly tools: readonly ModelTool[];
   readonly toolChoice: ModelToolChoice;
@@ -269,6 +273,12 @@ export interface ModelFailureDetails {
   readonly requestId: string | null;
 }
 
+/** The provider rejected the request for another reason (a 400 or 422), such as a strategy `ai.structured_output` forces, or the last rung of `auto`'s ladder. */
+export declare class ModelRequestRejectedError extends ProgramError {
+  readonly code: "model_request_rejected";
+  readonly details: ModelFailureDetails & { readonly providerMessage: string | null };
+}
+
 /** The provider says the model does not exist or is not available to this key. */
 export declare class ModelNotFoundError extends ProgramError {
   readonly code: "model_not_found";
@@ -338,7 +348,8 @@ export declare class ModelOutputInvalidError extends ModelError {
   readonly code: "model_output_invalid";
   readonly details: {
     readonly model: ModelReference;
-    readonly strategy: StructuredOutputStrategy;
+    /** A strategy a newer engine sends is kept as received (G3). */
+    readonly strategy: StructuredOutputStrategy | (string & {});
     readonly attempts: number;
     /** The last attempt's problem. */
     readonly problem: string;

@@ -226,6 +226,9 @@ pub enum ErrorCode {
     ModelContextExceeded,
     /// `model_output_invalid`, a model error: an `act`, `observe` or Agent step's answer never parsed.
     ModelOutputInvalid,
+    /// `model_request_rejected`: the provider rejected the request for another reason (a 400 or
+    /// 422), such as a forced strategy.
+    ModelRequestRejected,
     /// `agent_tool_failed`, a program error: an Agent tool returned an error, and the task ended
     /// (ADR 0100).
     AgentToolFailed,
@@ -519,9 +522,14 @@ pub enum ErrorDetails {
     EffectOutputInvalid(crate::effects::EffectOutputInvalid),
     /// Of `effect_not_confirmed`.
     EffectNotConfirmed(crate::ai::EffectNotConfirmed),
-    /// Of `model_not_found`, `model_unauthorized`, `model_funds_exhausted`, `model_declined` and
-    /// `model_context_exceeded` (ADR 0101).
+    /// Of `model_not_found`, `model_unauthorized` and `model_funds_exhausted` (ADR 0101).
     ModelFailure(crate::models::ModelFailure),
+    /// Of `model_declined`.
+    ModelDeclined(crate::models::ModelDeclined),
+    /// Of `model_context_exceeded`.
+    ModelContextExceeded(crate::models::ModelContextExceeded),
+    /// Of `model_request_rejected`.
+    ModelRequestRejected(crate::models::ModelRequestRejected),
     /// Of `model_price_unknown`.
     ModelPriceUnknown(crate::models::ModelPriceUnknown),
     /// Of `model_capability_missing`.

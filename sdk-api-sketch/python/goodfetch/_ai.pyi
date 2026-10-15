@@ -464,8 +464,8 @@ class ExtractionIssue:
 class ExtractionInvalidDetails:
     attempts: int
     model: ModelReference
-    strategy: StructuredOutputStrategy
-    """The strategy of the last attempt (ADR 0101)."""
+    strategy: StructuredOutputStrategy | str
+    """The strategy of the last attempt (ADR 0101); a newer engine's value is kept as received."""
     issues: Sequence[ExtractionIssue]
     """The last attempt's problems, per field."""
 

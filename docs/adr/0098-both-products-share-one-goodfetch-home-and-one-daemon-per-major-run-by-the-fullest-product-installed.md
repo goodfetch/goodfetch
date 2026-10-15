@@ -1,0 +1,139 @@
+# Both Products share one Goodfetch home and one Daemon per major, run by the fullest Product installed
+
+ADR 0084 made Collie and Foxhound two Products, Foxhound's executable containing Collie's code, and left to this decision what the two share when one user installs both. Nothing in Goodfetch home is kept per Product: both use the same Browser cache, Usage ledger, Run index, Schedules, Saved identities, Response cache, configuration and Operator policy, in the tiers ADR 0030 set. One Daemon per user and major serves both. It runs the fullest Product installed for that major, at its newest installed version, so two Clients always agree on it and never restart each other's Daemon. A list of installed executables tells the Daemon which Product to run and the Browser cache which builds are still needed; a build is deleted only when nothing installed pins it, nothing used it for 30 days and nothing holds it. Stores that engines of several versions open at once record the lowest version that can use them, so upgrading one Product does not lock the other out. The [research on two Products on one machine](https://github.com/goodfetch/goodfetch/blob/research/products-one-machine/rnd/research/2026-10-15-products-one-machine.md) found:
+- **A shared cache breaks when "still needed" is guessed from file presence.** Playwright 1.64 deletes, at each install, every build that no package folder still on disk lists. Reinstalling dependencies or switching containers deleted builds still in use ([playwright#40995](https://github.com/microsoft/playwright/issues/40995), closed as not planned), and switching branches pinned to different versions deleted them at every install ([playwright#42214](https://github.com/microsoft/playwright/issues/42214)). Gradle deletes an older version's caches, and Bazel another version's install base, only after 30 days unused; Bazel deletes only under an exclusive lock that a user's shared lock blocks.
+- **A daemon shared across versions needs a rule, or it restarts.** Bazel kills a server of another version, so two versions used in one workspace keep restarting it. Gradle runs one daemon per version. Docker serves every client within its API range from one daemon, the client lowering its API version to the daemon's, while products that each claim `/var/run/docker.sock` take it from one another.
+- **A newer version's writes lock older ones out unless the store says who may read it.** Chrome's databases record the lowest version that can still use them, and an older Chrome refuses one only when that version is newer than itself. Firefox 67 gave each installation its own profile because a newer version's changes could make a profile unusable by older ones.
+
+Decided in [Collie and Foxhound installed on one machine](https://github.com/goodfetch/goodfetch/issues/486), on the map [Goodfetch products: Collie and Foxhound as separately installable products](https://github.com/goodfetch/goodfetch/issues/447), by the agent on the owner's delegation; each question, its options and the field evidence are in the ticket's [grilling record](https://github.com/goodfetch/goodfetch/issues/486#issuecomment-6181839327). It builds on [ADR 0088](0088-collie-carries-every-capability-except-those-only-many-pages-need.md) (Collie carries the Daemon, Run index, Console, Usage ledger and Schedules, and ADR 0053's per-proxy and per-provider limits), [ADR 0090](0090-products-are-named-goodfetch-collie-and-goodfetch-foxhound-and-share-one-product-version.md) (one Product version; `GOODFETCH_HOME` and the home folder `goodfetch` stay shared) and [ADR 0095](0095-both-products-speak-one-protocol-from-one-catalog-marked-by-product-and-their-sdks-share-collies-client-packages.md) (`hello` names the Product a Client needs, and a Collie engine refuses a Foxhound Client with `not_in_product`).
+
+## Decision
+
+### One Goodfetch home
+
+- **Nothing in Goodfetch home is kept per Product.** Engines of both Products use the same files, in ADR 0030's two tiers:
+  - per user, shared by every major: the Browser cache, the Usage ledger (ADR 0041), the known-certificates store (ADR 0042), the Politeness file (ADR 0053), the active-major marker of Schedules (ADR 0036), the Console key (ADR 0031) and the list of installed executables below;
+  - per user and major: the Daemon's runtime file and tokens (ADR 0024), the Run index, the Schedule store, run folders and the per-install database (ADR 0002), the Saved identity store (ADR 0035), the Response cache (ADR 0046), user configuration and the Operator policy (ADR 0028).
+- **Why one home, not one per Product.**
+  - A Limit or an Operator policy lock set while using one Product binds the other, as ADR 0041 keeps one Usage ledger for every major so that running another binary cannot escape a cap.
+  - A Saved identity created with Collie serves a Foxhound crawl, and each browser build downloads once.
+  - Firefox keeps a profile per installation because a newer version's changes can make a profile unusable by older ones, and it records only the last version that used the whole profile. Goodfetch's stores each carry their own version (ADR 0030) and record which versions can still use them ([Versions side by side](#versions-side-by-side)).
+- The Plugin store (ADR 0033) is shared likewise, and Secret references to the operating system's keychain keep their `goodfetch/` names (ADR 0015).
+
+### The list of installed executables
+
+- **Each executable records itself when it runs**, in a per-user list in Goodfetch home, outside the per-major folders: its Product, its Product version, its path, the browser builds and other cache downloads its version pins (such as a full Clean-up rules set, ADR 0047) and when it was last seen. An executable installed but never run is not in the list until its first command runs.
+- **Each entry also records its kind:** a Product's executable, or a program that links the engine through a Product's Rust crate (ADR 0024). A linked program records itself so that its builds are kept, but it never runs the Daemon, since it cannot be started as one.
+- **An entry counts as installed** while its executable is still at that path at that version, or was seen within `browser_cache.max_unused_age` (30 days). The second condition keeps a reinstall, a deleted `node_modules` or a switched container from counting as a removal, which is how Playwright lost builds still in use.
+- **The list is a contract format of the Usage ledger's family** (ADR 0030): its major stays frozen across Product majors and newer versions only add, since engines of every major and of both Products read it.
+- It answers two questions: which executable runs the Daemon, and which browser builds are still needed. Every entry that counts keeps its builds; only a Product's executable can be the pick.
+
+### One Daemon per user and major
+
+- **The Daemon of a major runs its pick:** the fullest Product installed for that major, at its newest installed version. That is Foxhound whenever a Foxhound executable of the major counts as installed, can be started and can open the major's shared stores, otherwise Collie.
+  - An executable can be started while it is at its recorded path, or while the versioned copy the Daemon runs from (ADR 0024) is in the Browser cache. An entry that still counts after its executable left, with no copy, keeps its builds but is never the pick.
+  - An executable can open the shared stores while its version is at least the lowest minor each of them records ([Versions side by side](#versions-side-by-side)). So an older Foxhound that a newer engine's writes have locked out of the Run index is passed over, and the Daemon stays usable.
+  - A Foxhound engine serves Collie's Clients too (ADR 0095), so the pick serves every installed Client of its version or older.
+  - The pick depends only on what is installed, on whether each executable can be started and on the lowest minors the shared stores record, so two Clients always agree on it, and two Products never restart each other's Daemon as two Bazel versions restart its server.
+  - Product comes before version. A Foxhound older than the installed Collie still runs the Daemon, so Foxhound's Clients and Schedules keep one, and the newer Collie's Clients run as described below.
+  - **When no executable can be the pick,** as when only a program that links the engine has raised a store's lowest minor past every installed executable, no Daemon runs. Starting one fails with the version refusal naming the version to install, `auto` Clients run attached, and Schedules fire nothing until a Daemon runs, as when none runs (ADR 0036).
+- **Whatever starts the Daemon starts the pick:** a Client, `daemon start`, the per-user service, or an Attached engine that needs a Console link (ADR 0031). It runs from the versioned copy ADR 0024 already runs the Daemon from, so a Collie Client can start Foxhound's Daemon.
+- **A Daemon that is not its major's pick hands over to the pick** once it hosts no live run and no Client other than a Console, which reconnects (ADR 0066). The pick changes only when an install, an upgrade, a removal or a raised lowest minor does. A Daemon that finds a shared store's lowest minor raised past itself takes no new run and hands over once its live runs end; the next Daemon rebuilds their Run index rows from their own state (ADR 0031).
+- **One service per major** (ADR 0030): `daemon install`, from either executable, registers a service that starts the pick.
+- **A Client the Daemon refuses**, by Product (`not_in_product`, ADR 0095) or by protocol version (ADR 0024), while the Daemon cannot hand over (it is busy, or it is already the pick):
+  - with `engine: auto`, it runs the engine it would run with no Daemon, an Attached engine or, in Rust, the linked one, and logs a warning naming the cause and the fix (ADR 0077's G6). The run still appears in the Run index, and the Daemon forwards live actions to it (ADR 0031);
+  - with `engine: daemon`, or the CLI's `--daemon`, it fails at connect with the refusal, whose `fix` adds to ADR 0095's:
+    - the `daemon restart` command of its own Product's executable at its version: the one it would run attached, given by its path, such as `node_modules/.bin/goodfetch-foxhound daemon restart`, or, for a Rust Client, which links the engine and runs none, that executable's install command first. That command records its executable as it runs, so one installed but never run is counted, and restarts the Daemon on the pick, or says which version the shared stores need;
+    - when that executable would still not be the pick, as for a Collie Client while an older Foxhound that can be the pick counts as installed, Foxhound at the Client's version or newer, to install and run.
+
+  Every release publishes both Products at one version (ADR 0090), so every refusal can end: once the Client's own executable is the pick, or else once a Foxhound at the Client's version or newer, which the shared stores accept, has run and so become the pick.
+
+  A refused Client the Daemon can hand over for, because the Daemon is idle and not the pick, waits for the pick and connects to it.
+- **Unchanged:** an Exposed Daemon started by `daemon run` (ADR 0049) runs the Product its operator chose and has no pick, and every Group member of a Daemon group runs one Product (ADR 0095).
+
+### One Console per user and major
+
+- **The Console is the major's Daemon's,** whichever Product runs it, on the same port, so a bookmark and a Console login survive a change of Product. `goodfetch-collie console` and `goodfetch-foxhound console` open the same Console, and start the pick if no Daemon runs.
+- **It lists every run of the major** with the Product that ran it, and one "Needs you" list covers both Products.
+- **On a Console a Collie Daemon serves**, a run that needs Foxhound keeps every view all runs have, and its live actions, which the Daemon forwards to the engine that owns it. Its Foxhound views (Datasets, Sinks, crawl progress, search across runs) and any write the Daemon itself would make to it answer `not_in_product`, whose fix names Foxhound. Under the pick, a Collie Daemon meets such a run only when no Foxhound can be the pick: while it waits to hand over to a Foxhound just installed, which includes a Foxhound run that fell back to an Attached engine; while the installed Foxhound cannot be started or cannot open the shared stores; and once Foxhound has been removed.
+
+### What one Product may do with what the other wrote
+
+- **Versions decide, never Products.** Engines of both Products at one version read and write every shared file alike.
+- **A run records the Product it needs:** Collie until it uses an entry the Operation catalog marks Foxhound's (ADR 0095), Foxhound from then on. The Run index and the run's own state carry it. A Collie engine reads such a run like any other and refuses to take its writer role, to resume or adopt it, with `not_in_product`.
+- **A Schedule records the Product its target needs** in the same way. A Daemon that lacks that Product fires nothing for it: each occurrence is recorded as missed with `not_in_product`, and "Needs you" holds one item per such Schedule, naming the fix.
+- **A Collie engine leaves what only Foxhound carries untouched.** It lists Foxhound's setting keys without applying them ([ADR 0087](0087-each-product-is-an-executable-crate-that-links-only-its-crates-and-has-its-own-size-budget.md)), keeps Plugins of the kinds it lacks in the Plugin store and refuses them when a run asks for one, and leaves the Politeness file's domain limits and the robots.txt copies, which are Foxhound's (ADRs 0053 and 0086), untouched.
+- **A Product that rewrites a shared file keeps every entry it does not carry,** and never deletes another Product's runs, Schedules, setting keys or Plugins.
+- **A proxy's and a cloud-browser provider's limits bind both Products' runs.** Collie carries them (ADR 0088), and the account they protect has one cap whichever Product sends through it, so engines of both Products share them as ADR 0053 shares them (`politeness.sharing`).
+- **A program's own `rate_limit` stays with the program.** A site's 429 that a Collie page or a program's own fetch meets is reported on the call that met it and writes nothing to Politeness's domain limits, as ADR 0086 keeps a program's own navigation outside Politeness. A crawl of the same site at the default pace meets the site's own 429 within about a second and backs off by itself.
+
+### The Browser cache's clean-up
+
+- **A build is deleted only when all three hold:**
+  - no executable that counts as installed pins it, and no installed Plugin declares it (ADR 0033);
+  - it has not been used or installed for `browser_cache.max_unused_age`;
+  - no process holds it. A launched browser holds a shared lock on its build. Deletion takes an exclusive lock without waiting, renames the build, then deletes it, as Bazel deletes install bases, and a deletion cut off midway finishes on the next run.
+- **An engine never deletes what it cannot read,** such as an entry in a newer format or of a kind it does not know, so an older engine never deletes a newer one's downloads. uv's `cache prune`, which deletes every bucket the running uv does not know, is the failure avoided.
+- **When it runs:** at most once a day after a download into the cache, and on `browsers clean`, whose `--dry-run` lists what it would delete.
+  - `browser_cache.max_unused_age` is set in user configuration or an Operator policy only, and set anywhere else it is refused with `setting_not_applicable` ([ADR 0083](0083-a-program-sets-settings-in-one-typed-option-explicit-values-beat-the-environment-and-no-value-is-silently-ignored.md)). `null` turns the automatic run off; `browsers clean` and the count of installed executables then use the default of 30 days.
+  - A cache the engine cannot write, such as one an image mounts read-only through `GOODFETCH_BROWSERS_PATH`, is never cleaned.
+- **The rule covers everything the cache holds,** among them browser builds, Playwright's driver, the executable copies a Daemon runs from, each pinned by its executable's entry, the engine executable a Rust crate downloads (ADR 0024), the full Clean-up rules sets (ADR 0047) and the recorded mouse movements of ADR 0035. ADR 0033's runtime cache, which holds Plugin runtimes beside the Browser cache, follows the same rule, each runtime pinned by the installed Plugins that use it.
+- **Each Product asks for exactly the builds its version pins.** A missing build's error names the build, the Product and version that pin it, and the install command of that Product's executable (ADR 0077's G6). `@playwright/mcp`'s error once hid which build it expected ([playwright#41871](https://github.com/microsoft/playwright/issues/41871)).
+
+### Versions side by side
+
+- **Stores that engines of several versions open at once record the lowest version that can use them.** The Run index, the Schedule store, the Saved identity store, user configuration and the Operator policy record, beside their own version, the lowest minor of their major that can use them, as Chrome's databases record a compatible version.
+  - A newer engine raises it only when it writes what an older engine would misread or misapply. In user configuration and the Operator policy, that is any key its minor added.
+  - An older engine opens a store whose lowest minor it meets, and keeps what it does not know untouched. It refuses a store whose lowest minor is newer than itself, naming the version to install.
+  - An engine reads the lowest minor in each transaction, so one that finds it raised while it runs stops using the store with the same refusal.
+- **Other formats keep their rules.** The Usage ledger's family opens newer versions, which only add. The Response cache runs without a newer minor (ADR 0046). Each Plugin in the Plugin store is read under its own manifest's version (ADRs 0030 and 0033), so an older engine refuses only a Plugin whose manifest is newer than it knows. Run state and Checkpoints keep ADR 0030's default rule, since each run is written by the engine that owns it: an older engine refuses only to resume a run a newer one wrote. Files kept in a project keep it too, since a project pins its Product version.
+- **So upgrading one Product** moves the Daemon to the new pick when it is next idle, keeps every older engine of the major working unless it meets a store marked for a newer minor, and adds the newer browser builds beside the older ones, which stay while an installed executable pins them.
+- **Across majors nothing changes:** each major keeps its own tier and its own Daemon (ADR 0030), both shared by the two Products.
+
+### Removing a Product
+
+- **Removing an executable deletes nothing in Goodfetch home.** Its entry stops counting once it is gone and unseen for `browser_cache.max_unused_age`. Its builds may then be deleted, the Daemon hands over to the new pick, and the runs and Schedules that need the removed Product say so.
+- **Goodfetch home holds the user's data,** runs and Saved identities among them, and only the user removes it.
+
+## Considered Options
+
+- **A Goodfetch home per Product**, as Firefox gives each installation its own profile and VS Code Insiders its own data folder: rejected. Two Usage ledgers would let one Product escape a Limit set under the other, two Operator policies would let it escape a lock, and every browser build would download twice. A Foxhound engine runs Collie's code and would still need Collie's Saved identities.
+- **Shared caches and ledger, with a Daemon, Run index and Console per Product:** rejected, for the Daemon's reasons below.
+- **A Daemon per Product and major**, as Gradle runs one daemon per version: rejected.
+  - Two Consoles on two ports would list the same Run index, with two "Needs you" lists, which ADR 0031 rejected for engines.
+  - Two schedulers cannot both hold the Schedule store's lock.
+  - A user with both Products would run two Daemons and register two services.
+- **A Daemon run by whichever Client started it**, as Playwright's dashboard is: rejected. A Collie Daemon would refuse every later Foxhound Client. A newer Collie Client restarting an older Foxhound Daemon with its own executable would leave Foxhound's Schedules with nothing to fire them, and the next Foxhound Client would restart it back, as Bazel's versions do.
+- **Version before Product in the pick:** rejected. A newer Collie would run the Daemon over an older Foxhound, and Foxhound's Schedules would stop firing. A newer Collie Client the Daemon refuses loses little: it runs attached.
+- **Failing every refused Client**, as ADR 0024 failed one when the Daemon was busy: rejected for `auto`. `auto` already means an Attached engine whenever no Daemon serves the program (ADR 0078), and a program pinned to a newer Collie would otherwise break because of an older Foxhound elsewhere on the machine. An explicit `daemon` still fails.
+- **Playwright's clean-up, one marker per package folder, checked at install:** rejected, for playwright#40995 and #42214.
+- **No automatic clean-up**, as Puppeteer: rejected. A Goodfetch Chromium build every two weeks grows the cache by several gigabytes a year, and Puppeteer's users ask for a way to keep only recent builds ([puppeteer#15418](https://github.com/puppeteer/puppeteer/issues/15418)).
+- **ADR 0030's default rule for the shared stores:** rejected. The Run index is written at every run start, so a newer Foxhound installed through Homebrew would lock a project's pinned older Collie out as soon as either migrated it.
+- **A copy of each shared store per minor**, as uv versions its cache buckets: rejected. The Console would see only its own minor's runs.
+- **A program's `rate_limit` slowing the crawls that share its domain key:** rejected.
+  - A crawl at the default pace meets the site's own 429 within about a second (ADR 0086).
+  - The key is the registrable domain, so a 429 from a logged-in account's own limit or from a staging subdomain would pause an unrelated crawl.
+  - Collie writes to Politeness only the proxy and provider limits that protect the user's own accounts (ADR 0088); it would also write domain limits, which only Foxhound's crawls read.
+
+## Consequences
+
+- **Amends ADR 0024.** One Daemon per user and major serves both Products and runs the pick, a Daemon that is not the pick hands over when idle, and an `auto` Client it refuses runs without it; the Browser cache's clean-up and its missing-build error. Notes sit under the Daemon's consequence, under its versioned copy and under the browsers' consequence.
+- **Amends ADR 0028.** User configuration and the Operator policy serve both Products and record the lowest minor that can use them. A note sits under its per-major consequence.
+- **Amends ADR 0030.** The per-major state is shared by both Products; the five shared stores record the lowest minor that can use them; the list of installed executables joins the Usage ledger's family. Notes sit under its contract versions and under its per-major state.
+- **Amends ADR 0031.** One Console per user and major lists both Products' runs, and the Run index records the Product each run needs. A note sits under the Run index.
+- **Amends ADR 0035.** The Saved identity store serves both Products and records the lowest minor that can use it. A note sits under Saved identities.
+- **Amends ADR 0036.** A Schedule records the Product its target needs, and a Daemon that lacks it misses its occurrences with `not_in_product`. A note sits under the Schedule store.
+- **Amends ADR 0066.** Older engines of the major open the five shared stores the current engine wrote unless their lowest minor is newer, and the list of installed executables is tested with the Usage ledger's family. Notes sit under its refusals and under older engines and newer files.
+- **Amends ADR 0095.** A Client its major's Daemon refuses by Product runs attached under `engine: auto` instead of failing at `connect()`, and the refusal's `fix` names the Client's own executable's `daemon restart` and, where that would still not be the pick, Foxhound to install and run. A note sits under its refusal.
+- **Amends ADR 0078.** With `auto`, a connection runs the engine it would run with no Daemon when the running Daemon refuses it and cannot hand over. A note sits under its engine choice.
+- **Settings and commands.** `browser_cache.max_unused_age` (30 days, user configuration and Operator policy only) joins the settings schema, and `browsers clean` joins both executables' commands. No Error code is added: refusals use `not_in_product` (ADRs 0087 and 0095) and ADR 0030's version refusals.
+- **Glossary.** Goodfetch home is shared by both Products; the Run index lists both Products' runs; Browser cache is added.
+- **`TESTING.md`.** Bullets for the Daemon's pick and handover, the `auto` fallback, the clean-up's three conditions and its lock, a Collie engine leaving Foxhound's entries untouched, and the lowest minor of the shared stores. Under [ADR 0094](0094-both-products-are-released-and-signed-together-and-each-test-runs-on-collie-unless-it-needs-foxhound.md)'s skew rule, an older Collie opens each file Goodfetch home shares, as the current Foxhound wrote it, with Foxhound's own entries in it.
+- **ADR 0037.** SDK-03, SDK-08 and CN-03 cite this ADR.
+  - Area 3 (Engine runtime) builds the list of installed executables, the pick and the handover, the clean-up and the lowest-minor marker.
+  - Area 10 (Scheduling) builds the Product a Schedule needs.
+  - Area 11 (Client surfaces) builds the `auto` fallback.
+  - Area 12 (Console) builds one Console for both Products.
+
+  Each lists this ADR.
+- **Downstream.** [Apply the product-line decisions to the affected specs and tickets](https://github.com/goodfetch/goodfetch/issues/460) carries this decision into the specs of areas 3, 10, 11 and 12.

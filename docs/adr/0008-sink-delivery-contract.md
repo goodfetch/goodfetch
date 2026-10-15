@@ -13,5 +13,6 @@ Competitor evidence: [storage and sinks research](https://github.com/Jbmanllr/au
 ## Consequences
 
 - The results stream numbers records in commit order and never drops one: a slow consumer slows delivery or resumes from its last number, unlike Spider's broadcast channel, which drops pages.
+  > Amended by [ADR 0103](0103-a-handler-pushes-records-staged-with-its-attempt-into-datasets-its-crawl-declares-and-a-reader-never-slows-the-crawl.md): each Dataset numbers its own Records, from 1, in commit order and with no gaps; a reader reads one Dataset's stream from run state, resumes after a number, and never slows the crawl.
 - Webhook signatures follow the Standard Webhooks specification (ADR 0017).
 - The catalog of further Sinks, the four guarantee classes that replace the three cases above, and how each class is probed are in ADR 0026. ADR 0026 also reverses the rejection of DuckDB as a sink: DuckDB and MotherDuck become Sinks, and DuckDB still reads run files and Exports. Both decided in [Export connectors and integrations catalog](https://github.com/Jbmanllr/automan/issues/88).

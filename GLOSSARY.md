@@ -220,6 +220,10 @@ _Avoid_: snapshot, savepoint, backup
 A cap on the Usage of one run, or of every run counted against a scope (a Schedule, a Partitioned crawl, the install or a Daemon, a person, a named token or a Connection), over a period or a Connection's lifetime; reaching it stops runs cleanly and refuses new ones until the period ends or a person raises it.
 _Avoid_: budget, quota, spending cap
 
+**Model allowance**:
+The most model Usage one run, or one Partitioned crawl, may spend, past which its model calls are refused while it goes on; part of its own task, not a Limit.
+_Avoid_: model budget, model Limit, AI quota
+
 **Price table**:
 The list prices of third parties' Usage, per model and per metered proxy, with fixed rates between currencies, shipped with each release and changed only in configuration or, for a Plugin's, its manifest, through which a currency Limit reserves and a price is reported; an estimate, never a bill.
 _Avoid_: price list, cost map, rate card

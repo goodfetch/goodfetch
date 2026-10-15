@@ -66,7 +66,7 @@ Decided in [Journey catalog: format, IDs, seeded data and surfaces](https://gith
 - **Logins** use accounts the Proving ground derives from the seed, so each variant has its own accounts.
 - **Journeys run against the local copy only**, under ADR 0043's outbound deny. Online-copy results stay conformance reports.
 - **Journeys drive the shipped artefacts**: the `goodfetch` binary and the SDK packages built from the commit, never an engine linked into the test.
-  > Amended by [ADR 0094](0094-both-products-are-released-and-signed-together-and-each-test-runs-on-collie-unless-it-needs-foxhound.md): the executable and SDK packages of the Journey's Product.
+  > Amended by [ADR 0094](0094-both-products-are-released-and-signed-together-and-each-test-runs-on-collie-unless-it-needs-foxhound.md): the executable and SDK packages of the Journey's Product; the one exception is `J-NNN@foxhound-cli`, which runs a Collie Journey's `cli` variant on Foxhound's executable.
 
 ### Runners and results
 

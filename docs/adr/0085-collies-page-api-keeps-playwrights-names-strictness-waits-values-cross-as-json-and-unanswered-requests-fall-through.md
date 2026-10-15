@@ -204,7 +204,7 @@ TypeScript and Python keep Playwright's spellings, including Python's properties
 - **Adds to ADR 0019.** This ADR is the mapping its Consequences ask for, in all three SDKs; each Playwright call in the parity list maps here or is excluded with a reason.
 - **Amends ADR 0080.** A target still ambiguous when its deadline passes raises `target_not_unique`, not `deadline_exceeded`; a note sits under its timeout errors.
 - **Answers ADR 0083's hand-over.** Contexts are Sessions, and pages open with `session.newPage()` or arrive as popups.
-- **Answers ADR 0087's hand-over.** Pages open with `session.newPage()` or as popups; a page a Collie program opens leaves ADR 0087's handler slot empty, and pages opened from a handler's page inherit it.
+- **Answers ADR 0087's hand-over.** Pages open with `session.newPage()` or as popups; a page a Collie program opens leaves ADR 0087's handler value empty, and pages opened from a handler's page inherit it.
 - **Answers ADR 0086's hand-over.** A use signal that refuses a Collie Run's Purpose refuses no call of the program's own page; the AI verbs that send a page's content to a model refuse it, under a code Collie's AI verbs and Plans chooses. One code for every Site-preferences refusal, with its reason, as Crawl definition and handler context proposes for a handler's navigation, would serve both.
 - **Adds to ADR 0023.** The guard's per-call switch is `force`, the setting `action.force` given for one call; it keeps uniqueness.
 - **Adds to ADR 0017.** A CDP session opened from an SDK is a raw CDP attach under its rules, relayed over the program's connection, so it needs no endpoint or token of its own.

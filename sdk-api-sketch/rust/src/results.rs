@@ -217,7 +217,8 @@ pub enum ErrorCode {
     ModelHandlerFailed,
     /// `model_unauthorized`, a refusal: the provider rejected the key. Not retryable.
     ModelUnauthorized,
-    /// `model_funds_exhausted`, a refusal: the provider account has no funds left. Not retryable.
+    /// `model_funds_exhausted`, a refusal: the provider account has no funds left, or a cap set at
+    /// the provider (a spend limit, a tier's monthly cap) is reached. Not retryable.
     ModelFundsExhausted,
     /// `model_price_unknown`, a refusal: a currency Limit applies and the model's price cannot be
     /// stated in its currency (no price, or no fixed rate).

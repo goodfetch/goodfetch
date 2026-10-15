@@ -652,8 +652,10 @@ class Goodfetch(Connection):
         and never at import, by default the process's own (ADRs 0062, 0069): only the deployment variables are read, an
         unknown `GOODFETCH_` name fails with `SettingUnknownError`, and an Attached engine gets exactly this map.
         `project` is the project configuration file: left out, found upward from the working directory as the CLI does;
-        `None`, none (ADR 0083). `fetch_backends`, `proxy_providers` and `sinks` are the program's own Plugins, SDK
-        handlers (ADR 0104), run on the connection's thread pool.
+        `None`, none (ADR 0083). `model_providers` are Model providers answered by the program's own code, by the name
+        Model references use, from the Runs this connection opens; a name taken by a built-in, a declared provider or a
+        Plugin raises `SettingInvalidError` (ADR 0101). `fetch_backends`, `proxy_providers` and `sinks` are the
+        program's own Plugins, SDK handlers (ADR 0104). All of them run on the connection's thread pool.
         """
 
     @property

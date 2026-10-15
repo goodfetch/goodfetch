@@ -305,7 +305,7 @@ export declare class ModelUnauthorizedError extends RefusedError {
   readonly details: ModelFailureDetails;
 }
 
-/** The provider refused because the account has no funds: no credit left, an unpaid account, a used-up free tier. Not retryable. */
+/** The provider refused for the account's funds or a cap set at the provider: no credit left, an unpaid account, a used-up free tier, an organization's or workspace's spend limit, a tier's monthly cap. Not retryable. */
 export declare class ModelFundsExhaustedError extends RefusedError {
   readonly code: "model_funds_exhausted";
   readonly retryable: false;

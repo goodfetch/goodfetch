@@ -96,7 +96,7 @@ These are design goals, not yet an established advantage. The main measure will 
 
 ## 7. Open framework and monetizable services
 
-The open framework contains the useful execution: durable frontier, HTTP/browser, pools, plans, optional agents, repair, CLI/MCP, local storage, instrumentation and execution of self-hosted workers. The fundamental functions do not require an Goodfetch cloud key. Models and proxies can be brought by the user.
+The open framework contains the useful execution: durable frontier, HTTP/browser, pools, plans, optional agents, repair, CLI/MCP, local storage, instrumentation and execution of self-hosted workers. The fundamental functions do not require a Goodfetch cloud key. Models and proxies can be brought by the user.
 
 The service sells operations: hosted browsers and workers, recurring scheduling, storage and retention, integrated proxies, geographic distribution, organization and identity management, reserved capacity, retained diagnostics, integrations and workflow maintenance. A package registry/marketplace can then distribute versioned automations; each package declares its inputs, outputs, capabilities and costs.
 

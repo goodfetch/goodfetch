@@ -18,7 +18,7 @@ Each cell has 3 repetitions, and the campaign 3 blocks, i.e. 324 tasks for a tot
 
 - **MCP.** A real MCP server over stdio (JSON-RPC 2.0, protocol 2025-06-18), in its own process, attached to the page over CDP. The client lists its tools (`tools/list`) and gives them to the model, then executes each call via `tools/call`.
 - **Function tools (`sdk`).** The same operations, declared as tools in the model's API.
-- **CLI.** A single `shell` tool and an `goodfetch` command that the model must discover via `goodfetch --help`. The shell accepts `;`, `&&` and `echo` chaining.
+- **CLI.** A single `shell` tool and a `goodfetch-collie` command that the model must discover via `goodfetch-collie --help`. The shell accepts `;`, `&&` and `echo` chaining.
 - **Code mode.** The model receives the page elements and writes a program once against a typed `page` object. The program is executed in a sandbox, with a single correction in case of an error or a forgotten `page.done()`.
 
 ## Oracle

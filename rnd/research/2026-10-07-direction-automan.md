@@ -274,4 +274,4 @@ Universally superior performance cannot be inferred from a language or a diagram
 - Published versions may differ from `main`, alphas, READMEs and GitHub Releases. The technical notes keep the important distinctions.
 - The proposed product, niche and services are hypotheses to test. Customer interviews and the real cost of pilots will determine the commercial priority.
 - The user retains the choice of language. The current recommendation is canonical Rust for the general ambition; it replaces the initial TypeScript recommendation based on the withdrawn constraint.
-- This study adds notes in `goodfetch/research`. The folder belongs to the parent Git repository `/Users/jb/Dev`; no code, branch, commit, publication or pre-existing file is modified by this research.
+- This study adds notes in `automan/research`. The folder belongs to the parent Git repository `/Users/jb/Dev`; no code, branch, commit, publication or pre-existing file is modified by this research.

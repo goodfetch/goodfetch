@@ -111,6 +111,6 @@ For extraction, a retry can often be made idempotent through a key and deduplica
 
 ## 9. Illustrative economics of repetition
 
-Entirely hypothetical example: 100 executions of an agent at €0.50 cost €50. A compilation at €3, runs at €0.03 and five repairs at €0.50 cost €8.50, i.e. 83% less. This calculation deliberately omits cost items and constitutes neither a vendor price nor an Goodfetch forecast. The complete model must add browsers, proxies, errors, storage, support and maintenance work.
+Entirely hypothetical example: 100 executions of an agent at €0.50 cost €50. A compilation at €3, runs at €0.03 and five repairs at €0.50 cost €8.50, i.e. 83% less. This calculation deliberately omits cost items and constitutes neither a vendor price nor a Goodfetch forecast. The complete model must add browsers, proxies, errors, storage, support and maintenance work.
 
 The break-even point depends on the number of repetitions, the upkeep cost and site stability. A workflow executed only once may remain better served by a general-purpose agent. A workflow with a stable API may remain better served by a direct API integration. The right strategy is to choose the cheapest sufficient means and to verify that it reaches the goal.

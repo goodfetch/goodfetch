@@ -222,7 +222,7 @@ According to the collectors' notes:
 2. **Heterogeneous engagement.** Reactions, points, comments and review counts are not comparable with one another. W is ordinal, and review aggregates weigh heavily (68% of the weight of `dx-setup-docs`).
 3. **Promotional sources.** Market statistics are 66% promo or affiliated. High prices and announced gains come from vendors.
 4. **LLM coding.** The first coder is an LLM and agreement with the second coder is good, but no human validation of the sample is documented in this synthesis. The detail of the disagreements is not available.
-5. **Desk research ≠ willingness to pay.** No figure in this dossier should serve as an Goodfetch price without interviews or a test (`D-pricing`, register note).
+5. **Desk research ≠ willingness to pay.** No figure in this dossier should serve as a Goodfetch price without interviews or a test (`D-pricing`, register note).
 6. **Dated snapshot.** Corpus frozen as of 2026-10-08, with a 6-month half-life. An update requires new coding and a new check (codebook §6).
 
 ## 7. Next actions for the track

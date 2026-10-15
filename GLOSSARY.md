@@ -421,7 +421,7 @@ A Model provider whose model picks one option from a fixed list with a confidenc
 _Avoid_: classifier, router
 
 **Grounding**:
-The requirement that every extracted value appears in its page or follows from a declared transform.
+The requirement that every extracted value appears in its page, or in the program's own data that an Agent tool returned, or follows from a declared transform.
 _Avoid_: verification, fact-check
 
 **Human pause**:

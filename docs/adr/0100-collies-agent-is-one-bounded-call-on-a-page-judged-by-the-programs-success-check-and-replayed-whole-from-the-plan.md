@@ -1,6 +1,6 @@
 # Collie's Agent is one bounded call on a page, judged by the program's Success check and replayed whole from the Plan
 
-A program hands Collie's built-in Agent one objective with `page.agent(task, options)`. The Agent is ADR 0013's thin, journaled loop over the Operation catalog, run as one call that ends in ADR 0079's three separate fields: how it ended, its Verdict and what the model claimed. The program states the Success check with Playwright's `expect` (ADR 0091). A step cap, a stall rule and the task's own timeout stop the task with a reason and its partial answer. The steps are kept as one entry of the Run's Plan and replayed with no model call; on Drift, the loop takes over from the step that drifted. By default the task navigates only on the site it started on. The leaders split on this: Stagehand removed `agent()` in v4 and Playwright removed its hidden `page.agent()` after one release, while Browser Use, Skyvern and Notte keep a loop. False successes and loops that never say why they stopped are among the research's most-reported pains, and so are replay without the model and caps on what a loop spends ([AI browser automation](https://github.com/goodfetch/automan/blob/research/consumer-api/rnd/research/research_notes/Consumer%20API%20of%20competitors/ai-browser-automation.md) §4.1 item 6, §4.2 and §6 pains 2 and 8, then 1 and 13). The loops' exact defaults were checked at tagged releases in [Research: agent loop APIs](https://github.com/goodfetch/automan/blob/research/sdk-agent-loops/rnd/research/2026-10-15-sdk-agent-loops.md). Decided in [The Agent in Collie's SDK API](https://github.com/goodfetch/automan/issues/474), on the map [The SDK API of Collie and Foxhound](https://github.com/goodfetch/automan/issues/461), every answer decided by the agent on the owner's delegation, with its [grilling record](https://github.com/goodfetch/automan/issues/474#issuecomment-6181861259) and [round 2](https://github.com/goodfetch/automan/issues/474#issuecomment-6187826787). Principles are cited by their IDs in [ADR 0077](0077-the-sdk-api-follows-eight-guarantees-and-four-ranked-shape-rules.md). The page is [ADR 0085](https://github.com/goodfetch/automan/pull/501)'s, the AI verbs, Plans and `expect` are [ADR 0091](https://github.com/goodfetch/automan/pull/510)'s, Sessions and secrets are [ADR 0092](https://github.com/goodfetch/automan/pull/509)'s, models and Usage are [ADR 0101](https://github.com/goodfetch/automan/pull/515)'s, a crawl handler's page is [ADR 0093](https://github.com/goodfetch/automan/pull/512)'s and Politeness is [ADR 0086](0086-a-crawl-obeys-robots-txt-and-sends-one-request-at-a-time-per-domain-by-default-and-pressing-harder-is-recorded.md)'s.
+A program hands Collie's built-in Agent one objective with `page.agent(task, options)`. The Agent is ADR 0013's thin, journaled loop over the Operation catalog, run as one call that ends in ADR 0079's three separate fields: how it ended, its Verdict and what the model claimed. The program states the Success check with Playwright's `expect` (ADR 0091). A step cap, a stall rule and the task's own timeout stop the task with a reason and its partial answer. The steps are kept as one entry of the Run's Plan and replayed with no model call; on Drift, the loop takes over from the step that drifted. By default the task navigates only on the site it started on. The leaders split on this: Stagehand removed `agent()` in v4 and Playwright removed its hidden `page.agent()` after one release, while Browser Use, Skyvern and Notte keep a loop. False successes and loops that never say why they stopped are among the research's most-reported pains, and so are replay without the model and caps on what a loop spends ([AI browser automation](https://github.com/goodfetch/automan/blob/research/consumer-api/rnd/research/research_notes/Consumer%20API%20of%20competitors/ai-browser-automation.md) §4.1 item 6, §4.2 and §6 pains 2 and 8, then 1 and 13). The loops' exact defaults were checked at tagged releases in [Research: agent loop APIs](https://github.com/goodfetch/automan/blob/research/sdk-agent-loops/rnd/research/2026-10-15-sdk-agent-loops.md). Decided in [The Agent in Collie's SDK API](https://github.com/goodfetch/automan/issues/474), on the map [The SDK API of Collie and Foxhound](https://github.com/goodfetch/automan/issues/461), every answer decided by the agent on the owner's delegation, with its [grilling record](https://github.com/goodfetch/automan/issues/474#issuecomment-6181861259) and [round 2](https://github.com/goodfetch/automan/issues/474#issuecomment-6187826787). Principles are cited by their IDs in [ADR 0077](0077-the-sdk-api-follows-eight-guarantees-and-four-ranked-shape-rules.md). The page is [ADR 0085](0085-collies-page-api-keeps-playwrights-names-strictness-waits-values-cross-as-json-and-unanswered-requests-fall-through.md)'s, the AI verbs, Plans and `expect` are [ADR 0091](https://github.com/goodfetch/automan/pull/510)'s, Sessions and secrets are [ADR 0092](https://github.com/goodfetch/automan/pull/509)'s, models and Usage are [ADR 0101](https://github.com/goodfetch/automan/pull/515)'s, a crawl handler's page is [ADR 0093](https://github.com/goodfetch/automan/pull/512)'s and Politeness is [ADR 0086](0086-a-crawl-obeys-robots-txt-and-sends-one-request-at-a-time-per-domain-by-default-and-pressing-harder-is-recorded.md)'s.
 
 ## Decision
 
@@ -12,7 +12,7 @@ A program hands Collie's built-in Agent one objective with `page.agent(task, opt
   - **Not on a locator,** whose scope would end at the first navigation, and **not on the Run,** which would deny the program logging in or navigating before it hands over.
 - **The page and its tabs.**
   - The task acts on its page and on the tabs it opens, never on the program's other pages.
-  - The whole task is one gesture under ADR 0085's per-page order: the program's later gestures on that page wait for it, while reads and waits run. While the task waits on the program, running an Agent tool or the Success check, it gives up the page's turn, as ADR 0085's locator handlers and ADR 0092's `login` do, so their gestures run.
+  - The whole task is one gesture under ADR 0085's per-page order: the program's later gestures on that page wait for it, while reads and waits run. While the task waits on the program, running an Agent tool or the Success check, it gives up the page's turn between its own inputs, as ADR 0085's locator handlers and ADR 0092's `login` do, so the gestures queued meanwhile run, the tool's own among them.
   - When the task ends, the tabs it opened are closed as `page.close()` closes them, so on a Borrowed browser they are only released (ADR 0085). The page it ended on stays open, and the result returns it (G4).
   - On a crawl handler's page the task is an acting AI verb, so under `fetch.tier: auto` it escalates to the browser, and under a forced tier it fails with `browser_required` (ADR 0093).
 - **What the call takes** (G3, S2). `page.agent(task, { schema, successCheck, maxSteps, domains, tools, variables, model, timeout, signal })`:
@@ -35,10 +35,10 @@ A program hands Collie's built-in Agent one objective with `page.agent(task, opt
   - It does not run when the model gives up or the task stops early.
 - **The Verdict reads its latest evaluation** (ADR 0029). The task is `verified` when that evaluation passed and every other check the task relies on holds. It is `rejected` when that evaluation failed. It is `needs-review` when the Success check never ran or the task declared none (ADR 0013).
 - **What the function raises** (G1):
-  - `success_check_failed` is the condition's answer, above.
+  - A `PageError`, `success_check_failed` or another one such as a target that is not unique, is the condition's answer, above: the page is not in the state the program stated.
   - Another `GoodfetchError` ends the task with its own code, as ADR 0079 keeps a handler's.
   - A cancellation is never wrapped: someone else stopping the task makes it `stopped` (below), and the caller's own cancellation keeps its language's form (ADR 0080).
-  - Any other exception is the program's bug, never a rejection: the call raises `success_check_threw`, a `ProgramError` chaining it and naming its type and message.
+  - Any other exception, or in Rust an error that is not a Goodfetch one, is the program's bug, never a rejection: the call raises `success_check_threw`, a `ProgramError` chaining it and naming its type and message.
 
 ### The result
 
@@ -50,8 +50,8 @@ A program hands Collie's built-in Agent one objective with `page.agent(task, opt
 - **Grounding holds the output's values** (ADR 0013).
   - Each value must appear in a page the task observed, or in the result of one of its Agent tools (the program's own data), or follow from a declared transform. Grounding records where each value was found, which is how a Plan reads it again.
   - A value that does not is fed back once through ADR 0012's retry. If it stays ungrounded, the output is returned with `verdict: needs-review` naming the field, since a valid `T` the checks cannot prove is a Verdict's business (ADR 0029).
-- **`reported`** is the model's claim, `done` or `gave_up` with its message. It is absent when the task stopped before the model claimed anything.
-- **`ended`** is `finished` when the model reported done or gave up, or `stopped` with its reason (below).
+- **`reported`** is the model's claim, `done` or `gave_up` with its message. It is absent when no model claimed anything in this task: it stopped before a claim, or it was replayed whole with no model call.
+- **`ended`** is `finished` when the model reported done or gave up, or when a replay reached its end and its Success check ran; otherwise `stopped` with its reason (below).
 - **`partial`, from a `note` action** (G1, S1). The Agent has a built-in action that notes what it has found so far against the schema. `partial` holds the latest noted or answered value of each top-level field, or of each element for a list output, that is valid against its own part of the schema and Grounded, and nothing else. It is set only when `output` is not.
   - TypeScript types it `PartialOf<T>`: `Partial<T>` for an object, the elements for a list.
   - Python gives a mapping or a list of validated values.
@@ -81,13 +81,13 @@ A program hands Collie's built-in Agent one objective with `page.agent(task, opt
 ### Steps as they happen
 
 - **A lossless sequence, from the task's first step** (G1, G6). ADR 0081 makes an Agent's steps "a sequence read to its end". Every step is a record a program may log or show, so none is dropped, and an unread open iterator slows the task (ADR 0081). Each `steps()` call is a new reader that starts at step 1 whenever it is called, so nothing slips past a late reader, as ADR 0080's waiters arm when called. The iterator ends when the task ends, and raises the task's error when it failed.
-- **One call returns a task handle,** shaped per language (S1 over S4, T). Every leader that streams a model loop gives one value to iterate and then ask for the final result: OpenAI Agents' `StreamedRunResult` and `run_streamed()`, Anthropic's `messages.stream()` with `finalMessage()`, the AI SDK's `stream()`.
+- **One call returns a task handle,** shaped per language (S1 over S4, T). The leaders that stream a model loop give one value to iterate and then ask for the final result: OpenAI Agents' `StreamedRunResult` and `run_streamed()`, and the AI SDK's `stream()`; Anthropic's `messages.stream()` with `finalMessage()` has the same shape for one streamed message.
   - **TypeScript:** `page.agent(…)` starts the task and returns an `AgentTask<T>`, a `Promise<AgentResult<T>>` that also has `steps()`, as openai-node's `APIPromise` adds methods to a promise. `await page.agent(…)` is the whole program in the common case. A failure that reached the program through `steps()` counts as handled, so a program that reads only the steps meets no unhandled rejection.
   - **Python:** `page.agent(…)` returns an `AgentTask`, or an `AsyncAgentTask` in the async API, with `result()`, `steps()` and a `with` block (`async with`), as Anthropic's and OpenAI's stream helpers do. It starts at the first of `result()`, `steps()` or entering the block. Leaving the block before the task ends cancels it, and a handle released without being started logs a warning, as a coroutine never awaited does. The sync and async APIs keep one shape: `await page.agent(…).result()` and `page.agent(…).result()`.
   - **Rust:** `page.agent(task)` is a builder that `.await`s to the result, as ADR 0080's calls do. `.start().await?` gives an `AgentTask` with `steps()`, an `EventStream`, and `result()`.
 - **An `AgentStep`** carries:
   - its number;
-  - its `origin`, `model` or `plan`, and on the first live step after a replay drifted, the `drift` (ADR 0091's: what the Plan expected and what the page showed);
+  - its `origin`, `model` or `plan`, and on the first live step after the replay ended, why it ended, as ADR 0091's `drift`: the target the Plan expected and what the page showed, or the Success check that failed and what it observed;
   - the model's own message, a signal, empty for a replayed step;
   - its actions, each with the catalog operation, its target as a `Locator`, the call rendered in the caller's language as `code` (ADR 0091's renderer), and its outcome: done, failed with its error, or already in the Effect journal;
   - the page's URL after the step;
@@ -102,13 +102,13 @@ A program hands Collie's built-in Agent one objective with `page.agent(task, opt
   - It returns JSON the model reads, bounded by `observation.max_size` (ADR 0091).
 
   OpenAI Agents' `@function_tool`, Pydantic AI's `@agent.tool`, the AI SDK's `tool()` and Browser Use's `@tools.action` are the forms models know. Browser Use injects parameters by name, and a wrong name fails silently.
-- **An Effect unless `readOnly`** (G5). As ADR 0011 classes a site's WebMCP tools, an Agent tool is journaled and never redone (ADR 0010). A `category` from ADR 0014's list asks a person for confirmation before every call, since the run allowances of those categories name domains (ADRs 0045, 0048) and a tool has none.
+- **An Effect unless `readOnly`** (G5). As ADR 0011 classes a site's WebMCP tools, an Agent tool is journaled and never redone (ADR 0010). A `category` from ADR 0014's list asks a person for confirmation before each call unless the run allows that category (ADR 0014). Payment and accepting terms always ask, since their allowances name domains (ADRs 0045, 0048) and a tool has none.
 - **What a tool raises** (G1), by the Success check's rule:
   - a `GoodfetchError` ends the task with its own code;
   - a cancellation is never wrapped;
-  - any other exception ends the task with `agent_tool_failed`, a `ProgramError` chaining it and naming its type and message.
+  - any other exception, or in Rust an error that is not a Goodfetch one, ends the task with `agent_tool_failed`, a `ProgramError` chaining it and naming its type and message.
 
-  A bug must not read as the model's problem. An answer the model should act on is a value the tool returns; in Pydantic AI too, an exception other than `ModelRetry` or `ToolFailed` ends the run. A tool that is not read-only and raised leaves its Effect uncertain (ADR 0010), and the error says so.
+  A bug must not read as the model's problem. An answer the model should act on is a value the tool returns; in Pydantic AI too, an exception other than `ModelRetry` or `ToolFailed` ends the run. A tool that is not read-only and raised leaves its Effect uncertain in the Effect journal (ADR 0010), so the Run's Verdict waits for a person to reconcile it (ADR 0029); `agent_tool_failed` says so in its details, and whatever error ends the task lists the tool in `agentTask`.
 - **Two tools with one name, or a tool named like a built-in action,** are refused with `agent_tool_invalid`, a `ProgramError`, before the task starts (G3).
 - **No MCP servers as tools.** A tool's function can call any MCP client the program uses, so the SDK needs no new type for it (G7, S2).
 
@@ -122,7 +122,7 @@ A program hands Collie's built-in Agent one objective with `page.agent(task, opt
   - Per output field, it holds the step at which Grounding found the value and the locator ladder and transform it was read with, so the output is read again at that step with no model, as ADR 0013's compiled mode. A value found in a tool's result is taken from that tool call again.
 - **Replayed whole, under ADR 0009's rule read across pages** (G1).
   - ADR 0009 checks every step's target before the first Effect. A task that crosses pages has steps whose page exists only after an Effect, such as a confirmation page after an order is placed, and no replay can observe that page beforehand.
-  - So, before each Effect, every target the replay can reach without performing that Effect is checked against its Target fingerprint. A Drift seen before an Effect therefore stops the replay before anything changes on the site, which is the lab failure ADR 0009 guards against, a consent box ticked before the Drift was seen.
+  - So, before each Effect, the replay checks against their Target fingerprints the Effect's own target and every remaining step's target on a page already open, having checked every earlier step as it replayed it; a step on a page not yet open is checked when its page opens, before it acts. The replay never navigates ahead to look. A Drift seen before an Effect therefore stops the replay before anything changes on the site, which is the lab failure ADR 0009 guards against, a consent box ticked before the Drift was seen.
   - Then the output is read and the Success check runs, as in a live task. Replayed steps report `origin: plan`, with no model call.
 
   A replayed task repeats the decisions the model made, and the Success check is what vouches for them. Browser Use's `rerun_history` still calls a model for extraction and a summary, and its beta ignores the recorded run; Skyvern and Notte turn a run into code on their servers. "Replay without the model" is AI pain 1.
@@ -131,15 +131,15 @@ A program hands Collie's built-in Agent one objective with `page.agent(task, opt
   - What keeps it safe: every live step acts on the page as observed now; the Effect journal keeps an Effect from being sent twice (ADR 0010); the new steps become a Plan version only after a `verified` Run, and a Plan with Effects only after review (ADRs 0009, 0091); and the Success check vouches for the result.
 - **A replay whose Success check fails** hands over the same way: the loop takes over from the replay's end, with the failure as its first observation.
 - **Without a model.** Under `plan.frozen`, or with no model configured:
-  - a Drift raises `plan_drift`;
-  - a missing entry raises `plan_step_missing` (ADR 0091);
-  - a failed Success check finishes the task `rejected`.
+  - a Drift raises `plan_drift` (ADR 0091);
+  - a missing entry raises `plan_step_missing` under `plan.frozen`, and `model_not_configured` with no model configured (ADR 0091);
+  - a failed Success check after the replay finishes the task, `finished` with the Verdict `rejected`.
 - **Promotion follows ADR 0091:** a new version is promoted after the Run finishes `verified`, with ADR 0009's review of Plans with Effects. Without `plan`, the sequence lives only in the Run trace.
 - **A task graduates to code.** Every page action in `steps` carries its `code` in the caller's language, so a person can turn a task into plain page API calls. That is the research's most-liked quality: generate with AI, then own deterministic code (AI §5, like 1).
 
 ### Where the Agent may go
 
-- **`agent.domains`, by default the registrable domain of the page the task starts on** (G5). `domains` sets it for one task, and `null` in `settings` restores that default.
+- **`agent.domains`, by default the registrable domain of the page the task starts on** (G5). `domains` sets it for one task. It takes no `null`: `["*"]` is the explicit way to lift it.
   - An entry matches its host and their subdomains. `*` allows wherever the run's domain policy allows, and applies only when written.
   - It bounds where the task navigates, in its page and the tabs it opens, never the subresources a page loads, which the run's domain policy (ADR 0014) governs. The engine enforces it as it enforces that policy.
   - A navigation outside it is refused, and the refusal goes back to the model as a failed action.
@@ -151,7 +151,7 @@ A program hands Collie's built-in Agent one objective with `page.agent(task, opt
   - On a crawl handler's page, the task's navigation is the handler's, governed by Politeness and robots.txt (ADRs 0086, 0093). Its `site_preferences_refused` is a failed action given back to the model, as every refusal inside the task is.
 
   A later ticket reopens it with new evidence.
-- **`agent.human_pause`, `false` by default** (G5). When on, the model may ask a person through a Human pause (ADR 0092), with its reason shown in "Needs you" (ADR 0031). The person's answer, a decline with its note, or the pause running out (`timeout.human_pause`) goes back to the model as that action's outcome: the model asked, and a refusal is an answer. It is off by default because an unattended program would wait up to 24 hours.
+- **`agent.human_pause`, `false` by default** (G5). When on, the model may ask a person through a Human pause (ADR 0092), with its reason shown in "Needs you" (ADR 0031). The person's answer, a decline with its note, or the pause running out (`timeout.human_pause`) goes back to the model as that action's outcome: the model asked, and a refusal is an answer. ADR 0092 ends a call when a pause the engine raised inside it runs out; this pause is a question the model asked, so it amends ADR 0092 for it. It is off by default because an unattended program would wait up to 24 hours.
 - **Confirmations.** Effects in ADR 0014's categories still ask for confirmation unless the run allows them. A person declining ends the task with `effect_not_confirmed`, as for `act` (ADR 0091), so the model never tries another way to do what a person refused.
 - **`session.recovery.agent`, `true` by default.** It switches ADR 0006's AI agent login step, as ADR 0092's `session.recovery.human_pause` switches the Human pause step.
   - The step runs the built-in Agent with the Session's Secret placeholders, bound by their own domains (ADR 0092) and the run's domain policy, not by `agent.domains`, so a login that passes through another domain works.
@@ -168,17 +168,17 @@ Under ADR 0079's rule, the call raises when it cannot keep its promise, and AI w
 | The step cap, the stall rule, the task's timeout, a Limit reached during the task, someone else stopping it | a value: `ended: stopped` with its reason |
 | An enclosing call's timeout | `deadline_exceeded` naming that call (ADR 0080) |
 | A Limit the task draws on, already used up when it starts | `limit_reached`, a `RefusedError` (ADR 0080) |
-| A task the Plan cannot replay and no model is configured | `model_not_configured` (ADR 0091) |
+| A task the Plan holds no entry for, with no model configured | `model_not_configured` (ADR 0091) |
 | The Model provider fails after ADR 0012's retries; an answer that never passes the schema | ADR 0101's codes, such as `model_unavailable` and `model_output_invalid` |
-| `plan.frozen` with no entry; a Drift with no model or under `plan.frozen` | `plan_step_missing`; `plan_drift` (ADR 0091) |
+| `plan.frozen` with no entry; a Drift under `plan.frozen` or with no model | `plan_step_missing`; `plan_drift` (ADR 0091) |
 | An Effect sent and left uncertain | `effect_uncertain`, a `PageError` (ADR 0091): the task ends, so the model never tries the Effect again (ADR 0010) |
 | A person declined a confirmation | `effect_not_confirmed`, a `RefusedError` (ADR 0091) |
-| A `GoodfetchError` from an Agent tool or the Success check function | that error, with its own code |
+| A `GoodfetchError` from an Agent tool, or one from the Success check function that is not a `PageError` | that error, with its own code |
 | Another exception from an Agent tool; two tools share a name or take a built-in's | `agent_tool_failed`; `agent_tool_invalid`, each a `ProgramError` |
 | Another exception from the Success check function | `success_check_threw`, a `ProgramError` |
 | A placeholder neither filled nor bound, a variable no placeholder uses, or a name that is both | `variables_mismatch` (ADR 0091) |
 
-**What a raised error carries** (G1, G6). An error raised after steps were taken carries the task's `usage` (ADR 0101). It also carries `agentTask`: the steps taken and the partial answer as JSON, valid and Grounded as `partial` is. ADR 0079 asks that data gathered before a failure travel on the error. The steps are also in the Run trace under the error's `callId`.
+**What a raised error carries** (G1, G6). An error raised after steps were taken carries the task's `usage` (ADR 0101). It also carries `agentTask`: the steps taken, the partial answer as JSON, valid and Grounded as `partial` is, and the Agent tools whose Effect the task left uncertain. ADR 0079 asks that data gathered before a failure travel on the error. The steps are also in the Run trace under the error's `callId`.
 
 ### Outside agents
 
@@ -197,16 +197,16 @@ Under ADR 0079's rule, the call raises when it cannot keep its promise, and AI w
 - **`partial` as the model's last answer in raw JSON:** rejected by G1, since values nothing vouches for would read as found. **No `partial`:** rejected, since scenario 11 asks for one.
 - **Steps only on the result,** or a step listener: rejected by ADR 0081, which makes them an iterator. **Two methods**, one for the result and one streaming, as OpenAI Agents and the Anthropic SDK: rejected by S2, since one handle serves both.
 - **A tool's exception fed back to the model,** as OpenAI Agents and Browser Use: rejected by G1. A bug would hide in what the model reads, and OpenAI Agents now sends only a fixed message. **Wrapping a tool's `GoodfetchError`,** as `hook_failed` does: rejected, since a person stopping the task mid-tool would then read as the program's bug. **MCP servers as tools,** as Browser Use and Stagehand v3: rejected by S2 and G7.
-- **ADR 0009's Repair for an Agent's task,** a recompile checked in full before it acts: rejected. The pages a task reaches cannot be observed before it acts; the live loop with the journal, the Verdict and review is the bound. **Replay by position with a model fallback,** as Browser Use's `rerun_history`: rejected. It still calls a model for extraction, so it is not replay without the model.
+- **ADR 0009's Repair for an Agent's task,** a recompile checked in full before it acts: rejected. The pages a task reaches cannot be observed before it acts; the live loop with the Effect journal, the Verdict and review is the bound. **Replay by position with a model fallback,** as Browser Use's `rerun_history`: rejected. It still calls a model for extraction, so it is not replay without the model.
 - **No domain bound beyond the run's policy:** rejected by G5, because a model reading untrusted pages decides where to go. **Bounding subresources too:** rejected; a page's own CDN and third-party requests would fail. **A robots.txt opt-in:** declined above.
 
 ## Consequences
 
 - **Amends ADR 0079.**
   - AI work's stop reasons gain `max_steps` and `no_progress`, `timeout` covers an Agent's own timeout as well as the Run's, and `abort` says who stopped it.
-  - `reported` is absent when the work stopped before the model claimed anything.
+  - `reported` is absent when no model claimed anything: the work stopped before a claim, or was replayed whole.
   - `partial` holds the top-level fields, or the elements of a list, that are valid against their part of the schema and Grounded.
-  - An error raised by `page.agent` after steps were taken carries `agentTask`: the steps and the partial answer.
+  - An error raised by `page.agent` after steps were taken carries `agentTask`: the steps, the partial answer and the Agent tools whose Effect it left uncertain.
   - `agent_tool_failed` and `success_check_threw` always name the program's exception type and message, as `handler_failed` and `hook_failed` do.
 - **Amends ADR 0080.**
   - `timeout.agent` is a phase, 10 minutes.
@@ -218,18 +218,17 @@ Under ADR 0079's rule, the call raises when it cannot keep its promise, and AI w
   - For a sequence that crosses pages, its Target fingerprint check before the first Effect reads: before each Effect, every target the replay can reach without performing it is checked.
   - An Agent's task gets no Repair: on Drift, or on a failed Success check after a replay, the loop takes over from there, and its steps replace the rest of the entry.
 - **Amends ADR 0006.** `session.recovery.agent` switches the AI agent login step of the recovery ladder.
+- **Amends ADR 0013.** An Agent's output may also be Grounded in the result of one of its Agent tools, the program's own data, and `GLOSSARY.md`'s **Grounding** says so.
 - **Amends ADR 0086.** An Agent's own navigation offers no robots.txt opt-in.
 - **Amends, once they are on `main`, ADR 0091, ADR 0092 and ADR 0093**, each with a note added when this ADR merges after them:
   - ADR 0091: `variables` are taken by `page.agent` too, and its whole-sequence rule reads as above;
-  - ADR 0092: `session.recovery.agent` switches the AI agent login step;
+  - ADR 0092: `session.recovery.agent` switches the AI agent login step, and the Agent's own Human pause (`agent.human_pause`), a question the model asked, gives its answer, a decline or its running out back to the model instead of ending the call;
   - ADR 0093: inside an Agent's task, a handler navigation's `site_preferences_refused` is a failed action given back to the model, not raised from `page.agent`.
-- **Answers ADR 0013 and ADR 0081.**
-  - The built-in Agent's SDK form is `page.agent`.
-  - Its steps are a lossless sequence that starts at the task's first step.
+- **Answers ADR 0013 and ADR 0081.** The built-in Agent's SDK form is `page.agent`, and its steps are a lossless sequence that starts at the task's first step.
 - **Error codes.** `agent_tool_failed`, `agent_tool_invalid` and `success_check_threw` join `goodfetch-protocol` in the `program` group, through `xtask codegen`'s naming checks (ADR 0079).
-- **`GLOSSARY.md`** gains **Agent tool**.
+- **`GLOSSARY.md`** gains **Agent tool**, and **Grounding** names an Agent tool's result as a source.
 - **Area 9 (AI and agent)** builds the loop, its built-in actions with `note`, the stall rule, Grounding of the output, the task's Plan entry, its replay and the hand-over to the loop on Drift, and `agent.domains`' enforcement. **Area 11 (Client surfaces)** builds `page.agent`, the task handle per language, `AgentResult`, `AgentStep`, Agent tools and the error classes. **Area 5 (Site access)** builds `session.recovery.agent`. Each lists this ADR.
-- **ADR 0037's matrix:** AI-05 (the agent loop) and V3-04 (the built-in agent loop) cite this ADR, as do the pains `agent-deterministic-replay`, `silent-false-success` and `agent-unreliable-drift`.
+- **ADR 0037's matrix:** AI-05 (the agent loop) and V3-04 (the built-in agent loop) cite this ADR, as do the pains `agent-deterministic-replay`, `silent-false-success`, `agent-unreliable-drift`, `agent-human-in-loop` and `maint-site-drift`.
 - **Tests.** TESTING.md's Agent conformance cases run in every SDK against the Scripted engine and the Scripted model (ADRs 0065, 0069).
 - **Other tickets of the map.**
   - [The Run in code](https://github.com/goodfetch/automan/issues/478) gives the Run's report, where the Run's Verdict and `PlanReport` sit, and reading the Run trace from code.

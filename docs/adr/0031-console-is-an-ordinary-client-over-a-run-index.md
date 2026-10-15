@@ -67,6 +67,7 @@ Evidence from the competitor survey made for that ticket:
 - **Embeddable in users' own products**, as Browserbase, Steel, Hyperbrowser and Kernel allow.
   - **The grant.** `liveView.grant(session, mode, ttl, origins)` returns a token scoped to one Session. It is short-lived, single-use for opening the connection, tied to its origins through `frame-ancestors`, and revoked when the Session ends or by `liveView.revoke`.
   - **What a grant allows.** A control grant lets its holder act in the page, for example to complete a login, MFA or CAPTCHA, and the pause then resolves through its Page check. A grant never confirms or reconciles an Effect, for the same reason chat-app buttons cannot: its holder is not a Goodfetch person.
+    > Amended by [ADR 0092](0092-sessions-open-from-their-source-page-pause-waits-for-a-person-and-a-secret-is-a-placeholder-bound-to-domains.md): a grant holder ends a Human pause a program raised with `page.pause()` only through its `until` condition; "Done" and "Decline" are a person's.
   - **View-only is enforced by the engine,** which drops the viewer's input. Browser Use's and Anchor's view-only modes are only drawn in the embedding page.
   - **Limits, audit and Usage.** The number of viewers is a setting, grants are audited, and live-view minutes count as Usage.
   - **Packages.** A `<goodfetch-live-view>` web component and a React wrapper ship with connection, control and Session events.

@@ -9,7 +9,7 @@ One Operation catalog generates every surface (ADRs 0011, 0038), and this decide
 - A raw `call` is the Client layer's way down.
 - Deprecations carry each language's type-level marker.
 - The engine names everything in the caller's own spelling.
-- Both Products' Connections implement one `Connection` type, and each Rust crate shows only its own Product's entries.
+- Both Products' Connections implement one `Connection` type, and each Rust SDK crate's public API shows only its own Product's entries.
 
 **Evidence.**
 - **Playwright** keeps per-language aliases and language-only entries in 461 `* langs:` lines, and playwright-python a table of reasoned exceptions ([browser drivers §4.3](https://github.com/goodfetch/automan/blob/research/consumer-api/rnd/research/research_notes/Consumer%20API%20of%20competitors/browser-drivers.md)). So its languages differ entry by entry: `AbortSignal` is JavaScript-only, and Java renames `goto` and `continue`.
@@ -99,7 +99,7 @@ Decided in [Mapping the catalog to each language and surface](https://github.com
   | Opener | the value, with `await using` | the value, with `async with` or `with` | the value, with `close()` |
   | Cancellable (ADR 0080) | `signal` option | task cancellation | dropping the future |
   | Duration (ADR 0080) | `number` of milliseconds | `timedelta` | `Duration` |
-  | Point in time (Sessions, logins, Human pause and secrets in code) | `Date` | time-zone-aware `datetime` in UTC | `SystemTime` |
+  | Point in time ([Sessions, logins, Human pause and secrets in code](https://github.com/goodfetch/automan/issues/476)) | `Date` | time-zone-aware `datetime` in UTC | `SystemTime` |
 
 - **One form for reads in TypeScript.** A read on a handle is a method whether it may change (`page.url()`) or is fixed at creation (`request.url()`, `run.id()`): one form in the language (S1), Playwright's (S3), which ADR 0085 keeps for the page API. A property would have suited a fixed fact better for T, since a method used as a value can pass unseen in a template string, but T ranks below both.
 - **Plain data** (results, error fields, event data that is not a page-API class):
@@ -195,7 +195,7 @@ Each surface spells the canonical name by one rule (S1), as its leaders do (S3),
   - `--json` fields stay snake_case (ADR 0038).
   - A command group is a singular noun, generated or hand-written (ADR 0069's `daemon start`, `config explain`), as gh's `gh run list` and docker's `docker plugin install` are. A glossary term in the plural keeps its own words (`rules update` for the Clean-up rules).
   - Which operations the CLI offers is area 11's.
-- **An entry kept off agent surfaces** (ADR 0011's list, ADR 0041's raising of a Limit, ADR 0029's answer about an uncertain Effect, ADR 0089's `page.lend()`, and the cookie operations Sessions, logins, Human pause and secrets in code offers to no Client acting for a model) is generated for no MCP tool, Framework adapter, Code mode global or skill.
+- **An entry kept off agent surfaces** (ADR 0011's list, ADR 0041's raising of a Limit, ADR 0029's answer about an uncertain Effect, ADR 0089's `page.lend()`, and the cookie operations that [Sessions, logins, Human pause and secrets in code](https://github.com/goodfetch/automan/issues/476) offers to no Client acting for a model) is generated for no MCP tool, Framework adapter, Code mode global or skill.
 - **Code mode and Script Hooks** keep ADR 0051's TypeScript names.
 - **Integrations** use canonical names as identifiers.
 - **Reference pages** show the canonical name and each language's spelling.
@@ -230,6 +230,7 @@ Each surface spells the canonical name by one rule (S1), as its leaders do (S3),
   - outside `crates/foxhound/`, only `goodfetch-protocol`, which defines the module, and `xtask` name it. The module holds data, no behaviour, and a check beside ADR 0087's boundary checks fails when another crate outside `crates/foxhound/` names it (amending ADR 0087). Collie's crates meet Foxhound's codes and values only as values of the shared types, and Collie's Size budget (ADR 0087) catches any of the module's code that reaches its executable;
   - a type both Products share whose values Foxhound extends (Error codes, Usage kinds, Limit scopes, Notification events) is an open value type: a newtype holding its wire string inline. Each Collie value is an associated constant of the type (`ErrorCode::TARGET_NOT_UNIQUE`), which every re-export of the type carries. Each Foxhound value is a free constant of the same type in the `foxhound` module, re-exported by Foxhound's crate (`goodfetch_foxhound::error_code::PAYLOAD_INVALID`);
   - such a value has one in-memory form whoever makes it: inline, at most 63 bytes, which codegen checks on every value of the catalog. So a value read from the wire equals its constant with `==` and in a `match`, whichever crate defines the constant, as `http::Method`'s and `http::StatusCode`'s constants are matched. A value the program does not know stays a value, with `as_str()` (G3);
+  - an entry that moves from Foxhound to Collie in a minor (ADR 0095) keeps every name Foxhound's crate showed for it: a value's free constant stays as a `#[deprecated]` constant equal to the new associated constant, through ADR 0030's deprecation window, and a type stays re-exported at its old path. A Foxhound program that matches the old constant still compiles, with a warning, so the move stays additive, as ADR 0030's minors require and ADR 0088 expects of adding Paid fetches to Collie later (T);
   - an Error code's typed details are read with `details::<D>()`, where `D` is the code's details type and Foxhound's types live in the `foxhound` module, never through an enum that lists every code's details;
   - this replaces ADR 0079's Rust `ErrorCode` and `ErrorDetails` enums. One enum listing Foxhound's codes would put them in Collie's SDK crates' public API, an enum cannot be extended by another crate, and a second Foxhound enum would give Foxhound programs two code types to match (S2).
 
@@ -293,7 +294,7 @@ Each surface spells the canonical name by one rule (S1), as its leaders do (S3),
 - **`TESTING.md`** gains catalog-mapping conformance cases.
 - **ADR 0037's matrix.** SDK-02, SDK-05, SDK-06, AI-06 and AI-07 cite this ADR. Areas 3, 11 and 12 list it.
 - **Areas.**
-  - Area 3 (Engine runtime) builds the canonical names and kinds in `goodfetch-protocol`, its `foxhound` module and the check that no crate outside `crates/foxhound/` but `xtask` names it, the naming crate, the six forms of `hello` and their renderers, and the Run trace's forms.
+  - Area 3 (Engine runtime) builds the canonical names and kinds in `goodfetch-protocol`, its `foxhound` module and the check that no crate outside `crates/foxhound/` but `goodfetch-protocol` and `xtask` names it, the naming crate, the six forms of `hello` and their renderers, and the Run trace's forms.
   - Area 11 (Client surfaces) builds the generators, the manifests and their checks, `call`, the markers, `Connection`, and the CLI's and MCP's names.
   - Area 12 (Console) shows each call in its Client's form.
 - **Other tickets.**

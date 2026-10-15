@@ -47,6 +47,8 @@ Every Goodfetch package carries one version and is released together: the `goodf
   - the HTTP listener (ADR 0027)
   - error codes
 
+  > Amended by [ADR 0095](0095-both-products-speak-one-protocol-from-one-catalog-marked-by-product-and-their-sdks-share-collies-client-packages.md): semver covers each Product's catalog. An entry leaving Collie's catalog is breaking for Collie, one joining it from Foxhound's is additive. The Collie client packages (`@goodfetch/collie-client`, `goodfetch-collie-client` on PyPI and crates.io) are released with every version and fall under semver like the SDKs, and the API breakage checks cover them.
+
   Semver does not cover:
   - Console screens, although the Console's functions stay, such as the reconciliation of uncertain Effects (ADR 0029)
   - human-readable CLI output and log text

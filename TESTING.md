@@ -57,6 +57,8 @@ A test's level is the seam it crosses, not its speed:
   _Why:_ the build directory's layout may change without notice.
 - **Foxhound's tests live in Foxhound's crates.** No crate outside `crates/foxhound/` but `xtask` takes a Foxhound crate, even as a dev-dependency, and the workspace-wide `cargo-deny` check refuses one (ADR 0087).
   _Why:_ Collie's tests then build and pass without Foxhound's code.
+- **No crate outside `crates/foxhound/` names `goodfetch-protocol`'s `foxhound` module** but `goodfetch-protocol` and `xtask`, and the check refuses a fixture crate that does, through a `use` or a full path ([ADR 0099](docs/adr/0099-every-surface-spells-each-catalog-name-by-its-own-rule-shapes-come-from-declared-kinds-and-call-is-the-way-down.md)).
+  _Why:_ Foxhound's contract types sit in a crate Collie links, so cargo-deny alone cannot keep Collie's code from naming them (ADR 0087).
 - **Each Product's executable crate tests its composition** in the Quick suite, in process: exactly one handler for each operation of its Product's catalog, and Foxhound's composition contains all of Collie's (ADR 0087).
   _Why:_ the composition is a hand-kept list, and Foxhound must carry everything Collie carries.
 - **Python tests run with `--import-mode=importlib` and `strict = true`** in `[tool.pytest]`.

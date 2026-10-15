@@ -19,7 +19,7 @@ One Operation catalog generates every surface (ADRs 0011, 0038), and this decide
 
 These were checked against pinned sources on 2026-10-15 in the [catalog mapping research](https://github.com/goodfetch/automan/blob/research/sdk-catalog-mapping/rnd/research/2026-10-15-sdk-catalog-mapping.md) (CM below), beside the [SDK design guidelines research](https://github.com/goodfetch/automan/blob/research/sdk-design-guidelines/rnd/research/2026-10-14-sdk-design-guidelines.md) (lessons 13 and 30 to 35).
 
-Decided in [Mapping the catalog to each language and surface](https://github.com/goodfetch/automan/issues/471), on the map [The SDK API of Collie and Foxhound](https://github.com/goodfetch/automan/issues/461), by the agent on the owner's delegation of 2026-10-14 ([rounds 1 to 3](https://github.com/goodfetch/automan/issues/471#issuecomment-6181920227), [grilling record](https://github.com/goodfetch/automan/issues/471#issuecomment-6181926808)). Principles are cited by their IDs in [ADR 0077](0077-the-sdk-api-follows-eight-guarantees-and-four-ranked-shape-rules.md).
+Decided in [Mapping the catalog to each language and surface](https://github.com/goodfetch/automan/issues/471), on the map [The SDK API of Collie and Foxhound](https://github.com/goodfetch/automan/issues/461), by the agent on the owner's delegation of 2026-10-14 ([rounds 1 to 3](https://github.com/goodfetch/automan/issues/471#issuecomment-6181920227), [grilling record](https://github.com/goodfetch/automan/issues/471#issuecomment-6181926808), revised by the [first](https://github.com/goodfetch/automan/issues/471#issuecomment-6187903685), [second](https://github.com/goodfetch/automan/issues/471#issuecomment-6188281434) and [third](https://github.com/goodfetch/automan/issues/471#issuecomment-6188876602) addenda). Principles are cited by their IDs in [ADR 0077](0077-the-sdk-api-follows-eight-guarantees-and-four-ranked-shape-rules.md).
 
 ## Decision
 
@@ -35,7 +35,7 @@ Decided in [Mapping the catalog to each language and surface](https://github.com
 - **The value an operation acts on owns it** (G2, S3). An operation whose first parameter is a value the SDK hands out is a method of that value, under its canonical member, and the SDK fills the parameter: `run.checkpoint()`.
 - **An operation that acts on no value is a member of the Connection.** Its catalog entry declares the member's name, chosen by the ticket or spec that owns it (`run.start` is `start`).
 - **One name means one operation on one value, in every language.** Codegen refuses two entries that would give one receiver the same member, across a Product's whole catalog, since Rust has no overloading (S1). One operation may still take alternative argument shapes: TypeScript overloads, Python's `@overload`, a Rust `impl Into<…>` parameter.
-- **Casing.**
+- **Casing** (S1, then S3: one rule per language, which keeps Playwright's names).
 
   | | TypeScript | Python | Rust |
   |---|---|---|---|
@@ -112,7 +112,7 @@ Decided in [Mapping the catalog to each language and surface](https://github.com
   - Optional parameters go in a trailing options object in TypeScript, as keyword-only arguments in Python, and as builder methods named after the parameter in Rust.
   - Three states follow ADR 0083.
 - **Typed defaults.** Signatures carry no default value, since defaults are settings the engine resolves (ADR 0083). Doc comments state each default in the language's own type: `30_000`, `timedelta(seconds=30)` and `Duration::from_secs(30)` for 30 s.
-- **Twins.**
+- **Twins** (S1, S3).
   - Python: every class with a round trip has an `Async<Name>` twin in the same module with the same members, as ADR 0090's `Collie` and `AsyncCollie`, httpx and psycopg have them. Plain data, errors, settings types and `Label` serve both.
   - Rust: `blocking` repeats the async API under the same type names (ADR 0081).
   - TypeScript: async only.
@@ -184,6 +184,8 @@ Decided in [Mapping the catalog to each language and surface](https://github.com
 
 ### Other surfaces
 
+Each surface spells the canonical name by one rule (S1), as its leaders do (S3), and keeps its markers (T).
+
 - **MCP tools and Framework adapters' tools** share one name: the canonical name with `_` in place of `.` (`page_goto`, `run_checkpoint`).
   - Only `[a-z0-9_]`, at most 39 characters: OpenAI's and Anthropic's tool names refuse a dot, and OpenAI caps a function name at 64 characters, which a host's 25-character `mcp__goodfetch-foxhound__` prefix shares (CM D1 to D3). Codegen refuses a longer name.
   - Foxhound's carry Collie's under the same names (ADR 0095).
@@ -193,7 +195,7 @@ Decided in [Mapping the catalog to each language and surface](https://github.com
   - `--json` fields stay snake_case (ADR 0038).
   - A command group is a singular noun, generated or hand-written (ADR 0069's `daemon start`, `config explain`), as gh's `gh run list` and docker's `docker plugin install` are. A glossary term in the plural keeps its own words (`rules update` for the Clean-up rules).
   - Which operations the CLI offers is area 11's.
-- **An entry kept off agent surfaces** (ADR 0011's list, ADR 0041's raising of a Limit, ADR 0029's answer about an uncertain Effect, and the cookie operations Sessions, logins, Human pause and secrets in code offers to no Client acting for a model) is generated for no MCP tool, Framework adapter, Code mode global or skill.
+- **An entry kept off agent surfaces** (ADR 0011's list, ADR 0041's raising of a Limit, ADR 0029's answer about an uncertain Effect, ADR 0089's `page.lend()`, and the cookie operations Sessions, logins, Human pause and secrets in code offers to no Client acting for a model) is generated for no MCP tool, Framework adapter, Code mode global or skill.
 - **Code mode and Script Hooks** keep ADR 0051's TypeScript names.
 - **Integrations** use canonical names as identifiers.
 - **Reference pages** show the canonical name and each language's spelling.
@@ -223,12 +225,13 @@ Decided in [Mapping the catalog to each language and surface](https://github.com
 - **Error classes per Product.**
   - In TypeScript and Python, Collie's code classes live in the client package, and Foxhound's own in Foxhound's package, all extending the client package's group classes. A Collie program that meets a Foxhound code gets its group's class with the code kept (ADR 0079).
 - **How `goodfetch-protocol` lays out its types for the Rust crates,** which ADR 0095 hands to this decision so that each SDK crate shows only its own Product's entries:
-  - `goodfetch-protocol` keeps every contract type of both Products, as ADR 0038 and ADR 0095 have it, on Collie's side of the crate graph (ADR 0087). Foxhound's own entries sit in its `foxhound` module, so the module is the mark in Rust;
-  - the client crate re-exports every item outside that module, and Foxhound's SDK crate re-exports the module's items, so Collie's crates name none of Foxhound's entries. ADR 0095's check of each crate's public items against its Product's catalog enforces it;
+  - `goodfetch-protocol` keeps every contract type of both Products, as ADR 0038 and ADR 0095 have it, on Collie's side of the crate graph, so one crate still emits the one bundle and catalog file (ADR 0038). Foxhound's own entries sit in its `foxhound` module, so the module is the mark in Rust, and `xtask codegen` emits ADR 0095's mark from it, so the two cannot disagree;
+  - the client crate re-exports every item outside that module, and Foxhound's SDK crate re-exports the module's items, so Collie's SDK crates show none of Foxhound's entries in their public API, which ADR 0095's check of each crate's public items against its Product's catalog enforces;
+  - outside `crates/foxhound/`, only `goodfetch-protocol`, which defines the module, and `xtask` name it. The module holds data, no behaviour, and a check beside ADR 0087's boundary checks fails when another crate outside `crates/foxhound/` names it (amending ADR 0087). Collie's crates meet Foxhound's codes and values only as values of the shared types, and Collie's Size budget (ADR 0087) catches any of the module's code that reaches its executable;
   - a type both Products share whose values Foxhound extends (Error codes, Usage kinds, Limit scopes, Notification events) is an open value type: a newtype holding its wire string inline. Each Collie value is an associated constant of the type (`ErrorCode::TARGET_NOT_UNIQUE`), which every re-export of the type carries. Each Foxhound value is a free constant of the same type in the `foxhound` module, re-exported by Foxhound's crate (`goodfetch_foxhound::error_code::PAYLOAD_INVALID`);
   - such a value has one in-memory form whoever makes it: inline, at most 63 bytes, which codegen checks on every value of the catalog. So a value read from the wire equals its constant with `==` and in a `match`, whichever crate defines the constant, as `http::Method`'s and `http::StatusCode`'s constants are matched. A value the program does not know stays a value, with `as_str()` (G3);
   - an Error code's typed details are read with `details::<D>()`, where `D` is the code's details type and Foxhound's types live in the `foxhound` module, never through an enum that lists every code's details;
-  - this replaces ADR 0079's Rust `ErrorCode` and `ErrorDetails` enums. One enum listing Foxhound's codes would put them in Collie's crates, an enum cannot be extended by another crate, and a second Foxhound enum would give Foxhound programs two code types to match (S2).
+  - this replaces ADR 0079's Rust `ErrorCode` and `ErrorDetails` enums. One enum listing Foxhound's codes would put them in Collie's SDK crates' public API, an enum cannot be extended by another crate, and a second Foxhound enum would give Foxhound programs two code types to match (S2).
 
 ## Considered Options
 
@@ -257,7 +260,8 @@ Decided in [Mapping the catalog to each language and surface](https://github.com
   - `EngineConnection` is longer, and ADR 0078 rejected "engine" for the Connection, since closing it never stops a Daemon.
   - ADR 0090 rejected `Goodfetch`, which names nothing installed, and ADR 0078 rejected `Client`, the glossary's word for the program.
 - **The shared members on the Rust trait only:** rejected. Every program would import the trait (rustc E0599).
-- **One Rust `ErrorCode` enum listing both Products' codes:** rejected. It puts Foxhound's names in Collie's crate (ADR 0095). **Foxhound's variants behind a Cargo feature:** rejected. A Cargo feature exists only for heavy optional dependencies and test utilities (ADR 0038), and types would change with features, as Spider's do (ADR 0083). **A second Rust enum for Foxhound's codes:** rejected by S2.
+- **One Rust `ErrorCode` enum listing both Products' codes:** rejected. It puts Foxhound's names in Collie's SDK crates' public API (ADR 0095). **Foxhound's variants behind a Cargo feature:** rejected. A Cargo feature exists only for heavy optional dependencies and test utilities (ADR 0038), and types would change with features, as Spider's do (ADR 0083). **A second Rust enum for Foxhound's codes:** rejected by S2.
+- **Foxhound's contract types in a crate under `crates/foxhound/`,** which ADR 0087's "never names a Foxhound type" read literally would give: rejected. Two crates would define the contracts and feed the one bundle and catalog file that ADR 0038 has one crate emit, and ADR 0095 keeps every entry's mark beside the catalog in `goodfetch-protocol`. The module keeps ADR 0087's purpose, no Collie code naming Foxhound's, with a check.
 
 ## Consequences
 
@@ -271,7 +275,8 @@ Decided in [Mapping the catalog to each language and surface](https://github.com
   - Class names follow this ADR's initialism rule (`CDPCommandRefusedError`).
   - The language `hello` carries is one of six forms, and names besides targets are rendered in it.
   - Rust's `ErrorCode` is an open value type with constants, and Rust's error details are read by type, no longer through enums.
-- **Amends ADR 0085.** Its raw CDP way down is spelled `newCDPSession()` and `CDPSession` in TypeScript and Python, `new_cdp_session()` and `CdpSession` in Rust; Rust's route answer is `r#continue()`.
+- **Amends ADR 0085.** Its raw CDP way down is spelled `page.newCDPSession()` returning a `CDPSession` in TypeScript, `page.new_cdp_session()` returning a `CDPSession` in Python, and `page.new_cdp_session()` returning a `CdpSession` in Rust; Rust's route answer is `r#continue()`. Notes sit under its raw CDP item and its forms per language.
+- **Amends ADR 0087.** Foxhound's contract types live in `goodfetch-protocol`'s `foxhound` module, which no crate outside `crates/foxhound/` but `goodfetch-protocol` and `xtask` names, a check beside its boundary checks. So `goodfetch-protocol`, a crate both Products link, holds more of Foxhound's than its names, in a module Collie's crates never name. Notes sit under its "never names a Foxhound type" item and its "How an engine knows" item.
 - **Amends ADR 0083.** "Camelcases each segment" applies the initialism rule (`baseURL`).
 - **Amends ADR 0030.**
   - Each language's deprecation marker and its gaps are as above.
@@ -288,7 +293,7 @@ Decided in [Mapping the catalog to each language and surface](https://github.com
 - **`TESTING.md`** gains catalog-mapping conformance cases.
 - **ADR 0037's matrix.** SDK-02, SDK-05, SDK-06, AI-06 and AI-07 cite this ADR. Areas 3, 11 and 12 list it.
 - **Areas.**
-  - Area 3 (Engine runtime) builds the canonical names and kinds in `goodfetch-protocol`, the naming crate, the six forms of `hello` and their renderers, and the Run trace's forms.
+  - Area 3 (Engine runtime) builds the canonical names and kinds in `goodfetch-protocol`, its `foxhound` module and the check that no crate outside `crates/foxhound/` but `xtask` names it, the naming crate, the six forms of `hello` and their renderers, and the Run trace's forms.
   - Area 11 (Client surfaces) builds the generators, the manifests and their checks, `call`, the markers, `Connection`, and the CLI's and MCP's names.
   - Area 12 (Console) shows each call in its Client's form.
 - **Other tickets.**

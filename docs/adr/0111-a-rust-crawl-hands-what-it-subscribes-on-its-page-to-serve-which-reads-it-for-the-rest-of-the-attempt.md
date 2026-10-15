@@ -44,6 +44,7 @@ Playwright keeps a route until `unroute` or the page closes ([`page.route`](http
 ### Golden scenario 06
 
 The Rust program's before-navigation Hook subscribes `page.route("**/*")` and hands it to `ctx.for_each`, whose handler aborts images and fonts with `blockedbyclient` and falls back for the rest. The spawned task and its obligation are gone. Whether the scenario should block images and fonts with ADR 0047's `block_resources` setting instead of a Hook stays with the [Close the pain coverage matrix](https://github.com/goodfetch/goodfetch/issues/485), which holds that item from #483's review; either works in Rust now.
+> Amended by [ADR 0117](0117-what-coding-agents-misread-is-reshaped-an-ai-result-holds-its-answer-in-how-it-ended-resource-types-are-blocked-by-a-setting-and-a-start-names-its-run-id.md): golden scenario 06 blocks images and fonts with `browser.block_resources` in all three languages; this Hook, with its `ctx.for_each` route, is in the Rust `hooks` snippet.
 
 ## Considered Options
 
@@ -64,5 +65,5 @@ The Rust program's before-navigation Hook subscribes `page.route("**/*")` and ha
 - **`TESTING.md`** gains the Rust crawl's `for_each` conformance cases.
 - **Area 11 (Client surfaces)** builds `for_each` in the async and blocking crawl contexts, its refusal on the way down and `Registration::keep()`. It lists this ADR.
 - **ADR 0037's matrix:** request interception (SA-17) cites this ADR.
-- **Other tickets of the map.** [Send bounds on a Rust crawl's handlers](https://github.com/goodfetch/goodfetch/issues/531) and [A Rust crawl handler's own error](https://github.com/goodfetch/goodfetch/issues/528) apply their answers to `for_each`'s handler. [Close the pain coverage matrix](https://github.com/goodfetch/goodfetch/issues/485) keeps scenario 06's choice between the Hook and `block_resources`.
+- **Other tickets of the map.** [Send bounds on a Rust crawl's handlers](https://github.com/goodfetch/goodfetch/issues/531) (ADR 0112) and [A Rust crawl handler's own error](https://github.com/goodfetch/goodfetch/issues/528) apply their answers to `for_each`'s handler. [Close the pain coverage matrix](https://github.com/goodfetch/goodfetch/issues/485) keeps scenario 06's choice between the Hook and `block_resources`.
 - **The `prototype/sdk-api` sketch**, at [`5b424f0`](https://github.com/goodfetch/goodfetch/commit/5b424f0aff6abd6e1cef5deec60a5878f518e1df), holds `for_each` on Foxhound's async and blocking contexts and `Registration::keep()` in Collie's client package, and golden scenario 06's Rust program uses them. Pain rows P30 and P46 cite this ADR.

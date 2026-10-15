@@ -67,7 +67,7 @@ Decided in [Docs site and positioning of two Products](https://github.com/goodfe
 - **Then it says:**
   - Foxhound contains Collie, so one program never needs both.
   - Two programs may each use one, and both installed collide nowhere (ADR 0090).
-  - What two installs share is [Collie and Foxhound installed on one machine](https://github.com/goodfetch/goodfetch/issues/486)'s.
+  - What two installs share is [Collie and Foxhound installed on one machine](https://github.com/goodfetch/goodfetch/issues/486)'s (ADR 0098).
 - **The marketing site's home asks the same question,** and each Product's docs home links the chooser and the other Product.
 - **Collie's "When you need many pages" shows the move to Foxhound.** The installed package, the import, the connection type, the executable's name and, where a program sets it, the engine-path variable change; page code, settings, and commands with their flags, `--json` output and exit codes do not (ADR 0090; both Products' SDKs build on Collie's client packages, ADR 0095).
 

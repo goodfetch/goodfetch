@@ -5,7 +5,7 @@ Every browser Session blocks ads and trackers by default, in every Access mode. 
 - the full set, a digest-pinned download refreshed in every release;
 - an opt-in, signed daily channel.
 
-Each run holds to one version of them for its whole life and names it in its results. Decided in [Built-in page clean-up](https://github.com/Jbmanllr/automan/issues/119) (parity row SA-17); Consent prompts are handled by ADR 0048.
+Each run holds to one version of them for its whole life and names it in its results. Decided in [Built-in page clean-up](https://github.com/goodfetch/goodfetch/issues/119) (parity row SA-17); Consent prompts are handled by ADR 0048.
 
 Competitors split on the default:
 - **On by default.** Firecrawl's `blockAds` ([API](https://docs.firecrawl.dev/api-reference/endpoint/scrape)), spider.cloud's `block_ads` and `block_analytics` in browser mode ([API](https://spider.cloud/docs/api)) and Browser Use, which loads uBlock Origin Lite ([profile.py](https://github.com/browser-use/browser-use/blob/main/browser_use/browser/profile.py)).

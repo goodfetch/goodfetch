@@ -1,4 +1,4 @@
-# Automan — market research and recommended direction
+# Goodfetch — market research and recommended direction
 
 **State as of October 7, 2026.** The user has withdrawn the initial assumption "small team, first product in 3–6 months". The current recommendation targets an ambitious architecture with a strong AI-assisted implementation capacity; the initial timeline no longer constrains the choices. This study extends the attached context and existing research; it does not turn earlier leads into decisions already made.
 
@@ -12,13 +12,13 @@ I recommend **an autonomous Rust runtime, a common protocol and TypeScript/Pytho
 
 Rust is chosen here for distributing an autonomous engine, sharing across languages and controlling resources. **Its overall speed superiority is not established.** The priority performance investments remain selecting the means of access, eliminating repeated decisions, execution proximity and session management.
 
-This recommendation is a design and product judgment, not an experimental conclusion. No Automan performance advantage has been measured yet. The ideas of caching, replay, repair and validation already exist at several competitors, including open source ones. The commercial opportunity will depend on the first workflows actually maintained, ease of adoption and comparative evidence.
+This recommendation is a design and product judgment, not an experimental conclusion. No Goodfetch performance advantage has been measured yet. The ideas of caching, replay, repair and validation already exist at several competitors, including open source ones. The commercial opportunity will depend on the first workflows actually maintained, ease of adoption and comparative evidence.
 
 ## 1. What the market actually sells
 
 The references cited by the user occupy different layers. A cloud browser, an agent framework and a collection platform can cooperate within the same product. A public SDK does not mean the service is open source.
 
-| Layer | Function | Examples | Consequence for Automan |
+| Layer | Function | Examples | Consequence for Goodfetch |
 | --- | --- | --- | --- |
 | Browser and protocol | Run JS, manage pages, events and input | Chromium, Playwright, Puppeteer, CDP, BiDi, Lightpanda | Reuse a proven substrate; isolate the dependency on its API. |
 | Agent primitives | Observe, act, extract, expose tools | Stagehand, Browser Use, agent-browser, Playwright MCP, AgentQL | Highly competitive offering; good compatibility required. |
@@ -67,7 +67,7 @@ Providers bill by different units: browser time, CPU, credits, proxy traffic, re
 
 ## 3. The positioning to test and the overall ambition
 
-**Proposition:** "Automan lets developers turn a recurring web collection into a portable, observable and maintainable recipe, with quality control of the results."
+**Proposition:** "Goodfetch lets developers turn a recurring web collection into a portable, observable and maintainable recipe, with quality control of the results."
 
 The first commercial validation segment is **B2B SaaS teams and integrators who maintain data flows from supplier, distributor or partner portals**. It provides concrete ground to qualify the general engine; it does not limit its APIs to catalog scraping. This segment is a commercial hypothesis: no customer interview or willingness to pay was verified during this research.
 
@@ -115,13 +115,13 @@ flowchart TD
 
 ### Runtime: owning the recipe and its result
 
-The Automan code to build covers a versioned sequence, its state, its parameters, its observations, validation and repair. The Rust runtime executes an inspectable intermediate representation: sequence, branch, bounded loop, independent parallelism, wait, extraction, checkpoint and effect operations. A plan must not be a succession of coordinates or a stale result cache.
+The Goodfetch code to build covers a versioned sequence, its state, its parameters, its observations, validation and repair. The Rust runtime executes an inspectable intermediate representation: sequence, branch, bounded loop, independent parallelism, wait, extraction, checkpoint and effect operations. A plan must not be a succession of coordinates or a stale result cache.
 
 A JSON manifest describes identity, version, parameters, output schema, authentication requirements, budgets, capabilities and resumption policy. A step has preconditions, a target resolved at action time, postconditions and a classification of its effect. TypeScript/Python code is an authoring or extension surface, not a copy of the executor.
 
 The first intermediate representation must have few, well-specified constructs. Extend these constructs when a workflow requires it, rather than claiming that a compiler turns any arbitrary code into a safe plan. A recorder, a developer or a model can produce the same type of plan; these sources do not bring the same guarantees and remain traced.
 
-Public browser objects are Automan references and capability contracts. A Playwright `Page` can exist inside its adapter, without being promised as an object interchangeable with the Rust driver. Defining a recipe's requirements makes it possible to reject an incapable backend before execution.
+Public browser objects are Goodfetch references and capability contracts. A Playwright `Page` can exist inside its adapter, without being promised as an object interchangeable with the Rust driver. Defining a recipe's requirements makes it possible to reject an incapable backend before execution.
 
 The proposed end states: `verified`, `failed`, `partial`, `needs_review`, `effect_unknown`. The engine must not turn the absence of an exception into business success. For important fields, keep the source, date, locator or proof of origin and validation method. Complete provenance does not, by itself, establish the truth of a piece of data.
 
@@ -139,9 +139,9 @@ The browser and the model are adapters. The runtime can launch locally and conne
 
 ### Rust driver: Chromey as candidate, Playwright as independent reference
 
-**First candidate to qualify: Chromey**, a fork of Chromiumoxide maintained by the Spider ecosystem, under `MIT OR Apache-2.0` in its manifest. Pin a release and encapsulate its types. Compare against upstream Chromiumoxide and the public native driver of Browser Use/agent-browser on Automan's needs; a repository's activity does not prove its superiority. Reusing libraries or contributing upstream is preferable to taking over the whole Spider crawler with its feature branches. [Chromey](https://github.com/spider-rs/chromey), [manifest](https://github.com/spider-rs/chromey/blob/main/Cargo.toml), [Chromiumoxide](https://github.com/mattsse/chromiumoxide).
+**First candidate to qualify: Chromey**, a fork of Chromiumoxide maintained by the Spider ecosystem, under `MIT OR Apache-2.0` in its manifest. Pin a release and encapsulate its types. Compare against upstream Chromiumoxide and the public native driver of Browser Use/agent-browser on Goodfetch's needs; a repository's activity does not prove its superiority. Reusing libraries or contributing upstream is preferable to taking over the whole Spider crawler with its feature branches. [Chromey](https://github.com/spider-rs/chromey), [manifest](https://github.com/spider-rs/chromey/blob/main/Cargo.toml), [Chromiumoxide](https://github.com/mattsse/chromiumoxide).
 
-A CDP driver's `Element::click` path does not constitute the whole Playwright contract. Automan must qualify late locator resolution, uniqueness, visibility, enablement, stability, hit-testing, navigation, cross-origin frames/OOPIF, shadow DOM, dialogs, downloads and cancellation. [Playwright contract](https://playwright.dev/docs/actionability).
+A CDP driver's `Element::click` path does not constitute the whole Playwright contract. Goodfetch must qualify late locator resolution, uniqueness, visibility, enablement, stability, hit-testing, navigation, cross-origin frames/OOPIF, shadow DOM, dialogs, downloads and cancellation. [Playwright contract](https://playwright.dev/docs/actionability).
 
 Chromey also exposes `Content` and `WebMCP` as **non-standard** CDP domains present on certain remote engines. Their existence in the library does not attest to their availability on local Chrome. Announce them only after capability negotiation; do not confuse them with a WebMCP standard guarantee. [Content](https://github.com/spider-rs/chromey/blob/main/src/content_markdown.rs), [WebMCP](https://github.com/spider-rs/chromey/blob/main/src/webmcp.rs).
 
@@ -155,7 +155,7 @@ The goal of Rust is a complete, reusable and controlled engine. As long as funct
 
 The Rust scheduler covers URL frontier, deduplication, per-domain limits, budgets, backpressure, request leases, retries and progressive data emission. The plan executor keeps its own step guarantees. A task "download this export in this account" works without a full site crawler.
 
-Draw inspiration from the frontiers of Crawlee and Scrapy and evaluate Spider as an optional crawling backend. A Crawlee integration on the TypeScript side remains possible: in that case its queue owns the requests and Automan executes the plans. The same request is not orchestrated by two persistent schedulers. [Crawlee](https://crawlee.dev/js/docs/introduction), [Scrapy scheduler](https://github.com/scrapy/scrapy/blob/master/scrapy/core/scheduler.py), [Spider](https://github.com/spider-rs/spider).
+Draw inspiration from the frontiers of Crawlee and Scrapy and evaluate Spider as an optional crawling backend. A Crawlee integration on the TypeScript side remains possible: in that case its queue owns the requests and Goodfetch executes the plans. The same request is not orchestrated by two persistent schedulers. [Crawlee](https://crawlee.dev/js/docs/introduction), [Scrapy scheduler](https://github.com/scrapy/scrapy/blob/master/scrapy/core/scheduler.py), [Spider](https://github.com/spider-rs/spider).
 
 Locally, SQLite is a proposed choice for journal, checkpoints and recipe index, with datasets/artifacts in files. For a multi-worker cloud, separate the control plane, job scheduling and workers; PostgreSQL and object storage are conventional choices to qualify. Workers keep the same Rust executor. This architecture does not imply an exactly-once guarantee on the effects on a third-party site.
 
@@ -166,7 +166,7 @@ Locally, SQLite is a proposed choice for journal, checkpoints and recipe index, 
 | Resolution/action of a step and confirmation of its effect | Rust step executor, following the plan's policy. |
 | Browser lifecycle, events and protocol requests | One browser worker/backend per session. |
 | Transport or model retries | Adapter, within the granted budget and with attempts reported to the runtime. |
-| Requests of a delegated collection | Automan frontier or the queue of the chosen external framework, never both for the same request. |
+| Requests of a delegated collection | Foxhound frontier or the queue of the chosen external framework, never both for the same request. |
 
 An adapter does not independently replay an effectful action after a timeout. The `effect_unknown` state goes up to the executor, which applies verification, abstention or authorized resumption. If a new backend is launched after an uncertain click, this change does not make the uncertainty of the previous effect disappear.
 
@@ -221,7 +221,7 @@ The report interface, the visual recorder, a recipe library and the desktop/clou
 
 ## 6. Open source and services
 
-**License proposal for the original Automan code: Apache-2.0**, with prior verification of dependencies and of what is actually redistributed. This proposal favors adoption in commercial products; it does not by itself protect against a provider that rehosts the code.
+**License proposal for the original Goodfetch code: Apache-2.0**, with prior verification of dependencies and of what is actually redistributed. This proposal favors adoption in commercial products; it does not by itself protect against a provider that rehosts the code.
 
 The published core should remain complete for its announced use: recipes, local execution, extraction, validation, reports, plugins and configurable repair. Paid offerings can cover onboarding, hosting availability, site monitoring, managed sessions, team features and agreed operational guarantees. Keeping the customer in control of their recipe strengthens trust, but requires offering a real operational service.
 
@@ -262,7 +262,7 @@ The [benchmark and runtime](2026-10-07-benchmark-and-runtime.md) report defines 
 
 Separate three objectives: **correctness parity with a good manual script; cost reduction compared with comparable agents on recurring runs; throughput or footprint gain compared with the best existing collection paths**. The proposed threshold of latency halved or cost reduced by at least 50% targets the agent baseline defined before the trials, not a promise to beat an optimal deterministic script. These are proposed decision thresholds, in no way figures achieved.
 
-The test must include manual Playwright, current configurations of the suitable tools and their caches/fast modes. Failures, repairs, human work and compilation costs count. Publish creation and maintenance costs separately, then amortized costs for 1, 10, 100 and 1,000 executions with declared cadence and change rate. Publishing cases where Automan loses gives a credible usage boundary.
+The test must include manual Playwright, current configurations of the suitable tools and their caches/fast modes. Failures, repairs, human work and compilation costs count. Publish creation and maintenance costs separately, then amortized costs for 1, 10, 100 and 1,000 executions with declared cadence and change rate. Publishing cases where Goodfetch loses gives a credible usage boundary.
 
 Universally superior performance cannot be inferred from a language or a diagram. The right goal is to win a defined set of tasks, then broaden that scope without degrading the contracts.
 
@@ -274,4 +274,4 @@ Universally superior performance cannot be inferred from a language or a diagram
 - Published versions may differ from `main`, alphas, READMEs and GitHub Releases. The technical notes keep the important distinctions.
 - The proposed product, niche and services are hypotheses to test. Customer interviews and the real cost of pilots will determine the commercial priority.
 - The user retains the choice of language. The current recommendation is canonical Rust for the general ambition; it replaces the initial TypeScript recommendation based on the withdrawn constraint.
-- This study adds notes in `automan/research`. The folder belongs to the parent Git repository `/Users/jb/Dev`; no code, branch, commit, publication or pre-existing file is modified by this research.
+- This study adds notes in `goodfetch/research`. The folder belongs to the parent Git repository `/Users/jb/Dev`; no code, branch, commit, publication or pre-existing file is modified by this research.

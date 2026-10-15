@@ -25,7 +25,7 @@ test('oracle rejects duplicates, changed values and fabricated form effects', as
     const other = await fixtures.createRun({ scenario: 'http-catalog', seed: 43, pages: 1 });
     assert.equal((await fixtures.verify(other.id, { records: [{ id: 'P-001', price: 1201 }, { id: 'P-002', price: 1238 }] })).status, 'failed');
     const form = await fixtures.createRun({ scenario: 'form', seed: 42 });
-    await fetch(form.url.replace('/ui','/effect'), { method: 'POST', body: JSON.stringify({ name: 'Automan', region: 'eu', consent: true, trusted: false }) });
+    await fetch(form.url.replace('/ui','/effect'), { method: 'POST', body: JSON.stringify({ name: 'Goodfetch', region: 'eu', consent: true, trusted: false }) });
     assert.equal((await fixtures.verify(form.id, {})).status, 'failed');
   } finally { await fixtures.close(); }
 });

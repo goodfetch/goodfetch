@@ -14,7 +14,7 @@ Comparable projects split the work the same way:
 
 Docker shows what a wide window does when nothing tests it. Its pull request called the code for old API versions "largely untested", and raising the minimum in 29.0 broke Portainer, Traefik and Testcontainers until 1.40 was restored. Goodfetch's window is the whole major, so every minor in it is tested.
 
-Decided in [Upgrade and version-mismatch testing](https://github.com/Jbmanllr/automan/issues/287), on the facts of [Upgrade and version-mismatch testing (research)](https://github.com/Jbmanllr/automan/issues/271) ([findings](https://github.com/Jbmanllr/automan/blob/research/upgrade-testing/rnd/research/2026-10-13-upgrade-testing.md)). The rules every test follows are in `TESTING.md`. Every check sits in one of the three suites of [Test suites, local commands and time budgets](https://github.com/Jbmanllr/automan/issues/276) (ADR 0061): Quick, Pre-merge and Release, each containing the one before. The CI tiers that run them (pull request, merge queue, nightly, release pipeline) are that decision's.
+Decided in [Upgrade and version-mismatch testing](https://github.com/goodfetch/goodfetch/issues/287), on the facts of [Upgrade and version-mismatch testing (research)](https://github.com/goodfetch/goodfetch/issues/271) ([findings](https://github.com/goodfetch/goodfetch/blob/research/upgrade-testing/rnd/research/2026-10-13-upgrade-testing.md)). The rules every test follows are in `TESTING.md`. Every check sits in one of the three suites of [Test suites, local commands and time budgets](https://github.com/goodfetch/goodfetch/issues/276) (ADR 0061): Quick, Pre-merge and Release, each containing the one before. The CI tiers that run them (pull request, merge queue, nightly, release pipeline) are that decision's.
 
 ## Decision
 
@@ -43,7 +43,7 @@ Decided in [Upgrade and version-mismatch testing](https://github.com/Jbmanllr/au
   - a format's schema changed while its version still equals its newest frozen version. This catches a format changed without a version bump, the mistake behind Cassandra's two fixture sets for one format (CASSANDRA-15035).
 - **Frozen from the release tag.** Every release is built from `release/x.y` (ADR 0032), and `main` may already carry a newer, unreleased version of a format. So when a stable `x.y.0` or a patch ships, the pull request it opens against `main` (ADR 0030) runs `xtask compat freeze --tag <tag>`. It reads each format's `head/` from the release tag, as the docs version is cut from the tag's `docs/`. Every format whose shipped version has no frozen set on `main` yet gets that `head/` copied to `<major>.<minor>/`. Release candidates and nightlies freeze nothing.
 - **A frozen file never changes.** When the reading of an old file must change on purpose, only its snapshot changes, in a reviewed pull request whose changelog entry says so, as Kubernetes' `after_roundtrip` files work.
-- **Pre-release.** No format changes version before the first publish (AGENTS.md), so `compat/` holds only `head/` sets, regenerated in place with each format change. Each format gets its `head/` set and its refusal cases in the change that creates it, starting with the protocol in [Engine tracer: an Attached engine answers `hello` over stdio](https://github.com/Jbmanllr/automan/issues/214). The first frozen sets come from the first `0.y.0` preview (M4, ADR 0058).
+- **Pre-release.** No format changes version before the first publish (AGENTS.md), so `compat/` holds only `head/` sets, regenerated in place with each format change. Each format gets its `head/` set and its refusal cases in the change that creates it, starting with the protocol in [Engine tracer: an Attached engine answers `hello` over stdio](https://github.com/goodfetch/goodfetch/issues/214). The first frozen sets come from the first `0.y.0` preview (M4, ADR 0058).
 
 ### What a corpus test checks
 
@@ -98,7 +98,7 @@ A test fabricates a version by writing the header, or by sending its own `hello`
   - **Plugins:** older first-party Plugins, as OCI artifacts by digest, through the plugin conformance suite against the current engine.
 
   An SDK and the Attached engine it ships with never skew (ADR 0024); only `GOODFETCH_ENGINE_PATH` pairs an SDK with another engine. The `0.y` previews have no cross-minor skew, because each preview counts as a major (ADR 0030).
-  > Amended by [ADR 0094](0094-both-products-are-released-and-signed-together-and-each-test-runs-on-collie-unless-it-needs-foxhound.md): each Product's Clients, SDKs over stdio (through its own engine-path variable) and Console build run against the current executable of the same Product. A Collie Client on a Foxhound engine, which [Protocol, Operation catalog and SDKs across two products](https://github.com/goodfetch/automan/issues/458) admits, has its Product check at `hello` tested for every pair of Products with fabricated `hello`s, as version refusals are; files shared across Products follow [Collie and Foxhound installed on one machine](https://github.com/goodfetch/automan/issues/486).
+  > Amended by [ADR 0094](0094-both-products-are-released-and-signed-together-and-each-test-runs-on-collie-unless-it-needs-foxhound.md): each Product's Clients, SDKs over stdio (through its own engine-path variable) and Console build run against the current executable of the same Product. A Collie Client on a Foxhound engine, which [Protocol, Operation catalog and SDKs across two products](https://github.com/goodfetch/goodfetch/issues/458) admits, has its Product check at `hello` tested for every pair of Products with fabricated `hello`s, as version refusals are; files shared across Products follow [Collie and Foxhound installed on one machine](https://github.com/goodfetch/goodfetch/issues/486).
 - **What an old Client runs.** The old release's own Journeys ([ADR 0063](0063-end-to-end-tests-follow-a-catalog-of-numbered-journeys-kept-in-the-repository.md)), checked out at its tag with its own seeds. The old tag's Journey helper runs each variant with the old release's Client against the current binary, given by path. Each variant keeps ADR 0063's fresh start: its own Proving ground and its own Goodfetch home, shared with no other variant, so a Journey that starts, stops or moves the Daemon starts the current one. The Journeys assert what that release promised, and a minor keeps every promise.
   - A Journey that asserts something outside semver (ADR 0030) is fixed on `main`.
   - On an old tag, such a Journey's variant is excluded by its variant ID (`J-NNN@<surface>`) in `compat/skew-exclusions.toml`, with a reason, in a reviewed change.
@@ -139,7 +139,7 @@ A test fabricates a version by writing the header, or by sending its own `hello`
   - ADR 0032's pinned artifact mirror holds these releases.
   - The entry also records the version of every registered format the release shipped, read from the tag's registry. `xtask compat check` reads it to know which frozen sets must exist.
   - CI fetches the artifacts and Sigstore's trusted root (`gh attestation trusted-root`) before the outbound deny starts, and checks each digest. It then verifies provenance offline with `gh attestation verify --bundle --custom-trusted-root`, since without that flag the command fetches the trusted root over the network. The fetched set is cached by the manifest's hash.
-  - One local command fetches the same set; [Test suites, local commands and time budgets](https://github.com/Jbmanllr/automan/issues/276) names it beside its suite recipes.
+  - One local command fetches the same set; [Test suites, local commands and time budgets](https://github.com/goodfetch/goodfetch/issues/276) names it beside its suite recipes.
 - **No silent skip.**
   - A missing or mismatched artifact fails the job. SQLite's `backcompat.test` skips itself without old binaries, and Cargo's `old_cargos.rs` sits `#[ignore]`d.
   - An empty version list runs the current build against itself, as PostgreSQL's upgrade test does by default. Every harness is therefore proven before the first release, and an empty matrix never passes.
@@ -192,22 +192,22 @@ A test fabricates a version by writing the header, or by sending its own `hello`
   - `compat/` joins the repository's top-level folders.
   - The pinned artifact mirror holds Goodfetch's own releases.
   - The Release suite gains the skew matrix, rolling upgrades, older engines, two majors and the Helm upgrade, as ADR 0061 already places tests that need released binaries.
-- **Adds to area 1's spec** ([Spec: Repository, CI and release (V1 area 1)](https://github.com/Jbmanllr/automan/issues/130)):
+- **Adds to area 1's spec** ([Spec: Repository, CI and release (V1 area 1)](https://github.com/goodfetch/goodfetch/issues/130)):
   - a sixth `xtask` command, `xtask compat`, with `write`, `check` and `freeze`;
   - two new steps in the release pull request: `freeze` from the release tag and the `compat/releases.toml` entry;
   - the patch check of format versions against the `x.y.0` tag;
   - the fetch step under the deny;
   - its tests, through Seam A, with a fixture workspace.
-- **Adds to area 3's spec** ([Spec: Engine runtime (V1 area 3)](https://github.com/Jbmanllr/automan/issues/213)):
+- **Adds to area 3's spec** ([Spec: Engine runtime (V1 area 3)](https://github.com/goodfetch/goodfetch/issues/213)):
   - the format registry and the compatibility functions in `goodfetch-protocol`;
   - the generated refusal cases;
   - the `hello` refusal before any other message.
   - Each area that owns a format adds its `head/` set and its scenarios.
 - **Adds to [ADR 0063](0063-end-to-end-tests-follow-a-catalog-of-numbered-journeys-kept-in-the-repository.md):** the Journey helpers accept the engine binary to run, by path, so an old tag's Journeys can run against the current binary. Selecting a tag's variants by surface stays the "Test infrastructure" spec's command.
 - **Assumed interfaces of other tickets:**
-  - The SDKs' Scripted engine can answer `hello` with any version and Error code ([SDK and CLI test stack](https://github.com/Jbmanllr/automan/issues/285)).
-  - Crash injection can wrap `upgrade-files` and store migrations ([Deterministic simulation and crash testing for leases, fencing, groups and run state](https://github.com/Jbmanllr/automan/issues/275)).
-  - MCP revisions negotiated with external hosts belong to [MCP, framework adapter and Integration test stack](https://github.com/Jbmanllr/automan/issues/286).
+  - The SDKs' Scripted engine can answer `hello` with any version and Error code ([SDK and CLI test stack](https://github.com/goodfetch/goodfetch/issues/285)).
+  - Crash injection can wrap `upgrade-files` and store migrations ([Deterministic simulation and crash testing for leases, fencing, groups and run state](https://github.com/goodfetch/goodfetch/issues/275)).
+  - MCP revisions negotiated with external hosts belong to [MCP, framework adapter and Integration test stack](https://github.com/goodfetch/goodfetch/issues/286).
 - **The "Test infrastructure" spec** builds:
   - `xtask compat`;
   - the artifact fetcher and verifier;

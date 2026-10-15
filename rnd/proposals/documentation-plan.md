@@ -1,6 +1,6 @@
-# Complete documentation to produce with Automan
+# Complete documentation to produce with Goodfetch
 
-**Requirement and work plan — October 7, 2026.** This document describes the product's future documentation. It is not user documentation for Automan, whose implementation does not yet exist. The API examples in the dossier are proposals.
+**Requirement and work plan — October 7, 2026.** This document describes the product's future documentation. It is not user documentation for Goodfetch, whose implementation does not yet exist. The API examples in the dossier are proposals.
 
 ## 1. Expected level
 
@@ -14,7 +14,7 @@ The web and macOS interfaces have their guides. Developers have a complete refer
 
 ```text
 Discover
-  Why Automan, use cases, architecture, capabilities and limits
+  Why Goodfetch, use cases, architecture, capabilities and limits
   Choose deterministic, assisted, agent or compiled plan
   Open source framework, self-hosting and hosted service
 

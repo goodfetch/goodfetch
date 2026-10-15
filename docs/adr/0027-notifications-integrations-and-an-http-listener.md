@@ -4,9 +4,9 @@ Messages about a run or a Schedule (Notifications; ADR 0036) are kept apart from
 
 Workflow tools force one change to ADR 0024. n8n's verification rules forbid runtime dependencies and environment or file access, so a verified node cannot start the engine and, we infer, can only reach it over HTTP; Zapier, Make and Pipedream call from their own clouds. So the Daemon gains an **HTTP JSON-RPC listener**: the same protocol with the same `hello` version check. It is off until a setting enables it, then binds to loopback with a token, and needs TLS plus a token for remote use (ADR 0017). In a Daemon group, the Lead Daemon holds that token, so an Integration may call any Group member (ADR 0055).
 
-Apify, Firecrawl, Bright Data and ScrapingBee all ship verified n8n nodes, Make apps and Zapier apps. Users' most frequent complaint is a run that looks green but delivered nothing, which is what Notifications and per-page events address. Decided in [Export connectors and integrations catalog](https://github.com/Jbmanllr/automan/issues/88).
+Apify, Firecrawl, Bright Data and ScrapingBee all ship verified n8n nodes, Make apps and Zapier apps. Users' most frequent complaint is a run that looks green but delivered nothing, which is what Notifications and per-page events address. Decided in [Export connectors and integrations catalog](https://github.com/goodfetch/goodfetch/issues/88).
 
-Evidence: [workflow tools, Airbyte and AI loaders](https://github.com/Jbmanllr/automan/blob/research/sinks-integrations-catalog/rnd/research/2026-10-11-sinks-integrations/b1-integrations.md) and [notification channels](https://github.com/Jbmanllr/automan/blob/research/sinks-integrations-catalog/rnd/research/2026-10-11-sinks-integrations/a3-notify-vendors.md).
+Evidence: [workflow tools, Airbyte and AI loaders](https://github.com/goodfetch/goodfetch/blob/research/sinks-integrations-catalog/rnd/research/2026-10-11-sinks-integrations/b1-integrations.md) and [notification channels](https://github.com/goodfetch/goodfetch/blob/research/sinks-integrations-catalog/rnd/research/2026-10-11-sinks-integrations/a3-notify-vendors.md).
 
 ## Considered Options
 

@@ -1,8 +1,8 @@
-# Automan Lab — results and decisions to test
+# Goodfetch Lab — results and decisions to test
 
 Snapshot of **October 7, 2026**, on an Apple M3 Max, 14 logical CPUs, 36 GiB of RAM, macOS 27 arm64. The laboratory is installed and runnable. Crawlee, Spider Rust, Stagehand v4, its batch, the **`@crawlee/stagehand` integration with Stagehand v3**, Playwright and Puppeteer were run locally. The JSON/JSONL and SQLite writes have independent Node and Rust workers.
 
-The first results support three directions: **avoid the browser when HTTP is enough; reuse resources; batch writes behind bounded admission**. They make it possible to propose the next Automan prototype, without yet choosing its language on performance alone or announcing a universally superior scraper.
+The first results support three directions: **avoid the browser when HTTP is enough; reuse resources; batch writes behind bounded admission**. They make it possible to propose the next Goodfetch prototype, without yet choosing its language on performance alone or announcing a universally superior scraper.
 
 ## Evidence and reproduction
 
@@ -120,7 +120,7 @@ The crash probe keeps **2,048 records in 8/8 cells**, after a SIGKILL sent after
 
 **Rust/Tokio remains the candidate for the portable core**, not a demonstrated winner. Keeping Node backends for compatibility is consistent; a Rust/CDP driver will have to beat a co-located Node baseline at equal guarantees to justify its cost. The current Rust SQLx sink is not automatically faster than Node SQLite. Adding a Rust baseline with a synchronous binding and **the same SQLite build**, then Go, would be a more defensible runtime comparison.
 
-The next decisive deliverable is an **acquisition → extraction → validation → batched writer → commit → ack** prototype, with a bounded queue and idempotent recovery. This lab currently measures acquisition and writing in separate tracks; it does not yet implement this durable Automan workflow. Its integrated latency and consumption remain to be demonstrated before freezing the architecture.
+The next decisive deliverable is an **acquisition → extraction → validation → batched writer → commit → ack** prototype, with a bounded queue and idempotent recovery. This lab currently measures acquisition and writing in separate tracks; it does not yet implement this durable Goodfetch workflow. Its integrated latency and consumption remain to be demonstrated before freezing the architecture.
 
 ## Remaining coverage and competitors
 

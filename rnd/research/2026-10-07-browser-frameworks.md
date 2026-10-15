@@ -6,7 +6,7 @@ This note covers browser frameworks, their primitives, the shift from agent to r
 
 **Method:** Exa, 12 queries in four passes, `sources_reviewed = 110` according to the Exa convention (sum of the requested `numResults`). This number includes duplicates and discarded results: it is not 110 validated independent sources. The conclusions rest on the primary documents cited, the public GitHub/npm/PyPI APIs and targeted code readings. Fifteen LICENSE files were actually opened. GitHub push dates measure a repository's activity, not the quality of its product. The anonymous GitHub API hit its limit during the research; subsequent reads used `gh api` and `raw.githubusercontent.com`.
 
-## Conclusions useful to Automan
+## Conclusions useful to Goodfetch
 
 1. **"A faster Stagehand in Rust" is an insufficient position.** Stagehand already moves the runtime into a Chrome extension; Browser Use now has a Rust core; Kernel runs Playwright next to the browser. Latency comes largely from where the code runs, the number of commands and inference, not only from the language. [Stagehand architecture](https://github.com/browserbase/stagehand/blob/main/CONTRIBUTING.md), [Browser Use 0.13](https://github.com/browser-use/browser-use/releases/tag/0.13.0), [Kernel execution](https://www.kernel.sh/docs/browsers/playwright-execution).
 2. **Learn once, replay without an LLM, then repair already exists.** Skyvern caches scripts per block and per branch; Workflow Use generates workflows; Lightfeed saves plans; Imprint compiles network requests and DOM interactions. Verified replay is a competitive field, not an invention to claim. [Skyvern cache](https://www.skyvern.com/docs/developers/features/code-caching), [Workflow Use](https://github.com/browser-use/workflow-use), [Lightfeed](https://github.com/lightfeed/browser-agent), [Imprint architecture](https://github.com/ashaychangwani/imprint/blob/main/docs/architecture.md).
@@ -47,7 +47,7 @@ The GitHub API confirmed on **October 7, 2026** that **2952, 2953, 2954, 2955 an
 | [2955](https://github.com/browserbase/stagehand/pull/2955) | Element selection then deterministic copy of values, completeness judge; complex schemas/screenshot keep the LLM. Announced success equal to the baseline on 25 tasks, not reproduced here. |
 | [3103](https://github.com/browserbase/stagehand/pull/3103) | Explicit namespace `experimentalDecisions.act/observe/extract`, three RPCs, TS/Python/Go creation option. The ordinary methods keep their LLM pipeline. |
 
-The avenue is interesting for reducing inference on closed-set decisions. It proves neither out-of-distribution performance nor universally superior reliability. Do not lock a vendor into Automan before trials; keep a decision contract with confidence, abstention, metrics and escalation.
+The avenue is interesting for reducing inference on closed-set decisions. It proves neither out-of-distribution performance nor universally superior reliability. Do not lock a vendor into Goodfetch before trials; keep a decision contract with confidence, abstention, metrics and escalation.
 
 ## Browser Use: two generations and three surfaces
 
@@ -84,7 +84,7 @@ Its code caching records a successful execution, produces a script, then execute
 
 The OSS contains script generation, script versions/deployments, fallback episodes and computation of workflow reliability. It is not only a marketing announcement. Conditionals must, however, be handled by the DAG, not just by a linear file launched from the CLI. [Code generation and progressive caching](https://github.com/Skyvern-AI/skyvern/pull/4603), [MCP script tools](https://github.com/Skyvern-AI/skyvern/commit/31d37a5b01cff92dcd49ae5281fbc4d4b82aaa7d), [reliability service](https://github.com/Skyvern-AI/skyvern/blob/main/skyvern/services/self_heal_reliability_service.py).
 
-Automan can therefore compete on **ease of integration, portable contract, local-first, auditable cost, quality on one vertical and maintenance service**, not on the mere existence of replay. The claim must be tested with identical workflows and external assertions.
+Goodfetch can therefore compete on **ease of integration, portable contract, local-first, auditable cost, quality on one vertical and maintenance service**, not on the mere existence of replay. The claim must be tested with identical workflows and external assertions.
 
 ## Economics: compare meters before plans
 
@@ -104,7 +104,7 @@ Public prices checked on October 7; US dollars, indicative vendor rates, not quo
 
 The open `steel-dev/browserbench` measures creation → Playwright CDP connection → first `domcontentloaded` navigation → release on EC2 us-east-1 to google.com, 5,000 runs/vendor, ten warmups, success after any SDK retries. Its data give **Kernel 794 ms and Steel 894 ms** on average; they therefore do not support the slogan "Steel fastest" without qualification. They measure the minimal remote cycle, not a correct extraction, a login, a CAPTCHA or a workflow load. [Methodology and results](https://github.com/steel-dev/browserbench).
 
-The Automan protocol must separate first compilation, warm replay, cold replay, UI change, data change, auth expiration and network failure. A real set held out from calibration is indispensable; the in-sample Jev suites show exactly why. Comparisons must fix browser/region/proxy/model, publish the raw data and count failures in cost/latency.
+The Goodfetch protocol must separate first compilation, warm replay, cold replay, UI change, data change, auth expiration and network failure. A real set held out from calibration is indispensable; the in-sample Jev suites show exactly why. Comparisons must fix browser/region/proxy/model, publish the raw data and count failures in cost/latency.
 
 ## Proposed first delivery for 3–6 months
 

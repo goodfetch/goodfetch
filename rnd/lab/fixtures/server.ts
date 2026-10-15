@@ -91,7 +91,7 @@ function primitivesUi(run: Run) {
     // A trusted wheel on the scroller that scrolls it; engines scale one wheel step differently (Firefox scrolls less per step).
     wheel: "let wheeled=false,sent=false;scroller.addEventListener('wheel',e=>{if(e.isTrusted)wheeled=true},{passive:true});scroller.addEventListener('scroll',async()=>{if(!sent&&wheeled&&scroller.scrollTop>0){sent=true;await post({kind:'scrolled',target:'scroller',trusted:true,scrollTop:scroller.scrollTop});done()}});",
     keyboard: "field.addEventListener('keydown',async e=>{if(e.key==='Enter'){await post({kind:'enter',target:'field',trusted:e.isTrusted});done()}});",
-    contenteditable: "let sent=false;editor.addEventListener('input',async e=>{if(!sent&&editor.textContent==='Automan'){sent=true;await post({kind:'edited',target:'editor',trusted:e.isTrusted,text:editor.textContent});done()}});",
+    contenteditable: "let sent=false;editor.addEventListener('input',async e=>{if(!sent&&editor.textContent==='Goodfetch'){sent=true;await post({kind:'edited',target:'editor',trusted:e.isTrusted,text:editor.textContent});done()}});",
     unicode: `let sent=false;field.addEventListener('input',async e=>{if(!sent&&field.value===${JSON.stringify(unicodeText)}){sent=true;await post({kind:'typed',target:'field',trusted:e.isTrusted,value:field.value});done()}});`,
     // The target slips away as the pointer arrives, uncovering a decoy at the point it was verified.
     moved: "target.addEventListener('pointerover',()=>{target.style.left='500px'},{once:true});target.addEventListener('click',async e=>{await post({kind:'click',target:'target',trusted:e.isTrusted});done()});decoy.addEventListener('click',async e=>{await post({kind:'click',target:'decoy',trusted:e.isTrusted})});",
@@ -105,7 +105,7 @@ function primitivesUi(run: Run) {
   </script></body></html>`;
 }
 // Navigation, frames and files. Each page posts its effect with isTrusted; #done marks the expected end state.
-export const uploadText = 'automan-upload\n';
+export const uploadText = 'goodfetch-upload\n';
 function navigationUi(run: Run, crossOrigin: string) {
   const variant = run.variant ?? 'spa';
   const post = `const post=effect=>fetch('/runs/${run.id}/effect',{method:'POST',body:JSON.stringify(effect)});const done=()=>{document.querySelector('#done').textContent='done'};`;
@@ -181,7 +181,7 @@ export async function startFixtures() {
       if (action === 'ui') return send(res, 200, ui(run, crossOrigin));
       if (action === 'page-b' || action === 'popup' || action === 'inner') return send(res, 200, navigationChild(run, action));
       if (action === 'frame') return send(res, 200, `<input id="name"><select id="region"><option value="eu">EU</option></select><input id="consent" type="checkbox"><button id="submit">Save</button><script>document.querySelector('#submit').onclick=async e=>{await fetch('/runs/${id}/effect',{method:'POST',body:JSON.stringify({name:document.querySelector('#name').value,region:document.querySelector('#region').value,consent:document.querySelector('#consent').checked,trusted:e.isTrusted})});document.body.dataset.saved='true'};document.body.dataset.ready='true'</script>`);
-      if (action === 'file') { res.setHeader('content-disposition', 'attachment; filename="catalog.txt"'); return send(res, 200, `automan-fixture:${run.seed}\n`, 'text/plain'); }
+      if (action === 'file') { res.setHeader('content-disposition', 'attachment; filename="catalog.txt"'); return send(res, 200, `goodfetch-fixture:${run.seed}\n`, 'text/plain'); }
       return send(res, 404, 'unknown route');
     } catch { send(res, 500, 'fixture error'); }
   }
@@ -244,7 +244,7 @@ export async function startFixtures() {
           const own = effects.filter(e => e.kind === expected.kind && e.target === expected.target);
           if (own.length !== 1 || effects.length !== 1) reasons.push(`expected exactly one ${expected.kind} effect on ${expected.target}, got ${effects.length}`);
           if (own[0] && own[0].trusted !== true) reasons.push('untrusted event');
-          if (variant === 'contenteditable' && own[0]?.text !== 'Automan') reasons.push('wrong edited text');
+          if (variant === 'contenteditable' && own[0]?.text !== 'Goodfetch') reasons.push('wrong edited text');
           if (variant === 'unicode' && own[0]?.value !== unicodeText) reasons.push('wrong unicode value');
           if (variant === 'drag' && !(Number(own[0]?.moves) >= 1)) reasons.push('drop without pointer movement');
           if (metrics?.nativeRejected !== 0) reasons.push('actionable target was rejected');
@@ -267,13 +267,13 @@ export async function startFixtures() {
           if (e && (!e.trusted || !e.origin?.includes(host))) reasons.push(`wrong or untrusted click in the ${variant === 'cross-frame' ? 'cross-origin' : 'same-origin'} frame`);
         }
         else if (variant === 'upload') { const e = one('upload'); if (e && (e.name !== 'upload.txt' || e.content !== uploadText)) reasons.push('wrong uploaded file'); }
-        else if (variant === 'download') { if (output.file !== `automan-fixture:${run.seed}\n`) reasons.push('wrong downloaded bytes'); if (effects.length) reasons.push('unexpected effect'); }
+        else if (variant === 'download') { if (output.file !== `goodfetch-fixture:${run.seed}\n`) reasons.push('wrong downloaded bytes'); if (effects.length) reasons.push('unexpected effect'); }
       } else if (run.scenario === 'download') {
-        if (output.file !== `automan-fixture:${run.seed}\n`) reasons.push('wrong downloaded bytes');
+        if (output.file !== `goodfetch-fixture:${run.seed}\n`) reasons.push('wrong downloaded bytes');
       } else {
         if (run.effects.length !== 1) reasons.push('expected one form effect');
         const effect = run.effects[0] as { name?: string; region?: string; consent?: boolean; trusted?: boolean; events?: { type: string; id: string; trusted: boolean }[] } | undefined;
-        if (effect?.name !== 'Automan' || effect.region !== 'eu' || effect.consent !== true || effect.trusted !== true) reasons.push('wrong form effect');
+        if (effect?.name !== 'Goodfetch' || effect.region !== 'eu' || effect.consent !== true || effect.trusted !== true) reasons.push('wrong form effect');
         if (run.scenario !== 'iframe' && !effect?.events?.some(e => e.id === 'name' && e.type === 'input' && e.trusted)) reasons.push('missing trusted input event');
       }
       return { status: reasons.length ? 'failed' : 'verified', reasons };

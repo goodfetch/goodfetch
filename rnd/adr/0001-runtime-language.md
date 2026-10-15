@@ -1,4 +1,4 @@
-# ADR-001: language and architecture of the Automan runtime
+# ADR-001: language and architecture of the Goodfetch runtime
 
 **Status: proposed, R&D draft.**
 **Date: October 7, 2026.**
@@ -6,11 +6,11 @@
 
 ## Context
 
-Automan must be an open source framework that combines HTTP collection, browser rendering, deterministic actions, model-assisted perception/extraction and reusable workflows. The commercial services must use the same executor. The initial constraint of a small team and a release in 3–6 months has been removed; it does not govern this choice. The goals are speed, efficiency, versatility and reliability, with comparative evidence at equal quality.
+Goodfetch must be an open source framework that combines HTTP collection, browser rendering, deterministic actions, model-assisted perception/extraction and reusable workflows. The commercial services must use the same executor. The initial constraint of a small team and a release in 3–6 months has been removed; it does not govern this choice. The goals are speed, efficiency, versatility and reliability, with comparative evidence at equal quality.
 
 **There is no established universal consensus on the best language for this type of framework.** The projects studied show several solutions: Stagehand runs its runtime in a Chrome extension with TS/Python/Go clients; Crawlee has TS and Python implementations and accepts native HTTP clients; Spider and its agents are in Rust. This survey is not a representative poll of all developers. [Stagehand architecture](https://github.com/browserbase/stagehand/blob/main/CONTRIBUTING.md), [Crawlee Python](https://crawlee.dev/python/docs/guides/architecture-overview), [Crawlee/Impit](https://crawlee.dev/js/docs/guides/impit-http-client), [published Spider](https://docs.rs/crate/spider/2.53.9/source/).
 
-The distinction to keep is between **engine language, API language and execution location**. Different clients can consume a common protocol. A native engine does not eliminate network, model or Chromium latency; operations executed far from the browser can lose more in round trips than the controller gains in CPU. This last conclusion is an architectural inference, consistent with Stagehand's placement and batching; it is not a measured, quantified gain for Automan. [Stagehand protocol](https://github.com/browserbase/stagehand/blob/main/packages/protocol/README.md), [batching](https://docs.stagehand.dev/v4/reference/stagehand).
+The distinction to keep is between **engine language, API language and execution location**. Different clients can consume a common protocol. A native engine does not eliminate network, model or Chromium latency; operations executed far from the browser can lose more in round trips than the controller gains in CPU. This last conclusion is an architectural inference, consistent with Stagehand's placement and batching; it is not a measured, quantified gain for Goodfetch. [Stagehand protocol](https://github.com/browserbase/stagehand/blob/main/packages/protocol/README.md), [batching](https://docs.stagehand.dev/v4/reference/stagehand).
 
 ## Proposed decision
 
@@ -18,7 +18,7 @@ Build **a canonical asynchronous Rust engine, usable as a library and as a stand
 
 Rust is chosen for the unity of the engine, its native distribution, control over allocations and resources, concurrency and the absence of GC in the core. **This does not demonstrate its superiority on the total time of a workflow.** Dependent services and processes, including Chromium, keep their own behaviors. [Rust](https://rust-lang.org/), [Tokio](https://tokio.rs/).
 
-The browser is a driven dependency. A native CDP adapter wraps Chromey/Chromiumoxide; the final selection of the library awaits a capability qualification. A Playwright adapter provides compatibility and a behavioral reference. Each session has a single backend responsible for its lifecycle. The drivers' internal objects do not become Automan's public contract. [Chromey](https://github.com/spider-rs/chromey), [Chromiumoxide](https://github.com/mattsse/chromiumoxide), [Playwright actionability](https://playwright.dev/docs/actionability).
+The browser is a driven dependency. A native CDP adapter wraps Chromey/Chromiumoxide; the final selection of the library awaits a capability qualification. A Playwright adapter provides compatibility and a behavioral reference. Each session has a single backend responsible for its lifecycle. The drivers' internal objects do not become Goodfetch's public contract. [Chromey](https://github.com/spider-rs/chromey), [Chromiumoxide](https://github.com/mattsse/chromiumoxide), [Playwright actionability](https://playwright.dev/docs/actionability).
 
 ## Options considered
 
@@ -58,7 +58,7 @@ The core forms well-separated modules in a common product; the initial architect
 1. **Protocol:** bidirectional JSON-RPC proposed over local stdio and secure remote WebSocket. Version and capabilities negotiated; large artifacts transferred by references or bounded streams. This choice is proposed to unify SDK, CLI and cloud; its overhead will be measured. Embedded bindings can be added if a use case justifies their cost.
 2. **Execution:** API/HTTP, parsing, deterministic browser and model-based resolution. The means of access is chosen according to the requested result and the history; routes known to require JS can go directly to the browser.
 3. **Plans:** version, parameters, session requirements, steps, waits, preconditions and postconditions. Recorder, code or model can produce plans; no general conversion of arbitrary code into a safe plan is promised.
-4. **Collection:** frontier, deduplication, per-domain quotas, leases and backpressure, distinct from action recovery. An external Crawlee adapter can own the queue while Automan executes, without a double scheduler for a request.
+4. **Collection:** frontier, deduplication, per-domain quotas, leases and backpressure, distinct from action recovery. An external Crawlee adapter can own the queue while Goodfetch executes, without a double scheduler for a request.
 5. **State:** SQLite proposed locally for journal/checkpoints; PostgreSQL and object storage proposed for the multi-worker cloud. Results are idempotent when their contract allows it; an uncertain external effect requires reconciliation of the state before repetition.
 6. **Verification:** schema, identity, completeness, freshness and postcondition are separate properties. Distinguish technical success, verified result, partial result and unknown effect. Probabilistic verdicts are explicitly identified.
 7. **Models and caches:** optional models for discovery, ambiguity and repair. Perception cache, plan cache and data cache have distinct invalidations. A valid plan can run without new inference.
@@ -72,7 +72,7 @@ The product has a single execution semantics, local and remote, with distributio
 
 The Rust choice must not shift effort away from the dominant costs. The first performance goal is to avoid an unnecessary render or decision, then redundant screenshots and round trips; profiling decides CPU optimization. The memory safety of the core does not prove the correctness of the recipe, of the extraction or of the effects on the site.
 
-The features already present at competitors — adaptive HTTP, script cache, repair, verification — remain references. Automan's differentiation must lie in their common contract, their portability, their diagnostics and the cost per actually correct result. [In-depth comparison](../research/2026-10-07-stagehand-crawlee-spider-comparison.md).
+The features already present at competitors — adaptive HTTP, script cache, repair, verification — remain references. Goodfetch's differentiation must lie in their common contract, their portability, their diagnostics and the cost per actually correct result. [In-depth comparison](../research/2026-10-07-stagehand-crawlee-spider-comparison.md).
 
 ## Qualification actions
 
@@ -82,4 +82,4 @@ The features already present at competitors — adaptive HTTP, script cache, rep
 - [ ] Measure total CPU/memory, cold/warm startup, latency, RPC, LLM calls and the cost of all attempts.
 - [ ] Test DOM drift, changing data, expired auth and interruption between effect, validation and acknowledgment.
 
-The promotion gates for a backend rest on **equivalent quality and reliability with a measured gain**. No universal ranking of languages and no quantified Automan gain is established by this ADR. [Audit of public benchmarks](../research/2026-10-07-benchmark-audit-followup.md).
+The promotion gates for a backend rest on **equivalent quality and reliability with a measured gain**. No universal ranking of languages and no quantified Goodfetch gain is established by this ADR. [Audit of public benchmarks](../research/2026-10-07-benchmark-audit-followup.md).

@@ -10,7 +10,7 @@ Retained run: `ai-real-models-2026-10-08T22-15-04-120Z-d70ce2`, in `local-dev` o
 **Experimental design.** Two modes (agent on every execution, compiled replay), four page variants and 3 blocks. Each session chains 5 executions on the unchanged page, then one on the drifted page.
 
 **Key and cost.**
-- The gateway key is read from the environment (`AUTOMAN_AI_GATEWAY_KEY`) at launch; it is not recorded anywhere in the run or in the repository.
+- The gateway key is read from the environment (`LAB_AI_GATEWAY_KEY`) at launch; it is not recorded anywhere in the run or in the repository.
 - The campaign declares a $2 cap: a cell that would start beyond it would be refused, never executed.
 
 ## Cost oracle

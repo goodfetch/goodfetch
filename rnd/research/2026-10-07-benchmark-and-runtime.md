@@ -1,6 +1,6 @@
-# Automan — performance, runtime and evidence protocol
+# Goodfetch — performance, runtime and evidence protocol
 
-Research from October 7, 2026. The findings below come from primary sources; the proposed choices and thresholds are explicitly recommendations. No Automan framework was implemented and no comparative benchmark was run during this study.
+Research from October 7, 2026. The findings below come from primary sources; the proposed choices and thresholds are explicitly recommendations. No Goodfetch framework was implemented and no comparative benchmark was run during this study.
 
 ## 1. The right unit of performance
 
@@ -36,7 +36,7 @@ WebDriver BiDi describes bidirectional communication with commands and events; i
 
 Lightpanda is a separate browser written in Zig, with JavaScript and without a graphics rendering engine equivalent to Chromium's. Its code is under AGPL-3.0. The README also describes an agent mode that produces PandaScript, replayable without a model on the deterministic path. These are capabilities announced and documented by the project, not reproduced here. [Repository](https://github.com/lightpanda-io/browser), [license](https://github.com/lightpanda-io/browser/blob/main/LICENSE).
 
-Its benchmark is worth reading: it uses a Go/chromedp crawler, 933 URLs from an Amiibo demo site and several levels of parallelism. The current technical document mentions an AWS `m5.xlarge` machine, whereas the README summary speaks of `m5.large`. The multi-process Lightpanda and multi-tab Chrome comparisons do not allow deriving a universal multiplier for authenticated workflows, visual captures or complex interactions. The published figures are not Automan measurements. [Benchmark protocol and results](https://github.com/lightpanda-io/demo/blob/main/BENCHMARKS.md#crawler-benchmark).
+Its benchmark is worth reading: it uses a Go/chromedp crawler, 933 URLs from an Amiibo demo site and several levels of parallelism. The current technical document mentions an AWS `m5.xlarge` machine, whereas the README summary speaks of `m5.large`. The multi-process Lightpanda and multi-tab Chrome comparisons do not allow deriving a universal multiplier for authenticated workflows, visual captures or complex interactions. The published figures are not Goodfetch measurements. [Benchmark protocol and results](https://github.com/lightpanda-io/demo/blob/main/BENCHMARKS.md#crawler-benchmark).
 
 **Proposal:** keep an adaptation point for a lightweight browser, experiment later on workloads with no need for visual fidelity, and keep Chromium as the qualified fallback. The license boundary and API compatibility must be studied for the intended distribution; a separate process is not enough, on its own, to conclude on the obligations of an integration.
 
@@ -63,7 +63,7 @@ The literature and products converge on reusing decisions and code:
 
 Build locally served fixtures: static HTML, pagination, delayed JavaScript content, scroll with a virtualized list, authorized API, downloads and expired session. Provide an expected dataset, check duplicates and missing fields, and verify pagination completeness.
 
-Compare Automan to a well-written HTTP/Playwright script, then to the relevant modes of Crawlee, Spider and Scrapy. The configurations must reach the same precision and completeness. A comparison against a forced browser mode when the competitor has an adaptive HTTP mode would be misleading.
+Compare Goodfetch to a well-written HTTP/Playwright script, then to the relevant modes of Crawlee, Spider and Scrapy. The configurations must reach the same precision and completeness. A comparison against a forced browser mode when the competitor has an adaptive HTTP mode would be misleading.
 
 ### B. Recurring workflows
 
@@ -111,6 +111,6 @@ For extraction, a retry can often be made idempotent through a key and deduplica
 
 ## 9. Illustrative economics of repetition
 
-Entirely hypothetical example: 100 executions of an agent at €0.50 cost €50. A compilation at €3, runs at €0.03 and five repairs at €0.50 cost €8.50, i.e. 83% less. This calculation deliberately omits cost items and constitutes neither a vendor price nor an Automan forecast. The complete model must add browsers, proxies, errors, storage, support and maintenance work.
+Entirely hypothetical example: 100 executions of an agent at €0.50 cost €50. A compilation at €3, runs at €0.03 and five repairs at €0.50 cost €8.50, i.e. 83% less. This calculation deliberately omits cost items and constitutes neither a vendor price nor an Goodfetch forecast. The complete model must add browsers, proxies, errors, storage, support and maintenance work.
 
 The break-even point depends on the number of repetitions, the upkeep cost and site stability. A workflow executed only once may remain better served by a general-purpose agent. A workflow with a stable API may remain better served by a direct API integration. The right strategy is to choose the cheapest sufficient means and to verify that it reaches the goal.

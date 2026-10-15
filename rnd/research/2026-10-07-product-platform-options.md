@@ -1,4 +1,4 @@
-# Automan: platforms, surfaces and product boundary
+# Goodfetch: platforms, surfaces and product boundary
 
 **State studied: October 7, 2026. Status: design proposals.** No application, cloud execution, performance measurement or security qualification was carried out for this note. The small-team and 3–6-month timeline constraint has been removed; it governs none of the choices below.
 
@@ -6,19 +6,19 @@ This note complements the [runtime ADR](../adr/0001-runtime-language.md), the [C
 
 ## 1. Proposed decisions
 
-Automan should expose **one canonical Rust runtime**, TypeScript/Python SDKs, a CLI, an MCP adapter, a web console and a native macOS app. A local execution must be useful without a subscription, a mandatory model or a connection to the Automan cloud. The future SaaS brings hosted execution, fleet, sharing, governance and operations; it uses the same contracts and workers without claiming that its entire topology exists on a local computer.
+Goodfetch should expose **one canonical Rust runtime**, TypeScript/Python SDKs, a CLI, an MCP adapter, a web console and a native macOS app. A local execution must be useful without a subscription, a mandatory model or a connection to the Goodfetch cloud. The future SaaS brings hosted execution, fleet, sharing, governance and operations; it uses the same contracts and workers without claiming that its entire topology exists on a local computer.
 
 **Explicit web choice: React + shadcn/ui + Vite for the operational console**, produced as a static bundle. The daemon can serve it locally; the SaaS serves the same product behind its API and its identity. Next.js is a relevant choice for the public site and for pages requiring server rendering, and becomes an alternative for the console if a concrete need for SSR or a BFF justifies that server. This SPA choice is contextual, not a general recommendation against React frameworks.
 
 **Explicit macOS choice: SwiftUI with AppKit for specialized components**, connected to the common daemon. An app essentially made of a React WebView does not satisfy this decision. Reuse schemas, data and design tokens; genuinely implement navigation, windows, commands, lists, shortcuts and system integrations with the native APIs.
 
-**Distribution choice: binary/daemon rather than FFI as the main interface of the SDKs and the app.** The Rust library remains available for embedding; an FFI binding requires a measured benefit or a precise deployment constraint. The private Automan protocol and the standard MCP protocol are two distinct contracts.
+**Distribution choice: binary/daemon rather than FFI as the main interface of the SDKs and the app.** The Rust library remains available for embedding; an FFI binding requires a measured benefit or a precise deployment constraint. The private Goodfetch protocol and the standard MCP protocol are two distinct contracts.
 
 ## 2. What the runtime choice actually changes
 
 The references demonstrate no universal consensus on Rust. Stagehand v4 places its runtime in a Chrome extension; Crawlee exists in TS and Python; Spider is Rust. Impit also shows that an engine exposed in TS/Python can delegate transport to native code. The client language, the location of state and the total cost of an execution are different decisions. [Stagehand](https://github.com/browserbase/stagehand/blob/main/CONTRIBUTING.md), [Crawlee Python](https://crawlee.dev/python/docs/guides/architecture-overview), [Impit](https://github.com/apify/impit), [Spider](https://docs.rs/crate/spider/2.53.9/source/).
 
-| Architecture | Contract and topology advantage | Cost or limit to qualify | Automan view |
+| Architecture | Contract and topology advantage | Cost or limit to qualify | Goodfetch view |
 | --- | --- | --- | --- |
 | Canonical Rust + thin clients | One implementation of sessions, budgets, crawl and resumption; common local/cloud binary; control over the core's resources | Packaging per OS/architecture, IPC, inter-process async and maintenance of browser adapters | Proposed target, without promising a latency gain from the language alone |
 | TS-first + API/clients | Direct integration with Playwright/Crawlee and web recipe code; same ecosystem for console and tools | Node and dependencies in the worker; non-TS clients also go through a contract; memory/CPU profiling needed | Credible alternative, and Playwright compatibility backend in the Rust target |
@@ -64,18 +64,18 @@ The SDKs are thin on execution but idiomatic: types, builders, async helpers, st
 | Surface | Main contract | Property it must not claim |
 | --- | --- | --- |
 | Rust library | Public internal module API, version qualification | Isolation of arbitrary code by the language alone |
-| TS/Python SDK, CLI | Versioned private Automan protocol; stdio or connection to the daemon/service | Ownership of a second engine or autonomous resumption of a session |
+| TS/Python SDK, CLI | Versioned private Goodfetch protocol; stdio or connection to the daemon/service | Ownership of a second engine or autonomous resumption of a session |
 | Console/macOS app | Authorized commands, snapshots and events | Source of authority for terminal states and costs |
 | Cloud API | Jobs, sessions, recipes, datasets, events and artifacts | Authentication via a `tenantId` freely supplied by the client |
-| MCP adapter | Tools and resources, according to a qualified MCP version | Implicit durability, business identity or private Automan protocol |
+| MCP adapter | Tools and resources, according to a qualified MCP version | Implicit durability, business identity or private Goodfetch protocol |
 
-The private protocol can adopt the ADR's proposal of bidirectional JSON-RPC over stdio/secure WebSocket, with generated types, structured errors, budgets, message limits and explicit capabilities. Large artifacts are transferred by references and bounded streams. The public API can offer HTTP commands and SSE events with an Automan cursor; no established need requires replacing all these surfaces with WebSocket.
+The private protocol can adopt the ADR's proposal of bidirectional JSON-RPC over stdio/secure WebSocket, with generated types, structured errors, budgets, message limits and explicit capabilities. Large artifacts are transferred by references and bounded streams. The public API can offer HTTP commands and SSE events with an Goodfetch cursor; no established need requires replacing all these surfaces with WebSocket.
 
-**Beware of the MCP version:** `latest` currently points to revision **2026-07-28**, whose standard transports are stdio and Streamable HTTP. It carries version/capabilities per request. Current MCP must not be credited with a protocol initialization/session or with independent JSON-RPC requests sent by the server as in earlier revisions. The private bidirectional Automan contract remains possible. [MCP transports](https://modelcontextprotocol.io/specification/2026-07-28/basic/transports).
+**Beware of the MCP version:** `latest` currently points to revision **2026-07-28**, whose standard transports are stdio and Streamable HTTP. It carries version/capabilities per request. Current MCP must not be credited with a protocol initialization/session or with independent JSON-RPC requests sent by the server as in earlier revisions. The private bidirectional Goodfetch contract remains possible. [MCP transports](https://modelcontextprotocol.io/specification/2026-07-28/basic/transports).
 
 Streamable HTTP 2026 removed the stream GET and protocol sessions; sampling/elicitation interactions go through requests embedded in results. The spec requires Origin validation and recommends localhost binding/auth locally. Its SSE does not support `Last-Event-ID`; our journal cursor is therefore not a guarantee offered by its transport. Qualify the versions actually supported by the targeted clients and their SDK; a compatibility adapter may be necessary. [Streamable HTTP](https://modelcontextprotocol.io/specification/2026-07-28/basic/transports/streamable-http).
 
-In the cloud, Automan auth is mandatory in the proposal even though authorization is optional in the MCP standard. For a protected HTTP MCP endpoint, apply the MCP/OAuth requirements: metadata discovery, tokens intended for that resource and audience validation; do not recycle a bearer token from another provider. Over stdio, the spec suggests retrieving credentials from the environment rather than applying this HTTP flow. [MCP authorization](https://modelcontextprotocol.io/specification/2026-07-28/basic/authorization).
+In the cloud, Goodfetch auth is mandatory in the proposal even though authorization is optional in the MCP standard. For a protected HTTP MCP endpoint, apply the MCP/OAuth requirements: metadata discovery, tokens intended for that resource and audience validation; do not recycle a bearer token from another provider. Over stdio, the spec suggests retrieving credentials from the environment rather than applying this HTTP flow. [MCP authorization](https://modelcontextprotocol.io/specification/2026-07-28/basic/authorization).
 
 A long call creates a persistent `RunId` and returns a receipt after its acceptance has been persisted. Observation, resumption and cancellation are done on this run. Cancelling an MCP request or closing a stream cancels the work of that request according to the protocol version; the mapping to the cancellation of a detached job must be explicitly defined by the tool. A lost response to `run.create` is resolved with an idempotency key and a read of the receipt, without silently creating a second workflow.
 
@@ -89,7 +89,7 @@ The cloud authorizes a command by principal, organization and workspace derived 
 
 Isolation must cover browser accounts, cookies, data caches, keys, proxy, temporary storage and artifacts. A browser context is a unit of state; it is not complete isolation of untrusted client code. Trusted recipes can share a worker according to policy. For arbitrary third-party code/plugins, choose a container or VM/sandbox with resource, network and filesystem restrictions; qualify the guarantees actually obtained. Access to the internal network and to local files must be an explicit capability for the deployments that need it.
 
-A useful target is three compatible modes: local computer, self-hosted service, Automan SaaS. A remote browser adapter, for example Browserbase, is an infrastructure choice; it does not force sending data or models to its gateway. The BYOK, hosted provider and BYOC modes are described separately, with data location, operational responsibility and cost.
+A useful target is three compatible modes: local computer, self-hosted service, Goodfetch SaaS. A remote browser adapter, for example Browserbase, is an infrastructure choice; it does not force sending data or models to its gateway. The BYOK, hosted provider and BYOC modes are described separately, with data location, operational responsibility and cost.
 
 ## 7. Durability: define the guarantees before the screens
 
@@ -103,15 +103,15 @@ The UI displays the authoritative snapshot and catches up on events with cursor,
 
 ## 8. What the studied services actually show
 
-**Apify** distinguishes the Actor, a cloud program with structured inputs, Docker configuration and schemas, from the operation of the service and its distribution in the Store. This deployable unit inspires a versioned recipe package; an Actor adapter could also distribute an Automan worker. Consumption includes compute, storage, transfers and proxies. A run price displayed according to the current plan is not a sufficient historical ledger for our billing. [Actors](https://docs.apify.com/actors), [usage and resources](https://docs.apify.com/actors/running/usage-and-resources).
+**Apify** distinguishes the Actor, a cloud program with structured inputs, Docker configuration and schemas, from the operation of the service and its distribution in the Store. This deployable unit inspires a versioned recipe package; an Actor adapter could also distribute an Goodfetch worker. Consumption includes compute, storage, transfers and proxies. A run price displayed according to the current plan is not a sufficient historical ledger for our billing. [Actors](https://docs.apify.com/actors), [usage and resources](https://docs.apify.com/actors/running/usage-and-resources).
 
-**Browserbase** provides browsers, APIs and managed services. Functions hosts TypeScript code close to the browser, creates one session per invocation and retains results/logs; this confirms the value of placement, without proving that the Automan Rust runtime is accepted as is in this service. The vendor figure "less than 5 ms" is not a general measurement of our workflows. Stagehand OSS and the managed fleet are different scopes. [Overview](https://docs.browserbase.com/introduction), [Functions](https://docs.browserbase.com/platform/functions/overview), [Stagehand license](https://github.com/browserbase/stagehand/blob/main/LICENSE).
+**Browserbase** provides browsers, APIs and managed services. Functions hosts TypeScript code close to the browser, creates one session per invocation and retains results/logs; this confirms the value of placement, without proving that the Goodfetch Rust runtime is accepted as is in this service. The vendor figure "less than 5 ms" is not a general measurement of our workflows. Stagehand OSS and the managed fleet are different scopes. [Overview](https://docs.browserbase.com/introduction), [Functions](https://docs.browserbase.com/platform/functions/overview), [Stagehand license](https://github.com/browserbase/stagehand/blob/main/LICENSE).
 
 **Spider** presents its OSS crawler as a reusable core, with a service that adds fleet operations and infrastructure capabilities. Its marketing page also places certain AI functions on the cloud side, whereas our current reading does find `spider_agent` OSS: the module/version must be specified, and this marketing boundary must not be generalized into "no local agent". Parity of the custom cloud browser is not demonstrated by the presence of Chromey OSS. [OSS vs cloud](https://spider.cloud/open-source-vs-cloud/), [audit of the published code](2026-10-07-crawlee-spider-contracts-followup.md).
 
 **Firecrawl** documents the collection and processing APIs in the self-hosted stack; LLM formats require a configured provider. Agent/Browser, dashboard and enterprise controls belong to its cloud offerings depending on availability. Self-hosting transfers auth, TLS, persistence, upgrades and recovery to the operator; its quickstart does not establish a secure and durable production. The main repository is AGPL-3.0, unlike the permissive references: do not turn a functional inspiration into code reuse without an inventory of components/licenses. [OSS or cloud](https://docs.firecrawl.dev/contributing/open-source-or-cloud), [self-host](https://docs.firecrawl.dev/contributing/self-host), [license](https://github.com/firecrawl/firecrawl/blob/main/LICENSE).
 
-These examples show possible boundaries between accessible code and operated service; they prove neither solvent demand for Automan, nor a margin, nor an acquired functional equivalence. Public limits may change; contract and tested capability take precedence over a product name.
+These examples show possible boundaries between accessible code and operated service; they prove neither solvent demand for Goodfetch, nor a margin, nor an acquired functional equivalence. Public limits may change; contract and tested capability take precedence over a product name.
 
 ## 9. Proposed monetization and cost contract
 

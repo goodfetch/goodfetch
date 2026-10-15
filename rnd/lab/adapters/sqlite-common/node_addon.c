@@ -39,4 +39,4 @@ static napi_value init(napi_env env,napi_value exports){
         {"exec",NULL,call,NULL,NULL,NULL,napi_default,(void*)(uintptr_t)EXEC}
     };napi_define_properties(env,exports,sizeof(methods)/sizeof(methods[0]),methods);return exports;
 }
-NAPI_MODULE(automan_lab_sqlite,init)
+NAPI_MODULE(goodfetch_lab_sqlite,init)

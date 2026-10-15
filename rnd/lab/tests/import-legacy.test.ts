@@ -12,7 +12,7 @@ const counts = (verified: number, failed = 0, unsupported = 0) => ({ attempts: v
 const env = { node: 'v25.5.0', os: 'darwin', architecture: 'arm64', cpu: 'Apple M3 Max', logicalCpuCount: 14, totalMemoryBytes: 1, browser: { version: 'Chrome 153' }, sourceHashes: { 'src/a.ts': 'aa' } };
 
 async function legacyLab() {
-  const root = await mkdtemp(join(tmpdir(), 'automan-import-'));
+  const root = await mkdtemp(join(tmpdir(), 'goodfetch-import-'));
   const write = async (path: string, value: unknown) => { await mkdir(join(root, path, '..'), { recursive: true }); const text = typeof value === 'string' ? value : JSON.stringify(value); await writeFile(join(root, path), text); return text; };
   const bench = 'qualification-2026-10-07T21-25-08-753Z-aaaaaa';
   const benchSummary = await write(`results/${bench}/summary.json`, { id: bench, sourceChanges: [], summaries: [

@@ -21,7 +21,7 @@ An item is **covered** when either:
 - an ADR or a closed ticket's resolution decides it (`decided`); or
 - a cited decision puts it in V1 and only API shape, naming or a default remain for `/to-spec` (`spec`).
 
-Only a real trade-off still unmade is `open`, and it becomes a grilling ticket on the map. A decision recorded only in a ticket's resolution stays there and is cited from the matrix, unless it contradicts an ADR's text, which is then amended. The matrix is [`0037-v1-scope-matrix.md`](0037-v1-scope-matrix.md), with one status per row (`decided`, `spec`, `excluded`, `open → #N`). A pull request that resolves a ticket changes that ticket's rows, and its fresh review checks it. The map is done when no row reads `open` and the map has no open ticket, since a ticket such as platform code signing holds no matrix row. Decided in [V1 scope sign-off: parity and pain coverage](https://github.com/Jbmanllr/automan/issues/81).
+Only a real trade-off still unmade is `open`, and it becomes a grilling ticket on the map. A decision recorded only in a ticket's resolution stays there and is cited from the matrix, unless it contradicts an ADR's text, which is then amended. The matrix is [`0037-v1-scope-matrix.md`](0037-v1-scope-matrix.md), with one status per row (`decided`, `spec`, `excluded`, `open → #N`). A pull request that resolves a ticket changes that ticket's rows, and its fresh review checks it. The map is done when no row reads `open` and the map has no open ticket, since a ticket such as platform code signing holds no matrix row. Decided in [V1 scope sign-off: parity and pain coverage](https://github.com/goodfetch/goodfetch/issues/81).
 
 ## Order of `/to-spec`
 

@@ -1,4 +1,4 @@
-# Automan cross-cutting qualification — October 8, 2026
+# Goodfetch cross-cutting qualification — October 8, 2026
 
 **Rust/Tokio remains the candidate for the portable core.** Node/TypeScript is the experimental control and the compatibility path. The native Rust workflow reaches throughput close to Node's with less measured CPU and footprint; none of these campaigns yet qualifies a Rust Chromium/CDP driver.
 

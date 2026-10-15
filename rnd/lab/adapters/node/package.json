@@ -1,5 +1,5 @@
 {
-  "name": "@automan-lab/node-adapters",
+  "name": "@goodfetch-lab/node-adapters",
   "private": true,
   "type": "module",
   "dependencies": {

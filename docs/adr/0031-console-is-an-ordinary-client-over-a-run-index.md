@@ -8,7 +8,7 @@ The Console reads and acts through the same JSON-RPC protocol and Operation cata
 - **"Needs you".** The Console's single list of everything waiting for a person (Human pauses, confirmations, uncertain Effects, Plan diffs, runs stopped by a Limit, results to review) covers every run in the index.
 - **An Attached engine can start the Daemon.** When a Human pause or a Notification needs a link and no Console is running, it starts the Daemon on demand. A script's own Console (ADR 0024) remains for people who want no Daemon.
 
-Decided in [Console data access](https://github.com/Jbmanllr/automan/issues/104).
+Decided in [Console data access](https://github.com/goodfetch/goodfetch/issues/104).
 
 Evidence from the competitor survey made for that ticket:
 - Temporal, Prefect and Hatchet serve their UI from the same API as their SDKs. Dagster's GraphQL is "primarily for internal use by the Dagster webserver", and n8n keeps an internal API beside its public one.

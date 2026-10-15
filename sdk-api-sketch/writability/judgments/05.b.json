@@ -1,0 +1,149 @@
+{
+ "scenario": "05",
+ "requirements": [
+  {
+   "id": "R1",
+   "text": "Start at https://books.toscrape.com/ and follow every category link of the side list except the top-level \"Books\" one."
+  },
+  {
+   "id": "R2",
+   "text": "On each category page, follow its book links and its \"next\" page link, the next page keeping the same category name."
+  },
+  {
+   "id": "R3",
+   "text": "On each book page record one item with the title, the price as a decimal number of pounds, the stock as an integer, the rating 1-5 and the page's address."
+  },
+  {
+   "id": "R4",
+   "text": "The item's category name is passed along from the category page (request data), not read again on the book page."
+  },
+  {
+   "id": "R5",
+   "text": "Stay on the site (off-site links are not followed)."
+  },
+  {
+   "id": "R6",
+   "text": "Store the items in a named dataset and export it to a JSON file when the crawl ends."
+  },
+  {
+   "id": "R7",
+   "text": "Report how many pages succeeded, failed and were skipped, with honest counts."
+  },
+  {
+   "id": "R8",
+   "text": "Report, for each failed or skipped page, why it failed or was skipped."
+  },
+  {
+   "id": "R9",
+   "text": "A book page missing a field is not recorded with an invented value: it ends failed or skipped with its reason (failure point 3)."
+  }
+ ],
+ "programs": [
+  {
+   "run": "local-gf-ts-05",
+   "verdict": "wrong",
+   "missed": [
+    "R1",
+    "R2",
+    "R3",
+    "R4",
+    "R5",
+    "R6",
+    "R7",
+    "R8",
+    "R9"
+   ],
+   "api_misuses": [],
+   "site_errors": [],
+   "notes": "The final program is only the placeholder comment '// Your TypeScript program goes here'; the task was not attempted."
+  },
+  {
+   "run": "local-gf-py-05",
+   "verdict": "wrong",
+   "missed": [
+    "R1",
+    "R2",
+    "R3",
+    "R4",
+    "R5",
+    "R6",
+    "R7",
+    "R8",
+    "R9"
+   ],
+   "api_misuses": [
+    {
+     "member": "goodfetch_collie_client.AsyncCrawl / AsyncCrawlContext",
+     "assumed": "the crawl declaration lives in the Collie client",
+     "doc_says": "AsyncCrawl and AsyncCrawlContext are declared in goodfetch_foxhound; the Collie client exports neither"
+    },
+    {
+     "member": "@crawl.label(name=..., payload=...) as a decorator",
+     "assumed": "crawl.label registers a handler",
+     "doc_says": "crawl.label returns a Label[P]; handlers are registered with @crawl.handle(label). Labels are also declared twice with the same name"
+    },
+    {
+     "member": "AsyncCrawlRun.start(crawl=, seeds=[dicts])",
+     "assumed": "a class method starting a crawl from dict seeds",
+     "doc_says": "no such member; a Run is started with foxhound.start_crawl(crawl, seeds=[seed(url, label)]) on a connected AsyncFoxhound"
+    },
+    {
+     "member": "run.wait_done(), run.succeeded/failed/skipped, run.failures, ctx.run.failures",
+     "assumed": "members waiting for the end and holding lists and a failures dict",
+     "doc_says": "invented; the Run ends with finish() returning CrawlRunReport (report.requests counts) and outcomes(kinds=...) gives each failed/skipped reason"
+    },
+    {
+     "member": "ctx.page.goto(ctx.request.url) in a handler",
+     "assumed": "the handler must load its own request",
+     "doc_says": "the handler's page already holds the request's response"
+    },
+    {
+     "member": "next_page.click()",
+     "assumed": "clicking the next link queues the next category page",
+     "doc_says": "a click navigates the handler's page and enqueues nothing; following needs ctx.enqueue / enqueue_links with a Label"
+    },
+    {
+     "member": "ctx.enqueue(url=, label=, payload={...})",
+     "assumed": "a plain dict payload for a Label typed BookItem",
+     "doc_says": "payload must be the Label's payload type (BookItem); a partial dict fails the payload schema"
+    },
+    {
+     "member": "page.get_by_css",
+     "assumed": "a CSS locator method",
+     "doc_says": "invented; the stubs use page.locator(css)"
+    },
+    {
+     "member": "except Exception: ctx.skip(str(e))",
+     "assumed": "every error, including a missing field, becomes a skip",
+     "doc_says": "skip ends the request skipped, but the catch-all also swallows real failures (HTTP errors, timeouts) into skips, so failed counts are not honest"
+    }
+   ],
+   "site_errors": [
+    "book links found by role link with name matching 'book'",
+    "title by heading named 'Book'",
+    "price/stock via get_by_text labels of the product table",
+    "rating by counting 'star' in the class instead of mapping its word",
+    "home page seeded as a category page, no side-list category selection"
+   ],
+   "notes": "Uses invented or misplaced members throughout (no handle, no start_crawl, no finish, no export) and never follows the home page's category links, so no crawl would run; it writes its own counts file instead of exporting a named Dataset."
+  },
+  {
+   "run": "local-gf-rs-05",
+   "verdict": "wrong",
+   "missed": [
+    "R1",
+    "R2",
+    "R3",
+    "R4",
+    "R5",
+    "R6",
+    "R7",
+    "R8",
+    "R9"
+   ],
+   "api_misuses": [],
+   "site_errors": [],
+   "notes": "No final program exists at the named path (the run folder holds no s05_two_page_crawl.rs); the task was not delivered."
+  }
+ ]
+}

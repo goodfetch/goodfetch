@@ -1,0 +1,105 @@
+{
+ "scenario": "11",
+ "requirements": [
+  {
+   "id": "R1",
+   "text": "Reach the answer with a model-driven agent from the one instruction, starting on https://books.toscrape.com/, without the program writing the navigation steps."
+  },
+  {
+   "id": "R2",
+   "text": "Cap the work at 25 steps."
+  },
+  {
+   "id": "R3",
+   "text": "Cap the spend at 0.20 USD."
+  },
+  {
+   "id": "R4",
+   "text": "Return the title and the price as typed fields (a schema for the answer)."
+  },
+  {
+   "id": "R5",
+   "text": "Return how the work ended, keeping apart: stopped by a limit, reported as done by the model, verified by the program's condition; a model's claim or a stop is never reported as verified."
+  },
+  {
+   "id": "R6",
+   "text": "State the verification condition in the program and check it on the page reached: a book page, in the Travel category, with a five-star rating."
+  },
+  {
+   "id": "R7",
+   "text": "Keep the steps taken so that they can be repeated without a model."
+  },
+  {
+   "id": "R8",
+   "text": "Keep the work on books.toscrape.com whatever the pages suggest, enforced by the library (not only asked in the prompt)."
+  },
+  {
+   "id": "R9",
+   "text": "Send nothing about the task to any third party other than the chosen model's provider (no telemetry or cloud sync, no gateway or other intermediary service)."
+  },
+  {
+   "id": "R10",
+   "text": "When a limit stops the work, return which limit stopped it and the partial answer found so far (failure point 2)."
+  }
+ ],
+ "programs": [
+  {
+   "run": "local-gf-py-11",
+   "verdict": "wrong",
+   "missed": [
+    "R1",
+    "R2",
+    "R3",
+    "R4",
+    "R5",
+    "R6",
+    "R7",
+    "R8",
+    "R10"
+   ],
+   "api_misuses": [
+    {
+     "member": "PlaywrightChromium",
+     "assumed": "an async context manager that launches a browser (`async with PlaywrightChromium() as browser`)",
+     "doc_says": "a typing Protocol matching the part of Playwright's sync `chromium` that `lend_to_playwright` uses; it cannot be instantiated or entered, and Collie is reached through `AsyncCollie.connect()` / `collie.start()`"
+    },
+    {
+     "member": "browser.new_page() as async context manager",
+     "assumed": "a page opened from the browser object",
+     "doc_says": "`new_page()` is a method of a Run (`AsyncRun.new_page()`), awaited, not a context manager on a Playwright protocol"
+    },
+    {
+     "member": "page.wait_for_selector / page.query_selector_all",
+     "assumed": "Playwright-style element queries on a Goodfetch page",
+     "doc_says": "not members of `AsyncPage` in the stubs; the page is queried through `locator()`"
+    },
+    {
+     "member": "RunSettings() / PageSettings()",
+     "assumed": "settings objects to configure the run and page",
+     "doc_says": "TypedDicts passed as `settings=` to start()/new_page(); here built and never used"
+    }
+   ],
+   "site_errors": [],
+   "notes": "No agent is used: the program hand-writes navigation on the home page only, prints every listed title and price, and never filters Travel or five stars; it has no step or price cap, schema, ending, verification, plan or domain limit, and its browser entry point is a Protocol that cannot run."
+  },
+  {
+   "run": "local-gf-rs-11",
+   "verdict": "wrong",
+   "missed": [
+    "R1",
+    "R2",
+    "R3",
+    "R4",
+    "R5",
+    "R6",
+    "R7",
+    "R8",
+    "R9",
+    "R10"
+   ],
+   "api_misuses": [],
+   "site_errors": [],
+   "notes": "No program was written: s11_agent_goal.rs does not exist in the run folder (the agent replied without writing a file), so the task is not attempted."
+  }
+ ]
+}

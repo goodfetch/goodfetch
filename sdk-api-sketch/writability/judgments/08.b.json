@@ -1,0 +1,80 @@
+{
+ "scenario": "08",
+ "requirements": [
+  {
+   "id": "R1",
+   "text": "Start from https://books.toscrape.com/ and crawl only the first three categories of the side list."
+  },
+  {
+   "id": "R2",
+   "text": "Visit every book each category lists, following the category's \"next\" pages."
+  },
+  {
+   "id": "R3",
+   "text": "Extract each book's title, price, number in stock and star rating with a language model (no hand-written field selectors), and keep each extracted book (dataset or output)."
+  },
+  {
+   "id": "R4",
+   "text": "Ask the model once per page type: later books of the same layout are extracted from what was learned with no model call, and a page that no longer matches what was learned goes back to the model."
+  },
+  {
+   "id": "R5",
+   "text": "Stop all model use once a set spend (e.g. 0.50 USD) is reached, and let the crawl finish without the model (learned extraction still working)."
+  },
+  {
+   "id": "R6",
+   "text": "Report which books were left unextracted and why (budget reached, extraction or request failure)."
+  },
+  {
+   "id": "R7",
+   "text": "Report the tokens and the cost spent on the model."
+  }
+ ],
+ "programs": [
+  {
+   "run": "local-gf-py-08",
+   "verdict": "wrong",
+   "missed": [
+    "R1",
+    "R2",
+    "R3",
+    "R4",
+    "R5",
+    "R6",
+    "R7"
+   ],
+   "api_misuses": [
+    {
+     "member": "goodfetch_collie_client._crawler.Crawler",
+     "assumed": "a crawler class with start_category, has_next_page, go_to_next_page and get_books",
+     "doc_says": "no such module or class exists in the stubs; the crawl is declared with AsyncCrawl, labels, handlers and started with AsyncFoxhound.start_crawl"
+    },
+    {
+     "member": "Crawler.start_category / has_next_page / go_to_next_page / get_books",
+     "assumed": "methods that crawl a named category, page through it and return books with title, price, stock, rating",
+     "doc_says": "invented members; nothing in the SDK provides them"
+    }
+   ],
+   "site_errors": [
+    "hard-coded category names 'fiction', 'nonfiction', 'science' instead of the first three of the side list"
+   ],
+   "notes": "Invents a nonexistent Crawler API, uses no model, no learned extraction, no allowance, no outcome or usage reporting, and keeps nothing; it would fail at import."
+  },
+  {
+   "run": "local-gf-rs-08",
+   "verdict": "wrong",
+   "missed": [
+    "R1",
+    "R2",
+    "R3",
+    "R4",
+    "R5",
+    "R6",
+    "R7"
+   ],
+   "api_misuses": [],
+   "site_errors": [],
+   "notes": "No final program was produced: the run folder holds no s08_ai_in_crawl_handler.rs, so the task was not attempted."
+  }
+ ]
+}

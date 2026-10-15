@@ -1,0 +1,84 @@
+{
+ "scenario": "09",
+ "requirements": [
+  {
+   "id": "R1",
+   "text": "The existing program's own steps are kept, in order: launch Chromium, open books.toscrape.com, click Travel, then click the first book, print its title and close its own browser (in Rust: attach to the launched browser only once its debugging port answers)."
+  },
+  {
+   "id": "R2",
+   "text": "The added step runs right after the Travel click, on the page the program already drives (borrowed or attached), not on a new page or browser."
+  },
+  {
+   "id": "R3",
+   "text": "It extracts, with a language model that is actually named or configured, the title and price of every listed book (a list schema) and outputs the result."
+  },
+  {
+   "id": "R4",
+   "text": "The step never closes, navigates or takes over the program's browser or page: ending or closing its own objects only releases the borrow or drops its connection."
+  },
+  {
+   "id": "R5",
+   "text": "A failure of the step (model, attach, extraction) is caught, and the program continues with its page and closes its browser."
+  },
+  {
+   "id": "R6",
+   "text": "The step is awaited to completion and releases its own resources (connection, Run, Stagehand instance) before the program's driver acts again."
+  }
+ ],
+ "programs": [
+  {
+   "run": "local-gf-py-09",
+   "verdict": "wrong",
+   "missed": [
+    "R3",
+    "R5",
+    "R6"
+   ],
+   "api_misuses": [],
+   "site_errors": [],
+   "notes": "The added step scrapes titles and prices with plain Playwright locators: no language model, no Goodfetch, so the task's AI extraction is not attempted, and nothing catches a failure of the step. The existing program's steps are kept and the step runs on the program's page without closing or navigating it."
+  },
+  {
+   "run": "local-gf-rs-09",
+   "verdict": "wrong",
+   "missed": [
+    "R1",
+    "R2",
+    "R3",
+    "R4",
+    "R5",
+    "R6"
+   ],
+   "api_misuses": [
+    {
+     "member": "collie_client::connect(\"http://127.0.0.1:9222\")",
+     "assumed": "a free function that attaches to a Chromium by its CDP address and returns a browser",
+     "doc_says": "No such function exists; a browser is reached through Collie::connect/scope, Run::new_session().source(SessionSource::CdpUrl{..})."
+    },
+    {
+     "member": "browser.new_context() / context.new_page()",
+     "assumed": "Playwright-style contexts on the attached browser",
+     "doc_says": "Invented: the SDK has no new_context; pages are opened from a Session (session.new_page())."
+    },
+    {
+     "member": "page.click(selector)",
+     "assumed": "Playwright-style click by selector",
+     "doc_says": "Page has no click(selector); clicks go through a Locator (locator(..)/get_by_role(..).click()); the only click(x, y) is a coordinate call on another type."
+    },
+    {
+     "member": "page.eval_on_selector_all / page.eval_on_selector",
+     "assumed": "Playwright's evaluate-on-selector returning JSON values",
+     "doc_says": "Invented: no such members exist in the stubs."
+    },
+    {
+     "member": "browser.close()",
+     "assumed": "closes the launched Chromium through the SDK object",
+     "doc_says": "Invented member on an invented type; the spawned process `browser` is shadowed and never killed."
+    }
+   ],
+   "site_errors": [],
+   "notes": "The program uses an invented Playwright-like API (and has a syntax error after spawn()), never waits for the debugging port, and replaces the AI step with a JavaScript evaluation, so no language model is used and no failure of the step is caught: none of it would run as written."
+  }
+ ]
+}

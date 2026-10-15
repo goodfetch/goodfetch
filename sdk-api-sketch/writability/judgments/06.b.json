@@ -1,0 +1,83 @@
+{
+ "scenario": "06",
+ "requirements": [
+  {
+   "id": "R1",
+   "text": "Collect the text, author and tags of every quote from all three versions (/, /js/, /scroll), keeping which version each quote came from."
+  },
+  {
+   "id": "R2",
+   "text": "Follow each version's pagination to its end: the Next links of / and /js/, and scrolling until the JSON API reports no next page; a version that stops early must not pass silently."
+  },
+  {
+   "id": "R3",
+   "text": "Record each quote once per version: no duplicates from scroll loads, retries, escalations or refetches, and no quote lost by the de-duplication mechanism."
+  },
+  {
+   "id": "R4",
+   "text": "One crawler, with one handler shared by the HTTP and browser fetches of the paginated versions; fetch over plain HTTP wherever the content is in the HTML (the plain version) and use a browser only for pages that need one."
+  },
+  {
+   "id": "R5",
+   "text": "In every browser fetch, images and fonts are not downloaded (blocked before the navigation)."
+  },
+  {
+   "id": "R6",
+   "text": "On the scrolling version, take the quotes from the /api/quotes JSON responses the page loads, not from the DOM."
+  },
+  {
+   "id": "R7",
+   "text": "A page fetched over HTTP whose quotes are missing does not count as a success (it escalates to the browser or fails)."
+  }
+ ],
+ "programs": [
+  {
+   "run": "local-gf-py-06",
+   "verdict": "wrong",
+   "missed": [
+    "R1",
+    "R2",
+    "R3",
+    "R4",
+    "R5",
+    "R6",
+    "R7"
+   ],
+   "api_misuses": [
+    {
+     "member": "goodfetch_collie_client.AsyncCrawl / AsyncCrawlContext / CrawlRequest",
+     "assumed": "crawl types exported by the Collie client package",
+     "doc_says": "the Collie client stubs define no AsyncCrawl, AsyncCrawlContext or CrawlRequest; the crawl API lives in goodfetch_foxhound, so the imports fail"
+    },
+    {
+     "member": "goodfetch_collie_client._models.Label, Dataset",
+     "assumed": "Label and Dataset are Collie client models",
+     "doc_says": "Label is a Foxhound handle (goodfetch_foxhound._data) returned by AsyncCrawl.label"
+    },
+    {
+     "member": "Label.handle(handler)",
+     "assumed": "a Label registers its handler",
+     "doc_says": "handlers are registered with the decorator AsyncCrawl.handle(label); Label has no handle member"
+    }
+   ],
+   "site_errors": [],
+   "notes": "A skeleton: three empty handlers registered through invented members, no dataset, seeds, connect, start_crawl, fetch tiers, route blocking or JSON reading; nothing is collected."
+  },
+  {
+   "run": "local-gf-rs-06",
+   "verdict": "wrong",
+   "missed": [
+    "R1",
+    "R2",
+    "R3",
+    "R4",
+    "R5",
+    "R6",
+    "R7"
+   ],
+   "api_misuses": [],
+   "site_errors": [],
+   "notes": "A placeholder main that prints \"Hello, world!\"; the task is not attempted."
+  }
+ ]
+}

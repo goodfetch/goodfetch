@@ -1,0 +1,67 @@
+{
+ "scenario": "07",
+ "requirements": [
+  {
+   "id": "R1",
+   "text": "Runs scenario 05's crawl under a name/ID the program chooses, with the crawl's state kept between processes."
+  },
+  {
+   "id": "R2",
+   "text": "Started again with the same name after a kill, the crawl continues where it stopped (neither starting afresh nor silently doing nothing)."
+  },
+  {
+   "id": "R3",
+   "text": "The dataset ends with every book exactly once: no duplicate from requests re-run after the kill or from the retry."
+  },
+  {
+   "id": "R4",
+   "text": "Retries only the requests that failed in that crawl (not the successes), once: later starts do not retry again on their own."
+  },
+  {
+   "id": "R5",
+   "text": "A run with nothing left to do says that nothing was done and why, instead of finishing silently."
+  },
+  {
+   "id": "R6",
+   "text": "While the crawl runs, prints what is in flight and what is waiting, and why it waits."
+  }
+ ],
+ "programs": [
+  {
+   "run": "local-gf-py-07",
+   "verdict": "wrong",
+   "missed": [
+    "R1",
+    "R2",
+    "R3",
+    "R4",
+    "R5",
+    "R6"
+   ],
+   "api_misuses": [
+    {
+     "member": "AsyncFoxhound.start_crawl(name=...)",
+     "assumed": "a `name` keyword names the Run so it can be resumed",
+     "doc_says": "start_crawl has no `name` parameter; the Run is named by `id`, and an `id` naming an existing Run resumes it; the call raises TypeError"
+    }
+   ],
+   "site_errors": [],
+   "notes": "The file is wrapped in Markdown code fences and is otherwise scenario 05's program with an invented `name=` keyword: it does not pass an `id`, so nothing resumes, there is no retry_failed, no progress output, and no handling of a run that has nothing to do beyond printing nothing_done of a fresh Run."
+  },
+  {
+   "run": "local-gf-rs-07",
+   "verdict": "wrong",
+   "missed": [
+    "R1",
+    "R2",
+    "R3",
+    "R4",
+    "R5",
+    "R6"
+   ],
+   "api_misuses": [],
+   "site_errors": [],
+   "notes": "The run produced no program: s07_resume_and_retry.rs is absent from its run folder (only the given s05 file is there), so the task was not attempted."
+  }
+ ]
+}

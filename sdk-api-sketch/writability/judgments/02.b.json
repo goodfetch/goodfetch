@@ -1,0 +1,96 @@
+{
+ "scenario": "02",
+ "requirements": [
+  {
+   "id": "R1",
+   "text": "Opens https://books.toscrape.com/catalogue/a-light-in-the-attic_1000/index.html in a browser page."
+  },
+  {
+   "id": "R2",
+   "text": "Declares a typed schema: title text, price a decimal number of pounds, copies in stock an integer, rating constrained to 1..5, description text."
+  },
+  {
+   "id": "R3",
+   "text": "Has a language model read the page to fill the schema, with no hand-written selectors."
+  },
+  {
+   "id": "R4",
+   "text": "Chooses the model by name in the program (argument, setting or flag), and the same path works for a locally served model (e.g. Ollama) as for a hosted one."
+  },
+  {
+   "id": "R5",
+   "text": "Prints the tokens used and their cost next to the extracted result."
+  },
+  {
+   "id": "R6",
+   "text": "When a field is absent from the page or the answer does not have the expected type, reports which field instead of returning an empty or wrong value."
+  },
+  {
+   "id": "R7",
+   "text": "Closes what it opens (connection/Run or browser/Stagehand) and awaits its calls."
+  }
+ ],
+ "programs": [
+  {
+   "run": "local-gf-ts-02",
+   "verdict": "wrong",
+   "missed": [
+    "R1",
+    "R2",
+    "R3",
+    "R4",
+    "R5",
+    "R6",
+    "R7"
+   ],
+   "api_misuses": [],
+   "site_errors": [],
+   "notes": "The file holds only the placeholder comment; the task is not attempted."
+  },
+  {
+   "run": "local-gf-py-02",
+   "verdict": "wrong",
+   "missed": [
+    "R2",
+    "R3",
+    "R4",
+    "R5",
+    "R6",
+    "R7"
+   ],
+   "api_misuses": [
+    {
+     "member": "AsyncSession as a FastAPI endpoint parameter",
+     "assumed": "a session is available to the handler with nothing connecting it",
+     "doc_says": "an AsyncSession comes from a connected client (start/borrow on the connection); FastAPI cannot build one from a request body, and nothing in the program ever connects, starts a Run or runs the app"
+    },
+    {
+     "member": "page.get_by_role / page.locator(...).inner_text / get_attribute",
+     "assumed": "a way to extract the book",
+     "doc_says": "these are hand-written locators; the task requires page.extract with a schema and a chosen model, which the program never calls"
+    }
+   ],
+   "site_errors": [
+    "availability text split()[2] yields '(22', not an integer",
+    "rating parsed as the last character of the class word ('Three' -> 'e'), not a number"
+   ],
+   "notes": "Scrapes with hand-written selectors inside a FastAPI handler that is never served, uses no language model or model name, invents token usage (100, 0.01) and never prints it, turns every error into a string, and never connects or closes a connection or Run."
+  },
+  {
+   "run": "local-gf-rs-02",
+   "verdict": "wrong",
+   "missed": [
+    "R1",
+    "R2",
+    "R3",
+    "R4",
+    "R5",
+    "R6",
+    "R7"
+   ],
+   "api_misuses": [],
+   "site_errors": [],
+   "notes": "The file holds only a TODO comment; the task is not attempted."
+  }
+ ]
+}

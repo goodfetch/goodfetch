@@ -1,0 +1,21 @@
+{"scenario": "12", "requirements": [
+ {"id": "R1", "text": "A web service in the language's usual minimal framework with one endpoint, GET /books?category=<name>, that runs the crawl when called."},
+ {"id": "R2", "text": "The crawl finds the named category on books.toscrape.com and follows its \"next\" pages to the end."},
+ {"id": "R3", "text": "The endpoint answers the category's books as JSON, each with its title and price."},
+ {"id": "R4", "text": "Two calls running at once in the same process do not interfere: each has its own Run/Crawler, results and state."},
+ {"id": "R5", "text": "Calling it again later works the same: nothing process-wide is consumed or left unrestartable."},
+ {"id": "R6", "text": "If the caller disconnects, the crawl stops and every connection and browser it used is released."},
+ {"id": "R7", "text": "The library's logs go to the service's own logger and nothing is printed to standard output (no library-installed handlers or signal handlers)."},
+ {"id": "R8", "text": "The same crawl is also called from a Python notebook cell (on its running loop without blocking or failing) and from a plain script in TypeScript and Rust."}
+], "programs": [
+ {"run": "local-gf-rs-12", "verdict": "wrong", "missed": ["R1", "R2", "R3", "R4", "R5", "R6", "R7", "R8"],
+  "api_misuses": [
+   {"member": "goodfetch_foxhound_client::{Client, ClientConfig}", "assumed": "a client crate whose Client::new(ClientConfig) opens a connection", "doc_says": "no such crate or types; the connection is Foxhound::connect(ConnectOptions)"},
+   {"member": "Crawl::new(&client)", "assumed": "a crawl bound to a client", "doc_says": "Crawl::new() takes no arguments; a Run is started with Foxhound::start_crawl(&crawl, seeds)"},
+   {"member": "crawl.settings.category / crawl.settings.page", "assumed": "built-in scenario-specific settings that pick the category and page", "doc_says": "Crawl has no settings field; the crawl is declared with labels, handlers, datasets and seeds"},
+   {"member": "crawl.run() -> CrawlResult with .books", "assumed": "a call that crawls one page and returns its books", "doc_says": "no run() on Crawl and no CrawlResult type; records are read from the Run's Dataset after serve()"},
+   {"member": "goodfetch_collie::Collie", "assumed": "imported (unused)", "doc_says": "not needed; unused import of a member not used by the program"}
+  ],
+  "site_errors": [],
+  "notes": "The program invents a client crate, a settings object and a run() returning books, none of which exist in the stubs, so no crawl would happen; the axum handler also takes a bare String instead of the query extractor and returns a non-JSON Vec, uses axum::Server (removed in axum 0.7), unwraps errors, and has no disconnect handling, no closing, and no plain-script mode."}
+]}

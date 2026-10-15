@@ -1,0 +1,117 @@
+{
+ "scenario": "10",
+ "requirements": [
+  {
+   "id": "R1",
+   "text": "The tests run with the language's usual test runner (node:test/Vitest, pytest, cargo test) and need no network and no model."
+  },
+  {
+   "id": "R2",
+   "text": "A unit test runs scenario 05's book-page handler alone (no whole crawl) on a saved book page."
+  },
+  {
+   "id": "R3",
+   "text": "That unit test passes a category to the handler and checks the produced item, category included."
+  },
+  {
+   "id": "R4",
+   "text": "A test runs scenario 05's whole crawl, through the library's engine, replaying the responses recorded during one earlier live run (not live, not fabricated pages)."
+  },
+  {
+   "id": "R5",
+   "text": "The whole-crawl test checks that the dataset holds the expected number of books."
+  },
+  {
+   "id": "R6",
+   "text": "A test of scenario 08's AI extraction runs from the Plan learned on the earlier run, or from a scripted model reply wired so the extraction really uses it."
+  },
+  {
+   "id": "R7",
+   "text": "That AI test fails if a real model is called (no real provider reachable, frozen Plan, or an assertion on model calls)."
+  },
+  {
+   "id": "R8",
+   "text": "Any test that would reach the network fails, saying which address it tried (refused or missed requests surface with their URL)."
+  }
+ ],
+ "programs": [
+  {
+   "run": "local-gf-py-10",
+   "verdict": "wrong",
+   "missed": [
+    "R1",
+    "R2",
+    "R3",
+    "R4",
+    "R5",
+    "R6",
+    "R7",
+    "R8"
+   ],
+   "api_misuses": [
+    {
+     "member": "AsyncCrawlContext() / ctx.page = ...",
+     "assumed": "a context can be built by hand and its page, request, skip and push replaced with mocks",
+     "doc_says": "AsyncCrawlContext is what a handler receives from the engine; page is a read-only property; the testing kit's AsyncTestEngine.run_handler runs a handler on a SavedResponse"
+    },
+    {
+     "member": "goodfetch_collie_client.Dataset(title=..., ...)",
+     "assumed": "Dataset is the record type, built with field values",
+     "doc_says": "Dataset is a named, schema-typed collection; the record is the scenario's own model"
+    },
+    {
+     "member": "patch('...AsyncFoxhound.connect') with AsyncMock run",
+     "assumed": "mocking connect and start_crawl tests the crawl offline",
+     "doc_says": "no engine runs: nothing is replayed (Recording mode 'replay') and no report misses are checked; the test kit's AsyncTestEngine is the offline engine"
+    },
+    {
+     "member": "run.export(books, format='json')",
+     "assumed": "scenario main exports the dataset",
+     "doc_says": "scenario 08's main never calls export; it reads outcomes and finish(), so that assertion fails"
+    }
+   ],
+   "site_errors": [],
+   "notes": "All three tests replace the engine with unittest mocks: the first runs scenario 08's AI on_book (not 05's handler) on a hand-built context with no saved page (and Decimal is not imported), the second and third call scenario 08's main against a mocked Foxhound, so no recording is replayed, no Plan or model guard exists and nothing checks the book count or network misses. The file is also wrapped in Markdown fences."
+  },
+  {
+   "run": "local-gf-rs-10",
+   "verdict": "wrong",
+   "missed": [
+    "R2",
+    "R3",
+    "R4",
+    "R5",
+    "R6",
+    "R7",
+    "R8"
+   ],
+   "api_misuses": [
+    {
+     "member": "goodfetch_foxhound::testing::{MockServer, MockResponse}",
+     "assumed": "a mock HTTP server the crawl fetches from",
+     "doc_says": "does not exist; the testing kit has TestEngine, SavedResponse, HandlerInput and run_handler, with recordings for replay"
+    },
+    {
+     "member": "Foxhound::MOCK_SERVER, Foxhound::CONNECT_OPTIONS, ConnectOptions, ai::MODEL",
+     "assumed": "settings that route fetches to a mock server and disable the model",
+     "doc_says": "no such settings exist (ConnectOptions and ai are not even imported)"
+    },
+    {
+     "member": "run.outcomes(...) filtered on Skipped reason model_allowance_reached",
+     "assumed": "counting skips proves no real model was called",
+     "doc_says": "the model-call count is the report's usage.model.calls; a frozen Plan or no Model provider makes a model call fail"
+    },
+    {
+     "member": "exported.records::<Book>()",
+     "assumed": "export returns records directly",
+     "doc_says": "invented shape; records are read from the run's Dataset or the attempt result's records(&dataset)"
+    }
+   ],
+   "site_errors": [
+    "saved page path is the placeholder /path/to/saved/book_page.html",
+    "expected count 10 books is a guess"
+   ],
+   "notes": "The first test runs a whole crawl from a seed through an invented mock server instead of running the book handler alone; the second runs against an empty invented mock server, not a recorded live run; the third disables the model with an invented setting and counts allowance skips instead of using a Plan or scripted reply and asserting no model calls. Nothing names missed addresses."
+  }
+ ]
+}

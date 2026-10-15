@@ -1,0 +1,89 @@
+{
+ "scenario": "03",
+ "requirements": [
+  {
+   "id": "R1",
+   "text": "Start on https://quotes.toscrape.com/ and perform the three steps (open tag \"love\" from the tag list, go to its second page, open the first quote's author's about page) as plain-word AI instructions, not selectors, with a model actually usable on the first run (configured model and credentials)."
+  },
+  {
+   "id": "R2",
+   "text": "Before returning, confirm without a model that the page reached has an address starting with https://quotes.toscrape.com/author/, and fail otherwise."
+  },
+  {
+   "id": "R3",
+   "text": "Return (output) the author's name, birth date and birthplace."
+  },
+  {
+   "id": "R4",
+   "text": "Keep what the model resolved for each step in a file next to the program, whatever the working directory."
+  },
+  {
+   "id": "R5",
+   "text": "A second run repeats the same steps, and reads the fields, with no model call at all, replaying from the kept file."
+  },
+  {
+   "id": "R6",
+   "text": "When the site changes so one kept step no longer applies, only that step goes back to the model, and the program says which step it was."
+  },
+  {
+   "id": "R7",
+   "text": "Release what it opens (connection/Run or Stagehand and its browser) and surface failures as errors rather than continuing silently."
+  }
+ ],
+ "programs": [
+  {
+   "run": "local-gf-ts-03",
+   "verdict": "wrong",
+   "missed": [
+    "R1",
+    "R2",
+    "R3",
+    "R4",
+    "R5",
+    "R6",
+    "R7"
+   ],
+   "api_misuses": [],
+   "site_errors": [],
+   "notes": "No final program exists in the run folder (03-replay-ai-steps.ts was never written; the local-model run was stopped), so the task was not attempted."
+  },
+  {
+   "run": "local-gf-py-03",
+   "verdict": "wrong",
+   "missed": [
+    "R1",
+    "R2",
+    "R3",
+    "R4",
+    "R5",
+    "R6",
+    "R7"
+   ],
+   "api_misuses": [
+    {
+     "member": "goodfetch_collie_client (AsyncAgentAPI, AsyncRun, AsyncPage, AsyncSession)",
+     "assumed": "a Goodfetch client module exporting these classes",
+     "doc_says": "the package is goodfetch_collie (AsyncCollie, expect); this module and these names are invented"
+    }
+   ],
+   "site_errors": [],
+   "notes": "The program is a placeholder: an invented import and an empty main() that does nothing, so no step, check, extraction or Plan file is attempted."
+  },
+  {
+   "run": "local-gf-rs-03",
+   "verdict": "wrong",
+   "missed": [
+    "R1",
+    "R2",
+    "R3",
+    "R4",
+    "R5",
+    "R6",
+    "R7"
+   ],
+   "api_misuses": [],
+   "site_errors": [],
+   "notes": "No final program exists in the run folder (s03_replay_ai_steps.rs was never written; the local-model run was stopped), so the task was not attempted."
+  }
+ ]
+}

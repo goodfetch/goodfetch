@@ -1,0 +1,158 @@
+{
+ "scenario": "04",
+ "requirements": [
+  {
+   "id": "R1",
+   "text": "Open a visible (headful) browser at https://quotes.toscrape.com/login."
+  },
+  {
+   "id": "R2",
+   "text": "Fill the username from the program."
+  },
+  {
+   "id": "R3",
+   "text": "Fill the password from a secret (environment variable or system keychain) that the program never holds in clear."
+  },
+  {
+   "id": "R4",
+   "text": "Wait for the person to check the form and press Login, continuing only once logged in, with no time limit on the wait."
+  },
+  {
+   "id": "R5",
+   "text": "Offer a way to cancel the wait for the person."
+  },
+  {
+   "id": "R6",
+   "text": "Keep the logged-in state under a name."
+  },
+  {
+   "id": "R7",
+   "text": "In a second, separate headless run, reuse the kept state to open https://quotes.toscrape.com/ and confirm the page shows a Logout link."
+  },
+  {
+   "id": "R8",
+   "text": "When the kept state has expired or been revoked, say so as an outcome instead of failing on a missing element (and without the headless run waiting for a person)."
+  },
+  {
+   "id": "R9",
+   "text": "The password reaches no log, trace or saved file."
+  },
+  {
+   "id": "R10",
+   "text": "Close the browser or end the Run in both runs."
+  }
+ ],
+ "programs": [
+  {
+   "run": "local-gf-ts-04",
+   "verdict": "wrong",
+   "missed": [
+    "R1",
+    "R2",
+    "R3",
+    "R4",
+    "R5",
+    "R6",
+    "R7",
+    "R8",
+    "R9",
+    "R10"
+   ],
+   "api_misuses": [],
+   "site_errors": [],
+   "notes": "The run left no program: 04-login-human-pause.ts does not exist in the run folder, so the task is not attempted."
+  },
+  {
+   "run": "local-gf-py-04",
+   "verdict": "wrong",
+   "missed": [
+    "R1",
+    "R2",
+    "R3",
+    "R4",
+    "R5",
+    "R6",
+    "R7",
+    "R8",
+    "R9",
+    "R10"
+   ],
+   "api_misuses": [
+    {
+     "member": "Browser.launch(headless=False)",
+     "assumed": "a Playwright-style class that launches a browser",
+     "doc_says": "no Browser class or launch method exists; a browser is reached through Collie.connect(), collie.start() and run.new_session(settings={'browser': {'headless': ...}})"
+    },
+    {
+     "member": "goodfetch_collie_client._sessions.Session",
+     "assumed": "a Session type importable for use",
+     "doc_says": "Session is defined in _lifecycle and obtained from run.new_session(); the import is unused and from the wrong private module"
+    },
+    {
+     "member": "page.fill(selector, value)",
+     "assumed": "Playwright's page-level fill by selector",
+     "doc_says": "fill is a Locator method taking only the value (str or SecretPlaceholder); Page has no fill(selector, value)"
+    },
+    {
+     "member": "page.click(selector)",
+     "assumed": "click an element by selector",
+     "doc_says": "Page.click is not a selector click (the mouse click takes x, y); clicking is on a Locator"
+    },
+    {
+     "member": "page.wait_for_selector",
+     "assumed": "Playwright's wait for a selector",
+     "doc_says": "no such member; waiting is locator(...).wait_for() or page.pause(until=...)"
+    },
+    {
+     "member": "page.context.storage_state(path=...)",
+     "assumed": "Playwright's storageState saved to a file and, in check_login, loaded from it",
+     "doc_says": "no storage_state; the login is kept with session.save_identity(name) and reused with new_session(source={'kind': 'saved_identity', ...}); calling a save in the second run would not load state anyway"
+    }
+   ],
+   "site_errors": [],
+   "notes": "A Playwright-shaped program on invented members: it clicks Login itself instead of pausing for the person, holds the password in clear and writes state to a clear-text file, its second run never loads the state and treats any exception as expiry, and nothing calls either function."
+  },
+  {
+   "run": "local-gf-rs-04",
+   "verdict": "wrong",
+   "missed": [
+    "R1",
+    "R2",
+    "R3",
+    "R4",
+    "R5",
+    "R6",
+    "R7",
+    "R8",
+    "R9",
+    "R10"
+   ],
+   "api_misuses": [
+    {
+     "member": "goodfetch_collie::sessions::Session::new_visible / new_headless",
+     "assumed": "constructors that open a visible or headless browser",
+     "doc_says": "no such constructors; a Session comes from Collie::scope/connect, collie.start() and run.new_session() with settings::browser::HEADLESS"
+    },
+    {
+     "member": "Session::navigate / fill_input / wait_for_element / element_exists",
+     "assumed": "session-level page actions by selector",
+     "doc_says": "invented; actions are on a Page (session.new_page(), page.goto) and its Locators (fill, wait_for)"
+    },
+    {
+     "member": "Session::save_state / load_state",
+     "assumed": "keep and restore the login state under a name",
+     "doc_says": "invented; the kept login is session.save_identity(name) and reuse is new_session().source(SessionSource::saved_identity(name))"
+    },
+    {
+     "member": "goodfetch_foxhound::crawl::Crawl",
+     "assumed": "a needed import",
+     "doc_says": "Foxhound crawling is unrelated to this task (unused import)"
+    }
+   ],
+   "site_errors": [
+    "#logout is not the Logout link (it is a[href='/logout'] with text Logout)"
+   ],
+   "notes": "Invented API throughout; it holds the password in clear, waits for the login form (already present) rather than a pause until logged in, has no cancel, no expired outcome and no closing, and runs both phases in one process with unwrap() panics."
+  }
+ ]
+}

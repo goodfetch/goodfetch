@@ -1,0 +1,131 @@
+{
+ "scenario": "01",
+ "requirements": [
+  {
+   "id": "R1",
+   "text": "Open https://quotes.toscrape.com/search.aspx."
+  },
+  {
+   "id": "R2",
+   "text": "Choose the author \"Albert Einstein\" and let the postback reload complete before using the tag list (no race with the reload)."
+  },
+  {
+   "id": "R3",
+   "text": "Choose the tag \"inspirational\" from the reloaded tag list, waiting for or checking that it is offered."
+  },
+  {
+   "id": "R4",
+   "text": "Press Search and wait for the results (the second postback) to load before reading them."
+  },
+  {
+   "id": "R5",
+   "text": "Return every quote shown as a list of typed objects with the quote's text, its author and the tag."
+  },
+  {
+   "id": "R6",
+   "text": "When no quote matches, return an empty list (not an error) and say so."
+  },
+  {
+   "id": "R7",
+   "text": "When the page does not behave as described (no reload, tag not offered, results never load, site unreachable), fail with an error that says which step failed and what was seen, never converting such a failure into a normal result."
+  },
+  {
+   "id": "R8",
+   "text": "Tell a genuine no-match apart from a broken or changed results page: an empty result is confirmed by the page's no-result state (or the absence of the results heading), not inferred from a locator matching nothing."
+  },
+  {
+   "id": "R9",
+   "text": "Close everything the program opened (connection/Run/page, or browser/context) on every path, errors included."
+  }
+ ],
+ "programs": [
+  {
+   "run": "local-gf-ts-01",
+   "verdict": "wrong",
+   "missed": [
+    "R1",
+    "R2",
+    "R3",
+    "R4",
+    "R5",
+    "R6",
+    "R7",
+    "R8",
+    "R9"
+   ],
+   "api_misuses": [],
+   "site_errors": [],
+   "notes": "No final program: 01-dependent-form.ts was never written (the harness check reports it does not exist); the model's reply text only sketched a browser-based program, so the task was not attempted."
+  },
+  {
+   "run": "local-gf-py-01",
+   "verdict": "wrong",
+   "missed": [
+    "R1",
+    "R2",
+    "R3",
+    "R4",
+    "R5",
+    "R6",
+    "R7",
+    "R8",
+    "R9"
+   ],
+   "api_misuses": [],
+   "site_errors": [],
+   "notes": "No final program: scenarios/s01_dependent_form.py was never written (only an empty package __init__.py); the task was not attempted."
+  },
+  {
+   "run": "local-gf-rs-01",
+   "verdict": "wrong",
+   "missed": [
+    "R1",
+    "R2",
+    "R3",
+    "R4",
+    "R5",
+    "R6",
+    "R7",
+    "R8",
+    "R9"
+   ],
+   "api_misuses": [
+    {
+     "member": "goodfetch_foxhound::Foxhound::new_session",
+     "assumed": "Opens a Session on the Foxhound connection",
+     "doc_says": "Foxhound has no new_session; a Session comes from a Collie Run (lifecycle new_session on a Run), and the task needs Collie, not Foxhound."
+    },
+    {
+     "member": "Page::select_option(selector, value)",
+     "assumed": "A page-level select by CSS selector that chooses an option",
+     "doc_says": "select_option exists only on a Locator (page.get_by_label(..)/locator(..).select_option([SelectOption..]))."
+    },
+    {
+     "member": "Page::wait_for_navigation",
+     "assumed": "Waits for the postback reload",
+     "doc_says": "No such member in the stubs; the action waits for navigation commit and wait_for_load_state waits for load."
+    },
+    {
+     "member": "Page::click(\"#submit_button\")",
+     "assumed": "Clicks the element matching a selector",
+     "doc_says": "Page has no selector click; the only click(x, y) is the mouse's viewport-point click; elements are clicked via a Locator."
+    },
+    {
+     "member": "Page::evaluate",
+     "assumed": "Returns a list of quote records with .text/.author/.tag fields and is_empty()",
+     "doc_says": "evaluate<T> deserializes into a caller-chosen DeserializeOwned type; none is given, no Quote type is defined, so the field accesses have nothing to resolve to."
+    },
+    {
+     "member": "Session::close / Foxhound::close",
+     "assumed": "Closes everything on every path",
+     "doc_says": "close exists, but it is reached only on success; any `?` error before it skips both closes (no scope)."
+    }
+   ],
+   "site_errors": [
+    "#author / #tag / #submit_button ids for the form fields and button",
+    "'.quote .text' for the quote text (results use .content)"
+   ],
+   "notes": "Uses invented or wrong-type members throughout (Foxhound sessions, page-level select_option/click, wait_for_navigation), defines no typed Quote, has a syntax error (`Ok(()`), returns nothing, and closes only on the success path, so the main result would not be reached."
+  }
+ ]
+}

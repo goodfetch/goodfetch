@@ -105,8 +105,9 @@ impl ErrorCode {
     /// `deadline_exceeded`: every timeout, whatever the phase (ADR 0080), except a target still
     /// ambiguous at its deadline, which is `target_not_unique` (ADR 0085).
     pub const DEADLINE_EXCEEDED: ErrorCode = ErrorCode::new("deadline_exceeded");
-    /// `call_cancelled`: someone else stopped the call in flight; a dropped future of the caller's
-    /// own never sees it (ADR 0080).
+    /// `call_cancelled`: someone else stopped the call in flight, with a [`CallCancelled`] saying
+    /// who and what closed, such as a page closed in the browser during a Human pause (ADR 0113);
+    /// a dropped future of the caller's own never sees it (ADR 0080).
     pub const CALL_CANCELLED: ErrorCode = ErrorCode::new("call_cancelled");
     /// `plugin_crashed` (ADR 0033).
     pub const PLUGIN_CRASHED: ErrorCode = ErrorCode::new("plugin_crashed");
@@ -488,6 +489,7 @@ impl ErrorDetails for Blocked {}
 impl ErrorDetails for NotVerified {}
 impl ErrorDetails for crate::models::LimitReached {}
 impl ErrorDetails for DeadlineExceeded {}
+impl ErrorDetails for CallCancelled {}
 impl ErrorDetails for crate::settings::SettingUnknown {}
 impl ErrorDetails for crate::settings::SettingInvalid {}
 impl ErrorDetails for crate::settings::SettingNotApplicable {}
@@ -622,6 +624,54 @@ pub struct DeadlineExceeded {
     pub ended_by: Option<EndedBy>,
 }
 
+/// Details of `call_cancelled` (ADRs 0080, 0113): who stopped the call in flight and what closed
+/// or stopped under it, so a program branches on a closed page without reading the message (G6).
+#[derive(Debug, Clone)]
+#[non_exhaustive]
+pub struct CallCancelled {
+    /// Who stopped it.
+    pub by: CancelledBy,
+    /// What closed or stopped under the call.
+    pub closed: ClosedValue,
+    /// Whom the stopping Client acts for (ADR 0031), when known.
+    pub person: Option<String>,
+}
+
+/// Who stopped a call in flight, the vocabulary of an Agent's `abort` (ADR 0100).
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum CancelledBy {
+    /// A person, in the Console.
+    Person,
+    /// Another Client.
+    Client,
+    /// The program closing a parent value from another task.
+    Program,
+    /// The browser, outside every Client: the page's window or tab closed on the desktop, the
+    /// page's own `window.close()`, or the browser quitting (ADR 0113).
+    Browser,
+    /// A value this SDK does not know, as received.
+    Unknown(String),
+}
+
+/// The value that closed or stopped under a call.
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum ClosedValue {
+    /// The call's page.
+    Page,
+    /// Its Session.
+    Session,
+    /// The browser the Session ran in, ending every Session in it.
+    Browser,
+    /// Its Run.
+    Run,
+    /// The connection.
+    Connection,
+    /// A value this SDK does not know, as received.
+    Unknown(String),
+}
+
 /// The enclosing call whose timeout ended a call.
 #[derive(Debug, Clone)]
 #[non_exhaustive]
@@ -737,7 +787,8 @@ pub enum StopReason {
     /// on.
     ModelAllowance(LimitSource),
     /// Someone other than the caller stopped it: a person in the Console (`person`), another
-    /// Client (`client`), or the program closing the page or the Run (`program`).
+    /// Client (`client`), the program closing the page or the Run (`program`), or the browser
+    /// closing the page outside every Client (`browser`, ADR 0113).
     Abort(String),
     /// A reason this SDK does not know, as received.
     Unknown(String),

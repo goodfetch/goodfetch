@@ -36,7 +36,8 @@ def log_in_once(username: str) -> None:
         # The page's "Password" label points at the username field (`for="username"`): the field is found by its id.
         page.locator("#password").fill(secret("password"))
         # The Human pause: no time limit and no other clock runs; it ends once the Logout link shows, and a person's
-        # "Decline" raises `HumanPauseDeclinedError`.
+        # "Decline" raises `HumanPauseDeclinedError`. Closing the window raises `CallCancelledError` with
+        # `details.closed == "page"` (ADR 0113).
         page.pause(
             reason="Check the form, then press Login",
             until=page.get_by_role("link", name="Logout"),

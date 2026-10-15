@@ -80,10 +80,10 @@ pub use recording::{
     ResponseNotRecorded,
 };
 pub use results::{
-    AiWorkResult, BlockCause, Blocked, Claim, DeadlineExceeded, Ended, EndedBy, Error,
-    ErrorDetails, ErrorGroup, ErrorTarget, FileWriteFailed, FileWriteReason, FileWriteSide,
-    LimitSource, NotVerified, PartialOutput, PathNotWritable, Reported,
-    RunLayerOrigin, ScriptedModelDetails, SettingValue, SettingsLayer, StopReason,
+    AiWorkResult, BlockCause, Blocked, CallCancelled, CancelledBy, Claim, ClosedValue,
+    DeadlineExceeded, Ended, EndedBy, Error, ErrorDetails, ErrorGroup, ErrorTarget, FileWriteFailed,
+    FileWriteReason, FileWriteSide, LimitSource, NotVerified, PartialOutput, PathNotWritable,
+    Reported, RunLayerOrigin, ScriptedModelDetails, SettingValue, SettingsLayer, StopReason,
     TargetDescription, TargetNotUnique, Verdict,
 };
 pub use run::{

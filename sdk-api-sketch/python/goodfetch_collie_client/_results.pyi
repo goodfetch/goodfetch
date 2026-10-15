@@ -220,12 +220,31 @@ class InternalError(GoodfetchError):
 class ClosedError(ProgramError): ...
 
 @final
-class CallCancelledError(UnavailableError):
-    """Someone else stopped the call in flight: a person, another Client, or the program closing a parent value.
+@dataclass(frozen=True, kw_only=True)
+class CallCancelledDetails:
+    """Who stopped the call in flight and what closed or stopped under it (ADRs 0080, 0113)."""
 
-    Not retryable; `observed` says who, and `fix` names resuming the Run, or the close that stopped the call. The
-    caller's own cancellation propagates `asyncio.CancelledError` instead and never raises this (ADR 0080).
+    by: Literal["person", "client", "program", "browser"] | str
+    """A person in the Console, another Client, the program closing a parent value from another task, or the browser
+    outside every Client: the page's window or tab closed on the desktop, its own `window.close()`, the browser
+    quitting."""
+    closed: Literal["page", "session", "browser", "run", "connection"] | str
+    """What closed or stopped under the call; `browser` ends every Session in it."""
+    person: str | None
+    """Whom the stopping Client acts for, when known."""
+
+@final
+class CallCancelledError(UnavailableError):
+    """Someone else stopped the call in flight: a person, another Client, the program closing a parent value, or the
+    browser closing the page, such as its window closed during a Human pause (ADR 0113).
+
+    Not retryable; `details` says who and what closed, `observed` renders it, and `fix` names resuming the Run, the
+    close that stopped the call, or for a closed page opening another and pausing again. The caller's own cancellation
+    propagates `asyncio.CancelledError` instead and never raises this (ADR 0080).
     """
+
+    @property
+    def details(self) -> CallCancelledDetails: ...
 
 # A file saved to the program's path, or written by the engine for the program to save: an Export, a Download, a
 # Checkpoint, a Run trace, a screenshot's or a PDF's `path` (ADR 0108). Two codes, split by remedy, neither
@@ -412,9 +431,9 @@ class Stopped:
     source: LimitSource | None
     """The setting that stopped it, its value and its layer, when `reason` is `timeout`, `max_steps`, `no_progress` or
     `model_allowance` (G6)."""
-    by: Literal["person", "client", "program"] | str | None
-    """Who stopped it, when `reason` is `abort`: a person in the Console, another Client, or the program closing the page
-    or the Run."""
+    by: Literal["person", "client", "program", "browser"] | str | None
+    """Who stopped it, when `reason` is `abort`: a person in the Console, another Client, the program closing the page
+    or the Run, or the browser closing the page outside every Client (ADR 0113)."""
 
 Ended: TypeAlias = Finished | Stopped
 

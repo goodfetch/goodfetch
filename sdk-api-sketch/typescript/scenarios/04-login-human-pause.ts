@@ -23,7 +23,8 @@ export async function logInOnce(username: string, signal: AbortSignal): Promise<
   // The page's "Password" label points at the username field (`for="username"`): the field is found by its id.
   await page.locator("#password").fill(secret("password"));
   // The Human pause: no time limit and no other clock runs; it ends once the Logout link shows, a
-  // person's "Decline" throws `HumanPauseDeclinedError`, and the signal cancels it.
+  // person's "Decline" throws `HumanPauseDeclinedError`, and the signal cancels it. Closing the window
+  // throws `CallCancelledError` with `details.closed === "page"` (ADR 0113).
   await page.pause({
     reason: "Check the form, then press Login",
     until: page.getByRole("link", { name: "Logout" }),

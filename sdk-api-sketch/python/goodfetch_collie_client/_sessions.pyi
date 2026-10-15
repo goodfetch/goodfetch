@@ -406,7 +406,9 @@ class AsyncPausesForHuman:
         ends the pause by itself when it holds (a locator visible, or a URL matched as `wait_for_url` matches it); a
         person's "Done" is accepted only while it holds. `timeout` is `timeout.human_pause`, 24 hours by default; `None`
         waits without limit. A paused page takes no Gesture: its later Gestures wait; reads and waits run. No enclosing
-        timeout counts its time; Usage still counts toward Limits. Cancelling the task ends it.
+        timeout counts its time; Usage still counts toward Limits. Cancelling the task ends it. A page closed in the
+        browser raises `CallCancelledError` with `by="browser"` and `closed="page"` (`"browser"` when the browser
+        quits); a lost Live view ends nothing (ADR 0113).
         """
 
 class PausesForHuman:

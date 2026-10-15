@@ -305,7 +305,9 @@ impl Run {
         unimplemented!()
     }
 
-    /// Writes a Checkpoint now (ADR 0002), where the engine keeps the Run's.
+    /// Writes a Checkpoint now (ADR 0002), where the engine keeps the Run's. Resolves only once its
+    /// file is whole; a write the engine cannot make fails with `file_write_failed` on the engine's
+    /// side (ADR 0108).
     pub fn checkpoint(&self) -> Call<Checkpoint> {
         unimplemented!()
     }
@@ -342,7 +344,9 @@ pub struct RunTrace {
 }
 
 impl RunTrace {
-    /// Copies it to a file on this machine, wherever the engine runs.
+    /// Copies it to a file on this machine, wherever the engine runs, whole or not at all: a failed
+    /// write fails with `path_not_writable` or `file_write_failed`, leaving the path as it was
+    /// (ADR 0108).
     pub fn save_as(&self, path: impl AsRef<Path>) -> Call<()> {
         let _ = path.as_ref();
         unimplemented!()
@@ -355,7 +359,9 @@ impl RunTrace {
 }
 
 impl Checkpoint {
-    /// Copies it to a file on this machine, wherever the engine runs.
+    /// Copies it to a file on this machine, wherever the engine runs, whole or not at all: a failed
+    /// write fails with `path_not_writable` or `file_write_failed`, leaving the path as it was
+    /// (ADR 0108).
     pub fn save_as(&self, path: impl AsRef<Path>) -> Call<()> {
         let _ = path.as_ref();
         unimplemented!()

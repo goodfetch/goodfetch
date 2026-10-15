@@ -2,8 +2,8 @@
 
 use goodfetch_foxhound::schemars::{self, JsonSchema};
 use goodfetch_foxhound::{
-    ConnectOptions, Crawl, CrawlContext, CrawlRun, Dataset, DatasetDeclaration, Error, ExportFormat, Foxhound, Seed, Settings,
-    SinkConfig, SinkWriteMode,
+    ConnectOptions, Crawl, CrawlContext, CrawlRun, Dataset, DatasetDeclaration, Error, ErrorCode, Export, ExportFormat,
+    FileWriteFailed, FileWriteSide, Foxhound, PathNotWritable, Seed, Settings, SinkConfig, SinkWriteMode,
 };
 use serde::{Deserialize, Serialize};
 
@@ -77,6 +77,26 @@ async fn scenario_05() -> Result<(), Error> {
     foxhound.close().await
 }
 
+/// A failed save (ADR 0108): the path's fault or the storage's, and the path is never half-written.
+async fn save_or_explain(exported: &Export, path: &str) -> Result<bool, Error> {
+    let Err(error) = exported.save_as(path).await else {
+        return Ok(true);
+    };
+    if error.code() == ErrorCode::PATH_NOT_WRITABLE {
+        let details = error.details::<PathNotWritable>();
+        eprintln!("cannot write there: {:?} ({:?})", details.map(|d| (d.path, d.reason)), error.fix());
+        return Ok(false);
+    }
+    match error.details::<FileWriteFailed>() {
+        // The engine still holds the Export: free space, then call save_as again.
+        Some(details) if details.side == FileWriteSide::Program => {
+            eprintln!("storage failed: {:?} {:?} ({:?})", details.reason, details.os_code, error.fix());
+            Ok(false)
+        }
+        _ => Err(error),
+    }
+}
+
 /// Scenario 12: a service reads Records as they commit and resumes from the last number it handled.
 /// The reader is a cursor over run state: slow or paused, it never slows the crawl.
 async fn follow(run: &CrawlRun, books: &Dataset<Book>, last_handled: u64) -> Result<u64, Error> {
@@ -98,6 +118,6 @@ async fn follow(run: &CrawlRun, books: &Dataset<Book>, last_handled: u64) -> Res
 }
 
 fn main() {
-    let _ = (scenario_05, follow);
+    let _ = (scenario_05, follow, save_or_explain);
     let _ = schemars::schema_for!(Book);
 }

@@ -6,6 +6,7 @@
 //! structs [`ErrorDetails`] holds.
 
 use std::fmt;
+use std::path::PathBuf;
 
 /// A group of Error codes sharing one remedy, carried on the wire as the JSON-RPC numeric class.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -147,6 +148,12 @@ impl ErrorCode {
     pub const BODY_UNAVAILABLE: ErrorCode = ErrorCode::new("body_unavailable");
     /// `download_failed` (ADR 0085).
     pub const DOWNLOAD_FAILED: ErrorCode = ErrorCode::new("download_failed");
+    /// `path_not_writable`, a program error: the path given to `save_as` (or a `path` option)
+    /// cannot be written for a reason the path causes (ADR 0108).
+    pub const PATH_NOT_WRITABLE: ErrorCode = ErrorCode::new("path_not_writable");
+    /// `file_write_failed`: full or failing storage, on the program's machine or where the engine
+    /// keeps its files (ADR 0108).
+    pub const FILE_WRITE_FAILED: ErrorCode = ErrorCode::new("file_write_failed");
     /// `cdp_command_refused`, a refusal (ADR 0085).
     pub const CDP_COMMAND_REFUSED: ErrorCode = ErrorCode::new("cdp_command_refused");
     /// `session_reserved`: a second `page.lend()` on a Session while one attach is open, or a lend
@@ -157,6 +164,22 @@ impl ErrorCode {
     pub const BORROW_REQUIRES_CDP: ErrorCode = ErrorCode::new("borrow_requires_cdp");
     /// `browser_borrowed`, a refusal: another Run already borrows this browser (ADR 0056).
     pub const BROWSER_BORROWED: ErrorCode = ErrorCode::new("browser_borrowed");
+    /// `cdp_url_unreachable`: nothing at a `cdp_url` answered; retryable (ADR 0115).
+    pub const CDP_URL_UNREACHABLE: ErrorCode = ErrorCode::new("cdp_url_unreachable");
+    /// `cdp_url_not_browser`: what answered at a `cdp_url` is not a browser speaking CDP (ADR 0115).
+    pub const CDP_URL_NOT_BROWSER: ErrorCode = ErrorCode::new("cdp_url_not_browser");
+    /// `cdp_url_unauthorized`, a refusal: a `cdp_url` answered 401 or 403 (ADR 0115).
+    pub const CDP_URL_UNAUTHORIZED: ErrorCode = ErrorCode::new("cdp_url_unauthorized");
+    /// `cdp_url_not_allowed`, a refusal: ADR 0056's address rules refused a `cdp_url` (ADR 0115).
+    pub const CDP_URL_NOT_ALLOWED: ErrorCode = ErrorCode::new("cdp_url_not_allowed");
+    /// `browser_not_installed`: a build the engine cannot fetch, or a browser named by channel or
+    /// path that is absent; not retryable (ADRs 0098, 0115).
+    pub const BROWSER_NOT_INSTALLED: ErrorCode = ErrorCode::new("browser_not_installed");
+    /// `artifact_unavailable_offline`, a refusal: `offline` refused a pinned download (ADRs 0043,
+    /// 0115).
+    pub const ARTIFACT_UNAVAILABLE_OFFLINE: ErrorCode = ErrorCode::new("artifact_unavailable_offline");
+    /// `artifact_download_failed`: a pinned download failed; retryable (ADR 0115).
+    pub const ARTIFACT_DOWNLOAD_FAILED: ErrorCode = ErrorCode::new("artifact_download_failed");
     /// `attach_ended`: a Lent page's attach was cut (ADRs 0003, 0089).
     pub const ATTACH_ENDED: ErrorCode = ErrorCode::new("attach_ended");
     /// `value_invalid`: a Key-value store value that is not JSON, fails its schema or holds bytes
@@ -528,6 +551,79 @@ impl ErrorDetails for crate::agent::SuccessCheckThrew {}
 impl ErrorDetails for crate::recording::ResponseNotRecorded {}
 impl ErrorDetails for crate::recording::RecordingInvalid {}
 impl ErrorDetails for ScriptedModelDetails {}
+impl ErrorDetails for PathNotWritable {}
+impl ErrorDetails for FileWriteFailed {}
+
+// A file saved to the program's path, or written by the engine for the program to save: an Export,
+// a Download, a Checkpoint, a Run trace, a screenshot's or a PDF's `path` (ADR 0108). Two codes,
+// split by remedy, neither retryable. A save goes to a hidden temporary file beside the path,
+// renamed over it once whole, so the path holds the whole file or what it held before.
+
+/// Why a write failed: `std::io::ErrorKind`'s names (ADR 0108).
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum FileWriteReason {
+    /// The user may not write there (`path_not_writable`).
+    PermissionDenied,
+    /// A read-only filesystem (`path_not_writable`).
+    ReadOnlyFilesystem,
+    /// A folder at the path (`path_not_writable`).
+    IsADirectory,
+    /// A file where a parent folder should be (`path_not_writable`).
+    NotADirectory,
+    /// A name the filesystem refuses (`path_not_writable`).
+    InvalidFilename,
+    /// A file too large for that filesystem (`path_not_writable`).
+    FileTooLarge,
+    /// A path not found once its parents are made (`path_not_writable`).
+    NotFound,
+    /// No space left (`file_write_failed`).
+    StorageFull,
+    /// A quota reached (`file_write_failed`).
+    QuotaExceeded,
+    /// Another I/O error (`file_write_failed`).
+    Other,
+    /// A reason this SDK does not know, as received.
+    Unknown(String),
+}
+
+/// Where a write failed.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum FileWriteSide {
+    /// Where the engine keeps its files: `export`, `checkpoint` or `trace` returned no value.
+    Engine,
+    /// The program's own machine: the engine still holds the file, so `save_as` can be called again.
+    Program,
+}
+
+/// Details of `path_not_writable`. The `std::io::Error` is the error's `source()`, and `fix` names
+/// the path argument and what to change.
+#[derive(Debug, Clone)]
+#[non_exhaustive]
+pub struct PathNotWritable {
+    /// The path as given.
+    pub path: PathBuf,
+    /// Why it failed.
+    pub reason: FileWriteReason,
+    /// The OS's own name, such as `EACCES` or `ERROR_ACCESS_DENIED`.
+    pub os_code: Option<String>,
+}
+
+/// Details of `file_write_failed`; `fix` names what to free and the call to make again.
+#[derive(Debug, Clone)]
+#[non_exhaustive]
+pub struct FileWriteFailed {
+    /// Where it failed.
+    pub side: FileWriteSide,
+    /// The program's path; on the engine's side, the folder where the engine keeps the Run, or
+    /// `None` (Goodfetch Cloud).
+    pub path: Option<PathBuf>,
+    /// Why it failed.
+    pub reason: FileWriteReason,
+    /// The OS's own name, such as `ENOSPC` or `ERROR_DISK_FULL`.
+    pub os_code: Option<String>,
+}
 
 /// Details of `deadline_exceeded`. The error's `limit` names the phase's setting and its layer; a
 /// call's own timeout is that setting at the `run` layer (ADR 0028).

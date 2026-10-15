@@ -6,8 +6,8 @@ This matrix is the companion of [ADR 0037](0037-v1-scope-parity-and-pain-coverag
 
 | Status | Parity rows | Stagehand v3 rows | Pains |
 |---|---:|---:|---:|
-| `decided` | 113 | 5 | 24 |
-| `spec` | 28 | 0 | 0 |
+| `decided` | 113 | 4 | 24 |
+| `spec` | 28 | 1 | 0 |
 | `excluded` | 1 | 0 | 0 |
 | `open → #N` | 0 | 0 | 0 |
 | Total | 142 | 5 | 24 |
@@ -205,7 +205,7 @@ This matrix is the companion of [ADR 0037](0037-v1-scope-parity-and-pain-coverag
 
 | ID | Capability | Status | Source | Spec area | Note |
 |---|---|---|---|---|---|
-| V3-01 | `act`, `extract`, `observe` on the crawler's page mid-crawl | `decided` | ADR 0011, ADR 0013, ADR 0091, [#72](https://github.com/Jbmanllr/automan/issues/72) | 9 AI and agent | AI operations run on any Session page; per-page model extraction is an explicit mode. The verbs are methods of the page a handler holds, and of a locator (ADR 0091); how a handler receives its page is [Crawl definition and handler context](https://github.com/goodfetch/automan/issues/477)'s. |
+| V3-01 | `act`, `extract`, `observe` on the crawler's page mid-crawl | `spec` | ADR 0011, ADR 0013, ADR 0091, [#72](https://github.com/Jbmanllr/automan/issues/72) | 9 AI and agent | AI operations run on any Session page; per-page model extraction is an explicit mode. The verbs are methods of any page, a crawler's page borrowed with `run.borrow(page)` included (ADRs 0089, 0091); [Collie's exact capability set](https://github.com/goodfetch/automan/issues/455) settles the row (ADR 0089). |
 | V3-02 | Local cache of AI results (v3 `cacheDir`) | `decided` | ADR 0009, ADR 0010, ADR 0091 | 9 AI and agent | Plans are local, versioned files replayed without a model; a service-held cache was rejected (ADR 0009). Starting a Run with `plan` names the file, which the SDK reads and writes on the program's machine (ADR 0091). |
 | V3-03 | Custom model client (v3 `llmClient`) | `decided` | ADR 0012, ADR 0033 | 9 AI and agent | The SDK model callback, the SDK-handler form of the Model provider kind, still journaled, counted and capped. |
 | V3-04 | Built-in agent loop (v3 `agent().execute()`) | `decided` | ADR 0013 | 9 AI and agent | A thin, journaled built-in agent; dropping it, as Stagehand v4 did, was rejected. |

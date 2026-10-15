@@ -62,7 +62,7 @@ Collie's AI verbs, `act`, `observe` and `extract`, are methods of the page and o
 - **Excluded:**
   - `toHaveScreenshot`: visual comparison belongs to [Testing a user's crawl or automation](https://github.com/goodfetch/automan/issues/482).
   - `toPass` and `expect.poll`: host retry loops that the engine cannot evaluate; waits cover them.
-  - `expect.soft`: a failed check is recorded anyway, and the program can catch it.
+  - `expect.soft`: a failed Success check is recorded anyway, and the program can catch it.
   - `expect.configure`: a setter; settings carry the timeout (G2).
   - Generic value matchers such as `toBe`: they belong to the program's test runner.
 - **A model never judges a Success check.** Skyvern's `validate(prompt)`, Midscene's `aiAssert` and Magnitude's `check` ask a model, and Skyvern's returns `False` when its own server fails. A model's judgment is a signal, never proof (ADR 0013).
@@ -97,9 +97,10 @@ ADR 0079's rule applied to each case: a call raises when it cannot keep its prom
 | An `act` whose action the engine classed an Effect failed after the action was sent; the original is chained, and it is not retryable | `effect_uncertain` | `PageError` |
 | An AI Effect in one of ADR 0014's categories was not confirmed: a person declined its Human pause, or the pause expired (ADR 0092) | `effect_not_confirmed` | `RefusedError` |
 | `expect`'s condition was still false at its timeout | `success_check_failed` | `PageError` |
+| A call would send a page's content to a model while `site_preferences.respect_use_signals` is on and the page's AI-use signal refuses the Run's Purpose (ADRs 0085, 0086); raised before anything is sent, with the reason `use_signals` | `site_preferences_refused`, shared with a crawl handler's refused navigation | `RefusedError` |
 | A placeholder neither `variables` nor a bound Secret placeholder fills, a variable no placeholder uses, or a name that is both | `variables_mismatch` | `ProgramError` |
 
-A navigation an AI step starts toward a domain the run's policy forbids raises the same `RefusedError` as `goto` (ADR 0014). Model provider failures are Models, usage and cost in the SDK API's codes, which `model_not_configured` joins.
+A navigation an AI step starts toward a domain the run's policy forbids raises the same `RefusedError` as `goto` (ADR 0014). A step replayed from the Plan sends nothing to a model, so an AI-use signal does not refuse it. Model provider failures are Models, usage and cost in the SDK API's codes, which `model_not_configured` joins.
 
 ## Considered Options
 
@@ -123,12 +124,12 @@ A navigation an AI step starts toward a domain the run's policy forbids raises t
 - **Amends ADR 0011.** In the SDKs, an observation sends no diffs, and element references last as long as their element; the MCP server keeps diffs within its own session.
 - **Amends ADR 0029.** A Run whose program calls `act` or `observe` counts as an AI task, so it needs a Success check evaluated after the last such call, and passing; a Run whose only AI steps are `extract` is judged by Grounding.
 - **Amends ADR 0079.** A single AI verb call is a step, not AI work that can claim success: it returns a `StepResult` without a Verdict, and `AiWorkResult` stays for an Agent's task and a Plan replayed toward a goal. `expect` raises when its condition fails, since asserting is its promise, while AI work whose Success check fails still returns `verdict: rejected`, as ADR 0079's case table says.
-- **Amends ADR 0085.** It left web-first assertions and `ariaSnapshot()` with its references to this ticket, decided here. `getByRef` is a new locator constructor, and a reference whose element is gone fails at once rather than waiting out the deadline, since the element cannot come back. `success_check_failed`, like `target_not_unique`, is a failure at a timeout that is not `deadline_exceeded`. The notes go under ADR 0085's items once it is on `main`.
+- **Amends ADR 0085.** It left web-first assertions, `ariaSnapshot()` with its references, and the code for an AI verb an AI-use signal refuses to this ticket, decided here: `expect`, `ariaSnapshot` with `getByRef`, and `site_preferences_refused` with the reason `use_signals`. `getByRef` is a new locator constructor, and a reference whose element is gone fails at once rather than waiting out the deadline, since the element cannot come back. `success_check_failed`, like `target_not_unique`, is a failure at a timeout that is not `deadline_exceeded`.
 - **Amends ADR 0080.** `timeout.ai` joins the phases, at 120 s. A Success check still false at its timeout fails with `success_check_failed`, not `deadline_exceeded`, since the timeout bounds how long the condition may take to hold, and the failure is the Success check's answer; its details carry the timeout's setting and layer, as `deadline_exceeded`'s do.
-- **Amends ADR 0083.** `timeout.ai` joins the timeout family. `plan.frozen`, `extract.mode` and `observation.max_size` are new settings.
+- **Amends ADR 0083.** `timeout.ai` joins the timeout family. `plan.frozen`, `extract.mode` and `observation.max_size` are new settings. `setting_not_applicable` also refuses, when a call starts, a per-call argument a scope's setting makes ineffective, as `mode: "model"` under `plan.frozen`.
 - **Glossary.** **Element reference** is added.
 - **Error codes.** The table's codes join `goodfetch-protocol`'s list through `xtask codegen`'s naming checks.
-- **ADR 0037's matrix:** AI-01, AI-02, AI-03, AI-08, AI-12 and AI-13, V3-01 and V3-02, and Pains rows 2, 9, 10, 11 and 20 cite this ADR; V3-01 is decided.
+- **ADR 0037's matrix:** AI-01, AI-02, AI-03, AI-08, AI-12 and AI-13, V3-01 and V3-02, and Pains rows 2, 9, 10, 11 and 20 cite this ADR. V3-01 stays `spec`: [Collie's exact capability set](https://github.com/goodfetch/automan/issues/455) settles it (ADR 0089).
 - **Area 9 (AI and agent)** builds the per-call Plan entries, their variants and locator ladders, the compiled extraction's transforms, promotion and pending versions, `plan.frozen`, `expect`'s evaluation in the Verdict, and the bounded `ai` observation. **Area 11 (Client surfaces)** builds the verbs' shapes per language, `StepResult`, the Plan file's reading and writing on the program's machine, and the error classes. Each lists this ADR.
 - **Other tickets of the map.**
   - The Agent in Collie's SDK API: its result, its Success check declaration, and whole-sequence replay.

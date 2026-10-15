@@ -81,7 +81,8 @@ pub use recording::{
 };
 pub use results::{
     AiWorkResult, BlockCause, Blocked, Claim, DeadlineExceeded, Ended, EndedBy, Error,
-    ErrorDetails, ErrorGroup, ErrorTarget, LimitSource, NotVerified, PartialOutput, Reported,
+    ErrorDetails, ErrorGroup, ErrorTarget, FileWriteFailed, FileWriteReason, FileWriteSide,
+    LimitSource, NotVerified, PartialOutput, PathNotWritable, Reported,
     RunLayerOrigin, ScriptedModelDetails, SettingValue, SettingsLayer, StopReason,
     TargetDescription, TargetNotUnique, Verdict,
 };

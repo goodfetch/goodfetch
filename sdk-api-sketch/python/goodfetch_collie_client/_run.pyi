@@ -133,7 +133,10 @@ class AsyncCheckpoint(CheckpointInfo):
     """A Checkpoint just written, copied to this machine as ADR 0103's Export is."""
 
     async def save_as(self, path: str | PathLike[str], *, timeout: Timeout = ...) -> None:
-        """Copies it to a file on this machine, wherever the engine runs."""
+        """Copies it to a file on this machine, wherever the engine runs, whole or not at all.
+
+        A failed write raises `PathNotWritableError` or `FileWriteFailedError`, leaving the path as it was (ADR 0108).
+        """
     def stream(self) -> AsyncIterator[bytes]: ...
 
 @final
@@ -182,7 +185,10 @@ class AsyncRunTrace:
     def size(self) -> int:
         """In bytes."""
     async def save_as(self, path: str | PathLike[str], *, timeout: Timeout = ...) -> None:
-        """Copies it to a file on this machine, wherever the engine runs."""
+        """Copies it to a file on this machine, wherever the engine runs, whole or not at all.
+
+        A failed write raises `PathNotWritableError` or `FileWriteFailedError`, leaving the path as it was (ADR 0108).
+        """
     def stream(self) -> AsyncIterator[bytes]: ...
 
 class RunTrace:
@@ -280,7 +286,11 @@ class AsyncRunControl(Generic[_Report, _Progress]):
     async def set_progress_message(self, message: str, *, timeout: Timeout = ...) -> None:
         """The program's own status line, shown in `progress()` and the Console."""
     async def checkpoint(self, *, timeout: Timeout = ...) -> AsyncCheckpoint:
-        """Writes a Checkpoint now (ADR 0002), where the engine keeps the Run's."""
+        """Writes a Checkpoint now (ADR 0002), where the engine keeps the Run's.
+
+        Returns only once its file is whole; a write the engine cannot make raises `FileWriteFailedError` with
+        `side="engine"` (ADR 0108).
+        """
     async def trace(self, *, timeout: Timeout = ...) -> AsyncRunTrace | None:
         """The Run trace recorded so far; `None` when the Run keeps none, which the report's `weakened` shows."""
 

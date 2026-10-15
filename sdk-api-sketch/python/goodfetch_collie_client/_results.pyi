@@ -49,6 +49,8 @@ KnownErrorCode: TypeAlias = Literal[
     "run_in_use",
     "limit_raise_refused",
     "run_state_unavailable",
+    "path_not_writable",
+    "file_write_failed",
     "model_not_found",
     "model_capability_missing",
     "model_handler_failed",
@@ -224,6 +226,67 @@ class CallCancelledError(UnavailableError):
     Not retryable; `observed` says who, and `fix` names resuming the Run, or the close that stopped the call. The
     caller's own cancellation propagates `asyncio.CancelledError` instead and never raises this (ADR 0080).
     """
+
+# A file saved to the program's path, or written by the engine for the program to save: an Export, a Download, a
+# Checkpoint, a Run trace, a screenshot's or a PDF's `path` (ADR 0108). Two codes, split by remedy, neither
+# retryable. A save goes to a hidden temporary file beside the path, renamed over it once whole, so the path holds
+# the whole file or what it held before, never a partial one.
+
+FileWriteReason: TypeAlias = (
+    Literal[
+        "permission_denied",
+        "read_only_filesystem",
+        "is_a_directory",
+        "not_a_directory",
+        "invalid_filename",
+        "file_too_large",
+        "not_found",
+        "storage_full",
+        "quota_exceeded",
+        "other",
+    ]
+    | str
+)
+"""Why a write failed: Rust's `io::ErrorKind` names in snake_case; one this SDK does not know is kept."""
+
+@final
+@dataclass(frozen=True, kw_only=True)
+class PathNotWritableDetails:
+    path: str
+    reason: FileWriteReason
+    os_code: str | None
+    """The OS's own name, such as `EACCES` or `ERROR_ACCESS_DENIED`."""
+
+@final
+class PathNotWritableError(ProgramError):
+    """The path given to `save_as` (or a `path` option) cannot be written for a reason the path causes.
+
+    `fix` names the path argument and what to change; the `OSError` is its `__cause__`.
+    """
+
+    @property
+    def details(self) -> PathNotWritableDetails: ...
+
+@final
+@dataclass(frozen=True, kw_only=True)
+class FileWriteFailedDetails:
+    side: Literal["engine", "program"]
+    path: str | None
+    """The program's path; on the engine's side, the folder where the engine keeps the Run, or `None` (Goodfetch Cloud)."""
+    reason: FileWriteReason
+    os_code: str | None
+
+@final
+class FileWriteFailedError(UnavailableError):
+    """The bytes could not be written: no space or quota left, or an I/O error.
+
+    On the program's machine (`side="program"`) the engine still holds the file, so `save_as` can be called again;
+    anywhere the engine keeps its files (`side="engine"`, from `export`, `checkpoint` or `trace`) the call returns
+    no value. `fix` names what to free and the call to make again.
+    """
+
+    @property
+    def details(self) -> FileWriteFailedDetails: ...
 
 @final
 @dataclass(frozen=True, kw_only=True)

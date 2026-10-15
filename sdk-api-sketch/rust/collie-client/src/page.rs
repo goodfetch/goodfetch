@@ -780,7 +780,8 @@ impl Screenshot {
         unimplemented!()
     }
 
-    /// Also writes it to this path on the program's machine.
+    /// Also writes it to this path on the program's machine, whole or not at all; a failed write
+    /// fails the call with `path_not_writable` or `file_write_failed` (ADR 0108).
     pub fn path(self, path: impl Into<PathBuf>) -> Self {
         let _ = path.into();
         unimplemented!()
@@ -1655,7 +1656,8 @@ impl Download {
     }
 
     /// Streams the file to this path on the program's machine; a failed download fails with
-    /// `download_failed`.
+    /// `download_failed`, and a failed write with `path_not_writable` or `file_write_failed`,
+    /// leaving the path as it was (ADR 0108).
     pub fn save_as(&self, path: impl Into<PathBuf>) -> Call<()> {
         let _ = path.into();
         unimplemented!()

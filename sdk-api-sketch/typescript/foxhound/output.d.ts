@@ -105,7 +105,14 @@ export interface Export {
   /** In bytes. */
   size(): number;
   sha256(): string;
-  /** Copies it to a path on the program's machine. */
+  /**
+   * Copies it to a path on the program's machine through a hidden temporary file renamed over the
+   * path once whole, so the path holds the whole Export or what it held before (ADR 0108). It creates
+   * missing parent folders and replaces an existing file, as Playwright's `saveAs` does. A path it
+   * cannot write throws `PathNotWritableError`; full or failing storage throws `FileWriteFailedError`
+   * with `side: "program"`, and calling it again after freeing space works, since the engine still
+   * holds the Export.
+   */
   saveAs(path: string, options?: CallOptions): Promise<void>;
   /** Its bytes, read once: an async iterable, not the Node `Readable` of Playwright's `createReadStream()`. */
   stream(): AsyncIterable<Uint8Array>;

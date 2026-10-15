@@ -95,7 +95,11 @@ class AsyncCrawlRun(AsyncRun):
     async def export(
         self, dataset: Dataset[Any], *, format: ExportFormat, compression: Literal["gzip", "zstd"] | None = None, timeout: Timeout = ...
     ) -> AsyncExport:
-        """Writes an Export of the Records committed so far (ADR 0026), to save or stream wherever the engine runs."""
+        """Writes an Export of the Records committed so far (ADR 0026), to save or stream wherever the engine runs.
+
+        Returns only once its file is whole; a write the engine cannot make raises `FileWriteFailedError` with
+        `side="engine"` and leaves no unfinished file (ADR 0108).
+        """
     @overload
     async def add_seed(self, seed: SitemapSeed, /, *, timeout: Timeout = ...) -> Enqueued:
         """Adds a built seed, such as `sitemap(url, rules)`; a sitemap's entries matching no rule are reported as `no_rule` in

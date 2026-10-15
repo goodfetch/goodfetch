@@ -219,7 +219,7 @@ Decided in [Mapping the catalog to each language and surface](https://github.com
 - **Error classes per Product.**
   - In TypeScript and Python, Collie's code classes live in the client package, and Foxhound's own in Foxhound's package, all extending the client package's group classes. A Collie program that meets a Foxhound code gets its group's class with the code kept (ADR 0079).
 - **How `goodfetch-protocol` lays out its types for the Rust crates,** which ADR 0095 hands to this decision so that each SDK crate shows only its own Product's entries:
-  - a type wholly one Product's is re-exported only by that Product's crate, and settings constants, events and values stay with their Product's crate;
+  - a type wholly one Product's sits on that Product's side of the crate graph (ADR 0087) and is re-exported only by its Product's SDK crate, as are its settings constants and events;
   - a type both Products share whose values Foxhound extends (Error codes, Usage kinds, Limit scopes, Notification events) is an open value type: a newtype over its wire string, with an associated constant for each Collie value in the client crate (`ErrorCode::TARGET_NOT_UNIQUE`) and a constant of the same type in Foxhound's crate for each Foxhound value (`goodfetch_foxhound::error_code::PAYLOAD_INVALID`);
   - a program compares such a value with `==` or matches it against the constants, as `http::StatusCode` and `http::Method` are matched, and a value it does not know stays a value, with `as_str()` (G3);
   - this replaces ADR 0079's Rust `ErrorCode` enum. One enum listing Foxhound's codes would put them in Collie's crate, an enum cannot be extended by another crate, and a second Foxhound enum would give Foxhound programs two code types to match (S2).

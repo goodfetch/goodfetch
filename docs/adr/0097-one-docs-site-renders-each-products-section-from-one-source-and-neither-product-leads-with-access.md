@@ -4,7 +4,7 @@ ADR 0084 made Collie and Foxhound two Products under the Goodfetch brand, Foxhou
 
 ADR 0030's site at `goodfetch.dev/docs` gets a section per Product, `/docs/collie/` and `/docs/foxhound/`. Each section is rendered from one source with its own Product's names, so Foxhound's docs contain Collie's as its executable contains Collie's code. A chooser at the docs root asks one question. Each Product leads with what Goodfetch guarantees and runs locally, never with stealth or access. Migration guides follow every leader the SDK API was judged against and every parity reference of ADR 0037, and ADR 0035's wording policy reaches every text published about either Product, under a check.
 
-The [docs-site, migration-guide and stealth-wording research](https://github.com/goodfetch/automan/blob/research/docs-positioning/rnd/research/2026-10-15-docs-positioning.md) found, on 2026-10-15:
+The [docs-site, migration-guide and stealth-wording research](https://github.com/goodfetch/goodfetch/blob/research/docs-positioning/rnd/research/2026-10-15-docs-positioning.md) found, on 2026-10-15:
 - **Vendors join several products' docs under one shell.**
   - Crawlee runs two Docusaurus builds on one domain, joined by a switcher.
   - Astral runs three MkDocs builds under `docs.astral.sh`.
@@ -15,10 +15,10 @@ The [docs-site, migration-guide and stealth-wording research](https://github.com
 - **Migration guides from competitors share a skeleton, and their code never runs in CI.** The skeleton is principles, a mapping table and before/after code; Stagehand's 2026 guides add porting rules for coding agents. Examples come from Playwright, Crawlee for Python, Stagehand and ty. The field lints or type-checks guide code at most.
 - **Stealth tools put detection-defeat words in their registry metadata.** Examples: "Undetected", `cloudflare-bypass`, `anti-bot`. Camoufox's registry text says only "fingerprint".
 
-Decided in [Docs site and positioning of two Products](https://github.com/goodfetch/automan/issues/499), on the map [Goodfetch products: Collie and Foxhound as separately installable products](https://github.com/goodfetch/automan/issues/447), by the agent on the owner's delegation of 2026-10-14 ([round 1](https://github.com/goodfetch/automan/issues/499#issuecomment-6181529601), [grilling record](https://github.com/goodfetch/automan/issues/499#issuecomment-6181537258), [first addendum](https://github.com/goodfetch/automan/issues/499#issuecomment-6189095221), [second addendum](https://github.com/goodfetch/automan/issues/499#issuecomment-6189273442), [third addendum](https://github.com/goodfetch/automan/issues/499#issuecomment-6189439625), [fourth addendum](https://github.com/goodfetch/automan/issues/499#issuecomment-6189609030), [fifth addendum](https://github.com/goodfetch/automan/issues/499#issuecomment-6189891111), [sixth addendum](https://github.com/goodfetch/automan/issues/499#issuecomment-6189910256), [seventh addendum](https://github.com/goodfetch/automan/issues/499#issuecomment-6190078367)). It builds on ADR 0087 (what each executable embeds), ADR 0088 (what Collie carries), ADR 0089 (lending a page and borrowing a crawler's), ADR 0090 (names and the Product version), ADR 0094 (which Product's executable a test runs on) and ADR 0096 (what the Browser host and Goodfetch Cloud run), and also on:
-- the [browser-automation products research](https://github.com/goodfetch/automan/blob/research/browser-automation-products/rnd/research/2026-10-14-browser-automation-products.md);
-- the [naming and packaging research](https://github.com/goodfetch/automan/blob/research/product-packaging-and-names/rnd/research/2026-10-14-product-packaging-and-names.md) §5;
-- the [stealth legal note](https://github.com/goodfetch/automan/blob/research/stealth-legal-exposure/rnd/research/2026-10-10-stealth-legal-exposure.md).
+Decided in [Docs site and positioning of two Products](https://github.com/goodfetch/goodfetch/issues/499), on the map [Goodfetch products: Collie and Foxhound as separately installable products](https://github.com/goodfetch/goodfetch/issues/447), by the agent on the owner's delegation of 2026-10-14 ([round 1](https://github.com/goodfetch/goodfetch/issues/499#issuecomment-6181529601), [grilling record](https://github.com/goodfetch/goodfetch/issues/499#issuecomment-6181537258), [first addendum](https://github.com/goodfetch/goodfetch/issues/499#issuecomment-6189095221), [second addendum](https://github.com/goodfetch/goodfetch/issues/499#issuecomment-6189273442), [third addendum](https://github.com/goodfetch/goodfetch/issues/499#issuecomment-6189439625), [fourth addendum](https://github.com/goodfetch/goodfetch/issues/499#issuecomment-6189609030), [fifth addendum](https://github.com/goodfetch/goodfetch/issues/499#issuecomment-6189891111), [sixth addendum](https://github.com/goodfetch/goodfetch/issues/499#issuecomment-6189910256), [seventh addendum](https://github.com/goodfetch/goodfetch/issues/499#issuecomment-6190078367)). It builds on ADR 0087 (what each executable embeds), ADR 0088 (what Collie carries), ADR 0089 (lending a page and borrowing a crawler's), ADR 0090 (names and the Product version), ADR 0094 (which Product's executable a test runs on), ADR 0095 (the catalog's mark and the shared client packages) and ADR 0096 (what the Browser host and Goodfetch Cloud run), and also on:
+- the [browser-automation products research](https://github.com/goodfetch/goodfetch/blob/research/browser-automation-products/rnd/research/2026-10-14-browser-automation-products.md);
+- the [naming and packaging research](https://github.com/goodfetch/goodfetch/blob/research/product-packaging-and-names/rnd/research/2026-10-14-product-packaging-and-names.md) §5;
+- the [stealth legal note](https://github.com/goodfetch/goodfetch/blob/research/stealth-legal-exposure/rnd/research/2026-10-10-stealth-legal-exposure.md).
 
 ## Decision
 
@@ -47,7 +47,7 @@ Decided in [Docs site and positioning of two Products](https://github.com/goodfe
   - a part of a page may declare its own Products.
   - Apart from the Products it renders in, a part may be **marked as naming another Product**: the generator leaves its names as written, and its samples are checked statically against that Product's packages, as a Foxhound rendering is. "When you need many pages" marks its Foxhound code so; the Browser host's image is marked as naming Collie.
 
-  How the catalog marks each entry is [Protocol, Operation catalog and SDKs across two products](https://github.com/goodfetch/automan/issues/458)'s.
+  The catalog marks each entry with the smallest Product that carries it (ADR 0095).
 - **Foxhound's section groups what it takes from Collie under a heading that names Collie,** and each such page says that it is Collie's. A Foxhound reader thus learns that a handler's page is a Collie page (ADR 0088). Collie's section carries nothing of Foxhound's beyond the header switcher, its docs home's link to the other Product and "When you need many pages".
 - **Reference pages are generated per Product** from the marked catalog and settings schema (ADR 0030).
   - Each section lists its own Product's entries, so Foxhound's lists Collie's too.
@@ -66,9 +66,9 @@ Decided in [Docs site and positioning of two Products](https://github.com/goodfe
 - **Then it says:**
   - Foxhound contains Collie, so one program never needs both.
   - Two programs may each use one, and both installed collide nowhere (ADR 0090).
-  - What two installs share is [Collie and Foxhound installed on one machine](https://github.com/goodfetch/automan/issues/486)'s.
+  - What two installs share is [Collie and Foxhound installed on one machine](https://github.com/goodfetch/goodfetch/issues/486)'s.
 - **The marketing site's home asks the same question,** and each Product's docs home links the chooser and the other Product.
-- **Collie's "When you need many pages" shows the move to Foxhound.** The installed package, the import, the connection type, the executable's name and, where a program sets it, the engine-path variable change; page code, settings, and commands with their flags, `--json` output and exit codes do not (ADR 0090; how the SDKs share Collie's code is #458's).
+- **Collie's "When you need many pages" shows the move to Foxhound.** The installed package, the import, the connection type, the executable's name and, where a program sets it, the engine-path variable change; page code, settings, and commands with their flags, `--json` output and exit codes do not (ADR 0090; both Products' SDKs build on Collie's client packages, ADR 0095).
 
 ### What each Product leads with
 
@@ -138,10 +138,10 @@ Decided in [Docs site and positioning of two Products](https://github.com/goodfe
   - links to its section and the chooser.
 
   It is what npm, PyPI and crates.io render.
-  - Collie's client package's README says that a program installs a Product's package and that only a library serving both Products uses the client package (#458's). Platform packages carry one line pointing to their Product's package.
+  - Collie's client package's README says that a program installs a Product's package and that only a library serving both Products uses the client package (ADR 0095). Platform packages carry one line pointing to their Product's package.
   - README code is docs samples. `xtask docs-samples` also reads every published package's README, and its samples run on that package's Product's executable, the Collie client package's on Collie's. A Rust crate's README is included under `#[cfg(doctest)]`, as clap and env_logger include theirs.
   - Per-Product GitHub repositories remain a later option (ADR 0084).
-- **Agent skills are rendered from the same source as the docs,** one source per topic for each Product that carries it, as #458 decides for skills, so their topics match the pages.
+- **Agent skills are rendered from the same source as the docs,** one source per topic for each Product that carries it, as ADR 0095 decides for skills, so their topics match the pages.
 - **The Browser host's pages are Collie's** (ADR 0096), so they render in both sections, each giving its own executable's `browser-host` command. Its image is Collie's in both, so the part naming `ghcr.io/goodfetch/collie` is marked as naming Collie: the generator leaves it as written, and the names check passes it in Foxhound's section.
 - **Each executable embeds its own section's rendering** for its `docs` command and its MCP server's resources (ADR 0030), and its `init` writes an AGENTS.md index pointing to them. Each executable embeds only its own Product's docs and `init` starters (ADR 0087). How a link into the other section reads there (an absolute `goodfetch.dev` link, for one) is area 1's.
 - **Each section has its own llms files:** `/docs/collie/llms.txt` and `llms-full.txt`, and Foxhound's likewise.
@@ -215,5 +215,5 @@ Decided in [Docs site and positioning of two Products](https://github.com/goodfe
   - Area 11 (Client surfaces) builds the migration guides with their Live check, the package READMEs, the rendered skills and each executable's offline docs.
 - **Owner steps.** None. This decision changes nothing about `goodfetch.dev`, the marketing site's repository (ADR 0030) or the trademark steps of ADRs 0034 and 0084, and the agent registers and pays for nothing (ADR 0076).
 - **Downstream.**
-  - [Apply the product-line decisions to the affected specs and tickets](https://github.com/goodfetch/automan/issues/460) carries this into area 1's and area 11's specs and tickets.
-  - [The SDK API of Collie and Foxhound](https://github.com/goodfetch/automan/issues/461) writes the guides' programs from its golden scenarios.
+  - [Apply the product-line decisions to the affected specs and tickets](https://github.com/goodfetch/goodfetch/issues/460) carries this into area 1's and area 11's specs and tickets.
+  - [The SDK API of Collie and Foxhound](https://github.com/goodfetch/goodfetch/issues/461) writes the guides' programs from its golden scenarios.

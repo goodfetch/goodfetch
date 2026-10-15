@@ -14,7 +14,7 @@ async def find_cheapest_five_star_book() -> None:
             for title, price in zip(titles, prices):
                 title_text = await title.text_content()
                 price_text = await price.text_content()
-                print(f'Title: {title_text}, Price: {price_text}
+                print(f'Title: {title_text}, Price: {price_text}')
 
 # The actual implementation should navigate through pages, check ratings, and compare prices
 if __name__ == '__main__':

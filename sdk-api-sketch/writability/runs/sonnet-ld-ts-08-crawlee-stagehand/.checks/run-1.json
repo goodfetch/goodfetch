@@ -1,0 +1,11 @@
+{
+  "lang": "ts",
+  "kind": "leader",
+  "errors": 2,
+  "output": "08-ai-in-crawl-handler.crawlee-stagehand.ts(185,63): error TS2559: Type 'string' has no properties in common with type 'Omit<ObserveOptions, \"page\">'.\n08-ai-in-crawl-handler.crawlee-stagehand.ts(221,96): error TS2536: Type '\"book\"' cannot be used to index type 'R'.\n",
+  "pass": false,
+  "lenient_pass": false,
+  "n": 1,
+  "time": "2026-10-15T21:40:41",
+  "by": "agent"
+}

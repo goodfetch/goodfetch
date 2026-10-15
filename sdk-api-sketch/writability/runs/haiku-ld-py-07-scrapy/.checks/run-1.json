@@ -1,0 +1,11 @@
+{
+  "lang": "py",
+  "kind": "leader",
+  "errors": 1,
+  "output": "/private/tmp/claude-501/-Users-jb-Dev-automan/77744178-6af8-4d82-8e7e-cbe4fbb7ef21/scratchpad/t484/runs/haiku-ld-py-07-scrapy/s07_resume_and_retry_scrapy.py\n  /private/tmp/claude-501/-Users-jb-Dev-automan/77744178-6af8-4d82-8e7e-cbe4fbb7ef21/scratchpad/t484/runs/haiku-ld-py-07-scrapy/s07_resume_and_retry_scrapy.py:142:9 - error: Expected mapping for dictionary unpack operator (reportGeneralTypeIssues)\n1 error, 0 warnings, 0 informations\n",
+  "pass": false,
+  "lenient_pass": false,
+  "n": 1,
+  "time": "2026-10-15T21:38:29",
+  "by": "agent"
+}

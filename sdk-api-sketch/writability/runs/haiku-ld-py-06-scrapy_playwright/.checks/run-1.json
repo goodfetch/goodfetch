@@ -1,0 +1,11 @@
+{
+  "lang": "py",
+  "kind": "leader",
+  "errors": 1,
+  "output": "/private/tmp/claude-501/-Users-jb-Dev-automan/77744178-6af8-4d82-8e7e-cbe4fbb7ef21/scratchpad/t484/runs/haiku-ld-py-06-scrapy_playwright/s06_mixed_fetch_crawl_scrapy_playwright.py\n  /private/tmp/claude-501/-Users-jb-Dev-automan/77744178-6af8-4d82-8e7e-cbe4fbb7ef21/scratchpad/t484/runs/haiku-ld-py-06-scrapy_playwright/s06_mixed_fetch_crawl_scrapy_playwright.py:181:38 - error: Argument of type \"Selector\" cannot be assigned to parameter \"block\" of type \"Selector\" in function \"_quote_from_html\"\n  \u00a0\u00a0\"parsel.selector.Selector\" is not assignable to \"scrapy.selector.unified.Selector\" (reportArgumentType)\n1 error, 0 warnings, 0 informations\n",
+  "pass": false,
+  "lenient_pass": false,
+  "n": 1,
+  "time": "2026-10-15T20:26:23",
+  "by": "agent"
+}

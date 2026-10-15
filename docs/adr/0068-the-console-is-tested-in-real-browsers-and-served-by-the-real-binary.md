@@ -49,6 +49,7 @@ Decided in [Console and docs test stack](https://github.com/Jbmanllr/automan/iss
   - `console/tests/served/`: the Console's integration tests through the served Console.
   - `console/tests/journeys/J-NNN.spec.ts`: the `console` variants of Journeys (ADR 0063).
   - `conformance/console/`: the Console conformance suite (below).
+  > Amended by [ADR 0094](0094-both-products-are-released-and-signed-together-and-each-test-runs-on-collie-unless-it-needs-foxhound.md): each Product's Console build is tested served by its own executable, a screen both carry on Collie's; a served test on Foxhound's executable checks that every route of Collie's build is in Foxhound's and renders.
 - **Each test starts its own Daemon** through a Playwright fixture of `@goodfetch/test-support`, which calls `goodfetch-test-env` (ADR 0062): its own Goodfetch home, cleared environment, port 0, and its own Proving ground when it needs pages. Each test gets a fresh browser context.
 - **Sign-in follows the product's own path:** the single-user sign-in link the binary gives, Playwright's virtual WebAuthn authenticator for passkeys and step-up, and a local OIDC provider, pinned by digest, for single sign-on. A test never writes a cookie or storage state it did not get from the Console.
 - **Time:** the server's durations are short settings (ADR 0059); the browser's clock is `page.clock`.

@@ -273,9 +273,18 @@ export type BlockCause =
   | "consent_required"
   | (string & {});
 
+/**
+ * A Block cause the engine cannot get past on a Session a program or an Agent opened (ADRs 0088,
+ * 0092), thrown by the call waiting for the navigation that met it, or else by the page's next call.
+ */
 export declare class BlockedError extends PageError {
   readonly code: "blocked";
-  readonly details: { readonly blockCause: BlockCause };
+  readonly details: {
+    readonly blockCause: BlockCause;
+    readonly url: string;
+    /** `null` when the site answered with no response, such as a reset connection. */
+    readonly status: number | null;
+  };
 }
 
 // Outcomes are values.

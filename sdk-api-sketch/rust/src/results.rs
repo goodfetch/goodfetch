@@ -643,6 +643,10 @@ pub struct TargetNotUnique {
 pub struct Blocked {
     /// Why the site refused it.
     pub block_cause: BlockCause,
+    /// The URL whose navigation met it (ADR 0092).
+    pub url: String,
+    /// `None` when the site answered with no response, such as a reset connection.
+    pub status: Option<u16>,
 }
 
 /// Why AI work was not verified.

@@ -300,7 +300,11 @@ BlockCause: TypeAlias = (
 @final
 @dataclass(frozen=True, kw_only=True)
 class BlockedDetails:
+    """A Block cause on a Session a program or an Agent opened (ADRs 0088, 0092)."""
+
     block_cause: BlockCause
+    url: str
+    status: int | None
 
 @final
 class BlockedError(PageError):

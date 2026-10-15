@@ -46,6 +46,8 @@ Evidence: [workflow tools, Airbyte and AI loaders](https://github.com/goodfetch/
 
   > Amended by [ADR 0070](0070-mcp-adapters-and-integrations-are-tested-through-their-platforms-own-clients-against-a-real-engine.md): the LangChain Dataset loader ships in TypeScript and Python inside the LangChain package that carries the Framework adapter; LlamaIndex gets a Python reader only, since LlamaIndex.TS is archived.
 
+  > Amended by [ADR 0095](0095-both-products-speak-one-protocol-from-one-catalog-marked-by-product-and-their-sdks-share-collies-client-packages.md): each workflow tool gets one Integration per Product. Collie's start runs and Recipes and return their results, with Notifications as triggers; Foxhound's add crawls, Records and the record-range triggers. The Airbyte source and the Dataset loaders read Datasets, so they are Foxhound's only.
+
 **What each Integration can reach**: the docs for each Integration state whether it works with a local Daemon, an exposed Daemon, a tunnel or Goodfetch Cloud. Zapier rejects localhost; Make reaches local services only through its Enterprise on-premise agent; Power Automate's on-premises data gateway supports neither API-key authentication nor custom code.
 
 **The HTTP listener** also serves the thin webhook's fetch URL. Being on HTTP, it keeps ADR 0017's `Host` and `Origin` checks. The Console does not read runs through it: it speaks the protocol over its own WebSocket (ADR 0031).

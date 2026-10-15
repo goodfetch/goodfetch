@@ -92,6 +92,7 @@ Every SDK reports what happened in two ways that never mix: a failure raises a t
 
 - An Error code an SDK does not know raises the class of the group its numeric class names, or the base class, with the code kept as received.
 - Outcome kinds, skip reasons, Block causes, claims and Verdicts it does not know are kept as strings: `Known | (string & {})` in TypeScript, `Literal[...] | str` in Python, and in Rust `#[non_exhaustive]` enums with an `Unknown(String)` variant, so that adding a value in a minor breaks no build (ADR 0030). A tagged union gets an `unknown` member that keeps the received tag. An unknown Verdict never equals `verified`.
+  > Amended by [ADR 0095](0095-both-products-speak-one-protocol-from-one-catalog-marked-by-product-and-their-sdks-share-collies-client-packages.md): Usage kinds, Limit scopes, Notification events, Plugin kinds and Hook stages it does not know are kept as strings too, because a Foxhound engine hands a Collie Client the values only Foxhound carries.
 - A Daemon or Goodfetch Cloud can run a newer minor than the SDK (ADR 0024, G3); openai-python's strict parsing raised on results that had drifted ([#1763](https://github.com/openai/openai-python/issues/1763)).
 
 ### Retries

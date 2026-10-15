@@ -32,7 +32,7 @@ The 60 cells are verified: each acknowledged row is read back intact, including 
   - PostgreSQL syncs inside Docker's Linux VM, on a virtual disk.
 
   This last point requires verification: equal durability must be set by configuration before any throughput comparison.
-- **For Automan**, SQLite remains the local default (D-storage). DuckDB is a very good local analytical sink, but with a single writer process. PostgreSQL `COPY` serves the cloud's shared state, and its cost is dominated by the round trip. Parquet suits bulk export, not writing in small batches.
+- **For Goodfetch**, SQLite remains the local default (D-storage). DuckDB is a very good local analytical sink, but with a single writer process. PostgreSQL `COPY` serves the cloud's shared state, and its cost is dominated by the round trip. Parquet suits bulk export, not writing in small batches.
 
 ## Container pool (D-cloud-topology)
 

@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://automan.local/lab/schemas/ledger.schema.json",
-  "title": "Automan lab results ledger, generated from imported runs and their classification",
+  "$id": "https://goodfetch.local/lab/schemas/ledger.schema.json",
+  "title": "Goodfetch lab results ledger, generated from imported runs and their classification",
   "type": "object",
   "additionalProperties": false,
   "required": [

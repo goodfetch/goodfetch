@@ -20,7 +20,7 @@ export type AiCell = { mode?: AgentMode; interface?: Interface; variant: string;
 export const aiCombinations = (config: AiConfig): AiCell[] => (config.models ?? [pricing.model]).flatMap((model): AiCell[] => config.interfaces
   ? config.interfaces.flatMap(kind => config.variants.map(variant => ({ interface: kind, variant, model })))
   : config.modes.flatMap(mode => config.variants.map(variant => ({ mode, variant, model }))));
-export const gatewayKey = () => process.env.AUTOMAN_AI_GATEWAY_KEY;
+export const gatewayKey = () => process.env.LAB_AI_GATEWAY_KEY;
 type Price = { input: number; output: number };
 // A dated snapshot of the gateway's price per token for the campaign's models, kept with the run as the independent cost oracle.
 export async function priceSnapshot(config: AiConfig): Promise<Record<string, Price> | null> {
@@ -35,7 +35,7 @@ const taskFor = (variant: string): ModelTask => variant === 'price-change' ? { k
 
 export async function runAiCell(config: AiConfig, cell: AiCell, block: number, directory?: string, prices?: Record<string, Price> | null): Promise<Record<string, unknown>> {
   const real = cell.model !== pricing.model;
-  if (real && !gatewayKey()) return { ...cell, block, status: 'unsupported', reason: 'AUTOMAN_AI_GATEWAY_KEY is not set' };
+  if (real && !gatewayKey()) return { ...cell, block, status: 'unsupported', reason: 'LAB_AI_GATEWAY_KEY is not set' };
   if (real && config.maxUsd !== undefined && spentUsd >= config.maxUsd) return { ...cell, block, status: 'rejected', errorCode: 'E_BUDGET', reason: `campaign spend ${spentUsd.toFixed(4)} USD reached the cap of ${config.maxUsd} USD` };
   if (real && prices && directory) await writeFile(join(directory, 'model-prices.json'), JSON.stringify({ fetchedFrom: `${config.gateway}/models`, unit: 'USD per token', prices }, null, 2) + '\n');
   if (cell.interface) return runInterfaceCell(config, cell as AiCell & { interface: Interface }, block);

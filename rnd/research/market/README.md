@@ -2,7 +2,7 @@
 
 **Status:** v1, desk research complete; interviews not started. **Date:** 2026-10-08.
 **Scope:** what developers, teams and buyers say publicly about their pains, needs, budgets and competing tools (scraping, browser automation, LLM agents), from January 2025 to October 2026.
-**What this track does not provide:** a measure of willingness to pay, of the market addressable by Automan or of the prevalence of a pain among customers. These points fall under interviews and price tests ([pricing-signals.md](pricing-signals.md), §5).
+**What this track does not provide:** a measure of willingness to pay, of the market addressable by Goodfetch or of the prevalence of a pain among customers. These points fall under interviews and price tests ([pricing-signals.md](pricing-signals.md), §5).
 
 | File | Content |
 | --- | --- |
@@ -26,7 +26,7 @@ Each finding indicates the register decisions (`lab/decisions/`) it informs, its
 - **Rank.** `access-antibot-ip` is first in all four ranking variants: 76 items, W 92.4, i.e. at least 1.8 times the second.
 - **Session continuity matters more than the fingerprint.** Reusing a real logged-in session removes more blocks than work on the fingerprint (`reddit-27`, `reddit-9`, `reddit-55`). What gives automation away is automation flags and a blank profile, not headless mode (`reddit-9`).
 - **Common barriers are simple.** According to Zyte, WAF alone (31%) and WAF + JS (about 20%) dominate; the full stack affects only 3.3% of sites (`reviews-reports-43` `[P]`).
-- **For Automan.** The priority is a persistent identity profile carried by the session (option `session-identity-profile` of `D-identity`), more than heavy stealth. For `D-browser-driver`: the driver must be able to attach via CDP to an existing Chrome, given that Chrome 136 and later block the default profile (`github-19`).
+- **For Goodfetch.** The priority is a persistent identity profile carried by the session (option `session-identity-profile` of `D-identity`), more than heavy stealth. For `D-browser-driver`: the driver must be able to attach via CDP to an existing Chrome, given that Chrome 136 and later block the default profile (`github-19`).
 
 ### C2. Authenticated sessions must hold over time, and credentials must stay out of the LLM
 `D-identity` · `D-agent-interface` · `D-segment`
@@ -37,7 +37,7 @@ Each finding indicates the register decisions (`lab/decisions/`) it informs, its
   - Sessions lasting several months and a human → agent handoff for 2FA (`hn-34`).
   - Credentials resolved on the tool side, never seen by the model (`demand-use-cases-38`, `hn-35`, `demand-use-cases-68` `[P]`).
 - **Usage signal.** 14% of the agent requests measured by HUMAN target account or authentication pages (`demand-use-cases-41`).
-- **For Automan.** Add to `D-identity` a contract gate "credential never exposed to the model". It is also the main argument for the `b2b-portals` option of `D-segment`.
+- **For Goodfetch.** Add to `D-identity` a contract gate "credential never exposed to the model". It is also the main argument for the `b2b-portals` option of `D-segment`.
 
 ### C3. Token cost and agent slowness are real, but their weight is inflated by promotional sources
 `D-agent-interface` · `D-ai-layer`
@@ -48,7 +48,7 @@ Each finding indicates the register decisions (`lab/decisions/`) it informs, its
   - 11.7k tokens of tool definitions per request (`hn-98`).
   - A 6-field form takes 4 to 5 minutes (`github-98`).
 - **The cost comes from the harness more than from the model.** With the same model, $1.50 versus about $10 per task (`hn-89` `[P]`). Pixels can cost less than the DOM in 4 tasks out of 5 (`reddit-61`).
-- **For Automan.** This finding confirms the `tokens-per-verified-task` and `interface-turns-per-task` metrics already planned. It also calls for a check of the **stability across versions** of output size.
+- **For Goodfetch.** This finding confirms the `tokens-per-verified-task` and `interface-turns-per-task` metrics already planned. It also calls for a check of the **stability across versions** of output size.
 
 ### C4. Demand for "compile once, replay without an LLM, repair on breakage" has been constant since 2025
 `D-ai-layer` · `D-feature-priority`
@@ -56,7 +56,7 @@ Each finding indicates the register decisions (`lab/decisions/`) it informs, its
 - **Volume.** 30 `agent-deterministic-replay` items (6th in n). The requests range from January 2025 (`github-39`, `hn-0`) to September 2026 (`hn-87`), and appear in job postings (`demand-use-cases-19`).
 - **Lock-in.** Stagehand's cache is tied to Browserbase sessions and is useless locally (`hn-87`, `hn-88`, `github-42`).
 - **Weak point.** The announced cost gain (from $0.50-3 to $0.01-0.05 per task, `reddit-62`) is a vendor claim `[P]`. Without the promo items, the code drops from 9th to 13th place in W.
-- **For Automan.** This is the best market support for the `compiled-replay` option of `D-ai-layer` and for the `C-replay-without-llm` claim. The cache must be **local and versionable**. The cost gain remains to be demonstrated by the lab.
+- **For Goodfetch.** This is the best market support for the `compiled-replay` option of `D-ai-layer` and for the `C-replay-without-llm` claim. The cache must be **local and versionable**. The cost gain remains to be demonstrated by the lab.
 
 ### C5. The agent interface has no winner: MCP and CLI coexist
 `D-agent-interface`
@@ -65,7 +65,7 @@ Each finding indicates the register decisions (`lab/decisions/`) it informs, its
 - **CLI arguments.** Advanced users switch to Playwright CLI with a skill to save context (`hn-49`, `hn-50`).
 - **MCP arguments.** MCP keeps the advantage for non-developers, multi-tenant OAuth, credential isolation and audit (`hn-51`). It also presents integration risks: standard output that corrupts the protocol (`github-112`), screenshot that breaks the context (`github-24`).
 - **Hosts.** Claude Code (65.5%) and Copilot (58.7%) dominate (`reviews-reports-54`).
-- **For Automan.** The market does not settle `D-agent-interface`. The lab's measurements (turns and tokens per verified task) are therefore the right arbiter. At least the combination of Claude Code with reduced MCP, with CLI, and with code mode must be tested.
+- **For Goodfetch.** The market does not settle `D-agent-interface`. The lab's measurements (turns and tokens per verified task) are therefore the right arbiter. At least the combination of Claude Code with reduced MCP, with CLI, and with code mode must be tested.
 
 ### C6. Silent false successes are a recent and cross-cutting pain
 `D-feature-priority` · `D-extraction` · `D-ai-layer`
@@ -76,7 +76,7 @@ Each finding indicates the register decisions (`lab/decisions/`) it informs, its
   - Clicks reported as "ok" but ignored (`reddit-1`), completion declared too early (`github-30`).
   - Selectors that return empty strings after a redesign (`hn-101` `[P]`), inverted price diff seen as unchanged (`demand-use-cases-40`).
 - **Trust.** 48% of developers trust AI only if they can verify; 78.7% consider source attribution important (`reviews-reports-51`).
-- **For Automan.** The `false-success-count` gate and the `C-zero-false-success` claim respond directly to a market complaint. It is a candidate positioning argument. For `D-extraction`, quality must be **measurable**: recall, tables, provenance (`github-83`, `github-66`, `demand-use-cases-61` `[P]`).
+- **For Goodfetch.** The `false-success-count` gate and the `C-zero-false-success` claim respond directly to a market complaint. It is a candidate positioning argument. For `D-extraction`, quality must be **measurable**: recall, tables, provenance (`github-83`, `github-66`, `demand-use-cases-61` `[P]`).
 
 ### C7. Buyers hate unpredictable bills and ask to pay per successful result
 `D-pricing`
@@ -90,14 +90,14 @@ Each finding indicates the register decisions (`lab/decisions/`) it informs, its
 - **Requested.**
   - Payment per successful result (`reviews-reports-28`, `demand-use-cases-64` `[P]`), per lead or per record (`demand-use-cases-16`, `demand-use-cases-18`).
   - Per-task caps (`reddit-58`), pay-as-you-go (`hn-32`).
-- **For Automan.** This is the corpus's clearest support for the `verified-result` option of `D-pricing` and for `C-cost-per-1k-verified`. **The amount remains unknown** (see C10).
+- **For Goodfetch.** This is the corpus's clearest support for the `verified-result` option of `D-pricing` and for `C-cost-per-1k-verified`. **The amount remains unknown** (see C10).
 
 ### C8. Site operators form a first-rank constraint, and politeness defaults matter
 `D-identity` · `D-feature-priority`
 
 - **Rank.** 25 `compliance-site-owner-politeness` items, between 4th and 7th place depending on the variant. Engagement is the strongest in the corpus: 462 and 357 HN points (`hn-125`, `hn-126`), 44 and 49 on GitHub (`github-0`, `github-1`).
 - **Defaults are blamed.** Scrapy's defaults took sites down (`github-1`). Shared IPs of cloud browsers are blocked wholesale (`demand-use-cases-31`, `hn-110`). Buyers want to control crawl etiquette (`hn-62` `[P]`).
-- **For Automan.** This finding confirms the `identified` and `standard` profiles of ADR-002, with robots.txt and throttling **enabled by default**. It is also an argument for enterprise buyers (C9).
+- **For Goodfetch.** This finding confirms the `identified` and `standard` profiles of ADR-002, with robots.txt and throttling **enabled by default**. It is also an argument for enterprise buyers (C9).
 
 ### C9. For enterprises, compliance is the top purchase criterion, and part of it costs almost nothing if designed early
 `D-segment` · `D-feature-priority`
@@ -105,7 +105,7 @@ Each finding indicates the register decisions (`lab/decisions/`) it informs, its
 - **Rank.** Compliance is the top code of the `enterprise` segment (15 items out of 29).
 - **Requirements.** SOC 2, DPA, retention, subprocessors (`demand-use-cases-62` `[P]`, `demand-use-cases-64` `[P]`). Per-record provenance and EU AI Act (`demand-use-cases-63` `[P]`, `demand-use-cases-39`). BAA and zero retention (`hn-25`, `hn-31`, `hn-91`). Local execution (`demand-use-cases-10`, `hn-92`).
 - **Order of priorities.** The buyer with a budget talks about compliance before quality (`demand-use-cases-59`).
-- **For Automan.** The per-action audit log and per-record provenance are a matter of architecture, not certification. They are inexpensive if planned from the start. SOC 2 is out of scope as long as `D-segment` has not chosen enterprise.
+- **For Goodfetch.** The per-action audit log and per-record provenance are a matter of architecture, not certification. They are inexpensive if planned from the start. SOC 2 is out of scope as long as `D-segment` has not chosen enterprise.
 
 ### C10. Segments: agent developers talk the most, B2B portals show the highest prices, and none is proven
 `D-segment` · `D-pricing`
@@ -114,7 +114,7 @@ Each finding indicates the register decisions (`lab/decisions/`) it informs, its
 - **B2B portals.** The only high prices, $2,500/month (`hn-33`) and Intuned's customer volumes (`demand-use-cases-26`), come from vendors `[P]`.
 - **E-commerce price monitoring.** Bimodal: less than $30/month among SMBs (`reddit-43`); fastest growth according to Mordor (`demand-use-cases-45`).
 - **Data teams.** Real budgets for proxies and infrastructure, but 46.7% do everything in-house (`reviews-reports-38` `[P]`).
-- **For Automan.** A hypothesis to test in interviews, not a conclusion: **adoption** would come through agent developers (OSS, MCP, CLI), **monetization** through verified-result workloads (portals, data). See [segments-and-needs.md](segments-and-needs.md), §5.
+- **For Goodfetch.** A hypothesis to test in interviews, not a conclusion: **adoption** would come through agent developers (OSS, MCP, CLI), **monetization** through verified-result workloads (portals, data). See [segments-and-needs.md](segments-and-needs.md), §5.
 
 ### C11. Switching tools: people move to hosted for reliability and leave it for price; self-hosting must be complete
 `D-pricing` · `D-segment`
@@ -122,7 +122,7 @@ Each finding indicates the register decisions (`lab/decisions/`) it informs, its
 - **Toward hosted.** When proxy management becomes a full-time job (`reddit-3`, `reddit-6`, `reviews-reports-14`).
 - **Away from hosted.** For price (`hn-58`, `hn-56`, `hn-63`).
 - **Self-hosting.** 20 `selfhost-parity-lockin` items. OSS is perceived as an on-ramp to the cloud (`github-42`). Self-hosted versions lack anti-bot (`reviews-reports-31`), live view (`github-101`), proxies (`github-52`).
-- **For Automan.** The boundary between open source and paid must be legible. **Removing anti-bot or the cache from the self-hosted version is precisely what is criticized.**
+- **For Goodfetch.** The boundary between open source and paid must be legible. **Removing anti-bot or the cache from the self-hosted version is precisely what is criticized.**
 
 ### C12. Memory performance and resumption: rarely expressed, therefore necessary but not differentiating
 `D-browser-driver` · `D-feature-priority`
@@ -130,7 +130,7 @@ Each finding indicates the register decisions (`lab/decisions/`) it informs, its
 - **Rank.** `perf-memory-concurrency` (15 items, 22nd in W) and `durability-resume` (5 items, last) are at the bottom of the ranking.
 - **Memory only draws complaints at volume.** OOM around 18-20 sessions (`reddit-60`), more than 20 GB with Chrome for Testing (`github-104`). LLM cost dominates browser cost in agent workflows (`hn-14`).
 - **Resumption appears as a requirement** in specifications (`demand-use-cases-1`, `demand-use-cases-10`, `github-5`).
-- **For Automan.** For `D-browser-driver`, a speed or memory gain **is not enough as an argument**. Actionability compliance and session stability matter more. The `D-durable-runtime` decision remains a matter of correctness, not positioning.
+- **For Goodfetch.** For `D-browser-driver`, a speed or memory gain **is not enough as an argument**. Actionability compliance and session stability matter more. The `D-durable-runtime` decision remains a matter of correctness, not positioning.
 
 ## 2. Decisions × findings matrix
 
@@ -222,7 +222,7 @@ According to the collectors' notes:
 2. **Heterogeneous engagement.** Reactions, points, comments and review counts are not comparable with one another. W is ordinal, and review aggregates weigh heavily (68% of the weight of `dx-setup-docs`).
 3. **Promotional sources.** Market statistics are 66% promo or affiliated. High prices and announced gains come from vendors.
 4. **LLM coding.** The first coder is an LLM and agreement with the second coder is good, but no human validation of the sample is documented in this synthesis. The detail of the disagreements is not available.
-5. **Desk research ≠ willingness to pay.** No figure in this dossier should serve as an Automan price without interviews or a test (`D-pricing`, register note).
+5. **Desk research ≠ willingness to pay.** No figure in this dossier should serve as a Goodfetch price without interviews or a test (`D-pricing`, register note).
 6. **Dated snapshot.** Corpus frozen as of 2026-10-08, with a 6-month half-life. An update requires new coding and a new check (codebook §6).
 
 ## 7. Next actions for the track

@@ -1,4 +1,4 @@
-# Automan Lab — audit of the three requested engines
+# Goodfetch Lab — audit of the three requested engines
 
 Snapshot taken on **October 7, 2026**. "Crawell" is interpreted as **Crawlee**; "Spider rs" designates the OSS Rust crate **`spider` from the spider-rs repository**, distinct from the commercial Spider Cloud API.
 
@@ -56,7 +56,7 @@ These details were re-verified in the **[stable 4.1.0 tarball](https://registry.
 
 A local browser can use a BYOK model configuration or a `generate()` callback, possibly connected to a self-hosted model. **The Browserbase gateway is not the only AI path**, but a local extension does not mean that inference is local. Publish the endpoint, model, revision, availability and latency of this dependency. [Official configuration](https://docs.stagehand.dev/v4/reference/stagehand).
 
-`agent()` was removed in v4; the SDK exposes tools, and orchestration falls to the code or to an external agent. Compiling a script and then executing it without a model is therefore not exclusive to Automan. [Official v3 migration](https://docs.stagehand.dev/v4/migrations/v3).
+`agent()` was removed in v4; the SDK exposes tools, and orchestration falls to the code or to an external agent. Compiling a script and then executing it without a model is therefore not exclusive to Goodfetch. [Official v3 migration](https://docs.stagehand.dev/v4/migrations/v3).
 
 ### Cache and fresh data
 
@@ -72,7 +72,7 @@ Crawlee TS is written in TypeScript and executed in Node.js; Python is a distinc
 
 `AutoscaledPool` adjusts async tasks according to resources, while `BrowserPool` manages browsers/pages. An async worker of this autoscaling is not by definition a distributed process. The `RequestQueue` deduplicates by `uniqueKey`, can add/reclaim/mark handled requests and plugs into the storage actually chosen. [Official pool](https://crawlee.dev/js/api/core/class/AutoscaledPool), [official queue](https://crawlee.dev/js/api/core/class/RequestQueue).
 
-**Request persistence is not a transactional workflow.** Replaying a handler after a crash can repeat an external effect or an output already written before acknowledgment. The Automan proposal must define its leases, checkpoints, idempotency keys and state validation; the presence of Crawlee does not establish exactly-once execution. This consequence must be qualified with a kill test and a controlled sink. [Versioned BasicCrawler lifecycle](https://github.com/apify/crawlee/blob/v3.18.2/packages/basic-crawler/src/internals/basic-crawler.ts).
+**Request persistence is not a transactional workflow.** Replaying a handler after a crash can repeat an external effect or an output already written before acknowledgment. The Goodfetch proposal must define its leases, checkpoints, idempotency keys and state validation; the presence of Crawlee does not establish exactly-once execution. This consequence must be qualified with a kill test and a controlled sink. [Versioned BasicCrawler lifecycle](https://github.com/apify/crawlee/blob/v3.18.2/packages/basic-crawler/src/internals/basic-crawler.ts).
 
 `AdaptivePlaywrightCrawler` is a particularly useful reference: it compares the outputs of the HTTP and browser handlers, with `resultChecker`/`resultComparator`, then learns a choice. The default comparator concerns dataset items; its validity depends on what the handler produces. Empty lists do not prove identical discovered links. [Adaptive source 3.18.2](https://github.com/apify/crawlee/blob/v3.18.2/packages/playwright-crawler/src/internals/adaptive-playwright-crawler.ts).
 
@@ -107,7 +107,7 @@ The `disk` database contains `resources` and `signatures` tables, without pendin
 
 The OSS worker uses Warp 0.4/Hyper 1/Tokio and its HTTP fetch/parsing handlers; its manifest does not enable Chrome. The word worker is therefore not enough to promise distributed rendering, leases or job restoration. Spider Cloud's private infrastructure is another surface. [Worker manifest](https://github.com/spider-rs/spider/blob/e4b53c5b582357e46433fa9ba3d91f930fb67cb4/spider_worker/Cargo.toml), [worker handlers](https://github.com/spider-rs/spider/blob/e4b53c5b582357e46433fa9ba3d91f930fb67cb4/spider_worker/src/main.rs).
 
-The public Spider benchmark pits Spider, Colly, the Node package **`crawler`** and wget against each other: **Crawlee and Stagehand are not included**. Startup/concurrency/outputs have asymmetries and correct volumes are not asserted. Do not use its multipliers to choose the Automan runtime. [Pinned source protocol](https://github.com/spider-rs/spider/blob/fb0f270d77e19442de59350d9dbbacf52f1804b4/benches/BENCHMARKS.md), [detailed local audit](2026-10-07-benchmark-audit-followup.md).
+The public Spider benchmark pits Spider, Colly, the Node package **`crawler`** and wget against each other: **Crawlee and Stagehand are not included**. Startup/concurrency/outputs have asymmetries and correct volumes are not asserted. Do not use its multipliers to choose the Goodfetch runtime. [Pinned source protocol](https://github.com/spider-rs/spider/blob/fb0f270d77e19442de59350d9dbbacf52f1804b4/benches/BENCHMARKS.md), [detailed local audit](2026-10-07-benchmark-audit-followup.md).
 
 ## 5. Proposed reproducible installation, to be carried out during implementation
 

@@ -27,7 +27,7 @@ pub struct Browser {
 impl Browser {
     pub async fn launch(executable: &str) -> Result<Browser, String> {
         let nanos = SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_nanos()).unwrap_or(0);
-        let profile = std::env::temp_dir().join(format!("automan-chrome-{}-{nanos}", std::process::id()));
+        let profile = std::env::temp_dir().join(format!("goodfetch-chrome-{}-{nanos}", std::process::id()));
         std::fs::create_dir_all(&profile).map_err(|error| error.to_string())?;
         let mut child = Command::new(executable)
             .args(FLAGS)

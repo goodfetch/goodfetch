@@ -6,7 +6,7 @@
    "primary": "links"
   },
   "case": "parentheses-in-url",
-  "source": "automan-curated"
+  "source": "goodfetch-curated"
  },
  "ground_truth": {
   "main_content": "The [Rust article](https://en.example.test/wiki/Rust_(language)) explains it.\n",

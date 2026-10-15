@@ -8,7 +8,7 @@ import { validateDocument } from '../src/core/schema.ts';
 import type { HostSnapshot } from '../src/core/host.ts';
 
 const quiet: HostSnapshot = { os: process.platform, arch: process.arch, cpu: 'test', logicalCpus: 8, memoryBytes: 1e9, loadAverage1m: 0, memoryFreePercent: 80, thermalWarning: false, onAC: true, lowPowerMode: false, foreignCpuPercent: 0, foreignTop: [], cpuGovernor: 'performance', virtualized: false };
-const options = async () => ({ outputRoot: await mkdtemp(join(tmpdir(), 'automan-lane-')), skipProvenance: true, hostSnapshot: quiet });
+const options = async () => ({ outputRoot: await mkdtemp(join(tmpdir(), 'goodfetch-lane-')), skipProvenance: true, hostSnapshot: quiet });
 const campaign = (lane: LaneCampaign['lane'], config: Record<string, unknown>): LaneCampaign => ({ schemaVersion: 2, id: `lane-${lane}`, lane, decisionIds: ['D-storage'], hostClass: { requested: 'local-dev', allowDowngrade: false }, config });
 
 // A driver whose cells report what a lane executor can return, including a crash of the executor itself.

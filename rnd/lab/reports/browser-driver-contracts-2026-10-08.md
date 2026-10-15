@@ -26,7 +26,7 @@ Retained run: `browser-navigation-frames-files-2026-10-08T16-44-06-166Z-d35973`.
 - Stagehand and Crawlee Playwright do not offer these operations: their cells are unsupported.
 - The first execution (`browser-navigation-frames-files-2026-10-08T16-26-23-841Z-410d88`) revealed a fragility in headless Chromium, which also affects Puppeteer on the same browser. Routed through the page, a click toward a freshly created cross-origin iframe can land on the parent `<iframe>` element. The CDP drivers now send this input to the iframe's own session, and the guard detects a pointer gesture that reached nothing.
 
-## Two defects in the Automan guard, found and fixed
+## Two defects in the Collie guard, found and fixed
 
 1. **No check during the gesture.** In `browser-driver-primitives-2026-10-08T11-42-40-378Z-c8b654`, guard v1 checked the target only before the gesture. When the page moved the target or replaced it with a "Delete" button as the pointer arrived, all guarded drivers clicked the decoy or the destructive control. Guard v2 arms a capture-phase listener on the verified element: an event that reaches anything else is canceled, then the gesture is replayed until the deadline.
 2. **Frame pause after navigation.** Headless Chromium can suspend `requestAnimationFrame` for about one second after a navigation, while timers keep running. A guard paced by frames then exceeded its deadline on the moving target. It now samples on one frame or 20 ms, whichever comes first.

@@ -1,5 +1,5 @@
-#ifndef AUTOMAN_LAB_SQLITE_H
-#define AUTOMAN_LAB_SQLITE_H
+#ifndef GOODFETCH_LAB_SQLITE_H
+#define GOODFETCH_LAB_SQLITE_H
 #include <stdint.h>
 #define LAB_PUBLIC __attribute__((visibility("default")))
 typedef struct lab_db lab_db;

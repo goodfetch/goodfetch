@@ -1,6 +1,6 @@
 # Reddit: evidence and limits for Stagehand, Crawlee and Spider-rs
 
-Survey carried out on October 7, 2026. This document checks citable Reddit testimonies; it does not rank the frameworks and does not scale back Automan's Rust ambition.
+Survey carried out on October 7, 2026. This document checks citable Reddit testimonies; it does not rank the frameworks and does not scale back Goodfetch's Rust ambition.
 
 ## Result
 
@@ -118,8 +118,8 @@ An excerpt from [Thoughts on best ai web crawlers or scraping apis?](https://www
 
 The Exa results include vendor comparisons and the benchmarks from the Spider-rs repository. They may point to code or a methodology to audit, but they are not independent Reddit comments. The expressions "very fast Rust", "production-ready" or "Reddit consensus" found in syntheses do not constitute proof of comparative performance.
 
-## What remains to be demonstrated for Automan
+## What remains to be demonstrated for Goodfetch
 
-The needs raised by the testimonies must be verified on Automan's exact versions, models and tasks: expiring authenticated state, dynamic navigation, schema-based extraction, recovery after a crash, DOM change, explicit blocking, classified error and proof of the final state. The measurements must distinguish rendering/HTTP, browser provider, proxies, orchestration and LLM decisions.
+The needs raised by the testimonies must be verified on Goodfetch's exact versions, models and tasks: expiring authenticated state, dynamic navigation, schema-based extraction, recovery after a crash, DOM change, explicit blocking, classified error and proof of the final state. The measurements must distinguish rendering/HTTP, browser provider, proxies, orchestration and LLM decisions.
 
-A ranking would require a common corpus, equivalent outputs, frozen versions and configurations, several repetitions, preserved failures and complete costs. None of the retained threads provides this set for Stagehand/Crawlee/Spider-rs. **The validation work remains open; these testimonies determine neither the final Rust architecture nor Automan's capacity ceiling.**
+A ranking would require a common corpus, equivalent outputs, frozen versions and configurations, several repetitions, preserved failures and complete costs. None of the retained threads provides this set for Stagehand/Crawlee/Spider-rs. **The validation work remains open; these testimonies determine neither the final Rust architecture nor Goodfetch's capacity ceiling.**

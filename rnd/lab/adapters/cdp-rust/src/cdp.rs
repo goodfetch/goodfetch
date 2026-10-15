@@ -100,7 +100,7 @@ fn scratch_dir(prefix: &str) -> Result<std::path::PathBuf, String> {
 }
 
 pub fn upload_file(text: &str) -> Result<String, String> {
-    let path = scratch_dir("automan-upload")?.join("upload.txt");
+    let path = scratch_dir("goodfetch-upload")?.join("upload.txt");
     std::fs::write(&path, text).map_err(|error| error.to_string())?;
     Ok(path.display().to_string())
 }
@@ -187,7 +187,7 @@ impl Page {
         let described = self.send("DOM.describeNode", json!({"nodeId": node["nodeId"]})).await?;
         let frame_id = described["node"]["frameId"].as_str().ok_or_else(|| format!("no frame for {selector}"))?.to_string();
         // An in-process frame gets an isolated world; an out-of-process frame is its own target, reached by auto-attach.
-        if let Ok(world) = self.send("Page.createIsolatedWorld", json!({"frameId": frame_id, "worldName": "automan"})).await {
+        if let Ok(world) = self.send("Page.createIsolatedWorld", json!({"frameId": frame_id, "worldName": "goodfetch"})).await {
             return Ok(Frame { session_id: self.session_id.clone(), context_id: world["executionContextId"].as_i64(), offset });
         }
         let events = self.connection.subscribe();
@@ -247,7 +247,7 @@ impl Page {
     }
 
     pub async fn download(&mut self, selector: &str) -> Result<String, String> {
-        let directory = scratch_dir("automan-download")?;
+        let directory = scratch_dir("goodfetch-download")?;
         self.send_on("Browser.setDownloadBehavior", json!({"behavior": "allowAndName", "downloadPath": directory.display().to_string(), "eventsEnabled": true}), None).await?;
         let events = self.connection.subscribe();
         self.click(selector).await?;

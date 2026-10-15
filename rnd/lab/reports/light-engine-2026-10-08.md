@@ -12,6 +12,6 @@ Retained runs: `light-engine-compat-native-2026-10-08T18-16-40-008Z-f659d1`, `li
 | Navigation | SPA route, file upload | history back, popup, same-origin and cross-origin iframe, download |
 | Actionability | normal target; delayed, hidden or disabled target in most cells | **overlay, covered target, ambiguous target, moving target** |
 
-- **False success under the guard.** Without a stacking model or hit-testing, `elementFromPoint` returns the target even under an overlay, and a duplicated target is not seen as ambiguous: the click goes through. The Automan guard cannot guarantee actionability on this engine.
+- **False success under the guard.** Without a stacking model or hit-testing, `elementFromPoint` returns the target even under an overlay, and a duplicated target is not seen as ambiguous: the click goes through. The Collie guard cannot guarantee actionability on this engine.
 - `retarget` fails because Lightpanda does not emit `pointerover`: the page never replaces the target, and the test proves nothing in this case.
 - Contract conclusion: Lightpanda is suitable for reading simple pages, not for actions that require guarantees, nor for portals with iframes, popups or downloads. Its speed and resources remain to be measured on a quiet host.

@@ -1,6 +1,6 @@
 # Stagehand 4.1.0 and alternatives — contracts, efficiency and reliability
 
-State studied as of **October 7, 2026**. Supplement to the initial overview; this note does not carry over its schedule constraint, which the user withdrew. Automan aims for an ambitious, portable architecture, with a canonical Rust engine, TypeScript/Python SDKs and a possible Go extension via the same protocol. No benchmark, cloud deployment or workflow on a real site was run for this note.
+State studied as of **October 7, 2026**. Supplement to the initial overview; this note does not carry over its schedule constraint, which the user withdrew. Goodfetch aims for an ambitious, portable architecture, with a canonical Rust engine, TypeScript/Python SDKs and a possible Go extension via the same protocol. No benchmark, cloud deployment or workflow on a real site was run for this note.
 
 **Method:** four new Exa searches, eight results requested for each, i.e. `sources_reviewed = 32`. This counter includes duplicates and discarded results; it does not measure 32 validated independent sources. The documents actually used are cited below. Direct reading of the npm tarball of **Stagehand 4.1.0**, its TypeScript declarations, and the distributed SDK and extension; readings of official documentation and public code; seven competitor licenses opened. Conclusions about the stable package are kept separate from the promises of the current documentation and from the behavior of non-public servers.
 
@@ -80,7 +80,7 @@ try {
 }
 ```
 
-The SKU check does not prove the price value; a deterministic comparison with the source text, or an authoritative network response, would be necessary for that. This point must appear in Automan's examples: each check must state the property it establishes.
+The SKU check does not prove the price value; a deterministic comparison with the source text, or an authoritative network response, would be necessary for that. This point must appear in Goodfetch's examples: each check must state the property it establishes.
 
 ### The v4 driver does not inherit Playwright's guarantees
 
@@ -110,7 +110,7 @@ The standard cache requires **key + Browserbase session**; it is not equivalent 
 
 `takeDeterministicAction` repairs after an exception from the operation, if `selfHeal` is enabled: recapture, new choice, new attempt. An action without a recognized method returns `success: false`. A timeout is propagated. The cache path replays with `selfHeal: false`, then its failure triggers the full pipeline through the cache wrapper. An incorrect but clickable button does not necessarily produce an exception: this scenario therefore does not trigger the observed repair. [actService.ts](https://github.com/browserbase/stagehand/blob/main/packages/extension/services/actService.ts).
 
-The Jev semantic guard proposals [PR 2954](https://github.com/browserbase/stagehand/pull/2954) address this problem, but PRs 2952–2955 and 3103 were open/unmerged at the time of the initial investigation, and `experimentalDecisions` is absent from the stable package. Do not incorporate them into the v4.1 guarantees. The Automan engine must check target identity before effects and postconditions after them, with abstention on ambiguity; a mere model confidence does not replace these two contracts.
+The Jev semantic guard proposals [PR 2954](https://github.com/browserbase/stagehand/pull/2954) address this problem, but PRs 2952–2955 and 3103 were open/unmerged at the time of the initial investigation, and `experimentalDecisions` is absent from the stable package. Do not incorporate them into the v4.1 guarantees. The Goodfetch engine must check target identity before effects and postconditions after them, with abstention on ambiguity; a mere model confidence does not replace these two contracts.
 
 ### Batching and external agent
 
@@ -146,7 +146,7 @@ Contract sources: [BrowserSession](https://github.com/browser-use/browser-use/bl
 
 Sources: [Browser Use scripts](https://docs.browser-use.com/cloud/agent/scripts), [Skyvern cache](https://www.skyvern.com/docs/developers/features/code-caching), [AgentQL Page](https://docs.agentql.com/javascript-sdk/api-references/agentql-page), [Magnitude memory](https://docs.magnitude.run/advanced/memory.md), [Magnitude README](https://github.com/magnitudedev/browser-agent), [Imprint](https://github.com/ashaychangwani/imprint), [Playwright CLI](https://github.com/microsoft/playwright-cli).
 
-The most important distinction is between **response cache**, **resolution/plan cache**, **LLM prefix cache** and **backend/session cache**. They have neither the same freshness guarantees nor the same savings. Automan must display these categories separately in its metrics.
+The most important distinction is between **response cache**, **resolution/plan cache**, **LLM prefix cache** and **backend/session cache**. They have neither the same freshness guarantees nor the same savings. Goodfetch must display these categories separately in its metrics.
 
 ### OSS, SDK and cloud: no presumed parity
 
@@ -166,7 +166,7 @@ The licenses above describe the files/repositories consulted, not all of a vendo
 
 **The canonical Rust engine is coherent for a portable product; its language is not its differentiation.** Browser Use beta and agent-browser already have Rust paths. Stagehand reduces round trips via an extension and batching. The choice of execution placement, of the IR and of verification contracts can weigh more than a few milliseconds of serialization.
 
-The recommended boundary for Automan is:
+The recommended boundary for Goodfetch is:
 
 1. **Portable Rust core**: sessions, states/events, deadlines, cancellation, budget, concurrency, journal/replay and typed plans. Thin TS/Python/Go SDKs, negotiated protocol version and the same errors/results. Full local operation, including the plan cache.
 2. **Execution adapters**: HTTP/fetch first when the contract allows it; native Chromium CDP; Playwright-compatible worker for flows that require its locators, waits, frames, interception and assertions; optional extension for the user's browser. Capabilities declared per backend, never silent emulation of unsupported functions.
@@ -177,7 +177,7 @@ The recommended boundary for Automan is:
 
 A Rust sidecar is a good cross-language and isolation boundary. But "direct CDP" must still demonstrate actionability, frame/OOPIF coordination, reference invalidation, hit testing, Shadow DOM, navigation and DOM races. A high implementation capacity speeds up construction; it does not remove the compatibility matrix and the maintenance across Chromium versions. The [native agent-browser](https://github.com/vercel-labs/agent-browser/tree/main/cli/src/native) and [Browser Use terminal](https://github.com/browser-use/terminal) work are starting points to audit, rather than automatic proof of Playwright parity.
 
-**Plausible economic differentiation:** frequent workflows whose outputs are fresh, attributable to sources and correctly verified, with an explainable full cost and bounded repair. The novelty remains to be established: Skyvern, Imprint and Browser Use already cover reusable code and repair; Imprint already retains verification evidence. Automan's advantage must be demonstrated through its contracts, portability, operations and results on a corpus held out from development.
+**Plausible economic differentiation:** frequent workflows whose outputs are fresh, attributable to sources and correctly verified, with an explainable full cost and bounded repair. The novelty remains to be established: Skyvern, Imprint and Browser Use already cover reusable code and repair; Imprint already retains verification evidence. Goodfetch's advantage must be demonstrated through its contracts, portability, operations and results on a corpus held out from development.
 
 ## 6. Uncertainties and decisive experiments
 

@@ -6,7 +6,7 @@
    "primary": "mixed"
   },
   "case": "forum-post",
-  "source": "automan-curated"
+  "source": "goodfetch-curated"
  },
  "ground_truth": {
   "main_content": "### Re: build fails\n\nTry this:\n\n```\nrm -rf target\n```\n\nThen:\n\n- rebuild\n- report back\n",

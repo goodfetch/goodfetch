@@ -1,4 +1,4 @@
-# Automan Lab — JSON, JSONL and SQLite storage
+# Goodfetch Lab — JSON, JSONL and SQLite storage
 
 **October 7, 2026 — research and proposed protocol.** This document complements the [general lab method](2026-10-07-lab-testing-engineering.md). It contains no benchmark results. The matrix and size choices are proposed local prescriptions, adapted to the request to measure writing and concurrency.
 
@@ -104,7 +104,7 @@ Local faults: writer killed before/after commit or sync, before/after publicatio
 
 **A SIGKILL tests a process crash, not a power loss or kernel crash.** The OS cache and the device remain active. This local track can demonstrate protocol errors, integrity after incidents and recovery behavior; it does not experimentally validate persistence promises under power loss. No reboot or power cut of the work machine in this batch.
 
-## 9. Proposed decision for Automan
+## 9. Proposed decision for Goodfetch
 
 First hypothesis: concurrent producers → bounded queue → single batched writer; JSONL for sequential export/log, SQLite WAL FULL for transactional local state, NORMAL as an option with an explicit acceptable-loss contract. These are candidates to measure, not a definitively qualified choice. Shards or several writers come in only after contention curves and merge cost are known.
 

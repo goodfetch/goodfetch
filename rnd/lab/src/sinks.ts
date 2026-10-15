@@ -14,6 +14,6 @@ export type DuckConnection = { run(sql: string): Promise<unknown>; runAndReadAll
 export const duckdb = () => load('@duckdb/node-api') as { DuckDBInstance: { create(path: string, options?: Record<string, string>): Promise<{ connect(): Promise<DuckConnection>; closeSync(): void }> } };
 
 // PostgreSQL runs as a server; one fresh table per cell, named after the cell's store path.
-export const pgUrl = () => { const url = process.env.AUTOMAN_PG_URL; if (!url) throw new Error('AUTOMAN_PG_URL is not set'); return url; };
+export const pgUrl = () => { const url = process.env.LAB_PG_URL; if (!url) throw new Error('LAB_PG_URL is not set'); return url; };
 export const pgTable = (path: string) => `records_${createHash('sha256').update(path).digest('hex').slice(0, 16)}`;
 export const sinkFormats = ['postgres-copy', 'duckdb-table', 'parquet-batch'] as const;

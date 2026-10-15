@@ -3,7 +3,7 @@
 version = 4
 
 [[package]]
-name = "automan-lab-cdp"
+name = "goodfetch-lab-cdp"
 version = "0.1.0"
 dependencies = [
  "futures-util",

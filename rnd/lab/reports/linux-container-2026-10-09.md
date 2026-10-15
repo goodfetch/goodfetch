@@ -25,7 +25,7 @@ Rehearsal of the reference host commissioning ([rnd/plan/reference-host.md](../.
 
 ## What had to be ported
 
-- **Shared SQLite.** It is built as `libautoman_sqlite.so` (`-shared`), and the Node addon and the Go storage engine link against it. The Go toolchain is pinned per platform, with the official checksums. On macOS, the rebuild produces a byte-for-byte identical library.
+- **Shared SQLite.** It is built as `libgoodfetch_sqlite.so` (`-shared`), and the Node addon and the Go storage engine link against it. The Go toolchain is pinned per platform, with the official checksums. On macOS, the rebuild produces a byte-for-byte identical library.
 - **Runtime resources.** On Linux, the sampler reads `/proc/<pid>/stat` and `smaps_rollup` (PSS); the `proc_pid_rusage` probe remains specific to macOS.
 - **Self-contained ledger.** The summaries of the native runs existed only in `results/`, which is not versioned: on a fresh clone, no verdict could be recomputed and CI failed. The ledger now keeps a copy of each `run.v2.json`.
 - **Chromium sandbox.** In the container, the adapters run as root and Chromium refuses to start there with its sandbox. The first pass gave 108/162 on the actionability matrix: Puppeteer and Crawlee with Stagehand did not start. They now launch Chromium with `--no-sandbox` as root on Linux, as Playwright already does.

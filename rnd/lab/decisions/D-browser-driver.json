@@ -7,7 +7,7 @@
   "options": [
     {
       "id": "rust-cdp-guarded",
-      "description": "Rust CDP driver with the Automan guard",
+      "description": "Rust CDP driver with the Collie guard",
       "adapters": [
         "rust-cdp"
       ]

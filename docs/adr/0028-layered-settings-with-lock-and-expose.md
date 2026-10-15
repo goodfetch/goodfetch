@@ -11,7 +11,7 @@ At the owner's request, every parameter can be set. That covers retries, timeout
 
 A higher layer wins only where no lower layer locked the value. In a Daemon group, settings that only make sense on one machine, such as local addresses, TLS files and browser paths, take a *group member* scope applied only by that Group member (ADR 0055).
 
-This extends ADR 0023, under which every costly control can be switched off and the results say so. It adds who may change a value, which a shared Daemon, a published Recipe and a workflow-tool form all need. Apify's input schema, Terraform's variable validation and Helm's values schema validate what users may pass; the lock across layers is Goodfetch's own addition. Decided in [Export connectors and integrations catalog](https://github.com/Jbmanllr/automan/issues/88).
+This extends ADR 0023, under which every costly control can be switched off and the results say so. It adds who may change a value, which a shared Daemon, a published Recipe and a workflow-tool form all need. Apify's input schema, Terraform's variable validation and Helm's values schema validate what users may pass; the lock across layers is Goodfetch's own addition. Decided in [Export connectors and integrations catalog](https://github.com/goodfetch/goodfetch/issues/88).
 
 ## Considered Options
 

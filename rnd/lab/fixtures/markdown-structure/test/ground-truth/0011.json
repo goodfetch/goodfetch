@@ -6,7 +6,7 @@
    "primary": "tables"
   },
   "case": "simple",
-  "source": "automan-curated"
+  "source": "goodfetch-curated"
  },
  "ground_truth": {
   "main_content": "| Name | Price |\n| --- | --- |\n| Tea | 3 |\n| Coffee | 4 |\n",

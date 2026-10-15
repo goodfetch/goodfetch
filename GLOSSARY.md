@@ -5,7 +5,7 @@ Goodfetch is the organization behind two open-source Products: Collie, for brows
 ## Products and the engine
 
 **Goodfetch**:
-The organization and umbrella brand behind Collie, Foxhound and Goodfetch Cloud; not the name of anything installed.
+The organization and umbrella brand behind Collie, Foxhound and Goodfetch Cloud; not the name of a Product or of anything a person installs to get one.
 _Avoid_: framework, library, platform, Automan (its former working name)
 
 **Product**:

@@ -27,9 +27,11 @@ Decided in [Product line and the Collie/Foxhound boundary](https://github.com/go
 ### Names
 
 - **Goodfetch names the organization and the brand, never anything installed.** Organization-level names stay `goodfetch`: the GitHub organization, the npm scope, `goodfetch.dev` and the `ghcr.io/goodfetch/` prefix.
+  > Amended by [ADR 0090](0090-products-are-named-goodfetch-collie-and-goodfetch-foxhound-and-share-one-product-version.md): this covers what a person installs to get a Product, its executable and packages. Components both Products share keep `goodfetch` names, such as the `goodfetch-sandbox` helper either Product may install for Plugins (ADR 0033).
 - **Every identifier that names the installed software is renamed per Product:** the executable, the crates.io crate, the npm and PyPI packages, the Homebrew formula and the OCI image.
   - Bare `collie` and `foxhound` are taken on npm and PyPI, a COLLIE mark covering software is registered in the EU (018890716) and the US (Reg. 8190894), `collie` is already on PATH through ColliePWA, and FOXHOUND is a French class-42 mark (4860964), so the Products' identifiers are qualified wherever a bare name collides.
   - The exact strings, and whether `GOODFETCH_` variables, Goodfetch home and the internal `goodfetch-*` crates keep their names, are decided in [Product names, packages, executables and version line](https://github.com/goodfetch/automan/issues/457).
+    > Amended by [ADR 0090](0090-products-are-named-goodfetch-collie-and-goodfetch-foxhound-and-share-one-product-version.md): `goodfetch-collie` and `goodfetch-foxhound` in namespaces open to everyone, `@goodfetch/collie` and `ghcr.io/goodfetch/collie` under Goodfetch's own; `GOODFETCH_` variables, Goodfetch home and the internal `goodfetch-*` crates keep their names, and the engine-path variable names its Product.
 - **Trademark clearance covers COLLIE and FOXHOUND** as product names, besides GOODFETCH, before the first public release. Counsel decides. If clearance fails for a Product's name, that naming reopens, as ADR 0034 provides for GOODFETCH; the boundary between the Products does not.
 
 ### One repository

@@ -197,7 +197,7 @@ A cap on the Usage of one run, or of every run counted against a scope (a Schedu
 _Avoid_: budget, quota, spending cap
 
 **Price table**:
-The list prices of third parties' Usage, per model and per service, with fixed rates between currencies, shipped with each release and changed only in configuration, through which a currency Limit reserves and a price is reported; an estimate, never a bill.
+The list prices of third parties' Usage, per model and per metered proxy, with fixed rates between currencies, shipped with each release and changed only in configuration or, for a Plugin's, its manifest, through which a currency Limit reserves and a price is reported; an estimate, never a bill.
 _Avoid_: price list, cost map, rate card
 
 **Schedule**:

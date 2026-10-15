@@ -11,8 +11,10 @@ import type { EventIterator } from "./concurrency.js";
 import type { ReportedFetchTier } from "./crawl.js";
 import type { UncertainEffect } from "./effects.js";
 import type { Closeable } from "./lifecycle.js";
-import type { RecordCounts } from "./output.js";
+import type { KeyValueStore, RecordCounts } from "./output.js";
+import type { PlanReport } from "./ai.js";
 import type { RunUsage } from "./models.js";
+import type { ExplainedSetting } from "./settings.js";
 import type { BlockCause, CrawlRequestRef, LimitSource, ProgramError, RefusedError, SkipReason, UnavailableError, Verdict } from "./results.js";
 import type { CallOptions } from "./time.js";
 
@@ -53,6 +55,8 @@ export interface WaitingPause {
 /** A Run's progress: a telemetry value, coalesced under load (ADR 0024). */
 export interface RunProgress {
   readonly lifecycle: Lifecycle;
+  /** `none` when nothing works the Run, as after a crash, until a start with its ID resumes it. */
+  readonly writer: "live" | "none" | (string & {});
   readonly pauses: readonly WaitingPause[];
   /** The program's own line, set with `setProgressMessage` (ADR 0037's RT-15). */
   readonly message: string | null;
@@ -118,6 +122,13 @@ export interface CrawlConcurrency {
   };
 }
 
+/** The ended requests counted by skip reason, Error code and Block cause. */
+export interface EndedRequestBreakdown {
+  readonly bySkipReason: Readonly<Partial<Record<SkipReason, number>>>;
+  readonly byErrorCode: Readonly<Record<string, number>>;
+  readonly byBlockCause: Readonly<Partial<Record<BlockCause, number>>>;
+}
+
 /** A crawl's requests by state: live ones, then ended ones by outcome. */
 export interface CrawlRequestCounts {
   readonly pending: number;
@@ -132,7 +143,8 @@ export interface CrawlRequestCounts {
 
 /** A crawl's progress: what is in flight, what waits and why. */
 export interface CrawlRunProgress extends RunProgress {
-  readonly requests: CrawlRequestCounts;
+  /** Its requests by state, the ended ones also by skip reason, Error code and Block cause. */
+  readonly requests: CrawlRequestCounts & EndedRequestBreakdown;
   readonly waiting: readonly WaitGroup[];
   readonly inFlight: readonly InFlightRequest[];
   readonly concurrency: CrawlConcurrency;
@@ -145,21 +157,48 @@ export interface CrawlRunProgress extends RunProgress {
  */
 export type WeakenedSetting = LimitSource;
 
-/** A Checkpoint, as ADR 0002 reports it. */
+/**
+ * A Checkpoint, as ADR 0002 reports it, written where the engine keeps the Run's: its own folder
+ * (ADR 0031), or wherever Goodfetch Cloud stores them. Copy it to this machine as an Export is copied (ADR 0103).
+ */
 export interface Checkpoint {
-  readonly path: string;
+  /** Where the engine wrote it, on the engine's side. */
+  readonly location: string;
   /** In bytes. */
   readonly size: number;
   readonly digest: string;
   readonly epoch: number;
   readonly journalPosition: number;
   readonly takenAt: Date;
+  /** Copies it to a file on this machine, wherever the engine runs. */
+  saveAs(path: string, options?: CallOptions): Promise<void>;
+  /** Its bytes, streamed to this machine. */
+  stream(): AsyncIterable<Uint8Array>;
 }
 
-/** Options of `checkpoint()`. */
-export interface CheckpointOptions extends CallOptions {
-  /** Where to write it. Left out: the Run's own folder (ADR 0031). */
-  readonly path?: string;
+/** A Plugin that ran in the Run (ADRs 0016, 0033). */
+export interface PluginRun {
+  readonly name: string;
+  readonly version: string;
+  /** The network level it ran at (ADR 0033). */
+  readonly networkLevel: string;
+  /** Where Operator policy allowed reduced confinement for a first-party Plugin, the parts the host could not provide. */
+  readonly missingConfinement: readonly string[];
+}
+
+/** A warning the Run carries: a `stealth` choice (ADR 0035), stale Clean-up rules (ADR 0047), throttled CPU (ADR 0049), a degraded Politeness store (ADR 0053), a Plugin's reported figures (ADR 0033). A newer engine's code is kept (G3). */
+export interface RunWarning {
+  readonly code: string;
+  readonly message: string;
+}
+
+/** A URL rule the Frontier learned, with its evidence (ADR 0005). */
+export interface LearnedRule {
+  readonly kind: "no_effect_parameter" | "trap_path" | "cursor_pagination" | (string & {});
+  readonly domain: string;
+  readonly rule: string;
+  readonly evidence: string;
+  readonly urlsMerged: number;
 }
 
 /**
@@ -191,6 +230,14 @@ export interface RunReport {
   readonly completenessReasons: readonly string[];
   /** The final figures (ADR 0101), the uncapped mark included (ADR 0041). */
   readonly usage: RunUsage;
+  /** What became of the Run's Plan (ADR 0091): every Run has one, its file `null` when it named none. */
+  readonly plan: PlanReport;
+  /** The Operator policy version it ran under (ADR 0031). */
+  readonly policyVersion: string | null;
+  /** Each effective value, with the layer that set it and the one that locked it (ADR 0028). */
+  readonly settings: readonly ExplainedSetting[];
+  readonly plugins: readonly PluginRun[];
+  readonly warnings: readonly RunWarning[];
   readonly weakened: readonly WeakenedSetting[];
   /** The last Checkpoint written. */
   readonly checkpoint: Checkpoint | null;
@@ -225,7 +272,11 @@ export interface DatasetTotals extends RecordCounts {
 /** A Sink's delivery (ADR 0026), as it stood when the report was read: a Sink may go on delivering after the Run ends. */
 export interface SinkDeliveryStatus {
   readonly status: "complete" | "complete_with_rejections" | "behind" | "failed" | (string & {});
+  /** ADR 0026's Guarantee class. */
+  readonly guaranteeClass: string;
   readonly deadLetters: number;
+  /** Deliveries that fell outside the destination's deduplication window, so were at-least-once. */
+  readonly atLeastOnce: number;
 }
 
 /** A crawl's Run report. */
@@ -235,6 +286,7 @@ export interface CrawlRunReport extends RunReport {
   readonly records: Readonly<Record<string, DatasetTotals>>;
   /** Per Sink name. */
   readonly sinks: Readonly<Record<string, SinkDeliveryStatus>>;
+  readonly learnedRules: readonly LearnedRule[];
 }
 
 /** What every Run does besides its pages: end, report, show progress and write Checkpoints. */
@@ -255,8 +307,8 @@ export interface RunControl {
   progress(): EventIterator<RunProgress>;
   /** The program's own status line, shown in `progress()` and the Console. */
   setProgressMessage(message: string, options?: CallOptions): Promise<void>;
-  /** Writes a Checkpoint now (ADR 0002). */
-  checkpoint(options?: CheckpointOptions): Promise<Checkpoint>;
+  /** Writes a Checkpoint now (ADR 0002), where the engine keeps the Run's. */
+  checkpoint(options?: CallOptions): Promise<Checkpoint>;
 }
 
 /**
@@ -266,12 +318,24 @@ export interface RunControl {
  */
 export interface RunView extends Closeable {
   readonly id: string;
+  /** Ends after what is committed when the Run has no live writer. */
   progress(): EventIterator<RunProgress>;
-  /** The Run's report: at once for an ended Run, at its end for a live one, which it never ends. */
+  /**
+   * The Run's report: at once for an ended Run, at its end for a live one, which it never ends. On a
+   * Run with no live writer that has not ended, throws `RunInterruptedError`.
+   */
   report(options?: CallOptions): Promise<RunReport>;
+  /** Its Key-value store's reads, on every Run (ADR 0103). */
+  readonly keyValueStore: Pick<KeyValueStore, "get" | "getBytes" | "keys">;
 }
 
 // The Run's Error codes (ADR 0102).
+
+/** A view's `report()` on a Run with no live writer that has not ended: a start with its ID resumes it. */
+export declare class RunInterruptedError extends UnavailableError {
+  readonly code: "run_interrupted";
+  readonly details: { readonly id: string };
+}
 
 /** The ID names no Run in the Run index. */
 export declare class RunNotFoundError extends ProgramError {
@@ -287,7 +351,7 @@ export declare class RunIdInvalidError extends ProgramError {
 
 /** An input of a resumed Run that differs from what the Run began with. */
 export interface RunInputDifference {
-  /** `product`, `kind` (a crawl or a Collie Run), `seeds`, `plan` or `caller`. */
+  /** `product`, `kind` (a crawl or a Collie Run), `seeds`, `plan` (the Plan file's path or identity, never its version) or `caller` (who the connection acts for). */
   readonly input: "product" | "kind" | "seeds" | "plan" | "caller" | (string & {});
   readonly recorded: string;
   readonly given: string;
@@ -302,12 +366,12 @@ export declare class RunEndedError extends ProgramError {
   readonly code: "run_ended";
   readonly details: { readonly id: string; readonly lifecycle: Lifecycle; readonly endedAt: Date };
 }
-/** The Run is live in another program, or already open in this one: its writer's lock is held (ADR 0031). */
+/** The Run is live in another program, or already open in this one: its writer's lock is held (ADR 0031). Retryable: that program may end. */
 export declare class RunInUseError extends RefusedError {
   readonly code: "run_in_use";
   readonly details: { readonly id: string; readonly owner: string };
 }
-/** A resume gave a Limit above the value the Run began with: only a person raises one (ADR 0041). */
+/** A resume gave a Limit above the Limit as it stands: only a person raises one (ADR 0041). */
 export declare class LimitRaiseRefusedError extends RefusedError {
   readonly code: "limit_raise_refused";
   readonly details: { readonly limit: string };

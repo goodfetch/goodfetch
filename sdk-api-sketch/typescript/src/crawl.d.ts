@@ -28,7 +28,6 @@ import type {
   Export,
   ExportOptions,
   KeyField,
-  KeyValueStore,
   RecordsOptions,
   RejectedRecord,
 } from "./output.js";
@@ -321,8 +320,6 @@ export interface CrawlRun extends Run {
 export interface CrawlRunView extends RunView, Pick<CrawlRun, "outcomes" | "records" | "rejectedRecords" | "export"> {
   progress(): EventIterator<CrawlRunProgress>;
   report(options?: CallOptions): Promise<CrawlRunReport>;
-  /** Its Key-value store's reads. */
-  readonly keyValueStore: Pick<KeyValueStore, "get" | "getBytes" | "keys">;
 }
 
 // The crawl's Error codes (ADR 0093).

@@ -137,6 +137,8 @@ pub struct WaitingPause {
 pub struct RunProgress {
     /// Where the Run is.
     pub lifecycle: Lifecycle,
+    /// False when nothing works the Run, as after a crash, until a start with its ID resumes it.
+    pub has_writer: bool,
     /// The Human pauses waiting.
     pub pauses: Vec<WaitingPause>,
     /// The program's own line, set with [`Run::set_progress_message`] (ADR 0037's RT-15).
@@ -283,6 +285,8 @@ pub struct CrawlRunProgress {
     pub run: RunProgress,
     /// Its requests by state.
     pub requests: CrawlRequestCounts,
+    /// The ended ones by skip reason, Error code and Block cause.
+    pub ended: EndedRequestBreakdown,
     /// Why due requests wait.
     pub waiting: Vec<WaitGroup>,
     /// The requests being fetched or handled.
@@ -291,12 +295,13 @@ pub struct CrawlRunProgress {
     pub concurrency: CrawlConcurrency,
 }
 
-/// A Checkpoint, as ADR 0002 reports it.
+/// A Checkpoint, as ADR 0002 reports it, written where the engine keeps the Run's: its own folder
+/// (ADR 0031), or wherever Goodfetch Cloud stores them. Copied to this machine as ADR 0103's Export is.
 #[derive(Debug, Clone)]
 #[non_exhaustive]
 pub struct Checkpoint {
-    /// Where it was written.
-    pub path: PathBuf,
+    /// Where the engine wrote it, on the engine's side.
+    pub location: String,
     /// In bytes.
     pub size: u64,
     /// Its digest.
@@ -354,6 +359,16 @@ pub struct RunReport {
     pub completeness_reasons: Vec<String>,
     /// The final figures (ADR 0101), the uncapped mark included (ADR 0041).
     pub usage: RunUsage,
+    /// What became of the Run's Plan (ADR 0091): every Run has one, its file `None` when it named none.
+    pub plan: crate::ai::PlanReport,
+    /// The Operator policy version it ran under (ADR 0031).
+    pub policy_version: Option<String>,
+    /// Each effective value, with the layer that set it and the one that locked it (ADR 0028).
+    pub settings: Vec<crate::settings::ExplainedSetting>,
+    /// The Plugins that ran.
+    pub plugins: Vec<PluginRun>,
+    /// Its warnings.
+    pub warnings: Vec<RunWarning>,
     /// Every setting that weakened a safeguard for this Run (ADR 0028): a costly control switched
     /// off (ADR 0023), the "no trace" mark included (ADR 0031), or a value pressing a site harder
     /// (ADR 0086).
@@ -417,8 +432,12 @@ pub struct DatasetTotals {
 pub struct SinkDeliveryStatus {
     /// `complete`, `complete_with_rejections`, `behind` or `failed`.
     pub status: String,
+    /// ADR 0026's Guarantee class.
+    pub guarantee_class: String,
     /// Its dead letters.
     pub dead_letters: u64,
+    /// Deliveries that fell outside the destination's deduplication window, so were at-least-once.
+    pub at_least_once: u64,
 }
 
 /// A crawl's Run report.
@@ -434,6 +453,8 @@ pub struct CrawlRunReport {
     pub records: Vec<(String, DatasetTotals)>,
     /// Per Sink name.
     pub sinks: Vec<(String, SinkDeliveryStatus)>,
+    /// The Frontier's learned URL rules.
+    pub learned_rules: Vec<LearnedRule>,
 }
 
 impl Run {
@@ -469,18 +490,77 @@ impl Run {
         unimplemented!()
     }
 
-    /// Writes a Checkpoint now (ADR 0002), in the Run's own folder unless `.path(..)` names another.
+    /// Writes a Checkpoint now (ADR 0002), where the engine keeps the Run's.
     pub fn checkpoint(&self) -> Call<Checkpoint> {
         unimplemented!()
     }
 }
 
-impl Call<Checkpoint> {
-    /// Where to write the Checkpoint.
-    pub fn path(self, path: impl AsRef<Path>) -> Self {
+impl Checkpoint {
+    /// Copies it to a file on this machine, wherever the engine runs.
+    pub fn save_as(&self, path: impl AsRef<Path>) -> Call<()> {
         let _ = path.as_ref();
         unimplemented!()
     }
+
+    /// Its bytes, streamed to this machine.
+    pub fn stream(&self) -> EventStream<Vec<u8>> {
+        unimplemented!()
+    }
+}
+
+/// A Plugin that ran in the Run (ADRs 0016, 0033).
+#[derive(Debug, Clone)]
+#[non_exhaustive]
+pub struct PluginRun {
+    /// Its name.
+    pub name: String,
+    /// Its version.
+    pub version: String,
+    /// The network level it ran at (ADR 0033).
+    pub network_level: String,
+    /// Where Operator policy allowed reduced confinement, the parts the host could not provide.
+    pub missing_confinement: Vec<String>,
+}
+
+/// A warning the Run carries: a `stealth` choice (ADR 0035), stale Clean-up rules (ADR 0047),
+/// throttled CPU (ADR 0049), a degraded Politeness store (ADR 0053), a Plugin's reported figures
+/// (ADR 0033). A newer engine's code is kept.
+#[derive(Debug, Clone)]
+#[non_exhaustive]
+pub struct RunWarning {
+    /// Its code.
+    pub code: String,
+    /// Its message.
+    pub message: String,
+}
+
+/// A URL rule the Frontier learned, with its evidence (ADR 0005).
+#[derive(Debug, Clone)]
+#[non_exhaustive]
+pub struct LearnedRule {
+    /// `no_effect_parameter`, `trap_path` or `cursor_pagination`.
+    pub kind: String,
+    /// The registrable domain it applies to.
+    pub domain: String,
+    /// The rule.
+    pub rule: String,
+    /// What it was learned from.
+    pub evidence: String,
+    /// How many URLs it merged.
+    pub urls_merged: u64,
+}
+
+/// The ended requests counted by skip reason, Error code and Block cause.
+#[derive(Debug, Clone, Default)]
+#[non_exhaustive]
+pub struct EndedRequestBreakdown {
+    /// By skip reason.
+    pub by_skip_reason: Vec<(SkipReason, u64)>,
+    /// By Error code.
+    pub by_error_code: Vec<(ErrorCode, u64)>,
+    /// By Block cause.
+    pub by_block_cause: Vec<(BlockCause, u64)>,
 }
 
 /// The kinds `outcomes()` can be filtered by.
@@ -626,7 +706,13 @@ impl RunView {
     }
 
     /// The Run's report: at once for an ended Run, at its end for a live one, which it never ends.
+    /// On a Run with no live writer that has not ended, fails with `run_interrupted`.
     pub fn report(&self) -> Call<RunReport> {
+        unimplemented!()
+    }
+
+    /// Its Key-value store's reads, on every Run (ADR 0103).
+    pub fn key_value_store(&self) -> KeyValueStoreReader {
         unimplemented!()
     }
 
@@ -764,6 +850,7 @@ pub enum RunFailure {
         ended_at: SystemTime,
     },
     /// `run_in_use`: the Run's writer's lock is held, by another program or this one (ADR 0031).
+    /// Retryable: that program may end.
     InUse {
         /// The ID.
         id: String,
@@ -774,6 +861,11 @@ pub enum RunFailure {
     LimitRaiseRefused {
         /// The Limit, by name.
         limit: String,
+    },
+    /// `run_interrupted`: a view's `report()` on a Run with no live writer that has not ended.
+    Interrupted {
+        /// The ID.
+        id: String,
     },
     /// `run_not_found`: the ID names no Run in the Run index.
     NotFound {

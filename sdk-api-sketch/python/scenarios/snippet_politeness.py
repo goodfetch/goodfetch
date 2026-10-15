@@ -51,8 +51,8 @@ async def as_own_bot() -> list[ExplainedSetting]:
 
 
 async def why_skipped(outcomes: AsyncIterable[CrawlRequestOutcome]) -> Counter[str]:
-    """A page the site asked crawlers to leave is skipped, a value with its reason, never a failure (G1). How a program
-    reads outcomes is #478's."""
+    """A page the site asked crawlers to leave is skipped, a value with its reason, never a failure (G1). A program reads
+    outcomes with a crawl's `run.outcomes()` (ADR 0102)."""
     skipped: Counter[str] = Counter()
     async for outcome in outcomes:
         if not isinstance(outcome, CrawlRequestSkipped):

@@ -575,8 +575,8 @@ pub struct AppliedLimit {
     pub set_by: LimitSetBy,
 }
 
-/// A Run's Usage so far: the figures the Usage ledger charges. Its report carries the final one
-/// (#478).
+/// A Run's Usage so far: the figures the Usage ledger charges. Its Run report carries the final
+/// one (ADR 0102).
 #[derive(Debug, Clone)]
 #[non_exhaustive]
 pub struct RunUsage {

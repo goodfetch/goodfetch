@@ -298,7 +298,7 @@ impl Page {
     }
 }
 
-/// What became of the Run's Plan, read from the Run's report (#478 places it).
+/// What became of the Run's Plan: the Run report's `plan` (ADR 0102).
 #[derive(Debug, Clone)]
 #[non_exhaustive]
 pub struct PlanReport {

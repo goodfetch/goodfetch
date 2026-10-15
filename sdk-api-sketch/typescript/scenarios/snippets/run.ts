@@ -83,7 +83,8 @@ export async function fed(urls: AsyncIterable<string>): Promise<void> {
     settings: { crawl: { keepAlive: true }, checkpoint: { interval: 10 * 60_000 } },
   });
   for await (const url of urls) await run.addSeed(url, home);
-  const checkpoint = await run.checkpoint({ path: "/mnt/backup/books.checkpoint" });
+  const checkpoint = await run.checkpoint(); // where the engine keeps the Run's, on its own machine
+  await checkpoint.saveAs("/mnt/backup/books.checkpoint"); // copied here, wherever the engine runs
   log.info("checkpoint", { digest: checkpoint.digest, size: checkpoint.size });
   await run.finish(); // ends once what is pending is done
 }

@@ -70,7 +70,7 @@ async fn as_own_bot() -> Result<Vec<ExplainedSetting>, Error> {
 }
 
 /// A page the site asked crawlers to leave is skipped, a value with its reason, never a failure
-/// (G1). How a program reads outcomes is #478's.
+/// (G1). A program reads outcomes with `CrawlRun::outcomes` (ADR 0102).
 fn why_skipped(outcomes: Vec<CrawlRequestOutcome>) -> BTreeMap<String, u32> {
     let mut skipped = BTreeMap::new();
     for outcome in outcomes {

@@ -12,7 +12,7 @@ import {
 declare const log: Logger; // the program's own logger
 
 declare function clickNext(): Promise<void>; // a page call: the page API is #472's
-declare const outcomes: AsyncIterable<CrawlRequestOutcome>; // how a program reads them is #478's
+declare const outcomes: AsyncIterable<CrawlRequestOutcome>; // a crawl's `run.outcomes()` (ADR 0102)
 declare const task: AiWorkResult<{ title: string; price: number }>; // the Agent's API is #474's
 
 export async function failuresThrow(): Promise<void> {

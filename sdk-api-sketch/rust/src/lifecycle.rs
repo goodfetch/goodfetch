@@ -2,8 +2,8 @@
 //!
 //! Logs are `tracing` events under `goodfetch::…` targets; the crate never installs a subscriber.
 //! The Rust crate links the engine (`EngineChoice::Linked`) and borrows a browser through
-//! `session.source = cdp_url`, never through a relay. The Run's start verbs are a placeholder owned
-//! by #478; Sessions, logins and secrets are ADR 0092's, in `sessions`; the page API is ADR 0085's,
+//! `session.source = cdp_url`, never through a relay. The Run's start verbs, its ID, its end and its
+//! report are ADR 0102's, in `run`; Sessions, logins and secrets are ADR 0092's, in `sessions`; the page API is ADR 0085's,
 //! in `page`. The error type is ADR 0079's, in `results`.
 //! Timeouts, waits and Limits are #467's, in `time`; events, user code and sharing are #468's, in
 //! `concurrency`.

@@ -39,9 +39,9 @@ export interface RawCall {
 
 /**
  * Any connection: what `Collie` and `Foxhound` share, declared once in `@goodfetch/collie-client`
- * (ADR 0095), so a library typed for it accepts either Product's connection. Collie's Run start joins
- * it once #478 names it. The sketch's placeholder `Goodfetch` implements it until #483 replaces it
- * with `Collie` and `Foxhound`.
+ * (ADR 0095), so a library typed for it accepts either Product's connection. Collie's `start` and
+ * `openRun` (ADR 0102) join it when #483 replaces the sketch's placeholder `Goodfetch`, which keeps
+ * them on `gf.collie`, with `Collie` and `Foxhound`, whose connection is the Product.
  */
 export interface Connection extends Closeable, ExplainsSettings, RawCall {
   /** The engine reached, fixed when the connection opened. */

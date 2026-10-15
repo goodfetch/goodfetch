@@ -100,7 +100,8 @@ async fn fed(gf: &Goodfetch, books: &Crawl<'_>, home: &Label<()>, urls: Vec<Stri
         for url in &urls {
             run.add_seed(url, home, ()).await?;
         }
-        let checkpoint = run.as_run().checkpoint().path("/mnt/backup/books.checkpoint").await?;
+        let checkpoint = run.as_run().checkpoint().await?; // where the engine keeps the Run's
+        checkpoint.save_as("/mnt/backup/books.checkpoint").await?; // copied here, wherever the engine runs
         let _ = (checkpoint.digest, checkpoint.size);
         run.finish().await // ends once what is pending is done
     };

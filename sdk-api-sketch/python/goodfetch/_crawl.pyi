@@ -3,7 +3,7 @@
 A crawl is declared by a `Crawl` (sync handlers) or an `AsyncCrawl` (`async def` handlers), made with no connection and no
 I/O, so a module may declare it at import: each Label is declared first, returning its typed handle, then gets exactly one
 handler through the decorator `@crawl.handle(label)`, which returns the function unchanged so a test can call it. A Run
-carries the crawl out; its start and resume verbs are #478's, so `Foxhound.start` is provisional. Handlers run as ADR
+carries the crawl out: `Foxhound.start_crawl` starts it, and a start under the same ID resumes it (ADR 0102). Handlers run as ADR
 0081 says: as tasks in the Run's task group (async), or on the connection's thread pool (sync).
 
 A handler receives one context on every fetch tier: Collie's page over the request's document. Every tier but `browser`
@@ -68,8 +68,8 @@ class EnqueuedLinks:
 @final
 @dataclass(frozen=True, kw_only=True)
 class Seed(Generic[P]):
-    """A seed: a crawl request the program gives at the start, checked as an enqueue is. Provisional: the start verb is
-    #478's."""
+    """A seed: a crawl request the program gives at the start, checked as an enqueue is. On a resume, the seeds must match
+    the Run's (`run_conflict`)."""
 
     url: str
     label: Label[P]

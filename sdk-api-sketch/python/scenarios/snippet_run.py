@@ -116,7 +116,8 @@ async def fed(urls: AsyncIterable[str]) -> None:
         async with run:
             async for url in urls:
                 await run.add_seed(url, home)
-            checkpoint = await run.checkpoint(path="/mnt/backup/books.checkpoint")
+            checkpoint = await run.checkpoint()  # where the engine keeps the Run's, on its own machine
+            await checkpoint.save_as("/mnt/backup/books.checkpoint")  # copied here, wherever the engine runs
             log.info("checkpoint %s, %d bytes", checkpoint.digest, checkpoint.size)
             await run.finish()  # ends once what is pending is done
 

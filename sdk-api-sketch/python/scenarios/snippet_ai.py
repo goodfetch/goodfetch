@@ -17,16 +17,10 @@ from goodfetch import (
     Goodfetch,
     JsonValue,
     PlanDriftError,
-    PlanReport,
     expect,
 )
 
 log = logging.getLogger("quotes")
-
-
-async def finish(run: AsyncRun) -> PlanReport:
-    """Provisional, #478's: how a program finishes a Collie Run and reads its report."""
-    raise NotImplementedError
 
 
 class Author(BaseModel):
@@ -56,8 +50,8 @@ async def author_of_first_love_quote() -> Author:
         await expect(page).to_have_url(re.compile(r"^https://quotes\.toscrape\.com/author/"))  # a str must equal the URL
         author = (await page.extract("the author's name, birth date and birthplace", Author)).output
 
-        report = await finish(run)
-        log.info("plan %s: %s", report.status, report.changed_steps)
+        plan = (await run.finish()).plan  # the Run report's PlanReport (ADR 0102)
+        log.info("plan %s: %s", plan.status, plan.changed_steps)
         return author
 
 

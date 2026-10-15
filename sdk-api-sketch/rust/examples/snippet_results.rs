@@ -14,7 +14,7 @@ fn on_failure(err: &Error) -> Option<Vec<String>> {
     }
 }
 
-/// Outcomes are values; how a program reads them is #478's.
+/// Outcomes are values, read with `CrawlRun::outcomes` (ADR 0102).
 fn count(outcomes: Vec<CrawlRequestOutcome>) -> (u32, u32, u32, u32) {
     let (mut ok, mut failed, mut skipped, mut blocked) = (0, 0, 0, 0);
     for outcome in outcomes {

@@ -7,14 +7,11 @@ import {
   expect,
   type Logger,
   type Page,
-  type PlanReport,
   type Run,
 } from "goodfetch";
 
 declare const log: Logger; // the program's own logger
 
-// Provisional, #478's: how a program finishes a Collie Run and reads its report.
-declare function finish(run: Run): Promise<{ readonly verdict: string; readonly plan: PlanReport }>;
 
 const Author = z.object({
   name: z.string(),
@@ -45,7 +42,7 @@ export async function authorOfFirstLoveQuote(): Promise<z.infer<typeof Author>> 
   await expect(page).toHaveURL(/^https:\/\/quotes\.toscrape\.com\/author\//); // a string would have to equal the URL, as in Playwright
   const { output: author } = await page.extract("the author's name, birth date and birthplace", Author);
 
-  const report = await finish(run);
+  const report = await run.finish(); // the Run report (ADR 0102)
   log.info(`plan ${report.plan.status}`, { changed: report.plan.changedSteps });
   return author;
 }

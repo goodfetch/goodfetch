@@ -195,7 +195,7 @@ class ElementReferences:
 @final
 @dataclass(frozen=True, kw_only=True)
 class PlanReport:
-    """What became of the Run's Plan, read from the Run's report (#478 places it)."""
+    """What became of the Run's Plan: the Run report's `plan` (ADR 0102)."""
 
     file: str | None
     """The file the Run named, or `None` when the Plan lives only in its Run trace."""

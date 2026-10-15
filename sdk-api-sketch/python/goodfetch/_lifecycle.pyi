@@ -1,7 +1,7 @@
 """Entry points and lifecycle (ADR 0078, decided in #465).
 
 Logs go to `logging` loggers under `goodfetch` (`goodfetch.client`, `goodfetch.engine.<area>`); the SDK adds only a
-`NullHandler`. The Run's start verbs are a placeholder owned by #478; Sessions, logins and secrets are ADR 0092's
+`NullHandler`. The Run's start verbs, its ID, its end and its report are ADR 0102's (`_run`); Sessions, logins and secrets are ADR 0092's
 (`_sessions`); the page API is ADR 0085's (`_page`).
 Timeouts, waits and Limits come from #467 (`_time`); events and user code from #468 (`_concurrency`).
 """
@@ -30,7 +30,7 @@ from goodfetch._concurrency import (
 from goodfetch._data import JsonValue
 from goodfetch._effects import AsyncDeclaresEffects, DeclaresEffects
 from goodfetch._models import AsyncModelProviderHandler, ModelProviderHandler, RunUsage
-from goodfetch._output import AsyncExport, AsyncKeyValueStore, DatasetRecord, Export, ExportFormat, KeyValueStore, RejectedRecord, StoredBytes
+from goodfetch._output import AsyncExport, AsyncKeyValueStore, DatasetRecord, Export, ExportFormat, KeyValueStore, RejectedRecord
 from goodfetch._hooks import (
     AsyncFetchBackendHandler,
     AsyncProxyProviderHandler,
@@ -306,15 +306,6 @@ class AsyncCrawlRun(_AsyncCloseable, _AsyncExplainsSettings, AsyncRunEvents, Asy
         through a handler's `ctx.run`. A seed widens the scope by its host, where a handler's `enqueue` is checked against
         it; one the domain policy refuses is not added (`domain_policy`)."""
 
-class AsyncKeyValueStoreReader:
-    """A Key-value store's reads, for a Run view: `AsyncKeyValueStore` without its writes."""
-
-    @overload
-    async def get(self, key: str, *, timeout: Timeout = ...) -> JsonValue | None: ...
-    @overload
-    async def get(self, key: str, schema: type[_T], *, timeout: Timeout = ...) -> _T | None: ...
-    async def get_bytes(self, key: str, *, timeout: Timeout = ...) -> StoredBytes | None: ...
-    def keys(self, *, prefix: str = "") -> AsyncEventIterator[str]: ...
 
 @final
 class AsyncCrawlRunView(AsyncRunView[CrawlRunReport, CrawlRunProgress]):
@@ -329,8 +320,6 @@ class AsyncCrawlRunView(AsyncRunView[CrawlRunReport, CrawlRunProgress]):
     async def export(
         self, dataset: Dataset[Any], *, format: ExportFormat, compression: Literal["gzip", "zstd"] | None = None, timeout: Timeout = ...
     ) -> AsyncExport: ...
-    @property
-    def key_value_store(self) -> AsyncKeyValueStoreReader: ...
 
 @final
 class AsyncFoxhound:
@@ -369,8 +358,8 @@ class _AsyncConnecting:
 
 class AsyncConnection(_AsyncCloseable, _AsyncExplainsSettings, AsyncRawCall):
     """Any connection: what `AsyncCollie` and `AsyncFoxhound` share, declared once in `goodfetch_collie_client`
-    (ADRs 0095, 0099), so a library typed for it accepts either Product's connection. Collie's Run start joins it once
-    #478 names it. The sketch's placeholder `AsyncGoodfetch` extends it until #483 replaces it."""
+    (ADRs 0095, 0099), so a library typed for it accepts either Product's connection. Collie's `start` and `open_run` (ADR
+    0102) join it when #483 replaces the sketch's placeholder `AsyncGoodfetch`, which keeps them on `gf.collie`."""
 
     @property
     def engine(self) -> EngineInfo:
@@ -562,15 +551,6 @@ class CrawlRun(_Closeable, _ExplainsSettings, RunEvents, RunControl[CrawlRunRepo
         timeout: Timeout = ...,
     ) -> Enqueued: ...
 
-class KeyValueStoreReader:
-    """`AsyncKeyValueStoreReader` in the sync API."""
-
-    @overload
-    def get(self, key: str, *, timeout: Timeout = ...) -> JsonValue | None: ...
-    @overload
-    def get(self, key: str, schema: type[_T], *, timeout: Timeout = ...) -> _T | None: ...
-    def get_bytes(self, key: str, *, timeout: Timeout = ...) -> StoredBytes | None: ...
-    def keys(self, *, prefix: str = "") -> EventIterator[str]: ...
 
 @final
 class CrawlRunView(RunView[CrawlRunReport, CrawlRunProgress]):
@@ -584,8 +564,6 @@ class CrawlRunView(RunView[CrawlRunReport, CrawlRunProgress]):
     def export(
         self, dataset: Dataset[Any], *, format: ExportFormat, compression: Literal["gzip", "zstd"] | None = None, timeout: Timeout = ...
     ) -> Export: ...
-    @property
-    def key_value_store(self) -> KeyValueStoreReader: ...
 
 @final
 class Foxhound:

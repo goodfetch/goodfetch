@@ -174,7 +174,7 @@ class AsyncPageEvents:
     ) -> AsyncWebSocket: ...
 
 class AsyncRunEvents:
-    """The Run's sequences. Its progress until it ends is #478's; a crawl's Records are read from its `AsyncCrawlRun`,
+    """The Run's sequences. Its progress is `run.progress()` (ADR 0102); a crawl's Records are read from its `AsyncCrawlRun`,
     since only Foxhound has Datasets (ADRs 0084, 0103)."""
 
 # Sync API: the same concepts, generated from the same catalog (ADR 0038).

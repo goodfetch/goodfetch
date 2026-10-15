@@ -205,6 +205,8 @@ pub enum ErrorCode {
     RunStateUnavailable,
     /// `run_not_found`: the ID names no Run in the Run index.
     RunNotFound,
+    /// `run_interrupted`: a view's `report()` on a Run with no live writer that has not ended.
+    RunInterrupted,
     /// `model_not_found`: the provider says the model does not exist or is not available to this
     /// key (ADR 0101).
     ModelNotFound,
@@ -559,7 +561,7 @@ pub enum ErrorDetails {
     /// Of `value_invalid`.
     ValueInvalid(crate::output::ValueInvalid),
     /// Of `run_id_invalid`, `run_conflict`, `run_ended`, `run_in_use`, `limit_raise_refused`,
-    /// `run_state_unavailable` and `run_not_found` (ADR 0102).
+    /// `run_state_unavailable`, `run_not_found` and `run_interrupted` (ADR 0102).
     Run(crate::run::RunFailure),
     /// Of `agent_tool_failed`.
     AgentToolFailed(crate::agent::AgentToolFailed),
@@ -717,8 +719,8 @@ pub struct CrawlRequestRef {
     pub depth: u32,
 }
 
-/// A crawl request's ending (ADR 0079; the noun is ADR 0093's). How a program reads outcomes is
-/// #478's.
+/// A crawl request's ending (ADR 0079; the noun is ADR 0093's). A program reads outcomes with
+/// `CrawlRun::outcomes` (ADR 0102).
 #[derive(Debug)]
 #[non_exhaustive]
 #[must_use]

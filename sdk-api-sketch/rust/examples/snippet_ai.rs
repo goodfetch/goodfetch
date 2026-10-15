@@ -3,16 +3,10 @@
 use goodfetch_sdk_sketch::schemars::{self, JsonSchema};
 use goodfetch_sdk_sketch::settings::plan;
 use goodfetch_sdk_sketch::{
-    ConnectOptions, Error, ErrorCode, ErrorDetails, Expected, Goodfetch, Page, PlanReport, Run, Schema, Settings, StepSource,
+    ConnectOptions, Error, ErrorCode, ErrorDetails, Expected, Goodfetch, Page, Schema, Settings, StepSource,
     expect,
 };
 use serde::Deserialize;
-
-/// Provisional, #478's: how a program finishes a Collie Run and reads its report.
-async fn finish(run: &Run) -> Result<PlanReport, Error> {
-    let _ = run;
-    unimplemented!()
-}
 
 /// An author, as golden scenario 03 returns it.
 #[derive(Debug, Deserialize, JsonSchema)]
@@ -55,8 +49,8 @@ async fn author_of_first_love_quote() -> Result<Author, Error> {
         .await?
         .output;
 
-    let report = finish(&run).await?;
-    let _ = report.changed_steps;
+    let report = run.finish().await?; // the Run report, with its PlanReport (ADR 0102)
+    let _ = report.plan.changed_steps;
     run.close().await?;
     gf.close().await?;
     Ok(author)

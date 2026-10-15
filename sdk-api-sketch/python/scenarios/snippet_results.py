@@ -43,7 +43,7 @@ async def failures_raise(click_next: Callable[[], Awaitable[None]]) -> None:
 
 
 async def outcomes_are_values(outcomes: AsyncIterable[CrawlRequestOutcome]) -> dict[str, int]:
-    """How a program reads outcomes is #478's."""
+    """A program reads outcomes with a crawl's `run.outcomes()` (ADR 0102)."""
     counts: dict[str, int] = {}
     async for outcome in outcomes:
         name = type(outcome).__name__

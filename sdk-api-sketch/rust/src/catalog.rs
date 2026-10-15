@@ -66,7 +66,8 @@ impl IntoFuture for RawCall {
     }
 }
 
-/// Any connection: what `Collie` and `Foxhound` share. Collie's Run start joins it once #478 names it.
+/// Any connection: what `Collie` and `Foxhound` share. Collie's `start` and `open_run` (ADR 0102) join
+/// it when #483 replaces the sketch's placeholder `Goodfetch`, which keeps them on `gf.collie()`.
 pub trait Connection {
     /// The engine reached, fixed when the connection opened.
     fn engine(&self) -> &EngineInfo;

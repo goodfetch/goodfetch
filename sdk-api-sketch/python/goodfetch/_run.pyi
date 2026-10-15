@@ -7,17 +7,20 @@ ends it early with its report, and ADR 0078's `close()` is unchanged. Progress i
 0081); a crawl's outcomes are read from its committed state.
 """
 
-from collections.abc import Mapping, Sequence
+from collections.abc import AsyncIterator, Iterator, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import datetime
 from os import PathLike
 from types import TracebackType
-from typing import Generic, Literal, Self, TypeAlias, TypeVar, final
+from typing import Generic, Literal, Self, TypeAlias, TypeVar, final, overload
 
+from goodfetch._ai import PlanReport
 from goodfetch._recording import RecordingReport
 from goodfetch._concurrency import AsyncEventIterator, EventIterator
+from goodfetch._data import JsonValue
 from goodfetch._effects import UncertainEffect
 from goodfetch._models import RunUsage
+from goodfetch._output import StoredBytes
 from goodfetch._results import (
     BlockCause,
     CrawlRequestRef,
@@ -28,7 +31,10 @@ from goodfetch._results import (
     UnavailableError,
     Verdict,
 )
+from goodfetch._settings import ExplainedSetting
 from goodfetch._time import Timeout
+
+_T = TypeVar("_T")
 
 StartedAs: TypeAlias = Literal["new", "resumed", "ended"] | str
 """How a start opened its Run: `new`; `resumed` from its committed state, the run file on this machine or an imported
@@ -69,6 +75,8 @@ class RunProgress:
     """A Run's progress: a telemetry value, coalesced under load (ADR 0024)."""
 
     lifecycle: Lifecycle
+    writer: Literal["live", "none"] | str
+    """`none` when nothing works the Run, as after a crash, until a start with its ID resumes it."""
     pauses: Sequence[WaitingPause]
     message: str | None
     """The program's own line, set with `set_progress_message` (ADR 0037's RT-15)."""
@@ -174,6 +182,9 @@ class CrawlRequestCounts:
     failed: int
     skipped: int
     blocked: int
+    by_skip_reason: Mapping[SkipReason, int]
+    by_error_code: Mapping[str, int]
+    by_block_cause: Mapping[BlockCause, int]
 
 @final
 @dataclass(frozen=True, kw_only=True)
@@ -190,18 +201,65 @@ WeakenedSetting: TypeAlias = LimitSource
 switched off (ADR 0023), the Run trace's "no trace" mark (ADR 0031) included, or a value pressing a site harder than its
 built-in default (ADR 0086)."""
 
-@final
 @dataclass(frozen=True, kw_only=True)
-class Checkpoint:
-    """A Checkpoint, as ADR 0002 reports it."""
+class CheckpointInfo:
+    """A Checkpoint, as ADR 0002 reports it, written where the engine keeps the Run's: its own folder (ADR 0031), or
+    wherever Goodfetch Cloud stores them."""
 
-    path: str
+    location: str
+    """Where the engine wrote it, on the engine's side."""
     size: int
     """In bytes."""
     digest: str
     epoch: int
     journal_position: int
     taken_at: datetime
+
+@final
+class AsyncCheckpoint(CheckpointInfo):
+    """A Checkpoint just written, copied to this machine as ADR 0103's Export is."""
+
+    async def save_as(self, path: str | PathLike[str], *, timeout: Timeout = ...) -> None:
+        """Copies it to a file on this machine, wherever the engine runs."""
+    def stream(self) -> AsyncIterator[bytes]: ...
+
+@final
+class Checkpoint(CheckpointInfo):
+    """`AsyncCheckpoint` in the sync API."""
+
+    def save_as(self, path: str | PathLike[str], *, timeout: Timeout = ...) -> None: ...
+    def stream(self) -> Iterator[bytes]: ...
+
+@final
+@dataclass(frozen=True, kw_only=True)
+class PluginRun:
+    """A Plugin that ran in the Run (ADRs 0016, 0033)."""
+
+    name: str
+    version: str
+    network_level: str
+    missing_confinement: Sequence[str]
+    """Where Operator policy allowed reduced confinement for a first-party Plugin, the parts the host could not provide."""
+
+@final
+@dataclass(frozen=True, kw_only=True)
+class RunWarning:
+    """A warning the Run carries: a `stealth` choice (ADR 0035), stale Clean-up rules (ADR 0047), throttled CPU (ADR
+    0049), a degraded Politeness store (ADR 0053), a Plugin's reported figures (ADR 0033). A newer engine's code is kept."""
+
+    code: str
+    message: str
+
+@final
+@dataclass(frozen=True, kw_only=True)
+class LearnedRule:
+    """A URL rule the Frontier learned, with its evidence (ADR 0005)."""
+
+    kind: Literal["no_effect_parameter", "trap_path", "cursor_pagination"] | str
+    domain: str
+    rule: str
+    evidence: str
+    urls_merged: int
 
 @final
 @dataclass(frozen=True, kw_only=True)
@@ -238,8 +296,16 @@ class RunReport:
     (ADR 0005)."""
     usage: RunUsage
     """The final figures (ADR 0101), the uncapped mark included (ADR 0041)."""
+    plan: PlanReport
+    """What became of the Run's Plan (ADR 0091): every Run has one, its file `None` when it named none."""
+    policy_version: str | None
+    """The Operator policy version it ran under (ADR 0031)."""
+    settings: Sequence[ExplainedSetting]
+    """Each effective value, with the layer that set it and the one that locked it (ADR 0028)."""
+    plugins: Sequence[PluginRun]
+    warnings: Sequence[RunWarning]
     weakened: Sequence[WeakenedSetting]
-    checkpoint: Checkpoint | None
+    checkpoint: CheckpointInfo | None
     """The last Checkpoint written."""
     nothing_done: NothingDone | None
     console_url: str | None
@@ -282,7 +348,11 @@ class SinkDeliveryStatus:
     ends."""
 
     status: Literal["complete", "complete_with_rejections", "behind", "failed"] | str
+    guarantee_class: str
+    """ADR 0026's Guarantee class."""
     dead_letters: int
+    at_least_once: int
+    """Deliveries that fell outside the destination's deduplication window, so were at-least-once."""
 
 @final
 @dataclass(frozen=True, kw_only=True)
@@ -294,6 +364,7 @@ class CrawlRunReport(RunReport):
     """Per Dataset name."""
     sinks: Mapping[str, SinkDeliveryStatus]
     """Per Sink name."""
+    learned_rules: Sequence[LearnedRule]
 
 _Report = TypeVar("_Report", bound=RunReport, covariant=True)
 _Progress = TypeVar("_Progress", bound=RunProgress, covariant=True)
@@ -321,8 +392,8 @@ class AsyncRunControl(Generic[_Report, _Progress]):
         loop to read one."""
     async def set_progress_message(self, message: str, *, timeout: Timeout = ...) -> None:
         """The program's own status line, shown in `progress()` and the Console."""
-    async def checkpoint(self, *, path: str | PathLike[str] | None = None, timeout: Timeout = ...) -> Checkpoint:
-        """Writes a Checkpoint now (ADR 0002), to `path`, or the Run's own folder when left out (ADR 0031)."""
+    async def checkpoint(self, *, timeout: Timeout = ...) -> AsyncCheckpoint:
+        """Writes a Checkpoint now (ADR 0002), where the engine keeps the Run's."""
 
 class RunControl(Generic[_Report, _Progress]):
     """`AsyncRunControl` in the sync API."""
@@ -333,7 +404,27 @@ class RunControl(Generic[_Report, _Progress]):
     def stop(self, *, timeout: Timeout = ...) -> _Report: ...
     def progress(self) -> EventIterator[_Progress]: ...
     def set_progress_message(self, message: str, *, timeout: Timeout = ...) -> None: ...
-    def checkpoint(self, *, path: str | PathLike[str] | None = None, timeout: Timeout = ...) -> Checkpoint: ...
+    def checkpoint(self, *, timeout: Timeout = ...) -> Checkpoint: ...
+
+class AsyncKeyValueStoreReader:
+    """A Key-value store's reads, for a Run view: `AsyncKeyValueStore` without its writes."""
+
+    @overload
+    async def get(self, key: str, *, timeout: Timeout = ...) -> JsonValue | None: ...
+    @overload
+    async def get(self, key: str, schema: type[_T], *, timeout: Timeout = ...) -> _T | None: ...
+    async def get_bytes(self, key: str, *, timeout: Timeout = ...) -> StoredBytes | None: ...
+    def keys(self, *, prefix: str = "") -> AsyncEventIterator[str]: ...
+
+class KeyValueStoreReader:
+    """`AsyncKeyValueStoreReader` in the sync API."""
+
+    @overload
+    def get(self, key: str, *, timeout: Timeout = ...) -> JsonValue | None: ...
+    @overload
+    def get(self, key: str, schema: type[_T], *, timeout: Timeout = ...) -> _T | None: ...
+    def get_bytes(self, key: str, *, timeout: Timeout = ...) -> StoredBytes | None: ...
+    def keys(self, *, prefix: str = "") -> EventIterator[str]: ...
 
 class AsyncRunView(Generic[_Report, _Progress]):
     """A Run read by a program that does not drive it, opened by its ID with `open_run` (ADR 0102): a detached Run,
@@ -342,9 +433,14 @@ class AsyncRunView(Generic[_Report, _Progress]):
 
     @property
     def id(self) -> str: ...
-    def progress(self) -> AsyncEventIterator[_Progress]: ...
+    def progress(self) -> AsyncEventIterator[_Progress]:
+        """Ends after what is committed when the Run has no live writer."""
     async def report(self, *, timeout: Timeout = ...) -> _Report:
-        """The Run's report: at once for an ended Run, at its end for a live one, which it never ends."""
+        """The Run's report: at once for an ended Run, at its end for a live one, which it never ends. On a Run with no
+        live writer that has not ended, raises `RunInterruptedError`."""
+    @property
+    def key_value_store(self) -> AsyncKeyValueStoreReader:
+        """Its Key-value store's reads, on every Run (ADR 0103)."""
     async def close(self) -> None: ...
     async def __aenter__(self) -> Self: ...
     async def __aexit__(
@@ -358,6 +454,8 @@ class RunView(Generic[_Report, _Progress]):
     def id(self) -> str: ...
     def progress(self) -> EventIterator[_Progress]: ...
     def report(self, *, timeout: Timeout = ...) -> _Report: ...
+    @property
+    def key_value_store(self) -> KeyValueStoreReader: ...
     def close(self) -> None: ...
     def __enter__(self) -> Self: ...
     def __exit__(
@@ -365,6 +463,13 @@ class RunView(Generic[_Report, _Progress]):
     ) -> None: ...
 
 # The Run's Error codes (ADR 0102).
+
+@final
+class RunInterruptedError(UnavailableError):
+    """A view's `report()` on a Run with no live writer that has not ended: a start with its ID resumes it."""
+
+    @property
+    def details(self) -> RunIdDetails: ...
 
 @final
 class RunNotFoundError(ProgramError):
@@ -430,7 +535,8 @@ class RunInUseDetails:
 
 @final
 class RunInUseError(RefusedError):
-    """The Run is live in another program, or already open in this one: its writer's lock is held (ADR 0031)."""
+    """The Run is live in another program, or already open in this one: its writer's lock is held (ADR 0031). Retryable:
+    that program may end."""
 
     @property
     def details(self) -> RunInUseDetails: ...
@@ -442,7 +548,7 @@ class LimitRaiseRefusedDetails:
 
 @final
 class LimitRaiseRefusedError(RefusedError):
-    """A resume gave a Limit above the value the Run began with: only a person raises one (ADR 0041)."""
+    """A resume gave a Limit above the Limit as it stands: only a person raises one (ADR 0041)."""
 
     @property
     def details(self) -> LimitRaiseRefusedDetails: ...

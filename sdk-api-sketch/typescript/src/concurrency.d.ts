@@ -68,7 +68,7 @@ export interface PageEvents {
 }
 
 /**
- * The Run's sequences. Its progress until it ends is #478's; a crawl's Records are read from its
- * `CrawlRun`, since only Foxhound has Datasets (ADRs 0084, 0103).
+ * The Run's sequences. Its progress is `run.progress()` (ADR 0102); a crawl's outcomes and Records
+ * are read from its `CrawlRun`, since only Foxhound has Datasets (ADRs 0084, 0102, 0103).
  */
 export interface RunEvents {}

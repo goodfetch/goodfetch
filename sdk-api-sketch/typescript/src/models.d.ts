@@ -257,7 +257,7 @@ export interface RunUsage {
   readonly uncapped: boolean;
 }
 
-/** A Run reads its Usage while it is open; its report carries the final one (The Run in code, #478). */
+/** A Run reads its Usage while it is open; its Run report carries the final one (ADR 0102). */
 export interface ReadsUsage {
   usage(options?: CallOptions): Promise<RunUsage>;
 }

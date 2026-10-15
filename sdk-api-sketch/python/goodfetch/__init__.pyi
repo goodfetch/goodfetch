@@ -185,7 +185,6 @@ from goodfetch._lifecycle import AsyncCrawlRun as AsyncCrawlRun
 from goodfetch._lifecycle import AsyncCrawlRunView as AsyncCrawlRunView
 from goodfetch._lifecycle import AsyncFoxhound as AsyncFoxhound
 from goodfetch._lifecycle import AsyncGoodfetch as AsyncGoodfetch
-from goodfetch._lifecycle import AsyncKeyValueStoreReader as AsyncKeyValueStoreReader
 from goodfetch._lifecycle import AsyncPage as AsyncPage
 from goodfetch._lifecycle import AsyncRun as AsyncRun
 from goodfetch._lifecycle import AsyncSession as AsyncSession
@@ -201,7 +200,6 @@ from goodfetch._lifecycle import EngineAddress as EngineAddress
 from goodfetch._lifecycle import EngineInfo as EngineInfo
 from goodfetch._lifecycle import Foxhound as Foxhound
 from goodfetch._lifecycle import Goodfetch as Goodfetch
-from goodfetch._lifecycle import KeyValueStoreReader as KeyValueStoreReader
 from goodfetch._lifecycle import Page as Page
 from goodfetch._lifecycle import Run as Run
 from goodfetch._lifecycle import Session as Session
@@ -392,9 +390,12 @@ from goodfetch._results import TargetNotUniqueDetails as TargetNotUniqueDetails
 from goodfetch._results import TargetNotUniqueError as TargetNotUniqueError
 from goodfetch._results import UnavailableError as UnavailableError
 from goodfetch._results import Verdict as Verdict
+from goodfetch._run import AsyncCheckpoint as AsyncCheckpoint
+from goodfetch._run import AsyncKeyValueStoreReader as AsyncKeyValueStoreReader
 from goodfetch._run import AsyncRunControl as AsyncRunControl
 from goodfetch._run import AsyncRunView as AsyncRunView
 from goodfetch._run import Checkpoint as Checkpoint
+from goodfetch._run import CheckpointInfo as CheckpointInfo
 from goodfetch._run import Completeness as Completeness
 from goodfetch._run import CrawlConcurrency as CrawlConcurrency
 from goodfetch._run import CrawlRequestCounts as CrawlRequestCounts
@@ -405,10 +406,13 @@ from goodfetch._run import DatasetTotals as DatasetTotals
 from goodfetch._run import GovernorState as GovernorState
 from goodfetch._run import HandlerConcurrency as HandlerConcurrency
 from goodfetch._run import InFlightRequest as InFlightRequest
+from goodfetch._run import KeyValueStoreReader as KeyValueStoreReader
+from goodfetch._run import LearnedRule as LearnedRule
 from goodfetch._run import Lifecycle as Lifecycle
 from goodfetch._run import LimitRaiseRefusedDetails as LimitRaiseRefusedDetails
 from goodfetch._run import LimitRaiseRefusedError as LimitRaiseRefusedError
 from goodfetch._run import NothingDone as NothingDone
+from goodfetch._run import PluginRun as PluginRun
 from goodfetch._run import RunConflictDetails as RunConflictDetails
 from goodfetch._run import RunConflictError as RunConflictError
 from goodfetch._run import RunControl as RunControl
@@ -419,6 +423,7 @@ from goodfetch._run import RunIdInvalidError as RunIdInvalidError
 from goodfetch._run import RunInUseDetails as RunInUseDetails
 from goodfetch._run import RunInUseError as RunInUseError
 from goodfetch._run import RunInputDifference as RunInputDifference
+from goodfetch._run import RunInterruptedError as RunInterruptedError
 from goodfetch._run import RunNotFoundError as RunNotFoundError
 from goodfetch._run import RunProgress as RunProgress
 from goodfetch._run import RunReport as RunReport
@@ -426,6 +431,7 @@ from goodfetch._run import RunStateUnavailableDetails as RunStateUnavailableDeta
 from goodfetch._run import RunStateUnavailableError as RunStateUnavailableError
 from goodfetch._run import RunStopReason as RunStopReason
 from goodfetch._run import RunView as RunView
+from goodfetch._run import RunWarning as RunWarning
 from goodfetch._run import SinkDeliveryStatus as SinkDeliveryStatus
 from goodfetch._run import StartedAs as StartedAs
 from goodfetch._run import WaitGroup as WaitGroup

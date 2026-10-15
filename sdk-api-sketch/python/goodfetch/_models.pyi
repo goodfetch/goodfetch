@@ -237,7 +237,7 @@ class AppliedLimit:
 @final
 @dataclass(frozen=True, kw_only=True)
 class RunUsage:
-    """A Run's Usage so far: the figures the Usage ledger charges. Its report carries the final one (#478)."""
+    """A Run's Usage so far: the figures the Usage ledger charges. Its Run report carries the final one (ADR 0102)."""
 
     model: ModelUsage
     browser_time: timedelta

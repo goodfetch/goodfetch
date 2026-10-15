@@ -8,6 +8,8 @@ Every Session opens in one Access mode, fixed for its life. `standard`, the defa
 
 > Amended by [ADR 0088](0088-collie-carries-every-capability-except-those-only-many-pages-need.md): the Human pause holds for a crawl's Session on a Profile directory or a Borrowed browser. A Session a program or an Agent opened, whatever its source, is never replaced: a Challenge on it goes on down ADR 0035's ladder without its new `stealth` Session, and any other Block cause on it is reported on the call that met it.
 
+> Amended by [ADR 0089](0089-a-page-is-lent-through-an-endpoint-that-shows-only-its-session-and-collie-joins-other-crawlers-by-borrowing.md): while a library such as Playwright or Puppeteer is attached to a Lent page, `Runtime` may be enabled on the pages it wraps in any Access mode, `standard` included; Provenance records the attach, and a Saved identity saved from a Session that was lent records it.
+
 ## Considered Options
 
 - **`identified` by default** (the R&D's draft ADR-002): rejected. It applied Site preferences by default, which ADR 0016 rejected to stay competitive with Crawlee and Spider, and a declared bot is blocked more often.

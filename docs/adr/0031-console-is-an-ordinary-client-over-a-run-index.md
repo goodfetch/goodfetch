@@ -65,6 +65,7 @@ Evidence from the competitor survey made for that ticket:
   - **Taking over.** Another person may ask for control, which is granted after 30 s without an answer. An operator can force it.
   - **Timings** are settings.
   - **Audit.** Taking control, handing back and the start and end of input go to the Audit log. Keystrokes never do.
+    > Amended by [ADR 0113](0113-a-human-pause-whose-page-closes-raises-call-cancelled-naming-what-closed-and-a-lost-live-view-ends-no-pause.md): each Human pause ended by a person's "Done", "Hand back" or "Decline" (with the person), or by its page or browser closing (`by: "browser"`, no person), also goes to the Audit log; the Live view closes no page a Human pause holds.
   - **Consent prompts.** While a person holds control, the Consent prompt runner's clicks stop, and the person's own answer is recorded as theirs for that Session only; a grant holder's is recorded under the grant (ADR 0048).
 - **Embeddable in users' own products**, as Browserbase, Steel, Hyperbrowser and Kernel allow.
   - **The grant.** `liveView.grant(session, mode, ttl, origins)` returns a token scoped to one Session. It is short-lived, single-use for opening the connection, tied to its origins through `frame-ancestors`, and revoked when the Session ends or by `liveView.revoke`.

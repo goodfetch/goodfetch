@@ -15,22 +15,28 @@ How comparable tools share their limits:
 - **Daemons electing an authority among themselves**: rejected. It means building an election and failover for state whose loss only resets pacing.
 - **Partitioning alone** (ADR 0054): kept for one crawl, where it makes Politeness exact with no store, but it says nothing about independent crawls that reach the same site.
 - **On store loss, failing closed at once or failing open**: rejected. Failing closed at once turns a cache restart into a halt of every run; failing open breaks the very promise the store exists to keep. The degraded mode below keeps runs moving through ordinary outages, and stops admission to shared keys only when an outage outlasts `politeness_degraded_max`, because past that point a crashed engine cannot be told from a cut-off one.
+  > Amended by [ADR 0086](0086-a-crawl-obeys-robots-txt-and-sends-one-request-at-a-time-per-domain-by-default-and-pressing-harder-is-recorded.md): the setting is `politeness.degraded_max`.
 
 ## Consequences
 
 **What is shared** (changes ADRs 0004 and 0021).
 - **Per domain:** the count of requests in flight, the time before which `Retry-After` or a backoff forbids a request, and the halved concurrency after a 429 with its gradual recovery. The key is the run's domain key (ADR 0004): the registrable domain unless a Recipe overrides it, so runs with the same key share one entry.
+  > Amended by [ADR 0086](0086-a-crawl-obeys-robots-txt-and-sends-one-request-at-a-time-per-domain-by-default-and-pressing-harder-is-recorded.md): the entry also holds the time of the domain's last request start. A run admits a request only once its own `politeness.domain.delay`, or a host's Crawl-delay, has passed since any sharing run's last start there.
 - **Per proxy** (adds to ADR 0021). `proxy_concurrency` and `proxy_rate` limit the requests sent through one proxy endpoint and credential, unset by default.
+  > Amended by [ADR 0086](0086-a-crawl-obeys-robots-txt-and-sends-one-request-at-a-time-per-domain-by-default-and-pressing-harder-is-recorded.md): the settings are `politeness.proxy.concurrency` and `politeness.proxy.rate`, in requests per second. Politeness is Foxhound's (ADR 0084); whether Collie carries these limits is [Collie's exact capability set](https://github.com/goodfetch/automan/issues/455)'s.
+  > Amended by [ADR 0088](0088-collie-carries-every-capability-except-those-only-many-pages-need.md): Collie carries these limits, the ceiling learned from a proxy's refusals and the per-provider ceiling below, shared the same way. They protect the user's own accounts with the vendors, so they hold a program's own navigation through that proxy or provider too.
   - A 429 or 502 from the proxy itself, not from the site, is a proxy refusal. It is classified as a proxy error, never as a Block cause, so it never triggers ADR 0021's escalation. The engine learns a ceiling from those refusals, halving as on a site's 429, and raises it again gradually after a quiet period; the ceiling can be set by hand.
   - A 407 from the proxy is a credential error: it fails the request with the Error code `proxy_auth_failed` and does not change the ceiling.
 - **Per cloud-browser provider** (changes ADR 0040). The ceiling learned per provider from a vendor's refusals is shared the same way, since a vendor's plan limits the whole account.
 - **What stays per run:** the per-domain queues and their order (ADR 0004), learned escalation and tier choice (ADRs 0020 and 0021), and `per_ip_concurrency`, which is keyed by the target's resolved IP.
+  > Amended by [ADR 0086](0086-a-crawl-obeys-robots-txt-and-sends-one-request-at-a-time-per-domain-by-default-and-pressing-harder-is-recorded.md): the setting is `politeness.ip.concurrency`.
 
 **How settings combine.**
 - Each run keeps its own values (ADR 0021, settings per run). A run admits a request to a domain only while the combined count in flight for that key, across every run sharing it, is below the run's own cap. A stricter run therefore waits while a looser one may still go up to its own cap.
 - A `Retry-After`, a backoff or a halving seen by any run applies to every run sharing the key.
 - Runs waiting on the same busy domain take turns, as ADR 0040 serves runs before domains.
 - `politeness_sharing` is a setting per run: `shared` by default (through the Politeness store when one is configured, else on the machine); `per_daemon`, which shares on the machine only and ignores a store; or `run`, which restores per-run Politeness. Anything but `shared` is marked in the run's result (ADR 0023).
+  > Amended by [ADR 0086](0086-a-crawl-obeys-robots-txt-and-sends-one-request-at-a-time-per-domain-by-default-and-pressing-harder-is-recorded.md): the setting is `politeness.sharing`. Anything but `shared` is also recorded in the Audit log, like every value that presses a site harder than its default.
 
 **On one machine: a per-user Politeness file.**
 - Every engine of the user (Attached engines, the Daemon, engines embedded through the Rust crate) takes and returns its *permits*, one per request in flight, in one SQLite transaction on a per-user Politeness file. It lives outside the per-major folders like the Usage ledger (ADR 0041), so every major shares it.
@@ -50,9 +56,12 @@ How comparable tools share their limits:
 - **A cut-off engine** keeps the permits it holds until their leases expire, then waits the longest request timeout of its last acknowledgement, so requests other engines admitted before it went stale have ended. It then admits within its last granted share: a run admits a request only while the engine's combined count in flight for that key, across its runs, is below that share scaled by the run's own cap over the largest one. Per-proxy limits are shared out the same way.
 - **Engines still connected.** While an engine's heartbeat is stale, the store's script keeps reserved the larger of the share it last granted that engine and the permits it held, so engines that still reach the store admit only the rest of the cap. Requests in flight therefore exceed the cap only by the minimum of 1 per cut-off engine whose share would otherwise have been 0.
 - **For a bounded time.** The store cannot tell a crashed engine from a cut-off one, so degraded admission lasts at most `politeness_degraded_max` (10 minutes by default, settable), counted on each side's own clock from the moment the engine sent its last acknowledged heartbeat. The cut-off engine then admits nothing more to shared keys, and the store frees its reservation only once `politeness_degraded_max` plus the longest request timeout the engine reported has passed, so requests it admitted have ended first. From then on, the cut-off engine still admits nothing to shared keys until it reconnects; its runs stay live and resumable. An outage of the whole store longer than that therefore stops admission to shared keys everywhere, which the degraded-period report says.
+  > Amended by [ADR 0086](0086-a-crawl-obeys-robots-txt-and-sends-one-request-at-a-time-per-domain-by-default-and-pressing-harder-is-recorded.md): the setting is `politeness.degraded_max`.
 - `Retry-After`, backoff and halving go on locally.
 - The degraded period is reported as an event on each affected run's event stream (ADR 0024), a metric on the ops listener (ADR 0050) and a note in each affected run's result. Reconnection is automatic, with backoff; on reconnecting, the engine registers its requests in flight as permits before the store frees its reservation.
 
 **Formats** (changes ADR 0030). The per-user Politeness file and the Politeness store's key and script layout join ADR 0030's contract formats. Both follow the Usage ledger's exception: their major stays frozen across product majors, and newer versions only add, so every supported major shares them.
 
 **Several Daemons in a Daemon group** (ADR 0055) share Politeness through a store. A group of more than one Group member, formed by the Helm chart or by `goodfetch group join`, is refused unless a store is set or its Operator policy sets `politeness_sharing: per_daemon`, which every run's result and the Console then show.
+
+> Amended by [ADR 0086](0086-a-crawl-obeys-robots-txt-and-sends-one-request-at-a-time-per-domain-by-default-and-pressing-harder-is-recorded.md): the key is `politeness.sharing`.

@@ -42,3 +42,4 @@ The TypeScript and Python SDKs, the CLI, the MCP server and Goodfetch Cloud all 
 - `goodfetch browsers install` also fetches the Clean-up rules, which `GOODFETCH_BROWSERS_PATH` also covers, and the part whose licences allow embedding is in the binary (ADR 0047).
 - ADR 0051 links V8 into the binary, built from source without JIT, and starts the Script sandbox as a worker mode of the same binary. The Rust crate never links V8: for the Script sandbox and `plugin-shim` it runs the `goodfetch` binary of its exact version, from `GOODFETCH_ENGINE_PATH` or downloaded on first use into the shared cache, pinned and checked by digest.
 - ADR 0057 keeps every capability in this one binary, V8 and DuckDB included, and holds every released file to a Size budget that CI enforces.
+  > Amended by [ADR 0088](0088-collie-carries-every-capability-except-those-only-many-pages-need.md): Collie's executable carries V8 but not DuckDB or the in-binary Sinks, which only Foxhound's carries.

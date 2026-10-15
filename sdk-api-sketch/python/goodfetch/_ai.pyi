@@ -97,7 +97,11 @@ the page at every call (ADR 0013). `model`: the model reads the page at every ca
 AriaSnapshotMode: TypeAlias = Literal["default", "ai"]
 
 class AsyncAiVerbs:
-    """The AI verbs, on an async page and an async locator. Each call's timeout is `timeout.ai`."""
+    """The AI verbs, on an async page and an async locator. Each call's timeout is `timeout.ai`.
+
+    A call that would send the page's content to a model while `site_preferences.respect_use_signals` is on and the
+    page's AI-use signal refuses the Run's Purpose raises `SitePreferencesRefusedError` (`use_signals`) before anything
+    is sent; a step replayed from the Plan is not refused (ADRs 0085, 0091)."""
 
     async def act(
         self,
@@ -207,7 +211,7 @@ class PlanReport:
 
 TextExpected: TypeAlias = str | re.Pattern[str]
 """As in Playwright's assertions: a `str` matches the whole value (`to_have_url`'s exactly, text after whitespace is
-normalized), a pattern matches a pattern."""
+normalized), except in `to_contain_text`, which matches a part; a pattern matches a pattern."""
 
 
 @final

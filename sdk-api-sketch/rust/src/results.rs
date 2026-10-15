@@ -217,7 +217,8 @@ pub enum ErrorCode {
     ModelHandlerFailed,
     /// `model_unauthorized`, a refusal: the provider rejected the key. Not retryable.
     ModelUnauthorized,
-    /// `model_funds_exhausted`, a refusal: the provider account has no funds left. Not retryable.
+    /// `model_funds_exhausted`, a refusal: the provider account has no funds left, or a cap set at
+    /// the provider (a spend limit, a tier's monthly cap) is reached. Not retryable.
     ModelFundsExhausted,
     /// `model_price_unknown`, a refusal: a currency Limit applies and the model's price cannot be
     /// stated in its currency (no price, or no fixed rate).
@@ -239,8 +240,8 @@ pub enum ErrorCode {
     /// `agent_tool_invalid`, a program error: two Agent tools share a name, or one takes a built-in
     /// action's (ADR 0100).
     AgentToolInvalid,
-    /// `success_check_threw`, a program error: the Agent's Success check returned an error other
-    /// than `success_check_failed`, kept as the `source()`: a bug, never a rejection (ADR 0100).
+    /// `success_check_threw`, a program error: the Agent's Success check returned an error that is
+    /// not a Goodfetch one, kept as the `source()`: a bug, never a rejection (ADR 0100).
     SuccessCheckThrew,
     /// `response_not_recorded`, a refusal: a replaying Run's recording lacks the request, which was
     /// never sent; not retryable (ADR 0105).
@@ -642,6 +643,10 @@ pub struct TargetNotUnique {
 pub struct Blocked {
     /// Why the site refused it.
     pub block_cause: BlockCause,
+    /// The URL whose navigation met it (ADR 0092).
+    pub url: String,
+    /// `None` when the site answered with no response, such as a reset connection.
+    pub status: Option<u16>,
 }
 
 /// Why AI work was not verified.

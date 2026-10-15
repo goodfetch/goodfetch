@@ -95,7 +95,7 @@ async fn typed_book(local: bool) -> Result<Option<Book>, Error> {
 /// The program's own Model provider (ADR 0033's SDK-handler form): calls arrive as a stream, answered
 /// with Goodfetch's own types, no provider crate.
 async fn in_house_provider(gf: &Goodfetch) -> Result<(), Error> {
-    let mut calls = gf.model_requests("inhouse"); // declared with ConnectOptions::model_provider
+    let mut calls = gf.model_requests("inhouse")?; // declared with ConnectOptions::model_provider
     while let Some(call) = calls.next().await {
         let call = call?;
         let _ = (&call.request().model_id, &call.request().messages); // the program's own service answers them

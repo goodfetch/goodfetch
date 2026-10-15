@@ -305,8 +305,9 @@ impl CrawlRun {
 
 impl<P> CrawlContext<P> {
     /// Stages a Record with this attempt (ADR 0103): it commits with the attempt, numbered in its
-    /// Dataset, or is discarded if the attempt fails, retries, escalates, skips or loses its lease.
-    /// Resolves once staged. A Record failing the Dataset's schema, not JSON, or lacking its key's
+    /// Dataset, or is discarded if the attempt fails or ends early (`skip`, `retry`, an escalation,
+    /// the handler's timeout, a lost lease, the Run's close), after which a push fails with
+    /// `attempt_ended`, as `enqueue` does. Resolves once staged. A Record failing the Dataset's schema, not JSON, or lacking its key's
     /// fields fails with `record_invalid` and is not staged; a Dataset of another crawl fails with
     /// `dataset_unknown`.
     pub fn push<T: Serialize>(&self, dataset: &Dataset<T>, record: &T) -> Call<()> {

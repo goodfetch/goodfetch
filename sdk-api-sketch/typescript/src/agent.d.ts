@@ -12,7 +12,8 @@
 //   values: `ended: stopped` with its reason, and a Grounded `partial`.
 // - The steps are a lossless sequence that starts at the task's first step (ADR 0081).
 // - With the Run's `plan` (ADR 0091), the task is one Plan entry, replayed whole with no model call
-//   (before each Effect, every target reachable without it is checked). On Drift, or a failed Success
+//   (before each Effect, its target and the targets the recorded run saw before it on open pages are
+//   checked; any other step is checked when reached). On Drift, or a failed Success
 //   check after the replay, the loop takes over live from there: no Repair (amends ADR 0009).
 
 import type { EventIterator } from "./concurrency.js";
@@ -258,7 +259,7 @@ export declare class AgentToolInvalidError extends ProgramError {
   readonly details: { readonly tool: string; readonly problem: "duplicate" | "built_in_name" | (string & {}) };
 }
 
-/** The Success check function threw something other than `SuccessCheckFailedError`: a bug, never a rejection. `cause` holds it. */
+/** The Success check function threw an exception that is not a `GoodfetchError`: a bug, never a rejection. `cause` holds it. */
 export declare class SuccessCheckThrewError extends ProgramError {
   readonly code: "success_check_threw";
   readonly details: { readonly exceptionType: string; readonly exceptionMessage: string };

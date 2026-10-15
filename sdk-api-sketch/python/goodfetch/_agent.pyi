@@ -13,8 +13,9 @@
   at the first of `result()`, `steps()` or entering its `with` block; leaving the block before it ends cancels it.
 - The steps are a lossless sequence that starts at the task's first step (ADR 0081).
 - With the Run's `plan=` (ADR 0091), the task is one Plan entry, replayed whole with no model call (before each
-  Effect, every target reachable without it is checked). On Drift, or a failed Success check after the replay, the loop
-  takes over live from there: no Repair (amends ADR 0009).
+  Effect, its target and the targets the recorded run saw before it on open pages are checked; any other step is checked
+  when reached). On Drift, or a failed Success check after the replay, the loop takes over live from there: no Repair
+  (amends ADR 0009).
 """
 
 from collections.abc import Awaitable, Callable, Mapping, Sequence
@@ -391,7 +392,7 @@ class SuccessCheckThrewDetails:
 
 @final
 class SuccessCheckThrewError(ProgramError):
-    """The Success check function raised something other than `SuccessCheckFailedError`: a bug, never a rejection.
+    """The Success check function raised an exception that is not a `GoodfetchError`: a bug, never a rejection.
     `__cause__` holds it."""
 
     @property

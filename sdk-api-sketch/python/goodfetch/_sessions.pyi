@@ -405,7 +405,7 @@ class AsyncPausesForHuman:
         `reason` is shown in the Console's "Needs you", the Notification and the Live view, and logged at info. `until`
         ends the pause by itself when it holds (a locator visible, or a URL matched as `wait_for_url` matches it); a
         person's "Done" is accepted only while it holds. `timeout` is `timeout.human_pause`, 24 hours by default; `None`
-        waits without limit. It is a gesture: the page's later gestures wait for it; reads and waits run. No enclosing
+        waits without limit. A paused page takes no Gesture: its later Gestures wait; reads and waits run. No enclosing
         timeout counts its time; Usage still counts toward Limits. Cancelling the task ends it.
         """
 
@@ -467,9 +467,9 @@ class SecretDomainNotAllowedError(RefusedError):
 @dataclass(frozen=True, kw_only=True)
 class SecretInputRefusedDetails:
     placeholder: str
-    reason: Literal["shared_browser", "cdp_attached"] | str
+    reason: Literal["shared_browser", "cdp_attached", "lent_page"] | str
     """`shared_browser`: other code also drives this Borrowed browser (ADR 0056); `cdp_attached`: a raw CDP session is
-    attached (ADR 0017)."""
+    attached (ADR 0017); `lent_page`: the page is lent to another program (ADR 0089)."""
 
 @final
 class SecretInputRefusedError(RefusedError):

@@ -256,7 +256,9 @@ macro_rules! ai_verbs {
     ($ty:ty) => {
         impl $ty {
             /// Performs one action described in words. Fails with `target_not_found` when nothing on
-            /// the page fits it.
+            /// the page fits it, and with `site_preferences_refused` (`use_signals`) before anything is
+            /// sent when it would send the page to a model that the page's AI-use signal refuses for
+            /// the Run's Purpose; a step replayed from the Plan is not refused (ADRs 0085, 0091).
             pub fn act(&self, instruction: &str) -> Act {
                 let _ = instruction;
                 unimplemented!()
@@ -332,8 +334,9 @@ pub enum PlanStatus {
 // Success checks.
 
 /// What a text or URL check expects, as in Playwright's assertions: a `&str` matches the whole value
-/// (`to_have_url`'s exactly, text after whitespace is normalized), [`Expected::regex`] a pattern run
-/// in the engine. Unlike a locator's [`TextMatch`], a string is never a substring here.
+/// (`to_have_url`'s exactly, text after whitespace is normalized), except in
+/// [`LocatorExpectations::to_contain_text`], which matches a part; [`Expected::regex`] a pattern run
+/// in the engine. Unlike a locator's [`TextMatch`], a string is never a substring elsewhere here.
 #[derive(Debug, Clone)]
 pub struct Expected {
     _private: (),

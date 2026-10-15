@@ -13,7 +13,7 @@ attempt and runs the request again in the browser, unless `fetch.tier` forces th
 """
 
 import re
-from collections.abc import Awaitable, Callable, Sequence
+from collections.abc import Awaitable, Callable, Mapping, Sequence
 from dataclasses import dataclass
 from typing import Generic, Literal, NoReturn, TypeAlias, TypeVar, final, overload
 
@@ -38,7 +38,11 @@ FetchTier: TypeAlias = Literal["http", "discovered_api", "browser_fetch", "light
 """The fetch tiers of ADR 0020. `fetch.tier` takes these or `auto`, the default, learned per Label on a domain."""
 
 NotAddedReason: TypeAlias = (
-    Literal["duplicate", "out_of_scope", "domain_policy", "max_depth", "max_requests", "unsupported_scheme", "no_link"] | str
+    Literal[
+        "duplicate", "out_of_scope", "domain_policy", "max_depth", "max_requests", "unsupported_scheme", "no_link", "no_rule",
+        "skipped_by_payload",
+    ]
+    | str
 )
 """Why a URL was not added. A newer engine's reason is kept as received (G3)."""
 
@@ -74,11 +78,41 @@ class Seed(Generic[P]):
     url: str
     label: Label[P]
     payload: P
+    method: str = "GET"
+    headers: Mapping[str, str] | None = None
+    body: str | bytes | None = None
 
 @overload
-def seed(url: str, label: Label[None]) -> Seed[None]: ...
+def seed(
+    url: str, label: Label[None], *, method: str = "GET", headers: Mapping[str, str] | None = None, body: str | bytes | None = None
+) -> Seed[None]: ...
 @overload
-def seed(url: str, label: Label[P], payload: P) -> Seed[P]: ...
+def seed(
+    url: str, label: Label[P], payload: P, *, method: str = "GET", headers: Mapping[str, str] | None = None, body: str | bytes | None = None
+) -> Seed[P]: ...
+
+@final
+@dataclass(frozen=True, kw_only=True)
+class SitemapSeed:
+    """A sitemap seed (ADR 0093; ADR 0037's CO-10). Each rule sends its URLs to a Label without a Payload. Nested sitemap
+    indexes are followed; an entry matching no rule is not added and is reported as `no_rule`. It widens the scope by its
+    own host, like any seed, and its entries are checked against the scope as enqueues are, at depth 0."""
+
+    url: str
+    rules: Sequence[tuple[UrlPattern, Label[None]]]
+
+def sitemap(url: str, rules: Sequence[tuple[UrlPattern, Label[None]]]) -> SitemapSeed:
+    """Seeds from a sitemap, or a site's robots.txt whose `Sitemap:` lines are read. The first rule whose URL pattern
+    matches picks the Label."""
+
+@final
+@dataclass(frozen=True, kw_only=True)
+class LinkInfo:
+    """A link `enqueue_links` matched, as its Payload function sees it: return the Payload, or `None` to skip it."""
+
+    href: str
+    text: str
+    attributes: Mapping[str, str]
 
 @final
 class CrawlRequest(Generic[P]):
@@ -132,16 +166,17 @@ class AsyncCrawlContext(_ContextBase[P]):
         staged with the attempt, and its reads see them first. The program's own `run` value writes at once."""
     async def push(self, dataset: Dataset[T], record: T, *, timeout: Timeout = ...) -> None:
         """Stages a Record with this attempt (ADR 0103): it commits with the attempt, numbered in its Dataset, or is
-        discarded if the attempt fails, retries, escalates, skips or loses its lease. Returns once staged. A Record
+        discarded if the attempt fails or ends early (`skip`, `retry`, an escalation, the handler's timeout, a lost
+        lease, the Run's close), after which a push raises `AttemptEndedError`, as `enqueue` does. Returns once staged. A Record
         failing the Dataset's schema, not JSON, or lacking its key's fields raises `RecordInvalidError` and is not
         staged; a Dataset of another crawl raises `DatasetUnknownError`."""
     @overload
     async def enqueue(
-        self, url: str, label: Label[None], *, priority: int = 0, forefront: bool = False, key: str | None = None, timeout: Timeout = ...
+        self, url: str, label: Label[None], *, method: str = "GET", headers: Mapping[str, str] | None = None, body: str | bytes | None = None, priority: int = 0, forefront: bool = False, key: str | None = None, timeout: Timeout = ...
     ) -> Enqueued: ...
     @overload
     async def enqueue(
-        self, url: str, label: Label[Q], payload: Q, *, priority: int = 0, forefront: bool = False, key: str | None = None, timeout: Timeout = ...
+        self, url: str, label: Label[Q], payload: Q, *, method: str = "GET", headers: Mapping[str, str] | None = None, body: str | bytes | None = None, priority: int = 0, forefront: bool = False, key: str | None = None, timeout: Timeout = ...
     ) -> Enqueued: ...
     @overload
     async def enqueue_links(
@@ -160,7 +195,7 @@ class AsyncCrawlContext(_ContextBase[P]):
         self,
         links: AsyncLocator,
         label: Label[Q],
-        payload: Q,
+        payload: Q | Callable[[LinkInfo], Q | None],
         *,
         include: Sequence[UrlPattern] = (),
         exclude: Sequence[UrlPattern] = (),
@@ -182,11 +217,11 @@ class CrawlContext(_ContextBase[P]):
     def push(self, dataset: Dataset[T], record: T, *, timeout: Timeout = ...) -> None: ...
     @overload
     def enqueue(
-        self, url: str, label: Label[None], *, priority: int = 0, forefront: bool = False, key: str | None = None, timeout: Timeout = ...
+        self, url: str, label: Label[None], *, method: str = "GET", headers: Mapping[str, str] | None = None, body: str | bytes | None = None, priority: int = 0, forefront: bool = False, key: str | None = None, timeout: Timeout = ...
     ) -> Enqueued: ...
     @overload
     def enqueue(
-        self, url: str, label: Label[Q], payload: Q, *, priority: int = 0, forefront: bool = False, key: str | None = None, timeout: Timeout = ...
+        self, url: str, label: Label[Q], payload: Q, *, method: str = "GET", headers: Mapping[str, str] | None = None, body: str | bytes | None = None, priority: int = 0, forefront: bool = False, key: str | None = None, timeout: Timeout = ...
     ) -> Enqueued: ...
     @overload
     def enqueue_links(
@@ -205,7 +240,7 @@ class CrawlContext(_ContextBase[P]):
         self,
         links: Locator,
         label: Label[Q],
-        payload: Q,
+        payload: Q | Callable[[LinkInfo], Q | None],
         *,
         include: Sequence[UrlPattern] = (),
         exclude: Sequence[UrlPattern] = (),

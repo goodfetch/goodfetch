@@ -15,7 +15,8 @@
 //! - [`AgentCall::start`] gives an [`AgentTask`] whose [`AgentTask::steps`] is a lossless
 //!   [`EventStream`] that starts at the task's first step (ADR 0081).
 //! - With the Run's Plan ([`crate::Start::plan`], ADR 0091), the task is one Plan entry, replayed
-//!   whole with no model call (before each Effect, every target reachable without it is checked).
+//!   whole with no model call (before each Effect, its target and the targets the recorded run saw
+//!   before it on open pages are checked; any other step is checked when reached).
 //!   On Drift, or a failed Success check after the replay, the loop takes over live from there: no
 //!   Repair (amends ADR 0009).
 

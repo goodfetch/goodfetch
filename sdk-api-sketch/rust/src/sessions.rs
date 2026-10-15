@@ -754,7 +754,7 @@ impl Page {
 
     /// Playwright's `page.pause()`, with the Human pause's meaning: the program waits while a person
     /// acts in this page, in its window when it is headful on their desktop, else in the Live view
-    /// on any device. It is a gesture: the page's later gestures wait for it; reads and waits run.
+    /// on any device. A paused page takes no Gesture: its later Gestures wait; reads and waits run.
     /// No enclosing timeout counts its time; Usage still counts toward Limits. Dropping the future
     /// ends it.
     pub fn pause(&self) -> Pause {
@@ -809,7 +809,7 @@ pub struct SecretDomainNotAllowed {
 pub struct SecretInputRefused {
     /// The placeholder.
     pub placeholder: String,
-    /// `shared_browser` (ADR 0056) or `cdp_attached` (ADR 0017).
+    /// `shared_browser` (ADR 0056), `cdp_attached` (ADR 0017) or `lent_page` (ADR 0089).
     pub reason: String,
 }
 

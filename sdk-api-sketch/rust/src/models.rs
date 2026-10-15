@@ -420,9 +420,9 @@ impl ConnectOptions {
 
 impl Goodfetch {
     /// The model calls for the declared provider `name`, subscribed when called; a name not declared
-    /// with [`ConnectOptions::model_provider`] fails with `setting_invalid`. A call waits for its
-    /// stream until its own deadline.
-    pub fn model_requests(&self, name: &str) -> EventStream<ModelCall> {
+    /// with [`ConnectOptions::model_provider`], or a second stream while one is open, fails with
+    /// `setting_invalid`. A call waits for its stream until its own deadline.
+    pub fn model_requests(&self, name: &str) -> Result<EventStream<ModelCall>, crate::Error> {
         let _ = name;
         unimplemented!()
     }

@@ -53,7 +53,7 @@ from goodfetch._sessions import (
     SessionStateApi,
     SessionSource,
 )
-from goodfetch._crawl import AsyncCrawl, Crawl, Enqueued, Seed
+from goodfetch._crawl import AsyncCrawl, Crawl, Enqueued, Seed, SitemapSeed
 from goodfetch._data import Dataset, Label
 from goodfetch._results import CrawlRequestOutcome
 from goodfetch._run import AsyncRunControl, AsyncRunView, CrawlRunProgress, CrawlRunReport, RunControl, RunProgress, RunReport, RunView
@@ -291,8 +291,12 @@ class AsyncCrawlRun(_AsyncCloseable, _AsyncExplainsSettings, AsyncRunEvents, Asy
     ) -> AsyncExport:
         """Writes an Export of the Records committed so far (ADR 0026), to save or stream wherever the engine runs."""
     @overload
+    async def add_seed(self, seed: SitemapSeed, /, *, timeout: Timeout = ...) -> Enqueued:
+        """Adds a built seed, such as `sitemap(url, rules)`; a sitemap's entries matching no rule are reported as `no_rule` in
+        the Run's report (ADR 0102)."""
+    @overload
     async def add_seed(
-        self, url: str, label: Label[None], *, priority: int = 0, forefront: bool = False, key: str | None = None, timeout: Timeout = ...
+        self, url: str, label: Label[None], *, method: str = "GET", headers: Mapping[str, str] | None = None, body: str | bytes | None = None, priority: int = 0, forefront: bool = False, key: str | None = None, timeout: Timeout = ...
     ) -> Enqueued: ...
     @overload
     async def add_seed(
@@ -301,6 +305,9 @@ class AsyncCrawlRun(_AsyncCloseable, _AsyncExplainsSettings, AsyncRunEvents, Asy
         label: Label[_P],
         payload: _P,
         *,
+        method: str = "GET",
+        headers: Mapping[str, str] | None = None,
+        body: str | bytes | None = None,
         priority: int = 0,
         forefront: bool = False,
         key: str | None = None,
@@ -337,7 +344,7 @@ class AsyncFoxhound:
         self,
         crawl: AsyncCrawl,
         *,
-        seeds: Sequence[Seed[Any]],
+        seeds: Sequence[Seed[Any] | SitemapSeed],
         id: str | None = None,
         settings: CrawlRunSettings = ...,
         timeout: Timeout = ...,
@@ -548,8 +555,10 @@ class CrawlRun(_Closeable, _ExplainsSettings, RunEvents, RunControl[CrawlRunRepo
         self, dataset: Dataset[Any], *, format: ExportFormat, compression: Literal["gzip", "zstd"] | None = None, timeout: Timeout = ...
     ) -> Export: ...
     @overload
+    def add_seed(self, seed: SitemapSeed, /, *, timeout: Timeout = ...) -> Enqueued: ...
+    @overload
     def add_seed(
-        self, url: str, label: Label[None], *, priority: int = 0, forefront: bool = False, key: str | None = None, timeout: Timeout = ...
+        self, url: str, label: Label[None], *, method: str = "GET", headers: Mapping[str, str] | None = None, body: str | bytes | None = None, priority: int = 0, forefront: bool = False, key: str | None = None, timeout: Timeout = ...
     ) -> Enqueued: ...
     @overload
     def add_seed(
@@ -558,6 +567,9 @@ class CrawlRun(_Closeable, _ExplainsSettings, RunEvents, RunControl[CrawlRunRepo
         label: Label[_P],
         payload: _P,
         *,
+        method: str = "GET",
+        headers: Mapping[str, str] | None = None,
+        body: str | bytes | None = None,
         priority: int = 0,
         forefront: bool = False,
         key: str | None = None,
@@ -590,7 +602,7 @@ class Foxhound:
         self,
         crawl: Crawl,
         *,
-        seeds: Sequence[Seed[Any]],
+        seeds: Sequence[Seed[Any] | SitemapSeed],
         id: str | None = None,
         settings: CrawlRunSettings = ...,
         timeout: Timeout = ...,
@@ -640,8 +652,10 @@ class Goodfetch(Connection):
         and never at import, by default the process's own (ADRs 0062, 0069): only the deployment variables are read, an
         unknown `GOODFETCH_` name fails with `SettingUnknownError`, and an Attached engine gets exactly this map.
         `project` is the project configuration file: left out, found upward from the working directory as the CLI does;
-        `None`, none (ADR 0083). `fetch_backends`, `proxy_providers` and `sinks` are the program's own Plugins, SDK
-        handlers (ADR 0104), run on the connection's thread pool.
+        `None`, none (ADR 0083). `model_providers` are Model providers answered by the program's own code, by the name
+        Model references use, from the Runs this connection opens; a name taken by a built-in, a declared provider or a
+        Plugin raises `SettingInvalidError` (ADR 0101). `fetch_backends`, `proxy_providers` and `sinks` are the
+        program's own Plugins, SDK handlers (ADR 0104). All of them run on the connection's thread pool.
         """
 
     @property

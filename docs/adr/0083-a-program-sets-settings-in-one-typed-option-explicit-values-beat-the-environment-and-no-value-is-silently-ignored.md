@@ -26,6 +26,7 @@ ADR 0028 makes every parameter a setting and resolves it through five layers; th
   > Amended by [ADR 0092](0092-sessions-open-from-their-source-page-pause-waits-for-a-person-and-a-secret-is-a-placeholder-bound-to-domains.md): opening a Session takes `session.source` as such an argument, `source`; set in that Session's own `settings`, which only Rust's single `Settings` type allows, it is refused with `setting_not_applicable`, as `timeout.run` is on a Run.
 - **No setters.** Nothing changes a setting of a scope already open, as Playwright's `page.setDefaultTimeout` does (G2).
 - **The options of `connect()` that are not settings stay its own:** `engine` and `logger` (ADR 0078), `timeout` and `limits` (ADR 0080), the environment map, `project` (below) and `settings` (S2).
+  > Amended by [ADR 0092](0092-sessions-open-from-their-source-page-pause-waits-for-a-person-and-a-secret-is-a-placeholder-bound-to-domains.md): `resolveSecret`, which answers `caller:` Secret references, joins them.
 - **Three states.** A setting left out inherits; `null` (`None` in Python and Rust) clears it where its type allows, such as no timeout; a value sets it. The SDK sends only what the program set and validates nothing the engine owns, so an Operator policy is never bypassed by an SDK-side default (G3; guidelines items 26 and 27).
 
 ### Each language's form

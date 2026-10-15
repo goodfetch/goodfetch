@@ -36,7 +36,7 @@ Decided in [Product names, packages, executables and version line](https://githu
 
 - **The executables are `goodfetch-collie` and `goodfetch-foxhound`** (`goodfetch-collie.exe` and `goodfetch-foxhound.exe` on Windows), on every channel.
 - **A command is `<executable> <command> …`, with no Product group.** ADR 0034's `goodfetch collie …` and `goodfetch foxhound …` groups go.
-- **A command both executables carry keeps one name, its flags, its `--json` output and its exit codes in both**, so moving a script from one Product to the other changes only the executable's name. Which commands each executable carries is decided in [Collie's exact capability set](https://github.com/goodfetch/automan/issues/455) and [Protocol, Operation catalog and SDKs across two products](https://github.com/goodfetch/automan/issues/458).
+- **A command both executables carry keeps one name, its flags, its `--json` output and its exit codes in both**, so moving a script from one Product to the other changes only the executable's name. What each executable carries is [ADR 0088](0088-collie-carries-every-capability-except-those-only-many-pages-need.md)'s, and which commands each offers is decided in [Protocol, Operation catalog and SDKs across two products](https://github.com/goodfetch/automan/issues/458).
 - **Where a text names a command without a Product,** it writes the command alone (`upgrade-files`, `browsers install`), or one executable as an example.
 
 ### Packages

@@ -14,7 +14,7 @@ use std::path::{Path, PathBuf};
 use std::time::SystemTime;
 
 use crate::concurrency::EventStream;
-use crate::crawl::{CrawlRun, Enqueued, FetchTier, Foxhound};
+use crate::crawl::{CrawlRun, Enqueued, FetchTier, Foxhound, NotAddedReason};
 use crate::data::{Dataset, Label, Schema};
 use crate::lifecycle::{Collie, Run};
 use crate::output::{DatasetRecord, ExportCall, ExportFormat, RejectedRecord, StoredBytes};
@@ -117,18 +117,31 @@ pub enum PauseRaisedBy {
     Unknown(String),
 }
 
-/// A Human pause waiting for a person.
+/// A Human pause waiting for a person (ADR 0092). It begins and ends as a change of `progress()`;
+/// the person learns of it from ADR 0027's Notification and the Console's "Needs you". Its time
+/// counts toward no timeout, the Run's included, while its Usage counts toward Limits.
 #[derive(Debug, Clone)]
 #[non_exhaustive]
 pub struct WaitingPause {
     /// The Session whose work waits.
     pub session: String,
+    /// The page it holds, by the page's ID, when it holds one.
+    pub page: Option<String>,
     /// The program's reason, or the engine's own.
     pub reason: Option<String>,
+    /// The `until` condition as text, the Locator's or the URL matcher's description; `None`: a
+    /// person's "Done" ends it.
+    pub until: Option<String>,
     /// Who raised it.
     pub raised_by: PauseRaisedBy,
+    /// For an engine's pause, the step that raised it: `login_recovery` (ADR 0006) or `challenge`
+    /// (ADR 0035's Challenge ladder).
+    pub step: Option<String>,
     /// Since when.
     pub since: SystemTime,
+    /// When it runs out: the first of `timeout.human_pause` and, in a scheduled run, ADR 0036's
+    /// pause timeout; `None` when it waits without limit.
+    pub deadline: Option<SystemTime>,
 }
 
 /// A Run's progress: a telemetry value, coalesced under load (ADR 0024).
@@ -232,16 +245,36 @@ pub struct InFlightRequest {
     pub waiting: Option<(WaitReason, Option<LimitSource>)>,
 }
 
-/// A sitemap seed's sitemaps, read while the Run works (ADR 0093's R3): counted, never listed.
-#[derive(Debug, Clone, Copy, Default)]
+/// A sitemap the engine could not read.
+#[derive(Debug, Clone)]
+#[non_exhaustive]
+pub struct UnreadSitemap {
+    /// Its URL.
+    pub url: String,
+    /// `fetch_failed`, with the response status when one came; `robots_txt`, which disallows it;
+    /// `unparsable`.
+    pub reason: String,
+    /// The response status, when one came.
+    pub status: Option<u16>,
+}
+
+/// A sitemap seed's sitemaps, read while the Run works (ADR 0093's R3): its entries counted, never
+/// listed one by one.
+#[derive(Debug, Clone, Default)]
 #[non_exhaustive]
 pub struct SitemapTotals {
     /// Sitemaps read.
     pub sitemaps_read: u64,
-    /// URLs added.
-    pub urls_added: u64,
-    /// URLs that matched none of the seed's rules, so were not added.
-    pub urls_unmatched: u64,
+    /// Sitemaps it could not read: at most a fixed number, the rest counted in
+    /// `more_sitemaps_unread`.
+    pub sitemaps_unread: Vec<UnreadSitemap>,
+    /// Sitemaps not read beyond those listed.
+    pub more_sitemaps_unread: u64,
+    /// Entries added.
+    pub entries_added: u64,
+    /// The entries not added, by reason: `NoRule` for one that matched no rule, and an enqueue's
+    /// other reasons (ADR 0093).
+    pub entries_not_added: Vec<(NotAddedReason, u64)>,
 }
 
 /// ADR 0040's resource governor.
@@ -308,6 +341,9 @@ pub struct CrawlRunProgress {
     pub in_flight: Vec<InFlightRequest>,
     /// Why concurrency is what it is.
     pub concurrency: CrawlConcurrency,
+    /// True while `crawl::KEEP_ALIVE` holds the Run `running` with an empty Frontier and nothing
+    /// in flight, until `add` gives it work; idle time counts toward the Run's own timeout.
+    pub idle: bool,
     /// Per sitemap seed's URL.
     pub sitemaps: Vec<(String, SitemapTotals)>,
 }
@@ -362,10 +398,11 @@ pub struct RunReport {
     pub lifecycle: Lifecycle,
     /// Set when `lifecycle` is `Stopped`.
     pub stop_reason: Option<RunStopReason>,
-    /// Its Verdict.
+    /// The Run's Verdict (ADR 0029), reading every check it relies on, each AI task's Success
+    /// check included.
     pub verdict: Verdict,
     /// Why it is not `verified`: failed, missing or switched-off checks, uncertain Effects.
-    pub verdict_reasons: Vec<String>,
+    pub verdict_reasons: Vec<VerdictReason>,
     /// Each Effect left uncertain, waiting for a person to reconcile it in the Console (ADRs 0029,
     /// 0106).
     pub uncertain_effects: Vec<crate::effects::UncertainEffect>,
@@ -377,6 +414,7 @@ pub struct RunReport {
     /// The final figures (ADR 0101), the uncapped mark included (ADR 0041).
     pub usage: RunUsage,
     /// What became of the Run's Plan (ADR 0091): every Run has one, its file `None` when it named none.
+    /// Each Agent task is one entry (ADR 0100).
     pub plan: crate::ai::PlanReport,
     /// The Operator policy version it ran under (ADR 0031).
     pub policy_version: Option<String>,
@@ -511,6 +549,49 @@ impl Run {
 
     /// Writes a Checkpoint now (ADR 0002), where the engine keeps the Run's.
     pub fn checkpoint(&self) -> Call<Checkpoint> {
+        unimplemented!()
+    }
+
+    /// The Run trace recorded so far; `None` when the Run keeps none, which the report's
+    /// `weakened` shows.
+    pub fn trace(&self) -> Call<Option<RunTrace>> {
+        unimplemented!()
+    }
+}
+
+/// Why a Run is not `verified`, naming the AI task concerned, an Agent's included, by its
+/// `call_id` (ADR 0100).
+#[derive(Debug, Clone)]
+#[non_exhaustive]
+pub struct VerdictReason {
+    /// Such as `success_check_failed`, `no_success_check`, `check_switched_off` or
+    /// `effect_uncertain`; a newer engine's is kept (G3).
+    pub code: String,
+    /// Its message.
+    pub message: String,
+    /// The AI task concerned.
+    pub call_id: Option<String>,
+}
+
+/// The Run trace (ADR 0031), copied to this machine as an Export is (ADR 0103): what was recorded
+/// so far, in the format ADR 0031 exports it in. A person replays it in the Console at
+/// `console_url`.
+#[derive(Debug, Clone)]
+#[non_exhaustive]
+pub struct RunTrace {
+    /// In bytes.
+    pub size: u64,
+}
+
+impl RunTrace {
+    /// Copies it to a file on this machine, wherever the engine runs.
+    pub fn save_as(&self, path: impl AsRef<Path>) -> Call<()> {
+        let _ = path.as_ref();
+        unimplemented!()
+    }
+
+    /// Its bytes, streamed to this machine.
+    pub fn stream(&self) -> EventStream<Vec<u8>> {
         unimplemented!()
     }
 }
@@ -676,6 +757,11 @@ impl CrawlRun {
         unimplemented!()
     }
 
+    /// The Run trace recorded so far, as [`Run::trace`]'s.
+    pub fn trace(&self) -> Call<Option<RunTrace>> {
+        unimplemented!()
+    }
+
     /// The crawl requests' outcomes, read from the Run's committed state in commit order from its
     /// first, then following new commits until the Run ends. A reader of committed state, it never
     /// slows the Run. A request [`CrawlRun::retry_failed`] re-admits ends again, and its new outcome
@@ -736,6 +822,11 @@ impl RunView {
         unimplemented!()
     }
 
+    /// The Run trace recorded so far; `None` when the Run keeps none.
+    pub fn trace(&self) -> Call<Option<RunTrace>> {
+        unimplemented!()
+    }
+
     /// Its Key-value store's reads, on every Run (ADR 0103).
     pub fn key_value_store(&self) -> KeyValueStoreReader {
         unimplemented!()
@@ -767,6 +858,11 @@ impl CrawlRunView {
 
     /// The crawl's report, as [`RunView::report`]'s.
     pub fn report(&self) -> Call<CrawlRunReport> {
+        unimplemented!()
+    }
+
+    /// The Run trace recorded so far, as [`RunView::trace`]'s.
+    pub fn trace(&self) -> Call<Option<RunTrace>> {
         unimplemented!()
     }
 

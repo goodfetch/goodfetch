@@ -40,13 +40,13 @@ The [pain coverage matrix](pain-coverage.md) lists the pains people reported in 
 
 | Closes as | URLs and crawl space | HTTP and network | Pages and the browser | Sites and anti-bot | Long runs and operations | Data | Total |
 |---|---:|---:|---:|---:|---:|---:|---:|
-| Handled | 8 | 10 | 11 | 10 | 5 | 4 | 48 |
+| Handled | 8 | 10 | 11 | 10 | 5 | 5 | 49 |
 | Handled, untested | 2 | 6 | 11 | 0 | 4 | 1 | 24 |
-| Gap | 9 | 8 | 4 | 0 | 2 | 2 | 25 |
+| Gap | 9 | 8 | 4 | 0 | 2 | 1 | 24 |
 | Declined | 2 | 1 | 1 | 0 | 0 | 0 | 4 |
 | Total | 21 | 25 | 27 | 10 | 11 | 7 | 101 |
 
-The 25 Gap rows close in six tickets: Fetch edges (7 rows), Decoding (4), URL identity (7), Page states (4), Disk and logs (2) and Locale values (1).
+The 24 Gap rows close in five tickets: Fetch edges (7 rows), Decoding (4), URL identity (7), Page states (4) and Disk and logs (2). Locale values' one row, D05, is Handled by ADR 0123.
 
 ## URLs and crawl space
 
@@ -175,6 +175,6 @@ The 25 Gap rows close in six tickets: Fetch edges (7 rows), Decoding (4), URL id
 | D02 | Extraction silently returns nothing, and the run reads as a success | R 4.C2; [Spidermon monitors](https://spidermon.readthedocs.io/en/latest/monitors.html) | Both | 6, 9 | Handled | ADR 0103: a request that succeeded with nothing committed says why. ADR 0091: a required field not on the page fails with `extraction_incomplete`. ADR 0006: a page that is not the expected page fails its Page check. ADR 0029: Runs are reported on three axes. Tested: `TESTING.md` AI verbs cases (`extraction_incomplete`) and Dataset cases; PG "fake success messages" |
 | D03 | Duplicate records within a run and across runs | R 4.C3; [Scrapy duplicates filter](https://docs.scrapy.org/en/latest/topics/item-pipeline.html#duplicates-filter) | Foxhound | 6 | Handled | ADR 0103: a Dataset declares its key, and Records commit once with their attempt. ADR 0008 and ADR 0026: delivery IDs and upsert on declared keys for Sinks across runs. Tested: `TESTING.md` Dataset cases and crash checks ("nothing is visible twice") |
 | D04 | Mojibake in outputs, and outputs in an encoding consumers do not expect | R 4.C4; [Scrapy `FEED_EXPORT_ENCODING`](https://docs.scrapy.org/en/latest/topics/feed-exports.html#std-setting-FEED_EXPORT_ENCODING) | Foxhound | 6 | Gap → [#550](https://github.com/goodfetch/goodfetch/issues/550) | Follows H17's decoding. No ADR states the encoding of Exports |
-| D05 | Locale-formatted dates and numbers, and relative times, parsed wrongly | R 4.C5, 4.C6; [dateparser settings](https://dateparser.readthedocs.io/en/latest/settings.html), [Babel numbers](https://babel.pocoo.org/en/latest/numbers.html) | Both | 9, 6 | Gap → [#554](https://github.com/goodfetch/goodfetch/issues/554) | ADR 0013: a value must appear in the page or follow from a declared transform, and no ADR lists the transforms or their locale |
+| D05 | Locale-formatted dates and numbers, and relative times, parsed wrongly | R 4.C5, 4.C6; [dateparser settings](https://dateparser.readthedocs.io/en/latest/settings.html), [Babel numbers](https://babel.pocoo.org/en/latest/numbers.html) | Both | 9, 6 | Handled | ADR 0123: a number, currency, date or relative time written for people is read by an engine Value transform under a stated locale (`extract.locale`, or chosen by the compile and sharing the element's `lang` language) and time zone (`extract.timezone_id`, or the Session's `browser.timezone_id`), never the machine's. Grounding runs the transform again, a replayed text that does not parse is Drift, a Plan variant keys on the page's language and the Session's locale and zone, relative times are anchored at the document's fetch time, and Provenance keeps the text. Tested: `TESTING.md` Value transform conformance cases; PG "geo and language variants" |
 | D06 | Partly written or overwritten output files | R 4.C7; [`rename(2)`](https://man7.org/linux/man-pages/man2/rename.2.html) | Both | 6 | Handled | ADR 0116: every file a program saves is written to a temporary file and renamed, whole or not at all, failing with `path_not_writable` or `file_write_failed`. Tested: `TESTING.md` saved-file cases (path errors, storage full on the engine's side, partial files) |
 | D07 | CSV columns fixed by the first item, losing later fields | R 4.C8; [Scrapy `fields_to_export`](https://docs.scrapy.org/en/latest/topics/exporters.html#scrapy.exporters.BaseItemExporter.fields_to_export) | Foxhound | 6 | Handled, untested | ADR 0008 and ADR 0026, ADR 0037 / CO-27: Files mode carries the union of all fields. No case exports Records with different fields |

@@ -1,9 +1,9 @@
-//! Snippet for Collie's AI verbs and Plans (#473, ADR 0091), on golden scenarios 02, 03 and 11.
+//! Snippet for Collie's AI verbs and Plans (#473, ADR 0091) and the Value transforms (#554, ADR 0123), on golden scenarios 02, 03 and 11.
 
 use goodfetch_collie::schemars::{self, JsonSchema};
-use goodfetch_collie::settings::plan;
+use goodfetch_collie::settings::{extract, plan};
 use goodfetch_collie::{
-    ConnectOptions, Error, ErrorCode, Expected, Collie, Page, Schema, Settings, StepSource,
+    ConnectOptions, Error, ErrorCode, Expected, Collie, Page, Run, Schema, Settings, StepSource,
     expect,
 };
 use serde::Deserialize;
@@ -158,7 +158,40 @@ async fn frozen_replay(collie: &Collie) -> Result<(), Error> {
     expect(&page.get_by_text("Viewing tag: love")).to_be_visible().await
 }
 
+/// Values a German shop writes for people, read by Value transforms under its locale (ADR 0123).
+/// The engine parses, never the machine's locale; the model picks the text and the transform, never
+/// the value, and Grounding runs the transform again.
+#[derive(Debug, Deserialize, JsonSchema)]
+pub struct Offer {
+    /// `number` under `de-DE`: "1.099,98" is the exact decimal "1099.98".
+    #[schemars(regex(pattern = r"^\d+\.\d{2}$"))]
+    pub price: String,
+    /// `currency`: "€" becomes "EUR".
+    pub currency: String,
+    /// `date`: "01.02.2026" becomes "2026-02-01".
+    #[schemars(extend("format" = "date"))]
+    pub available_from: String,
+    /// `relative_time`: "vor 3 Stunden", anchored at the page's fetch time, in RFC 3339.
+    #[schemars(extend("format" = "date-time"))]
+    pub updated_at: String,
+    /// The page's own text, when the program wants it beside the value.
+    pub price_text: String,
+}
+
+/// Stating the locale and zone is optional: without them the compile chooses the locale from the
+/// page (its `lang` is "de"), and a date-time with no offset takes the Session's `browser.timezone_id`.
+async fn german_offer(run: &Run) -> Result<Offer, Error> {
+    let settings = Settings::new()
+        .set(extract::LOCALE, Some("de-DE".into()))
+        .set(extract::TIMEZONE_ID, Some("Europe/Berlin".into()));
+    let page = run.new_page().settings(settings).await?;
+    page.goto("https://shop.example/produkt/42").await?;
+    let instruction = "the offer: price, currency, availability date, last update";
+    Ok(page.extract(instruction, Schema::<Offer>::of()).await?.output)
+}
+
 fn main() {
     let _ = (author_of_first_love_quote, typed_book, search, search_with_act, own_agent_loop, frozen_replay);
+    let _ = german_offer;
     let _ = schemars::schema_for!(Author);
 }

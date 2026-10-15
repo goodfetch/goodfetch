@@ -1,4 +1,4 @@
-// Snippet for Collie's AI verbs and Plans (#473, ADR 0091), on golden scenarios 02, 03, 09 and 11.
+// Snippet for Collie's AI verbs and Plans (#473, ADR 0091) and the Value transforms (#554, ADR 0123), on golden scenarios 02, 03, 09 and 11.
 import { z } from "zod";
 import {
   ExtractionIncompleteError,
@@ -115,4 +115,22 @@ export async function frozenReplay(page: Page): Promise<void> {
     if (error instanceof PlanDriftError) log.error(`${error.details.instruction}: ${error.details.whyNoRepair}`);
     throw error;
   }
+}
+
+// Values a page writes for people (ADR 0123). A German shop prints "1.099,98 €", "01.02.2026" and
+// "vor 3 Stunden": the engine reads each with a Value transform under the page's stated locale, never
+// the machine's, and Grounding runs it again. The model picks the text and the transform, never the value.
+const Offer = z.object({
+  price: z.string().regex(/^\d+\.\d{2}$/), // `number` under de-DE writes the exact decimal "1099.98"
+  currency: z.string().length(3), // `currency`: "€" becomes "EUR"
+  availableFrom: z.iso.date(), // `date`: "01.02.2026" becomes "2026-02-01"
+  updatedAt: z.iso.datetime({ offset: true }), // `relative_time`, anchored at the page's fetch time
+  priceText: z.string(), // the page's own text, when the program wants it beside the value
+});
+export async function germanOffer(run: Run): Promise<z.infer<typeof Offer>> {
+  // Stating the locale and zone is optional: without them the compile chooses the locale from the
+  // page (its `lang` is "de"), and a date-time with no offset takes the Session's `browser.timezoneId`.
+  const page = await run.newPage({ settings: { extract: { locale: "de-DE", timezoneId: "Europe/Berlin" } } });
+  await page.goto("https://shop.example/produkt/42");
+  return (await page.extract("the offer: price, currency, availability date, last update", Offer)).output;
 }

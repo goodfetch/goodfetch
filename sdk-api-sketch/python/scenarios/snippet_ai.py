@@ -1,12 +1,13 @@
-"""Snippet for Collie's AI verbs and Plans (#473, ADR 0091), on golden scenarios 02, 03, 09 and 11."""
+"""Snippet for Collie's AI verbs and Plans (#473, ADR 0091) and the Value transforms (#554, ADR 0123), on golden scenarios 02, 03, 09 and 11."""
 
 import logging
 import re
 from collections.abc import Awaitable, Callable
+from datetime import date
 from decimal import Decimal
 from typing import Literal
 
-from pydantic import BaseModel, Field
+from pydantic import AwareDatetime, BaseModel, Field
 
 from goodfetch_collie import (
     AsyncCollie,
@@ -131,3 +132,24 @@ def frozen_replay_sync() -> None:
             log.error("%s: %s", error.details.instruction, error.details.why_no_repair)
             raise
         expect(page.get_by_text("Viewing tag: love")).to_be_visible()
+
+
+class Offer(BaseModel):
+    """Values a German shop writes for people, read by Value transforms under its locale (ADR 0123)."""
+
+    price: Decimal = Field(decimal_places=2)  # `number` under de-DE: "1.099,98" is the exact 1099.98
+    currency: str = Field(min_length=3, max_length=3)  # `currency`: "€" becomes "EUR"
+    available_from: date  # `date`: "01.02.2026" becomes 2026-02-01
+    updated_at: AwareDatetime  # `relative_time`: "vor 3 Stunden", anchored at the page's fetch time
+    price_text: str  # the page's own text, when the program wants it beside the value
+
+
+async def german_offer(run: AsyncRun) -> Offer:
+    """The engine parses, never the machine's locale; the model picks the text and the transform, never the value.
+
+    Stating the locale and zone is optional: without them the compile chooses the locale from the page
+    (its `lang` is "de"), and a date-time with no offset takes the Session's `browser.timezone_id`.
+    """
+    page = await run.new_page(settings={"extract": {"locale": "de-DE", "timezone_id": "Europe/Berlin"}})
+    await page.goto("https://shop.example/produkt/42")
+    return (await page.extract("the offer: price, currency, availability date, last update", Offer)).output

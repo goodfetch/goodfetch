@@ -32,7 +32,7 @@ The design vocabulary is the one of `codebase-design`: a **module** has an **int
 
 ### Workspace and crates
 
-- **The root `Cargo.toml` is a virtual manifest.** Members live under `crates/`, `crates/foxhound/` (every crate only Foxhound links, ADR 0087) and `crates/foxhound/sinks/`, plus `proving-ground/` (ADR 0032) and an `xtask/` folder at the root for `xtask codegen` and `xtask release`. Each folder name equals its crate name, and internal crates are named `goodfetch-<glossary term>`, apart from the test-only `goodfetch-test-support`. Siblings and shared dependencies are referenced with `.workspace = true`.
+- **The root `Cargo.toml` is a virtual manifest.** Members live under `crates/`, `crates/foxhound/` (every crate only Foxhound links, ADR 0087) and `crates/foxhound/sinks/`, plus `proving-ground/` (ADR 0032) and an `xtask/` folder at the root for `xtask codegen` and `xtask release`. Each folder name equals its crate name, and internal crates are named `goodfetch-<glossary term>`, apart from the test-only `goodfetch-test-support`. A crate takes a Product's name only when it is that Product's executable crate or a crate the Product publishes for its users: `goodfetch-collie` or `goodfetch-foxhound` for the crate published as its Rust SDK, `goodfetch-<product>-<part>` for any other (ADR 0090). Siblings and shared dependencies are referenced with `.workspace = true`.
 - **A concern becomes its own crate only for one of these reasons:**
   1. it is a separate executable (each Product's executable, a sink process, the sandbox helper, `xtask`, the Proving ground);
   2. the compiler must enforce a dependency direction (nothing outside `crates/foxhound/` but `xtask` depends on a crate inside it, so no Collie crate depends on a Foxhound crate (ADRs 0084, 0087); `goodfetch-protocol` never depends on the engine; the Proving ground never depends on engine crates; `goodfetch-conformance` depends only on `goodfetch-protocol`; `goodfetch-test-support` depends on no Goodfetch crate and is only ever a dev-dependency (ADR 0062); the test-only crate holding turmoil's network adapter is taken only by integration tests (ADR 0087); a Private component's interface with its no-op implementation);
@@ -119,7 +119,7 @@ For anything non-trivial, a known and widely used project is preferred to writin
 ### Cargo features
 
 - **A capability is never a Cargo feature** (ADR 0038): stealth, the Challenge solver, AI and costly controls are settings. The Products differ only by the crates their executables link, never by a feature (ADR 0087).
-- **Features exist only on the published crates through which each Product's SDK embeds its engine**, only for heavy optional dependencies and `test-util`, and they are additive. Each Product's executable builds one fixed set in its own `cargo build -p`, and `cargo-hack` checks every combination of each embeddable crate's features.
+- **Features exist only on the published crates through which each Product's SDK embeds its engine** (such as `goodfetch-collie` and `goodfetch-foxhound`, ADR 0090), only for heavy optional dependencies and `test-util`, and they are additive. Each Product's executable builds one fixed set in its own `cargo build -p`, and `cargo-hack` checks every combination of each embeddable crate's features.
 - **Platform differences use `cfg(target_os = …)`, never features.** Custom `cfg`s are declared for `unexpected_cfgs`: `goodfetch_loom` for loom tests (ADR 0060), and `tokio_unstable` only because the Simulation's scenarios compile under it, in a job of their own. Under `goodfetch_loom`, a crate's `sync` module maps its atomics and locks to loom, and `disallowed-types` refuses the std atomic, `Mutex`, `RwLock` and `Condvar` types outside it.
 
 ### Tests
@@ -128,8 +128,8 @@ The test rules live in [`TESTING.md`](TESTING.md) (where tests live, how they ar
 
 ### Documentation in code
 
-- **`missing_docs` warns on `goodfetch` and `goodfetch-protocol`.**
-- **Each public function of `goodfetch` and `goodfetch-protocol` documents `# Errors`** (with the Error codes it can return), **`# Cancel safety`** if it is async and **`# Panics`** if it can panic; on `goodfetch` it also has **an example** that runs as a doctest.
+- **`missing_docs` warns on `goodfetch-collie`, `goodfetch-foxhound` and `goodfetch-protocol`.**
+- **Each public function of `goodfetch-collie`, `goodfetch-foxhound` and `goodfetch-protocol` documents `# Errors`** (with the Error codes it can return), **`# Cancel safety`** if it is async and **`# Panics`** if it can panic; on the two Products' crates it also has **an example** that runs as a doctest.
 - **Internal crates document what a caller outside the module must know**: their `//!` headers, `# Errors` where a caller would otherwise guess, and `# Cancel safety` on every public async function (ADR 0038).
 - **The catalog's description of an operation is its only text source:** MCP tool descriptions, SDK docstrings and reference pages are generated from it.
   _Why:_ what a model reads in a tool description directly affects agent accuracy, and the surfaces then never disagree.

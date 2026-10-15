@@ -17,7 +17,7 @@ class DomainPolitenessSettings(TypedDict, total=False):
 
     concurrency: int
     """Requests in flight per domain, each from its start until its response (a browser-tier page until its load event),
-    whatever its page loads. Built-in: 1. At 1, a crawl's Run that switches hedges or `tier_race` on is refused."""
+    whatever its page loads. Built-in: 1. At 1, a crawl's Run that switches hedges or `fetch.tier_race` on is refused."""
     delay: timedelta
     """The least time between two request starts to one domain; zero for none. Built-in: one second. While robots.txt
     is respected, a host's Crawl-delay raises it for the host's whole domain key."""

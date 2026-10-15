@@ -160,7 +160,8 @@ impl<'a> Crawl<'a> {
     /// `crawl::handler::CONCURRENCY` requests at once, inside this future, until the Run ends, then
     /// returns its report (ADR 0102): serving is what lets a crawl finish. Dropping it is the
     /// program's own stop: it sends `$/cancel`, and the requests it leased return to pending
-    /// without counting an attempt.
+    /// without counting an attempt. A handler's panic is caught and ends its attempt with
+    /// `handler_failed`, as an exception does in TypeScript and Python.
     pub async fn serve(&self, run: &CrawlRun) -> Result<crate::run::CrawlRunReport, Error> {
         let _ = run;
         unimplemented!()
@@ -223,7 +224,8 @@ impl<P> CrawlRequest<P> {
 }
 
 /// What a handler receives, the same on every fetch tier. A context belongs to one attempt: once
-/// it has ended (`skip`, `retry`, an escalation, the handler's timeout, a lost lease), every call
+/// it has ended (`skip`, `retry`, an escalation, the handler's timeout, a lost lease, the Run's
+/// close), every call
 /// on it fails with `attempt_ended`, and what the attempt staged is discarded.
 #[derive(Debug)]
 pub struct CrawlContext<P> {

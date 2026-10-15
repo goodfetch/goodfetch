@@ -13,7 +13,7 @@
 export interface DomainPolitenessSettings {
   /**
    * Requests in flight per domain, each from its start until its response (a browser-tier page until its
-   * load event), whatever its page loads. Built-in: 1. At 1, a crawl's Run that switches hedges or `tier_race` on is refused.
+   * load event), whatever its page loads. Built-in: 1. At 1, a crawl's Run that switches hedges or `fetch.tier_race` on is refused.
    */
   readonly concurrency?: number;
   /**

@@ -370,9 +370,10 @@ export declare class ResponseUnavailableError extends PageError {
   readonly details: { readonly status: number };
 }
 /**
- * The program stopped answering for this attempt with no word: its process ended or its connection
- * dropped. Retryable, and counted against `crawl.retry.max`. The program's own stop (`close()`, a
- * dropped Rust `serve` future) counts nothing.
+ * The program stopped answering for this attempt with no word: its process ended (a crash, or a
+ * signal it does not handle: close the Run on SIGINT or SIGTERM), its connection dropped, or its
+ * Attached engine died with it and the Run was resumed. Retryable, and counted against
+ * `crawl.retry.max`. The program's own stop (`close()`, a dropped Rust `serve` future) counts nothing.
  */
 export declare class HandlerLostError extends UnavailableError {
   readonly code: "handler_lost";

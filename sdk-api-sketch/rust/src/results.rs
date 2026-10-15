@@ -658,10 +658,12 @@ pub enum SkipReason {
     /// Also a handler's own navigation refused for it whose `site_preferences_refused` escaped the
     /// handler.
     RobotsTxt,
-    /// A Crawl-delay above `site_preferences.max_crawl_delay` (ADR 0086).
+    /// A Crawl-delay above `site_preferences.max_crawl_delay` (ADR 0086), also for an escaped
+    /// `site_preferences_refused` of a handler's navigation.
     CrawlDelay,
     /// An AI-use signal that refuses the run's Purpose while
-    /// `site_preferences.respect_use_signals` is on (ADR 0086).
+    /// `site_preferences.respect_use_signals` is on (ADR 0086), also for an escaped
+    /// `site_preferences_refused` of a handler's navigation.
     UseSignals,
     /// A before-request Hook (ADR 0033).
     Hook,

@@ -116,7 +116,7 @@ class _ContextBase(Generic[P]):
 @final
 class AsyncCrawlContext(_ContextBase[P]):
     """What an `async def` handler receives, the same on every fetch tier. A context belongs to one attempt: once it has
-    ended (`skip`, `retry`, an escalation, the handler's timeout, a lost lease), every call on it raises
+    ended (`skip`, `retry`, an escalation, the handler's timeout, a lost lease, the Run's close), every call on it raises
     `AttemptEndedError`, and what the attempt staged is discarded."""
 
     @property

@@ -23,6 +23,10 @@ from goodfetch._sessions import Permission, ProxySettings, SecretsSettings, Sess
 from goodfetch._results import ProgramError, RefusedError, RunLayerOrigin, SettingsLayer, UnavailableError
 from goodfetch._models import AiSettings, PageAiSettings
 
+class LocatorSettings(TypedDict, total=False):
+    test_id_attribute: str
+    """`locator.test_id_attribute`, settable at any scope (ADR 0085)."""
+
 class TimeoutSettings(TypedDict, total=False):
     """`timeout.*`: ADR 0080's phases, one family. `None` clears a phase's timeout for the whole scope. `timeout.connect`
     is set only in the project file, which `connect()` applies; a connection's own is `connect()`'s `timeout` (S2)."""
@@ -236,6 +240,7 @@ class AgentSettings(TypedDict, total=False):
 class Settings(TypedDict, total=False):
     """Every setting, as a connection takes them. A sample of the generated type."""
 
+    locator: LocatorSettings
     timeout: TimeoutSettings
     browser: BrowserSettings
     network: NetworkSettings
@@ -268,6 +273,7 @@ class Settings(TypedDict, total=False):
 class CrawlRunSettings(TypedDict, total=False):
     """A crawl Run's settings: every setting but `timeout.run`, which starting the Run spells as its `timeout` (S2)."""
 
+    locator: LocatorSettings
     timeout: RunTimeoutSettings
     browser: BrowserSettings
     network: NetworkSettings
@@ -298,10 +304,6 @@ class LabelCrawlSettings(TypedDict, total=False):
     handle_statuses: list[int]
     handler: CrawlHandlerSettings
 
-class LabelLocatorSettings(TypedDict, total=False):
-    test_id_attribute: str
-    """`locator.test_id_attribute`, settable at any scope (ADR 0085)."""
-
 class LabelSettings(TypedDict, total=False):
     """A Label's settings (ADR 0093): every setting a page takes, what shapes one crawl request, every `session.*` key
     and `secrets.*`. `session.source`, `session.http_credentials`, `secrets.*` and a `login` step give the Label's
@@ -310,11 +312,12 @@ class LabelSettings(TypedDict, total=False):
     Site preferences, scope and Run-wide keys are refused with `setting_not_applicable`: two Labels on one domain share
     its Politeness with every run of the user (ADR 0053)."""
 
-    locator: LabelLocatorSettings
+    locator: LocatorSettings
     timeout: LabelTimeoutSettings
     extract: ExtractSettings
     observation: ObservationSettings
     ai: PageAiSettings
+    agent: AgentSettings
     fetch: LabelFetchSettings
     crawl: LabelCrawlSettings
     session: SessionLoginSettings
@@ -325,6 +328,7 @@ class RunSettings(TypedDict, total=False):
     0086). A setting the type cannot rule out, such as `timeout.handler`, is refused with
     `setting_not_applicable`."""
 
+    locator: LocatorSettings
     timeout: RunTimeoutSettings
     browser: BrowserSettings
     network: NetworkSettings
@@ -357,6 +361,7 @@ class SessionSettings(TypedDict, total=False):
 class PageSettings(TypedDict, total=False):
     """A page's settings: no part of the Session's identity."""
 
+    locator: LocatorSettings
     timeout: PageTimeoutSettings
     extract: ExtractSettings
     observation: ObservationSettings

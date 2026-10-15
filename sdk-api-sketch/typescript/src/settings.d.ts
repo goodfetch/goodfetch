@@ -188,6 +188,7 @@ export interface SinkSettings {
 
 /** Every setting, as a connection takes them. A sample of the generated type. */
 export interface Settings {
+  readonly locator?: LocatorSettings;
   readonly timeout?: TimeoutSettings;
   readonly browser?: BrowserSettings;
   readonly network?: NetworkSettings;
@@ -232,8 +233,6 @@ export type CrawlRunSettings = Omit<Settings, "timeout"> & { readonly timeout?: 
  */
 export interface LabelSettings extends Omit<PageSettings, "timeout"> {
   readonly timeout?: NonNullable<PageSettings["timeout"]> & Pick<TimeoutSettings, "handler" | "hook">;
-  /** `locator.test_id_attribute`, settable at any scope (ADR 0085). */
-  readonly locator?: { readonly testIdAttribute?: string };
   readonly fetch?: Pick<FetchSettings, "tier">;
   readonly crawl?: Pick<CrawlSettings, "retry" | "handleStatuses" | "handler">;
   readonly session?: SessionLoginSettings;
@@ -246,6 +245,7 @@ export interface LabelSettings extends Omit<PageSettings, "timeout"> {
  * type cannot rule out, such as `timeout.handler`, is refused with `setting_not_applicable`.
  */
 export interface RunSettings {
+  readonly locator?: LocatorSettings;
   readonly timeout?: Omit<TimeoutSettings, "run">;
   readonly browser?: BrowserSettings;
   readonly network?: NetworkSettings;
@@ -271,8 +271,15 @@ export interface SessionSettings extends Omit<RunSettings, "sitePreferences" | "
   readonly session?: Omit<SessionLoginSettings, "source">;
 }
 
+/** `locator.*` (ADR 0085), settable at any scope. */
+export interface LocatorSettings {
+  /** `locator.test_id_attribute`: the attribute `getByTestId` matches, `data-testid` by default. */
+  readonly testIdAttribute?: string;
+}
+
 /** A page's settings: no part of the Session's identity. */
 export interface PageSettings {
+  readonly locator?: LocatorSettings;
   readonly timeout?: Pick<TimeoutSettings, "action" | "navigation" | "wait" | "humanPause" | "ai" | "model" | "agent">;
   readonly extract?: ExtractSettings;
   readonly observation?: ObservationSettings;

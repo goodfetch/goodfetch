@@ -1,6 +1,6 @@
 // Snippet for Hooks and injectable components in the SDK API (#481, ADR 0104), on golden scenario 05's crawl.
 import { z } from "zod";
-import { Crawl, Goodfetch, secret, seed, type Logger, type ProxyProviderHandler } from "goodfetch";
+import { Crawl, Foxhound, secret, seed, type Logger, type ProxyProviderHandler } from "@goodfetch/foxhound";
 
 declare const log: Logger;
 declare const proxies: { lease(domain: string): Promise<{ host: string; user: string }> }; // the program's own proxy pool
@@ -15,10 +15,10 @@ const book = crawl.label("book", { payload: z.object({ category: z.string() }) }
 // The header's value is a Secret placeholder: the engine adds it after the last Hook, so the key
 // never passes through the program (ADR 0092).
 crawl.beforeRequest(
-  ({ request, previousError, skip }) => {
+  (ctx) => {
     // Also the stage before a retry: stop retrying a request the site keeps timing out on.
-    if (previousError?.code === "deadline_exceeded" && request.attempt > 2) skip(`gave up on ${request.payload.category}`);
-    return { headers: { "x-catalog-key": secret("catalog_key"), "x-category": request.payload.category } };
+    if (ctx.previousError()?.code === "deadline_exceeded" && ctx.request.attempt > 2) ctx.skip(`gave up on ${ctx.request.payload.category}`);
+    return { headers: { "x-catalog-key": secret("catalog_key"), "x-category": ctx.request.payload.category } };
   },
   { labels: [book], name: "catalog-key" },
 );
@@ -34,14 +34,15 @@ crawl.beforeNavigation(async ({ page }) => {
 });
 
 // Page ready, unscoped: runs just before every handler, on every tier — Crawlee's router.use.
-crawl.pageReady(({ request, tier }) => {
-  log.debug("handling", { url: request.url, label: request.label.name, tier });
+crawl.pageReady((ctx) => {
+  log.debug("handling", { url: ctx.request.url, label: ctx.request.label.name, tier: ctx.tier() });
 });
 
 // Before a Record's commit, scoped by Dataset: it sees and returns the Dataset's Record type.
 crawl.beforeRecordCommit(
-  ({ record, drop }) => {
-    if (record.title.trim() === "") drop("no title");
+  (ctx) => {
+    const record = ctx.record();
+    if (record.title.trim() === "") ctx.drop("no title");
     return { ...record, title: record.title.trim() };
   },
   { datasets: [books], name: "trim-title" },
@@ -63,13 +64,13 @@ const officePool: ProxyProviderHandler = async ({ domain }) => {
 };
 
 export async function crawlWithHooks(): Promise<void> {
-  await using gf = await Goodfetch.connect({
+  await using foxhound = await Foxhound.connect({
     logger: log,
     proxyProviders: { "office-pool": officePool },
     // `caller:office-proxy` resolves here, at the moment of use (ADR 0092).
     resolveSecret: async () => "from the program's own store",
   });
-  await using run = await gf.foxhound.startCrawl(crawl, {
+  await using run = await foxhound.startCrawl(crawl, {
     seeds: [seed("https://books.toscrape.com/", home)],
     settings: { secrets: { catalog_key: { reference: "env:CATALOG_KEY", domains: ["books.toscrape.com"] } } },
   });

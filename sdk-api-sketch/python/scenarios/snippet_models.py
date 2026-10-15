@@ -7,9 +7,9 @@ from typing import Literal
 
 from pydantic import BaseModel, Field
 
-from goodfetch import (
+from goodfetch_foxhound import (
     AsyncCrawlRun,
-    AsyncGoodfetch,
+    AsyncFoxhound,
     AsyncPage,
     ExtractionIncompleteError,
     ExtractionInvalidError,
@@ -48,8 +48,8 @@ async def typed_book(local: bool) -> Book | None:
     name, a slash, and that provider's own model ID. The connection's setting serves every call; one call may name its
     own, here a local model served by Ollama, priced zero at its default address."""
     async with (
-        AsyncGoodfetch.connect(settings={"ai": {"model": "anthropic/claude-sonnet-4-5"}}) as gf,  # env:ANTHROPIC_API_KEY
-        await gf.collie.start() as run,
+        AsyncFoxhound.connect(settings={"ai": {"model": "anthropic/claude-sonnet-4-5"}}) as foxhound,  # env:ANTHROPIC_API_KEY
+        await foxhound.start() as run,
     ):
         page = await run.new_page()
         await page.goto("https://books.toscrape.com/catalogue/a-light-in-the-attic_1000/index.html")
@@ -71,7 +71,7 @@ async def typed_book(local: bool) -> Book | None:
 
 
 async def in_house_model(request: ModelRequest) -> ModelResponse:
-    """The program's own Model provider (ADR 0033's SDK-handler form): Goodfetch's own types, no provider SDK."""
+    """The program's own Model provider (ADR 0033's SDK-handler form): Foxhound's own types, no provider SDK."""
     text = "{}"  # calls the program's own inference service
     return ModelResponse(text=text, finish_reason="stop", usage=ReportedTokens(input_tokens=812, output_tokens=64))
 
@@ -79,7 +79,7 @@ async def in_house_model(request: ModelRequest) -> ModelResponse:
 async def providers() -> None:
     """A gateway, a declared OpenAI-compatible server, and the program's own handler. Capabilities are declared, never
     guessed from the name; prices are set only in configuration."""
-    async with AsyncGoodfetch.connect(
+    async with AsyncFoxhound.connect(
         model_providers={"inhouse": in_house_model},  # "inhouse/<anything>" reaches it
         settings={
             "ai": {
@@ -98,8 +98,8 @@ async def providers() -> None:
             },
             "timeout": {"model": timedelta(minutes=2), "ai": timedelta(minutes=5)},  # a slow server, so both are raised
         },
-    ) as gf:
-        async with await gf.collie.start(settings={"ai": {"model": "lab/qwen3-vl-32b"}}) as run:
+    ) as foxhound:
+        async with await foxhound.start(settings={"ai": {"model": "lab/qwen3-vl-32b"}}) as run:
             page = await run.new_page()
             await page.goto("https://books.toscrape.com/")
             await page.act("open the Travel category")
@@ -107,11 +107,11 @@ async def providers() -> None:
             await page.extract("the books listed", Titles, model="inhouse/ranker-v2")
 
 
-async def capped_run(gf: AsyncGoodfetch) -> None:
+async def capped_run(foxhound: AsyncFoxhound) -> None:
     """Run totals, what remains of each Limit, and the uncapped mark (ADR 0041). The price Limit and `usage.price` are
     the same `Money`."""
     limits = Limits(price=Money(amount=Decimal("0.20"), currency="USD"), model_calls=40)
-    async with await gf.collie.start(limits=limits) as run:
+    async with await foxhound.start(limits=limits) as run:
         page = await run.new_page()
         await page.goto("https://books.toscrape.com/")
         await page.act("open the Travel category")

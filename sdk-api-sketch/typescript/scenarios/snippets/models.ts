@@ -1,7 +1,7 @@
 // Snippet for Models, usage and cost in the SDK API (#475, ADR 0101), on golden scenarios 02, 08 and 11.
 import { z } from "zod";
 import {
-  Goodfetch,
+  Collie,
   ExtractionIncompleteError,
   ExtractionInvalidError,
   ModelUnavailableError,
@@ -11,7 +11,7 @@ import {
   type TokenCounts,
   type Page,
   type Run,
-} from "goodfetch";
+} from "@goodfetch/collie";
 
 declare const log: Logger; // the program's own logger
 
@@ -34,11 +34,11 @@ const usageFields = (usage: TokenCounts) => ({
 // a provider's name, a slash, and that provider's own model ID. The connection's setting serves every
 // call; one call may name its own, here a local model served by Ollama, priced zero at its default address.
 export async function typedBook(local: boolean): Promise<z.infer<typeof Book> | undefined> {
-  await using gf = await Goodfetch.connect({
+  await using collie = await Collie.connect({
     logger: log,
     settings: { ai: { model: "anthropic/claude-sonnet-4-5" } }, // key: env:ANTHROPIC_API_KEY, sent only to Anthropic
   });
-  await using run = await gf.collie.start();
+  await using run = await collie.start();
   const page = await run.newPage();
   await page.goto("https://books.toscrape.com/catalogue/a-light-in-the-attic_1000/index.html");
   try {
@@ -63,13 +63,13 @@ export async function typedBook(local: boolean): Promise<z.infer<typeof Book> | 
 // Capabilities are declared, never guessed from the name; prices are set only in configuration.
 declare function inference(prompt: string, signal: AbortSignal): Promise<{ text: string; inTokens: number; outTokens: number }>;
 const myModel: ModelProviderHandler = async (request) => {
-  // Goodfetch's own types: no provider SDK. The engine counts, caps and journals the call.
+  // Collie's own types: no provider SDK. The engine counts, caps and journals the call.
   const prompt = request.messages.map((message) => JSON.stringify(message)).join("\n");
   const answer = await inference(prompt, request.signal); // aborted past timeout.model
   return { text: answer.text, finishReason: "stop", usage: { inputTokens: answer.inTokens, outputTokens: answer.outTokens } };
 };
 export async function providers(): Promise<void> {
-  await using gf = await Goodfetch.connect({
+  await using collie = await Collie.connect({
     modelProviders: { inhouse: myModel }, // "inhouse/<anything>" reaches it
     settings: {
       ai: {
@@ -78,8 +78,8 @@ export async function providers(): Promise<void> {
         providers: {
           lab: {
             format: "openai",
-            baseUrl: "http://gpu-box.internal:8000/v1",
-            apiKey: "env:LAB_VLLM_KEY", // a Secret reference, sent only to baseUrl
+            baseURL: "http://gpu-box.internal:8000/v1",
+            apiKey: "env:LAB_VLLM_KEY", // a Secret reference, sent only to baseURL
             models: { "qwen3-vl-32b": { imageInput: true, contextWindow: 131_072, strategies: ["native", "prompt"] } },
           },
         },
@@ -87,7 +87,7 @@ export async function providers(): Promise<void> {
       timeout: { model: 120_000, ai: 300_000 }, // a slow server: one model request may take 2 minutes, an AI call 5
     },
   });
-  await using run = await gf.collie.start({ settings: { ai: { model: "lab/qwen3-vl-32b" } } });
+  await using run = await collie.start({ settings: { ai: { model: "lab/qwen3-vl-32b" } } });
   const page = await run.newPage();
   await page.goto("https://books.toscrape.com/");
   await page.act("open the Travel category");
@@ -100,8 +100,8 @@ export async function providers(): Promise<void> {
 
 // Run totals, what remains of each Limit, and the uncapped mark (ADR 0041). The price Limit and
 // `usage.price` are the same `Money`.
-export async function cappedRun(gf: Goodfetch): Promise<void> {
-  await using run = await gf.collie.start({ limits: { price: { amount: "0.20", currency: "USD" }, modelCalls: 40 } });
+export async function cappedRun(collie: Collie): Promise<void> {
+  await using run = await collie.start({ limits: { price: { amount: "0.20", currency: "USD" }, modelCalls: 40 } });
   const page = await run.newPage();
   await page.goto("https://books.toscrape.com/");
   await page.act("open the Travel category");

@@ -6,13 +6,13 @@ requires-python = ">=3.11"
 [tool.pyright]
 typeCheckingMode = "strict"
 pythonVersion = "3.11"
-include = ["goodfetch", "scenarios"]
+include = ["goodfetch_collie_client", "goodfetch_collie", "goodfetch_foxhound", "scenarios"]
 extraPaths = ["."]
-# A stub-only sketch: a submodule such as `goodfetch.testing` has no source to find.
+# A stub-only sketch: a submodule such as `goodfetch_collie.testing` has no source to find.
 reportMissingModuleSource = "none"
 
 [tool.mypy]
 strict = true
 python_version = "3.11"
 mypy_path = "."
-files = ["goodfetch", "scenarios"]
+files = ["goodfetch_collie_client", "goodfetch_collie", "goodfetch_foxhound", "scenarios"]

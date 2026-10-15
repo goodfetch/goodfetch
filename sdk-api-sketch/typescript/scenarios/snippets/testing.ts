@@ -1,8 +1,8 @@
 // Snippet for Testing a user's crawl or automation (#482, ADR 0105), on golden scenario 10: the crawl of
 // scenario 05 and the AI extraction of scenario 08, tested with no network and no model.
 import { z } from "zod";
-import { Crawl, ModelFundsExhaustedError, ResponseNotRecordedError, seed } from "goodfetch";
-import { TestEngine, fakeError, scriptedModel } from "goodfetch/testing";
+import { Crawl, ModelFundsExhaustedError, ResponseNotRecordedError, seed } from "@goodfetch/foxhound";
+import { TestEngine, fakeError, scriptedModel } from "@goodfetch/foxhound/testing";
 
 // Any runner: Vitest, Jest, node:test, Mocha. The kit needs none of them, and none of their plugins.
 declare function test(name: string, body: () => Promise<void>): void;
@@ -81,7 +81,7 @@ test("a book page with no price is skipped", async () => {
 //    `recording: { mode: "record", path: "tests/books.warc.gz" }`, and the file is committed.
 test("the crawl collects every book from the recording", async () => {
   await using engine = await TestEngine.start();
-  await using run = await engine.connection.foxhound.startCrawl(crawl, {
+  await using run = await engine.connection.startCrawl(crawl, {
     seeds: [seed("https://books.toscrape.com/", home)],
     recording: { mode: "replay", path: "tests/books.warc.gz" },
   });
@@ -97,7 +97,7 @@ test("the crawl collects every book from the recording", async () => {
 // Any request the recording lacks is never sent: the error names it, and the nearest recorded URLs.
 test("a page the recording lacks fails, naming its address", async () => {
   await using engine = await TestEngine.start();
-  await using run = await engine.connection.collie.start({ recording: { mode: "replay", path: "tests/books.warc.gz" } });
+  await using run = await engine.connection.start({ recording: { mode: "replay", path: "tests/books.warc.gz" } });
   const page = await run.newPage();
   try {
     await page.goto("https://books.toscrape.com/catalogue/page-99.html");
@@ -120,7 +120,7 @@ aiCrawl.handle(aiBook, async ({ page, push }) => {
 
 test("AI extraction replays its Plan with no model call", async () => {
   await using engine = await TestEngine.start();
-  await using run = await engine.connection.foxhound.startCrawl(aiCrawl, {
+  await using run = await engine.connection.startCrawl(aiCrawl, {
     seeds: [seed(BOOK, aiBook)],
     plan: "tests/books.plan.json",
     recording: { mode: "replay", path: "tests/books.warc.gz" },

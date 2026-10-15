@@ -1,6 +1,6 @@
 // Snippet for Typed data: schemas, Records and Payloads (#469), on golden scenarios 02 and 05.
 import { z } from "zod";
-import { Crawl, type CrawlContext, type JsonSchema, type JsonValue, type Page } from "goodfetch";
+import { Crawl, type CrawlContext, type JSONSchema, type JSONValue, type Page } from "@goodfetch/foxhound";
 
 // `page.extract` is ADR 0091's; a crawl's Labels, handlers and `enqueue` are ADR 0093's (crawl.ts),
 // its Datasets and `push` ADR 0103's (output.ts).
@@ -19,9 +19,9 @@ export async function typedExtract(page: Page): Promise<string> {
   return `${book.title}: £${book.price}`;
 }
 
-// The library-free way down: a hand-written JSON Schema gives a JsonValue to narrow.
-const priceOnly: JsonSchema = { type: "object", properties: { price: { type: "string" } }, required: ["price"] };
-export async function rawSchema(page: Page): Promise<JsonValue> {
+// The library-free way down: a hand-written JSON Schema gives a JSONValue to narrow.
+const priceOnly: JSONSchema = { type: "object", properties: { price: { type: "string" } }, required: ["price"] };
+export async function rawSchema(page: Page): Promise<JSONValue> {
   return (await page.extract("the price", priceOnly)).output;
 }
 

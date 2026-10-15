@@ -3,10 +3,10 @@
 
 use std::time::Duration;
 
-use goodfetch_sdk_sketch::schemars::{self, JsonSchema};
-use goodfetch_sdk_sketch::settings::{crawl, fetch, timeout};
-use goodfetch_sdk_sketch::{
-    ConnectOptions, Crawl, CrawlContext, ElementState, Enqueued, Error, DatasetDeclaration, FetchTier, Goodfetch, LabelDeclaration, Schema, Seed, Settings,
+use goodfetch_foxhound::schemars::{self, JsonSchema};
+use goodfetch_foxhound::settings::{crawl, fetch, timeout};
+use goodfetch_foxhound::{
+    ConnectOptions, Crawl, CrawlContext, ElementState, Enqueued, Error, DatasetDeclaration, FetchTier, Foxhound, LabelDeclaration, Schema, Seed, Settings,
 };
 use serde::{Deserialize, Serialize};
 
@@ -90,16 +90,15 @@ async fn scenario_05() -> Result<(), Error> {
         .await
     })?;
 
-    let gf = Goodfetch::connect(ConnectOptions::default()).await?;
-    let run = gf
-        .foxhound()
+    let foxhound = Foxhound::connect(ConnectOptions::default()).await?;
+    let run = foxhound
         .start_crawl(&crawl, [Seed::new("https://books.toscrape.com/", &home, ())])
         .settings(Settings::new().set(crawl::scope::STRATEGY, crawl::scope::Strategy::SameHostname))
         .await?;
     let report = crawl.serve(&run).await?; // answers until the Run ends, then its report (ADR 0102)
     let _ = (report.requests.succeeded, report.run.completeness);
     run.as_run().close().await?;
-    gf.close().await
+    foxhound.close().await
 }
 
 /// What a program logs when a category page enqueued no book.
@@ -109,7 +108,7 @@ fn tracing_free_note(not_added: &[Enqueued]) {
 
 /// Scenario 06: one handler over HTTP, the JavaScript version and the scrolling one; the scrolling
 /// page's Label forces the browser, which alone reads the JSON the page loads.
-async fn scenario_06(gf: &Goodfetch) -> Result<(), Error> {
+async fn scenario_06(foxhound: &Foxhound) -> Result<(), Error> {
     let mut crawl = Crawl::new();
     let quotes = crawl.label::<()>("quotes")?;
     let scroll = crawl.label(
@@ -132,8 +131,7 @@ async fn scenario_06(gf: &Goodfetch) -> Result<(), Error> {
         let _ = last;
         Ok(())
     })?;
-    let run = gf
-        .foxhound()
+    let run = foxhound
         .start_crawl(
             &crawl,
             [
@@ -155,7 +153,7 @@ struct BookFields {
 }
 
 /// Scenario 08: an AI extraction on the crawl's own page, counted in the crawl's Run.
-async fn scenario_08(gf: &Goodfetch) -> Result<(), Error> {
+async fn scenario_08(foxhound: &Foxhound) -> Result<(), Error> {
     let mut crawl = Crawl::new();
     let book = crawl.label::<()>("book")?;
     crawl.handle(&book, async |ctx: CrawlContext<()>| {
@@ -165,7 +163,7 @@ async fn scenario_08(gf: &Goodfetch) -> Result<(), Error> {
         }
         Ok(())
     })?;
-    let run = gf.foxhound().start_crawl(&crawl, [Seed::new("https://books.toscrape.com/", &book, ())]).await?;
+    let run = foxhound.start_crawl(&crawl, [Seed::new("https://books.toscrape.com/", &book, ())]).await?;
     let _report = crawl.serve(&run).await?;
     Ok(())
 }

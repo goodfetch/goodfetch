@@ -6,15 +6,15 @@ from concurrent.futures import ThreadPoolExecutor
 
 from pydantic import BaseModel
 
-from goodfetch import AsyncCrawlRun, AsyncGoodfetch, AsyncRoute, Dataset, Goodfetch, ListenerFailedError, Page, Route
+from goodfetch_foxhound import AsyncCrawlRun, AsyncFoxhound, AsyncRoute, Dataset, Foxhound, ListenerFailedError, Page, Route
 
 log = logging.getLogger("bookshop")
 
 
 async def first_books(limit: int) -> list[str]:
     """Runs under asyncio or Trio (AnyIO)."""
-    async with AsyncGoodfetch.connect() as gf:
-        async with await gf.collie.start() as run:
+    async with AsyncFoxhound.connect() as foxhound:
+        async with await foxhound.start() as run:
             page = await run.new_page()
 
             async def drop(route: AsyncRoute) -> None:
@@ -57,7 +57,7 @@ async def first_titles(run: AsyncCrawlRun, books: Dataset[Title], limit: int) ->
 
 def in_a_notebook_cell() -> int:
     """A notebook cell runs on a thread whose event loop is already running: the sync client never touches it (Q1)."""
-    with Goodfetch.connect() as gf, gf.collie.start() as run:
+    with Foxhound.connect() as foxhound, foxhound.start() as run:
         page = run.new_page()
 
         def drop(route: Route) -> None:
@@ -70,7 +70,7 @@ def in_a_notebook_cell() -> int:
 
 def from_threads(urls: list[str]) -> None:
     """Every value of the sync API is safe to call from any thread at once (Q4)."""
-    with Goodfetch.connect() as gf, gf.collie.start() as run, ThreadPoolExecutor(max_workers=4) as pool:
+    with Foxhound.connect() as foxhound, foxhound.start() as run, ThreadPoolExecutor(max_workers=4) as pool:
 
         def visit(url: str) -> None:
             page: Page = run.new_page()

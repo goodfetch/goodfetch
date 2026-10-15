@@ -6,7 +6,7 @@ rule.
 
 from datetime import timedelta
 
-from goodfetch import AsyncConnection, AsyncGoodfetch, AsyncPage, AsyncRoute, Connection, JsonValue
+from goodfetch_collie import AsyncConnection, AsyncCollie, AsyncPage, AsyncRoute, Connection, JSONValue
 
 
 async def engine_version(connection: AsyncConnection) -> str:
@@ -27,12 +27,12 @@ async def newer_operation(page: AsyncPage) -> None:
     await page.call("page.emulate_vision_deficiency", {"type": "deuteranopia"})
 
 
-async def on_the_connection(connection: AsyncConnection, run_id: str) -> JsonValue:
+async def on_the_connection(connection: AsyncConnection, run_id: str) -> JSONValue:
     """On the connection, `params` names every value itself; the timeout and task cancellation apply (hypothetical)."""
     return await connection.call("run.migrate", {"run": run_id, "to": "daemon"}, timeout=timedelta(minutes=2))
 
 
-async def wrong_namespace(page: AsyncPage) -> JsonValue:
+async def wrong_namespace(page: AsyncPage) -> JSONValue:
     return await page.call("run.migrate")  # raises a ProgramError naming `page.*`, before anything is sent
 
 
@@ -51,5 +51,5 @@ async def names(page: AsyncPage) -> bool:
 
 
 async def both_products() -> None:
-    async with AsyncGoodfetch.connect() as gf:  # placeholder for `AsyncCollie.connect()` until #483
-        await engine_version(gf)
+    async with AsyncCollie.connect() as collie:  # placeholder for `AsyncCollie.connect()` until #483
+        await engine_version(collie)

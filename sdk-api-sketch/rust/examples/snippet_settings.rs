@@ -4,9 +4,9 @@
 
 use std::time::Duration;
 
-use goodfetch_sdk_sketch::settings::{Viewport, browser, timeout};
-use goodfetch_sdk_sketch::{
-    ConnectOptions, Error, ErrorCode, ExplainedSetting, Goodfetch, Settings,
+use goodfetch_foxhound::settings::{Viewport, browser, timeout};
+use goodfetch_foxhound::{
+    ConnectOptions, Error, ErrorCode, ExplainedSetting, Foxhound, Settings,
 };
 
 async fn search_quotes() -> Result<Vec<ExplainedSetting>, Error> {
@@ -14,7 +14,7 @@ async fn search_quotes() -> Result<Vec<ExplainedSetting>, Error> {
     // `GOODFETCH_URL` in the environment may fill it; a value written here would win.
     let options = ConnectOptions::default()
         .settings(Settings::new().set(timeout::NAVIGATION, Duration::from_secs(60)));
-    let gf = Goodfetch::connect(options).await?;
+    let foxhound = Foxhound::connect(options).await?;
 
     // A Session's identity is set where it opens, or above it, never on a page (ADR 0021).
     let identity = Settings::new()
@@ -26,7 +26,7 @@ async fn search_quotes() -> Result<Vec<ExplainedSetting>, Error> {
             },
         )
         .set(browser::LOCALE, String::from("en-GB"));
-    let run = gf.collie().start().await?;
+    let run = foxhound.start().await?;
     let session = run.new_session().settings(identity).await?;
     let page = session
         .new_page()
@@ -45,7 +45,7 @@ async fn search_quotes() -> Result<Vec<ExplainedSetting>, Error> {
             browser::LOCALE.key(),
         ])
         .await?;
-    gf.close().await?;
+    foxhound.close().await?;
     Ok(explained)
 }
 
@@ -57,12 +57,12 @@ async fn start_in_service(env: Vec<(String, String)>) -> Result<String, Error> {
         .no_project()
         .env(env)
         .settings(defaults);
-    let gf = Goodfetch::connect(options).await?;
+    let foxhound = Foxhound::connect(options).await?;
     // A Run's own timeout is its start's, one spelling (S2).
-    match gf.collie().start().no_timeout().await {
+    match foxhound.start().no_timeout().await {
         Ok(run) => Ok(run.id().to_owned()),
         // An Operator policy locked the Run's timeout: refused, never silently ignored.
-        Err(error) if error.code() == &ErrorCode::SettingLocked => {
+        Err(error) if error.code() == ErrorCode::SETTING_LOCKED => {
             tracing_like_error(&error);
             Err(error)
         }

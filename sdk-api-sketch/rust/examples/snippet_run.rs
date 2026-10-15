@@ -2,19 +2,18 @@
 
 use std::time::Duration;
 
-use goodfetch_sdk_sketch::settings::{checkpoint, crawl};
-use goodfetch_sdk_sketch::output::ExportFormat;
-use goodfetch_sdk_sketch::{
-    ConnectOptions, Crawl, CrawlRun, CrawlRunReport, Dataset, Enqueued, Error, Goodfetch, Label, NothingDone, OutcomeKind,
+use goodfetch_foxhound::settings::{checkpoint, crawl};
+use goodfetch_foxhound::output::ExportFormat;
+use goodfetch_foxhound::{
+    ConnectOptions, Crawl, CrawlRun, CrawlRunReport, Dataset, Enqueued, Error, Foxhound, Label, NothingDone, OutcomeKind,
     OutcomesFilter, Run, Seed, Settings, StartedAs,
 };
 
 /// Scenario 07: one program, run again under the same ID after a kill, then with `retry_failed`,
 /// then once more with nothing left to do. `books` is scenario 05's declaration (snippet_crawl.rs).
 async fn scenario_07(books: &Crawl<'_>, home: &Label<()>, retry_failed: bool) -> Result<CrawlRunReport, Error> {
-    let gf = Goodfetch::connect(ConnectOptions::default()).await?;
-    let run = gf
-        .foxhound()
+    let foxhound = Foxhound::connect(ConnectOptions::default()).await?;
+    let run = foxhound
         .start_crawl(books, [Seed::new("https://books.toscrape.com/", home, ())])
         .id("books-2026-10-15") // a start under this ID resumes the Run where it stopped
         .await?;
@@ -34,7 +33,7 @@ async fn scenario_07(books: &Crawl<'_>, home: &Label<()>, retry_failed: bool) ->
     if let Some(NothingDone::AlreadyEnded { ended_at }) = &report.run.nothing_done {
         let _ = ended_at; // finished earlier: nothing was done
     }
-    gf.close().await?;
+    foxhound.close().await?;
     Ok(report)
 }
 
@@ -62,8 +61,8 @@ async fn failed_urls(run: &CrawlRun) -> Result<Vec<String>, Error> {
 }
 
 /// Yesterday's crawl, read by its ID from another program: nothing resumed, nothing driven.
-async fn export_yesterday(gf: &Goodfetch, books: &Dataset<serde_json::Value>) -> Result<(), Error> {
-    let view = gf.foxhound().open_crawl_run("books-2026-10-14").await?;
+async fn export_yesterday(foxhound: &Foxhound, books: &Dataset<serde_json::Value>) -> Result<(), Error> {
+    let view = foxhound.open_crawl_run("books-2026-10-14").await?;
     let report = view.report().await?; // at once: it has ended
     let _ = (&report.records, &report.sinks);
     let csv = view.export(books, ExportFormat::Csv).await?;
@@ -74,8 +73,8 @@ async fn export_yesterday(gf: &Goodfetch, books: &Dataset<serde_json::Value>) ->
 /// A Collie Run under an ID: run again after a crash, it finds its Sessions and its Effect journal,
 /// so an order placed before the crash is checked rather than placed again; once finished, it runs
 /// nothing.
-async fn place_order(gf: &Goodfetch, order_id: &str) -> Result<(), Error> {
-    let run: Run = gf.collie().start().id(format!("order-{order_id}")).await?;
+async fn place_order(foxhound: &Foxhound, order_id: &str) -> Result<(), Error> {
+    let run: Run = foxhound.start().id(format!("order-{order_id}")).await?;
     if run.started_as() == &StartedAs::Ended {
         return run.close().await;
     }
@@ -90,9 +89,8 @@ async fn place_order(gf: &Goodfetch, order_id: &str) -> Result<(), Error> {
 
 /// A keep-alive crawl fed while it runs, finished by the program from another future while `serve`
 /// answers (ADR 0037's RT-12).
-async fn fed(gf: &Goodfetch, books: &Crawl<'_>, home: &Label<()>, urls: Vec<String>) -> Result<(), Error> {
-    let run = gf
-        .foxhound()
+async fn fed(foxhound: &Foxhound, books: &Crawl<'_>, home: &Label<()>, urls: Vec<String>) -> Result<(), Error> {
+    let run = foxhound
         .start_crawl(books, [Seed::new("https://books.toscrape.com/", home, ())])
         .settings(Settings::new().set(crawl::KEEP_ALIVE, true).set(checkpoint::INTERVAL, Some(Duration::from_secs(600))))
         .await?;

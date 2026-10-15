@@ -1,10 +1,10 @@
 //! Snippet for Capping a crawl's model use without stopping its Run (#513, ADR 0107), on golden
 //! scenario 08.
 
-use goodfetch_sdk_sketch::schemars::{self, JsonSchema};
-use goodfetch_sdk_sketch::settings::ai;
-use goodfetch_sdk_sketch::{
-    ConnectOptions, Crawl, CrawlContext, CrawlRequestOutcomeKind, DatasetDeclaration, Ended, Error, ErrorCode, Goodfetch, Money, OutcomeKind, OutcomesFilter, Page, Schema, Seed,
+use goodfetch_foxhound::schemars::{self, JsonSchema};
+use goodfetch_foxhound::settings::ai;
+use goodfetch_foxhound::{
+    ConnectOptions, Crawl, CrawlContext, CrawlRequestOutcomeKind, DatasetDeclaration, Ended, Error, ErrorCode, Foxhound, Money, OutcomeKind, OutcomesFilter, Page, Schema, Seed,
     Settings, SkipReason, StopReason,
 };
 use serde::{Deserialize, Serialize};
@@ -51,9 +51,8 @@ async fn scenario_08(categories: &[&str]) -> Result<(), Error> {
         ctx.push(&books, &Book { fields, url: ctx.page().url() }).await
     })?;
 
-    let gf = Goodfetch::connect(ConnectOptions::default().settings(Settings::new().set(ai::MODEL, Some("vercel/openai/gpt-5-mini".into())))).await?;
-    let run = gf
-        .foxhound()
+    let foxhound = Foxhound::connect(ConnectOptions::default().settings(Settings::new().set(ai::MODEL, Some("vercel/openai/gpt-5-mini".into())))).await?;
+    let run = foxhound
         .start_crawl(&crawl, categories.iter().map(|url| Seed::new(url, &category, ())))
         .plan("books.plan.json") // learned once per page type, replayed with no model call (ADR 0091)
         // The Model allowance: not a Limit, so the crawl goes on once it is reached.
@@ -73,7 +72,7 @@ async fn scenario_08(categories: &[&str]) -> Result<(), Error> {
     let reached = usage.model_allowance.iter().map(|a| a.reached_at).collect::<Vec<_>>();
     let _ = (usage.model.tokens, &usage.model.price, reached, &report.run.completeness, &report.run.completeness_reasons);
     run.as_run().close().await?;
-    gf.close().await
+    foxhound.close().await
 }
 
 /// A handler that keeps a Record for every book catches the refusal: a skipped attempt keeps
@@ -93,7 +92,7 @@ fn keep_all() -> Result<(), Error> {
         let url = ctx.page().url();
         match ctx.page().extract("the book on this page", Schema::<BookFields>::of()).await {
             Ok(step) => ctx.push(&kept, &KeptBook { url, book: Some(step.output), why: None }).await,
-            Err(error) if error.code() == &ErrorCode::ModelAllowanceReached => {
+            Err(error) if error.code() == ErrorCode::MODEL_ALLOWANCE_REACHED => {
                 ctx.push(&kept, &KeptBook { url, book: None, why: Some("the Model allowance was reached".into()) }).await
             }
             Err(error) => Err(error),

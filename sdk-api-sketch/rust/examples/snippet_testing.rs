@@ -1,12 +1,12 @@
 //! Snippet for Testing a user's crawl or automation (#482, ADR 0105), on golden scenario 10: the
 //! crawl of scenario 05 and the AI extraction of scenario 08, tested with no network and no model.
-//! In a program these are `#[tokio::test]` functions, or `#[test]` with `goodfetch::blocking`; the
+//! In a program these are `#[tokio::test]` functions, or `#[test]` with `goodfetch_foxhound::blocking`; the
 //! kit needs no harness of its own. It is behind the `test-util` feature, a dev-dependency.
 
-use goodfetch_sdk_sketch::schemars::{self, JsonSchema};
-use goodfetch_sdk_sketch::settings::{ai, extract, plan};
-use goodfetch_sdk_sketch::testing::{AttemptEnd, HandlerInput, SavedResponse, ScriptedModel, ScriptedReply, TestEngine, TestOptions};
-use goodfetch_sdk_sketch::{Crawl, CrawlContext, Dataset, DatasetDeclaration, Error, ErrorCode, ErrorDetails, ExtractMode, Label, ModelReference, Recording, Schema, Seed, Settings};
+use goodfetch_foxhound::schemars::{self, JsonSchema};
+use goodfetch_foxhound::settings::{ai, extract, plan};
+use goodfetch_foxhound::testing::{AttemptEnd, HandlerInput, SavedResponse, ScriptedModel, ScriptedReply, TestEngine, TestOptions};
+use goodfetch_foxhound::{Crawl, CrawlContext, Dataset, DatasetDeclaration, Error, ErrorCode, ExtractMode, Label, ModelReference, Recording, Schema, Seed, Settings};
 use serde::{Deserialize, Serialize};
 
 const BOOK: &str = "https://books.toscrape.com/catalogue/a-light-in-the-attic_1000/index.html";
@@ -80,7 +80,6 @@ async fn crawl_collects_every_book_from_the_recording() -> Result<(), Error> {
     let engine = TestEngine::start(TestOptions::default()).await?;
     let run = engine
         .connection()
-        .foxhound()
         .start_crawl(&crawl, [Seed::new("https://books.toscrape.com/", &home, ())])
         .recording(Recording::replay("tests/books.warc.gz"))
         .await?;
@@ -101,11 +100,11 @@ async fn crawl_collects_every_book_from_the_recording() -> Result<(), Error> {
 /// A page the recording lacks is never fetched: the error names its address.
 async fn page_the_recording_lacks_fails() -> Result<(), Error> {
     let engine = TestEngine::start(TestOptions::default()).await?;
-    let run = engine.connection().collie().start().recording(Recording::replay("tests/books.warc.gz")).await?;
+    let run = engine.connection().start().recording(Recording::replay("tests/books.warc.gz")).await?;
     let page = run.new_page().await?;
     let error = page.goto("https://books.toscrape.com/catalogue/page-99.html").await.expect_err("not recorded");
-    assert_eq!(error.code(), &ErrorCode::ResponseNotRecorded);
-    assert!(matches!(error.details(), Some(ErrorDetails::ResponseNotRecorded(d)) if d.url.ends_with("page-99.html")));
+    assert_eq!(error.code(), ErrorCode::RESPONSE_NOT_RECORDED);
+    assert!(matches!(error.details::<goodfetch_foxhound::ResponseNotRecorded>(), Some(d) if d.url.ends_with("page-99.html")));
     engine.close().await
 }
 
@@ -133,7 +132,6 @@ async fn ai_extraction_replays_its_plan() -> Result<(), Error> {
     let engine = TestEngine::start(TestOptions::default()).await?; // no model registered
     let run = engine
         .connection()
-        .foxhound()
         .start_crawl(&crawl, [Seed::new(BOOK, &book, ())])
         .plan("tests/books.plan.json")
         .recording(Recording::replay("tests/books.warc.gz"))
@@ -147,13 +145,13 @@ async fn ai_extraction_replays_its_plan() -> Result<(), Error> {
 /// Or a Scripted model: a provider whose funds are spent, an error no retry helps.
 async fn funds_spent() -> Result<(), Error> {
     let (crawl, book) = ai_crawl()?;
-    let model = ScriptedModel::new([ScriptedReply::Error(Error::fake(ErrorCode::ModelFundsExhausted, "credit balance too low"))]);
+    let model = ScriptedModel::new([ScriptedReply::Error(Error::fake(ErrorCode::MODEL_FUNDS_EXHAUSTED, "credit balance too low"))]);
     let settings = Settings::new().set(ai::MODEL, ModelReference::from("scripted/any")).set(extract::MODE, ExtractMode::Model);
     let engine = TestEngine::start(TestOptions::default().model_provider("scripted", model.clone()).settings(settings)).await?;
     let attempt = engine
         .run_handler(&crawl, &book, HandlerInput::new(BOOK, ()).response(SavedResponse::path("tests/fixtures/a-light-in-the-attic.html")))
         .await?;
-    assert!(matches!(&attempt.ended, AttemptEnd::Failed(e) if e.code() == &ErrorCode::ModelFundsExhausted));
+    assert!(matches!(&attempt.ended, AttemptEnd::Failed(e) if e.code() == ErrorCode::MODEL_FUNDS_EXHAUSTED));
     assert_eq!(model.requests().len(), 1);
     engine.close().await // fails if a reply is left unused
 }

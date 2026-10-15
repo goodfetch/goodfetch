@@ -1,16 +1,16 @@
 //! Snippet for Results, outcomes and errors (#466): match on the code or group, read outcomes as values.
 
-use goodfetch_sdk_sketch::{
-    AiWorkResult, Ended, Error, ErrorCode, ErrorDetails, ErrorGroup, CrawlRequestOutcome, CrawlRequestOutcomeKind,
+use goodfetch_foxhound::{
+    AiWorkResult, Ended, Error, ErrorCode, ErrorGroup, TargetNotUnique, CrawlRequestOutcome, CrawlRequestOutcomeKind,
 };
 
 /// A failure is an `Err`; the page call itself is #472's.
 fn on_failure(err: &Error) -> Option<Vec<String>> {
-    match (err.group(), err.code(), err.details()) {
-        (_, ErrorCode::TargetNotUnique, Some(ErrorDetails::TargetNotUnique(d))) => Some(d.matches.clone()),
-        (ErrorGroup::DeadlineExceeded, _, _) => err.limit().map(|l| vec![l.setting.clone()]),
-        (ErrorGroup::Page, _, _) => err.observed().map(|o| vec![o.to_owned()]),
-        _ => None, // `#[non_exhaustive]`: a newer engine's codes land here, in their group
+    match (err.group(), err.code()) {
+        (_, ErrorCode::TARGET_NOT_UNIQUE) => err.details::<TargetNotUnique>().map(|d| d.matches),
+        (ErrorGroup::DeadlineExceeded, _) => err.limit().map(|l| vec![l.setting.clone()]),
+        (ErrorGroup::Page, _) => err.observed().map(|o| vec![o.to_owned()]),
+        _ => None, // an open `ErrorCode`: a newer engine's codes land here, in their group
     }
 }
 

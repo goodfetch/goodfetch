@@ -9,10 +9,10 @@ from urllib.parse import urljoin, urlsplit
 
 from pydantic import BaseModel, Field
 
-from goodfetch import (
+from goodfetch_foxhound import (
     AsyncCrawl,
     AsyncCrawlContext,
-    AsyncGoodfetch,
+    AsyncFoxhound,
     AsyncPage,
     AsyncRoute,
     CrawlRequestFailed,
@@ -98,8 +98,8 @@ async def on_book(ctx: AsyncCrawlContext[BookPayload]) -> None:
 
 
 async def scenario_05() -> Counter[str]:
-    async with AsyncGoodfetch.connect() as gf:
-        run = await gf.foxhound.start_crawl(
+    async with AsyncFoxhound.connect() as foxhound:
+        run = await foxhound.start_crawl(
             crawl,
             seeds=[seed("https://books.toscrape.com/", home)],
             settings={"crawl": {"scope": {"strategy": "same_hostname"}}},  # the built-in, written out

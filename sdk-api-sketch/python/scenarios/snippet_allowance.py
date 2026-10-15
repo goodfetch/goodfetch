@@ -7,10 +7,10 @@ from typing import Literal
 
 from pydantic import BaseModel, Field
 
-from goodfetch import (
+from goodfetch_foxhound import (
     AsyncCrawl,
     AsyncCrawlContext,
-    AsyncGoodfetch,
+    AsyncFoxhound,
     AsyncPage,
     CrawlRequestSkipped,
     ModelAllowanceReachedError,
@@ -57,8 +57,8 @@ async def on_book(ctx: AsyncCrawlContext[None]) -> None:
 
 
 async def scenario_08(categories: Sequence[str]) -> None:
-    async with AsyncGoodfetch.connect(settings={"ai": {"model": "vercel/openai/gpt-5-mini"}}) as gf:
-        run = await gf.foxhound.start_crawl(
+    async with AsyncFoxhound.connect(settings={"ai": {"model": "vercel/openai/gpt-5-mini"}}) as foxhound:
+        run = await foxhound.start_crawl(
             crawl,
             seeds=[seed(url, category) for url in categories],
             plan="books.plan.json",  # learned once per page type, replayed with no model call (ADR 0091)
@@ -116,5 +116,5 @@ async def agent_stops(page: AsyncPage) -> Stopped | None:
 
 # Counted per Run: a Session takes none.
 async def not_per_session() -> None:
-    async with AsyncGoodfetch.connect() as gf, await gf.collie.start(settings={"ai": {"allowance": {"calls": 50}}}) as run:
+    async with AsyncFoxhound.connect() as foxhound, await foxhound.start(settings={"ai": {"allowance": {"calls": 50}}}) as run:
         await run.new_session(settings={"ai": {"allowance": {"calls": 5}}})  # type: ignore[typeddict-unknown-key]  # pyright: ignore[reportArgumentType]

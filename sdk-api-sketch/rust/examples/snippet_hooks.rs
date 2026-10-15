@@ -1,12 +1,12 @@
 //! Snippet for Hooks and injectable components in the SDK API (#481, ADR 0104), on golden
 //! scenario 05's crawl.
 
-use goodfetch_sdk_sketch::schemars::{self, JsonSchema};
+use goodfetch_foxhound::schemars::{self, JsonSchema};
 use std::pin::pin;
 
 use futures_util::future::{Either, select};
-use goodfetch_sdk_sketch::{
-    AfterResponseContext, BeforeRequestContext, BlockCause, ConnectOptions, Crawl, CrawlContext, Error, ErrorCode, Goodfetch, HookOn,
+use goodfetch_foxhound::{
+    AfterResponseContext, BeforeRequestContext, BlockCause, ConnectOptions, Crawl, CrawlContext, Error, ErrorCode, Foxhound, HookOn,
     PageStageContext, ProxyAnswer, RecordCommitContext, RequestChange, ResponseChange, SecretBinding, SecretReference, Seed, Settings,
     secret,
 };
@@ -46,7 +46,7 @@ async fn crawl_with_hooks() -> Result<(), Error> {
     // Hook, so the key never passes through the program.
     crawl.before_request(HookOn::from(&book).named("catalog-key"), async |ctx: BeforeRequestContext<BookPayload>| {
         // Also the stage before a retry: stop retrying a request the site keeps timing out on.
-        if ctx.previous_error().is_some_and(|e| *e.code() == ErrorCode::DeadlineExceeded) && ctx.request().attempt() > 2 {
+        if ctx.previous_error().is_some_and(|e| e.code() == ErrorCode::DEADLINE_EXCEEDED) && ctx.request().attempt() > 2 {
             return Err(ctx.skip("gave up after timeouts"));
         }
         Ok(RequestChange::none()
@@ -98,13 +98,13 @@ async fn crawl_with_hooks() -> Result<(), Error> {
     let catalog_key: SecretReference = "env:CATALOG_KEY".parse()?;
     // The program's own Proxy provider, an SDK handler declared by name when connecting: the only one
     // of its kind, so it becomes the proxies setting's value with the origin `Registered`.
-    let gf = Goodfetch::connect(
+    let foxhound = Foxhound::connect(
         ConnectOptions::default()
             .proxy_provider("office-pool")
             .settings(Settings::new().secret("catalog_key", SecretBinding::reference(catalog_key, ["books.toscrape.com"]))),
     )
     .await?;
-    let mut proxies = gf.proxy_requests("office-pool")?;
+    let mut proxies = foxhound.proxy_requests("office-pool")?;
     let answer_proxies = async {
         while let Some(call) = proxies.next().await {
             let call = call?;
@@ -118,7 +118,7 @@ async fn crawl_with_hooks() -> Result<(), Error> {
         }
         Ok::<(), Error>(())
     };
-    let run = gf.foxhound().start_crawl(&crawl, [Seed::new("https://books.toscrape.com/", &home, ())]).await?;
+    let run = foxhound.start_crawl(&crawl, [Seed::new("https://books.toscrape.com/", &home, ())]).await?;
     // Handlers and Hooks are answered until the Run ends; the proxy calls meanwhile.
     match select(pin!(crawl.serve(&run)), pin!(answer_proxies)).await {
         Either::Left((served, _)) => {
@@ -127,7 +127,7 @@ async fn crawl_with_hooks() -> Result<(), Error> {
         Either::Right((answered, _)) => answered?,
     }
     run.as_run().close().await?;
-    gf.close().await
+    foxhound.close().await
 }
 
 fn main() {

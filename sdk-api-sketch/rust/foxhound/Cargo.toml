@@ -1,0 +1,19 @@
+# Foxhound's Rust SDK (ADRs 0090, 0095): `Foxhound`, Foxhound's values and, in the SDK, the linked
+# Foxhound engine. It depends on the Collie client crate at exactly its own version.
+[package]
+name = "goodfetch-foxhound"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+
+[features]
+test-util = ["goodfetch-collie-client/test-util"]
+
+[dependencies]
+goodfetch-collie-client = { path = "../collie-client" }
+schemars.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+
+[lints]
+workspace = true

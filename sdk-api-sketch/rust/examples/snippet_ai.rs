@@ -1,9 +1,9 @@
 //! Snippet for Collie's AI verbs and Plans (#473, ADR 0091), on golden scenarios 02, 03 and 11.
 
-use goodfetch_sdk_sketch::schemars::{self, JsonSchema};
-use goodfetch_sdk_sketch::settings::plan;
-use goodfetch_sdk_sketch::{
-    ConnectOptions, Error, ErrorCode, ErrorDetails, Expected, Goodfetch, Page, Schema, Settings, StepSource,
+use goodfetch_collie::schemars::{self, JsonSchema};
+use goodfetch_collie::settings::plan;
+use goodfetch_collie::{
+    ConnectOptions, Error, ErrorCode, Expected, Collie, Page, Schema, Settings, StepSource,
     expect,
 };
 use serde::Deserialize;
@@ -23,8 +23,8 @@ pub struct Author {
 /// the model; a later run replays them from quotes.plan.json with no model call, and a step that
 /// drifted goes back to the model once, alone.
 async fn author_of_first_love_quote() -> Result<Author, Error> {
-    let gf = Goodfetch::connect(ConnectOptions::default()).await?;
-    let run = gf.collie().start().plan("quotes.plan.json").await?;
+    let collie = Collie::connect(ConnectOptions::default()).await?;
+    let run = collie.start().plan("quotes.plan.json").await?;
     let page = run.new_page().await?;
     page.goto("https://quotes.toscrape.com/").await?;
 
@@ -52,12 +52,12 @@ async fn author_of_first_love_quote() -> Result<Author, Error> {
     let report = run.finish().await?; // the Run report, with its PlanReport (ADR 0102)
     let _ = report.plan.changed_steps;
     run.close().await?;
-    gf.close().await?;
+    collie.close().await?;
     Ok(author)
 }
 
 /// The program's own logging, through `tracing` in a real program.
-fn log_repaired(instruction: &str, drift: Option<&goodfetch_sdk_sketch::Drift>) {
+fn log_repaired(instruction: &str, drift: Option<&goodfetch_collie::Drift>) {
     let _ = (instruction, drift);
 }
 
@@ -90,8 +90,8 @@ async fn typed_book(page: &Page) -> Result<Option<Book>, Error> {
             let _spent = (result.usage.tokens, result.usage.price);
             Ok(Some(result.output))
         }
-        Err(error) if *error.code() == ErrorCode::ExtractionIncomplete => {
-            if let Some(ErrorDetails::ExtractionIncomplete(details)) = error.details() {
+        Err(error) if error.code() == ErrorCode::EXTRACTION_INCOMPLETE => {
+            if let Some(details) = error.details::<goodfetch_collie::ExtractionIncomplete>() {
                 let _ = (&details.missing, &details.found);
             }
             Ok(None)
@@ -118,7 +118,7 @@ async fn search_with_act(page: &Page, query: &str) -> Result<(), Error> {
     Ok(())
 }
 
-/// The program's own model call, outside Goodfetch: the next reference to click, or done.
+/// The program's own model call, outside Collie: the next reference to click, or done.
 async fn ask_model(observation: &str) -> (String, bool) {
     let _ = observation;
     unimplemented!()
@@ -129,7 +129,7 @@ async fn own_agent_loop(page: &Page) -> Result<(), Error> {
     for _ in 0..10 {
         let observation = page
             .aria_snapshot()
-            .mode(goodfetch_sdk_sketch::AriaSnapshotMode::Ai)
+            .mode(goodfetch_collie::AriaSnapshotMode::Ai)
             .await?;
         let (reference, done) = ask_model(&observation).await;
         if done {
@@ -141,9 +141,8 @@ async fn own_agent_loop(page: &Page) -> Result<(), Error> {
 }
 
 /// With the Plan frozen, as in CI: no model call, and a drift that cannot be repaired names the step.
-async fn frozen_replay(gf: &Goodfetch) -> Result<(), Error> {
-    let run = gf
-        .collie()
+async fn frozen_replay(collie: &Collie) -> Result<(), Error> {
+    let run = collie
         .start()
         .plan("quotes.plan.json")
         .settings(Settings::new().set(plan::FROZEN, true))
@@ -151,7 +150,7 @@ async fn frozen_replay(gf: &Goodfetch) -> Result<(), Error> {
     let page = run.new_page().await?;
     page.goto("https://quotes.toscrape.com/").await?;
     if let Err(error) = page.act("open the tag 'love' from the tag list").await {
-        if let Some(ErrorDetails::PlanDrift(drift)) = error.details() {
+        if let Some(drift) = error.details::<goodfetch_collie::PlanDrift>() {
             let _ = (&drift.instruction, &drift.why_no_repair);
         }
         return Err(error);

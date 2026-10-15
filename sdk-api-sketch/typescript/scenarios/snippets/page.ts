@@ -1,12 +1,12 @@
 // Snippet for Collie's page API (#472, ADR 0085).
 import {
-  Goodfetch,
+  Collie,
   PageValueInvalidError,
   TargetNotUniqueError,
-  type JsonValue,
+  type JSONValue,
   type Logger,
   type Page,
-} from "goodfetch";
+} from "@goodfetch/collie";
 
 declare const log: Logger; // the program's own logger
 
@@ -18,8 +18,8 @@ export interface Quote {
 
 // Golden scenario 01, "Fill a dependent form and read the results".
 export async function einsteinQuotes(): Promise<Quote[]> {
-  await using gf = await Goodfetch.connect({ logger: log });
-  await using run = await gf.collie.start();
+  await using collie = await Collie.connect({ logger: log });
+  await using run = await collie.start();
   await using page = await run.newPage();
 
   await page.goto("https://quotes.toscrape.com/search.aspx");
@@ -59,7 +59,7 @@ export async function clickNext(page: Page): Promise<void> {
 }
 
 // Routes and dialogs answer requests; one that answers nothing falls through (golden scenario 06's browser part).
-export async function readScrollingQuotes(page: Page): Promise<JsonValue[]> {
+export async function readScrollingQuotes(page: Page): Promise<JSONValue[]> {
   // Later routes run first; one that settles nothing falls through, then to the network.
   using _media = page.route("**/*", async (route) => {
     const type = route.request().resourceType();
@@ -71,7 +71,7 @@ export async function readScrollingQuotes(page: Page): Promise<JsonValue[]> {
     if (dialog.type() === "confirm" && dialog.message().startsWith("Are you sure")) await dialog.accept();
   });
 
-  const pages: JsonValue[] = [];
+  const pages: JSONValue[] = [];
   using _api = page.on("response", async (response) => {
     if (response.url().includes("/api/quotes") && response.ok()) pages.push(await response.json());
   });
@@ -123,7 +123,7 @@ export async function payInFrame(page: Page): Promise<void> {
 }
 
 // The way down: raw CDP for one page, under ADR 0017's rules, Chromium only.
-export async function heapSize(page: Page): Promise<JsonValue> {
+export async function heapSize(page: Page): Promise<JSONValue> {
   await using cdp = await page.newCDPSession();
   await cdp.send("Performance.enable");
   return cdp.send("Performance.getMetrics");

@@ -1,6 +1,6 @@
 // Snippet for Crawl output in code (#479, ADR 0103), on golden scenarios 05, 07 and 12.
 import { z } from "zod";
-import { Crawl, Goodfetch, RecordInvalidError, seed, type CrawlRun, type Logger } from "goodfetch";
+import { Crawl, Foxhound, RecordInvalidError, seed, type CrawlRun, type Logger } from "@goodfetch/foxhound";
 
 declare const log: Logger;
 
@@ -54,8 +54,8 @@ export async function follow(run: CrawlRun, lastHandled: number, save: (n: numbe
 }
 
 export async function scenario05(): Promise<void> {
-  await using gf = await Goodfetch.connect({ logger: log });
-  await using run = await gf.foxhound.startCrawl(crawl, {
+  await using foxhound = await Foxhound.connect({ logger: log });
+  await using run = await foxhound.startCrawl(crawl, {
     seeds: [seed("https://books.toscrape.com/catalogue/category/books/travel_2/index.html", category, { name: "Travel" })],
     // A Sink is a setting: from code, the project file, the CLI or a Recipe alike.
     settings: { sinks: { warehouse: { type: "postgres", datasets: ["books"], mode: "upsert" } } },

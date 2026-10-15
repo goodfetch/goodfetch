@@ -1,15 +1,15 @@
 //! Snippet for Sessions, logins, the Human pause and secrets in code (#476), on golden scenario 04.
 
-use goodfetch_sdk_sketch::settings::{browser, proxy, session};
-use goodfetch_sdk_sketch::{
-    AriaRole, ConnectOptions, CookieInput, Error, ErrorCode, ErrorDetails, Goodfetch, Page,
+use goodfetch_collie::settings::{browser, proxy, session};
+use goodfetch_collie::{
+    AriaRole, ConnectOptions, CookieInput, Error, ErrorCode, Collie, Page,
     PageCheck, PageMatch, Run, SecretBinding, SecretReference, Session, SessionSource, Settings,
     secret,
 };
 
 /// First run: a person at the keyboard logs in once, and the login is kept under a name.
 async fn log_in_once() -> Result<(), Error> {
-    let gf = Goodfetch::connect(ConnectOptions::default()).await?;
+    let collie = Collie::connect(ConnectOptions::default()).await?;
     // A Secret placeholder: the program names it, and the engine types its value, only into a field
     // on toscrape.com.
     let password: SecretReference = "env:QUOTES_PASSWORD".parse()?;
@@ -17,7 +17,7 @@ async fn log_in_once() -> Result<(), Error> {
         "password",
         SecretBinding::reference(password, ["toscrape.com"]),
     );
-    let run = gf.collie().start().settings(secrets).await?;
+    let run = collie.start().settings(secrets).await?;
     // A visible window for the person; headless, they would act in the Live view instead.
     let session = run
         .new_session()
@@ -37,13 +37,13 @@ async fn log_in_once() -> Result<(), Error> {
         .await?;
     // Kept encrypted per install, never as a clear-text file (ADRs 0035, 0056).
     session.save_identity("quotes").await?;
-    gf.close().await
+    collie.close().await
 }
 
 /// Second run: headless and unattended, it reuses the login and says when it has expired.
 async fn reuse_login() -> Result<bool, Error> {
-    let gf = Goodfetch::connect(ConnectOptions::default()).await?;
-    let run = gf.collie().start().await?;
+    let collie = Collie::connect(ConnectOptions::default()).await?;
+    let run = collie.start().await?;
     // A page showing the Login link is a lost login; nobody is there to log in again.
     let check = Settings::new()
         .set(
@@ -63,8 +63,8 @@ async fn reuse_login() -> Result<bool, Error> {
                 .is_visible()
                 .await
         }
-        Err(error) if error.code() == &ErrorCode::LoggedOut => {
-            if let Some(ErrorDetails::LoggedOut(details)) = error.details() {
+        Err(error) if error.code() == ErrorCode::LOGGED_OUT => {
+            if let Some(details) = error.details::<goodfetch_collie::LoggedOut>() {
                 let _ = details.steps.len(); // each recovery step and why it did not log back in
             }
             Ok(false)
@@ -92,8 +92,8 @@ async fn session_with_login(run: &Run) -> Result<Session, Error> {
 
 /// `caller:` references, answered from the program's own store at the moment of use: the program
 /// declared it answers them with `ConnectOptions::default().resolve_secret()` (ADR 0104).
-async fn answer_secrets(gf: Goodfetch) -> Result<(), Error> {
-    let mut requests = gf.secret_requests()?;
+async fn answer_secrets(collie: Collie) -> Result<(), Error> {
+    let mut requests = collie.secret_requests()?;
     while let Some(request) = requests.next().await {
         let request = request?;
         let value = read_vault(request.name());
@@ -103,7 +103,7 @@ async fn answer_secrets(gf: Goodfetch) -> Result<(), Error> {
 }
 
 /// Cookies and a proxy on the Run's default Session.
-async fn cookies_and_proxy(gf: &Goodfetch) -> Result<usize, Error> {
+async fn cookies_and_proxy(collie: &Collie) -> Result<usize, Error> {
     let proxy_settings = Settings::new()
         .set(
             proxy::SERVER,
@@ -118,7 +118,7 @@ async fn cookies_and_proxy(gf: &Goodfetch) -> Result<usize, Error> {
             "token",
             SecretBinding::reference("caller:api_token".parse()?, ["toscrape.com"]),
         );
-    let run = gf.collie().start().settings(proxy_settings).await?;
+    let run = collie.start().settings(proxy_settings).await?;
     // The Run's default Session, which every `run.new_page()` shares.
     let page = run.new_page().await?;
     let session = page.session();
@@ -142,7 +142,7 @@ async fn cookies_and_proxy(gf: &Goodfetch) -> Result<usize, Error> {
         .await?;
     page.local_storage().set_item("theme", "dark").await?;
     let cookies = session.cookies(&["https://quotes.toscrape.com"]).await?;
-    for identity in gf.identities().list().await? {
+    for identity in collie.identities().list().await? {
         let _ = (identity.name, identity.cookies_expire);
     }
     Ok(cookies.len())

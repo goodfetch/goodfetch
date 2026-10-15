@@ -2,13 +2,13 @@
 import { z } from "zod";
 import {
   ExtractionIncompleteError,
-  Goodfetch,
+  Collie,
   PlanDriftError,
   expect,
   type Logger,
   type Page,
   type Run,
-} from "goodfetch";
+} from "@goodfetch/collie";
 
 declare const log: Logger; // the program's own logger
 
@@ -23,8 +23,8 @@ const Author = z.object({
 // model; a later run replays them from quotes.plan.json with no model call, and a step that drifted
 // goes back to the model once, alone. In CI, `settings: { plan: { frozen: true } }` forbids any model call.
 export async function authorOfFirstLoveQuote(): Promise<z.infer<typeof Author>> {
-  await using gf = await Goodfetch.connect({ logger: log });
-  await using run = await gf.collie.start({ plan: "quotes.plan.json" });
+  await using collie = await Collie.connect({ logger: log });
+  await using run = await collie.start({ plan: "quotes.plan.json" });
   const page = await run.newPage();
   await page.goto("https://quotes.toscrape.com/");
 

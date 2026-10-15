@@ -8,7 +8,7 @@ from urllib.parse import urljoin
 
 from pydantic import BaseModel, Field
 
-from goodfetch import AsyncCrawl, AsyncCrawlContext, AsyncCrawlRun, AsyncGoodfetch, RecordInvalidError, seed
+from goodfetch_foxhound import AsyncCrawl, AsyncCrawlContext, AsyncCrawlRun, AsyncFoxhound, RecordInvalidError, seed
 
 log = logging.getLogger(__name__)
 
@@ -69,8 +69,8 @@ async def follow(run: AsyncCrawlRun, last_handled: int, save: Callable[[int], Aw
 
 
 async def scenario_05() -> None:
-    async with AsyncGoodfetch.connect() as gf:
-        async with await gf.foxhound.start_crawl(
+    async with AsyncFoxhound.connect() as foxhound:
+        async with await foxhound.start_crawl(
             crawl,
             seeds=[seed("https://books.toscrape.com/catalogue/category/books/travel_2/index.html", category, CategoryPayload(name="Travel"))],
             # A Sink is a setting: from code, the project file, the CLI or a Recipe alike.

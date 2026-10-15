@@ -6,7 +6,7 @@ from typing import Literal
 
 from pydantic import BaseModel, Field
 
-from goodfetch import AsyncCrawl, AsyncCrawlContext, AsyncPage, JsonValue
+from goodfetch_foxhound import AsyncCrawl, AsyncCrawlContext, AsyncPage, JSONValue
 
 # `page.extract` is ADR 0091's; a crawl's Labels, handlers and `enqueue` are ADR 0093's (snippet_crawl.py), its Datasets
 # and `push` ADR 0103's (snippet_output.py).
@@ -30,8 +30,8 @@ async def list_of_models(page: AsyncPage) -> Sequence[Book]:
     return (await page.extract("every book on this page", list[Book])).output  # any type TypeAdapter accepts
 
 
-async def raw_schema(page: AsyncPage) -> JsonValue:
-    # The library-free way down: a hand-written JSON Schema gives a JsonValue to narrow.
+async def raw_schema(page: AsyncPage) -> JSONValue:
+    # The library-free way down: a hand-written JSON Schema gives a JSONValue to narrow.
     return (await page.extract("the price", {"type": "object", "properties": {"price": {"type": "string"}}})).output
 
 

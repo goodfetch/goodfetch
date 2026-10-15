@@ -2,7 +2,7 @@
 import { z } from "zod";
 import {
   AgentToolFailedError,
-  Goodfetch,
+  Collie,
   GoodfetchError,
   agentTool,
   expect,
@@ -10,7 +10,7 @@ import {
   type Logger,
   type Page,
   type Run,
-} from "goodfetch";
+} from "@goodfetch/collie";
 
 declare const log: Logger; // the program's own logger
 
@@ -25,8 +25,8 @@ type Answer = z.infer<typeof Answer>;
 // the task), and the program, not the model, states what success looks like. With `plan`, the steps
 // are kept, and a later run repeats them with no model call.
 export async function cheapestFiveStarTravelBook(): Promise<Answer | undefined> {
-  await using gf = await Goodfetch.connect({ logger: log });
-  await using run = await gf.collie.start({
+  await using collie = await Collie.connect({ logger: log });
+  await using run = await collie.start({
     plan: "travel.plan.json",
     limits: { price: { amount: "0.20", currency: "USD" } },
   });

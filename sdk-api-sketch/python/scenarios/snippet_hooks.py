@@ -4,12 +4,12 @@ import logging
 
 from pydantic import BaseModel
 
-from goodfetch import (
+from goodfetch_foxhound import (
     AsyncAfterResponseContext,
     AsyncBeforeRequestContext,
     AsyncCrawl,
     AsyncCrawlContext,
-    AsyncGoodfetch,
+    AsyncFoxhound,
     AsyncPageStageContext,
     AsyncRecordCommitContext,
     ProxyAnswer,
@@ -93,11 +93,11 @@ async def office_pool(request: ProxyRequest) -> ProxyAnswer:
 
 
 async def crawl_with_hooks() -> None:
-    async with AsyncGoodfetch.connect(
+    async with AsyncFoxhound.connect(
         proxy_providers={"office-pool": office_pool},
         settings={"secrets": {"catalog_key": {"reference": "env:CATALOG_KEY", "domains": ["books.toscrape.com"]}}},
-    ) as gf:
-        run = await gf.foxhound.start_crawl(crawl, seeds=[seed("https://books.toscrape.com/", home)])
+    ) as foxhound:
+        run = await foxhound.start_crawl(crawl, seeds=[seed("https://books.toscrape.com/", home)])
         async with run:
             pass
 

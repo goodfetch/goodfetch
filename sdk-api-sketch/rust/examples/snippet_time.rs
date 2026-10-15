@@ -2,16 +2,15 @@
 
 use std::time::Duration;
 
-use goodfetch_sdk_sketch::{AriaRole, ConnectOptions, Count, Error, Goodfetch, Limits, LoadState, Money, SelectOption};
+use goodfetch_collie::{AriaRole, ConnectOptions, Count, Error, Collie, Limits, LoadState, Money, SelectOption};
 
 async fn search_quotes() -> Result<usize, Error> {
     // Limits on this connection's work: a program may set or lower them, never raise them.
     let options = ConnectOptions::default().limits(Limits::new().price(Money::new("2.00", "EUR")?));
-    let gf = Goodfetch::connect(options).await?;
+    let collie = Collie::connect(options).await?;
 
     // The whole Run may last two hours; past that it stops with a Checkpoint and can be resumed.
-    let run = gf
-        .collie()
+    let run = collie
         .start()
         .timeout(Duration::from_secs(2 * 60 * 60))
         .limits(Limits::new().model_tokens(200_000))
@@ -35,7 +34,7 @@ async fn search_quotes() -> Result<usize, Error> {
     let count = page.locator(".results .quote").wait_for_count(Count::at_least(1)).await?;
     page.wait_for_load_state(LoadState::NetworkIdle).no_timeout().await?; // explicitly no timeout
 
-    gf.close().await?;
+    collie.close().await?;
     Ok(count)
 }
 

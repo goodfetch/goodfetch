@@ -1,0 +1,170 @@
+// Foxhound's settings (ADR 0083, decided in #470): the keys only a crawl's Run honours (`crawl.*`,
+// `fetch.*`, `sinks.*`, the crawl phases of `timeout.*`, Politeness toward sites and robots.txt),
+// added to Collie's, which are the Collie client package's (ADRs 0088, 0095). A Collie engine refuses
+// them with `not_in_product`. `Settings`, `TimeoutSettings` and `SettingKey` here are the whole of a
+// Foxhound program's: Collie's and Foxhound's own.
+
+import type {
+  CallOptions,
+  ExplainedSetting,
+  PageSettings,
+  SecretsSettings,
+  SessionLoginSettings,
+  SettingKey as CollieSettingKey,
+  Settings as CollieSettings,
+  Timeout,
+  TimeoutSettings as CollieTimeoutSettings,
+} from "@goodfetch/collie-client";
+import type { FetchTier, URLPattern } from "./crawl.js";
+import type { PolitenessSettings, SitePreferencesSettings } from "./politeness.js";
+
+/** `timeout.*`: Collie's phases and a crawl's own. */
+export interface TimeoutSettings extends CollieTimeoutSettings {
+  readonly handler?: Timeout;
+  readonly hook?: Timeout;
+  readonly sinkWrite?: Timeout;
+}
+
+/** `crawl.scope.strategy`: which hosts a crawl may reach, measured against every seed after the Frontier's URL rules, so `www.` is no other host (ADR 0005). */
+export type CrawlScopeStrategy = "same_hostname" | "same_domain" | "same_origin" | "all";
+
+/** `crawl.scope.*`: checked on every enqueue and every redirect (ADR 0093). */
+export interface CrawlScopeSettings {
+  /** Built-in: `same_hostname`, Crawlee's default. */
+  readonly strategy?: CrawlScopeStrategy;
+  /** Only URLs matching one of these, which must match as well as the strategy, never replacing it. */
+  readonly include?: readonly URLPattern[];
+  /** No URL matching any of these. */
+  readonly exclude?: readonly URLPattern[];
+}
+
+/** `crawl.retry.*` (ADR 0093). */
+export interface CrawlRetrySettings {
+  /** Retries after the first attempt, for retryable errors and `ctx.retry()`. Built-in: 2, Scrapy's. */
+  readonly max?: number;
+  /** Retry `handler_failed` too, as Crawlee does. Built-in: false: a bug fails the same way again, and each retry fetches the page again (G5). */
+  readonly handlerFailed?: boolean;
+}
+
+export interface CrawlSettings {
+  readonly payload?: {
+    /** `crawl.payload.max_size`, in bytes (ADR 0082). */
+    readonly maxSize?: number;
+  };
+  readonly scope?: CrawlScopeSettings;
+  /** `crawl.max_depth`: seeds are at 0. Reaching it refuses further enqueues with `max_depth` and ends the Run `incomplete`. Built-in: none. */
+  readonly maxDepth?: number | null;
+  /** `crawl.max_requests`: requests admitted to the Frontier. Reaching it refuses further enqueues with `max_requests` and ends the Run `incomplete`. Built-in: none. */
+  readonly maxRequests?: number | null;
+  readonly retry?: CrawlRetrySettings;
+  /** `crawl.handle_statuses`: statuses outside 2xx whose responses go to the handler instead of failing with `response_not_ok`. Built-in: none. */
+  readonly handleStatuses?: readonly number[];
+  readonly handler?: {
+    /** `crawl.handler.concurrency`: handlers running at once in the program, the engine's leases to it (ADR 0081). On a Label, within the Run's. Built-in: 16. */
+    readonly concurrency?: number;
+  };
+  /**
+   * `crawl.keep_alive`: the Run stays `running` with an empty Frontier, waiting for `addSeed`, until
+   * `finish()` lets it end once drained (ADR 0102, ADR 0037's RT-12). Built-in: false.
+   */
+  readonly keepAlive?: boolean;
+}
+
+/** `fetch.*`: the fetch tiers of ADR 0020 (ADR 0093). */
+export interface FetchSettings {
+  /** `auto`, the built-in: learned per Label on a domain by sample comparison. Any other value forces the tier (ADR 0023). */
+  readonly tier?: "auto" | FetchTier;
+  /** `fetch.tier_race`, ADR 0040's `tier_race`. Built-in: false. */
+  readonly tierRace?: boolean;
+}
+
+/**
+ * A Sink's write mode (ADR 0026). The keyed ones use the Sink's own key, or else each Dataset's key.
+ * The Run's start refuses with `setting_invalid` naming `sinks.<name>.key` a Sink in a keyed mode
+ * with no key of its own while one of its Datasets has none, and a Sink key naming a field that a
+ * schema of one of its Datasets does not require.
+ */
+export type SinkWriteMode = "append" | "upsert" | "insert_only" | "replace" | "history";
+
+/**
+ * `sinks.<name>.*`: one Sink each (ADRs 0026, 0103), set on a connection or a crawl's Run, never on a
+ * Label. A sample: each Sink type's own keys (its destination as a Secret reference, its table or
+ * bucket) are area 6's spec.
+ */
+export interface SinkSettings {
+  readonly type: string;
+  /**
+   * The Datasets it receives, by name. Set on the Run, one the crawl does not declare is refused at
+   * start with `setting_invalid` naming the closest; inherited from the connection or configuration,
+   * the Sink delivers only the crawl's declared Datasets, and is inactive when there are none.
+   */
+  readonly datasets: readonly string[];
+  /** Built-in: `append`. */
+  readonly mode?: SinkWriteMode;
+  /** Built-in: each Dataset's own `key`. */
+  readonly key?: readonly string[];
+}
+
+/** Every setting of a Foxhound program, as a connection takes them: Collie's, with a crawl's own keys. A sample of the generated type. */
+export interface Settings extends Omit<CollieSettings, "timeout" | "politeness" | "sitePreferences"> {
+  readonly timeout?: TimeoutSettings;
+  readonly crawl?: CrawlSettings;
+  /** ADR 0093. */
+  readonly fetch?: FetchSettings;
+  /** ADR 0086, with Collie's per-proxy limits. */
+  readonly politeness?: PolitenessSettings;
+  /** ADR 0086. */
+  readonly sitePreferences?: SitePreferencesSettings;
+  /** `sinks.<name>.*`, keyed by the Sink's name (ADR 0103). */
+  readonly sinks?: Readonly<Record<string, SinkSettings>>;
+}
+
+/** A setting's canonical key: Collie's, and Foxhound's own. A sample. */
+export type SettingKey =
+  | CollieSettingKey
+  | "timeout.handler"
+  | "timeout.hook"
+  | "timeout.sink_write"
+  | "crawl.payload.max_size"
+  | "politeness.domain.concurrency"
+  | "politeness.domain.delay"
+  | "politeness.backoff.enabled"
+  | "politeness.backoff.initial"
+  | "politeness.backoff.max"
+  | "politeness.ip.concurrency"
+  | "politeness.degraded_max"
+  | "site_preferences.respect_robots_txt"
+  | "site_preferences.max_crawl_delay"
+  | "site_preferences.robots_txt_user_agent"
+  | "crawl.scope.strategy"
+  | "crawl.scope.include"
+  | "crawl.scope.exclude"
+  | "crawl.max_depth"
+  | "crawl.max_requests"
+  | "crawl.retry.max"
+  | "crawl.retry.handler_failed"
+  | "crawl.handle_statuses"
+  | "crawl.handler.concurrency"
+  | "fetch.tier"
+  | "fetch.tier_race";
+
+/** A crawl Run's settings: every setting but `timeout.run`, which starting the Run spells as its `timeout` (S2). */
+export type CrawlRunSettings = Omit<Settings, "timeout"> & { readonly timeout?: Omit<TimeoutSettings, "run"> };
+
+/**
+ * A Label's settings (ADR 0093): every setting a page takes, what shapes one crawl request, every
+ * `session.*` key and `secrets.*`. `session.source`, `session.httpCredentials`, `secrets.*` and a
+ * `login` step give the Label's requests Sessions of a pool of their own (ADR 0092);
+ * `session.pageCheck` and `session.recovery.humanPause` judge its pages in whichever pool serves
+ * them. The Session's identity (`browser.*`, `proxy.*`, `network.*`), Politeness, Site preferences,
+ * scope and Run-wide keys are refused with `setting_not_applicable`: two Labels on one domain share
+ * its Politeness with every run of the user (ADR 0053).
+ */
+export interface LabelSettings extends Omit<PageSettings, "timeout"> {
+  readonly timeout?: NonNullable<PageSettings["timeout"]> & Pick<TimeoutSettings, "handler" | "hook">;
+  readonly fetch?: Pick<FetchSettings, "tier">;
+  readonly crawl?: Pick<CrawlSettings, "retry" | "handleStatuses" | "handler">;
+  readonly session?: SessionLoginSettings;
+  readonly secrets?: SecretsSettings;
+}
+

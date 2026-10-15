@@ -1,13 +1,13 @@
 // Snippet for Sessions, logins, the Human pause and secrets in code (#476), on golden scenario 04.
-import { Goodfetch, HumanPauseDeclinedError, LoggedOutError, secret, type Logger } from "goodfetch";
+import { Collie, HumanPauseDeclinedError, LoggedOutError, secret, type Logger } from "@goodfetch/collie";
 
 declare const log: Logger; // the program's own logger
 declare const vault: { read(name: string): Promise<string> }; // the program's own secret store
 
 // First run: a person at the keyboard logs in once, and the login is kept under a name.
 export async function logInOnce(): Promise<void> {
-  await using gf = await Goodfetch.connect();
-  await using run = await gf.collie.start({
+  await using collie = await Collie.connect();
+  await using run = await collie.start({
     settings: {
       // A Secret placeholder: the program names it, and the engine types its value, only into a field on toscrape.com.
       secrets: { password: { reference: "env:QUOTES_PASSWORD", domains: ["toscrape.com"] } },
@@ -36,8 +36,8 @@ export async function logInOnce(): Promise<void> {
 
 // Second run: headless and unattended, it reuses the login and says when it has expired.
 export async function reuseLogin(): Promise<boolean> {
-  await using gf = await Goodfetch.connect();
-  await using run = await gf.collie.start();
+  await using collie = await Collie.connect();
+  await using run = await collie.start();
   await using session = await run.newSession({
     source: { kind: "saved_identity", name: "quotes" },
     settings: {
@@ -63,8 +63,8 @@ export async function reuseLogin(): Promise<boolean> {
 
 // Cookies, a proxy and secrets the program answers from its own store.
 export async function cookiesAndProxy(): Promise<number> {
-  await using gf = await Goodfetch.connect({ resolveSecret: async ({ name }) => vault.read(name) });
-  await using run = await gf.collie.start({
+  await using collie = await Collie.connect({ resolveSecret: async ({ name }) => vault.read(name) });
+  await using run = await collie.start({
     settings: {
       proxy: { server: "http://proxy.example:3128", username: "crawler", password: "caller:proxy_password" },
       session: { httpCredentials: [{ username: "reader", password: "caller:basic_password", domains: ["httpbin.org"] }] },
@@ -84,10 +84,10 @@ export async function cookiesAndProxy(): Promise<number> {
   // @ts-expect-error No field to check: keyboard input takes no Secret placeholder.
   await page.keyboard.type(secret("token"));
   // @ts-expect-error A credential the engine uses itself is a Secret reference, never a value.
-  await gf.collie.start({ settings: { proxy: { password: "hunter2" } } });
+  await collie.start({ settings: { proxy: { password: "hunter2" } } });
   // @ts-expect-error Opening a Session spells its source as `source`, one spelling (S2).
   await run.newSession({ settings: { session: { source: { kind: "saved_identity", name: "quotes" } } } });
 
-  for (const identity of await gf.identities.list()) log.info("Saved identity", { name: identity.name, cookiesExpire: identity.cookiesExpire });
+  for (const identity of await collie.identities.list()) log.info("Saved identity", { name: identity.name, cookiesExpire: identity.cookiesExpire });
   return cookies.length;
 }

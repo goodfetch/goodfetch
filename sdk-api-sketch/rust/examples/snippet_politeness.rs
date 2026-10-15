@@ -3,18 +3,18 @@
 use std::collections::BTreeMap;
 use std::time::Duration;
 
-use goodfetch_sdk_sketch::settings::{politeness, site_preferences};
-use goodfetch_sdk_sketch::{
-    ConnectOptions, Error, ErrorCode, ExplainedSetting, Goodfetch, CrawlRequestOutcome, CrawlRequestOutcomeKind, Settings,
+use goodfetch_foxhound::settings::{politeness, site_preferences};
+use goodfetch_foxhound::{
+    ConnectOptions, Error, ErrorCode, ExplainedSetting, Foxhound, CrawlRequestOutcome, CrawlRequestOutcomeKind, Settings,
     SkipReason,
 };
 
 /// With nothing set, a crawl obeys robots.txt and keeps one request in flight per domain, one
 /// second between starts: scenario 05 sets nothing and is polite to books.toscrape.com (G5).
 async fn polite_by_default() -> Result<Vec<ExplainedSetting>, Error> {
-    let gf = Goodfetch::connect(ConnectOptions::default()).await?;
+    let foxhound = Foxhound::connect(ConnectOptions::default()).await?;
     // Each comes from the `Default` layer unless configuration or an Operator policy set it.
-    let explained = gf
+    let explained = foxhound
         .explain_settings(&[
             politeness::domain::CONCURRENCY.key(),
             politeness::domain::DELAY.key(),
@@ -22,7 +22,7 @@ async fn polite_by_default() -> Result<Vec<ExplainedSetting>, Error> {
             site_preferences::MAX_CRAWL_DELAY.key(),
         ])
         .await?;
-    gf.close().await?;
+    foxhound.close().await?;
     Ok(explained)
 }
 
@@ -33,39 +33,37 @@ async fn own_staging_site() -> Result<(), Error> {
         .set(politeness::domain::CONCURRENCY, 8_u32)
         .set(politeness::domain::DELAY, Duration::ZERO)
         .set(site_preferences::RESPECT_ROBOTS_TXT, false);
-    let gf = Goodfetch::connect(ConnectOptions::default().settings(harder)).await?;
+    let foxhound = Foxhound::connect(ConnectOptions::default().settings(harder)).await?;
 
     // A Collie Run's program directs its own navigation, outside Politeness: a limit set on it is
     // refused when the Run opens, never ignored (G3). Rust's one `Settings` type takes every key, so the
     // refusal comes at run time, where TypeScript and Python fail to type-check.
-    let refused = gf
-        .collie()
+    let refused = foxhound
         .start()
         .settings(Settings::new().set(politeness::domain::CONCURRENCY, 2_u32))
         .await;
     if let Err(error) = &refused {
-        let _ = error.code() == &ErrorCode::SettingNotApplicable;
+        let _ = error.code() == ErrorCode::SETTING_NOT_APPLICABLE;
     }
 
     // A Collie Run still takes the AI-use signals, which concern any run's results.
-    let run = gf
-        .collie()
+    let run = foxhound
         .start()
         .settings(Settings::new().set(site_preferences::RESPECT_USE_SIGNALS, true))
         .await?;
     let _ = run.id();
-    gf.close().await
+    foxhound.close().await
 }
 
 /// An operator crawling under its own bot name, which its user agent carries: a site's robots.txt
 /// group for `AcmeBot` binds it too, merged with Foxhound's. Setting the token is recorded.
 async fn as_own_bot() -> Result<Vec<ExplainedSetting>, Error> {
     let token = Settings::new().set(site_preferences::ROBOTS_TXT_USER_AGENT, Some(String::from("AcmeBot")));
-    let gf = Goodfetch::connect(ConnectOptions::default().settings(token)).await?;
-    let explained = gf
+    let foxhound = Foxhound::connect(ConnectOptions::default().settings(token)).await?;
+    let explained = foxhound
         .explain_settings(&[site_preferences::ROBOTS_TXT_USER_AGENT.key()])
         .await?;
-    gf.close().await?;
+    foxhound.close().await?;
     Ok(explained)
 }
 

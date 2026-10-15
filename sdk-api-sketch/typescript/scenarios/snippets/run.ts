@@ -1,5 +1,5 @@
 // Snippet for The Run in code (#478, ADR 0102), on golden scenario 07 with scenario 05's crawl.
-import { Goodfetch, seed, type Crawl, type CrawlRun, type CrawlRunReport, type Dataset, type Label, type Logger, type Run } from "goodfetch";
+import { Foxhound, seed, type Crawl, type CrawlRun, type CrawlRunReport, type Dataset, type Label, type Logger, type Run } from "@goodfetch/foxhound";
 
 declare const log: Logger;
 // Scenario 05's declaration (crawl.ts): Labels `home`, `category` and `book`, one handler each.
@@ -10,13 +10,13 @@ declare const bookRecords: Dataset<{ readonly title: string; readonly price: str
 // Scenario 07: one program, run again under the same ID after a kill, then with `--retry-failed`,
 // then once more with nothing left to do.
 export async function scenario07(argv: readonly string[]): Promise<CrawlRunReport> {
-  await using gf = await Goodfetch.connect({ logger: log });
-  await using run = await gf.foxhound.startCrawl(books, {
+  await using foxhound = await Foxhound.connect({ logger: log });
+  await using run = await foxhound.startCrawl(books, {
     id: "books-2026-10-15", // a start under this ID resumes the Run where it stopped
     seeds: [seed("https://books.toscrape.com/", home)],
   });
-  if (run.startedAs === "resumed") log.info("resuming", { run: run.id });
-  for (const answer of run.seeds) if (!answer.added) log.warn("seed not added", { url: answer.url, reason: answer.reason });
+  if (run.startedAs() === "resumed") log.info("resuming", { run: run.id() });
+  for (const answer of run.seeds()) if (!answer.added) log.warn("seed not added", { url: answer.url, reason: answer.reason });
   if (argv.includes("--retry-failed")) {
     const readmitted = await run.retryFailed(); // only `failed`, in this same Run and its Dataset
     log.info("retrying", { readmitted });
@@ -60,8 +60,8 @@ export async function failedUrls(run: CrawlRun): Promise<string[]> {
 }
 
 // Yesterday's crawl, read by its ID from another program: nothing resumed, nothing driven.
-export async function exportYesterday(gf: Goodfetch): Promise<void> {
-  await using view = await gf.foxhound.openCrawlRun("books-2026-10-14");
+export async function exportYesterday(foxhound: Foxhound): Promise<void> {
+  await using view = await foxhound.openCrawlRun("books-2026-10-14");
   const report = await view.report(); // at once: it has ended
   log.info("books", { committed: report.records["books"]?.committed, sinks: report.sinks });
   const csv = await view.export(bookRecords, { format: "csv" });
@@ -71,9 +71,9 @@ export async function exportYesterday(gf: Goodfetch): Promise<void> {
 // A Collie Run under an ID: run again after a crash, it finds its Sessions and its Effect journal, so an
 // order placed before the crash is checked rather than placed again; once finished, it runs nothing.
 export async function placeOrder(orderId: string): Promise<void> {
-  await using gf = await Goodfetch.connect({ logger: log });
-  await using run = await gf.collie.start({ id: `order-${orderId}` });
-  if (run.startedAs === "ended") return;
+  await using foxhound = await Foxhound.connect({ logger: log });
+  await using run = await foxhound.start({ id: `order-${orderId}` });
+  if (run.startedAs() === "ended") return;
   await run.setProgressMessage(`order ${orderId}`);
   const page = await run.newPage();
   await page.goto("https://shop.example/cart");
@@ -84,8 +84,8 @@ export async function placeOrder(orderId: string): Promise<void> {
 
 // A keep-alive crawl fed while it runs, finished by the program (ADR 0037's RT-12).
 export async function fed(urls: AsyncIterable<string>): Promise<void> {
-  await using gf = await Goodfetch.connect({ logger: log });
-  await using run = await gf.foxhound.startCrawl(books, {
+  await using foxhound = await Foxhound.connect({ logger: log });
+  await using run = await foxhound.startCrawl(books, {
     seeds: [seed("https://books.toscrape.com/", home)],
     settings: { crawl: { keepAlive: true }, checkpoint: { interval: 10 * 60_000 } },
   });
@@ -97,11 +97,11 @@ export async function fed(urls: AsyncIterable<string>): Promise<void> {
 }
 
 // Typed mistakes, caught before anything runs.
-export async function mistakes(gf: Goodfetch, run: CrawlRun): Promise<void> {
+export async function mistakes(foxhound: Foxhound, run: CrawlRun): Promise<void> {
   // @ts-expect-error a crawl's start needs its seeds, even to resume: they are an input that must match
-  await gf.foxhound.startCrawl(books, { id: "books-2026-10-15" });
+  await foxhound.startCrawl(books, { id: "books-2026-10-15" });
   // @ts-expect-error `detached` is only for Runs with no handlers in the program
-  await gf.collie.start({ detached: true });
+  await foxhound.start({ detached: true });
   // @ts-expect-error a skip is a decision: only failed and blocked requests are re-admitted
   await run.retryFailed({ skipped: true });
 }

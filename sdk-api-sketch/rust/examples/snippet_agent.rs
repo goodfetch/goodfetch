@@ -1,8 +1,8 @@
 //! Snippet for the Agent in Collie's SDK API (#474, ADR 0100), on golden scenario 11.
 
-use goodfetch_sdk_sketch::schemars::{self, JsonSchema};
-use goodfetch_sdk_sketch::{
-    AgentResult, AgentTool, AgentToolCall, BoxError, ConnectOptions, Ended, Error, ErrorCode, Expected, Goodfetch, Limits, Money, Page, Run,
+use goodfetch_collie::schemars::{self, JsonSchema};
+use goodfetch_collie::{
+    AgentResult, AgentTool, AgentToolCall, BoxError, ConnectOptions, Ended, Error, ErrorCode, Expected, Collie, Limits, Money, Page, Run,
     Schema, StopReason, Verdict, expect,
 };
 use serde::Deserialize;
@@ -29,9 +29,8 @@ async fn travel_book_check(page: Page) -> Result<(), BoxError> {
 /// stops only the task), and the program, not the model, states what success looks like. With a
 /// Plan, the steps are kept, and a later run repeats them with no model call.
 async fn cheapest_five_star_travel_book() -> Result<Option<Answer>, Error> {
-    let gf = Goodfetch::connect(ConnectOptions::default()).await?;
-    let run = gf
-        .collie()
+    let collie = Collie::connect(ConnectOptions::default()).await?;
+    let run = collie
         .start()
         .plan("travel.plan.json")
         .limits(Limits::new().price(Money::new("0.20", "USD")?))
@@ -58,7 +57,7 @@ async fn cheapest_five_star_travel_book() -> Result<Option<Answer>, Error> {
     }
     let result = task.result().await?;
     run.close().await?;
-    gf.close().await?;
+    collie.close().await?;
     report(result)
 }
 
@@ -104,7 +103,7 @@ async fn cheapest_unowned_book(run: &Run) -> Result<Answer, Error> {
         .success_check(travel_book_check)
         .await
         .inspect_err(|error| {
-            if error.code() == &ErrorCode::AgentToolFailed {
+            if error.code() == ErrorCode::AGENT_TOOL_FAILED {
                 tracing_like("a tool failed; its error is the source");
             }
             // Whatever ended the task, the steps taken and the Grounded partial answer travel on the error.

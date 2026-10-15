@@ -5,15 +5,15 @@ import logging
 from dataclasses import dataclass
 from datetime import timedelta
 
-from goodfetch import (
+from goodfetch_collie import (
     AsyncDialog,
-    AsyncGoodfetch,
+    AsyncCollie,
     AsyncLocator,
     AsyncPage,
     AsyncResponse,
     AsyncRoute,
-    Goodfetch,
-    JsonValue,
+    Collie,
+    JSONValue,
     PageValueInvalidError,
     TargetNotUniqueError,
 )
@@ -30,7 +30,7 @@ class Quote:
 
 async def einstein_quotes() -> list[Quote]:
     """Golden scenario 01, "Fill a dependent form and read the results"."""
-    async with AsyncGoodfetch.connect() as gf, await gf.collie.start() as run, await run.new_page() as page:
+    async with AsyncCollie.connect() as collie, await collie.start() as run, await run.new_page() as page:
         await page.goto("https://quotes.toscrape.com/search.aspx")
         # Choosing an author posts the form back; the action waits for that navigation to commit, and the tag's
         # option is waited for by the guard like any other condition (K01).
@@ -59,7 +59,7 @@ async def click_next(page: AsyncPage) -> None:
         await page.get_by_role("link", name="Next").first.click()  # the visible opt-out
 
 
-async def read_scrolling_quotes(page: AsyncPage) -> list[JsonValue]:
+async def read_scrolling_quotes(page: AsyncPage) -> list[JSONValue]:
     """Routes and dialogs answer requests; one that answers nothing falls through (golden scenario 06's browser part)."""
 
     async def media(route: AsyncRoute) -> None:
@@ -72,7 +72,7 @@ async def read_scrolling_quotes(page: AsyncPage) -> list[JsonValue]:
             await dialog.accept()
         # Otherwise the dialog gets its default: a confirm is dismissed (ADR 0014).
 
-    pages: list[JsonValue] = []
+    pages: list[JSONValue] = []
 
     async def api(response: AsyncResponse) -> None:
         if "/api/quotes" in response.url and response.ok:
@@ -88,7 +88,7 @@ async def read_scrolling_quotes(page: AsyncPage) -> list[JsonValue]:
     return pages
 
 
-async def read_stats(page: AsyncPage) -> JsonValue:
+async def read_stats(page: AsyncPage) -> JSONValue:
     """Page functions: JavaScript source, one explicit JSON argument, JSON back."""
     long_tags = await page.evaluate(
         "({ min }) => [...document.querySelectorAll('.tag')].filter((tag) => tag.textContent.length > min).length",
@@ -122,9 +122,9 @@ async def pay_in_frame(page: AsyncPage) -> None:
         await page.get_by_role("link", name="Orders").click()
 
 
-def heap_metrics() -> JsonValue:
+def heap_metrics() -> JSONValue:
     """The way down, in the sync API: raw CDP for one page, under ADR 0017's rules, Chromium only."""
-    with Goodfetch.connect() as gf, gf.collie.start() as run, run.new_page() as page:
+    with Collie.connect() as collie, collie.start() as run, run.new_page() as page:
         with page.new_cdp_session() as cdp:
             cdp.send("Performance.enable")
             return cdp.send("Performance.getMetrics")

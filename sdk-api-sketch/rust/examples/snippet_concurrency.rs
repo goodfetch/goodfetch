@@ -7,8 +7,8 @@ use std::time::Duration;
 
 use futures_util::TryStreamExt;
 use futures_util::future::{Either, select};
-use goodfetch_sdk_sketch::schemars::{self, JsonSchema};
-use goodfetch_sdk_sketch::{ConnectOptions, CrawlRun, Dataset, Error, Page, UrlMatcher, blocking, events};
+use goodfetch_foxhound::schemars::{self, JsonSchema};
+use goodfetch_foxhound::{ConnectOptions, CrawlRun, Dataset, Error, Page, UrlMatcher, blocking, events};
 use serde::Deserialize;
 
 /// Handles are cheap clones and a call owns what it needs, so its future can be spawned on any
@@ -78,8 +78,8 @@ async fn titles(run: &CrawlRun, books: &Dataset<Title>, limit: usize) -> Result<
 
 /// The same API without `async`, for programs that have no runtime (Q7).
 fn script() -> Result<usize, Error> {
-    let gf = blocking::Goodfetch::connect(ConnectOptions::default())?;
-    let run = gf.collie().start().send()?;
+    let foxhound = blocking::Foxhound::connect(ConnectOptions::default())?;
+    let run = foxhound.start().send()?;
     let page = run.new_page().send()?;
     let console = page.events(events::Console); // an Iterator, subscribed when called
     page.goto("https://books.toscrape.com/")
@@ -87,7 +87,7 @@ fn script() -> Result<usize, Error> {
         .send()?;
     page.close().send()?; // ends the sequence
     let count = console.take(20).count();
-    gf.close().send()?;
+    foxhound.close().send()?;
     Ok(count)
 }
 

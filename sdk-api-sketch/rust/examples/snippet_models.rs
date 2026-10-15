@@ -3,10 +3,10 @@
 
 use std::time::Duration;
 
-use goodfetch_sdk_sketch::schemars::{self, JsonSchema};
-use goodfetch_sdk_sketch::settings::{ai, timeout};
-use goodfetch_sdk_sketch::{
-    ConnectOptions, CrawlRun, Error, ErrorCode, ErrorDetails, Goodfetch, LimitAmount, Limits,
+use goodfetch_foxhound::schemars::{self, JsonSchema};
+use goodfetch_foxhound::settings::{ai, timeout};
+use goodfetch_foxhound::{
+    ConnectOptions, CrawlRun, Error, ErrorCode, Foxhound, UsageKind, UsageQuantity, Limits,
     ModelDeclaration, ModelFormat, ModelProvider, ModelResponse, ModelUsageOf, Money, Page,
     ReportedTokens, Schema, Settings, StructuredOutput, StructuredOutputStrategy,
     UnavailableReason,
@@ -45,8 +45,8 @@ fn log(message: &str, calls: u64, tokens: u64, price: Option<&Money>) {
 async fn typed_book(local: bool) -> Result<Option<Book>, Error> {
     // The key: env:ANTHROPIC_API_KEY, sent only to Anthropic.
     let settings = Settings::new().set(ai::MODEL, Some("anthropic/claude-sonnet-4-5".into()));
-    let gf = Goodfetch::connect(ConnectOptions::default().settings(settings)).await?;
-    let run = gf.collie().start().await?;
+    let foxhound = Foxhound::connect(ConnectOptions::default().settings(settings)).await?;
+    let run = foxhound.start().await?;
     let page = run.new_page().await?;
     page.goto("https://books.toscrape.com/catalogue/a-light-in-the-attic_1000/index.html")
         .await?;
@@ -67,11 +67,11 @@ async fn typed_book(local: bool) -> Result<Option<Book>, Error> {
             );
             Some(result.output)
         }
-        Err(error) if *error.code() == ErrorCode::ExtractionIncomplete => None,
+        Err(error) if error.code() == ErrorCode::EXTRACTION_INCOMPLETE => None,
         Err(error) => {
             // An invalid answer names the model and the strategy; what the attempts spent is on the error too.
-            if let (Some(ErrorDetails::ExtractionInvalid(invalid)), Some(spent)) =
-                (error.details(), error.usage())
+            if let (Some(invalid), Some(spent)) =
+                (error.details::<goodfetch_foxhound::ExtractionInvalid>(), error.usage())
             {
                 let _ = (
                     &invalid.model,
@@ -88,14 +88,14 @@ async fn typed_book(local: bool) -> Result<Option<Book>, Error> {
         }
     };
     run.close().await?;
-    gf.close().await?;
+    foxhound.close().await?;
     Ok(book)
 }
 
 /// The program's own Model provider (ADR 0033's SDK-handler form): calls arrive as a stream, answered
-/// with Goodfetch's own types, no provider crate.
-async fn in_house_provider(gf: &Goodfetch) -> Result<(), Error> {
-    let mut calls = gf.model_requests("inhouse")?; // declared with ConnectOptions::model_provider
+/// with Foxhound's own types, no provider crate.
+async fn in_house_provider(foxhound: &Foxhound) -> Result<(), Error> {
+    let mut calls = foxhound.model_requests("inhouse")?; // declared with ConnectOptions::model_provider
     while let Some(call) = calls.next().await {
         let call = call?;
         let _ = (&call.request().model_id, &call.request().messages); // the program's own service answers them
@@ -134,9 +134,8 @@ async fn providers() -> Result<(), Error> {
     let options = ConnectOptions::default()
         .model_provider("inhouse")
         .settings(settings);
-    let gf = Goodfetch::connect(options).await?;
-    let run = gf
-        .collie()
+    let foxhound = Foxhound::connect(options).await?;
+    let run = foxhound
         .start()
         .settings(Settings::new().set(ai::MODEL, Some("lab/qwen3-vl-32b".into())))
         .await?;
@@ -148,11 +147,11 @@ async fn providers() -> Result<(), Error> {
 
 /// Run totals, what remains of each Limit, and the uncapped mark (ADR 0041). The price Limit and a
 /// usage's price are the same `Money`.
-async fn capped_run(gf: &Goodfetch) -> Result<(), Error> {
+async fn capped_run(foxhound: &Foxhound) -> Result<(), Error> {
     let limits = Limits::new()
         .price(Money::new("0.20", "USD")?)
         .model_calls(40);
-    let run = gf.collie().start().limits(limits).await?;
+    let run = foxhound.start().limits(limits).await?;
     let page = run.new_page().await?;
     page.goto("https://books.toscrape.com/").await?;
     page.act("open the Travel category").await?;
@@ -166,7 +165,7 @@ async fn capped_run(gf: &Goodfetch) -> Result<(), Error> {
     );
     let _ = (usage.browser_time, usage.uncapped);
     for limit in &usage.limits {
-        if let LimitAmount::Price { remaining, .. } = &limit.amount {
+        if let (UsageKind::PRICE, UsageQuantity::Price(remaining)) = (limit.amount.kind, &limit.amount.remaining) {
             log("price remaining", 0, 0, Some(remaining));
         }
     }
@@ -179,7 +178,7 @@ async fn with_outage(page: &Page) -> Result<(), Error> {
     match page.act("add the first book to the basket").await {
         Ok(_) => Ok(()),
         Err(error) => {
-            if let Some(ErrorDetails::ModelUnavailable(unavailable)) = error.details() {
+            if let Some(unavailable) = error.details::<goodfetch_foxhound::ModelUnavailable>() {
                 if unavailable.reason == UnavailableReason::RateLimited {
                     let _ = (unavailable.retry_after, &unavailable.failure.model);
                     return Ok(());
@@ -187,7 +186,7 @@ async fn with_outage(page: &Page) -> Result<(), Error> {
             }
             let _fatal = matches!(
                 error.code(),
-                ErrorCode::ModelUnauthorized | ErrorCode::ModelFundsExhausted
+                ErrorCode::MODEL_UNAUTHORIZED | ErrorCode::MODEL_FUNDS_EXHAUSTED
             );
             Err(error)
         }

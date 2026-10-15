@@ -1,8 +1,8 @@
 //! Snippet for Crawl output in code (#479, ADR 0103), on golden scenarios 05, 07 and 12.
 
-use goodfetch_sdk_sketch::schemars::{self, JsonSchema};
-use goodfetch_sdk_sketch::{
-    ConnectOptions, Crawl, CrawlContext, CrawlRun, Dataset, DatasetDeclaration, Error, ErrorDetails, ExportFormat, Goodfetch, Seed, Settings,
+use goodfetch_foxhound::schemars::{self, JsonSchema};
+use goodfetch_foxhound::{
+    ConnectOptions, Crawl, CrawlContext, CrawlRun, Dataset, DatasetDeclaration, Error, ExportFormat, Foxhound, Seed, Settings,
     SinkConfig, SinkWriteMode,
 };
 use serde::{Deserialize, Serialize};
@@ -58,7 +58,7 @@ async fn scenario_05() -> Result<(), Error> {
         Ok(())
     })?;
 
-    let gf = Goodfetch::connect(ConnectOptions::default()).await?;
+    let foxhound = Foxhound::connect(ConnectOptions::default()).await?;
     let seed = Seed::new(
         "https://books.toscrape.com/catalogue/category/books/travel_2/index.html",
         &category,
@@ -66,7 +66,7 @@ async fn scenario_05() -> Result<(), Error> {
     );
     // A Sink is a setting: from code, the project file, the CLI or a Recipe alike.
     let sinks = Settings::new().sink("warehouse", SinkConfig::new("postgres", ["books"]).mode(SinkWriteMode::Upsert));
-    let run = gf.foxhound().start_crawl(&crawl, [seed]).settings(sinks).await?;
+    let run = foxhound.start_crawl(&crawl, [seed]).settings(sinks).await?;
     let _report = crawl.serve(&run).await?; // the Run report once it ends (ADR 0102)
 
     let cursor: Option<Cursor> = run.key_value_store().get("cursor/Travel").await?;
@@ -74,7 +74,7 @@ async fn scenario_05() -> Result<(), Error> {
     csv.save_as("books.csv").await?;
     let _ = (cursor, csv.records(), csv.last_number(), csv.sha256());
     run.as_run().close().await?;
-    gf.close().await
+    foxhound.close().await
 }
 
 /// Scenario 12: a service reads Records as they commit and resumes from the last number it handled.
@@ -87,7 +87,7 @@ async fn follow(run: &CrawlRun, books: &Dataset<Book>, last_handled: u64) -> Res
             Ok(record) => last = record.number,
             Err(error) => {
                 // A Record `Book`'s `Deserialize` now rejects arrives with its number.
-                if let Some(ErrorDetails::RecordInvalid(details)) = error.details() {
+                if let Some(details) = error.details::<goodfetch_foxhound::RecordInvalid>() {
                     let _ = details.number;
                 }
                 return Err(error);

@@ -6,14 +6,14 @@ from datetime import timedelta
 
 from pydantic import BaseModel
 
-from goodfetch import (
+from goodfetch_foxhound import (
     AsyncCrawl,
     AsyncCrawlRun,
-    AsyncGoodfetch,
+    AsyncFoxhound,
     AsyncRun,
     CrawlRunReport,
     EnqueueNotAdded,
-    Goodfetch,
+    Foxhound,
     seed,
 )
 
@@ -33,8 +33,8 @@ book_records = books.dataset("books", schema=BookRecord)
 async def scenario_07(retry_failed: bool) -> CrawlRunReport:
     """One program, run again under the same ID after a kill, then with `retry_failed`, then once more with nothing
     left to do."""
-    async with AsyncGoodfetch.connect() as gf:
-        run = await gf.foxhound.start_crawl(
+    async with AsyncFoxhound.connect() as foxhound:
+        run = await foxhound.start_crawl(
             books,
             seeds=[seed("https://books.toscrape.com/", home)],
             id="books-2026-10-15",  # a start under this ID resumes the Run where it stopped
@@ -87,9 +87,9 @@ async def failed_urls(run: AsyncCrawlRun) -> list[str]:
     return [outcome.request.url async for outcome in run.outcomes(kinds=["failed"])]
 
 
-async def export_yesterday(gf: AsyncGoodfetch) -> None:
+async def export_yesterday(foxhound: AsyncFoxhound) -> None:
     """Yesterday's crawl, read by its ID from another program: nothing resumed, nothing driven."""
-    async with await gf.foxhound.open_crawl_run("books-2026-10-14") as view:
+    async with await foxhound.open_crawl_run("books-2026-10-14") as view:
         report = await view.report()  # at once: it has ended
         books_totals = report.records.get("books")
         log.info("books committed: %s, sinks: %s", books_totals.committed if books_totals else 0, report.sinks)
@@ -100,7 +100,7 @@ async def export_yesterday(gf: AsyncGoodfetch) -> None:
 async def place_order(order_id: str) -> None:
     """A Collie Run under an ID: run again after a crash, it finds its Sessions and its Effect journal, so an order placed
     before the crash is checked rather than placed again; once finished, it runs nothing."""
-    async with AsyncGoodfetch.connect() as gf, await gf.collie.start(id=f"order-{order_id}") as run:
+    async with AsyncFoxhound.connect() as foxhound, await foxhound.start(id=f"order-{order_id}") as run:
         if run.started_as == "ended":
             return
         await run.set_progress_message(f"order {order_id}")
@@ -113,8 +113,8 @@ async def place_order(order_id: str) -> None:
 
 async def fed(urls: AsyncIterable[str]) -> None:
     """A keep-alive crawl fed while it runs, finished by the program (ADR 0037's RT-12)."""
-    async with AsyncGoodfetch.connect() as gf:
-        run = await gf.foxhound.start_crawl(
+    async with AsyncFoxhound.connect() as foxhound:
+        run = await foxhound.start_crawl(
             books,
             seeds=[seed("https://books.toscrape.com/", home)],
             settings={"crawl": {"keep_alive": True}, "checkpoint": {"interval": timedelta(minutes=10)}},
@@ -130,13 +130,13 @@ async def fed(urls: AsyncIterable[str]) -> None:
 
 def scenario_07_sync() -> None:
     """The sync client, as in a notebook cell."""
-    with Goodfetch.connect() as gf, gf.collie.start(id="notebook-2026-10-15") as run:
+    with Foxhound.connect() as foxhound, foxhound.start(id="notebook-2026-10-15") as run:
         report = run.finish()
         log.info("%s %s %s", report.lifecycle, report.verdict, report.completeness)
 
 
-async def mistakes(gf: AsyncGoodfetch, run: AsyncCrawlRun) -> None:
+async def mistakes(foxhound: AsyncFoxhound, run: AsyncCrawlRun) -> None:
     """Typed mistakes, caught by the type checkers before anything runs."""
-    await gf.foxhound.start_crawl(books, id="books-2026-10-15")  # type: ignore[call-arg]  # pyright: ignore[reportCallIssue]
-    await gf.collie.start(detached=True)  # type: ignore[call-arg]  # pyright: ignore[reportCallIssue]
+    await foxhound.start_crawl(books, id="books-2026-10-15")  # type: ignore[call-arg]  # pyright: ignore[reportCallIssue]
+    await foxhound.start(detached=True)  # type: ignore[call-arg]  # pyright: ignore[reportCallIssue]
     await run.retry_failed(skipped=True)  # type: ignore[call-arg]  # pyright: ignore[reportCallIssue]

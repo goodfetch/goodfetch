@@ -1,7 +1,7 @@
 //! Snippet for Typed data: schemas, Records and Payloads (#469), on golden scenarios 02 and 05.
 
-use goodfetch_sdk_sketch::schemars::{self, JsonSchema};
-use goodfetch_sdk_sketch::{CrawlContext, Dataset, Error, Label, Page, Schema};
+use goodfetch_foxhound::schemars::{self, JsonSchema};
+use goodfetch_foxhound::{CrawlContext, Dataset, Error, Label, Page, Schema};
 use serde::{Deserialize, Serialize};
 
 // Provisional, its owner's to decide: `page.extract` is ADR 0091's. A crawl's Labels, handlers and

@@ -1,16 +1,16 @@
 //! Snippet for Effects a program declares in code (#500, ADR 0106). No golden scenario places an
 //! order, so these programs are the sketch's own.
 
-use goodfetch_sdk_sketch::{
-    AriaRole, ConnectOptions, Crawl, CrawlContext, Effect, EffectResult, Error, ErrorCode, ErrorDetails, Goodfetch, Page, Run, Seed,
+use goodfetch_foxhound::{
+    AriaRole, ConnectOptions, Crawl, CrawlContext, Effect, EffectResult, Error, ErrorCode, Foxhound, Page, Run, Seed,
     schemars::{self, JsonSchema},
 };
 use serde::{Deserialize, Serialize};
 
 /// A Collie program safe to run again after a crash: the Run is named, so a start under the same
 /// ID resumes it, and the order placed before the crash comes back from the Effect journal.
-async fn place_order(gf: &Goodfetch, sku: &str) -> Result<Option<String>, Error> {
-    let run: Run = gf.collie().start().id(format!("order-{sku}")).await?;
+async fn place_order(foxhound: &Foxhound, sku: &str) -> Result<Option<String>, Error> {
+    let run: Run = foxhound.start().id(format!("order-{sku}")).await?;
     let page = run.new_page().await?;
     page.goto(&format!("https://shop.example/products/{sku}")).await?;
     page.get_by_role(AriaRole::Button.name("Add to cart")).click().await?; // not declared: adding twice is harmless here
@@ -32,23 +32,23 @@ async fn place_order(gf: &Goodfetch, sku: &str) -> Result<Option<String>, Error>
     })
 }
 
-/// The program's own error: a body returns it as it is, and takes Goodfetch's through `From`.
+/// The program's own error: a body returns it as it is, and takes Foxhound's through `From`.
 #[derive(Debug)]
 enum ShopError {
-    Goodfetch(Error),
+    Foxhound(Error),
     Refused(u16),
 }
 
 impl From<Error> for ShopError {
     fn from(error: Error) -> Self {
-        Self::Goodfetch(error)
+        Self::Foxhound(error)
     }
 }
 
 impl std::fmt::Display for ShopError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::Goodfetch(error) => error.fmt(f),
+            Self::Foxhound(error) => error.fmt(f),
             Self::Refused(status) => write!(f, "the shop refused the subscription: {status}"),
         }
     }
@@ -84,7 +84,7 @@ struct Seller {
 
 /// In a crawl handler: one form submitted per request, never twice across retries, escalations,
 /// sample comparisons or a resume. The key's namespace is the crawl request.
-async fn contact_sellers(gf: &Goodfetch, emails: Vec<String>) -> Result<(), Error> {
+async fn contact_sellers(foxhound: &Foxhound, emails: Vec<String>) -> Result<(), Error> {
     let mut crawl = Crawl::new();
     let listing = crawl.label::<Seller>("listing")?;
     crawl.handle(&listing, async |ctx: CrawlContext<Seller>| {
@@ -102,8 +102,8 @@ async fn contact_sellers(gf: &Goodfetch, emails: Vec<String>) -> Result<(), Erro
             Ok(_) => Ok(()), // already contacted
             // The click went out and the confirmation never showed: a person reconciles it in the
             // Console; the request ends `failed` with `effect_uncertain`, never retried.
-            Err(error) if error.code() == &ErrorCode::EffectUncertain => {
-                if let Some(ErrorDetails::EffectUncertain(uncertain)) = error.details() {
+            Err(error) if error.code() == ErrorCode::EFFECT_UNCERTAIN => {
+                if let Some(uncertain) = error.details::<goodfetch_foxhound::EffectUncertain>() {
                     let _ = (&uncertain.key, &uncertain.why);
                 }
                 Err(error)
@@ -116,12 +116,12 @@ async fn contact_sellers(gf: &Goodfetch, emails: Vec<String>) -> Result<(), Erro
         .enumerate()
         .map(|(i, email)| Seed::new(&format!("https://market.example/listings/{i}"), &listing, Seller { email }))
         .collect();
-    let run = gf.foxhound().start_crawl(&crawl, seeds).id("contact-2026-10-15").await?;
+    let run = foxhound.start_crawl(&crawl, seeds).id("contact-2026-10-15").await?;
     let report = crawl.serve(&run).await?;
-    for effect in &report.run.uncertain_effects {
-        let _ = (&effect.key, effect.request.as_ref().map(|request| &request.url)); // needs a person
+    for uncertain in &report.uncertain_effects {
+        let _ = (&uncertain.effect.key, uncertain.request.as_ref().map(|request| &request.url)); // needs a person
     }
-    gf.close().await
+    foxhound.close().await
 }
 
 fn main() {

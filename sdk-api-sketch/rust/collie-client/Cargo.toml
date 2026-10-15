@@ -1,0 +1,20 @@
+# The Collie client crate (ADR 0095): Collie's values and the runtime, with no engine.
+[package]
+name = "goodfetch-collie-client"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+
+[features]
+test-util = []
+
+# `EventStream` implements `futures_core::Stream` for interop; its own `next()` needs no crate (G7).
+# `schemars` and serde carry typed data (#469); `schemars` is re-exported so derives match the SDK's version.
+[dependencies]
+futures-core.workspace = true
+schemars.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+
+[lints]
+workspace = true

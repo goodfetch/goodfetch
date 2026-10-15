@@ -2,27 +2,27 @@
 
 import logging
 
-from goodfetch import AsyncGoodfetch, BorrowableAsyncPage, EngineAddress, Goodfetch
+from goodfetch_collie import AsyncCollie, BorrowableAsyncPage, EngineAddress, Collie
 
-logging.basicConfig(level=logging.INFO)  # the host configures logging; Goodfetch's loggers follow it
+logging.basicConfig(level=logging.INFO)  # the host configures logging; Collie's loggers follow it
 
 
 async def add_step(playwright_page: BorrowableAsyncPage) -> None:
-    async with AsyncGoodfetch.connect() as gf, await gf.collie.start() as run:
+    async with AsyncCollie.connect() as collie, await collie.start() as run:
         async with await run.borrow(playwright_page) as page:
             _ = page  # the AI step itself is #473's
-    # page, run and gf are closed in that order; the user's page stays open
+    # page, run and collie are closed in that order; the user's page stays open
 
 
 async def connection_without_scope() -> None:
-    gf = await AsyncGoodfetch.connect(engine=EngineAddress(url="https://daemon.example:7443", token="t"))
+    collie = await AsyncCollie.connect(engine=EngineAddress(url="https://daemon.example:7443", token="t"))
     try:
-        run = await gf.collie.start()
+        run = await collie.start()
         await run.new_page()
     finally:
-        await gf.close()  # closes the Run it opened; the Daemon keeps running
+        await collie.close()  # closes the Run it opened; the Daemon keeps running
 
 
 def in_a_sync_program() -> None:
-    with Goodfetch.connect() as gf, gf.collie.start() as run:
+    with Collie.connect() as collie, collie.start() as run:
         run.new_page()

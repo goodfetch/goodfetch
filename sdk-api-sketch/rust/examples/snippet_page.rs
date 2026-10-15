@@ -6,8 +6,8 @@ use std::time::Duration;
 
 use futures_util::TryStreamExt;
 use futures_util::future::{Either, select, try_join_all};
-use goodfetch_sdk_sketch::{
-    AbortReason, AriaRole, ConnectOptions, DialogKind, ElementState, Error, ErrorCode, Goodfetch,
+use goodfetch_collie::{
+    AbortReason, AriaRole, ConnectOptions, DialogKind, ElementState, Error, ErrorCode, Collie,
     Locator, LocatorHandlerOptions, Page, ResourceType, SelectOption, events,
 };
 use serde_json::{Value, json};
@@ -25,8 +25,8 @@ pub struct Quote {
 
 /// Golden scenario 01, "Fill a dependent form and read the results".
 async fn einstein_quotes() -> Result<Vec<Quote>, Error> {
-    let gf = Goodfetch::connect(ConnectOptions::default()).await?;
-    let run = gf.collie().start().await?;
+    let collie = Collie::connect(ConnectOptions::default()).await?;
+    let run = collie.start().await?;
     let page = run.new_page().await?;
 
     page.goto("https://quotes.toscrape.com/search.aspx").await?;
@@ -53,7 +53,7 @@ async fn einstein_quotes() -> Result<Vec<Quote>, Error> {
     };
     let quotes = page.locator(".results .quote").all().await?;
     let found = try_join_all(quotes.into_iter().map(read)).await?;
-    gf.close().await?;
+    collie.close().await?;
     Ok(found)
 }
 
@@ -62,7 +62,7 @@ async fn einstein_quotes() -> Result<Vec<Quote>, Error> {
 async fn click_next(page: &Page) -> Result<(), Error> {
     let next = page.get_by_role(AriaRole::Link.name("Next"));
     match next.click().timeout(Duration::from_secs(5)).await {
-        Err(err) if err.code() == &ErrorCode::TargetNotUnique => next.first().click().await, // the visible opt-out
+        Err(err) if err.code() == ErrorCode::TARGET_NOT_UNIQUE => next.first().click().await, // the visible opt-out
         other => other,
     }
 }
@@ -115,7 +115,7 @@ async fn read_stats(page: &Page) -> Result<usize, Error> {
         .await?;
     let _next: Option<String> = page.locator("li.next > a").get_attribute("href").await?; // `None` when absent
     match page.evaluate::<Value>("() => document.body").await {
-        Err(err) if err.code() == &ErrorCode::PageValueInvalid => {} // a DOM node is not JSON
+        Err(err) if err.code() == ErrorCode::PAGE_VALUE_INVALID => {} // a DOM node is not JSON
         other => drop(other?),
     }
     Ok(long_tags)

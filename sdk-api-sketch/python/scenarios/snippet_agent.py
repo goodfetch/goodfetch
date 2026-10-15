@@ -5,14 +5,14 @@ from decimal import Decimal
 
 from pydantic import BaseModel, Field
 
-from goodfetch import (
+from goodfetch_collie import (
     AgentToolFailedError,
     AsyncAgentResult,
-    AsyncGoodfetch,
+    AsyncCollie,
     AsyncPage,
     AsyncRun,
-    Goodfetch,
-    JsonValue,
+    Collie,
+    JSONValue,
     Limits,
     Money,
     Page,
@@ -40,8 +40,8 @@ async def cheapest_five_star_travel_book() -> Answer | None:
     0.20 USD (a Limit, which stops the Run), the task caps itself at 25 steps (which stops only the task), and the
     program, not the model, states what success looks like. With `plan=`, the steps are kept, and a later run repeats
     them with no model call."""
-    async with AsyncGoodfetch.connect() as gf:
-        async with await gf.collie.start(
+    async with AsyncCollie.connect() as collie:
+        async with await collie.start(
             plan="travel.plan.json", limits=Limits(price=Money(amount=Decimal("0.20"), currency="USD"))
         ) as run:
             page = await run.new_page()
@@ -81,7 +81,7 @@ class Owned(BaseModel):
 
 
 @agent_tool(description="Whether the library already owns a book with this exact title", read_only=True)
-async def already_owned(args: Owned, page: AsyncPage) -> JsonValue:
+async def already_owned(args: Owned, page: AsyncPage) -> JSONValue:
     """An Agent tool: the program's own function as an action. Read-only, so it is no Effect."""
     return {"owned": args.title in {"Sharp Objects"}}
 
@@ -115,5 +115,5 @@ def sync_task(page: Page) -> str | None:
 
 
 def sync_connect() -> None:
-    with Goodfetch.connect() as gf, gf.collie.start() as run:
+    with Collie.connect() as collie, collie.start() as run:
         sync_task(run.new_page())

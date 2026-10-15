@@ -1,6 +1,6 @@
 // Snippet for Crawl definition and handler context (#477, ADR 0093), on golden scenarios 05, 06 and 08.
 import { z } from "zod";
-import { Crawl, Goodfetch, seed, type Logger } from "goodfetch";
+import { Crawl, Foxhound, seed, type Logger } from "@goodfetch/foxhound";
 
 // Provisional, its owner's to decide: `page.extract` is ADR 0091's; Datasets and `push` are ADR
 // 0103's (output.ts).
@@ -60,8 +60,8 @@ function ratingOf(cls: string | null): number {
 }
 
 export async function scenario05(): Promise<Map<string, number>> {
-  await using gf = await Goodfetch.connect({ logger: log });
-  await using run = await gf.foxhound.startCrawl(crawl, {
+  await using foxhound = await Foxhound.connect({ logger: log });
+  await using run = await foxhound.startCrawl(crawl, {
     seeds: [seed("https://books.toscrape.com/", home)],
     settings: { crawl: { scope: { strategy: "same_hostname" } } }, // the built-in, written out
   });
@@ -129,8 +129,8 @@ quotesCrawl.handle(scrollPage, async ({ page }) => {
 });
 
 export async function scenario06(): Promise<void> {
-  await using gf = await Goodfetch.connect({ logger: log });
-  await using run = await gf.foxhound.startCrawl(quotesCrawl, {
+  await using foxhound = await Foxhound.connect({ logger: log });
+  await using run = await foxhound.startCrawl(quotesCrawl, {
     seeds: [
       seed("https://quotes.toscrape.com/", quotePage),
       seed("https://quotes.toscrape.com/js/", quotePage),
@@ -139,7 +139,7 @@ export async function scenario06(): Promise<void> {
   });
   // Without `finish()`, leaving the scope would stop the crawl as an abort (ADR 0078).
   const report = await run.finish();
-  log.info("crawled", { run: run.id, completeness: report.completeness, requests: report.requests });
+  log.info("crawled", { run: run.id(), completeness: report.completeness, requests: report.requests });
 }
 
 // Scenario 08: an AI extraction on the crawl's own page, counted in the crawl's Run, learned once

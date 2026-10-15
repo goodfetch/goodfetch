@@ -12,7 +12,14 @@
     "noEmit": true,
     "skipLibCheck": false,
     "types": [],
-    "paths": { "goodfetch": ["./src/index.d.ts"], "goodfetch/testing": ["./src/testing.d.ts"] }
+    "paths": {
+      "@goodfetch/collie-client": ["./collie-client/index.d.ts"],
+      "@goodfetch/collie-client/testing": ["./collie-client/testing.d.ts"],
+      "@goodfetch/collie": ["./collie/index.d.ts"],
+      "@goodfetch/collie/testing": ["./collie/testing.d.ts"],
+      "@goodfetch/foxhound": ["./foxhound/index.d.ts"],
+      "@goodfetch/foxhound/testing": ["./foxhound/testing.d.ts"]
+    }
   },
-  "include": ["src/**/*.d.ts", "scenarios/**/*.ts"]
+  "include": ["collie-client/**/*.d.ts", "collie/**/*.d.ts", "foxhound/**/*.d.ts", "scenarios/**/*.ts"]
 }

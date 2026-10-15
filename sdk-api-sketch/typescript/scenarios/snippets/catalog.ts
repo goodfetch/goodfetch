@@ -1,6 +1,6 @@
 // Snippet for Mapping the catalog to each language and surface (#471, ADR 0099): the shared Connection
 // type, the raw catalog call on a connection and on a value, and names spelled by TypeScript's rule.
-import { Goodfetch, type Connection, type JsonValue, type Page } from "goodfetch";
+import { Collie, type Connection, type JSONValue, type Page } from "@goodfetch/collie";
 
 // A library written for both Products takes a Connection: `Collie` and `Foxhound` both implement it.
 export async function engineVersion(connection: Connection): Promise<string> {
@@ -15,12 +15,12 @@ export async function newerOperation(page: Page): Promise<void> {
 }
 
 // On the connection, `params` names every value itself, and the same timeout and signal apply.
-export async function onTheConnection(connection: Connection, runId: string, signal: AbortSignal): Promise<JsonValue> {
+export async function onTheConnection(connection: Connection, runId: string, signal: AbortSignal): Promise<JSONValue> {
   return connection.call("run.migrate", { run: runId, to: "daemon" }, { timeout: 120_000, signal }); // hypothetical
 }
 
 // A value's `call` takes only its own namespace: anything else fails before it is sent.
-export async function wrongNamespace(page: Page): Promise<JsonValue> {
+export async function wrongNamespace(page: Page): Promise<JSONValue> {
   return page.call("run.migrate"); // throws a ProgramError naming `page.*`
 }
 
@@ -35,7 +35,7 @@ export async function names(page: Page): Promise<boolean> {
 }
 
 export async function bothProducts(): Promise<void> {
-  await using gf = await Goodfetch.connect(); // placeholder for `Collie.connect()` until #483
-  const connection: Connection = gf;
+  await using collie = await Collie.connect(); // placeholder for `Collie.connect()` until #483
+  const connection: Connection = collie;
   await engineVersion(connection);
 }

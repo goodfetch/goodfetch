@@ -1,11 +1,11 @@
 // Snippet for Concurrency model per language (#468).
-import { Goodfetch, ListenerFailedError, type CrawlRun, type Dataset, type Logger } from "goodfetch";
+import { Foxhound, ListenerFailedError, type CrawlRun, type Dataset, type Logger } from "@goodfetch/foxhound";
 
 declare const log: Logger; // the program's own logger
 
 export async function firstBooks(limit: number, stop: AbortSignal): Promise<string[]> {
-  await using gf = await Goodfetch.connect({ logger: log });
-  await using run = await gf.collie.start();
+  await using foxhound = await Foxhound.connect({ logger: log });
+  await using run = await foxhound.start();
   const page = await run.newPage();
 
   // Side activity is observed with a listener, subscribed when called; `using` closes it (Q5, Q11).

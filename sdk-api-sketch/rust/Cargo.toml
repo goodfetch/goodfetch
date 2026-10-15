@@ -1,3 +1,5 @@
+# The sketch's golden scenarios and snippets, as examples of one package over the three crates of
+# ADR 0095: `goodfetch-collie-client`, `goodfetch-collie` and `goodfetch-foxhound`.
 [package]
 name = "goodfetch-sdk-sketch"
 version = "0.0.0"
@@ -6,11 +8,11 @@ publish = false
 
 # Test helpers for a program's own tests (STYLE.md: the only kind of feature besides heavy optional dependencies).
 [features]
-test-util = []
+test-util = ["goodfetch-collie/test-util", "goodfetch-foxhound/test-util"]
 
-# `EventStream` implements `futures_core::Stream` for interop; its own `next()` needs no crate (G7).
-# `schemars` and serde carry typed data (#469); `schemars` is re-exported so derives match the SDK's version.
 [dependencies]
+goodfetch-collie = { path = "collie" }
+goodfetch-foxhound = { path = "foxhound" }
 futures-core = "0.3.34"
 schemars = "1.2.3"
 serde = { version = "1.0.229", features = ["derive"] }
@@ -20,13 +22,28 @@ serde_json = "1.0.154"
 [dev-dependencies]
 futures-util = "0.3.34"
 
-# The testing kit's snippet uses `goodfetch::testing`, behind `test-util` (ADR 0069).
+# The testing kits' snippet and golden scenario 10 use `goodfetch_foxhound::testing`, behind `test-util` (ADR 0069).
 [[example]]
 name = "snippet_testing"
 required-features = ["test-util"]
 
 # Standalone: not part of any Goodfetch workspace.
 [workspace]
+members = ["collie-client", "collie", "foxhound"]
 
-[lints.rust]
+[workspace.package]
+version = "0.0.0"
+edition = "2024"
+publish = false
+
+[workspace.dependencies]
+futures-core = "0.3.34"
+schemars = "1.2.3"
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = "1.0.154"
+
+[workspace.lints.rust]
 missing_docs = "warn"
+
+[lints]
+workspace = true

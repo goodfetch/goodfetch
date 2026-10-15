@@ -11,6 +11,6 @@ echo "Python (pyright 1.1.414, mypy 2.4.0, pydantic 2.14.1)"
   && uv run --no-project --with pydantic==2.14.1 --with mypy==2.4.0 mypy)
 
 echo "Rust (cargo check)"
-(cd "$here/rust" && RUSTFLAGS="-D warnings" cargo check --all-targets --all-features --quiet)
+(cd "$here/rust" && RUSTFLAGS="-D warnings" cargo check --workspace --all-targets --all-features --quiet)
 
 echo "All three type-check."

@@ -4,8 +4,8 @@ import logging
 from collections.abc import AsyncIterable, Awaitable, Callable
 from dataclasses import dataclass
 
-from goodfetch import (
-    AiWorkResult,
+from goodfetch_foxhound import (
+    AIWorkResult,
     DeadlineExceededError,
     GoodfetchError,
     PageError,
@@ -60,7 +60,7 @@ async def outcomes_are_values(outcomes: AsyncIterable[CrawlRequestOutcome]) -> d
     return counts
 
 
-def ai_work(task: AiWorkResult[Book]) -> Book:
+def ai_work(task: AIWorkResult[Book]) -> Book:
     """The Agent's API is ADR 0100's (`page.agent`)."""
     if isinstance(task.ended, Stopped):
         log.warning("stopped (%s), partial: %s", task.ended.reason, task.partial)

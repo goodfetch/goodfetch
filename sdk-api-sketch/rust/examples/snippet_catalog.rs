@@ -5,7 +5,7 @@
 use std::time::Duration;
 
 use futures_util::TryStreamExt;
-use goodfetch_sdk_sketch::{ConnectOptions, Connection, Error, Goodfetch, JsonObject, Page};
+use goodfetch_collie::{Collie, ConnectOptions, Connection, Error, JsonObject, Page};
 use serde_json::{Value, json};
 
 /// A library written for both Products takes `impl Connection`: `Collie` and `Foxhound` implement it.
@@ -55,16 +55,16 @@ async fn names(page: &Page) -> Result<bool, Error> {
 }
 
 async fn both_products() -> Result<(), Error> {
-    let gf = Goodfetch::connect(ConnectOptions::default()).await?; // `Collie::connect` once #483 lands
-    let _version = engine_version(&gf);
-    gf.close().await
+    let collie = Collie::connect(ConnectOptions::default()).await?;
+    let _version = engine_version(&collie);
+    collie.close().await
 }
 
 fn main() {
     let _ = both_products();
     let _ = |page: Page| async move {
         newer_operation(&page).await?;
-        on_the_connection(&Goodfetch::connect(ConnectOptions::default()).await?, "a-run").await?;
+        on_the_connection(&Collie::connect(ConnectOptions::default()).await?, "a-run").await?;
         names(&page).await
     };
 }

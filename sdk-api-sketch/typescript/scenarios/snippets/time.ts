@@ -1,16 +1,16 @@
 // Snippet for Time, waits, deadlines, cancellation and Limits (#467).
-import { DeadlineExceededError, Goodfetch, type Logger } from "goodfetch";
+import { DeadlineExceededError, Collie, type Logger } from "@goodfetch/collie";
 
 declare const log: Logger; // the program's own logger
 
 export async function searchQuotes(stop: AbortSignal): Promise<number> {
   // Limits on this connection's work: a program may set or lower them, never raise them.
-  await using gf = await Goodfetch.connect({
+  await using collie = await Collie.connect({
     logger: log,
     limits: { price: { amount: "2.00", currency: "EUR" } },
   });
   // The whole Run may last two hours; past that it stops with a Checkpoint and can be resumed.
-  await using run = await gf.collie.start({ timeout: 2 * 60 * 60_000, limits: { modelTokens: 200_000 } });
+  await using run = await collie.start({ timeout: 2 * 60 * 60_000, limits: { modelTokens: 200_000 } });
   const page = await run.newPage();
 
   await page.goto("https://quotes.toscrape.com/search.aspx", { timeout: 10_000 });

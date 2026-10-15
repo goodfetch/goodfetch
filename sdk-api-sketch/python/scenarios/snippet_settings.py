@@ -8,7 +8,7 @@ import logging
 from collections.abc import Mapping
 from datetime import timedelta
 
-from goodfetch import AsyncGoodfetch, ExplainedSetting, Goodfetch, SettingLockedError
+from goodfetch_foxhound import AsyncFoxhound, ExplainedSetting, Foxhound, SettingLockedError
 
 log = logging.getLogger(__name__)
 
@@ -16,9 +16,9 @@ log = logging.getLogger(__name__)
 async def search_quotes() -> list[ExplainedSetting]:
     # One `settings` keyword per scope, inherited beneath it. `engine` is left at `auto`, so a `GOODFETCH_URL` in the
     # environment may fill it; a value written here would win.
-    async with AsyncGoodfetch.connect(settings={"timeout": {"navigation": timedelta(seconds=60)}}) as gf:
+    async with AsyncFoxhound.connect(settings={"timeout": {"navigation": timedelta(seconds=60)}}) as foxhound:
         # A Session's identity is set where it opens, or above it, never on a page (ADR 0021).
-        async with await gf.collie.start(
+        async with await foxhound.start(
             settings={"browser": {"viewport": {"width": 1280, "height": 720}, "locale": "en-GB"}}
         ) as run:
             page = await run.new_page(settings={"timeout": {"action": timedelta(seconds=10)}})
@@ -37,9 +37,9 @@ async def search_quotes() -> list[ExplainedSetting]:
 def start_in_service(env: Mapping[str, str]) -> str:
     """A service reads no project file and passes its own environment map (golden scenario 12)."""
     # Every Run on this connection may last four hours unless it says otherwise.
-    with Goodfetch.connect(project=None, env=env, settings={"timeout": {"run": timedelta(hours=4)}}) as gf:
+    with Foxhound.connect(project=None, env=env, settings={"timeout": {"run": timedelta(hours=4)}}) as foxhound:
         try:
-            with gf.collie.start(timeout=None) as run:
+            with foxhound.start(timeout=None) as run:
                 return run.id
         except SettingLockedError as error:
             # An Operator policy locked the Run's timeout: refused, never silently ignored; `limit` names the policy.

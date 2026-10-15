@@ -2,7 +2,7 @@
 
 import logging
 
-from goodfetch import AsyncGoodfetch, Goodfetch, HumanPauseDeclinedError, LoggedOutError, SecretRequest, secret
+from goodfetch_collie import AsyncCollie, Collie, HumanPauseDeclinedError, LoggedOutError, SecretRequest, secret
 
 log = logging.getLogger(__name__)
 
@@ -14,9 +14,9 @@ async def read_vault(name: str) -> str:
 
 async def log_in_once() -> None:
     """First run: a person at the keyboard logs in once, and the login is kept under a name."""
-    async with AsyncGoodfetch.connect() as gf:
+    async with AsyncCollie.connect() as collie:
         # A Secret placeholder: the program names it, and the engine types its value, only into a field on toscrape.com.
-        async with await gf.collie.start(
+        async with await collie.start(
             settings={"secrets": {"password": {"reference": "env:QUOTES_PASSWORD", "domains": ["toscrape.com"]}}}
         ) as run:
             # A visible window for the person; headless, they would act in the Live view instead.
@@ -41,7 +41,7 @@ async def log_in_once() -> None:
 
 def reuse_login() -> bool:
     """Second run, sync: headless and unattended, it reuses the login and says when it has expired."""
-    with Goodfetch.connect() as gf, gf.collie.start() as run:
+    with Collie.connect() as collie, collie.start() as run:
         with run.new_session(
             source={"kind": "saved_identity", "name": "quotes"},
             settings={
@@ -67,8 +67,8 @@ async def answer_secret(request: SecretRequest) -> str:
 
 async def cookies_and_proxy() -> int:
     """Cookies, a proxy and secrets the program answers from its own store."""
-    async with AsyncGoodfetch.connect(resolve_secret=answer_secret) as gf:
-        async with await gf.collie.start(
+    async with AsyncCollie.connect(resolve_secret=answer_secret) as collie:
+        async with await collie.start(
             settings={
                 "proxy": {"server": "http://proxy.example:3128", "username": "crawler", "password": "caller:proxy_password"},
                 "session": {
@@ -90,6 +90,6 @@ async def cookies_and_proxy() -> int:
             # No field to check: keyboard input takes no Secret placeholder.
             await page.keyboard.type(secret("token"))  # type: ignore[arg-type]  # pyright: ignore[reportArgumentType]
 
-            for identity in await gf.identities.list():
+            for identity in await collie.identities.list():
                 log.info("Saved identity %s, cookies expire %s", identity.name, identity.cookies_expire)
             return len(cookies)

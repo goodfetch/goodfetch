@@ -5,17 +5,17 @@ import logging
 
 from pydantic import BaseModel, EmailStr
 
-from goodfetch import (
+from goodfetch_foxhound import (
     AsyncCrawl,
     AsyncCrawlContext,
-    AsyncGoodfetch,
+    AsyncFoxhound,
     AsyncPage,
     AsyncRun,
     Effect,
     EffectDone,
     EffectReconciled,
     EffectUncertainError,
-    Goodfetch,
+    Foxhound,
     seed,
 )
 
@@ -25,7 +25,7 @@ log = logging.getLogger(__name__)
 async def place_order(sku: str) -> str | None:
     """A Collie program safe to run again after a crash: the Run is named, so a start under the same ID resumes it, and
     the order placed before the crash comes back from the Effect journal."""
-    async with AsyncGoodfetch.connect() as gf, await gf.collie.start(id=f"order-{sku}") as run:
+    async with AsyncFoxhound.connect() as foxhound, await foxhound.start(id=f"order-{sku}") as run:
         page = await run.new_page()
         await page.goto(f"https://shop.example/products/{sku}")
         await page.get_by_role("button", name="Add to cart").click()  # not declared: adding twice is harmless here
@@ -90,8 +90,8 @@ async def contact_seller(ctx: AsyncCrawlContext[Seller]) -> None:
         log.info("already contacted: %s", ctx.request.url)
 
 
-async def contact_sellers(gf: AsyncGoodfetch, emails: list[str]) -> None:
-    run = await gf.foxhound.start_crawl(
+async def contact_sellers(foxhound: AsyncFoxhound, emails: list[str]) -> None:
+    run = await foxhound.start_crawl(
         crawl,
         id="contact-2026-10-15",
         seeds=[seed(f"https://market.example/listings/{i}", listing, Seller(email=email)) for i, email in enumerate(emails)],
@@ -104,7 +104,7 @@ async def contact_sellers(gf: AsyncGoodfetch, emails: list[str]) -> None:
 
 def place_order_sync(sku: str) -> str | None:
     """The sync client: the body is a plain function, run on the calling thread."""
-    with Goodfetch.connect() as gf, gf.collie.start(id=f"order-{sku}") as run:
+    with Foxhound.connect() as foxhound, foxhound.start(id=f"order-{sku}") as run:
         page = run.new_page()
         page.goto("https://shop.example/checkout")
 

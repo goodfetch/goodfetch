@@ -8,14 +8,14 @@ from typing import Literal
 
 from pydantic import BaseModel, Field
 
-from goodfetch import (
-    AsyncGoodfetch,
+from goodfetch_collie import (
+    AsyncCollie,
     AsyncPage,
     AsyncRun,
     BorrowableAsyncPage,
     ExtractionIncompleteError,
-    Goodfetch,
-    JsonValue,
+    Collie,
+    JSONValue,
     PlanDriftError,
     expect,
 )
@@ -33,7 +33,7 @@ async def author_of_first_love_quote() -> Author:
     """Golden scenario 03, "Repeat AI steps with no model call". The first run compiles each step with the model; a
     later run replays them from quotes.plan.json with no model call, and a step that drifted goes back to the model
     once, alone. In CI, `settings={"plan": {"frozen": True}}` forbids any model call."""
-    async with AsyncGoodfetch.connect() as gf, await gf.collie.start(plan="quotes.plan.json") as run:
+    async with AsyncCollie.connect() as collie, await collie.start(plan="quotes.plan.json") as run:
         page = await run.new_page()
         await page.goto("https://quotes.toscrape.com/")
         for instruction in (
@@ -114,15 +114,15 @@ async def own_agent_loop(page: AsyncPage, ask_model: Callable[[str], Awaitable[t
         await page.get_by_ref(ref).click()  # references last as long as their element
 
 
-async def raw_schema(page: AsyncPage) -> JsonValue:
-    """The library-free way down: a hand-written JSON Schema gives a JsonValue to narrow."""
-    schema: dict[str, JsonValue] = {"type": "object", "properties": {"price": {"type": "string"}}}
+async def raw_schema(page: AsyncPage) -> JSONValue:
+    """The library-free way down: a hand-written JSON Schema gives a JSONValue to narrow."""
+    schema: dict[str, JSONValue] = {"type": "object", "properties": {"price": {"type": "string"}}}
     return (await page.extract("the price", schema)).output
 
 
 def frozen_replay_sync() -> None:
     """The sync client, with the Plan frozen: a drift that cannot be repaired names the step and why."""
-    with Goodfetch.connect() as gf, gf.collie.start(plan="quotes.plan.json", settings={"plan": {"frozen": True}}) as run:
+    with Collie.connect() as collie, collie.start(plan="quotes.plan.json", settings={"plan": {"frozen": True}}) as run:
         page = run.new_page()
         page.goto("https://quotes.toscrape.com/")
         try:

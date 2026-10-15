@@ -1,0 +1,261 @@
+# A crawl declares its Labels and one handler each, and a handler reads Collie's page on every fetch tier
+
+A program defines a crawl by declaring its Labels, each with exactly one handler, on a value that needs no connection; a Run then carries the crawl out. Every handler receives the same context on every fetch tier: Collie's page over the crawl request's document, which every tier but the browser serves as far as it can exactly, moving the request to the browser only when a call needs one. A crawl request ends in one of ADR 0079's outcomes, and a handler skips or retries it with a call. Competitors fail here in three ways:
+- **Switching tiers is a rewrite.** Crawlee's context changes shape with its crawler class, Scrapy reaches a browser through a plugin, a reactor and per-request meta, and Spider-rs through a recompile ([crawl frameworks](https://github.com/goodfetch/automan/blob/research/consumer-api/rnd/research/research_notes/Consumer%20API%20of%20competitors/crawl-frameworks.md) §3.2, §6.5; [synthesis](https://github.com/goodfetch/automan/blob/research/consumer-api/rnd/research/2026-10-14-consumer-api.md) pain 8).
+- **Skipping is faked as a failure.** Crawlee v3 skipped a request by setting `noRetry`, throwing, and lowering `requestsFailed` by hand (§6.15).
+- **Retry defaults disagree.** Crawlee 3.18.2 retries any handler error three times, and Scrapy 2.19.0 never retries a callback's exception, both read in their source for this decision.
+
+Decided in [Crawl definition and handler context](https://github.com/goodfetch/automan/issues/477), on the map [The SDK API of Collie and Foxhound](https://github.com/goodfetch/automan/issues/461), first decided by the agent on the owner's delegation and then confirmed by the owner with four changes ([owner confirmation](https://github.com/goodfetch/automan/issues/477#issuecomment-6187919342), recorded as [round 12](https://github.com/goodfetch/automan/issues/477#issuecomment-6188325918), with a [clarification of R3](https://github.com/goodfetch/automan/issues/477#issuecomment-6188913587)), with its [grilling record](https://github.com/goodfetch/automan/issues/477#issuecomment-6181133439), [round 7](https://github.com/goodfetch/automan/issues/477#issuecomment-6181341593), [round 8](https://github.com/goodfetch/automan/issues/477#issuecomment-6181741958), [round 9](https://github.com/goodfetch/automan/issues/477#issuecomment-6182018299), [round 10](https://github.com/goodfetch/automan/issues/477#issuecomment-6187681403) and [round 11](https://github.com/goodfetch/automan/issues/477#issuecomment-6188015778). The handler's page is a Collie page, as [ADR 0088's hand-off](https://github.com/goodfetch/automan/issues/477#issuecomment-6188812868) asked, and carries [ADR 0087](0087-each-product-is-an-executable-crate-that-links-only-its-crates-and-has-its-own-size-budget.md)'s navigation gate. Principles are cited by their IDs in [ADR 0077](0077-the-sdk-api-follows-eight-guarantees-and-four-ranked-shape-rules.md). The page is [ADR 0085](0085-collies-page-api-keeps-playwrights-names-strictness-waits-values-cross-as-json-and-unanswered-requests-fall-through.md)'s; Sessions are [ADR 0092](0092-sessions-open-from-their-source-page-pause-waits-for-a-person-and-a-secret-is-a-placeholder-bound-to-domains.md)'s and AI verbs [ADR 0091](0091-collies-ai-verbs-live-on-the-page-replay-from-a-plan-file-the-run-names-and-expect-runs-a-success-check.md)'s, in review when this was decided.
+
+## Decision
+
+### Declaring a crawl
+
+- **A Label for each kind of request, with exactly one handler.** Behind JSON-RPC a callback cannot cross the connection or a Checkpoint, so a request names its handler by a name the engine persists: its Label (ADR 0082). There is no default handler: Crawlee's catches a misspelled label silently, which typed handles make a type error instead (S2, G3).
+- **A `Crawl` value holds the declaration,** made with no connection and no I/O, so a module may declare it when it loads (ADR 0078):
+  - `new Crawl()` in TypeScript;
+  - `AsyncCrawl()` (`async def` handlers) and `Crawl()` (plain functions) in Python, as the client pair;
+  - `Crawl::new()` in Rust, and `goodfetch_foxhound::blocking::Crawl` for `Fn + Send + Sync + 'static` handlers (ADR 0081).
+
+  A Run is started from it and resumed with it, since handlers are never persisted.
+- **Two steps per Label: declare it, then attach its handler.**
+  - `crawl.label(name, { payload, settings, login })` returns the typed handle `Label<P>`.
+  - `crawl.handle(label, handler)` attaches the handler. Python spells it as the decorator `@crawl.handle(label)`, which returns the function unchanged, so a test calls it as it is ([Testing a user's crawl or automation](https://github.com/goodfetch/automan/issues/482)).
+  - **A login step** (ADRs 0006, 0092) is the `login` option of a Label's declaration (`login=` in Python), or `login` of `new Crawl({ login })` (`AsyncCrawl(login=...)`) for the whole crawl; a Label's own wins for its Sessions. Rust spells them `crawl.login_for(&label, …)` and `crawl.login(…)`.
+  - **Why not one step.** One step was tried with tsc 7.0.2: an expression-bodied handler that enqueues to its own Label fails with TS7022, a trap a coding agent writes for pagination, and Rust cannot name a binding inside its own initializer (S1, T).
+  - **Rust** declares `crawl.label::<P>(name)`, with the schema `schemars` derives, or `crawl.label_with(name, schema, settings)`.
+- **Mistakes are typed and early (G3, G6).**
+  - A second Label of one name, or a second handler for one Label, fails at once with `label_duplicate`.
+  - A Label left without a handler fails the Run's start with `label_unhandled`.
+  - A Label the crawl does not declare fails an enqueue with `label_unknown`. A resume whose pending requests name a Label no longer declared is refused with `label_unknown` before any work, beside ADR 0082's schema check.
+- **Where handlers run** follows ADR 0081: on the event loop in TypeScript, on the connection's thread pool in Python's sync API, and, in its async API, as tasks in the task group of the Run started from the `Crawl`, since the `Crawl` itself is no value to close. Closing the Run cancels and awaits them. In Rust, `crawl.serve(&run).await` answers the Run's crawl requests with the crawl's handlers inside that future until the Run ends, so handlers may borrow local state and need neither `Send` nor `'static`. Dropping that future is the program's own stop: it sends `$/cancel`, and its leased requests return to pending without counting an attempt (below). `run.crawl_requests()` is the `EventStream` beneath it, for a program that answers requests itself (G8).
+
+### Seeds and the noun
+
+- **A crawl request** is the noun ADR 0079 left open: one URL a crawl's Frontier admitted, with its Label and Payload, the work item one handler processes (ADR 0003), which ends in one outcome. "Request" is every crawler's word, and prose may keep it. The SDK already has a `Request` type, the page's network request (ADR 0085), so the types are `CrawlRequest<P>` and `CrawlRequestOutcome`, which replaces the placeholder `RequestOutcome` (S3).
+- **Seeds are crawl requests:** a URL, a Label, a Payload and the request options of an enqueue, checked as an enqueue is, so a seed the run's domain policy refuses is not added (`domain_policy`).
+  - **A sitemap seed.** `sitemap(url, rules)` seeds from a sitemap, `url` being a sitemap or a site's robots.txt, whose `Sitemap:` lines are read. `rules` is an ordered list of URL pattern (matched in the engine, ADR 0081) → Label, as Scrapy's `SitemapSpider` `sitemap_rules` and Crawlee's `SitemapRequestList`: the first rule that matches picks the Label. A sitemap entry carries no Payload, so a rule names a Label without one, a type error otherwise. Nested sitemap indexes are followed. It widens the scope by its own host, like any seed. The seed's own answer, at the start or from `addSeed`, says whether the sitemap was accepted, as an enqueue's does. The engine then reads the sitemap and its indexes once the Run is running, through Politeness and robots.txt, and those fetches run no handler. Each entry is checked as an enqueue is, at depth 0, and an entry matching no rule is not added, with the reason `no_rule`. Entries not added are reported in the Run's report, in the shape [The Run in code](https://github.com/goodfetch/automan/issues/478) gives it. It is the SDK shape of ADR 0037's CO-10.
+  - **The start verb.** Its spelling, and resuming, are [The Run in code](https://github.com/goodfetch/automan/issues/478)'s. The sketch uses `foxhound.start(crawl, { seeds: [seed(url, home)] })` on the `Foxhound` connection ([ADR 0090](0090-products-are-named-goodfetch-collie-and-goodfetch-foxhound-and-share-one-product-version.md)) provisionally.
+  - **`run.addSeed(url, label, payload?, { method, headers, body, priority, forefront, key })`**, or `run.addSeed(sitemap(url, rules))` (Rust's `run.add(Seed::sitemap(url, rules))`), adds a seed to a running crawl, committed at once (ADR 0037's CO-03), and answers as an enqueue does. The start reports its refused seeds as The Run in code decides. `ctx.run` is bound to its attempt, so `addSeed` called through it inside a handler is staged with the attempt, as an enqueue is.
+  - **Seeds define the scope,** so a seed widens it by its host, while a handler's `enqueue` is checked against it. The two get two names because they mean two things, and widening the scope from a handler is the explicit call (S3, G5).
+
+### What a handler receives
+
+- **One `CrawlContext` on every fetch tier** (S2; the pain coverage matrix's K03):
+  - `request`: id, the URL the Frontier admitted, the request's own `label` (the handle for pagination), the `payload` typed by its Label's schema, `depth` and `attempt`;
+  - `page`: a Collie `Page` (ADR 0085), whose `url` is the final URL and whose `session()` reaches cookies (ADR 0092);
+  - `response`: the main document's final `Response`, after redirects, with its status, headers, redirect chain and a body always kept;
+  - `tier`: the fetch tier of this attempt;
+  - `run`: the crawl's Run, through which [Crawl output in code](https://github.com/goodfetch/automan/issues/479) reaches Datasets and the Key-value store;
+  - `enqueue`, `enqueueLinks`, `skip` and `retry`.
+- **No second way to reach the same thing** (S2, G4): no `log` (the program's own logger), no `session` (`page.session()`), no `sendRequest` (`page.request`, ADR 0085), no selector API beside the page (Parsel- or Cheerio-like), and no `extendTimeout()` (a Label's `timeout.handler`).
+- **A context belongs to one attempt.** An attempt ends when its handler returns, and early at `skip`, at `retry`, at an escalation, at the handler's timeout, at a lost lease, or when the program closes the Run. A call made after that, such as a TypeScript `enqueue` that was never awaited or a context stored for later, fails too, so a forgotten `await` never silently loses a link (G1). From then on, every call on its context fails with `attempt_ended`, naming why. An attempt whose handler returned commits what it staged; one that ended early discards it (ADR 0003). Catching it changes nothing, since the decision stands. In Python its class derives from `BaseException`, as `asyncio.CancelledError` does, so `except Exception:` lets it through; it still carries its code and group.
+
+### Fetch tiers, per Label, and escalation
+
+- **Collie's page on every tier.** ADR 0020 compares a sample's results fetched both ways, so one handler must run unchanged on every tier. `browser` is the browser tier; every other tier serves what it can exactly and escalates the rest to `browser`:
+  - `http` and `browser_fetch` fetch the document without rendering it (`browser_fetch` sends the request from inside the Session's browser, ADR 0020); the engine serves `page` from that document: locators and reads answer from it, and so do reading AI verbs;
+  - `discovered_api` fetches the document over HTTP as `http` does, and serves the page's network waits (`waitForResponse`, `waitForRequestFinished`) from the JSON calls it replays;
+  - `light_browser`, ADR 0020's optional light engine (Lightpanda), runs the page's scripts without layout, so a wait for scripted content and `evaluate` are served, and a call that needs layout or pixels escalates: a gesture, `boundingBox`, `innerText`, a screenshot. Which calls it serves exactly is area 6's spec. It is used, or forced, only where the run's capabilities allow it (ADR 0020); forcing it where they do not fails when the Run opens with `capability_unavailable` (ADR 0083).
+  - `browser` renders the page.
+
+  `page.request` goes through the Session's own HTTP transport on every tier and never escalates. On the document tiers (`http`, `browser_fetch`, `discovered_api`), `goto` and `reload` are served by fetching over the same tier through the navigation gate, and `ctx.page.session().newPage()` opens a page over that tier; on `browser`, the pages a handler opens follow ADR 0085 and carry the gate (ADR 0087).
+- **What a tier cannot serve escalates.** On the document tiers such calls include a gesture other than `goto` and `reload`, a popup or new tab (which needs a script or a click), `evaluate`, a network wait no replayed call answers, a screenshot, an acting AI verb or `page.lend()`; on `light_browser`, what needs layout or pixels. Under `fetch.tier: auto`, the first one ends the attempt and runs the request again in the browser. That run is neither a retry nor a failure, and it teaches the tier choice.
+- **A static document never changes,** so on `http`, `browser_fetch` and `discovered_api` a wait for something it lacks, or a read of one element that would wait for it, escalates too. Waiting for content is thus how a handler states what its page must hold. A JavaScript page fetched over HTTP whose content is missing escalates instead of passing as an empty success. A question (`count()`, `isVisible()`) answers at once and never escalates.
+- **Under a forced tier, nothing escalates:** the call fails with `browser_required`, a `ProgramError` naming the Label's `fetch.tier`. For a wait on a static document, its `fix` names both remedies: the tier, or content the page may simply lack.
+- **Which calls each tier serves exactly** is area 6's spec, under one rule: a call is served only when its result is exact; otherwise it escalates. "A non-browser tier" below means any tier but `browser`.
+- **The unit of the tier choice.** ADR 0020's "route" is a **Label on one domain** (ADR 0004's key), which area 6's spec may split by URL path where a Label's samples disagree; the name avoids a clash with `page.route`. The setting `fetch.tier` takes `auto` (the default) or forces `http`, `discovered_api`, `browser_fetch`, `light_browser` or `browser` at any scope down to a Label. There is no per-request override: requests needing another tier are another kind of request, so another Label, which may share a handler (S2). Provenance records the tier and whether it was forced (ADR 0023).
+- **A rename.** ADR 0040's `tier_race` joins the family as `fetch.tier_race` (ADR 0083's naming rule).
+
+### Collie inside a handler
+
+- **`ctx.page` is a Collie Page** with its AI verbs: in the browser, the same object as a Collie program's page, as [ADR 0088](0088-collie-carries-every-capability-except-those-only-many-pages-need.md) handed to this ticket, and on every other tier the same type, served from the document. The verbs' shapes are [Collie's AI verbs and Plans](https://github.com/goodfetch/automan/issues/473)'s. Each call is bound to the work item's lease (ADR 0003), journaled (ADR 0010) and counted in the crawl's own Run (Usage, Limits). There is no Collie Run inside a crawl (ADR 0078).
+- **The tier choice is learned per Label on a domain.** A Plan's key is ADR 0091's (by call, with one variant per page layout), so two Labels making the same call on one domain share what was learned.
+- **Lending.** `ctx.page.lend()` ([ADR 0089](0089-a-page-is-lent-through-an-endpoint-that-shows-only-its-session-and-collie-joins-other-crawlers-by-borrowing.md)) is bound to the lease, and the gate keeps gating the lent page.
+- **Model calls of a discarded attempt** still count in Usage: they were made.
+
+### A handler's own navigation and Site preferences
+
+- **A handler's navigation that Site preferences refuse** fails, with `site_preferences_refused`, a `RefusedError` whose details name the URL and the reason, and whose `fix` names the setting. That navigation is a `goto`, a click or an acting AI verb that navigates, or a `page.request`: ADR 0086 governs it as a crawl request. The reasons are a crawl request's:
+  - `robots_txt` and `crawl_delay` (ADR 0086);
+  - `use_signals`, while `site_preferences.respect_use_signals` is on and an AI-use signal refuses the Run's Purpose, since the same URL enqueued would be skipped with it (ADR 0086), and a handler's `goto` must not collect what an enqueue would skip (G3).
+
+  How the refusal surfaces:
+
+  - **When.** What is known before the request is checked before it is sent: robots.txt and its Crawl-delay, and AI-use signals already read for the host, such as TDMRep's well-known file. A signal the response itself carries (aipref's `Content-Usage` header, TDMRep's headers and `<meta>`, RSL's `Link` header) is checked when the response arrives: the call raises then, and the engine leaves the page on a blank document, so a handler that catches the refusal cannot read what it refused (G3). A crawl request whose own response carries such a signal ends `skipped` with `use_signals` before its handler runs.
+  - **A refused `page.request`** raises the same way, returns no response, and leaves the page as it was.
+  - **A refused navigation that no call waits on,** such as the page's own JavaScript redirect or a popup's first navigation, is aborted at interception by ADR 0087's gate, and the page keeps its document (a popup stays blank). It is a `requestfailed` event whose failure names the Site preference, and the Run trace records it. A waiter armed for that navigation (`waitForURL`, a load-state wait after it, a popup's load) raises `site_preferences_refused`. Nothing else raises, and the request is not skipped: the handler asked for nothing the site refused.
+
+  One code covers every Site-preferences refusal, each with its reason. A Collie program's own navigation is untouched: AI-use signals refuse no call on its page (ADR 0085).
+
+  > Amended by [ADR 0100](0100-collies-agent-is-one-bounded-call-on-a-page-judged-by-the-programs-success-check-and-replayed-whole-from-the-plan.md): inside an Agent's task (`page.agent`), a handler navigation's `site_preferences_refused` is a failed action given back to the model, as every refusal inside the task is, not raised from `page.agent`.
+- **If it escapes the handler,** the request ends `skipped` with that same reason, not `failed`, since the site asked not to be crawled there. A handler that catches it carries on (G1, G5).
+- **A permit's wait** for the gate's per-domain limits, delay and backoff counts against neither `timeout.navigation` nor `timeout.handler`, as time in a Human pause counts against nothing (ADR 0080), and the engine renews the work item's lease meanwhile. Politeness's waits never become failures and retries, each fetching again (G5). The Run's own timeout and its Limits still apply, and the Run's live status names the wait and its setting (The Run in code).
+
+### How a request ends
+
+- **`ctx.skip(message)`** ends the request `skipped`, with the reason `handler` and the message.
+- **`ctx.retry(message)`** ends the attempt with `retry_requested`, a `PageError` that is retryable, counted against `crawl.retry.max`. When retries run out, the request ends `failed` with that error.
+- **Both unwind the handler.** TypeScript types them `never` and Python `NoReturn`. A Rust handler returns `Err(ctx.skip(…))`, since its handlers return `Result<(), goodfetch_foxhound::Error>`. Skipping is a call, not a thrown failure the program fakes (G1).
+- **Retries.**
+  - **`crawl.retry.max` is 2,** so three attempts, as Scrapy's `RETRY_TIMES`, the gentler of the two leaders (G5).
+  - **What is retried:** an attempt whose error is retryable, such as a navigation timeout raised inside the handler (a `GoodfetchError` keeps its code and retryable flag, ADR 0079), and a handler past `timeout.handler` (ADR 0080).
+  - **`handler_failed` is not retried** unless `crawl.retry.handler_failed` is on. A bug fails the same way every time, and each retry fetches the page again (G5).
+  - **A lost lease.** An attempt whose lease ends with no word from the program ends with `handler_lost`, an `UnavailableError` that is retryable (the engine depends on the program to answer), and counts against `crawl.retry.max`, so a request that crashes the program stops after its retries in every language and engine setup:
+    - its process ended, its connection dropped, or a signal it does not handle ended it (Node's Ctrl+C, SIGTERM): the engine cannot tell this from a crash, and the docs name the remedy, closing the Run on SIGINT or SIGTERM;
+    - its Attached or linked engine died with it: a resume counts each attempt that the Run's committed state shows in flight (the run file, or an imported Checkpoint) as `handler_lost`. The engine commits a lease before it hands the request to the program, so no handler runs on a lease the run file does not hold.
+  - **The program's own stop counts nothing,** and the request returns to pending in the Run's committed state: `close()`, which commits after its attempts end, a dropped Rust `serve` future or Run (ADR 0078's `Drop`, which sends `$/cancel`, ADR 0080), or Python's `KeyboardInterrupt` unwinding into `close()`.
+  - **A Rust handler's panic** is caught by `serve`, and by the blocking `serve`, and ends that attempt with `handler_failed`, as an exception does in TypeScript and Python: a panic is a bug, not a stop.
+  - **Hooks share the budget.** A Hook's retry and a retryable `hook_failed` (ADR 0033) draw on the same `crawl.retry.max`, so one request never gets two retry budgets.
+  - **Not retries:** escalations and sample-comparison runs. A block's escalation by new Session follows ADR 0021.
+- **Which responses reach a handler**, as Scrapy's `HttpErrorMiddleware` decides it:
+  - a 2xx after redirects reaches the handler;
+  - a Block cause ends `blocked` (ADRs 0021, 0045, 0048);
+  - a 5xx or a 408 is retried, and fails as `response_unavailable` (a `PageError` that is retryable: the site is failing for now, as ADR 0085's `navigation_failed` is a site never answering) when retries run out; its 502, 503 and 504 also back off the domain (ADR 0086);
+  - any other 4xx fails at once with `response_not_ok` (a `PageError`, not retryable);
+  - `crawl.handle_statuses` (none by default, settable per Label) lists other statuses whose responses go to the handler, so a link checker reads its 404s, and the error's `fix` names it.
+- **The skip reasons** (ADR 0079's full list):
+  - `out_of_scope`: a redirect leaving the crawl's scope;
+  - `domain_policy`: a redirect or a Hook's rewrite to a host the run's domain policy refuses (ADRs 0014, 0017);
+  - `duplicate`: a pending request merged by a URL rule learned after its admission (ADR 0005);
+  - `robots_txt`, `crawl_delay` and `use_signals` (ADR 0086);
+  - `hook`: a before-request Hook (ADR 0033);
+  - `handler`: `ctx.skip()`.
+
+  The `skipped` outcome carries `message`, the handler's or the Hook's own text. Each outcome names its request (id, URL, Label, depth); how a program reads outcomes is The Run in code's.
+
+### Enqueueing, scope and the Frontier
+
+- **`enqueue(url, label, payload?, { method, headers, body, priority, forefront, key })`** adds one request. In TypeScript and Python its Payload argument exists only when the Label has one, and Rust passes `()`, so a missing or wrong Payload is a type error. `method`, `headers` and `body` are Crawlee's `Request` fields and Scrapy's `Request` and `FormRequest`'s: crawling a POST or GraphQL API page by page is common, and it is what the discovered-API tier finds. Whether a non-GET request is an Effect to declare is [Effects a program declares in code](https://github.com/goodfetch/automan/issues/500)'s.
+- **`enqueueLinks(locator, label, payload?, { include, exclude, limit, priority })`** adds every link a Collie locator matches, each `href` resolved against the document's base URL. The locator is the page API's one way to target elements (S2). Two methods, because they return two types.
+  - **A Payload per link.** `payload` may be a function of the link (its `href`, its text and its attributes) that returns the Payload, still typed by the Label, or `null` to skip that link. It answers crawlee-python #524 (one `user_data` for all links), as Crawlee's `transformRequestFunction` does; rewriting a URL stays a Hook's.
+- **What they return.**
+  - An enqueue's result is a value (ADR 0079): added, with its id, or not added, with `duplicate`, `out_of_scope`, `domain_policy`, `max_depth`, `max_requests` or `unsupported_scheme`; a sitemap entry matching no rule is not added with `no_rule`, reported in the Run's report rather than in an answer.
+  - `enqueueLinks` returns the added and not-added URLs: a matched element with no link is reported as `no_link`, and a link its Payload function skipped as `skipped_by_payload`.
+  - So "enqueued nothing" says why (G1). A Payload failing its schema still raises `payload_invalid` (ADR 0082).
+- **Staging.** A handler's enqueues are outputs staged with its attempt and committed with it (ADR 0003), so a failed or escalated attempt leaves no stray links.
+- **The Frontier.** Its identity for a request is the method, the URL after its rules and a hash of the body, whatever the Label, as Crawlee's `useExtendedUniqueKey` (amends ADR 0005's URL-only identity). `key` replaces that identity, a declared canonicalization that always wins. `priority` and `forefront` are ADR 0005's.
+- **Hooks keep cross-cutting policy,** such as a header on every request, and URL rewrites (ADR 0033).
+- **Scope is crawl-wide, checked on every enqueue and every redirect.**
+  - `crawl.scope.strategy`: `same_hostname` by default (Crawlee's default; Scrapy allows every host when `allowed_domains` is unset), or `same_domain`, `same_origin` or `all`.
+  - `crawl.scope.include` and `crawl.scope.exclude`: URL patterns matched in the engine (ADR 0081). Besides the strategy, a URL must match an `include` pattern when there are any, and no `exclude` pattern; they never replace the strategy, as Crawlee v4 learned.
+  - **Measured against every seed,** with hosts compared after the Frontier's fixed URL rules, so `www.` is no other host (ADR 0005). `include` and `exclude` on `enqueueLinks` only narrow.
+  - **Bounds.** `crawl.max_depth` (seeds at 0) and `crawl.max_requests` (requests admitted) have no default. Reaching either refuses further enqueues with its reason and ends the Run `incomplete` (ADR 0005).
+  - **No transform function:** rewriting is a Hook's.
+
+### Settings and the Label scope
+
+- **A Label is a settings scope** between the Run and its requests. It takes:
+  - every setting a page takes (ADRs 0083, 0085, 0091), such as `timeout.action`, `timeout.navigation`, `timeout.wait` and `locator.test_id_attribute`;
+  - `timeout.handler`, `fetch.tier`, `crawl.retry.*`, `crawl.handle_statuses` and `crawl.handler.concurrency`;
+
+    > Amended by [ADR 0100](0100-collies-agent-is-one-bounded-call-on-a-page-judged-by-the-programs-success-check-and-replayed-whole-from-the-plan.md): an enclosing `timeout.handler` that ends an Agent's task first fails it with `deadline_exceeded` naming that call (ADR 0080), so a Label that runs an Agent sets a longer `timeout.handler`.
+
+  - every `session.*` key and `secrets.*` (ADR 0092), with a `login` step as an option of its declaration.
+- **Sessions per Label.** A Label that sets what a Session holds (`session.source`, `session.http_credentials`, `secrets.*` or a `login` step) gets Sessions from a pool of its own; Labels that set none share the Run's pool. So one crawl mixes anonymous and logged-in pages, as Scrapling routes requests to declared sessions with `sid=`, without a second Run that would split its Limits and Completeness. `session.page_check` and `session.recovery.human_pause` judge the Label's pages in whichever pool serves them, so a Page check per Label splits nothing.
+- **What a Label refuses**, with `setting_not_applicable`: the Session's identity (`browser.*`, `proxy.*`, `network.*`), which takes the Run's values in every pool, and Politeness, Site preferences, scope and Run-wide keys. The TypeScript and Python types leave them out, and Rust refuses them when the Run starts (G3).
+- **Politeness per Label is declined:** two Labels on one domain share its slot and delay with every run of the user (ADR 0053). A per-domain override, as Scrapy's `DOWNLOAD_SLOTS`, would be keyed by domain, and none is added.
+- **A page failing its `expectedPage`** (`session.page_check`) on a non-browser tier escalates under `fetch.tier: auto`, as a wait for missing content does. On the browser tier, or under a forced tier, it fails with `page_check_failed` (ADR 0006). A login page is a lost session on every tier.
+- **`crawl.handler.concurrency` is 16 by default** (Scrapy's `CONCURRENT_REQUESTS`): the engine never leases more requests to the program at once (ADR 0081). Set on a Label, it also caps that Label's handlers, within the Run's.
+
+| Key | Built-in | Scopes |
+|---|---|---|
+| `crawl.scope.strategy` | `same_hostname` | connection, Run |
+| `crawl.scope.include`, `crawl.scope.exclude` | none | connection, Run |
+| `crawl.max_depth`, `crawl.max_requests` | none | connection, Run |
+| `crawl.retry.max` | 2 | down to a Label |
+| `crawl.retry.handler_failed` | off | down to a Label |
+| `crawl.handle_statuses` | none | down to a Label |
+| `crawl.handler.concurrency` | 16 | down to a Label |
+| `fetch.tier` | `auto` | down to a Label |
+| `fetch.tier_race` (was `tier_race`) | off | connection, Run |
+
+`fetch.*` is a crawl's, as `crawl.*` is: on a Collie engine it answers `not_in_product` (ADR 0087), and on a Collie Run on a Foxhound engine `setting_not_applicable`; the TypeScript and Python types of a Collie Run leave it out.
+
+### Error codes
+
+| Group | Code | Retryable |
+|---|---|---|
+| `ProgramError` | `label_duplicate`, `label_unhandled`, `label_unknown`, `attempt_ended`, `browser_required` | no |
+| `PageError` | `retry_requested`, `response_unavailable` | yes |
+| `PageError` | `response_not_ok` | no |
+| `UnavailableError` | `handler_lost` | yes |
+| `RefusedError` | `site_preferences_refused` | no |
+
+## Considered Options
+
+- **Per-request callbacks** (Scrapy, Scrapling): rejected. A function cannot cross the connection or a Checkpoint, so it needs a registry of names, which a Label already is. **One handler that switches on the Label** (Spider-rs): rejected; every program writes its own router, with no Payload typed per kind.
+- **A default handler** (Crawlee's `addDefaultHandler`): rejected. It catches unlabelled seeds and misspelled labels alike; seeds name their Label, and typed handles catch misspellings.
+- **Declaring a Label and its handler in one call:** rejected for the TS7022 trap and Rust's ordering, above. **Handlers registered on the Run after it starts:** rejected; a request can arrive before its handler. **A crawl class to subclass** (Scrapy's `Spider`): rejected; inheritance as configuration, and a method name doubling as a persisted name.
+- **A context whose shape changes with the tier** (classic Crawlee): rejected; it is the rewrite users complain of (§3.2). **A selector API beside the page:** rejected by S2. **A restricted context type** (Crawlee's adaptive crawler): rejected; a third shape to learn, when the page API already reads a static document.
+- **Failing instead of escalating** when an HTTP-tier handler touches the browser: rejected while the engine chose the tier, since its guess is no bug of the program's; kept when the program forced the tier. **Loading the browser mid-handler and carrying on:** rejected; one attempt would read two documents.
+- **A tier per request** (Scrapling's `sid=`, scrapy-playwright's meta): rejected by S2; a Label is a kind of request. **Tiers chosen at build time** (Spider-rs's Cargo features): rejected by ADR 0038's rule that a capability is a setting.
+- **Retrying `handler_failed` by default** (Crawlee): rejected by G5. **Never retrying any handler error** (Scrapy): rejected; a retryable code raised inside, such as a navigation timeout, deserves the retry it signals. **`RetryRequestError` with no cap** (Crawlee): rejected; `ctx.retry()` counts against `crawl.retry.max`.
+- **Skip and retry as return values:** rejected; a helper deep inside a handler could not use them. **A flag set, then a return** (Crawlee v3): rejected; forgetting either half is silent.
+- **Every non-2xx reaching the handler:** rejected; a 404 would pass as a handled page unless every handler checked. **Retrying 4xx:** rejected by G5.
+- **A selector string for `enqueueLinks`** (Crawlee): rejected by S2; the locator is the page API's one way to target elements. **Patterns replacing the scope strategy** (Crawlee v3): rejected; Crawlee v4 reversed it. **Scope relative to the current page** (Crawlee): rejected; a redirect to another host would carry the crawl there. **Scrapy's open default** (every host): rejected by G5.
+- **Queue additions written through at once** (Crawlee v4's default): rejected for a handler's enqueues; staging them with the attempt keeps a failed attempt's links out, as ADR 0003 stages every output.
+- **Politeness per Label:** rejected; it belongs to the site, and per-Label values would be ignored (G3) or a way to press a site harder (G5).
+- **`Request` in a crawl namespace** for the noun: rejected; one name with two meanings in one SDK (S3). **Visit, task or work item:** rejected as unfamiliar.
+- **Run-wide Sessions only:** rejected; a crawl mixing anonymous and logged-in pages would need two Runs, splitting its Limits, Usage and Completeness. **A Session named per enqueue** (Scrapling's `sid=`): rejected by S2; the Label already names the kind of request. **Every Session setting splitting the pool:** rejected; a Page check per Label would give each Label its own logins.
+- **Failing a failed expected page on every tier:** rejected; a JavaScript page fetched over HTTP would fail where the browser passes.
+- **One code, retryable or not by status:** rejected; ADR 0079 gives each code one flag. **A site's 5xx as an `UnavailableError`:** rejected; ADR 0079 keeps that group for what Goodfetch depends on, and ADR 0085 makes a site that never answers a `PageError`.
+- **AI-use signals leaving a handler's navigation alone,** as a Collie page's: rejected; the navigation is a crawl request (ADR 0086), and a handler's `goto` would collect what the same URL enqueued skips. **A code of its own for a use-signal refusal:** rejected by S2; one Site-preferences code carries its reason.
+- **A Rust handler's panic as the program's stop:** rejected; a panicking handler would re-run forever where the same bug in TypeScript or Python ends `handler_failed`. **An unhandled signal counting nothing:** rejected; the engine cannot tell it from a crash, which must count.
+- **Plans keyed by the Label on a domain:** withdrawn in round 10; ADR 0091 keys them by call, with one variant per page layout.
+- **A permit's wait counting against the timeouts:** rejected by G5; a busy domain would turn into `deadline_exceeded` and retries, each fetching again. **Skipping the request when the page's own script is refused a navigation:** rejected; the handler asked for nothing the site refused.
+- **A dropped `serve` future counting as a lost lease:** rejected; it is the program's own cancellation, which the engine hears through `$/cancel`, and a Rust service that stops on a shutdown signal would use a retry per leased request at each restart.
+- **A failed-request handler** (Crawlee's `failedRequestHandler`): rejected, on the owner's condition that The Run in code offers a live, filterable sequence of outcomes (only `failed` and `blocked`, as they happen, in ADR 0081's iterator shape), which covers that callback's real-time use; ADR 0102's draft ([PR #521](https://github.com/goodfetch/automan/pull/521)) offers `run.outcomes({ kinds, labels })`. A failed request is an outcome value (ADR 0079), and a callback would be a second channel for the same fact (S2). A Hook stage before a retry stays a Hook question.
+- **Crawl requests that are only GET,** with headers and bodies left to Hooks (this ADR's first draft): reversed by the owner. Crawling a POST or GraphQL API is common, Crawlee and Scrapy take a method and a body per request, and a Hook would have to rebuild per request what the program knew at enqueue.
+- **One Payload for every link of `enqueueLinks`** (this ADR's first draft): reversed by the owner; per-link data then needed a loop of `enqueue`, crawlee-python #524's complaint.
+- **A re-run after a lost lease that never counts:** rejected; a request that crashes the program would re-run forever. **One that always counts:** rejected; a clean stop would use up retries.
+
+## Consequences
+
+- **Amends ADR 0020.** Its route is a Label on one domain; a program forces a tier per Label with `fetch.tier`; a call only a browser serves, a wait for missing content and a failed `expectedPage` on a non-browser tier escalate the request; `tier_race` is `fetch.tier_race`.
+- **Amends ADR 0040**, whose `tier_race` is `fetch.tier_race`.
+- **Amends ADR 0033**, whose Hook retries and retried `hook_failed` draw on `crawl.retry.max`.
+- **Amends ADR 0005**, whose Frontier identity for a request is its method, its URL after the rules and a hash of its body.
+- **Amends ADR 0006.** A page failing its expected page on a non-browser tier, under `fetch.tier: auto`, escalates to the browser instead of stopping the work item.
+- **Amends ADR 0023**, whose per-run or per-call switch of the sample comparison is also set per Label: `fetch.tier` forces a tier at any scope down to a Label.
+- **Amends ADR 0079.**
+  - The noun is crawl request, and the type is `CrawlRequestOutcome`, which names its request.
+  - The skip reasons are listed, and `skipped` carries a message.
+  - `handler_failed` is not retried unless `crawl.retry.handler_failed` is on.
+  - In Rust, a handler's panic, caught by `serve`, ends its attempt with `handler_failed`.
+  - `skip()` and `retry()` end a handler's attempt.
+  - In Python, `AttemptEndedError` derives from `BaseException` rather than `GoodfetchError`, the one class outside the hierarchy, as `asyncio.CancelledError` is outside `Exception`.
+- **Amends ADR 0080.** A permit's wait for ADR 0087's navigation gate counts against no timeout, as a Human pause does not.
+- **Amends ADR 0087**, whose hand-off this answers: a refused navigation raises `site_preferences_refused` from the call or waiter that asked for it, and otherwise is a `requestfailed` event; a permit's wait counts against no timeout; on the document tiers a handler's `goto` and new pages are served over the same tier.
+- **Amends ADR 0081.** Its Rust crawl helper is `crawl.serve(&run)`; its handler concurrency setting is `crawl.handler.concurrency`, settable per Label; and Python's async crawl handlers run in the task group of the Run started from the `Crawl`, which registers them but has no lifecycle.
+- **Amends ADR 0082.** Labels are declared on a `Crawl`, and a resume also refuses pending requests of an undeclared Label with `label_unknown`.
+- **Amends ADR 0083.** A Label is a settings scope, and its keys are those above; the handler concurrency key is `crawl.handler.concurrency`. `fetch.*` answers `not_in_product` on a Collie engine and `setting_not_applicable` on a Collie Run on a Foxhound engine.
+- **Amends ADR 0085.** On a Session with no browser, `page.request` goes through the Session's own HTTP transport; a crawl handler's page is this ADR's, where an AI-use signal refuses a navigation; the crawl's "route" is a Label on one domain.
+- **Amends ADR 0092**, whose Session settings `session.source`, `session.http_credentials`, `session.recovery.human_pause`, `session.page_check` and `secrets.*` are also set on a Label, a Label setting what a Session holds getting a pool of its own.
+- **Amends ADR 0086.**
+  - In this ADR's terms, a crawl request is what the Frontier admits. A handler's own navigation, a hedge's or `fetch.tier_race`'s second copy, an escalation's fetch in the browser and a sample comparison's second fetch are governed as crawl requests are, though none of them is a retry.
+  - A navigation that Site preferences refuse inside a handler raises `site_preferences_refused`.
+  - Politeness and Site preferences are not settable per Label.
+  - A handler's navigation that an AI-use signal refuses raises `site_preferences_refused` with `use_signals`, and escaping the handler it ends the request `skipped` with that reason.
+- **`GLOSSARY.md`** gains **Crawl request**.
+- **Error codes.** The codes in the table join `goodfetch-protocol` with their groups and retryable flags, and `xtask codegen` generates one class per code under ADR 0079's naming rule.
+- **ADR 0037's matrix.**
+  - RT-07, CO-03, CO-05, CO-07, CO-10 and SC-02 become `decided` by this ADR.
+  - RT-04 keeps `spec`, since a stage before a retry is [Hooks and injectable components in the SDK API](https://github.com/goodfetch/automan/issues/481)'s; its note names the retry settings and the failed-request handler this ADR declines.
+  - CO-08, CO-11, CO-15, CO-16, RT-05 and V3-01 (`decided` by ADR 0088) cite it.
+  - Areas 3, 4, 5, 6 and 11 list it.
+- **Areas.**
+  - Area 6 (Collection) builds the Frontier's answers to enqueues, the scope, the bounds, which calls each tier serves on a static document, and the per-Label tier choice.
+  - Area 3 (Engine runtime) builds attempts, staging of enqueues, retries, escalation, and the Label checks at start and resume.
+  - Area 5 (Site access) builds Session pools per Label and the expected-page escalation.
+  - Area 4 (Security and egress) builds the scope's host checks after redirects and the domain policy's refusal of seeds.
+  - Area 11 (Client surfaces) builds the `Crawl` value, the context, the signals that end an attempt and the Rust helper in each language.
+- **`TESTING.md`** gains the crawl conformance cases, including `handler_failed`'s.
+- **The `prototype/sdk-api` sketch** holds the `crawl` files in each language and snippets on golden scenarios 05, 06 and 08. The pain coverage matrix closes P11, P49 and K03 as API, and Crawl's parts of P20 and P48.
+- **Left to other tickets.**
+  - The Run in code: the start and resume verbs, and reading outcomes.
+  - Crawl output in code: pushing Records from `ctx.run`, staged with the attempt.
+  - Hooks and injectable components in the SDK API: Hooks scoped by Label in code, cross-cutting request headers, URL rewrites, and a stage before a retry.
+  - Testing a user's crawl or automation: building a `CrawlContext` from a saved response.
+  - [Effects a program declares in code](https://github.com/goodfetch/automan/issues/500): a declared Effect must be checked rather than repeated, since a handler re-runs on a retry, an escalation, a sample comparison and a lost lease.
+  - **Merge order.** ADR 0092 merged first and carries this ADR's note under its "Amends ADR 0083" item: `session.source`, `session.http_credentials`, `session.recovery.human_pause`, `session.page_check` and `secrets.*` are also set on a Label. Links to ADRs on `main` become relative.

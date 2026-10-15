@@ -23,6 +23,7 @@ Decided in [MCP, framework adapter and Integration test stack](https://github.co
   3. the same across the platform versions Goodfetch supports (Release suite);
   4. Live checks for unpinned releases and real accounts.
 - **Across every generated surface** (MCP profiles, adapters, Integrations, skills), a Quick check refuses any person-only operation or setting (ADRs 0011, 0029, 0041, 0042, 0045, 0048, 0052, 0056), and checks that each surface's operations map to catalog operations of the same class and that none the catalog offers it is missing.
+  > Amended by [ADR 0089](0089-a-page-is-lent-through-an-endpoint-that-shows-only-its-session-and-collie-joins-other-crawlers-by-borrowing.md): the check also refuses `page.lend` on every MCP profile, Framework adapter, Integration and skill, and Code mode never offers it: a CDP address handed to a model would let it drive a browser outside ADR 0014's enforcement.
 
 ### MCP server
 

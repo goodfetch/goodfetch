@@ -1,0 +1,12 @@
+{
+  "model": "qwen2.5-coder:14b",
+  "num_ctx": 32768,
+  "turns": 2,
+  "checks": 0,
+  "end": "replied",
+  "seconds": 102,
+  "prompt_tokens": 2826,
+  "output_tokens": 588,
+  "text_tool_calls": 1,
+  "final_text": ");\n            quotes.push({ text, author, tag });\n          }\n        } catch (error) {\n          throw new Error('An error occurred while fetching quotes: ' + error.message);\n        } finally {\n          await browser.close();\n        }\n\n        return quotes;\n      }\n\n      run(async () => {\n        const quotes = await getQuotes();\n        if (quotes.length === 0) {\n          console.log('No quotes found.');\n        } else {\n          console.log(quotes);\n        }\n      });\n    `\n  }\n}\n```"
+}

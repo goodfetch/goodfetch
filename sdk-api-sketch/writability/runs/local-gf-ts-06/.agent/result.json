@@ -1,0 +1,12 @@
+{
+  "model": "qwen2.5-coder:14b",
+  "num_ctx": 32768,
+  "turns": 5,
+  "checks": 0,
+  "end": "error: Remote end closed connection without response",
+  "seconds": 278,
+  "prompt_tokens": 8016,
+  "output_tokens": 424,
+  "text_tool_calls": 4,
+  "final_text": "<string[]>;\n291\t  screenshot(options?: ScreenshotOptions): Promise<Uint8Array>;\n292\t\n293\t  // Page functions.\n294\t  evaluate<R extends PageResult = JSONValue, Arg extends JSONValue = JSONValue>(\n295\t    pageFunction: ElementFunction<Arg, R>,\n296\t    arg?: Arg,\n297\t    options?: EvaluateOptions,\n298\t  ): Promise<R>;\n299\t  evaluateAll<R extends PageResult = JSONValue, Arg extends JSONValue = JSONValue>(\n300\t    pageFunction: ElementsFunction<Arg, R>,\n... (770 lines in all; read on with offset=301)"
+}

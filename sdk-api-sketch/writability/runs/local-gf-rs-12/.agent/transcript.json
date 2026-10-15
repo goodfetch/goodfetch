@@ -87,5 +87,9 @@
   "role": "tool",
   "content": "s12_crawl_in_a_service.rs:6:33: error[E0432]: unresolved import `goodfetch_foxhound::CrawlResult`: no `CrawlResult` in the root, help: a similar name exists in the module: `CrawlRequest`\ns12_crawl_in_a_service.rs:7:5: error[E0432]: unresolved import `goodfetch_foxhound_client`: use of unresolved module or unlinked crate `goodfetch_foxhound_client`\ns12_crawl_in_a_service.rs:47:11: error[E0433]: failed to resolve: could not find `Server` in `axum`: could not find `Server` in `axum`\ns12_crawl_in_a_service.rs:4:5: warning: unused import: `futures_util::stream::StreamExt`\ns12_crawl_in_a_service.rs:5:5: warning: unused import: `goodfetch_collie::Collie`\ns12_crawl_in_a_service.rs:6:46: warning: unused import: `Foxhound`\ns12_crawl_in_a_service.rs:9:5: warning: unused import: `tokio::net::TcpStream`\ns12_crawl_in_a_service.rs:19:18: error[E0282]: type annotations needed: cannot infer type\ns12_crawl_in_a_service.rs:20:21: error[E0061]: this function takes 0 arguments but 1 argument was supplied\ns12_crawl_in_a_service.rs:21:11: error[E0609]: no field `settings` on type `goodfetch_foxhound::Crawl<'_>`: unknown field\ns12_crawl_in_a_service.rs:27:15: error[E0609]: no field `settings` on type `goodfetch_foxhound::Crawl<'_>`: unknown field\ns12_crawl_in_a_service.rs:28:41: error[E0599]: no method named `run` found for struct `goodfetch_foxhound::Crawl<'a>` in the current scope: method not found in `goodfetch_foxhound::Crawl<'_>`\ns12_crawl_in_a_service.rs:28:35: error[E0282]: type annotations needed: cannot infer type\ns12_crawl_in_a_service.rs:45:49: error[E0277]: the trait bound `fn(String) -> impl Future<Output = ...> {books_handler}: Handler<_, _>` is not satisfied: unsatisfied trait bound\ns12_crawl_in_a_service.rs:47:5: error[E0282]: type annotations needed: cannot infer type\n\nCHECK FAILED (check run 3)\n",
   "tool_name": "run_check"
+ },
+ {
+  "role": "assistant",
+  "content": "DONE 3 FAILED"
  }
 ]

@@ -33,13 +33,26 @@ def leader_reference(nn: str) -> list[str]:
     return out
 
 
+def finished(rundir: Path) -> bool:
+    """A run is judged when its agent finished: a Claude run always did; a local-model run did when
+    its result exists and did not end on a harness or ollama error."""
+    if not rundir.name.startswith("local-"):
+        return True
+    result = rundir / ".agent/result.json"
+    return result.exists() and not json.loads(result.read_text())["end"].startswith("error")
+
+
 def programs(nn: str, models: list[str]) -> list[tuple[str, str]]:
     out = []
     for m in models:
         for lang in ("ts", "py", "rs"):
             run = f"{m}-gf-{lang}-{nn}"
+            if not finished(T / "runs" / run):
+                continue
             out.append((run, str(T / "runs" / run / gf_program(nn, lang))))
         for d in sorted((T / "runs").glob(f"{m}-ld-*-{nn}-*")):
+            if not finished(d):
+                continue
             task = json.loads((d / "task.json").read_text())
             out.append((d.name, str(d / task["program"])))
     return out

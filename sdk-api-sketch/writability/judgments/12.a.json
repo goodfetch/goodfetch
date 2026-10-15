@@ -1,0 +1,29 @@
+{"scenario": "12",
+ "requirements": [
+  {"id": "R1", "text": "A web service in the language's usual minimal framework with one endpoint, GET /books?category=<name>, that runs the crawl when called."},
+  {"id": "R2", "text": "The crawl finds the named category on books.toscrape.com and follows its \"next\" pages to the end."},
+  {"id": "R3", "text": "The endpoint answers the category's books as JSON, each with its title and price."},
+  {"id": "R4", "text": "Two calls running at once in the same process do not interfere: each has its own Run/Crawler, results and state."},
+  {"id": "R5", "text": "Calling it again later works the same: nothing process-wide is consumed or left unrestartable."},
+  {"id": "R6", "text": "If the caller disconnects, the crawl stops and every connection and browser it used is released."},
+  {"id": "R7", "text": "The library's logs go to the service's own logger and nothing is printed to standard output (no library-installed handlers or signal handlers)."},
+  {"id": "R8", "text": "The same crawl is also called from a Python notebook cell (on its running loop without blocking or failing) and from a plain script in TypeScript and Rust."}
+ ],
+ "programs": [
+  {"run": "sonnet-gf-ts-12", "verdict": "partial", "missed": ["R8"], "api_misuses": [], "site_errors": [],
+   "notes": "Per-call Crawl, connection and Run; abort ends finish() and `await using` closes the Run and connection; logger on stderr. There is no plain-script entry calling the same crawl: the file only starts the server."},
+  {"run": "sonnet-gf-py-12", "verdict": "correct", "missed": [], "api_misuses": [], "site_errors": [],
+   "notes": "Per-call AsyncFoxhound and Run, closed in shielded cleanup when the disconnect watcher cancels the task group; goodfetch logs forwarded to the service logger. The notebook path uses the sync Foxhound, which the stubs say works under a running loop, and the docstring also shows awaiting the async function."},
+  {"run": "sonnet-gf-rs-12", "verdict": "correct", "missed": [], "api_misuses": [], "site_errors": [],
+   "notes": "Each crawl runs on its own current-thread runtime. A drop guard aborts the Abortable, which drops serve, and the Run kept in the slot is then closed. A plain-script mode runs the same crawl. Library logs go through tracing to the host's subscriber, as in the golden."},
+  {"run": "sonnet-ld-py-12-scrapy", "verdict": "correct", "missed": [], "api_misuses": [], "site_errors": [],
+   "notes": "Builds a fresh Crawler per call and runs crawl_async without a reactor on the running loop, calling stop_async when the caller disconnects. Scrapy logs propagate to the service's logging, and the notebook cell awaits crawl_category, as the docstring shows."},
+  {"run": "haiku-gf-ts-12", "verdict": "partial", "missed": ["R8"], "api_misuses": [], "site_errors": [],
+   "notes": "One shared connection with a crawl declared and a Run started per call. An abort calls run.stop() and `await using` closes the Run, and the service logger writes to stderr. There is no plain-script entry calling the same crawl."},
+  {"run": "haiku-gf-py-12", "verdict": "correct", "missed": [], "api_misuses": [], "site_errors": [],
+   "notes": "Per-call connection and Run as context managers, with a watcher calling run.stop() on disconnect. Reading records before finish() is fine because the Run ends on its own once drained. Logs are forwarded to the service logger, and the notebook path uses the sync Foxhound."},
+  {"run": "haiku-gf-rs-12", "verdict": "partial", "missed": ["R8"], "api_misuses": [], "site_errors": [],
+   "notes": "Foxhound::scope per call; when axum drops the future it drops serve, the Run and the connection, all of which stop without blocking. There is no plain-script mode calling the same crawl: main only serves."},
+  {"run": "haiku-ld-py-12-scrapy", "verdict": "correct", "missed": [], "api_misuses": [], "site_errors": [],
+   "notes": "AsyncCrawlerRunner and Crawler per call, reactorless on the running loop; polls is_disconnected and awaits stop_async before returning. Logs propagate to the service's logging, and the docstring shows the notebook cell awaiting crawl_category."}
+ ]}

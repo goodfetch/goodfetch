@@ -1,0 +1,9 @@
+{
+  "pass": false,
+  "lenient_pass": false,
+  "errors": 1,
+  "output": "s11_agent_goal.rs does not exist yet",
+  "n": 1,
+  "time": "2026-10-15T23:25:08",
+  "by": "harness"
+}

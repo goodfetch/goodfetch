@@ -1,0 +1,29 @@
+{"scenario": "10",
+ "requirements": [
+  {"id": "R1", "text": "The tests run with the language's usual test runner (node:test/Vitest, pytest, cargo test) and need no network and no model."},
+  {"id": "R2", "text": "A unit test runs scenario 05's book-page handler alone (no whole crawl) on a saved book page."},
+  {"id": "R3", "text": "That unit test passes a category to the handler and checks the produced item, category included."},
+  {"id": "R4", "text": "A test runs scenario 05's whole crawl, through the library's engine, replaying the responses recorded during one earlier live run (not live, not fabricated pages)."},
+  {"id": "R5", "text": "The whole-crawl test checks that the dataset holds the expected number of books."},
+  {"id": "R6", "text": "A test of scenario 08's AI extraction runs from the Plan learned on the earlier run, or from a scripted model reply wired so the extraction really uses it."},
+  {"id": "R7", "text": "That AI test fails if a real model is called (no real provider reachable, frozen Plan, or an assertion on model calls)."},
+  {"id": "R8", "text": "Any test that would reach the network fails, saying which address it tried (refused or missed requests surface with their URL)."}
+ ],
+ "programs": [
+  {"run": "sonnet-gf-ts-10", "verdict": "correct", "missed": [], "api_misuses": [], "site_errors": [],
+   "notes": "runHandler on a page with the Poetry payload, a replay of a scenario-05 recording that asserts misses (method and URL), failed requests and 1000 committed, a frozen-Plan replay of scenario 08 that asserts zero model calls, and a scripted-model test in extract mode `model`. It adds a test that a handler with no document throws ResponseNotRecordedError naming the URL. The book page is an inline, hand-reduced stand-in, because the run could not create fixture files."},
+  {"run": "sonnet-gf-py-10", "verdict": "correct", "missed": [], "api_misuses": [], "site_errors": [],
+   "notes": "Covers all three tests correctly: misses named, 1000 books, a scripted reply with extract mode `model`, and a frozen Plan with zero model calls. It needlessly passes tier=\"browser\" to run_handler (allowed because the Label forces no tier), so the handler tests need a cached browser where the http tier would do. The page is an inline stand-in."},
+  {"run": "sonnet-gf-rs-10", "verdict": "correct", "missed": [], "api_misuses": [], "site_errors": [],
+   "notes": "Tests the handler on a saved file, the replayed crawl (misses named, 1000 books), a frozen Plan with zero model calls and a Frozen status, and a scripted reply under ExtractMode::Model. It adds a test that an unrecorded document or seed is refused and named."},
+  {"run": "sonnet-ld-py-10-scrapy", "verdict": "partial", "missed": ["R4", "R6", "R7"], "api_misuses": [], "site_errors": [],
+   "notes": "The handler test on an HtmlResponse is right, and a socket/DNS guard names every address tried. But the crawl test runs Scrapy's engine on an invented in-memory site of 5 books served by a custom middleware, not on a recording or HTTP cache from a live run. Scrapy has no AI extraction, so its 'AI' tests exercise a self-written selector stub rather than scenario 08: a requirement the library cannot express."},
+  {"run": "haiku-gf-ts-10", "verdict": "correct", "missed": [], "api_misuses": [], "site_errors": [],
+   "notes": "Tests the handler on a page with the category, the replayed crawl (failed outcomes listed with their URLs, 1000 records), and a scripted reply in extract mode `model`, registered under the `vercel` provider name so that no real provider can answer. It checks failed outcomes rather than the report's misses, so a miss outside a crawl request, such as robots.txt, would not fail the test. The page is an inline stand-in."},
+  {"run": "haiku-gf-py-10", "verdict": "partial", "missed": ["R6"], "api_misuses": [{"member": "page.extract under the default extract.mode (scripted model reply)", "assumed": "the model's reply is the extracted book as JSON, so one scripted data reply yields the record", "doc_says": "extract.mode defaults to `compiled`: the model writes each field's locators and transform once, kept in the Plan; only `model` mode has the model read the page and return the values"}], "site_errors": [],
+   "notes": "The handler test (saved file, category) and the replay test (misses named, failed 0, 1000 books) are right. The AI test sets ai.model but not extract.mode=\"model\", so the compile step gets a data-shaped reply it cannot use and the test fails. It has no frozen-Plan alternative."},
+  {"run": "haiku-gf-rs-10", "verdict": "partial", "missed": ["R6"], "api_misuses": [{"member": "page.extract under the default extract::MODE (scripted model reply)", "assumed": "the model's reply is the extracted book as JSON, so one scripted data reply yields the record", "doc_says": "extract.mode defaults to `compiled`: the model writes each field's locators and transform once, kept in the Plan; only `model` mode has the model read the page and return the values"}], "site_errors": [],
+   "notes": "The handler and replay tests are right; the replay test names the missed URLs and counts 1000 records. The AI test leaves extract mode at its compiled default while scripting a data reply, so the compile fails. It skips the misses check if the report has no recording section."},
+  {"run": "haiku-ld-py-10-scrapy", "verdict": "partial", "missed": ["R4", "R6", "R7"], "api_misuses": [], "site_errors": [],
+   "notes": "The parse_book test on an HtmlResponse is right, and a socket guard names addresses. The 'whole crawl' test hand-loops the spider's callbacks over 4 invented pages, without Scrapy's engine or any live-run recording. The 'AI' test only compares a scripted string with the handler's output and exercises no extraction, since Scrapy has no AI extraction (not expressible in the library)."}
+ ]}

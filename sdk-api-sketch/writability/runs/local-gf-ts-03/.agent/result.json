@@ -1,0 +1,11 @@
+{
+  "model": "qwen2.5-coder:14b",
+  "num_ctx": 32768,
+  "turns": 1,
+  "checks": 0,
+  "end": "replied",
+  "seconds": 10,
+  "prompt_tokens": 1284,
+  "output_tokens": 6,
+  "final_text": "DONE 1 PASSED"
+}

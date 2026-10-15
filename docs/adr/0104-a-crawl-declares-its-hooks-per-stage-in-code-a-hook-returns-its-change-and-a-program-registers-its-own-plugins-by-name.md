@@ -10,7 +10,7 @@ The leaders fail here in three ways ([crawl frameworks](https://github.com/goodf
 - **Fetching tied to parsing.** Crawlee's crawler class picks both, and crawlee-python's [Design Inspiration From Scrapy](https://github.com/apify/crawlee-python/discussions/855) discussion asks to decouple them.
 
 Decided in [Hooks and injectable components in the SDK API](https://github.com/goodfetch/automan/issues/481), on the map [The SDK API of Collie and Foxhound](https://github.com/goodfetch/automan/issues/461), every answer decided by the agent on the owner's delegation, with its [grilling record](https://github.com/goodfetch/automan/issues/481#issuecomment-6181739598), [round 5](https://github.com/goodfetch/automan/issues/481#issuecomment-6181969007) and [round 6](https://github.com/goodfetch/automan/issues/481#issuecomment-6187768415). Principles are cited by their IDs in [ADR 0077](0077-the-sdk-api-follows-eight-guarantees-and-four-ranked-shape-rules.md). It builds on decisions in review when it was made:
-- [ADR 0093](0093-a-crawl-declares-its-labels-and-one-handler-each-and-a-handler-reads-collies-page-on-every-fetch-tier.md): the crawl, its Labels and handlers;
+- [ADR 0093](0093-a-crawl-declares-its-labels-and-one-handler-each-and-a-handler-reads-collies-page-on-every-fetch-tier.md) ([PR #512](https://github.com/goodfetch/automan/pull/512)): the crawl, its Labels and handlers;
 - ADR 0085 ([PR #501](https://github.com/goodfetch/automan/pull/501)): Collie's page API and its routes;
 - ADR 0088 ([PR #504](https://github.com/goodfetch/automan/pull/504)): which Hook stages are Collie's;
 - ADR 0092 ([PR #509](https://github.com/goodfetch/automan/pull/509)): Secret placeholders and `resolveSecret`;
@@ -30,7 +30,7 @@ Decided in [Hooks and injectable components in the SDK API](https://github.com/g
   - a Record goes through the stage before its commit;
   - an enqueued request goes through before request, where a Hook may skip it;
   - the request's end is its outcome.
-- **Navigation stages run only when a browser navigates.** A request on an HTTP tier has before request and after response, and page ready on every tier.
+- **Navigation stages run only on the `browser` tier,** the one tier where a browser navigates to the request's URL. On the others (`http`, `discovered_api` and `browser_fetch`, which fetches from inside the browser without navigating, ADR 0093) a request has before request and after response, and page ready on every tier.
 - **Before request is also the stage before a retry.** It runs on every fetch of a request: each retry, escalation and sample-comparison run. Its context carries the attempt, the tier about to fetch and `previousError`, the error of the attempt before (`null` on the first). A Hook may change the next attempt's URL or headers. It may stop the retries with `skip(message)`: the request then ends `skipped` with the reason `hook`, and its outcome still lists every failed attempt's error. RT-04's handler before a retry needs no stage of its own (S2).
 - **A Collie program has no Hooks in code.** It navigates its own page, so each stage is already a line of its own code or a page call (ADR 0085):
   - before a navigation, the lines before `goto`, or `session.route` for a navigation it did not start, such as the Agent's;
@@ -53,7 +53,7 @@ Decided in [Hooks and injectable components in the SDK API](https://github.com/g
   - A Label another crawl declared fails at once with `label_unknown`, and a Dataset another crawl declared with `dataset_unknown` (ADR 0103).
   - With no `labels`, a Hook runs for every Label and sees the Payload as `unknown`.
   - The stage before a Record's commit also takes `datasets`, ADR 0103's Dataset handles, so its Hook sees and returns the Dataset's Record type (G3).
-- **A Hook that can never run is refused (G3).** An empty `labels` list fails at once with `hook_ineffective`. So does, when the Run starts, a navigation Hook all of whose Labels force a tier with no browser through `fetch.tier`.
+- **A Hook that can never run is refused (G3).** An empty `labels` or `datasets` list fails at once with `hook_ineffective`. So does, when the Run starts, a navigation Hook all of whose Labels force a tier other than `browser` through `fetch.tier`.
 - **Order.** Hooks run per stage in the order declared, scoped and unscoped alike. There are no integers and no priorities.
   - Hooks named in settings (process Plugins and Script Hooks under `hooks.*`, whose schema is area 7's spec) run first, layer by layer from Operator policy to the run layer.
   - The crawl's Hooks in code run last, so the program's own Hooks see what the others changed, as the nearest scope wins in ADR 0083.
@@ -89,7 +89,11 @@ Every context carries `request` (id, URL, Label, typed Payload, depth, attempt) 
 - **A header set to `null` is removed.**
 - **The engine's own headers are refused.** ADR 0033's forbidden headers (`Host`, `Cookie`, `Authorization`, `Proxy-*`, method overrides) fail the Hook with `header_forbidden`, wrapped in `hook_failed`.
 - **Secrets.** A header's value may be a Secret placeholder, bound by `secrets.*` and checked against the request's URL, as in `page.request` and a route's overrides (ADR 0092). The engine adds cookies, Secret values and the Session's credentials after the last Hook, so no Secret value passes through the program, and the headers a Hook reads never hold them.
-- **A rewritten URL is checked against the crawl's scope and the run's domain policy,** whatever form the Hook takes. A rewrite that leaves them ends the request `skipped` (`out_of_scope`, `domain_policy`, ADR 0093). A Plugin's or a Script Hook's rewrite must also stay within the domains it declares (ADR 0033). An enqueue's other checks (`duplicate`, `max_depth`, `max_requests`) do not apply, since the request was already admitted. robots.txt and Site preferences read the URL as rewritten, so a rewrite cannot step around them (G5).
+- **A rewritten URL is checked against the crawl's scope and the run's domain policy,** whatever form the Hook takes. A rewrite that leaves them ends the request `skipped` (`out_of_scope`, `domain_policy`, ADR 0093).
+  - **A Hook in code** may rewrite to any host that check admits, since it is the program's own code and the scope is the program's own statement of where its crawl may go.
+  - **A Plugin or a Script Hook** must also keep ADR 0033's rule: the original request's registrable domain, or else a domain it declares.
+  - An enqueue's other checks (`duplicate`, `max_depth`, `max_requests`) do not apply, since the request was already admitted.
+  - robots.txt and Site preferences read the URL as rewritten, so a rewrite cannot step around them (G5).
 
 ### Running and failing
 
@@ -99,8 +103,8 @@ Every context carries `request` (id, URL, Label, typed Payload, depth, attempt) 
   - Rust: inside `crawl.serve(&run)`.
 
   It is the program's own code (ADR 0033): unconfined, accounted, and in the Run trace by name. Records it changed say so in their Provenance.
-- **Every Hook in code is a round trip.** Each request of its Labels waits on the program, as under a `**/*` route (ADR 0085). A request is leased to the program from its first Hook in code to its commit, so `crawl.handler.concurrency`, which counts those leases (ADR 0081), bounds Hooks and handlers together. A Script Hook named in settings runs in the engine's Script sandbox with no round trip to the program (ADR 0051), and is the way down for a crawl that cannot afford one (G8).
-- **Detaching.** A Run with a Hook in code cannot be detached (ADR 0078), as a Run with handlers cannot; nor can a Run whose settings choose an SDK handler, which lives in the program.
+- **Every Hook in code is a round trip.** Each request of its Labels waits on the program, as under a `**/*` route (ADR 0085). A request is leased to the program from its first Hook in code to its commit, so `crawl.handler.concurrency`, which counts those leases (ADR 0081), bounds Hooks and handlers together. A crawl with a before-request Hook in code therefore has at most that many fetches in flight, 16 by default. A Script Hook named in settings runs in the engine's Script sandbox with no round trip to the program (ADR 0051), and is the way down for a crawl that cannot afford one (G8).
+- **Detaching.** A Run with a Hook in code cannot be detached (ADR 0078), as a Run with handlers cannot; nor can a Run that uses an SDK handler, chosen by its settings or standing in for a default, since the handler lives in the program.
 - **Timeout.** `timeout.hook` (10 s, ADR 0080) bounds each call. Past it, the call fails with `deadline_exceeded` naming that setting and the stage, and is retried as any `deadline_exceeded` is. A Label may set `timeout.hook` for the Hooks on its requests.
 - **`hook_failed`.** A Hook that raises fails the work with `hook_failed`, a `ProgramError`. Its details are:
   - `stage`, `hook` (its name) and `label`;
@@ -119,7 +123,7 @@ The research's injectable components map onto Plugin kinds (ADR 0033), or onto n
   - the tier is a setting or learned, never a crawler class (ADR 0093);
   - the handler reads `ctx.page`, Collie's page on every tier, or parses the response's body with any library it imports, since it is the program's own code.
 
-  crawlee-python documents custom parsers for the same reason (crawl frameworks §6.9). The Extractor kind replaces main-content extraction (ADR 0007), a different job.
+  crawlee-python's [extending guide](https://github.com/apify/crawlee-python/blob/v1.10.4/docs/guides/extending_crawlee.mdx) still pairs each custom parser with a crawler class of its own, the coupling this avoids. The Extractor kind replaces main-content extraction (ADR 0007), a different job.
 - **Storage: declined,** as ADR 0033 declined storage backends: a replaceable store breaks portable, resumable runs (ADR 0002). Delivering Records anywhere is a Sink's job (ADR 0103), and a program may write one (below).
 - **Session pool: declined.** ADR 0021's escalation by new Session, ADR 0053's shared Politeness and ADR 0035's stealth meet in the pool, and a replaced pool would step around all three (G5). Crawlee v4 accepts any `ISessionPool`. Goodfetch's pool is shaped by settings instead (`session.*`, `proxy.*`, ADR 0092), and a Proxy provider supplies its proxies.
 - **Proxy:** the Proxy provider kind, one proxy per Session (ADRs 0021, 0092).
@@ -130,23 +134,23 @@ The research's injectable components map onto Plugin kinds (ADR 0033), or onto n
 - **Registered on `connect()`,** in one option per kind, each a map keyed by name, as ADR 0101 registers `modelProviders`. Every kind has one, except the Hook (declared on the `Crawl`, above), the Model provider (`modelProviders`, ADR 0101) and the Secret provider (`resolveSecret`, ADR 0092).
   - **TypeScript:** `fetchBackends`, `proxyProviders`, `sinks`, and so on for each kind, generated from the catalog's kinds.
   - **Python:** the same in snake_case: coroutine functions on the async client, run in the connection's task group; plain functions on the sync client, run on its thread pool (ADR 0081).
-  - **Rust:** `ConnectOptions` declares each handler's name, one builder method per kind (`fetch_backend(name)`, `proxy_provider(name)`, `sink(name)`), and `gf.fetch_requests(name)`, `gf.proxy_requests(name)` and `gf.sink_requests(name)` read its calls as an `EventStream`, since the async API spawns nothing (ADR 0081). Reading a name not declared fails with `setting_invalid`. A call waits for its stream until its own deadline. A call dropped unanswered, or held by a stream dropped mid-Run, fails as an unreachable implementation of its kind would (ADR 0101).
+  - **Rust:** `ConnectOptions` declares each handler's name, one builder method per kind (`fetch_backend(name)`, `proxy_provider(name)`, `sink(name)`), and `gf.fetch_requests(name)`, `gf.proxy_requests(name)` and `gf.sink_requests(name)` read its calls as an `EventStream`, since the async API spawns nothing (ADR 0081). Reading a name not declared fails with `setting_invalid`, and so does a second stream for a name while one is open, since calls that need an answer have one reader. A call waits for its stream until its own deadline. A call dropped unanswered, or held by a stream dropped mid-Run, fails with its kind's code for an unreachable implementation, as a dropped model call is `model_unavailable` (ADR 0101), and is retried as that code is.
   - **In every language, a program's own implementation of a kind is this SDK-handler form, with every engine.** On a linked engine (ADR 0078), the Rust-trait form of ADR 0033 is the engine's seam for its built-ins, not part of the SDK API, so a Rust program has one form, as the others have (S1, S2).
 
-  A map keyed by name makes a duplicate name impossible. A handler serves every Run of its connection, as an installed Plugin serves every Run of its engine.
+  A map keyed by name makes a duplicate name impossible. A handler serves every Run of its connection, as an installed Plugin serves every Run of its engine. A Product's SDK has only the options of its own kinds: Collie's has no `fetchBackends` or `sinks`, since the Fetch backend and Sink kinds are Foxhound's (ADR 0088).
 - **Chosen by name.** Settings choose a handler by its name wherever they choose an installed Plugin (ADR 0028's layers).
-  - **The only handler of a kind that one setting chooses** (Fetch backend, Proxy provider, Browser backend, Extractor, Search provider, Challenge solver) stands in for that setting's built-in default on its connection. Any explicit value, at any layer or scope, replaces it, and `explainSettings()` shows it in the default's place, marked `registered` (G3). Without this, a proxy pool registered and never chosen would leave a crawl on the user's own address (G5).
-  - Two handlers of such a kind are both available by name, and neither stands in for the default.
+  - **The only handler of a kind that one setting chooses** (Fetch backend, Proxy provider, Browser backend, Extractor, Search provider, Challenge solver) becomes that setting's value at the connection scope, in the run layer with the origin `registered`, the lowest of the run layer's origins. Every other run-layer value replaces it: `connect()`'s own `settings`, a Run's, a Label's, a call's argument. Configuration does not, since the program's own code beats configuration files (ADR 0083). `explainSettings()` shows the origin (G6). Without this, a proxy pool registered and never chosen would leave a crawl on the user's own address (G5).
+  - **Two handlers of such a kind fail `connect()` with `setting_invalid`** unless its own `settings` choose one, for the same reason (G5).
   - **Kinds that another setting or a reference names** take the handler's name there:
     - a Model reference `inhouse/<model>` (ADR 0101), and a Decision provider as a Model provider is;
-    - a Secret reference `caller:` (ADR 0092), and a Code source in `secrets.<name>.codeSource` (ADR 0092);
+    - a Secret reference `caller:` (ADR 0092), and a Code source in `secrets.<name>.code_source` (ADR 0092);
     - a Notification channel where its settings name channels (ADR 0027);
     - a Sink through its `sinks.<name>` entry (below).
 
     Area 7's spec writes each kind's choosing key under ADR 0083's naming rule.
   - **A handler no setting chooses yet is not refused.** The connection's later Runs may choose it, as a Model provider no reference names yet may be (ADR 0101).
 - **Names that clash or that nothing answers fail with `setting_invalid`, its `fix` naming both ways to supply one: install a Plugin, or register a handler.**
-  - At `connect()`: a handler named as an installed Plugin of its kind.
+  - At `connect()`: a handler named as a built-in or an installed Plugin of its kind, since they share one namespace, as ADR 0101's provider names do.
   - When a scope opens: a setting naming a handler that is neither installed nor registered.
   - At a resume, before any work: a handler the Run used that the program no longer registers. Run state records the handler's name and the form `sdk_handler` in place of a digest (ADR 0033).
 - **Failures.**
@@ -156,21 +160,21 @@ The research's injectable components map onto Plugin kinds (ADR 0033), or onto n
   - ADR 0092's `resolveSecret` keeps `secret_unavailable`, as decided there.
 - **Retries of a handler's failure.**
   - A Sink's is retried on ADR 0008's schedule, since its delivery ID makes a retry safe.
-  - In a crawl, a crawl request that failed through a handler (its fetch, or the Session it needed) is retried only when `crawl.retry.handler_failed` is on for its own Label.
-  - In a Collie Run, the call that needed the handler fails, and nothing retries it (ADR 0079).
+  - Any other kind's: in a crawl, a crawl request that failed through a handler (its fetch, the Session it needed, a page call the handler served) is retried only when `crawl.retry.handler_failed` is on for its own Label; in a Collie Run, the call that needed the handler fails, and nothing retries it (ADR 0079).
 - **A program's Fetch backend never carries a logged-in Session's requests,** as a third-party one never does (ADR 0033). The engine sends those itself, so no cookie or Secret value passes through the program (ADR 0092).
 - **A program's Sink** (ADR 0026's SDK-handler form) serves the `sinks.<name>` entry of its name. That entry gives its Datasets, write mode and key as any Sink's does (ADR 0103), and a `type` beside a handler of that name is refused with `setting_invalid` when the Run starts. Each delivery carries ADR 0008's delivery ID and run epoch, and its Guarantee class is probed as any Sink's (ADR 0026). `run.records()` stays the reader with no delivery state (ADR 0103).
 - **Rights.** A handler runs with the program's full rights, never confined, and a third-party package used as one does too, as ADR 0033 tells the docs to say.
 
 ### Error codes
 
-| Group | Code | Retryable |
-|---|---|---|
-| `ProgramError` | `hook_failed` (its details above) | as its wrapped code; for the program's own exception, only under `crawl.retry.handler_failed` |
-| `ProgramError` | `header_forbidden`, raised inside `hook_failed`; `hook_ineffective`; `hook_duplicate` | no |
-| `ProgramError` | `fetch_handler_failed`, `proxy_handler_failed` | only under `crawl.retry.handler_failed`, in a crawl |
-| `ProgramError` | `sink_handler_failed` | yes, on ADR 0008's schedule |
-| `ProgramError` | the other kinds' `<kind>_handler_failed`, which area 7's spec names | no |
+They join `goodfetch-protocol`'s list in the `program` group (ADR 0079).
+
+| Code | Retryable |
+|---|---|
+| `hook_failed` (its details above) | as its wrapped code; for the program's own exception, only under `crawl.retry.handler_failed` |
+| `header_forbidden`, raised inside `hook_failed`; `hook_ineffective`; `hook_duplicate` | no |
+| `sink_handler_failed` | yes, on ADR 0008's schedule |
+| every other `<kind>_handler_failed`: `fetch_handler_failed`, `proxy_handler_failed` and those area 7's spec names | in a crawl, only under `crawl.retry.handler_failed`; in a Collie Run, no |
 
 ## Considered Options
 
@@ -190,7 +194,7 @@ The research's injectable components map onto Plugin kinds (ADR 0033), or onto n
 - **A replaced Session pool, a storage client and a tier predictor,** as Crawlee v4 accepts: rejected, above.
 - **One generic `connect({ plugins: [...] })` list for every kind:** rejected. It was this ticket's first answer, replaced once ADR 0101 registered Model providers per kind: two forms for one concept break S1. **Rust traits run on the connection's runtime:** rejected for the same reason, beside ADR 0092's and ADR 0101's streams, and so is keeping the Rust-trait form public on a linked engine.
 - **Rust handlers registered while their stream is open,** as ADR 0101's draft does: rejected. The connection's choice would change after its scope opened, against ADR 0083's "no setters" (G2), and `connect()` could not refuse a clash.
-- **The registered handler as the connection's explicit value:** rejected by G3. It would beat `connect()`'s own `settings` naming an installed Plugin.
+- **The registered handler as the connection's explicit value, above `settings`:** rejected by G3. It would beat `connect()`'s own `settings` naming an installed Plugin. **The registered handler as a built-in default, below configuration:** rejected by G2. A configuration file would then beat the program's own code (ADR 0083). **Two handlers of a kind, neither chosen:** rejected by G5. Runs would go out from the user's own address.
 - **The kind's own failure code for an SDK handler's exception** (a Sink's unavailability, say): rejected. A program's exception is the program's to fix, a `ProgramError` by remedy (ADR 0079), as `handler_failed`, `hook_failed` and `model_handler_failed` already are.
 - **Refusing a handler no setting chooses:** rejected. A connection serves many Runs, and a later one may choose it.
 - **A service locator** (Crawlee for Python's): rejected by G2.
@@ -198,6 +202,7 @@ The research's injectable components map onto Plugin kinds (ADR 0033), or onto n
 ## Consequences
 
 - **Amends ADR 0033.**
+  - The Rust-trait form is the engine's seam for its built-ins, not a form of the user's own code.
   - In the SDK API, Hooks in code are a crawl's, at the stages that change the work. Collie's page stages have no Hook in code. The observe-only stages reach a program as the Run's values.
   - A program's own implementation of a kind is the SDK-handler form with every engine; the Rust-trait form is the engine's seam for its built-ins.
   - Before request no longer changes the body, and every form's rewrite is checked against the crawl's scope.
@@ -207,14 +212,15 @@ The research's injectable components map onto Plugin kinds (ADR 0033), or onto n
   - A Hook's own exception follows `crawl.retry.handler_failed`.
   - SDK handlers are registered by name, one option per kind, and fail as `<kind>_handler_failed`.
 - **Amends ADR 0079.** `hook_failed` names its stage, Hook and Label, and its wrapped code. An SDK handler's exception is its kind's `<kind>_handler_failed`, whose message, like `handler_failed`'s, always names the program's exception, in Rust's `Display` too.
-- **Amends ADR 0083.** The only SDK handler of a kind that one setting chooses stands in for that setting's built-in default, marked `registered` in `explainSettings()`.
+- **Amends ADR 0083.** The only SDK handler of a kind that one setting chooses becomes that setting's connection value, in the run layer with the origin `registered`, below every other run-layer origin.
 - **Amends ADR 0093** (its notes are added once it merges):
   - `crawl.retry.handler_failed` also covers `hook_failed` and a crawl request failed through an SDK handler;
   - headers and URL rewrites, not bodies, belong to a before-request Hook;
   - the scope is checked on a Hook's rewrite too, and `out_of_scope` covers a rewrite leaving it;
   - a Label takes `timeout.hook`;
   - Hooks are declared on the `Crawl`.
-- **Amends ADR 0026.** A program's Sink is registered on its connection by name, serves the `sinks.<name>` entry of its name, and is the SDK-handler form in Rust too.
+- **Amends ADR 0026.** A program's Sink is registered on its connection by name, serves the `sinks.<name>` entry of its name, and is the SDK-handler form in Rust too; a Rust-trait Sink is no third-party form.
+- **`goodfetch-protocol`** gains `header_forbidden`, `hook_ineffective`, `hook_duplicate` and each kind's `<kind>_handler_failed`, through `xtask codegen`'s naming checks (ADR 0079).
 - **`GLOSSARY.md`.**
   - **SDK handler** is added.
   - **Hook** gains _Avoid_: pipeline (for a Hook before a Record's commit). Scrapy's item pipelines split here into that Hook and a Sink.
@@ -224,13 +230,14 @@ The research's injectable components map onto Plugin kinds (ADR 0033), or onto n
   - Areas 3, 6, 7 and 11 list it.
 - **Areas.**
   - Area 7 (Plugin protocol) builds the stage names, the `hooks.*` schema, `request_ended`, each kind's generated handler, short name and `<kind>_handler_failed`, and each kind's choosing key under ADR 0083's naming rule.
-  - Area 3 (Engine runtime) builds the order across forms, Hook timeouts and retries, a failed commit at the Record stage, and the `registered` default.
+  - Area 3 (Engine runtime) builds the order across forms, Hook timeouts and retries, a failed commit at the Record stage, and the `registered` origin.
   - Area 6 (Collection) builds the scope check of a rewritten URL and an SDK-handler Sink's deliveries.
   - Area 11 (Client surfaces) builds the Hook methods, their contexts, the handler options and Rust's declared names and streams.
 - **`TESTING.md`** gains the Hook conformance cases.
 - **The `prototype/sdk-api` sketch** holds the `hooks` files in each language and snippets on golden scenario 05's crawl. The pain coverage matrix closes P46 and K12 as API.
 - **Left to other tickets.**
   - [The Run in code](https://github.com/goodfetch/automan/issues/478): a discrete event for an observe-only stage its progress and report do not already show, such as Limit reached or migration.
-  - [Models, usage and cost in the SDK API](https://github.com/goodfetch/automan/issues/475): Rust's declared names and `fail(error)` taking any error, for `model_requests`.
+  - [Models, usage and cost in the SDK API](https://github.com/goodfetch/automan/issues/475): Rust's declared names and `fail(error)` taking any error, for `model_requests`; and no Rust-trait Model provider in the SDK API.
+  - [Sessions, logins, Human pause and secrets in code](https://github.com/goodfetch/automan/issues/476): a declared `gf.secret_requests()` in Rust, as the other kinds' streams are declared when connecting.
   - [Testing a user's crawl or automation](https://github.com/goodfetch/automan/issues/482): building a Hook's context to call a Hook in a test.
   - [API sketch: type-checked stubs and golden scenarios](https://github.com/goodfetch/automan/issues/483): placing a before-request Hook in golden scenario 05 or 08.

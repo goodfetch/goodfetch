@@ -93,6 +93,7 @@ The last record in a batch wins. "Only new or changed" delivers what change trac
   > Amended by [ADR 0104](0104-a-crawl-declares-its-hooks-per-stage-in-code-a-hook-returns-its-change-and-a-program-registers-its-own-plugins-by-name.md): a program registers its Sink on its connection by name (`connect({ sinks })`; in Rust, `ConnectOptions::sink(name)` and `gf.sink_requests(name)`), which is a Rust program's form too, a linked engine included. It serves the `sinks.<name>` entry of its name, and its own exception is `sink_handler_failed`, retried on ADR 0008's schedule.
 - a sink process (a process Plugin, ADR 0033)
 - a Rust trait implementation
+  > Amended by [ADR 0104](0104-a-crawl-declares-its-hooks-per-stage-in-code-a-hook-returns-its-change-and-a-program-registers-its-own-plugins-by-name.md): not a form of the SDK API. A Rust program's own Sink is the SDK-handler form, with every engine; the Rust-trait form is the engine's seam for its built-ins.
 
 They share one interface and one conformance suite, and earn the class they pass.
 

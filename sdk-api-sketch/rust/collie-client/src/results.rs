@@ -164,6 +164,22 @@ impl ErrorCode {
     pub const BORROW_REQUIRES_CDP: ErrorCode = ErrorCode::new("borrow_requires_cdp");
     /// `browser_borrowed`, a refusal: another Run already borrows this browser (ADR 0056).
     pub const BROWSER_BORROWED: ErrorCode = ErrorCode::new("browser_borrowed");
+    /// `cdp_url_unreachable`: nothing at a `cdp_url` answered; retryable (ADR 0115).
+    pub const CDP_URL_UNREACHABLE: ErrorCode = ErrorCode::new("cdp_url_unreachable");
+    /// `cdp_url_not_browser`: what answered at a `cdp_url` is not a browser speaking CDP (ADR 0115).
+    pub const CDP_URL_NOT_BROWSER: ErrorCode = ErrorCode::new("cdp_url_not_browser");
+    /// `cdp_url_unauthorized`, a refusal: a `cdp_url` answered 401 or 403 (ADR 0115).
+    pub const CDP_URL_UNAUTHORIZED: ErrorCode = ErrorCode::new("cdp_url_unauthorized");
+    /// `cdp_url_not_allowed`, a refusal: ADR 0056's address rules refused a `cdp_url` (ADR 0115).
+    pub const CDP_URL_NOT_ALLOWED: ErrorCode = ErrorCode::new("cdp_url_not_allowed");
+    /// `browser_not_installed`: a build the engine cannot fetch, or a browser named by channel or
+    /// path that is absent; not retryable (ADRs 0098, 0115).
+    pub const BROWSER_NOT_INSTALLED: ErrorCode = ErrorCode::new("browser_not_installed");
+    /// `artifact_unavailable_offline`, a refusal: `offline` refused a pinned download (ADRs 0043,
+    /// 0115).
+    pub const ARTIFACT_UNAVAILABLE_OFFLINE: ErrorCode = ErrorCode::new("artifact_unavailable_offline");
+    /// `artifact_download_failed`: a pinned download failed; retryable (ADR 0115).
+    pub const ARTIFACT_DOWNLOAD_FAILED: ErrorCode = ErrorCode::new("artifact_download_failed");
     /// `attach_ended`: a Lent page's attach was cut (ADRs 0003, 0089).
     pub const ATTACH_ENDED: ErrorCode = ErrorCode::new("attach_ended");
     /// `value_invalid`: a Key-value store value that is not JSON, fails its schema or holds bytes

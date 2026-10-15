@@ -4,9 +4,13 @@
 //! first, returning its typed [`Label`], and then gets exactly one handler with [`Crawl::handle`].
 //! A Run carries the crawl out: [`Foxhound::start_crawl`] starts it, and a start under the same ID
 //! resumes it (ADR 0102). The async API spawns nothing (ADR 0081): [`Crawl::serve`] answers the Run's crawl
-//! requests inside the future the program awaits, so handlers may borrow local state and need
-//! neither `Send` nor `'static`. [`crate::blocking`] runs `Send + Sync + 'static` handlers on the
-//! `tasks` module's tracked threads instead.
+//! requests inside the future the program awaits, so handlers may borrow local state and need not
+//! be `'static`. They are `Send + Sync`, and so are the futures they return, so `serve`'s future is
+//! `Send` and runs in a multi-threaded server's handler or a spawned task (ADR 0112). A handler
+//! takes axum's form, `FnOnce(CrawlContext<P>) -> Fut + Clone` with `Fut: Future + Send`, cloned
+//! for each request: any `async |ctx| { … }` closure, `async move` included, whose captures are
+//! `Clone + Send + Sync`. [`crate::blocking`] runs `Send + Sync + 'static` handlers on the `tasks`
+//! module's tracked threads instead.
 //!
 //! A handler receives one [`CrawlContext`] on every fetch tier: Collie's page over the request's
 //! document. Every tier but `browser` serves what it can exactly; a call only a browser can serve,
@@ -14,8 +18,9 @@
 //! the browser, unless `fetch::TIER` forces the tier, when it fails with `browser_required`.
 
 use std::fmt;
-use std::future::IntoFuture;
+use std::future::{Future, IntoFuture};
 use std::marker::PhantomData;
+use std::pin::Pin;
 use std::time::Duration;
 
 use schemars::JsonSchema;
@@ -65,10 +70,21 @@ pub enum FetchTier {
     Unknown(String),
 }
 
+/// How a [`Crawl`] holds a handler once its Payload type is erased: `Send + Sync`, and so is the
+/// future it returns, so the `Crawl` is `Send + Sync` and [`Crawl::serve`]'s future is `Send`
+/// (ADR 0112). Its Hooks and login steps are held the same way.
+type HeldHandler<'a> = Box<
+    dyn Fn(CrawlContext<serde_json::Value>) -> Pin<Box<dyn Future<Output = Result<(), Error>> + Send + 'a>>
+        + Send
+        + Sync
+        + 'a,
+>;
+
 /// A crawl's declaration: its Labels and their handlers. It needs no connection and does no I/O.
-/// A Run is started from it and resumed with it, since handlers are never persisted.
+/// A Run is started from it and resumed with it, since handlers are never persisted. It is
+/// `Send + Sync`, and `Send + Sync + 'static` when its handlers borrow nothing (ADR 0112).
 pub struct Crawl<'a> {
-    _handlers: PhantomData<&'a ()>,
+    _handlers: PhantomData<Vec<HeldHandler<'a>>>,
 }
 
 impl fmt::Debug for Crawl<'_> {
@@ -109,10 +125,15 @@ impl<'a> Crawl<'a> {
     }
 
     /// Attaches the Label's one handler. A second handler fails at once with `label_duplicate`; a
-    /// Label left without one makes the Run's start fail with `label_unhandled`.
-    pub fn handle<P, F>(&mut self, label: &Label<P>, handler: F) -> Result<(), Error>
+    /// Label left without one makes the Run's start fail with `label_unhandled`. The handler is
+    /// cloned for each request and called once, and it and the future it returns are `Send`
+    /// (ADR 0112): an `async |ctx| { … }` closure borrowing the declaring function's locals, or an
+    /// `async move` one owning clones of the handles it uses. Shared mutable state is an `Arc` of a
+    /// lock or an atomic, as in any handler run concurrently.
+    pub fn handle<P, F, Fut>(&mut self, label: &Label<P>, handler: F) -> Result<(), Error>
     where
-        F: AsyncFn(CrawlContext<P>) -> Result<(), Error> + 'a,
+        F: FnOnce(CrawlContext<P>) -> Fut + Clone + Send + Sync + 'a,
+        Fut: Future<Output = Result<(), Error>> + Send + 'a,
     {
         let _ = (label, handler);
         unimplemented!()
@@ -120,9 +141,10 @@ impl<'a> Crawl<'a> {
 
     /// The scripted login step of the Run's Session pool (ADRs 0006, 0092), called with the
     /// Session's page on the login page; a Label's own, from [`LabelDeclaration::login`], wins.
-    pub fn login<F>(&mut self, login: F)
+    pub fn login<F, Fut>(&mut self, login: F)
     where
-        F: AsyncFn(Page) -> Result<(), Error> + 'a,
+        F: FnOnce(Page) -> Fut + Clone + Send + Sync + 'a,
+        Fut: Future<Output = Result<(), Error>> + Send + 'a,
     {
         let _ = login;
         unimplemented!()
@@ -130,7 +152,8 @@ impl<'a> Crawl<'a> {
 
     /// Answers the Run's crawl requests with these handlers and Hooks (ADR 0104),
     /// `crawl::handler::CONCURRENCY` requests at once, inside this future, until the Run ends, then
-    /// returns its report (ADR 0102): serving is what lets a crawl finish. Dropping it is the
+    /// returns its report (ADR 0102): serving is what lets a crawl finish. The future is `Send`, so
+    /// it runs in an axum handler or a spawned task (ADR 0112). Dropping it is the
     /// program's own stop: it sends `$/cancel`, and the requests it leased return to pending
     /// without counting an attempt. A handler's panic is caught and ends its attempt with
     /// `handler_failed`, as an exception does in TypeScript and Python.
@@ -187,7 +210,7 @@ impl<T: JsonSchema + Serialize + DeserializeOwned> From<&str> for DatasetDeclara
 /// one with none.
 pub struct LabelDeclaration<'a, P> {
     _payload: PhantomData<fn(P) -> P>,
-    _handlers: PhantomData<&'a ()>,
+    _login: PhantomData<Option<HeldHandler<'a>>>,
 }
 
 impl<P> fmt::Debug for LabelDeclaration<'_, P> {
@@ -224,9 +247,10 @@ impl<'a, P> LabelDeclaration<'a, P> {
 
     /// The scripted login step of the Sessions this Label's requests use, which wins over the
     /// crawl's [`Crawl::login`] and gives the Label a Session pool of its own (ADR 0093).
-    pub fn login<F>(self, login: F) -> Self
+    pub fn login<F, Fut>(self, login: F) -> Self
     where
-        F: AsyncFn(Page) -> Result<(), Error> + 'a,
+        F: FnOnce(Page) -> Fut + Clone + Send + Sync + 'a,
+        Fut: Future<Output = Result<(), Error>> + Send + 'a,
     {
         let _ = login;
         unimplemented!()
@@ -366,11 +390,13 @@ impl<P> CrawlContext<P> {
 
     /// Reads `stream`, one of this page's, for the rest of the attempt, inside [`Crawl::serve`],
     /// calling `handler` with each item, as [`crate::PageStageContext::for_each`] does (ADR 0111).
-    /// On a context read from [`CrawlRun::crawl_requests`] it fails with `setting_invalid`.
-    pub fn for_each<T, F>(&self, stream: EventStream<T>, handler: F) -> Result<(), Error>
+    /// On a context read from [`CrawlRun::crawl_requests`] it fails with `setting_invalid`. `serve`
+    /// holds `handler`, so it takes a handler's form and is `Send`, as its future is (ADR 0112).
+    pub fn for_each<T, F, Fut>(&self, stream: EventStream<T>, handler: F) -> Result<(), Error>
     where
-        T: 'static,
-        F: AsyncFn(T) -> Result<(), Error> + 'static,
+        T: Send + 'static,
+        F: FnOnce(T) -> Fut + Clone + Send + Sync + 'static,
+        Fut: Future<Output = Result<(), Error>> + Send + 'static,
     {
         let _ = (stream, handler);
         unimplemented!()
@@ -397,10 +423,11 @@ impl<P> CrawlContext<P> {
     }
 
     /// As [`CrawlContext::enqueue_links`], with a Payload per link: `payload` returns it, or `None`
-    /// to skip that link, reported as `skipped_by_payload` (ADR 0093).
+    /// to skip that link, reported as `skipped_by_payload` (ADR 0093). The call's future holds it,
+    /// so it is `Send + Sync + 'static`, as a waiter's predicate is (ADRs 0081, 0112).
     pub fn enqueue_links_with<Q: Serialize, F>(&self, links: &Locator, label: &Label<Q>, payload: F) -> EnqueueLinks
     where
-        F: Fn(&LinkInfo) -> Option<Q>,
+        F: Fn(&LinkInfo) -> Option<Q> + Send + Sync + 'static,
     {
         let _ = (links, label, payload);
         unimplemented!()
@@ -696,4 +723,17 @@ impl IntoFuture for StartCrawl {
     fn into_future(self) -> Self::IntoFuture {
         unimplemented!()
     }
+}
+
+// C-SEND-SYNC (ADR 0112): a `Crawl` is `Send + Sync`, and `Send + Sync + 'static` when its handlers
+// borrow nothing, so `serve`'s future is `Send`. Checked whenever the crate compiles.
+const _: () = {
+    const fn shared<T: Send + Sync>() {}
+    shared::<Crawl<'static>>();
+    shared::<LabelDeclaration<'static, ()>>();
+};
+
+#[expect(dead_code, reason = "a compile-time check that `serve`'s future is `Send`, never called")]
+fn serve_is_send<'a>(crawl: &'a Crawl<'a>, run: &'a CrawlRun) -> impl Future<Output = Result<crate::run::CrawlRunReport, Error>> + Send + 'a {
+    crawl.serve(run)
 }

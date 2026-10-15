@@ -73,6 +73,13 @@ KnownErrorCode: TypeAlias = Literal[
     "session_reserved",
     "borrow_requires_cdp",
     "browser_borrowed",
+    "cdp_url_unreachable",
+    "cdp_url_not_browser",
+    "cdp_url_unauthorized",
+    "cdp_url_not_allowed",
+    "browser_not_installed",
+    "artifact_unavailable_offline",
+    "artifact_download_failed",
     "attach_ended",
     "internal",
 ]

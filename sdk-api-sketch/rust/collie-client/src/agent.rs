@@ -241,7 +241,7 @@ impl AgentTool {
     pub fn new<I, F, Fut>(name: &str, description: &str, run: F) -> Self
     where
         I: JsonSchema + DeserializeOwned + Send + 'static,
-        F: Fn(I, Page, AgentToolCall) -> Fut + Send + Sync + 'static,
+        F: FnOnce(I, Page, AgentToolCall) -> Fut + Clone + Send + Sync + 'static,
         Fut: Future<Output = Result<serde_json::Value, BoxError>> + Send + 'static,
     {
         let _ = (name, description, run);
@@ -298,7 +298,7 @@ impl<T> AgentCall<T> {
     /// own code, and any other error with `success_check_threw`.
     pub fn success_check<F, Fut>(self, check: F) -> Self
     where
-        F: Fn(Page) -> Fut + Send + Sync + 'static,
+        F: FnOnce(Page) -> Fut + Clone + Send + Sync + 'static,
         Fut: Future<Output = Result<(), BoxError>> + Send + 'static,
     {
         let _ = check;

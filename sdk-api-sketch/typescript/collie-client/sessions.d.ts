@@ -11,7 +11,7 @@
 //   a `caller:` reference (ADRs 0014, 0015).
 
 import type { Locator } from "./page.js";
-import type { PageError, ProgramError, RefusedError, UnavailableError } from "./results.js";
+import type { PageError, ProgramError, RefusedError, SettingsLayer, UnavailableError } from "./results.js";
 import type { CallOptions, Timeout, URLMatcher } from "./time.js";
 
 // Secrets.
@@ -422,4 +422,115 @@ export interface SessionNotSavableDetails {
 export declare class SessionNotSavableError extends ProgramError {
   readonly code: "session_not_savable";
   readonly details: SessionNotSavableDetails;
+}
+
+// Opening a Session on a `cdp_url`, and the browser build a Session launches (ADR 0115, decided in
+// #534): one code per remedy, raised by the call that opens the Session or launches the browser
+// (`newSession`, the default Session's first `newPage`, a crawl request's escalation), never by
+// `connect()`. An address that never answers is `deadline_exceeded`; a `headers` reference that resolves
+// to nothing is `secret_unavailable`.
+
+export interface CDPURLDetails {
+  /** The address, without its query string or any credentials in it. */
+  readonly url: string;
+  /** The settings layer that gave the address (ADR 0083). */
+  readonly layer: SettingsLayer;
+}
+export interface CDPURLUnreachableDetails extends CDPURLDetails {
+  readonly failure: "name_not_resolved" | "connection_refused" | "connection_reset" | "tls_failed" | (string & {});
+}
+/** Nothing at the address answered; `fix` says to start the browser with remote debugging on that port, or correct the address. Retryable. */
+export declare class CDPURLUnreachableError extends UnavailableError {
+  readonly code: "cdp_url_unreachable";
+  readonly details: CDPURLUnreachableDetails;
+}
+/** What answered at a `cdp_url` that is not a browser, also in `observed`. */
+export interface CDPURLAnswer {
+  readonly kind: "http" | "websocket_refused" | "cdp_target" | (string & {});
+  readonly status: number | null;
+  readonly contentType: string | null;
+  /** For `cdp_target`: `page`, `node`, `worker`, or `browser` for a product the engine does not drive. */
+  readonly targetType: string | null;
+  readonly product: string | null;
+}
+export interface CDPURLNotBrowserDetails extends CDPURLDetails {
+  readonly answered: CDPURLAnswer;
+  /** The browser endpoint the same host's `/json/version` lists, which `fix` names; `null` when none. */
+  readonly browserEndpoint: string | null;
+}
+/** Something answered, but no browser speaks CDP there. */
+export declare class CDPURLNotBrowserError extends ProgramError {
+  readonly code: "cdp_url_not_browser";
+  readonly details: CDPURLNotBrowserDetails;
+}
+export interface CDPURLUnauthorizedDetails extends CDPURLDetails {
+  readonly status: 401 | 403;
+  /** Each header sent, by name, with its Secret reference; never a value. */
+  readonly headers: Readonly<Record<string, SecretReference>>;
+}
+/** The address answered 401 or 403; `fix` points to the Secret references in `headers`. */
+export declare class CDPURLUnauthorizedError extends RefusedError {
+  readonly code: "cdp_url_unauthorized";
+  readonly details: CDPURLUnauthorizedDetails;
+}
+export interface CDPURLNotAllowedDetails extends CDPURLDetails {
+  /** ADR 0056's rule: a private range, or loopback where it is not allowed. */
+  readonly rule: "private_range" | "loopback" | (string & {});
+}
+/** ADR 0056's address rules refused the address before any connection; `fix` names Operator policy or user or project configuration. */
+export declare class CDPURLNotAllowedError extends RefusedError {
+  readonly code: "cdp_url_not_allowed";
+  readonly details: CDPURLNotAllowedDetails;
+}
+
+export interface PinnedBy {
+  readonly product: "collie" | "foxhound" | (string & {});
+  readonly version: string;
+}
+/** A pinned download of the Browser cache: a browser build, Lightpanda, Playwright's driver, the Clean-up rules, an engine executable. */
+export interface PinnedArtifact {
+  /** Such as `chromium`, `camoufox` or `lightpanda`. */
+  readonly name: string;
+  /** The build ID or version pinned. */
+  readonly version: string;
+  /** The Product and Product version that pin it (ADR 0098). */
+  readonly pinnedBy: PinnedBy;
+  /** The Browser cache's path. */
+  readonly cachePath: string;
+}
+export interface BrowserNotInstalledDetails {
+  /** The pinned build, or `null` for a browser named by channel or path. */
+  readonly build: PinnedArtifact | null;
+  /** The channel or path looked for, when a setting named one (ADR 0024). */
+  readonly channel: string | null;
+  readonly path: string | null;
+}
+/**
+ * The build a Session needs is not in a Browser cache the engine cannot write, or a browser named by
+ * channel or path is absent; `fix` is the Product's install command for that build. Not retryable.
+ */
+export declare class BrowserNotInstalledError extends UnavailableError {
+  readonly code: "browser_not_installed";
+  readonly details: BrowserNotInstalledDetails;
+}
+export interface ArtifactUnavailableOfflineDetails {
+  readonly artifact: PinnedArtifact;
+}
+/** The `offline` setting refused a pinned download (ADR 0043); `limit` names `offline` and its layer. */
+export declare class ArtifactUnavailableOfflineError extends RefusedError {
+  readonly code: "artifact_unavailable_offline";
+  readonly details: ArtifactUnavailableOfflineDetails;
+}
+export interface ArtifactDownloadFailedDetails {
+  readonly artifact: PinnedArtifact;
+  /** The host it came from, never a full URL. */
+  readonly host: string;
+  readonly failure: "network" | "http_status" | "digest_mismatch" | (string & {});
+  /** For `http_status`. */
+  readonly status: number | null;
+}
+/** A pinned download on first use failed after the engine's own attempts. Retryable. */
+export declare class ArtifactDownloadFailedError extends UnavailableError {
+  readonly code: "artifact_download_failed";
+  readonly details: ArtifactDownloadFailedDetails;
 }

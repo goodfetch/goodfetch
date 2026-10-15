@@ -15,21 +15,25 @@ A crawl's handler pushes each Record through its context into a Dataset its craw
 - **Scrapling 0.4.15's `stream()`** slows the crawl through a buffer of 100 ([engine.py](https://github.com/D4Vinci/Scrapling/blob/v0.4.15/scrapling/spiders/engine.py#L460)).
 - **Crawl4AI 0.9.5's `arun_many()`** returns a list or a generator, depending on `config.stream` ([async_webcrawler.py](https://github.com/unclecode/crawl4ai/blob/v0.9.5/crawl4ai/async_webcrawler.py#L1101-L1137)).
 
-Decided in [Crawl output in code](https://github.com/goodfetch/automan/issues/479), on the map [The SDK API of Collie and Foxhound](https://github.com/goodfetch/automan/issues/461). Every answer was decided by the agent on the owner's delegation, with its [grilling record](https://github.com/goodfetch/automan/issues/479#issuecomment-6181693852). Principles are cited by their IDs in [ADR 0077](0077-the-sdk-api-follows-eight-guarantees-and-four-ranked-shape-rules.md). Datasets, Records, Exports and Sinks are Foxhound's (ADR 0084); the Key-value store is every Run's.
+Decided in [Crawl output in code](https://github.com/goodfetch/automan/issues/479), on the map [The SDK API of Collie and Foxhound](https://github.com/goodfetch/automan/issues/461). Every answer was decided by the agent on the owner's delegation, with its [grilling record](https://github.com/goodfetch/automan/issues/479#issuecomment-6181693852) and its [round 6](https://github.com/goodfetch/automan/issues/479#issuecomment-6187750572), after the fresh review. Principles are cited by their IDs in [ADR 0077](0077-the-sdk-api-follows-eight-guarantees-and-four-ranked-shape-rules.md). Datasets and Sinks are Foxhound's (ADR 0084), and so are the Records and Exports made from them. Collie keeps a run's Key-value store, as [Collie's exact capability set](https://github.com/goodfetch/automan/issues/455) decides (ADR 0088, in [PR #504](https://github.com/goodfetch/automan/pull/504)).
 
 ## Decision
 
 ### Writing: one way to push, one way to read
 
 - **Two tasks, each with one way (S2).**
-  - A handler pushes Records into a Dataset in run state, so they checkpoint, resume, reach Sinks once and show in the Console (ADRs 0002, 0003, 0008).
+  - A handler pushes Records into a Dataset in run state, so they checkpoint, resume, reach Sinks under ADR 0008's delivery contract and show in the Console (ADRs 0002, 0003, 0008).
   - A program reads committed Records back as a stream.
   - Crawlee's `pushData` and `getData` split the same way.
 - **`ctx.push(dataset, record)`** (`ctx.push(books, Book(...))` in Python, `ctx.push(&books, &book).await?` in Rust).
   - It is on the context, which is the attempt (ADR 0093), as Crawlee's `context.pushData` is (S3).
   - The destination comes first, as in `keyValueStore.set(key, value)`.
+  - It is named `push`, not `pushData`. Its destination is required and comes first, and Crawlee 3's `pushData` writes through at once, which is a different meaning (S3).
   - TypeScript types the Record from the Dataset alone (`NoInfer`), so a Record literal missing a field never widens the type.
-- **Records come only from handlers.** There is no `run.push`, so every Record's Provenance names the crawl request that produced it. A program's own state outside a handler goes to the Key-value store.
+- **In the SDK API, Records come only from handlers.**
+  - There is no `run.push`, so every Record's Provenance names the crawl request that produced it.
+  - A program's own state outside a handler goes to the Key-value store.
+  - Code-free crawls (the CLI's catalog runs, Recipes, a Schedule's target) fill Datasets through the engine's own extraction. How they name and declare those Datasets is area 6's and area 11's spec.
 - **Not on a handle, nor on the Run.**
   - `books.push(record)` on a handle declared at import would have to find its attempt from hidden context, such as `AsyncLocalStorage` or `contextvars` (G2).
   - A `push` on the Run would exist only on `ctx.run`'s attempt-bound view (ADR 0093), never on the program's own Run.
@@ -40,11 +44,16 @@ Decided in [Crawl output in code](https://github.com/goodfetch/automan/issues/47
   - It returns a typed `Dataset<I, O>` handle, with no I/O, as `crawl.label()` does (ADR 0093).
   - With no schema, it takes any JSON object (ADR 0082).
   - The engine knows every Dataset when the Run starts, so a Sink naming one is checked before the first Record (ADR 0026).
-- **No default Dataset.** Every push names a declared handle, so a misspelled Dataset is a type error (G3, T). Crawlee's `pushData(data, 'bokks')` silently opens a second Dataset.
+- **No default Dataset in the SDK API.** Every push names a declared handle, so a misspelled Dataset is a type error (G3, T). Crawlee's `pushData(data, 'bokks')` silently opens a second Dataset.
 - **Mistakes, caught at once:**
   - a second Dataset of one name raises `dataset_duplicate` when it is declared;
   - a push to a handle that another crawl declared raises `dataset_unknown`.
 - **Another program reads a Run's Records** with the handle that the crawl's module declares, since declaring does no I/O. The catalog's raw call, by the Dataset's name, is the way down (G8).
+- **A resume checks the declarations before any work** (G1, G6), as ADR 0093 checks Labels and ADR 0082 checks Payloads.
+  - A Dataset that holds Records but that the crawl no longer declares, a renamed one included, fails the resume with `dataset_unknown`, so no Record is orphaned.
+  - A changed key fails it with `dataset_key_invalid`, so a Sink's upsert never mixes two identities.
+  - A changed schema is allowed: new Records are checked against it, each Record keeps the hash of the schema it was committed under, and Sinks follow ADR 0026's schema evolution.
+  - A Checkpoint holds each Dataset's name, key and schema hash.
 
 ### What a push guarantees
 
@@ -53,8 +62,11 @@ Decided in [Crawl output in code](https://github.com/goodfetch/automan/issues/47
   - The attempt's Records commit together with its enqueues and Key-value store writes, under a valid lease and run epoch, once the handler returns (ADR 0003).
   - An attempt that fails, retries, escalates, skips or loses its lease discards them. A retried request therefore commits its Records once, and a failed one leaves none.
   - There is no write-through setting: Crawlee 3's write-through is the behaviour pain 11 complains of.
+  - **Writes outside the attempt.** A handler that writes through the program's own Run value, captured from the enclosing code rather than reached through `ctx.run`, makes the program's writes. They commit at once and no lease fences them, so a handler past its lease, or one whose attempt fails, still makes them.
 - **Numbering.** A committed Record gets the next number of its Dataset, in commit order, with no gaps (ADR 0008).
-- **Sample comparison.** ADR 0020's comparison runs a handler on two tiers and compares the Records each attempt staged. Only the chosen attempt commits.
+- **Sample comparison.** ADR 0020's comparison runs a handler both on the browser and on a cheaper tier, and compares the Records that each attempt staged, before any "Record before commit" Hook.
+  - The browser's attempt is the reference, and it is the one that commits, whether the two match or not. The other is discarded.
+  - If the browser's attempt fails, the request's attempt has failed, under ADR 0093's retry rules.
 - **A Record that fails raises from `push` (G1, G3, G6).**
   - The code is `record_invalid`, naming the Dataset and each issue's path. It covers:
     - a Record that fails its schema, natively in the SDK or against the JSON Schema in the engine (ADR 0082);
@@ -64,31 +76,40 @@ Decided in [Crawl output in code](https://github.com/goodfetch/automan/issues/47
   - If the error escapes, the request ends `failed` with `record_invalid` (ADR 0079), which is not retryable, so the request is not retried.
   - Diverting such a Record silently, or a setting that chooses, is rejected: a request would read `succeeded` while its data was missing, and a setting that turns an error into a value is the raise switch ADR 0079 forbids.
 - **Dropped and rejected Records (ADR 0033's "Record before commit" Hook stage).**
+  - **When the stage runs.** Once the handler returns, before the commit, and only on the Records of the attempt that is about to commit.
+    - A discarded attempt's Records never reach a Hook.
+    - A Hook that fails (`hook_failed`) fails the attempt, which discards everything it staged and is retried under the work item's policy (ADR 0033).
   - A Hook's answer never fails the request.
   - A transformed Record is checked against its schema again, and is rejected if it no longer fits.
   - A `succeeded` outcome carries `records`: for each Dataset, how many Records were committed, dropped and rejected. A request that succeeded with nothing committed says why (G1).
-  - `run.rejectedRecords(dataset)` reads the Dataset's rejection table. Each entry is the Record as JSON, never parsed by the schema it failed (G3), with the reason, the Hook, the request's ID and its URL.
+  - `run.rejectedRecords(dataset, { after })` reads the Dataset's rejection table, and follows the Run live as `records` does.
+    - Each entry carries its `number` in the table (in commit order, with no gaps), so `after` resumes a reader.
+    - Each entry also carries the Record as JSON, never parsed by the schema it failed (G3), with the reason, the Hook, the request's ID and its URL.
   - Dropped Records are counted by reason in the run's report, never stored.
   - A Sink's dead letters stay ADR 0026's.
 - **Duplicates.**
   - **Retries:** staging prevents them.
-  - **Deliveries:** the Record's number, with ADR 0008's delivery ID and run epoch, prevents them.
+  - **Deliveries:** the Record's number, with ADR 0008's delivery ID and run epoch, keeps a repeated delivery from adding a Record, as far as the Sink's Guarantee class allows (ADR 0026).
   - **The same thing collected twice** (a book in two categories, or in tomorrow's run): the Dataset's declared `key`.
     - The key lists top-level fields that the schema requires. In TypeScript they are typed as the schema's field names, and a field the schema does not require raises `dataset_key_invalid` when the Dataset is declared.
-    - The Dataset stays append-only. The key is the default key of every Sink's keyed write modes (ADR 0026), and identifies a Record against a Baseline (ADR 0036).
+    - The Dataset stays append-only.
     - Dropping a duplicate before commit is a Hook's job, with its reason counted.
-    - A Dataset with no key has no keyed write mode.
+    - **Keyed write modes** (upsert, insert-only, replace, history; ADR 0026) use the Sink's own `key`, or else the keys of its Datasets. A Sink in a keyed mode that has neither is refused when the Run starts, with `setting_invalid` naming `sinks.<name>.key`.
+    - **Change tracking against a Baseline** identifies a Record across runs by its Dataset's key (ADRs 0026, 0036). How it compares the Records of a Dataset with no key is area 6's spec.
 
 ### Reading Records
 
-- **The call.** `run.records(dataset, { after })` on a crawl's Run: `records(books, after=…)` in Python, and `records(&books)` or `records_after(&books, n)` in Rust.
+- **The call.** `run.records(dataset, { after })` on a crawl's Run: `records(books, after=…)` in Python, and `records(&books)` or `records_after(&books, n)` in Rust. `rejected_records` and `rejected_records_after` follow the same form.
   - It is an iterator, subscribed when called (ADR 0081).
   - It yields `DatasetRecord<O>`: `number`, `value` (the schema's output type, built by its native parse, ADR 0082), `requestId`, `url` and `committedAt`. `Record` alone would shadow TypeScript's built-in `Record` type.
 - **Where it starts.** At the Dataset's first Record, or after `after`, which resumes a reader from the last number it handled (ADR 0008). Starting at the moment of the call would silently miss the Records committed before it (G1); Spider's `subscribe()` does.
-- **When it ends.** It follows the Run live, and ends once the Run has ended and every Record has been read. On a Run that has already ended, it reads to the last Record.
+- **When it ends.**
+  - It follows the Run live, and ends once the Run has ended and every Record has been read.
+  - On a Run that has already ended, it reads to the last Record.
+  - Through a handler's `ctx.run`, `records` and `rejectedRecords` read what has committed when called, then end: the Run cannot end while the handler holds its request. `export` works there as it does on the Run.
 - **A failed parse.** A Record that its native parse rejects ends the iteration with `record_invalid`, carrying its number, so the reader can resume after it.
 - **Only a crawl's Run has Records** (ADR 0084), so `records` is on `CrawlRun`, not on every `Run`.
-- **A reader never slows the crawl (G4, G1).**
+- **A reader never slows the crawl (G1).**
   - Records are committed to run state before anyone reads them, so a reader is a cursor over them. The engine sends what the reader's credit allows, and the crawl never waits for it.
   - Records are lossless because they are durable. Spider's channel loses pages and Scrapling's stream slows the crawl; a paused debugger, a slow call per Record or a forgotten iterator would otherwise hold every lease.
   - Handler requests, which are the crawl's work, still slow their producer (ADR 0024).
@@ -96,35 +117,49 @@ Decided in [Crawl output in code](https://github.com/goodfetch/automan/issues/47
 ### Exports
 
 - **The call.** `run.export(dataset, { format, compression })` writes an Export of the Records committed so far (ADR 0026).
-- **What it returns.** An `Export` with its format, its Record count, its last record number, its size and its SHA-256, and `saveAs(path)` and `stream()`: Playwright's `Download` names for a file the engine holds (S3).
+- **What it returns.** An `Export` with its format, its Record count, its last Record number, its size and its SHA-256.
+  - `saveAs(path)` is Playwright's `Download` name for a file the engine holds (S3).
+  - `stream()` returns an async iterable of bytes (an `EventStream` in Rust), not the Node `Readable` of Playwright's `createReadStream()`, so it has a name of its own (S3).
 - **Wherever the engine runs.** A path on the engine's own machine would break on a Daemon or in Goodfetch Cloud (ADR 0001; the research's "works locally but not on the Apify Platform").
 - **The format is named, never inferred** from a file name, as Crawlee's `exportData` infers it, so a typo is a type error (G3). Each format's options are `export.*` settings, named by area 6.
 
 ### The Key-value store
 
-- **On every Run, Collie's included:** `run.keyValueStore` (`run.key_value_store` in Python, `run.key_value_store()` in Rust).
+- **On every Run, Collie's included (ADR 0088):** `run.keyValueStore` (`run.key_value_store` in Python, `run.key_value_store()` in Rust).
 - **JSON values.**
   - `get(key)` returns JSON, or null when the key is absent: a question's answer (ADR 0079).
   - `get(key, schema)` returns the schema's output type, built by its native parse.
   - `set(key, value)` takes JSON, or in Python a Pydantic model.
+  - `set(key, null)` is refused with `value_invalid`, naming `delete` in its `fix`. A null from `get` therefore always means an absent key, in every language.
 - **Bytes.** `getBytes(key)` returns `{ content, contentType }` or null, and `setBytes(key, content, contentType)` writes them.
 - **Removing and listing.** `delete(key)` returns whether the key existed. `keys({ prefix })` is an iterator.
-- **One code for a wrong value.** A value that is not JSON, a value that fails its schema, or bytes read with `get` raise `value_invalid`, naming the key, and naming `getBytes` in its `fix`.
+- **One code for a wrong value.** These raise `value_invalid`, naming the key:
+  - a value that is not JSON, or null;
+  - a value that fails its schema;
+  - bytes read with `get`, whose `fix` names `getBytes`.
 - **Map-like names (S1).** Crawlee's `getValue` returns JSON or a `Buffer` depending on the content type, one method with two return types (S2), so its names are not taken (S3 applies only where the meaning matches).
 - **In a handler, the store is reached through `ctx.run`.** ADR 0093 binds `ctx.run` to its attempt, so its writes stage with the attempt and its reads see the attempt's own writes first, as `ctx.run.addSeed` stages.
   - A cursor, or a blob that a Record points to, then commits with the work it belongs to.
-  - The program's own `run` value, captured by the handler, writes at once, for state that must outlive a failed attempt.
+  - The program's own Run value writes at once, for state that must outlive a failed attempt, outside the attempt's fence (above).
+- **Concurrency.**
+  - For each key, the last commit wins.
+  - A read sees the committed values and its own attempt's staged writes; another attempt's staged writes stay invisible until it commits.
+  - There is no compare-and-set. Two attempts that `get` and then `set` one key keep the later commit's value.
+  - A value that concurrent handlers share live stays in the program's own memory.
 - **No `useState`.**
-  - Crawlee's `useState` is one live object, saved every 60 s, that even Crawlee v4 leaves outside its transactional writes. It is state the program does not hold (G2), and two concurrent handlers lose each other's updates.
-  - `get(key, schema)` and `set` cover it.
+  - Crawlee's `useState` hands every handler one live object, saved on a 60 s timer and at close, outside any commit; Crawlee v4 still leaves it out of its transactional writes. A failed attempt's changes to it would survive (pain 11, applied to state).
+  - One live object cannot span the program's worker processes (ADR 0024's `workers=N`) or a resume on another machine.
+  - `get(key, schema)` and `set` keep what must survive a restart.
 
 ### Sinks in code
 
 - **Sinks are settings.** `sinks.<name>.*` is one family per Sink: its type, the Datasets it receives, its destination (a Secret reference), its write mode and its key, defaulting to its Datasets' keys.
   - It is set on a connection or a crawl's Run, from code, the project file, the CLI or a Recipe alike (ADRs 0028, 0083), because where data goes differs by deployment while the crawl's logic does not.
-  - It is Run-wide, so a Label refuses it (ADR 0093). A Collie Run refuses it too, since it has no Datasets.
+  - It is Run-wide, so a Label refuses it with `setting_not_applicable` (ADR 0093). A Collie Run refuses it the same way, since it has no Datasets.
   - Each Sink type's keys are area 6's spec.
-- **Checked at start.** A Sink naming a Dataset that the crawl does not declare is refused with `setting_invalid`, naming the closest Dataset (G3).
+- **Checked at start (G3).**
+  - A Sink set on the Run itself that names a Dataset the crawl does not declare is refused with `setting_invalid`, naming the closest Dataset.
+  - A Sink inherited from the connection or from configuration delivers only the Datasets it names that the crawl declares. It is inactive for a crawl that declares none of them, as `explainSettings()` shows, so one project file can serve several crawls (ADR 0083).
 - **A Sink written in the program** (ADR 0026's SDK-handler form) is a Plugin in code. [Hooks and injectable components in the SDK API](https://github.com/goodfetch/automan/issues/481) decides it.
 - **A reader is not a Sink.** `run.records()` keeps no delivery state in the engine.
 
@@ -154,19 +189,25 @@ Nothing is added to the SDK API.
 
 ## Consequences
 
+- **Amends ADR 0002.** A Checkpoint holds each Dataset's name, key and schema hash. A note sits under its opening.
+- **Amends ADR 0003.** Writes a handler makes through the program's own Run value are outside the attempt and its lease. A note sits under its opening.
+- **Amends ADR 0020.** The browser's attempt commits in a sample comparison, and the cheaper tier's is discarded. A note sits under its opening.
+- **Amends ADR 0036.** Change tracking identifies a Record across runs by its Dataset's key. A note sits under its "Acting on change" bullet.
 - **Amends ADR 0024.** Records read through a crawl's Run come from run state as a cursor and never slow the producer; handler requests still do. A note sits under its event-delivery bullet.
 - **Amends ADR 0081.** An unread Records sequence does not slow its Run, and `records` is on a crawl's Run. A note sits under its Iterators bullet.
 - **Amends ADR 0079.** A `succeeded` crawl request outcome counts its Records per Dataset: committed, dropped and rejected. A note sits under its outcomes bullet.
-- **Amends ADR 0033.** A Record that a Hook transformed is checked against its schema again, and a program reads the rejection table with `run.rejectedRecords()`. A note sits under its Hook stage table.
-- **Amends ADR 0026.** The user-declared fields of the keyed write modes default to the Dataset's `key`, and Sinks are configured as `sinks.<name>.*` settings. A note sits under its write modes.
-- **Amends ADR 0093**, once merged. Records are pushed with `ctx.push`, not through `ctx.run`.
+- **Amends ADR 0033.** The "Record before commit" stage runs only on the committing attempt's Records; a transformed Record is checked against its schema again; and a program reads the rejection table with `run.rejectedRecords()`. A note sits under its Hook stage table.
+- **Amends ADR 0026.** Keyed write modes use the Sink's own key, or else its Datasets' keys, and Sinks are configured as `sinks.<name>.*` settings. A note sits under its write modes.
+- **Amends ADR 0093.** Records are pushed with `ctx.push`, which joins the context's members, not through `ctx.run`. Notes sit under the context's `run` member and under its hand-off to this ticket.
 - **ADR 0037's matrix.**
-  - CO-25, CO-26, CO-27, CO-29 and RT-09 cite this ADR; RT-09's `useState` is declined.
-  - Areas 3, 6 and 11 list it.
-- **`GLOSSARY.md`.** Dataset and Record are sharpened: a Dataset is declared by its crawl and keyed by the fields that identify a Record, and a Record is committed with the attempt that pushed it.
+  - CO-25, CO-26, CO-27, CO-29, RT-09 and pain 23 cite this ADR; RT-09's `useState` is declined.
+  - Areas 3, 5, 6, 10 and 11 list it.
+- **`GLOSSARY.md`.** Dataset and Record are sharpened: a Dataset is named by the crawl that fills it and may be keyed by the fields that identify a Record, and a Record is committed once with the work that produced it.
 - **Who builds what.**
-  - **Area 3 (Engine runtime):** staging Records and Key-value store writes with the attempt, per-Dataset numbering, and the reader's cursor.
-  - **Area 6 (Collection):** Datasets with keys and their checks, the rejection table and its counts, Exports in code, the Key-value store's operations, the `sinks.*` and `export.*` keys, and WARC's keys.
+  - **Area 3 (Engine runtime):** staging Records and Key-value store writes with the attempt, per-Dataset numbering, the reader's cursor, the resume checks, and the Checkpoint's Dataset entries.
+  - **Area 5 (Site access):** committing the browser's attempt in a sample comparison.
+  - **Area 6 (Collection):** Datasets with keys and their checks, the rejection table and its counts, Exports in code, the Key-value store's operations, the `sinks.*` and `export.*` keys, WARC's keys, change tracking without a key, and how code-free crawls name their Datasets.
+  - **Area 10 (Scheduling):** change tracking by key for a Schedule's Baseline.
   - **Area 11 (Client surfaces):** `crawl.dataset`, `ctx.push`, `records`, `rejectedRecords`, `export`, the Key-value store, and each language's error classes.
 - **Other tickets of the map.**
   - [The Run in code](https://github.com/goodfetch/automan/issues/478) reads outcomes with their Record counts, each Sink's delivery status, and opens a past Run by ID.

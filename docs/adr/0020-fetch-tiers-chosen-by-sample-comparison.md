@@ -2,6 +2,8 @@
 
 The engine fetches each page through one of four tiers: HTTP; a discovered API, which replays the JSON calls captured while the browser loaded a sample; the browser; and browser-fetch, HTTP sent from inside the Session's browser so that its identity does not change. It chooses per route by fetching a sample both ways and comparing the results with the browser's, and a declared total that no longer matches invalidates the choice. In the lab, the compared sample was exact on 120 of 120 runs and cost 0.004 of the browser's time on a static page, and the discovered API was exact on 120 of 120 and cost 0.008 of the browser's time on GraphQL and infinite scroll ([portal report](https://github.com/Jbmanllr/automan/blob/main/rnd/lab/reports/portal-2026-10-09.md), [quiet-host report](https://github.com/Jbmanllr/automan/blob/main/rnd/lab/reports/quiet-host-2026-10-10.md)). Decided in [Adopt site-access decisions](https://github.com/Jbmanllr/automan/issues/76).
 
+> Amended by [ADR 0103](0103-a-handler-pushes-records-staged-with-its-attempt-into-datasets-its-crawl-declares-and-a-reader-never-slows-the-crawl.md): a sample comparison compares the Records each attempt staged, before any "Record before commit" Hook; the browser's attempt, the reference, is the one that commits, whether the two match or not, and the cheaper tier's is discarded.
+
 ## Considered Options
 
 - **Browser only**: rejected as the default. It is exact but the most expensive tier, by two orders of magnitude on static pages and discoverable APIs.

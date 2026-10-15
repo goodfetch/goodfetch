@@ -16,13 +16,13 @@ Decided in [Collie and Foxhound installed on one machine](https://github.com/goo
   - per user and major: the Daemon's runtime file and tokens (ADR 0024), the Run index, the Schedule store, run folders and the per-install database (ADR 0002), the Saved identity store (ADR 0035), the Response cache (ADR 0046), user configuration and the Operator policy (ADR 0028).
 - **Why one home, not one per Product.**
   - A Limit or an Operator policy lock set while using one Product binds the other, as ADR 0041 keeps one Usage ledger for every major so that running another binary cannot escape a cap.
-  - A login saved with Collie serves a Foxhound crawl, and each browser build downloads once.
+  - A Saved identity created with Collie serves a Foxhound crawl, and each browser build downloads once.
   - Firefox keeps a profile per installation because a newer version's changes can make a profile unusable by older ones, and it records only the last version that used the whole profile. Goodfetch's stores each carry their own version (ADR 0030) and record which versions can still use them ([Versions side by side](#versions-side-by-side)).
 - The Plugin store (ADR 0033) is shared likewise, and Secret references to the operating system's keychain keep their `goodfetch/` names (ADR 0015).
 
 ### The list of installed executables
 
-- **Each executable records itself when it runs**, in a per-user list in Goodfetch home, outside the per-major folders: its Product, its Product version, its path, the browser builds it pins and when it was last seen.
+- **Each executable records itself when it runs**, in a per-user list in Goodfetch home, outside the per-major folders: its Product, its Product version, its path, the browser builds it pins and when it was last seen. An executable installed but never run is not in the list until its first command runs.
 - **Each entry also records its kind:** a Product's executable, or a program that links the engine through a Product's Rust crate (ADR 0024). A linked program records itself so that its builds are kept, but it never runs the Daemon, since it cannot be started as one.
 - **An entry counts as installed** while its executable is still at that path at that version, or was seen within `browser_cache.max_unused_age` (30 days). The second condition keeps a reinstall, a deleted `node_modules` or a switched container from counting as a removal, which is how Playwright lost builds still in use.
 - **The list is a contract format of the Usage ledger's family** (ADR 0030): its major stays frozen across Product majors and newer versions only add, since engines of every major and of both Products read it.
@@ -40,7 +40,7 @@ Decided in [Collie and Foxhound installed on one machine](https://github.com/goo
 - **One service per major** (ADR 0030): `daemon install`, from either executable, registers a service that starts the pick.
 - **A Client the Daemon refuses**, by Product (`not_in_product`, ADR 0095) or by protocol version (ADR 0024), while the Daemon cannot hand over (it is busy, or it is already the pick):
   - with `engine: auto`, it runs the engine it would run with no Daemon, an Attached engine or, in Rust, the linked one, and logs a warning naming the cause and the fix (ADR 0077's G6). The run still appears in the Run index, and the Daemon forwards live actions to it (ADR 0031);
-  - with `engine: daemon`, or the CLI's `--daemon`, it fails at connect with the refusal. Its `fix`, beside ADR 0095's, names the Product and version to install, or `daemon restart`.
+  - with `engine: daemon`, or the CLI's `--daemon`, it fails at connect with the refusal. Its `fix`, beside ADR 0095's, names the Product and version to install, or the Client's own Product's `daemon restart`, such as `goodfetch-foxhound daemon restart`. That command records its executable as it runs, so a Foxhound installed but never run becomes the pick.
 
   Every release publishes both Products at one version (ADR 0090), so every refusal has a fix: Foxhound at the Client's version or newer, which becomes the pick and takes over once the Daemon is idle.
 - **Unchanged:** an Exposed Daemon started by `daemon run` (ADR 0049) runs the Product its operator chose and has no pick, and every Group member of a Daemon group runs one Product (ADR 0095).
@@ -65,13 +65,13 @@ Decided in [Collie and Foxhound installed on one machine](https://github.com/goo
 
 - **A build is deleted only when all three hold:**
   - no executable that counts as installed pins it;
-  - it has not been launched or installed for `browser_cache.max_unused_age`;
+  - it has not been used or installed for `browser_cache.max_unused_age`;
   - no process holds it. A launched browser holds a shared lock on its build. Deletion takes an exclusive lock without waiting, renames the build, then deletes it, as Bazel deletes install bases, and a deletion cut off midway finishes on the next run.
-- **An engine never deletes what it cannot read,** such as a newer format of the cache's index or a kind of entry it does not know, so an older engine never deletes a newer one's downloads. uv's `cache prune`, which deletes every bucket the running uv does not know, is the failure avoided.
+- **An engine never deletes what it cannot read,** such as an entry in a newer format or of a kind it does not know, so an older engine never deletes a newer one's downloads. uv's `cache prune`, which deletes every bucket the running uv does not know, is the failure avoided.
 - **When it runs:** at most once a day after a download into the cache, and on `browsers clean`, whose `--dry-run` lists what it would delete.
   - `browser_cache.max_unused_age` is an engine setting, set in user configuration or an Operator policy only. `null` keeps everything until `browsers clean` runs.
   - A cache the engine cannot write, such as one an image mounts read-only through `GOODFETCH_BROWSERS_PATH`, is never cleaned.
-- **The rule covers everything in the cache:** browser builds, Playwright's driver, the executable copies a Daemon runs from, Plugin runtimes (ADR 0033) and the recorded mouse movements of ADR 0035.
+- **The rule covers everything the cache holds,** among them browser builds, Playwright's driver, the executable copies a Daemon runs from, Plugin runtimes (ADR 0033) and the recorded mouse movements of ADR 0035.
 - **Each Product asks for exactly the builds its version pins.** A missing build's error names the build, the Product and version that pin it, and the install command of that Product's executable. `@playwright/mcp`'s error once hid which build it expected ([playwright#41871](https://github.com/microsoft/playwright/issues/41871)).
 
 ### Versions side by side
@@ -116,7 +116,7 @@ Decided in [Collie and Foxhound installed on one machine](https://github.com/goo
 - **Amends ADR 0031.** One Console per user and major lists both Products' runs, and the Run index records the Product each run needs. A note sits under the Run index.
 - **Amends ADR 0035.** The Saved identity store serves both Products and records the lowest minor that can use it. A note sits under Saved identities.
 - **Amends ADR 0036.** A Schedule records the Product its target needs, and a Daemon that lacks it misses its occurrences with `not_in_product`. A note sits under the Schedule store.
-- **Amends ADR 0066.** Older engines of the major open the five shared stores the current engine wrote unless their lowest minor is newer, and the list of installed executables is tested with the Usage ledger's family. A note sits under older engines and newer files.
+- **Amends ADR 0066.** Older engines of the major open the five shared stores the current engine wrote unless their lowest minor is newer, and the list of installed executables is tested with the Usage ledger's family. Notes sit under its refusals and under older engines and newer files.
 - **Amends ADR 0078.** With `auto`, a connection runs the engine it would run with no Daemon when the running Daemon refuses it and cannot hand over. A note sits under its engine choice.
 - **Settings and commands.** `browser_cache.max_unused_age` (30 days, engine scope) joins the settings schema, and `browsers clean` joins both executables' commands. No Error code is added: refusals use `not_in_product` (ADR 0095) and ADR 0030's version refusals.
 - **Glossary.** Goodfetch home is shared by both Products; the Run index lists both Products' runs; Browser cache is added.

@@ -651,10 +651,12 @@ Decided in [ADR 0098](docs/adr/0098-both-products-share-one-goodfetch-home-and-o
 
 - **Run both executables of one commit in one Goodfetch home** (Pre-merge suite):
   - a Foxhound Client that meets a Collie Daemon gets a Foxhound Daemon once the Collie one hosts no live run;
+  - a Foxhound installed but never run becomes the pick when `goodfetch-foxhound daemon restart`, the `fix` of a refusal under `engine: daemon`, runs;
   - a Collie Client never moves the Daemon to Collie while a Foxhound counts as installed, so Clients of the two Products alternating restart it at most once;
   - a Client the Daemon refuses runs attached with a warning under `engine: auto`, and fails at connect with `not_in_product` under `engine: daemon`;
   - a Collie run and a Foxhound run through one proxy set to `politeness.proxy.concurrency: 1` never have two requests in flight through it, and a 429 a Collie page meets leaves the Politeness file's domain limits unchanged.
 - **"Installed" and the clean-up run on the test `Clock`** (Quick suite): an entry whose executable is gone still counts within `browser_cache.max_unused_age`; a build pinned by a counting entry, launched within that age, or held by a running browser is kept; an entry the engine cannot read is kept; a program's entry that links a newer Foxhound through its Rust crate, and an executable's entry gone from its path with no versioned copy, keep their builds but are never the pick.
+- **A newer engine raises the lowest minor only for what an older one would misread** (Quick suite, from fabricated versions): a newer minor that adds a Run index row an older engine reads leaves the marker unchanged, and one that writes a user configuration key its minor added raises it to that minor.
 - **Kill the clean-up after its rename** with the real-process crash tests: the next run finishes the deletion, and no browser ever launches from a half-deleted build.
 - **A Collie engine leaves Foxhound's entries untouched:** rewriting user configuration keeps Foxhound's keys byte for byte; resuming a run that needs Foxhound answers `not_in_product` and leaves the run file's hash unchanged; a Collie Daemon records each occurrence of a Schedule that needs Foxhound as missed with `not_in_product`.
 

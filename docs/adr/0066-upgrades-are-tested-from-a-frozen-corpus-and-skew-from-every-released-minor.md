@@ -75,6 +75,7 @@ Generated for each registered format, each with its Error code and message snaps
   - a newer minor is refused with a message to upgrade;
   - an older major is refused with a message naming `goodfetch upgrade-files`;
   - a newer major is refused with a message to upgrade.
+  > Amended by [ADR 0098](0098-both-products-share-one-goodfetch-home-and-one-daemon-per-major-run-by-the-fullest-product-installed.md): the Run index, the Schedule store, the Saved identity store, user configuration and the Operator policy refuse a newer minor only when the lowest minor they record is newer than the engine, and the list of installed executables joins the Usage-ledger family.
 - **Usage-ledger family** (the Usage ledger, the known-certificates store, the Politeness file and store layout):
   - a newer minor opens;
   - an unknown Limit flagged *must understand* refuses runs with `limit_not_understood` (ADR 0041);

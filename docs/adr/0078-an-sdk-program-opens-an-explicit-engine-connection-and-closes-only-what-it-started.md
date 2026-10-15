@@ -17,6 +17,7 @@ A program reaches Goodfetch through one value it opens and holds: an engine conn
 ### What a program holds
 
 - **Connection → Run → Session → Page.** The Run is always a value the program opens (`gf.collie.start(…)`, a crawl in Foxhound), never created behind a Page, because Limits, Usage, the Run trace and Checkpoints hang from it (G2, S2). The verbs that start and resume a Run are [The Run in code](https://github.com/goodfetch/automan/issues/478)'s; whether a Run has a default Session is [Sessions, logins, Human pause and secrets in code](https://github.com/goodfetch/automan/issues/476)'s; pages, contexts and frames as values are [Collie's page API](https://github.com/goodfetch/automan/issues/472)'s.
+  > Amended by [ADR 0092](0092-sessions-open-from-their-source-page-pause-waits-for-a-person-and-a-secret-is-a-placeholder-bound-to-domains.md): `run.newPage()` opens pages in the Run's default Session, which its first call opens with the Run's settings and every later call shares; `page.session()` reaches it, and a Session of its own opens with `run.newSession({ source })`.
 - **`borrow` is called on the Run.** `run.borrow(page)` returns a Goodfetch Page and `run.borrow(browser)` a Session in the browser's default context, both on ADR 0056's `client_browser` source. Closing the returned value, or the Run, ends the borrow; the user's page and browser are never closed (G4). ADR 0056's relay, its refusals and its rules are unchanged. The Rust crate keeps `cdp_url`.
 
 ### Closing

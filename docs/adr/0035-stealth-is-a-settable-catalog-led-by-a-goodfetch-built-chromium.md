@@ -80,6 +80,7 @@ The `stealth` Access mode turns on a catalog of items, each of which a run can s
 4. If `solve_challenges` is on, deterministic solving: scripted interactive steps (checkbox, slider, press-and-hold), then the configured token services (CapSolver, 2Captcha, CapMonster) and the services that compute the anti-bot sensor data a site expects (such as Hyper Solutions), whose accounts the user brings. Goodfetch never reverse-engineers vendor scripts itself.
 5. If `solve_challenges` is on and the run allows AI escalation, vision models solve puzzles.
 6. A Human pause, if a human channel is configured (ADR 0006).
+   > Amended by [ADR 0092](0092-sessions-open-from-their-source-page-pause-waits-for-a-person-and-a-secret-is-a-placeholder-bound-to-domains.md): a Session whose `session.recovery.human_pause` is `false` skips this step, as it skips the login recovery's Human pause.
 7. Otherwise a typed stop, `challenge_unsolved` with the block cause (Error code style of ADR 0038).
 
 - When Filter-list blocking blocked a request from a challenge's document or frames, the page is retried once with blocking off before step 2's wait, and blocking is learned off for the domain only if that clears the challenge (ADR 0047).

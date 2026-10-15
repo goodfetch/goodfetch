@@ -1780,6 +1780,14 @@ pub struct Registration {
     _private: (),
 }
 
+impl Registration {
+    /// Keeps the init script until its page or Session closes, as TypeScript's stays until
+    /// disposed: a crawl's Hook adds one this way for the rest of its attempt (ADR 0111).
+    pub fn keep(self) {
+        unimplemented!()
+    }
+}
+
 impl Drop for Registration {
     fn drop(&mut self) {}
 }

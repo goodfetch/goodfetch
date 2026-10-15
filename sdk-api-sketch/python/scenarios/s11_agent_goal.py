@@ -1,4 +1,4 @@
-"""Golden scenario 11, "Reach a goal from one instruction, with limits and a verdict" (ADRs 0013, 0079, 0091, 0100, 0101)."""
+"""Golden scenario 11, "Reach a goal from one instruction, with limits and a verdict" (ADRs 0013, 0079, 0091, 0100, 0101, 0117)."""
 
 import asyncio
 from collections.abc import Mapping, Sequence
@@ -12,6 +12,7 @@ from goodfetch_collie import (
     AsyncAgentResult,
     AsyncCollie,
     AsyncPage,
+    Finished,
     Limits,
     Money,
     Stopped,
@@ -42,21 +43,22 @@ async def travel_book_check(page: AsyncPage) -> None:
 
 
 def outcome(result: AsyncAgentResult[Answer]) -> Outcome:
-    if isinstance(result.ended, Stopped):
-        return Outcome(
-            ended="stopped",
-            answer=result.partial,
-            why=result.ended.limit or result.ended.reason,
-        )
-    if result.verdict == "verified":
-        return Outcome(
-            ended="verified", answer=result.require_verified(), why="success check"
-        )
-    return Outcome(
-        ended="reported",
-        answer=result.output,
-        why=result.reported.claim if result.reported else "none",
-    )
+    # The answer sits in how the work ended: a stop (a cap, a Limit, a model giving up) keeps the partial one.
+    match result.ended:
+        case Stopped(reason=reason, limit=limit, partial=partial):
+            return Outcome(ended="stopped", answer=partial, why=limit or reason)
+        case Finished(output=answer):
+            if result.verdict == "verified":
+                return Outcome(
+                    ended="verified",
+                    answer=result.require_verified(),
+                    why="success check",
+                )
+            return Outcome(
+                ended="reported",
+                answer=answer,
+                why=result.reported.claim if result.reported else "none",
+            )
 
 
 async def main() -> None:

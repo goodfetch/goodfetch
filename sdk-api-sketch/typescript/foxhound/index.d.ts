@@ -1,3 +1,8 @@
+// Where the main types live (ADR 0095): this package, `@goodfetch/foxhound`, holds `Foxhound`, `Crawl`,
+// `Label`, `Dataset` and `CrawlContext`, and re-exports the Collie client package,
+// `@goodfetch/collie-client`, which holds `Page`, `Locator`, `Run`, `Session` and the results and
+// errors; `@goodfetch/collie` holds `Collie`.
+//
 // `@goodfetch/foxhound` (ADRs 0090, 0095): Foxhound's TypeScript SDK and its `goodfetch-foxhound` bin.
 // It re-exports the Collie client package, so a handler's Page is the Page a Collie program gets,
 // and adds Foxhound's connection, the generated layer of Foxhound's own entries and the objects only

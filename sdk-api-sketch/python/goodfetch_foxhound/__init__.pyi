@@ -1,5 +1,9 @@
 """`goodfetch_foxhound` (ADRs 0090, 0095): Foxhound's Python SDK and its `goodfetch-foxhound` executable.
 
+Where the main types live (ADR 0095): `goodfetch_collie_client` holds `Page`, `Locator`, `Run`, `Session` and the
+results and errors; `goodfetch_collie` holds `Collie`; `goodfetch_foxhound` holds `Foxhound`, `Crawl`, `Label`,
+`Dataset` and `CrawlContext`, and re-exports `goodfetch_collie_client`. An async class adds `Async`: `AsyncPage`.
+
 It re-exports the Collie client package, so a handler's Page is the Page a Collie program gets, and adds Foxhound's
 connection, the generated layer of Foxhound's own entries and the objects only Foxhound hands out: crawls and their
 contexts, Datasets, Records, Exports, Hooks and Politeness. Where a name both packages define means more here
@@ -504,6 +508,7 @@ from goodfetch_foxhound._crawl import LabelDuplicateError as LabelDuplicateError
 from goodfetch_foxhound._crawl import LabelUnhandledError as LabelUnhandledError
 from goodfetch_foxhound._crawl import LabelUnknownError as LabelUnknownError
 from goodfetch_foxhound._crawl import LinkInfo as LinkInfo
+from goodfetch_foxhound._crawl import LinkPattern as LinkPattern
 from goodfetch_foxhound._crawl import NotAddedReason as NotAddedReason
 from goodfetch_foxhound._crawl import ResponseNotOKError as ResponseNotOKError
 from goodfetch_foxhound._crawl import ResponseUnavailableError as ResponseUnavailableError
@@ -513,7 +518,6 @@ from goodfetch_foxhound._crawl import seed as seed
 from goodfetch_foxhound._crawl import sitemap as sitemap
 from goodfetch_foxhound._crawl import SitemapSeed as SitemapSeed
 from goodfetch_foxhound._crawl import SitePreferencesRefusedError as SitePreferencesRefusedError
-from goodfetch_foxhound._crawl import URLPattern as URLPattern
 from goodfetch_foxhound._data import Dataset as Dataset
 from goodfetch_foxhound._data import Label as Label
 from goodfetch_foxhound._data import PayloadInvalidDetails as PayloadInvalidDetails

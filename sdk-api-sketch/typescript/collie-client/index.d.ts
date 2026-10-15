@@ -1,3 +1,8 @@
+// Where the main types live (ADR 0095): this package, `@goodfetch/collie-client`, holds `Page`,
+// `Locator`, `Run`, `Session` and the results and errors; `@goodfetch/collie` holds `Collie`;
+// `@goodfetch/foxhound` holds `Foxhound`, `Crawl`, `Label`, `Dataset` and `CrawlContext`. Both
+// Products' packages re-export this one.
+//
 // `@goodfetch/collie-client` (ADR 0095): the Collie client package, with no executable. It holds the
 // hand-written runtime, the generated layer of Collie's catalog and every value a Collie connection
 // hands out (Runs, Sessions, Pages, Locators, results, errors, settings types). Programs import their

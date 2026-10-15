@@ -1,9 +1,14 @@
-//! `goodfetch-foxhound` (ADRs 0090, 0095): Foxhound's Rust SDK. It re-exports the Collie client
-//! crate, so a handler's [`Page`] is the Page a Collie program gets, and adds Foxhound's connection,
-//! [`Foxhound`], with Foxhound's engine linked in (ADR 0024), and the values only Foxhound hands out:
-//! crawls and their contexts, Datasets, Records, Exports, Hooks and Politeness. Foxhound's own Error
-//! codes are the free constants of [`error_code`]; its settings keys, with Collie's, are in
-//! [`settings`].
+//! `goodfetch-foxhound` (ADRs 0090, 0095): Foxhound's Rust SDK.
+//!
+//! Where the main types live (ADR 0095): this crate holds [`Foxhound`], [`Crawl`], [`Label`],
+//! [`Dataset`] and [`CrawlContext`]; the Collie client crate, re-exported here, holds [`Page`],
+//! [`Locator`], [`Run`], [`Session`] and the results and errors; `goodfetch-collie` holds `Collie`.
+//!
+//! It re-exports the Collie client crate, so a handler's [`Page`] is the Page a Collie program gets,
+//! and adds Foxhound's connection, [`Foxhound`], with Foxhound's engine linked in (ADR 0024), and
+//! the values only Foxhound hands out: crawls and their contexts, Datasets, Records, Exports, Hooks
+//! and Politeness. Foxhound's own Error codes are the free constants of [`error_code`]; its
+//! settings keys, with Collie's, are in [`settings`].
 //!
 //! SDK API sketch: signatures only, no implementation. In the SDK, Foxhound's contract types are
 //! `goodfetch-protocol`'s `foxhound` module, which only this crate re-exports (ADR 0099); the
@@ -27,8 +32,8 @@ pub mod values;
 pub use connection::{ConnectOptions, Foxhound};
 pub use crawl::{
     Crawl, CrawlCall, CrawlContext, CrawlRequest, CrawlRun, DatasetDeclaration, Enqueue,
-    EnqueueLinks, Enqueued, EnqueuedLinks, FetchTier, LabelDeclaration, LinkInfo, NotAddedReason,
-    Seed, StartCrawl, UrlPattern,
+    EnqueueLinks, Enqueued, EnqueuedLinks, FetchTier, LabelDeclaration, LinkInfo, LinkPattern,
+    NotAddedReason, Seed, StartCrawl,
 };
 pub use data::{Dataset, Label, PayloadInvalid, PayloadSchemaChanged};
 pub use hooks::{
@@ -47,9 +52,10 @@ pub use output::{
 };
 pub use run::{
     CrawlConcurrency, CrawlRequestCounts, CrawlRequestTotals, CrawlRunProgress, CrawlRunReport,
-    CrawlRunView, CrawlUncertainEffect, DatasetTotals, EndedRequestBreakdown, GovernorState,
-    InFlightRequest, LearnedRule, OutcomeKind, OutcomesFilter, RequestPhase, RetryFailed,
-    SinkDeliveryStatus, SitemapTotals, UnreadSitemap, WaitGroup, WaitReason, WaitingDomain,
+    CrawlRunView, CrawlUncertainEffect, DatasetTotals, EndedRequestBreakdown, FailedRequestsFilter,
+    GovernorState, InFlightRequest, LearnedRule, OutcomeKind, OutcomesFilter, RequestPhase,
+    RetryFailed, SinkDeliveryStatus, SitemapTotals, UnreadSitemap, WaitGroup, WaitReason,
+    WaitingDomain,
 };
 pub use settings::Settings;
 pub use values::{hook_stage, limit_scope, usage_kind};

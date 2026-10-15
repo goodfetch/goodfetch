@@ -6,8 +6,8 @@ use std::pin::pin;
 
 use futures_util::future::{Either, select};
 use goodfetch_foxhound::{
-    AfterResponseContext, BeforeRequestContext, BlockCause, ConnectOptions, Crawl, CrawlContext, Error, ErrorCode, Foxhound, HookOn,
-    PageStageContext, ProxyAnswer, RecordCommitContext, RequestChange, ResponseChange, SecretBinding, SecretReference, Seed, Settings,
+    AbortReason, AfterResponseContext, BeforeRequestContext, BlockCause, ConnectOptions, Crawl, CrawlContext, Error, ErrorCode, Foxhound, HookOn,
+    PageStageContext, ProxyAnswer, RecordCommitContext, RequestChange, ResourceType, ResponseChange, SecretBinding, SecretReference, Seed, Settings,
     secret,
 };
 use serde::{Deserialize, Serialize};
@@ -61,6 +61,24 @@ async fn crawl_with_hooks() -> Result<(), Error> {
             return Err(ctx.block(BlockCause::IpBlocked, "soft block page"));
         }
         Ok(ResponseChange::none())
+    })?;
+
+    // Before navigation, unscoped: runs only where a browser navigates, so it covers every browser
+    // page, a sample comparison of an HTTP Label's page included. The route outlives the Hook:
+    // `serve` answers it for the rest of the attempt (ADR 0111). Whole resource types, as here, are
+    // the setting `browser.block_resources` (golden scenario 06), which needs no code; a Hook's
+    // route is for finer blocking, by URL or header.
+    let no_media = HookOn::every_label().named("no-images-or-fonts");
+    crawl.before_navigation(no_media, async |ctx: PageStageContext<Value>| {
+        let routes = ctx.page().route("**/*");
+        ctx.for_each(routes, async |route| {
+            match route.request().resource_type() {
+                ResourceType::Image | ResourceType::Font => route.abort().reason(AbortReason::BlockedByClient).await?,
+                _ => route.fallback().await?,
+            }
+            Ok(())
+        })?;
+        Ok(())
     })?;
 
     // Page ready, unscoped: runs just before every handler, on every tier, as Crawlee's

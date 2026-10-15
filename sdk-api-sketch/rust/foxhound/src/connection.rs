@@ -142,30 +142,38 @@ impl Foxhound {
         unimplemented!()
     }
 
+    /// Leaving the scope or `close()` stops the Run with a Checkpoint; `finish()` ends it.
+    ///
     /// Collie's Run start (ADR 0102), unchanged: a Run with no crawl.
+    /// Fails with `model_price_unknown` when a currency Limit or `ai.allowance.price` applies and
+    /// the Run's `ai.model` has no price, unless `plan.frozen` (ADR 0117).
     pub fn start(&self) -> Start {
         unimplemented!()
     }
 
-    /// Opens a Run by its ID to read it, never to drive it. Fails with `run_not_found`.
-    pub fn open_run(&self, id: &str) -> Call<RunView> {
-        let _ = id;
+    /// Opens a Run by its Run ID to read it, never to drive it. Fails with `run_not_found`.
+    pub fn open_run(&self, run_id: &str) -> Call<RunView> {
+        let _ = run_id;
         unimplemented!()
     }
 
+    /// Leaving the scope or `close()` stops the Run with a Checkpoint; `finish()` ends it.
+    ///
     /// Starts a Run of the crawl from its seeds, which define its scope, and returns once it is
-    /// started (ADR 0102, Firecrawl's `start_crawl`); [`Crawl::serve`] answers its requests. An
-    /// `.id(..)` naming an existing Run behaves as [`Foxhound::start`]'s does, the seeds and the Plan
-    /// file being inputs that must match.
+    /// started (ADR 0102, Firecrawl's `start_crawl`); [`Crawl::serve`] answers its requests. A
+    /// `.run_id(..)` naming an existing Run behaves as [`Foxhound::start`]'s does, the seeds and the
+    /// Plan file being inputs that must match.
+    /// Fails with `model_price_unknown` when a currency Limit or `ai.allowance.price` applies and
+    /// the Run's `ai.model` has no price, unless `plan.frozen` (ADR 0117).
     pub fn start_crawl(&self, crawl: &Crawl<'_>, seeds: impl IntoIterator<Item = Seed>) -> StartCrawl {
         let _ = (crawl, seeds.into_iter());
         unimplemented!()
     }
 
-    /// Opens a crawl's Run by its ID to read it, as [`Foxhound::open_run`] does, with its outcomes,
-    /// Records and Exports.
-    pub fn open_crawl_run(&self, id: &str) -> Call<CrawlRunView> {
-        let _ = id;
+    /// Opens a crawl's Run by its Run ID to read it, as [`Foxhound::open_run`] does, with its
+    /// outcomes, Records and Exports.
+    pub fn open_crawl_run(&self, run_id: &str) -> Call<CrawlRunView> {
+        let _ = run_id;
         unimplemented!()
     }
 
@@ -248,7 +256,7 @@ impl Connection for Foxhound {
         Foxhound::start(self)
     }
 
-    fn open_run(&self, id: &str) -> Call<RunView> {
-        Foxhound::open_run(self, id)
+    fn open_run(&self, run_id: &str) -> Call<RunView> {
+        Foxhound::open_run(self, run_id)
     }
 }

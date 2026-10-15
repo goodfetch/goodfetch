@@ -231,6 +231,7 @@ pub mod observation {
 /// `setting_not_applicable`; an inherited one yields, and `explain_settings` names what fixed it.
 pub mod browser {
     use super::{ColorScheme, Geolocation, Permission, Setting, Viewport};
+    use crate::page::ResourceType;
 
     /// `browser.viewport`.
     pub const VIEWPORT: Setting<Option<Viewport>> = Setting::new("browser.viewport");
@@ -252,6 +253,14 @@ pub mod browser {
     /// `browser.permissions`: granted to every page of the Session; none by default, no setter
     /// later (ADR 0092).
     pub const PERMISSIONS: Setting<Vec<Permission>> = Setting::new("browser.permissions");
+    /// `browser.block_resources`: resource types the engine's interception blocks on every page
+    /// of the Session, before any navigation, so every browser fetch of a crawl is covered
+    /// (ADRs 0047, 0117). Takes [`ResourceType::Image`], [`ResourceType::Media`],
+    /// [`ResourceType::Font`] and [`ResourceType::Stylesheet`], and a newer engine's type as
+    /// [`ResourceType::Unknown`]; none by default. Set directly on a Label whose `fetch.tier` runs
+    /// no browser, it is refused with `setting_not_applicable`. In the `standard` and `stealth`
+    /// Access modes it warns once, since a site can see the missing loads.
+    pub const BLOCK_RESOURCES: Setting<Vec<ResourceType>> = Setting::new("browser.block_resources");
 }
 
 /// `session.*` (ADRs 0056, 0006, 0092). Opening a Session spells its own source as

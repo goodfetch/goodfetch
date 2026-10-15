@@ -104,7 +104,7 @@ pub mod crawl {
     /// `crawl.scope.*`: checked on every enqueue and every redirect (ADR 0093).
     pub mod scope {
         use super::super::Setting;
-        use crate::crawl::UrlPattern;
+        use crate::crawl::LinkPattern;
 
         /// Which hosts a crawl may reach, measured against every seed after the Frontier's URL
         /// rules, so `www.` is no other host (ADR 0005).
@@ -125,9 +125,9 @@ pub mod crawl {
         /// `crawl.scope.strategy`.
         pub const STRATEGY: Setting<Strategy> = Setting::new("crawl.scope.strategy");
         /// `crawl.scope.include`: only URLs matching one of these, which must match as well as the strategy.
-        pub const INCLUDE: Setting<Vec<UrlPattern>> = Setting::new("crawl.scope.include");
+        pub const INCLUDE: Setting<Vec<LinkPattern>> = Setting::new("crawl.scope.include");
         /// `crawl.scope.exclude`: no URL matching any of these.
-        pub const EXCLUDE: Setting<Vec<UrlPattern>> = Setting::new("crawl.scope.exclude");
+        pub const EXCLUDE: Setting<Vec<LinkPattern>> = Setting::new("crawl.scope.exclude");
     }
 
     /// `crawl.retry.*` (ADR 0093).
@@ -178,12 +178,12 @@ pub mod fetch {
     /// sets `URLS` while forcing `http` or `browser_fetch` fails the Run's start with
     /// `setting_not_applicable`: those tiers run no script.
     pub mod kept_responses {
-        use crate::crawl::UrlPattern;
+        use crate::crawl::LinkPattern;
         use crate::settings::Setting;
 
         /// `fetch.kept_responses.urls`: the URLs of the responses kept on a request's page from
         /// the start of its navigation, matched in the engine. Built-in: none.
-        pub const URLS: Setting<Vec<UrlPattern>> = Setting::new("fetch.kept_responses.urls");
+        pub const URLS: Setting<Vec<LinkPattern>> = Setting::new("fetch.kept_responses.urls");
         /// `fetch.kept_responses.max_size`: bytes of kept bodies per attempt; a body past it reads
         /// as `body_unavailable`. Built-in: 16 MiB.
         pub const MAX_SIZE: Setting<u64> = Setting::new("fetch.kept_responses.max_size");

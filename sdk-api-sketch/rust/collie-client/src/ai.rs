@@ -255,6 +255,8 @@ impl IntoFuture for AriaSnapshot {
 macro_rules! ai_verbs {
     ($ty:ty) => {
         impl $ty {
+            /// Needs a model unless its Plan entry replays: pass `model` or set `ai.model`.
+            ///
             /// Performs one action described in words. Fails with `target_not_found` when nothing on
             /// the page fits it, and with `site_preferences_refused` (`use_signals`) before anything is
             /// sent when it would send the page to a model that the page's AI-use signal refuses for
@@ -264,6 +266,8 @@ macro_rules! ai_verbs {
                 unimplemented!()
             }
 
+            /// Needs a model unless its Plan entry replays: pass `model` or set `ai.model`.
+            ///
             /// Finds the elements an instruction describes, without acting. None is an answer: an
             /// empty `Vec`.
             pub fn observe(&self, instruction: &str) -> Observe {
@@ -271,6 +275,8 @@ macro_rules! ai_verbs {
                 unimplemented!()
             }
 
+            /// Needs a model unless its Plan entry replays: pass `model` or set `ai.model`.
+            ///
             /// Reads typed data in the schema's type. A required field not on the page fails with
             /// `extraction_incomplete`.
             pub fn extract<T: DeserializeOwned + Send + 'static>(&self, instruction: &str, schema: Schema<T>) -> Extract<T> {

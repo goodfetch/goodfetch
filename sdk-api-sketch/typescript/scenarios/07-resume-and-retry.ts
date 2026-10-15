@@ -30,7 +30,7 @@ async function main(): Promise<void> {
   await using foxhound = await Foxhound.connect();
   // The same ID begins the Run, resumes it after a kill, or returns it ended. A changed program
   // (seeds, a Label gone, a Payload schema changed) or a damaged run file throws a typed error.
-  await using run = await foxhound.startCrawl(crawl, { id: RUN_ID, seeds });
+  await using run = await foxhound.startCrawl(crawl, { runId: RUN_ID, seeds });
   console.log(`run ${run.id()}: ${run.startedAs()}`);
   // Node's Ctrl+C would end the process without disposing: stop instead, so the requests in flight
   // return to pending; `stop()` is bounded by `timeout.close`.

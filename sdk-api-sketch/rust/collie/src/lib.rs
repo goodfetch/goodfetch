@@ -1,6 +1,11 @@
-//! `goodfetch-collie` (ADRs 0090, 0095): Collie's Rust SDK. It re-exports the Collie client crate,
-//! whose values (Run, Session, Page, errors) a Foxhound handler gets too, and adds the connection,
-//! [`Collie`], with Collie's engine linked in (ADR 0024).
+//! `goodfetch-collie` (ADRs 0090, 0095): Collie's Rust SDK.
+//!
+//! Where the main types live (ADR 0095): this crate holds [`Collie`]; the Collie client crate,
+//! re-exported here, holds [`Page`], [`Locator`], [`Run`], [`Session`] and the results and errors;
+//! `goodfetch-foxhound` holds `Foxhound`, `Crawl`, `Label`, `Dataset` and `CrawlContext`.
+//!
+//! It re-exports the Collie client crate, whose values (Run, Session, Page, errors) a Foxhound
+//! handler gets too, and adds the connection, [`Collie`], with Collie's engine linked in (ADR 0024).
 //!
 //! SDK API sketch: signatures only, no implementation.
 
@@ -45,19 +50,23 @@ impl Collie {
         unimplemented!()
     }
 
-    /// Starts a Run and returns once it is started (ADR 0102). With `.id(..)` naming an existing
-    /// Run with the same inputs: resumes it if interrupted ([`run::StartedAs::Resumed`]), returns it
-    /// as it is if it finished (`Ended`), or fails with `run_in_use` if it is live, `run_conflict`
-    /// for other inputs, `limit_reached` if a used-up Limit stopped it, and `run_state_unavailable`
-    /// if its state is gone.
+    /// Leaving the scope or `close()` stops the Run with a Checkpoint; `finish()` ends it.
+    ///
+    /// Starts a Run and returns once it is started (ADR 0102). With `.run_id(..)` naming an
+    /// existing Run with the same inputs: resumes it if interrupted ([`run::StartedAs::Resumed`]),
+    /// returns it as it is if it finished (`Ended`), or fails with `run_in_use` if it is live,
+    /// `run_conflict` for other inputs, `limit_reached` if a used-up Limit stopped it, and
+    /// `run_state_unavailable` if its state is gone.
+    /// Fails with `model_price_unknown` when a currency Limit or `ai.allowance.price` applies and
+    /// the Run's `ai.model` has no price, unless `plan.frozen` (ADR 0117).
     pub fn start(&self) -> Start {
         unimplemented!()
     }
 
-    /// Opens a Run by its ID to read it, never to drive it: a detached Run, another program's, or
-    /// one that ended. Fails with `run_not_found`.
-    pub fn open_run(&self, id: &str) -> Call<RunView> {
-        let _ = id;
+    /// Opens a Run by its Run ID to read it, never to drive it: a detached Run, another program's,
+    /// or one that ended. Fails with `run_not_found`.
+    pub fn open_run(&self, run_id: &str) -> Call<RunView> {
+        let _ = run_id;
         unimplemented!()
     }
 
@@ -134,7 +143,7 @@ impl Connection for Collie {
         Collie::start(self)
     }
 
-    fn open_run(&self, id: &str) -> Call<RunView> {
-        Collie::open_run(self, id)
+    fn open_run(&self, run_id: &str) -> Call<RunView> {
+        Collie::open_run(self, run_id)
     }
 }

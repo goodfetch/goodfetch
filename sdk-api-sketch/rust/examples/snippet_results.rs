@@ -37,8 +37,14 @@ fn assert_good_error<E: std::error::Error + Send + Sync + 'static>() {}
 
 /// AI work: the Verdict is a value until the program asks for it as an error. The Agent's API is #474's.
 fn ai_work(task: AiWorkResult<String>) -> Result<String, Error> {
-    if let Ended::Stopped(reason) = &task.ended {
-        let _ = (reason, &task.partial);
+    // The answer is inside how the work ended: a complete output, or a stop with what was gathered.
+    match &task.ended {
+        Ended::Finished { output } => {
+            let _ = output;
+        }
+        Ended::Stopped { reason, partial } => {
+            let _ = (reason, partial.json());
+        }
     }
     task.require_verified()
 }

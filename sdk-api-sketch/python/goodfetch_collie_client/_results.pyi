@@ -420,21 +420,30 @@ them in the Run's progress and report (ADR 0102)."""
 Verdict: TypeAlias = Literal["verified", "rejected", "needs-review"] | str
 """A Verdict, given by checks under ADR 0029's rules and never by the model's claim. Any other value is never `verified`."""
 
-@final
-@dataclass(frozen=True, kw_only=True)
-class Finished: ...
+T = TypeVar("T")
+T_co = TypeVar("T_co", covariant=True)
 
 @final
 @dataclass(frozen=True, kw_only=True)
-class Stopped:
-    """AI work that stopped early. A failed ending raises instead.
+class Finished(Generic[T_co]):
+    """AI work that ended with a complete output: done and accepted, or a replay that reached its end (ADRs 0079,
+    0117)."""
+
+    output: T_co
+    """A complete `T`, validated and held to Grounding (ADR 0100); a value of `T` is always complete."""
+
+@final
+@dataclass(frozen=True, kw_only=True)
+class Stopped(Generic[T_co]):
+    """AI work that stopped early, with what it gathered. A failed ending raises instead.
 
     `limit`: a Limit, after which the Run stops too. `timeout`: the Agent's own `timeout.agent` or the Run's. `max_steps`: the
     Agent's step cap, `agent.max_steps`. `no_progress`: its stall rule, `agent.max_stalled_steps`. These two stop only the
     task. `model_allowance`: the Run's Model allowance (`ai.allowance.*`, ADR 0107), which stops the task while the Run
-    goes on. `abort`: someone other than the caller stopped it (ADRs 0079, 0080, 0100)."""
+    goes on. `abort`: someone other than the caller stopped it (ADRs 0079, 0080, 0100). `gave_up`: the model reported
+    that it gave up; `reported` holds its message (ADR 0117)."""
 
-    reason: Literal["limit", "timeout", "max_steps", "no_progress", "model_allowance", "abort"] | str
+    reason: Literal["limit", "timeout", "max_steps", "no_progress", "model_allowance", "abort", "gave_up"] | str
     limit: str | None
     """The Limit by name, when `reason` is `limit`."""
     source: LimitSource | None
@@ -443,8 +452,14 @@ class Stopped:
     by: Literal["person", "client", "program", "browser"] | str | None
     """Who stopped it, when `reason` is `abort`: a person in the Console, another Client, the program closing the page
     or the Run, or the browser closing the page outside every Client (ADR 0113)."""
+    partial: Mapping[str, object] | Sequence[object] | None
+    """What was gathered before the early end, never typed as complete (ADR 0100): each top-level field of an object,
+    or each element of a list, valid against its own part of the schema and Grounded, as validated values. `None` when
+    the schema has no parts, or the work has no schema."""
 
-Ended: TypeAlias = Finished | Stopped
+Ended: TypeAlias = Finished[T] | Stopped[T]
+"""How AI work ended, holding its answer: `Finished` with `output`, or `Stopped` with its `reason` and `partial`
+(ADR 0117). Read it with `match`: `case Finished(output=o)` and `case Stopped(reason=r, partial=p)`."""
 
 @final
 @dataclass(frozen=True, kw_only=True)
@@ -454,38 +469,30 @@ class Reported:
     claim: Literal["done", "gave_up"] | str
     message: str
 
-T = TypeVar("T")
-
-class AIWorkResult(Generic[T]):
+class AIWorkResult(Generic[T_co]):
     """The result of AI work that can claim success: an Agent's task, replayed toward a goal or not. The Agent's results
     build on it (ADR 0100)."""
 
     @property
-    def ended(self) -> Ended: ...
+    def ended(self) -> Ended[T_co]:
+        """How the work ended, holding its answer: `Finished` with the complete `output`, or `Stopped` with its
+        `reason` and the Grounded `partial` (ADR 0117)."""
+
     @property
     def verdict(self) -> Verdict: ...
     @property
     def reported(self) -> Reported | None:
         """Absent when no model claimed anything: the work stopped before a claim, or was replayed whole."""
 
-    @property
-    def output(self) -> T | None:
-        """Present only once the work finished with a complete `T`; a value of `T` is always complete."""
-
-    @property
-    def partial(self) -> Mapping[str, object] | Sequence[object] | None:
-        """What was gathered before an early end, never typed as complete, set only when `output` is not (ADR 0100): each
-        top-level field of an object, or each element of a list, valid against its own part of the schema and Grounded,
-        as validated values."""
-
-    def require_verified(self) -> T:
-        """Returns the output when the Verdict is `verified`; otherwise raises `NotVerifiedError`."""
+    def require_verified(self) -> T_co:
+        """Returns the output when the Verdict is `verified`, so only from `Finished`; otherwise raises
+        `NotVerifiedError`."""
 
 @final
 @dataclass(frozen=True, kw_only=True)
 class NotVerifiedDetails:
     verdict: Verdict
-    ended: Ended
+    ended: Ended[object]
     reported: Reported | None
     reasons: Sequence[str]
     """Why it is not `verified`: failed, missing or switched-off checks, uncertain Effects."""

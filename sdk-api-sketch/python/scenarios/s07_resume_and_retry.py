@@ -46,7 +46,7 @@ async def main() -> None:
     # the Run cleanly: the requests in flight return to pending, within `timeout.close`.
     async with (
         AsyncFoxhound.connect() as foxhound,
-        await foxhound.start_crawl(crawl, seeds=seeds, id=RUN_ID) as run,
+        await foxhound.start_crawl(crawl, seeds=seeds, run_id=RUN_ID) as run,
     ):
         print(f"run {run.id}: {run.started_as}")
         report = await crawl_to_end(run)

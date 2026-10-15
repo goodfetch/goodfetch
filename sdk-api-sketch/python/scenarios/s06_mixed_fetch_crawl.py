@@ -10,8 +10,6 @@ from goodfetch_foxhound import (
     AsyncCrawl,
     AsyncCrawlContext,
     AsyncFoxhound,
-    AsyncPageStageContext,
-    AsyncRoute,
     seed,
 )
 
@@ -62,20 +60,6 @@ scroll = crawl.label(
 def api_page(n: int) -> re.Pattern[str]:
     """The JSON page `n` the scrolling version loads."""
     return re.compile(rf"/api/quotes\?page={n}$")
-
-
-async def drop_images_and_fonts(route: AsyncRoute) -> None:
-    if route.request.resource_type in ("image", "font"):
-        await route.abort("blockedbyclient")
-    else:
-        await route.fallback()
-
-
-# Runs only where a browser navigates, so unscoped it covers every browser page, a sample comparison of an HTTP
-# Label's page included.
-@crawl.before_navigation(name="no-images-or-fonts")
-async def block_images_and_fonts(ctx: AsyncPageStageContext[object]) -> None:
-    ctx.page.route("**/*", drop_images_and_fonts)
 
 
 @crawl.handle(js)
@@ -136,6 +120,9 @@ async def collect_quotes() -> list[Quote]:
                 seed("https://quotes.toscrape.com/js/", js),
                 seed("https://quotes.toscrape.com/scroll", scroll),
             ],
+            # Blocked by the engine on every browser page before it navigates, a sample comparison of an HTTP Label's
+            # page included; HTTP fetches load no subresources.
+            settings={"browser": {"block_resources": ["image", "font"]}},
         ) as run,
     ):
         totals = (await run.finish()).requests

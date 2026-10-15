@@ -378,6 +378,20 @@ impl OutcomesFilter {
     }
 }
 
+/// Which current failures `failed_requests()` reads. The default reads the requests whose latest
+/// outcome is `failed`.
+#[derive(Debug, Clone, Default)]
+pub struct FailedRequestsFilter {
+    _private: (),
+}
+
+impl FailedRequestsFilter {
+    /// Also the requests whose latest outcome is `blocked`, as [`RetryFailed::blocked`].
+    pub fn blocked(self) -> Self {
+        unimplemented!()
+    }
+}
+
 /// Re-admitting a crawl's failed requests, not sent until awaited.
 #[derive(Debug)]
 #[must_use = "nothing is re-admitted until this is awaited"]
@@ -437,11 +451,23 @@ impl CrawlRun {
         unimplemented!()
     }
 
+    /// Every ending in commit order, a request ending again after `retry_failed`: a log of endings,
+    /// not current state; `failed_requests()` reads the current failures.
+    ///
     /// The crawl requests' outcomes, read from the Run's committed state in commit order from its
     /// first, then following new commits until the Run ends. A reader of committed state, it never
     /// slows the Run. A request [`CrawlRun::retry_failed`] re-admits ends again, and its new outcome
     /// supersedes the old: key outcomes by `request.id`.
     pub fn outcomes(&self, filter: OutcomesFilter) -> EventStream<CrawlRequestOutcome> {
+        let _ = filter;
+        unimplemented!()
+    }
+
+    /// The crawl requests whose latest outcome is `failed` (with `.blocked()`, also those whose
+    /// latest is `blocked`), each as that outcome, read from committed state at the call and ending
+    /// after what is committed: exactly what `retry_failed` with the same option would re-admit
+    /// (ADR 0117). Never slows the Run.
+    pub fn failed_requests(&self, filter: FailedRequestsFilter) -> EventStream<CrawlRequestOutcome> {
         let _ = filter;
         unimplemented!()
     }
@@ -483,8 +509,15 @@ impl CrawlRunView {
         unimplemented!()
     }
 
-    /// The outcomes, as [`CrawlRun::outcomes`]'s.
+    /// The outcomes, as [`CrawlRun::outcomes`]'s: a log of endings, not current state.
     pub fn outcomes(&self, filter: OutcomesFilter) -> EventStream<CrawlRequestOutcome> {
+        let _ = filter;
+        unimplemented!()
+    }
+
+    /// The crawl requests whose latest outcome is `failed`, as [`CrawlRun::failed_requests`]'s:
+    /// exactly what `retry_failed` with the same option would re-admit (ADR 0117).
+    pub fn failed_requests(&self, filter: FailedRequestsFilter) -> EventStream<CrawlRequestOutcome> {
         let _ = filter;
         unimplemented!()
     }

@@ -28,7 +28,8 @@ crawl.afterResponse(async ({ response, block }) => {
   if (response.status() === 200 && (await response.text()).includes("Access denied")) block("ip_blocked", "soft block page");
 });
 
-// Before navigation (browser tier only): images are not needed, and a route is Collie's own way to drop them.
+// Before navigation (browser tier only): a route, Collie's own, blocks by URL here, finer than whole
+// resource types, which the `browser.block_resources` setting blocks with no code (ADRs 0047, 0117).
 crawl.beforeNavigation(async ({ page }) => {
   page.route("**/*.{png,jpg,jpeg}", (route) => route.abort());
 });
@@ -72,7 +73,7 @@ export async function crawlWithHooks(): Promise<void> {
   });
   await using run = await foxhound.startCrawl(crawl, {
     seeds: [seed("https://books.toscrape.com/", home)],
-    settings: { secrets: { catalog_key: { reference: "env:CATALOG_KEY", domains: ["books.toscrape.com"] } } },
+    settings: { secrets: { catalog_key: { reference: "env:CATALOG_KEY", domains: ["toscrape.com"] } } },
   });
   void run;
 }

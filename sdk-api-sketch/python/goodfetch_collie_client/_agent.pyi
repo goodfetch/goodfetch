@@ -7,8 +7,9 @@
 - The program states the Success check with `expect` (ADR 0091) in `success_check`. The engine runs it each time the
   model reports done; a failure goes back to the model, and the Verdict reads its latest evaluation (ADR 0029).
 - The result is ADR 0079's `AIWorkResult` plus the steps, their `ModelUsage` (ADR 0101) and the page the task ended
-  on. A step cap, a stall rule, the task's timeout, a Limit and an abort are values: `ended` is `Stopped` with its
-  reason, and `partial` holds what was Grounded.
+  on. The answer sits in `ended`: `Finished` holds the complete `output`; a step cap, a stall rule, the task's timeout,
+  a Limit, an abort and a model that gives up are values, `Stopped` with its reason and, in `partial`, what was
+  Grounded (ADR 0117).
 - `page.agent(...)` returns a task handle with `result()` and `steps()`, the same in the sync and async APIs. It starts
   at the first of `result()`, `steps()` or entering its `with` block; leaving the block before it ends cancels it.
 - The steps are a lossless sequence that starts at the task's first step (ADR 0081).
@@ -33,6 +34,7 @@ from goodfetch_collie_client._results import AIWorkResult, GoodfetchError, Progr
 from goodfetch_collie_client._time import NotGiven, Timeout
 
 T = TypeVar("T")
+T_co = TypeVar("T_co", covariant=True)
 L = TypeVar("L")
 M = TypeVar("M")
 
@@ -107,9 +109,9 @@ class AgentStep(Generic[L]):
 
 # Results and task handles.
 
-class AsyncAgentResult(AIWorkResult[T]):
-    """What a task returns in the async API: ADR 0079's three separate fields, the output, and what the task did.
-    `output` is a valid `T` whose values Grounding found on the pages the task observed or in its Agent tools' results;
+class AsyncAgentResult(AIWorkResult[T_co]):
+    """What a task returns in the async API: ADR 0079's three separate fields, the answer inside `ended`, and what the
+    task did. `Finished.output` is a valid `T` whose values Grounding found on the pages the task observed or in its Agent tools' results;
     a value it could not find leaves the Verdict at `needs-review`, naming the field. A task replayed whole ends
     `Finished` once its Success check ran, with no `reported`, since no model claimed anything."""
 
@@ -124,7 +126,7 @@ class AsyncAgentResult(AIWorkResult[T]):
         """The page the task ended on: its own page, or a tab it opened, which the program now holds. The other tabs it
         opened are closed as `page.close()` closes them: on a Borrowed browser, released."""
 
-class AgentResult(AIWorkResult[T]):
+class AgentResult(AIWorkResult[T_co]):
     """What a task returns in the sync API, as `AsyncAgentResult`."""
 
     @property
@@ -286,7 +288,11 @@ class AsyncAgentAPI:
         variables: Mapping[str, str] | None = None,
         model: ModelReference | NotGiven = ...,
         timeout: Timeout = ...,
-    ) -> AsyncAgentTask[T]: ...
+    ) -> AsyncAgentTask[T]:
+        """Needs a model unless its Plan entry replays: pass `model` or set `ai.model`.
+
+        Runs ADR 0013's built-in Agent on one task, to its end, and returns the task handle; the class says what each
+        option sets."""
     @overload
     def agent(
         self,

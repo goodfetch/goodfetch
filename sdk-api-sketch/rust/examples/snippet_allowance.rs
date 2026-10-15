@@ -107,7 +107,7 @@ fn keep_all() -> Result<(), Error> {
 /// An Agent's task ends as a value when the allowance is reached, and the Run goes on.
 async fn agent_stops(page: &Page) -> Result<Option<String>, Error> {
     let result = page.agent("add the cheapest poetry book to the basket").await?;
-    if let Ended::Stopped(StopReason::ModelAllowance(source)) = &result.ended {
+    if let Ended::Stopped { reason: StopReason::ModelAllowance(source), .. } = &result.ended {
         return Ok(Some(source.setting.clone()));
     }
     Ok(None)

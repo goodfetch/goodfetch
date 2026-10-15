@@ -1,9 +1,9 @@
 //! The Run in code (ADR 0102, decided in #478).
 //!
 //! - A Run starts with [`crate::Collie::start`] or [`crate::Foxhound::start_crawl`], which return once
-//!   it is started. Its ID, chosen with `.id(..)` or generated, names it for good: a start whose ID
-//!   names an existing Run resumes it, returns it ended ([`StartedAs`]), or refuses, and nothing is
-//!   inferred from a storage folder.
+//!   it is started. Its Run ID, chosen with `.run_id(..)` or generated, names it for good: a start
+//!   whose Run ID names an existing Run resumes it, returns it ended ([`StartedAs`]), or refuses,
+//!   and nothing is inferred from a storage folder.
 //! - [`Run::finish`] lets the Run finish and returns its [`RunReport`]; [`Run::stop`] ends it early
 //!   with its report; ADR 0078's `close()` is unchanged. A crawl's [`crate::Crawl::serve`] returns its
 //!   [`CrawlRunReport`] once the Run ends, since serving is what lets it finish.
@@ -282,7 +282,7 @@ impl Run {
     /// engine), the report says `Stopped`. Its wait has no timeout of its own: the Run's own bounds
     /// it, and `.timeout(..)` or dropping the future ends only the wait. A failed write of the Plan
     /// file or the Response recording fails with `path_not_writable` or `file_write_failed` once the
-    /// Run has ended; `open_run(id).report()` reads its report, which keeps a warning naming the code
+    /// Run has ended; `open_run(run_id).report()` reads its report, which keeps a warning naming the code
     /// (ADR 0116).
     pub fn finish(&self) -> Call<RunReport> {
         unimplemented!()

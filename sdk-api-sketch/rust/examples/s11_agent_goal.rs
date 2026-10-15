@@ -23,19 +23,19 @@ pub struct Answer {
 pub enum Outcome {
     /// The program's Success check held on the page the task reached.
     Verified(Answer),
-    /// The model reported its end, and nothing proved it.
+    /// The work finished with a complete answer, and nothing proved it.
     Reported {
-        /// Done or gave up.
+        /// What the model claimed, if anything.
         claim: Option<Claim>,
-        /// Its answer, if it gave one.
-        answer: Option<Answer>,
+        /// Its answer.
+        answer: Answer,
     },
-    /// A limit stopped it.
+    /// A limit stopped it, or the model gave up.
     Stopped {
-        /// Which one, naming the setting or the Limit.
+        /// Why, naming the setting or the Limit.
         reason: StopReason,
         /// The Grounded part of the answer found so far.
-        partial: Option<PartialOutput>,
+        partial: PartialOutput,
     },
 }
 
@@ -51,19 +51,16 @@ async fn travel_book_check(page: Page) -> Result<(), BoxError> {
 }
 
 fn outcome(result: AgentResult<Answer>) -> Result<Outcome, Error> {
-    if let Ended::Stopped(reason) = &result.ended {
-        let reason = reason.clone();
-        return Ok(Outcome::Stopped {
-            reason,
-            partial: result.partial,
-        });
-    }
     if result.verdict == Verdict::Verified {
         return result.require_verified().map(Outcome::Verified);
     }
-    Ok(Outcome::Reported {
-        claim: result.reported.map(|reported| reported.claim),
-        answer: result.output,
+    // The answer is inside how the task ended: complete only when it finished.
+    Ok(match result.ended {
+        Ended::Finished { output } => Outcome::Reported {
+            claim: result.reported.map(|reported| reported.claim),
+            answer: output,
+        },
+        Ended::Stopped { reason, partial } => Outcome::Stopped { reason, partial },
     })
 }
 

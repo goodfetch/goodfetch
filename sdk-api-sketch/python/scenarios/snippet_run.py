@@ -37,7 +37,7 @@ async def scenario_07(retry_failed: bool) -> CrawlRunReport:
         run = await foxhound.start_crawl(
             books,
             seeds=[seed("https://books.toscrape.com/", home)],
-            id="books-2026-10-15",  # a start under this ID resumes the Run where it stopped
+            run_id="books-2026-10-15",  # a start under this ID resumes the Run where it stopped
         )
         async with run:
             if run.started_as == "resumed":
@@ -83,8 +83,9 @@ async def on_failure(run: AsyncCrawlRun) -> None:
 
 
 async def failed_urls(run: AsyncCrawlRun) -> list[str]:
-    """The failed URLs, from the Run's committed state, also once it has ended."""
-    return [outcome.request.url async for outcome in run.outcomes(kinds=["failed"])]
+    """The URLs failed as they stand, read from the Run's committed state, also once it has ended: what `retry_failed()`
+    would re-admit. `outcomes()` is the log of every ending, a retried request's old failure included (ADR 0117)."""
+    return [outcome.request.url async for outcome in run.failed_requests()]
 
 
 async def export_yesterday(foxhound: AsyncFoxhound) -> None:
@@ -100,7 +101,7 @@ async def export_yesterday(foxhound: AsyncFoxhound) -> None:
 async def place_order(order_id: str) -> None:
     """A Collie Run under an ID: run again after a crash, it finds its Sessions and its Effect journal, so an order placed
     before the crash is checked rather than placed again; once finished, it runs nothing."""
-    async with AsyncFoxhound.connect() as foxhound, await foxhound.start(id=f"order-{order_id}") as run:
+    async with AsyncFoxhound.connect() as foxhound, await foxhound.start(run_id=f"order-{order_id}") as run:
         if run.started_as == "ended":
             return
         await run.set_progress_message(f"order {order_id}")
@@ -130,13 +131,13 @@ async def fed(urls: AsyncIterable[str]) -> None:
 
 def scenario_07_sync() -> None:
     """The sync client, as in a notebook cell."""
-    with Foxhound.connect() as foxhound, foxhound.start(id="notebook-2026-10-15") as run:
+    with Foxhound.connect() as foxhound, foxhound.start(run_id="notebook-2026-10-15") as run:
         report = run.finish()
         log.info("%s %s %s", report.lifecycle, report.verdict, report.completeness)
 
 
 async def mistakes(foxhound: AsyncFoxhound, run: AsyncCrawlRun) -> None:
     """Typed mistakes, caught by the type checkers before anything runs."""
-    await foxhound.start_crawl(books, id="books-2026-10-15")  # type: ignore[call-arg]  # pyright: ignore[reportCallIssue]
+    await foxhound.start_crawl(books, run_id="books-2026-10-15")  # type: ignore[call-arg]  # pyright: ignore[reportCallIssue]
     await foxhound.start(detached=True)  # type: ignore[call-arg]  # pyright: ignore[reportCallIssue]
     await run.retry_failed(skipped=True)  # type: ignore[call-arg]  # pyright: ignore[reportCallIssue]

@@ -1,14 +1,12 @@
 //! Golden scenario 06, "Crawl with HTTP and a browser only where needed" (Foxhound, Rust).
 
 use goodfetch_foxhound::schemars::JsonSchema;
-use goodfetch_foxhound::settings::fetch;
+use goodfetch_foxhound::settings::{browser, fetch};
 use goodfetch_foxhound::{
-    AbortReason, ConnectOptions, Crawl, CrawlContext, ElementState, Error, FetchTier, Foxhound,
-    HookOn, LabelDeclaration, PageStageContext, ResourceType, Seed, Settings, UrlMatcher,
-    UrlPattern,
+    ConnectOptions, Crawl, CrawlContext, ElementState, Error, FetchTier, Foxhound,
+    LabelDeclaration, LinkPattern, ResourceType, Seed, Settings, UrlMatcher,
 };
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
 
 /// A quote, with the version of the site it came from.
 #[derive(Debug, Serialize, Deserialize, JsonSchema)]
@@ -56,29 +54,11 @@ async fn collect_quotes() -> Result<Vec<Quote>, Error> {
     // Scrolling and reading the JSON the page loads need a browser: this Label forces it, and
     // keeps the API's responses from the start of its navigation, so page 1, loaded before the
     // handler runs, is read without a reload.
-    let api = UrlPattern::Regex(r"/api/quotes\?page=\d+$".to_owned());
+    let api = LinkPattern::Regex(r"/api/quotes\?page=\d+$".to_owned());
     let browser = Settings::new()
         .set(fetch::TIER, fetch::TierChoice::Forced(FetchTier::Browser))
         .set(fetch::kept_responses::URLS, vec![api]);
     let scroll = crawl.label(LabelDeclaration::<()>::new("scroll").settings(browser))?;
-
-    // Runs only where a browser navigates, so unscoped it covers every browser page, a sample
-    // comparison of an HTTP Label's page included. The route outlives the Hook: `serve` answers it
-    // for the rest of the attempt.
-    let no_media = HookOn::every_label().named("no-images-or-fonts");
-    crawl.before_navigation(no_media, async |ctx: PageStageContext<Value>| {
-        let routes = ctx.page().route("**/*");
-        ctx.for_each(routes, async |route| {
-            match route.request().resource_type() {
-                ResourceType::Image | ResourceType::Font => {
-                    route.abort().reason(AbortReason::BlockedByClient).await?
-                }
-                _ => route.fallback().await?,
-            }
-            Ok(())
-        })?;
-        Ok(())
-    })?;
 
     let read_quotes = async |ctx: CrawlContext<()>| {
         let page = ctx.page();
@@ -140,7 +120,16 @@ async fn collect_quotes() -> Result<Vec<Quote>, Error> {
         Seed::new("https://quotes.toscrape.com/js/", &js, ()),
         Seed::new("https://quotes.toscrape.com/scroll", &scroll, ()),
     ];
-    let run = foxhound.start_crawl(&crawl, seeds).await?;
+    // Images and fonts are blocked by the engine on every browser page of the Run, before any
+    // navigation, a sample comparison of an HTTP Label's page included: no code runs in time.
+    let no_media = Settings::new().set(
+        browser::BLOCK_RESOURCES,
+        vec![ResourceType::Image, ResourceType::Font],
+    );
+    let run = foxhound
+        .start_crawl(&crawl, seeds)
+        .settings(no_media)
+        .await?;
     // Serving is what lets a crawl finish: it returns the Run's report once the Run ends (ADR 0102).
     let report = crawl.serve(&run).await?;
     let totals = &report.requests;

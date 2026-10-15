@@ -5,7 +5,7 @@ use std::time::Duration;
 use goodfetch_foxhound::settings::{checkpoint, crawl};
 use goodfetch_foxhound::output::ExportFormat;
 use goodfetch_foxhound::{
-    ConnectOptions, Crawl, CrawlRun, CrawlRunReport, Dataset, Enqueued, Error, Foxhound, Label, NothingDone, OutcomeKind,
+    ConnectOptions, Crawl, CrawlRun, CrawlRunReport, Dataset, Enqueued, Error, FailedRequestsFilter, Foxhound, Label, NothingDone, OutcomeKind,
     OutcomesFilter, Run, Seed, Settings, StartedAs,
 };
 
@@ -15,7 +15,7 @@ async fn scenario_07(books: &Crawl<'_>, home: &Label<()>, retry_failed: bool) ->
     let foxhound = Foxhound::connect(ConnectOptions::default()).await?;
     let run = foxhound
         .start_crawl(books, [Seed::new("https://books.toscrape.com/", home, ())])
-        .id("books-2026-10-15") // a start under this ID resumes the Run where it stopped
+        .run_id("books-2026-10-15") // a start under this ID resumes the Run where it stopped
         .await?;
     if run.started_as() == &StartedAs::Resumed {
         // carrying on where the killed process stopped
@@ -26,6 +26,11 @@ async fn scenario_07(books: &Crawl<'_>, home: &Label<()>, retry_failed: bool) ->
         }
     }
     if retry_failed {
+        // The current failures, from committed state: exactly what `retry_failed` re-admits.
+        let mut failed = run.failed_requests(FailedRequestsFilter::default());
+        while let Some(outcome) = failed.next().await {
+            println!("retrying {}", outcome?.request.url);
+        }
         let readmitted = run.retry_failed().await?; // only `failed`, in this same Run and its Dataset
         let _ = readmitted;
     }
@@ -50,7 +55,8 @@ async fn follow(run: &CrawlRun) -> Result<(), Error> {
     Ok(())
 }
 
-/// The failed URLs, from the Run's committed state, also once it has ended.
+/// Every failure the Run met, from its committed state, also once it has ended: the outcome log,
+/// where a request failing again after `retry_failed` appears twice, not the current failures.
 async fn failed_urls(run: &CrawlRun) -> Result<Vec<String>, Error> {
     let mut outcomes = run.outcomes(OutcomesFilter::default().kinds(&[OutcomeKind::Failed]));
     let mut urls = Vec::new();
@@ -74,7 +80,7 @@ async fn export_yesterday(foxhound: &Foxhound, books: &Dataset<serde_json::Value
 /// so an order placed before the crash is checked rather than placed again; once finished, it runs
 /// nothing.
 async fn place_order(foxhound: &Foxhound, order_id: &str) -> Result<(), Error> {
-    let run: Run = foxhound.start().id(format!("order-{order_id}")).await?;
+    let run: Run = foxhound.start().run_id(format!("order-{order_id}")).await?;
     if run.started_as() == &StartedAs::Ended {
         return run.close().await;
     }

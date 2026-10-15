@@ -7,11 +7,12 @@
 //
 // - `TestEngine`: ADR 0069's test engine, a real engine set up for one test. It reaches no site unless
 //   a Run records: every Run that names no Response recording replays an empty one.
-// - `scriptedModel`: ADR 0069's Scripted model, a Model provider the test registers.
+// - `scriptedModel`: ADR 0069's Scripted model, a Model provider the test registers; `scriptedExtraction`
+//   is a reply giving the data one `extract` call should give, in either mode (ADR 0117).
 // - `fakeError`: any `GoodfetchError`, for a test of the program's own error handling. Result values
 //   are plain interfaces, so a test writes them as object literals.
 
-import type { Connection, GoodfetchError, Logger, ModelProviderHandler, ModelRequest, ModelResponse, ProgramError, Settings } from "@goodfetch/collie-client";
+import type { Connection, GoodfetchError, JSONValue, Logger, ModelProviderHandler, ModelRequest, ModelResponse, ProgramError, Settings } from "@goodfetch/collie-client";
 
 /** Options of starting a test engine. */
 export interface TestEngineOptions<S = Settings> {
@@ -58,8 +59,26 @@ export interface TestEngine<C extends Connection> extends AsyncDisposable {
   [Symbol.asyncDispose](): Promise<void>;
 }
 
-/** One reply of a Scripted model: a response, or an error the provider would give. A retryable error is retried as a provider's (ADR 0101), the retry taking the next reply. */
-export type ScriptedReply = ModelResponse | GoodfetchError;
+/**
+ * One reply of a Scripted model: a response, an error the provider would give, or the data of one
+ * extraction (`scriptedExtraction`). A retryable error is retried as a provider's (ADR 0101), the retry
+ * taking the next reply.
+ */
+export type ScriptedReply = ModelResponse | GoodfetchError | ScriptedExtraction;
+
+/** A Scripted model's reply holding the data one `extract` call should give, made by `scriptedExtraction`. */
+export interface ScriptedExtraction {
+  readonly kind: "extraction";
+  readonly data: JSONValue;
+}
+
+/**
+ * Answers one `extract` call in its active mode: under `model` (ADR 0117's direct mode) with `data`;
+ * under `compiled` with the locators that read `data` from the page, which the kit writes by finding
+ * each value on the page. A value not on the page gets no locator, so the step raises
+ * `extraction_incomplete` naming the field, as a real compile would (ADRs 0105, 0117).
+ */
+export declare function scriptedExtraction(data: JSONValue): ScriptedExtraction;
 
 /** ADR 0069's Scripted model: answers call n with reply n, records every request, and reports Usage from its replies. */
 export interface ScriptedModel extends ModelProviderHandler {

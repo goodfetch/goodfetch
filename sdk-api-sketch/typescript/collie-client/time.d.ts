@@ -88,12 +88,14 @@ export interface Limits {
 /** Options of starting a Run (ADR 0102); `timeout` and `limits` are ADR 0080's, `settings` ADR 0083's. */
 export interface StartOptions {
   /**
-   * The Run's ID, which names it for good in the Run index (ADR 0031). Left out, the engine generates
-   * one. A start that names an existing Run resumes it or returns it ended (`run.startedAs`), so a
-   * program run again under its ID carries on where it stopped. Its characters are the engine's to
-   * check: `RunIdInvalidError`.
+   * Names the Run for good: a start with an existing Run ID resumes the Run if it was interrupted, or
+   * returns it as it ended (ADR 0102); a new ID starts a new Run.
+   *
+   * The Run ID names it in the Run index (ADR 0031); left out, the engine generates one. `run.startedAs()`
+   * says which the start did, so a program run again under its ID carries on where it stopped. Its
+   * characters are the engine's to check: `RunIdInvalidError`. `run.id()` reads it back.
    */
-  readonly id?: string;
+  readonly runId?: string;
   /**
    * Settings for this Run and everything opened beneath it (ADR 0083). On a resume, a changed value
    * applies from then on, in the Run trace with its layer; a key fixed for a Run's life, such as

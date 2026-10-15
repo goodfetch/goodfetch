@@ -1,5 +1,5 @@
 // Snippet for The Run in code (#478, ADR 0102), on golden scenario 07 with scenario 05's crawl.
-import { Foxhound, seed, type Crawl, type CrawlRun, type CrawlRunReport, type Dataset, type Label, type Logger, type Run } from "@goodfetch/foxhound";
+import { Foxhound, seed, type Crawl, type CrawlRun, type CrawlRunReport, type CrawlRunView, type Dataset, type Label, type Logger, type Run } from "@goodfetch/foxhound";
 
 declare const log: Logger;
 // Scenario 05's declaration (crawl.ts): Labels `home`, `category` and `book`, one handler each.
@@ -12,12 +12,14 @@ declare const bookRecords: Dataset<{ readonly title: string; readonly price: str
 export async function scenario07(argv: readonly string[]): Promise<CrawlRunReport> {
   await using foxhound = await Foxhound.connect({ logger: log });
   await using run = await foxhound.startCrawl(books, {
-    id: "books-2026-10-15", // a start under this ID resumes the Run where it stopped
+    runId: "books-2026-10-15", // a start under this ID resumes the Run where it stopped
     seeds: [seed("https://books.toscrape.com/", home)],
   });
   if (run.startedAs() === "resumed") log.info("resuming", { run: run.id() });
   for (const answer of run.seeds()) if (!answer.added) log.warn("seed not added", { url: answer.url, reason: answer.reason });
   if (argv.includes("--retry-failed")) {
+    // What is failed now, each request's latest outcome: exactly what `retryFailed()` re-admits.
+    for await (const failed of run.failedRequests()) log.info("will retry", { url: failed.request.url, attempts: failed.attempts });
     const readmitted = await run.retryFailed(); // only `failed`, in this same Run and its Dataset
     log.info("retrying", { readmitted });
   }
@@ -52,10 +54,11 @@ export async function onFailure(run: CrawlRun): Promise<void> {
   }
 }
 
-// The failed URLs, from the Run's committed state, also once it has ended.
-export async function failedUrls(run: CrawlRun): Promise<string[]> {
+// The URLs failed or blocked as they stand, also from a view once the Run has ended. `outcomes()` is a
+// log of endings, where a request retried since still shows its old failure.
+export async function failedUrls(view: CrawlRunView): Promise<string[]> {
   const urls: string[] = [];
-  for await (const outcome of run.outcomes({ kinds: ["failed"] })) urls.push(outcome.request.url);
+  for await (const outcome of view.failedRequests({ blocked: true })) urls.push(outcome.request.url);
   return urls;
 }
 
@@ -72,7 +75,7 @@ export async function exportYesterday(foxhound: Foxhound): Promise<void> {
 // order placed before the crash is checked rather than placed again; once finished, it runs nothing.
 export async function placeOrder(orderId: string): Promise<void> {
   await using foxhound = await Foxhound.connect({ logger: log });
-  await using run = await foxhound.start({ id: `order-${orderId}` });
+  await using run = await foxhound.start({ runId: `order-${orderId}` });
   if (run.startedAs() === "ended") return;
   await run.setProgressMessage(`order ${orderId}`);
   const page = await run.newPage();
@@ -99,7 +102,7 @@ export async function fed(urls: AsyncIterable<string>): Promise<void> {
 // Typed mistakes, caught before anything runs.
 export async function mistakes(foxhound: Foxhound, run: CrawlRun): Promise<void> {
   // @ts-expect-error a crawl's start needs its seeds, even to resume: they are an input that must match
-  await foxhound.startCrawl(books, { id: "books-2026-10-15" });
+  await foxhound.startCrawl(books, { runId: "books-2026-10-15" });
   // @ts-expect-error `detached` is only for Runs with no handlers in the program
   await foxhound.start({ detached: true });
   // @ts-expect-error a skip is a decision: only failed and blocked requests are re-admitted

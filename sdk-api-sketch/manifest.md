@@ -20,6 +20,7 @@ ADR 0099 generates every member a catalog kind expresses, and lists every public
 | `schema` | `Schema` (Standard Schema or a JSON Schema) | Pydantic models, `JSONSchema` | `Schema<T>` (`Schema::of`, `Schema::json`) | no entry: the schema adapters (ADR 0082) | type |
 | `secret` | `secret(name)` | `secret(name)` | `secret(name)` | no entry: builds a Secret placeholder (ADR 0092) | function |
 | `seed`, `sitemap` | `seed(url, label, payload?)`, `sitemap(url, rules)` | `seed(url, label, payload)`, `sitemap(url, rules)` | `Seed::new`, `Seed::sitemap` | `crawl.start`'s seeds (ADR 0093) | functions in TypeScript and Python, constructors in Rust |
+| `link_pattern` | `LinkPattern` | `LinkPattern` | `LinkPattern` | no entry: Foxhound's glob or regular expression matched in the engine, for links, sitemap rules and kept responses (ADRs 0081, 0117) | type |
 | `expect` | `expect(target)` | `expect(target)` | `expect(target)` (`Expectable`) | the catalog's `expect` matchers (ADR 0091) | function |
 | `agent_tool` | `agentTool(...)` | `@agent_tool` | `AgentTool::new(...)` | no entry: an Agent tool's constructor (ADR 0100) | function, decorator, type with `new` |
 | `goodfetch_error` and its groups | `GoodfetchError`, `ProgramError`, … | the same | `Error`, `ErrorGroup`, `ErrorDetails` | no entry: the error base classes (ADR 0079) | types |
@@ -29,6 +30,7 @@ ADR 0099 generates every member a catalog kind expresses, and lists every public
 | `lend_to_browser_use` | none: Browser Use is Python's | `lend_to_browser_use(page, BrowserSession)` | none | `page.lend` | function, Python only, async |
 | `test_engine` | `TestEngine` in each Product's `/testing` | `TestEngine`, `AsyncTestEngine` | `TestEngine` behind `test-util` | no entry: the testing kits (ADRs 0069, 0105) | type; Foxhound's adds `runHandler` / `run_handler` and `runHook` / `run_hook`, the testing kit's `reconcile` |
 | `scripted_model` | `scriptedModel(replies)` | `ScriptedModel(replies)` | `ScriptedModel::new(replies)` | no entry: ADR 0069's Scripted model | function, type |
+| `scripted_extraction` | `scriptedExtraction(data)` | `scripted_extraction(data)` | `ScriptedReply::Extraction(data)` | no entry: a Scripted model reply that answers an `extract` in its mode (ADR 0117) | function; a variant in Rust |
 | `fake_error` | `fakeError(class, init)` | `fake_error(class, ...)` | `Error::fake(code, message)` | no entry: an error for a program's own tests | function |
 | `for_each` | none: `page.route(url, handler)` keeps its handler | none: as TypeScript | `ctx.for_each(stream, handler)` on a crawl's page-stage and handler contexts, `blocking` too | no entry: hands a page stream to `crawl.serve` for the rest of the attempt (ADR 0111) | method, Rust only |
 | `keep` (registration) | none: an init script stays until disposed | none: as TypeScript | `Registration::keep()` | no entry: keeps an init script until its page or Session closes (ADR 0111) | method, Rust only |

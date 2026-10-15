@@ -84,6 +84,12 @@ pub enum ScriptedReply {
     /// An error the provider would give, such as `Error::fake(ErrorCode::ModelFundsExhausted, ..)`.
     /// A retryable one is retried as a provider's (ADR 0101), the retry taking the next reply.
     Error(Error),
+    /// Answers one `extract` call in its active mode: under [`crate::ExtractMode::Model`] with
+    /// `data`; under [`crate::ExtractMode::Compiled`] with the locators that read `data` from the
+    /// page, which the kit writes by finding each value on the page. A value not on the page gets no
+    /// locator, so the step raises `extraction_incomplete` naming the field, as a real compile would
+    /// (ADRs 0105, 0117).
+    Extraction(serde_json::Value),
 }
 
 /// ADR 0069's Scripted model: answers call n with reply n, records every request, and reports

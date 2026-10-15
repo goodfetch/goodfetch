@@ -104,11 +104,13 @@ impl From<SecretPlaceholder> for TextInput {
 }
 
 /// `secrets.<name>`: what a placeholder stands for and where it may go, set with
-/// [`Settings::secret`]. `domains` are registrable domains (ADR 0004), `*` only when written, and
-/// required; they are checked against the frame holding the target field, or a request's URL. Set
-/// by the program's own code, configuration or an Operator policy, at the connection, a Run or a
-/// Session, nearest winning; a Recipe declares the names it needs and never binds them, and a
-/// Client acting for a model never sets one (`setting_locked`).
+/// [`Settings::secret`]. `domains` are registrable domains (`example.com`), not host names: a host
+/// such as `www.example.com` is refused with `setting_invalid`, whose fix names its registrable
+/// domain (ADRs 0004, 0117). `*` is allowed only when written, and `domains` are required; they are
+/// checked against the frame holding the target field, or a request's URL. Set by the program's own
+/// code, configuration or an Operator policy, at the connection, a Run or a Session, nearest
+/// winning; a Recipe declares the names it needs and never binds them, and a Client acting for a
+/// model never sets one (`setting_locked`).
 #[derive(Debug, Clone)]
 pub struct SecretBinding {
     _private: (),
@@ -235,7 +237,9 @@ pub enum SessionSource {
         format: Option<StateFileFormat>,
         /// Opens a session export bundle (ADR 0015).
         key: Option<SecretReference>,
-        /// The domains kept; every one the file holds when empty.
+        /// The domains kept; every one the file holds when empty. They are registrable domains
+        /// (`example.com`), not host names: a host such as `www.example.com` is refused with
+        /// `setting_invalid`, whose fix names its registrable domain (ADR 0117).
         domains: Vec<String>,
     },
     /// A raw `Cookie:` header.
@@ -253,7 +257,9 @@ pub enum SessionSource {
         browser: BrowserName,
         /// The Chromium profile folder inside it.
         chromium_profile: Option<String>,
-        /// The registrable domains the Session may reach.
+        /// The domains the Session may reach: registrable domains (`example.com`), not host
+        /// names: a host such as `www.example.com` is refused with `setting_invalid`, whose fix
+        /// names its registrable domain (ADR 0117).
         domains: Vec<String>,
     },
     /// A browser installed on this machine.
@@ -262,14 +268,18 @@ pub enum SessionSource {
         browser: BrowserName,
         /// The Chromium profile folder.
         chromium_profile: Option<String>,
-        /// The registrable domains imported.
+        /// The domains imported: registrable domains (`example.com`), not host names: a host such
+        /// as `www.example.com` is refused with `setting_invalid`, whose fix names its registrable
+        /// domain (ADR 0117).
         domains: Vec<String>,
     },
     /// The person's running browser, through its consented remote debugging.
     RunningBrowser {
         /// The browser.
         browser: BrowserName,
-        /// The registrable domains the Session may reach.
+        /// The domains the Session may reach: registrable domains (`example.com`), not host
+        /// names: a host such as `www.example.com` is refused with `setting_invalid`, whose fix
+        /// names its registrable domain (ADR 0117).
         domains: Vec<String>,
     },
     /// Any browser reachable over CDP.
@@ -278,7 +288,9 @@ pub enum SessionSource {
         url: String,
         /// Header values, each a Secret reference.
         headers: Vec<(String, SecretReference)>,
-        /// The registrable domains the Session may reach.
+        /// The domains the Session may reach: registrable domains (`example.com`), not host
+        /// names: a host such as `www.example.com` is refused with `setting_invalid`, whose fix
+        /// names its registrable domain (ADR 0117).
         domains: Vec<String>,
         /// Nothing else drives this browser, so secrets may be typed into it (ADR 0056). When
         /// `false`, the program awaits each Collie call before its other code acts on the page, and an

@@ -9,6 +9,17 @@
 
 import type { EventIterator } from "./concurrency.js";
 import type { Dataset, JsonObject, Label, PayloadInput, PayloadOutput, Schema, SchemaInput, SchemaOutput } from "./data.js";
+import type {
+  AfterResponseHook,
+  AnyLabel,
+  BeforeRequestHook,
+  HookOptions,
+  PageStageHook,
+  RecordCommitHook,
+  RecordHookOptions,
+  RecordOf,
+  UntypedRecord,
+} from "./hooks.js";
 import type { Page, Run } from "./lifecycle.js";
 import type {
   DatasetOptions,
@@ -80,6 +91,26 @@ export declare class Crawl {
    * left without one makes the Run's start throw `LabelUnhandledError`.
    */
   handle<L extends Label<unknown, unknown>>(label: L, handler: Handler<L>): void;
+
+  // Hooks in code (ADR 0104): one method per stage, run in the order declared, after the Hooks
+  // that settings name (`hooks.*`), with no integers. Scoped to `labels`, a Hook sees their
+  // Payloads typed; left unscoped, it runs for every Label. Never persisted, like handlers.
+
+  /** Before each fetch of a request, retries, escalations and sample-comparison runs included: it may rewrite the URL, set headers or skip. */
+  beforeRequest<const Ls extends readonly AnyLabel[] = readonly AnyLabel[]>(hook: BeforeRequestHook<Ls[number]>, options?: HookOptions<Ls>): void;
+  /** After the final response, before the status rule: it may rewrite the body, mark a block or ask for a retry. */
+  afterResponse<const Ls extends readonly AnyLabel[] = readonly AnyLabel[]>(hook: AfterResponseHook<Ls[number]>, options?: HookOptions<Ls>): void;
+  /** Before the browser navigates: set cookies, block resources, add init scripts. Not on the HTTP tiers. */
+  beforeNavigation<const Ls extends readonly AnyLabel[] = readonly AnyLabel[]>(hook: PageStageHook<Ls[number]>, options?: HookOptions<Ls>): void;
+  /** After the browser navigated, before the engine's own page work (consent, challenges, the expected page). Not on the HTTP tiers. */
+  afterNavigation<const Ls extends readonly AnyLabel[] = readonly AnyLabel[]>(hook: PageStageHook<Ls[number]>, options?: HookOptions<Ls>): void;
+  /** Just before the handler, on every tier, with the handler's page: the router middleware of Crawlee's `router.use`. */
+  pageReady<const Ls extends readonly AnyLabel[] = readonly AnyLabel[]>(hook: PageStageHook<Ls[number]>, options?: HookOptions<Ls>): void;
+  /** Before each Record's commit: it may change, drop or reject it. Scoped to `datasets`, it sees their Record type. */
+  beforeRecordCommit<
+    const Ls extends readonly AnyLabel[] = readonly AnyLabel[],
+    const Ds extends readonly Dataset<unknown, unknown>[] = readonly Dataset<UntypedRecord, unknown>[],
+  >(hook: RecordCommitHook<Ls[number], RecordOf<Ds[number]>>, options?: RecordHookOptions<Ls, Ds>): void;
 }
 
 /** The arguments after the Label: the Payload only when the Label has one, then the options. */

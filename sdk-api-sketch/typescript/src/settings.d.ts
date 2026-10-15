@@ -223,7 +223,7 @@ export type CrawlRunSettings = Omit<Settings, "timeout"> & { readonly timeout?: 
  * its Politeness with every run of the user (ADR 0053).
  */
 export interface LabelSettings extends Omit<PageSettings, "timeout"> {
-  readonly timeout?: NonNullable<PageSettings["timeout"]> & Pick<TimeoutSettings, "handler">;
+  readonly timeout?: NonNullable<PageSettings["timeout"]> & Pick<TimeoutSettings, "handler" | "hook">;
   readonly fetch?: Pick<FetchSettings, "tier">;
   readonly crawl?: Pick<CrawlSettings, "retry" | "handleStatuses" | "handler">;
   readonly session?: SessionLoginSettings;

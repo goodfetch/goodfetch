@@ -17,6 +17,7 @@ from dataclasses import dataclass
 from typing import Generic, Literal, NoReturn, TypeAlias, TypeVar, final, overload
 
 from goodfetch._data import Dataset, JsonObject, JsonSchema, JsonValue, Label
+from goodfetch._hooks import AsyncHooks, SyncHooks
 from goodfetch._lifecycle import AsyncCrawlRun, AsyncPage, CrawlRun, Page
 from goodfetch._page import AsyncLocator, AsyncResponse, Locator, Response
 from goodfetch._results import PageError, ProgramError, RefusedError, UnavailableError
@@ -239,8 +240,8 @@ class _Declares(Generic[L]):
     def dataset(self, name: str, *, schema: JsonSchema, key: Sequence[str] = ()) -> Dataset[JsonValue]: ...
 
 @final
-class AsyncCrawl(_Declares[Callable[[AsyncPage], Awaitable[None]]]):
-    """A crawl's declaration, for `AsyncGoodfetch`: its Labels and their `async def` handlers."""
+class AsyncCrawl(_Declares[Callable[[AsyncPage], Awaitable[None]]], AsyncHooks):
+    """A crawl's declaration, for `AsyncGoodfetch`: its Labels, their `async def` handlers and its Hooks in code (ADR 0104)."""
 
     def __init__(self, *, login: Callable[[AsyncPage], Awaitable[None]] | None = None) -> None:
         """`login` is the scripted login step of the Run's Session pool (ADRs 0006, 0092); a Label's own wins."""
@@ -249,8 +250,9 @@ class AsyncCrawl(_Declares[Callable[[AsyncPage], Awaitable[None]]]):
         left without one makes the Run's start raise `LabelUnhandledError`."""
 
 @final
-class Crawl(_Declares[Callable[[Page], None]]):
-    """A crawl's declaration, for `Goodfetch` (sync): its Labels and their plain-function handlers."""
+class Crawl(_Declares[Callable[[Page], None]], SyncHooks):
+    """A crawl's declaration, for `Goodfetch` (sync): its Labels, their plain-function handlers and its Hooks in code
+    (ADR 0104)."""
 
     def __init__(self, *, login: Callable[[Page], None] | None = None) -> None: ...
     def handle(self, label: Label[P]) -> Callable[[Handler[P]], Handler[P]]: ...

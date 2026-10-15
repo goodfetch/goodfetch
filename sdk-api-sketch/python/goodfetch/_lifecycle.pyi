@@ -27,6 +27,14 @@ from goodfetch._concurrency import (
 from goodfetch._data import JsonValue
 from goodfetch._models import AsyncModelProviderHandler, ModelProviderHandler, RunUsage
 from goodfetch._output import AsyncExport, AsyncKeyValueStore, DatasetRecord, Export, ExportFormat, KeyValueStore, RejectedRecord
+from goodfetch._hooks import (
+    AsyncFetchBackendHandler,
+    AsyncProxyProviderHandler,
+    AsyncSinkHandler,
+    FetchBackendHandler,
+    ProxyProviderHandler,
+    SinkHandler,
+)
 from goodfetch._page import AsyncPageApi, AsyncRouteHandler, PageApi, RouteHandler
 from goodfetch._sessions import (
     AsyncIdentities,
@@ -328,6 +336,9 @@ class AsyncGoodfetch(_AsyncCloseable, _AsyncExplainsSettings):
         limits: Limits | None = None,
         resolve_secret: AsyncResolveSecret | None = None,
         model_providers: Mapping[str, AsyncModelProviderHandler] | None = None,
+        fetch_backends: Mapping[str, AsyncFetchBackendHandler] | None = None,
+        proxy_providers: Mapping[str, AsyncProxyProviderHandler] | None = None,
+        sinks: Mapping[str, AsyncSinkHandler] | None = None,
     ) -> _AsyncConnecting:
         """Starts or finds the engine and completes `hello` before the connection is returned.
 
@@ -339,6 +350,9 @@ class AsyncGoodfetch(_AsyncCloseable, _AsyncExplainsSettings):
         `None`, none (ADR 0083). `resolve_secret` answers `caller:` Secret references from the program's own store, at
         the moment of use (ADR 0092). `model_providers` are Model providers answered by the program's own code, by the
         name Model references use: `"mine/any-model"` for `{"mine": handler}` (ADR 0101).
+        `fetch_backends`, `proxy_providers` and `sinks` are the program's own Plugins of those kinds, SDK handlers by
+        the name settings choose them by (ADR 0104): the only Fetch backend or Proxy provider is the connection's
+        choice, and a Sink handler serves the `sinks.<name>` entry of its name.
         """
 
     @property
@@ -515,6 +529,9 @@ class Goodfetch(_Closeable, _ExplainsSettings):
         limits: Limits | None = None,
         resolve_secret: ResolveSecret | None = None,
         model_providers: Mapping[str, ModelProviderHandler] | None = None,
+        fetch_backends: Mapping[str, FetchBackendHandler] | None = None,
+        proxy_providers: Mapping[str, ProxyProviderHandler] | None = None,
+        sinks: Mapping[str, SinkHandler] | None = None,
     ) -> Goodfetch:
         """Starts or finds the engine and completes `hello` before returning; use it with `with`.
 
@@ -523,7 +540,8 @@ class Goodfetch(_Closeable, _ExplainsSettings):
         and never at import, by default the process's own (ADRs 0062, 0069): only the deployment variables are read, an
         unknown `GOODFETCH_` name fails with `SettingUnknownError`, and an Attached engine gets exactly this map.
         `project` is the project configuration file: left out, found upward from the working directory as the CLI does;
-        `None`, none (ADR 0083).
+        `None`, none (ADR 0083). `fetch_backends`, `proxy_providers` and `sinks` are the program's own Plugins, SDK
+        handlers (ADR 0104), run on the connection's thread pool.
         """
 
     @property

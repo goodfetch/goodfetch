@@ -40,8 +40,18 @@ pub enum ErrorCode {
     /// `listener_failed`: a listener threw (ADR 0081). Only the TypeScript and Python SDKs raise it:
     /// Rust has no listeners, since its events are streams the program reads.
     ListenerFailed,
-    /// `hook_failed` (ADR 0033).
+    /// `hook_failed` (ADRs 0033, 0104).
     HookFailed,
+    /// `header_forbidden`: a before-request Hook set a header the engine owns, raised inside
+    /// `hook_failed` (ADR 0104).
+    HeaderForbidden,
+    /// `fetch_handler_failed`: the program's Fetch backend failed with its own error (ADR 0104).
+    FetchHandlerFailed,
+    /// `proxy_handler_failed`: the program's Proxy provider failed with its own error (ADR 0104).
+    ProxyHandlerFailed,
+    /// `sink_handler_failed`: the program's Sink failed with its own error, retried on ADR 0008's
+    /// schedule (ADR 0104).
+    SinkHandlerFailed,
     /// `limit_reached`.
     LimitReached,
     /// `page_check_failed` (ADR 0006).
@@ -400,6 +410,12 @@ impl std::error::Error for Error {
 pub enum ErrorDetails {
     /// Of `handler_failed`.
     HandlerFailed(HandlerFailed),
+    /// Of `hook_failed`.
+    HookFailed(crate::hooks::HookFailed),
+    /// Of `header_forbidden`.
+    HeaderForbidden(crate::hooks::HeaderForbidden),
+    /// Of `fetch_handler_failed`, `proxy_handler_failed` and `sink_handler_failed`.
+    SdkHandlerFailed(crate::hooks::SdkHandlerFailed),
     /// Of `target_not_unique`.
     TargetNotUnique(TargetNotUnique),
     /// Of `blocked`.

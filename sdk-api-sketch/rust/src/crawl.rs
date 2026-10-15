@@ -153,10 +153,10 @@ impl<'a> Crawl<'a> {
         unimplemented!()
     }
 
-    /// Answers the Run's crawl requests with these handlers, `crawl::handler::CONCURRENCY` at once,
-    /// inside this future, until the Run ends, then returns its report (ADR 0102): serving is what
-    /// lets a crawl finish. Dropping it stops answering: each request it leased is re-run, counting
-    /// a `handler_lost` attempt.
+    /// Answers the Run's crawl requests with these handlers and Hooks (ADR 0104),
+    /// `crawl::handler::CONCURRENCY` requests at once, inside this future, until the Run ends, then
+    /// returns its report (ADR 0102): serving is what lets a crawl finish. Dropping it stops
+    /// answering: each request it leased is re-run, counting a `handler_lost` attempt.
     pub async fn serve(&self, run: &CrawlRun) -> Result<crate::run::CrawlRunReport, Error> {
         let _ = run;
         unimplemented!()

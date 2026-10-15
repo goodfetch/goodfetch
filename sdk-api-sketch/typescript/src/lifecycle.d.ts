@@ -9,6 +9,7 @@ import type { Crawl, CrawlRun, CrawlStartOptions } from "./crawl.js";
 import type { JsonValue } from "./data.js";
 import type { ModelProviderHandler, ReadsUsage } from "./models.js";
 import type { KeyValueStore } from "./output.js";
+import type { FetchBackendHandler, ProxyProviderHandler, SinkHandler } from "./hooks.js";
 import type { PageApi, PageCloseOptions, PageFunction, PageResult, RouteHandler } from "./page.js";
 import type { RunControl } from "./run.js";
 import type { Identities, PausesForHuman, ResolveSecret, SessionStateApi, SessionSource } from "./sessions.js";
@@ -71,6 +72,18 @@ export interface ConnectOptions {
    * `"mine/any-model"` for `{ mine: handler }` (ADR 0101; ADR 0033's SDK-handler form).
    */
   readonly modelProviders?: Readonly<Record<string, ModelProviderHandler>>;
+  /**
+   * Fetch backends answered by the program's own code, by the name settings choose them by (ADR
+   * 0104; ADR 0033's SDK-handler form). The only one of its kind on the connection is its choice.
+   */
+  readonly fetchBackends?: Readonly<Record<string, FetchBackendHandler>>;
+  /** Proxy providers answered by the program's own code, as `fetchBackends` (ADR 0104). */
+  readonly proxyProviders?: Readonly<Record<string, ProxyProviderHandler>>;
+  /**
+   * Sinks answered by the program's own code, each serving the `sinks.<name>` entry of its name,
+   * which then takes no `type` (ADRs 0103, 0104).
+   */
+  readonly sinks?: Readonly<Record<string, SinkHandler>>;
 }
 
 /** A value the program holds and closes: `await using`, or `close()` where `await using` is missing (Node 22). */

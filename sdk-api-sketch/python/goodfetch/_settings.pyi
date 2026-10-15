@@ -253,6 +253,8 @@ class LabelTimeoutSettings(PageTimeoutSettings, total=False):
     """The phases a Label can set: a page's, and its handler's."""
 
     handler: timedelta | None
+    hook: timedelta | None
+    """Each call of a Hook on the Label's requests (ADR 0104)."""
 
 class LabelFetchSettings(TypedDict, total=False):
     tier: Literal["auto"] | FetchTier

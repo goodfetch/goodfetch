@@ -4,6 +4,7 @@ export * from "./ai.js";
 export * from "./concurrency.js";
 export * from "./crawl.js";
 export * from "./data.js";
+export * from "./hooks.js";
 export * from "./lifecycle.js";
 export * from "./models.js";
 export * from "./output.js";

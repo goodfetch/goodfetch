@@ -150,7 +150,7 @@ export interface PageCheck {
   readonly expectedPage?: PageMatch;
 }
 
-/** `session.http_credentials`: sent only to a listed domain that challenges. */
+/** `session.http_credentials`: sent only to a listed domain that challenges, never on a browser other code may read. A Recipe and a Client acting for a model never set it. */
 export interface HttpCredentials {
   readonly username: string;
   readonly password: SecretReference;
@@ -175,7 +175,8 @@ export interface SessionLoginSettings {
 
 /**
  * `proxy.*`: part of a Session's identity, one proxy per Session (ADR 0021), with Playwright's fields.
- * Pools by kind and provider adapters are this family's too; area 8's spec names their keys.
+ * Pools by kind and provider adapters are this family's too; area 8's spec names their keys. A Recipe and a
+ * Client acting for a model never set `server` or the credentials; a Recipe may set pool kinds.
  */
 export interface ProxySettings {
   readonly server?: string | null;
@@ -252,7 +253,7 @@ export interface Identities {
   /** Imports a login into a Saved identity, as `goodfetch identity import` does. */
   import(name: string, source: SessionSource, options?: CallOptions): Promise<SavedIdentity>;
   delete(name: string, options?: CallOptions): Promise<void>;
-  /** One bound to its machine throws `session_bound_to_machine` (ADR 0056). */
+  /** A bundle of one bound to its machine keeps the binding: used on another machine, it is refused with `session_bound_to_machine` (ADR 0056). */
   export(name: string, options: ExportIdentityOptions): Promise<void>;
 }
 
@@ -280,7 +281,7 @@ export interface WebStorageItem {
 /**
  * A page's `localStorage` or `sessionStorage` for its current origin, Playwright's `WebStorage` (1.61).
  * Offered in the SDKs only (ADRs 0011, 0014); outside a bound source's `domains`, refused. A value set
- * is session state, kept by a Saved identity.
+ * is session state; a Saved identity keeps `localStorage`, and `sessionStorage` travels only in an export bundle.
  */
 export interface WebStorage {
   items(options?: CallOptions): Promise<WebStorageItem[]>;
@@ -375,7 +376,7 @@ export interface SecretInputRefusedDetails {
   /** `shared_browser`: other code also drives this Borrowed browser (ADR 0056); `cdp_attached`: a raw CDP session is attached (ADR 0017). */
   readonly reason: "shared_browser" | "cdp_attached" | (string & {});
 }
-/** No secret is typed into a browser other code may read. */
+/** No secret is typed into or sent from a browser other code may read, and no HTTP authentication challenge is answered there. */
 export declare class SecretInputRefusedError extends RefusedError {
   readonly code: "secret_input_refused";
   readonly details: SecretInputRefusedDetails;

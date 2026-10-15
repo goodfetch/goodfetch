@@ -364,7 +364,8 @@ impl PageCheck {
     }
 }
 
-/// `session.http_credentials`: sent only to a listed domain that challenges.
+/// `session.http_credentials`: sent only to a listed domain that challenges, never on a browser
+/// other code may read. A Recipe and a Client acting for a model never set it.
 #[derive(Debug, Clone)]
 pub struct HttpCredentials {
     /// The user name.
@@ -562,8 +563,8 @@ impl Identities {
         unimplemented!()
     }
 
-    /// Writes ADR 0015's encrypted bundle, for another machine; one bound to its machine fails
-    /// with `session_bound_to_machine`.
+    /// Writes ADR 0015's encrypted bundle, for another machine. A bundle of one bound to its machine
+    /// keeps the binding: used on another machine, it is refused with `session_bound_to_machine`.
     pub fn export(&self, name: &str, path: impl Into<PathBuf>, key: ExportKey) -> Call<()> {
         let _ = (name, path.into(), key);
         unimplemented!()
@@ -703,7 +704,8 @@ impl IntoFuture for Pause {
 
 /// A page's `localStorage` or `sessionStorage` for its current origin, Playwright's `WebStorage`.
 /// Offered in the SDKs only (ADRs 0011, 0014); outside a bound source's `domains`, refused. A value
-/// set is session state, kept by a Saved identity.
+/// set is session state; a Saved identity keeps `localStorage`, and `sessionStorage` travels only in
+/// an export bundle.
 #[derive(Debug, Clone)]
 pub struct WebStorage {
     _page: Page,
@@ -800,8 +802,8 @@ pub struct SecretDomainNotAllowed {
     pub allowed: Vec<String>,
 }
 
-/// Details of `secret_input_refused`, a refusal: no secret is typed into a browser other code may
-/// read.
+/// Details of `secret_input_refused`, a refusal: no secret is typed into or sent from a browser
+/// other code may read, and no HTTP authentication challenge is answered there.
 #[derive(Debug, Clone)]
 #[non_exhaustive]
 pub struct SecretInputRefused {

@@ -172,7 +172,8 @@ class PageCheck(TypedDict, total=False):
     expected_page: PageMatch
 
 class HttpCredentials(TypedDict):
-    """`session.http_credentials`: sent only to a listed domain that challenges."""
+    """`session.http_credentials`: sent only to a listed domain that challenges, never on a browser other code may read.
+    A Recipe and a Client acting for a model never set it."""
 
     username: str
     password: SecretReference
@@ -349,8 +350,8 @@ class WebStorageItem:
 @final
 class AsyncWebStorage:
     """A page's `localStorage` or `sessionStorage` for its current origin, Playwright's `WebStorage` (1.61). Offered in
-    the SDKs only (ADRs 0011, 0014); outside a bound source's `domains`, refused. A value set is session state, kept by a
-    Saved identity."""
+    the SDKs only (ADRs 0011, 0014); outside a bound source's `domains`, refused. A value set is session state; a Saved
+    identity keeps `localStorage`, and `sessionStorage` travels only in an export bundle."""
 
     async def items(self, *, timeout: Timeout = ...) -> builtins.list[WebStorageItem]: ...
     async def get_item(self, name: str, *, timeout: Timeout = ...) -> str | None: ...
@@ -472,7 +473,8 @@ class SecretInputRefusedDetails:
 
 @final
 class SecretInputRefusedError(RefusedError):
-    """No secret is typed into a browser other code may read."""
+    """No secret is typed into or sent from a browser other code may read, and no HTTP authentication challenge is
+    answered there."""
 
     @property
     def details(self) -> SecretInputRefusedDetails: ...

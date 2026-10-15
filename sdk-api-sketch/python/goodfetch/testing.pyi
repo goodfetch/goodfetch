@@ -187,8 +187,8 @@ class AsyncTestEngine:
     environment, no project file unless named, `offline` (ADR 0043), short durations, and no Model provider unless the
     test registers or configures one, so a call that needs a model with none raises `ModelNotConfiguredError`. Every Run
     started from `connection` that names no Response recording replays an empty one: a request to a site raises
-    `ResponseNotRecordedError`, naming it. Browsers come from the shared per-user cache or `GOODFETCH_BROWSERS_PATH`
-    (ADR 0024). An Attached engine (ADR 0069)."""
+    `ResponseNotRecordedError`, naming it. Browsers come from the browser cache of the caller's Goodfetch home, read and
+    never written, or `GOODFETCH_BROWSERS_PATH` (ADRs 0024, 0059, 0105). An Attached engine (ADR 0069)."""
 
     @classmethod
     def start(

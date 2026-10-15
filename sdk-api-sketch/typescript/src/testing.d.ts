@@ -145,7 +145,8 @@ export type HookResult =
  * provider unless the test registers or configures one, so a call that needs a model with none
  * throws `ModelNotConfiguredError`. Every Run started from `connection` that names no Response
  * recording replays an empty one: a request to a site throws `ResponseNotRecordedError`, naming it.
- * Browsers come from the shared per-user cache or `GOODFETCH_BROWSERS_PATH` (ADR 0024). An Attached
+ * Browsers come from the browser cache of the caller's Goodfetch home, read and never written, or
+ * `GOODFETCH_BROWSERS_PATH` (ADRs 0024, 0059, 0105). An Attached
  * engine here; the linked engine in Rust (ADR 0069).
  */
 export declare class TestEngine implements AsyncDisposable {

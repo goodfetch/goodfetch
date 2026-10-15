@@ -299,8 +299,9 @@ pub enum HookResult {
 /// durations, and no Model provider unless the test registers or configures one, so a call that
 /// needs a model with none fails with `model_not_configured`. Every Run started from
 /// [`TestEngine::connection`] that names no Response recording replays an empty one: a request to a
-/// site fails with `response_not_recorded`, naming it. Browsers and the `goodfetch` binary come from
-/// the shared per-user cache, or `GOODFETCH_BROWSERS_PATH` and `GOODFETCH_ENGINE_PATH` (ADR 0024).
+/// site fails with `response_not_recorded`, naming it. Browsers and the Product's executable come
+/// from the browser cache of the caller's Goodfetch home, read and never written, or
+/// `GOODFETCH_BROWSERS_PATH` and the Product's engine-path variable (ADRs 0024, 0059, 0090, 0105).
 #[derive(Debug)]
 pub struct TestEngine {
     _private: (),

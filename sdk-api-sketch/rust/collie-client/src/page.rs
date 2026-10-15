@@ -1224,8 +1224,8 @@ impl Response {
         unimplemented!()
     }
 
-    /// The body as JSON, read as UTF-8 whatever the charset (RFC 8259); one that is not JSON fails
-    /// with `response_not_json`. Deserialize it into the program's own type.
+    /// The body as JSON, read as UTF-8 whatever the charset (RFC 8259), a leading BOM ignored; one
+    /// that is not JSON fails with `response_not_json`. Deserialize it into the program's own type.
     pub fn json(&self) -> Call<serde_json::Value> {
         unimplemented!()
     }

@@ -389,7 +389,7 @@ export interface Response {
    * throws on them.
    */
   text(options?: CallOptions): Promise<string>;
-  /** UTF-8 whatever the charset (RFC 8259). A body that is not JSON throws `ResponseNotJSONError`. Narrow the value with the program's own schema. */
+  /** UTF-8 whatever the charset (RFC 8259), a leading BOM ignored. A body that is not JSON throws `ResponseNotJSONError`. Narrow the value with the program's own schema. */
   json(options?: CallOptions): Promise<JSONValue>;
 }
 

@@ -508,8 +508,8 @@ class AsyncResponse:
         declaration for XML, then UTF-8. Bad bytes become U+FFFD; it never raises on them."""
 
     async def json(self, *, timeout: Timeout = ...) -> JSONValue:
-        """UTF-8 whatever the charset (RFC 8259). A body that is not JSON raises `ResponseNotJSONError`. Narrow it with
-        the program's own model."""
+        """UTF-8 whatever the charset (RFC 8259), a leading BOM ignored. A body that is not JSON raises
+        `ResponseNotJSONError`. Narrow it with the program's own model."""
 
 @final
 class AsyncRoute:

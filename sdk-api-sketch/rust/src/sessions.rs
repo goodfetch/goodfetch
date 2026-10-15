@@ -578,7 +578,7 @@ impl Identities {
     }
 }
 
-/// A Session's cookies and login, beside its page members (ADR 0085).
+/// A Session's cookies and keeping its identity, beside its page members (ADR 0085).
 impl Session {
     /// Playwright's `context.cookies()`, for `urls` or every URL when empty. Never offered to a
     /// Client acting for a model (ADR 0014).

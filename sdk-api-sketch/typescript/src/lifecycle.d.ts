@@ -7,7 +7,7 @@ import type { AiVerbs, AriaSnapshots, ElementReferences } from "./ai.js";
 import type { Listener, PageEvents, RunEvents, Subscription } from "./concurrency.js";
 import type { JsonValue } from "./data.js";
 import type { PageApi, PageCloseOptions, PageFunction, PageResult, RouteHandler } from "./page.js";
-import type { Identities, PausesForHuman, ResolveSecret, SessionLogins, SessionSource } from "./sessions.js";
+import type { Identities, PausesForHuman, ResolveSecret, SessionStateApi, SessionSource } from "./sessions.js";
 import type { ExplainedSetting, ExplainsSettings, NewPageOptions, SessionSettings, SettingKey, Settings } from "./settings.js";
 import type { CallOptions, Limits, PageWaits, StartOptions, Timeout, UrlMatcher } from "./time.js";
 
@@ -107,7 +107,7 @@ export interface SessionEventMap {
  * A Session of a Run: Playwright's context, under the glossary's name (ADR 0085), with its cookies and
  * login (ADR 0092). Closing it never closes a Borrowed browser. There is no active page.
  */
-export interface Session extends Closeable, SessionLogins, ExplainsSettings {
+export interface Session extends Closeable, SessionStateApi, ExplainsSettings {
   newPage(options?: NewPageOptions): Promise<Page>;
   /** The Session's open pages, read without a round trip. */
   pages(): Page[];

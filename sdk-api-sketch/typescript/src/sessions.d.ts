@@ -246,8 +246,8 @@ export interface Identities {
   export(name: string, options: ExportIdentityOptions): Promise<void>;
 }
 
-/** A Session's cookies and its login, beside its page members (ADR 0085). */
-export interface SessionLogins {
+/** A Session's cookies and keeping its identity, beside its page members (ADR 0085). */
+export interface SessionStateApi {
   /** Playwright's `context.cookies()`. Never offered to a Client acting for a model (ADR 0014). */
   cookies(urls?: string | readonly string[], options?: CallOptions): Promise<Cookie[]>;
   /** Kept as session state, encrypted in run state and never logged (ADR 0015). Outside the source's `domains`, refused. */

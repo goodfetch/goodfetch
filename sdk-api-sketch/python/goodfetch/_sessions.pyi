@@ -298,8 +298,8 @@ class Identities:
     @overload
     def export(self, name: str, *, path: str, passphrase: SecretReference, timeout: Timeout = ...) -> None: ...
 
-class AsyncSessionLogins:
-    """A Session's cookies and its login, beside its page members (ADR 0085)."""
+class AsyncSessionStateApi:
+    """A Session's cookies and keeping its identity, beside its page members (ADR 0085)."""
 
     async def cookies(self, urls: str | Sequence[str] | None = None, *, timeout: Timeout = ...) -> list[Cookie]:
         """Playwright's `context.cookies()`. Never offered to a Client acting for a model (ADR 0014)."""
@@ -319,8 +319,8 @@ class AsyncSessionLogins:
         recorded in the Audit log. A Session whose cookies live outside run state (a Borrowed browser, a Profile
         directory used in place) raises `SessionNotSavableError`."""
 
-class SessionLogins:
-    """The sync client's Session cookies and login."""
+class SessionStateApi:
+    """The sync client's Session cookies and Saved identity."""
 
     def cookies(self, urls: str | Sequence[str] | None = None, *, timeout: Timeout = ...) -> list[Cookie]: ...
     def add_cookies(self, cookies: Sequence[CookieInput], *, timeout: Timeout = ...) -> None: ...

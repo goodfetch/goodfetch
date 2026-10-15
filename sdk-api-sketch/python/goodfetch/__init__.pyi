@@ -203,7 +203,7 @@ from goodfetch._results import Verdict as Verdict
 from goodfetch._sessions import AsyncIdentities as AsyncIdentities
 from goodfetch._sessions import AsyncPausesForHuman as AsyncPausesForHuman
 from goodfetch._sessions import AsyncResolveSecret as AsyncResolveSecret
-from goodfetch._sessions import AsyncSessionLogins as AsyncSessionLogins
+from goodfetch._sessions import AsyncSessionStateApi as AsyncSessionStateApi
 from goodfetch._sessions import BrowserName as BrowserName
 from goodfetch._sessions import CdpUrlSource as CdpUrlSource
 from goodfetch._sessions import CodeSourceBinding as CodeSourceBinding
@@ -249,7 +249,7 @@ from goodfetch._sessions import SecretUnboundDetails as SecretUnboundDetails
 from goodfetch._sessions import SecretUnboundError as SecretUnboundError
 from goodfetch._sessions import SecretsSettings as SecretsSettings
 from goodfetch._sessions import SessionLoginSettings as SessionLoginSettings
-from goodfetch._sessions import SessionLogins as SessionLogins
+from goodfetch._sessions import SessionStateApi as SessionStateApi
 from goodfetch._sessions import SessionNotSavableDetails as SessionNotSavableDetails
 from goodfetch._sessions import SessionNotSavableError as SessionNotSavableError
 from goodfetch._sessions import SessionRecoverySettings as SessionRecoverySettings

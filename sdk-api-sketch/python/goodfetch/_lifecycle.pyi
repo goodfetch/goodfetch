@@ -20,11 +20,11 @@ from goodfetch._sessions import (
     AsyncIdentities,
     AsyncPausesForHuman,
     AsyncResolveSecret,
-    AsyncSessionLogins,
+    AsyncSessionStateApi,
     Identities,
     PausesForHuman,
     ResolveSecret,
-    SessionLogins,
+    SessionStateApi,
     SessionSource,
 )
 from goodfetch._settings import ExplainedSetting, PageSettings, RunSettings, SessionSettings, SettingKey, Settings
@@ -122,7 +122,7 @@ class AsyncPage(
         """Idempotent. `run_before_unload` runs the page's `beforeunload` handlers, the only way such a dialog appears."""
 
 @final
-class AsyncSession(_AsyncCloseable, _AsyncExplainsSettings, AsyncSessionLogins):
+class AsyncSession(_AsyncCloseable, _AsyncExplainsSettings, AsyncSessionStateApi):
     """A Session of a Run: Playwright's context, under the glossary's name (ADR 0085), with its cookies and login
     (ADR 0092). Closing it never closes a Borrowed browser. There is no active page."""
 
@@ -266,7 +266,7 @@ class Page(_Closeable, _ExplainsSettings, PageApi, PageWaits, PageEvents, Pauses
     def close(self, *, run_before_unload: bool = False, timeout: Timeout = ...) -> None: ...
 
 @final
-class Session(_Closeable, _ExplainsSettings, SessionLogins):
+class Session(_Closeable, _ExplainsSettings, SessionStateApi):
     """A Session of a Run: Playwright's context, under the glossary's name (ADR 0085), with its cookies and login
     (ADR 0092). Closing it never closes a Borrowed browser. There is no active page."""
 

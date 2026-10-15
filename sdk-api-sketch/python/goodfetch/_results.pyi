@@ -43,6 +43,14 @@ KnownErrorCode: TypeAlias = Literal[
     "logged_out",
     "human_pause_declined",
     "session_not_savable",
+    "label_duplicate",
+    "label_unhandled",
+    "label_unknown",
+    "attempt_ended",
+    "browser_required",
+    "retry_requested",
+    "response_not_ok",
+    "site_preferences_refused",
     "internal",
 ]
 ErrorCode: TypeAlias = KnownErrorCode | str
@@ -258,60 +266,88 @@ class BlockedError(PageError):
 SkipReason: TypeAlias = (
     Literal[
         "out_of_scope",
+        "domain_policy",
         "duplicate",
         "robots_txt",
         "crawl_delay",
         "use_signals",
-        "skipped_by_hook",
-        "skipped_by_handler",
+        "hook",
+        "handler",
     ]
     | str
 )
-"""Why a request was skipped; the full list is #477's. The Site preferences reasons are ADR 0086's: `robots_txt`, a
-Disallow line of the origin's robots.txt, or a robots.txt answered with a 429 or a 5xx, or unreachable, with no earlier
-copy, until the request's retries ran out;
-`crawl_delay`, a Crawl-delay above `site_preferences.max_crawl_delay`; `use_signals`, an AI-use signal that refuses the
-run's Purpose while `site_preferences.respect_use_signals` is on."""
+"""Why a crawl request was skipped (ADR 0093's full list); the outcome's `message` carries a Hook's or a handler's own text.
+
+- `out_of_scope`: a redirect left the crawl's scope;
+- `domain_policy`: a seed, a redirect or a Hook's rewrite reached a host the run's domain policy refuses (ADRs 0014, 0017);
+- `duplicate`: a URL rule the Frontier learned after admitting it merged it with another (ADR 0005);
+- `robots_txt`: a Disallow line of the origin's robots.txt, or a robots.txt answered with a 429 or a 5xx, or
+  unreachable, with no earlier copy, until the request's retries ran out (ADR 0086); also a handler's own
+  navigation refused for it whose `SitePreferencesRefusedError` escaped the handler;
+- `crawl_delay`: a Crawl-delay above `site_preferences.max_crawl_delay` (ADR 0086);
+- `use_signals`: an AI-use signal that refuses the run's Purpose while `site_preferences.respect_use_signals` is on;
+- `hook`: a before-request Hook (ADR 0033);
+- `handler`: the handler called `ctx.skip()`.
+"""
 
 @final
 @dataclass(frozen=True, kw_only=True)
-class RequestSucceeded:
+class CrawlRequestRef:
+    """Which crawl request an outcome is about. Outcomes span Labels, so the Payload is not typed here."""
+
+    id: str
+    url: str
+    label: str
+    """The Label's name."""
+    depth: int
+
+@final
+@dataclass(frozen=True, kw_only=True)
+class CrawlRequestSucceeded:
+    request: CrawlRequestRef
     attempts: int
     """Retries are not an outcome: every outcome counts its attempts and keeps the failed ones."""
     attempt_errors: Sequence[GoodfetchError]
 
 @final
 @dataclass(frozen=True, kw_only=True)
-class RequestFailed:
+class CrawlRequestFailed:
+    request: CrawlRequestRef
     error: GoodfetchError
     attempts: int
     attempt_errors: Sequence[GoodfetchError]
 
 @final
 @dataclass(frozen=True, kw_only=True)
-class RequestSkipped:
+class CrawlRequestSkipped:
+    request: CrawlRequestRef
     reason: SkipReason
+    message: str | None
     attempts: int
     attempt_errors: Sequence[GoodfetchError]
 
 @final
 @dataclass(frozen=True, kw_only=True)
-class RequestBlocked:
+class CrawlRequestBlocked:
+    request: CrawlRequestRef
     block_cause: BlockCause
     attempts: int
     attempt_errors: Sequence[GoodfetchError]
 
 @final
 @dataclass(frozen=True, kw_only=True)
-class RequestOutcomeUnknown:
+class CrawlRequestOutcomeUnknown:
     """A kind a newer engine sent that this SDK does not know, kept as received (G3)."""
 
+    request: CrawlRequestRef
     raw: str
     attempts: int
     attempt_errors: Sequence[GoodfetchError]
 
-RequestOutcome: TypeAlias = RequestSucceeded | RequestFailed | RequestSkipped | RequestBlocked | RequestOutcomeUnknown
-"""A crawl request's ending. The noun "request" is #477's to settle."""
+CrawlRequestOutcome: TypeAlias = (
+    CrawlRequestSucceeded | CrawlRequestFailed | CrawlRequestSkipped | CrawlRequestBlocked | CrawlRequestOutcomeUnknown
+)
+"""A crawl request's ending (ADR 0079; the noun is ADR 0093's). How a program reads outcomes is #478's."""
 
 Verdict: TypeAlias = Literal["verified", "rejected", "needs-review"] | str
 """A Verdict, given by checks under ADR 0029's rules and never by the model's claim. Any other value is never `verified`."""

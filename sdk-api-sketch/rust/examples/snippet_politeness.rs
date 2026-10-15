@@ -5,7 +5,7 @@ use std::time::Duration;
 
 use goodfetch_sdk_sketch::settings::{politeness, site_preferences};
 use goodfetch_sdk_sketch::{
-    ConnectOptions, Error, ErrorCode, ExplainedSetting, Goodfetch, RequestOutcome, RequestOutcomeKind, Settings,
+    ConnectOptions, Error, ErrorCode, ExplainedSetting, Goodfetch, CrawlRequestOutcome, CrawlRequestOutcomeKind, Settings,
     SkipReason,
 };
 
@@ -71,10 +71,10 @@ async fn as_own_bot() -> Result<Vec<ExplainedSetting>, Error> {
 
 /// A page the site asked crawlers to leave is skipped, a value with its reason, never a failure
 /// (G1). How a program reads outcomes is #478's.
-fn why_skipped(outcomes: Vec<RequestOutcome>) -> BTreeMap<String, u32> {
+fn why_skipped(outcomes: Vec<CrawlRequestOutcome>) -> BTreeMap<String, u32> {
     let mut skipped = BTreeMap::new();
     for outcome in outcomes {
-        let RequestOutcomeKind::Skipped(reason) = outcome.kind else {
+        let CrawlRequestOutcomeKind::Skipped { reason, .. } = outcome.kind else {
             continue;
         };
         let why = match reason {

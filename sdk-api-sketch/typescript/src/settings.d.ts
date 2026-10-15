@@ -1,14 +1,16 @@
 // Settings in code (ADR 0083, decided in #470).
-// One `settings` option on each value that opens a scope (`connect()`, starting a Run, opening a
-// Session or a page); the nearest scope wins and is inherited beneath it. A call takes only its
-// task's inputs and `timeout`. There are no setters (G2).
+// One `settings` option on each value that opens a scope (`connect()`, starting a Run, declaring a
+// crawl's Label (ADR 0093), opening a Session or a page); the nearest scope wins and is inherited
+// beneath it. A call takes only its task's inputs and `timeout`. There are no setters (G2).
 // The types are generated from the settings schema (ADR 0028), each segment of a key camelCased;
 // this file shows a sample of its keys. Deployment variables are no keys here: `connect()` reads
 // them from its environment map. Left out: inherited. `null`: cleared, where the type allows
 // it. A value: set. The engine resolves the layers, so the SDK sends only what the program set.
 
+import type { UrlPattern } from "./crawl.js";
 import type { CallOptions, Timeout } from "./time.js";
 import type { ProgramError, RefusedError, RunLayerOrigin, SettingsLayer, UnavailableError } from "./results.js";
+import type { FetchTier } from "./crawl.js";
 import type {
   CollieSitePreferencesSettings,
   PolitenessSettings,
@@ -101,11 +103,52 @@ export interface NetworkSettings {
   readonly throttle?: NetworkThrottle | null;
 }
 
+/** `crawl.scope.strategy`: which hosts a crawl may reach, measured against every seed after the Frontier's URL rules, so `www.` is no other host (ADR 0005). */
+export type CrawlScopeStrategy = "same_hostname" | "same_domain" | "same_origin" | "all";
+
+/** `crawl.scope.*`: checked on every enqueue and every redirect (ADR 0093). */
+export interface CrawlScopeSettings {
+  /** Built-in: `same_hostname`, Crawlee's default. */
+  readonly strategy?: CrawlScopeStrategy;
+  /** Only URLs matching one of these, ANDed with the strategy, never replacing it. */
+  readonly include?: readonly UrlPattern[];
+  /** No URL matching any of these. */
+  readonly exclude?: readonly UrlPattern[];
+}
+
+/** `crawl.retry.*` (ADR 0093). */
+export interface CrawlRetrySettings {
+  /** Retries after the first attempt, for retryable errors and `ctx.retry()`. Built-in: 2, Scrapy's. */
+  readonly max?: number;
+  /** Retry `handler_failed` too, as Crawlee does. Built-in: false: a bug fails the same way again, and each retry fetches the page again (G5). */
+  readonly handlerFailed?: boolean;
+}
+
 export interface CrawlSettings {
   readonly payload?: {
     /** `crawl.payload.max_size`, in bytes (ADR 0082). */
     readonly maxSize?: number;
   };
+  readonly scope?: CrawlScopeSettings;
+  /** `crawl.max_depth`: seeds are at 0. Reaching it refuses further enqueues with `max_depth` and ends the Run `incomplete`. Built-in: none. */
+  readonly maxDepth?: number | null;
+  /** `crawl.max_requests`: requests admitted to the Frontier. Reaching it refuses further enqueues with `max_requests` and ends the Run `incomplete`. Built-in: none. */
+  readonly maxRequests?: number | null;
+  readonly retry?: CrawlRetrySettings;
+  /** `crawl.handle_statuses`: statuses outside 2xx whose responses go to the handler instead of failing with `response_not_ok`. Built-in: none. */
+  readonly handleStatuses?: readonly number[];
+  readonly handler?: {
+    /** `crawl.handler.concurrency`: handlers running at once in the program, the engine's leases to it (ADR 0081). On a Label, within the Run's. Built-in: 16. */
+    readonly concurrency?: number;
+  };
+}
+
+/** `fetch.*`: the fetch tiers of ADR 0020 (ADR 0093). */
+export interface FetchSettings {
+  /** `auto`, the built-in: learned per Label on a domain by sample comparison. Any other value forces the tier (ADR 0023). */
+  readonly tier?: "auto" | FetchTier;
+  /** `fetch.tier_race`, ADR 0040's `tier_race`. Built-in: false. */
+  readonly tierRace?: boolean;
 }
 
 /** Every setting, as a connection takes them. A sample of the generated type. */
@@ -117,6 +160,8 @@ export interface Settings {
   readonly plan?: PlanSettings;
   readonly extract?: ExtractSettings;
   readonly observation?: ObservationSettings;
+  /** ADR 0093. */
+  readonly fetch?: FetchSettings;
   /** ADR 0086. */
   readonly politeness?: PolitenessSettings;
   /** ADR 0086. */
@@ -127,6 +172,20 @@ export interface Settings {
   readonly secrets?: SecretsSettings;
   /** `proxy.*` (ADRs 0021, 0092). */
   readonly proxy?: ProxySettings;
+}
+
+/** A crawl Run's settings: every setting but `timeout.run`, which starting the Run spells as its `timeout` (S2). */
+export type CrawlRunSettings = Omit<Settings, "timeout"> & { readonly timeout?: Omit<TimeoutSettings, "run"> };
+
+/**
+ * A Label's settings (ADR 0093): what shapes one crawl request and its page. Politeness, Site
+ * preferences, scope, Session identity and Run-wide keys are refused with `setting_not_applicable`:
+ * two Labels on one domain share its Politeness with every run of the user (ADR 0053).
+ */
+export interface LabelSettings {
+  readonly timeout?: Pick<TimeoutSettings, "handler" | "navigation" | "action" | "wait">;
+  readonly fetch?: Pick<FetchSettings, "tier">;
+  readonly crawl?: Pick<CrawlSettings, "retry" | "handleStatuses" | "handler">;
 }
 
 /**
@@ -213,6 +272,17 @@ export type SettingKey =
   | "proxy.bypass"
   | "proxy.username"
   | "proxy.password"
+  | "crawl.scope.strategy"
+  | "crawl.scope.include"
+  | "crawl.scope.exclude"
+  | "crawl.max_depth"
+  | "crawl.max_requests"
+  | "crawl.retry.max"
+  | "crawl.retry.handler_failed"
+  | "crawl.handle_statuses"
+  | "crawl.handler.concurrency"
+  | "fetch.tier"
+  | "fetch.tier_race"
   | `secrets.${string}`;
 
 /** One effective value, as `goodfetch config explain` shows it for the scope. */
@@ -239,7 +309,7 @@ export interface ExplainsSettings {
 }
 
 /** The scopes a setting can be set at. */
-export type SettingScope = "connection" | "run" | "session" | "page";
+export type SettingScope = "connection" | "run" | "label" | "session" | "page";
 
 // The Error codes of settings (ADR 0083). Each is checked when the scope opens, or when a call
 // with a per-call argument starts, so it points at the line that set the value; nothing is clamped,

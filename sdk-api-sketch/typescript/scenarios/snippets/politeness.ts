@@ -1,8 +1,8 @@
 // Snippet for Crawl politeness defaults (#480), on golden scenario 05.
-import { Goodfetch, type ExplainedSetting, type Logger, type RequestOutcome } from "goodfetch";
+import { Goodfetch, type ExplainedSetting, type Logger, type CrawlRequestOutcome } from "goodfetch";
 
 declare const log: Logger; // the program's own logger
-declare const outcomes: AsyncIterable<RequestOutcome>; // how a program reads them is #478's
+declare const outcomes: AsyncIterable<CrawlRequestOutcome>; // how a program reads them is #478's
 
 // With nothing set, a crawl obeys robots.txt and keeps one request in flight per domain, one
 // second between starts: scenario 05 sets nothing and is polite to books.toscrape.com (G5).

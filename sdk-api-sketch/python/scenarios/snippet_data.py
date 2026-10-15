@@ -6,21 +6,12 @@ from typing import Literal, TypeVar
 
 from pydantic import BaseModel, Field
 
-from goodfetch import AsyncPage, Dataset, JsonValue, Label
+from goodfetch import AsyncCrawl, AsyncCrawlContext, AsyncPage, Dataset, JsonValue
 
 T = TypeVar("T")
-P = TypeVar("P")
 
-# Provisional signatures, each its owner's to decide: a crawl's Labels, handlers and `enqueue` are #477's, Datasets are
-# #479's. `page.extract` is ADR 0091's.
-
-
-async def enqueue(url: str, label: Label[P], payload: P) -> None:
-    raise NotImplementedError
-
-
-def label(name: str, payload: type[P]) -> Label[P]:
-    raise NotImplementedError
+# Provisional signatures, each its owner's to decide: Datasets are #479's. `page.extract` is ADR 0091's; a crawl's Labels,
+# handlers and `enqueue` are ADR 0093's (snippet_crawl.py).
 
 
 def dataset(name: str, schema: type[T]) -> Dataset[T]:
@@ -60,17 +51,19 @@ class BookRecord(Book):
     category: str
 
 
-book_page = label("book", BookPayload)
+crawl = AsyncCrawl()
+book_page = crawl.label("book", payload=BookPayload)
 books = dataset("books", BookRecord)
 
 
-async def on_category_page(category_name: str, book_urls: Sequence[str]) -> None:
+async def on_category_page(ctx: AsyncCrawlContext[None], category_name: str, book_urls: Sequence[str]) -> None:
     for url in book_urls:
-        await enqueue(url, book_page, BookPayload(category=category_name))
+        await ctx.enqueue(url, book_page, BookPayload(category=category_name))
     # A plain dict with a wrong field is a type error, not a surprise in the handler.
-    await enqueue("https://books.toscrape.com/x", book_page, {"name": category_name})  # type: ignore[misc]  # pyright: ignore[reportArgumentType]
+    await ctx.enqueue("https://books.toscrape.com/x", book_page, {"name": category_name})  # type: ignore[misc]  # pyright: ignore[reportCallIssue, reportArgumentType]
 
 
-async def on_book_page(page: AsyncPage, url: str, payload: BookPayload) -> None:
-    book = (await page.extract("the book on this page", Book)).output
-    await books.push(BookRecord(**book.model_dump(), url=url, category=payload.category))
+@crawl.handle(book_page)
+async def on_book_page(ctx: AsyncCrawlContext[BookPayload]) -> None:
+    book = (await ctx.page.extract("the book on this page", Book)).output
+    await books.push(BookRecord(**book.model_dump(), url=ctx.page.url, category=ctx.request.payload.category))

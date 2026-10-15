@@ -1,7 +1,7 @@
 //! Snippet for Results, outcomes and errors (#466): match on the code or group, read outcomes as values.
 
 use goodfetch_sdk_sketch::{
-    AiWorkResult, Ended, Error, ErrorCode, ErrorDetails, ErrorGroup, RequestOutcome, RequestOutcomeKind,
+    AiWorkResult, Ended, Error, ErrorCode, ErrorDetails, ErrorGroup, CrawlRequestOutcome, CrawlRequestOutcomeKind,
 };
 
 /// A failure is an `Err`; the page call itself is #472's.
@@ -15,17 +15,17 @@ fn on_failure(err: &Error) -> Option<Vec<String>> {
 }
 
 /// Outcomes are values; how a program reads them is #478's.
-fn count(outcomes: Vec<RequestOutcome>) -> (u32, u32, u32, u32) {
+fn count(outcomes: Vec<CrawlRequestOutcome>) -> (u32, u32, u32, u32) {
     let (mut ok, mut failed, mut skipped, mut blocked) = (0, 0, 0, 0);
     for outcome in outcomes {
         match outcome.kind {
-            RequestOutcomeKind::Succeeded => ok += 1,
-            RequestOutcomeKind::Failed(err) => {
+            CrawlRequestOutcomeKind::Succeeded => ok += 1,
+            CrawlRequestOutcomeKind::Failed(err) => {
                 failed += 1;
                 let _ = (err.code(), outcome.attempts, outcome.attempt_errors.len());
             }
-            RequestOutcomeKind::Skipped(_) => skipped += 1,
-            RequestOutcomeKind::Blocked(_) => blocked += 1,
+            CrawlRequestOutcomeKind::Skipped { .. } => skipped += 1,
+            CrawlRequestOutcomeKind::Blocked(_) => blocked += 1,
             _ => {}
         }
     }

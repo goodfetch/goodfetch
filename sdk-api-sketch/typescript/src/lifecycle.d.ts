@@ -5,6 +5,7 @@
 
 import type { AiVerbs, AriaSnapshots, ElementReferences } from "./ai.js";
 import type { Listener, PageEvents, RunEvents, Subscription } from "./concurrency.js";
+import type { Crawl, CrawlRun, CrawlStartOptions } from "./crawl.js";
 import type { JsonValue } from "./data.js";
 import type { PageApi, PageCloseOptions, PageFunction, PageResult, RouteHandler } from "./page.js";
 import type { Identities, PausesForHuman, ResolveSecret, SessionStateApi, SessionSource } from "./sessions.js";
@@ -153,8 +154,14 @@ export interface Collie {
   start(options?: StartOptions): Promise<Run>;
 }
 
-/** Foxhound, reached from the connection without I/O. Its crawl API is #477's. */
-export interface Foxhound {}
+/** Foxhound, reached from the connection without I/O. */
+export interface Foxhound {
+  /**
+   * Starts a Run of the crawl from its seeds. Provisional: the start and resume verbs are #478's
+   * (ADR 0093). Throws `LabelUnhandledError` when a Label has no handler.
+   */
+  start(crawl: Crawl, options: CrawlStartOptions): Promise<CrawlRun>;
+}
 
 /** The engine connection: the entry point. Each one is independent, and many may be open in one process. */
 export declare class Goodfetch implements Closeable, ExplainsSettings {

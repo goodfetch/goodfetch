@@ -1,7 +1,7 @@
 """Settings in code (ADR 0083, decided in #470).
 
-One `settings` keyword on each value that opens a scope (`connect()`, starting a Run, opening a Session or a page); the
-nearest scope wins and is inherited beneath it. A call takes only its task's inputs and `timeout`. There are no setters
+One `settings` keyword on each value that opens a scope (`connect()`, starting a Run, declaring a crawl's Label (ADR
+0093), opening a Session or a page); the nearest scope wins and is inherited beneath it. A call takes only its task's inputs and `timeout`. There are no setters
 (G2). The types are generated from the settings schema (ADR 0028) as nested `TypedDict`s, as openai-python types its
 request parameters; this file shows a sample of its keys. Deployment variables are no keys here: `connect()` reads them
 from its environment map. A missing key: inherited. `None`: cleared, where the type
@@ -13,6 +13,7 @@ from datetime import timedelta
 from collections.abc import Sequence
 from typing import Literal, NotRequired, TypeAlias, TypedDict, final
 
+from goodfetch._crawl import FetchTier, UrlPattern
 from goodfetch._politeness import (
     CollieSitePreferencesSettings,
     PolitenessSettings,
@@ -124,8 +125,56 @@ class PayloadSettings(TypedDict, total=False):
     max_size: int
     """`crawl.payload.max_size`, in bytes (ADR 0082)."""
 
+CrawlScopeStrategy: TypeAlias = Literal["same_hostname", "same_domain", "same_origin", "all"]
+"""`crawl.scope.strategy`: which hosts a crawl may reach, measured against every seed after the Frontier's URL rules, so
+`www.` is no other host (ADR 0005)."""
+
+class CrawlScopeSettings(TypedDict, total=False):
+    """`crawl.scope.*`: checked on every enqueue and every redirect (ADR 0093)."""
+
+    strategy: CrawlScopeStrategy
+    """Built-in: `same_hostname`, Crawlee's default."""
+    include: list[UrlPattern]
+    """Only URLs matching one of these, ANDed with the strategy, never replacing it."""
+    exclude: list[UrlPattern]
+    """No URL matching any of these."""
+
+class CrawlRetrySettings(TypedDict, total=False):
+    """`crawl.retry.*` (ADR 0093)."""
+
+    max: int
+    """Retries after the first attempt, for retryable errors and `ctx.retry()`. Built-in: 2, Scrapy's."""
+    handler_failed: bool
+    """Retry `handler_failed` too, as Crawlee does. Built-in: False: a bug fails the same way again (G5)."""
+
+class CrawlHandlerSettings(TypedDict, total=False):
+    concurrency: int
+    """`crawl.handler.concurrency`: handlers running at once in the program, the engine's leases to it (ADR 0081). On a
+    Label, within the Run's. Built-in: 16."""
+
 class CrawlSettings(TypedDict, total=False):
     payload: PayloadSettings
+    scope: CrawlScopeSettings
+    max_depth: int | None
+    """`crawl.max_depth`: seeds are at 0. Reaching it refuses further enqueues with `max_depth` and ends the Run
+    `incomplete`. Built-in: none."""
+    max_requests: int | None
+    """`crawl.max_requests`: requests admitted to the Frontier. Reaching it refuses further enqueues with `max_requests`
+    and ends the Run `incomplete`. Built-in: none."""
+    retry: CrawlRetrySettings
+    handle_statuses: list[int]
+    """`crawl.handle_statuses`: statuses outside 2xx whose responses go to the handler instead of failing with
+    `response_not_ok`. Built-in: none."""
+    handler: CrawlHandlerSettings
+
+class FetchSettings(TypedDict, total=False):
+    """`fetch.*`: the fetch tiers of ADR 0020 (ADR 0093)."""
+
+    tier: Literal["auto"] | FetchTier
+    """`auto`, the built-in: learned per Label on a domain by sample comparison. Any other value forces the tier (ADR
+    0023)."""
+    tier_race: bool
+    """ADR 0040's `tier_race`. Built-in: False."""
 
 class Settings(TypedDict, total=False):
     """Every setting, as a connection takes them. A sample of the generated type."""
@@ -137,6 +186,8 @@ class Settings(TypedDict, total=False):
     plan: PlanSettings
     extract: ExtractSettings
     observation: ObservationSettings
+    fetch: FetchSettings
+    """ADR 0093."""
     politeness: PolitenessSettings
     """ADR 0086."""
     site_preferences: SitePreferencesSettings
@@ -147,6 +198,42 @@ class Settings(TypedDict, total=False):
     """`secrets.<name>`: the Secret placeholders' bindings (ADR 0092)."""
     proxy: ProxySettings
     """`proxy.*` (ADRs 0021, 0092)."""
+
+class CrawlRunSettings(TypedDict, total=False):
+    """A crawl Run's settings: every setting but `timeout.run`, which starting the Run spells as its `timeout` (S2)."""
+
+    timeout: RunTimeoutSettings
+    browser: BrowserSettings
+    network: NetworkSettings
+    crawl: CrawlSettings
+    fetch: FetchSettings
+    politeness: PolitenessSettings
+    site_preferences: SitePreferencesSettings
+
+class LabelTimeoutSettings(TypedDict, total=False):
+    """The phases a Label can set."""
+
+    handler: timedelta | None
+    navigation: timedelta | None
+    action: timedelta | None
+    wait: timedelta | None
+
+class LabelFetchSettings(TypedDict, total=False):
+    tier: Literal["auto"] | FetchTier
+
+class LabelCrawlSettings(TypedDict, total=False):
+    retry: CrawlRetrySettings
+    handle_statuses: list[int]
+    handler: CrawlHandlerSettings
+
+class LabelSettings(TypedDict, total=False):
+    """A Label's settings (ADR 0093): what shapes one crawl request and its page. Politeness, Site preferences, scope,
+    Session identity and Run-wide keys are refused with `setting_not_applicable`: two Labels on one domain share its
+    Politeness with every run of the user (ADR 0053)."""
+
+    timeout: LabelTimeoutSettings
+    fetch: LabelFetchSettings
+    crawl: LabelCrawlSettings
 
 class RunSettings(TypedDict, total=False):
     """A Collie Run's settings: no `crawl.*`, no `timeout.run`, and no Politeness, which is Foxhound's (ADRs 0084,
@@ -231,11 +318,22 @@ SettingKey: TypeAlias = Literal[
     "proxy.bypass",
     "proxy.username",
     "proxy.password",
+    "crawl.scope.strategy",
+    "crawl.scope.include",
+    "crawl.scope.exclude",
+    "crawl.max_depth",
+    "crawl.max_requests",
+    "crawl.retry.max",
+    "crawl.retry.handler_failed",
+    "crawl.handle_statuses",
+    "crawl.handler.concurrency",
+    "fetch.tier",
+    "fetch.tier_race",
 ]
 """A setting's canonical key: dotted snake_case, area first, the same in configuration files, errors and `config
 explain`. A sample."""
 
-SettingScope: TypeAlias = Literal["connection", "run", "session", "page"]
+SettingScope: TypeAlias = Literal["connection", "run", "label", "session", "page"]
 """The scopes a setting can be set at."""
 
 @final

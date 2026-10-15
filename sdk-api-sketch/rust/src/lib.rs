@@ -6,6 +6,7 @@
 pub mod ai;
 pub mod blocking;
 pub mod concurrency;
+pub mod crawl;
 pub mod data;
 pub mod lifecycle;
 pub mod page;
@@ -21,6 +22,10 @@ pub use ai::{
     WhyNoRepair, expect,
 };
 pub use concurrency::{EventStream, Record, events};
+pub use crawl::{
+    Crawl, CrawlCall, CrawlContext, CrawlRequest, CrawlRun, Enqueue, EnqueueLinks, Enqueued, EnqueuedLinks, FetchTier, Foxhound,
+    NotAddedReason, Seed, StartCrawl, UrlPattern,
+};
 pub use data::{Dataset, Label, PathSegment, PayloadInvalid, PayloadSchemaChanged, Schema, SchemaIssue, schemars};
 pub use lifecycle::{Collie, ConnectOptions, EngineChoice, EngineInfo, EngineKind, Goodfetch, Page, Run, Session, Start};
 pub use page::{
@@ -32,7 +37,7 @@ pub use page::{
 };
 pub use results::{
     AiWorkResult, BlockCause, Blocked, Claim, DeadlineExceeded, Ended, EndedBy, Error, ErrorCode, ErrorDetails, ErrorGroup, ErrorTarget,
-    HandlerFailed, LimitSource, NotVerified, PartialOutput, Reported, RequestOutcome, RequestOutcomeKind, RunLayerOrigin,
+    HandlerFailed, LimitSource, NotVerified, PartialOutput, Reported, CrawlRequestOutcome, CrawlRequestOutcomeKind, CrawlRequestRef, RunLayerOrigin,
     SettingValue,
     SettingsLayer, SkipReason, StopReason, TargetDescription, TargetNotUnique, Verdict,
 };

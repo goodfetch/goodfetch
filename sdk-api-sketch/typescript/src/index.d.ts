@@ -2,6 +2,7 @@
 // Each ticket on the map adds its declarations in a file of its own and re-exports it here.
 export * from "./ai.js";
 export * from "./concurrency.js";
+export * from "./crawl.js";
 export * from "./data.js";
 export * from "./lifecycle.js";
 export * from "./page.js";

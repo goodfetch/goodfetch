@@ -224,6 +224,8 @@ const _: () = {
     handle::<Goodfetch>();
     handle::<Collie>();
     handle::<Run>();
+    handle::<crate::crawl::CrawlRun>();
+    handle::<crate::crawl::Foxhound>();
     handle::<Session>();
     handle::<Page>();
     handle::<Locator>();

@@ -10,7 +10,7 @@ from collections.abc import Awaitable, Callable, Generator, Mapping, Sequence
 from os import PathLike
 from dataclasses import dataclass
 from types import TracebackType
-from typing import Literal, Never, Protocol, Self, TypeAlias, final, overload
+from typing import Any, Literal, Never, Protocol, Self, TypeAlias, TypeVar, final, overload
 
 from goodfetch._ai import AiVerbs, AsyncAiVerbs, AsyncElementReferences, ElementReferences
 from goodfetch._concurrency import AsyncListener, AsyncPageEvents, AsyncRunEvents, Listener, PageEvents, RunEvents, Subscription
@@ -27,8 +27,12 @@ from goodfetch._sessions import (
     SessionStateApi,
     SessionSource,
 )
-from goodfetch._settings import ExplainedSetting, PageSettings, RunSettings, SessionSettings, SettingKey, Settings
+from goodfetch._crawl import AsyncCrawl, Crawl, Enqueued, Seed
+from goodfetch._data import Label
+from goodfetch._settings import CrawlRunSettings, ExplainedSetting, PageSettings, RunSettings, SessionSettings, SettingKey, Settings
 from goodfetch._time import AsyncPageWaits, Limits, NotGiven, PageWaits, Timeout, UrlMatcher
+
+_P = TypeVar("_P")
 
 @final
 @dataclass(frozen=True, kw_only=True)
@@ -189,8 +193,33 @@ class AsyncCollie:
         """
 
 @final
+class AsyncCrawlRun(_AsyncCloseable, _AsyncExplainsSettings, AsyncRunEvents):
+    """A crawl's Run (ADR 0093). Its outcomes, progress and resume are #478's."""
+
+    @property
+    def id(self) -> str: ...
+    @overload
+    async def add_seed(self, url: str, label: Label[None], *, timeout: Timeout = ...) -> Enqueued: ...
+    @overload
+    async def add_seed(self, url: str, label: Label[_P], payload: _P, *, timeout: Timeout = ...) -> Enqueued:
+        """Adds a seed to the running crawl (ADR 0037's CO-03), committed at once. A seed widens the scope by its host, where
+        a handler's `enqueue` is checked against it."""
+
+@final
 class AsyncFoxhound:
-    """Foxhound, reached from the connection without I/O. Its crawl API is #477's."""
+    """Foxhound, reached from the connection without I/O."""
+
+    async def start(
+        self,
+        crawl: AsyncCrawl,
+        *,
+        seeds: Sequence[Seed[Any]],
+        settings: CrawlRunSettings = ...,
+        timeout: Timeout = ...,
+        limits: Limits | None = None,
+    ) -> AsyncCrawlRun:
+        """Starts a Run of the crawl from its seeds, which define its scope. Provisional: the start and resume verbs are
+        #478's (ADR 0093). Raises `LabelUnhandledError` when a Label has no handler."""
 
 @final
 class _AsyncConnecting:
@@ -320,8 +349,30 @@ class Collie:
         """
 
 @final
+class CrawlRun(_Closeable, _ExplainsSettings, RunEvents):
+    """A crawl's Run (ADR 0093). Its outcomes, progress and resume are #478's."""
+
+    @property
+    def id(self) -> str: ...
+    @overload
+    def add_seed(self, url: str, label: Label[None], *, timeout: Timeout = ...) -> Enqueued: ...
+    @overload
+    def add_seed(self, url: str, label: Label[_P], payload: _P, *, timeout: Timeout = ...) -> Enqueued: ...
+
+@final
 class Foxhound:
-    """Foxhound, reached from the connection without I/O. Its crawl API is #477's."""
+    """Foxhound, reached from the connection without I/O."""
+
+    def start(
+        self,
+        crawl: Crawl,
+        *,
+        seeds: Sequence[Seed[Any]],
+        settings: CrawlRunSettings = ...,
+        timeout: Timeout = ...,
+        limits: Limits | None = None,
+    ) -> CrawlRun:
+        """Provisional: the start and resume verbs are #478's (ADR 0093)."""
 
 @final
 class Goodfetch(_Closeable, _ExplainsSettings):

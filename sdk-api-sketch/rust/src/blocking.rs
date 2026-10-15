@@ -176,3 +176,89 @@ impl Page {
         unimplemented!()
     }
 }
+
+/// A crawl's declaration for the blocking API (ADR 0093): its handlers run on the `tasks` module's
+/// tracked blocking threads, so they are `Fn + Send + Sync + 'static` (ADR 0081).
+pub struct Crawl {
+    _private: (),
+}
+
+impl fmt::Debug for Crawl {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str("Crawl(..)")
+    }
+}
+
+impl Crawl {
+    /// An empty declaration.
+    pub fn new() -> Self {
+        unimplemented!()
+    }
+
+    /// Declares a Label, as [`crate::Crawl::label`].
+    pub fn label<P: schemars::JsonSchema + serde::Serialize + serde::de::DeserializeOwned>(
+        &mut self,
+        name: &str,
+    ) -> Result<crate::Label<P>, Error> {
+        let _ = name;
+        unimplemented!()
+    }
+
+    /// Attaches the Label's one handler, as [`crate::Crawl::handle`].
+    pub fn handle<P, F>(&mut self, label: &crate::Label<P>, handler: F) -> Result<(), Error>
+    where
+        F: Fn(CrawlContext<P>) -> Result<(), Error> + Send + Sync + 'static,
+    {
+        let _ = (label, handler);
+        unimplemented!()
+    }
+
+    /// Answers the Run's crawl requests on tracked threads, `crawl::handler::CONCURRENCY` at once,
+    /// and blocks until the Run ends.
+    pub fn serve(&self, run: &crate::CrawlRun) -> Result<(), Error> {
+        let _ = run;
+        unimplemented!()
+    }
+}
+
+impl Default for Crawl {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+/// What a blocking handler receives: [`crate::CrawlContext`] without `async`.
+#[derive(Debug)]
+pub struct CrawlContext<P> {
+    _payload: PhantomData<P>,
+}
+
+impl<P> CrawlContext<P> {
+    /// The crawl request.
+    pub fn request(&self) -> &crate::CrawlRequest<P> {
+        unimplemented!()
+    }
+
+    /// Collie's page.
+    pub fn page(&self) -> &Page {
+        unimplemented!()
+    }
+
+    /// Adds one URL to the Frontier, as the async context does.
+    pub fn enqueue<Q: serde::Serialize>(&self, url: &str, label: &crate::Label<Q>, payload: Q) -> Call<crate::Enqueued> {
+        let _ = (url, label, payload);
+        unimplemented!()
+    }
+
+    /// Ends the request `skipped`: `return Err(ctx.skip("…"))`.
+    pub fn skip(&self, message: &str) -> Error {
+        let _ = message;
+        unimplemented!()
+    }
+
+    /// Ends this attempt with `retry_requested`: `return Err(ctx.retry("…"))`.
+    pub fn retry(&self, message: &str) -> Error {
+        let _ = message;
+        unimplemented!()
+    }
+}

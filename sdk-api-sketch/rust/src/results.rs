@@ -142,6 +142,25 @@ pub enum ErrorCode {
     /// `variables_mismatch`: a placeholder nothing fills, a variable no placeholder uses, or a name
     /// that is both a variable and a Secret placeholder (ADR 0091).
     VariablesMismatch,
+    /// `label_duplicate`: a second Label of one name, or a second handler for one Label (ADR 0093).
+    LabelDuplicate,
+    /// `label_unhandled`: the Run's start found a Label with no handler (ADR 0093).
+    LabelUnhandled,
+    /// `label_unknown`: a Label the crawl does not declare, at an enqueue or a resume (ADR 0093).
+    LabelUnknown,
+    /// `attempt_ended`: a call on the context of an attempt that has ended; returned by
+    /// `ctx.skip()` and `ctx.retry()`, and consumed by the helper (ADR 0093).
+    AttemptEnded,
+    /// `browser_required`: a call only a browser can serve while `fetch.tier` forces a tier without
+    /// one (ADR 0093).
+    BrowserRequired,
+    /// `retry_requested`: an attempt the handler ended with `ctx.retry()` (ADR 0093).
+    RetryRequested,
+    /// `response_not_ok`: a final status outside 2xx that is no Block cause and not in
+    /// `crawl.handle_statuses` (ADR 0093).
+    ResponseNotOk,
+    /// `site_preferences_refused`: a handler's own navigation that Site preferences refuse (ADR 0093).
+    SitePreferencesRefused,
     /// `internal`.
     Internal,
     /// A code this SDK does not know, as received.
@@ -470,37 +489,59 @@ pub enum BlockCause {
     Unknown(String),
 }
 
-/// Why a request was skipped; the full list is #477's and #480's.
+/// Why a crawl request was skipped (ADR 0093's full list).
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum SkipReason {
-    /// Outside the crawl's scope.
+    /// A redirect left the crawl's scope.
     OutOfScope,
-    /// Already seen.
+    /// A seed, a redirect or a Hook's rewrite reached a host the run's domain policy refuses
+    /// (ADRs 0014, 0017).
+    DomainPolicy,
+    /// A URL rule the Frontier learned after admitting it merged it with another (ADR 0005).
     Duplicate,
     /// A Disallow line of the origin's robots.txt, or a robots.txt answered with a 429 or a 5xx, or
     /// unreachable, with no earlier copy, until the request's retries ran out (ADR 0086).
+    /// Also a handler's own navigation refused for it whose `site_preferences_refused` escaped the
+    /// handler.
     RobotsTxt,
     /// A Crawl-delay above `site_preferences.max_crawl_delay` (ADR 0086).
     CrawlDelay,
     /// An AI-use signal that refuses the run's Purpose while
     /// `site_preferences.respect_use_signals` is on (ADR 0086).
     UseSignals,
-    /// Skipped by a Hook.
-    SkippedByHook,
-    /// Skipped by the handler.
-    SkippedByHandler,
+    /// A before-request Hook (ADR 0033).
+    Hook,
+    /// The handler returned `ctx.skip(…)`.
+    Handler,
     /// A reason this SDK does not know, as received.
     Unknown(String),
 }
 
-/// A crawl request's ending. The noun "request" is #477's to settle.
+/// Which crawl request an outcome is about. Outcomes span Labels, so the Payload is not typed here.
+#[derive(Debug, Clone)]
+#[non_exhaustive]
+pub struct CrawlRequestRef {
+    /// Its ID.
+    pub id: String,
+    /// Its URL.
+    pub url: String,
+    /// Its Label's name.
+    pub label: String,
+    /// Its depth.
+    pub depth: u32,
+}
+
+/// A crawl request's ending (ADR 0079; the noun is ADR 0093's). How a program reads outcomes is
+/// #478's.
 #[derive(Debug)]
 #[non_exhaustive]
 #[must_use]
-pub struct RequestOutcome {
+pub struct CrawlRequestOutcome {
+    /// Which request.
+    pub request: CrawlRequestRef,
     /// How it ended.
-    pub kind: RequestOutcomeKind,
+    pub kind: CrawlRequestOutcomeKind,
     /// Retries are not an outcome: every outcome counts its attempts.
     pub attempts: u32,
     /// The failed attempts.
@@ -510,13 +551,18 @@ pub struct RequestOutcome {
 /// The four endings of a crawl request.
 #[derive(Debug)]
 #[non_exhaustive]
-pub enum RequestOutcomeKind {
+pub enum CrawlRequestOutcomeKind {
     /// Handled, its outputs committed.
     Succeeded,
     /// Failed, with its error.
     Failed(Error),
-    /// Skipped, with the reason.
-    Skipped(SkipReason),
+    /// Skipped, with the reason and a Hook's or the handler's own message.
+    Skipped {
+        /// Why.
+        reason: SkipReason,
+        /// The Hook's or the handler's text.
+        message: Option<String>,
+    },
     /// Refused by the site, with the Block cause.
     Blocked(BlockCause),
     /// A kind this SDK does not know, as received.

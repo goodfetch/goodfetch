@@ -6,13 +6,13 @@ import {
   TargetNotUniqueError,
   type AiWorkResult,
   type Logger,
-  type RequestOutcome,
+  type CrawlRequestOutcome,
 } from "goodfetch";
 
 declare const log: Logger; // the program's own logger
 
 declare function clickNext(): Promise<void>; // a page call: the page API is #472's
-declare const outcomes: AsyncIterable<RequestOutcome>; // how a program reads them is #478's
+declare const outcomes: AsyncIterable<CrawlRequestOutcome>; // how a program reads them is #478's
 declare const task: AiWorkResult<{ title: string; price: number }>; // the Agent's API is #474's
 
 export async function failuresThrow(): Promise<void> {

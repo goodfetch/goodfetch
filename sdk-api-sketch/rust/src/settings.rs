@@ -267,6 +267,18 @@ pub mod network {
 
 /// `crawl.*`.
 pub mod crawl {
+    use super::Setting;
+
+    /// `crawl.max_depth`: seeds are at 0. Reaching it refuses further enqueues with `MaxDepth` and
+    /// ends the Run `incomplete`. Built-in: none (ADR 0093).
+    pub const MAX_DEPTH: Setting<Option<u32>> = Setting::new("crawl.max_depth");
+    /// `crawl.max_requests`: requests admitted to the Frontier. Reaching it refuses further enqueues
+    /// with `MaxRequests` and ends the Run `incomplete`. Built-in: none (ADR 0093).
+    pub const MAX_REQUESTS: Setting<Option<u64>> = Setting::new("crawl.max_requests");
+    /// `crawl.handle_statuses`: statuses outside 2xx whose responses go to the handler instead of
+    /// failing with `response_not_ok`. Built-in: none (ADR 0093).
+    pub const HANDLE_STATUSES: Setting<Vec<u16>> = Setting::new("crawl.handle_statuses");
+
     /// `crawl.payload.*` (ADR 0082).
     pub mod payload {
         use super::super::Setting;
@@ -274,6 +286,78 @@ pub mod crawl {
         /// `crawl.payload.max_size`, in bytes.
         pub const MAX_SIZE: Setting<u64> = Setting::new("crawl.payload.max_size");
     }
+
+    /// `crawl.scope.*`: checked on every enqueue and every redirect (ADR 0093).
+    pub mod scope {
+        use super::super::Setting;
+        use crate::crawl::UrlPattern;
+
+        /// Which hosts a crawl may reach, measured against every seed after the Frontier's URL
+        /// rules, so `www.` is no other host (ADR 0005).
+        #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+        #[non_exhaustive]
+        pub enum Strategy {
+            /// `same_hostname`, the built-in, Crawlee's default.
+            #[default]
+            SameHostname,
+            /// `same_domain`: the registrable domain, subdomains included.
+            SameDomain,
+            /// `same_origin`: scheme, host and port.
+            SameOrigin,
+            /// `all`: any host, for `INCLUDE` to narrow.
+            All,
+        }
+
+        /// `crawl.scope.strategy`.
+        pub const STRATEGY: Setting<Strategy> = Setting::new("crawl.scope.strategy");
+        /// `crawl.scope.include`: only URLs matching one of these, ANDed with the strategy.
+        pub const INCLUDE: Setting<Vec<UrlPattern>> = Setting::new("crawl.scope.include");
+        /// `crawl.scope.exclude`: no URL matching any of these.
+        pub const EXCLUDE: Setting<Vec<UrlPattern>> = Setting::new("crawl.scope.exclude");
+    }
+
+    /// `crawl.retry.*` (ADR 0093).
+    pub mod retry {
+        use super::super::Setting;
+
+        /// `crawl.retry.max`: retries after the first attempt, for retryable errors and
+        /// `ctx.retry()`. Built-in: 2, Scrapy's.
+        pub const MAX: Setting<u32> = Setting::new("crawl.retry.max");
+        /// `crawl.retry.handler_failed`: retry `handler_failed` too, as Crawlee does. Built-in:
+        /// false: a bug fails the same way again (G5).
+        pub const HANDLER_FAILED: Setting<bool> = Setting::new("crawl.retry.handler_failed");
+    }
+
+    /// `crawl.handler.*` (ADR 0093).
+    pub mod handler {
+        use super::super::Setting;
+
+        /// `crawl.handler.concurrency`: handlers running at once in the program, the engine's
+        /// leases to it (ADR 0081). On a Label, within the Run's. Built-in: 16.
+        pub const CONCURRENCY: Setting<u32> = Setting::new("crawl.handler.concurrency");
+    }
+}
+
+/// `fetch.*`: the fetch tiers of ADR 0020 (ADR 0093).
+pub mod fetch {
+    use super::Setting;
+    use crate::crawl::FetchTier;
+
+    /// A tier choice: learned, or forced (ADR 0023).
+    #[derive(Debug, Clone, Default, PartialEq, Eq)]
+    #[non_exhaustive]
+    pub enum TierChoice {
+        /// `auto`, the built-in: learned per Label on a domain by sample comparison.
+        #[default]
+        Auto,
+        /// Forced, which Provenance records.
+        Forced(FetchTier),
+    }
+
+    /// `fetch.tier`.
+    pub const TIER: Setting<TierChoice> = Setting::new("fetch.tier");
+    /// `fetch.tier_race`, ADR 0040's `tier_race`. Built-in: false.
+    pub const TIER_RACE: Setting<bool> = Setting::new("fetch.tier_race");
 }
 
 /// How far a run shares Politeness (ADR 0053). Anything but `Shared` is marked in the run's result.
@@ -411,6 +495,8 @@ pub enum SettingScope {
     Connection,
     /// A Run.
     Run,
+    /// A crawl's Label (ADR 0093).
+    Label,
     /// A Session.
     Session,
     /// A page.

@@ -1,11 +1,9 @@
 // Snippet for Typed data: schemas, Records and Payloads (#469), on golden scenarios 02 and 05.
 import { z } from "zod";
-import type { Dataset, JsonSchema, JsonValue, Label, Page, PayloadInput, PayloadOutput, Schema, SchemaInput, SchemaOutput } from "goodfetch";
+import { Crawl, type CrawlContext, type Dataset, type JsonSchema, type JsonValue, type Page, type Schema, type SchemaInput, type SchemaOutput } from "goodfetch";
 
-// Provisional signatures, each its owner's to decide: a crawl's Labels, handlers and `enqueue` are
-// #477's, Datasets are #479's. `page.extract` is ADR 0091's.
-declare function enqueue<L extends Label<unknown, unknown>>(url: string, label: L, payload: PayloadInput<L>): Promise<void>;
-declare function label<S extends Schema>(name: string, payload: S): Label<SchemaInput<S>, SchemaOutput<S>>;
+// Provisional signatures, each its owner's to decide: Datasets are #479's. `page.extract` is ADR
+// 0091's; a crawl's Labels, handlers and `enqueue` are ADR 0093's (crawl.ts).
 declare function dataset<S extends Schema>(name: string, schema: S): Dataset<SchemaInput<S>, SchemaOutput<S>>;
 
 // Scenario 02: a typed object, the price an exact decimal kept as text by the schema, never a float.
@@ -29,16 +27,17 @@ export async function rawSchema(page: Page): Promise<JsonValue> {
 }
 
 // Scenario 05: the category name travels as a typed Payload, apart from the engine's own fields.
-const bookPage = label("book", z.object({ category: z.string().min(1) }));
+const crawl = new Crawl();
+const bookPage = crawl.label("book", { payload: z.object({ category: z.string().min(1) }) });
 const books = dataset("books", Book.extend({ url: z.url(), category: z.string() }));
 
-export async function onCategoryPage(categoryName: string, bookUrls: readonly string[]): Promise<void> {
+export async function onCategoryPage({ enqueue }: CrawlContext, categoryName: string, bookUrls: readonly string[]): Promise<void> {
   for (const url of bookUrls) await enqueue(url, bookPage, { category: categoryName });
   // @ts-expect-error a wrong field name is a type error, not a silent undefined in the handler
   await enqueue("https://books.toscrape.com/x", bookPage, { name: categoryName });
 }
 
-export async function onBookPage(page: Page, url: string, payload: PayloadOutput<typeof bookPage>): Promise<void> {
+crawl.handle(bookPage, async ({ page, request }) => {
   const { output: book } = await page.extract("the book on this page", Book);
-  await books.push({ ...book, url, category: payload.category });
-}
+  await books.push({ ...book, url: page.url(), category: request.payload.category });
+});

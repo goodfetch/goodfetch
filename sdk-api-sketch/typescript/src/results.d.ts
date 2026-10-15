@@ -59,6 +59,14 @@ export type KnownErrorCode =
   | "logged_out"
   | "human_pause_declined"
   | "session_not_savable"
+  | "label_duplicate"
+  | "label_unhandled"
+  | "label_unknown"
+  | "attempt_ended"
+  | "browser_required"
+  | "retry_requested"
+  | "response_not_ok"
+  | "site_preferences_refused"
   | "internal";
 
 /** A code a newer engine sends and this SDK does not know is kept as received (G3). */
@@ -170,7 +178,10 @@ export interface HandlerFailedDetails {
   /** The stack frames of the user's code. */
   readonly stack: readonly string[];
 }
-/** A crawl handler threw something other than a GoodfetchError. `cause` holds the original in the process that threw it. */
+/**
+ * A crawl handler threw something other than a GoodfetchError. `cause` holds the original in the
+ * process that threw it. Not retryable, unless `crawl.retry.handler_failed` is on (ADR 0093).
+ */
 export declare class HandlerFailedError extends ProgramError {
   readonly code: "handler_failed";
   readonly details: HandlerFailedDetails;
@@ -232,34 +243,51 @@ export interface Attempts {
   readonly attemptErrors: readonly GoodfetchError[];
 }
 
+/** Which crawl request an outcome is about. Outcomes span Labels, so the Payload is not typed here. */
+export interface CrawlRequestRef {
+  readonly id: string;
+  readonly url: string;
+  /** The Label's name. */
+  readonly label: string;
+  readonly depth: number;
+}
+
 /**
- * A crawl request's ending. The noun "request" is #477's to settle. A kind a newer engine sends
- * and this SDK does not know arrives as `unknown`, with the kind kept as received in `raw` (G3).
+ * A crawl request's ending (ADR 0079; the noun is ADR 0093's). A kind a newer engine sends and this
+ * SDK does not know arrives as `unknown`, with the kind kept as received in `raw` (G3). How a program
+ * reads outcomes is #478's.
  */
-export type RequestOutcome = Attempts &
-  (
+export type CrawlRequestOutcome = Attempts & { readonly request: CrawlRequestRef } & (
     | { readonly kind: "succeeded" }
     | { readonly kind: "failed"; readonly error: GoodfetchError }
-    | { readonly kind: "skipped"; readonly reason: SkipReason }
+    | { readonly kind: "skipped"; readonly reason: SkipReason; readonly message: string | null }
     | { readonly kind: "blocked"; readonly blockCause: BlockCause }
     | { readonly kind: "unknown"; readonly raw: string }
   );
 
 /**
- * Why a request was skipped; the full list is #477's. The Site preferences reasons are ADR 0086's:
- * `robots_txt`, a Disallow line of the origin's robots.txt, or a robots.txt answered with a 429 or a 5xx, or
- * unreachable, with no earlier copy, until the request's retries ran out;
- * `crawl_delay`, a Crawl-delay above `site_preferences.max_crawl_delay`; `use_signals`, an AI-use signal
- * that refuses the run's Purpose while `site_preferences.respect_use_signals` is on.
+ * Why a crawl request was skipped (ADR 0093's full list). `message` carries a Hook's or a handler's
+ * own text.
+ * - `out_of_scope`: a redirect left the crawl's scope;
+ * - `domain_policy`: a seed, a redirect or a Hook's rewrite reached a host the run's domain policy refuses (ADRs 0014, 0017);
+ * - `duplicate`: a URL rule the Frontier learned after admitting it merged it with another (ADR 0005);
+ * - `robots_txt`: a Disallow line of the origin's robots.txt, or a robots.txt answered with a 429 or a
+ *   5xx, or unreachable, with no earlier copy, until the request's retries ran out (ADR 0086); also a
+ *   handler's own navigation refused for it whose `SitePreferencesRefusedError` escaped the handler;
+ * - `crawl_delay`: a Crawl-delay above `site_preferences.max_crawl_delay` (ADR 0086);
+ * - `use_signals`: an AI-use signal that refuses the run's Purpose while `site_preferences.respect_use_signals` is on (ADR 0086);
+ * - `hook`: a before-request Hook (ADR 0033);
+ * - `handler`: the handler called `ctx.skip()`.
  */
 export type SkipReason =
   | "out_of_scope"
+  | "domain_policy"
   | "duplicate"
   | "robots_txt"
   | "crawl_delay"
   | "use_signals"
-  | "skipped_by_hook"
-  | "skipped_by_handler"
+  | "hook"
+  | "handler"
   | (string & {});
 
 /** A Verdict, given by checks under ADR 0029's rules and never by the model's claim. Any other value is never `verified`. */

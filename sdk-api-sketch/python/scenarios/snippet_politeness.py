@@ -5,7 +5,7 @@ from collections import Counter
 from collections.abc import AsyncIterable
 from datetime import timedelta
 
-from goodfetch import AsyncGoodfetch, ExplainedSetting, RequestOutcome, RequestSkipped
+from goodfetch import AsyncGoodfetch, ExplainedSetting, CrawlRequestOutcome, CrawlRequestSkipped
 
 log = logging.getLogger(__name__)
 
@@ -50,12 +50,12 @@ async def as_own_bot() -> list[ExplainedSetting]:
         return await gf.explain_settings(["site_preferences.robots_txt_user_agent"])
 
 
-async def why_skipped(outcomes: AsyncIterable[RequestOutcome]) -> Counter[str]:
+async def why_skipped(outcomes: AsyncIterable[CrawlRequestOutcome]) -> Counter[str]:
     """A page the site asked crawlers to leave is skipped, a value with its reason, never a failure (G1). How a program
     reads outcomes is #478's."""
     skipped: Counter[str] = Counter()
     async for outcome in outcomes:
-        if not isinstance(outcome, RequestSkipped):
+        if not isinstance(outcome, CrawlRequestSkipped):
             continue
         skipped[outcome.reason] += 1
         match outcome.reason:

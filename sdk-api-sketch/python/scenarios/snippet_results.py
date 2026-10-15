@@ -9,10 +9,10 @@ from goodfetch import (
     DeadlineExceededError,
     GoodfetchError,
     PageError,
-    RequestBlocked,
-    RequestFailed,
-    RequestOutcome,
-    RequestSkipped,
+    CrawlRequestBlocked,
+    CrawlRequestFailed,
+    CrawlRequestOutcome,
+    CrawlRequestSkipped,
     Stopped,
     TargetNotUniqueError,
 )
@@ -42,18 +42,18 @@ async def failures_raise(click_next: Callable[[], Awaitable[None]]) -> None:
         await click_next()  # the SDK never retries on its own
 
 
-async def outcomes_are_values(outcomes: AsyncIterable[RequestOutcome]) -> dict[str, int]:
+async def outcomes_are_values(outcomes: AsyncIterable[CrawlRequestOutcome]) -> dict[str, int]:
     """How a program reads outcomes is #478's."""
     counts: dict[str, int] = {}
     async for outcome in outcomes:
         name = type(outcome).__name__
         counts[name] = counts.get(name, 0) + 1
         match outcome:
-            case RequestFailed(error=error, attempts=attempts):
+            case CrawlRequestFailed(error=error, attempts=attempts):
                 log.error("%s after %d attempts", error.code, attempts)
-            case RequestSkipped(reason=reason):
+            case CrawlRequestSkipped(reason=reason):
                 log.info("skipped: %s", reason)
-            case RequestBlocked(block_cause=cause):
+            case CrawlRequestBlocked(block_cause=cause):
                 log.warning("blocked: %s", cause)
             case _:
                 pass

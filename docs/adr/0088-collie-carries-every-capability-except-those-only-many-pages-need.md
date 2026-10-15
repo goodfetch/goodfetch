@@ -77,6 +77,7 @@ Decided in [Collie's exact capability set](https://github.com/goodfetch/goodfetc
   - `pay_domains` given to a Run on a Collie engine is refused like any other setting Collie does not carry (below).
   - Adding Paid fetches to Collie later, for Agents paying through x402, would be additive.
 - **The Response cache is Collie's.** It serves browsers through the engine's interception (ADR 0046), and its `replay` mode is the offline loop for developing an automation, as Playwright's HAR replay is ([browser-automation products](https://github.com/goodfetch/goodfetch/blob/research/browser-automation-products/rnd/research/2026-10-14-browser-automation-products.md) §3.1). Whether the SDK API's testing story uses it is [Testing a user's crawl or automation](https://github.com/goodfetch/goodfetch/issues/482)'s.
+  > Amended by [ADR 0105](0105-a-programs-tests-replay-a-response-recording-in-a-test-engine-that-reaches-no-site.md): a program's tests do not use the cache; they replay a Response recording, a WARC file the Run's start names, which both Products read and write. `replay` stays the development loop.
 
 ### Remote browsers and the Browser host
 

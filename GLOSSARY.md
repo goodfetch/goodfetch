@@ -40,6 +40,10 @@ _Avoid_: dashboard, inspector, app
 Any program that drives the engine through its operations: an SDK, the CLI, the MCP server, the Console or Goodfetch Cloud. Speaking CDP to a browser does not make a program a Client.
 _Avoid_: frontend, binding, consumer
 
+**Connection**:
+A Client's open link to one engine, through which a program reaches its Runs, and the scope of the settings and Limits set where it opens. Closing it never stops a Daemon.
+_Avoid_: client (for the Connection), engine (for the Connection), session (a Session is a browsing identity)
+
 **SDK API**:
 What a developer writes and calls in a Goodfetch SDK: its objects, methods, types and errors, generated in part from the Operation catalog.
 _Avoid_: consumer API, public surface
@@ -156,6 +160,10 @@ _Avoid_: shard
 The folder holding one user's Goodfetch data, caches and configuration on a machine, shared by both Products: the operating system's usual folders unless the user names another.
 _Avoid_: data dir, app folder, install folder
 
+**Run report**:
+What a run states about itself when it ends: its Lifecycle, Verdict and Completeness, its Usage, every safeguard it ran without and, for a crawl, how its requests ended.
+_Avoid_: run result, summary, statistics, stats
+
 **Browser cache**:
 The per-user folder, shared by both Products and every major, of pinned browser builds, among them those Plugins declare, the executable copies a Daemon runs from and the engine's other pinned downloads, each checked by digest. Plugin runtimes have their own runtime cache beside it.
 _Avoid_: browser registry, browsers folder
@@ -165,7 +173,7 @@ The catalog of every run of one user and one product major, whichever Product ra
 _Avoid_: run registry, run database, history
 
 **Usage ledger**:
-The per-user record, on one machine or in a Daemon group, of the Usage reserved and consumed by every run of that user, which stores the Limits on the install, a Daemon, a person, a named token, a Client connection or a Partitioned crawl and against which they are held.
+The per-user record, on one machine or in a Daemon group, of the Usage reserved and consumed by every run of that user, which stores the Limits on the install, a Daemon, a person, a named token, a Connection or a Partitioned crawl and against which they are held.
 _Avoid_: billing, meter, spend log
 
 **Effect**:
@@ -205,8 +213,12 @@ A consistent, self-contained copy of a run's state from which the run can resume
 _Avoid_: snapshot, savepoint, backup
 
 **Limit**:
-A cap on the Usage of one run, or of every run counted against a scope (a Schedule, a Partitioned crawl, the install or a Daemon, a person, a named token or a Client connection), over a period or a connection's lifetime; reaching it stops runs cleanly and refuses new ones until the period ends or a person raises it.
+A cap on the Usage of one run, or of every run counted against a scope (a Schedule, a Partitioned crawl, the install or a Daemon, a person, a named token or a Connection), over a period or a Connection's lifetime; reaching it stops runs cleanly and refuses new ones until the period ends or a person raises it.
 _Avoid_: budget, quota, spending cap
+
+**Price table**:
+The list prices of third parties' Usage, per model and per metered proxy, with fixed rates between currencies, shipped with each release and changed only in configuration or, for a Plugin's, its manifest, through which a currency Limit reserves and a price is reported; an estimate, never a bill.
+_Avoid_: price list, cost map, rate card
 
 **Schedule**:
 A standing instruction, kept by the Daemon or Goodfetch Cloud, that starts runs of one target when its time comes or its trigger fires.
@@ -305,6 +317,10 @@ _Avoid_: purchase, paid request, micropayment
 **Response cache**:
 The per-user store of responses that later runs may reuse instead of fetching the page again.
 _Avoid_: HTTP cache, page cache, crawl cache
+
+**Response recording**:
+The responses one run received, kept in a WARC file the program names, from which a later run is answered instead of the network.
+_Avoid_: cassette, HAR (for a recording), fixture (alone), Response cache (for a recording)
 
 **Filter list**:
 A list of rules, published or the user's own, naming the ads, trackers and page annoyances that a run blocks, hides, or removes from what it extracts.
@@ -431,6 +447,10 @@ _Avoid_: function tool, custom action, skill, Plugin
 **Model provider**:
 Whatever answers a run's model calls: a model company reached directly, a gateway, a local model server, or a model run inside the engine.
 _Avoid_: LLM vendor, backend
+
+**Model reference**:
+The name by which a program chooses a model: a Model provider's name, a slash, and that provider's own identifier for the model, such as `anthropic/claude-sonnet-4-5`.
+_Avoid_: model name, model string, model ID (for the whole reference)
 
 **Decision provider**:
 A Model provider whose model picks one option from a fixed list with a confidence, or abstains.
@@ -575,6 +595,10 @@ _Avoid_: golden files, legacy fixtures, test data (for these files)
 **Scripted engine**:
 A stand-in for the engine used only in tests, which plays one script of protocol messages to a Client and fails on any message it did not expect or any step left unused.
 _Avoid_: fake engine, mock engine, mock server
+
+**Testing kit**:
+The public module of each Product's SDK for testing a program written against it, holding a Scripted model and a test engine that reaches no site unless a test records.
+_Avoid_: test utilities, test helpers, mock library
 
 **Reference screenshot**:
 A committed image of a screen or component in one state, which a visual test compares the current rendering with, pixel for pixel.

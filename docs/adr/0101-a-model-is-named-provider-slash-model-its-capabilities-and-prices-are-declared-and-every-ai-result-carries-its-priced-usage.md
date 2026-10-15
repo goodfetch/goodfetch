@@ -71,12 +71,14 @@ The engine classifies by the provider's error type and message, not by the statu
 ### A Run's totals and its Limits
 
 - **`run.usage()`** returns a `RunUsage` while the Run is open, the figures the Usage ledger charges: `model` (a `ModelUsage`), `browserTime`, `proxyBytes`, `paidSolves`, `paidFetches`, `price` (of the Usage third parties charge for: model calls, metered proxies, paid solves and Paid fetches, `null` as above when any of it has no price or rate; browser time and an unmetered proxy carry none), `limits` (each Limit that applies to the Run, with its scope, kind, value, what remains of it and who set it, ADRs 0041 and 0045), and `uncapped`, ADR 0041's mark. The Run's report carries the final one, where [The Run in code](https://github.com/goodfetch/goodfetch/issues/478) places it. Every model call is in the Run trace with its Usage, model, strategy and price (G6).
+  > Amended by [ADR 0107](0107-a-runs-model-allowance-refuses-its-model-calls-once-spent-while-the-run-goes-on.md): `RunUsage` also carries `modelAllowance`, one entry per kind of Model allowance set, with its `kind`, `value`, what remains, `reachedAt` and `source`; it is not an entry of `limits`, which lists what stops the Run.
 - **Limits mirror Usage.** ADR 0080's price Limit is `limits.price`, a `Money` like `usage.price`; "cost" is a `GLOSSARY.md` _Avoid_ term of Usage. An applied Limit's period and scope ID are [The Run in code](https://github.com/goodfetch/goodfetch/issues/478)'s and area 3's.
 - **Per Run, not per instance:** Stagehand's and Midscene's counters are per instance and would mix Runs (G2); a per-call usage callback, as Midscene's `onLLMUsage`, adds nothing a result does not carry.
 
 ### Golden scenario 08
 
 Scenario 08 asks a crawl to "stop all model use once the crawl has spent a set amount", then finish without the model. Under ADRs 0041 and 0080, reaching the crawl's price Limit stops the whole crawl, `stopped` and `incomplete` with its Records kept, and a crawl cannot give its AI steps "a Run of their own" ([Crawl definition and handler context](https://github.com/goodfetch/goodfetch/issues/477) puts no Collie Run inside a crawl). That is the condition under which ADR 0080 sends a narrower cap back to the map, so the question is [Capping a crawl's model use without stopping its Run](https://github.com/goodfetch/goodfetch/issues/513)'s, which amends ADRs 0041 and 0080 if it must. Until then the price Limit stops the crawl, and `RunUsage` shows what it spent.
+> Amended by [ADR 0107](0107-a-runs-model-allowance-refuses-its-model-calls-once-spent-while-the-run-goes-on.md): answered: the crawl sets a Model allowance, `ai.allowance.price`, which refuses its model calls once spent while the crawl goes on; steps its Plan learned keep replaying, and the requests a refusal ends are `skipped` with the reason `model_allowance`.
 
 ## Considered Options
 

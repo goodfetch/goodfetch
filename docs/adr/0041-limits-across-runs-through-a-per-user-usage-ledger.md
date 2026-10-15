@@ -71,6 +71,7 @@ Comparable services cap spend in different ways:
 **When a Limit runs out.**
 - **New runs.** They are refused before they start, with the Error code `limit_reached`, which names the scope and its period, so an agent can tell its user why. `limit_reached` and `limit_not_understood` are not retryable (ADR 0038): the run waits for a new period, a person or an upgrade.
 - **Live runs.** A live run that cannot take a new slice stops at its next safe point. Its Lifecycle is `stopped` and its Completeness `incomplete` (ADR 0029). It can be resumed once the period resets or the Limit is raised.
+  > Amended by [ADR 0107](0107-a-runs-model-allowance-refuses-its-model-calls-once-spent-while-the-run-goes-on.md): a Run may also hold a Model allowance (`ai.allowance.*`), which is not a Limit and is not kept in the Usage ledger: once reached, the Run's model calls are refused with `model_allowance_reached` while the Run goes on, and it leaves the uncapped mark as it is, since any layer may set or raise it.
 - **Schedules.** Their occurrences are recorded as *skipped: Limit*, as in ADR 0036.
 - **Notifications.** A Notification goes out at 50 %, 80 % and 100 % of each Limit (all settable), and a "Needs you" item at 100 %.
   - **No duplicates.** The crossing is recorded in the ledger in the same transaction as the slice that crosses it, and only the engine that wrote it sends the Notification, then marks it sent. Several engines crossing a threshold together therefore send it once.

@@ -103,6 +103,8 @@ ADR 0079's rule applied to each case: a call raises when it cannot keep its prom
 | A call would send a page's content to a model while `site_preferences.respect_use_signals` is on and the page's AI-use signal refuses the Run's declared Purpose (ADRs 0085, 0086); raised before anything is sent, with the reason `use_signals` | `site_preferences_refused`, shared with a crawl handler's refused navigation (ADR 0093) | `RefusedError` |
 | A placeholder neither `variables` nor a bound Secret placeholder fills, a variable no placeholder uses, or a name that is both | `variables_mismatch` | `ProgramError` |
 
+> Amended by [ADR 0107](0107-a-runs-model-allowance-refuses-its-model-calls-once-spent-while-the-run-goes-on.md): a compile or a Repair that needs a model call the Run's Model allowance refuses fails with `model_allowance_reached`, a `RefusedError` naming the setting, and the Run goes on; a step replayed from the Plan makes no model call and is not refused.
+
 A navigation an AI step starts toward a domain the run's policy forbids raises the same `RefusedError` as `goto` (ADR 0014), and a Secret placeholder `act` would type on a browser other code may read raises ADR 0092's `secret_input_refused`. A step replayed from the Plan sends nothing to a model, so an AI-use signal does not refuse it. Model provider failures are Models, usage and cost in the SDK API's codes, which `model_not_configured` joins.
 
 ## Considered Options

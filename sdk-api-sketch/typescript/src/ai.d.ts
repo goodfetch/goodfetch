@@ -104,7 +104,12 @@ export interface ExtractOptions extends AiCallOptions {
   readonly mode?: ExtractMode;
 }
 
-/** The AI verbs, on a page and on a locator. */
+/**
+ * The AI verbs, on a page and on a locator. A call that would send the page's content to a model while
+ * `site_preferences.respect_use_signals` is on and the page's AI-use signal refuses the Run's Purpose
+ * throws `SitePreferencesRefusedError` (`use_signals`) before anything is sent; a step replayed from the
+ * Plan sends nothing to a model and is not refused (ADRs 0085, 0091).
+ */
 export interface AiVerbs {
   /** Performs one action described in words. Throws `TargetNotFoundError` when nothing on the page fits it. */
   act(instruction: string, options?: ActOptions): Promise<StepResult<PerformedAction>>;
@@ -165,7 +170,7 @@ export interface PlanReport {
 
 /** Options of a Success check. Its timeout is `timeout.wait` (30 s), not Playwright's 5 s (G1). */
 export type ExpectOptions = CallOptions;
-/** As in Playwright's assertions: a string matches the whole value (text after whitespace is normalized), a RegExp a pattern. */
+/** As in Playwright's assertions: a string matches the whole value (text after whitespace is normalized), except in `toContainText`, which matches a part; a RegExp matches a pattern. */
 export type TextExpected = string | RegExp;
 
 /** Playwright's page assertions. Each call is a Success check the Run's Verdict reads. */

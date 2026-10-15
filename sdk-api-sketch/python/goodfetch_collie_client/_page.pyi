@@ -186,6 +186,13 @@ class RouteAlreadyHandledError(ProgramError):
 class NavigationInterruptedError(PageError):
     """`navigation_interrupted`: superseded by another navigation before it committed."""
 
+class PageNavigatedDuringCallError(PageError):
+    """`page_navigated_during_call` (ADR 0114): on a page other code also drives (a page borrowed with `run.borrow()`, a
+    Lent page while a library is attached, a page with an open CDP session), an AI verb's page committed a navigation to
+    a new document that the verb did not start, between its first read of the page and its return. Nothing was written
+    to the Plan, and an `act` sent no input. Retryable: await each Collie call before the program's own driver acts on
+    the page; the page may also have navigated by itself. `details` carries `url` and `navigated_to`."""
+
 class ResponseNotJSONError(PageError):
     """`response_not_json`: `json()` on a body that is not JSON."""
 

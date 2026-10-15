@@ -239,6 +239,7 @@ from goodfetch_collie_client._page import Mouse as Mouse
 from goodfetch_collie_client._page import MouseButton as MouseButton
 from goodfetch_collie_client._page import NavigationFailedError as NavigationFailedError
 from goodfetch_collie_client._page import NavigationInterruptedError as NavigationInterruptedError
+from goodfetch_collie_client._page import PageNavigatedDuringCallError as PageNavigatedDuringCallError
 from goodfetch_collie_client._page import PageAPI as PageAPI
 from goodfetch_collie_client._page import PageCrashedError as PageCrashedError
 from goodfetch_collie_client._page import PageFunctionFailedError as PageFunctionFailedError

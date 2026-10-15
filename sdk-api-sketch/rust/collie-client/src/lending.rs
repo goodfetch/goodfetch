@@ -36,7 +36,9 @@ impl CdpEndpoint {
 impl Page {
     /// Lends the page to a CDP library in this program. Fails with `session_reserved` while another
     /// attach on the page's Session is open, and with `capability_unavailable` on a Firefox or WebKit
-    /// page.
+    /// page. While the library is attached, await each of the program's own Collie calls on the page
+    /// before the library acts: an AI verb whose document a navigation it did not start replaces
+    /// fails with `page_navigated_during_call` (ADR 0114).
     pub fn lend(&self) -> Call<CdpEndpoint> {
         unimplemented!()
     }

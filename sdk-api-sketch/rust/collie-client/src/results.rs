@@ -136,6 +136,12 @@ impl ErrorCode {
     pub const ROUTE_ALREADY_HANDLED: ErrorCode = ErrorCode::new("route_already_handled");
     /// `navigation_interrupted`: another navigation superseded this one (ADR 0085).
     pub const NAVIGATION_INTERRUPTED: ErrorCode = ErrorCode::new("navigation_interrupted");
+    /// `page_navigated_during_call` (ADR 0114): on a page other code also drives (a shared
+    /// `cdp_url`, a Lent page while a library is attached, a page with an open CDP session), an AI
+    /// verb's page committed a navigation to a new document that the verb did not start, between its
+    /// first read of the page and its return. Nothing was written to the Plan, and an `act` sent no
+    /// input. Retryable; its details carry `url` and `navigated_to`.
+    pub const PAGE_NAVIGATED_DURING_CALL: ErrorCode = ErrorCode::new("page_navigated_during_call");
     /// `response_not_json` (ADR 0085).
     pub const RESPONSE_NOT_JSON: ErrorCode = ErrorCode::new("response_not_json");
     /// `navigation_failed`: the site could not be reached (ADR 0085).

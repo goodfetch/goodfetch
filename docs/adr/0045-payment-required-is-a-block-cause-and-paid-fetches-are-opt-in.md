@@ -25,6 +25,7 @@ Cloudflare Pay per crawl, in private beta since July 2025 ([blog](https://blog.c
 
 **Site preferences.**
 - **Changes ADR 0016:** RSL (Really Simple Licensing, a standard since December 2025; [rslstandard.org](https://rslstandard.org/)), declared through robots.txt, joins the Site preferences the engine always reads and records in Provenance, and is honoured under `respect_site_preferences`.
+  > Amended by [ADR 0086](0086-a-crawl-obeys-robots-txt-and-sends-one-request-at-a-time-per-domain-by-default-and-pressing-harder-is-recorded.md): the switch is `site_preferences.respect_use_signals`. It covers RSL and the AI-use signals, while robots.txt has its own setting.
 
 **Who allows paying.**
 - `pay_domains` lists the domains a run may pay, matched by registrable domain as in ADR 0004, each with an optional `max_price_per_page`. `*` is accepted only when written explicitly.

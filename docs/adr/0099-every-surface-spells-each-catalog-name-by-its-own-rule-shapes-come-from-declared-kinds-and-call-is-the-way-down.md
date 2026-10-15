@@ -44,7 +44,7 @@ Decided in [Mapping the catalog to each language and surface](https://github.com
   | Setting keys (ADR 0083) | nested camelCase segments | nested snake_case segments | modules and an UPPER_SNAKE constant |
 
 - **Initialisms.**
-  - They come from a closed list kept in `xtask codegen`: `ai`, `api`, `cdp`, `css`, `dom`, `html`, `http`, `https`, `json`, `mcp`, `pdf`, `uri`, `url`, `xml`.
+  - They come from a closed list kept in `xtask codegen`: `ai`, `api`, `cdp`, `css`, `dom`, `html`, `http`, `https`, `js`, `json`, `mcp`, `ok`, `pdf`, `uri`, `url`, `xml`. `js` and `ok` keep Playwright's `JSHandle`, `toHaveJSProperty` and `toBeOK` (ADR 0091), while `response.ok()` starts a name and stays lowercase.
   - In TypeScript names and Python class names an initialism is in capitals, except at the start of a camelCase name, where it is lowercase. In Rust it is one word.
   - This follows each language's own leaders: Playwright, the web platform, Stainless (`APIError`, `baseURL`) and `@types/json-schema` (`JSONSchema7`) in TypeScript; PEP 8, the standard library, httpx and Playwright for Python in Python; C-CASE in Rust (CM A3, A4, B1, B2, B6, B8).
   - An abbreviation that is a word stays one: `id` gives `runId`, `timezoneId` and `getByTestId`, as in Playwright.
@@ -90,6 +90,7 @@ Decided in [Mapping the catalog to each language and surface](https://github.com
   | Kind | TypeScript | Python | Rust |
   |---|---|---|---|
   | Round trip | `async` method | `async def` in an `Async…` class, a plain method in its sync twin | method returning a `Call<T>` builder, awaited; `send()` in `blocking` |
+  | Round trip that never waits (ADR 0085's questions: `isVisible`, `count`, `all`) | `async` method with no `timeout` option | the same, with no `timeout` | method returning a `Query<T>`, awaited, with no timeout |
   | A read the SDK answers itself, on a handle | method, as all of Playwright's are (`page.url()`, `response.ok()`, `run.id()`, `connection.engine()`) | a read with no arguments is a property, except a name starting `is_` or `as_`, which is a method: Playwright for Python's generator rule (`response.ok`, `page.url`, `run.id`, `page.is_closed()`, CM A2) | method (C-GETTER) |
   | Builder without I/O (`getByRole`, `filter`, `first`) | sync method | sync method; a property when it takes no argument (`locator.first`), by the same generator rule | method |
   | Sub-object without I/O (`keyboard`, `request`, `identities`) | `readonly` property | property | method |
@@ -132,18 +133,21 @@ Decided in [Mapping the catalog to each language and surface](https://github.com
 - **Hand-written,** in the Collie client package unless it is a Product's own:
   - ADR 0038's runtime;
   - each Product's Connection type, its `connect()` and scoped helpers;
-  - the generic shapes the kinds produce: `Subscription`, iterators, `EventStream`, `Waiter`, Python's `expect_` blocks, Rust's `Call<T>`, `Label<P>`;
+  - the generic shapes the kinds produce: `Subscription`, iterators, `EventStream`, `Waiter`, Python's `expect_` blocks, Rust's `Call<T>` and `Query<T>`, `Label<P>`;
   - conversions at the boundary: durations, matchers and their regex syntax, schema adapters, JSON value checks;
   - the error base classes and the runtime's own error messages;
   - the testing kits and the raw call;
   - ADR 0089's lending helpers, one per supported library.
 - **Every public hand-written member is listed** in its SDK's manifest, with the catalog entry it serves, or "no entry" and a reason.
 - **A hand-written member with no entry declares its canonical words in its manifest line,** and each language spells them by its own rule, as it spells a catalog name (S1). ADR 0089's helpers are free functions of the Collie client package, which each Product's package re-exports (ADR 0095), taking the page and then the program's own library object: `lend_to_playwright` and `lend_to_puppeteer` in TypeScript as `lendToPlaywright(page, chromium)` and `lendToPuppeteer(page, puppeteer)`, and `lend_to_playwright` and `lend_to_browser_use` in Python as `lend_to_playwright(page, chromium)` and `lend_to_browser_use(page, BrowserSession)`. A free function keeps each library's name off the page, which has one `lend()` (S2). In Python, `lend_to_playwright` takes a `Page` with Playwright's sync `chromium` or an `AsyncPage` with its async one, typed by overloads, and `lend_to_browser_use` an `AsyncPage`, since Browser Use is async only. The line also declares each language's form (a function, a decorator, a type), so ADR 0100's Agent tool constructor, the words `agent_tool`, is the function `agentTool`, the decorator `@agent_tool` and the type `AgentTool` with `new`.
-- **A hand-written member's options follow the catalog's forms** (S1; the Quick suite checks that a hand-written member's words are on the same receiver in every SDK that has it, unless its manifest line says why one SDK alone has it): an options object in TypeScript, keyword-only arguments in Python, and in Rust builder methods named after each option, on the value the member returns or on a declaration value it takes through `impl Into`, never a second member for the same act. ADR 0093's Rust crawl declaration thus reads `crawl.label::<P>(name)` or `crawl.label(LabelDeclaration::<P>::new(name).payload(schema).settings(settings).login(step))`, and its seed `run.add_seed(Seed::new(url, &label, payload))` or `run.add_seed(Seed::sitemap(url, rules))`. `crawl.login(step)` stays: it is already the method named after `new Crawl({ login })`'s option. `blocking::LabelDeclaration` takes a `Fn + Send + Sync + 'static` login (ADR 0081). The same holds for one optional positional argument, `impl Into<Option<…>>` (ADR 0085's `frame_locator(None)` for `frameLocator()`), and for an option of several types, one builder method taking `impl Into` (ADR 0092's `pause().until(…)` for a locator or a URL).
+- **A hand-written member's options follow the catalog's forms** (S1; checked by the Quick suite, below): an options object in TypeScript, keyword-only arguments in Python, and in Rust builder methods named after each option, on the value the member returns or on a declaration value it takes through `impl Into`, never a second member for the same act. ADR 0093's Rust crawl declaration thus reads `crawl.label::<P>(name)` or `crawl.label(LabelDeclaration::<P>::new(name).payload(schema).settings(settings).login(step))`, and its seed `run.add_seed(Seed::new(url, &label, payload))` or `run.add_seed(Seed::sitemap(url, rules))`. `crawl.login(step)` stays: it is already the method named after `new Crawl({ login })`'s option. `blocking::LabelDeclaration` takes a `Fn + Send + Sync + 'static` login (ADR 0081). The same holds for one optional positional argument, `impl Into<Option<…>>` (ADR 0085's `frame_locator(None)` for `frameLocator()`), and for an option of several types, one builder method taking `impl Into` (ADR 0092's `pause().until(…)` for a locator or a URL).
 - **The Quick suite fails:**
   - an entry of the Product's catalog that reaches no public member in some SDK;
   - a listed member that lacks its entry's doc text or markers;
-  - a manifest line the generator could express, as playwright-python reports an exception it no longer needs (CM A2).
+  - a manifest line the generator could express, as playwright-python reports an exception it no longer needs (CM A2);
+  - a member with no entry not spelled from the words and form its line declares;
+  - two members of one receiver listed for the same entry;
+  - a hand-written member whose words are missing from the same receiver in another SDK that has that receiver, unless its line says why only one SDK has it (a Rust-only `label_with` beside `label`).
 
   This closes the drift the research found in hand-written ports (S1, T).
 
@@ -294,7 +298,7 @@ Each surface spells the canonical name by one rule (S1), as its leaders do (S3),
   - MCP's "`deprecated` in the tool schema" is the description's first sentence and JSON Schema's `deprecated`.
   - Experimental's per-language marks are as above.
 - **Amends ADR 0077.** T's "every deprecated name carries the language's type-level marker" holds where the language has one; a Python plain-data field or settings `TypedDict` key keeps the runtime warning and is listed in the release notes.
-- **Amends ADR 0069.** Its completeness tests also check the hand-written manifest, its markers, its unused lines and the spelling of members with no entry.
+- **Amends ADR 0069.** Its completeness tests also check the hand-written manifest, its markers, its unused lines, the spelling of members with no entry, duplicate members for one entry and members one SDK alone has.
 - **Amends ADR 0092.** Rust's `page.pause()` has one `.until(..)` taking `impl Into<PauseUntil>`, with no `.until_url(..)`. A note sits under its "What it takes" item.
 - **Amends ADR 0093.** Rust's Label declaration is one `crawl.label` taking a name or a `LabelDeclaration` with `payload`, `settings` and `login` builder methods, so `label_with` and `login_for` are gone, and Rust's `run.add` is `run.add_seed`, taking `impl Into<Seed>`. Notes sit under its login step, its Rust declaration and its `run.addSeed` items.
 - **Amends ADR 0100.** Its Agent's MCP tool and any CLI command are named by this ADR's rules, and its profiles and in-task Success check on the CLI and MCP go to area 11's spec. Notes sit under its "Unchanged from ADR 0011" item and its hand-off to this ticket.

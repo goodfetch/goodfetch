@@ -46,6 +46,7 @@ A program hands Collie's built-in Agent one objective with `page.agent(task, opt
   - `steps`, every step of the task;
   - `usage`, ADR 0101's `ModelUsage` for the whole task;
   - `page`, the page where the task ended.
+  > Amended by [ADR 0117](0117-what-coding-agents-misread-is-reshaped-an-ai-result-holds-its-answer-in-how-it-ended-resource-types-are-blocked-by-a-setting-and-a-start-names-its-run-id.md): `output` and `partial` sit in `ended`: `finished` with `output`, `stopped` with its `reason` and `partial` (narrowed on `ended.kind` in TypeScript, the classes `Finished` and `Stopped` in Python, an exhaustive `Ended<T>` in Rust).
 - **`output`** is a complete `T`: the model's final answer, checked against the schema and the program's validators (ADR 0082) within ADR 0012's bounded retries. An answer that never passes raises `model_output_invalid` (ADR 0101).
 - **Grounding holds the output's values** (ADR 0013).
   - Each value must appear in a page the task observed, or in the result of one of its Agent tools (the program's own data), or follow from a declared transform. Grounding records where each value was found, which is how a Plan reads it again.
@@ -53,10 +54,12 @@ A program hands Collie's built-in Agent one objective with `page.agent(task, opt
   - A value that does not is fed back once through ADR 0012's retry. If it stays ungrounded, the output is returned with `verdict: needs-review` naming the field, since a valid `T` the checks cannot prove is a Verdict's business (ADR 0029).
 - **`reported`** is the model's claim, `done` or `gave_up` with its message. It is absent when no model claimed anything in this task: it stopped before a claim, or it was replayed whole with no model call.
 - **`ended`** is `finished` when the model reported done or gave up, or when a replay reached its end and its Success check ran (a task that declares none is never `verified`, so its entry is never promoted and never replayed); otherwise `stopped` with its reason (below).
+  > Amended by [ADR 0117](0117-what-coding-agents-misread-is-reshaped-an-ai-result-holds-its-answer-in-how-it-ended-resource-types-are-blocked-by-a-setting-and-a-start-names-its-run-id.md): a model that gives up stops the task with the reason `gave_up`, carrying `partial`, so `finished` always holds a complete output; `reported` still holds the claim `gave_up` and its message.
 - **`partial`, from a `note` action** (G1, S1). The Agent has a built-in action that notes what it has found so far against the schema. `partial` holds the latest noted or answered value of each top-level field, or of each element for a list output, that is valid against its own part of the schema and Grounded, and nothing else. It is set only when `output` is not.
   - TypeScript types it `PartialOf<T>`: `Partial<T>` for an object, the elements for a list.
   - Python gives a mapping or a list of validated values.
   - Rust gives `PartialOutput`, with typed accessors.
+  > Amended by [ADR 0117](0117-what-coding-agents-misread-is-reshaped-an-ai-result-holds-its-answer-in-how-it-ended-resource-types-are-blocked-by-a-setting-and-a-start-names-its-run-id.md): `partial` sits in `ended`, when the task `stopped`.
 
   Stagehand v3 returned `completed: false` with the actions taken, and Notte `success=False` with its answer. The AI SDK's `.output` throws when the last step ended on tool calls.
 
@@ -78,6 +81,7 @@ A program hands Collie's built-in Agent one objective with `page.agent(task, opt
     > Amended by [ADR 0107](0107-a-runs-model-allowance-refuses-its-model-calls-once-spent-while-the-run-goes-on.md): `model_allowance`: the Run's Model allowance (`ai.allowance.*`) is reached, naming the setting, its value and its layer; the Run goes on, and a task that starts after it is reached returns it with no step.
   - `abort`: someone other than the caller stopped the task, with who: a person in the Console, another Client, or the program closing the page or the Run.
     > Amended by [ADR 0113](0113-a-human-pause-whose-page-closes-raises-call-cancelled-naming-what-closed-and-a-lost-live-view-ends-no-pause.md): `by` also takes `browser`, for a page or browser closed in the browser outside every Client.
+  > Amended by [ADR 0117](0117-what-coding-agents-misread-is-reshaped-an-ai-result-holds-its-answer-in-how-it-ended-resource-types-are-blocked-by-a-setting-and-a-start-names-its-run-id.md): `steps` stay on the result and `partial` sits in `ended`, and a model that gives up is one more early end: `gave_up`, the model reported that it gave up, its message in `reported`.
 
   The leaders split here: OpenAI Agents, Pydantic AI, Midscene and Playwright 1.58 raise at their cap, while the AI SDK, Stagehand v3, Notte and Browser Use return. The caller's own cancellation keeps its language's form (ADR 0080).
 
@@ -241,7 +245,7 @@ Under ADR 0079's rule, the call raises when it cannot keep its promise, and AI w
 - **ADR 0037's matrix:** AI-05 (the agent loop) and V3-04 (the built-in agent loop) cite this ADR, as do the pains `agent-deterministic-replay`, `silent-false-success`, `agent-unreliable-drift`, `agent-human-in-loop` and `maint-site-drift`.
 - **Tests.** TESTING.md's Agent conformance cases run in every SDK against the Scripted engine and the Scripted model (ADRs 0065, 0069).
 - **Other tickets of the map.**
-  - [The Run in code](https://github.com/goodfetch/goodfetch/issues/478) gives the Run's report, where the Run's Verdict and `PlanReport` sit, and reading the Run trace from code.
+  - [The Run in code](https://github.com/goodfetch/goodfetch/issues/478) (ADR 0102) gives the Run's report, where the Run's Verdict and `PlanReport` sit, and reading the Run trace from code.
   - [Effects a program declares in code](https://github.com/goodfetch/goodfetch/issues/500) decides whether an Agent tool takes a function that tells whether its Effect already happened.
     > Amended by [ADR 0106](0106-a-program-declares-an-effect-as-a-keyed-block-whose-output-the-effect-journal-keeps-judged-by-what-the-engine-sent.md): it takes none; a tool that is not read-only may be `repeatable` instead, and its call carries an `idempotencyKey`.
   - [Mapping the catalog to each language and surface](https://github.com/goodfetch/goodfetch/issues/471) spells the Agent's CLI command, MCP tool and profiles, and how those surfaces state a Success check inside the task.
@@ -249,5 +253,5 @@ Under ADR 0079's rule, the call raises when it cannot keep its promise, and AI w
   - [Testing a user's crawl or automation](https://github.com/goodfetch/goodfetch/issues/482) replays a task's Plan entry in tests.
     > Amended by [ADR 0105](0105-a-programs-tests-replay-a-response-recording-in-a-test-engine-that-reaches-no-site.md): a test starts its Run with the Plan and `plan.frozen`, with a Response recording for the pages, so a replayed task makes neither a request nor a model call.
   - [API sketch: type-checked stubs and golden scenarios](https://github.com/goodfetch/goodfetch/issues/483) writes golden scenario 11's programs.
-  - The map's fog item "A call scope for Limits" gets nothing from scenario 11, whose whole program is one task in its own Run; scenario 08's model cap is [Capping a crawl's model use without stopping its Run](https://github.com/goodfetch/goodfetch/issues/513)'s.
+  - The map's fog item "A call scope for Limits" gets nothing from scenario 11, whose whole program is one task in its own Run; scenario 08's model cap is [Capping a crawl's model use without stopping its Run](https://github.com/goodfetch/goodfetch/issues/513)'s (ADR 0107).
 - **The `prototype/sdk-api` sketch** holds these signatures in its `agent` files for each language. The pain coverage matrix closes P04's Agent part as API.

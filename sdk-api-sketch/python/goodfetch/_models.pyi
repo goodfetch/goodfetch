@@ -25,8 +25,8 @@ from goodfetch._time import Money
 ModelReference: TypeAlias = str
 """A Model reference: a Model provider's name, a slash, and that provider's own model ID verbatim, so a gateway's ID
 keeps its slash: `"anthropic/claude-sonnet-4-5"`, `"vercel/anthropic/claude-sonnet-4.5"`, `"ollama/qwen3:8b"`. The
-provider must be built in or declared where the scope opens (`SettingInvalidError`, naming the closest); the model ID is
-the provider's to accept (`ModelNotFoundError`)."""
+provider must be built in, declared, an allowed Model provider Plugin or the program's own where the scope opens
+(`SettingInvalidError`, naming the closest); the model ID is the provider's to accept (`ModelNotFoundError`)."""
 
 BuiltinModelProvider: TypeAlias = Literal[
     "openai", "anthropic", "google", "vercel", "openrouter", "ollama", "llamacpp", "lmstudio", "vllm"
@@ -134,7 +134,7 @@ class ModelToolChoice:
 class ModelRequest:
     """What the engine asks a handler: Goodfetch's own types, so no provider SDK is needed (G7)."""
 
-    model: str
+    model_id: str
     """The model ID after the provider's name in the Model reference."""
     run_id: str
     """The Run asking."""

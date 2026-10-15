@@ -212,8 +212,8 @@ pub enum ErrorCode {
     ModelNotFound,
     /// `model_capability_missing`: the operation needs a capability the model does not declare.
     ModelCapabilityMissing,
-    /// `model_handler_failed`: the program's own Model provider raised an exception that is not a
-    /// Goodfetch error; TypeScript's and Python's, since a Rust program fails a call with an [`Error`].
+    /// `model_handler_failed`: the program's own Model provider failed with an error that is not a
+    /// Goodfetch [`Error`].
     ModelHandlerFailed,
     /// `model_unauthorized`, a refusal: the provider rejected the key. Not retryable.
     ModelUnauthorized,

@@ -409,7 +409,8 @@ class AsyncGoodfetch(AsyncConnection):
         `project` is the project configuration file: left out, found upward from the working directory as the CLI does;
         `None`, none (ADR 0083). `resolve_secret` answers `caller:` Secret references from the program's own store, at
         the moment of use (ADR 0092). `model_providers` are Model providers answered by the program's own code, by the
-        name Model references use: `"mine/any-model"` for `{"mine": handler}` (ADR 0101).
+        name Model references use: `"mine/any-model"` for `{"mine": handler}`, from the Runs this connection opens; a
+        name taken by a built-in, a declared provider or a Plugin raises `SettingInvalidError` (ADR 0101).
         `fetch_backends`, `proxy_providers` and `sinks` are the program's own Plugins of those kinds, SDK handlers by
         the name settings choose them by (ADR 0104): the only Fetch backend or Proxy provider becomes its choosing
         setting's value with the run-layer origin `registered`, which every other run-layer value replaces, two fail

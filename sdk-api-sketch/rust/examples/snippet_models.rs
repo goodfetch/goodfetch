@@ -95,10 +95,10 @@ async fn typed_book(local: bool) -> Result<Option<Book>, Error> {
 /// The program's own Model provider (ADR 0033's SDK-handler form): calls arrive as a stream, answered
 /// with Goodfetch's own types, no provider crate.
 async fn in_house_provider(gf: &Goodfetch) -> Result<(), Error> {
-    let mut calls = gf.model_requests("inhouse"); // "inhouse/<anything>" reaches it while this is open
+    let mut calls = gf.model_requests("inhouse"); // declared with ConnectOptions::model_provider
     while let Some(call) = calls.next().await {
         let call = call?;
-        let _ = &call.request().messages; // the program's own inference service answers them
+        let _ = (&call.request().model_id, &call.request().messages); // the program's own service answers them
         call.answer(ModelResponse::text(
             "{}".to_owned(),
             ReportedTokens::new(812, 64),
@@ -130,7 +130,11 @@ async fn providers() -> Result<(), Error> {
         .model_provider("lab", lab)
         .set(timeout::MODEL, Some(Duration::from_secs(120))) // a slow server, so both are raised
         .set(timeout::AI, Some(Duration::from_secs(300)));
-    let gf = Goodfetch::connect(ConnectOptions::default().settings(settings)).await?;
+    // "inhouse/<anything>" reaches the program's own provider, read by `in_house_provider`.
+    let options = ConnectOptions::default()
+        .model_provider("inhouse")
+        .settings(settings);
+    let gf = Goodfetch::connect(options).await?;
     let run = gf
         .collie()
         .start()

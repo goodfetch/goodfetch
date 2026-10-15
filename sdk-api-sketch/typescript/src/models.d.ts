@@ -22,8 +22,9 @@ import type { CallOptions, Money } from "./time.js";
 /**
  * A Model reference: a Model provider's name, a slash, and that provider's own model ID verbatim, so a
  * gateway's ID keeps its slash: `"anthropic/claude-sonnet-4-5"`, `"vercel/anthropic/claude-sonnet-4.5"`,
- * `"ollama/qwen3:8b"`. The provider must be built in or declared where the scope opens
- * (`setting_invalid`, naming the closest); the model ID is the provider's to accept (`model_not_found`).
+ * `"ollama/qwen3:8b"`. The provider must be built in, declared, an allowed Model provider Plugin or
+ * the program's own where the scope opens (`setting_invalid`, naming the closest); the model ID is
+ * the provider's to accept (`model_not_found`).
  */
 export type ModelReference = `${string}/${string}`;
 
@@ -127,7 +128,7 @@ export interface ModelToolCall {
 /** What the engine asks a handler: Goodfetch's own types, exported, so no provider SDK is needed (G7). */
 export interface ModelRequest {
   /** The model ID after the provider's name in the Model reference. */
-  readonly model: string;
+  readonly modelId: string;
   /** The Run asking. */
   readonly runId: string;
   readonly messages: readonly ModelMessage[];

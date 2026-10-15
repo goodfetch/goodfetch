@@ -72,7 +72,9 @@ export interface ConnectOptions {
   readonly resolveSecret?: ResolveSecret;
   /**
    * Model providers answered by the program's own code, by the name Model references use, such as
-   * `"mine/any-model"` for `{ mine: handler }` (ADR 0101; ADR 0033's SDK-handler form).
+   * `"mine/any-model"` for `{ mine: handler }`, from the Runs this connection opens (ADR 0101; ADR
+   * 0033's SDK-handler form). A name taken by a built-in, a declared provider or a Plugin fails with
+   * `setting_invalid`.
    */
   readonly modelProviders?: Readonly<Record<string, ModelProviderHandler>>;
   /**

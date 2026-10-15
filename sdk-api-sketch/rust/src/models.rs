@@ -6,7 +6,8 @@
 //!   configured (ADR 0043).
 //! - Model providers are built in (`openai`, `anthropic`, `google`, `vercel`, `openrouter`, and the
 //!   local `ollama`, `llamacpp`, `lmstudio`, `vllm`), declared with [`Settings::model_provider`], a
-//!   Model provider Plugin the operator allowed (ADR 0033), named by its manifest, or
+//!   Model provider Plugin the operator allowed (ADR 0033), named by its manifest, or declared with
+//!   [`ConnectOptions::model_provider`] and
 //!   answered by the program through [`Goodfetch::model_requests`] (ADR 0033's SDK-handler form, an
 //!   [`EventStream`] as ADR 0092's `secret_requests`, since the async API spawns nothing, ADR 0081).
 //! - Capabilities are declared, never sniffed from a name; prices come from the price table, set only
@@ -19,8 +20,8 @@ use std::fmt;
 use std::time::Duration;
 
 use crate::concurrency::EventStream;
-use crate::lifecycle::{Goodfetch, Run};
-use crate::results::Error;
+use crate::hooks::HandlerError;
+use crate::lifecycle::{ConnectOptions, Goodfetch, Run};
 use crate::sessions::SecretReference;
 use crate::settings::Settings;
 use crate::time::{Call, Money};
@@ -28,8 +29,9 @@ use crate::time::{Call, Money};
 /// A Model reference: a Model provider's name, a slash, and that provider's own model ID verbatim,
 /// so a gateway's ID keeps its slash: `"anthropic/claude-sonnet-4-5"`,
 /// `"vercel/anthropic/claude-sonnet-4.5"`, `"ollama/qwen3:8b"`. Checked where the scope opens or the
-/// call starts: a provider neither built in nor declared fails with `setting_invalid`, naming the
-/// closest; the model ID is the provider's to accept (`model_not_found`).
+/// call starts: a provider that is not built in, declared, an allowed Model provider Plugin or the
+/// program's own fails with `setting_invalid`, naming the closest; the model ID is the provider's to
+/// accept (`model_not_found`).
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct ModelReference(String);
 
@@ -137,7 +139,8 @@ impl ModelDeclaration {
         unimplemented!()
     }
 
-    /// The structured output strategies the model accepts, best first.
+    /// The structured output strategies the model accepts, best first; `Unknown` is refused here
+    /// with `setting_invalid` (G3).
     pub fn strategies(self, strategies: &[StructuredOutputStrategy]) -> Self {
         let _ = strategies;
         unimplemented!()
@@ -291,7 +294,7 @@ pub struct ModelToolCall {
 #[non_exhaustive]
 pub struct ModelRequest {
     /// The model ID after the provider's name in the Model reference.
-    pub model: String,
+    pub model_id: String,
     /// The conversation.
     pub messages: Vec<ModelMessage>,
     /// The tools offered.
@@ -366,8 +369,7 @@ impl ModelResponse {
 /// One model call the engine asks the program to answer. The engine journals, counts and caps it
 /// (ADR 0012) and bounds it with `timeout.model`; dropped unanswered, it fails as the provider being
 /// unreachable. The provider gets the `Prompt` strategy unless its models declare others, and only
-/// configuration prices it. `model_handler_failed` is TypeScript's and Python's: here a call fails
-/// with a Goodfetch [`Error`].
+/// configuration prices it.
 #[derive(Debug)]
 pub struct ModelCall {
     _private: (),
@@ -396,18 +398,30 @@ impl ModelCall {
         unimplemented!()
     }
 
-    /// Fails the call: a Goodfetch [`Error`] keeps its code, such as `model_unavailable`, which the
-    /// engine retries as a provider's.
-    pub fn fail(self, error: Error) {
+    /// Fails the call: a Goodfetch [`Error`](crate::Error) keeps its code, such as `model_unavailable`, which the
+    /// engine retries as a provider's; any other error is `model_handler_failed`, with its type and
+    /// message.
+    pub fn fail(self, error: HandlerError) {
         let _ = error;
         unimplemented!()
     }
 }
 
+impl ConnectOptions {
+    /// Declares the program's own Model provider `name`, which Model references then reach as
+    /// `"<name>/<any model>"` from the Runs this connection opens, and whose calls
+    /// [`Goodfetch::model_requests`] reads. A name taken by a built-in, a declared provider or a
+    /// Plugin fails with `setting_invalid` when connecting.
+    pub fn model_provider(self, name: &str) -> Self {
+        let _ = name;
+        unimplemented!()
+    }
+}
+
 impl Goodfetch {
-    /// The model calls for the provider `name`, which Model references then reach as
-    /// `"<name>/<any model>"` while the stream is open: subscribed when called. A reference to a
-    /// name with no stream open fails with `setting_invalid` where its scope opens.
+    /// The model calls for the declared provider `name`, subscribed when called; a name not declared
+    /// with [`ConnectOptions::model_provider`] fails with `setting_invalid`. A call waits for its
+    /// stream until its own deadline.
     pub fn model_requests(&self, name: &str) -> EventStream<ModelCall> {
         let _ = name;
         unimplemented!()

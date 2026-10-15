@@ -150,7 +150,7 @@ Repo `apify/crawlee-python`, commit [`508f544`](https://github.com/apify/crawlee
   - Services are registered globally (`service_locator.set_*`, which raises `ServiceConflictError` after first use), per crawler (constructor kwargs), or per storage (`open(storage_client=...)`) ([P/docs/guides/service_locator.mdx#L48-L130](https://github.com/apify/crawlee-python/blob/508f544f7f0260b4f26b806d50e84592538f8db6/docs/guides/service_locator.mdx#L48-L130)).
   - Several resolution paths for the same services are the root of [#1653](https://github.com/apify/crawlee-python/issues/1653) and [#2242](https://github.com/apify/crawlee-python/issues/2242).
 - **Errors** ([P/src/crawlee/errors.py#L29-L140](https://github.com/apify/crawlee-python/blob/508f544f7f0260b4f26b806d50e84592538f8db6/src/crawlee/errors.py#L29-L140)):
-  - 13 flat `Exception` subclasses with no common `CrawleeError` base.
+  - 14 exception classes with no common `CrawleeError` base: 11 subclass `Exception` directly, and 3 subclass another Crawlee error (`UserHandlerTimeoutError`, `ProxyError`, `HttpClientStatusCodeError`).
   - Wrapper errors carry the crawling context (`RequestHandlerError[TCrawlingContext]`, `ContextPipelineInitializationError`).
   - Retry semantics are decided by `isinstance` branches in `_should_retry_request` and `__run_task_function`, not declared on the error types (`SessionError` means rotate the session, `HttpClientStatusCodeError` means never retry).
   - `UserHandlerTimeoutError` is exported from neither `__all__` nor the docs.

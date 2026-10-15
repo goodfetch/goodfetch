@@ -145,7 +145,7 @@ The folder holding one user's Goodfetch data, caches and configuration on a mach
 _Avoid_: data dir, app folder, install folder
 
 **Run report**:
-What a run states about itself when it ends: its Lifecycle, Verdict and Completeness, its Usage, how its requests ended, and every safeguard it ran without.
+What a run states about itself when it ends: its Lifecycle, Verdict and Completeness, its Usage, every safeguard it ran without and, for a crawl, how its requests ended.
 _Avoid_: run result, summary, statistics, stats
 
 **Run index**:

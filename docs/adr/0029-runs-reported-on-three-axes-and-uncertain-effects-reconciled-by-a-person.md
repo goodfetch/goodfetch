@@ -7,13 +7,14 @@ Every Client reports a run on three separate axes instead of one status:
   - `stopped`: ended early by a Limit, an abort, the loss of its engine, or exhausted resources (ADR 0040)
     > Amended by [ADR 0080](0080-sdk-timeouts-nest-waits-arm-when-called-and-a-program-sets-limits-but-never-raises-them.md): a Run's own timeout is a fifth cause. A Run it stops is never `complete`, keeps a Checkpoint, and resumes with a fresh clock.
   - `finished`: reached its end
-    > Amended by [ADR 0102](0102-a-program-names-its-run-by-an-id-that-a-start-resumes-ends-it-with-a-run-report-and-reads-what-waits-and-why.md): a finished crawl's Run returns to `running` when its program retries its failed requests, its Verdict and Completeness given anew when it ends, as "it did not happen" reopens a run; and a Collie Run its program finishes is `complete`, since the program defines its scope.
+    > Amended by [ADR 0102](0102-a-program-names-its-run-by-an-id-that-a-start-resumes-ends-it-with-a-run-report-and-reads-what-waits-and-why.md): a finished crawl's Run returns to `running` when its program retries its failed requests, its Verdict and Completeness given anew when it ends, as "it did not happen" reopens a run.
   - `failed`: ended by an error in the engine or the user's code
 - **Verdict** says whether the run's committed results are proven by the run's own checks. It is given once the run is no longer `running`, `failed` runs included, and reads the latest evaluation of each check:
   - `verified`: every check the run relies on passed (its Success checks, Page checks and Grounding), none of those checks nor the Target fingerprint check before the first Effect was switched off (ADR 0023), and no Effect is left uncertain. An AI task also needs a declared Success check that passed (ADR 0013).
   - `rejected`: a declared Success check failed.
   - `needs-review`: everything else, including an AI task with no Success check, a run whose checks were switched off (ADRs 0013 and 0023), and a run with an uncertain Effect.
 - **Completeness** says whether those results cover the scope: `complete`, `incomplete` or `unverified` (ADR 0005). Like the Verdict, it is given once the run is no longer `running`.
+  > Amended by [ADR 0102](0102-a-program-names-its-run-by-an-id-that-a-start-resumes-ends-it-with-a-run-report-and-reads-what-waits-and-why.md): a Collie Run its program finishes is `complete`, since the program defines its scope and says it reached its end.
 
 A single status would have to merge facts that vary independently:
 - A run stopped by its Limit can hold Records whose checks passed and still be `incomplete`.

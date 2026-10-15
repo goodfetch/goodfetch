@@ -40,6 +40,7 @@ Decided in [Injection and determinism: time, randomness, storage, network and OS
 
 - **A `GOODFETCH_HOME` setting** roots one user's Goodfetch data, caches and configuration: run folders, the Run index, the Usage ledger, the Politeness file, the Schedule store, the Response cache, the browser cache, user configuration, and the Daemon's runtime files and socket, so a test Daemon never meets another test's or the user's own.
   > Amended by [ADR 0083](0083-a-program-sets-settings-in-one-typed-option-explicit-values-beat-the-environment-and-no-value-is-silently-ignored.md): `GOODFETCH_HOME` is a deployment variable, read from the SDK's or the binary's environment map, not a key in `settings` or a configuration file, which it locates.
+  > Amended by [ADR 0105](0105-a-programs-tests-replay-a-response-recording-in-a-test-engine-that-reaches-no-site.md): a testing kit's test engine keeps everything in its own temporary home, but reads browsers, read-only, from the browser cache of the caller's home, the one `GOODFETCH_HOME` names or the operating system's usual folders.
   - Unset, it means the operating system's usual folders.
   - More specific settings still win: `GOODFETCH_BROWSERS_PATH`, `GOODFETCH_ENGINE_PATH` and `run_state.location`.
     > Amended by [ADR 0083](0083-a-program-sets-settings-in-one-typed-option-explicit-values-beat-the-environment-and-no-value-is-silently-ignored.md): `GOODFETCH_BROWSERS_PATH` and `GOODFETCH_ENGINE_PATH` are deployment variables, read from the environment map, not settings; `run_state.location` stays a setting.

@@ -107,7 +107,7 @@ export interface Export {
   sha256(): string;
   /**
    * Copies it to a path on the program's machine through a hidden temporary file renamed over the
-   * path once whole, so the path holds the whole Export or what it held before (ADR 0108). It creates
+   * path once whole, so the path holds the whole Export or what it held before (ADR 0116). It creates
    * missing parent folders and replaces an existing file, as Playwright's `saveAs` does. A path it
    * cannot write throws `PathNotWritableError`; full or failing storage throws `FileWriteFailedError`
    * with `side: "program"`, and calling it again after freeing space works, since the engine still

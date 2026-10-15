@@ -551,7 +551,7 @@ class AsyncDownload:
     async def save_as(self, path: str | Path, *, timeout: Timeout = ...) -> None:
         """Streams the file to this path on the program's machine; a failed download raises `DownloadFailedError`.
 
-        A failed write raises `PathNotWritableError` or `FileWriteFailedError`, leaving the path as it was (ADR 0108).
+        A failed write raises `PathNotWritableError` or `FileWriteFailedError`, leaving the path as it was (ADR 0116).
         """
 
     async def cancel(self, *, timeout: Timeout = ...) -> None: ...
@@ -721,7 +721,7 @@ class AsyncPageAPI(_AsyncLocates):
         """Secrets are masked by the engine (ADR 0014); `path` also writes it on the program's machine.
 
         That file is written whole or not at all; a failed write raises `PathNotWritableError` or
-        `FileWriteFailedError` and returns no bytes (ADR 0108).
+        `FileWriteFailedError` and returns no bytes (ADR 0116).
         """
 
     async def pdf(self, *, format: str | None = None, path: str | Path | None = None, timeout: Timeout = ...) -> bytes:

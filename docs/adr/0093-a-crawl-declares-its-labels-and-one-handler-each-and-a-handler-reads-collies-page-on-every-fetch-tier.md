@@ -18,6 +18,9 @@ Decided in [Crawl definition and handler context](https://github.com/goodfetch/g
   - `Crawl::new()` in Rust, and `goodfetch_foxhound::blocking::Crawl` for `Fn + Send + Sync + 'static` handlers (ADR 0081).
 
   A Run is started from it and resumed with it, since handlers are never persisted.
+
+  > Amended by [ADR 0104](0104-a-crawl-declares-its-hooks-per-stage-in-code-a-hook-returns-its-change-and-a-program-registers-its-own-plugins-by-name.md): a crawl's Hooks in code are declared on the `Crawl` too, one method per stage, and are never persisted either.
+
 - **Two steps per Label: declare it, then attach its handler.**
   - `crawl.label(name, { payload, settings, login })` returns the typed handle `Label<P>`.
   - `crawl.handle(label, handler)` attaches the handler. Python spells it as the decorator `@crawl.handle(label)`, which returns the function unchanged, so a test calls it as it is ([Testing a user's crawl or automation](https://github.com/goodfetch/goodfetch/issues/482)).
@@ -102,6 +105,9 @@ Decided in [Crawl definition and handler context](https://github.com/goodfetch/g
   - **`crawl.retry.max` is 2,** so three attempts, as Scrapy's `RETRY_TIMES`, the gentler of the two leaders (G5).
   - **What is retried:** an attempt whose error is retryable, such as a navigation timeout raised inside the handler (a `GoodfetchError` keeps its code and retryable flag, ADR 0079), and a handler past `timeout.handler` (ADR 0080).
   - **`handler_failed` is not retried** unless `crawl.retry.handler_failed` is on. A bug fails the same way every time, and each retry fetches the page again (G5).
+
+    > Amended by [ADR 0104](0104-a-crawl-declares-its-hooks-per-stage-in-code-a-hook-returns-its-change-and-a-program-registers-its-own-plugins-by-name.md): `crawl.retry.handler_failed` also governs `hook_failed` for a Hook's own exception, and a crawl request that failed through an SDK handler's own exception (`<kind>_handler_failed`).
+
   - **A lost lease.** An attempt whose lease ends with no word from the program ends with `handler_lost`, an `UnavailableError` that is retryable (the engine depends on the program to answer), and counts against `crawl.retry.max`, so a request that crashes the program stops after its retries in every language and engine setup:
     - its process ended, its connection dropped, or a signal it does not handle ended it (Node's Ctrl+C, SIGTERM): the engine cannot tell this from a crash, and the docs name the remedy, closing the Run on SIGINT or SIGTERM;
     - its Attached or linked engine died with it: a resume counts each attempt that the Run's committed state shows in flight (the run file, or an imported Checkpoint) as `handler_lost`. The engine commits a lease before it hands the request to the program, so no handler runs on a lease the run file does not hold.
@@ -139,12 +145,17 @@ Decided in [Crawl definition and handler context](https://github.com/goodfetch/g
   > Amended by [ADR 0106](0106-a-program-declares-an-effect-as-a-keyed-block-whose-output-the-effect-journal-keeps-judged-by-what-the-engine-sent.md): while a declared Effect's body runs in an attempt, a call that stages an output with that attempt (an enqueue, a seed, a Record, a Key-value store write) fails with `effect_staging_refused`, since a re-run that finds the Effect in the Effect journal does not run the body again.
 - **The Frontier.** Its identity for a request is the method, the URL after its rules and a hash of the body, whatever the Label, as Crawlee's `useExtendedUniqueKey` (amends ADR 0005's URL-only identity). `key` replaces that identity, a declared canonicalization that always wins. `priority` and `forefront` are ADR 0005's.
 - **Hooks keep cross-cutting policy,** such as a header on every request, and URL rewrites (ADR 0033).
+
+  > Amended by [ADR 0104](0104-a-crawl-declares-its-hooks-per-stage-in-code-a-hook-returns-its-change-and-a-program-registers-its-own-plugins-by-name.md): a before-request Hook changes a crawl request's URL and headers, never the method or the body it was enqueued with, which its context shows.
+
 - **Scope is crawl-wide, checked on every enqueue and every redirect.**
   - `crawl.scope.strategy`: `same_hostname` by default (Crawlee's default; Scrapy allows every host when `allowed_domains` is unset), or `same_domain`, `same_origin` or `all`.
   - `crawl.scope.include` and `crawl.scope.exclude`: URL patterns matched in the engine (ADR 0081). Besides the strategy, a URL must match an `include` pattern when there are any, and no `exclude` pattern; they never replace the strategy, as Crawlee v4 learned.
   - **Measured against every seed,** with hosts compared after the Frontier's fixed URL rules, so `www.` is no other host (ADR 0005). `include` and `exclude` on `enqueueLinks` only narrow.
   - **Bounds.** `crawl.max_depth` (seeds at 0) and `crawl.max_requests` (requests admitted) have no default. Reaching either refuses further enqueues with its reason and ends the Run `incomplete` (ADR 0005).
   - **No transform function:** rewriting is a Hook's.
+
+  > Amended by [ADR 0104](0104-a-crawl-declares-its-hooks-per-stage-in-code-a-hook-returns-its-change-and-a-program-registers-its-own-plugins-by-name.md): the scope is also checked on a Hook's rewrite, whatever the Hook's form, and `out_of_scope` covers a rewrite leaving it.
 
 ### Settings and the Label scope
 
@@ -155,6 +166,9 @@ Decided in [Crawl definition and handler context](https://github.com/goodfetch/g
     > Amended by [ADR 0100](0100-collies-agent-is-one-bounded-call-on-a-page-judged-by-the-programs-success-check-and-replayed-whole-from-the-plan.md): an enclosing `timeout.handler` that ends an Agent's task first fails it with `deadline_exceeded` naming that call (ADR 0080), so a Label that runs an Agent sets a longer `timeout.handler`.
 
   - every `session.*` key and `secrets.*` (ADR 0092), with a `login` step as an option of its declaration.
+
+    > Amended by [ADR 0104](0104-a-crawl-declares-its-hooks-per-stage-in-code-a-hook-returns-its-change-and-a-program-registers-its-own-plugins-by-name.md): a Label also takes `timeout.hook`, for the Hooks on its requests.
+
 - **Sessions per Label.** A Label that sets what a Session holds (`session.source`, `session.http_credentials`, `secrets.*` or a `login` step) gets Sessions from a pool of its own; Labels that set none share the Run's pool. So one crawl mixes anonymous and logged-in pages, as Scrapling routes requests to declared sessions with `sid=`, without a second Run that would split its Limits and Completeness. `session.page_check` and `session.recovery.human_pause` judge the Label's pages in whichever pool serves them, so a Page check per Label splits nothing.
 - **What a Label refuses**, with `setting_not_applicable`: the Session's identity (`browser.*`, `proxy.*`, `network.*`), which takes the Run's values in every pool, and Politeness, Site preferences, scope and Run-wide keys. The TypeScript and Python types leave them out, and Rust refuses them when the Run starts (G3).
 - **Politeness per Label is declined:** two Labels on one domain share its slot and delay with every run of the user (ADR 0053). A per-domain override, as Scrapy's `DOWNLOAD_SLOTS`, would be keyed by domain, and none is added.
@@ -245,6 +259,9 @@ Decided in [Crawl definition and handler context](https://github.com/goodfetch/g
 - **ADR 0037's matrix.**
   - RT-07, CO-03, CO-05, CO-07, CO-10 and SC-02 become `decided` by this ADR.
   - RT-04 keeps `spec`, since a stage before a retry is [Hooks and injectable components in the SDK API](https://github.com/goodfetch/goodfetch/issues/481)'s; its note names the retry settings and the failed-request handler this ADR declines.
+
+    > Amended by [ADR 0104](0104-a-crawl-declares-its-hooks-per-stage-in-code-a-hook-returns-its-change-and-a-program-registers-its-own-plugins-by-name.md): RT-04 becomes `decided`, since before request runs on every attempt with the previous attempt's error, the stage before a retry.
+
   - CO-08, CO-11, CO-15, CO-16, RT-05 and V3-01 (`decided` by ADR 0088) cite it.
   - Areas 3, 4, 5, 6 and 11 list it.
 - **Areas.**

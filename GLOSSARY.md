@@ -40,6 +40,10 @@ _Avoid_: dashboard, inspector, app
 Any program that drives the engine through its operations: an SDK, the CLI, the MCP server, the Console or Goodfetch Cloud. Speaking CDP to a browser does not make a program a Client.
 _Avoid_: frontend, binding, consumer
 
+**Connection**:
+A Client's open link to one engine, through which a program reaches its Runs, and the scope of the settings and Limits set where it opens. Closing it never stops a Daemon.
+_Avoid_: client (for the Connection), engine (for the Connection), session (a Session is a browsing identity)
+
 **SDK API**:
 What a developer writes and calls in a Goodfetch SDK: its objects, methods, types and errors, generated in part from the Operation catalog.
 _Avoid_: consumer API, public surface
@@ -165,7 +169,7 @@ The catalog of every run of one user and one product major, whichever Product ra
 _Avoid_: run registry, run database, history
 
 **Usage ledger**:
-The per-user record, on one machine or in a Daemon group, of the Usage reserved and consumed by every run of that user, which stores the Limits on the install, a Daemon, a person, a named token, a Client connection or a Partitioned crawl and against which they are held.
+The per-user record, on one machine or in a Daemon group, of the Usage reserved and consumed by every run of that user, which stores the Limits on the install, a Daemon, a person, a named token, a Connection or a Partitioned crawl and against which they are held.
 _Avoid_: billing, meter, spend log
 
 **Effect**:
@@ -205,7 +209,7 @@ A consistent, self-contained copy of a run's state from which the run can resume
 _Avoid_: snapshot, savepoint, backup
 
 **Limit**:
-A cap on the Usage of one run, or of every run counted against a scope (a Schedule, a Partitioned crawl, the install or a Daemon, a person, a named token or a Client connection), over a period or a connection's lifetime; reaching it stops runs cleanly and refuses new ones until the period ends or a person raises it.
+A cap on the Usage of one run, or of every run counted against a scope (a Schedule, a Partitioned crawl, the install or a Daemon, a person, a named token or a Connection), over a period or a Connection's lifetime; reaching it stops runs cleanly and refuses new ones until the period ends or a person raises it.
 _Avoid_: budget, quota, spending cap
 
 **Price table**:

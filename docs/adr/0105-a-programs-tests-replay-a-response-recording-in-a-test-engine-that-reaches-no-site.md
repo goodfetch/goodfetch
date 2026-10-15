@@ -119,7 +119,7 @@ ADR 0085 handed `page.clock`, `routeFromHAR` and `routeWebSocket` to this decisi
 - **Other tickets of the map.**
   - [The Run in code](https://github.com/goodfetch/goodfetch/issues/478): the Run report carries `recording`, and a resume names the same recording as the same Plan file.
   - [Crawl output in code](https://github.com/goodfetch/goodfetch/issues/479) (ADR 0103): P55's offline part is answered here; Foxhound's WARC output and a Response recording share their records.
-  - [Mapping the catalog to each language and surface](https://github.com/goodfetch/goodfetch/issues/471): the per-language forms of `Recording`, `fakeError` and the CLI's spelling of a start's `recording`.
+  - [Mapping the catalog to each language and surface](https://github.com/goodfetch/goodfetch/issues/471) (ADR 0099): a start's `recording` and `Recording` take the catalog's forms on every surface, the CLI's included; the testing kit's values (`TestEngine`, `runHandler`, `runHook`, `scriptedModel`, `fakeError` and Rust's `fake` constructors) are hand-written members, listed in each SDK's manifest, whose options follow the catalog's forms, in Rust one builder method per option.
   - [API sketch: type-checked stubs and golden scenarios](https://github.com/goodfetch/goodfetch/issues/483): golden scenario 10's programs and measures; the testing guide's sample.
 - **Glossary.** **Response recording** and **Testing kit** are added.
 - **Error codes.** The table's codes join `goodfetch-protocol`'s list through `xtask codegen`'s naming checks.

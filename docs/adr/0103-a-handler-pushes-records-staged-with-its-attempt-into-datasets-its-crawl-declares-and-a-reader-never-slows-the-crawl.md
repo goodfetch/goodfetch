@@ -41,6 +41,7 @@ Decided in [Crawl output in code](https://github.com/goodfetch/goodfetch/issues/
 ### Datasets are declared on the crawl
 
 - **The declaration.** `crawl.dataset(name, { schema, key })`, `dataset(name, schema=…, key=…)` in Python, and `crawl.dataset::<T>(name)` or `crawl.dataset_with(name, schema, key)` in Rust.
+  > Amended by [ADR 0099](0099-every-surface-spells-each-catalog-name-by-its-own-rule-shapes-come-from-declared-kinds-and-call-is-the-way-down.md): Rust's is one `crawl.dataset`, taking `impl Into<DatasetDeclaration<T>>`: a bare name, `crawl.dataset::<T>(name)`, or `crawl.dataset(DatasetDeclaration::<T>::new(name).schema(schema).key(&[…]))`, whose builder methods are named after TypeScript's `schema` and `key` options; there is no `dataset_with`.
   - It returns a typed `Dataset<I, O>` handle, with no I/O, as `crawl.label()` does (ADR 0093).
   - With no schema, it takes any JSON object (ADR 0082).
   - The engine knows every Dataset when the Run starts, so a Sink naming one is checked before the first Record (ADR 0026).

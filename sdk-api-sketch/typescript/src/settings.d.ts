@@ -109,7 +109,7 @@ export type CrawlScopeStrategy = "same_hostname" | "same_domain" | "same_origin"
 export interface CrawlScopeSettings {
   /** Built-in: `same_hostname`, Crawlee's default. */
   readonly strategy?: CrawlScopeStrategy;
-  /** Only URLs matching one of these, ANDed with the strategy, never replacing it. */
+  /** Only URLs matching one of these, which must match as well as the strategy, never replacing it. */
   readonly include?: readonly UrlPattern[];
   /** No URL matching any of these. */
   readonly exclude?: readonly UrlPattern[];

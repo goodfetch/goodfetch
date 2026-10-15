@@ -135,7 +135,7 @@ class CrawlScopeSettings(TypedDict, total=False):
     strategy: CrawlScopeStrategy
     """Built-in: `same_hostname`, Crawlee's default."""
     include: list[UrlPattern]
-    """Only URLs matching one of these, ANDed with the strategy, never replacing it."""
+    """Only URLs matching one of these, which must match as well as the strategy, never replacing it."""
     exclude: list[UrlPattern]
     """No URL matching any of these."""
 

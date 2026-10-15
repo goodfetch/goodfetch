@@ -310,7 +310,7 @@ pub mod crawl {
 
         /// `crawl.scope.strategy`.
         pub const STRATEGY: Setting<Strategy> = Setting::new("crawl.scope.strategy");
-        /// `crawl.scope.include`: only URLs matching one of these, ANDed with the strategy.
+        /// `crawl.scope.include`: only URLs matching one of these, which must match as well as the strategy.
         pub const INCLUDE: Setting<Vec<UrlPattern>> = Setting::new("crawl.scope.include");
         /// `crawl.scope.exclude`: no URL matching any of these.
         pub const EXCLUDE: Setting<Vec<UrlPattern>> = Setting::new("crawl.scope.exclude");

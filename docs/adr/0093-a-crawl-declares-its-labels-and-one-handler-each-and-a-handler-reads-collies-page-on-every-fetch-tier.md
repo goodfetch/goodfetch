@@ -134,6 +134,7 @@ Decided in [Crawl definition and handler context](https://github.com/goodfetch/g
   - `robots_txt`, `crawl_delay` and `use_signals` (ADR 0086);
   - `hook`: a before-request Hook (ADR 0033);
   - `handler`: `ctx.skip()`.
+    > Amended by [ADR 0107](0107-a-runs-model-allowance-refuses-its-model-calls-once-spent-while-the-run-goes-on.md): `model_allowance`: a `ModelAllowanceReachedError` that escaped the handler, once the Run's Model allowance is reached; the Run is then `incomplete` though it finishes.
 
   The `skipped` outcome carries `message`, the handler's or the Hook's own text. Each outcome names its request (id, URL, Label, depth); how a program reads outcomes is The Run in code's.
 

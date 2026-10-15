@@ -74,6 +74,7 @@ A program hands Collie's built-in Agent one objective with `page.agent(task, opt
   - `no_progress`: the stall rule, naming the setting and its layer;
   - `timeout`: the task's own `timeout.agent`, or the Run's timeout, naming the setting;
   - `limit`: a Limit by name, after which the Run stops too (ADR 0080);
+    > Amended by [ADR 0107](0107-a-runs-model-allowance-refuses-its-model-calls-once-spent-while-the-run-goes-on.md): `model_allowance`: the Run's Model allowance (`ai.allowance.*`) is reached, naming the setting, its value and its layer; the Run goes on, and a task that starts after it is reached returns it with no step.
   - `abort`: someone other than the caller stopped the task, with who: a person in the Console, another Client, or the program closing the page or the Run.
 
   The leaders split here: OpenAI Agents, Pydantic AI, Midscene and Playwright 1.58 raise at their cap, while the AI SDK, Stagehand v3, Notte and Browser Use return. The caller's own cancellation keeps its language's form (ADR 0080).

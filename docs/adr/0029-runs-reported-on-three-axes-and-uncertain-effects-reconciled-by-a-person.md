@@ -19,6 +19,7 @@ Every Client reports a run on three separate axes instead of one status:
 
 A single status would have to merge facts that vary independently:
 - A run stopped by its Limit can hold Records whose checks passed and still be `incomplete`.
+  > Amended by [ADR 0107](0107-a-runs-model-allowance-refuses-its-model-calls-once-spent-while-the-run-goes-on.md): a Run that skipped a crawl request for its Model allowance is `incomplete` though its Lifecycle is `finished`, its reason naming the allowance and the count of requests it skipped.
 - A finished crawl can be `verified` with an `unverified` Completeness, when offset pagination left the engine unable to vouch for full coverage.
 - A finished agent task without a Success check is `needs-review`.
 - A Human pause does not change the lifecycle, because only the affected Session waits.

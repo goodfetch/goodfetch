@@ -42,7 +42,7 @@ export async function authorOfFirstLoveQuote(): Promise<z.infer<typeof Author>> 
 
   // A Success check, without a model: the Run is `verified` only if it holds, and only a verified
   // Run promotes a new Plan version (ADR 0009).
-  await expect(page).toHaveURL("https://quotes.toscrape.com/author/**");
+  await expect(page).toHaveURL(/^https:\/\/quotes\.toscrape\.com\/author\//); // a string would have to equal the URL, as in Playwright
   const { output: author } = await page.extract("the author's name, birth date and birthplace", Author);
 
   const report = await finish(run);
@@ -84,13 +84,19 @@ export async function travelBooks(run: Run, playwrightPage: { createCDPSession()
 }
 
 // `observe` finds without acting; the program acts on a candidate through its ordinary locator.
-// Values typed into the page travel as variables: the model and the Plan see only `%query%`.
 export async function search(page: Page, query: string): Promise<void> {
   const { output: boxes } = await page.observe("the search box in the header");
   const [box] = boxes;
   if (box === undefined) return; // none is an answer
   await box.locator.fill(query);
-  await page.act("type %query% into the search box and submit it", { variables: { query } });
+  await box.locator.press("Enter");
+}
+
+// The same with `act`, one action per call. Values typed into the page travel as variables: the
+// model and the Plan see only `%query%`, so one Plan step serves every query.
+export async function searchWithAct(page: Page, query: string): Promise<void> {
+  await page.act("type %query% into the search box", { variables: { query } });
+  await page.act("submit the search");
 }
 
 // A program's own agent loop reads the observation and acts on references (Playwright 1.59+'s names).

@@ -16,8 +16,8 @@ pub mod settings;
 pub mod time;
 
 pub use ai::{
-    Act, AriaSnapshot, AriaSnapshotMode, Drift, Expectable, Extract, ExtractMode, ExtractionIncomplete, ExtractionInvalid,
-    LocatorExpectations, MissingField, Observe, Observed, PageExpectations, PerformedAction, PlanDrift, PlanReport, PlanStatus,
+    Act, AriaSnapshot, AriaSnapshotMode, Drift, EffectNotConfirmed, EffectUncertain, Expectable, Expected, Extract, ExtractMode, ExtractionIncomplete, ExtractionInvalid,
+    LocatorExpectations, MissingField, ModelNotConfigured, Observe, Observed, PageExpectations, PerformedAction, PlanDrift, PlanInvalid, PlanReport, PlanStatus, PlanStepMissing,
     ResponseExpectations, StepReport, StepResult, StepSource, SuccessCheckFailed, TargetNotFound, Usage, VariablesMismatch,
     WhyNoRepair, expect,
 };

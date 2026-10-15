@@ -1,6 +1,7 @@
 """Snippet for Collie's AI verbs and Plans (#473, ADR 0091), on golden scenarios 02, 03, 09 and 11."""
 
 import logging
+import re
 from collections.abc import Awaitable, Callable
 from decimal import Decimal
 from typing import Literal
@@ -52,7 +53,7 @@ async def author_of_first_love_quote() -> Author:
 
         # A Success check, without a model: the Run is `verified` only if it holds, and only a verified Run promotes
         # a new Plan version (ADR 0009).
-        await expect(page).to_have_url("https://quotes.toscrape.com/author/**")
+        await expect(page).to_have_url(re.compile(r"^https://quotes\.toscrape\.com/author/"))  # a str must equal the URL
         author = (await page.extract("the author's name, birth date and birthplace", Author)).output
 
         report = await finish(run)
@@ -94,13 +95,19 @@ async def travel_books(run: AsyncRun, playwright_page: BorrowableAsyncPage) -> l
 
 
 async def search(page: AsyncPage, query: str) -> None:
-    """`observe` finds without acting; the program acts on a candidate through its ordinary locator. Values typed into
-    the page travel as variables: the model and the Plan see only `%query%`."""
+    """`observe` finds without acting; the program acts on a candidate through its ordinary locator."""
     boxes = (await page.observe("the search box in the header")).output
     if not boxes:
         return  # none is an answer
     await boxes[0].locator.fill(query)
-    await page.act("type %query% into the search box and submit it", variables={"query": query})
+    await boxes[0].locator.press("Enter")
+
+
+async def search_with_act(page: AsyncPage, query: str) -> None:
+    """The same with `act`, one action per call. Values typed into the page travel as variables: the model and the Plan
+    see only `%query%`, so one Plan step serves every query."""
+    await page.act("type %query% into the search box", variables={"query": query})
+    await page.act("submit the search")
 
 
 async def own_agent_loop(page: AsyncPage, ask_model: Callable[[str], Awaitable[tuple[str, bool]]]) -> None:

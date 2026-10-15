@@ -27,9 +27,11 @@ use serde::de::DeserializeOwned;
 
 use crate::data::Schema;
 use crate::lifecycle::Page;
-use crate::page::{Locator, Response, TextMatch};
+use crate::page::{Locator, Response};
+#[cfg(doc)]
+use crate::page::TextMatch;
 use crate::results::Error;
-use crate::time::{Call, CallFuture, Count, UrlMatcher};
+use crate::time::{Call, CallFuture, Count};
 
 /// Placeholder: Usage and cost on every result are #475's.
 #[derive(Debug, Clone, Default)]
@@ -338,6 +340,29 @@ pub enum PlanStatus {
 
 // Success checks.
 
+/// What a text or URL check expects, as in Playwright's assertions: a `&str` matches the whole value
+/// (`to_have_url`'s exactly, text after whitespace is normalized), [`Expected::regex`] a pattern run
+/// in the engine. Unlike a locator's [`TextMatch`], a string is never a substring here.
+#[derive(Debug, Clone)]
+pub struct Expected {
+    _private: (),
+}
+
+impl Expected {
+    /// A regular expression, run in the engine.
+    pub fn regex(pattern: &str) -> Self {
+        let _ = pattern;
+        unimplemented!()
+    }
+}
+
+impl From<&str> for Expected {
+    fn from(text: &str) -> Self {
+        let _ = text;
+        unimplemented!()
+    }
+}
+
 /// What [`expect`] takes: a page, a locator or a response.
 pub trait Expectable {
     /// The assertions offered on it.
@@ -378,14 +403,14 @@ impl PageExpectations {
         unimplemented!()
     }
 
-    /// The page's URL matches.
-    pub fn to_have_url(self, url: impl Into<UrlMatcher>) -> Call<()> {
+    /// The page's URL: a string must equal it, as in Playwright.
+    pub fn to_have_url(self, url: impl Into<Expected>) -> Call<()> {
         let _ = url.into();
         unimplemented!()
     }
 
     /// The page's title matches.
-    pub fn to_have_title(self, title: impl Into<TextMatch>) -> Call<()> {
+    pub fn to_have_title(self, title: impl Into<Expected>) -> Call<()> {
         let _ = title.into();
         unimplemented!()
     }
@@ -435,7 +460,7 @@ impl LocatorExpectations {
     }
 
     /// The text contains each expected part.
-    pub fn to_contain_text(self, expected: impl Into<TextMatch>) -> Call<()> {
+    pub fn to_contain_text(self, expected: impl Into<Expected>) -> Call<()> {
         let _ = expected.into();
         unimplemented!()
     }
@@ -447,25 +472,31 @@ impl LocatorExpectations {
     }
 
     /// The accessible description matches.
-    pub fn to_have_accessible_description(self, expected: impl Into<TextMatch>) -> Call<()> {
+    pub fn to_have_accessible_description(self, expected: impl Into<Expected>) -> Call<()> {
+        let _ = expected.into();
+        unimplemented!()
+    }
+
+    /// The accessible error message matches.
+    pub fn to_have_accessible_error_message(self, expected: impl Into<Expected>) -> Call<()> {
         let _ = expected.into();
         unimplemented!()
     }
 
     /// The accessible name matches.
-    pub fn to_have_accessible_name(self, expected: impl Into<TextMatch>) -> Call<()> {
+    pub fn to_have_accessible_name(self, expected: impl Into<Expected>) -> Call<()> {
         let _ = expected.into();
         unimplemented!()
     }
 
     /// The attribute is present, with this value when given.
-    pub fn to_have_attribute(self, name: &str, value: Option<TextMatch>) -> Call<()> {
+    pub fn to_have_attribute(self, name: &str, value: Option<Expected>) -> Call<()> {
         let _ = (name, value);
         unimplemented!()
     }
 
     /// The class attribute matches.
-    pub fn to_have_class(self, expected: impl Into<TextMatch>) -> Call<()> {
+    pub fn to_have_class(self, expected: impl Into<Expected>) -> Call<()> {
         let _ = expected.into();
         unimplemented!()
     }
@@ -477,13 +508,13 @@ impl LocatorExpectations {
     }
 
     /// The computed style matches.
-    pub fn to_have_css(self, name: &str, value: impl Into<TextMatch>) -> Call<()> {
+    pub fn to_have_css(self, name: &str, value: impl Into<Expected>) -> Call<()> {
         let _ = (name, value.into());
         unimplemented!()
     }
 
     /// The id matches.
-    pub fn to_have_id(self, id: impl Into<TextMatch>) -> Call<()> {
+    pub fn to_have_id(self, id: impl Into<Expected>) -> Call<()> {
         let _ = id.into();
         unimplemented!()
     }
@@ -501,19 +532,19 @@ impl LocatorExpectations {
     }
 
     /// The text matches.
-    pub fn to_have_text(self, expected: impl Into<TextMatch>) -> Call<()> {
+    pub fn to_have_text(self, expected: impl Into<Expected>) -> Call<()> {
         let _ = expected.into();
         unimplemented!()
     }
 
     /// The input value matches.
-    pub fn to_have_value(self, value: impl Into<TextMatch>) -> Call<()> {
+    pub fn to_have_value(self, value: impl Into<Expected>) -> Call<()> {
         let _ = value.into();
         unimplemented!()
     }
 
     /// The selected values match.
-    pub fn to_have_values(self, values: Vec<TextMatch>) -> Call<()> {
+    pub fn to_have_values(self, values: Vec<Expected>) -> Call<()> {
         let _ = values;
         unimplemented!()
     }
@@ -618,12 +649,14 @@ pub struct ExtractionInvalid {
 #[derive(Debug, Clone)]
 #[non_exhaustive]
 pub struct SuccessCheckFailed {
-    /// The check in Rust: `expect(&page).to_have_url("https://quotes.toscrape.com/author/**")`.
+    /// The Success check in Rust: `expect(&page).to_have_url(Expected::regex("^https://quotes\\.toscrape\\.com/author/"))`.
     pub check: String,
     /// What it expected.
     pub expected: String,
     /// The last value seen, or `None` when no element matched.
     pub observed: Option<String>,
+    /// The timeout that passed.
+    pub timeout: Duration,
 }
 
 /// Details of `variables_mismatch`.
@@ -636,4 +669,54 @@ pub struct VariablesMismatch {
     pub unused: Vec<String>,
     /// Names both a variable and a bound Secret placeholder.
     pub conflicting: Vec<String>,
+}
+
+/// Details of `plan_step_missing`.
+#[derive(Debug, Clone)]
+#[non_exhaustive]
+pub struct PlanStepMissing {
+    /// The call's instruction.
+    pub instruction: String,
+    /// The Plan file, or `None` when the Run named none.
+    pub file: Option<std::path::PathBuf>,
+}
+
+/// Details of `plan_invalid`.
+#[derive(Debug, Clone)]
+#[non_exhaustive]
+pub struct PlanInvalid {
+    /// The Plan file.
+    pub file: std::path::PathBuf,
+    /// What is wrong with it.
+    pub problem: String,
+}
+
+/// Details of `model_not_configured`.
+#[derive(Debug, Clone)]
+#[non_exhaustive]
+pub struct ModelNotConfigured {
+    /// The call that needed a model.
+    pub instruction: String,
+}
+
+/// Details of `effect_uncertain`. Never retried: a person reconciles it (ADR 0029).
+#[derive(Debug, Clone)]
+#[non_exhaustive]
+pub struct EffectUncertain {
+    /// The step's instruction.
+    pub instruction: String,
+    /// The Effect journal's entry.
+    pub journal_id: String,
+}
+
+/// Details of `effect_not_confirmed`.
+#[derive(Debug, Clone)]
+#[non_exhaustive]
+pub struct EffectNotConfirmed {
+    /// The step's instruction.
+    pub instruction: String,
+    /// Its ADR 0014 category.
+    pub category: String,
+    /// `person` when declined, `timeout` when the Human pause expired.
+    pub by: String,
 }

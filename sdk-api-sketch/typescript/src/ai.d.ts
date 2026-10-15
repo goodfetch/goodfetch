@@ -15,7 +15,7 @@ import type { JsonValue, Schema, SchemaOutput } from "./data.js";
 import type { Page } from "./lifecycle.js";
 import type { Locator, Response } from "./page.js";
 import type { ModelError, PageError, ProgramError, RefusedError } from "./results.js";
-import type { CallOptions, Count, UrlMatcher } from "./time.js";
+import type { CallOptions, Count } from "./time.js";
 
 /** Placeholder: how a program names a model is #475's (ADR 0012's gateways, local servers and callbacks). */
 export type ModelChoice = string;
@@ -172,12 +172,14 @@ export interface PlanReport {
 
 /** Options of a Success check. Its timeout is `timeout.wait` (30 s), not Playwright's 5 s (G1). */
 export type ExpectOptions = CallOptions;
+/** As in Playwright's assertions: a string matches the whole value (text after whitespace is normalized), a RegExp a pattern. */
 export type TextExpected = string | RegExp;
 
 /** Playwright's page assertions. Each call is a Success check the Run's Verdict reads. */
 export interface PageExpectations {
   readonly not: PageExpectations;
-  toHaveURL(url: UrlMatcher, options?: ExpectOptions): Promise<void>;
+  /** A string must equal the URL, as in Playwright; a RegExp matches a pattern. */
+  toHaveURL(url: TextExpected, options?: ExpectOptions): Promise<void>;
   toHaveTitle(title: TextExpected, options?: ExpectOptions): Promise<void>;
   toMatchAriaSnapshot(expected: string, options?: ExpectOptions): Promise<void>;
 }
@@ -198,6 +200,7 @@ export interface LocatorExpectations {
   toContainText(expected: TextExpected | readonly TextExpected[], options?: ExpectOptions): Promise<void>;
   toContainClass(expected: string | readonly string[], options?: ExpectOptions): Promise<void>;
   toHaveAccessibleDescription(expected: TextExpected, options?: ExpectOptions): Promise<void>;
+  toHaveAccessibleErrorMessage(expected: TextExpected, options?: ExpectOptions): Promise<void>;
   toHaveAccessibleName(expected: TextExpected, options?: ExpectOptions): Promise<void>;
   toHaveAttribute(name: string, value?: TextExpected, options?: ExpectOptions): Promise<void>;
   toHaveClass(expected: TextExpected | readonly TextExpected[], options?: ExpectOptions): Promise<void>;
@@ -301,7 +304,7 @@ export declare class EffectNotConfirmedError extends RefusedError {
 export declare class SuccessCheckFailedError extends PageError {
   readonly code: "success_check_failed";
   readonly details: {
-    /** The check in this language: `expect(page).toHaveURL('https://quotes.toscrape.com/author/**')`. */
+    /** The Success check in this language: `expect(page).toHaveURL(/^https:\/\/quotes\.toscrape\.com\/author\//)`. */
     readonly check: string;
     readonly expected: string;
     /** The last value seen, or `null` when no element matched. */

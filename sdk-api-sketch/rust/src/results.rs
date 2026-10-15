@@ -403,6 +403,16 @@ pub enum ErrorDetails {
     SuccessCheckFailed(crate::ai::SuccessCheckFailed),
     /// Of `variables_mismatch`.
     VariablesMismatch(crate::ai::VariablesMismatch),
+    /// Of `plan_step_missing`.
+    PlanStepMissing(crate::ai::PlanStepMissing),
+    /// Of `plan_invalid`.
+    PlanInvalid(crate::ai::PlanInvalid),
+    /// Of `model_not_configured`.
+    ModelNotConfigured(crate::ai::ModelNotConfigured),
+    /// Of `effect_uncertain`.
+    EffectUncertain(crate::ai::EffectUncertain),
+    /// Of `effect_not_confirmed`.
+    EffectNotConfirmed(crate::ai::EffectNotConfirmed),
 }
 
 /// Details of `deadline_exceeded`. The error's `limit` names the phase's setting and its layer; a

@@ -3,7 +3,7 @@
 use goodfetch_sdk_sketch::schemars::{self, JsonSchema};
 use goodfetch_sdk_sketch::settings::plan;
 use goodfetch_sdk_sketch::{
-    ConnectOptions, Error, ErrorCode, ErrorDetails, Goodfetch, Page, PlanReport, Run, Schema, Settings, StepSource,
+    ConnectOptions, Error, ErrorCode, ErrorDetails, Expected, Goodfetch, Page, PlanReport, Run, Schema, Settings, StepSource,
     expect,
 };
 use serde::Deserialize;
@@ -47,7 +47,9 @@ async fn author_of_first_love_quote() -> Result<Author, Error> {
 
     // A Success check, without a model: the Run is `verified` only if it holds, and only a verified
     // Run promotes a new Plan version (ADR 0009).
-    expect(&page).to_have_url("https://quotes.toscrape.com/author/**").await?;
+    expect(&page)
+        .to_have_url(Expected::regex("^https://quotes\\.toscrape\\.com/author/")) // a string must equal the URL
+        .await?;
     let author = page
         .extract("the author's name, birth date and birthplace", Schema::<Author>::of())
         .await?
@@ -105,16 +107,20 @@ async fn typed_book(page: &Page) -> Result<Option<Book>, Error> {
 }
 
 /// `observe` finds without acting; the program acts on a candidate through its ordinary locator.
-/// Values typed into the page travel as variables: the model and the Plan see only `%query%`.
 async fn search(page: &Page, query: &str) -> Result<(), Error> {
     let boxes = page.observe("the search box in the header").await?.output;
     let Some(search_box) = boxes.first() else {
         return Ok(()); // none is an answer
     };
     search_box.locator.fill(query).await?;
-    page.act("type %query% into the search box and submit it")
-        .variable("query", query)
-        .await?;
+    search_box.locator.press("Enter").await
+}
+
+/// The same with `act`, one action per call. Values typed into the page travel as variables: the
+/// model and the Plan see only `%query%`, so one Plan step serves every query.
+async fn search_with_act(page: &Page, query: &str) -> Result<(), Error> {
+    page.act("type %query% into the search box").variable("query", query).await?;
+    page.act("submit the search").await?;
     Ok(())
 }
 
@@ -160,6 +166,6 @@ async fn frozen_replay(gf: &Goodfetch) -> Result<(), Error> {
 }
 
 fn main() {
-    let _ = (author_of_first_love_quote, typed_book, search, own_agent_loop, frozen_replay);
+    let _ = (author_of_first_love_quote, typed_book, search, search_with_act, own_agent_loop, frozen_replay);
     let _ = schemars::schema_for!(Author);
 }

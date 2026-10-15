@@ -959,7 +959,7 @@ impl KeyValueStoreReader {
 #[derive(Debug, Clone)]
 #[non_exhaustive]
 pub struct RunInputDifference {
-    /// `product`, `kind`, `seeds`, `plan` or `caller`.
+    /// `product`, `kind`, `seeds`, `plan`, `recording` (ADR 0105) or `caller`.
     pub input: String,
     /// What the Run began with.
     pub recorded: String,

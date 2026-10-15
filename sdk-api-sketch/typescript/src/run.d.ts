@@ -433,8 +433,8 @@ export declare class RunIdInvalidError extends ProgramError {
 
 /** An input of a resumed Run that differs from what the Run began with. */
 export interface RunInputDifference {
-  /** `product`, `kind` (a crawl or a Collie Run), `seeds`, `plan` (the Plan file's path or identity, never its version) or `caller` (who the connection acts for). */
-  readonly input: "product" | "kind" | "seeds" | "plan" | "caller" | (string & {});
+  /** `product`, `kind` (a crawl or a Collie Run), `seeds`, `plan` (the Plan file's path or identity, never its version), `recording` (the Response recording, ADR 0105) or `caller` (who the connection acts for). */
+  readonly input: "product" | "kind" | "seeds" | "plan" | "recording" | "caller" | (string & {});
   readonly recorded: string;
   readonly given: string;
 }

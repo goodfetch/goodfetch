@@ -606,7 +606,7 @@ class RunIdInvalidError(ProgramError):
 class RunInputDifference:
     """An input of a resumed Run that differs from what the Run began with."""
 
-    input: Literal["product", "kind", "seeds", "plan", "caller"] | str
+    input: Literal["product", "kind", "seeds", "plan", "recording", "caller"] | str
     recorded: str
     given: str
 

@@ -76,6 +76,12 @@ async def now(run: AsyncRun) -> None:
         break
 
 
+async def on_failure(run: AsyncCrawlRun) -> None:
+    """Failures as they happen, in place of a failed-request callback (ADR 0093's R4)."""
+    async for outcome in run.outcomes(kinds=["failed", "blocked"], after="now"):
+        log.warning("lost %s", outcome.request.url)
+
+
 async def failed_urls(run: AsyncCrawlRun) -> list[str]:
     """The failed URLs, from the Run's committed state, also once it has ended."""
     return [outcome.request.url async for outcome in run.outcomes(kinds=["failed"])]

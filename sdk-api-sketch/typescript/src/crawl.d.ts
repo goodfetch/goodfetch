@@ -266,6 +266,8 @@ export interface CrawlStartOptions {
 export interface OutcomesFilter {
   readonly kinds?: readonly ("succeeded" | "failed" | "skipped" | "blocked")[];
   readonly labels?: readonly Label<unknown, unknown>[];
+  /** `now`: from the next commit, not the Run's first outcome: failures as they happen, in place of a failed-request callback (ADR 0093's R4). */
+  readonly after?: "now";
 }
 
 /** Options of `retryFailed`. */

@@ -80,7 +80,7 @@ pub use run::{
     AbortedBy, Checkpoint, Completeness, CrawlConcurrency, CrawlRequestCounts, CrawlRequestTotals, CrawlRunProgress, CrawlRunReport,
     CrawlRunView, DatasetTotals, EndedRequestBreakdown, GovernorState, InFlightRequest, KeyValueStoreReader, LearnedRule, Lifecycle,
     NothingDone, OutcomeKind, OutcomesFilter, PauseRaisedBy, PluginRun, RequestPhase, RetryFailed, RunFailure, RunInputDifference, RunProgress,
-    RunReport, RunStopReason, RunView, RunWarning, SinkDeliveryStatus, StartedAs, WaitGroup, WaitReason, WaitingDomain, WaitingPause,
+    RunReport, RunStopReason, RunView, RunWarning, SinkDeliveryStatus, SitemapTotals, StartedAs, WaitGroup, WaitReason, WaitingDomain, WaitingPause,
 };
 pub use sessions::{
     BrowserName, ClearCookies, Cookie, CookieInput, ExportKey, HttpCredentials, HumanPauseDeclined, HumanPauseResult, Identities,

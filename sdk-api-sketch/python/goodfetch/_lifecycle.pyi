@@ -259,7 +259,11 @@ class AsyncCrawlRun(_AsyncCloseable, _AsyncExplainsSettings, AsyncRunEvents, Asy
         """Each seed's answer, given once at the start: added with its ID, or not added with its reason. On a resume, the
         answers given when the Run began."""
     def outcomes(
-        self, *, kinds: Sequence[Literal["succeeded", "failed", "skipped", "blocked"]] | None = None, labels: Sequence[Label[Any]] | None = None
+        self,
+        *,
+        kinds: Sequence[Literal["succeeded", "failed", "skipped", "blocked"]] | None = None,
+        labels: Sequence[Label[Any]] | None = None,
+        after: Literal["now"] | None = None,
     ) -> AsyncEventIterator[CrawlRequestOutcome]:
         """The crawl requests' outcomes, read from the Run's committed state in commit order from its first, then following
         new commits until the Run ends; the filters run in the engine (ADR 0081). A reader of committed state, it never
@@ -313,7 +317,11 @@ class AsyncCrawlRunView(AsyncRunView[CrawlRunReport, CrawlRunProgress]):
     read with the program's own Dataset handles."""
 
     def outcomes(
-        self, *, kinds: Sequence[Literal["succeeded", "failed", "skipped", "blocked"]] | None = None, labels: Sequence[Label[Any]] | None = None
+        self,
+        *,
+        kinds: Sequence[Literal["succeeded", "failed", "skipped", "blocked"]] | None = None,
+        labels: Sequence[Label[Any]] | None = None,
+        after: Literal["now"] | None = None,
     ) -> AsyncEventIterator[CrawlRequestOutcome]: ...
     def records(self, dataset: Dataset[_T], *, after: int = 0) -> AsyncEventIterator[DatasetRecord[_T]]: ...
     def rejected_records(self, dataset: Dataset[Any], *, after: int = 0) -> AsyncEventIterator[RejectedRecord]: ...
@@ -522,7 +530,11 @@ class CrawlRun(_Closeable, _ExplainsSettings, RunEvents, RunControl[CrawlRunRepo
         """Each seed's answer, given once at the start: added with its ID, or not added with its reason. On a resume, the
         answers given when the Run began."""
     def outcomes(
-        self, *, kinds: Sequence[Literal["succeeded", "failed", "skipped", "blocked"]] | None = None, labels: Sequence[Label[Any]] | None = None
+        self,
+        *,
+        kinds: Sequence[Literal["succeeded", "failed", "skipped", "blocked"]] | None = None,
+        labels: Sequence[Label[Any]] | None = None,
+        after: Literal["now"] | None = None,
     ) -> EventIterator[CrawlRequestOutcome]: ...
     def retry_failed(self, *, blocked: bool = False, timeout: Timeout = ...) -> int: ...
     def usage(self, *, timeout: Timeout = ...) -> RunUsage:
@@ -557,7 +569,11 @@ class CrawlRunView(RunView[CrawlRunReport, CrawlRunProgress]):
     """`AsyncCrawlRunView` in the sync API."""
 
     def outcomes(
-        self, *, kinds: Sequence[Literal["succeeded", "failed", "skipped", "blocked"]] | None = None, labels: Sequence[Label[Any]] | None = None
+        self,
+        *,
+        kinds: Sequence[Literal["succeeded", "failed", "skipped", "blocked"]] | None = None,
+        labels: Sequence[Label[Any]] | None = None,
+        after: Literal["now"] | None = None,
     ) -> EventIterator[CrawlRequestOutcome]: ...
     def records(self, dataset: Dataset[_T], *, after: int = 0) -> EventIterator[DatasetRecord[_T]]: ...
     def rejected_records(self, dataset: Dataset[Any], *, after: int = 0) -> EventIterator[RejectedRecord]: ...

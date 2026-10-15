@@ -141,6 +141,26 @@ class InFlightRequest:
     """The tier fetching it, as reported (ADR 0093's `ReportedFetchTier`)."""
     attempt: int
     since: datetime
+    waiting: PermitWait | None
+    """While its handler's own navigation or fetch waits for a permit, which counts against no timeout (ADR 0093)."""
+
+@final
+@dataclass(frozen=True, kw_only=True)
+class PermitWait:
+    """Why a handler's own navigation or fetch waits, and the setting behind it."""
+
+    reason: WaitReason
+    setting: LimitSource | None
+
+@final
+@dataclass(frozen=True, kw_only=True)
+class SitemapTotals:
+    """A sitemap seed's sitemaps, read while the Run works (ADR 0093's R3): counted, never listed one by one."""
+
+    sitemaps_read: int
+    urls_added: int
+    urls_unmatched: int
+    """URLs that matched none of the seed's rules, so were not added."""
 
 @final
 @dataclass(frozen=True, kw_only=True)
@@ -195,6 +215,8 @@ class CrawlRunProgress(RunProgress):
     waiting: Sequence[WaitGroup]
     in_flight: Sequence[InFlightRequest]
     concurrency: CrawlConcurrency
+    sitemaps: Mapping[str, SitemapTotals]
+    """Per sitemap seed's URL."""
 
 WeakenedSetting: TypeAlias = LimitSource
 """A setting that weakened a safeguard for the Run (ADR 0028), with its key, value, layer and origin: a costly control
@@ -365,6 +387,8 @@ class CrawlRunReport(RunReport):
     sinks: Mapping[str, SinkDeliveryStatus]
     """Per Sink name."""
     learned_rules: Sequence[LearnedRule]
+    sitemaps: Mapping[str, SitemapTotals]
+    """Per sitemap seed's URL, as the progress has them."""
 
 _Report = TypeVar("_Report", bound=RunReport, covariant=True)
 _Progress = TypeVar("_Progress", bound=RunProgress, covariant=True)

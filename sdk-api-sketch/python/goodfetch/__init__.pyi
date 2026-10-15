@@ -412,6 +412,7 @@ from goodfetch._run import Lifecycle as Lifecycle
 from goodfetch._run import LimitRaiseRefusedDetails as LimitRaiseRefusedDetails
 from goodfetch._run import LimitRaiseRefusedError as LimitRaiseRefusedError
 from goodfetch._run import NothingDone as NothingDone
+from goodfetch._run import PermitWait as PermitWait
 from goodfetch._run import PluginRun as PluginRun
 from goodfetch._run import RunConflictDetails as RunConflictDetails
 from goodfetch._run import RunConflictError as RunConflictError
@@ -433,6 +434,7 @@ from goodfetch._run import RunStopReason as RunStopReason
 from goodfetch._run import RunView as RunView
 from goodfetch._run import RunWarning as RunWarning
 from goodfetch._run import SinkDeliveryStatus as SinkDeliveryStatus
+from goodfetch._run import SitemapTotals as SitemapTotals
 from goodfetch._run import StartedAs as StartedAs
 from goodfetch._run import WaitGroup as WaitGroup
 from goodfetch._run import WaitReason as WaitReason

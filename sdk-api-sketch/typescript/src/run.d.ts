@@ -107,6 +107,16 @@ export interface InFlightRequest {
   readonly tier: ReportedFetchTier;
   readonly attempt: number;
   readonly since: Date;
+  /** While its handler's own navigation or fetch waits for a permit, which counts against no timeout (ADR 0093): why, and the setting behind it. */
+  readonly waiting: { readonly reason: WaitReason; readonly setting: LimitSource | null } | null;
+}
+
+/** A sitemap seed's sitemaps, read while the Run works (ADR 0093's R3): counted, never listed one by one. */
+export interface SitemapTotals {
+  readonly sitemapsRead: number;
+  readonly urlsAdded: number;
+  /** URLs that matched none of the seed's rules, so were not added. */
+  readonly urlsUnmatched: number;
 }
 
 /** Why the crawl runs as many requests at once as it does (P47). */
@@ -148,6 +158,8 @@ export interface CrawlRunProgress extends RunProgress {
   readonly waiting: readonly WaitGroup[];
   readonly inFlight: readonly InFlightRequest[];
   readonly concurrency: CrawlConcurrency;
+  /** Per sitemap seed's URL. */
+  readonly sitemaps: Readonly<Record<string, SitemapTotals>>;
 }
 
 /**
@@ -287,6 +299,8 @@ export interface CrawlRunReport extends RunReport {
   /** Per Sink name. */
   readonly sinks: Readonly<Record<string, SinkDeliveryStatus>>;
   readonly learnedRules: readonly LearnedRule[];
+  /** Per sitemap seed's URL, as the progress has them. */
+  readonly sitemaps: Readonly<Record<string, SitemapTotals>>;
 }
 
 /** What every Run does besides its pages: end, report, show progress and write Checkpoints. */

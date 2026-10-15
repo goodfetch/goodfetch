@@ -227,6 +227,21 @@ pub struct InFlightRequest {
     pub attempt: u32,
     /// Since when.
     pub since: SystemTime,
+    /// While its handler's own navigation or fetch waits for a permit, which counts against no
+    /// timeout (ADR 0093): why, and the setting behind it.
+    pub waiting: Option<(WaitReason, Option<LimitSource>)>,
+}
+
+/// A sitemap seed's sitemaps, read while the Run works (ADR 0093's R3): counted, never listed.
+#[derive(Debug, Clone, Copy, Default)]
+#[non_exhaustive]
+pub struct SitemapTotals {
+    /// Sitemaps read.
+    pub sitemaps_read: u64,
+    /// URLs added.
+    pub urls_added: u64,
+    /// URLs that matched none of the seed's rules, so were not added.
+    pub urls_unmatched: u64,
 }
 
 /// ADR 0040's resource governor.
@@ -293,6 +308,8 @@ pub struct CrawlRunProgress {
     pub in_flight: Vec<InFlightRequest>,
     /// Why concurrency is what it is.
     pub concurrency: CrawlConcurrency,
+    /// Per sitemap seed's URL.
+    pub sitemaps: Vec<(String, SitemapTotals)>,
 }
 
 /// A Checkpoint, as ADR 0002 reports it, written where the engine keeps the Run's: its own folder
@@ -455,6 +472,8 @@ pub struct CrawlRunReport {
     pub sinks: Vec<(String, SinkDeliveryStatus)>,
     /// The Frontier's learned URL rules.
     pub learned_rules: Vec<LearnedRule>,
+    /// Per sitemap seed's URL, as the progress has them.
+    pub sitemaps: Vec<(String, SitemapTotals)>,
 }
 
 impl Run {
@@ -593,6 +612,12 @@ impl OutcomesFilter {
     /// Also this Label's requests, where none was named before only these.
     pub fn label<P>(self, label: &Label<P>) -> Self {
         let _ = label;
+        unimplemented!()
+    }
+
+    /// From the next commit, not the Run's first outcome: failures as they happen, in place of a
+    /// failed-request callback (ADR 0093's R4).
+    pub fn after_now(self) -> Self {
         unimplemented!()
     }
 }

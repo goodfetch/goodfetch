@@ -45,6 +45,13 @@ export async function now(run: Run): Promise<void> {
   }
 }
 
+// Failures as they happen, in place of a failed-request callback (ADR 0093's R4).
+export async function onFailure(run: CrawlRun): Promise<void> {
+  for await (const outcome of run.outcomes({ kinds: ["failed", "blocked"], after: "now" })) {
+    log.warn("lost", { url: outcome.request.url, kind: outcome.kind });
+  }
+}
+
 // The failed URLs, from the Run's committed state, also once it has ended.
 export async function failedUrls(run: CrawlRun): Promise<string[]> {
   const urls: string[] = [];

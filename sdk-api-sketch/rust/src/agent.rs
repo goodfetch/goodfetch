@@ -204,6 +204,21 @@ pub enum ConfirmationCategory {
 /// or `success_check_threw`, which keeps it as its `source()`.
 pub type BoxError = Box<dyn std::error::Error + Send + Sync + 'static>;
 
+/// What an Agent tool receives after its input and page.
+#[derive(Debug, Clone)]
+pub struct AgentToolCall {
+    _private: (),
+}
+
+impl AgentToolCall {
+    /// Opaque, derived from this tool call's Effect journal entry, so a replay of the call
+    /// (ADR 0100) gets the same key: send it as a site's `Idempotency-Key` header or to the
+    /// program's own service to make a repeatable tool safe to call again (ADR 0106).
+    pub fn idempotency_key(&self) -> &str {
+        unimplemented!()
+    }
+}
+
 /// A function of the program that the Agent may call as an action: an Agent tool.
 pub struct AgentTool {
     _private: (),
@@ -221,11 +236,12 @@ impl AgentTool {
     /// bounded by `observation.max_size`, and a source Grounding accepts; the task gives up the
     /// page's turn while it runs. The name must be unique within a task and no built-in action's,
     /// or the task fails with `agent_tool_invalid`. It is an Effect unless
-    /// [`AgentTool::read_only`]: journaled and never redone (ADR 0010).
+    /// [`AgentTool::read_only`]: journaled and never redone (ADR 0010). Its third argument carries
+    /// the call's idempotency key (ADR 0106).
     pub fn new<I, F, Fut>(name: &str, description: &str, run: F) -> Self
     where
         I: JsonSchema + DeserializeOwned + Send + 'static,
-        F: Fn(I, Page) -> Fut + Send + Sync + 'static,
+        F: Fn(I, Page, AgentToolCall) -> Fut + Send + Sync + 'static,
         Fut: Future<Output = Result<serde_json::Value, BoxError>> + Send + 'static,
     {
         let _ = (name, description, run);
@@ -234,6 +250,12 @@ impl AgentTool {
 
     /// The tool changes nothing: no Effect.
     pub fn read_only(self) -> Self {
+        unimplemented!()
+    }
+
+    /// The tool is safe to call again: one that is not read-only and fails leaves no uncertain
+    /// Effect for a person (ADRs 0029, 0106).
+    pub fn repeatable(self) -> Self {
         unimplemented!()
     }
 

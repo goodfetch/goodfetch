@@ -173,6 +173,16 @@ ConfirmationCategory: TypeAlias = (
 """ADR 0014's categories of Effects that ask a person for confirmation unless the run allows them; area 4's spec spells
 them."""
 
+@final
+class AgentToolCall:
+    """What a tool may take as a third parameter, after its input and page."""
+
+    @property
+    def idempotency_key(self) -> str:
+        """Opaque, derived from this tool call's Effect journal entry, so a replay of the call (ADR 0100) gets the same
+        key: send it as a site's `Idempotency-Key` header or to the program's own service to make a `repeatable` tool
+        safe to call again (ADR 0106)."""
+
 class AsyncAgentTool:
     """A function of the program the Agent may call as an action, in the async API: an Agent tool."""
 
@@ -182,6 +192,8 @@ class AsyncAgentTool:
     def description(self) -> str: ...
     @property
     def read_only(self) -> bool: ...
+    @property
+    def repeatable(self) -> bool: ...
     @property
     def category(self) -> ConfirmationCategory | None: ...
 
@@ -195,19 +207,26 @@ class AgentTool:
     @property
     def read_only(self) -> bool: ...
     @property
+    def repeatable(self) -> bool: ...
+    @property
     def category(self) -> ConfirmationCategory | None: ...
 
 class _AgentToolDecorator(Protocol):
     @overload
     def __call__(self, function: Callable[[M, AsyncPage], Awaitable[JsonValue]], /) -> AsyncAgentTool: ...
     @overload
+    def __call__(self, function: Callable[[M, AsyncPage, AgentToolCall], Awaitable[JsonValue]], /) -> AsyncAgentTool: ...
+    @overload
     def __call__(self, function: Callable[[M, Page], JsonValue], /) -> AgentTool: ...
+    @overload
+    def __call__(self, function: Callable[[M, Page, AgentToolCall], JsonValue], /) -> AgentTool: ...
 
 def agent_tool(
     *,
     description: str,
     name: str | None = None,
     read_only: bool = False,
+    repeatable: bool = False,
     category: ConfirmationCategory | None = None,
     input_schema: JsonSchema | None = None,
 ) -> _AgentToolDecorator:
@@ -219,7 +238,9 @@ def agent_tool(
     - The input's schema is the first parameter's type, a Pydantic model (ADR 0082), checked before the function runs;
       `input_schema` gives a hand-written JSON Schema instead, and the function then receives `JsonValue`.
     - `read_only=False`, the default, makes the tool an Effect: journaled and never redone (ADR 0010), as a site's WebMCP
-      tool (ADR 0011). `category` asks a person for confirmation before each call unless the run allows the category
+      tool (ADR 0011). One that raises leaves its Effect uncertain for a person (ADR 0029), unless `repeatable=True`
+      declares it safe to call again (ADR 0106); a third parameter, `AgentToolCall`, carries the call's
+      `idempotency_key`. `category` asks a person for confirmation before each call unless the run allows the category
       (ADR 0014); payment and accepting terms always ask, since their allowances name domains and a tool has none.
     - It runs where the program's code runs (ADR 0081), while the task gives up the page's turn. Its result is a source
       Grounding accepts. A `GoodfetchError` it raises ends the task with its own code, and any other exception with

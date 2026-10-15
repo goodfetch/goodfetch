@@ -130,6 +130,12 @@ export interface AgentToolCall {
   readonly page: Page;
   /** Aborted when the task ends or is cancelled while the tool runs. */
   readonly signal: AbortSignal;
+  /**
+   * Opaque, derived from this tool call's Effect journal entry, so a replay of the call (ADR 0100)
+   * gets the same key: send it as a site's `Idempotency-Key` header or to the program's own service
+   * to make a `repeatable` tool safe to call again (ADR 0106).
+   */
+  readonly idempotencyKey: string;
 }
 
 /** What `agentTool` takes. */
@@ -142,6 +148,12 @@ export interface AgentToolDefinition<S extends Schema> {
   readonly input: S;
   /** `false` by default: the tool is an Effect, journaled and never redone (ADR 0010), as a site's WebMCP tool (ADR 0011). */
   readonly readOnly?: boolean;
+  /**
+   * `false` by default. A tool that is not read-only and raises leaves its Effect uncertain for a
+   * person (ADR 0029); `repeatable` declares it safe to call again, so a raise is not uncertain
+   * (ADR 0106).
+   */
+  readonly repeatable?: boolean;
   /**
    * Asks a person for confirmation before each call unless the run allows the category (ADR 0014);
    * payment and accepting terms always ask, since their allowances name domains (ADRs 0045, 0048) and a
@@ -162,6 +174,7 @@ export interface AgentTool {
   readonly name: string;
   readonly description: string;
   readonly readOnly: boolean;
+  readonly repeatable: boolean;
   readonly category: ConfirmationCategory | undefined;
 }
 

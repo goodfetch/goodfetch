@@ -473,8 +473,9 @@ pub struct Enqueue {
 }
 
 impl Enqueue {
-    /// The request's method, `GET` by default. Whether a non-GET request is an Effect to declare
-    /// is #500's (ADR 0093).
+    /// The request's method, `GET` by default (ADR 0093). A crawl request is a read whatever its
+    /// method, sent again on a retry, an escalation or a sample comparison; an Effect goes through
+    /// `page.request` inside `ctx.run().effect(…)` (ADR 0106).
     pub fn method(self, method: &str) -> Self {
         let _ = method;
         unimplemented!()

@@ -26,7 +26,7 @@ pub mod testing;
 pub mod time;
 
 pub use agent::{
-    AgentAction, AgentActionOutcome, AgentCall, AgentResult, AgentStep, AgentStepOrigin, AgentTask, AgentTool, AgentToolFailed,
+    AgentAction, AgentActionOutcome, AgentCall, AgentResult, AgentStep, AgentStepOrigin, AgentTask, AgentTool, AgentToolCall, AgentToolFailed,
     AgentTaskProgress, AgentToolInvalid, ConfirmationCategory, SuccessCheckThrew, BoxError,
 };
 pub use ai::{
@@ -43,7 +43,7 @@ pub use crawl::{
 };
 pub use data::{Dataset, Label, PathSegment, PayloadInvalid, PayloadSchemaChanged, Schema, SchemaIssue, schemars};
 pub use effects::{
-    BodyError, DeclareEffect, Effect, EffectKeyInvalid, EffectKeyReused, EffectOutputInvalid, EffectResult, KeyAnswer, OutputProblem,
+    BodyError, DeclareEffect, Effect, EffectKeyInvalid, EffectKeyReused, EffectOutputInvalid, EffectResult, EffectStagingRefused, KeyAnswer, OutputProblem, StagedOutput,
     UncertainEffect, UncertainWhy,
 };
 pub use hooks::{

@@ -4,10 +4,10 @@
 // - In a crawl handler it is `ctx.run.effect(…)`: the key's namespace is the crawl request, so every
 //   retry, escalation, sample comparison, lost lease and `retryFailed` reaches the same entry. Elsewhere
 //   it is the Run, so a Collie program started again with its Run's ID finds what it already did.
-// - Goodfetch judges a body by what it sent for it while the body ran: a body that returned is done
+// - The engine judges a body by what it sent for it while the body ran: a body that returned is done
 //   and never runs again; one that ended before anything was sent was not performed; one that ended
 //   after a send is uncertain (`effect_uncertain`) until a person reconciles it (ADR 0029), unless it
-//   is repeatable. A body counts as sent from its start while Goodfetch cannot see every command (a
+//   is repeatable. A body counts as sent from its start while the engine cannot see every command (a
 //   raw CDP attach, a lent page, a browser shared with other code). Prepare the page before the
 //   declaration: the body holds the action that commits the Effect and the reads of its result.
 // - No separate check: a body that checks first, or sends `effect.idempotencyKey`, is repeatable.
@@ -60,8 +60,11 @@ export interface DeclaresEffects {
    * Performs the body as the Effect `key`, unless the Run's Effect journal already answers it.
    * The key, at most 255 code points, names one Effect in its namespace: the crawl request in a
    * handler or a Hook, the Run elsewhere; declaring it again while its body runs, or after this
-   * attempt got its answer, throws `EffectKeyReusedError`. A body that throws before Goodfetch sent
-   * anything throws its own error unchanged; one that throws after a send throws
+   * attempt got its answer, throws `EffectKeyReusedError`, except that on a borrowed browser (ADR 0089)
+   * a key declared again after its answer returns that answer, since the other crawler's retries reach
+   * the Run as new calls. While the body runs in an attempt, staging an output with it (`enqueue`,
+   * `addSeed`, a pushed Record) throws `EffectStagingRefusedError`: stage it after the declaration,
+   * from the output. A body that throws before the engine sent anything throws its own error unchanged; one that throws after a send throws
    * `EffectUncertainError`, chaining it, unless `repeatable`. An abort, or the end of the attempt
    * (`AttemptEndedError`), propagates unchanged, and the next declaration of the key acts on what was
    * sent. The program's own I/O inside the body is invisible to the journal. No `timeout` or
@@ -122,4 +125,14 @@ export declare class EffectKeyReusedError extends ProgramError {
 export declare class EffectOutputInvalidError extends ProgramError {
   readonly code: "effect_output_invalid";
   readonly details: { readonly key: string; readonly problem: "not_json" | "too_large" | (string & {}); readonly size: number | null };
+}
+
+/**
+ * A call staged an output with an attempt while a declared Effect's body ran in it: a re-run that gets
+ * `journal` does not run the body again, so the output would be lost when the attempt ends early.
+ * `key` is the running body's.
+ */
+export declare class EffectStagingRefusedError extends ProgramError {
+  readonly code: "effect_staging_refused";
+  readonly details: { readonly key: string; readonly staged: "enqueue" | "seed" | "record" | (string & {}) };
 }

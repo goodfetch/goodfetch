@@ -2,7 +2,7 @@
 
 use goodfetch_sdk_sketch::schemars::{self, JsonSchema};
 use goodfetch_sdk_sketch::{
-    AgentResult, AgentTool, BoxError, ConnectOptions, Ended, Error, ErrorCode, Expected, Goodfetch, Limits, Money, Page, Run,
+    AgentResult, AgentTool, AgentToolCall, BoxError, ConnectOptions, Ended, Error, ErrorCode, Expected, Goodfetch, Limits, Money, Page, Run,
     Schema, StopReason, Verdict, expect,
 };
 use serde::Deserialize;
@@ -89,7 +89,7 @@ pub struct Owned {
 
 /// A task awaited in one go, with a tool: the program's own function as an action, read-only.
 async fn cheapest_unowned_book(run: &Run) -> Result<Answer, Error> {
-    let owned = AgentTool::new("already_owned", "Whether the library already owns a book with this exact title", |input: Owned, _page: Page| async move {
+    let owned = AgentTool::new("already_owned", "Whether the library already owns a book with this exact title", |input: Owned, _page: Page, _call: AgentToolCall| async move {
         let owned: Result<bool, BoxError> = Ok(input.title == "Sharp Objects");
         Ok(serde_json::json!({ "owned": owned? }))
     })

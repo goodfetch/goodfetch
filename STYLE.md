@@ -25,6 +25,8 @@ The design vocabulary is the one of `codebase-design`: a **module** has an **int
   _Why:_ specs, docs, code and conversations then use one language.
 - **Full words, no abbreviations** except those everyone writes (`id`, `url`, `http`, `cdp`).
 - **Rust naming follows the Rust API Guidelines:** casing, `as_`/`to_`/`into_` for conversions by cost and ownership, no `get_` prefix on getters, `iter`/`iter_mut`/`into_iter`.
+- **Names in the SDK API, the CLI and MCP come from the catalog's canonical words by one rule per language** ([ADR 0099](docs/adr/0099-every-surface-spells-a-catalog-entrys-one-name-by-its-own-rule-shapes-come-from-declared-kinds-and-call-is-the-way-down.md)): initialisms from its closed list are capitals in TypeScript names and Python class names (`waitForURL`, `CDPSession`) and one word in Rust (`CdpSession`); a keyword is escaped, never renamed (`continue_` in Python, `r#continue` in Rust); no name keeps an alias beyond a deprecation's window.
+  _Why:_ every surface then names an entry the same way, and a reader or a coding agent applies one rule without exceptions.
 
 ## Rust
 
@@ -137,6 +139,8 @@ The test rules live in [`TESTING.md`](TESTING.md) (where tests live, how they ar
 - **Contracts are Rust types in `goodfetch-protocol`**, emitted as a committed JSON Schema bundle (ADR 0038). To add or change an operation, edit the types, run `xtask codegen`, and commit what it produces.
 - **Generated code is never edited by hand.** It lives in a `generated/` folder in each SDK, and CI fails when it differs from what `xtask codegen` produces.
 - **Hand-written code in each SDK is the runtime and the ergonomic layer:** engine start and discovery, framing, `hello`, sockets, request correlation, flow-control credits, event resumption, file-backed bodies, cancellation, and the objects users hold.
+- **Every public hand-written member is listed in its SDK's manifest** with the catalog entry it serves, or none and a reason; it carries that entry's doc text and markers, and a member the generator could express is generated instead ([ADR 0099](docs/adr/0099-every-surface-spells-a-catalog-entrys-one-name-by-its-own-rule-shapes-come-from-declared-kinds-and-call-is-the-way-down.md)).
+  _Why:_ hand-written ports drift from what they port; a listed member is checked, and an unlisted one fails the build.
 - **Settings reach code through one `settings` option per scope, generated from the settings schema** ([ADR 0083](docs/adr/0083-a-program-sets-settings-in-one-typed-option-explicit-values-beat-the-environment-and-no-value-is-silently-ignored.md)): a nested object literal in TypeScript, a nested `TypedDict` in Python, typed key constants on `Settings` in Rust. No SDK reads the environment outside `connect()`'s environment map; in Rust, that read of the process environment carries the one `#[expect]` of `disallowed-methods` outside `main` (ADR 0059).
 - **The wire is snake_case.** Python uses wire names as they are; TypeScript presents camelCase through the generated mapping, which never renames user data (extracted records, headers, metadata maps).
 

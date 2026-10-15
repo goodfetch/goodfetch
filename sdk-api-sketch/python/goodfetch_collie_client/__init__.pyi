@@ -293,6 +293,9 @@ from goodfetch_collie_client._results import EndedBy as EndedBy
 from goodfetch_collie_client._results import ErrorCode as ErrorCode
 from goodfetch_collie_client._results import ErrorGroup as ErrorGroup
 from goodfetch_collie_client._results import ErrorTarget as ErrorTarget
+from goodfetch_collie_client._results import FileWriteFailedDetails as FileWriteFailedDetails
+from goodfetch_collie_client._results import FileWriteFailedError as FileWriteFailedError
+from goodfetch_collie_client._results import FileWriteReason as FileWriteReason
 from goodfetch_collie_client._results import Finished as Finished
 from goodfetch_collie_client._results import GoodfetchError as GoodfetchError
 from goodfetch_collie_client._results import HandlerFailedDetails as HandlerFailedDetails
@@ -308,6 +311,8 @@ from goodfetch_collie_client._results import NotVerifiedDetails as NotVerifiedDe
 from goodfetch_collie_client._results import NotVerifiedError as NotVerifiedError
 from goodfetch_collie_client._results import PageCheckFailedError as PageCheckFailedError
 from goodfetch_collie_client._results import PageError as PageError
+from goodfetch_collie_client._results import PathNotWritableDetails as PathNotWritableDetails
+from goodfetch_collie_client._results import PathNotWritableError as PathNotWritableError
 from goodfetch_collie_client._results import ProgramError as ProgramError
 from goodfetch_collie_client._results import RefusedError as RefusedError
 from goodfetch_collie_client._results import Reported as Reported

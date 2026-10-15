@@ -81,9 +81,10 @@ pub use recording::{
 };
 pub use results::{
     AiWorkResult, BlockCause, Blocked, CallCancelled, CancelledBy, Claim, ClosedValue,
-    DeadlineExceeded, Ended, EndedBy, Error, ErrorDetails, ErrorGroup, ErrorTarget, LimitSource,
-    NotVerified, PartialOutput, Reported, RunLayerOrigin, ScriptedModelDetails, SettingValue,
-    SettingsLayer, StopReason, TargetDescription, TargetNotUnique, Verdict,
+    DeadlineExceeded, Ended, EndedBy, Error, ErrorDetails, ErrorGroup, ErrorTarget, FileWriteFailed,
+    FileWriteReason, FileWriteSide, LimitSource, NotVerified, PartialOutput, PathNotWritable,
+    Reported, RunLayerOrigin, ScriptedModelDetails, SettingValue, SettingsLayer, StopReason,
+    TargetDescription, TargetNotUnique, Verdict,
 };
 pub use run::{
     AbortedBy, Checkpoint, Completeness, KeyValueStoreReader, Lifecycle, NothingDone,

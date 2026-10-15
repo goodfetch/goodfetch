@@ -179,6 +179,9 @@ from goodfetch_collie_client import ExtractMode as ExtractMode
 from goodfetch_collie_client import ExtractSettings as ExtractSettings
 from goodfetch_collie_client import FileChooser as FileChooser
 from goodfetch_collie_client import FilePayload as FilePayload
+from goodfetch_collie_client import FileWriteFailedDetails as FileWriteFailedDetails
+from goodfetch_collie_client import FileWriteFailedError as FileWriteFailedError
+from goodfetch_collie_client import FileWriteReason as FileWriteReason
 from goodfetch_collie_client import Finished as Finished
 from goodfetch_collie_client import FrameLocator as FrameLocator
 from goodfetch_collie_client import Geolocation as Geolocation
@@ -296,6 +299,8 @@ from goodfetch_collie_client import PageStorage as PageStorage
 from goodfetch_collie_client import PageTimeoutSettings as PageTimeoutSettings
 from goodfetch_collie_client import PageValueInvalidError as PageValueInvalidError
 from goodfetch_collie_client import PageWaits as PageWaits
+from goodfetch_collie_client import PathNotWritableDetails as PathNotWritableDetails
+from goodfetch_collie_client import PathNotWritableError as PathNotWritableError
 from goodfetch_collie_client import PausesForHuman as PausesForHuman
 from goodfetch_collie_client import PerformedAction as PerformedAction
 from goodfetch_collie_client import Permission as Permission

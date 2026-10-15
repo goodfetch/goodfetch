@@ -135,7 +135,12 @@ impl Export {
         unimplemented!()
     }
 
-    /// Copies it to a path on the program's machine.
+    /// Copies it to a path on the program's machine through a hidden temporary file renamed over
+    /// the path once whole, so the path holds the whole Export or what it held before (ADR 0108).
+    /// It creates missing parent folders and replaces an existing file. A path it cannot write fails
+    /// with `path_not_writable`; full or failing storage with `file_write_failed` and
+    /// [`FileWriteSide::Program`](goodfetch_collie_client::FileWriteSide::Program), after which it
+    /// can be called again, since the engine still holds the Export.
     pub fn save_as(&self, path: impl AsRef<Path>) -> Call<()> {
         let _ = path.as_ref();
         unimplemented!()
@@ -202,7 +207,8 @@ impl CrawlRun {
     }
 
     /// Writes an Export of the Records committed so far (ADR 0026), to save or stream wherever the
-    /// engine runs.
+    /// engine runs. Resolves only once its file is whole; a write the engine cannot make fails with
+    /// `file_write_failed` on the engine's side and leaves no unfinished file (ADR 0108).
     pub fn export<T>(&self, dataset: &Dataset<T>, format: ExportFormat) -> ExportCall {
         let _ = (dataset, format);
         unimplemented!()

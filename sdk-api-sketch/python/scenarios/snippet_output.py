@@ -8,7 +8,17 @@ from urllib.parse import urljoin
 
 from pydantic import BaseModel, Field
 
-from goodfetch_foxhound import AsyncCrawl, AsyncCrawlContext, AsyncCrawlRun, AsyncFoxhound, RecordInvalidError, seed
+from goodfetch_foxhound import (
+    AsyncCrawl,
+    AsyncCrawlContext,
+    AsyncCrawlRun,
+    AsyncExport,
+    AsyncFoxhound,
+    FileWriteFailedError,
+    PathNotWritableError,
+    RecordInvalidError,
+    seed,
+)
 
 log = logging.getLogger(__name__)
 
@@ -82,6 +92,22 @@ async def scenario_05() -> None:
             csv = await run.export(books, format="csv")
             await csv.save_as("books.csv")
             log.info("exported %d records up to %d (%s)", csv.records, csv.last_number, csv.sha256)
+
+
+async def save_or_explain(exported: AsyncExport, path: str) -> bool:
+    """A failed save (ADR 0108): the path's fault or the storage's, and the path is never half-written."""
+    try:
+        await exported.save_as(path)
+    except PathNotWritableError as error:
+        log.error("cannot write %s (%s): %s", error.details.path, error.details.reason, error.fix)
+        return False
+    except FileWriteFailedError as error:
+        if error.details.side != "program":
+            raise
+        # The engine still holds the Export: free space, then call save_as again.
+        log.error("storage failed (%s, %s): %s", error.details.reason, error.details.os_code, error.fix)
+        return False
+    return True
 
 
 async def mistakes(ctx: AsyncCrawlContext[None], run: AsyncCrawlRun) -> None:

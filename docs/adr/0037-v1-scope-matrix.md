@@ -6,8 +6,8 @@ This matrix is the companion of [ADR 0037](0037-v1-scope-parity-and-pain-coverag
 
 | Status | Parity rows | Stagehand v3 rows | Pains |
 |---|---:|---:|---:|
-| `decided` | 103 | 4 | 24 |
-| `spec` | 38 | 1 | 0 |
+| `decided` | 107 | 4 | 24 |
+| `spec` | 34 | 1 | 0 |
 | `excluded` | 1 | 0 | 0 |
 | `open → #N` | 0 | 0 | 0 |
 | Total | 142 | 5 | 24 |
@@ -27,12 +27,12 @@ This matrix is the companion of [ADR 0037](0037-v1-scope-parity-and-pain-coverag
 | RT-07 | Routing to handlers by label, typed labels, middleware | `spec` | ADR 0033, ADR 0082, [#71](https://github.com/Jbmanllr/automan/issues/71) | 11 Client surfaces | Label-scoped Hooks replace router middleware. Each Label declares its Payload's schema, an enqueue names its Label by a typed handle, and a Payload is validated at enqueue (ADR 0082); the router's declaration is SDK shape. |
 | RT-08 | Pre- and post-navigation hooks | `decided` | ADR 0033 | 7 Plugin protocol | Hook stages before and after navigation. |
 | RT-09 | User state persisted across restarts | `decided` | [#71](https://github.com/Jbmanllr/automan/issues/71), ADR 0002 | 3 Engine runtime | A Key-value store in the run file checkpoints with the run. The `useState` shape is spec. |
-| RT-10 | Resume an interrupted crawl from persisted state | `decided` | ADR 0002, ADR 0003, ADR 0082 | 3 Engine runtime | Frontier, Sessions and journal live in the per-run SQLite file. A resume after a Label's Payload schema changed re-checks pending Payloads before any work (ADR 0082). |
-| RT-11 | Stop, pause and resume a running crawl | `decided` | ADR 0001, ADR 0002, ADR 0029 | 3 Engine runtime | Pause is checkpoint, stop and resume, not an in-memory pause. |
-| RT-12 | Keep-alive run that waits for new work | `spec` | [#71](https://github.com/Jbmanllr/automan/issues/71), ADR 0005, ADR 0029 | 3 Engine runtime | A run flag plus CO-03's add-requests operation. How a keep-alive run finishes, and its Completeness, are spec under ADR 0029. |
+| RT-10 | Resume an interrupted crawl from persisted state | `decided` | ADR 0002, ADR 0003, ADR 0082, ADR 0102 | 3 Engine runtime | Frontier, Sessions and journal live in the per-run SQLite file. A resume after a Label's Payload schema changed re-checks pending Payloads before any work (ADR 0082). A program resumes a Run by starting its ID again; its seeds and Plan file must match, and failed requests are re-run in the same Run with `retryFailed` (ADR 0102). |
+| RT-11 | Stop, pause and resume a running crawl | `decided` | ADR 0001, ADR 0002, ADR 0029, ADR 0102 | 3 Engine runtime | Pause is checkpoint, stop and resume, not an in-memory pause: `run.stop()` returns the Run report, and a start with the Run's ID resumes it (ADR 0102). |
+| RT-12 | Keep-alive run that waits for new work | `decided` | [#71](https://github.com/Jbmanllr/automan/issues/71), ADR 0005, ADR 0029, ADR 0102 | 3 Engine runtime | `crawl.keep_alive` keeps a crawl's Run `running` with an empty Frontier, waiting for CO-03's `addSeed`, until `finish()` lets it end once drained; its Completeness is ADR 0005's, as any crawl's (ADR 0102). |
 | RT-13 | In-process scheduled (cron) runs | `decided` | ADR 0036 | 10 Scheduling | Daemon Schedules: cron, interval, Watch, after a run. |
 | RT-14 | Lifecycle events: persist, system info, migrating, aborting | `decided` | ADR 0001, ADR 0024, ADR 0033 | 3 Engine runtime | Lifecycle Hooks, signals and the event stream. |
-| RT-15 | Run statistics, status log, custom status message | `spec` | ADR 0024, ADR 0029 | 3 Engine runtime | Usage and progress events decided. A user status message is one more progress-event field. |
+| RT-15 | Run statistics, status log, custom status message | `decided` | ADR 0024, ADR 0029, ADR 0102 | 3 Engine runtime | `run.progress()` reports what is in flight, what waits and why, and the program's own `setProgressMessage` line; the Run report states the three axes, Usage, request and Record counts and what weakened a safeguard (ADR 0102). |
 | RT-16 | Error grouping with HTML and screenshot snapshots | `spec` | ADR 0031, ADR 0029 | 12 Console | Traces are kept for failed runs. Grouping errors by code and stack is a report feature. |
 | RT-17 | Structured logging: levels, JSON, custom sink | `spec` | [#70](https://github.com/Jbmanllr/automan/issues/70) item 9, ADR 0078 | 3 Engine runtime | The `tracing` substrate is decided. Levels and a JSON format are subscriber settings; SDKs relay engine logs to the host's logging (ADR 0078). |
 | RT-18 | OpenTelemetry traces | `decided` | [#70](https://github.com/Jbmanllr/automan/issues/70) item 9 | 3 Engine runtime | `tracing` everywhere, opt-in OTLP export, GenAI conventions for model calls. Recorded only in the ticket. |

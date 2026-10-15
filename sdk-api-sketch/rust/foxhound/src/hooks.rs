@@ -2,8 +2,9 @@
 //!
 //! A crawl declares its Hooks in code on its [`Crawl`], one method per stage, at the six stages
 //! whose answer changes the work. Hooks run in the order declared, after the Hooks that settings
-//! name (`hooks.*`), with no integers. Like handlers, they are `AsyncFn` closures answered inside
-//! [`Crawl::serve`], so they may borrow and need neither `Send` nor `'static` (ADR 0081). The
+//! name (`hooks.*`), with no integers. Like handlers, they are closures answered inside
+//! [`Crawl::serve`], so they may borrow and need not be `'static` (ADR 0081), and like handlers
+//! they and the futures they return are `Send` (ADR 0112), so `serve`'s future stays `Send`. The
 //! observe-only stages (the run's lifecycle and a request's end) reach code through the Run's own
 //! values: its progress, outcomes and report (ADR 0102). A Collie program has no Hooks in code: its
 //! own lines, routes, init scripts and locator handlers answer each stage (ADR 0085).
@@ -15,6 +16,7 @@
 //! read as an [`EventStream`] by name, as ADR 0101 reads `model_requests` and ADR 0092
 //! `secret_requests`, since the async API spawns nothing (ADR 0081).
 
+use std::future::Future;
 use std::marker::PhantomData;
 
 use serde_json::{Map, Value};
@@ -344,9 +346,10 @@ impl<T> RecordCommitContext<T> {
 impl<'a> Crawl<'a> {
     /// Before each fetch of a request, retries, escalations and sample-comparison runs included:
     /// it may rewrite the URL, set headers or skip.
-    pub fn before_request<P, F>(&mut self, on: impl Into<HookOn<P>>, hook: F) -> Result<(), Error>
+    pub fn before_request<P, F, Fut>(&mut self, on: impl Into<HookOn<P>>, hook: F) -> Result<(), Error>
     where
-        F: AsyncFn(BeforeRequestContext<P>) -> Result<RequestChange, Error> + 'a,
+        F: FnOnce(BeforeRequestContext<P>) -> Fut + Clone + Send + Sync + 'a,
+        Fut: Future<Output = Result<RequestChange, Error>> + Send + 'a,
     {
         let _ = (on.into(), hook);
         unimplemented!()
@@ -354,18 +357,20 @@ impl<'a> Crawl<'a> {
 
     /// After the final response, before the status rule: it may rewrite the body, mark a block or
     /// ask for a retry.
-    pub fn after_response<P, F>(&mut self, on: impl Into<HookOn<P>>, hook: F) -> Result<(), Error>
+    pub fn after_response<P, F, Fut>(&mut self, on: impl Into<HookOn<P>>, hook: F) -> Result<(), Error>
     where
-        F: AsyncFn(AfterResponseContext<P>) -> Result<ResponseChange, Error> + 'a,
+        F: FnOnce(AfterResponseContext<P>) -> Fut + Clone + Send + Sync + 'a,
+        Fut: Future<Output = Result<ResponseChange, Error>> + Send + 'a,
     {
         let _ = (on.into(), hook);
         unimplemented!()
     }
 
     /// Before the browser navigates: set cookies, block resources, add init scripts.
-    pub fn before_navigation<P, F>(&mut self, on: impl Into<HookOn<P>>, hook: F) -> Result<(), Error>
+    pub fn before_navigation<P, F, Fut>(&mut self, on: impl Into<HookOn<P>>, hook: F) -> Result<(), Error>
     where
-        F: AsyncFn(PageStageContext<P>) -> Result<(), Error> + 'a,
+        F: FnOnce(PageStageContext<P>) -> Fut + Clone + Send + Sync + 'a,
+        Fut: Future<Output = Result<(), Error>> + Send + 'a,
     {
         let _ = (on.into(), hook);
         unimplemented!()
@@ -373,9 +378,10 @@ impl<'a> Crawl<'a> {
 
     /// After the browser navigated, before the engine's own page work (consent, challenges, the
     /// expected page).
-    pub fn after_navigation<P, F>(&mut self, on: impl Into<HookOn<P>>, hook: F) -> Result<(), Error>
+    pub fn after_navigation<P, F, Fut>(&mut self, on: impl Into<HookOn<P>>, hook: F) -> Result<(), Error>
     where
-        F: AsyncFn(PageStageContext<P>) -> Result<(), Error> + 'a,
+        F: FnOnce(PageStageContext<P>) -> Fut + Clone + Send + Sync + 'a,
+        Fut: Future<Output = Result<(), Error>> + Send + 'a,
     {
         let _ = (on.into(), hook);
         unimplemented!()
@@ -383,9 +389,10 @@ impl<'a> Crawl<'a> {
 
     /// Just before the handler, on every tier, with the handler's page: the router middleware of
     /// Crawlee's `router.use`.
-    pub fn page_ready<P, F>(&mut self, on: impl Into<HookOn<P>>, hook: F) -> Result<(), Error>
+    pub fn page_ready<P, F, Fut>(&mut self, on: impl Into<HookOn<P>>, hook: F) -> Result<(), Error>
     where
-        F: AsyncFn(PageStageContext<P>) -> Result<(), Error> + 'a,
+        F: FnOnce(PageStageContext<P>) -> Fut + Clone + Send + Sync + 'a,
+        Fut: Future<Output = Result<(), Error>> + Send + 'a,
     {
         let _ = (on.into(), hook);
         unimplemented!()
@@ -393,9 +400,10 @@ impl<'a> Crawl<'a> {
 
     /// Before each Record's commit: it returns the Record to commit, changed or not, or drops or
     /// rejects it.
-    pub fn before_record_commit<T, F>(&mut self, on: impl Into<RecordHookOn<T>>, hook: F) -> Result<(), Error>
+    pub fn before_record_commit<T, F, Fut>(&mut self, on: impl Into<RecordHookOn<T>>, hook: F) -> Result<(), Error>
     where
-        F: AsyncFn(RecordCommitContext<T>) -> Result<T, Error> + 'a,
+        F: FnOnce(RecordCommitContext<T>) -> Fut + Clone + Send + Sync + 'a,
+        Fut: Future<Output = Result<T, Error>> + Send + 'a,
     {
         let _ = (on.into(), hook);
         unimplemented!()

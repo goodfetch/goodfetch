@@ -14,7 +14,7 @@
 //!   except what it answers to a `caller:` reference through the connection's `secret_requests`.
 
 use std::fmt;
-use std::future::IntoFuture;
+use std::future::{Future, IntoFuture};
 use std::path::PathBuf;
 use std::str::FromStr;
 use std::time::{Duration, SystemTime};
@@ -600,10 +600,12 @@ impl Call<Session> {
     /// ADR 0006's scripted login step: called with the page whose call met the login page, inside
     /// that call's future (ADR 0081), which gives up the page's turn meanwhile. The Page check
     /// judges the page it leaves; it counts toward the two recoveries a page gets, and an error it
-    /// returns is chained to `logged_out`. A crawl takes its own the same way.
-    pub fn login<F>(self, login: F) -> Self
+    /// returns is chained to `logged_out`. A crawl takes its own the same way. The call's future
+    /// holds it, so it and the future it returns are `Send + 'static` (ADRs 0081, 0112).
+    pub fn login<F, Fut>(self, login: F) -> Self
     where
-        F: AsyncFn(Page) -> Result<(), Error> + Send + Sync + 'static,
+        F: FnOnce(Page) -> Fut + Clone + Send + Sync + 'static,
+        Fut: Future<Output = Result<(), Error>> + Send + 'static,
     {
         let _ = login;
         unimplemented!()

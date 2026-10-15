@@ -10,6 +10,7 @@ ADR 0028 makes every parameter a setting and resolves it through five layers; th
 - **Among explicit values, the nearest scope wins**, and a call's argument is nearer than any scope's `settings`. This decides no order between a program's values and a CLI flag or a form: a run takes its explicit values from one surface.
 - **A plain program's values are the run layer.** ADR 0028's layer 4, "a Recipe or the developer's code", means a Recipe's code, whose declared settings are locked for the Recipe's users unless exposed. A program that is not a Recipe has no separate users, so its values sit in the run layer, above configuration.
 - **The layer is named.** An error's `limit` (ADR 0079) and `explainSettings()` name the layer, and for the run layer its origin: a call's argument, `settings`, a flag or a form.
+  > Amended by [ADR 0104](0104-a-crawl-declares-its-hooks-per-stage-in-code-a-hook-returns-its-change-and-a-program-registers-its-own-plugins-by-name.md): a fifth run-layer origin, `registered`, the lowest: a program's only SDK handler of a kind that one setting chooses, registered on `connect()`, becomes that setting's value at the connection scope, which every other run-layer value replaces and configuration does not; a lock on the key wins over it with no refusal.
 
 ### The environment
 
@@ -68,6 +69,7 @@ Checked when the scope opens, or when a call with a per-call argument starts, so
 > Amended by [ADR 0087](0087-each-product-is-an-executable-crate-that-links-only-its-crates-and-has-its-own-size-budget.md): on a Collie engine, a key only Foxhound honours is refused with `not_in_product` (`UnavailableError`), naming Foxhound, before the scope check, so a `crawl.*` setting there is not `setting_not_applicable`. User and project configuration and Operator policy may hold the other Product's keys, since one project or one Goodfetch home can serve both: a Product applies its own and `config explain` lists the others as Foxhound's.
 
 > Amended by [ADR 0102](0102-a-program-names-its-run-by-an-id-that-a-start-resumes-ends-it-with-a-run-report-and-reads-what-waits-and-why.md): `setting_not_applicable` also refuses, on a resume, a value changed since the Run began for a key fixed for a Run's life, such as `crawl.scope.*`; its `fix` names a new Run.
+> Amended by [ADR 0104](0104-a-crawl-declares-its-hooks-per-stage-in-code-a-hook-returns-its-change-and-a-program-registers-its-own-plugins-by-name.md): a lock over a value with the origin `registered` is no `setting_locked`. The lock wins with no refusal, since the program never wrote the key.
 
 A capability is a setting, never a Cargo feature (ADR 0038), and one binary carries every capability (ADR 0057), so the types are the same in every build: Spider's 132 Cargo features change field types, and its default `io_uring` panicked in Docker. ADR 0033's `confinement_unavailable`, a security refusal for a Plugin's network level, stays its own code.
 

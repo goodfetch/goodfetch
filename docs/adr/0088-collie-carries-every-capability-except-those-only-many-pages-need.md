@@ -42,6 +42,8 @@ Decided in [Collie's exact capability set](https://github.com/goodfetch/goodfetc
 | Partitioned crawls | 0054 | They split a crawl's domains |
 | The Fetch backend and Sink Plugin kinds; the Hook stages before request, after response and Record before commit | 0033 | They act on a Frontier's requests and a Dataset's Records |
 
+> Amended by [ADR 0104](0104-a-crawl-declares-its-hooks-per-stage-in-code-a-hook-returns-its-change-and-a-program-registers-its-own-plugins-by-name.md): the new observe-only Hook stage `request_ended`, which receives a crawl request's outcome, is Foxhound's too.
+
 ### Sessions a program or an Agent opened are never replaced
 
 - **The Session pool is Foxhound's.** The engine retires and replaces only Sessions that a crawl's Session pool opened.
@@ -151,3 +153,4 @@ Decided in [Collie's exact capability set](https://github.com/goodfetch/goodfetc
 - **Glossary.** A Session pool is a crawl's, not every run's; Provenance covers any result of a run, not only a Record, since Collie's results are not Records; and Foxhound's entry names Politeness toward sites and the HTTP fetch tiers, since Collie carries the per-proxy limits and the browser tiers.
 - **Tests.** `TESTING.md` adds Session ownership and proxy limit conformance cases. Which suites run against each Product's executable is [Release, signing and testing of two products](https://github.com/goodfetch/goodfetch/issues/459)'s.
 - **Positioning.** Collie's docs can name what its competitors lack (the Effect journal, verified Plans, a Script sandbox) or keep in their clouds (stealth, Clean-up rules, Schedules), which Collie runs locally. How the site presents the two Products is [Docs site and positioning of two Products](https://github.com/goodfetch/goodfetch/issues/499)'s, and what two installed Products share is [Collie and Foxhound installed on one machine](https://github.com/goodfetch/goodfetch/issues/486)'s.
+  > Amended by [ADR 0097](0097-one-docs-site-renders-each-products-section-from-one-source-and-neither-product-leads-with-access.md): such claims about competitors appear only in migration guides and benchmark results, each with the competitor's version, the date and a source; Collie's lead names what runs on the user's machine without comparing.

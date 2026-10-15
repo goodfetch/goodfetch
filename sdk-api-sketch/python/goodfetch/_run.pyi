@@ -361,14 +361,15 @@ class NothingDone:
     """Why a Run did nothing (G1).
 
     - `already_ended`: the start found the Run ended, at `ended_at`;
-    - `no_seed_handled`: no seed reached a handler, each refused when added or skipped when fetched, counted in
-      `by_reason`;
+    - `no_seed_handled`: no seed reached a handler, each refused when added, counted in `refused` by an enqueue's
+      reason, or skipped when fetched, counted in `skipped` by a skip reason;
     - `nothing_pending`: a resume or a retry found nothing left.
     """
 
     reason: Literal["already_ended", "no_seed_handled", "nothing_pending"] | str
     ended_at: datetime | None
-    by_reason: Mapping[SkipReason, int]
+    refused: Mapping[NotAddedReason, int]
+    skipped: Mapping[SkipReason, int]
 
 @dataclass(frozen=True, kw_only=True)
 class RunReport:
@@ -414,7 +415,7 @@ class RunReport:
 @final
 @dataclass(frozen=True, kw_only=True)
 class CrawlRequestTotals:
-    """A crawl's requests when its Run ended. Records per Dataset are #479's to add."""
+    """A crawl's requests when its Run ended; its Records per Dataset are the report's `records`."""
 
     succeeded: int
     failed: int
@@ -443,7 +444,11 @@ class SinkDeliveryStatus:
     """A Sink's delivery (ADR 0026), as it stood when the report was read: a Sink may go on delivering after the Run
     ends."""
 
-    status: Literal["complete", "complete_with_rejections", "behind", "failed"] | str
+    status: Literal["complete", "complete_with_rejections", "behind", "failed", "inactive"] | str
+    """ADR 0026's, or `inactive` for a Sink inherited from the connection or configuration that names none of the
+    crawl's Datasets, which delivers nothing (ADR 0103)."""
+    undeclared_datasets: Sequence[str]
+    """For an `inactive` Sink, the Dataset names it gave that the crawl does not declare."""
     guarantee_class: str
     """ADR 0026's Guarantee class."""
     dead_letters: int

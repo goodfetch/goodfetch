@@ -391,8 +391,10 @@ pub enum NothingDone {
     },
     /// No seed reached a handler: each was refused when added or skipped when fetched.
     NoSeedHandled {
-        /// The seeds' reasons, counted.
-        by_reason: Vec<(SkipReason, u64)>,
+        /// The seeds refused when added, by an enqueue's reason.
+        refused: Vec<(NotAddedReason, u64)>,
+        /// The seeds skipped when fetched, by a skip reason.
+        skipped: Vec<(SkipReason, u64)>,
     },
     /// A resume or a retry found nothing left.
     NothingPending,
@@ -457,7 +459,7 @@ pub struct RunReport {
     pub ended_at: SystemTime,
 }
 
-/// A crawl's requests when its Run ended. Records per Dataset are #479's to add.
+/// A crawl's requests when its Run ended; its Records per Dataset are the report's `records`.
 #[derive(Debug, Clone)]
 #[non_exhaustive]
 pub struct CrawlRequestTotals {
@@ -498,8 +500,12 @@ pub struct DatasetTotals {
 #[derive(Debug, Clone)]
 #[non_exhaustive]
 pub struct SinkDeliveryStatus {
-    /// `complete`, `complete_with_rejections`, `behind` or `failed`.
+    /// `complete`, `complete_with_rejections`, `behind` or `failed` (ADR 0026), or `inactive` for a
+    /// Sink inherited from the connection or configuration that names none of the crawl's
+    /// Datasets, which delivers nothing (ADR 0103).
     pub status: String,
+    /// For an `inactive` Sink, the Dataset names it gave that the crawl does not declare.
+    pub undeclared_datasets: Vec<String>,
     /// ADR 0026's Guarantee class.
     pub guarantee_class: String,
     /// Its dead letters.
@@ -887,7 +893,8 @@ impl CrawlRunView {
         unimplemented!()
     }
 
-    /// The Dataset's committed Records, as `CrawlRun::records`' (ADR 0103).
+    /// The Dataset's committed Records, as `CrawlRun::records`' (ADR 0103); on a Run with no live
+    /// writer, it ends after the last committed Record, as `outcomes` does.
     pub fn records<T: DeserializeOwned>(&self, dataset: &Dataset<T>) -> EventStream<DatasetRecord<T>> {
         let _ = dataset;
         unimplemented!()

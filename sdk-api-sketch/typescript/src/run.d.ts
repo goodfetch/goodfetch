@@ -267,12 +267,16 @@ export interface VerdictReason {
 /**
  * Why a Run did nothing (G1):
  * - `already_ended`: the start found the Run ended;
- * - `no_seed_handled`: no seed reached a handler, each refused when added or skipped when fetched, counted by reason;
+ * - `no_seed_handled`: no seed reached a handler, each refused when added (by an enqueue's reason) or skipped when fetched (by a skip reason);
  * - `nothing_pending`: a resume or a retry found nothing left.
  */
 export type NothingDone =
   | { readonly reason: "already_ended"; readonly endedAt: Date }
-  | { readonly reason: "no_seed_handled"; readonly byReason: Readonly<Partial<Record<SkipReason, number>>> }
+  | {
+      readonly reason: "no_seed_handled";
+      readonly refused: Readonly<Partial<Record<NotAddedReason, number>>>;
+      readonly skipped: Readonly<Partial<Record<SkipReason, number>>>;
+    }
   | { readonly reason: "nothing_pending" }
   | { readonly reason: "unknown"; readonly raw: string };
 
@@ -314,7 +318,7 @@ export interface RunReport {
   readonly endedAt: Date;
 }
 
-/** A crawl's requests when its Run ended. Records per Dataset are #479's to add. */
+/** A crawl's requests when its Run ended; its Records per Dataset are the report's `records`. */
 export interface CrawlRequestTotals {
   readonly succeeded: number;
   readonly failed: number;
@@ -335,7 +339,10 @@ export interface DatasetTotals extends RecordCounts {
 
 /** A Sink's delivery (ADR 0026), as it stood when the report was read: a Sink may go on delivering after the Run ends. */
 export interface SinkDeliveryStatus {
-  readonly status: "complete" | "complete_with_rejections" | "behind" | "failed" | (string & {});
+  /** ADR 0026's, or `inactive` for a Sink inherited from the connection or configuration that names none of the crawl's Datasets, which delivers nothing (ADR 0103). */
+  readonly status: "complete" | "complete_with_rejections" | "behind" | "failed" | "inactive" | (string & {});
+  /** For an `inactive` Sink, the Dataset names it gave that the crawl does not declare. */
+  readonly undeclaredDatasets: readonly string[];
   /** ADR 0026's Guarantee class. */
   readonly guaranteeClass: string;
   readonly deadLetters: number;

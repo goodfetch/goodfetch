@@ -356,7 +356,7 @@ export interface CrawlRun extends Run {
   addSeed(seed: Seed): Promise<Enqueued>;
 }
 
-/** A crawl's Run read by a program that does not drive it, opened with `openCrawlRun` (ADR 0102). Its Records are read with the program's own Dataset handles. */
+/** A crawl's Run read by a program that does not drive it, opened with `openCrawlRun` (ADR 0102). Its Records are read with the program's own Dataset handles; on a Run with no live writer, `records()` and `rejectedRecords()` end after the last committed Record, as `outcomes()` does. */
 export interface CrawlRunView extends RunView, Pick<CrawlRun, "outcomes" | "records" | "rejectedRecords" | "export"> {
   progress(): EventIterator<CrawlRunProgress>;
   report(options?: CallOptions): Promise<CrawlRunReport>;

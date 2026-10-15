@@ -5,8 +5,9 @@
 // A program reads committed Records back from the crawl's Run as a stream that starts at the
 // Dataset's first Record, follows the Run live, and never slows the crawl, since Records are already
 // in run state. Sinks are settings (`sinks.<name>.*`, settings.d.ts); an Export is a file the engine
-// writes, which the program saves or streams wherever the engine runs. Every Run, Collie's included,
-// has a Key-value store; Datasets, Records, Exports and Sinks are Foxhound's (ADR 0084).
+// writes, which the program saves or streams wherever the engine runs. Datasets and Sinks are
+// Foxhound's (ADR 0084), and so are the Records and Exports made from them; every Run, Collie's
+// included, has a Key-value store (ADR 0088).
 
 import type { EventIterator } from "./concurrency.js";
 import type { JsonValue, Schema, SchemaIssue, SchemaOutput } from "./data.js";
@@ -135,8 +136,8 @@ export interface KeyValueStore {
   get(key: string, options?: CallOptions): Promise<JsonValue | null>;
   /** The value under the key, built by the schema's own parse; one it rejects throws `ValueInvalidError`. */
   get<S extends Schema>(key: string, schema: S, options?: CallOptions): Promise<SchemaOutput<S> | null>;
-  /** A value that is not JSON, or null, throws `ValueInvalidError` (whose `fix` names `delete`), so null from `get` always means absent. */
-  set(key: string, value: JsonValue, options?: CallOptions): Promise<void>;
+  /** Never null, so null from `get` always means absent: `delete` removes a key. A nested null is kept. */
+  set(key: string, value: Exclude<JsonValue, null>, options?: CallOptions): Promise<void>;
   getBytes(key: string, options?: CallOptions): Promise<StoredBytes | null>;
   setBytes(key: string, content: Uint8Array, contentType: string, options?: CallOptions): Promise<void>;
   /** Whether the key existed. */

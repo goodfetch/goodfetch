@@ -5,8 +5,8 @@ handler pushes Records through its context, which stages them with its attempt: 
 order, or are discarded when it ends early (ADR 0003). A program reads committed Records back from the crawl's Run as a
 sequence that starts at the Dataset's first Record, follows the Run live, and never slows the crawl, since Records are
 already in run state. Sinks are settings (`sinks.<name>.*`); an Export is a file the engine writes, which the program
-saves or streams wherever the engine runs. Every Run, Collie's included, has a Key-value store; Datasets, Records,
-Exports and Sinks are Foxhound's (ADR 0084).
+saves or streams wherever the engine runs. Datasets and Sinks are Foxhound's (ADR 0084), and so are the Records and
+Exports made from them; every Run, Collie's included, has a Key-value store (ADR 0088).
 """
 
 from collections.abc import AsyncIterator, Iterator, Sequence

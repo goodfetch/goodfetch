@@ -80,6 +80,6 @@ export function mistakes(run: CrawlRun): void {
   crawl.dataset("misspelled", { schema: Book, key: ["isbn"] });
   // @ts-expect-error the format is named, never guessed from a file name
   void run.export(books, { format: "cvs" });
-  // Null is refused at run time with `value_invalid`, naming `delete`: null from `get` always means absent.
-  void run.keyValueStore.delete("cursor/Travel");
+  // @ts-expect-error null is never stored, so null from `get` always means absent: `delete` removes a key
+  void run.keyValueStore.set("cursor/Travel", null);
 }

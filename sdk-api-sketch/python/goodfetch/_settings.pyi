@@ -210,8 +210,9 @@ class FetchSettings(TypedDict, total=False):
     """ADR 0040's `tier_race`. Built-in: False."""
 
 SinkWriteMode: TypeAlias = Literal["append", "upsert", "insert_only", "replace", "history"]
-"""A Sink's write mode (ADR 0026). The keyed ones use the Sink's own key, or else its Datasets' keys; with neither, the
-Run's start refuses the Sink with `setting_invalid` naming `sinks.<name>.key`."""
+"""A Sink's write mode (ADR 0026). The keyed ones use the Sink's own key, or else each Dataset's key. The Run's start
+refuses with `setting_invalid` naming `sinks.<name>.key` a Sink in a keyed mode with no key of its own while one of its
+Datasets has none, and a Sink key naming a field that a schema of one of its Datasets does not require."""
 
 class SinkSettings(TypedDict, total=False):
     """`sinks.<name>.*`: one Sink each (ADRs 0026, 0103), set on a connection or a crawl's Run, never on a Label. A

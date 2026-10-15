@@ -6,9 +6,9 @@
 //! (ADR 0003). A program reads committed Records back from the crawl's Run as an [`EventStream`]
 //! that starts at the Dataset's first Record, follows the Run live, and never slows the crawl, since
 //! Records are already in run state. Sinks are settings ([`Settings::sink`]); an [`Export`] is a
-//! file the engine writes, which the program saves or streams wherever the engine runs. Every Run,
-//! Collie's included, has a [`KeyValueStore`]; Datasets, Records, Exports and Sinks are Foxhound's
-//! (ADR 0084).
+//! file the engine writes, which the program saves or streams wherever the engine runs. Datasets
+//! and Sinks are Foxhound's (ADR 0084), and so are the Records and Exports made from them; every
+//! Run, Collie's included, has a [`KeyValueStore`] (ADR 0088).
 
 use std::path::Path;
 use std::time::SystemTime;
@@ -314,9 +314,10 @@ impl<P> CrawlContext<P> {
     }
 }
 
-/// A Sink's write mode (ADR 0026). The keyed ones use the Sink's own key, or else its Datasets'
-/// keys; with neither, the Run's start refuses the Sink with `setting_invalid` naming
-/// `sinks.<name>.key`.
+/// A Sink's write mode (ADR 0026). The keyed ones use the Sink's own key, or else each Dataset's
+/// key. The Run's start refuses with `setting_invalid` naming `sinks.<name>.key` a Sink in a keyed
+/// mode with no key of its own while one of its Datasets has none, and a Sink key naming a field
+/// that a schema of one of its Datasets does not require.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum SinkWriteMode {

@@ -651,7 +651,8 @@ Decided in [ADR 0098](docs/adr/0098-both-products-share-one-goodfetch-home-and-o
 
 - **Run both executables of one commit in one Goodfetch home** (Pre-merge suite):
   - a Foxhound Client that meets a Collie Daemon gets a Foxhound Daemon once the Collie one hosts no live run;
-  - a Foxhound installed but never run becomes the pick when `goodfetch-foxhound daemon restart`, the `fix` of a refusal under `engine: daemon`, runs;
+  - a Foxhound installed but never run becomes the pick when the `daemon restart` that a refusal's `fix` names under `engine: daemon` runs, from the path the Client would run attached;
+  - after a newer Collie raises the Run index's lowest minor past an installed older Foxhound, the pick is that Collie, the Foxhound Daemon takes no new run and hands over to it once its live runs end, and the Console and Collie's Schedules keep working;
   - a Collie Client never moves the Daemon to Collie while a Foxhound counts as installed, so Clients of the two Products alternating restart it at most once;
   - a Client the Daemon refuses runs attached with a warning under `engine: auto`, and fails at connect with `not_in_product` under `engine: daemon`;
   - a Collie run and a Foxhound run through one proxy set to `politeness.proxy.concurrency: 1` never have two requests in flight through it, and a 429 a Collie page meets leaves the Politeness file's domain limits unchanged.

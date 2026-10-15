@@ -20,6 +20,7 @@ import type { StoredBytes } from "./output.js";
 import type { Headers } from "./page.js";
 import type { BlockCause, GoodfetchError, ProgramError, SkipReason } from "./results.js";
 import type { Settings } from "./settings.js";
+import type { UncertainWhy } from "./effects.js";
 
 /** Options of starting a test engine. */
 export interface TestEngineOptions {
@@ -74,7 +75,26 @@ export type HandlerInput<L extends Label<unknown, unknown>> = {
   readonly attempt?: number;
   /** Default 0. */
   readonly depth?: number;
+  /**
+   * The Effect journal's prior answers, by Effect key (ADR 0106): a declaration of such a key is
+   * answered as the journal would answer it, without running its body.
+   */
+  readonly effects?: Readonly<Record<string, PriorEffect>>;
 } & ([PayloadInput<L>] extends [undefined] ? { readonly payload?: undefined } : { readonly payload: PayloadInput<L> });
+
+/** A prior answer the Effect journal holds for a key in a test (ADR 0106). */
+export type PriorEffect =
+  | { readonly source: "journal"; readonly output: JsonValue }
+  | { readonly source: "reconciled" }
+  | { readonly source: "uncertain"; readonly why: UncertainWhy };
+
+/** One declaration an attempt made, and how it was answered. */
+export interface DeclaredEffect {
+  readonly key: string;
+  readonly answer: "performed" | "journal" | "reconciled" | "uncertain" | "not_performed" | (string & {});
+  /** Whether its body sent anything; a command a Response recording answered counts as sent. */
+  readonly sent: boolean;
+}
 
 /** How an attempt ended. */
 export type AttemptEnd =
@@ -123,6 +143,8 @@ export interface AttemptResult {
   /** `ctx.run.addSeed()` calls. */
   readonly seeds: readonly StagedRequest[];
   readonly keyValueWrites: readonly StagedWrite[];
+  /** The Effects it declared, in order (ADR 0106). */
+  readonly effects: readonly DeclaredEffect[];
   /** Model calls made by AI verbs in the handler (ADR 0101). */
   readonly usage: ModelUsage;
 }
@@ -197,6 +219,12 @@ export declare class TestEngine implements AsyncDisposable {
    * naming the closest.
    */
   runHook(crawl: Crawl, name: string, input: HookInput): Promise<HookResult>;
+  /**
+   * Stands for a person's answer about an uncertain Effect of a Run on this engine (ADR 0029): the
+   * key's next declaration returns `reconciled` after `happened`, and performs the body again after
+   * `did_not_happen` (ADR 0106). Only the testing kit has it.
+   */
+  reconcile(runId: string, key: string, answer: "happened" | "did_not_happen"): Promise<void>;
   /** Closes the connection and the engine and removes the home. Throws `ScriptedModelUnusedError` if a Scripted model registered here has replies left. */
   close(): Promise<void>;
   [Symbol.asyncDispose](): Promise<void>;

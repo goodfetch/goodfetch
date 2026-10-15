@@ -26,6 +26,7 @@ from goodfetch._models import AsyncModelProviderHandler, ModelProviderHandler, M
 from goodfetch._output import StoredBytes
 from goodfetch._results import BlockCause, GoodfetchError, ProgramError, SkipReason
 from goodfetch._settings import Settings
+from goodfetch._effects import UncertainWhy
 
 P = TypeVar("P")
 T = TypeVar("T")
@@ -142,6 +143,9 @@ class AttemptResult:
     @property
     def key_value_writes(self) -> Sequence[StagedWrite]: ...
     @property
+    def effects(self) -> Sequence[DeclaredEffect]:
+        """The Effects it declared, in order (ADR 0106)."""
+    @property
     def usage(self) -> ModelUsage:
         """Model calls made by AI verbs in the handler (ADR 0101)."""
 
@@ -184,6 +188,37 @@ class _AsyncStarting:
     ) -> None: ...
 
 @final
+@dataclass(frozen=True, kw_only=True)
+class PriorJournal:
+    """A prior answer the Effect journal holds for a key in a test: done, with its output (ADR 0106)."""
+
+    output: JsonValue
+
+@final
+@dataclass(frozen=True)
+class PriorReconciled:
+    """A person answered "it happened" (ADR 0029)."""
+
+@final
+@dataclass(frozen=True, kw_only=True)
+class PriorUncertain:
+    """Left uncertain, for this reason."""
+
+    why: UncertainWhy
+
+PriorEffect: TypeAlias = PriorJournal | PriorReconciled | PriorUncertain
+
+@final
+@dataclass(frozen=True, kw_only=True)
+class DeclaredEffect:
+    """One declaration an attempt made, and how it was answered."""
+
+    key: str
+    answer: Literal["performed", "journal", "reconciled", "uncertain", "not_performed"] | str
+    sent: bool
+    """Whether its body sent anything; a command a Response recording answered counts as sent."""
+
+@final
 class AsyncTestEngine:
     """A real engine for one test, for `AsyncGoodfetch`: a temporary Goodfetch home removed when it closes, a cleared
     environment, no project file unless named, `offline` (ADR 0043), short durations, and no Model provider unless the
@@ -223,6 +258,7 @@ class AsyncTestEngine:
         tier: FetchTier | None = None,
         attempt: int = 1,
         depth: int = 0,
+        effects: Mapping[str, PriorEffect] | None = None,
     ) -> AttemptResult: ...
     @overload
     async def run_handler(
@@ -237,6 +273,7 @@ class AsyncTestEngine:
         tier: FetchTier | None = None,
         attempt: int = 1,
         depth: int = 0,
+        effects: Mapping[str, PriorEffect] | None = None,
     ) -> AttemptResult:
         """Runs the Label's handler, the one the crawl attached, on one request, with the Label's settings, in a Run of its
         own: one attempt, no retry. Nothing else of the crawl runs: no Frontier, no Hooks, no commit. The document is not
@@ -274,6 +311,11 @@ class AsyncTestEngine:
         `run_handler` builds a handler's: before a request from `method`, `body`, `headers`, `tier` and `previous_error`
         (a first attempt by default); after one from `response`; before a Record's commit from `dataset` and `record`. A
         name the crawl does not hold raises `HookUnknownError`, naming the closest."""
+
+    async def reconcile(self, run_id: str, key: str, answer: Literal["happened", "did_not_happen"]) -> None:
+        """Stands for a person's answer about an uncertain Effect of a Run on this engine (ADR 0029): the key's next
+        declaration returns `reconciled` after `happened`, and performs the body again after `did_not_happen`
+        (ADR 0106). Only the testing kit has it."""
 
     async def close(self) -> None:
         """Closes the connection and the engine and removes the home. Raises `ScriptedModelUnusedError` if a Scripted model
@@ -314,6 +356,7 @@ class TestEngine:
         tier: FetchTier | None = None,
         attempt: int = 1,
         depth: int = 0,
+        effects: Mapping[str, PriorEffect] | None = None,
     ) -> AttemptResult: ...
     @overload
     def run_handler(
@@ -328,6 +371,7 @@ class TestEngine:
         tier: FetchTier | None = None,
         attempt: int = 1,
         depth: int = 0,
+        effects: Mapping[str, PriorEffect] | None = None,
     ) -> AttemptResult: ...
     def run_hook(
         self,
@@ -349,6 +393,7 @@ class TestEngine:
         dataset: Dataset[Any] | None = None,
         record: JsonValue = None,
     ) -> HookResult: ...
+    def reconcile(self, run_id: str, key: str, answer: Literal["happened", "did_not_happen"]) -> None: ...
     def close(self) -> None: ...
     def __enter__(self) -> TestEngine: ...
     def __exit__(self, exc_type: type[BaseException] | None, exc: BaseException | None, tb: TracebackType | None) -> None: ...

@@ -29,6 +29,7 @@ use crate::models::{ModelRequest, ModelResponse, ModelUsage};
 use crate::output::StoredBytes;
 use crate::results::{BlockCause, CrawlRequestOutcome, CrawlRequestOutcomeKind, CrawlRequestRef, Error, SkipReason};
 use crate::settings::Settings;
+use crate::effects::UncertainWhy;
 
 /// Options of starting a [`TestEngine`].
 #[derive(Debug, Default)]
@@ -152,6 +153,65 @@ impl<P: serde::Serialize> HandlerInput<P> {
         let _ = depth;
         unimplemented!()
     }
+
+    /// A prior answer the Effect journal holds for `key` (ADR 0106): a declaration of that key is
+    /// answered as the journal would answer it, without running its body.
+    pub fn effect(self, key: &str, prior: PriorEffect) -> Self {
+        let _ = (key, prior);
+        unimplemented!()
+    }
+}
+
+/// A prior answer the Effect journal holds for a key in a test (ADR 0106).
+#[derive(Debug, Clone)]
+#[non_exhaustive]
+pub enum PriorEffect {
+    /// Done, with its output.
+    Journal(serde_json::Value),
+    /// A person answered "it happened" (ADR 0029).
+    Reconciled,
+    /// Left uncertain, for this reason.
+    Uncertain(UncertainWhy),
+}
+
+/// How a declaration was answered in an attempt.
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum EffectAnswer {
+    /// Its body ran and returned.
+    Performed,
+    /// The Effect journal answered it.
+    Journal,
+    /// A person's reconciliation answered it.
+    Reconciled,
+    /// It is uncertain.
+    Uncertain,
+    /// Its body ended before anything was sent.
+    NotPerformed,
+    /// A value a newer engine sends, kept as received (G3).
+    Unknown(String),
+}
+
+/// One declaration an attempt made, and how it was answered.
+#[derive(Debug, Clone)]
+#[non_exhaustive]
+pub struct DeclaredEffect {
+    /// The key.
+    pub key: String,
+    /// How it was answered.
+    pub answer: EffectAnswer,
+    /// Whether its body sent anything; a command a Response recording answered counts as sent.
+    pub sent: bool,
+}
+
+/// A person's answer about an uncertain Effect (ADR 0029), given in a test.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum Reconciliation {
+    /// It happened: the next declaration returns `reconciled`.
+    Happened,
+    /// It did not happen: the next declaration performs the body again.
+    DidNotHappen,
 }
 
 /// How an attempt ended.
@@ -239,6 +299,8 @@ pub struct AttemptResult {
     pub seeds: Vec<StagedRequest>,
     /// Its Key-value store writes.
     pub key_value_writes: Vec<StagedWrite>,
+    /// The Effects it declared, in order (ADR 0106).
+    pub effects: Vec<DeclaredEffect>,
     /// Model calls made by AI verbs in the handler (ADR 0101).
     pub usage: ModelUsage,
 }
@@ -389,6 +451,13 @@ impl TestEngine {
     /// `hook_unknown`, naming the closest.
     pub async fn run_hook(&self, crawl: &Crawl<'_>, name: &str, input: HookInput) -> Result<HookResult, Error> {
         let _ = (crawl, name, input);
+        unimplemented!()
+    }
+
+    /// Stands for a person's answer about an uncertain Effect of a Run on this engine (ADR 0029).
+    /// Only the testing kit has it (ADR 0106).
+    pub async fn reconcile(&self, run_id: &str, key: &str, answer: Reconciliation) -> Result<(), Error> {
+        let _ = (run_id, key, answer);
         unimplemented!()
     }
 

@@ -1,0 +1,12 @@
+{
+  "model": "qwen2.5-coder:14b",
+  "num_ctx": 32768,
+  "turns": 12,
+  "checks": 3,
+  "end": "time",
+  "seconds": 1343,
+  "prompt_tokens": 76012,
+  "output_tokens": 5835,
+  "text_tool_calls": 11,
+  "final_text": "wrote 4184 characters to /private/tmp/claude-501/-Users-jb-Dev-automan/77744178-6af8-4d82-8e7e-cbe4fbb7ef21/scratchpad/t484/runs/local-gf-rs-10/s10_offline_crawl_tests.rs"
+}

@@ -1,0 +1,12 @@
+{
+  "lang": "rs",
+  "kind": "gf",
+  "errors": 6,
+  "warnings": 0,
+  "output": "s10_offline_crawl_tests.rs:56:7: error: mismatched closing delimiter: `}`: mismatched closing delimiter, unclosed delimiter\ns10_offline_crawl_tests.rs:82:7: error: mismatched closing delimiter: `}`: mismatched closing delimiter, unclosed delimiter\ns10_offline_crawl_tests.rs:111:7: error: mismatched closing delimiter: `}`: mismatched closing delimiter, unclosed delimiter\n(test profile) s10_offline_crawl_tests.rs:56:7: error: mismatched closing delimiter: `}`: mismatched closing delimiter, unclosed delimiter\ns10_offline_crawl_tests.rs:82:7: error: mismatched closing delimiter: `}`: mismatched closing delimiter, unclosed delimiter\ns10_offline_crawl_tests.rs:111:7: error: mismatched closing delimiter: `}`: mismatched closing delimiter, unclosed delimiter",
+  "pass": false,
+  "lenient_pass": false,
+  "n": 2,
+  "time": "2026-10-15T22:47:14",
+  "by": "agent"
+}

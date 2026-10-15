@@ -287,7 +287,8 @@ class PathNotWritableDetails:
 class PathNotWritableError(ProgramError):
     """The path given to `save_as` (or a `path` option) cannot be written for a reason the path causes.
 
-    `fix` names the path argument and what to change; the `OSError` is its `__cause__`.
+    `fix` names the path argument and what to change. When the SDK wrote the path itself, the `OSError` is its
+    `__cause__`; when a local engine copied the file there, `reason` and `os_code` carry what the OS said.
     """
 
     @property
@@ -306,7 +307,8 @@ class FileWriteFailedDetails:
 class FileWriteFailedError(UnavailableError):
     """The bytes could not be written: no space or quota left, or an I/O error.
 
-    On the program's machine (`side="program"`) the engine still holds the file, so `save_as` can be called again;
+    On the program's machine (`side="program"`) the same call can be made again once space is freed: `save_as`, since
+    the engine still holds the file, or `screenshot()` or `pdf()` for a file written through their `path` option;
     anywhere the engine keeps its files (`side="engine"`, from `export`, `checkpoint` or `trace`) the call returns
     no value. `fix` names what to free and the call to make again.
     """

@@ -244,7 +244,8 @@ export type FileWriteReason =
 
 /**
  * The path given to `saveAs` (or a `path` option) cannot be written for a reason the path causes.
- * `fix` names the path argument and what to change. The native error (Node's system error) is the cause.
+ * `fix` names the path argument and what to change. When the SDK wrote the path itself, Node's system
+ * error is the cause; when a local engine copied the file there, `reason` and `osCode` carry what the OS said.
  */
 export declare class PathNotWritableError extends ProgramError {
   readonly code: "path_not_writable";
@@ -257,7 +258,8 @@ export declare class PathNotWritableError extends ProgramError {
 }
 /**
  * The bytes could not be written: no space or quota left, or an I/O error, on the program's machine
- * (`side: "program"`, the engine still holds the file, so `saveAs` can be called again), or any failure
+ * (`side: "program"`: the same call can be made again once space is freed, `saveAs` since the engine still
+ * holds the file, or `screenshot()` or `pdf()` for a file written through their `path` option), or any failure
  * where the engine keeps its files (`side: "engine"`, from `export`, `checkpoint` or `trace`, which then
  * return no value). `fix` names what to free and the call to make again.
  */

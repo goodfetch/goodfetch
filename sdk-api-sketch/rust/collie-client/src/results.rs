@@ -599,12 +599,14 @@ pub enum FileWriteReason {
 pub enum FileWriteSide {
     /// Where the engine keeps its files: `export`, `checkpoint` or `trace` returned no value.
     Engine,
-    /// The program's own machine: the engine still holds the file, so `save_as` can be called again.
+    /// The program's own machine: the same call can be made again once space is freed, `save_as`
+    /// since the engine still holds the file, or `screenshot()` for a file written through its `path`.
     Program,
 }
 
-/// Details of `path_not_writable`. The `std::io::Error` is the error's `source()`, and `fix` names
-/// the path argument and what to change.
+/// Details of `path_not_writable`; `fix` names the path argument and what to change. When the SDK
+/// wrote the path itself, the `std::io::Error` is the error's `source()`; when a local engine copied
+/// the file there, `reason` and `os_code` carry what the OS said.
 #[derive(Debug, Clone)]
 #[non_exhaustive]
 pub struct PathNotWritable {

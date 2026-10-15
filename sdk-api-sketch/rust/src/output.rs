@@ -46,6 +46,8 @@ pub struct DatasetRecord<T> {
 #[derive(Debug, Clone)]
 #[non_exhaustive]
 pub struct RejectedRecord {
+    /// Its number in the Dataset's rejection table: 1 for the first, in commit order, with no gaps.
+    pub number: u64,
     /// As JSON, never parsed by the schema it failed (G3).
     pub record: serde_json::Value,
     /// Why.
@@ -194,7 +196,9 @@ pub struct StoredBytes {
 /// checkpointed with it (ADR 0002). Reached from the program's Run, it writes at once. Reached
 /// through a handler's `ctx.run()`, which is bound to its attempt (ADR 0093), it stages its writes
 /// with the attempt, which commit or are discarded with its Records and enqueues, and its reads see
-/// the attempt's own writes first. A cheap clone (ADR 0081).
+/// the attempt's own writes first. For each key the last commit wins; another attempt's staged
+/// writes stay invisible until it commits, and there is no compare-and-set: a value concurrent
+/// handlers share live stays in the program's own memory. A cheap clone (ADR 0081).
 #[derive(Debug, Clone)]
 pub struct KeyValueStore {
     _private: (),
@@ -215,7 +219,8 @@ impl KeyValueStore {
         unimplemented!()
     }
 
-    /// Writes a JSON value.
+    /// Writes a JSON value. Null fails with `value_invalid`, whose `fix` names `delete`, so `None`
+    /// from `get` always means absent.
     pub fn set<T: Serialize>(&self, key: &str, value: &T) -> Call<()> {
         let _ = (key, value);
         unimplemented!()
@@ -257,7 +262,8 @@ impl CrawlRun {
     /// The Dataset's committed Records from its first, following the Run live until it ends and
     /// every Record is read (ADR 0103). A cursor over run state: reading slowly, or not at all,
     /// never slows the crawl. A Record `T`'s `Deserialize` rejects arrives as `record_invalid`
-    /// carrying its number.
+    /// carrying its number. Through a handler's `ctx.run()`, it reads what has committed and ends,
+    /// since the Run cannot end while the handler holds its request.
     pub fn records<T: DeserializeOwned>(&self, dataset: &Dataset<T>) -> EventStream<DatasetRecord<T>> {
         let _ = dataset;
         unimplemented!()
@@ -269,9 +275,16 @@ impl CrawlRun {
         unimplemented!()
     }
 
-    /// The Dataset's rejection table, in the same order.
+    /// The Dataset's rejection table, each entry numbered in commit order, following the Run as
+    /// `records` does.
     pub fn rejected_records<T>(&self, dataset: &Dataset<T>) -> EventStream<RejectedRecord> {
         let _ = dataset;
+        unimplemented!()
+    }
+
+    /// The same, after the entry numbered `after`.
+    pub fn rejected_records_after<T>(&self, dataset: &Dataset<T>, after: u64) -> EventStream<RejectedRecord> {
+        let _ = (dataset, after);
         unimplemented!()
     }
 
@@ -301,7 +314,9 @@ impl<P> CrawlContext<P> {
     }
 }
 
-/// A Sink's write mode (ADR 0026). The keyed ones need a key: the Sink's own or its Datasets'.
+/// A Sink's write mode (ADR 0026). The keyed ones use the Sink's own key, or else its Datasets'
+/// keys; with neither, the Run's start refuses the Sink with `setting_invalid` naming
+/// `sinks.<name>.key`.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum SinkWriteMode {
@@ -327,8 +342,10 @@ pub struct SinkConfig {
 }
 
 impl SinkConfig {
-    /// A Sink of this type receiving these Datasets, by name. One the crawl does not declare is
-    /// refused when the Run starts, with `setting_invalid` naming the closest.
+    /// A Sink of this type receiving these Datasets, by name. Set on the Run, one the crawl does
+    /// not declare is refused at start with `setting_invalid` naming the closest; inherited from the
+    /// connection or configuration, the Sink delivers only the crawl's declared Datasets, and is
+    /// inactive when there are none.
     pub fn new(sink_type: &str, datasets: impl IntoIterator<Item = impl Into<String>>) -> Self {
         let _ = (sink_type, datasets.into_iter().map(Into::into).collect::<Vec<String>>());
         unimplemented!()
@@ -373,7 +390,27 @@ pub struct RecordInvalid {
     pub number: Option<u64>,
 }
 
-/// `dataset_key_invalid`: a key naming a field the schema does not require.
+/// `dataset_duplicate`: a second Dataset of one name in one crawl.
+#[derive(Debug, Clone)]
+#[non_exhaustive]
+pub struct DatasetDuplicate {
+    /// The Dataset.
+    pub dataset: String,
+}
+
+/// `dataset_unknown`: a push to a Dataset another crawl declared, or a resume whose crawl no longer
+/// declares a Dataset that holds Records; nothing ran.
+#[derive(Debug, Clone)]
+#[non_exhaustive]
+pub struct DatasetUnknown {
+    /// The Dataset.
+    pub dataset: String,
+    /// The Records it holds, when a resume found it no longer declared; 0 on a push.
+    pub records: u64,
+}
+
+/// `dataset_key_invalid`: a key naming a field the schema does not require, or a resume whose
+/// Dataset's key changed.
 #[derive(Debug, Clone)]
 #[non_exhaustive]
 pub struct DatasetKeyInvalid {
@@ -383,14 +420,14 @@ pub struct DatasetKeyInvalid {
     pub fields: Vec<String>,
 }
 
-/// `value_invalid`: a Key-value store value that is not JSON, fails its type, or holds bytes
-/// (`fix` names `get_bytes`).
+/// `value_invalid`: a Key-value store value that is not JSON or is null (`fix` names `delete`),
+/// fails its type, or holds bytes (`fix` names `get_bytes`).
 #[derive(Debug, Clone)]
 #[non_exhaustive]
 pub struct ValueInvalid {
     /// The key.
     pub key: String,
-    /// `not_json`, `schema` or `bytes`, as received.
+    /// `not_json`, `null`, `schema` or `bytes`, as received.
     pub problem: String,
     /// What was wrong, by path.
     pub issues: Vec<SchemaIssue>,

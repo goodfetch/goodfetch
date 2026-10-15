@@ -58,7 +58,7 @@ pub use models::{
     StructuredOutputStrategy, PriceMissing, UnavailableReason,
 };
 pub use output::{
-    Compression, DatasetKeyInvalid, DatasetRecord, Export, ExportCall, ExportFormat, KeyValueStore, RecordCounts, RecordInvalid, RejectedRecord,
+    Compression, DatasetDuplicate, DatasetKeyInvalid, DatasetRecord, DatasetUnknown, Export, ExportCall, ExportFormat, KeyValueStore, RecordCounts, RecordInvalid, RejectedRecord,
     SinkConfig, SinkWriteMode, StoredBytes, ValueInvalid,
 };
 pub use page::{

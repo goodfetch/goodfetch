@@ -50,7 +50,7 @@ export async function follow(run: CrawlRun, lastHandled: number, save: (n: numbe
     if (error instanceof RecordInvalidError) log.error("unreadable record", { n: error.details.number });
     throw error;
   }
-  for await (const rejected of run.rejectedRecords(books)) log.warn("rejected", { reason: rejected.reason, hook: rejected.hook });
+  for await (const rejected of run.rejectedRecords(books)) log.warn("rejected", { n: rejected.number, reason: rejected.reason, hook: rejected.hook });
 }
 
 export async function scenario05(): Promise<void> {
@@ -80,4 +80,6 @@ export function mistakes(run: CrawlRun): void {
   crawl.dataset("misspelled", { schema: Book, key: ["isbn"] });
   // @ts-expect-error the format is named, never guessed from a file name
   void run.export(books, { format: "cvs" });
+  // Null is refused at run time with `value_invalid`, naming `delete`: null from `get` always means absent.
+  void run.keyValueStore.delete("cursor/Travel");
 }

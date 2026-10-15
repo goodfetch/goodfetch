@@ -65,7 +65,7 @@ async def follow(run: AsyncCrawlRun, last_handled: int, save: Callable[[int], Aw
         log.error("unreadable record %s", error.details.number)
         raise
     async for rejected in run.rejected_records(books):
-        log.warning("rejected by %s: %s", rejected.hook, rejected.reason)
+        log.warning("rejected %d by %s: %s", rejected.number, rejected.hook, rejected.reason)
 
 
 async def scenario_05() -> None:

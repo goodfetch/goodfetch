@@ -526,6 +526,10 @@ pub enum ErrorDetails {
     ModelOutputInvalid(crate::models::ModelOutputInvalid),
     /// Of `record_invalid`.
     RecordInvalid(crate::output::RecordInvalid),
+    /// Of `dataset_duplicate`.
+    DatasetDuplicate(crate::output::DatasetDuplicate),
+    /// Of `dataset_unknown`.
+    DatasetUnknown(crate::output::DatasetUnknown),
     /// Of `dataset_key_invalid`.
     DatasetKeyInvalid(crate::output::DatasetKeyInvalid),
     /// Of `value_invalid`.

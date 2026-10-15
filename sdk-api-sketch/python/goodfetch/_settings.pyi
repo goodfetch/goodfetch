@@ -210,7 +210,8 @@ class FetchSettings(TypedDict, total=False):
     """ADR 0040's `tier_race`. Built-in: False."""
 
 SinkWriteMode: TypeAlias = Literal["append", "upsert", "insert_only", "replace", "history"]
-"""A Sink's write mode (ADR 0026). The keyed ones need a key: the Sink's own or its Datasets'."""
+"""A Sink's write mode (ADR 0026). The keyed ones use the Sink's own key, or else its Datasets' keys; with neither, the
+Run's start refuses the Sink with `setting_invalid` naming `sinks.<name>.key`."""
 
 class SinkSettings(TypedDict, total=False):
     """`sinks.<name>.*`: one Sink each (ADRs 0026, 0103), set on a connection or a crawl's Run, never on a Label. A
@@ -218,8 +219,9 @@ class SinkSettings(TypedDict, total=False):
 
     type: Required[str]
     datasets: Required[Sequence[str]]
-    """The Datasets it receives, by name. One the crawl does not declare is refused when the Run starts, with
-    `setting_invalid` naming the closest."""
+    """The Datasets it receives, by name. Set on the Run, one the crawl does not declare is refused at start with
+    `setting_invalid` naming the closest; inherited from the connection or configuration, the Sink delivers only the
+    crawl's declared Datasets, and is inactive when there are none."""
     mode: SinkWriteMode
     """Built-in: `append`."""
     key: Sequence[str]

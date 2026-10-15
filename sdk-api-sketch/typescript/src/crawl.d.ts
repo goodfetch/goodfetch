@@ -296,10 +296,11 @@ export interface CrawlRun extends Run {
    * The Dataset's committed Records, from its first (or after `after`), following the Run live until
    * it ends and every Record is read (ADR 0103). A cursor over run state: reading slowly, or not at
    * all, never slows the crawl. One a native parse rejects ends the loop with `RecordInvalidError`
-   * carrying its number.
+   * carrying its number. Through a handler's `ctx.run`, it reads what has committed and ends, since
+   * the Run cannot end while the handler holds its request.
    */
   records<O>(dataset: Dataset<unknown, O>, options?: RecordsOptions): EventIterator<DatasetRecord<O>>;
-  /** The Dataset's rejection table, in the same order. */
+  /** The Dataset's rejection table, each entry numbered in commit order, following the Run as `records` does. */
   rejectedRecords(dataset: Dataset<unknown, unknown>, options?: RecordsOptions): EventIterator<RejectedRecord>;
   /** Writes an Export of the Records committed so far (ADR 0026), to save or stream wherever the engine runs. */
   export(dataset: Dataset<unknown, unknown>, options: ExportOptions): Promise<Export>;

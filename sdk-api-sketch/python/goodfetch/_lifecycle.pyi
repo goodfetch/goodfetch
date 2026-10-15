@@ -275,9 +275,10 @@ class AsyncCrawlRun(_AsyncCloseable, _AsyncExplainsSettings, AsyncRunEvents, Asy
     def records(self, dataset: Dataset[_T], *, after: int = 0) -> AsyncEventIterator[DatasetRecord[_T]]:
         """The Dataset's committed Records, from its first (or after `after`), following the Run live until it ends and
         every Record is read (ADR 0103). A cursor over run state: reading slowly, or not at all, never slows the crawl.
-        One the native parse rejects ends the loop with `RecordInvalidError` carrying its number."""
+        One the native parse rejects ends the loop with `RecordInvalidError` carrying its number. Through a handler's
+        `ctx.run`, it reads what has committed and ends, since the Run cannot end while the handler holds its request."""
     def rejected_records(self, dataset: Dataset[Any], *, after: int = 0) -> AsyncEventIterator[RejectedRecord]:
-        """The Dataset's rejection table, in the same order."""
+        """The Dataset's rejection table, each entry numbered in commit order, following the Run as `records` does."""
     async def export(
         self, dataset: Dataset[Any], *, format: ExportFormat, compression: Literal["gzip", "zstd"] | None = None, timeout: Timeout = ...
     ) -> AsyncExport:

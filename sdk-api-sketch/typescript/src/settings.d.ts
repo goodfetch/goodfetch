@@ -168,7 +168,10 @@ export interface FetchSettings {
   readonly tierRace?: boolean;
 }
 
-/** A Sink's write mode (ADR 0026). The keyed ones need a key: the Sink's own or its Datasets'. */
+/**
+ * A Sink's write mode (ADR 0026). The keyed ones use the Sink's own key, or else its Datasets' keys;
+ * with neither, the Run's start refuses the Sink with `setting_invalid` naming `sinks.<name>.key`.
+ */
 export type SinkWriteMode = "append" | "upsert" | "insert_only" | "replace" | "history";
 
 /**
@@ -178,7 +181,11 @@ export type SinkWriteMode = "append" | "upsert" | "insert_only" | "replace" | "h
  */
 export interface SinkSettings {
   readonly type: string;
-  /** The Datasets it receives, by name. One the crawl does not declare is refused when the Run starts, with `setting_invalid` naming the closest. */
+  /**
+   * The Datasets it receives, by name. Set on the Run, one the crawl does not declare is refused at
+   * start with `setting_invalid` naming the closest; inherited from the connection or configuration,
+   * the Sink delivers only the crawl's declared Datasets, and is inactive when there are none.
+   */
   readonly datasets: readonly string[];
   /** Built-in: `append`. */
   readonly mode?: SinkWriteMode;

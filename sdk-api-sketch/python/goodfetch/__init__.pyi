@@ -249,6 +249,7 @@ from goodfetch._output import DatasetDuplicateError as DatasetDuplicateError
 from goodfetch._output import DatasetKeyInvalidDetails as DatasetKeyInvalidDetails
 from goodfetch._output import DatasetKeyInvalidError as DatasetKeyInvalidError
 from goodfetch._output import DatasetRecord as DatasetRecord
+from goodfetch._output import DatasetUnknownDetails as DatasetUnknownDetails
 from goodfetch._output import DatasetUnknownError as DatasetUnknownError
 from goodfetch._output import Export as Export
 from goodfetch._output import ExportFormat as ExportFormat

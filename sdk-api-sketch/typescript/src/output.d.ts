@@ -26,8 +26,8 @@ export interface DatasetOptions<S extends Schema> {
   readonly schema: S;
   /**
    * The fields that identify a Record, for the same thing collected twice (two pages, or two runs).
-   * The Dataset stays append-only; the key is every Sink's default for its keyed write modes and
-   * identifies a Record against a Baseline (ADRs 0026, 0036). Left out: no keyed write mode.
+   * The Dataset stays append-only. Sinks' keyed write modes use it unless a Sink sets its own key,
+   * and change tracking identifies a Record against a Baseline by it (ADRs 0026, 0036).
    */
   readonly key?: readonly KeyField<SchemaOutput<S>>[];
 }
@@ -52,6 +52,8 @@ export interface RecordsOptions {
 
 /** A Record a "Record before commit" Hook rejected (ADR 0033), or that a Hook's transform left outside the schema. */
 export interface RejectedRecord {
+  /** Its number in the Dataset's rejection table: 1 for the first, in commit order, with no gaps. */
+  readonly number: number;
   /** As JSON, never parsed by the schema it failed (G3). */
   readonly record: JsonValue;
   readonly reason: string;
@@ -107,7 +109,7 @@ export interface Export {
   readonly sha256: string;
   /** Copies it to a path on the program's machine. */
   saveAs(path: string, options?: CallOptions): Promise<void>;
-  /** Its bytes, read once. */
+  /** Its bytes, read once: an async iterable, not the Node `Readable` of Playwright's `createReadStream()`. */
   stream(): AsyncIterable<Uint8Array>;
 }
 
@@ -123,16 +125,20 @@ export interface StoredBytes {
  * `ctx.run`, which is bound to its attempt (ADR 0093), it stages its writes with the attempt, which
  * commit or are discarded with its Records and enqueues, and its reads see the attempt's own writes
  * first.
+ *
+ * For each key the last commit wins. A read sees the committed values and its own attempt's staged
+ * writes; another attempt's staged writes stay invisible until it commits. There is no
+ * compare-and-set: a value concurrent handlers share live stays in the program's own memory.
  */
 export interface KeyValueStore {
   /** The JSON value under the key, or null when there is none: an answer, never an error. */
   get(key: string, options?: CallOptions): Promise<JsonValue | null>;
   /** The value under the key, built by the schema's own parse; one it rejects throws `ValueInvalidError`. */
   get<S extends Schema>(key: string, schema: S, options?: CallOptions): Promise<SchemaOutput<S> | null>;
-  /** A value that is not JSON throws `ValueInvalidError`. */
+  /** A value that is not JSON, or null, throws `ValueInvalidError` (whose `fix` names `delete`), so null from `get` always means absent. */
   set(key: string, value: JsonValue, options?: CallOptions): Promise<void>;
   getBytes(key: string, options?: CallOptions): Promise<StoredBytes | null>;
-  setBytes(key: string, bytes: Uint8Array, contentType: string, options?: CallOptions): Promise<void>;
+  setBytes(key: string, content: Uint8Array, contentType: string, options?: CallOptions): Promise<void>;
   /** Whether the key existed. */
   delete(key: string, options?: CallOptions): Promise<boolean>;
   keys(options?: { readonly prefix?: string }): EventIterator<string>;
@@ -145,12 +151,15 @@ export declare class DatasetDuplicateError extends ProgramError {
   readonly code: "dataset_duplicate";
   readonly details: { readonly dataset: string };
 }
-/** A push to a Dataset another crawl declared. */
+/**
+ * A push to a Dataset another crawl declared, or a resume whose crawl no longer declares a Dataset
+ * that holds Records (`records` of them); nothing ran.
+ */
 export declare class DatasetUnknownError extends ProgramError {
   readonly code: "dataset_unknown";
-  readonly details: { readonly dataset: string };
+  readonly details: { readonly dataset: string; readonly records: number };
 }
-/** A `key` naming a field the schema does not require. Thrown when the Dataset is declared. */
+/** A `key` naming a field the schema does not require, thrown when the Dataset is declared; or a resume whose Dataset's key changed. */
 export declare class DatasetKeyInvalidError extends ProgramError {
   readonly code: "dataset_key_invalid";
   readonly details: { readonly dataset: string; readonly fields: readonly string[] };
@@ -172,12 +181,12 @@ export declare class RecordInvalidError extends ProgramError {
   readonly details: RecordInvalidDetails;
 }
 
-/** A Key-value store value that is not JSON (`set`), fails its schema (`get`), or holds bytes (`get`; `fix` names `getBytes`). */
+/** A Key-value store value that is not JSON or is null (`set`; `fix` names `delete`), fails its schema (`get`), or holds bytes (`get`; `fix` names `getBytes`). */
 export declare class ValueInvalidError extends ProgramError {
   readonly code: "value_invalid";
   readonly details: {
     readonly key: string;
-    readonly problem: "not_json" | "schema" | "bytes" | (string & {});
+    readonly problem: "not_json" | "null" | "schema" | "bytes" | (string & {});
     readonly issues: readonly SchemaIssue[];
   };
 }

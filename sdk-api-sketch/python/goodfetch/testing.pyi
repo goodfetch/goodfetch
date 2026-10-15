@@ -238,9 +238,11 @@ class AsyncTestEngine:
         fetched, so neither robots.txt nor Politeness applies to it, but ADR 0093's status rules do, before the handler
         runs. `response` is the document; left out, the
         response `recording` holds for `url`. `recording` is replayed for everything else the handler reaches. `tier` is
-        `http` by default, or the one the Label's `fetch.tier` forces: no browser starts, and a call only a browser serves
-        ends the attempt `Escalated`; `browser` renders the document. Raises when it cannot run the handler
-        (`ResponseNotRecordedError` for the document, `PayloadInvalidError`, `LabelUnknownError`, `LabelUnhandledError`);
+        `http` by default, or the one the Label's `fetch.tier` forces. No browser starts on a non-browser tier: a call only
+        a browser serves ends the attempt `Escalated` under `fetch.tier: auto`, and `Failed` with `browser_required` under
+        a forced tier (ADR 0093); `browser` renders the document. Raises when it cannot run the handler
+        (`ResponseNotRecordedError` for the document, `PayloadInvalidError`, `LabelUnknownError`, `LabelUnhandledError`,
+        `SettingInvalidError` for a tier other than a forced one);
         once the handler ran, how its attempt ended is a value."""
 
     async def run_hook(

@@ -57,9 +57,11 @@ export type HandlerInput<L extends Label<unknown, unknown>> = {
   /** A Response recording replayed for everything else the handler reaches. Left out: none, so it reaches nothing. */
   readonly recording?: string;
   /**
-   * `http` by default, or the tier the Label's `fetch.tier` forces: no browser starts, and a call only a
-   * browser serves ends the attempt `escalated`. `browser` renders the document in the browser, its
-   * `Date` starting at the document's `Date` header.
+   * `http` by default, or the tier the Label's `fetch.tier` forces; another than a forced one throws
+   * `SettingInvalidError`. No browser starts on a non-browser tier: a call only a browser serves ends
+   * the attempt `escalated` under `fetch.tier: auto`, and `failed` with `browser_required` under a
+   * forced tier (ADR 0093). `browser` renders the document in the browser, its `Date` starting at the
+   * document's `Date` header.
    */
   readonly tier?: FetchTier;
   /** Default 1, for a handler that acts on its attempt number. */
@@ -157,7 +159,8 @@ export declare class TestEngine implements AsyncDisposable {
    * no commit. The document is not fetched, so neither robots.txt nor Politeness applies to it, but
    * ADR 0093's status rules do, before the handler runs. Throws
    * when it cannot run the handler (`ResponseNotRecordedError` for the document, `PayloadInvalidError`,
-   * `LabelUnknownError`, `LabelUnhandledError`); once the handler ran, how its attempt ended is a value.
+   * `LabelUnknownError`, `LabelUnhandledError`, `SettingInvalidError` for the tier); once the handler
+   * ran, how its attempt ended is a value.
    */
   runHandler<L extends Label<unknown, unknown>>(crawl: Crawl, label: L, input: HandlerInput<L>): Promise<AttemptResult>;
   /**

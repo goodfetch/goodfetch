@@ -122,9 +122,11 @@ impl<P: serde::Serialize> HandlerInput<P> {
         unimplemented!()
     }
 
-    /// `Http` by default, or the tier the Label's `fetch.tier` forces: no browser starts, and a call
-    /// only a browser serves ends the attempt [`AttemptEnd::Escalated`]. `Browser` renders the
-    /// document, its `Date` starting at the document's `Date` header.
+    /// `Http` by default, or the tier the Label's `fetch.tier` forces. No browser starts on a
+    /// non-browser tier: a call only a browser serves ends the attempt [`AttemptEnd::Escalated`]
+    /// under `fetch.tier: auto`, and [`AttemptEnd::Failed`] with `browser_required` under a forced
+    /// tier (ADR 0093). `Browser` renders the document, its `Date` starting at the document's `Date`
+    /// header.
     pub fn tier(self, tier: FetchTier) -> Self {
         let _ = tier;
         unimplemented!()
@@ -322,8 +324,8 @@ impl TestEngine {
     /// Frontier, no Hooks, no commit. The document is not fetched, so neither robots.txt nor
     /// Politeness applies to it, but ADR 0093's status rules do, before the handler runs. Fails when
     /// it cannot run the handler (`response_not_recorded` for the document,
-    /// `payload_invalid`, `label_unknown`, `label_unhandled`); once the handler ran, how its attempt
-    /// ended is a value.
+    /// `payload_invalid`, `label_unknown`, `label_unhandled`, `setting_invalid` for a tier other than
+    /// a forced one); once the handler ran, how its attempt ended is a value.
     pub async fn run_handler<P: serde::Serialize>(&self, crawl: &Crawl<'_>, label: &Label<P>, input: HandlerInput<P>) -> Result<AttemptResult, Error> {
         let _ = (crawl, label, input);
         unimplemented!()

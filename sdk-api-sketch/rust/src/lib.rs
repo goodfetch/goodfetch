@@ -35,7 +35,7 @@ pub use ai::{
     ResponseExpectations, StepReport, StepResult, StepSource, SuccessCheckFailed, TargetNotFound, VariablesMismatch,
     WhyNoRepair, expect,
 };
-pub use catalog::{Connection, JsonObject};
+pub use catalog::{Connection, JsonObject, RawCall};
 pub use concurrency::{EventStream, events};
 pub use crawl::{
     Crawl, CrawlCall, CrawlContext, CrawlRequest, CrawlRun, Enqueue, EnqueueLinks, Enqueued, EnqueuedLinks, FetchTier, Foxhound,

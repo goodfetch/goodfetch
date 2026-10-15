@@ -5,7 +5,7 @@
 use std::time::Duration;
 
 use futures_util::TryStreamExt;
-use goodfetch_sdk_sketch::{ConnectOptions, Connection, Error, Goodfetch, JsonObject, Page, Run};
+use goodfetch_sdk_sketch::{ConnectOptions, Connection, Error, Goodfetch, JsonObject, Page};
 use serde_json::{Value, json};
 
 /// A library written for both Products takes `impl Connection`: `Collie` and `Foxhound` implement it.
@@ -20,18 +20,19 @@ fn params(value: Value) -> JsonObject {
     }
 }
 
-/// The way down (G8): `run.set_status_message` (area 3's RT-15) is not generated here, so it goes
-/// raw. The Run fills its own `run` parameter; the parameters are the wire's snake_case JSON.
-async fn report_progress(run: &Run, done: u32) -> Result<(), Error> {
-    let message = format!("{done} pages done");
-    run.call("run.set_status_message", params(json!({ "message": message }))).await?;
+/// The way down (G8): an operation this SDK does not generate, such as one a newer engine minor
+/// added (`page.emulate_vision_deficiency` is hypothetical here). The page fills its own `page`
+/// parameter; the parameters are the wire's snake_case JSON, an optional builder method.
+async fn newer_operation(page: &Page) -> Result<(), Error> {
+    page.call("page.emulate_vision_deficiency").params(params(json!({ "type": "deuteranopia" }))).await?;
     Ok(())
 }
 
 /// On the connection, the parameters name every value themselves; the timeout applies as on any call.
-async fn newer_operation(connection: &impl Connection, run: &Run) -> Result<Value, Error> {
+async fn on_the_connection(connection: &impl Connection, run_id: &str) -> Result<Value, Error> {
     connection
-        .call("run.checkpoint", params(json!({ "run": run.id() })))
+        .call("run.migrate") // hypothetical
+        .params(params(json!({ "run": run_id, "to": "daemon" })))
         .timeout(Duration::from_secs(120))
         .await
 }
@@ -61,9 +62,9 @@ async fn both_products() -> Result<(), Error> {
 
 fn main() {
     let _ = both_products();
-    let _ = |run: Run, page: Page| async move {
-        report_progress(&run, 10).await?;
-        newer_operation(&Goodfetch::connect(ConnectOptions::default()).await?, &run).await?;
+    let _ = |page: Page| async move {
+        newer_operation(&page).await?;
+        on_the_connection(&Goodfetch::connect(ConnectOptions::default()).await?, "a-run").await?;
         names(&page).await
     };
 }

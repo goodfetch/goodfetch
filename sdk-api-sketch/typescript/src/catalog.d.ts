@@ -4,12 +4,13 @@
 //   it opens a member's name (`waitForURL`, `baseURL`, `CDPSession`, `url()`). `id` is a word (`runId`).
 // - Reserved words need no escape in TypeScript (`route.continue()`); `then` and `constructor` are
 //   refused as names, since a member named `then` makes a value thenable.
-// - A read the SDK answers itself is a method when it may change during its value's life
-//   (`page.url()`), and a `readonly` property when fixed at creation (`run.id`, `engine`); the page
-//   API's Playwright classes keep Playwright's methods (`response.ok()`).
+// - A read the SDK answers itself on a handle is a method, as all of Playwright's are (`page.url()`,
+//   `response.ok()`, `connection.engine()`); a sub-object reached without I/O is a `readonly` property
+//   (`page.keyboard`, `connection.identities`); plain data has `readonly` properties.
 // - The sketch's other initialism names (`JsonValue`, `JsonObject`, `JsonSchema`, `UrlMatcher`,
 //   `PageApi`, `AiWorkResult`, `ResponseNotJsonError`) become `JSONValue`, `JSONObject`, `JSONSchema`,
-//   `URLMatcher`, `PageAPI`, `AIWorkResult` and `ResponseNotJSONError` when #483 rewrites the sketch.
+//   `URLMatcher`, `PageAPI`, `AIWorkResult` and `ResponseNotJSONError` when #483 rewrites the sketch, and
+//   reads on handles still spelled as properties (`run.id`, `run.startedAs`) become methods.
 
 import type { JsonObject, JsonValue } from "./data.js";
 import type { Closeable, EngineInfo } from "./lifecycle.js";
@@ -43,8 +44,8 @@ export interface RawCall {
  * with `Collie` and `Foxhound`.
  */
 export interface Connection extends Closeable, ExplainsSettings, RawCall {
-  /** The engine reached, fixed when the connection opens. */
-  readonly engine: EngineInfo;
-  /** The install's Saved identities (ADR 0092). */
+  /** The engine reached, fixed when the connection opened. */
+  engine(): EngineInfo;
+  /** The install's Saved identities (ADR 0092): a sub-object reached without I/O. */
   readonly identities: Identities;
 }

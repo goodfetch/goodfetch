@@ -6,7 +6,7 @@ rule.
 
 from datetime import timedelta
 
-from goodfetch import AsyncConnection, AsyncGoodfetch, AsyncPage, AsyncRoute, AsyncRun, Connection, JsonValue
+from goodfetch import AsyncConnection, AsyncGoodfetch, AsyncPage, AsyncRoute, Connection, JsonValue
 
 
 async def engine_version(connection: AsyncConnection) -> str:
@@ -18,21 +18,22 @@ def engine_version_sync(connection: Connection) -> str:
     return connection.engine.version
 
 
-async def report_progress(run: AsyncRun, done: int) -> None:
-    """The way down (G8): `run.set_status_message` (area 3's RT-15) is not generated here, so it goes raw.
+async def newer_operation(page: AsyncPage) -> None:
+    """The way down (G8): an operation this SDK does not generate, such as one a newer engine minor added.
 
-    The Run fills its own `run` parameter; `params` are the wire's snake_case JSON.
+    `page.emulate_vision_deficiency` is hypothetical here. The page fills its own `page` parameter; `params` are the
+    wire's snake_case JSON, where `type` needs no escape.
     """
-    await run.call("run.set_status_message", {"message": f"{done} pages done"})
+    await page.call("page.emulate_vision_deficiency", {"type": "deuteranopia"})
 
 
-async def newer_operation(connection: AsyncConnection, run: AsyncRun) -> JsonValue:
-    """On the connection, `params` names every value itself; the timeout and task cancellation apply."""
-    return await connection.call("run.checkpoint", {"run": run.id}, timeout=timedelta(minutes=2))
+async def on_the_connection(connection: AsyncConnection, run_id: str) -> JsonValue:
+    """On the connection, `params` names every value itself; the timeout and task cancellation apply (hypothetical)."""
+    return await connection.call("run.migrate", {"run": run_id, "to": "daemon"}, timeout=timedelta(minutes=2))
 
 
 async def wrong_namespace(page: AsyncPage) -> JsonValue:
-    return await page.call("run.checkpoint")  # raises a ProgramError naming `page.*`, before anything is sent
+    return await page.call("run.migrate")  # raises a ProgramError naming `page.*`, before anything is sent
 
 
 async def names(page: AsyncPage) -> bool:

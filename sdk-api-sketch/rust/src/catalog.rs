@@ -11,14 +11,60 @@
 //! names, so a program calls them without importing the trait; the trait serves code written for
 //! both Products. The sketch's placeholder [`Goodfetch`] implements it until #483 replaces it.
 
+use std::fmt;
+use std::future::IntoFuture;
+use std::time::Duration;
+
 use crate::lifecycle::{EngineInfo, Goodfetch, Page, Run, Session};
 use crate::page::Locator;
+use crate::results::Error;
 use crate::sessions::Identities;
 use crate::settings::{ExplainedSetting, SettingKey};
-use crate::time::Call;
+use crate::time::{Call, CallFuture};
 
 /// A JSON object of the wire, in snake_case, as the raw call's parameters.
 pub type JsonObject = serde_json::Map<String, serde_json::Value>;
+
+/// One raw catalog call (G8), not sent until awaited. Its parameters are optional, so they are a
+/// builder method, as every optional parameter is in Rust (ADR 0099).
+#[must_use = "a call does nothing until it is awaited"]
+pub struct RawCall {
+    _private: (),
+}
+
+impl fmt::Debug for RawCall {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str("RawCall(..)")
+    }
+}
+
+impl RawCall {
+    /// The operation's parameters: the wire's JSON, in snake_case.
+    pub fn params(self, params: JsonObject) -> Self {
+        let _ = params;
+        unimplemented!()
+    }
+
+    /// At most this long, within what remains of any enclosing timeout.
+    pub fn timeout(self, timeout: Duration) -> Self {
+        let _ = timeout;
+        unimplemented!()
+    }
+
+    /// No timeout of its own; an enclosing timeout still applies.
+    pub fn no_timeout(self) -> Self {
+        unimplemented!()
+    }
+}
+
+impl IntoFuture for RawCall {
+    type Output = Result<serde_json::Value, Error>;
+    type IntoFuture = CallFuture<serde_json::Value>;
+
+    fn into_future(self) -> Self::IntoFuture {
+        unimplemented!()
+    }
+}
 
 /// Any connection: what `Collie` and `Foxhound` share. Collie's Run start joins it once #478 names it.
 pub trait Connection {
@@ -29,11 +75,12 @@ pub trait Connection {
     fn identities(&self) -> Identities;
 
     /// The raw catalog call (G8): an operation this SDK does not generate, such as one a newer
-    /// engine minor added. `params` names every value itself and is the wire's JSON; so is the
-    /// result. The call's timeout and cancellation apply, failures are the same [`crate::Error`]
-    /// (an unknown code is kept with its group), nothing is retried, the engine validates `params`
-    /// strictly, and the Run trace records the call, marked raw. It returns the result only.
-    fn call(&self, operation: &str, params: JsonObject) -> Call<serde_json::Value>;
+    /// engine minor added. Its parameters name every value themselves and are the wire's JSON; so
+    /// is the result. The call's timeout and cancellation apply, failures are the same
+    /// [`crate::Error`] (an unknown code is kept with its group), nothing is retried, the engine
+    /// validates the parameters strictly, and the Run trace records the call, marked raw. It
+    /// returns the result only.
+    fn call(&self, operation: &str) -> RawCall;
 
     /// The connection's effective settings, with the layer that set each.
     fn explain_settings(&self, keys: &[SettingKey]) -> Call<Vec<ExplainedSetting>>;
@@ -51,8 +98,8 @@ impl Connection for Goodfetch {
         Goodfetch::identities(self)
     }
 
-    fn call(&self, operation: &str, params: JsonObject) -> Call<serde_json::Value> {
-        Goodfetch::call(self, operation, params)
+    fn call(&self, operation: &str) -> RawCall {
+        Goodfetch::call(self, operation)
     }
 
     fn explain_settings(&self, keys: &[SettingKey]) -> Call<Vec<ExplainedSetting>> {
@@ -66,8 +113,8 @@ impl Connection for Goodfetch {
 
 impl Goodfetch {
     /// The raw catalog call on the connection, as [`Connection::call`].
-    pub fn call(&self, operation: &str, params: JsonObject) -> Call<serde_json::Value> {
-        let _ = (operation, params);
+    pub fn call(&self, operation: &str) -> RawCall {
+        let _ = operation;
         unimplemented!()
     }
 }
@@ -81,8 +128,8 @@ macro_rules! value_call {
                     "` namespace, and the value fills the parameter of that name; any other operation ",
                     "fails with a `ProgramError` before it is sent. A closed value fails with `closed`."
                 )]
-                pub fn call(&self, operation: &str, params: JsonObject) -> Call<serde_json::Value> {
-                    let _ = (operation, params);
+                pub fn call(&self, operation: &str) -> RawCall {
+                    let _ = operation;
                     unimplemented!()
                 }
             }

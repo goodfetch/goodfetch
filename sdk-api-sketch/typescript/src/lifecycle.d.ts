@@ -218,7 +218,7 @@ export declare class Goodfetch implements Connection {
   private constructor();
   /** Starts or finds the engine and completes `hello` before returning. */
   static connect(options?: ConnectOptions): Promise<Goodfetch>;
-  readonly engine: EngineInfo;
+  engine(): EngineInfo;
   readonly collie: Collie;
   readonly foxhound: Foxhound;
   /** The install's Saved identities (ADR 0092). */

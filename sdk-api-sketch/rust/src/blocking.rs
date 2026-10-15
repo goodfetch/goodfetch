@@ -309,16 +309,61 @@ impl<P> CrawlContext<P> {
 /// Any blocking connection, as [`crate::Connection`] (ADR 0099): what `Collie` and `Foxhound`
 /// share in `blocking`.
 pub trait Connection {
-    /// The raw catalog call, ended by [`Call::send`].
-    fn call(&self, operation: &str, params: crate::JsonObject) -> Call<serde_json::Value>;
+    /// The engine reached, fixed when the connection opened.
+    fn engine(&self) -> &crate::EngineInfo;
+
+    /// The raw catalog call; set its parameters with [`RawCall::params`], then [`RawCall::send`] it.
+    fn call(&self, operation: &str) -> RawCall;
+
+    /// The connection's effective settings, with the layer that set each.
+    fn explain_settings(&self, keys: &[crate::SettingKey]) -> Call<Vec<crate::ExplainedSetting>>;
 
     /// Closes the connection for every clone. Idempotent.
     fn close(&self) -> Call<()>;
 }
 
+/// One blocking raw catalog call: set its parameters and timeout, then [`RawCall::send`] it.
+#[must_use = "a call does nothing until it is sent"]
+pub struct RawCall {
+    _private: (),
+}
+
+impl fmt::Debug for RawCall {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str("RawCall(..)")
+    }
+}
+
+impl RawCall {
+    /// The operation's parameters: the wire's JSON, in snake_case.
+    pub fn params(self, params: crate::JsonObject) -> Self {
+        let _ = params;
+        unimplemented!()
+    }
+
+    /// At most this long, within what remains of any enclosing timeout.
+    pub fn timeout(self, timeout: Duration) -> Self {
+        let _ = timeout;
+        unimplemented!()
+    }
+
+    /// Sends the call and waits for its result.
+    pub fn send(self) -> Result<serde_json::Value, Error> {
+        unimplemented!()
+    }
+}
+
 impl Connection for Goodfetch {
-    fn call(&self, operation: &str, params: crate::JsonObject) -> Call<serde_json::Value> {
-        Goodfetch::call(self, operation, params)
+    fn engine(&self) -> &crate::EngineInfo {
+        Goodfetch::engine(self)
+    }
+
+    fn call(&self, operation: &str) -> RawCall {
+        Goodfetch::call(self, operation)
+    }
+
+    fn explain_settings(&self, keys: &[crate::SettingKey]) -> Call<Vec<crate::ExplainedSetting>> {
+        Goodfetch::explain_settings(self, keys)
     }
 
     fn close(&self) -> Call<()> {
@@ -327,9 +372,20 @@ impl Connection for Goodfetch {
 }
 
 impl Goodfetch {
-    /// The raw catalog call on the connection, ended by [`Call::send`].
-    pub fn call(&self, operation: &str, params: crate::JsonObject) -> Call<serde_json::Value> {
-        let _ = (operation, params);
+    /// The engine this connection reached.
+    pub fn engine(&self) -> &crate::EngineInfo {
+        unimplemented!()
+    }
+
+    /// The raw catalog call on the connection; [`RawCall::send`] sends it.
+    pub fn call(&self, operation: &str) -> RawCall {
+        let _ = operation;
+        unimplemented!()
+    }
+
+    /// The connection's effective settings, with the layer that set each.
+    pub fn explain_settings(&self, keys: &[crate::SettingKey]) -> Call<Vec<crate::ExplainedSetting>> {
+        let _ = keys;
         unimplemented!()
     }
 }

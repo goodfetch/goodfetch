@@ -103,7 +103,8 @@ class AsyncKeyValueStore:
 
     For each key the last commit wins. A read sees the committed values and its own attempt's staged writes; another
     attempt's staged writes stay invisible until it commits. There is no compare-and-set: a value concurrent handlers
-    share live stays in the program's own memory.
+    share live stays in the program's own memory, within one process; across worker processes a program counts from
+    committed Records or outcomes.
     """
 
     @overload

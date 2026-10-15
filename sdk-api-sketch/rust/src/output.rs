@@ -198,7 +198,8 @@ pub struct StoredBytes {
 /// with the attempt, which commit or are discarded with its Records and enqueues, and its reads see
 /// the attempt's own writes first. For each key the last commit wins; another attempt's staged
 /// writes stay invisible until it commits, and there is no compare-and-set: a value concurrent
-/// handlers share live stays in the program's own memory. A cheap clone (ADR 0081).
+/// handlers share live stays in the program's own memory, within one process; across worker
+/// processes a program counts from committed Records or outcomes. A cheap clone (ADR 0081).
 #[derive(Debug, Clone)]
 pub struct KeyValueStore {
     _private: (),
@@ -366,8 +367,9 @@ impl SinkConfig {
 }
 
 impl Settings {
-    /// Configures the Sink `name` (`sinks.<name>.*`) for this scope. Foxhound's: a Collie Run has
-    /// no Datasets and refuses it with `setting_not_applicable`.
+    /// Configures the Sink `name` (`sinks.<name>.*`) for this scope. Foxhound's: a Collie Run on a
+    /// Foxhound engine has no Datasets and refuses it with `setting_not_applicable`, and a Collie
+    /// engine refuses it with `not_in_product` (ADR 0087).
     pub fn sink(self, name: &str, sink: SinkConfig) -> Self {
         let _ = (name, sink);
         unimplemented!()

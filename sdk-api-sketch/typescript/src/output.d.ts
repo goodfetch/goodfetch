@@ -129,7 +129,8 @@ export interface StoredBytes {
  *
  * For each key the last commit wins. A read sees the committed values and its own attempt's staged
  * writes; another attempt's staged writes stay invisible until it commits. There is no
- * compare-and-set: a value concurrent handlers share live stays in the program's own memory.
+ * compare-and-set: a value concurrent handlers share live stays in the program's own memory,
+ * within one process; across worker processes a program counts from committed Records or outcomes.
  */
 export interface KeyValueStore {
   /** The JSON value under the key, or null when there is none: an answer, never an error. */

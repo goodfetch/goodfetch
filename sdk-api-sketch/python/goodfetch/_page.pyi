@@ -30,6 +30,7 @@ from types import TracebackType
 from typing import Literal, Self, TypeAlias, TypedDict, final, overload
 
 from goodfetch._ai import AiVerbs, AsyncAiVerbs
+from goodfetch._catalog import AsyncRawCall, RawCall
 from goodfetch._concurrency import AsyncListener, Listener, Subscription
 from goodfetch._data import JsonObject, JsonValue
 from goodfetch._lifecycle import AsyncSession, Session
@@ -200,7 +201,7 @@ class BodyUnavailableError(UnavailableError):
 class DownloadFailedError(UnavailableError):
     """`download_failed`."""
 
-class CdpCommandRefusedError(RefusedError):
+class CDPCommandRefusedError(RefusedError):
     """`cdp_command_refused`: a command beyond the session's page, or one that would close a Borrowed browser."""
 
 # Async API.
@@ -254,7 +255,7 @@ class AsyncFrameLocator(_AsyncLocates):
     def owner(self) -> AsyncLocator: ...
 
 @final
-class AsyncLocator(_AsyncLocates, AsyncAiVerbs):
+class AsyncLocator(_AsyncLocates, AsyncAiVerbs, AsyncRawCall):
     """A lazy description of elements, built without I/O and resolved again at each use."""
 
     def filter(
@@ -631,11 +632,11 @@ class AsyncPageRequest:
     async def head(self, url: str, *, headers: HeadersInput | None = None, timeout: Timeout = ...) -> AsyncResponse: ...
 
 @final
-class AsyncCdpSession:
+class AsyncCDPSession:
     """Raw Chrome DevTools Protocol for one page, over the program's own connection: a raw CDP attach under ADR 0017
     (egress proxy, or ADR 0056's interception on a Borrowed browser; no Secret typed; results marked unguarded; the
     attach audited). It reaches only its page's target;
-    commands beyond it, and anything that would close a Borrowed browser, raise `CdpCommandRefusedError`. Semver covers
+    commands beyond it, and anything that would close a Borrowed browser, raise `CDPCommandRefusedError`. Semver covers
     this shape, never the protocol, which is Chromium's."""
 
     async def send(self, method: str, params: JsonObject | None = None, *, timeout: Timeout = ...) -> JsonValue: ...
@@ -730,7 +731,7 @@ class AsyncPageApi(_AsyncLocates):
         counts toward the action's timeout; one that raises fails the action it interrupted with `PageHandlerFailedError`
         and stays registered. While a handler runs, the interrupted action gives up the page's turn."""
 
-    async def new_cdp_session(self, *, timeout: Timeout = ...) -> AsyncCdpSession:
+    async def new_cdp_session(self, *, timeout: Timeout = ...) -> AsyncCDPSession:
         """Chromium only: elsewhere it raises `CapabilityUnavailableError`."""
 
 # Sync API: the same concepts, generated from the same catalog (ADR 0038).
@@ -773,7 +774,7 @@ class FrameLocator(_Locates):
     def owner(self) -> Locator: ...
 
 @final
-class Locator(_Locates, AiVerbs):
+class Locator(_Locates, AiVerbs, RawCall):
     """A lazy description of elements, built without I/O and resolved again at each use."""
 
     def filter(
@@ -1040,7 +1041,7 @@ class PageRequest:
     def head(self, url: str, *, headers: HeadersInput | None = None, timeout: Timeout = ...) -> Response: ...
 
 @final
-class CdpSession:
+class CDPSession:
     def send(self, method: str, params: JsonObject | None = None, *, timeout: Timeout = ...) -> JsonValue: ...
     def on(self, event: str, listener: Listener[JsonValue]) -> Subscription: ...
     def close(self, *, timeout: Timeout = ...) -> None: ...
@@ -1097,4 +1098,4 @@ class PageApi(_Locates):
     def add_locator_handler(
         self, locator: Locator, handler: Callable[[Locator], None], *, no_wait_after: bool = False, times: int | None = None
     ) -> Subscription: ...
-    def new_cdp_session(self, *, timeout: Timeout = ...) -> CdpSession: ...
+    def new_cdp_session(self, *, timeout: Timeout = ...) -> CDPSession: ...

@@ -20,6 +20,7 @@
 // Waits come from ADR 0080 (time.d.ts), events and Subscriptions from ADR 0081 (concurrency.d.ts).
 
 import type { AiVerbs, AriaSnapshots } from "./ai.js";
+import type { RawCall } from "./catalog.js";
 import type { Listener, Subscription } from "./concurrency.js";
 import type { JsonObject, JsonValue } from "./data.js";
 import type { Closeable, Page, Session } from "./lifecycle.js";
@@ -221,7 +222,7 @@ export interface PageScreenshotOptions extends ScreenshotOptions {
  * A lazy description of elements, built without I/O and resolved again at each use. A cheap value:
  * composing one never touches the page.
  */
-export interface Locator extends Locates, AiVerbs, AriaSnapshots {
+export interface Locator extends Locates, AiVerbs, AriaSnapshots, RawCall {
   filter(options: FilterOptions): Locator;
   and(locator: Locator): Locator;
   or(locator: Locator): Locator;
@@ -606,9 +607,9 @@ export interface Touchscreen {
  * ADR 0056's interception instead), no Secret is typed, its
  * results are marked unguarded and the attach is in the Audit log. It reaches only its page's target:
  * commands that close or attach other targets, and anything that would close a Borrowed browser,
- * throw `CdpCommandRefusedError`. Semver covers this shape, never the protocol, which is Chromium's.
+ * throw `CDPCommandRefusedError`. Semver covers this shape, never the protocol, which is Chromium's.
  */
-export interface CdpSession extends Closeable {
+export interface CDPSession extends Closeable {
   send(method: string, params?: JsonObject, options?: CallOptions): Promise<JsonValue>;
   on(event: string, listener: Listener<JsonValue>): Subscription;
 }
@@ -694,7 +695,7 @@ export interface PageApi extends Locates {
   ): Subscription;
 
   /** Chromium only: elsewhere it throws `CapabilityUnavailableError`. */
-  newCdpSession(options?: CallOptions): Promise<CdpSession>;
+  newCDPSession(options?: CallOptions): Promise<CDPSession>;
 }
 
 // The page API's own Error codes (ADR 0079's naming rule).
@@ -763,7 +764,7 @@ export declare class DownloadFailedError extends UnavailableError {
   readonly details: { readonly reason: string };
 }
 
-export declare class CdpCommandRefusedError extends RefusedError {
+export declare class CDPCommandRefusedError extends RefusedError {
   readonly code: "cdp_command_refused";
   readonly details: { readonly method: string };
 }

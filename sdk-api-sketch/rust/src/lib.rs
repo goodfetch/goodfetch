@@ -5,6 +5,7 @@
 
 pub mod ai;
 pub mod blocking;
+pub mod catalog;
 pub mod concurrency;
 pub mod crawl;
 pub mod data;
@@ -25,6 +26,7 @@ pub use ai::{
     ResponseExpectations, StepReport, StepResult, StepSource, SuccessCheckFailed, TargetNotFound, VariablesMismatch,
     WhyNoRepair, expect,
 };
+pub use catalog::{Connection, JsonObject};
 pub use concurrency::{EventStream, events};
 pub use crawl::{
     Crawl, CrawlCall, CrawlContext, CrawlRequest, CrawlRun, Enqueue, EnqueueLinks, Enqueued, EnqueuedLinks, FetchTier, Foxhound,

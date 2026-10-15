@@ -293,3 +293,31 @@ impl<P> CrawlContext<P> {
         unimplemented!()
     }
 }
+
+/// Any blocking connection, as [`crate::Connection`] (ADR 0099): what `Collie` and `Foxhound`
+/// share in `blocking`.
+pub trait Connection {
+    /// The raw catalog call, ended by [`Call::send`].
+    fn call(&self, operation: &str, params: crate::JsonObject) -> Call<serde_json::Value>;
+
+    /// Closes the connection for every clone. Idempotent.
+    fn close(&self) -> Call<()>;
+}
+
+impl Connection for Goodfetch {
+    fn call(&self, operation: &str, params: crate::JsonObject) -> Call<serde_json::Value> {
+        Goodfetch::call(self, operation, params)
+    }
+
+    fn close(&self) -> Call<()> {
+        Goodfetch::close(self)
+    }
+}
+
+impl Goodfetch {
+    /// The raw catalog call on the connection, ended by [`Call::send`].
+    pub fn call(&self, operation: &str, params: crate::JsonObject) -> Call<serde_json::Value> {
+        let _ = (operation, params);
+        unimplemented!()
+    }
+}

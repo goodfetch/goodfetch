@@ -13,6 +13,7 @@ from types import TracebackType
 from typing import Any, Literal, Never, Protocol, Self, TypeAlias, TypeVar, final, overload
 
 from goodfetch._ai import AiVerbs, AsyncAiVerbs, AsyncElementReferences, ElementReferences
+from goodfetch._catalog import AsyncRawCall, RawCall
 from goodfetch._concurrency import (
     AsyncEventIterator,
     AsyncListener,
@@ -88,23 +89,23 @@ class EngineInfo:
 
 # The user's own Playwright objects, matched by shape so no third-party type is required (G7).
 
-class _CdpContext(Protocol):
+class _CDPContext(Protocol):
     def new_cdp_session(self, page: Never, /) -> object: ...
 
-class _AsyncCdpContext(Protocol):
+class _AsyncCDPContext(Protocol):
     async def new_cdp_session(self, page: Never, /) -> object: ...
 
 class BorrowablePage(Protocol):
     """A page of Playwright's sync API."""
 
     @property
-    def context(self) -> _CdpContext: ...
+    def context(self) -> _CDPContext: ...
 
 class BorrowableAsyncPage(Protocol):
     """A page of Playwright's async API."""
 
     @property
-    def context(self) -> _AsyncCdpContext: ...
+    def context(self) -> _AsyncCDPContext: ...
 
 class BorrowableBrowser(Protocol):
     """A browser of Playwright's sync API."""
@@ -141,6 +142,7 @@ class AsyncPage(
     AsyncPausesForHuman,
     AsyncAiVerbs,
     AsyncElementReferences,
+    AsyncRawCall,
 ):
     """A page Goodfetch drives: a tab of a Session, opened by `session.new_page()` or by the page itself (a popup).
     Closing it closes only a tab Goodfetch opened; on a Borrowed browser it only releases it."""
@@ -149,7 +151,7 @@ class AsyncPage(
         """Idempotent. `run_before_unload` runs the page's `beforeunload` handlers, which closing otherwise skips."""
 
 @final
-class AsyncSession(_AsyncCloseable, _AsyncExplainsSettings, AsyncSessionStateApi):
+class AsyncSession(_AsyncCloseable, _AsyncExplainsSettings, AsyncSessionStateApi, AsyncRawCall):
     """A Session of a Run: Playwright's context, under the glossary's name (ADR 0085), with its cookies and login
     (ADR 0092). Closing it never closes a Borrowed browser. There is no active page."""
 
@@ -166,7 +168,7 @@ class AsyncSession(_AsyncCloseable, _AsyncExplainsSettings, AsyncSessionStateApi
     def add_init_script(self, script: str, arg: JsonValue | NotGiven = ...) -> Subscription: ...
 
 @final
-class AsyncRun(_AsyncCloseable, _AsyncExplainsSettings, AsyncRunEvents, AsyncRunControl[RunReport, RunProgress]):
+class AsyncRun(_AsyncCloseable, _AsyncExplainsSettings, AsyncRunEvents, AsyncRunControl[RunReport, RunProgress], AsyncRawCall):
     """A Run, always opened explicitly. `finish()` ends it `finished`; closing an unfinished Run stops it with a
     Checkpoint, resumable by starting its ID again (ADR 0102)."""
 
@@ -316,8 +318,20 @@ class _AsyncConnecting:
         self, exc_type: type[BaseException] | None, exc: BaseException | None, tb: TracebackType | None
     ) -> None: ...
 
+class AsyncConnection(_AsyncCloseable, _AsyncExplainsSettings, AsyncRawCall):
+    """Any connection: what `AsyncCollie` and `AsyncFoxhound` share, declared once in `goodfetch_collie_client`
+    (ADRs 0095, 0099), so a library typed for it accepts either Product's connection. Collie's Run start joins it once
+    #478 names it. The sketch's placeholder `AsyncGoodfetch` extends it until #483 replaces it."""
+
+    @property
+    def engine(self) -> EngineInfo:
+        """The engine reached, fixed when the connection opened."""
+    @property
+    def identities(self) -> AsyncIdentities:
+        """The install's Saved identities (ADR 0092)."""
+
 @final
-class AsyncGoodfetch(_AsyncCloseable, _AsyncExplainsSettings):
+class AsyncGoodfetch(AsyncConnection):
     """The engine connection: the entry point. Each one is independent, and many may be open in one process.
 
     It runs on AnyIO, under asyncio or Trio. Its values belong to the event loop that opened it; a call from another
@@ -381,14 +395,14 @@ class _Closeable:
     ) -> None: ...
 
 @final
-class Page(_Closeable, _ExplainsSettings, PageApi, PageWaits, PageEvents, PausesForHuman, AiVerbs, ElementReferences):
+class Page(_Closeable, _ExplainsSettings, PageApi, PageWaits, PageEvents, PausesForHuman, AiVerbs, ElementReferences, RawCall):
     """A page Goodfetch drives: a tab of a Session, opened by `session.new_page()` or by the page itself (a popup).
     Closing it closes only a tab Goodfetch opened; on a Borrowed browser it only releases it."""
 
     def close(self, *, run_before_unload: bool = False, timeout: Timeout = ...) -> None: ...
 
 @final
-class Session(_Closeable, _ExplainsSettings, SessionStateApi):
+class Session(_Closeable, _ExplainsSettings, SessionStateApi, RawCall):
     """A Session of a Run: Playwright's context, under the glossary's name (ADR 0085), with its cookies and login
     (ADR 0092). Closing it never closes a Borrowed browser. There is no active page."""
 
@@ -399,7 +413,7 @@ class Session(_Closeable, _ExplainsSettings, SessionStateApi):
     def add_init_script(self, script: str, arg: JsonValue | NotGiven = ...) -> Subscription: ...
 
 @final
-class Run(_Closeable, _ExplainsSettings, RunEvents, RunControl[RunReport, RunProgress]):
+class Run(_Closeable, _ExplainsSettings, RunEvents, RunControl[RunReport, RunProgress], RawCall):
     """A Run, always opened explicitly. `finish()` ends it `finished`; closing an unfinished Run stops it with a
     Checkpoint, resumable by starting its ID again (ADR 0102)."""
 
@@ -509,8 +523,16 @@ class Foxhound:
     ) -> CrawlRun:
         """`AsyncFoxhound.start_crawl` in the sync API."""
 
+class Connection(_Closeable, _ExplainsSettings, RawCall):
+    """Any connection, as `AsyncConnection`: what `Collie` and `Foxhound` share."""
+
+    @property
+    def engine(self) -> EngineInfo: ...
+    @property
+    def identities(self) -> Identities: ...
+
 @final
-class Goodfetch(_Closeable, _ExplainsSettings):
+class Goodfetch(Connection):
     """The engine connection: the entry point. Each one is independent, and many may be open in one process.
 
     It runs the async core on a private background thread of its own, so it works on any thread, including one whose event

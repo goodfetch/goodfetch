@@ -124,7 +124,7 @@ export async function payInFrame(page: Page): Promise<void> {
 
 // The way down: raw CDP for one page, under ADR 0017's rules, Chromium only.
 export async function heapSize(page: Page): Promise<JsonValue> {
-  await using cdp = await page.newCdpSession();
+  await using cdp = await page.newCDPSession();
   await cdp.send("Performance.enable");
   return cdp.send("Performance.getMetrics");
 }

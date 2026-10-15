@@ -30,6 +30,16 @@ sdk-api-sketch/
 - **Snippets.** A ticket's usage examples sit beside the golden scenarios, type-checked with them, until #483 writes the programs: `typescript/scenarios/snippets/<topic>.ts`, `python/scenarios/snippet_<topic>.py` and `rust/examples/snippet_<topic>.rs`.
 - **Signatures only.** Rust bodies are `unimplemented!()`, the sketch's one departure from `STYLE.md`.
 - **Placeholder names.** The package and import name `goodfetch` stands in until the packaging question of [Goodfetch products: Collie and Foxhound as separately installable products](https://github.com/goodfetch/automan/issues/447) settles names.
+- **Names follow ADR 0099** ([Mapping the catalog to each language and surface](https://github.com/goodfetch/automan/issues/471)).
+  - **One rule per language.** Every name is the catalog's snake_case words, spelled by one rule per language:
+    - TypeScript: camelCase members and PascalCase types;
+    - Python: snake_case members and PascalCase classes, with an `Async…` twin of every class with a round trip;
+    - Rust: snake_case, UpperCamelCase types and UPPER_SNAKE setting constants.
+  - **Initialisms.** One from the closed list (`ai api cdp css dom html http https json mcp pdf uri url xml`) is in capitals in TypeScript names and Python class names (`waitForURL`, `CDPSession`), lowercase when it opens a camelCase name (`url()`), and one word in Rust (`CdpSession`). `id` is a word (`runId`).
+  - **Keywords.** TypeScript escapes none (`route.continue()`), Python adds a trailing underscore (`continue_`), and Rust uses a raw identifier (`r#continue`).
+  - **Reads the SDK answers itself.** In TypeScript they are a method when they may change (`page.url()`) and a `readonly` property when fixed at creation (`run.id`), with Playwright's methods kept on its classes. In Python they are a property, except `is_`/`as_` names. In Rust they are a method.
+  - **The raw catalog call** is `call(operation, params)` on the connection and on every handle (`catalog` files). The sketch shows it on the Run, Session, Page and Locator.
+  - **Renames left for [API sketch: type-checked stubs and golden scenarios](https://github.com/goodfetch/automan/issues/483).** It applies them when it rewrites the sketch into three packages. TypeScript and Python names still spelled with an initialism as a word become `JSONValue`, `JSONObject`, `JSONSchema`, `URLMatcher`, `PageAPI`, `AIWorkResult`, `ResponseNotJSONError` and the like. `Goodfetch` gives way to `Collie` and `Foxhound`, both implementing `Connection`.
 - **Checkers follow `STYLE.md`:** TypeScript 7 with `strict`, `noUncheckedIndexedAccess`, `exactOptionalPropertyTypes`, `verbatimModuleSyntax` and `erasableSyntaxOnly` (`isolatedDeclarations` only applies when emitting declarations, which a sketch of `.d.ts` files never does); pyright strict and mypy `--strict` on Python 3.11; `cargo check` with warnings denied.
 
 ## Checking

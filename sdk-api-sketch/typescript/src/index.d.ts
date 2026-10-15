@@ -1,6 +1,7 @@
 // SDK API sketch for TypeScript: signatures only, no implementation.
 // Each ticket on the map adds its declarations in a file of its own and re-exports it here.
 export * from "./ai.js";
+export * from "./catalog.js";
 export * from "./concurrency.js";
 export * from "./crawl.js";
 export * from "./data.js";

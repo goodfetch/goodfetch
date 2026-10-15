@@ -1259,7 +1259,7 @@ pub enum AbortReason {
 }
 
 /// An intercepted request waiting for the program's answer. The first route to answer wins:
-/// [`Route::continue_`], [`Route::fulfill`], [`Route::abort`], or [`Route::fetch`] then
+/// [`Route::r#continue`], [`Route::fulfill`], [`Route::abort`], or [`Route::fetch`] then
 /// `fulfill`; each takes the route, so it cannot be answered twice. [`Route::fallback`] passes it
 /// to the route registered before this one, and from the page's first route to the Session's last;
 /// dropping it unanswered falls back too, and past the last route the request goes to the network. What a route sends on still passes the run's
@@ -1276,7 +1276,7 @@ impl Route {
     }
 
     /// Sends the request on, with any overrides.
-    pub fn continue_(self) -> Forward {
+    pub fn r#continue(self) -> Forward {
         unimplemented!()
     }
 
@@ -1306,7 +1306,7 @@ impl Drop for Route {
     fn drop(&mut self) {}
 }
 
-/// Overrides `continue_` and `fallback` pass on with the request.
+/// Overrides `r#continue` and `fallback` pass on with the request.
 #[must_use = "an answer does nothing until it is awaited"]
 pub struct Forward {
     _private: (),

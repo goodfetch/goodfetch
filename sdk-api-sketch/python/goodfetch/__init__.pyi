@@ -44,6 +44,8 @@ from goodfetch._ai import TextExpected as TextExpected
 from goodfetch._ai import VariablesMismatchDetails as VariablesMismatchDetails
 from goodfetch._ai import VariablesMismatchError as VariablesMismatchError
 from goodfetch._ai import expect as expect
+from goodfetch._catalog import AsyncRawCall as AsyncRawCall
+from goodfetch._catalog import RawCall as RawCall
 from goodfetch._concurrency import AsyncEventIterator as AsyncEventIterator
 from goodfetch._concurrency import AsyncListener as AsyncListener
 from goodfetch._concurrency import AsyncPageEvents as AsyncPageEvents
@@ -134,6 +136,7 @@ from goodfetch._hooks import RequestChange as RequestChange
 from goodfetch._hooks import ResponseChange as ResponseChange
 from goodfetch._hooks import SyncHooks as SyncHooks
 from goodfetch._lifecycle import AsyncCollie as AsyncCollie
+from goodfetch._lifecycle import AsyncConnection as AsyncConnection
 from goodfetch._lifecycle import AsyncCrawlRun as AsyncCrawlRun
 from goodfetch._lifecycle import AsyncFoxhound as AsyncFoxhound
 from goodfetch._lifecycle import AsyncGoodfetch as AsyncGoodfetch
@@ -145,6 +148,7 @@ from goodfetch._lifecycle import BorrowableAsyncPage as BorrowableAsyncPage
 from goodfetch._lifecycle import BorrowableBrowser as BorrowableBrowser
 from goodfetch._lifecycle import BorrowablePage as BorrowablePage
 from goodfetch._lifecycle import Collie as Collie
+from goodfetch._lifecycle import Connection as Connection
 from goodfetch._lifecycle import CrawlRun as CrawlRun
 from goodfetch._lifecycle import EngineAddress as EngineAddress
 from goodfetch._lifecycle import EngineInfo as EngineInfo
@@ -215,7 +219,7 @@ from goodfetch._output import ValueInvalidDetails as ValueInvalidDetails
 from goodfetch._output import ValueInvalidError as ValueInvalidError
 from goodfetch._page import AbortReason as AbortReason
 from goodfetch._page import AriaRole as AriaRole
-from goodfetch._page import AsyncCdpSession as AsyncCdpSession
+from goodfetch._page import AsyncCDPSession as AsyncCDPSession
 from goodfetch._page import AsyncDialog as AsyncDialog
 from goodfetch._page import AsyncDialogHandler as AsyncDialogHandler
 from goodfetch._page import AsyncDownload as AsyncDownload
@@ -234,8 +238,8 @@ from goodfetch._page import AsyncTouchscreen as AsyncTouchscreen
 from goodfetch._page import AsyncWebSocket as AsyncWebSocket
 from goodfetch._page import BodyUnavailableError as BodyUnavailableError
 from goodfetch._page import BoundingBox as BoundingBox
-from goodfetch._page import CdpCommandRefusedError as CdpCommandRefusedError
-from goodfetch._page import CdpSession as CdpSession
+from goodfetch._page import CDPCommandRefusedError as CDPCommandRefusedError
+from goodfetch._page import CDPSession as CDPSession
 from goodfetch._page import ConsoleMessage as ConsoleMessage
 from goodfetch._page import ConsoleMessageLocation as ConsoleMessageLocation
 from goodfetch._page import Dialog as Dialog

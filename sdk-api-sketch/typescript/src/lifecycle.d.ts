@@ -4,9 +4,10 @@
 // Timeouts, waits and Limits come from #467 (time.d.ts); events and user code from #468 (concurrency.d.ts).
 
 import type { AiVerbs, AriaSnapshots, ElementReferences } from "./ai.js";
+import type { Connection, RawCall } from "./catalog.js";
 import type { Listener, PageEvents, RunEvents, Subscription } from "./concurrency.js";
 import type { Crawl, CrawlRun, CrawlStartOptions } from "./crawl.js";
-import type { JsonValue } from "./data.js";
+import type { JsonObject, JsonValue } from "./data.js";
 import type { ModelProviderHandler, ReadsUsage } from "./models.js";
 import type { KeyValueStore } from "./output.js";
 import type { FetchBackendHandler, ProxyProviderHandler, SinkHandler } from "./hooks.js";
@@ -115,7 +116,8 @@ export interface Page
     ExplainsSettings,
     AiVerbs,
     AriaSnapshots,
-    ElementReferences {
+    ElementReferences,
+    RawCall {
   close(options?: PageCloseOptions): Promise<void>;
 }
 
@@ -129,7 +131,7 @@ export interface SessionEventMap {
  * A Session of a Run: Playwright's context, under the glossary's name (ADR 0085), with its cookies and
  * login (ADR 0092). Closing it never closes a Borrowed browser. There is no active page.
  */
-export interface Session extends Closeable, SessionStateApi, ExplainsSettings {
+export interface Session extends Closeable, SessionStateApi, ExplainsSettings, RawCall {
   newPage(options?: NewPageOptions): Promise<Page>;
   /** The Session's open pages, read without a round trip. */
   pages(): Page[];
@@ -157,7 +159,7 @@ export interface NewSessionOptions extends CallOptions {
  * A Run, always opened explicitly. `finish()` ends it `finished`; closing an unfinished Run stops it
  * with a Checkpoint, resumable by starting its ID again (ADR 0102).
  */
-export interface Run extends Closeable, RunEvents, ExplainsSettings, ReadsUsage, RunControl {
+export interface Run extends Closeable, RunEvents, ExplainsSettings, ReadsUsage, RunControl, RawCall {
   /** Chosen by the program at the start, or generated: it names this Run for good. */
   readonly id: string;
   /**
@@ -203,7 +205,7 @@ export interface Foxhound {
 }
 
 /** The engine connection: the entry point. Each one is independent, and many may be open in one process. */
-export declare class Goodfetch implements Closeable, ExplainsSettings {
+export declare class Goodfetch implements Connection {
   private constructor();
   /** Starts or finds the engine and completes `hello` before returning. */
   static connect(options?: ConnectOptions): Promise<Goodfetch>;
@@ -216,4 +218,6 @@ export declare class Goodfetch implements Closeable, ExplainsSettings {
   close(options?: CallOptions): Promise<void>;
   [Symbol.asyncDispose](): Promise<void>;
   explainSettings(keys?: readonly SettingKey[], options?: CallOptions): Promise<readonly ExplainedSetting[]>;
+  /** The raw catalog call (ADR 0099): `params` names every value itself. */
+  call(operation: string, params?: JsonObject, options?: CallOptions): Promise<JsonValue>;
 }

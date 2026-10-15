@@ -31,7 +31,7 @@ Collie's AI verbs, `act`, `observe` and `extract`, are methods of the page and o
 
 ### The Plan in code
 
-- **Starting a Run takes `plan`**, the path of its Plan file, relative to the working directory, as an input of the Run like a crawl's seeds. The SDK reads the file on the program's machine and writes promoted versions back there, so a Daemon or Goodfetch Cloud works the same (ADR 0001). Starting a crawl takes the same option ([Crawl definition and handler context](https://github.com/goodfetch/automan/issues/477), [The Run in code](https://github.com/goodfetch/automan/issues/478)). Without `plan`, the Run's Plan lives only in its Run trace, and nothing is written to disk (G4). A path derived from the script's name would be hidden state that bundlers break (G2); a cache held by a service is ADR 0009's rejected option.
+- **Starting a Run takes `plan`**, the path of its Plan file, relative to the working directory, as an input of the Run like a crawl's seeds. The SDK reads the file on the program's machine and writes promoted versions back there, so a Daemon or Goodfetch Cloud works the same (ADR 0001). Starting a crawl takes the same option ([The Run in code](https://github.com/goodfetch/automan/issues/478)); a crawl handler's page is [ADR 0093](0093-a-crawl-declares-its-labels-and-one-handler-each-and-a-handler-reads-collies-page-on-every-fetch-tier.md)'s Collie page on every fetch tier. Without `plan`, the Run's Plan lives only in its Run trace, and nothing is written to disk (G4). A path derived from the script's name would be hidden state that bundlers break (G2); a cache held by a service is ADR 0009's rejected option.
 - **One entry per call**, keyed by the verb, the instruction with its placeholders, the scope locator, and for `extract` the hash of the schema's JSON Schema. Within an entry, one variant per page layout (ADR 0013's "keyed by route and page layout"). There is no key option: two calls that mean different things are worded or scoped differently (S2). Keys by position, as HyperAgent's `actionCache` and Browser Use's history replay, break as soon as a program branches or loops.
 - **What a step carries:**
   - the verb, the instruction and the scope;
@@ -100,10 +100,10 @@ ADR 0079's rule applied to each case: a call raises when it cannot keep its prom
 | An `act` whose action the engine classed an Effect failed after the action was sent; the original is chained, and it is not retryable | `effect_uncertain` | `PageError` |
 | An AI Effect in one of ADR 0014's categories was not confirmed: a person declined its Human pause, or the pause expired (ADR 0092) | `effect_not_confirmed` | `RefusedError` |
 | `expect`'s condition was still false at its timeout | `success_check_failed` | `PageError` |
-| A call would send a page's content to a model while `site_preferences.respect_use_signals` is on and the page's AI-use signal refuses the Run's Purpose (ADRs 0085, 0086); raised before anything is sent, with the reason `use_signals` | `site_preferences_refused`, shared with a crawl handler's refused navigation | `RefusedError` |
+| A call would send a page's content to a model while `site_preferences.respect_use_signals` is on and the page's AI-use signal refuses the Run's declared Purpose (ADRs 0085, 0086); raised before anything is sent, with the reason `use_signals` | `site_preferences_refused`, shared with a crawl handler's refused navigation (ADR 0093) | `RefusedError` |
 | A placeholder neither `variables` nor a bound Secret placeholder fills, a variable no placeholder uses, or a name that is both | `variables_mismatch` | `ProgramError` |
 
-A navigation an AI step starts toward a domain the run's policy forbids raises the same `RefusedError` as `goto` (ADR 0014). A step replayed from the Plan sends nothing to a model, so an AI-use signal does not refuse it. Model provider failures are Models, usage and cost in the SDK API's codes, which `model_not_configured` joins.
+A navigation an AI step starts toward a domain the run's policy forbids raises the same `RefusedError` as `goto` (ADR 0014), and a Secret placeholder `act` would type on a browser other code may read raises ADR 0092's `secret_input_refused`. A step replayed from the Plan sends nothing to a model, so an AI-use signal does not refuse it. Model provider failures are Models, usage and cost in the SDK API's codes, which `model_not_configured` joins.
 
 ## Considered Options
 
@@ -122,6 +122,7 @@ A navigation an AI step starts toward a domain the run's policy forbids raises t
 
 ## Consequences
 
+- **Amends ADR 0088.** A single AI verb call returns a `StepResult` (`output`, `step`, `usage`) with no Verdict: a Run's Verdict comes with its report once it finishes (ADR 0029), and an Agent's task returns ADR 0079's `AiWorkResult` with its own. Of a value's Provenance, the call returns how its step was resolved; the rest is kept in the Run trace, read through The Run in code.
 - **Amends ADR 0009.** In an SDK program each AI verb call is its own unit: its targets are checked before it acts, it gets at most one Repair, and a Drift after that Repair fails the call; the reason it does not repeat the lab failure behind ADR 0009's rejected step-by-step checking is given above. A first compile is promoted only after a `verified` Run, like a Repair; a version from a Run that is not `verified` is kept pending for a person and reaches the file once accepted; promotion merges by entry; `plan.frozen` calls no Model provider, Decision providers included.
 - **Amends ADR 0014.** In the SDKs, the observation whose page text is marked untrusted is an `ai` aria snapshot and what the AI verbs send their model; a read such as `innerText()` or a default-mode `ariaSnapshot()` returns page text as it is.
 - **Amends ADR 0011.** In the SDKs, an observation sends no diffs, and element references last as long as their element; the MCP server keeps diffs within its own session.
@@ -137,7 +138,7 @@ A navigation an AI step starts toward a domain the run's policy forbids raises t
 - **Other tickets of the map.**
   - The Agent in Collie's SDK API: its result, its Success check declaration, and whole-sequence replay, answered by ADR 0100.
   - Models, usage and cost in the SDK API: the `model` type and key, `Usage`, structured-output strategies, a model call's own timeout, and how golden scenario 08 finishes without the model once a Limit is reached, with `plan.frozen` as the model-free mode or the map's fog item "A call scope for Limits".
-  - Crawl definition and handler context: `extract` on an HTTP-tier response, with the same signature (S1), and the crawl's `plan` option.
+  - Crawl definition and handler context: `extract` on an HTTP-tier response, with the same signature (S1), answered by ADR 0093, whose handler page is a Collie page on every fetch tier; the crawl's `plan` option goes with the Run's start options to The Run in code.
   - The Run in code: finishing a Collie Run, its report, and where `PlanReport` sits.
   - Testing a user's crawl or automation: replaying Plans in tests, and visual comparison.
   - Mapping the catalog to each language and surface: the per-language forms of `expect`, `not` and the overloads.

@@ -21,6 +21,8 @@ ADR 0016 made the costly security controls switchable. At the owner's request th
 
 > Amended by [ADR 0086](0086-a-crawl-obeys-robots-txt-and-sends-one-request-at-a-time-per-domain-by-default-and-pressing-harder-is-recorded.md): the backoff row also covers 502, 504 and connections refused or timed out, and switching the backoff off, or shortening its waits, is recorded in the Audit log and the run's result.
 
+> Amended by [ADR 0093](0093-a-crawl-declares-its-labels-and-one-handler-each-and-a-handler-reads-collies-page-on-every-fetch-tier.md): the sample comparison row's switch is the setting `fetch.tier`, which forces a tier at any scope down to a crawl's Label, besides per run.
+
 - ADR 0028 lets an Operator policy or a Recipe cap or lock these switches; where nothing locks them, a run can still switch them.
 - The V1 benchmark publishes what each control costs, as it does for the security controls of ADR 0016.
 - Later decisions that add a costly control state its switch and its mark.

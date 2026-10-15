@@ -224,7 +224,7 @@ pub mod politeness {
     /// `politeness.sharing`; built-in `Shared`.
     pub const SHARING: Setting<PolitenessSharing> = Setting::new("politeness.sharing");
     /// `politeness.degraded_max`: how long an engine cut off from the Politeness store keeps
-    /// admitting within its share (ADR 0053); built-in 10 minutes. The engine's own, set in
+    /// admitting within its share (ADR 0053); built-in 10 minutes. The engine's own, set in user
     /// configuration or an Operator policy only: in a program's `Settings` it is refused with
     /// `setting_not_applicable`, and its key serves `explain_settings`.
     pub const DEGRADED_MAX: Setting<Duration> = Setting::new("politeness.degraded_max");
@@ -235,7 +235,8 @@ pub mod politeness {
 
         /// `politeness.domain.concurrency`: requests in flight per domain, each from its start
         /// until its response (a browser-tier page until its load event). Built-in 1; `0` fails
-        /// with `setting_invalid`. At 1, switching hedges or `tier_race` on is refused.
+        /// with `setting_invalid`. At 1, a crawl's Run that switches hedges or `tier_race` on is
+        /// refused.
         pub const CONCURRENCY: Setting<u32> = Setting::new("politeness.domain.concurrency");
         /// `politeness.domain.delay`: the least time between two request starts to one domain;
         /// built-in one second. While robots.txt is respected, a host's Crawl-delay raises it for
@@ -279,7 +280,9 @@ pub mod politeness {
 }
 
 /// `site_preferences.*` (ADR 0086): what the engine does with the Site preferences it always reads
-/// and records in Provenance (ADR 0016).
+/// and records in Provenance (ADR 0016). Set on a Collie Run, every key but
+/// [`site_preferences::RESPECT_USE_SIGNALS`] is refused when the Run opens with
+/// `setting_not_applicable`: robots.txt is a crawl's (ADR 0084).
 pub mod site_preferences {
     use super::{Duration, Setting};
 

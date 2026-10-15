@@ -412,8 +412,8 @@ pub enum SkipReason {
     OutOfScope,
     /// Already seen.
     Duplicate,
-    /// A Disallow line of the host's robots.txt, or a robots.txt that stayed unreachable, which RFC 9309
-    /// reads as disallowing all (ADR 0086).
+    /// A Disallow line of the origin's robots.txt, or a robots.txt answered with a 429 or a 5xx, or
+    /// unreachable, with no earlier copy, until the request's retries ran out (ADR 0086).
     RobotsTxt,
     /// A Crawl-delay above `site_preferences.max_crawl_delay` (ADR 0086).
     CrawlDelay,

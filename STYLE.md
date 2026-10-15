@@ -30,15 +30,17 @@ The design vocabulary is the one of `codebase-design`: a **module** has an **int
 
 ### Workspace and crates
 
-- **The root `Cargo.toml` is a virtual manifest.** Members live under `crates/` and `crates/sinks/`, plus `proving-ground/` (ADR 0032) and an `xtask/` folder at the root for `xtask codegen` and `xtask release`. Each folder name equals its crate name, and internal crates are named `goodfetch-<glossary term>`, apart from the test-only `goodfetch-test-support`; no internal crate takes a Product's name, since names starting `goodfetch-collie` or `goodfetch-foxhound` are kept for the crates a Product publishes for its users (ADR 0090). Siblings and shared dependencies are referenced with `.workspace = true`.
+- **The root `Cargo.toml` is a virtual manifest.** Members live under `crates/`, `crates/foxhound/` (every crate only Foxhound links, ADR 0087) and `crates/foxhound/sinks/`, plus `proving-ground/` (ADR 0032) and an `xtask/` folder at the root for `xtask codegen` and `xtask release`. Each folder name equals its crate name, and internal crates are named `goodfetch-<glossary term>`, apart from the test-only `goodfetch-test-support`; no internal crate takes a Product's name, since names starting `goodfetch-collie` or `goodfetch-foxhound` are kept for the crates a Product publishes for its users (ADR 0090). Siblings and shared dependencies are referenced with `.workspace = true`.
 - **A concern becomes its own crate only for one of these reasons:**
   1. it is a separate executable (each Product's executable, a sink process, the sandbox helper, `xtask`, the Proving ground);
-  2. the compiler must enforce a dependency direction (no Collie crate depends on a Foxhound crate (ADR 0084); `goodfetch-protocol` never depends on the engine; the Proving ground never depends on engine crates; `goodfetch-conformance` depends only on `goodfetch-protocol`; `goodfetch-test-support` depends on no Goodfetch crate and is only ever a dev-dependency (ADR 0062); a Private component's interface with its no-op implementation);
+  2. the compiler must enforce a dependency direction (nothing outside `crates/foxhound/` but `xtask` depends on a crate inside it, so no Collie crate depends on a Foxhound crate (ADRs 0084, 0087); `goodfetch-protocol` never depends on the engine; the Proving ground never depends on engine crates; `goodfetch-conformance` depends only on `goodfetch-protocol`; `goodfetch-test-support` depends on no Goodfetch crate and is only ever a dev-dependency (ADR 0062); the test-only crate holding turmoil's network adapter is taken only by integration tests (ADR 0087); a Private component's interface with its no-op implementation);
   3. it is heavy and rarely changes, so isolating it speeds up incremental builds (generated CDP bindings);
   4. it is a Plugin-kind seam whose built-in implementation pulls dependencies nothing else needs.
 
   Otherwise it is a module. Each area's spec names its crates by these reasons.
   _Why:_ crates build in parallel and enforce directions, but each one adds visibility plumbing; a stated reason keeps them meaningful.
+- **Each Product's executable crate is its composition root** (ADR 0087). Each domain crate exports one value listing what it adds to the engine (operation handlers, settings keys, run-state tables, Plugin kinds and Hook stages, Usage kinds and Limit scopes, the Notifications it can send, gates in admission), and the executable crate passes the values it links to the engine at start; Foxhound's starts from Collie's. Nothing registers itself by being linked, and code outside `crates/foxhound/` and `xtask` never names a Foxhound type: Foxhound fills interfaces the engine defines.
+  _Why:_ what a Product contains is then a list in its `main`, a test composes exactly what it needs, and Collie's code compiles without Foxhound's.
 - **Module files are `foo.rs` beside a `foo/` folder, never `mod.rs`.** `lib.rs` only declares modules and re-exports.
   _Why:_ editor tabs full of `mod.rs` are unreadable, and a short `lib.rs` shows the crate's shape at a glance.
 - **Each crate and each module opens with a `//!` comment stating its role.**
@@ -80,7 +82,7 @@ The design vocabulary is the one of `codebase-design`: a **module** has an **int
   _Why:_ `expect` warns when the exception is no longer needed, so stale exceptions disappear.
 - **rustfmt runs on its default 2024 style.**
   _Why:_ the options teams most often change (import granularity and grouping, comment wrapping) need a nightly toolchain, and defaults end style debates.
-- **CI also runs `cargo-deny`, `cargo-shear` (unused dependencies), `cargo-nextest`, `typos` and `zizmor` (workflow security).**
+- **CI also runs `cargo-deny` (workspace-wide, and once per Product on what its executable crate ships, ADR 0087), `cargo-shear` (unused dependencies), `cargo-nextest`, `typos` and `zizmor` (workflow security).**
 
 ### `unsafe`
 
@@ -114,8 +116,8 @@ For anything non-trivial, a known and widely used project is preferred to writin
 
 ### Cargo features
 
-- **A capability is never a Cargo feature** (ADR 0038): stealth, the Challenge solver, AI and costly controls are settings.
-- **Features exist only on the Products' embeddable crates, `goodfetch-collie` and `goodfetch-foxhound`** (ADR 0090), only for heavy optional dependencies and `test-util`, and they are additive. Each executable builds one fixed set, and `cargo-hack` checks every combination of each crate's features.
+- **A capability is never a Cargo feature** (ADR 0038): stealth, the Challenge solver, AI and costly controls are settings. The Products differ only by the crates their executables link, never by a feature (ADR 0087).
+- **Features exist only on the published crates through which each Product's SDK embeds its engine** (`goodfetch-collie`, `goodfetch-foxhound` and their `goodfetch-<product>-<part>` crates, ADR 0090), only for heavy optional dependencies and `test-util`, and they are additive. Each Product's executable builds one fixed set in its own `cargo build -p`, and `cargo-hack` checks every combination of each embeddable crate's features.
 - **Platform differences use `cfg(target_os = …)`, never features.** Custom `cfg`s are declared for `unexpected_cfgs`: `goodfetch_loom` for loom tests (ADR 0060), and `tokio_unstable` only because the Simulation's scenarios compile under it, in a job of their own. Under `goodfetch_loom`, a crate's `sync` module maps its atomics and locks to loom, and `disallowed-types` refuses the std atomic, `Mutex`, `RwLock` and `Condvar` types outside it.
 
 ### Tests

@@ -153,6 +153,8 @@ class HookResult:
     kind: Literal["answered", "skipped", "blocked", "retry_requested", "dropped", "rejected", "failed"] | str
     value: JsonValue | None = None
     message: str | None = None
+    cause: BlockCause | None = None
+    """For `blocked`: the Block cause `block(cause)` gave (ADR 0104)."""
     error: GoodfetchError | None = None
 
 @final

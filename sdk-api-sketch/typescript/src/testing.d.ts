@@ -141,7 +141,9 @@ export interface HookInput {
 /** What a Hook did: its answer, or the call that ended the work. */
 export type HookResult =
   | { readonly kind: "answered"; readonly value: JsonValue | null }
-  | { readonly kind: "skipped" | "blocked" | "retry_requested" | "dropped" | "rejected"; readonly message: string }
+  | { readonly kind: "skipped" | "retry_requested" | "dropped" | "rejected"; readonly message: string }
+  /** `block(cause)` after a response (ADR 0104). */
+  | { readonly kind: "blocked"; readonly cause: BlockCause }
   | { readonly kind: "failed"; readonly error: GoodfetchError }
   | { readonly kind: "unknown"; readonly raw: string };
 

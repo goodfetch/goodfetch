@@ -17,7 +17,7 @@ The Product that drives one browser page at a time: the CDP driver and its guard
 _Avoid_: browser module, agent
 
 **Foxhound**:
-The Product that discovers and collects many pages: the Frontier, crawl scope, Politeness, fetch tiers, Datasets and Sinks. It contains Collie, which it uses to render pages and act on them.
+The Product that discovers and collects many pages: the Frontier, crawl scope, Politeness toward sites, the HTTP fetch tiers, Datasets and Sinks. It contains Collie, which it uses to render pages and act on them.
 _Avoid_: spider, scraper
 
 **Engine**:
@@ -267,7 +267,7 @@ What completes a Challenge on a Session's behalf, whether Goodfetch's own logic,
 _Avoid_: unblocker, bypass, captcha solver (for every kind)
 
 **Session pool**:
-The sessions a run keeps, scoring, rotating and retiring them as they fail.
+The Sessions a crawl keeps, scoring, rotating and retiring them as they fail; a Session a program or an Agent opens itself is never in it.
 _Avoid_: session manager, account pool
 
 **Saved identity**:
@@ -439,7 +439,7 @@ Whatever turns a Secret reference into its value at the moment of use: the envir
 _Avoid_: vault (for every provider), secret store, credential manager
 
 **Provenance**:
-The record of how a Record was obtained: where and when it was fetched, under which Session and signing identity, by which extractor, Plan or model, and under which Site preferences.
+The record of how a Record, or any other result of a run, was obtained: where and when it was fetched, under which Session and signing identity, by which extractor, Plan or model, and under which Site preferences.
 _Avoid_: lineage, metadata, source (alone)
 
 **Purpose**:

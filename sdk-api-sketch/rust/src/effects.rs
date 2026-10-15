@@ -7,17 +7,17 @@
 //! `retry_failed` reaches the same entry; elsewhere it is the Run, so a Collie program started
 //! again with its Run's ID finds what it already did.
 //!
-//! Goodfetch judges a body by what it sent for it while the body ran: a body that returned is
+//! The engine judges a body by what it sent for it while the body ran: a body that returned is
 //! done and never runs again; one that ended before anything was sent was not performed; one
 //! that ended after a send is uncertain (`effect_uncertain`) until a person reconciles it
 //! (ADR 0029), unless it is repeatable. A future dropped mid-body, or a body cut by the end of
 //! its attempt, is judged when its key is next declared, or when its attempt or Run ends. A body
-//! counts as sent from its start while Goodfetch cannot see every command (a raw CDP attach, a
+//! counts as sent from its start while the engine cannot see every command (a raw CDP attach, a
 //! lent page, a browser shared with other code). Prepare the page before the declaration: the body
 //! holds the action that commits the Effect and the reads of its result. There is no separate
 //! check: a body that checks first, or sends [`Effect::idempotency_key`], is repeatable.
 //!
-//! The body is generic in its error `E`, which takes a Goodfetch [`Error`] (`From<Error>`) and
+//! The body is generic in its error `E`, which takes the SDK's [`Error`] (`From<Error>`) and
 //! boxes into a `std::error::Error` source: [`Error`] itself or `anyhow::Error` fit. Its own error
 //! returns unchanged when nothing was sent, and is the `source()` of `effect_uncertain` after a send.
 
@@ -95,7 +95,7 @@ impl<T> EffectResult<T> {
     }
 }
 
-/// The error a body may return: anything that takes a Goodfetch [`Error`] and boxes into a
+/// The error a body may return: anything that takes the SDK's [`Error`] and boxes into a
 /// source, such as [`Error`] itself or `anyhow::Error`.
 pub trait BodyError: From<Error> + Into<Box<dyn std::error::Error + Send + Sync>> {}
 
@@ -130,7 +130,7 @@ where
     E: BodyError + 'a,
     F: AsyncFnOnce(&Effect) -> Result<T, E> + 'a,
 {
-    /// The body's own error unchanged, or a Goodfetch error converted into `E`.
+    /// The body's own error unchanged, or an SDK error converted into `E`.
     type Output = Result<EffectResult<T>, E>;
     /// Runs the body in the awaiting task: it may borrow and needs no `Send` (ADR 0081).
     type IntoFuture = Pin<Box<dyn Future<Output = Self::Output> + 'a>>;
@@ -144,8 +144,12 @@ impl Run {
     /// Performs `body` as the Effect `key`, unless the Run's Effect journal already answers it.
     ///
     /// The key, at most 255 code points, names one Effect in the Run; declaring it again while its
-    /// body runs, or after this attempt got its answer, fails with `effect_key_reused`. A body that
-    /// fails before Goodfetch sent anything returns its own error unchanged; one that fails after a
+    /// body runs, or after this attempt got its answer, fails with `effect_key_reused`, except that
+    /// on a borrowed browser (ADR 0089) a key declared again after its answer returns that answer,
+    /// since the other crawler's retries reach the Run as new calls. While the body runs in an
+    /// attempt, staging an output with it (`enqueue`, `add_seed`, a pushed Record) fails with
+    /// `effect_staging_refused`: stage it after the declaration, from the output. A body that
+    /// fails before the engine sent anything returns its own error unchanged; one that fails after a
     /// send fails with `effect_uncertain`, its source the original, unless
     /// [`DeclareEffect::repeatable`]. The program's own I/O inside the body is invisible to the
     /// journal. No timeout of its own: the body's calls carry theirs (ADR 0080).
@@ -255,6 +259,32 @@ pub enum OutputProblem {
     TooLarge,
     /// A value a newer engine sends, kept as received (G3).
     Unknown(String),
+}
+
+/// What a call tried to stage while a body ran.
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum StagedOutput {
+    /// An enqueue.
+    Enqueue,
+    /// A seed added through `ctx.run()`.
+    Seed,
+    /// A pushed Record.
+    Record,
+    /// A value a newer engine sends, kept as received (G3).
+    Unknown(String),
+}
+
+/// Details of `effect_staging_refused`: a call staged an output with an attempt while a declared
+/// Effect's body ran in it. A re-run that gets `journal` does not run the body again, so the output
+/// would be lost when the attempt ends early.
+#[derive(Debug, Clone)]
+#[non_exhaustive]
+pub struct EffectStagingRefused {
+    /// The running body's key.
+    pub key: String,
+    /// What the call tried to stage.
+    pub staged: StagedOutput,
 }
 
 /// Details of `effect_output_invalid`: the body's value is not JSON or is larger than

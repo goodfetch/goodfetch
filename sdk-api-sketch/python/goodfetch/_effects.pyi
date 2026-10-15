@@ -6,10 +6,10 @@ its own, and the JSON value the body returns is kept in the Run's Effect journal
 lease and `retry_failed` reaches the same entry; elsewhere it is the Run, so a Collie program started again with its
 Run's ID finds what it already did.
 
-Goodfetch judges a body by what it sent for it while the body ran: a body that returned is done and never runs again;
+The engine judges a body by what it sent for it while the body ran: a body that returned is done and never runs again;
 one that ended before anything was sent was not performed; one that ended after a send is uncertain
 (`EffectUncertainError`) until a person reconciles it (ADR 0029), unless it is repeatable. A body counts as sent from its
-start while Goodfetch cannot see every command (a raw CDP attach, a lent page, a browser shared with other code).
+start while the engine cannot see every command (a raw CDP attach, a lent page, a browser shared with other code).
 Prepare the page before the declaration: the body holds the action that commits the Effect and the reads of its
 result. There is no separate check: a body that checks first, or sends `effect.idempotency_key`, is repeatable. There
 is no `with` form, since a context manager cannot skip its own body.
@@ -95,7 +95,11 @@ class DeclaresEffects:
 
         The key, at most 255 code points, names one Effect in its namespace: the crawl request in a handler or a Hook,
         the Run elsewhere; declaring it again while its body runs, or after this attempt got its answer, raises
-        `EffectKeyReusedError`. A body that raises before Goodfetch sent anything raises its own error unchanged; one
+        `EffectKeyReusedError`, except that on a borrowed browser (ADR 0089) a key declared again after its answer
+        returns that answer, since the other crawler's retries reach the Run as new calls. While the body runs in an
+        attempt, staging an output with it (`enqueue`, `add_seed`, a pushed Record) raises `EffectStagingRefusedError`:
+        stage it after the declaration, from the output. A body that raises before the engine sent anything raises its
+        own error unchanged; one
         that raises after a send raises `EffectUncertainError` from it, unless `repeatable`, which declares the body
         safe to run again (ADR 0010). `CancelledError`, `KeyboardInterrupt` and `AttemptEndedError` propagate unchanged,
         and the next declaration of the key acts on what was sent. The program's own I/O inside the body is invisible
@@ -149,3 +153,18 @@ class EffectOutputInvalidError(ProgramError):
 
     @property
     def details(self) -> EffectOutputInvalidDetails: ...
+
+@final
+@dataclass(frozen=True, kw_only=True)
+class EffectStagingRefusedDetails:
+    key: str
+    """The running body's key."""
+    staged: Literal["enqueue", "seed", "record"] | str
+
+@final
+class EffectStagingRefusedError(ProgramError):
+    """A call staged an output with an attempt while a declared Effect's body ran in it: a re-run that gets `journal`
+    does not run the body again, so the output would be lost when the attempt ends early."""
+
+    @property
+    def details(self) -> EffectStagingRefusedDetails: ...

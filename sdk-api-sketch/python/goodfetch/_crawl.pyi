@@ -79,6 +79,8 @@ class Seed(Generic[P]):
     label: Label[P]
     payload: P
     method: str = "GET"
+    """A crawl request is a read whatever its method, sent again on a retry, an escalation or a sample comparison; an
+    Effect goes through `page.request` inside `ctx.run.effect` (ADR 0106)."""
     headers: Mapping[str, str] | None = None
     body: str | bytes | None = None
 

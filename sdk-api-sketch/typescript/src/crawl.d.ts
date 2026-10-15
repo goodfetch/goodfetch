@@ -167,7 +167,11 @@ export interface CrawlRequest<L extends Label<unknown, unknown> = Label<undefine
 
 /** A crawl request's own method, headers and body (ADR 0093): a POST or GraphQL API is crawled page by page. */
 export interface RequestShape {
-  /** `GET` by default. Whether a non-GET request is an Effect to declare is #500's. */
+  /**
+   * `GET` by default. A crawl request is a read whatever its method, sent again on a retry, an
+   * escalation or a sample comparison; an Effect goes through `page.request` inside `ctx.run.effect`
+   * (ADR 0106).
+   */
   readonly method?: string;
   readonly headers?: Readonly<Record<string, string>>;
   readonly body?: string | Uint8Array;

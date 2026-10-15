@@ -8,6 +8,7 @@ from goodfetch._agent import ActionFailed as ActionFailed
 from goodfetch._agent import ActionJournaled as ActionJournaled
 from goodfetch._agent import ActionUnknown as ActionUnknown
 from goodfetch._agent import AgentTaskProgress as AgentTaskProgress
+from goodfetch._agent import AgentToolCall as AgentToolCall
 from goodfetch._agent import AgentAction as AgentAction
 from goodfetch._agent import AgentActionOutcome as AgentActionOutcome
 from goodfetch._agent import AgentApi as AgentApi
@@ -132,6 +133,8 @@ from goodfetch._effects import EffectKeyReusedDetails as EffectKeyReusedDetails
 from goodfetch._effects import EffectKeyReusedError as EffectKeyReusedError
 from goodfetch._effects import EffectOutputInvalidDetails as EffectOutputInvalidDetails
 from goodfetch._effects import EffectOutputInvalidError as EffectOutputInvalidError
+from goodfetch._effects import EffectStagingRefusedDetails as EffectStagingRefusedDetails
+from goodfetch._effects import EffectStagingRefusedError as EffectStagingRefusedError
 from goodfetch._effects import EffectReconciled as EffectReconciled
 from goodfetch._effects import EffectResult as EffectResult
 from goodfetch._effects import EffectSourceUnknown as EffectSourceUnknown

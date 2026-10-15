@@ -152,10 +152,14 @@ pub enum ErrorCode {
     EffectUncertain,
     /// `effect_key_invalid`: an empty key, or one longer than 255 characters (ADR 0106).
     EffectKeyInvalid,
-    /// `effect_key_reused`: a key declared again after this attempt already got its answer (ADR 0106).
+    /// `effect_key_reused`: a key declared again while its body runs, or after this attempt already
+    /// got its answer (ADR 0106).
     EffectKeyReused,
     /// `effect_output_invalid`: a body's value is not JSON or is too large (ADR 0106).
     EffectOutputInvalid,
+    /// `effect_staging_refused`: an output staged with an attempt while a declared Effect's body ran
+    /// in it (ADR 0106).
+    EffectStagingRefused,
     /// `effect_not_confirmed`, a refusal: an AI Effect's confirmation was declined or its Human pause
     /// expired (ADR 0091).
     EffectNotConfirmed,
@@ -535,6 +539,8 @@ pub enum ErrorDetails {
     EffectKeyReused(crate::effects::EffectKeyReused),
     /// Of `effect_output_invalid`.
     EffectOutputInvalid(crate::effects::EffectOutputInvalid),
+    /// Of `effect_staging_refused`.
+    EffectStagingRefused(crate::effects::EffectStagingRefused),
     /// Of `effect_not_confirmed`.
     EffectNotConfirmed(crate::ai::EffectNotConfirmed),
     /// Of `model_not_found`, `model_unauthorized` and `model_funds_exhausted` (ADR 0101).

@@ -369,6 +369,11 @@ export interface Response {
   headers(): Headers;
   request(): Request;
   /**
+   * `true` when a site's service worker answered the request itself, typically from its own cache,
+   * so it reached no network and no route answered it (ADR 0121). Playwright's accessor.
+   */
+  fromServiceWorker(): boolean;
+  /**
    * Read on demand. Never fails for a response from `waitForRequestFinished`, `route.fetch()` or
    * `page.request`, whose bodies the engine keeps; elsewhere a body the browser has dropped throws
    * `BodyUnavailableError`.

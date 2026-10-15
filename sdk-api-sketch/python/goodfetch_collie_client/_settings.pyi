@@ -136,6 +136,12 @@ class BrowserSettings(TypedDict, total=False):
     strict (G3); none by default. Set on the Run or above it:
     a Label refuses it with `setting_not_applicable`, as every `browser.*` key (ADR 0093). In the `standard` and
     `stealth` Access modes it warns once, since a site can see the missing loads."""
+    service_workers: Literal["allow", "block"]
+    """`browser.service_workers`: whether a site's service workers run, Playwright's `service_workers` values (S3, ADR
+    0121). `"allow"` by default on Chromium, where a worker's own requests pass the engine's interception and a request it
+    answers itself is marked `from_service_worker`; set `"block"` when a route or the Response cache must act on every
+    request. `"block"` on Firefox and WebKit, where an explicit `"allow"` raises `capability_unavailable`. `"block"` never
+    patches `register`: registration fails as a browser's own refusal does."""
 
 class NetworkThrottle(TypedDict):
     """Emulated network conditions, which Playwright closed as not planned (#8622)."""
@@ -291,6 +297,7 @@ SettingKey: TypeAlias = Literal[
     "browser.headless",
     "browser.permissions",
     "browser.block_resources",
+    "browser.service_workers",
     "network.throttle",
     "effect.output.max_size",
     "politeness.proxy.concurrency",

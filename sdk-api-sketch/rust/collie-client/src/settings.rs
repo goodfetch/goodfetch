@@ -268,6 +268,24 @@ pub mod browser {
     /// Access modes it warns once, since a site can see the missing loads.
     pub const BLOCK_RESOURCES: Setting<Vec<BlockedResourceType>> =
         Setting::new("browser.block_resources");
+    /// `browser.service_workers`: whether a site's service workers run, Playwright's
+    /// `serviceWorkers` values (S3, ADR 0121). [`ServiceWorkers::Allow`] by default on Chromium,
+    /// where a worker's own requests pass the engine's interception and a request it answers
+    /// itself is marked `from_service_worker()`; set [`ServiceWorkers::Block`] when a route or the
+    /// Response cache must act on every request. `Block` on Firefox and WebKit, where an explicit
+    /// `Allow` fails with `capability_unavailable`. `Block` never patches `register`:
+    /// registration fails as a browser's own refusal does.
+    pub const SERVICE_WORKERS: Setting<ServiceWorkers> = Setting::new("browser.service_workers");
+
+    /// Whether a site's service workers run (ADR 0121).
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    #[non_exhaustive]
+    pub enum ServiceWorkers {
+        /// `allow`.
+        Allow,
+        /// `block`.
+        Block,
+    }
 
     /// A resource type `browser.block_resources` takes (ADRs 0047, 0117).
     #[derive(Debug, Clone, Copy, PartialEq, Eq)]

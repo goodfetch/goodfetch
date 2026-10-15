@@ -1202,6 +1202,12 @@ impl Response {
         unimplemented!()
     }
 
+    /// `true` when a site's service worker answered the request itself, typically from its own
+    /// cache, so it reached no network and no route answered it (ADR 0121). Playwright's accessor.
+    pub fn from_service_worker(&self) -> bool {
+        unimplemented!()
+    }
+
     /// Read on demand. Never fails for a response from `wait_for_request_finished`,
     /// [`Route::fetch`] or [`PageRequest`], whose bodies the engine keeps; elsewhere a body the
     /// browser has dropped fails with `body_unavailable`.

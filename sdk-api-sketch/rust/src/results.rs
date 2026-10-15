@@ -150,7 +150,7 @@ pub enum ErrorCode {
     /// action was an Effect failed after the action was sent (ADR 0091), or a declared Effect's body
     /// ended after a send (ADR 0106); never retried, a person reconciles it.
     EffectUncertain,
-    /// `effect_key_invalid`: an empty key, or one longer than 255 characters (ADR 0106).
+    /// `effect_key_invalid`: an empty key, or one longer than 255 code points (ADR 0106).
     EffectKeyInvalid,
     /// `effect_key_reused`: a key declared again while its body runs, or after this attempt already
     /// got its answer (ADR 0106).

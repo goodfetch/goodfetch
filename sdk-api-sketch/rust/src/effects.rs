@@ -215,7 +215,7 @@ pub struct UncertainEffect {
     pub since: SystemTime,
 }
 
-/// Details of `effect_key_invalid`: an empty key, or one longer than 255 characters.
+/// Details of `effect_key_invalid`: an empty key, or one longer than 255 code points.
 #[derive(Debug, Clone)]
 #[non_exhaustive]
 pub struct EffectKeyInvalid {

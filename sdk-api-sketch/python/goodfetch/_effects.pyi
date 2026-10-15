@@ -119,7 +119,7 @@ class EffectKeyInvalidDetails:
 
 @final
 class EffectKeyInvalidError(ProgramError):
-    """An empty key, or one longer than 255 characters."""
+    """An empty key, or one longer than 255 code points."""
 
     @property
     def details(self) -> EffectKeyInvalidDetails: ...

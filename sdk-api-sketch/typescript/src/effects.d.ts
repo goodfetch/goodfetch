@@ -105,7 +105,7 @@ export interface EffectSettings {
 
 // The Error codes of declared Effects (ADR 0079's naming rule). `effect_uncertain` is ADR 0091's (ai.d.ts).
 
-/** An empty key, or one longer than 255 characters. */
+/** An empty key, or one longer than 255 code points. */
 export declare class EffectKeyInvalidError extends ProgramError {
   readonly code: "effect_key_invalid";
   readonly details: { readonly key: string };

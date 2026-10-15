@@ -412,6 +412,10 @@ _Avoid_: check (alone), assertion, judge, validator
 A model-driven loop over the Operation catalog toward an objective, whether Goodfetch's built-in one or an outside one; a single AI extraction is not an Agent.
 _Avoid_: bot, assistant
 
+**Agent tool**:
+A function of the user's program that Collie's built-in Agent may call as an action during a task, such as a lookup in the program's own data.
+_Avoid_: function tool, custom action, skill, Plugin
+
 **Model provider**:
 Whatever answers a run's model calls: a model company reached directly, a gateway, a local model server, or a model run inside the engine.
 _Avoid_: LLM vendor, backend
@@ -421,11 +425,11 @@ A Model provider whose model picks one option from a fixed list with a confidenc
 _Avoid_: classifier, router
 
 **Grounding**:
-The requirement that every extracted value appears in its page or follows from a declared transform.
+The requirement that every extracted value appears in the page it was read from (for an Agent's task, any page the task observed), or in the program's own data that an Agent tool returned, or follows from a declared transform.
 _Avoid_: verification, fact-check
 
 **Human pause**:
-The state of a Session's work items while they wait for a person to complete a login, MFA, a CAPTCHA, a confirmation or a review.
+The state of a Session's work while it waits for a person to complete a login, MFA, a CAPTCHA, a confirmation, a review or another step a program asks for.
 _Avoid_: manual step, HITL
 
 ## Security and compliance
@@ -433,6 +437,10 @@ _Avoid_: manual step, HITL
 **Secret reference**:
 The name by which a run points to a credential, such as a password, a TOTP seed or an API key, without ever holding its value.
 _Avoid_: secret (for the reference), credential ID, variable
+
+**Secret placeholder**:
+The name, such as `%password%`, by which a Plan, a prompt or a program asks for a secret to be typed or sent, and which a run binds to a Secret reference and to the domains allowed to receive it.
+_Avoid_: variable, alias
 
 **Secret provider**:
 Whatever turns a Secret reference into its value at the moment of use: the environment, the OS keychain, an encrypted local file, the caller, or an external vault.

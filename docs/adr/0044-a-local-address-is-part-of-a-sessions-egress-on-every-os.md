@@ -38,3 +38,5 @@ Spider wraps reqwest's `local_address` and `interface`, and its interface option
 - Rotating local addresses on a block carries the legal rating of IP rotation on block ([legal exposure](https://github.com/Jbmanllr/automan/issues/65)) and follows ADR 0035's placement of it.
 
 **Unchanged.** ADR 0017's resolved-IP check and ADR 0021's `per_ip_concurrency`, which is keyed by the target's IP, apply as before.
+
+> Amended by [ADR 0086](0086-a-crawl-obeys-robots-txt-and-sends-one-request-at-a-time-per-domain-by-default-and-pressing-harder-is-recorded.md): the setting is `politeness.ip.concurrency`.

@@ -1,6 +1,6 @@
 # A Rust crawl's handlers and their futures are `Send`, in axum's form, so `serve` runs in a multi-threaded server
 
-A Rust crawl's handlers, its Hooks and login steps, what it hands to `ctx.for_each`, and every Effect body are `Send`, and so are the futures they return. Each is written in axum's form: `FnOnce(…) -> Fut + Clone + Send + Sync`, cloned for each call. So `crawl.serve(&run)` returns a `Send` future that runs inside an axum handler or a spawned task, and a program whose state cannot be `Send` answers `run.crawl_requests()` itself.
+A Rust crawl's handlers, its Hooks and login steps, what it hands to `ctx.for_each`, and every Effect body are `Send`, and so are the futures they return. Each closure the SDK calls again and again is written in axum's form, `FnOnce(…) -> Fut + Clone + Send + Sync`, cloned for each call, and an Effect body, called once, is `FnOnce(Effect) -> Fut + Send`. So `crawl.serve(&run)` returns a `Send` future that runs inside an axum handler or a spawned task, and a program whose state cannot be `Send` answers `run.crawl_requests()` itself.
 
 `Send` is Rust's marker for a value that may move to another thread. A multi-threaded runtime, Tokio's default and the one axum uses, may resume a task on any thread, so everything a task holds across an `.await` must be `Send`.
 
@@ -24,6 +24,9 @@ Decided in [Send bounds on a Rust crawl's handlers](https://github.com/goodfetch
 
 ### The form: axum's
 
+The form was chosen on S1 and S3 (Rust's idiom, under the name and shape axum users already write), T (one form that every async closure fits) and G3 (a closure that is not `Send` fails to compile, with rustc's message).
+
+
 - **A crawl's handler** is `F: FnOnce(CrawlContext<P>) -> Fut + Clone + Send + Sync + 'a`, with `Fut: Future<Output = …> + Send + 'a`. `serve` clones the handler for each crawl request and calls the clone once, as axum does for each HTTP request. The output type is ADR 0093's, as [A Rust crawl handler's own error](https://github.com/goodfetch/goodfetch/issues/528) settles it. Whatever error type it gives, a `Send` future needs that error to be `Send`.
 - **Every async closure fits.** RFC 3668 makes every async closure `FnOnce`, and a closure is `Clone` when its captures are. Two forms work unchanged:
   - `async |ctx| { … }` borrowing the declaring function's locals, as scenario 12 borrows its Dataset;
@@ -32,7 +35,7 @@ Decided in [Send bounds on a Rust crawl's handlers](https://github.com/goodfetch
   The `Fn(…) -> Fut` form would refuse the second ("async closure does not implement `Fn` because it captures state from its environment"). A closure that mutates a value it captured by move mutates a fresh clone each time; rustc warns that the value "is never read".
 - **The same form, wherever the SDK stores a closure and calls it later.** It holds the closure behind a trait object, which cannot carry its future's `Send`-ness, so the bound is written in the signature:
   - **On a `Crawl`:** the six Hook stages ([ADR 0104](0104-a-crawl-declares-its-hooks-per-stage-in-code-a-hook-returns-its-change-and-a-program-registers-its-own-plugins-by-name.md)), and the crawl's and a Label's login steps (ADR 0093). These are `Send + Sync + 'a`, with `Send + 'a` futures.
-  - **The handler a crawl's code hands to `ctx.for_each`** ([ADR 0111](0111-a-rust-crawl-hands-what-it-subscribes-on-its-page-to-serve-which-reads-it-for-the-rest-of-the-attempt.md)), which `serve` reads for the rest of the attempt. It is `Send + Sync + 'static`, with a `Send + 'static` future, and the stream's items are `Send`, answering what ADR 0111 left here.
+  - **The handler a crawl's code hands to `ctx.for_each`** ([ADR 0111](0111-a-rust-crawl-hands-what-it-subscribes-on-its-page-to-serve-which-reads-it-for-the-rest-of-the-attempt.md)), which `serve` reads for the rest of the attempt. It is `Send + Sync + 'static`, with a `Send + 'static` future, and the stream's items are `Send + 'static`, answering what ADR 0111 left here.
   - **A Session's login step** ([ADR 0092](0092-sessions-open-from-their-source-page-pause-waits-for-a-person-and-a-secret-is-a-placeholder-bound-to-domains.md)). It runs inside a call's future, which ADR 0081 makes `Send + 'static`, so the step is `Send + Sync + 'static`, with a `Send + 'static` future.
   - **An Agent tool and an Agent task's Success check** ([ADR 0100](0100-collies-agent-is-one-bounded-call-on-a-page-judged-by-the-programs-success-check-and-replayed-whole-from-the-plan.md)). They were already `Send + 'static` as `Fn(…) -> Fut`, and take the `FnOnce + Clone` form so that `async move` tools fit too (S2).
 - **An Effect body is called once:** `F: FnOnce(Effect) -> Fut + Send + 'a`, with `Fut: Future<Output = Result<T, E>> + Send + 'a`, and `T` and `E` `Send` ([ADR 0106](0106-a-program-declares-an-effect-as-a-keyed-block-whose-output-the-effect-journal-keeps-judged-by-what-the-engine-sent.md)). The declaration's future is `Send`, so a handler that declares an Effect, or a Collie program in a server that declares one, stays `Send`.
@@ -40,7 +43,7 @@ Decided in [Send bounds on a Rust crawl's handlers](https://github.com/goodfetch
   - Bodies are still written `async |effect| { … }`.
 - **A synchronous closure inside a call's future** is `Fn(…) + Send + Sync + 'static`, as ADR 0081's waiter predicates are. This covers `enqueue_links_with`'s Payload function.
 - **A closure that a generic `async fn` calls at once needs nothing stated.** `Collie::scope` and `Foxhound::scope` take `impl AsyncFnOnce(&…)`, and their futures are `Send` whenever the body's is, through Rust's auto traits.
-- **When return-type notation stabilizes**, the bounds may relax to `AsyncFn` with `F(..): Send` as an addition. RFC 3668 makes every callable that returns a future implement `async Fn`, so the relaxed bound accepts every closure this one does.
+- **When return-type notation stabilizes**, the bounds may relax to `AsyncFnOnce(…) + Clone` with `F(..): Send` as an addition. RFC 3668 makes every callable that returns a future implement `async FnOnce`, so the relaxed bound accepts every closure this one does. `AsyncFn` would not do: a closure that moves an owned capture out in its body, such as `async move |_| { consume(state) }`, fits `FnOnce + Clone` but not `AsyncFn` (E0525).
 
 ### Borrowing is kept, and it is checked
 
@@ -62,11 +65,11 @@ Decided in [Send bounds on a Rust crawl's handlers](https://github.com/goodfetch
 
 ## Consequences
 
-- **Amends ADR 0081.** A crawl's handlers, its Hooks and login steps, a Session's login step and an Effect body are `Send`, with `Send` futures, in axum's `FnOnce + Clone` form. They still run inside the future the program awaits and may borrow, but are no longer free of `Send`. A note sits under "Where user code runs".
+- **Amends ADR 0081.** A crawl's handlers, its Hooks and login steps and a Session's login step are `Send`, with `Send` futures, in axum's `FnOnce + Clone` form; an Effect body is `FnOnce(Effect) -> Fut + Send`, with a `Send` future. They still run inside the future the program awaits and may borrow, but are no longer free of `Send`. A note sits under "Where user code runs".
 - **Amends ADR 0093.** A Rust crawl's handlers and login steps are `FnOnce(…) -> Fut + Clone + Send + Sync + 'a` with `Send` futures, and `serve`'s future is `Send`. A note sits under "Where handlers run".
 - **Amends ADR 0104.** A Rust crawl's Hooks take the handlers' form, and are `Send` with `Send` futures. A note sits under "Declaring a Hook".
-- **Amends ADR 0111.** `ctx.for_each`'s handler is `FnOnce(T) -> Fut + Clone + Send + Sync + 'static`, with `Fut: Send + 'static` and `T: Send`, so `serve`'s future stays `Send`. A note sits under its bounds.
+- **Amends ADR 0111.** `ctx.for_each`'s handler is `FnOnce(T) -> Fut + Clone + Send + Sync + 'static`, with `Fut: Send + 'static` and `T: Send + 'static`, so `serve`'s future stays `Send`. A note sits under its bounds.
 - **Amends ADR 0106.** A Rust Effect body is `FnOnce(Effect) -> Fut + Send` with a `Send` future, given `Effect` by value, and its declaration's future is `Send`. A note sits under "Each language's form".
 - **Leaves to [A Rust crawl handler's own error](https://github.com/goodfetch/goodfetch/issues/528)** the error type a handler returns, which this ADR requires to be `Send`.
 - **Area 11 (Client surfaces)** builds the bounds, the per-request clone, the compile-time checks, and a compile-fail test for a handler that is not `Send`. ADR 0037's SDK-06 and RT-07 list this ADR.
-- **The `prototype/sdk-api` sketch** has these bounds in `crawl.rs` (`for_each` included), `hooks.rs`, `effects.rs`, `sessions.rs` and `agent.rs`, the compile-time checks in `crawl.rs`, and a `serve` spawned on Tokio beside a program answering `crawl_requests()` with `Rc` state in `snippet_concurrency.rs`.
+- **The `prototype/sdk-api` sketch** has these bounds in `crawl.rs` (`for_each` included), `hooks.rs`, `effects.rs`, `run.rs`, `sessions.rs` and `agent.rs`, the compile-time checks in `crawl.rs`, and a `serve` spawned on Tokio beside a program answering `crawl_requests()` with `Rc` state in `snippet_concurrency.rs`.

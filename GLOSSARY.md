@@ -157,11 +157,15 @@ One run of a Partitioned crawl, owning the domains assigned to it.
 _Avoid_: shard
 
 **Goodfetch home**:
-The folder holding one user's Goodfetch data, caches and configuration on a machine: the operating system's usual folders unless the user names another.
+The folder holding one user's Goodfetch data, caches and configuration on a machine, shared by both Products: the operating system's usual folders unless the user names another.
 _Avoid_: data dir, app folder, install folder
 
+**Browser cache**:
+The per-user folder, shared by both Products and every major, of pinned browser builds, among them those Plugins declare, the executable copies a Daemon runs from and the engine's other pinned downloads, each checked by digest. Plugin runtimes have their own runtime cache beside it.
+_Avoid_: browser registry, browsers folder
+
 **Run index**:
-The catalog of every run of one user and one product major on a machine or in a Daemon group, pointing at each run's own state, from which it can be rebuilt, except the rows of runs discarded on purpose.
+The catalog of every run of one user and one product major, whichever Product ran it, on a machine or in a Daemon group, pointing at each run's own state, from which it can be rebuilt, except the rows of runs discarded on purpose.
 _Avoid_: run registry, run database, history
 
 **Usage ledger**:

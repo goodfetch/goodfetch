@@ -15,7 +15,7 @@ Decided in [Crawl definition and handler context](https://github.com/goodfetch/a
 - **A `Crawl` value holds the declaration,** made with no connection and no I/O, so a module may declare it when it loads (ADR 0078):
   - `new Crawl()` in TypeScript;
   - `AsyncCrawl()` (`async def` handlers) and `Crawl()` (plain functions) in Python, as the client pair;
-  - `Crawl::new()` in Rust, and `goodfetch::blocking::Crawl` for `Fn + Send + Sync + 'static` handlers (ADR 0081).
+  - `Crawl::new()` in Rust, and `goodfetch_foxhound::blocking::Crawl` for `Fn + Send + Sync + 'static` handlers (ADR 0081).
 
   A Run is started from it and resumed with it, since handlers are never persisted.
 - **Two steps per Label: declare it, then attach its handler.**
@@ -35,7 +35,7 @@ Decided in [Crawl definition and handler context](https://github.com/goodfetch/a
 - **A crawl request** is the noun ADR 0079 left open: one URL a crawl's Frontier admitted, with its Label and Payload, the work item one handler processes (ADR 0003), which ends in one outcome. "Request" is every crawler's word, and prose may keep it. The SDK already has a `Request` type, the page's network request (ADR 0085), so the types are `CrawlRequest<P>` and `CrawlRequestOutcome`, which replaces the placeholder `RequestOutcome` (S3).
 - **Seeds are crawl requests:** a URL, a Label, a Payload and the request options of an enqueue, checked as an enqueue is, so a seed the run's domain policy refuses is not added (`domain_policy`).
   - **A sitemap seed.** `sitemap(url, rules)` seeds from a sitemap, `url` being a sitemap or a site's robots.txt, whose `Sitemap:` lines are read. `rules` is an ordered list of URL pattern (matched in the engine, ADR 0081) → Label, as Scrapy's `SitemapSpider` `sitemap_rules` and Crawlee's `SitemapRequestList`: the first rule that matches picks the Label. A sitemap entry carries no Payload, so a rule names a Label without one, a type error otherwise. Nested sitemap indexes are followed. It widens the scope by its own host, like any seed. The seed's own answer, at the start or from `addSeed`, says whether the sitemap was accepted, as an enqueue's does. The engine then reads the sitemap and its indexes once the Run is running, through Politeness and robots.txt, and those fetches run no handler. Each entry is checked as an enqueue is, at depth 0, and an entry matching no rule is not added, with the reason `no_rule`. Entries not added are reported in the Run's report, in the shape [The Run in code](https://github.com/goodfetch/automan/issues/478) gives it. It is the SDK shape of ADR 0037's CO-10.
-  - **The start verb.** Its spelling, and resuming, are [The Run in code](https://github.com/goodfetch/automan/issues/478)'s. The sketch uses `gf.foxhound.start(crawl, { seeds: [seed(url, home)] })` provisionally.
+  - **The start verb.** Its spelling, and resuming, are [The Run in code](https://github.com/goodfetch/automan/issues/478)'s. The sketch uses `foxhound.start(crawl, { seeds: [seed(url, home)] })` on the `Foxhound` connection ([ADR 0090](0090-products-are-named-goodfetch-collie-and-goodfetch-foxhound-and-share-one-product-version.md)) provisionally.
   - **`run.addSeed(url, label, payload?, { method, headers, body, priority, forefront, key })`**, or `run.addSeed(sitemap(url, rules))` (Rust's `run.add(Seed::sitemap(url, rules))`), adds a seed to a running crawl, committed at once (ADR 0037's CO-03), and answers as an enqueue does. The start reports its refused seeds as The Run in code decides. `ctx.run` is bound to its attempt, so `addSeed` called through it inside a handler is staged with the attempt, as an enqueue is.
   - **Seeds define the scope,** so a seed widens it by its host, while a handler's `enqueue` is checked against it. The two get two names because they mean two things, and widening the scope from a handler is the explicit call (S3, G5).
 
@@ -94,7 +94,7 @@ Decided in [Crawl definition and handler context](https://github.com/goodfetch/a
 
 - **`ctx.skip(message)`** ends the request `skipped`, with the reason `handler` and the message.
 - **`ctx.retry(message)`** ends the attempt with `retry_requested`, a `PageError` that is retryable, counted against `crawl.retry.max`. When retries run out, the request ends `failed` with that error.
-- **Both unwind the handler.** TypeScript types them `never` and Python `NoReturn`. A Rust handler returns `Err(ctx.skip(…))`, since its handlers return `Result<(), goodfetch::Error>`. Skipping is a call, not a thrown failure the program fakes (G1).
+- **Both unwind the handler.** TypeScript types them `never` and Python `NoReturn`. A Rust handler returns `Err(ctx.skip(…))`, since its handlers return `Result<(), goodfetch_foxhound::Error>`. Skipping is a call, not a thrown failure the program fakes (G1).
 - **Retries.**
   - **`crawl.retry.max` is 2,** so three attempts, as Scrapy's `RETRY_TIMES`, the gentler of the two leaders (G5).
   - **What is retried:** an attempt whose error is retryable, such as a navigation timeout raised inside the handler (a `GoodfetchError` keeps its code and retryable flag, ADR 0079), and a handler past `timeout.handler` (ADR 0080).

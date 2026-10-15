@@ -10,6 +10,8 @@ Every Session opens in one Access mode, fixed for its life. `standard`, the defa
 
 > Amended by [ADR 0089](0089-a-page-is-lent-through-an-endpoint-that-shows-only-its-session-and-collie-joins-other-crawlers-by-borrowing.md): while a library such as Playwright or Puppeteer is attached to a Lent page, `Runtime` may be enabled on the pages it wraps in any Access mode, `standard` included; Provenance records the attach, and a Saved identity saved from a Session that was lent records it.
 
+> Amended by [ADR 0090](0090-products-are-named-goodfetch-collie-and-goodfetch-foxhound-and-share-one-product-version.md): in ADR 0086's note above, the robots.txt token is `goodfetch-foxhound`, not `Foxhound`.
+
 ## Considered Options
 
 - **`identified` by default** (the R&D's draft ADR-002): rejected. It applied Site preferences by default, which ADR 0016 rejected to stay competitive with Crawlee and Spider, and a declared bot is blocked more often.

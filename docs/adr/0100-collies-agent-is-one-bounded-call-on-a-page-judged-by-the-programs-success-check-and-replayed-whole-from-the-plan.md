@@ -236,6 +236,7 @@ Under ADR 0079's rule, the call raises when it cannot keep its promise, and AI w
   - [Effects a program declares in code](https://github.com/goodfetch/automan/issues/500) decides whether an Agent tool takes a function that tells whether its Effect already happened.
   - [Mapping the catalog to each language and surface](https://github.com/goodfetch/automan/issues/471) spells the Agent's CLI command, MCP tool and profiles, and how those surfaces state a Success check inside the task.
   - [Testing a user's crawl or automation](https://github.com/goodfetch/automan/issues/482) replays a task's Plan entry in tests.
+    > Amended by [ADR 0105](0105-a-programs-tests-replay-a-response-recording-in-a-test-engine-that-reaches-no-site.md): a test starts its Run with the Plan and `plan.frozen`, with a Response recording for the pages, so a replayed task makes neither a request nor a model call.
   - [API sketch: type-checked stubs and golden scenarios](https://github.com/goodfetch/automan/issues/483) writes golden scenario 11's programs.
   - The map's fog item "A call scope for Limits" gets nothing from scenario 11, whose whole program is one task in its own Run; scenario 08's model cap is [Capping a crawl's model use without stopping its Run](https://github.com/goodfetch/automan/issues/513)'s.
 - **The `prototype/sdk-api` sketch** holds these signatures in its `agent` files for each language. The pain coverage matrix closes P04's Agent part as API.

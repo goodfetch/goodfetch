@@ -21,6 +21,7 @@ Decided in [Crawl definition and handler context](https://github.com/goodfetch/a
 - **Two steps per Label: declare it, then attach its handler.**
   - `crawl.label(name, { payload, settings, login })` returns the typed handle `Label<P>`.
   - `crawl.handle(label, handler)` attaches the handler. Python spells it as the decorator `@crawl.handle(label)`, which returns the function unchanged, so a test calls it as it is ([Testing a user's crawl or automation](https://github.com/goodfetch/automan/issues/482)).
+    > Amended by [ADR 0105](0105-a-programs-tests-replay-a-response-recording-in-a-test-engine-that-reaches-no-site.md): the decorator still returns the function unchanged, but a test runs a handler through the testing kit's `runHandler`, which runs the one the crawl holds on a saved document and returns how its attempt ended and what it staged.
   - **A login step** (ADRs 0006, 0092) is the `login` option of a Label's declaration (`login=` in Python), or `login` of `new Crawl({ login })` (`AsyncCrawl(login=...)`) for the whole crawl; a Label's own wins for its Sessions. Rust spells them `crawl.login_for(&label, …)` and `crawl.login(…)`.
   - **Why not one step.** One step was tried with tsc 7.0.2: an expression-bodied handler that enqueues to its own Label fails with TS7022, a trap a coding agent writes for pagination, and Rust cannot name a binding inside its own initializer (S1, T).
   - **Rust** declares `crawl.label::<P>(name)`, with the schema `schemars` derives, or `crawl.label_with(name, schema, settings)`.
@@ -257,5 +258,6 @@ Decided in [Crawl definition and handler context](https://github.com/goodfetch/a
   - Crawl output in code: pushing Records from `ctx.run`, staged with the attempt.
   - Hooks and injectable components in the SDK API: Hooks scoped by Label in code, cross-cutting request headers, URL rewrites, and a stage before a retry.
   - Testing a user's crawl or automation: building a `CrawlContext` from a saved response.
+    > Amended by [ADR 0105](0105-a-programs-tests-replay-a-response-recording-in-a-test-engine-that-reaches-no-site.md): a test builds no `CrawlContext`; `runHandler` builds it from a saved document and runs the handler.
   - [Effects a program declares in code](https://github.com/goodfetch/automan/issues/500): a declared Effect must be checked rather than repeated, since a handler re-runs on a retry, an escalation, a sample comparison and a lost lease.
   - **Merge order.** ADR 0092 merged first and carries this ADR's note under its "Amends ADR 0083" item: `session.source`, `session.http_credentials`, `session.recovery.human_pause`, `session.page_check` and `secrets.*` are also set on a Label. Links to ADRs on `main` become relative.

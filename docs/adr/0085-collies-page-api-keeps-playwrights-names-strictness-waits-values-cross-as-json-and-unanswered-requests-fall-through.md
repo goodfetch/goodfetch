@@ -148,6 +148,7 @@ ADR 0019 asks each Playwright call in the parity list to map or be excluded with
 - **Setters:** `setDefaultTimeout` (ADR 0080), `setViewportSize`, `emulateMedia` and `setExtraHTTPHeaders`. Session settings (ADR 0028), Hooks (ADR 0033) and `route.continue({ headers })` cover them.
 - **Elsewhere:** `page.pause()` is a Human pause ([Sessions, logins, Human pause and secrets in code](https://github.com/goodfetch/automan/issues/476)). Web-first assertions (`expect`) map to the deterministic verb that runs a Success check, and `ariaSnapshot()` and aria references are observations, both [Collie's AI verbs and Plans](https://github.com/goodfetch/automan/issues/473)'s. `page.clock`, `routeFromHAR` and `routeWebSocket` are testing features, for offline replay and mocked sockets ([Testing a user's crawl or automation](https://github.com/goodfetch/automan/issues/482)). Video and coverage belong to the Run trace (ADR 0031) and raw CDP, and workers to raw CDP.
   > Amended by [ADR 0092](0092-sessions-open-from-their-source-page-pause-waits-for-a-person-and-a-secret-is-a-placeholder-bound-to-domains.md): `page.pause()` maps, keeping its name, to the Human pause.
+  > Amended by [ADR 0105](0105-a-programs-tests-replay-a-response-recording-in-a-test-engine-that-reaches-no-site.md): `page.clock`, `routeFromHAR` and `routeWebSocket` are not added. A replayed page's time is already fixed, a Response recording covers every page and tier of a Run, `route.fulfill` mocks one response, and the `websocket` events observe sockets.
 
 ### Error codes
 

@@ -81,6 +81,7 @@ Crawlee documents AWS Lambda and Cloud Run but tests neither, and its AWS guide 
 **Helm chart.**
 - A `StatefulSet` of Daemons, each with its own `ReadWriteOnce` volume for run state, probes on the ops listener (ADR 0050), a `terminationGracePeriodSeconds` sized for the drain (120 by default) and a `PodDisruptionBudget`.
 - `replicas` may be any number: the pods form one Daemon group whose Lead Daemon the `lead` value names, pod 0 by default. A headless `Service` gives each pod the stable name of the peer link. More than one pod needs a shared Secret provider, and either a Politeness store or `politeness_sharing: per_daemon` set in the Operator policy (ADRs 0053 and 0055).
+  > Amended by [ADR 0086](0086-a-crawl-obeys-robots-txt-and-sends-one-request-at-a-time-per-domain-by-default-and-pressing-harder-is-recorded.md): the key is `politeness.sharing`.
 - Optional: a `ServiceMonitor`, an `Ingress` or Gateway API `HTTPRoute`, a `NetworkPolicy` that blocks cluster-internal ranges (ADR 0017's egress classes at the network level), and a Browser host `Deployment`.
 - Operator policy as a `ConfigMap`, and secrets referenced from Kubernetes `Secret`s.
 - By default it passes Kubernetes' `restricted` Pod Security level: `runAsNonRoot`, every capability dropped, `allowPrivilegeEscalation: false`, a read-only root filesystem with `emptyDir` volumes for `/tmp` and the browser cache, a memory-backed `/dev/shm` of 1 GiB, and the seccomp profile as `Localhost`, installed through an optional Security Profiles Operator `SeccompProfile` the chart can create, or by hand.

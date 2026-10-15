@@ -116,6 +116,31 @@ pub enum ErrorCode {
     HumanPauseDeclined,
     /// `session_not_savable`: the Session's cookies live outside run state (ADR 0092).
     SessionNotSavable,
+    /// `target_not_found`: `act` found no element for its instruction, or `get_by_ref` named an
+    /// element that is gone (ADR 0091).
+    TargetNotFound,
+    /// `plan_drift`: a step drifted and could not be repaired (ADR 0091).
+    PlanDrift,
+    /// `plan_step_missing`: `plan.frozen` is set and the Plan holds no entry for the call (ADR 0091).
+    PlanStepMissing,
+    /// `plan_invalid`: the Plan file cannot be read or does not match its format (ADR 0091).
+    PlanInvalid,
+    /// `model_not_configured`: a call the Plan holds no entry for needs a model, and none is configured (ADR 0091).
+    ModelNotConfigured,
+    /// `extraction_incomplete`: required fields were not found on the page (ADR 0091).
+    ExtractionIncomplete,
+    /// `extraction_invalid`, a model error: the model's answers never passed the checks within the retries (ADR 0091).
+    ExtractionInvalid,
+    /// `effect_uncertain`: an `act` whose action was an Effect failed after the action was sent; never
+    /// retried, a person reconciles it (ADR 0091).
+    EffectUncertain,
+    /// `effect_refused`, a refusal: a person declined an AI Effect's confirmation (ADR 0091).
+    EffectRefused,
+    /// `success_check_failed`: `expect`'s condition was still false at its timeout (ADR 0091).
+    SuccessCheckFailed,
+    /// `variables_mismatch`: a placeholder nothing fills, a variable no placeholder uses, or a name
+    /// that is both a variable and a Secret placeholder (ADR 0091).
+    VariablesMismatch,
     /// `internal`.
     Internal,
     /// A code this SDK does not know, as received.
@@ -345,6 +370,18 @@ pub enum ErrorDetails {
     HumanPauseDeclined(crate::sessions::HumanPauseDeclined),
     /// Of `session_not_savable`.
     SessionNotSavable(crate::sessions::SessionNotSavable),
+    /// Of `target_not_found`.
+    TargetNotFound(crate::ai::TargetNotFound),
+    /// Of `plan_drift`.
+    PlanDrift(crate::ai::PlanDrift),
+    /// Of `extraction_incomplete`.
+    ExtractionIncomplete(crate::ai::ExtractionIncomplete),
+    /// Of `extraction_invalid`.
+    ExtractionInvalid(crate::ai::ExtractionInvalid),
+    /// Of `success_check_failed`.
+    SuccessCheckFailed(crate::ai::SuccessCheckFailed),
+    /// Of `variables_mismatch`.
+    VariablesMismatch(crate::ai::VariablesMismatch),
 }
 
 /// Details of `deadline_exceeded`. The error's `limit` names the phase's setting and its layer; a

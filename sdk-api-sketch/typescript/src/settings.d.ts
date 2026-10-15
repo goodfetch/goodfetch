@@ -33,6 +33,26 @@ export interface TimeoutSettings {
   readonly run?: Timeout;
   /** `timeout.human_pause`: how long a Human pause may wait for a person; 24 hours by default (ADR 0092). */
   readonly humanPause?: Timeout;
+  /** `timeout.ai`: an AI verb from its call to its return, model calls and a Repair included, 120 s (ADR 0091). */
+  readonly ai?: Timeout;
+}
+
+/** `plan.*` (ADR 0091). */
+export interface PlanSettings {
+  /** Replay only: never call a model and never write the Plan; a missing step or a Drift throws. Default: `false`. */
+  readonly frozen?: boolean;
+}
+
+/** `extract.*` (ADR 0091). */
+export interface ExtractSettings {
+  /** `compiled` (the default) or `model`; `extract()` takes it for one call as `mode`. */
+  readonly mode?: "compiled" | "model";
+}
+
+/** `observation.*` (ADR 0091). */
+export interface ObservationSettings {
+  /** The most characters an `ai` aria snapshot holds before its deepest subtrees collapse. Default: 40,000. */
+  readonly maxSize?: number;
 }
 
 export interface Viewport {
@@ -94,6 +114,9 @@ export interface Settings {
   readonly browser?: BrowserSettings;
   readonly network?: NetworkSettings;
   readonly crawl?: CrawlSettings;
+  readonly plan?: PlanSettings;
+  readonly extract?: ExtractSettings;
+  readonly observation?: ObservationSettings;
   /** ADR 0086. */
   readonly politeness?: PolitenessSettings;
   /** ADR 0086. */
@@ -115,6 +138,9 @@ export interface RunSettings {
   readonly timeout?: Omit<TimeoutSettings, "run">;
   readonly browser?: BrowserSettings;
   readonly network?: NetworkSettings;
+  readonly plan?: PlanSettings;
+  readonly extract?: ExtractSettings;
+  readonly observation?: ObservationSettings;
   readonly sitePreferences?: CollieSitePreferencesSettings;
   readonly session?: SessionLoginSettings;
   readonly secrets?: SecretsSettings;
@@ -126,13 +152,15 @@ export interface RunSettings {
  * `source` argument, one spelling (S2). Set where a Borrowed browser's Session opens, any `browser.*`
  * value is refused with `setting_not_applicable`.
  */
-export interface SessionSettings extends Omit<RunSettings, "sitePreferences" | "session"> {
+export interface SessionSettings extends Omit<RunSettings, "sitePreferences" | "session" | "plan"> {
   readonly session?: Omit<SessionLoginSettings, "source">;
 }
 
 /** A page's settings: no part of the Session's identity. */
 export interface PageSettings {
-  readonly timeout?: Pick<TimeoutSettings, "action" | "navigation" | "wait" | "humanPause">;
+  readonly timeout?: Pick<TimeoutSettings, "action" | "navigation" | "wait" | "humanPause" | "ai">;
+  readonly extract?: ExtractSettings;
+  readonly observation?: ObservationSettings;
 }
 
 /** Options of opening a page. Where pages and Sessions are opened is #472's and #476's. */

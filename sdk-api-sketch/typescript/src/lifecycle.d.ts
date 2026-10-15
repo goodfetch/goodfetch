@@ -3,6 +3,7 @@
 // (sessions.d.ts); the page API is ADR 0085's (page.d.ts).
 // Timeouts, waits and Limits come from #467 (time.d.ts); events and user code from #468 (concurrency.d.ts).
 
+import type { AiVerbs, AriaSnapshots, ElementReferences } from "./ai.js";
 import type { Listener, PageEvents, RunEvents, Subscription } from "./concurrency.js";
 import type { JsonValue } from "./data.js";
 import type { PageApi, PageCloseOptions, PageFunction, PageResult, RouteHandler } from "./page.js";
@@ -83,7 +84,16 @@ export type BorrowableBrowser =
  * A page Goodfetch drives: a tab of a Session, opened by `session.newPage()` or by the page itself
  * (a popup). Closing it closes only a tab Goodfetch opened; on a Borrowed browser it only releases it.
  */
-export interface Page extends Closeable, PageApi, PageWaits, PageEvents, PausesForHuman, ExplainsSettings {
+export interface Page
+  extends Closeable,
+    PageApi,
+    PageWaits,
+    PageEvents,
+    PausesForHuman,
+    ExplainsSettings,
+    AiVerbs,
+    AriaSnapshots,
+    ElementReferences {
   close(options?: PageCloseOptions): Promise<void>;
 }
 

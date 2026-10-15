@@ -112,6 +112,8 @@ pub mod timeout {
     /// `timeout.human_pause`: how long a Human pause may wait for a person; built-in 24 hours
     /// (ADR 0092).
     pub const HUMAN_PAUSE: Setting<Option<Duration>> = Setting::new("timeout.human_pause");
+    /// An AI verb from its call to its return, model calls and a Repair included: 120 s (ADR 0091).
+    pub const AI: Setting<Option<Duration>> = Setting::new("timeout.ai");
 }
 
 /// A browser window's size in CSS pixels.
@@ -144,6 +146,33 @@ pub enum ColorScheme {
     Dark,
     /// `no-preference`.
     NoPreference,
+}
+
+pub mod plan {
+    //! `plan.*` (ADR 0091).
+    use super::Setting;
+
+    /// Replay only: never call a model and never write the Plan; a missing step or a Drift fails.
+    /// Default: `false`.
+    pub const FROZEN: Setting<bool> = Setting::new("plan.frozen");
+}
+
+pub mod extract {
+    //! `extract.*` (ADR 0091).
+    use super::Setting;
+    use crate::ai::ExtractMode;
+
+    /// Compiled (the default) or model; `extract()` takes it for one call as `.mode(..)`.
+    pub const MODE: Setting<ExtractMode> = Setting::new("extract.mode");
+}
+
+pub mod observation {
+    //! `observation.*` (ADR 0091).
+    use super::Setting;
+
+    /// The most characters an AI aria snapshot holds before its deepest subtrees collapse.
+    /// Default: 40,000.
+    pub const MAX_SIZE: Setting<u64> = Setting::new("observation.max_size");
 }
 
 /// `browser.*`: part of a Session's identity, fixed for its life (ADR 0021), so set where a

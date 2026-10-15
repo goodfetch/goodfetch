@@ -15,6 +15,7 @@
 //   is dismissed. Nothing stalls.
 // Waits come from ADR 0080 (time.d.ts), events and Subscriptions from ADR 0081 (concurrency.d.ts).
 
+import type { AiVerbs, AriaSnapshots } from "./ai.js";
 import type { Listener, Subscription } from "./concurrency.js";
 import type { JsonObject, JsonValue } from "./data.js";
 import type { Closeable, Page, Session } from "./lifecycle.js";
@@ -215,7 +216,7 @@ export interface PageScreenshotOptions extends ScreenshotOptions {
  * A lazy description of elements, built without I/O and resolved again at each use. A cheap value:
  * composing one never touches the page.
  */
-export interface Locator extends Locates {
+export interface Locator extends Locates, AiVerbs, AriaSnapshots {
   filter(options: FilterOptions): Locator;
   and(locator: Locator): Locator;
   or(locator: Locator): Locator;

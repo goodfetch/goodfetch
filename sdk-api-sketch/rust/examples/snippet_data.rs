@@ -1,16 +1,11 @@
 //! Snippet for Typed data: schemas, Records and Payloads (#469), on golden scenarios 02 and 05.
 
 use goodfetch_sdk_sketch::schemars::{self, JsonSchema};
-use goodfetch_sdk_sketch::{Dataset, Error, Label, Schema};
-use serde::de::DeserializeOwned;
+use goodfetch_sdk_sketch::{Dataset, Error, Label, Page, Schema};
 use serde::{Deserialize, Serialize};
 
-// Provisional signatures, each its owner's to decide: `extract` is #473's, a crawl's Labels,
-// handlers and `enqueue` are #477's, Datasets are #479's.
-async fn extract<T: DeserializeOwned>(instruction: &str, schema: Schema<T>) -> Result<T, Error> {
-    let _ = (instruction, schema);
-    unimplemented!()
-}
+// Provisional signatures, each its owner's to decide: a crawl's Labels, handlers and `enqueue` are
+// #477's, Datasets are #479's. `page.extract` is ADR 0091's.
 async fn enqueue<P: Serialize>(url: &str, label: &Label<P>, payload: &P) -> Result<(), Error> {
     let _ = (url, label, payload);
     unimplemented!()
@@ -29,16 +24,16 @@ struct Book {
     description: String,
 }
 
-async fn typed_extract() -> Result<String, Error> {
+async fn typed_extract(page: &Page) -> Result<String, Error> {
     // Checked by JSON Schema, then by serde itself, inside the retry loop.
-    let book = extract("the book on this page", Schema::<Book>::of()).await?;
+    let book = page.extract("the book on this page", Schema::<Book>::of()).await?.output;
     Ok(format!("{}: £{}", book.title, book.price))
 }
 
-async fn raw_schema() -> Result<serde_json::Value, Error> {
+async fn raw_schema(page: &Page) -> Result<serde_json::Value, Error> {
     // The library-free way down: a hand-written JSON Schema gives a `serde_json::Value`.
     let doc = serde_json::json!({ "type": "object", "properties": { "price": { "type": "string" } } });
-    extract("the price", Schema::from_json(doc)).await
+    Ok(page.extract("the price", Schema::from_json(doc)).await?.output)
 }
 
 /// Scenario 05: the category name travels as a typed Payload, apart from the engine's own fields.
@@ -64,8 +59,8 @@ async fn on_category_page(book_page: &Label<BookPayload>, category: &str, book_u
     Ok(())
 }
 
-async fn on_book_page(books: &Dataset<BookRecord>, url: &str, payload: BookPayload) -> Result<(), Error> {
-    let book = extract("the book on this page", Schema::<Book>::of()).await?;
+async fn on_book_page(page: &Page, books: &Dataset<BookRecord>, url: &str, payload: BookPayload) -> Result<(), Error> {
+    let book = page.extract("the book on this page", Schema::<Book>::of()).await?.output;
     books.push(&BookRecord { book, url: url.to_owned(), category: payload.category }).await
 }
 

@@ -91,6 +91,11 @@ export interface StartOptions {
    */
   readonly timeout?: Timeout;
   readonly limits?: Limits;
+  /**
+   * The Run's Plan file, relative to the working directory: an input of the Run (ADR 0091). The SDK
+   * reads it here and writes a promoted version back here. Left out, the Plan lives only in the Run trace.
+   */
+  readonly plan?: string;
 }
 
 /**

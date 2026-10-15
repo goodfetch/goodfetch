@@ -37,6 +37,8 @@ class TimeoutSettings(TypedDict, total=False):
     starting it with `timeout`."""
     human_pause: timedelta | None
     """`timeout.human_pause`: how long a Human pause may wait for a person; 24 hours by default (ADR 0092)."""
+    ai: timedelta | None
+    """`timeout.ai`: an AI verb from its call to its return, model calls and a Repair included, 120 s (ADR 0091)."""
 
 class RunTimeoutSettings(TypedDict, total=False):
     """The phases a Run or a Session can set: not `run`, which starting the Run spells as its `timeout` (S2)."""
@@ -49,6 +51,7 @@ class RunTimeoutSettings(TypedDict, total=False):
     sink_write: timedelta | None
     close: timedelta | None
     human_pause: timedelta | None
+    ai: timedelta | None
 
 class PageTimeoutSettings(TypedDict, total=False):
     """The phases a page can set."""
@@ -57,6 +60,25 @@ class PageTimeoutSettings(TypedDict, total=False):
     navigation: timedelta | None
     wait: timedelta | None
     human_pause: timedelta | None
+    ai: timedelta | None
+
+class PlanSettings(TypedDict, total=False):
+    """`plan.*` (ADR 0091)."""
+
+    frozen: bool
+    """Replay only: never call a model and never write the Plan; a missing step or a Drift raises. Default: `False`."""
+
+class ExtractSettings(TypedDict, total=False):
+    """`extract.*` (ADR 0091)."""
+
+    mode: Literal["compiled", "model"]
+    """`compiled` (the default) or `model`; `extract()` takes it for one call as `mode`."""
+
+class ObservationSettings(TypedDict, total=False):
+    """`observation.*` (ADR 0091)."""
+
+    max_size: int
+    """The most characters an `ai` aria snapshot holds before its deepest subtrees collapse. Default: 40,000."""
 
 class Viewport(TypedDict):
     width: int
@@ -112,6 +134,9 @@ class Settings(TypedDict, total=False):
     browser: BrowserSettings
     network: NetworkSettings
     crawl: CrawlSettings
+    plan: PlanSettings
+    extract: ExtractSettings
+    observation: ObservationSettings
     politeness: PolitenessSettings
     """ADR 0086."""
     site_preferences: SitePreferencesSettings
@@ -131,6 +156,9 @@ class RunSettings(TypedDict, total=False):
     timeout: RunTimeoutSettings
     browser: BrowserSettings
     network: NetworkSettings
+    plan: PlanSettings
+    extract: ExtractSettings
+    observation: ObservationSettings
     site_preferences: CollieSitePreferencesSettings
     session: SessionLoginSettings
     secrets: SecretsSettings
@@ -152,6 +180,8 @@ class PageSettings(TypedDict, total=False):
     """A page's settings: no part of the Session's identity."""
 
     timeout: PageTimeoutSettings
+    extract: ExtractSettings
+    observation: ObservationSettings
 
 SettingKey: TypeAlias = Literal[
     "timeout.connect",
@@ -164,6 +194,10 @@ SettingKey: TypeAlias = Literal[
     "timeout.close",
     "timeout.run",
     "timeout.human_pause",
+    "timeout.ai",
+    "plan.frozen",
+    "extract.mode",
+    "observation.max_size",
     "browser.viewport",
     "browser.device_scale_factor",
     "browser.locale",

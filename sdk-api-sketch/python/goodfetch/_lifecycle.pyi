@@ -12,6 +12,7 @@ from dataclasses import dataclass
 from types import TracebackType
 from typing import Literal, Never, Protocol, Self, TypeAlias, final, overload
 
+from goodfetch._ai import AiVerbs, AsyncAiVerbs, AsyncElementReferences, ElementReferences
 from goodfetch._concurrency import AsyncListener, AsyncPageEvents, AsyncRunEvents, Listener, PageEvents, RunEvents, Subscription
 from goodfetch._data import JsonValue
 from goodfetch._page import AsyncPageApi, AsyncRouteHandler, PageApi, RouteHandler
@@ -104,7 +105,16 @@ class _AsyncCloseable:
     ) -> None: ...
 
 @final
-class AsyncPage(_AsyncCloseable, _AsyncExplainsSettings, AsyncPageApi, AsyncPageWaits, AsyncPageEvents, AsyncPausesForHuman):
+class AsyncPage(
+    _AsyncCloseable,
+    _AsyncExplainsSettings,
+    AsyncPageApi,
+    AsyncPageWaits,
+    AsyncPageEvents,
+    AsyncPausesForHuman,
+    AsyncAiVerbs,
+    AsyncElementReferences,
+):
     """A page Goodfetch drives: a tab of a Session, opened by `session.new_page()` or by the page itself (a popup).
     Closing it closes only a tab Goodfetch opened; on a Borrowed browser it only releases it."""
 
@@ -162,12 +172,20 @@ class AsyncCollie:
     """Collie, reached from the connection without I/O."""
 
     async def start(
-        self, *, settings: RunSettings = ..., timeout: Timeout = ..., limits: Limits | None = None
+        self,
+        *,
+        settings: RunSettings = ...,
+        timeout: Timeout = ...,
+        limits: Limits | None = None,
+        plan: str | PathLike[str] | None = None,
     ) -> AsyncRun:
         """Placeholder start verb: its spelling is #478's; `timeout` and `limits` are #467's, `settings` #470's.
 
         `timeout` caps the whole Run. Omitted: the setting's value, which has no built-in default; `None`: no timeout.
         On expiry the Run stops with a Checkpoint, resumable.
+
+        `plan` is the Run's Plan file, relative to the working directory: an input of the Run (ADR 0091), read here and
+        written back here when a new version is promoted. Left out, the Plan lives only in the Run trace.
         """
 
 @final
@@ -241,7 +259,7 @@ class _Closeable:
     ) -> None: ...
 
 @final
-class Page(_Closeable, _ExplainsSettings, PageApi, PageWaits, PageEvents, PausesForHuman):
+class Page(_Closeable, _ExplainsSettings, PageApi, PageWaits, PageEvents, PausesForHuman, AiVerbs, ElementReferences):
     """A page Goodfetch drives: a tab of a Session, opened by `session.new_page()` or by the page itself (a popup).
     Closing it closes only a tab Goodfetch opened; on a Borrowed browser it only releases it."""
 
@@ -285,12 +303,20 @@ class Collie:
     """Collie, reached from the connection without I/O."""
 
     def start(
-        self, *, settings: RunSettings = ..., timeout: Timeout = ..., limits: Limits | None = None
+        self,
+        *,
+        settings: RunSettings = ...,
+        timeout: Timeout = ...,
+        limits: Limits | None = None,
+        plan: str | PathLike[str] | None = None,
     ) -> Run:
         """Placeholder start verb: its spelling is #478's; `timeout` and `limits` are #467's, `settings` #470's.
 
         `timeout` caps the whole Run. Omitted: the setting's value, which has no built-in default; `None`: no timeout.
         On expiry the Run stops with a Checkpoint, resumable.
+
+        `plan` is the Run's Plan file, relative to the working directory: an input of the Run (ADR 0091), read here and
+        written back here when a new version is promoted. Left out, the Plan lives only in the Run trace.
         """
 
 @final

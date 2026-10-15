@@ -1,10 +1,9 @@
 // Snippet for Typed data: schemas, Records and Payloads (#469), on golden scenarios 02 and 05.
 import { z } from "zod";
-import type { Dataset, JsonSchema, JsonValue, Label, PayloadInput, PayloadOutput, Schema, SchemaInput, SchemaOutput } from "goodfetch";
+import type { Dataset, JsonSchema, JsonValue, Label, Page, PayloadInput, PayloadOutput, Schema, SchemaInput, SchemaOutput } from "goodfetch";
 
-// Provisional signatures, each its owner's to decide: `extract` is #473's, a crawl's Labels,
-// handlers and `enqueue` are #477's, Datasets are #479's.
-declare function extract<S extends Schema>(instruction: string, schema: S): Promise<SchemaOutput<S>>;
+// Provisional signatures, each its owner's to decide: a crawl's Labels, handlers and `enqueue` are
+// #477's, Datasets are #479's. `page.extract` is ADR 0091's.
 declare function enqueue<L extends Label<unknown, unknown>>(url: string, label: L, payload: PayloadInput<L>): Promise<void>;
 declare function label<S extends Schema>(name: string, payload: S): Label<SchemaInput<S>, SchemaOutput<S>>;
 declare function dataset<S extends Schema>(name: string, schema: S): Dataset<SchemaInput<S>, SchemaOutput<S>>;
@@ -18,15 +17,15 @@ const Book = z.object({
   description: z.string(),
 });
 
-export async function typedExtract(): Promise<string> {
-  const book = await extract("the book on this page", Book); // checked by JSON Schema, then by Zod itself, inside the retry loop
+export async function typedExtract(page: Page): Promise<string> {
+  const { output: book } = await page.extract("the book on this page", Book); // checked by JSON Schema, then by Zod itself, inside the retry loop
   return `${book.title}: £${book.price}`;
 }
 
 // The library-free way down: a hand-written JSON Schema gives a JsonValue to narrow.
 const priceOnly: JsonSchema = { type: "object", properties: { price: { type: "string" } }, required: ["price"] };
-export async function rawSchema(): Promise<JsonValue> {
-  return extract("the price", priceOnly);
+export async function rawSchema(page: Page): Promise<JsonValue> {
+  return (await page.extract("the price", priceOnly)).output;
 }
 
 // Scenario 05: the category name travels as a typed Payload, apart from the engine's own fields.
@@ -39,7 +38,7 @@ export async function onCategoryPage(categoryName: string, bookUrls: readonly st
   await enqueue("https://books.toscrape.com/x", bookPage, { name: categoryName });
 }
 
-export async function onBookPage(url: string, payload: PayloadOutput<typeof bookPage>): Promise<void> {
-  const book = await extract("the book on this page", Book);
+export async function onBookPage(page: Page, url: string, payload: PayloadOutput<typeof bookPage>): Promise<void> {
+  const { output: book } = await page.extract("the book on this page", Book);
   await books.push({ ...book, url, category: payload.category });
 }

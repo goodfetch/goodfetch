@@ -231,6 +231,14 @@ impl Start {
         unimplemented!()
     }
 
+    /// The Run's Plan file, relative to the working directory: an input of the Run (ADR 0091), read
+    /// here and written back here when a new version is promoted. Left out, the Plan lives only in
+    /// the Run trace.
+    pub fn plan(self, path: impl AsRef<std::path::Path>) -> Self {
+        let _ = path.as_ref();
+        unimplemented!()
+    }
+
     /// Settings for this Run and everything opened beneath it (ADR 0083). Its own timeout is
     /// [`Start::timeout`] or [`Start::no_timeout`]; `timeout::RUN` here fails with
     /// `setting_not_applicable` (S2).

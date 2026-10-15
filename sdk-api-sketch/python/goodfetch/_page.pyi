@@ -25,6 +25,7 @@ from pathlib import Path
 from types import TracebackType
 from typing import Literal, Self, TypeAlias, TypedDict, final, overload
 
+from goodfetch._ai import AiVerbs, AsyncAiVerbs
 from goodfetch._concurrency import AsyncListener, Listener, Subscription
 from goodfetch._data import JsonObject, JsonValue
 from goodfetch._lifecycle import AsyncSession, Session
@@ -248,7 +249,7 @@ class AsyncFrameLocator(_AsyncLocates):
     def owner(self) -> AsyncLocator: ...
 
 @final
-class AsyncLocator(_AsyncLocates):
+class AsyncLocator(_AsyncLocates, AsyncAiVerbs):
     """A lazy description of elements, built without I/O and resolved again at each use."""
 
     def filter(
@@ -761,7 +762,7 @@ class FrameLocator(_Locates):
     def owner(self) -> Locator: ...
 
 @final
-class Locator(_Locates):
+class Locator(_Locates, AiVerbs):
     """A lazy description of elements, built without I/O and resolved again at each use."""
 
     def filter(

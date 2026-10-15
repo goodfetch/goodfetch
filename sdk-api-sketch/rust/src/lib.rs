@@ -3,6 +3,7 @@
 //! Each ticket on the map adds its items in a module of its own and re-exports them here.
 //! Function bodies are `unimplemented!()`, the sketch's one departure from `STYLE.md`.
 
+pub mod ai;
 pub mod blocking;
 pub mod concurrency;
 pub mod data;
@@ -13,6 +14,12 @@ pub mod sessions;
 pub mod settings;
 pub mod time;
 
+pub use ai::{
+    Act, AriaSnapshot, AriaSnapshotMode, Drift, Expectable, Extract, ExtractMode, ExtractionIncomplete, ExtractionInvalid,
+    LocatorExpectations, MissingField, Observe, Observed, PageExpectations, PerformedAction, PlanDrift, PlanReport, PlanStatus,
+    ResponseExpectations, StepReport, StepResult, StepSource, SuccessCheckFailed, TargetNotFound, Usage, VariablesMismatch,
+    WhyNoRepair, expect,
+};
 pub use concurrency::{EventStream, Record, events};
 pub use data::{Dataset, Label, PathSegment, PayloadInvalid, PayloadSchemaChanged, Schema, SchemaIssue, schemars};
 pub use lifecycle::{Collie, ConnectOptions, EngineChoice, EngineInfo, EngineKind, Goodfetch, Page, Run, Session, Start};

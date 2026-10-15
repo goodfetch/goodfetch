@@ -401,7 +401,7 @@ A model-driven loop over the Operation catalog toward an objective, whether Good
 _Avoid_: bot, assistant
 
 **Agent tool**:
-A function of the user's program that Goodfetch's built-in Agent may call as an action during a task, such as a lookup in the program's own data.
+A function of the user's program that Collie's built-in Agent may call as an action during a task, such as a lookup in the program's own data.
 _Avoid_: function tool, custom action, skill, Plugin
 
 **Model provider**:

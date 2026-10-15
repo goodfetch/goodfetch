@@ -536,6 +536,9 @@ pub struct BackendRequest {
     pub headers: Headers,
     /// The crawl request's own body, if any.
     pub body: Option<Vec<u8>>,
+    /// The Session's proxy server, with no credentials, if it has one: a proxied crawl does not
+    /// leave from the user's own address.
+    pub proxy: Option<String>,
 }
 
 /// A Fetch backend's answer; a redirect's target comes back as a new request, checked again.
@@ -558,9 +561,9 @@ impl BackendResponse {
 }
 
 /// One call to the program's Fetch backend. Like a third-party backend, it never carries a request
-/// that uses a Secret or a logged-in identity (a logged-in Session's, or one whose Hook set a Secret
-/// placeholder): the engine sends those itself, so no cookie or Secret value passes through the
-/// program.
+/// that uses a Secret or a logged-in identity, such as a logged-in Session's, one whose Hook set a
+/// Secret placeholder, one whose Session has `session.http_credentials` or one whose proxy has a
+/// password: the engine sends those itself, so no cookie or Secret value passes through the program.
 #[derive(Debug)]
 pub struct FetchCall {
     _private: (),

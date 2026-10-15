@@ -362,6 +362,9 @@ class BackendRequest:
     headers: Mapping[str, str]
     body: bytes | None
     """The crawl request's own body, or `None`."""
+    proxy: str | None
+    """The Session's proxy server, with no credentials, or `None`: a proxied crawl does not leave from the user's own
+    address."""
 
 @final
 @dataclass(frozen=True, kw_only=True)
@@ -371,9 +374,9 @@ class BackendResponse:
     body: bytes
 
 AsyncFetchBackendHandler: TypeAlias = Callable[[BackendRequest], Awaitable[BackendResponse]]
-"""The HTTP tiers' transport. It never carries a request that uses a Secret or a logged-in identity (a logged-in
-Session's, or one whose Hook set a Secret placeholder): the engine sends those itself, so no cookie or Secret value
-passes through the program."""
+"""The HTTP tiers' transport. It never carries a request that uses a Secret or a logged-in identity, such as a
+logged-in Session's, one whose Hook set a Secret placeholder, one whose Session has `session.http_credentials` or one
+whose proxy has a password: the engine sends those itself, so no cookie or Secret value passes through the program."""
 FetchBackendHandler: TypeAlias = Callable[[BackendRequest], BackendResponse]
 
 @final

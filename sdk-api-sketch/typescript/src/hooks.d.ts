@@ -208,6 +208,8 @@ export interface BackendRequest {
   readonly headers: Readonly<Record<string, string>>;
   /** The crawl request's own body, or `null`. */
   readonly body: Uint8Array | null;
+  /** The Session's proxy server, with no credentials, or `null`: a proxied crawl does not leave from the user's own address. */
+  readonly proxy: string | null;
 }
 /** A Fetch backend's answer. A redirect's target comes back as a new request, checked again. */
 export interface BackendResponse {
@@ -217,7 +219,8 @@ export interface BackendResponse {
 }
 /**
  * The HTTP tiers' transport. Like a third-party backend, it never carries a request that uses a
- * Secret or a logged-in identity (a logged-in Session's, or one whose Hook set a Secret placeholder):
+ * Secret or a logged-in identity, such as a logged-in Session's, one whose Hook set a Secret
+ * placeholder, one whose Session has `session.http_credentials` or one whose proxy has a password:
  * the engine sends those itself, so no cookie or Secret value passes through the program.
  */
 export type FetchBackendHandler = (request: BackendRequest, options: CallOptions) => Promise<BackendResponse>;

@@ -133,6 +133,8 @@ A before-request Hook may rewrite a URL within the registrable domain of the ori
 
 Hooks run in declared order and can be scoped by label, which replaces Crawlee's router middleware. A Hook error is a typed `hook_failed`, retried by the work item's policy, and a Hook's time counts against the lease.
 
+> Amended by [ADR 0093](0093-a-crawl-declares-its-labels-and-one-handler-each-and-a-handler-reads-collies-page-on-every-fetch-tier.md): a Hook's retry and a retryable `hook_failed` draw on the crawl request's `crawl.retry.max`, the same budget as its handler's, and a Hook is scoped by a `Label` handle in code.
+
 **Browser backends.** A browser backend answers with one of three:
 1. **A browser from the engine's browser cache**, by name and digest. A Plugin may add a browser by declaring a download URL and a digest for each platform in its manifest; the engine downloads it over HTTPS, checking the URL under the page class so a manifest cannot point it at an internal address, verifies the digest at download and again at every launch, and launches it itself over a pipe, like Chrome for Testing (ADR 0024). Such a browser runs as the engine's own browsers do, outside the Plugin's confinement and with the user's full rights, so Operator policy allows it per digest, saying so, it is off by default, and each allowance is recorded in the Audit log. Its launch flags come only from the engine's allowlist, which excludes flags that run commands (such as `--renderer-cmd-prefix`). The engine never launches an executable a Plugin names.
 2. **A Browser host address** (ADR 0022).

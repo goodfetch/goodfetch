@@ -198,7 +198,7 @@ This matrix is the companion of [ADR 0037](0037-v1-scope-parity-and-pain-coverag
 | CL-03 | Crawler served as an HTTP service | `decided` | ADR 0027, ADR 0011, ADR 0017 | 11 Client surfaces | Daemon HTTP JSON-RPC listener; MCP Streamable HTTP. |
 | CL-04 | Several processes or machines sharing one queue | `decided` | ADR 0024, ADR 0003, ADR 0002, ADR 0054 | 3 Engine runtime | `workers=N` processes lease from one run. Machines sharing a live frontier excluded: multiple writers (ADR 0002). Past one engine, a Partitioned crawl splits a crawl across Group members, each Partition owning its domains and receiving their forwarded links (ADR 0054). |
 | CL-05 | Remote browser sessions with regions and keep-alive | `decided` | ADR 0022, ADR 0096, [#69](https://github.com/goodfetch/goodfetch/issues/69) item 8 | 14 Cloud-readiness contracts | Self-hostable Browser host, the `browser-host` command of either Product's executable, shipped in Collie's image (ADR 0096); Sessions can be kept alive. Regions are a Cloud matter. |
-| CL-06 | Move from local to the vendor cloud by configuration | `decided` | ADR 0001, ADR 0031, ADR 0036 | 14 Cloud-readiness contracts | The cloud is an ordinary protocol client; the Console takes its endpoint as configuration. |
+| CL-06 | Move from local to the vendor cloud by configuration | `decided` | ADR 0001, ADR 0031, ADR 0036, ADR 0096 | 14 Cloud-readiness contracts | The cloud is an ordinary protocol client; the Console takes its endpoint as configuration. |
 | CL-07 | Persistent browser contexts stored in the cloud | `decided` | ADR 0035, ADR 0015 | 14 Cloud-readiness contracts | Self-hosted: saved identities and session export. |
 
 ## Stagehand v3 capabilities reached through Crawlee

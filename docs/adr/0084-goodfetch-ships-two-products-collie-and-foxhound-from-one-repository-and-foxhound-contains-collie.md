@@ -43,7 +43,7 @@ Decided in [Product line and the Collie/Foxhound boundary](https://github.com/go
   - Each Product builds with its own `cargo build -p` per target, since Cargo merges features across the packages of one invocation.
   - The crate graph and the check's configuration are decided in How the products are built, and each product's Size budget.
 - **Thin per-Product repositories remain possible later,** for issues and a pinned card, without moving code, as ty's code lives in Ruff's repository while `astral-sh/ty` takes its issues.
-- **The Goodfetch Chromium stays in this repository, under `chromium/`** (ADR 0074): its build inputs (patch files, build scripts, build arguments) and its expected results.
+- **The Goodfetch Chromium stays in this repository, under `chromium/`** (ADR 0074): its build inputs (version pins, patch files, build scripts, build arguments) and its expected results.
   - **A Chromium pull request is one pull request.** It changes the patches, their expected results and the launch arguments that `xtask codegen` writes from the engine's code together, and the gate's verdict attestations bind both input trees on one head (ADR 0074).
   - **The build is part of the Products' release unit:** it ships in the patch release that carries its Chrome major (ADR 0035), signed by the release pipeline (ADR 0074).
   - **The layout is Playwright's and Camoufox's.** Playwright keeps its `browser_patches/` for Firefox and WebKit in its main repository, and Camoufox keeps `browser/`, `python/` and `typescript/` in one. Brave, ungoogled-chromium and fingerprint-chromium keep their browser apart because the browser is their product.
@@ -52,7 +52,7 @@ Decided in [Product line and the Collie/Foxhound boundary](https://github.com/go
 
 ## Considered Options
 
-- **Collie installed apart and called by Foxhound at run time,** as Crawlee takes Playwright as a peer dependency: rejected.
+- **Collie installed apart and called by Foxhound at run time, in a separate process,** as Crawlee takes Playwright as a peer dependency: rejected.
   - Fencing and the Effect journal would have to cross a process boundary, with new protocol work and new failure modes.
   - Separately installed copies skew. Two copies of Crawlee mean two global configurations, which can send `Dataset.pushData` to memory storage ([apify-sdk-js#237](https://github.com/apify/apify-sdk-js/issues/237)), so the Apify SDK checks Crawlee's version in `Actor.init` ([actor.ts](https://github.com/apify/apify-sdk-js/blob/master/src/actor.ts)), and Crawlee's README tells Apify SDK users who install a Crawlee pre-release to add npm overrides "so that you don't end up with multiple versions of Crawlee installed".
   - When Codex moved V8 into an executable of its own, users reported a missing executable, a signed but unnotarized one, stale paths and version mismatches within three months ([multi-product builds](https://github.com/goodfetch/goodfetch/blob/research/multi-product-builds/rnd/research/2026-10-14-multi-product-builds.md)).
@@ -86,4 +86,4 @@ Decided in [Product line and the Collie/Foxhound boundary](https://github.com/go
 
   [Apply the product-line decisions to the affected specs and tickets](https://github.com/goodfetch/goodfetch/issues/460) then carries every decision into the specs and tickets.
 - **`STYLE.md`.** Each Product's executable is a reason for a crate, and Collie's independence from Foxhound is one of the dependency directions the compiler enforces.
-- **Areas.** Area 1 (Repository, CI and release) builds the per-Product `cargo-deny` check, the per-Product builds and `chromium/`'s place in the tree; area 3 (Engine runtime) builds the engine inside each Product and the Run index and Usage ledger on the shared side; area 10 (Scheduling) builds Schedules there; area 12 (Console) builds the Console there, with Foxhound's screens added from its side. Each lists this ADR.
+- **Areas.** Area 1 (Repository, CI and release) builds the per-Product `cargo-deny` check, the per-Product builds and `chromium/`'s place in the tree; area 3 (Engine runtime) builds the engine inside each Product and the Daemon, the Run index and the Usage ledger on the shared side; area 10 (Scheduling) builds Schedules there; area 12 (Console) builds the Console there, with Foxhound's screens added from its side. Each lists this ADR.

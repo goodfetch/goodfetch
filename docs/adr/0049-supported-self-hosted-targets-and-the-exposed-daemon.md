@@ -40,7 +40,7 @@ Crawlee documents AWS Lambda and Cloud Run but tests neither, and its AWS guide 
 | Cloudflare Workers, Vercel Functions, Deno Deploy, as Clients only | Supported | The SDK in `workerd` (Miniflare), Vercel's edge-runtime and Deno against a Daemon |
 | ECS and Fargate, Azure Container Apps, Fly.io, Railway, Render | Documented | None |
 
-> Amended by [ADR 0094](0094-both-products-are-released-and-signed-together-and-each-test-runs-on-collie-unless-it-needs-foxhound.md): every Supported target is supported for both Products. CI runs each Product's image on it with that Product's smoke run, and the Cloud Run deploy of each release candidate deploys both images.
+> Amended by [ADR 0094](0094-both-products-are-released-and-signed-together-and-each-test-runs-on-collie-unless-it-needs-foxhound.md): every Supported target is supported for both Products. CI runs each Product's image on it, as its CI column says, with that Product's smoke run, and the Cloud Run deploy of each release candidate deploys both images.
 
 **Edge and serverless Clients** (adds to ADR 0024).
 - Both SDKs gain a WebSocket transport to an Exposed Daemon or Goodfetch Cloud, the carriage the Console already uses (ADR 0031), configured by `GOODFETCH_URL` and a scoped token. Page bodies stream through `page.body`.

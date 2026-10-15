@@ -21,7 +21,14 @@ from goodfetch_collie_client._effects import UncertainEffect
 from goodfetch_collie_client._models import RunUsage
 from goodfetch_collie_client._output import StoredBytes
 from goodfetch_collie_client._recording import RecordingReport
-from goodfetch_collie_client._results import LimitSource, ProgramError, RefusedError, UnavailableError, Verdict
+from goodfetch_collie_client._results import (
+    ExhaustedResource,
+    LimitSource,
+    ProgramError,
+    RefusedError,
+    UnavailableError,
+    Verdict,
+)
 from goodfetch_collie_client._settings import ExplainedSetting
 from goodfetch_collie_client._time import Timeout
 
@@ -36,6 +43,21 @@ Lifecycle: TypeAlias = Literal["running", "finished", "stopped", "failed"] | str
 
 Completeness: TypeAlias = Literal["complete", "incomplete", "unverified"] | str
 """Whether a Run's results cover its scope (ADRs 0005, 0029). A Collie Run its program finishes is `complete`."""
+
+@final
+@dataclass(frozen=True, kw_only=True)
+class StorageState:
+    """A filesystem the Run writes to, at its storage level (ADR 0122).
+
+    At `low` the Run sheds Run trace video and new Response cache entries and carries `storage_low`; at `critical` it
+    stops resumably.
+    """
+
+    level: Literal["normal", "low", "critical"] | str
+    path: str | None
+    """A folder on that filesystem, or `None` where the engine has no folder of its own (Goodfetch Cloud)."""
+    free_bytes: int | None
+    """In bytes, available to the engine's user; `None` when the engine cannot read it."""
 
 @final
 @dataclass(frozen=True, kw_only=True)
@@ -54,6 +76,11 @@ class RunStopReason:
     by: Literal["program", "person", "schedule"] | str | None
     """Who aborted it, for `abort`: its program's own `stop()` or `close()`, a person in the Console, or ADR 0036's
     scheduler."""
+    resource: ExhaustedResource | None
+    """For `resources`: the engine's memory (ADR 0040) or storage (ADR 0122) ran out."""
+    path: str | None
+    """For storage: a folder on the full filesystem (`None` on Goodfetch Cloud); a start with the Run's ID resumes it once
+    space is freed."""
 
 @final
 @dataclass(frozen=True, kw_only=True)
@@ -94,6 +121,8 @@ class RunProgress:
     pauses: Sequence[WaitingPause]
     message: str | None
     """The program's own line, set with `set_progress_message` (ADR 0037's RT-15)."""
+    storage: StorageState
+    """The worst storage level among the filesystems the Run writes to (ADR 0122)."""
     at: datetime
     """When the engine took this value."""
 
@@ -161,7 +190,9 @@ class PluginRun:
 @dataclass(frozen=True, kw_only=True)
 class RunWarning:
     """A warning the Run carries: a `stealth` choice (ADR 0035), stale Clean-up rules (ADR 0047), throttled CPU (ADR
-    0049), a degraded Politeness store (ADR 0053), a Plugin's reported figures (ADR 0033). A newer engine's code is kept."""
+    0049), a degraded Politeness store (ADR 0053), a Plugin's reported figures (ADR 0033), a failed Plan file or recording
+    write (`path_not_writable`, `file_write_failed`; ADR 0116), or `storage_low`, naming the folder, the free space and
+    what was shed (ADR 0122). A newer engine's code is kept."""
 
     code: str
     message: str
@@ -275,13 +306,14 @@ class AsyncRunControl(Generic[_Report, _Progress]):
         wait has no timeout of its own: the Run's own bounds it, and a `timeout` given here, or cancelling the task,
         ends only the wait. A failed write of the Plan file or the Response recording raises `PathNotWritableError` or
         `FileWriteFailedError` once the Run has ended; `open_run(run_id).report()` reads its report, which keeps a warning
-        naming the code (ADR 0116).
+        naming the code (ADR 0116). A Run stopped for full storage whose stop could not be recorded raises
+        `ResourcesExhaustedError`; a start with its ID resumes it (ADR 0122).
         """
     async def stop(self, *, timeout: Timeout = ...) -> _Report:
         """Stops the Run at its next safe point with a Checkpoint, `stopped` and `incomplete` as an abort by its program,
         and returns its report. Resumable by its ID. Its wait is bounded by `timeout.close`, as `close()`'s is, or by
         `timeout`; past it, it raises `DeadlineExceededError` naming the setting, and the Run still stops at its next safe
-        point."""
+        point. On a filesystem at the `critical` storage level it writes no Checkpoint copy there (ADR 0122)."""
     def progress(self) -> AsyncEventIterator[_Progress]:
         """The Run's progress: its first value at once, then the latest after each change, until the Run ends. Leave the
         loop to read one."""
@@ -291,7 +323,7 @@ class AsyncRunControl(Generic[_Report, _Progress]):
         """Writes a Checkpoint now (ADR 0002), where the engine keeps the Run's.
 
         Returns only once its file is whole; a write the engine cannot make raises `FileWriteFailedError` with
-        `side="engine"` (ADR 0116).
+        `side="engine"` (ADR 0116), at once while that filesystem is at the `critical` storage level (ADR 0122).
         """
     async def trace(self, *, timeout: Timeout = ...) -> AsyncRunTrace | None:
         """The Run trace recorded so far; `None` when the Run keeps none, which the report's `weakened` shows."""

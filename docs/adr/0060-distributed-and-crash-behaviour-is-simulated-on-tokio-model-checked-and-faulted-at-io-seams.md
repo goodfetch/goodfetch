@@ -106,6 +106,7 @@ Faults enter only at I/O seams: the crash VFS for storage, the transport adapter
 Following ADR 0062's layout:
 
 - **Simulation scenarios** are integration tests of `goodfetch-engine`, in `tests/it/simulation/`, one module per behaviour area (`lead.rs`, `partition_handoff.rs`). turmoil's network adapter lives there too, since it implements `transport`'s public network interface.
+  > Amended by [ADR 0087](0087-each-product-is-an-executable-crate-that-links-only-its-crates-and-has-its-own-size-budget.md): scenarios that need a Foxhound crate (Partition handoff, the crawl's work-item leases, Sink delivery) are integration tests of the Foxhound crate that holds the behaviour, in its `tests/it/simulation/`, under the same `cfg(tokio_unstable)` job, since no crate outside `crates/foxhound/` may depend on one. turmoil's network adapter moves into a test-only crate outside `crates/foxhound/`, which `goodfetch-engine`'s and Foxhound's tests take as a dev-dependency.
 - **Committed Fault plans** are generated fixtures in a `fixtures/fault_plans/` folder beside the scenario that replays them, each with the `<name>.source.toml` file ADR 0062 requires (generator version, seed, replay command). proptest's regression files are committed where proptest writes them.
 - **Model-based tests** are unit tests of `run_state`, `lease`, `checkpoint`, delivery and `ledger`, through each module's interface.
 - **loom tests** are unit tests of the module they check, compiled only under `goodfetch_loom`.

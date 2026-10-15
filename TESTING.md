@@ -55,9 +55,10 @@ A test's level is the seam it crosses, not its speed:
   _Why:_ each file in `tests/` links its own binary. uv's measurement favours one harness until a suite is large.
 - **Tests of the `goodfetch` binary live in its crate's `tests/it`** and find the binary through `CARGO_BIN_EXE_goodfetch`, never a guessed path.
   _Why:_ the build directory's layout may change without notice.
-- **Foxhound's tests live in Foxhound's crates.** No crate outside `crates/foxhound/` takes a Foxhound crate, even as a dev-dependency, and the workspace-wide `cargo-deny` check refuses one (ADR 0087).
+- **Foxhound's tests live in Foxhound's crates.** No crate outside `crates/foxhound/` but `xtask` takes a Foxhound crate, even as a dev-dependency, and the workspace-wide `cargo-deny` check refuses one (ADR 0087).
   _Why:_ Collie's tests then build and pass without Foxhound's code.
 - **Each Product's executable crate tests its composition** in the Quick suite, in process: exactly one handler for each operation of its Product's catalog, and Foxhound's composition contains all of Collie's (ADR 0087).
+  _Why:_ the composition is a hand-kept list, and Foxhound must carry everything Collie carries.
 - **Python tests run with `--import-mode=importlib` and `strict = true`** in `[tool.pytest]`.
   _Why:_ tests outside the package run against the installed wheel, as pytest recommends.
 
@@ -225,7 +226,7 @@ Decided in [ADR 0060](docs/adr/0060-distributed-and-crash-behaviour-is-simulated
 ### Simulation
 
 - **Several hosts in one process run on turmoil**, pinned, each on its own paused current-thread Tokio runtime with `Clock::paused` and `Entropy::seeded`, built with `--cfg tokio_unstable` so each host's runtime randomness (`select!` order) follows the seed. No crate swaps the runtime.
-- **Compile the scenarios only under `cfg(tokio_unstable)`** (`#[cfg(tokio_unstable)] mod simulation;` in `tests/it/main.rs`). They run from a nextest archive and CI job of their own, filtered to the `simulation` module, with their own rust-cache key, counted against the Pre-merge budget and ADR 0061's cache priority.
+- **Compile the scenarios only under `cfg(tokio_unstable)`** (`#[cfg(tokio_unstable)] mod simulation;` in the `tests/it/main.rs` of each crate that has them). They run from a nextest archive and CI job of their own, filtered to the `simulation` module, with their own rust-cache key, counted against the Pre-merge budget and ADR 0061's cache priority.
   _Why:_ every other test then runs on the Tokio configuration production ships.
 - **Derive every seed from the test's seed**, which `goodfetch-test-support` supplies (`GOODFETCH_TEST_SEED` overrides it): one stream for turmoil, one per host's `Entropy`, one for the Fault plan's generation.
 - **A scenario keeps an Observation log** of operations, answers and faults, and **the shared invariant checkers judge it**: fencing, one lead, Limits, Partitions, the Audit log chain (through the product's own verifier, passed in as a value), and liveness within a stated simulated time once faults stop. Real-process tests and conformance suites use the same checkers.
@@ -263,7 +264,8 @@ Decided in [ADR 0060](docs/adr/0060-distributed-and-crash-behaviour-is-simulated
 
 ### Where the pieces live
 
-- **Simulation scenarios:** `goodfetch-engine`'s `tests/it/simulation/`, one module per behaviour area, with turmoil's network adapter.
+- **Simulation scenarios:** the `tests/it/simulation/` of the crate that holds the behaviour, one module per behaviour area: `goodfetch-engine`'s, or a Foxhound crate's for Partition handoff, the crawl's work-item leases and Sink delivery (ADR 0087).
+- **turmoil's network adapter:** a test-only crate outside `crates/foxhound/`, which `goodfetch-engine`'s and Foxhound's tests take as a dev-dependency (ADR 0087).
 - **Committed Fault plans:** `fixtures/fault_plans/` beside their scenario, each with its `<name>.source.toml` (generator version, seed, replay command).
 - **Model-based tests and loom tests:** unit tests of the module they check; loom tests compile only under `goodfetch_loom`.
 - **The crash VFS, the Observation log and the invariant checkers:** `goodfetch-test-support`. The Observation log is plain records, so they need no Goodfetch crate.

@@ -33,13 +33,13 @@ The design vocabulary is the one of `codebase-design`: a **module** has an **int
 - **The root `Cargo.toml` is a virtual manifest.** Members live under `crates/`, `crates/foxhound/` (every crate only Foxhound links, ADR 0087) and `crates/foxhound/sinks/`, plus `proving-ground/` (ADR 0032) and an `xtask/` folder at the root for `xtask codegen` and `xtask release`. Each folder name equals its crate name, and internal crates are named `goodfetch-<glossary term>`, apart from the test-only `goodfetch-test-support`. Siblings and shared dependencies are referenced with `.workspace = true`.
 - **A concern becomes its own crate only for one of these reasons:**
   1. it is a separate executable (each Product's executable, a sink process, the sandbox helper, `xtask`, the Proving ground);
-  2. the compiler must enforce a dependency direction (nothing outside `crates/foxhound/` depends on a crate inside it, so no Collie crate depends on a Foxhound crate (ADRs 0084, 0087); `goodfetch-protocol` never depends on the engine; the Proving ground never depends on engine crates; `goodfetch-conformance` depends only on `goodfetch-protocol`; `goodfetch-test-support` depends on no Goodfetch crate and is only ever a dev-dependency (ADR 0062); a Private component's interface with its no-op implementation);
+  2. the compiler must enforce a dependency direction (nothing outside `crates/foxhound/` but `xtask` depends on a crate inside it, so no Collie crate depends on a Foxhound crate (ADRs 0084, 0087); `goodfetch-protocol` never depends on the engine; the Proving ground never depends on engine crates; `goodfetch-conformance` depends only on `goodfetch-protocol`; `goodfetch-test-support` depends on no Goodfetch crate and is only ever a dev-dependency (ADR 0062); a Private component's interface with its no-op implementation);
   3. it is heavy and rarely changes, so isolating it speeds up incremental builds (generated CDP bindings);
   4. it is a Plugin-kind seam whose built-in implementation pulls dependencies nothing else needs.
 
   Otherwise it is a module. Each area's spec names its crates by these reasons.
   _Why:_ crates build in parallel and enforce directions, but each one adds visibility plumbing; a stated reason keeps them meaningful.
-- **Each Product's executable crate is its composition root** (ADR 0087). Each domain crate exports one value listing what it adds to the engine (operation handlers, settings keys, run-state tables, Plugin kinds and Hook stages, Usage kinds and Limit scopes, Notification events, gates in admission), and the executable crate passes the values it links to the engine at start; Foxhound's starts from Collie's. Nothing registers itself by being linked, and code outside `crates/foxhound/` never names a Foxhound type: Foxhound fills interfaces the engine defines.
+- **Each Product's executable crate is its composition root** (ADR 0087). Each domain crate exports one value listing what it adds to the engine (operation handlers, settings keys, run-state tables, Plugin kinds and Hook stages, Usage kinds and Limit scopes, the Notifications it can send, gates in admission), and the executable crate passes the values it links to the engine at start; Foxhound's starts from Collie's. Nothing registers itself by being linked, and code outside `crates/foxhound/` and `xtask` never names a Foxhound type: Foxhound fills interfaces the engine defines.
   _Why:_ what a Product contains is then a list in its `main`, a test composes exactly what it needs, and Collie's code compiles without Foxhound's.
 - **Module files are `foo.rs` beside a `foo/` folder, never `mod.rs`.** `lib.rs` only declares modules and re-exports.
   _Why:_ editor tabs full of `mod.rs` are unreadable, and a short `lib.rs` shows the crate's shape at a glance.
@@ -82,7 +82,7 @@ The design vocabulary is the one of `codebase-design`: a **module** has an **int
   _Why:_ `expect` warns when the exception is no longer needed, so stale exceptions disappear.
 - **rustfmt runs on its default 2024 style.**
   _Why:_ the options teams most often change (import granularity and grouping, comment wrapping) need a nightly toolchain, and defaults end style debates.
-- **CI also runs `cargo-deny` (workspace-wide, and once per Product rooted at its executable crate, ADR 0087), `cargo-shear` (unused dependencies), `cargo-nextest`, `typos` and `zizmor` (workflow security).**
+- **CI also runs `cargo-deny` (workspace-wide, and once per Product on what its executable crate ships, ADR 0087), `cargo-shear` (unused dependencies), `cargo-nextest`, `typos` and `zizmor` (workflow security).**
 
 ### `unsafe`
 

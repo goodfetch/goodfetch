@@ -20,6 +20,7 @@ Scrapy's `HttpCacheMiddleware` stores everything and never revalidates by defaul
 - `cache.mode` is `off` (the default), `revalidate` or `replay`, a setting through ADR 0028's layers.
 - `revalidate` decides freshness with `http-cache-semantics` (BSD-2-Clause, maintained) and revalidates with `ETag` and `Last-Modified`. It stores GET and HEAD responses only.
 - `replay` stores and reuses every response it sees, without expiry, including POST, PUT and PATCH, keyed by a hash of the canonicalized body (JSON key order, form field order), so the development loop also covers discovered APIs (ADR 0020).
+  > Amended by [ADR 0105](0105-a-programs-tests-replay-a-response-recording-in-a-test-engine-that-reaches-no-site.md): `replay` stays the development loop. A program's tests replay a Response recording, a WARC file its Run's start names, which answers exactly, never expires and never fetches a missing response.
 - In browsers, the engine's request interception serves cached responses and sends the conditional requests: CDP `Fetch.fulfillRequest` in Chromium, Playwright's `route.fulfill` in Firefox and WebKit.
 
 **Key.**
@@ -46,5 +47,4 @@ Scrapy's `HttpCacheMiddleware` stores everything and never revalidates by defaul
 
 **Schedules.**
 - **Changes ADR 0036:** Watches never use the cache; they exist to see changes and send their own conditional requests. A Schedule's target runs may use `revalidate`. A Schedule whose target sets `replay` is refused with the Error code `replay_not_allowed`, which is not retryable (ADR 0038), because replayed pages would hide changes from the Baseline.
-  > Amended by [ADR 0105](0105-a-programs-tests-replay-a-response-recording-in-a-test-engine-that-sends-nothing-off-the-machine.md): so is a Schedule's run that names a `replay` Response recording. The cache's `replay` mode stays the development loop; a program's tests replay a Response recording instead.
 - Saving an identity drops, from its partition, the entries fetched under a Consent prompt acceptance that the saving run's `consent_domains` does not cover (ADR 0048).

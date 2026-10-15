@@ -545,7 +545,7 @@ A stand-in for the engine used only in tests, which plays one script of protocol
 _Avoid_: fake engine, mock engine, mock server
 
 **Testing kit**:
-The public module of each SDK for testing a program written against it, holding a Scripted model and a test engine from which nothing leaves the machine unless a test records.
+The public module of each SDK for testing a program written against it, holding a Scripted model and a test engine that reaches no site unless a test records.
 _Avoid_: test utilities, test helpers, mock library
 
 **Reference screenshot**:

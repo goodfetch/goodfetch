@@ -149,7 +149,7 @@ This matrix is the companion of [ADR 0037](0037-v1-scope-parity-and-pain-coverag
 | AI-02 | Observe, then replay without inference | `decided` | ADR 0009 | 9 AI and agent | `observe` and `act` compile into Plans replayed with no model call. |
 | AI-03 | LLM extraction validated by a schema | `decided` | ADR 0013, ADR 0012, ADR 0082 | 9 AI and agent | Grounding; per-page model extraction is an explicit mode. The program's own validation rules join the retry loop (ADR 0082). |
 | AI-04 | Vision input | `decided` | ADR 0013 | 9 AI and agent | Opt-in, on the last rung of the ladder. |
-| AI-05 | Multi-step autonomous agent loop | `decided` | ADR 0013 | 9 AI and agent | A thin, journaled built-in agent over the catalog. |
+| AI-05 | Multi-step autonomous agent loop | `decided` | ADR 0013, ADR 0100 | 9 AI and agent | A thin, journaled built-in agent over the catalog. In the SDKs, `page.agent(task)` runs one task to its end, judged by the program's Success check, bounded by a step cap, a stall rule and its timeout, and kept as one Plan entry replayed with no model (ADR 0100). |
 | AI-06 | Browser tools for external agent frameworks | `decided` | ADR 0011 | 11 Client surfaces | Generated adapters for Vercel AI SDK, LangChain/LangGraph and Mastra; MCP for the rest. |
 | AI-07 | MCP server | `decided` | ADR 0011, ADR 0017 | 11 Client surfaces | stdio and Streamable HTTP. |
 | AI-08 | Accessibility or DOM snapshot with element refs | `decided` | ADR 0011 | 9 AI and agent | Stable element references and diffs. |
@@ -208,7 +208,7 @@ This matrix is the companion of [ADR 0037](0037-v1-scope-parity-and-pain-coverag
 | V3-01 | `act`, `extract`, `observe` on the crawler's page mid-crawl | `spec` | ADR 0011, ADR 0013, [#72](https://github.com/Jbmanllr/automan/issues/72) | 9 AI and agent | AI operations run on any Session page; per-page model extraction is an explicit mode. The handler-page method shape is spec. |
 | V3-02 | Local cache of AI results (v3 `cacheDir`) | `decided` | ADR 0009, ADR 0010 | 9 AI and agent | Plans are local, versioned files replayed without a model; a service-held cache was rejected (ADR 0009). |
 | V3-03 | Custom model client (v3 `llmClient`) | `decided` | ADR 0012, ADR 0033 | 9 AI and agent | The SDK model callback, the SDK-handler form of the Model provider kind, still journaled, counted and capped. |
-| V3-04 | Built-in agent loop (v3 `agent().execute()`) | `decided` | ADR 0013 | 9 AI and agent | A thin, journaled built-in agent; dropping it, as Stagehand v4 did, was rejected. |
+| V3-04 | Built-in agent loop (v3 `agent().execute()`) | `decided` | ADR 0013, ADR 0100 | 9 AI and agent | A thin, journaled built-in agent; dropping it, as Stagehand v4 did, was rejected. Its `maxSteps` defaults to Stagehand v3's 20, and an early end returns the reason and the partial answer (ADR 0100). |
 | V3-05 | Local or remote browser chosen by configuration (v3 `env`) | `decided` | ADR 0022, ADR 0001, ADR 0028 | 5 Site access | Local browser, Browser host, or a third-party CDP browser such as Browserbase; the cloud is an ordinary protocol client. |
 
 No v3 API compatibility layer is offered (ADR 0037). A Crawlee+Stagehand migration guide is part of the docs (spec area 11 Client surfaces).

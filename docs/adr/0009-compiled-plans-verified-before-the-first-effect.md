@@ -2,6 +2,8 @@
 
 AI work is compiled once into a Plan: concrete steps whose targets each carry a Target fingerprint, built from what identifies the element to a person (such as its kind, type, label and visible text), never from its selector. The Plan is a readable file versioned next to the script or Recipe, like a lockfile, and later runs replay it with no model call and report which Plan version they used. Before the first Effect, every step's target is checked against its Target fingerprint; on Drift the engine makes one Repair (a fresh observation and one recompile, checked in full again, drawn from the run's Limits), and a second Drift fails the run. In the lab, compiled replay cost 0.17 to 0.34 times the model spend of an agent that replans each run ([rnd/README.md](https://github.com/Jbmanllr/automan/blob/main/rnd/README.md) §4.15), with no false success across three real models. Decided in [Adopt AI and agent decisions](https://github.com/Jbmanllr/automan/issues/72).
 
+> Amended by [ADR 0100](0100-collies-agent-is-one-bounded-call-on-a-page-judged-by-the-programs-success-check-and-replayed-whole-from-the-plan.md): an Agent's task (`page.agent`) is replayed as a whole Plan under the rule above. Its Repair is the loop resumed with the model from the step that drifted, within the task's bounds, and the steps it takes replace the rest of the task's entry.
+
 Evidence: [AI-in-the-loop browser frameworks](https://github.com/Jbmanllr/automan/blob/research/ai-browser-frameworks/rnd/research/2026-10-10-ai-browser-frameworks.md).
 
 ## Considered Options

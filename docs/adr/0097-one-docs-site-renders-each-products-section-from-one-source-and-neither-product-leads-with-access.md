@@ -2,7 +2,7 @@
 
 ADR 0084 made Collie and Foxhound two Products under the Goodfetch brand, Foxhound's executable containing Collie's code, and ADR 0090 gave them their names and one Product version. This decision sets how the documentation and `goodfetch.dev` present them.
 
-ADR 0030's site at `goodfetch.dev/docs` gets a section per Product, `/docs/collie/` and `/docs/foxhound/`. Each section is rendered from one source with its own Product's names, so Foxhound's docs contain Collie's as its executable contains Collie's code. A chooser at the docs root asks one question. Each Product leads with what Goodfetch guarantees and runs locally, never with stealth or access. Migration guides follow every leader the SDK API was judged against, and ADR 0035's wording policy reaches every text published about either Product, under a check.
+ADR 0030's site at `goodfetch.dev/docs` gets a section per Product, `/docs/collie/` and `/docs/foxhound/`. Each section is rendered from one source with its own Product's names, so Foxhound's docs contain Collie's as its executable contains Collie's code. A chooser at the docs root asks one question. Each Product leads with what Goodfetch guarantees and runs locally, never with stealth or access. Migration guides follow every leader the SDK API was judged against and every parity reference of ADR 0037, and ADR 0035's wording policy reaches every text published about either Product, under a check.
 
 The [docs-site, migration-guide and stealth-wording research](https://github.com/goodfetch/automan/blob/research/docs-positioning/rnd/research/2026-10-15-docs-positioning.md) found, on 2026-10-15:
 - **Vendors join several products' docs under one shell.**
@@ -34,12 +34,12 @@ Decided in [Docs site and positioning of two Products](https://github.com/goodfe
 
 - **Both sections always show the same Product version.** Both Product trees sit in one Docusaurus docs instance, so the version cut of ADR 0030's release pull request copies both. Docusaurus versions each docs instance with its own command, while one instance's folders share its one version line.
 - **A header switcher moves between the Products,** keeping the page when the other section has it.
-- **Search returns the reader's section and the root pages only.** Docusaurus's contextual search filters by docs instance and version, not by section, so the scoping comes from path contexts or facet filters. Which search tool, and how it scopes, is area 1's.
+- **Search returns the reader's section and the root pages only.** Docusaurus's contextual search narrows results by language and version, and includes every docs instance's tag at once, so it never scopes by section. The scoping comes from path contexts or facet filters. Which search tool, and how it scopes, is area 1's.
 - **Only the root holds pages outside the two sections.** The glossary has no collective term for the pieces both Products carry (ADR 0084), and no "platform" section collects them.
 
 ### One source, rendered per Product
 
-- **Each docs page is written once, and rendered into the section of each Product it documents, with that Product's names.** Those are the Product's name ("Goodfetch Collie" at first mention, ADR 0090), its executable, packages, imports, connection type, installer, image and skill names. Prose is written to read correctly in both sections.
+- **Each docs page is written once, and rendered into the section of each Product it documents, with that Product's names.** Those are the Product's name ("Goodfetch Collie" at first mention, ADR 0090), its executable, packages, imports, connection type, engine-path variable, installer, image, skill and MCP server names. Prose is written to read correctly in both sections.
 - **A page declares its Products by the rule that marks the Operation catalog:**
   - what Collie carries renders in both sections, since Foxhound contains Collie (ADR 0088);
   - what only Foxhound carries renders in Foxhound's;
@@ -51,7 +51,7 @@ Decided in [Docs site and positioning of two Products](https://github.com/goodfe
 - **Reference pages are generated per Product** from the marked catalog and settings schema (ADR 0030).
   - Each section lists its own Product's entries, so Foxhound's lists Collie's too.
   - Each page names the Product its entry belongs to.
-  - A setting Collie refuses with `setting_not_applicable` (ADR 0083) appears only in Foxhound's reference.
+  - A setting only Foxhound honours appears only in Foxhound's reference.
 - **A generator renders each Product's tree before the build,** as playwright.dev renders each language's tree from `microsoft/playwright/docs/src`.
   - MDX partials with props are not used: a prop in a heading shows raw in Docusaurus's table of contents ([facebook/docusaurus#9772](https://github.com/facebook/docusaurus/issues/9772)).
   - The generator's markers, and where its output is written, are area 1's.
@@ -67,7 +67,7 @@ Decided in [Docs site and positioning of two Products](https://github.com/goodfe
   - Two programs may each use one, and both installed collide nowhere (ADR 0090).
   - What two installs share is [Collie and Foxhound installed on one machine](https://github.com/goodfetch/automan/issues/486)'s.
 - **The marketing site's home asks the same question,** and each Product's docs home links the chooser and the other Product.
-- **Collie's "When you need many pages" shows the move to Foxhound.** The import and the connection type change; page code, settings and commands do not (ADR 0090; how the SDKs share Collie's code is #458's).
+- **Collie's "When you need many pages" shows the move to Foxhound.** The import, the connection type and the executable's name change; page code, settings, and commands with their flags and output do not (ADR 0090; how the SDKs share Collie's code is #458's).
 
 ### What each Product leads with
 
@@ -75,6 +75,7 @@ Decided in [Docs site and positioning of two Products](https://github.com/goodfe
   - **Collie:**
     - a Playwright-shaped page API (ADR 0019);
     - AI actions whose Effects are journaled (ADR 0010), whose Plans replay without a model (ADR 0009) and whose result carries a Verdict (ADR 0029);
+    - a Script sandbox for model-written code (ADR 0051);
     - the Console, Schedules, the stealth catalog and Clean-up rules, which run locally where competitors keep them in their clouds (ADR 0088).
   - **Foxhound:** crawls that are polite by default (ADR 0086), resume from Checkpoints (ADR 0002), and deliver Records under each Sink's guarantee with their Completeness reported (ADRs 0005 and 0008). Every page it renders is a Collie page.
   - What is said where (taglines, READMEs, the landing pages) is copy, written under these rules.
@@ -115,8 +116,8 @@ Decided in [Docs site and positioning of two Products](https://github.com/goodfe
   5. **Porting rules for a coding agent.**
   6. **The competitor's version and date.**
 - **The "after" code is docs samples, so it runs in CI** (ADR 0068).
-- **The "before" code is type-checked, never run.** It is checked against the pinned competitor version, as golden scenarios' leader programs are. A guide a golden scenario backs reuses that scenario's programs.
-- **The Live check `migration-guides-current`,** owned by area 11 and blocking nothing (ADR 0064), reads the registries and fails when a guide's competitor has a newer major than the one pinned. It only reads registries, so it costs nothing (ADR 0076).
+- **The "before" code is type-checked, never run.** Each "before" program is a file beside its guide, with a manifest pinning the competitor's version, type-checked against it (tsc, pyright, rustc) as golden scenarios' leader programs are. The page includes the file rather than a fenced block, so it is not a docs sample. A guide a golden scenario backs reuses that scenario's programs.
+- **The Live check `migration-guides-current`,** owned by area 11, run nightly (or before each release candidate while the nightly tier is off, as ADR 0068's `docs-external-links`) and blocking nothing directly (ADR 0064), reads the registries. It fails when a guide's competitor has a newer major than the one pinned, or a newer minor for a `0.y` competitor such as Browser Use, since ADR 0030 counts a `0.y` minor as a major. It only reads registries, so it costs nothing (ADR 0076).
 
 ### Per-Product artifacts
 
@@ -127,24 +128,24 @@ Decided in [Docs site and positioning of two Products](https://github.com/goodfe
   - links to its section and the chooser.
 
   It is what npm, PyPI and crates.io render.
-  - Collie's client package's README says that a program installs a Product's package (#458's), and platform packages carry one line pointing to their Product's package.
+  - Collie's client package's README says that a program installs a Product's package and that only a library serving both Products uses the client package (#458's). Platform packages carry one line pointing to their Product's package.
   - README code is docs samples, extracted and run like the docs. A Rust crate's README is included under `#[cfg(doctest)]`, as clap and env_logger include theirs.
   - Per-Product GitHub repositories remain a later option (ADR 0084).
 - **Agent skills are rendered from the same source as the docs,** one source per topic for each Product that carries it, as #458 decides for skills, so their topics match the pages.
 - **Each executable embeds its own section's rendering** for its `docs` command and its MCP server's resources (ADR 0030), and its `init` writes an AGENTS.md index pointing to them. Which data each executable embeds is [How the products are built, and each product's Size budget](https://github.com/goodfetch/automan/issues/454)'s.
 - **Each section has its own llms files:** `/docs/collie/llms.txt` and `llms-full.txt`, and Foxhound's likewise.
-  - The root's `/docs/llms.txt` lists both and the root pages. llms.txt v2 allows a file at any subpath, and the most specific file applies.
-  - Every page's `.md` twin, llms entry and `llms-full.txt` content are checked in its own section.
+  - The root has its own pair: `/docs/llms.txt` lists both sections' files and the root pages, and `/docs/llms-full.txt` holds the root pages' content. llms.txt v2 allows a file at any subpath, and the most specific file applies.
+  - Every page's `.md` twin, llms entry and `llms-full.txt` content are checked in its own section's files, or the root's for a root page.
 - **Samples.**
   - **A page rendered for both Products runs its samples once, on Collie's executable,** as a test runs on Collie unless it needs Foxhound ([Release, signing and testing of two products](https://github.com/goodfetch/automan/issues/459)).
-  - **Its Foxhound rendering is checked statically against Foxhound's packages, never run:** TypeScript type-checked by Twoslash, Python linted by Ruff and type-checked by pyright, Rust compiled as a `no_run` doctest. A wrong import or name in Foxhound's rendering fails.
+  - **Its Foxhound rendering is checked statically against Foxhound's packages, never run:** TypeScript type-checked by Twoslash, Python linted by Ruff and type-checked by pyright (beyond the lint ADR 0068 gives a `no_run` Python block), Rust compiled as a `no_run` doctest. A wrong import or name in Foxhound's rendering fails.
   - **A page rendered for Foxhound only runs its samples on Foxhound's executable.**
   - **`xtask docs-samples` reads each Product's rendering.**
 
 ### Wording
 
 - **ADR 0035's wording policy covers every text published about either Product.** That includes texts it did not name: registry descriptions and keywords, release notes, the repository's description and topics, and the marketing site. Collie carries stealth and the Challenge solver (ADR 0088), so stealth pages render in both sections.
-- **A check in the Pre-merge suite enforces the list.**
+- **A lint enforces the list,** run by `just lint` in the Quick suite, so every later suite runs it too (ADR 0061).
   - It is an `xtask` check, word-bounded and case-insensitive, over prose. It skips code, since third-party APIs fix some names.
   - It reads:
     - the docs pages (not `docs/adr/`, `docs/agents/` or `rnd/`), the READMEs and the skills;
@@ -167,14 +168,14 @@ Decided in [Docs site and positioning of two Products](https://github.com/goodfe
   - Foxhound contains Collie, so the section would hold most of Collie's docs, under a collective name the glossary does not have.
 - **Collie's section only, with Foxhound's linking into it,** as Crawlee links to playwright.dev for `Page`: rejected. It has the same wrong names, and Foxhound's offline docs would carry Collie's pages.
 - **A Product tab on every sample,** beside the language tabs: rejected. Every `.md` twin would carry both Products, and a reader would choose twice per block.
-- **Cards only, without a chooser,** as Astral and Vercel show their products: rejected. Their products complement each other; Collie and Foxhound overlap, since one contains the other, and that is where the field writes a chooser.
+- **Cards or a menu only, without a chooser,** as Astral's landing cards and Vercel's shared menu show their products: rejected. Their products complement each other; Collie and Foxhound overlap, since one contains the other, and that is where the field writes a chooser.
 - **One getting-started that installs Foxhound for everyone,** as Playwright's starts with the test runner, which contains the library: rejected. A user who drives a page would install the crawler, DuckDB and Sinks, which ADR 0084 rejected.
 - **Leading with access** ("never blocked", "undetected"), as stealth tools' registry pages do: rejected. It is the "marketed for circumvention" prong the legal note names, and Goodfetch cannot promise access to any site (ADR 0037, pain 1).
 - **Leading with AI,** as Stagehand and Browser Use frame themselves: rejected. It is not what sets Collie apart; the journal, verified Plans and Verdicts are, and they are what Collie's AI actions lead with.
 - **Goodfetch Cloud as the recommended deployment,** as Stagehand's docs recommend Browserbase: rejected. ADR 0001 keeps self-hosting at parity, and ADR 0030 keeps the Cloud's docs apart.
 - **Only the five guides the ticket listed:** rejected. It misses Browser Use, the leader of a golden scenario, and Spider, a parity reference.
 - **Guides from Puppeteer, Selenium, Firecrawl and Crawl4AI too:** rejected for V1. No golden scenario backs them. Collie's page API is Playwright-shaped, so Playwright's own guide from Puppeteer bridges Puppeteer users.
-- **Running the "before" code of guides:** rejected. It would install competitors and call live models in CI; type-checking against the pinned version keeps it honest at no cost.
+- **Running the "before" code of guides:** rejected. Running it would drive real browsers and call live models in CI for a competitor's program; type-checking against the pinned version keeps it honest at no cost.
 - **Running each sample of a shared page on both executables:** rejected. A test runs once, on Collie unless it needs Foxhound (#459), and Foxhound's rendering differs only in names, which the type checks and the compile catch.
 - **The wording policy kept by review only:** rejected. It would miss registry metadata, where the field's defeat wording lives, and would drift as agents write docs.
 - **Vale for the wording check,** as GitLab, Temporal, Datadog and Grafana run it: rejected. It amends ADR 0068 to enforce four phrases.
@@ -186,18 +187,18 @@ Decided in [Docs site and positioning of two Products](https://github.com/goodfe
   - Each Product has its own llms files, offline docs and skills, rendered from one source.
 
   Notes sit under its reference pages and its "For agents" item.
-- **Amends ADR 0035.** The wording policy covers every text published about either Product, and a Pre-merge check enforces its list. A note sits under the policy.
-- **Amends ADR 0068.** The build-output test and `docs-deploy-smoke` check each section's llms files, and samples run per rendering, a shared page's once on Collie's executable. Notes sit under its build-output test, its deploy smoke check and its samples' binary.
+- **Amends ADR 0035.** The wording policy covers every text published about either Product, its list gains "undetected" and every form of "bypass", a lint enforces it, and counsel's review before V1 covers both Products' stealth pages, the registry metadata and the marketing site. Notes sit under the policy and under its counsel review.
+- **Amends ADR 0068.** The build-output test and `docs-deploy-smoke` check each section's llms files and the root's, samples run per rendering (a shared page's once, on Collie's executable), a Foxhound rendering's Python is also type-checked by pyright, and a migration guide's "before" programs are included files, not samples. Notes sit under its build-output test, its deploy smoke check, its `no_run` rule and its samples' binary.
 - **ADR 0037.**
   - Matrix row SDK-07 and pain row 8 cite this ADR.
   - The sentence under the Stagehand v3 rows places the Crawlee-with-Stagehand guide in Foxhound's docs.
   - Areas 1 and 11 list this ADR.
-- **`TESTING.md`.** Its docs-site rules check llms files per section and run the wording check; its docs-sample rules run a shared page's samples on Collie's executable and check Foxhound's rendering as `no_run`.
+- **`TESTING.md`.** Its docs-site rules check llms files per section and the root, and run the wording lint; its docs-sample rules run a shared page's samples on Collie's executable, check Foxhound's rendering statically and keep guides' "before" programs out of the samples; its Live checks list `migration-guides-current`.
 - **Glossary.** No new term. The sections are named after their Products, and the glossary's _Avoid_ "platform" holds.
 - **Areas.**
   - Area 1 (Repository, CI and release) builds the sections, the generator, the switcher, scoped search, per-section llms files and the wording check.
   - Area 11 (Client surfaces) builds the migration guides with their Live check, the package READMEs, the rendered skills and each executable's offline docs.
-- **Owner steps.** None new. Registering `goodfetch.dev` (ADRs 0034 and 0090) and the marketing site's repository (ADR 0030) stay as decided. The agent registers and pays for nothing (ADR 0076).
+- **Owner steps.** None. This decision changes nothing about `goodfetch.dev`, the marketing site's repository (ADR 0030) or the trademark steps of ADRs 0034 and 0084, and the agent registers and pays for nothing (ADR 0076).
 - **Downstream.**
   - [Apply the product-line decisions to the affected specs and tickets](https://github.com/goodfetch/automan/issues/460) carries this into area 1's and area 11's specs and tickets.
   - [The SDK API of Collie and Foxhound](https://github.com/goodfetch/automan/issues/461) writes the guides' programs from its golden scenarios.

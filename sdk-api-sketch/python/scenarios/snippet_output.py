@@ -95,7 +95,7 @@ async def scenario_05() -> None:
 
 
 async def save_or_explain(exported: AsyncExport, path: str) -> bool:
-    """A failed save (ADR 0108): the path's fault or the storage's, and the path is never half-written."""
+    """A failed save (ADR 0116): the path's fault or the storage's, and the path is never half-written."""
     try:
         await exported.save_as(path)
     except PathNotWritableError as error:

@@ -78,7 +78,7 @@ export async function scenario05(): Promise<void> {
   log.info("exported", { records: csv.records, upTo: csv.lastNumber, sha256: csv.sha256 });
 }
 
-// A failed save (ADR 0108): the path's fault or the storage's, and the path is never half-written.
+// A failed save (ADR 0116): the path's fault or the storage's, and the path is never half-written.
 export async function saveOrExplain(exported: Export, path: string): Promise<boolean> {
   try {
     await exported.saveAs(path);

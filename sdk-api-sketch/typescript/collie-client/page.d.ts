@@ -210,7 +210,7 @@ export interface ScreenshotOptions extends CallOptions {
   readonly mask?: readonly Locator[];
   readonly maskColor?: string;
   /**
-   * Also written to this path on the program's machine, whole or not at all (ADR 0108): a path it
+   * Also written to this path on the program's machine, whole or not at all (ADR 0116): a path it
    * cannot write throws `PathNotWritableError`, full or failing storage `FileWriteFailedError`, and
    * the call then returns no bytes.
    */
@@ -505,7 +505,7 @@ export interface Download {
   /**
    * Streams the file to this path on the program's machine. A failed download throws
    * `DownloadFailedError`; a failed write `PathNotWritableError` or `FileWriteFailedError`, leaving
-   * the path as it was (ADR 0108).
+   * the path as it was (ADR 0116).
    */
   saveAs(path: string, options?: CallOptions): Promise<void>;
   cancel(options?: CallOptions): Promise<void>;
@@ -634,7 +634,7 @@ export interface PDFOptions extends CallOptions {
   readonly scale?: number;
   readonly pageRanges?: string;
   /**
-   * Also written to this path on the program's machine, whole or not at all (ADR 0108): a path it
+   * Also written to this path on the program's machine, whole or not at all (ADR 0116): a path it
    * cannot write throws `PathNotWritableError`, full or failing storage `FileWriteFailedError`, and
    * the call then returns no bytes.
    */

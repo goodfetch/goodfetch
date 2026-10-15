@@ -81,7 +81,7 @@ A closed component kept outside the open-source Products, used by Goodfetch Clou
 _Avoid_: enterprise edition, premium module, closed core
 
 **Browser host**:
-The Goodfetch process that runs beside a browser and carries out a Session's operations for an engine running elsewhere.
+The process, started from either Product's executable, that sits beside a browser and carries out a Session's operations for an engine running elsewhere.
 _Avoid_: worker, agent, sidecar
 
 **Borrowed browser**:
@@ -339,11 +339,11 @@ A declaration by a run's code of what an expected page and a login page look lik
 _Avoid_: contract, validator, assertion
 
 **Dataset**:
-The append-only collection of a run's Records.
+The append-only collection of a run's Records, named by the crawl that fills it, which may give it a schema and the fields that identify one Record.
 _Avoid_: results table, output, items
 
 **Record**:
-One unit of structured data in a Dataset.
+One unit of structured data in a Dataset, committed once with the work that produced it.
 _Avoid_: row, document, item (an item is a unit of work)
 
 **Key-value store**:

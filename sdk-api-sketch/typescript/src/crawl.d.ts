@@ -206,8 +206,8 @@ export interface EnqueuedLinks {
  * `isVisible()`) answers at once and never escalates.
  *
  * A context belongs to one attempt. Once the attempt has ended (the handler's return, `skip`, `retry`,
- * an escalation, the handler's timeout, a lost lease, the Run's close), every call on it throws `AttemptEndedError`, and what the attempt
- * staged is discarded.
+ * an escalation, the handler's timeout, a lost lease, the Run's close), every call on it throws `AttemptEndedError`. An attempt
+ * whose handler returned commits what it staged; one that ended early discards it.
  */
 export interface CrawlContext<L extends Label<unknown, unknown> = Label<undefined>> {
   readonly request: CrawlRequest<L>;
@@ -342,8 +342,8 @@ export declare class LabelUnknownError extends ProgramError {
   readonly details: { readonly label: string; readonly pending: number };
 }
 
-/** Why an attempt ended before its handler returned. */
-export type AttemptEndReason = "skipped" | "retry" | "escalated" | "timeout" | "lease_lost" | "run_closed" | (string & {});
+/** Why an attempt ended: early, or `returned` for a call made after its handler returned. */
+export type AttemptEndReason = "returned" | "skipped" | "retry" | "escalated" | "timeout" | "lease_lost" | "run_closed" | (string & {});
 /**
  * A call on the context of an attempt that has already ended. Let it propagate: the SDK ends the
  * handler with it, and catching it changes nothing, since the decision stands.
@@ -382,7 +382,8 @@ export declare class HandlerLostError extends UnavailableError {
   readonly code: "handler_lost";
 }
 /**
- * A handler's own navigation or fetch that Site preferences refuse, refused before it is sent: a
+ * A handler's own navigation or fetch that Site preferences refuse: before it is sent, when its
+ * response carries an AI-use signal, or from a waiter armed for a navigation no call waits on. A
  * crawl request's reasons, `robots_txt`, `crawl_delay`, or `use_signals` while
  * `site_preferences.respect_use_signals` is on (ADR 0086). If it escapes the handler, the request ends
  * `skipped` with the same reason. A Collie program's own navigation is never refused for a use signal.

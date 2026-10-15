@@ -118,7 +118,7 @@ class AsyncCrawlContext(_ContextBase[P]):
     """What an `async def` handler receives, the same on every fetch tier. A context belongs to one attempt: once it has
     ended (the handler's return, `skip`, `retry`, an escalation, the handler's timeout, a lost lease, the Run's close),
     every call on it raises
-    `AttemptEndedError`, and what the attempt staged is discarded."""
+    `AttemptEndedError`. An attempt whose handler returned commits what it staged; one that ended early discards it."""
 
     @property
     def page(self) -> AsyncPage:
@@ -274,7 +274,7 @@ class LabelUnknownError(ProgramError):
     """An enqueue named a Label this crawl does not declare, or a resume found pending requests of one it no longer
     declares; nothing ran."""
 
-AttemptEndReason: TypeAlias = Literal["skipped", "retry", "escalated", "timeout", "lease_lost", "run_closed"] | str
+AttemptEndReason: TypeAlias = Literal["returned", "skipped", "retry", "escalated", "timeout", "lease_lost", "run_closed"] | str
 
 @final
 class AttemptEndedError(BaseException):
@@ -317,6 +317,6 @@ class HandlerLostError(UnavailableError):
 
 @final
 class SitePreferencesRefusedError(RefusedError):
-    """A handler's own navigation or fetch that Site preferences refuse, refused before it is sent: a crawl request's
-    reasons, `robots_txt`, `crawl_delay`, or `use_signals` while `site_preferences.respect_use_signals` is on (ADR 0086).
+    """A handler's own navigation or fetch that Site preferences refuse: before it is sent, when its response carries an
+    AI-use signal, or from a waiter armed for a navigation no call waits on. A crawl request's reasons, `robots_txt`, `crawl_delay`, or `use_signals` while `site_preferences.respect_use_signals` is on (ADR 0086).
     If it escapes the handler, the request ends `skipped` with the same reason."""

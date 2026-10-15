@@ -153,7 +153,7 @@ The per-user record, on one machine or in a Daemon group, of the Usage reserved 
 _Avoid_: billing, meter, spend log
 
 **Effect**:
-An action of a run that changes something on a website or third-party service, such as submitting a form or placing an order. A resumed run checks whether an effect already happened instead of repeating it, and reports it as uncertain when it cannot tell. A program's own actions are Effects only when it declares them.
+An action of a run that changes something on a website or third-party service, such as submitting a form or placing an order; a program's own actions are Effects only when it declares them. A resumed run checks whether an effect already happened instead of repeating it, and reports it as uncertain when it cannot tell.
 _Avoid_: side effect, mutation, write
 
 **Effect key**:

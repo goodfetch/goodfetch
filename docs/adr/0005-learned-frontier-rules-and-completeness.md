@@ -4,6 +4,8 @@ The frontier applies the fixed URL rules competitors use, then learns three more
 
 > Amended by [ADR 0093](0093-a-crawl-declares-its-labels-and-one-handler-each-and-a-handler-reads-collies-page-on-every-fetch-tier.md): a crawl request's identity in the Frontier is its method, its URL after these rules and a hash of its body, as Crawlee's `useExtendedUniqueKey`, so a POST to one URL with two bodies is two requests; a declared `key` still wins.
 
+> Amended by [ADR 0120](0120-the-frontier-parses-urls-as-browsers-do-fixes-only-safe-rules-learns-the-rest-on-evidence-and-caps-a-urls-shape.md): the fixed rules are written out (the WHATWG parser's own work, RFC 3986's percent-encoding normalization, the fragment dropped, `utm_*`, `gclid` and `fbclid` dropped and the parameters sorted, `;jsessionid=` dropped), and they make a key while the request is fetched at its own URL. Firecrawl's `www`, scheme, trailing-slash, `index.html` and `index.php` merges are no longer fixed: each is learned per host on evidence (a redirect between the forms, matching page signatures, `rel=canonical`) and reported as `equivalent_form`. `rel=canonical` is evidence for a learned rule, never a merge. A finished run that refused a URL by one of the caps on a URL's shape is `unverified`.
+
 Competitor evidence: [frontier and sessions research](https://github.com/goodfetch/goodfetch/blob/research/frontier-sessions-competitors/rnd/research/2026-10-10-frontier-sessions-competitors.md).
 
 ## Considered Options

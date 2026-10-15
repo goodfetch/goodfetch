@@ -149,6 +149,9 @@ The rules for an in-place launch:
 ### Borrowed browsers
 
 A Borrowed browser serves one run and one Session, in the context where the login lives: the browser's default context, or for `client_browser` the context of the borrowed page. It is never closed, and browser-wide settings such as download behaviour are never changed in it.
+
+> Amended by [ADR 0089](0089-a-page-is-lent-through-an-endpoint-that-shows-only-its-session-and-collie-joins-other-crawlers-by-borrowing.md): through `run.borrow()`, each browser context a borrowed page belongs to is one Session of the run, joined by later pages of that context, so one run can borrow the pages a crawler opens in several contexts or browsers; a second run borrowing the same browser is still refused with `browser_borrowed`.
+
 - **Work items:** they use it one at a time, each under its own lease (ADR 0003).
 - **A second run** trying to borrow the same browser is refused with `browser_borrowed`, judged on the browser the connection reaches, not on the URL.
 - **The Session pool** never rotates, retires or escalates its Session. A failure that would do so raises a Human pause. **Changes ADR 0006, ADR 0021 and ADR 0035.**

@@ -5,7 +5,7 @@ A program defines a crawl by declaring its Labels, each with exactly one handler
 - **Skipping is faked as a failure.** Crawlee v3 skipped a request by setting `noRetry`, throwing, and lowering `requestsFailed` by hand (§6.15).
 - **Retry defaults disagree.** Crawlee 3.18.2 retries any handler error three times, and Scrapy 2.19.0 never retries a callback's exception, both read in their source for this decision.
 
-Decided in [Crawl definition and handler context](https://github.com/goodfetch/automan/issues/477), on the map [The SDK API of Collie and Foxhound](https://github.com/goodfetch/automan/issues/461), every answer decided by the agent on the owner's delegation, with its [grilling record](https://github.com/goodfetch/automan/issues/477#issuecomment-6181133439), [round 7](https://github.com/goodfetch/automan/issues/477#issuecomment-6181341593), [round 8](https://github.com/goodfetch/automan/issues/477#issuecomment-6181741958), [round 9](https://github.com/goodfetch/automan/issues/477#issuecomment-6182018299), [round 10](https://github.com/goodfetch/automan/issues/477#issuecomment-6187681403) and [round 11](https://github.com/goodfetch/automan/issues/477#issuecomment-6188015778). The handler's page carries [ADR 0087](0087-each-product-is-an-executable-crate-that-links-only-its-crates-and-has-its-own-size-budget.md)'s navigation gate. Principles are cited by their IDs in [ADR 0077](0077-the-sdk-api-follows-eight-guarantees-and-four-ranked-shape-rules.md). The page is [ADR 0085](0085-collies-page-api-keeps-playwrights-names-strictness-waits-values-cross-as-json-and-unanswered-requests-fall-through.md)'s; Sessions are [ADR 0092](https://github.com/goodfetch/automan/pull/509)'s and AI verbs [ADR 0091](https://github.com/goodfetch/automan/pull/510)'s, both in review when this was decided.
+Decided in [Crawl definition and handler context](https://github.com/goodfetch/automan/issues/477), on the map [The SDK API of Collie and Foxhound](https://github.com/goodfetch/automan/issues/461), first decided by the agent on the owner's delegation and then confirmed by the owner with four changes ([owner confirmation](https://github.com/goodfetch/automan/issues/477#issuecomment-6187919342), recorded as [round 12](https://github.com/goodfetch/automan/issues/477#issuecomment-6188325918)), with its [grilling record](https://github.com/goodfetch/automan/issues/477#issuecomment-6181133439), [round 7](https://github.com/goodfetch/automan/issues/477#issuecomment-6181341593), [round 8](https://github.com/goodfetch/automan/issues/477#issuecomment-6181741958), [round 9](https://github.com/goodfetch/automan/issues/477#issuecomment-6182018299), [round 10](https://github.com/goodfetch/automan/issues/477#issuecomment-6187681403) and [round 11](https://github.com/goodfetch/automan/issues/477#issuecomment-6188015778). The handler's page carries [ADR 0087](0087-each-product-is-an-executable-crate-that-links-only-its-crates-and-has-its-own-size-budget.md)'s navigation gate. Principles are cited by their IDs in [ADR 0077](0077-the-sdk-api-follows-eight-guarantees-and-four-ranked-shape-rules.md). The page is [ADR 0085](0085-collies-page-api-keeps-playwrights-names-strictness-waits-values-cross-as-json-and-unanswered-requests-fall-through.md)'s; Sessions are [ADR 0092](https://github.com/goodfetch/automan/pull/509)'s and AI verbs [ADR 0091](https://github.com/goodfetch/automan/pull/510)'s, both in review when this was decided.
 
 ## Decision
 
@@ -33,9 +33,10 @@ Decided in [Crawl definition and handler context](https://github.com/goodfetch/a
 ### Seeds and the noun
 
 - **A crawl request** is the noun ADR 0079 left open: one URL a crawl's Frontier admitted, with its Label and Payload, the work item one handler processes (ADR 0003), which ends in one outcome. "Request" is every crawler's word, and prose may keep it. The SDK already has a `Request` type, the page's network request (ADR 0085), so the types are `CrawlRequest<P>` and `CrawlRequestOutcome`, which replaces the placeholder `RequestOutcome` (S3).
-- **Seeds are crawl requests:** a URL, a Label and a Payload, checked as an enqueue is, so a seed the run's domain policy refuses is not added (`domain_policy`).
+- **Seeds are crawl requests:** a URL, a Label, a Payload and the request options of an enqueue, checked as an enqueue is, so a seed the run's domain policy refuses is not added (`domain_policy`).
+  - **A sitemap seed.** `sitemap(url, rules)` seeds from a sitemap, `url` being a sitemap or a site's robots.txt, whose `Sitemap:` lines are read. `rules` is an ordered list of URL pattern (matched in the engine, ADR 0081) → Label, as Scrapy's `SitemapSpider` `sitemap_rules` and Crawlee's `SitemapRequestList`: the first rule that matches picks the Label. A URL matching no rule is not added and is reported with the reason `no_rule`, and nested sitemap indexes are followed. It widens the scope by its own host, like any seed; its entries are checked against the scope as enqueues are, at depth 0. It is the SDK shape of ADR 0037's CO-10.
   - **The start verb.** Its spelling, and resuming, are [The Run in code](https://github.com/goodfetch/automan/issues/478)'s. The sketch uses `gf.foxhound.start(crawl, { seeds: [seed(url, home)] })` provisionally.
-  - **`run.addSeed(url, label, payload?, { priority, forefront, key })`** adds a seed to a running crawl, committed at once (ADR 0037's CO-03), and answers as an enqueue does. The start reports its refused seeds as The Run in code decides. `ctx.run` is bound to its attempt, so `addSeed` called through it inside a handler is staged with the attempt, as an enqueue is.
+  - **`run.addSeed(url, label, payload?, { method, headers, body, priority, forefront, key })`**, or `run.addSeed(sitemap(url, rules))`, adds a seed to a running crawl, committed at once (ADR 0037's CO-03), and answers as an enqueue does. The start reports its refused seeds as The Run in code decides. `ctx.run` is bound to its attempt, so `addSeed` called through it inside a handler is staged with the attempt, as an enqueue is.
   - **Seeds define the scope,** so a seed widens it by its host, while a handler's `enqueue` is checked against it. The two get two names because they mean two things, and widening the scope from a handler is the explicit call (S3, G5).
 
 ### What a handler receives
@@ -123,15 +124,16 @@ Decided in [Crawl definition and handler context](https://github.com/goodfetch/a
 
 ### Enqueueing, scope and the Frontier
 
-- **`enqueue(url, label, payload?, { priority, forefront, key })`** adds one URL. In TypeScript and Python its Payload argument exists only when the Label has one, and Rust passes `()`, so a missing or wrong Payload is a type error.
+- **`enqueue(url, label, payload?, { method, headers, body, priority, forefront, key })`** adds one request. In TypeScript and Python its Payload argument exists only when the Label has one, and Rust passes `()`, so a missing or wrong Payload is a type error. `method`, `headers` and `body` are Crawlee's `Request` fields and Scrapy's `Request` and `FormRequest`'s: crawling a POST or GraphQL API page by page is common, and it is what the discovered-API tier finds. Whether a non-GET request is an Effect to declare is [Effects a program declares in code](https://github.com/goodfetch/automan/issues/500)'s.
 - **`enqueueLinks(locator, label, payload?, { include, exclude, limit, priority })`** adds every link a Collie locator matches, each `href` resolved against the document's base URL. The locator is the page API's one way to target elements (S2). Two methods, because they return two types.
+  - **A Payload per link.** `payload` may be a function of the link (its `href`, its text and its attributes) that returns the Payload, still typed by the Label, or `null` to skip that link. It answers crawlee-python #524 (one `user_data` for all links), as Crawlee's `transformRequestFunction` does; rewriting a URL stays a Hook's.
 - **What they return.**
-  - An enqueue's result is a value (ADR 0079): added, with its id, or not added, with `duplicate`, `out_of_scope`, `domain_policy`, `max_depth`, `max_requests` or `unsupported_scheme`.
-  - `enqueueLinks` returns the added and not-added URLs, and a matched element with no link is reported as `no_link`.
+  - An enqueue's result is a value (ADR 0079): added, with its id, or not added, with `duplicate`, `out_of_scope`, `domain_policy`, `max_depth`, `max_requests` or `unsupported_scheme`; a sitemap entry matching no rule is `no_rule`.
+  - `enqueueLinks` returns the added and not-added URLs: a matched element with no link is reported as `no_link`, and a link its Payload function skipped as `skipped_by_payload`.
   - So "enqueued nothing" says why (G1). A Payload failing its schema still raises `payload_invalid` (ADR 0082).
 - **Staging.** A handler's enqueues are outputs staged with its attempt and committed with it (ADR 0003), so a failed or escalated attempt leaves no stray links.
-- **The Frontier.** It deduplicates by URL after its rules, whatever the Label (ADR 0005). `key` replaces that identity, a declared canonicalization that always wins. `priority` and `forefront` are ADR 0005's.
-- **Only GET.** Headers, bodies and URL rewrites belong to a before-request Hook (ADR 0033). A POST is `page.request`, and may be an Effect.
+- **The Frontier.** Its identity for a request is the method, the URL after its rules and a hash of the body, whatever the Label, as Crawlee's `useExtendedUniqueKey` (amends ADR 0005's URL-only identity). `key` replaces that identity, a declared canonicalization that always wins. `priority` and `forefront` are ADR 0005's.
+- **Hooks keep cross-cutting policy,** such as a header on every request, and URL rewrites (ADR 0033).
 - **Scope is crawl-wide, checked on every enqueue and every redirect.**
   - `crawl.scope.strategy`: `same_hostname` by default (Crawlee's default; Scrapy allows every host when `allowed_domains` is unset), or `same_domain`, `same_origin` or `all`.
   - `crawl.scope.include` and `crawl.scope.exclude`: URL patterns matched in the engine (ADR 0081). Besides the strategy, a URL must match an `include` pattern when there are any, and no `exclude` pattern; they never replace the strategy, as Crawlee v4 learned.
@@ -198,7 +200,9 @@ Decided in [Crawl definition and handler context](https://github.com/goodfetch/a
 - **Plans keyed by the Label on a domain:** withdrawn in round 10; ADR 0091 keys them by call, with one variant per page layout.
 - **A permit's wait counting against the timeouts:** rejected by G5; a busy domain would turn into `deadline_exceeded` and retries, each fetching again. **Skipping the request when the page's own script is refused a navigation:** rejected; the handler asked for nothing the site refused.
 - **A dropped `serve` future counting as a lost lease:** rejected; it is the program's own cancellation, which the engine hears through `$/cancel`, and a Rust service that stops on a shutdown signal would use a retry per leased request at each restart.
-- **A failed-request handler** (Crawlee's `failedRequestHandler`): rejected; a failed request is an outcome value (ADR 0079), and a callback would be a second channel for the same fact (S2). A Hook stage before a retry stays a Hook question.
+- **A failed-request handler** (Crawlee's `failedRequestHandler`): rejected, on the owner's condition that The Run in code offers a live, filterable sequence of outcomes (only `failed` and `blocked`, as they happen, in ADR 0081's iterator shape), which covers that callback's real-time use; ADR 0102's draft offers `run.outcomes({ kinds, labels })`. A failed request is an outcome value (ADR 0079), and a callback would be a second channel for the same fact (S2). A Hook stage before a retry stays a Hook question.
+- **Crawl requests that are only GET,** with headers and bodies left to Hooks (this ADR's first draft): reversed by the owner. Crawling a POST or GraphQL API is common, Crawlee and Scrapy take a method and a body per request, and a Hook would have to rebuild per request what the program knew at enqueue.
+- **One Payload for every link of `enqueueLinks`** (this ADR's first draft): reversed by the owner; per-link data then needed a loop of `enqueue`, crawlee-python #524's complaint.
 - **A re-run after a lost lease that never counts:** rejected; a request that crashes the program would re-run forever. **One that always counts:** rejected; a clean stop would use up retries.
 
 ## Consequences
@@ -206,6 +210,7 @@ Decided in [Crawl definition and handler context](https://github.com/goodfetch/a
 - **Amends ADR 0020.** Its route is a Label on one domain; a program forces a tier per Label with `fetch.tier`; a call only a browser serves, a wait for missing content and a failed `expectedPage` on a non-browser tier escalate the request; `tier_race` is `fetch.tier_race`.
 - **Amends ADR 0040**, whose `tier_race` is `fetch.tier_race`.
 - **Amends ADR 0033**, whose Hook retries and retried `hook_failed` draw on `crawl.retry.max`.
+- **Amends ADR 0005**, whose Frontier identity for a request is its method, its URL after the rules and a hash of its body.
 - **Amends ADR 0006.** A page failing its expected page on a non-browser tier, under `fetch.tier: auto`, escalates to the browser instead of stopping the work item.
 - **Amends ADR 0023**, whose per-run or per-call switch of the sample comparison is also set per Label: `fetch.tier` forces a tier at any scope down to a Label.
 - **Amends ADR 0079.**
@@ -229,7 +234,7 @@ Decided in [Crawl definition and handler context](https://github.com/goodfetch/a
 - **`GLOSSARY.md`** gains **Crawl request**.
 - **Error codes.** The codes in the table join `goodfetch-protocol` with their groups and retryable flags, and `xtask codegen` generates one class per code under ADR 0079's naming rule.
 - **ADR 0037's matrix.**
-  - RT-07, CO-03, CO-05, CO-07 and SC-02 become `decided` by this ADR.
+  - RT-07, CO-03, CO-05, CO-07, CO-10 and SC-02 become `decided` by this ADR.
   - RT-04 keeps `spec`, since a stage before a retry is [Hooks and injectable components in the SDK API](https://github.com/goodfetch/automan/issues/481)'s; its note names the retry settings and the failed-request handler this ADR declines.
   - CO-08, CO-11, CO-15, CO-16, RT-05 and V3-01 cite it.
   - Areas 3, 4, 5, 6 and 11 list it.
@@ -244,7 +249,7 @@ Decided in [Crawl definition and handler context](https://github.com/goodfetch/a
 - **Left to other tickets.**
   - The Run in code: the start and resume verbs, and reading outcomes.
   - Crawl output in code: pushing Records from `ctx.run`, staged with the attempt.
-  - Hooks and injectable components in the SDK API: Hooks scoped by Label in code, request headers and bodies, and a stage before a retry.
+  - Hooks and injectable components in the SDK API: Hooks scoped by Label in code, cross-cutting request headers, URL rewrites, and a stage before a retry.
   - Testing a user's crawl or automation: building a `CrawlContext` from a saved response.
   - [Effects a program declares in code](https://github.com/goodfetch/automan/issues/500): a declared Effect must be checked rather than repeated, since a handler re-runs on a retry, an escalation, a sample comparison and a lost lease.
   - **Merge order.** If ADR 0092 merges first, it gains a note: `session.source`, `session.http_credentials`, `session.recovery.human_pause`, `session.page_check` and `secrets.*` are also set on a Label. Links to ADRs on `main` become relative.

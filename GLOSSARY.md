@@ -223,7 +223,7 @@ The data a program attaches to a request for its handler, owned by the program a
 _Avoid_: userData, user_data, meta, cb_kwargs, context
 
 **Crawl request**:
-One URL a crawl's Frontier admitted, with its Label and Payload: the work item one handler processes, which ends in exactly one outcome.
+One request a crawl's Frontier admitted (its method, URL and body), with its Label and Payload: the work item one handler processes, which ends in exactly one outcome.
 _Avoid_: `Request` (the type or identifier is a page's network request), item, task, job
 
 **Politeness**:

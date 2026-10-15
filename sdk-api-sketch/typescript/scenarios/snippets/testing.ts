@@ -1,7 +1,7 @@
 // Snippet for Testing a user's crawl or automation (#482, ADR 0105), on golden scenario 10: the crawl of
 // scenario 05 and the AI extraction of scenario 08, tested with no network and no model.
 import { z } from "zod";
-import { Crawl, ModelUnavailableError, ResponseNotRecordedError, seed } from "goodfetch";
+import { Crawl, ModelFundsExhaustedError, ResponseNotRecordedError, seed } from "goodfetch";
 import { TestEngine, fakeError, scriptedModel } from "goodfetch/testing";
 
 // Any runner: Vitest, Jest, node:test, Mocha. The kit needs none of them, and none of their plugins.
@@ -74,7 +74,7 @@ test("a book page with no price is skipped", async () => {
     payload: { category: "Poetry" },
     response: { body: "<html><h1>No price</h1></html>" },
   });
-  assert.deepEqual(attempt.ended, { kind: "skipped", message: "no price" });
+  assert.deepEqual(attempt.ended, { kind: "skipped", reason: "handler", message: "no price" });
 });
 
 // 2. The whole crawl, from the responses one live run recorded. That run was started once with
@@ -130,14 +130,14 @@ test("AI extraction replays its Plan with no model call", async () => {
   assert.equal(report.usage.model.calls, 0);
 });
 
-// Or a Scripted model: here, a provider that fails, for the handler's own fallback.
-test("the handler fails cleanly when the model provider is down", async () => {
-  const model = scriptedModel([fakeError(ModelUnavailableError, { message: "503 from the provider" })]);
+// Or a Scripted model: here, a provider whose funds are spent, an error no retry helps.
+test("the handler fails cleanly when the model funds are spent", async () => {
+  const model = scriptedModel([fakeError(ModelFundsExhaustedError, { message: "credit balance too low" })]);
   await using engine = await TestEngine.start({
     modelProviders: { scripted: model },
     settings: { ai: { model: "scripted/any" }, extract: { mode: "model" } },
   });
   const attempt = await engine.runHandler(aiCrawl, aiBook, { url: BOOK, response: { path: "tests/fixtures/a-light-in-the-attic.html" } });
-  assert.ok(attempt.ended.kind === "failed" && attempt.ended.error.code === "model_unavailable");
+  assert.ok(attempt.ended.kind === "failed" && attempt.ended.error.code === "model_funds_exhausted");
   assert.equal(model.requests.length, 1); // closing the engine fails if a reply is left unused
 });

@@ -4,8 +4,8 @@ Each Product ships its own (ADRs 0090, 0095); crawl handlers and Hooks are Foxho
 plain values closed with `async with` or `with`, failures raised as `GoodfetchError`s, and assertions left to `assert`
 or the runner's own. No pytest plugin is needed: a fixture that yields a started `AsyncTestEngine` is three lines.
 
-- `AsyncTestEngine` and `TestEngine`: ADR 0069's test engine, a real engine set up for one test. Nothing it does leaves
-  the machine unless a Run records: every Run that names no Response recording replays an empty one.
+- `AsyncTestEngine` and `TestEngine`: ADR 0069's test engine, a real engine set up for one test. It reaches no site
+  unless a Run records: every Run that names no Response recording replays an empty one.
 - `run_handler`: one crawl handler on one saved response, reporting how its attempt ended and what it staged, without a
   Frontier, Hooks or a commit. `run_hook`: one of the crawl's Hooks, by name, the same way.
 - `ScriptedModel`: ADR 0069's Scripted model, a Model provider the test registers.
@@ -17,14 +17,14 @@ from collections.abc import Generator, Mapping, Sequence
 from dataclasses import dataclass
 from os import PathLike
 from types import TracebackType
-from typing import Any, Literal, TypeAlias, TypeVar, final, overload
+from typing import Any, ClassVar, Literal, TypeAlias, TypeVar, final, overload
 
 from goodfetch._crawl import AsyncCrawl, Crawl, Enqueued, FetchTier
 from goodfetch._data import Dataset, JsonValue, Label
 from goodfetch._lifecycle import AsyncGoodfetch, Goodfetch
 from goodfetch._models import AsyncModelProviderHandler, ModelProviderHandler, ModelRequest, ModelResponse, ModelUsage
 from goodfetch._output import StoredBytes
-from goodfetch._results import GoodfetchError, ProgramError
+from goodfetch._results import BlockCause, GoodfetchError, ProgramError, SkipReason
 from goodfetch._settings import Settings
 
 P = TypeVar("P")
@@ -54,9 +54,11 @@ class Returned:
 @final
 @dataclass(frozen=True, kw_only=True)
 class Skipped:
-    """`ctx.skip(message)`."""
+    """`ctx.skip(message)` (reason `handler`), or a handler's navigation that Site preferences refused and it let
+    escape."""
 
-    message: str
+    reason: SkipReason
+    message: str | None
     kind: Literal["skipped"] = "skipped"
 
 @final
@@ -78,8 +80,17 @@ class Escalated:
 
 @final
 @dataclass(frozen=True, kw_only=True)
+class Blocked:
+    """The document's status is a Block cause (ADRs 0021, 0093): the handler did not run."""
+
+    cause: BlockCause
+    kind: Literal["blocked"] = "blocked"
+
+@final
+@dataclass(frozen=True, kw_only=True)
 class Failed:
-    """The handler raised: its own exception as `handler_failed`, or the code a `GoodfetchError` keeps."""
+    """The handler raised: its own exception as `handler_failed`, or the code a `GoodfetchError` keeps; or, before it
+    ran, the document's status failed it (`response_not_ok`, `response_unavailable`)."""
 
     error: GoodfetchError
     kind: Literal["failed"] = "failed"
@@ -92,7 +103,7 @@ class UnknownEnd:
     raw: str
     kind: Literal["unknown"] = "unknown"
 
-AttemptEnd: TypeAlias = Returned | Skipped | RetryRequested | Escalated | Failed | UnknownEnd
+AttemptEnd: TypeAlias = Returned | Skipped | RetryRequested | Escalated | Blocked | Failed | UnknownEnd
 
 @final
 @dataclass(frozen=True, kw_only=True)
@@ -147,7 +158,8 @@ class HookResult:
 @final
 class ScriptedModel:
     """ADR 0069's Scripted model: answers call n with reply n, records every request, and reports Usage from its replies.
-    A call beyond its replies raises `ScriptedModelExhaustedError`; register it in `model_providers`, sync or async."""
+    A retryable error reply is retried as a provider's (ADR 0101), the retry taking the next reply; a call beyond its
+    replies raises `ScriptedModelExhaustedError`. Register it in `model_providers`, sync or async."""
 
     def __init__(self, replies: Sequence[ModelResponse | GoodfetchError]) -> None: ...
     def __call__(self, request: ModelRequest) -> ModelResponse: ...
@@ -174,20 +186,21 @@ class AsyncTestEngine:
     """A real engine for one test, for `AsyncGoodfetch`: a temporary Goodfetch home removed when it closes, a cleared
     environment, no project file unless named, `offline` (ADR 0043), short durations, and no Model provider unless the
     test registers or configures one, so a call that needs a model with none raises `ModelNotConfiguredError`. Every Run
-    started from `connection` that names no Response recording replays an empty one: a request off the machine raises
-    `ResponseNotRecordedError`, naming it. An Attached engine (ADR 0069)."""
+    started from `connection` that names no Response recording replays an empty one: a request to a site raises
+    `ResponseNotRecordedError`, naming it. Browsers come from the shared per-user cache or `GOODFETCH_BROWSERS_PATH`
+    (ADR 0024). An Attached engine (ADR 0069)."""
 
     @classmethod
     def start(
         cls,
         *,
         settings: Settings = ...,
-        resolve: Mapping[str, str] | None = None,
         project: str | PathLike[str] | None = None,
         model_providers: Mapping[str, AsyncModelProviderHandler | ScriptedModel] | None = None,
     ) -> _AsyncStarting:
-        """`resolve` is ADR 0059's map, host to address; its hosts are allowlisted for this engine (ADR 0017) and reached
-        live even while a Run replays. `model_providers` are named by `ai.model` as `"<name>/<any>"` (ADR 0101)."""
+        """Every host its `resolve` setting (ADR 0059) maps to loopback, such as a test's own server, is allowlisted
+        (ADR 0017) and reached live even while a Run replays. `model_providers` are named by `ai.model` as
+        `"<name>/<any>"` (ADR 0101)."""
 
     @property
     def connection(self) -> AsyncGoodfetch:
@@ -221,7 +234,9 @@ class AsyncTestEngine:
         depth: int = 0,
     ) -> AttemptResult:
         """Runs the Label's handler, the one the crawl attached, on one request, with the Label's settings, in a Run of its
-        own. Nothing else of the crawl runs: no Frontier, no Hooks, no commit. `response` is the document; left out, the
+        own: one attempt, no retry. Nothing else of the crawl runs: no Frontier, no Hooks, no commit. The document is not
+        fetched, so neither robots.txt nor Politeness applies to it, but ADR 0093's status rules do, before the handler
+        runs. `response` is the document; left out, the
         response `recording` holds for `url`. `recording` is replayed for everything else the handler reaches. `tier` is
         `http` by default, or the one the Label's `fetch.tier` forces: no browser starts, and a call only a browser serves
         ends the attempt `Escalated`; `browser` renders the document. Raises when it cannot run the handler
@@ -257,12 +272,14 @@ class AsyncTestEngine:
 class TestEngine:
     """`AsyncTestEngine` for the sync `Goodfetch` and `Crawl`, used with `with`."""
 
+    __test__: ClassVar[bool] = False
+    """pytest never collects it, as Starlette's `TestClient`."""
+
     @classmethod
     def start(
         cls,
         *,
         settings: Settings = ...,
-        resolve: Mapping[str, str] | None = None,
         project: str | PathLike[str] | None = None,
         model_providers: Mapping[str, ModelProviderHandler] | None = None,
     ) -> TestEngine: ...

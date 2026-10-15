@@ -6,12 +6,14 @@
 //! executor, since its futures run on any (ADR 0081). Assertions are the harness's own.
 //!
 //! - [`TestEngine`]: ADR 0069's test engine, the engine linked in-process and set up for one test.
-//!   Nothing it does leaves the machine unless a Run records: every Run that names no Response
-//!   recording replays an empty one.
+//!   It reaches no site unless a Run records: every Run that names no Response recording replays an
+//!   empty one.
 //! - [`TestEngine::run_handler`]: one crawl handler on one saved response, reporting how its attempt
 //!   ended and what it staged, without a Frontier, Hooks or a commit. [`TestEngine::run_hook`]: one
 //!   Hook, the same way.
-//! - [`ScriptedModel`]: ADR 0069's Scripted model, answered in-process by the linked engine.
+//! - [`ScriptedModel`]: ADR 0069's Scripted model, whose `model_requests` stream (ADR 0101) the kit
+//!   answers on the connection's own runtime, never on the program's executor (ADR 0081), so the
+//!   SDK-handler path is the one tested.
 //! - [`Error::fake`] and a `fake` constructor on each `#[non_exhaustive]` result type, which a
 //!   program cannot build with a struct literal, for a test of the program's own handling.
 
@@ -25,7 +27,7 @@ use crate::data::{Dataset, Label};
 use crate::lifecycle::Goodfetch;
 use crate::models::{ModelRequest, ModelResponse, ModelUsage};
 use crate::output::StoredBytes;
-use crate::results::{CrawlRequestOutcome, CrawlRequestOutcomeKind, CrawlRequestRef, Error};
+use crate::results::{BlockCause, CrawlRequestOutcome, CrawlRequestOutcomeKind, CrawlRequestRef, Error, SkipReason};
 use crate::settings::Settings;
 
 /// Options of starting a [`TestEngine`].
@@ -36,17 +38,11 @@ pub struct TestOptions {
 }
 
 impl TestOptions {
-    /// Settings for its connection and everything beneath it (ADR 0083).
+    /// Settings for its connection and everything beneath it (ADR 0083). Every host its `resolve`
+    /// setting (ADR 0059) maps to loopback, such as a test's own server, is allowlisted (ADR 0017)
+    /// and reached live even while a Run replays.
     pub fn settings(self, settings: Settings) -> Self {
         let _ = settings;
-        unimplemented!()
-    }
-
-    /// One entry of ADR 0059's `resolve` map, such as `("shop.test", "127.0.0.1:8080")` for the
-    /// test's own server. Its host is allowlisted for this engine (ADR 0017), so it is reached live
-    /// even while a Run replays.
-    pub fn resolve(self, host: &str, address: &str) -> Self {
-        let _ = (host, address);
         unimplemented!()
     }
 
@@ -57,7 +53,8 @@ impl TestOptions {
         unimplemented!()
     }
 
-    /// A Scripted model, named by `ai.model` as `"<name>/<any>"` (ADR 0101).
+    /// A Scripted model, named by `ai.model` as `"<name>/<any>"` (ADR 0101). The kit answers its
+    /// stream on the connection's own runtime.
     pub fn model_provider(self, name: &str, model: ScriptedModel) -> Self {
         let _ = (name, model);
         unimplemented!()
@@ -127,7 +124,7 @@ impl<P: serde::Serialize> HandlerInput<P> {
 
     /// `Http` by default, or the tier the Label's `fetch.tier` forces: no browser starts, and a call
     /// only a browser serves ends the attempt [`AttemptEnd::Escalated`]. `Browser` renders the
-    /// document.
+    /// document, its `Date` starting at the document's `Date` header.
     pub fn tier(self, tier: FetchTier) -> Self {
         let _ = tier;
         unimplemented!()
@@ -138,6 +135,12 @@ impl<P: serde::Serialize> HandlerInput<P> {
         let _ = attempt;
         unimplemented!()
     }
+
+    /// Default 0.
+    pub fn depth(self, depth: u32) -> Self {
+        let _ = depth;
+        unimplemented!()
+    }
 }
 
 /// How an attempt ended.
@@ -146,10 +149,13 @@ impl<P: serde::Serialize> HandlerInput<P> {
 pub enum AttemptEnd {
     /// The handler returned: what it staged would commit.
     Returned,
-    /// `ctx.skip(message)`.
+    /// `ctx.skip(message)` (reason `handler`), or a handler's navigation that Site preferences
+    /// refused and it let escape.
     Skipped {
-        /// Its message.
-        message: String,
+        /// Why.
+        reason: SkipReason,
+        /// The handler's text.
+        message: Option<String>,
     },
     /// `ctx.retry(message)`.
     RetryRequested {
@@ -161,7 +167,11 @@ pub enum AttemptEnd {
         /// That call, rendered as the program wrote it (ADR 0079).
         call: String,
     },
-    /// The handler failed: its own error as `handler_failed`, or the code a Goodfetch error keeps.
+    /// The document's status is a Block cause (ADRs 0021, 0093): the handler did not run.
+    Blocked(BlockCause),
+    /// The handler failed: its own error as `handler_failed`, or the code a Goodfetch error keeps;
+    /// or, before it ran, the document's status failed it (`response_not_ok`,
+    /// `response_unavailable`).
     Failed(Error),
     /// A kind this SDK does not know, as received.
     Unknown(String),
@@ -250,6 +260,12 @@ impl HookInput {
         unimplemented!()
     }
 
+    /// A Response recording replayed for anything else the Hook reaches.
+    pub fn recording(self, path: impl AsRef<Path>) -> Self {
+        let _ = path.as_ref();
+        unimplemented!()
+    }
+
     /// The Record a "Record before commit" Hook sees, in its Dataset.
     pub fn record<T: serde::Serialize>(self, dataset: &Dataset<T>, record: T) -> Self {
         let _ = (dataset, record);
@@ -280,8 +296,9 @@ pub enum HookResult {
 /// closes, a cleared environment, no project file unless named, `offline` (ADR 0043), short
 /// durations, and no Model provider unless the test registers or configures one, so a call that
 /// needs a model with none fails with `model_not_configured`. Every Run started from
-/// [`TestEngine::connection`] that names no Response recording replays an empty one: a request off
-/// the machine fails with `response_not_recorded`, naming it.
+/// [`TestEngine::connection`] that names no Response recording replays an empty one: a request to a
+/// site fails with `response_not_recorded`, naming it. Browsers and the `goodfetch` binary come from
+/// the shared per-user cache, or `GOODFETCH_BROWSERS_PATH` and `GOODFETCH_ENGINE_PATH` (ADR 0024).
 #[derive(Debug)]
 pub struct TestEngine {
     _private: (),
@@ -301,8 +318,10 @@ impl TestEngine {
     }
 
     /// Runs the Label's handler, the one the crawl attached, on one request, with the Label's
-    /// settings, in a Run of its own. Nothing else of the crawl runs: no Frontier, no Hooks, no
-    /// commit. Fails when it cannot run the handler (`response_not_recorded` for the document,
+    /// settings, in a Run of its own: one attempt, no retry. Nothing else of the crawl runs: no
+    /// Frontier, no Hooks, no commit. The document is not fetched, so neither robots.txt nor
+    /// Politeness applies to it, but ADR 0093's status rules do, before the handler runs. Fails when
+    /// it cannot run the handler (`response_not_recorded` for the document,
     /// `payload_invalid`, `label_unknown`, `label_unhandled`); once the handler ran, how its attempt
     /// ended is a value.
     pub async fn run_handler<P: serde::Serialize>(&self, crawl: &Crawl<'_>, label: &Label<P>, input: HandlerInput<P>) -> Result<AttemptResult, Error> {
@@ -332,7 +351,8 @@ impl TestEngine {
 pub enum ScriptedReply {
     /// A response.
     Response(ModelResponse),
-    /// An error the provider would give, such as `Error::fake(ErrorCode::ModelUnavailable, ..)`.
+    /// An error the provider would give, such as `Error::fake(ErrorCode::ModelFundsExhausted, ..)`.
+    /// A retryable one is retried as a provider's (ADR 0101), the retry taking the next reply.
     Error(Error),
 }
 

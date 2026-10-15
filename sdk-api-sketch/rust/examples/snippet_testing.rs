@@ -144,22 +144,22 @@ async fn ai_extraction_replays_its_plan() -> Result<(), Error> {
     engine.close().await
 }
 
-/// Or a Scripted model: a provider that fails, for the handler's own handling.
-async fn provider_down() -> Result<(), Error> {
+/// Or a Scripted model: a provider whose funds are spent, an error no retry helps.
+async fn funds_spent() -> Result<(), Error> {
     let (crawl, book) = ai_crawl()?;
-    let model = ScriptedModel::new([ScriptedReply::Error(Error::fake(ErrorCode::ModelUnavailable, "503 from the provider"))]);
+    let model = ScriptedModel::new([ScriptedReply::Error(Error::fake(ErrorCode::ModelFundsExhausted, "credit balance too low"))]);
     let settings = Settings::new().set(ai::MODEL, ModelReference::from("scripted/any")).set(extract::MODE, ExtractMode::Model);
     let engine = TestEngine::start(TestOptions::default().model_provider("scripted", model.clone()).settings(settings)).await?;
     let attempt = engine
         .run_handler(&crawl, &book, HandlerInput::new(BOOK, ()).response(SavedResponse::path("tests/fixtures/a-light-in-the-attic.html")))
         .await?;
-    assert!(matches!(&attempt.ended, AttemptEnd::Failed(e) if e.code() == &ErrorCode::ModelUnavailable));
+    assert!(matches!(&attempt.ended, AttemptEnd::Failed(e) if e.code() == &ErrorCode::ModelFundsExhausted));
     assert_eq!(model.requests().len(), 1);
     engine.close().await // fails if a reply is left unused
 }
 
 fn main() {
     let _ = (book_page_gives_its_book, crawl_collects_every_book_from_the_recording, page_the_recording_lacks_fails);
-    let _ = (ai_extraction_replays_its_plan, provider_down);
+    let _ = (ai_extraction_replays_its_plan, funds_spent);
     let _ = schemars::schema_for!(Book);
 }

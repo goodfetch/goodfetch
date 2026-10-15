@@ -3,8 +3,8 @@
 // Foxhound's (ADR 0084). It fits any test runner: plain values closed with `await using`, failures
 // thrown as `GoodfetchError`s, and assertions left to the runner's own `expect` or `assert`.
 //
-// - `TestEngine`: ADR 0069's test engine, a real engine set up for one test. Nothing it does leaves
-//   the machine unless a Run records: every Run that names no Response recording replays an empty one.
+// - `TestEngine`: ADR 0069's test engine, a real engine set up for one test. It reaches no site unless
+//   a Run records: every Run that names no Response recording replays an empty one.
 // - `runHandler`: one crawl handler on one saved response, reporting how its attempt ended and what it
 //   staged, without a Frontier, Hooks or a commit.
 // - `runHook`: one of the crawl's Hooks, by name, the same way.
@@ -18,19 +18,17 @@ import type { Goodfetch, Logger } from "./lifecycle.js";
 import type { ModelProviderHandler, ModelRequest, ModelResponse, ModelUsage } from "./models.js";
 import type { StoredBytes } from "./output.js";
 import type { Headers } from "./page.js";
-import type { GoodfetchError, ProgramError } from "./results.js";
+import type { BlockCause, GoodfetchError, ProgramError, SkipReason } from "./results.js";
 import type { Settings } from "./settings.js";
 
 /** Options of starting a test engine. */
 export interface TestEngineOptions {
-  /** Settings for its connection and everything beneath it (ADR 0083). */
-  readonly settings?: Settings;
   /**
-   * ADR 0059's `resolve` map, host to address, such as `{ "shop.test": "127.0.0.1:8080" }` for the
-   * test's own server. Its hosts are allowlisted for this engine (ADR 0017), so they are reached live
-   * even while a Run replays.
+   * Settings for its connection and everything beneath it (ADR 0083). Every host its `resolve`
+   * setting (ADR 0059) maps to loopback, such as a test's own server, is allowlisted (ADR 0017) and
+   * reached live even while a Run replays.
    */
-  readonly resolve?: Readonly<Record<string, string>>;
+  readonly settings?: Settings;
   /** The project configuration file. Left out: none, as the home and the environment are the test's own. */
   readonly project?: string;
   /** Model providers the test answers itself, such as a Scripted model, named by `ai.model` as `"<name>/<any>"` (ADR 0101). */
@@ -60,7 +58,8 @@ export type HandlerInput<L extends Label<unknown, unknown>> = {
   readonly recording?: string;
   /**
    * `http` by default, or the tier the Label's `fetch.tier` forces: no browser starts, and a call only a
-   * browser serves ends the attempt `escalated`. `browser` renders the document in the browser.
+   * browser serves ends the attempt `escalated`. `browser` renders the document in the browser, its
+   * `Date` starting at the document's `Date` header.
    */
   readonly tier?: FetchTier;
   /** Default 1, for a handler that acts on its attempt number. */
@@ -73,13 +72,18 @@ export type HandlerInput<L extends Label<unknown, unknown>> = {
 export type AttemptEnd =
   /** The handler returned: what it staged would commit. */
   | { readonly kind: "returned" }
-  /** `ctx.skip(message)`. */
-  | { readonly kind: "skipped"; readonly message: string }
+  /** `ctx.skip(message)` (reason `handler`), or a handler's navigation that Site preferences refused and it let escape. */
+  | { readonly kind: "skipped"; readonly reason: SkipReason; readonly message: string | null }
   /** `ctx.retry(message)`. */
   | { readonly kind: "retry_requested"; readonly message: string }
   /** A call the tier cannot serve; in a crawl, the request would run again in the browser. `call` is that call, rendered as the program wrote it (ADR 0079). */
   | { readonly kind: "escalated"; readonly call: string }
-  /** The handler threw: its own exception as `handler_failed`, or the code a `GoodfetchError` keeps. */
+  /** The document's status is a Block cause (ADRs 0021, 0093): the handler did not run. */
+  | { readonly kind: "blocked"; readonly cause: BlockCause }
+  /**
+   * The handler threw: its own exception as `handler_failed`, or the code a `GoodfetchError` keeps; or,
+   * before it ran, the document's status failed it (`response_not_ok`, `response_unavailable`).
+   */
   | { readonly kind: "failed"; readonly error: GoodfetchError }
   /** A kind this SDK does not know, as received (G3). */
   | { readonly kind: "unknown"; readonly raw: string };
@@ -138,8 +142,9 @@ export type HookResult =
  * environment, no project file unless named, `offline` (ADR 0043), short durations, and no Model
  * provider unless the test registers or configures one, so a call that needs a model with none
  * throws `ModelNotConfiguredError`. Every Run started from `connection` that names no Response
- * recording replays an empty one: a request off the machine throws `ResponseNotRecordedError`, naming
- * it. An Attached engine here; the linked engine in Rust (ADR 0069).
+ * recording replays an empty one: a request to a site throws `ResponseNotRecordedError`, naming it.
+ * Browsers come from the shared per-user cache or `GOODFETCH_BROWSERS_PATH` (ADR 0024). An Attached
+ * engine here; the linked engine in Rust (ADR 0069).
  */
 export declare class TestEngine implements AsyncDisposable {
   private constructor();
@@ -148,7 +153,9 @@ export declare class TestEngine implements AsyncDisposable {
   readonly connection: Goodfetch;
   /**
    * Runs the Label's handler, the one the crawl attached, on one request, with the Label's settings,
-   * in a Run of its own. Nothing else of the crawl runs: no Frontier, no Hooks, no commit. Throws
+   * in a Run of its own: one attempt, no retry. Nothing else of the crawl runs: no Frontier, no Hooks,
+   * no commit. The document is not fetched, so neither robots.txt nor Politeness applies to it, but
+   * ADR 0093's status rules do, before the handler runs. Throws
    * when it cannot run the handler (`ResponseNotRecordedError` for the document, `PayloadInvalidError`,
    * `LabelUnknownError`, `LabelUnhandledError`); once the handler ran, how its attempt ended is a value.
    */
@@ -164,7 +171,7 @@ export declare class TestEngine implements AsyncDisposable {
   [Symbol.asyncDispose](): Promise<void>;
 }
 
-/** One reply of a Scripted model: a response, or an error the provider would give, such as `fakeError(ModelUnavailableError)`. */
+/** One reply of a Scripted model: a response, or an error the provider would give. A retryable error is retried as a provider's (ADR 0101), the retry taking the next reply. */
 export type ScriptedReply = ModelResponse | GoodfetchError;
 
 /** ADR 0069's Scripted model: answers call n with reply n, records every request, and reports Usage from its replies. */

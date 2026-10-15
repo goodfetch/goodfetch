@@ -8,7 +8,7 @@ them alike, and the kit needs no plugin of its own.
 from decimal import Decimal
 
 from goodfetch import Recording, ResponseNotRecordedError, seed
-from goodfetch import ModelUnavailableError
+from goodfetch import ModelFundsExhaustedError
 from goodfetch.testing import AsyncTestEngine, Failed, Returned, SavedResponse, ScriptedModel, Skipped, fake_error
 from scenarios.snippet_crawl import BookPayload, ai_book, ai_crawl, book, books, crawl, home
 
@@ -37,7 +37,8 @@ async def test_book_page_with_no_price_is_skipped() -> None:
         attempt = await engine.run_handler(
             crawl, book, url=BOOK, payload=BookPayload(category="Poetry"), response=SavedResponse(body="<h1>No price</h1>")
         )
-    assert isinstance(attempt.ended, Skipped) and attempt.ended.message.startswith("no price")
+    assert isinstance(attempt.ended, Skipped) and attempt.ended.reason == "handler"
+    assert attempt.ended.message is not None and attempt.ended.message.startswith("no price")
 
 
 # 2. The whole crawl, from the responses one live run recorded with `Recording(mode="record", path=...)`.
@@ -77,12 +78,12 @@ async def test_ai_extraction_replays_its_plan_with_no_model_call() -> None:
             assert report.usage.model.calls == 0
 
 
-# Or a Scripted model: here, a provider that fails.
-async def test_handler_fails_cleanly_when_the_model_provider_is_down() -> None:
-    model = ScriptedModel([fake_error(ModelUnavailableError, message="503 from the provider")])
+# Or a Scripted model: here, a provider whose funds are spent, an error no retry helps.
+async def test_handler_fails_cleanly_when_the_model_funds_are_spent() -> None:
+    model = ScriptedModel([fake_error(ModelFundsExhaustedError, message="credit balance too low")])
     async with AsyncTestEngine.start(
         model_providers={"scripted": model}, settings={"ai": {"model": "scripted/any"}, "extract": {"mode": "model"}}
     ) as engine:  # closing it fails if a reply is left unused
         attempt = await engine.run_handler(ai_crawl, ai_book, url=BOOK, response=SavedResponse(path="tests/fixtures/a-light-in-the-attic.html"))
-    assert isinstance(attempt.ended, Failed) and attempt.ended.error.code == "model_unavailable"
+    assert isinstance(attempt.ended, Failed) and attempt.ended.error.code == "model_funds_exhausted"
     assert len(model.requests) == 1

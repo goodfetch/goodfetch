@@ -6,8 +6,10 @@ there, as it does a Plan file (ADR 0091), so a Daemon or Goodfetch Cloud works t
 - `replay`: every request the Run would send to an address a page can reach (ADR 0017's first class: crawl requests,
   navigations, browser subresources, `page.request`, robots.txt) is answered from the file and never sent. One the file
   lacks is refused: a call the program made raises `ResponseNotRecordedError`, a crawl request ends `failed` with it, and
-  a subresource fails in its page as a network error. Every miss is listed in the Run report. Hosts the Run allowlists
-  for tests (ADR 0017), such as a test's own server on loopback, are reached as usual.
+  a subresource fails in its page as a network error. Every miss is listed in the Run report. A host the `resolve`
+  setting maps to loopback (ADR 0059), such as a test's own server, is reached as usual; any other address is answered
+  from the file. Requests match on method, URL, the canonical body's hash taken after Secrets are masked, and the
+  `Vary` headers the file holds.
 - `record`: the Run fetches as usual, and the file is replaced, atomically, by every response it received when the Run
   ends. No credential is kept.
 

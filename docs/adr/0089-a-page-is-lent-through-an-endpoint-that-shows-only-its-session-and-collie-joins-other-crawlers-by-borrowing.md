@@ -50,6 +50,8 @@ Decided in [Third-party automation on Foxhound pages, and Collie inside other cr
 | Usage, Limits | The library's own model calls, such as Browser Use's, are outside Usage and Limits (ADR 0041); the docs send AI work that must be counted to Collie's own verbs. |
 | Run trace | Each attach appears with its start, its end and reason, and every refused command (G6). |
 
+> Amended by [ADR 0114](0114-a-program-and-collie-take-turns-on-a-page-other-code-drives-and-an-ai-verb-fails-when-a-navigation-it-did-not-start-replaces-its-document.md): while a library is attached, the program awaits each of its own Collie calls before the library acts, and an AI verb of the program's whose document a navigation it did not start replaces fails with `page_navigated_during_call`.
+
 ### Supported libraries
 
 - **Supported, each with a helper, a guide and conformance cases:** Playwright in TypeScript and Python, Puppeteer in TypeScript, Browser Use in Python.
@@ -85,6 +87,7 @@ Decided in [Third-party automation on Foxhound pages, and Collie inside other cr
 - **Each browser context a borrowed page belongs to is one Session of the Run,** joined by later pages of that context. Crawlee's pool runs several browsers and, with incognito pages, a context per page; scrapy-playwright opens named contexts in one browser. A second run borrowing the same browser is still refused with `browser_borrowed`. When the crawler closes a page or retires its browser, the borrow ends and the Page reports `closed`.
 - **What Collie keeps:** the Effect journal and Run trace for its own actions, Plans and their replay, Success checks and Verdicts (ADR 0013), the engine's AI safety on its own actions as far as interception reaches (ADR 0014), Usage and Limits on its model calls, and Extraction.
 - **What it loses** is ADR 0056's: the guard's guarantee (results unguarded, since the crawler's driver holds the page too), typing Secrets, egress enforced below the browser (interception only, with the rebinding gap recorded), stealth (the Session is `standard`, with the crawler's browser's identity), the Session pool, and resuming on another machine.
+  > Amended by [ADR 0114](0114-a-program-and-collie-take-turns-on-a-page-other-code-drives-and-an-ai-verb-fails-when-a-navigation-it-did-not-start-replaces-its-document.md): the program and Collie take turns on a borrowed page, and an AI verb whose document a navigation it did not start replaces, such as the crawler's own navigation during an `extract`, fails with `page_navigated_during_call`.
 - **Retries stay the crawler's:** Collie sees a retried handler as new calls in the same Run. How a program names its own Effects is [Effects a program declares in code](https://github.com/goodfetch/goodfetch/issues/500)'s.
   > Amended by [ADR 0106](0106-a-program-declares-an-effect-as-a-keyed-block-whose-output-the-effect-journal-keeps-judged-by-what-the-engine-sent.md): on a Run whose browser is borrowed, a key declared again after its answer returns that answer (`journal` or `reconciled`) instead of raising `effect_key_reused`, so a retried handler finds the Effect it already performed; the docs tell such a program to put the crawler's request key in the Effect key.
 - **Guides with tested examples:**

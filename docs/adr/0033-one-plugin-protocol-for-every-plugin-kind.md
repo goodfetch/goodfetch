@@ -140,6 +140,7 @@ A before-request Hook may rewrite a URL within the registrable domain of the ori
 
 Hooks run in declared order and can be scoped by label, which replaces Crawlee's router middleware. A Hook error is a typed `hook_failed`, retried by the work item's policy, and a Hook's time counts against the lease.
 
+> Amended by [ADR 0093](0093-a-crawl-declares-its-labels-and-one-handler-each-and-a-handler-reads-collies-page-on-every-fetch-tier.md): a Hook's retry and a retryable `hook_failed` draw on the crawl request's `crawl.retry.max`, the same budget as its handler's.
 > Amended by [ADR 0104](0104-a-crawl-declares-its-hooks-per-stage-in-code-a-hook-returns-its-change-and-a-program-registers-its-own-plugins-by-name.md): Hooks named in settings run first, layer by layer from Operator policy to the run layer, then a crawl's Hooks in code in the order declared. A Hook's own exception is retried only when `crawl.retry.handler_failed` is on; a Goodfetch code raised inside, when its retryable flag says so.
 
 **Browser backends.** A browser backend answers with one of three:

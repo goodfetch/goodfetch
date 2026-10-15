@@ -1,10 +1,10 @@
 # A Run stops resumably before its disk fills, and a Daemon's logs rotate at a bounded size
 
-The resource governor watches the free space of every filesystem a Run writes to. It works at three storage levels, `normal`, `low` and `critical`:
+The resource governor samples the free space of every filesystem a Run writes to. It works at three storage levels, `normal`, `low` and `critical`:
 - **At `low`,** a Run sheds the writes it can do without (Run trace video, new Response cache entries) and carries a `storage_low` warning.
 - **At `critical`,** every Run whose essential writes are on that filesystem stops resumably, with the stop reason `resources` and `resource: "storage"`. It keeps enough room to record the stop, and a start with its ID resumes it once space is freed.
 
-A write that fails before the watch sees it rolls back, is never acknowledged, and stops the Run the same way. WARC files keep only whole, committed records.
+A write that fails before a sample sees it rolls back, is never acknowledged, and stops the Run the same way. WARC files keep only whole, committed records.
 
 Logs are bounded as follows. `goodfetch daemon run` logs to stdout for its platform to rotate. Every other Daemon writes JSON lines to files it rotates at 10 MiB, keeping five. The default level is `info`, which logs state changes and never one line per request.
 
@@ -24,13 +24,13 @@ Logs are bounded as follows. `goodfetch daemon run` logs to stdout for its platf
   - Docker's default `json-file` driver performs no rotation, and Docker's docs advise the `local` driver "to prevent disk-exhaustion" ([configure](https://docs.docker.com/engine/logging/configure/)).
 - **`tracing-appender`** 0.2.5 rotates by time only, and its `max_log_files` keeps the last `n` files ([Builder](https://docs.rs/tracing-appender/0.2.5/tracing_appender/rolling/struct.Builder.html)).
 
-Decided in [A disk that fills under a long Run, and log volume](https://github.com/goodfetch/goodfetch/issues/553), on the map [The SDK API of Collie and Foxhound](https://github.com/goodfetch/goodfetch/issues/461). Every answer was decided by the agent on the owner's delegation, with its [grilling record](https://github.com/goodfetch/goodfetch/issues/553#issuecomment-6204412536). Principles are cited by their IDs in [ADR 0077](0077-the-sdk-api-follows-eight-guarantees-and-four-ranked-shape-rules.md). It holds in both Products: the storage watch, the stops and the logs are the engine's, and only WARC output and the Politeness file are Foxhound's (ADR 0084).
+Decided in [A disk that fills under a long Run, and log volume](https://github.com/goodfetch/goodfetch/issues/553), on the map [The SDK API of Collie and Foxhound](https://github.com/goodfetch/goodfetch/issues/461). Every answer was decided by the agent on the owner's delegation, with its [grilling record](https://github.com/goodfetch/goodfetch/issues/553#issuecomment-6204412536). Principles are cited by their IDs in [ADR 0077](0077-the-sdk-api-follows-eight-guarantees-and-four-ranked-shape-rules.md). It holds in both Products: the storage levels, the stops and the logs are the engine's, and only WARC output and the Politeness file are Foxhound's (ADR 0084).
 
 ## Decision
 
-### The storage watch
+### The storage levels
 
-- **What is watched.** The resource governor of ADR 0040 also samples, at each of its samples, every filesystem holding a Run's writes:
+- **What is sampled.** The resource governor of ADR 0040 also samples, at each of its samples, every filesystem holding a Run's writes:
   - the run file's folder, or the per-install database (ADR 0002);
   - the Goodfetch home, with the Usage ledger, the Politeness file, the Run index, the Response cache and the log folder;
   - the folder of the Run trace and of WARC output;
@@ -49,6 +49,8 @@ Decided in [A disk that fills under a long Run, and log volume](https://github.c
   - **Why two levels.** Two levels follow Elasticsearch's watermarks and ADR 0040's pressure and critical.
   - **Why the smaller of two values.** The percentage keeps a small disk usable, and the fixed size keeps a large one from stopping with hundreds of gigabytes free. Heritrix's 8 GiB alone would stop a crawl on a 16 GB disk before it starts.
   - A level drops back as soon as a sample finds the space again.
+  - A level set to `0` is off, and a Run then meets only a failed write (below).
+  - The defaults keep the user's machine usable and the Run resumable with nothing set (G5).
 - **Where it shows.**
   - `run.progress()` carries `storage`: the worst level among the filesystems the Run writes to, with that filesystem's folder and free space.
   - A change of level is logged at warning, or at info on the way back.
@@ -68,16 +70,17 @@ Nothing stops at `low`, and admission goes on. Holding new work, as ADR 0040 doe
   - Its report's `stopReason` is `resources`, with `resource: "storage"` and the folder.
   - A start with its ID resumes it from its run file once space is freed (ADR 0102).
   - Unlike ADR 0040's one Run at a time, every such Run stops together, because stopping one Run frees no disk.
+  - **Held pages keep ADR 0040's rule.** A page under a person's control in the Live view is never ended by the engine. Its Run admits nothing new and stops once that person hands back or leaves, unless a write fails first, which stops it as below. A page waiting in a Human pause with nobody on it ends with its Run, as ADR 0040 has it.
 - **No Checkpoint copy.** The stop writes no Checkpoint copy onto a filesystem at `critical`, since a copy is as large as the run file; the run file on this machine is what resumes it. A Checkpoint whose location is on another filesystem is still written, as ADR 0002's clean stop has it. The report's `checkpoint` names the last one written.
 - **The reserve stays for the stops.**
   - A new Run whose run file would go to that filesystem is refused at its start with `resources_exhausted`.
   - An Export, a Checkpoint or a Run trace copy that the engine would write there fails at once with `file_write_failed`, side `engine`, reason `storage_full` (ADR 0116), before writing a byte.
   - The Run trace of any Run on that filesystem stops, and the Run carries the "no trace" mark (ADR 0031).
   - `/readyz` fails while the filesystem holding run state is at `critical` (ADR 0050).
-- **No automatic resume.** A crawl's handlers and a Collie program's steps run in the program, so the engine cannot resume a Run alone. The stopped Run raises the stopped Notification (ADR 0029) and is listed in "Needs you". A person frees space, and a start with the Run's ID resumes it (ADR 0102). Elasticsearch releases its block automatically because an index has no program behind it.
+- **No automatic resume.** A crawl's handlers and a Collie program's steps run in the program, so the engine cannot resume a Run alone. The stop raises ADR 0027's Notification for Completeness `incomplete`, which a storage stop always is, and the Run is listed in "Needs you". A person frees space, and a start with the Run's ID resumes it (ADR 0102). Elasticsearch releases its block automatically because an index has no program behind it.
 - **Expected, not thrown.** As for any stop, `finish()` returns the report saying `stopped` (ADR 0102; G1).
 
-### A write that fails before the watch sees it
+### A write that fails before a sample sees it
 
 A quota, another process filling the disk between two samples, or a filesystem that misreports its space makes a write fail with no warning.
 - **The run file.** The writer issues `ROLLBACK` after `SQLITE_FULL` or `SQLITE_IOERR`, as SQLite advises, so the state is the same after any of them. Nothing in the failed commit is acknowledged.
@@ -107,7 +110,7 @@ A quota, another process filling the disk between two samples, or a filesystem t
   - The run file commits each WARC file's length together with the attempt whose records it holds.
   - A resume cuts each WARC file back to its committed length, so neither a torn record nor the capture of a request the stop left uncommitted stays in it. The request is fetched again and captured once, as ADR 0003's "visible once" requires of every output.
   - Heritrix instead leaves `.warc.gz.open` files that a crash may truncate and a person must validate.
-- **No new per-Run byte cap.** The parts a Run can do without already have caps: a Run trace has 1 GB per Run (ADR 0031), the Response cache 10 GB per user (ADR 0046), and logs the cap below. The run file and WARC output are the Run's own output, bounded by its Limits (ADR 0041). A byte quota per Run would stop Runs on an arbitrary number while the disk still has room.
+- **No new per-Run byte cap.** The parts a Run can do without already have caps: a Run trace has 1 GB per Run (ADR 0031), the Response cache 10 GB per user (ADR 0046), and logs the cap below. The run file and WARC output are the Run's own output, bounded by its Limits (ADR 0041). A byte cap per Run would stop Runs on an arbitrary number while the disk still has room.
 
 ### `resources_exhausted`
 
@@ -143,7 +146,7 @@ ADR 0040 named the code without a group. It is an `UnavailableError`, not retrya
   | `log.file.max_files` | 5 |
 
   - Set where no Daemon reads them, as on an Attached engine, they fail with `setting_not_applicable` (ADR 0083).
-  - An SDK still sets its connection's level through its host's logger (ADR 0078).
+  - An SDK still sets its connection's level through its host's logger and never logs on its own (ADR 0078; G4).
 - **A log write never blocks or stops anything.** The writer is lossy and non-blocking. A line it cannot write, because its buffer is full or the disk is, is dropped and counted, and the next line written says how many were dropped. That is ADR 0078's rule that logs are telemetry, "never slowing a run".
 
 ## Considered Options
@@ -157,7 +160,7 @@ ADR 0040 named the code without a group. It is an `UnavailableError`, not retrya
 - **Resuming automatically once space returns** (Elasticsearch's release): rejected. A Run's handlers are in its program, and only a start with its ID brings them back (ADR 0102).
 - **Dropping WARC records with a warning:** rejected. WARC is what a crawl that asks for it exists to produce, and a silent gap is G1's failure that looks like a result.
 - **Evicting Response cache entries to free space:** rejected. It would break `replay` without warning, and the cache already has its own cap.
-- **A byte quota per Run:** rejected. It stops Runs on an arbitrary number while the disk has room, and Limits already bound a Run's work.
+- **A byte cap per Run:** rejected. It stops Runs on an arbitrary number while the disk has room, and Limits already bound a Run's work.
 - **Logging only to stdout or stderr:** rejected. A Daemon started on demand, by launchd or by a Windows logon task has no manager that keeps or rotates its output.
 - **Always writing the engine's own files:** rejected. In a container they would duplicate what the platform already collects and rotates, on a filesystem that may be ephemeral.
 - **Daily rotation, as `tracing-appender` offers:** rejected. A busy day's file is unbounded.
@@ -166,7 +169,7 @@ ADR 0040 named the code without a group. It is an `UnavailableError`, not retrya
 ## Consequences
 
 - **Adds to ADR 0040.**
-  - The governor watches storage.
+  - The governor samples free storage.
   - At `critical`, every Run with an essential write on that filesystem stops together, with `resource: "storage"`, and writes no Checkpoint copy there.
   - `resources_exhausted` is an `UnavailableError`, not retryable, with `resource` in its details.
   - A note sits under its last resort.
@@ -185,7 +188,7 @@ ADR 0040 named the code without a group. It is an `UnavailableError`, not retrya
 - **Amends ADR 0046.** At `low`, the Response cache stores no new entry. A note sits under its size cap.
 - **Amends ADR 0050.**
   - `/readyz` also fails while the filesystem holding run state is at `critical`.
-  - The metrics gain each watched filesystem's free space and storage level, labelled by what it holds (run state, home, trace, WARC, temporary), a bounded set.
+  - The metrics gain each sampled filesystem's free space and storage level, labelled by what it holds (run state, home, trace, WARC, temporary), a bounded set.
   - A note sits under `/readyz`.
 - **Adds to ADR 0049.** The Docker and Compose guides set the `local` logging driver, and every Daemon outside `daemon run` writes its own rotated files.
 - **Adds to ADR 0083.** The `storage.*` and `log.*` areas join the settings schema.
@@ -195,7 +198,7 @@ ADR 0040 named the code without a group. It is an `UnavailableError`, not retrya
 - **`TESTING.md`** gains the storage cases and the Daemon log cases.
 - **Error codes.** `resources_exhausted` joins `goodfetch-protocol` in the `unavailable` group, not retryable, with its exit code in ADR 0069's table. It is Collie's code, so Rust has `ErrorCode::RESOURCES_EXHAUSTED` (ADR 0099). `storage_low` is a warning code, which area 3's spec lists.
 - **Who builds what.**
-  - **Area 3 (Engine runtime)** builds the storage watch and its levels, the stops and the rollback on a failed write, the log writer, its rotation and its settings.
+  - **Area 3 (Engine runtime)** builds the storage sampling and its levels, the stops and the rollback on a failed write, the log writer, its rotation and its settings.
   - **Area 6 (Collection)** builds the committed WARC length and the cut back on resume.
   - **Area 13 (Self-hosted deployment and operations)** builds the logging driver in the Docker and Compose guides, the `/readyz` condition and the metrics, and documents the log folder for each OS.
   - **Area 12 (Console)** builds the "Needs you" entry.

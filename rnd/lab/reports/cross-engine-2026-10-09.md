@@ -1,6 +1,6 @@
-# The Automan guard on Chromium, WebKit and Firefox, October 9, 2026
+# The Collie guard on Chromium, WebKit and Firefox, October 9, 2026
 
-**Purpose.** Verify that the Automan guard protects actions on engines other than Chromium, going through Playwright for engines without CDP (Firefox, WebKit). This is the condition for Automan to drive these engines behind the same contract as its CDP driver. It is a test of action correctness, not of fingerprinting.
+**Purpose.** Verify that the Collie guard protects actions on engines other than Chromium, going through Playwright for engines without CDP (Firefox, WebKit). This is the condition for Collie to drive these engines behind the same contract as its CDP driver. It is a test of action correctness, not of fingerprinting.
 
 **Experimental design.**
 - Three matrices: actionability (9 variants), primitives (10) and navigation, frames and files (7).

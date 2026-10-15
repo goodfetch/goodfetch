@@ -55,7 +55,7 @@ export async function runIdentityCell(config: IdentityConfig, cell: IdentityCell
       const pool = proxies ? new ProxyPool(proxies.urls.map(url => ({ url, user: proxies.credentials.user, password: proxies.credentials.password }))) : undefined;
       try {
         const labels = cell.variant === 'isolation' ? ['A', 'B'] : [null];
-        const sessions = await Promise.all(labels.map(() => IdentitySession.open({ profile: cell.profile, httpTier: cell.httpTier, purpose: cell.purpose, connection, keys, agentOrigin: directory.origin, contactUrl: 'https://automan.invalid/bot', timeoutMs: config.timeoutMs, proxyPool: pool })));
+        const sessions = await Promise.all(labels.map(() => IdentitySession.open({ profile: cell.profile, httpTier: cell.httpTier, purpose: cell.purpose, connection, keys, agentOrigin: directory.origin, contactUrl: 'https://goodfetch.invalid/bot', timeoutMs: config.timeoutMs, proxyPool: pool })));
         const start = performance.now();
         const outputs = await Promise.all(sessions.map(async (session, index) => {
           const label = labels[index]!;

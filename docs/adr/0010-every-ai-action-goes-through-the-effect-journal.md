@@ -1,6 +1,6 @@
 # Every AI-driven action goes through the Effect journal; an unverifiable Effect is never redone
 
-Every action an AI decides (built-in agent, MCP, function tools, code mode, `act`, Repair) is recorded in the run's Effect journal, so a retried or corrected step skips an Effect the site already received instead of performing it again. When redone work after a machine loss reaches an Effect that has no way to verify whether it already happened, the engine skips it and reports the work item uncertain, unless the Effect declares itself repeatable. In the lab, raw code mode gave 17 false successes out of 45 with one model and none with the journal. Decided in [Adopt AI and agent decisions](https://github.com/Jbmanllr/automan/issues/72), answering the question ADR 0003 left open.
+Every action an AI decides (built-in agent, MCP, function tools, code mode, `act`, Repair) is recorded in the run's Effect journal, so a retried or corrected step skips an Effect the site already received instead of performing it again. When redone work after a machine loss reaches an Effect that has no way to verify whether it already happened, the engine skips it and reports the work item uncertain, unless the Effect declares itself repeatable. In the lab, raw code mode gave 17 false successes out of 45 with one model and none with the journal. Decided in [Adopt AI and agent decisions](https://github.com/goodfetch/goodfetch/issues/72), answering the question ADR 0003 left open.
 
 ## Considered Options
 

@@ -6,7 +6,7 @@
    "primary": "lists"
   },
   "case": "ordered-start",
-  "source": "automan-curated"
+  "source": "goodfetch-curated"
  },
  "ground_truth": {
   "main_content": "Steps:\n\n3. Open the file\n4. Edit the line\n5. Save it\n",

@@ -1,5 +1,5 @@
 [package]
-name = "automan-workflow-rust"
+name = "goodfetch-workflow-rust"
 version = "0.1.0"
 edition = "2024"
 publish = false

@@ -51,7 +51,7 @@ test('on the recorded evidence, D-core-language is mechanically better for Rust 
 // A synthetic lab root: one bench run (measurement) and one actionability run (gates) for a driver decision.
 async function driverFixture(actionabilityStatus: (backend: string, variant: string) => string, noisyBlocks: number[] = []) {
   const { mkdtemp, mkdir, writeFile } = await import('node:fs/promises'); const { tmpdir } = await import('node:os'); const { join } = await import('node:path');
-  const root = await mkdtemp(join(tmpdir(), 'automan-verdict-')); await mkdir(join(root, 'ledger/imported'), { recursive: true });
+  const root = await mkdtemp(join(tmpdir(), 'goodfetch-verdict-')); await mkdir(join(root, 'ledger/imported'), { recursive: true });
   const ratio: Record<string, number> = { 'rust-cdp': 0.5, 'node-cdp': 0.9, playwright: 1 };
   const policy: Record<string, string> = { 'rust-cdp': 'guarded', 'node-cdp': 'guarded', playwright: 'native' };
   const bench = { runId: 'bench-1', lane: 'bench', host: { classGranted: 'local-controlled' }, blocks: Array.from({ length: 6 }, (_, index) => ({ index, noisy: noisyBlocks.includes(index) })), cells: Array.from({ length: 6 }, (_, block) => Object.keys(ratio).map(backend => ({
@@ -115,7 +115,7 @@ test('declared strata each get their own comparison, so opposite effects are not
 // A single-option decision is judged on its contract alone: each gate reads its own lane, and one failed recovery cell blocks it.
 async function contractFixture(recoveryStatus: string) {
   const { mkdtemp, mkdir, writeFile } = await import('node:fs/promises'); const { tmpdir } = await import('node:os'); const { join } = await import('node:path');
-  const root = await mkdtemp(join(tmpdir(), 'automan-contract-')); await mkdir(join(root, 'ledger/imported'), { recursive: true });
+  const root = await mkdtemp(join(tmpdir(), 'goodfetch-contract-')); await mkdir(join(root, 'ledger/imported'), { recursive: true });
   const runtime = { runId: 'rt-1', lane: 'runtime', host: { classGranted: 'local-dev' }, cells: ['none', 'after-commit'].map((fault, block) => ({ factors: { runtime: 'rust', fault, block }, status: fault === 'none' ? 'verified' : recoveryStatus, metrics: {} })) };
   const admission = { runId: 'adm-1', lane: 'admission', host: { classGranted: 'local-dev' }, cells: [{ factors: { policy: 'fair-domain', fault: 'crash', block: 0 }, status: 'verified', metrics: {} }] };
   for (const run of [runtime, admission]) await writeFile(join(root, `ledger/imported/${run.runId}.json`), JSON.stringify(run));

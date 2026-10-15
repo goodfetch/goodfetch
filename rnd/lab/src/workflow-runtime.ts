@@ -19,7 +19,7 @@ type RuntimeExecution={options:RuntimeConfig;result:RuntimeResult;verifiedJobs:n
 export async function runRuntime(options:RuntimeConfig){
   for(const [key,min,max]of [['jobs',1,10000],['pages',1,5000],['concurrency',1,128],['batchJobs',1,128],['delayMs',0,1000]]as const)if(!Number.isInteger(options[key])||options[key]<min||options[key]>max)throw new Error(`invalid runtime ${key}`);
   if(options.batchJobs>options.concurrency||options.jobs*options.pages*2>1000000||!['node','rust'].includes(options.runtime)||options.runtime==='rust'&&options.backend&&options.backend!=='node-http')throw new Error('runtime corpus/backend budget exceeded');
-  const directory=options.directory??await mkdtemp(join(tmpdir(),'automan-native-workflow-'));await mkdir(directory,{recursive:true});
+  const directory=options.directory??await mkdtemp(join(tmpdir(),'goodfetch-native-workflow-'));await mkdir(directory,{recursive:true});
   const fixtures=await startFixtures();const ids=new Map<string,string>();const jobs:WorkflowJob[]=[];
   for(let i=0;i<options.jobs;i++){const fixture=await fixtures.createRun({scenario:'http-catalog',seed:options.seed+i,pages:options.pages,delayMs:options.delayMs,variant:options.variant});const jobId=`job-${i}`;ids.set(jobId,fixture.id);jobs.push({jobId,task:{scenario:'http-catalog',seed:options.seed+i,pages:options.pages,actions:1,timeoutMs:30000,variant:options.variant??'normal',url:fixture.url}})}
   const token=randomBytes(24).toString('hex');const oracle=createServer(async(req,res)=>{
@@ -34,8 +34,8 @@ export async function runRuntime(options:RuntimeConfig){
   async function execute():Promise<RuntimeExecution>{
     if(closed)throw new Error('fixtures closed');
     const build=JSON.parse(await readFile(join(labRoot,'.native/build.json'),'utf8'));const currentLibrary=await hashFile(join(labRoot,`.native/${sqliteLibrary}`));if(currentLibrary!==build.hashes[sqliteLibrary])throw new Error('shared SQLite artifact differs from build');
-    const rustBuild=JSON.parse(await readFile(join(labRoot,'.native/workflow-build.json'),'utf8'));if(options.runtime==='rust'&&(rustBuild.sqliteSha256!==currentLibrary||await hashFile(join(labRoot,'.native/automan-workflow-rust'))!==rustBuild.binarySha256))throw new Error('Rust workflow artifact differs from build');
-    const label=`execution-${execution++}`;const command=options.runtime==='rust'?join(labRoot,'.native/automan-workflow-rust'):process.execPath;const args=options.runtime==='rust'?[configPath]:[join(labRoot,'src/workflow-native-runner.ts'),configPath];
+    const rustBuild=JSON.parse(await readFile(join(labRoot,'.native/workflow-build.json'),'utf8'));if(options.runtime==='rust'&&(rustBuild.sqliteSha256!==currentLibrary||await hashFile(join(labRoot,'.native/goodfetch-workflow-rust'))!==rustBuild.binarySha256))throw new Error('Rust workflow artifact differs from build');
+    const label=`execution-${execution++}`;const command=options.runtime==='rust'?join(labRoot,'.native/goodfetch-workflow-rust'):process.execPath;const args=options.runtime==='rust'?[configPath]:[join(labRoot,'src/workflow-native-runner.ts'),configPath];
     const child=spawn(command,args,{cwd:labRoot,stdio:['ignore','pipe','pipe'],detached:true});const sampler=sampleRuntimeResources(child.pid!,100);const events:Record<string,unknown>[]=[];let buffer='';let stderr='';let result:RuntimeResult|undefined;let fatal:string|undefined;const began=performance.now();
     let timer:NodeJS.Timeout;
     let coordinatorKilled=false;let killedAt=0;

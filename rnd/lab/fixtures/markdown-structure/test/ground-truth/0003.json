@@ -6,7 +6,7 @@
    "primary": "headings"
   },
   "case": "sectioned",
-  "source": "automan-curated"
+  "source": "goodfetch-curated"
  },
  "ground_truth": {
   "main_content": "# Release notes\n\n## Fixes\n\nSeveral fixes.\n\n## Features\n\nTwo features.\n\n### Streaming\n\nNow streams.\n",

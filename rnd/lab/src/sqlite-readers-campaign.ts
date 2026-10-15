@@ -24,7 +24,7 @@ export async function readersCampaign(blocks=3,config:ReadersConfig=defaultReade
     const cell=matrix[index]!;cells.push(await runReadersCell(config,index,block,directory));
     await writeFile(join(directory,'summary.json'),JSON.stringify({cells},null,2)+'\n');process.stderr.write(`sqlite/${cell.engine}/W${cell.writers}/${cell.readerMode}/B${cell.batchRows}/b${block}: ${cells.at(-1)!.status}\n`);
   }
-  const sourceChanges=Object.entries(await sourceFingerprint()).filter(([file,hash])=>env.sourceHashes[file]!==hash).map(([file])=>file);const current=await sharedBuildMetadata();const binaryChanged=current.hashes['libautoman_sqlite.dylib']!==build.hashes['libautoman_sqlite.dylib'];
+  const sourceChanges=Object.entries(await sourceFingerprint()).filter(([file,hash])=>env.sourceHashes[file]!==hash).map(([file])=>file);const current=await sharedBuildMetadata();const binaryChanged=current.hashes['libgoodfetch_sqlite.dylib']!==build.hashes['libgoodfetch_sqlite.dylib'];
   await writeFile(join(directory,'summary.json'),JSON.stringify({cells,sourceChanges,binaryChanged},null,2)+'\n');return {directory,cells,sourceChanges,binaryChanged};
 }
 if(process.argv[1]?.endsWith('sqlite-readers-campaign.ts')){const result=await readersCampaign(Number(process.argv[2]??3));process.stdout.write(JSON.stringify({directory:result.directory,verified:result.cells.filter(c=>c.status==='verified').length,total:result.cells.length,sourceChanges:result.sourceChanges,binaryChanged:result.binaryChanged})+'\n');if(result.cells.some(c=>c.status!=='verified')||result.sourceChanges.length||result.binaryChanged)process.exitCode=1}

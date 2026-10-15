@@ -64,7 +64,7 @@ The official benchmarks in the agent-browser repository compare **its old Node.j
 
 The Crawlee guide explicitly mentions the limits of its Stagehand adapter: Chromium only and reduced fingerprinting control. One cannot automatically attribute to it all the launch/fingerprinting possibilities of `PlaywrightCrawler`, let alone a general guarantee of bypassing protections or of correct repair. [JS limits](https://crawlee.dev/js/docs/guides/stagehand-crawler-guide), [Python limits](https://crawlee.dev/python/docs/guides/stagehand-crawler).
 
-## Proposed consequence for Automan
+## Proposed consequence for Goodfetch
 
 Adopting a compact page representation by default, a targeted scope and optional vision is consistent. This can be independent of the CDP driver, the queue and the CLI/MCP/SDK choice. Differentiation must be measured on real flows: observations avoided, deterministic actions reused, validated repair and correct results, rather than on the presence of an accessibility tree already shared by several tools.
 

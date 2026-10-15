@@ -7,7 +7,7 @@ ADR 0037 orders the specs of V1's fourteen areas by the contracts they consume, 
 3. **M3 Browser automation:** actions and the guard, Firefox and WebKit, stealth and the Challenge solver, the Live view with takeover, the Browser host and Session sources.
 4. **M4 Everything else**, ending at V1's release gates.
 
-Every V1 capability stays in V1 (ADR 0037); the milestones order the work, they exclude nothing. Decided with the owner while specifying the Engine runtime ([delivery order](https://github.com/Jbmanllr/automan/issues/213#issuecomment-6145231664)).
+Every V1 capability stays in V1 (ADR 0037); the milestones order the work, they exclude nothing. Decided with the owner while specifying the Engine runtime ([delivery order](https://github.com/goodfetch/goodfetch/issues/213#issuecomment-6145231664)).
 
 ## Considered Options
 

@@ -55,7 +55,7 @@ async fn gesture(page: &mut Page, selector: &str, kind: Gesture<'_>, guarded: bo
 
 // The drivers' own copy of the unicode variant text (the fixture keeps the oracle's copy).
 const UNICODE_TEXT: &str = "Ünïcødé — 漢字 😀";
-const UPLOAD_TEXT: &str = "automan-upload\n";
+const UPLOAD_TEXT: &str = "goodfetch-upload\n";
 
 fn ms(since: Instant) -> f64 {
     since.elapsed().as_secs_f64() * 1000.0
@@ -165,7 +165,7 @@ pub async fn run(page: &mut Page, task: &Value) -> Result<Value, String> {
             match variant {
                 "hover" => page.hover(target).await,
                 "keyboard" => page.press_enter(target).await,
-                "contenteditable" => page.fill(target, "Automan").await,
+                "contenteditable" => page.fill(target, "Goodfetch").await,
                 _ => page.fill(target, UNICODE_TEXT).await,
             }
         }
@@ -294,7 +294,7 @@ pub async fn run(page: &mut Page, task: &Value) -> Result<Value, String> {
                 operations += 1;
             }
             match step {
-                "fill" => page.fill(selector, "Automan").await?,
+                "fill" => page.fill(selector, "Goodfetch").await?,
                 _ => page.select(selector, "eu").await?,
             }
         }

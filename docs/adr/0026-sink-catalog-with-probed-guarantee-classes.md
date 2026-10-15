@@ -17,9 +17,9 @@ A destination's name does not fix what it can guarantee. AWS S3 and R2 have cond
 - **Keyed**: a retry lands on the same key, sometimes only within a dedup window.
 - **At-least-once**: the receiver dedups on the delivery ID.
 
-A run can require a minimum class and is refused before it starts if a Sink cannot meet it. No surveyed product fences sink writes with a run epoch; the closest are Kafka transactions and Snowpipe Streaming channels, which fence a producer or channel but not a resumed run. Users' two most frequent complaints are silent failure and duplicates. Decided in [Export connectors and integrations catalog](https://github.com/Jbmanllr/automan/issues/88).
+A run can require a minimum class and is refused before it starts if a Sink cannot meet it. No surveyed product fences sink writes with a run epoch; the closest are Kafka transactions and Snowpipe Streaming channels, which fence a producer or channel but not a resumed run. Users' two most frequent complaints are silent failure and duplicates. Decided in [Export connectors and integrations catalog](https://github.com/goodfetch/goodfetch/issues/88).
 
-Evidence: [sinks, notifications and integrations research](https://github.com/Jbmanllr/automan/blob/research/sinks-integrations-catalog/rnd/research/2026-10-11-sinks-integrations/README.md), including [delivery best practice](https://github.com/Jbmanllr/automan/blob/research/sinks-integrations-catalog/rnd/research/2026-10-11-sinks-integrations/g-best-practice.md) and [65 coded user pains](https://github.com/Jbmanllr/automan/blob/research/sinks-integrations-catalog/rnd/research/2026-10-11-sinks-integrations/f-user-pains.md).
+Evidence: [sinks, notifications and integrations research](https://github.com/goodfetch/goodfetch/blob/research/sinks-integrations-catalog/rnd/research/2026-10-11-sinks-integrations/README.md), including [delivery best practice](https://github.com/goodfetch/goodfetch/blob/research/sinks-integrations-catalog/rnd/research/2026-10-11-sinks-integrations/g-best-practice.md) and [65 coded user pains](https://github.com/goodfetch/goodfetch/blob/research/sinks-integrations-catalog/rnd/research/2026-10-11-sinks-integrations/f-user-pains.md).
 
 ## Considered Options
 
@@ -52,6 +52,8 @@ Evidence: [sinks, notifications and integrations research](https://github.com/Jb
 - insert-only
 - replace (written apart, then swapped in atomically)
 - history (versions with valid-from and valid-to)
+
+> Amended by [ADR 0103](0103-a-handler-pushes-records-staged-with-its-attempt-into-datasets-its-crawl-declares-and-a-reader-never-slows-the-crawl.md): the user-declared fields are the Sink's own `key`, or else the `key` of each Dataset it receives, which the crawl declares. The run's start refuses with `setting_invalid` a Sink in a keyed mode with no key of its own when any of its Datasets has none, and a Sink key naming a field that a schema of one of its Datasets does not require; a Record of a Dataset with no schema that reaches a keyed Sink without its key fields joins the Sink's dead letters. A Record is identified by its Dataset and its number, so record ranges and the order by record number are per Dataset. Sinks are configured as `sinks.<name>.*` settings on a connection or a crawl's Run, refused on a Label and when set on a Collie Run; a Sink inherited from the connection or from configuration is inactive for a Collie Run. A Collie engine refuses one given to a Run or a connection with `not_in_product` (ADR 0087), and leaves configuration's `sinks.*` to Foxhound.
 
 The last record in a batch wins. "Only new or changed" delivers what change tracking reports against the Baseline. A record missing since the Baseline can be soft-deleted, by a complete run only (ADR 0036). The engine refuses a mode a destination cannot support. On Sheets and Notion, the engine does the lookup itself.
 

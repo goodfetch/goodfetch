@@ -339,11 +339,11 @@ A declaration by a run's code of what an expected page and a login page look lik
 _Avoid_: contract, validator, assertion
 
 **Dataset**:
-The append-only collection of a run's Records.
+The append-only collection of a run's Records, named by the crawl that fills it, which may give it a schema and the fields that identify one Record.
 _Avoid_: results table, output, items
 
 **Record**:
-One unit of structured data in a Dataset.
+One unit of structured data in a Dataset, committed once with the work that produced it.
 _Avoid_: row, document, item (an item is a unit of work)
 
 **Key-value store**:
@@ -397,7 +397,7 @@ The record of the Effects and model calls of a run, consulted so that a retried,
 _Avoid_: action log, history
 
 **Operation catalog**:
-The single list of engine operations, each classed read, idempotent write or Effect, that every surface exposes to people and agents.
+The single list of engine operations, each classed read, idempotent write or Effect and marked with the smallest Product that carries it; every surface of a Product exposes that Product's operations to people and agents.
 _Avoid_: tool list, API surface
 
 **Code mode**:
@@ -405,7 +405,7 @@ Driving the engine through a short program written by a model that calls only th
 _Avoid_: scripting, eval
 
 **Framework adapter**:
-A package that offers Goodfetch's operations as tools of an agent framework, such as the Vercel AI SDK, LangChain or Mastra.
+A package that offers a Product's operations as tools of an agent framework, such as the Vercel AI SDK, LangChain or Mastra.
 _Avoid_: wrapper, toolkit, Integration
 
 **MCP host**:

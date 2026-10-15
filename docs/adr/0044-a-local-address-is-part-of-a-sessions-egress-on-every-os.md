@@ -1,6 +1,6 @@
 # A local address is part of a Session's egress, on every OS
 
-A run can send its traffic from chosen local addresses: a list of IP addresses, a network interface by name, or an IPv6 prefix. Each Session binds one address per IP family for its life, exactly as it binds one proxy, so a change of address opens a new Session (ADR 0021). DNS lookups and WebRTC follow the same address, browsers reach it through the engine's egress relay, and, for Sessions without a proxy, a replacement after a block draws from a different network block. Spider and Scrapy let HTTP requests choose their source address, and no browser tool does (parity row SA-25). Decided in [Network defaults](https://github.com/Jbmanllr/automan/issues/118).
+A run can send its traffic from chosen local addresses: a list of IP addresses, a network interface by name, or an IPv6 prefix. Each Session binds one address per IP family for its life, exactly as it binds one proxy, so a change of address opens a new Session (ADR 0021). DNS lookups and WebRTC follow the same address, browsers reach it through the engine's egress relay, and, for Sessions without a proxy, a replacement after a block draws from a different network block. Spider and Scrapy let HTTP requests choose their source address, and no browser tool does (parity row SA-25). Decided in [Network defaults](https://github.com/goodfetch/goodfetch/issues/118).
 
 Spider wraps reqwest's `local_address` and `interface`, and its interface option silently does nothing where the OS lacks support ([website.rs](https://github.com/spider-rs/spider/blob/main/spider/src/website.rs)). Scrapy binds per request through `meta["bindaddress"]` or globally through `DOWNLOAD_BIND_ADDRESS` ([docs](https://docs.scrapy.org/en/latest/topics/request-response.html)). Crawlee documents nothing. Chromium has no switch for the source address, so Playwright, Stagehand and Browser Use users resort to a local proxy or network namespaces. reqwest's `interface` works on Linux, Android, Fuchsia, Apple platforms, Solaris and illumos, but not Windows ([ClientBuilder](https://docs.rs/reqwest/latest/reqwest/struct.ClientBuilder.html)). Cloudflare's rate limiting counts "an individual IPv4 address or IPv6 /64 IP range" as one client ([docs](https://developers.cloudflare.com/waf/reference/legacy/old-rate-limiting)).
 
@@ -35,7 +35,7 @@ Spider wraps reqwest's `local_address` and `interface`, and its interface option
 **Rotation.**
 - When a block retires a Session without a proxy (ADR 0021), its replacement prefers an address outside every /64 (IPv6) or /24 (IPv4) blocked on that domain during the run. When the pool has no other block, it rotates within the block and the run notes it.
 - New Sessions with no block involved spread across blocks round-robin. Both block sizes are settings.
-- Rotating local addresses on a block carries the legal rating of IP rotation on block ([legal exposure](https://github.com/Jbmanllr/automan/issues/65)) and follows ADR 0035's placement of it.
+- Rotating local addresses on a block carries the legal rating of IP rotation on block ([legal exposure](https://github.com/goodfetch/goodfetch/issues/65)) and follows ADR 0035's placement of it.
 
 **Unchanged.** ADR 0017's resolved-IP check and ADR 0021's `per_ip_concurrency`, which is keyed by the target's IP, apply as before.
 

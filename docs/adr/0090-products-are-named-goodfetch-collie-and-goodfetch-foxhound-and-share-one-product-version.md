@@ -62,7 +62,7 @@ Decided in [Product names, packages, executables and version line](https://githu
 - **OCI.** ADR 0049's tags (`<v>`, `-slim`, `-full`, `-node`, `-python`) apply under each Product's image. Which tags each Product publishes is decided in [Release, signing and testing of two products](https://github.com/goodfetch/automan/issues/459), and what the Browser host runs in [Which executables the Browser host and Goodfetch Cloud's engines run](https://github.com/goodfetch/automan/issues/498). A Helm chart is named after the Product whose image it runs, under `ghcr.io/goodfetch/charts/`.
 - **Releases.** One tag, `vX.Y.Z`, and one GitHub Release per Product version carry both Products' files, each file named after its executable.
 - **Adapters and Integrations** that a registry versions (ADRs 0011 and 0027) are named after the Product they serve: `@goodfetch/<product>-<target>` on npm and `goodfetch-<product>-<target>` on PyPI, unless the target's ecosystem requires a form. n8n requires a name that "starts with `n8n-nodes-` or `@<scope>/n8n-nodes-`" ([n8n docs](https://docs.n8n.io/integrations/community-nodes/build-community-nodes/)), so its node is `@goodfetch/n8n-nodes-<product>`. Which Product each serves is #458's.
-- **Agent skills and MCP servers.** A Product's skill, the server name its docs and `init`'s templates give its MCP server in a host's configuration, and the name that server announces are `goodfetch-collie` or `goodfetch-foxhound`; a skill on one topic is `goodfetch-collie-<topic>`. Agent Skills names allow lowercase letters, digits and single hyphens, up to 64 characters ([specification](https://agentskills.io/specification)).
+- **Agent skills and MCP servers.** A Product's skill, the server name its docs and `init`'s templates give its MCP server in an MCP host's configuration, and the name that server announces are `goodfetch-collie` or `goodfetch-foxhound`; a skill on one topic is `goodfetch-collie-<topic>`. Agent Skills names allow lowercase letters, digits and single hyphens, up to 64 characters ([specification](https://agentskills.io/specification)).
 - **No meta-package.** `goodfetch` is published on no registry. Foxhound contains Collie, so a package installing both would install two engines for nothing and give a second way to get Foxhound, and Goodfetch would name something installed (ADR 0084).
 
 ### SDK names
@@ -132,7 +132,7 @@ Decided in [Product names, packages, executables and version line](https://githu
 
 ## Consequences
 
-- **Amends ADR 0034.** Notes sit under its identifiers, its rule that sub-names never stand alone, and its reservation.
+- **Amends ADR 0034.** Notes sit under its opening note, its identifiers, its rule that sub-names never stand alone, and its reservation.
 - **Amends ADR 0030.** One Product version covers both Products. A note sits under its opening.
 - **Amends ADR 0078.** The connection types are `Collie` and `Foxhound`. A note sits under its entry point.
 - **Amends ADR 0024.** Each Product's SDKs read their own engine-path variable. A note sits under its packaging consequence.

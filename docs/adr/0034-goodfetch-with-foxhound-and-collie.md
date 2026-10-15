@@ -4,6 +4,8 @@ The framework is named **Goodfetch**, and Automan was its working name until thi
 
 > Amended by [ADR 0084](0084-goodfetch-ships-two-products-collie-and-foxhound-from-one-repository-and-foxhound-contains-collie.md): Goodfetch is the organization and umbrella brand, not the name of anything installed. Collie and Foxhound are its two Products, each installed on its own: Collie drives one browser page and extracts from the page it is on, and Foxhound, which crawls, contains Collie's code.
 
+> Amended by [ADR 0090](0090-products-are-named-goodfetch-collie-and-goodfetch-foxhound-and-share-one-product-version.md): "not the name of anything installed" covers what a person installs to get a Product. Components both Products share keep `goodfetch` names, such as the `goodfetch-sandbox` helper either Product may install for Plugins (ADR 0033).
+
 ## Considered Options
 
 - **Keep Automan with qualified identifiers** (`@automanhq/*`, PyPI `automanhq`, an `automanhq` org): rejected. Every install line would carry a qualifier, searches would return two other automation projects, and the commercial name would start with a known conflict. Nothing is published yet, so a rename costs only text now.

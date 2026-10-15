@@ -46,7 +46,7 @@ ADR 0079 gives each code exactly one group, named for its remedy, and one retrya
 - **Neither is retryable.** The same call fails the same way until a person frees space or fixes the path or the setup. `run_state_unavailable` (ADR 0102), `secret_unavailable` (ADR 0092) and `not_in_product` (ADR 0087) are not retryable for the same reason.
   - A crawl handler whose `ctx.run.export` lets either code escape ends its request `failed`, with no retries spent (ADR 0093).
 - **Class names.** `PathNotWritableError` and `FileWriteFailedError`, which shadow no built-in (ADR 0079).
-- **The CLI.** Each code has an exit code in ADR 0069's table, so a CLI command that writes a file raises the same two.
+- **The CLI.** Each code has an exit code in ADR 0069's table, so a CLI command whose file write fails exits with that code.
 
 ### What the errors carry
 
@@ -60,12 +60,13 @@ ADR 0079 gives each code exactly one group, named for its remedy, and one retrya
     - on the program's side, the program's path as given;
     - on the engine's side, the folder where the engine keeps the Run, as `run_state_unavailable` gives it, or `null` where the engine has no folder of its own (Goodfetch Cloud).
   - `side`, on `file_write_failed` only: `engine` or `program`.
-- **The cause.** On the program's side, the native error is chained in the language's own way (ADR 0079): Node's system error, Python's `OSError`, or Rust's `std::io::Error` as `source()`.
+- **The cause.** When the SDK runtime wrote the program's path itself, the native error is chained in the language's own way (ADR 0079): Node's system error, Python's `OSError`, or Rust's `std::io::Error` as `source()`.
   - The SDK runtime renders these errors in ADR 0079's layout, as it renders `closed`.
+  - When a local engine wrote the path (below), the error comes over the protocol, as every engine error does, with no native error to chain: `reason`, `osCode` and the message carry what the OS said.
 - **`fix` (G6):**
   - **`path_not_writable`** names the path argument and what to change: a folder this user can write, a file name rather than a folder, a name the filesystem accepts, or a filesystem that holds a file this size (for an Export, its `compression`, ADR 0103).
-  - **`file_write_failed` on the program's side** says to free space and call `saveAs` again: the engine still holds the file.
-  - **`file_write_failed` on the engine's side** says to free space where the engine keeps its Runs, or to ask the Daemon's operator, and then call `export` (or `checkpoint`) again.
+  - **`file_write_failed` on the program's side** says to free space and make the same call again: `saveAs`, since the engine still holds the file, or `screenshot()` or `pdf()` for a file written through their `path` option.
+  - **`file_write_failed` on the engine's side** says to free space where the engine keeps its Runs, or to ask the Daemon's operator, and then call `export`, `checkpoint` or `trace` again.
 
 ### Written whole or not at all
 
@@ -79,7 +80,7 @@ ADR 0079 gives each code exactly one group, named for its remedy, and one retrya
   - it replaces an existing file, as Playwright's `copyFile` and `createWriteStream` do;
   - it resolves a relative path against the program's working directory.
 - **Either process may write the program's path.** The SDK runtime may write it, or a local engine may copy the file there directly, as Playwright's server does. Both follow this rule and raise these codes.
-- **On the engine's side.** `run.export` and `run.checkpoint` return their value only once its file is complete, with its size and SHA-256 (ADR 0103), and the engine removes an unfinished file. So an `Export` or a `Checkpoint` a program holds is always whole.
+- **On the engine's side.** `run.export`, `run.checkpoint` and `run.trace` (when it writes its copy) return their value only once its file is complete, with its size (and, for an Export, its SHA-256, ADR 0103), and the engine removes an unfinished file. So an `Export`, a `Checkpoint` or a `RunTrace` a program holds is always whole.
 
 ### Golden scenario 05
 

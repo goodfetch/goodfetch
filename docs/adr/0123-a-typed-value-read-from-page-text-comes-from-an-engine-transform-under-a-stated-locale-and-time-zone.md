@@ -69,9 +69,10 @@ When an extracted field is a number, an amount's currency or a date, and the pag
   - A page's `lang` alone cannot be the rule: `en` does not say whether "01/02" is January or February.
   - The Session's `browser.locale` alone cannot be the rule either: it is what the site was asked for, not what it served.
 - **Replay never parses under a locale the page no longer uses.**
-  - For a Plan entry that holds a locale-dependent transform, the variant's key (ADR 0091's "one variant per page layout") also holds every input a locale or zone is resolved from: the element's language, the Session's `browser.locale` and `browser.timezone_id`, and the values of `extract.locale` and `extract.timezone_id` in effect for the call.
-  - A page served in another language, to a Session of another locale or zone, or under another `extract.locale` or `extract.timezone_id`, is a new variant, compiled once.
-  - The Plan keeps each transform's resolved locale and zone. Since the key holds every input they were resolved from, a replay uses them only where those inputs are the same, and a changed setting never replays the old locale or zone.
+  - For a Plan entry that holds a locale-dependent transform, the variant's key (ADR 0091's "one variant per page layout", ADR 0100's "one variant per start page layout" for an Agent's task) also holds the inputs its transforms are resolved from: the Session's `browser.locale` and the `extract.locale` in effect for any locale-dependent transform, and, for a `date_time` or a `relative_time`, the Session's `browser.timezone_id` and the `extract.timezone_id` in effect.
+  - A Session of another locale or zone, or another `extract.locale` or `extract.timezone_id`, finds no variant and compiles a new one once. Under `plan.frozen` it fails with `plan_drift`, naming the input that changed.
+  - Each field also keeps the language of the element it was read from. The element's language is known only once the variant's locators have found the element, so it is checked then: a replay that reads a field from an element in another language is Drift of its step. A per-call entry gets ADR 0091's one Repair, and an Agent's task hands over to its live loop (ADR 0100).
+  - The Plan keeps each transform's resolved locale and zone. Since the key and the check hold every input they were resolved from, a replay uses them only where those inputs are the same, and a changed setting never replays the old locale or zone.
   - Strict parsing alone cannot catch "1,099", which is 1099 under `en-US` and 1.099 under `de-DE`.
   - A program that fixes `browser.locale` and `browser.timezone_id` keeps one variant.
 - **A date-time that prints no offset takes its time zone (an IANA name) in this order:**
@@ -79,8 +80,8 @@ When an extracted field is a number, an amount's currency or a date, and the pag
   2. the setting `extract.timezone_id` (`null` by default), spelled as `browser.timezone_id` is (S1);
   3. the Session's `browser.timezone_id`.
 
-  Under ADR 0021 the Session's zone is matched to the proxy exit, and it is the zone the page's own scripts format times in (Playwright: "this only affects the browser timezone and locale, not the test runner timezone"). It is never the machine's zone, and never chosen by the model, since nothing on the page could check a zone the text does not state.
-- **A relative time is anchored at the fetch time of the page's document.** That is the moment the engine received its response, read from its `Clock` (ADR 0059) and recorded in Provenance. Under a Response recording it is the recorded time (ADR 0105), so a test reads the same value on every replay. The result is the anchor minus the amount, never rounded, and Provenance marks it relative with its anchor.
+  Under ADR 0021 the Session's zone is matched to the proxy exit, and it is the zone the page's own scripts format times in (Playwright: "this only affects the browser timezone and locale, not the test runner timezone"). It is never read from the engine's machine, and never chosen by the model, since nothing on the page could check a zone the text does not state.
+- **A relative time is anchored at the fetch time of the page's document.** That is the moment the engine received its response, read from its `Clock` (ADR 0059) and recorded in Provenance. Under a Response recording it is the recorded time, and for a document a test gives `runHandler` itself, its `Date` header, as ADR 0105 starts that page's clock, so a test reads the same value on every replay. The result is the anchor minus the amount, never rounded, and Provenance marks it relative with its anchor.
 
 ### Provenance
 
@@ -113,13 +114,13 @@ When an extracted field is a number, an amount's currency or a date, and the pag
   - The closed list of compiled transforms is this ADR's.
   - In model mode, the model answers each field with its text and transform, and the engine computes the value.
   - A replayed transform that does not parse is Drift, which `GLOSSARY.md`'s **Drift** now covers beside a target that no longer matches its Target fingerprint.
-  - The variant key of an entry holding a locale-dependent transform also holds the element's language, the Session's locale and time zone, and `extract.locale` and `extract.timezone_id`.
+  - The variant key of an entry holding a locale-dependent transform also holds the Session's locale and the `extract.locale` in effect, and for a date-time or relative time the Session's zone and `extract.timezone_id`; each field keeps its element's language, checked once the element is found. Under `plan.frozen` a missing variant fails with `plan_drift`.
   - `extract.locale` and `extract.timezone_id` join `extract.mode`.
   - Notes sit under its Plan section and Compiled and model extraction.
-- **Amends ADR 0100.** An Agent's output fields follow the same transforms and the same answer form. A note sits under its Grounding bullet.
+- **Amends ADR 0100.** An Agent's output fields follow the same transforms and the same answer form. Its entry's start page variant also holds the Session's locale and zone and the `extract.*` values its transforms resolve from, and each output field keeps the language of the element it was read from, so a replay that reads one from an element in another language is Drift and the live loop takes over. Notes sit under its Grounding bullet and its Plan entry's key.
 - **Adds to ADR 0083.** `extract.locale` and `extract.timezone_id` are new settings, `null` by default, set at any scope that takes `extract.*`. A locale tag the engine has no CLDR data for fails with `setting_invalid`, whose message names the closest tag it has.
 - **Amends ADR 0117.** `scriptedExtraction(data)` keeps its typed `data`. The testing kit answers in the model's answer form: for each value it finds the page text from which a Value transform under the page's locale gives that value, and answers with that text and transform under `model`, or with the locators and transform that read it under `compiled`. A date printed "01.02.2026" is found for `2026-02-01`. A note sits under its `scriptedExtraction` bullet, and one under ADR 0105's Scripted model.
-- **Adds to ADR 0105.** A relative time read from a Response recording is anchored at the recorded fetch time.
+- **Adds to ADR 0105.** A relative time read from a Response recording is anchored at the recorded fetch time, and one read from a document a test gives `runHandler` at that document's `Date` header.
 - **Adds to ADR 0059.** A relative time's anchor is the document's fetch time from the `Clock`, recorded in Provenance, so its tests need no clock.
 - **`GLOSSARY.md`** gains **Value transform**, and **Grounding** names it.
 - **`TESTING.md`** gains the Value transform conformance cases.

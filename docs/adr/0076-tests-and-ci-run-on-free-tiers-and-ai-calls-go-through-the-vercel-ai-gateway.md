@@ -60,6 +60,7 @@ Facts this rests on, checked on 2026-10-14:
 - **A named Cloudflare Tunnel on an owned domain:** rejected while there is no revenue; it needs a registered domain, while a Quick Tunnel needs neither an account nor a domain. Its limits (200 in-flight requests, no Server-Sent Events) fit the platforms' request-response calls.
 - **A secrets manager (1Password CLI, Doppler, SOPS):** rejected for now; a git-ignored `.env` written by a script is free, needs no account, and the names move unchanged into any manager later.
 - **Making the repository public now to get unlimited free minutes:** not decided here; it is the owner's call, and this ADR works either way.
+  > Amended by [ADR 0108](0108-while-the-repository-is-private-the-release-suite-runs-its-macos-cells-on-the-owners-machine-and-its-hosted-cells-under-a-ceiling.md): the owner declined it for now on 2026-10-15 ("Keep the repository private for now; fit the tests in the free minutes"); the repository stays private with no planned date before the first release.
 
 ## Consequences
 

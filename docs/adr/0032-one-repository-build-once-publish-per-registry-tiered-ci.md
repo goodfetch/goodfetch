@@ -23,6 +23,8 @@ rnd/               frozen R&D record
 
 > Amended by [ADR 0084](0084-goodfetch-ships-two-products-collie-and-foxhound-from-one-repository-and-foxhound-contains-collie.md): the repository holds two Products, Collie and Foxhound, and `crates/` builds an executable for each, Foxhound's containing Collie's code; the crate and executable names are decided in [How the products are built, and each product's Size budget](https://github.com/goodfetch/automan/issues/454) and [Product names, packages, executables and version line](https://github.com/goodfetch/automan/issues/457). The tree also holds `chromium/`, the Goodfetch Chromium's build inputs and expected results (ADR 0074).
 
+> Amended by [ADR 0087](0087-each-product-is-an-executable-crate-that-links-only-its-crates-and-has-its-own-size-budget.md): every crate only Foxhound links lives under `crates/foxhound/`, the sink processes included (`crates/foxhound/sinks/`, no longer `crates/sinks/`), and nothing outside it but `xtask` depends on a crate inside it; the rest of `crates/` may be linked by Collie.
+
 Releases are **built once and published per registry**: no tool publishes crates.io, npm platform packages, PyPI, Homebrew and an OCI image from one version, so, like uv, Turborepo and Oxc, Goodfetch writes its own publishing jobs. CI runs in tiers, so that the full platform and runtime matrix of ADR 0024 runs before every merge without holding up each pull request. Decided in [Repository layout and CI](https://github.com/Jbmanllr/automan/issues/107), on the evidence of the [repository layout, CI and release research](https://github.com/Jbmanllr/automan/blob/research/repo-layout-ci/rnd/research/2026-10-11-repo-layout-ci.md).
 
 ## Considered Options
@@ -83,6 +85,7 @@ Releases are **built once and published per registry**: no tool publishes crates
     - Which Sinks run: until the merge queue exists, every Sink's suite, as ADR 0026 requires. Once it exists, a pull request runs only the suites of the Sinks it changes, and the merge queue runs them all before the merge, so every pull request still passes the whole sink suite before it lands. A change to the sink protocol or to code that Sinks share counts as a change to every Sink.
     - The docs build and example runs when docs change.
     - DCO, the notice inventory (ADR 0018), the API breakage checks (ADR 0030), `cargo-deny`, `cargo-audit` and their npm and Python equivalents, a check that every Action is pinned by SHA, and a build on the minimum supported Rust version.
+      > Amended by [ADR 0087](0087-each-product-is-an-executable-crate-that-links-only-its-crates-and-has-its-own-size-budget.md): `cargo-deny` runs workspace-wide, proving that nothing outside `crates/foxhound/` but `xtask` depends on a crate inside it, and once per Product, rooted at its executable crate, on what it ships, with its own bans.
     - A Linux x64 size estimate posted as a comment, which never blocks (ADR 0057).
     - One "all green" job, the only required check.
       > Amended by [ADR 0074](0074-the-goodfetch-chromium-is-gated-where-it-is-built-against-a-control-build-of-the-same-revision.md): the Chromium build gate is a required check too, on every head.

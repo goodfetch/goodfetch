@@ -30,7 +30,7 @@ Decided in [Protocol, Operation catalog and SDKs across two products](https://gi
 - **A Client's `hello` adds the Product it needs and its own Product version,** both required. The engine's reply adds the engine's Product and Product version, which the connection's `engine` value reports (ADR 0078).
 - **No capability list.** Within a Product, every engine of one version has the same catalog, because a capability is a setting, never a Cargo feature (ADRs 0038 and 0087). What varies within a Product (installed Plugins, Operator policy, installed browsers) is read through operations, as before.
 - **The version check stays on the protocol's `major.minor`,** under ADR 0024's rule as amended by ADR 0066, and for a Browser host under [ADR 0096](0096-the-browser-host-runs-from-either-products-executable-and-goodfetch-cloud-runs-each-run-on-the-product-it-needs.md)'s, which settles on the lower minor within one major. Product versions are reported, not compared.
-- **A Browser host is never a Client, even when it connects out** (ADR 0056). Its `hello`, sent or replied, carries what an engine's reply carries: its executable's Product and Product version. It needs no Product, since its operations are Collie's, which every engine carries (ADR 0096), so no Product check applies to it; its token already names it as one Session's Browser host.
+- **A Browser host is never a Client, even when it connects out** (ADR 0056). Its `hello`, sent or replied, carries what an engine's reply carries: its executable's Product and Product version. It needs no Product, since its operations are Collie's, which every engine carries (ADR 0096), and the Product an engine announces to it is Collie, which every Browser host carries, so neither side's Product check refuses the other. Its token already names it as one Session's Browser host.
 
 ### Which Client reaches which engine
 
@@ -41,11 +41,11 @@ Decided in [Protocol, Operation catalog and SDKs across two products](https://gi
 - **Who announces which Product:**
   - each SDK, its own;
   - the CLI and the MCP server, when they are Clients of a Daemon (ADR 0024), their executable's;
-  - the Console, its engine's;
+  - the Console, the Product of its build: its engine's, and Foxhound's when Goodfetch Cloud's gateway serves it (ADR 0096);
   - an engine reaching a Browser host, Collie, since a Browser host's work is Collie's (ADR 0088);
   - an Integration, the Product it is built for (below);
   - the conformance harness, whichever Product a case tests;
-  - Goodfetch Cloud's gateway, to the engine of a run, that engine's own Product, having routed the run by the Product the Client's `hello` named (ADR 0096).
+  - Goodfetch Cloud's gateway, to the engine of a run, that engine's own Product, whichever of ADR 0096's rules picked that engine.
 - **The gateway's `hello` also says that it is Goodfetch Cloud's gateway.** That is how a Collie engine knows it sits behind the gateway and gives `not_in_product` the `fix` ADR 0096 sets there. The claim changes only that wording, so the engine takes it as given. The Stub gateway sends the same `hello`. The gateway forwards a person's Browser host's `hello` unchanged (ADR 0096).
 - **Every Group member of a Daemon group runs the same Product.** The peer protocol's handshake carries it and requires equality, not containment: runs move between Group members (ADR 0055), a Collie Group member could not resume a Foxhound run, and a Foxhound Group member placed beside Collie ones would leave its Foxhound runs nowhere to go. A Daemon of the other Product is refused with `not_in_product`, whose details name both Products and whose `fix` says to start that Daemon with the group's Product, so it names Foxhound only when the group runs Foxhound (G6).
 

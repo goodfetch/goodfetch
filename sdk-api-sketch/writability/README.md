@@ -26,7 +26,7 @@ No paid resource was used (ADR 0076), and no money was spent.
 
 ## Method
 
-To re-run it exactly, run `bin/` from a checkout of `eb1e35b` with this folder copied in. `setup.sh` takes the stubs from that commit, but it copies the package manifests and the Rust workspace from the working tree, and `make_runs.py` and `make_judge.py` read the scenarios from `WRITABILITY_REPO`, which defaults to the working tree. The sketch has moved on since `eb1e35b`.
+To re-run it exactly, run `bin/` from a checkout of `eb1e35b` with this folder copied in. `setup.sh` takes the stubs from that commit, but it copies the package manifests and the Rust workspace from the working tree, and `make_runs.py` and `make_judge.py` read the scenarios from `WRITABILITY_REPO`, which defaults to this worktree's path: set it to the `eb1e35b` checkout. The sketch has moved on since `eb1e35b`.
 
 - **What an agent saw.** A read-only copy of the stubs at `eb1e35b`, extracted by `bin/setup.sh`: TypeScript `collie-client`, `collie` and `foxhound` `.d.ts` files, Python `goodfetch_*` `.pyi` files, and Rust `collie-client`, `collie` and `foxhound` crates. It saw no scenarios, snippets, README, ADRs or leaders' programs.
   - Its prompt (`runs/*/prompt.md`) is the scenario's task statement, word for word, with the language and the packages available, and the rules below.
@@ -68,13 +68,13 @@ Full table: [`results-table.md`](results-table.md).
 
 - **Type-checks.** Both Claude models reached a passing type-check on all 72 Goodfetch programs within three check runs, 60 of them at the first attempt.
   - Of Sonnet's ten first-attempt failures, three are API shapes: Python `StepResult`'s invariance (`sonnet-gf-py-03`), a Rust `match` missing the wildcard arm of a non-exhaustive enum (`sonnet-gf-rs-11`), and unused `#[must_use]` `RunReport`s (`sonnet-gf-rs-04`).
-  - The other seven are strictness or setup: Python's untyped, unknown or unused names (`py-04`, `py-05`, `py-10`), TypeScript's null checks (`ts-05`), `erasableSyntaxOnly` (`ts-12`) and a `.ts` import suffix (`ts-10`), and a Rust unused import (`rs-03`).
+  - The other seven are strictness or setup: Python's strict checks: a missing return annotation (`py-04`), an unnecessary `isinstance` (`py-05`) and unknown argument types (`py-10`), TypeScript's null checks (`ts-05`), `erasableSyntaxOnly` (`ts-12`) and a `.ts` import suffix (`ts-10`), and a Rust unused import (`rs-03`).
   - Haiku's two are Python's partially unknown types (`haiku-gf-py-03`) and a deprecation (`haiku-gf-py-07`).
 - **Behaviour.** On the 18 tasks with a leader, Goodfetch programs were correct more often than the same model's leader programs: Sonnet 14 against 9, Haiku 13 against 6.
   - The leader programs' shortfalls follow the scenarios' failure points: a hosted model's cost not printed and the browser left open (Stagehand 4), the password held in clear by the program to fill it (Playwright, in all four programs), no kept steps in one Stagehand program, no recorded-crawl or AI test (Scrapy), no partial answer or stopping limit returned (Browser Use).
   - Goodfetch's shortfalls are the findings below.
 - **Weaker models.** Haiku did as well as Sonnet on Goodfetch (21 correct each) and worse on the leaders.
-  - The local 14B model wrote no correct program. Within 32k tokens it read one or two stub files and then invented names. Three of its Python crawl programs look for the crawl types in the Collie client package instead of Foxhound's: `AsyncCrawl` and `AsyncCrawlContext` (`local-gf-py-05`), those and `Label`, `Dataset` and `CrawlRequest` (`local-gf-py-06`), and a `Crawler` from a `_crawler` module (`local-gf-py-08`). Its Rust crawl programs import them from Foxhound. It also used a `get_by_css` page method (`local-gf-py-05`'s final program and `local-gf-py-02`'s first attempt).
+  - The local 14B model wrote no correct program. Within 32k tokens it read one or two stub files and then invented names. Four of its Python programs look for the crawl types in the Collie client package instead of Foxhound's: `AsyncCrawl` and `AsyncCrawlContext` (`local-gf-py-05`), those and `Label`, `Dataset` and `CrawlRequest` (`local-gf-py-06`), a `Crawler` from a `_crawler` module (`local-gf-py-08`), and `Dataset` and `AsyncFoxhound` (`local-gf-py-10`). The local Rust crawl programs that import anything import them from Foxhound. It also used a `get_by_css` page method (`local-gf-py-05`'s final program and `local-gf-py-02`'s first attempt).
   - Nine of its 28 runs never called the checker; the harness checked their final program.
 - **Scenario 03's coarse check.** As #483 warned, every program uses the address-prefix Success check of the task statement, and judges did not mark it down.
 

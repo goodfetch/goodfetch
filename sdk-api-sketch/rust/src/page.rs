@@ -283,14 +283,11 @@ macro_rules! locates {
                 unimplemented!()
             }
 
-            /// Enters an iframe this selector matches, same-origin or cross-origin alike.
-            pub fn frame_locator(&self, selector: &str) -> FrameLocator {
-                let _ = selector;
-                unimplemented!()
-            }
-
-            /// Starts the search in every frame of the page; the rest resolves inside one frame.
-            pub fn any_frame(&self) -> FrameLocator {
+            /// Enters an iframe this selector matches, same-origin or cross-origin alike; `None`,
+            /// Playwright's selector-less form, starts the search in every frame of the page, and
+            /// the rest resolves inside one frame. One name for both shapes (ADR 0099).
+            pub fn frame_locator<'s>(&self, selector: impl Into<Option<&'s str>>) -> FrameLocator {
+                let _ = selector.into();
                 unimplemented!()
             }
         }

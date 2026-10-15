@@ -84,7 +84,7 @@ pub use run::{
 };
 pub use sessions::{
     BrowserName, ClearCookies, Cookie, CookieInput, ExportKey, HttpCredentials, HumanPauseDeclined, HumanPauseResult, Identities,
-    LoggedOut, PageCheck, PageMatch, Pause, Permission, RecoveryStep, ResolvedBy, SameSite, SavedIdentity, SecretBinding,
+    LoggedOut, PageCheck, PageMatch, Pause, PauseUntil, Permission, RecoveryStep, ResolvedBy, SameSite, SavedIdentity, SecretBinding,
     SecretDomainNotAllowed, SecretInputRefused, SecretPlaceholder, SecretReference, SecretRequest, SecretUnavailable, SecretUnbound,
     SessionNotSavable, SessionSource, StateFileFormat, TextInput, WebStorage, secret,
 };

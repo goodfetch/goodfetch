@@ -659,6 +659,43 @@ pub struct Pause {
     _private: (),
 }
 
+/// What ends a pause by itself: a locator becoming visible, or a URL matching as `wait_for_url`
+/// takes it (ADR 0092).
+#[non_exhaustive]
+pub enum PauseUntil {
+    /// The locator is visible.
+    Visible(Locator),
+    /// The page's URL matches.
+    Url(UrlMatcher),
+}
+
+impl fmt::Debug for PauseUntil {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Visible(_) => f.write_str("Visible(..)"),
+            Self::Url(url) => f.debug_tuple("Url").field(url).finish(),
+        }
+    }
+}
+
+impl From<&Locator> for PauseUntil {
+    fn from(locator: &Locator) -> Self {
+        Self::Visible(locator.clone())
+    }
+}
+
+impl From<UrlMatcher> for PauseUntil {
+    fn from(url: UrlMatcher) -> Self {
+        Self::Url(url)
+    }
+}
+
+impl From<&str> for PauseUntil {
+    fn from(glob: &str) -> Self {
+        Self::Url(UrlMatcher::from(glob))
+    }
+}
+
 impl fmt::Debug for Pause {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str("Pause(..)")
@@ -672,15 +709,10 @@ impl Pause {
         unimplemented!()
     }
 
-    /// Ends the pause by itself once `locator` is visible; a person's "Done" is accepted only then.
-    pub fn until(self, locator: &Locator) -> Self {
-        let _ = locator;
-        unimplemented!()
-    }
-
-    /// Ends the pause by itself once the page's URL matches.
-    pub fn until_url(self, url: impl Into<UrlMatcher>) -> Self {
-        let _ = url.into();
+    /// Ends the pause by itself once a locator is visible or the page's URL matches; a person's
+    /// "Done" is accepted only then. One name for both shapes, as TypeScript's `until` (ADR 0099).
+    pub fn until(self, until: impl Into<PauseUntil>) -> Self {
+        let _ = until.into();
         unimplemented!()
     }
 

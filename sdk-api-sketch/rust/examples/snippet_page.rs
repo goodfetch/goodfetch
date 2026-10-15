@@ -127,7 +127,7 @@ async fn pay_in_frame(page: &Page) -> Result<(), Error> {
         .get_by_role(AriaRole::Button.name("Pay"))
         .click()
         .await?;
-    page.any_frame()
+    page.frame_locator(None)
         .get_by_text("Paid")
         .wait_for(ElementState::Visible)
         .await?; // every frame searched

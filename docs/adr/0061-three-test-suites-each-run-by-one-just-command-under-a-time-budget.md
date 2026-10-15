@@ -60,6 +60,7 @@ Checks that are non-deterministic by nature are not in any suite: real SaaS Sink
 > Amended by [ADR 0074](0074-the-goodfetch-chromium-is-gated-where-it-is-built-against-a-control-build-of-the-same-revision.md): the Chromium build gate is also a required check, on every head.
 
 - **Until the merge queue exists** (the repository is private, ADR 0032), the Release suite runs on manual dispatch. It must pass on the commit before each milestone's owner test (ADR 0058), and before any release.
+  > Amended by [ADR 0108](0108-while-the-repository-is-private-the-release-suite-runs-its-macos-cells-on-the-owners-machine-and-its-hosted-cells-under-a-ceiling.md): while the repository is private, a manual-dispatch run puts its macOS cells on the owner's machine (macOS x64 under Rosetta 2), runs Linux x64, Linux arm64 and Windows x64 hosted under a ceiling of 600 included minutes a month, and leaves native macOS Intel and Windows arm64 until the repository is public.
 - **Size baseline.** Every merge-queue run saves its per-target size report (`xtask size`, thin-LTO CI profile) keyed by the tree it tested. The group that merges makes that tree `main`'s head, so its report is `main`'s build of the same profile that ADR 0057's increase checks and the pull request's Linux x64 estimate compare against; they read the report for `main`'s head. While the repository is private, manual-dispatch Release runs on `main` save it.
 - **Merge queue settings:** "Only merge non-failing pull requests" on, and a status check timeout of 120 minutes. Group size and build concurrency are set so the queue keeps up with merges, within the free plan's 5 concurrent macOS jobs.
 
@@ -81,10 +82,13 @@ These are the recipes that [Workspace skeleton and the "all green" pull-request 
 | `just test <suite> [packages]` | Runs one suite's tests alone, without lints, for Rust, TypeScript or Python packages. CI jobs call this for their part. |
 | `just hooks` | Opt-in: points `core.hooksPath` at the committed `.githooks/`. Its pre-commit hook checks formatting, and its pre-push hook runs `just quick`. |
 
+> Amended by [ADR 0108](0108-while-the-repository-is-private-the-release-suite-runs-its-macos-cells-on-the-owners-machine-and-its-hosted-cells-under-a-ceiling.md): while the repository is private, `just release-ci` also takes the cells to run, all by default, and on `main` a commit of `main`, its head by default; off `main` it tests the branch's pushed head, hosted cells only. A commit's verdict may then span several dispatches.
+
 - **Until `xtask affected` exists** ([`xtask affected`: change detection for the pull-request tier](https://github.com/goodfetch/goodfetch/issues/134), which comes after the skeleton), `just quick` and `just pre-merge` run over the whole workspace, as their `all` forms do.
 - **`xtask affected` is the one source of what changed**, in CI and locally. Locally it diffs the working tree against the merge base. It gives nextest an `rdeps(…)` filterset, so crates that depend on a changed crate are tested too, and gives Vitest and pytest their packages.
 - **A local suite that can't run a part on this host says so.** For example, the sink containers on a machine without a container engine, or another OS's cell. The recipe lists every part it skipped, with the reason, after its results. Its exit code covers what ran. CI is the verdict.
 - **The reference host is never reached from a recipe.** `just release-ci` runs on GitHub-hosted runners only. The benchmark keeps ADR 0025's own command and ADR 0032's trigger rule: tags and manual dispatch by the owner.
+  > Amended by [ADR 0108](0108-while-the-repository-is-private-the-release-suite-runs-its-macos-cells-on-the-owners-machine-and-its-hosted-cells-under-a-ceiling.md): while the repository is private, `just release-ci` on `main` also runs the macOS cells on the owner's machine, testing only commits of `main`; on another branch it runs the hosted cells alone.
 - **Hooks stay opt-in**, as Rust's pre-push hook is ([rustc-dev-guide](https://rustc-dev-guide.rust-lang.org/building/suggested.html)). CI enforces, and a hook can be bypassed anyway.
 
 ### Time budgets

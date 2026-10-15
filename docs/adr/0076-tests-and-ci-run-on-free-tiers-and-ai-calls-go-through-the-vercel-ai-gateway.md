@@ -8,6 +8,7 @@ Facts this rests on, checked on 2026-10-14:
 
 - **Vercel AI Gateway** ([pricing](https://vercel.com/docs/ai-gateway/pricing), [authentication](https://vercel.com/docs/ai-gateway/authentication-and-byok), [SDKs and APIs](https://vercel.com/docs/ai-gateway/sdks-and-apis)): every team gets a free tier with a monthly free credit, limited to a subset of models, not the full catalog, and rate limited per model (a `429` when exceeded). Buying credits moves the team to the paid tier; the free credit then no longer applies. Add-ons (Custom Reporting, team-wide zero data retention and allowlists, Trace Drains) bill separately. Keys are read from `AI_GATEWAY_API_KEY`, never expire unless revoked, and can carry a budget. It serves OpenAI-compatible requests at `https://ai-gateway.vercel.sh/v1` and Anthropic Messages at `https://ai-gateway.vercel.sh`; its SDKs and APIs page lists no Gemini-native surface.
 - **GitHub Actions** is free on public repositories for standard runners; a private repository on the Free plan has 2,000 included minutes a month, which ADR 0064's ceiling already budgets. A self-hosted runner costs nothing.
+  > Amended by [ADR 0108](0108-while-the-repository-is-private-the-release-suite-runs-its-macos-cells-on-the-owners-machine-and-its-hosted-cells-under-a-ceiling.md): the 2,000 included minutes are the account's, shared by all its private repositories; a self-hosted runner costs nothing today, but GitHub postponed, not cancelled, a $0.002-a-minute charge for self-hosted runners in private repositories (checked 2026-10-15).
 - **Cloudflare Quick Tunnels** ([docs](https://developers.cloudflare.com/cloudflare-one/networks/connectors/cloudflare-tunnel/do-more-with-tunnels/trycloudflare/)): `cloudflared tunnel --url <local address>` gives a temporary `trycloudflare.com` URL with no Cloudflare account or domain, for testing and development, up to 200 in-flight requests, without Server-Sent Events.
 - **Publishing** to npm, PyPI and crates.io uses OIDC trusted publishing (ADR 0032), so no registry token exists anywhere.
 
@@ -15,6 +16,7 @@ Facts this rests on, checked on 2026-10-14:
 
 - **No paid resource until the owner declares revenue.** No job, build, account or service that bills is created or switched on. An agent that finds a paid option better states the free option it chose instead, and records the paid one as declined, never as pending.
 - **CI and builds use free tiers:** GitHub-hosted standard runners within the private plan's included minutes (ADR 0064's ceiling), unlimited once the repository is public, and self-hosted runners on the owner's machine where a build needs more than a hosted runner holds. A self-hosted runner never runs a pull request from a fork.
+  > Amended by [ADR 0108](0108-while-the-repository-is-private-the-release-suite-runs-its-macos-cells-on-the-owners-machine-and-its-hosted-cells-under-a-ceiling.md): while the repository is private, the owner's machine also runs the manual-dispatch Release suite's macOS cells, on `main` only, behind a committed allowlist and a pre-job script.
 - **Live AI calls go through the Vercel AI Gateway** with one key, `AI_GATEWAY_API_KEY`, on the free tier only:
   - the provider check, the recorder, the Evaluations and the skill Evaluations of ADR 0065 call models through the gateway's OpenAI-compatible and Anthropic Messages endpoints;
   - no credits are bought, auto top-up stays off and the gateway's billable add-ons stay off, so the key cannot spend money; that replaces ADR 0065's per-job paid caps;
@@ -58,6 +60,7 @@ Facts this rests on, checked on 2026-10-14:
 - **A named Cloudflare Tunnel on an owned domain:** rejected while there is no revenue; it needs a registered domain, while a Quick Tunnel needs neither an account nor a domain. Its limits (200 in-flight requests, no Server-Sent Events) fit the platforms' request-response calls.
 - **A secrets manager (1Password CLI, Doppler, SOPS):** rejected for now; a git-ignored `.env` written by a script is free, needs no account, and the names move unchanged into any manager later.
 - **Making the repository public now to get unlimited free minutes:** not decided here; it is the owner's call, and this ADR works either way.
+  > Amended by [ADR 0108](0108-while-the-repository-is-private-the-release-suite-runs-its-macos-cells-on-the-owners-machine-and-its-hosted-cells-under-a-ceiling.md): the owner declined it for now on 2026-10-15 ("Keep the repository private for now; fit the tests in the free minutes"); the repository stays private with no planned date before the first release.
 
 ## Consequences
 

@@ -15,7 +15,7 @@ The [docs-site, migration-guide and stealth-wording research](https://github.com
 - **Migration guides from competitors share a skeleton, and their code never runs in CI.** The skeleton is principles, a mapping table and before/after code; Stagehand's 2026 guides add porting rules for coding agents. Examples come from Playwright, Crawlee for Python, Stagehand and ty. The field lints or type-checks guide code at most.
 - **Stealth tools put detection-defeat words in their registry metadata.** Examples: "Undetected", `cloudflare-bypass`, `anti-bot`. Camoufox's registry text says only "fingerprint".
 
-Decided in [Docs site and positioning of two Products](https://github.com/goodfetch/automan/issues/499), on the map [Goodfetch products: Collie and Foxhound as separately installable products](https://github.com/goodfetch/automan/issues/447), by the agent on the owner's delegation of 2026-10-14 ([round 1](https://github.com/goodfetch/automan/issues/499#issuecomment-6181529601), [grilling record](https://github.com/goodfetch/automan/issues/499#issuecomment-6181537258), [first addendum](https://github.com/goodfetch/automan/issues/499#issuecomment-6189095221), [second addendum](https://github.com/goodfetch/automan/issues/499#issuecomment-6189273442), [third addendum](https://github.com/goodfetch/automan/issues/499#issuecomment-6189439625), [fourth addendum](https://github.com/goodfetch/automan/issues/499#issuecomment-6189609030)). It builds on ADR 0087 (what each executable embeds), ADR 0088 (what Collie carries), ADR 0089 (lending a page and borrowing a crawler's), ADR 0090 (names and the Product version) and ADR 0094 (which Product's executable a test runs on), and also on:
+Decided in [Docs site and positioning of two Products](https://github.com/goodfetch/automan/issues/499), on the map [Goodfetch products: Collie and Foxhound as separately installable products](https://github.com/goodfetch/automan/issues/447), by the agent on the owner's delegation of 2026-10-14 ([round 1](https://github.com/goodfetch/automan/issues/499#issuecomment-6181529601), [grilling record](https://github.com/goodfetch/automan/issues/499#issuecomment-6181537258), [first addendum](https://github.com/goodfetch/automan/issues/499#issuecomment-6189095221), [second addendum](https://github.com/goodfetch/automan/issues/499#issuecomment-6189273442), [third addendum](https://github.com/goodfetch/automan/issues/499#issuecomment-6189439625), [fourth addendum](https://github.com/goodfetch/automan/issues/499#issuecomment-6189609030), [fifth addendum](https://github.com/goodfetch/automan/issues/499#issuecomment-6189891111)). It builds on ADR 0087 (what each executable embeds), ADR 0088 (what Collie carries), ADR 0089 (lending a page and borrowing a crawler's), ADR 0090 (names and the Product version) and ADR 0094 (which Product's executable a test runs on), and also on:
 - the [browser-automation products research](https://github.com/goodfetch/automan/blob/research/browser-automation-products/rnd/research/2026-10-14-browser-automation-products.md);
 - the [naming and packaging research](https://github.com/goodfetch/automan/blob/research/product-packaging-and-names/rnd/research/2026-10-14-product-packaging-and-names.md) §5;
 - the [stealth legal note](https://github.com/goodfetch/automan/blob/research/stealth-legal-exposure/rnd/research/2026-10-10-stealth-legal-exposure.md).
@@ -74,7 +74,7 @@ Decided in [Docs site and positioning of two Products](https://github.com/goodfe
 - **Each Product leads with what Goodfetch guarantees and runs on the user's machine.**
   - **Collie:**
     - a Playwright-shaped page API (ADR 0019);
-    - AI actions whose Effects are journaled (ADR 0010), whose Plans replay without a model (ADR 0009) and whose result carries a Verdict (ADR 0029);
+    - AI actions whose Effects are journaled (ADR 0010), whose Plans replay without a model (ADR 0009), and whose Run, or Agent's task, is given a Verdict (ADRs 0029, 0091 and 0100);
     - a Script sandbox for model-written code (ADR 0051);
     - the Console, Schedules, the stealth catalog and Clean-up rules, all running on the user's machine (ADR 0088).
   - **Foxhound:** crawls that are polite by default (ADR 0086), resume from Checkpoints (ADR 0002), and deliver Records under each Sink's guarantee with their Completeness reported (ADRs 0005 and 0008). Every page it renders is a Collie page.
@@ -114,8 +114,8 @@ Decided in [Docs site and positioning of two Products](https://github.com/goodfe
   1. **Concepts:** what changes in them.
   2. **Mapping table:** the competitor's API against Goodfetch's, linked to the reference, with a blank cell and its reason where nothing matches.
   3. **Programs:** before and after, side by side, in each language both offer.
-  4. **Defaults that change results,** Goodfetch's safe defaults (ADR 0077's G5):
-     - robots.txt obeyed (ADR 0086);
+  4. **Defaults that change results,** those of the guide's own Product, Goodfetch's safe defaults (ADR 0077's G5):
+     - for Foxhound's guides, robots.txt obeyed and one request at a time per domain (ADR 0086), which a Collie program's own navigation is outside;
      - consent refused (ADR 0048);
      - Clean-up rules on (ADR 0047);
      - an uncertain Effect never repeated (ADR 0010);
@@ -182,7 +182,7 @@ Decided in [Docs site and positioning of two Products](https://github.com/goodfe
 - **Cards or a menu only, without a chooser,** as Astral's landing cards and Vercel's shared menu show their products: rejected. Their products complement each other; Collie and Foxhound overlap, since one contains the other, and that is where the field writes a chooser.
 - **One getting-started that installs Foxhound for everyone,** as Playwright's starts with the test runner, which contains the library: rejected. A user who drives a page would install the crawler, DuckDB and Sinks, which ADR 0084 rejected.
 - **Leading with access** ("never blocked", "undetected"), as stealth tools' registry pages do: rejected. It is the "marketed for circumvention" prong the legal note names, and Goodfetch cannot promise access to any site (ADR 0037, pain 1).
-- **Leading with AI,** as Stagehand and Browser Use frame themselves: rejected. It is not what sets Collie apart; the journal, verified Plans and Verdicts are, and they are what Collie's AI actions lead with.
+- **Leading with AI,** as Stagehand and Browser Use frame themselves: rejected. It is not what sets Collie apart; the Effect journal, verified Plans and Verdicts are, and they are what Collie's AI actions lead with.
 - **Goodfetch Cloud as the recommended deployment,** as Stagehand's docs recommend Browserbase: rejected. ADR 0001 keeps self-hosting at parity, and ADR 0030 keeps the Cloud's docs apart.
 - **Only the five guides the ticket listed:** rejected. It misses Browser Use, the leader of a golden scenario, and Spider, a parity reference.
 - **Guides from Puppeteer, Selenium, Firecrawl and Crawl4AI too:** rejected for V1. No golden scenario backs them. Collie's page API is Playwright-shaped, so Playwright's own guide from Puppeteer bridges Puppeteer users.

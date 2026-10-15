@@ -59,14 +59,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         let run = collie.start().await?;
         // A Borrowed browser: closing the Session, the Run or the connection never closes it. A
         // closed port fails here with `cdp_url_unreachable`, and an address that is not a browser
-        // with `cdp_url_not_browser`, each naming the address and its fix (ADR 0115).
+        // with `cdp_url_not_browser`, each naming the address and its fix (ADR 0115). The program
+        // launched this Chromium for Collie alone and drives it only through this Session, so it
+        // declares `exclusive` (ADR 0056): without it the browser counts as shared.
         let session = run
             .new_session()
             .source(SessionSource::CdpUrl {
                 url: "http://127.0.0.1:9222".to_owned(),
                 headers: Vec::new(),
                 domains: Vec::new(),
-                exclusive: false,
+                exclusive: true,
             })
             .await?;
         let page = session.new_page().await?;

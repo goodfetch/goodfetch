@@ -33,7 +33,7 @@ P21 passing data between handlers, P49 the handler context, P48 failure, retry a
 - **Scrapy (Python):** `pip install scrapy==2.19.0`, then `python s05_two_page_crawl_scrapy.py`.
 - **Goodfetch TypeScript:** `npm install @goodfetch/foxhound zod tsx`, then `npx tsx 05-two-page-crawl.ts`.
 - **Goodfetch Python:** `pip install goodfetch-foxhound pydantic`, then `python -m scenarios.s05_two_page_crawl`.
-- **Goodfetch Rust:** `cargo add goodfetch-foxhound schemars serde tokio -F serde/derive,tokio/macros,tokio/rt-multi-thread`, then `cargo run --example s05_two_page_crawl`.
+- **Goodfetch Rust:** `cargo add goodfetch-foxhound serde tokio -F serde/derive,tokio/macros,tokio/rt-multi-thread`, then `cargo run --example s05_two_page_crawl`.
 
 Foxhound's executable comes with each package. A pinned browser is fetched on first use only if a request escalates to the browser tier (ADRs 0024, 0057), and these static pages do not escalate.
 
@@ -47,9 +47,9 @@ Crawlee 4.0.0-rc.1, checked in its published `@crawlee/basic`, changes three poi
 | Scrapy (Python) | 36 | 91 | 1 command | 0 / 5 / 3 |
 | Goodfetch TypeScript | 45 | 69 | 1 command | 8 / 0 / 0 |
 | Goodfetch Python | 48 | 96 | 1 command | 8 / 0 / 0 |
-| Goodfetch Rust | 55 | 159 | 1 command | 8 / 0 / 0 |
+| Goodfetch Rust | 55 | 166 | 1 command | 8 / 0 / 0 |
 
-Lines were counted with the brief's `measure_lines.py` (oxfmt 0.73.0, ruff 0.17.0, rustfmt). Every program reports the same things: the counts and why each failed or skipped page did. Each one exports the Dataset when the crawl ends and is written so scenarios 07 and 10 can import its crawl, which runs only as the entry point. The Scrapy program uses the politeness that `scrapy startproject` writes into a project's settings (robots.txt, one request per domain, a 1 s delay), its best documented configuration. Crawlee's CLI template sets none, so the Crawlee program keeps Crawlee's defaults.
+Lines were counted with the brief's `measure_lines.py` (oxfmt 0.73.0, ruff 0.17.0, rustfmt). The `books` Record is the same JSON in every Goodfetch program: `title`, `price` as exact text (`"51.77"`: a string matching `^\d+\.\d{2}$` in TypeScript and Rust, a `Decimal` of two places in Python, which Pydantic writes as text), `in_stock`, `rating`, `url` declared as a URI (Zod's `z.url()`, Pydantic's `AnyUrl`, `#[schemars(url)]`) and `category`, so the exported `books.json` is the same file whatever the language. Every program reports the same things: the counts and why each failed or skipped page did. Each one exports the Dataset when the crawl ends and is written so scenarios 07 and 10 can import its crawl, which runs only as the entry point. The Scrapy program uses the politeness that `scrapy startproject` writes into a project's settings (robots.txt, one request per domain, a 1 s delay), its best documented configuration. Crawlee's CLI template sets none, so the Crawlee program keeps Crawlee's defaults.
 
 **Concepts counted.**
 
@@ -65,7 +65,7 @@ Lines were counted with the brief's `measure_lines.py` (oxfmt 0.73.0, ruff 0.17.
 |---|---|---|---|
 | 1. 404 or 500 | silent: Crawlee 3 throws only for a 5xx, so a 404 reaches the handler as a page, which here reports a missing price; a 500 fails, after its retries, as an `Error` message | generic: `HttpError` in the errback, with the status but no reason; the 500 is retried first | typed: `response_not_ok` (not retried, `fix` names `crawl.handle_statuses`) or `response_unavailable` after retries |
 | 2. Slows down or 429 | silent: a 429 retires the session and retries at once; autoscaling follows the machine's CPU and memory, not the site | silent: a 429 is retried after the fixed 1 s delay, with no backoff and no report | typed: the domain backs off by default (ADR 0086), and `progress().waiting` names `backoff` and its setting |
-| 3. A field missing | generic: the program's own list; Crawlee counts the page as finished | generic: the program's own list; Scrapy counts nothing | typed: `skip(message)` ends it `skipped`, reason `handler`; a missing element escalates over HTTP, then fails `timeout` naming the locator |
+| 3. A field missing | generic: the program's own list; Crawlee counts the page as finished | generic: the program's own list; Scrapy counts nothing | typed: `skip(message)` ends it `skipped`, reason `handler`; a missing element escalates over HTTP, then fails `deadline_exceeded` naming the locator |
 | 4. Bad value passed | typed: the route schema throws `RequestValidationError` when the request is added, at run time only, since `userData` on `enqueueLinks` is not type-checked | generic: a misspelled `cb_kwargs` key is a `TypeError` when the callback is called | typed: a type error before anything runs, then `PayloadInvalidError` (schema, JSON, size) at the enqueue |
 | 5. Off-site link | typed: `enqueueLinks` keeps to the hostname, and `onSkippedRequest` reports `filters` or `redirect` | generic: `IgnoreRequest` ("Filtered offsite request") in the errback, as text | typed: the enqueue answers `out_of_scope`; an off-site redirect ends `skipped`, reason `out_of_scope` |
 | 6. Same book twice | typed: the second add answers `wasAlreadyPresent`, and the book is pushed once | generic: the dupefilter drops it, logged and counted in `dupefilter/filtered` | typed: the enqueue answers `duplicate`, and the Dataset's `key` is the URL |
@@ -76,7 +76,7 @@ Lines were counted with the brief's `measure_lines.py` (oxfmt 0.73.0, ruff 0.17.
 
 - **Concepts:** Goodfetch's programs name more concepts than the leaders' (45 against Crawlee's 31, 48 against Scrapy's 36). The report reads typed outcomes, with their kind, Error code, skip reason and Block cause, and it lists `blocked` pages, a fourth ending the leaders have no word for. The leaders give back an exception's text and the program's own lists instead (G1, G6).
 - **Lines:** the TypeScript programs are the same length. Goodfetch's Python is five lines longer than Scrapy's, because ruff splits the typed `Book` and the `match` on outcome classes, where Scrapy needs its own counters and errback (G1).
-- **Failure points:** Goodfetch is better on every failure point: all eight are typed by default with no code, none is silent, and Politeness and scope need no setting (G5). A failed Export, first reported as a gap, raises `path_not_writable` or `file_write_failed` and never leaves a partial file ([ADR 0116](https://github.com/goodfetch/goodfetch/blob/main/docs/adr/0116-a-saved-file-is-written-whole-or-not-at-all-and-a-failed-write-says-whether-its-path-or-its-storage-failed.md)).
+- **Failure points:** all eight of Goodfetch's are typed by default with no code, and none is silent. That is better than Scrapy on every point, and better than Crawlee on five; on the other three (a bad Payload, an off-site link, the same book twice) Crawlee is typed too, so Goodfetch is level with it there. Politeness and scope need no setting (G5). A failed Export, first reported as a gap, raises `path_not_writable` or `file_write_failed` and never leaves a partial file ([ADR 0116](https://github.com/goodfetch/goodfetch/blob/main/docs/adr/0116-a-saved-file-is-written-whole-or-not-at-all-and-a-failed-write-says-whether-its-path-or-its-storage-failed.md)).
 
 **Raised while writing it:** [Error code of a failed Export write](https://github.com/goodfetch/goodfetch/issues/527), [A Rust crawl handler's own error](https://github.com/goodfetch/goodfetch/issues/528).
 

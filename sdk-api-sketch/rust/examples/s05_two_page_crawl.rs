@@ -2,7 +2,7 @@
 //! as a module (`#[path = "s05_two_page_crawl.rs"] mod two_page_crawl;`) and build its crawl with
 //! [`books_crawl`].
 
-use goodfetch_foxhound::schemars::JsonSchema;
+use goodfetch_foxhound::schemars::{self, JsonSchema};
 use goodfetch_foxhound::{
     ConnectOptions, Crawl, CrawlContext, CrawlRequestOutcomeKind, Dataset, DatasetDeclaration,
     Error, ExportFormat, Foxhound, Label, LinkInfo, OutcomeKind, OutcomesFilter, Seed,
@@ -24,6 +24,7 @@ pub struct Book {
     #[schemars(range(min = 1, max = 5))]
     pub rating: u8,
     /// The page's final URL.
+    #[schemars(url)]
     pub url: String,
     /// The category the book was reached from.
     #[schemars(length(min = 1))]

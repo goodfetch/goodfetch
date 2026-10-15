@@ -9,7 +9,7 @@ use axum::extract::{Query, State};
 use axum::http::StatusCode;
 use axum::routing::get;
 use axum::{Json, Router};
-use goodfetch_foxhound::schemars::JsonSchema;
+use goodfetch_foxhound::schemars::{self, JsonSchema};
 use goodfetch_foxhound::{
     AriaRole, ConnectOptions, Crawl, CrawlContext, Error, Foxhound, Seed, SkipReason,
 };

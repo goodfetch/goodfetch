@@ -6,7 +6,7 @@ import sys
 from decimal import Decimal
 from typing import Literal
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from goodfetch_collie import (
     AsyncCollie,
@@ -18,7 +18,7 @@ from goodfetch_collie import (
 
 class Book(BaseModel):
     title: str
-    price: Decimal  # pounds
+    price: Decimal = Field(ge=0, decimal_places=2)  # pounds, exact
     in_stock: int
     rating: Literal[1, 2, 3, 4, 5]
     description: str

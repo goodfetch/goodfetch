@@ -30,14 +30,10 @@ async fn main() -> Result<(), Error> {
         let run = collie.start().plan(plan).await?;
         let page = run.new_page().await?;
         page.goto("https://quotes.toscrape.com/").await?;
-        for instruction in [
-            r#"open the tag "love" from the tag list"#,
-            "go to its second page",
-            "open the about page of the first quote's author",
-        ] {
-            // Replayed with no model call when its Target fingerprint still matches; on Drift,
-            // this step alone gets one Repair, and a Drift left (no model, `plan.frozen`) fails
-            // with `plan_drift`, naming it.
+        // Replayed with no model call when its Target fingerprint still matches; on Drift, this
+        // step alone gets one Repair, and a Drift left (`plan.frozen`, or a Repair that drifted
+        // too) fails with `plan_drift`, naming it.
+        let step = async |instruction: &str| -> Result<(), Error> {
             let step = page.act(instruction).await?.step;
             if step.source == StepSource::Repair {
                 println!(
@@ -45,11 +41,22 @@ async fn main() -> Result<(), Error> {
                     step.instruction
                 );
             }
-        }
-        // A Success check without a model: the Run is `verified`, and its Plan kept, only if it
-        // holds.
+            Ok(())
+        };
+        // Success checks without a model: the Run is `verified`, and its Plan kept, only if they
+        // all hold, so a step that went to another tag, page or author is never kept.
+        step(r#"open the tag "love" from the tag list"#).await?;
+        step("go to its second page").await?;
+        expect(&page)
+            .to_have_url("https://quotes.toscrape.com/tag/love/page/2/")
+            .await?;
+        let first_author = page.locator(".quote .author").first().text_content().await?;
+        step("open the about page of the first quote's author").await?;
         expect(&page)
             .to_have_url(Expected::regex(r"^https://quotes\.toscrape\.com/author/"))
+            .await?;
+        expect(&page.locator(".author-title"))
+            .to_have_text(first_author.as_str())
             .await?;
         // Compiled by default: the model writes each field's locator once, then values are
         // copied from the page.

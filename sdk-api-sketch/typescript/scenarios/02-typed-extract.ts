@@ -10,7 +10,7 @@ import {
 
 const Book = z.object({
   title: z.string(),
-  price: z.number(), // pounds
+  price: z.string().regex(/^\d+\.\d{2}$/), // pounds, an exact decimal kept as text
   inStock: z.number().int(),
   rating: z.number().int().min(1).max(5),
   description: z.string(),

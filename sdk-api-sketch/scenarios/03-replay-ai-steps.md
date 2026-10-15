@@ -18,10 +18,10 @@ P03 replay without the model, P26 local-first artifacts, P04 verified rather tha
 
 ## Failure points
 
-1. A step resolves to the wrong element but the run continues (a plausible wrong result).
+1. A step resolves to the wrong element, yet the run still ends on an author page (a plausible wrong result).
 2. A kept step no longer matches the page (Drift).
 3. The model is unavailable on the first run.
-4. A kept step drifts on a later run that has no model configured.
+4. A kept step drifts on a later run made without the model's key.
 5. The end state is not reached, and the confirmation fails.
 6. The kept file comes from an older version of the library.
 
@@ -40,12 +40,12 @@ Counted apart from lines. Each version needs the model's key for its first run a
 
 | Program | Concepts | Lines | Setup | Failure points: typed / generic / silent |
 |---|---|---|---|---|
-| Stagehand (TypeScript) | 28 | 44 | 3 | 0 / 5 / 1 |
-| Goodfetch TypeScript | 24 | 25 | 2 | 6 / 0 / 0 |
-| Goodfetch Python | 24 | 36 | 2 | 6 / 0 / 0 |
-| Goodfetch Rust | 35 | 53 | 3 | 6 / 0 / 0 |
+| Stagehand (TypeScript) | 29 | 52 | 3 | 0 / 5 / 1 |
+| Goodfetch TypeScript | 28 | 27 | 2 | 6 / 0 / 0 |
+| Goodfetch Python | 28 | 37 | 2 | 6 / 0 / 0 |
+| Goodfetch Rust | 40 | 64 | 3 | 6 / 0 / 0 |
 
-Programs: [`leaders/03-replay-ai-steps.stagehand.ts`](leaders/03-replay-ai-steps.stagehand.ts), [`../typescript/scenarios/03-replay-ai-steps.ts`](../typescript/scenarios/03-replay-ai-steps.ts), [`../python/scenarios/s03_replay_ai_steps.py`](../python/scenarios/s03_replay_ai_steps.py), [`../rust/examples/s03_replay_ai_steps.rs`](../rust/examples/s03_replay_ai_steps.rs). Every program uses the same three instructions and the same check, and keeps its file next to itself: `quotes.plan.json` for Goodfetch (the Plan, ADR 0091), `quotes.actions.json` for Stagehand.
+Programs: [`leaders/03-replay-ai-steps.stagehand.ts`](leaders/03-replay-ai-steps.stagehand.ts), [`../typescript/scenarios/03-replay-ai-steps.ts`](../typescript/scenarios/03-replay-ai-steps.ts), [`../python/scenarios/s03_replay_ai_steps.py`](../python/scenarios/s03_replay_ai_steps.py), [`../rust/examples/s03_replay_ai_steps.rs`](../rust/examples/s03_replay_ai_steps.rs). Every program uses the same three instructions and the same checks: the task's author-page check, and, since that alone passes a wrong step that ends on another author page, the tag's second page after the second step and the first quote's author after the third, and keeps its file next to itself: `quotes.plan.json` for Goodfetch (the Plan, ADR 0091), `quotes.actions.json` for Stagehand.
 
 What was verified about the leader, in the installed packages:
 
@@ -56,23 +56,23 @@ What was verified about the leader, in the installed packages:
 
 **Concepts counted** (each name once per program; obligations last):
 
-- Stagehand (TypeScript), 28: `Action`, `localBrowser`, `launch`, `Stagehand`, `create`, `browser`, `model`, `modelName`, `apiKey`, the `"anthropic/…"` name form, `selfHeal`, `context`, `pages`, `goto`, `observe`, `data`, `act` (with an Action, its replay form), `success`, `message`, `actions`, `selector`, `url`, `locator`, `textContent`, `close`; must close Stagehand, must close the browser, must await. Node's `fs` and JSON are the standard library's.
-- Goodfetch TypeScript, 24: `Collie`, `connect`, `settings`, `ai.model`, the Model reference form, `start`, `plan` (the Plan file), `newPage`, `goto`, `act`, `step`, `source`, `"repair"`, `instruction`, `expect`, `toHaveURL`, `extract`, `output`, `finish`, `plan` (the report's `PlanReport`), `status`, `changedSteps`; must close (`await using`), must await.
-- Goodfetch Python, 24: `AsyncCollie`, `connect`, `settings`, `ai.model`, the Model reference form, `start`, `plan`, `new_page`, `goto`, `act`, `step`, `source`, `"repair"`, `instruction`, `expect`, `to_have_url`, `extract`, `output`, `finish`, `plan` (the `PlanReport`), `status`, `changed_steps`; must close (`async with`), must await.
-- Goodfetch Rust, 35: `schemars` (the re-export), `settings::ai`, `MODEL`, `Collie`, `ConnectOptions`, `settings`, `Settings`, `new`, `set`, the Model reference form, `scope`, `Error`, `start`, `plan`, `new_page`, `goto`, `act`, `step`, `source`, `StepSource`, `Repair`, `instruction`, `expect`, `to_have_url`, `Expected`, `regex`, `extract`, `Schema`, `of`, `output`, `finish`, `plan` (the `PlanReport`), `status`, `changed_steps`; must await (builders), must close (`scope`). `concat!` and `env!` are the standard library's.
+- Stagehand (TypeScript), 29: `Action`, `localBrowser`, `launch`, `Stagehand`, `create`, `browser`, `model`, `modelName`, `apiKey`, the `"anthropic/…"` name form, `selfHeal`, `context`, `pages`, `goto`, `observe`, `data`, `act` (with an Action, its replay form), `success`, `message`, `actions`, `selector`, `url`, `locator`, `first`, `textContent`, `close`; must close Stagehand, must close the browser, must await. Node's `fs` and JSON are the standard library's.
+- Goodfetch TypeScript, 28: `Collie`, `connect`, `settings`, `ai.model`, the Model reference form, `start`, `plan` (the Plan file), `newPage`, `goto`, `act`, `step`, `source`, `"repair"`, `instruction`, `expect`, `toHaveURL`, `locator`, `first`, `textContent`, `toHaveText`, `extract`, `output`, `finish`, `plan` (the report's `PlanReport`), `status`, `changedSteps`; must close (`await using`), must await.
+- Goodfetch Python, 28: `AsyncCollie`, `connect`, `settings`, `ai.model`, the Model reference form, `start`, `plan`, `new_page`, `goto`, `act`, `step`, `source`, `"repair"`, `instruction`, `expect`, `to_have_url`, `locator`, `first`, `text_content`, `to_have_text`, `extract`, `output`, `finish`, `plan` (the `PlanReport`), `status`, `changed_steps`; must close (`async with`), must await.
+- Goodfetch Rust, 40: `schemars` (the re-export), `settings::ai`, `MODEL`, `Collie`, `ConnectOptions`, `settings`, `Settings`, `new`, `set`, the Model reference form, `scope`, `Error`, `start`, `plan`, `new_page`, `goto`, `act`, `step`, `source`, `StepSource`, `Repair`, `instruction`, `expect`, `to_have_url`, `Expected`, `regex`, `locator`, `first`, `text_content`, `to_have_text`, `extract`, `Schema`, `of`, `output`, `finish`, `plan` (the `PlanReport`), `status`, `changed_steps`; must await (builders), must close (`scope`). `concat!` and `env!` are the standard library's.
 
 **Failure points, scored**
 
 | Failure point | Stagehand (TypeScript) | Goodfetch (all three) |
 |---|---|---|
-| 1. A step resolves to the wrong element | generic: the program's own URL test throws an `Error` as text, and the program writes its file only after that test, so a wrong step is not kept | typed: `SuccessCheckFailedError` with the check, expected and observed; the Run is `rejected` and the compiled steps stay `pending_review`, never replayed (ADR 0091). In every program, a wrong step that still ends on some author page passes the task's own check |
+| 1. A wrong step still ends on an author page | generic: the program's own check of the tag page or the author's name throws an `Error` as text, and the file is written only after the checks, so the wrong Action is not kept | typed: `SuccessCheckFailedError` from `toHaveURL` on the tag's second page or `toHaveText` on the author's name, with expected and observed; the Run is `rejected` and the compiled steps stay `pending_review`, never replayed (ADR 0091) |
 | 2. A kept step no longer matches (Drift) | silent: only a selector that fails to perform is healed; one that still resolves to a changed element is replayed without notice | typed: each step's targets are checked against their Target fingerprints; that step alone gets one Repair, `step.source` reads `repair` with its `drift`, and the report's `changedSteps` names it |
 | 3. Model unavailable on the first run | generic: `observe` throws the runtime's error as text | typed: `ModelUnavailableError` (`reason`, `retryAfter`, retryable), or `ModelNotConfiguredError` naming `ai.model` |
-| 4. A kept step drifts with no model configured | generic: the heal's inference fails and `act` returns `success: false` with a message, which the program throws as its own `Error` | typed: `PlanDriftError` naming the step, its `drift` and `whyNoRepair` (`no_model`, or `frozen` under `plan.frozen`) |
+| 4. A kept step drifts on a run without the key | generic: the heal's inference fails and `act` returns `success: false` with a message, which the program throws as its own `Error` | typed: the program sets `ai.model` in code, so the drifted step's one Repair calls the model, and the missing key fails that `act` with `secret_unavailable` (`UnavailableError`, naming `env:ANTHROPIC_API_KEY` and its fix; ADR 0101 through ADR 0092), or `model_unauthorized` for a rejected key; under `plan.frozen` no Repair is tried, and `PlanDriftError` names the step, its `drift` and `whyNoRepair: frozen` |
 | 5. End state not reached, confirmation fails | generic: the program's own `Error` with the URL; its file is left as it was | typed: `SuccessCheckFailedError`; the Run is `rejected` and no new Plan version is written |
 | 6. The kept file is from an older library version | generic: the file is the program's own JSON of Actions with no version, so a changed shape fails the protocol's strict `Action` schema with a `ZodError` | typed: `PlanInvalidError` naming the file and the problem; the Plan format is versioned and read under ADR 0030 |
 
-**Verdict.** Goodfetch TypeScript needs 4 fewer concepts and 19 fewer lines than Stagehand's: the Plan file, its replay with no model call, Drift detection and a Repair limited to the drifted step are one `plan` option, where Stagehand's program reads, compares and writes its own file because its cache does not work locally (ADR 0091, P26). Goodfetch's extraction replays from the Plan too (compiled mode), where Stagehand's program falls back to selectors to keep the second run free of model calls. Goodfetch adds the model setting at the connection and `finish()` with its `PlanReport`, which say how each step was resolved and what became of the Plan (G6, ADR 0102). Every Goodfetch failure point is typed, where Stagehand's are generic and a selector that still resolves after a redesign is replayed silently (G1). Rust needs 11 more concepts than its TypeScript twin, from the setting constants, `StepSource` and `Expected` (S1 in Rust); it has no scored leader.
+**Verdict.** Goodfetch TypeScript needs 1 fewer concept and 25 fewer lines than Stagehand's: the Plan file, its replay with no model call, Drift detection and a Repair limited to the drifted step are one `plan` option, where Stagehand's program reads, compares and writes its own file because its cache does not work locally (ADR 0091, P26). Goodfetch's extraction replays from the Plan too (compiled mode), where Stagehand's program falls back to selectors to keep the second run free of model calls. Goodfetch adds the model setting at the connection and `finish()` with its `PlanReport`, which say how each step was resolved and what became of the Plan (G6, ADR 0102). Every Goodfetch failure point is typed, where Stagehand's are generic and a selector that still resolves after a redesign is replayed silently (G1). Both programs check each step's end state, since the task's own check only asks for an author page; the checks are `expect` assertions in Goodfetch's programs, so a wrong step leaves the Run `rejected` and its steps unkept. Rust needs 12 more concepts than its TypeScript twin, from the setting constants, `StepSource` and `Expected` (S1 in Rust); it has no scored leader.
 
 ## After the sketch
 

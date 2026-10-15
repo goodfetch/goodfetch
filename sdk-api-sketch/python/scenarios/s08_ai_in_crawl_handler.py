@@ -8,7 +8,7 @@ from datetime import timedelta
 from decimal import Decimal
 from typing import Literal
 
-from pydantic import BaseModel, Field
+from pydantic import AnyUrl, BaseModel, Field
 
 from goodfetch_foxhound import (
     AsyncCrawl,
@@ -25,13 +25,13 @@ class Book(BaseModel):
     """What the model extracts from a book's page."""
 
     title: str = Field(min_length=1)
-    price: Decimal = Field(decimal_places=2)  # pounds, exact
+    price: Decimal = Field(ge=0, decimal_places=2)  # pounds, exact
     in_stock: int = Field(ge=0)
     rating: Literal[1, 2, 3, 4, 5]
 
 
 class BookRecord(Book):
-    url: str
+    url: AnyUrl
 
 
 PLAN = "books.plan.json"
@@ -64,7 +64,7 @@ async def on_book(ctx: AsyncCrawlContext[None]) -> None:
     # gets one Repair. Past the Model allowance, a step that needs the model raises ModelAllowanceReachedError:
     # escaping, it ends this request `skipped` (`model_allowance`).
     fields = (await ctx.page.extract("the book on this page", Book)).output
-    await ctx.push(books, BookRecord(**fields.model_dump(), url=ctx.page.url))
+    await ctx.push(books, BookRecord(**fields.model_dump(), url=AnyUrl(ctx.page.url)))
 
 
 async def main() -> None:

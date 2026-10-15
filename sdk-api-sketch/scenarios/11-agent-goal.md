@@ -37,7 +37,7 @@ P04 false success, P42 budgets and cost, P25 lean observations, P19 model breadt
 
 | Program | Concepts | Lines | Setup | Failure points: typed / generic / silent |
 |---|---|---|---|---|
-| Browser Use (Python) | 29 | 64 | 3 | 0 / 6 / 1 |
+| Browser Use (Python) | 29 | 64 | 3 | 1 / 6 / 0 |
 | Goodfetch TypeScript | 35 | 37 | 2 | 7 / 0 / 0 |
 | Goodfetch Python | 39 | 64 | 2 | 7 / 0 / 0 |
 | Goodfetch Rust | 43 | 70 | 3 | 7 / 0 / 0 |
@@ -62,7 +62,7 @@ A failure point that the library rules out by design counts as typed.
 | 3. The loop repeats without progress | generic: loop detection only nudges the model; the run ends at the step cap or after 5 failures, as text | typed: `stopped` with `no_progress`, naming `agent.max_stalled_steps` (3) |
 | 4. The provider is unreachable | generic: each step's provider error counts as a failure, and the run ends after 5 of them, as text | typed: `model_unavailable`, an `UnavailableError` with `retryAfter` (ADR 0101) |
 | 5. An observation is too large | generic: elements are cut at `max_clickable_elements_length`; past the window, the provider's error as text | typed (by design): observations are bounded by `observation.max_size`, collapsing the deepest subtrees; past the window, `model_context_exceeded` |
-| 6. Task text or addresses reach a third party | silent: PostHog telemetry is on unless `ANONYMIZED_TELEMETRY` is false, and cloud sync follows it; `calculate_cost` also fetches LiteLLM's prices from GitHub (no task data) | typed (by design): there is no telemetry, and nothing unconfigured is reached (ADR 0043) |
+| 6. Task text or addresses reach a third party | typed (by design, once switched off): PostHog telemetry is on by default, and cloud sync follows it, but this program sets `ANONYMIZED_TELEMETRY` to false before importing Browser Use, which turns both off; `calculate_cost` still fetches LiteLLM's prices from GitHub, with no task data. The opt-out is a line and a concept of the program (G5: Goodfetch's is the default) | typed (by design): there is no telemetry, and nothing unconfigured is reached (ADR 0043) |
 | 7. A page leads the model off the site | generic: `allowed_domains` is a client-side watchdog; a blocked navigation is a `ValueError` text to the model, and a redirect is caught after it loaded | typed: `agent.domains` is enforced by the engine on every navigation, the refusal given back to the model as a failed action (ADRs 0014, 0100) |
 
 **Verdict.**
@@ -71,7 +71,7 @@ A failure point that the library rules out by design counts as typed.
 - Lines: TypeScript is far shorter, as the cap, the condition and the domains are options of one call. Python is as long as Browser Use's because of the `Outcome` type and the Success check function. Rust is longest, from rustfmt's line breaks and its typed `Outcome` enum.
 - Setup: one command fewer in TypeScript and Python, since the browser comes on first use and there is no telemetry to switch off.
 - Replay: Goodfetch's Plan replays the task with no model call (ADR 0100). Browser Use's saved history replays through `load_and_rerun()`, which still calls a model to extract and summarize.
-- Failure points: Goodfetch types all seven, and Browser Use none (G1, G5, G6).
+- Failure points: Goodfetch types all seven, and Browser Use one, the telemetry its program switches off; the other six are generic (G1, G5, G6).
 
 ## After the sketch
 

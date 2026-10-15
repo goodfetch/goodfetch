@@ -55,7 +55,7 @@ Sources, read at those tags: Scrapy's [`default_settings.py`](https://github.com
   - The last start lives where ADR 0053 keeps the count in flight: the per-user Politeness file, or the Politeness store, whose script stamps it with the store's own clock, as it does its rates.
   - In ADR 0053's degraded mode each cut-off engine may still admit one request at a time. An outage can therefore multiply a domain's rate by the number of cut-off engines, for at most `politeness.degraded_max`.
 - **Redundant copies need room.** In a crawl, a hedged request's second copy and `tier_race`'s second fetch (ADR 0040) are crawl requests like any other: each needs a free slot and the delay. With `politeness.domain.concurrency` at 1 neither could ever start. So a crawl's Run that switches either on while it is 1 is refused with `setting_not_applicable` when it opens, naming `politeness.domain.concurrency` as the fix (G3).
-  > Amended by [ADR 0093](0093-a-crawl-declares-its-labels-and-one-handler-each-and-a-handler-reads-collies-page-on-every-fetch-tier.md): `tier_race` is the setting `fetch.tier_race`; its second fetch, like a hedge's copy, is governed as a crawl request is.
+  > Amended by [ADR 0093](0093-a-crawl-declares-its-labels-and-one-handler-each-and-a-handler-reads-collies-page-on-every-fetch-tier.md): `tier_race` is the setting `fetch.tier_race`; its second fetch, like a hedge's copy, an escalation's fetch in the browser and a sample comparison's second fetch, is governed as a crawl request is, though none of them is a retry.
 
 ### Pressing harder is explicit and recorded
 

@@ -1,4 +1,4 @@
-# Every surface spells a catalog entry's one name by its own rule, shapes come from declared kinds, and `call` is the way down
+# Every surface spells each catalog name by its own rule, shapes come from declared kinds, and `call` is the way down
 
 One Operation catalog generates every surface (ADRs 0011, 0038), and this decides how an entry becomes a TypeScript, Python or Rust member, a CLI command, an MCP tool and the names an error shows.
 

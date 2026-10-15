@@ -104,6 +104,7 @@ Every context carries `request` (id, URL, Label, typed Payload, depth, attempt) 
   4. the engine's own interception, which adds cookies, Secret values and the Session's credentials, so neither a Hook nor a route reads them.
 
   An after-response Hook sees the response the page received, one a route fulfilled included.
+- **A route holds a crawl request's own fetch to a Hook's rules.** On the request's own document fetch, the original request a route reads (ADR 0085) is the one its last before-request Hook left. A route's override of the method or the body fails the route with `page_value_invalid`, and the request is aborted as when a route throws (ADR 0085), since the Frontier, robots.txt, Politeness and the Effect classing would not see it (G5). A route's new URL is checked as a Hook's rewrite is (above), so one that leaves the scope, the domain policy, robots.txt or Site preferences ends the request `skipped` with that reason, and nothing is sent. The page's other requests (its scripts, images and calls) keep ADR 0085's rules.
 
 ### Running and failing
 
@@ -174,7 +175,7 @@ The research's injectable components map onto Plugin kinds (ADR 0033), or onto n
   - A Sink's is retried on ADR 0008's schedule, since its delivery ID makes a retry safe.
   - Any other kind's `<kind>_handler_failed`: in a crawl, the crawl request it failed (its fetch, the Session it needed) is retried only when `crawl.retry.handler_failed` is on for that request's Label; in a Collie Run, the call that needed the handler fails, and nothing retries it (ADR 0079).
   - Every other code a handler's call ends with (a `GoodfetchError` the handler raised, an unreachable implementation's code) follows its own retryable flag.
-- **A program's Fetch backend never carries a request that uses a Secret or a logged-in identity,** as a third-party one never does (ADR 0033). Such requests include a logged-in Session's, one whose before-request Hook set a Secret placeholder, one whose Session has `session.http_credentials`, and one whose Session's proxy has a password (`proxy.password` is a Secret reference, ADR 0092, as is a Proxy provider's). The engine sends those itself, so no cookie or Secret value passes through the program (ADR 0092), even when the backend was chosen only by `registered`. Every other request reaches the backend with its method, headers and body (ADR 0093), and with its Session's proxy server when it has one, so a proxied crawl does not leave from the user's own address.
+- **A program's Fetch backend never carries a request that uses a Secret or a logged-in identity,** as a third-party one never does (ADR 0033). Such requests include a logged-in Session's, one whose before-request Hook set a Secret placeholder, one whose Session has `session.http_credentials`, and one whose Session's proxy has a password (`proxy.password` is a Secret reference, ADR 0092, as is a Proxy provider's). The engine sends those itself, so no logged-in Session's cookie and no Secret value passes through the program (ADR 0092), even when the backend was chosen only by `registered`. Every other request reaches the backend with its method, headers and body (ADR 0093), an anonymous Session's ordinary cookies (ADR 0033), and its Session's proxy server when it has one, so a proxied crawl does not leave from the user's own address. A response's `Set-Cookie` updates the Session, as a third-party backend's does. The Run trace marks each request the engine sent itself in place of the backend, with the reason, so a backend that receives nothing says why (G6).
 - **A program's Sink** (ADR 0026's SDK-handler form) serves the `sinks.<name>` entry of its name. That entry gives its Datasets, write mode and key as any Sink's does (ADR 0103), and a `type` beside a handler of that name is refused with `setting_invalid` when the Run starts. Each delivery carries ADR 0008's delivery ID and run epoch, and its Guarantee class is probed as any Sink's (ADR 0026). `run.records()` stays the reader with no delivery state (ADR 0103).
 - **Rights.** A handler runs with the program's full rights, never confined, and a third-party package used as one does too, as ADR 0033 tells the docs to say.
 
@@ -234,6 +235,7 @@ They join `goodfetch-protocol`'s list in the `program` group (ADR 0079).
   - Hooks are declared on the `Crawl`;
   - RT-04 becomes `decided`, since before request is the stage before a retry.
 - **Amends ADR 0092.** A before-request Hook's header is among the places a Secret placeholder may go, checked against the request's URL at every hop. Rust declares its Secret provider when connecting (`ConnectOptions::resolve_secret()`), and `gf.secret_requests()` reads what it declared.
+- **Amends ADR 0085.** On a crawl request's own document fetch, a route reads the request as its last before-request Hook left it, may not change its method or body, and has a new URL checked as a Hook's rewrite.
 - **Amends ADR 0088.** The new stage `request_ended` is Foxhound's, beside before request, after response and before a Record's commit.
 - **Amends ADR 0026.** A program's Sink is registered on its connection by name, serves the `sinks.<name>` entry of its name, and is the SDK-handler form in Rust too; a Rust-trait Sink is no third-party form.
 - **`goodfetch-protocol`** gains `header_forbidden`, `hook_ineffective`, `hook_duplicate` and each kind's `<kind>_handler_failed`, through `xtask codegen`'s naming checks (ADR 0079).
@@ -242,11 +244,12 @@ They join `goodfetch-protocol`'s list in the `program` group (ADR 0079).
   - **Hook** gains _Avoid_: pipeline (for a Hook before a Record's commit). Scrapy's item pipelines split here into that Hook and a Sink.
 - **ADR 0037's matrix.**
   - RT-04 becomes `decided`.
-  - RT-07, RT-08, RT-14, RT-21, SA-02, SA-17, SA-20 and CO-05 cite this ADR.
-  - Areas 3, 6, 7 and 11 list it.
+  - RT-07, RT-08, RT-14, RT-21, SA-02, SA-17, SA-20, SA-22 and CO-05 cite this ADR.
+  - Areas 3, 5, 6, 7 and 11 list it.
 - **Areas.**
   - Area 7 (Plugin protocol) builds the stage names, the `hooks.*` schema, `request_ended`, each kind's generated handler, short name and `<kind>_handler_failed`, and each kind's choosing key under ADR 0083's naming rule.
   - Area 3 (Engine runtime) builds the order across forms, Hook timeouts and retries, a failed commit at the Record stage, and the `registered` origin.
+  - Area 5 (Site access) builds the order of Hooks, routes and the engine's interception, and a route's limits on a crawl request's own fetch.
   - Area 6 (Collection) builds the scope check of a rewritten URL and an SDK-handler Sink's deliveries.
   - Area 11 (Client surfaces) builds the Hook methods, their contexts, the handler options and Rust's declared names and streams.
 - **`TESTING.md`** gains the Hook conformance cases.

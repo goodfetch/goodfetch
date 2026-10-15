@@ -176,7 +176,7 @@ Every channel carries both Products, with the same kinds of files, under ADR 009
 - **Amends ADR 0072.** A Feature is tested once, not once per Product, and the inventory records each Feature's Products. A note sits under its rule on surfaces.
 - **Amends ADR 0024.** Its `cargo install` channel installs each Product's executable with the `executable` feature, built from source, and `cargo binstall` installs the release's own archive. A note sits under its list of channels.
 - **Amends ADR 0025.** Each family runs on the smallest Product that carries it, and startup and binding overhead on each. A note sits under its families.
-- **Earlier test ADRs** (0064, 0065, 0067, 0070, 0073 and 0074) read through ADR 0084's rule and this one: a test of "the binary" runs Collie's executable when Collie carries everything it needs, Foxhound's otherwise.
+- **Earlier test ADRs** (0059, 0062, 0064, 0065, 0067, 0070, 0073, 0074 and 0075) read through ADR 0084's rule and this one: a test of "the binary" runs Collie's executable when Collie carries everything it needs, Foxhound's otherwise.
 - **Glossary.** A **Journey** is reached through a Product's public surfaces. No new term.
 - **`TESTING.md`** gains "Which Product's executable a test runs" under its levels, and rules for Journeys, upgrades, SDKs and the CLI, performance budgets, the served Console, docs samples and Feature coverage.
 - **ADR 0037.** Rows CL-01 and CL-02 cite this ADR, and areas 1, 2, 3, 11, 12 and 13 list it.
